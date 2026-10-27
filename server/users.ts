@@ -30,6 +30,7 @@ import {
 } from "../shared/languages.ts";
 import { isVoiceInput, isVoiceName, isVoiceOutput } from "../shared/voice.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { normalizeRoomViewLists } from "../shared/room-view-level.ts";
 import {
   defaultGhostColorForUserId,
   isGhostVariant,
@@ -167,6 +168,7 @@ function load(): Record<string, UserRecord> {
   // halts the process. Operator restores from the pre-userid backup
   // bundle or fixes filesystem perms before retrying.
   let migratedAny = false;
+  let leveled = 0;
   try {
     if (!existsSync(USERS_FILE)) {
       users = {};
@@ -205,11 +207,30 @@ function load(): Record<string, UserRecord> {
       // on, so those rooms become the push rooms. Runs once: the rewrite
       // below drops turnEndPush.
       if ("turnEndPush" in value) migratedAny = true;
-      const notifRooms = normalizeNotifRooms(value.notifRooms);
-      const pushRooms =
+      const storedNotif = normalizeNotifRooms(value.notifRooms);
+      const storedPush =
         value.turnEndPush === true && value.pushRooms === undefined
-          ? [...notifRooms]
+          ? [...storedNotif]
           : normalizeRoomIdList(value.pushRooms);
+      // Each room sits on one view level (shared/room-view-level.ts): a
+      // hidden or tucked room has no notifications or push, and a push room
+      // notifies. A record from before the levels moves once to the nearest
+      // level that keeps what the member gets.
+      const stored = {
+        hidden: normalizeRoomIdList(value.hidden),
+        tucked: normalizeRoomIdList(value.tucked),
+        notifRooms: storedNotif,
+        pushRooms: storedPush,
+      };
+      const view = normalizeRoomViewLists(stored);
+      if (
+        view.notifRooms.join("\u0000") !== storedNotif.join("\u0000") ||
+        view.pushRooms.join("\u0000") !== storedPush.join("\u0000")
+      ) {
+        migratedAny = true;
+        leveled++;
+      }
+      const { notifRooms, pushRooms } = view;
       result[id] = {
         id,
         name: value.name,
@@ -223,9 +244,9 @@ function load(): Record<string, UserRecord> {
         role: normalizeRole(value.role),
         allowedRooms: normalizeAllowedRooms(value.allowedRooms),
         // Backfill view prefs to [] for legacy records lacking them.
-        hidden: normalizeRoomIdList(value.hidden),
+        hidden: view.hidden,
         order: normalizeRoomIdList(value.order),
-        tucked: normalizeRoomIdList(value.tucked),
+        tucked: view.tucked,
         pushRooms,
         memberPrompt: normalizeMemberPrompt(value.memberPrompt),
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
@@ -238,6 +259,11 @@ function load(): Record<string, UserRecord> {
       };
     }
     users = result;
+    if (leveled > 0) {
+      console.log(
+        `[migration] moved the room view lists of ${leveled} user(s) onto one level per room`,
+      );
+    }
   } catch (err) {
     console.error("Failed to load users.json:", err);
     users = {};

@@ -25,13 +25,13 @@ import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import { noTranslate } from "../no-translate.ts";
 import { isFullUserView } from "../user-merge.ts";
+import { followRecord } from "../room-view-choice.ts";
 import {
-  followRecord,
-  roomViewChoice,
-  sameRoomViewChoice,
-  withRoom,
-  type RoomViewChoice,
-} from "../room-view-choice.ts";
+  roomViewLevel,
+  withRoomViewLevel,
+  type RoomViewLevel,
+} from "../../shared/room-view-level.ts";
+import { RoomViewLevelControl } from "./RoomViewLevelControl.tsx";
 import {
   UnsavedChangesPrompt,
   useUnsavedChangesPrompt,
@@ -133,14 +133,14 @@ export function RoomPane({
     selfRef.current = self;
   });
   const liveView =
-    self && room && room.type !== "lobby" ? roomViewChoice(self, roomId) : null;
-  const [view, setView] = useState<RoomViewChoice | null>(liveView);
-  const [viewBase, setViewBase] = useState<RoomViewChoice | null>(liveView);
-  if (!sameRoomViewChoice(liveView, viewBase)) {
+    self && room && room.type !== "lobby" ? roomViewLevel(self, roomId) : null;
+  const [view, setView] = useState<RoomViewLevel | null>(liveView);
+  const [viewBase, setViewBase] = useState<RoomViewLevel | null>(liveView);
+  if (liveView !== viewBase) {
     setViewBase(liveView);
     setView(followRecord(view, viewBase, liveView));
   }
-  const viewDirty = !sameRoomViewChoice(view, viewBase);
+  const viewDirty = view !== viewBase;
 
   useEffect(() => {
     let cancelled = false;
@@ -246,36 +246,25 @@ export function RoomPane({
     })();
   }
 
-  // Only the controls that differ from the baseline write, each list built
-  // from the live record with only this room changed. A hide writes last: it
-  // takes the room out of this viewer's rooms, and this pane with it, so no
-  // write may come after it and fail out of sight.
+  // Each list is built from the live record at its own write, with only this
+  // room changed, and written only when this room's entry in it differs, so
+  // a retry resends only what has not landed. Order: shown, tucked,
+  // notifications, push - the server drops a tucked room's notifications,
+  // so the untuck goes first. A hide writes only shown, and last: it takes
+  // the room out of this viewer's rooms, and this pane with it, so no write
+  // may come after it and fail out of sight. The server drops a hidden
+  // room's notifications and push itself.
   // Resolves to an error line for a failed room-list read; an ApiError from
   // a write throws through to the save's own catch.
   async function saveView(): Promise<string | null> {
     const want = view;
-    const base = viewBase;
     const first = selfRef.current;
-    if (!want || !base || !first) return null;
+    if (!want || !first) return null;
     const record = () => selfRef.current ?? first;
-    const writeTucked = async () => {
-      await apiFetch<void>("PUT", "/api/me/view/tucked", {
-        tucked: withRoom(record().tucked ?? [], roomId, want.tucked),
-      });
-      setViewBase((b) => b && { ...b, tucked: want.tucked });
-    };
-    const writeNotif = async () => {
-      await apiFetch<void>("PUT", "/api/me/view/notif-rooms", {
-        notifRooms: withRoom(record().notifRooms, roomId, want.notif),
-      });
-      setViewBase((b) => b && { ...b, notif: want.notif });
-    };
-    const writePush = async () => {
-      await apiFetch<void>("PUT", "/api/me/view/push-rooms", {
-        pushRooms: withRoom(record().pushRooms ?? [], roomId, want.push),
-      });
-      setViewBase((b) => b && { ...b, push: want.push });
-    };
+    const target = () => withRoomViewLevel(record(), roomId, want);
+    const differs = (field: "tucked" | "notifRooms" | "pushRooms") =>
+      (record()[field] ?? []).includes(roomId) !==
+      target()[field].includes(roomId);
     // The shown list is the complement of hidden over the rooms the viewer
     // can reach, read fresh: a room left out of it is hidden, so a stale list
     // would hide a room granted since (the guard Settings > Rooms uses).
@@ -291,27 +280,36 @@ export function RoomPane({
       } catch {
         return false;
       }
-      const hidden = withRoom(record().hidden, roomId, !want.shown);
+      const hidden = target().hidden;
       await apiFetch<void>("PUT", "/api/me/view/shown", {
         shown: accessible.map((r) => r.id).filter((id) => !hidden.includes(id)),
       });
-      setViewBase((b) => b && { ...b, shown: want.shown });
       return true;
     };
     const roomListFailed = t("settings.profile.roomListFailed");
-    if (base.shown && !want.shown) {
-      // No notifications or push write: the server drops a hidden room's.
-      if (want.tucked !== base.tucked) await writeTucked();
+    const wasHidden = record().hidden.includes(roomId);
+    if (want === "hidden") {
+      if (wasHidden) return null;
       if (!(await writeShown())) return roomListFailed;
       onDeleted();
       return null;
     }
-    if (want.shown !== base.shown && !(await writeShown())) {
-      return roomListFailed;
+    if (wasHidden && !(await writeShown())) return roomListFailed;
+    if (differs("tucked")) {
+      await apiFetch<void>("PUT", "/api/me/view/tucked", {
+        tucked: target().tucked,
+      });
     }
-    if (want.notif !== base.notif) await writeNotif();
-    if (want.push !== base.push) await writePush();
-    if (want.tucked !== base.tucked) await writeTucked();
+    if (differs("notifRooms")) {
+      await apiFetch<void>("PUT", "/api/me/view/notif-rooms", {
+        notifRooms: target().notifRooms,
+      });
+    }
+    if (differs("pushRooms")) {
+      await apiFetch<void>("PUT", "/api/me/view/push-rooms", {
+        pushRooms: target().pushRooms,
+      });
+    }
     return null;
   }
 
@@ -551,67 +549,12 @@ export function RoomPane({
             >
               {t("settings.room.yourView")}
             </h4>
-            {/* Same gates as the Settings > Rooms row: a hidden room keeps
-                its tucked flag but locks it, and loses its notifications and
-                device notifications. */}
-            <label style={viewRowStyle}>
-              <input
-                type="checkbox"
-                data-view-choice="shown"
-                checked={view.shown}
-                onChange={() =>
-                  setView(
-                    view.shown
-                      ? { ...view, shown: false, notif: false, push: false }
-                      : { ...view, shown: true },
-                  )
-                }
-                style={checkboxStyle(true)}
-              />
-              {t("settings.profile.displayedColumn")}
-            </label>
-            <label style={viewRowStyle}>
-              <input
-                type="checkbox"
-                data-view-choice="tucked"
-                checked={view.tucked}
-                disabled={!view.shown}
-                onChange={() => {
-                  if (!view.shown) return;
-                  setView({ ...view, tucked: !view.tucked });
-                }}
-                style={checkboxStyle(view.shown)}
-              />
-              {t("settings.profile.tuckedColumn")}
-            </label>
-            <label style={viewRowStyle}>
-              <input
-                type="checkbox"
-                data-view-choice="notif"
-                checked={view.notif}
-                disabled={!view.shown}
-                onChange={() => {
-                  if (!view.shown) return;
-                  setView({ ...view, notif: !view.notif });
-                }}
-                style={checkboxStyle(view.shown)}
-              />
-              {t("settings.profile.notificationsColumn")}
-            </label>
-            <label style={viewRowStyle}>
-              <input
-                type="checkbox"
-                data-view-choice="push"
-                checked={view.push}
-                disabled={!view.shown}
-                onChange={() => {
-                  if (!view.shown) return;
-                  setView({ ...view, push: !view.push });
-                }}
-                style={checkboxStyle(view.shown)}
-              />
-              {t("settings.profile.devicesColumn")}
-            </label>
+            <RoomViewLevelControl
+              level={view}
+              onChange={setView}
+              roomName={room.name}
+              size="pane"
+            />
           </>
         )}
 

@@ -461,18 +461,10 @@ Cosas que puedes hacer por él:
   "settings.profile.accessHint":
     "Acceso: salas que este miembro puede ver y en las que puede actuar (lo gestiona el propietario de la oficina).",
   "settings.profile.viewHint":
-    "Mostradas: cuáles de tus salas accesibles aparecen en tu vista. Notificaciones: sonido cuando un agente de esa sala responde a tu mensaje. Push: una notificación en tus dispositivos cuando un agente de esa sala responde a tu mensaje. Una sala debe estar mostrada para notificar.",
+    "Recogida: fuera de la barra de pestañas, en Salas recogidas. Notificaciones: un sonido cuando un agente de la sala responde a tu mensaje. Push: además, una notificación en tus dispositivos.",
   "settings.profile.roomColumn": "Sala",
   "settings.profile.accessColumn": "Acceso",
-  "settings.profile.displayedColumn": "Mostrada",
-  "settings.profile.notificationsColumn": "Notificaciones",
-  "settings.profile.devicesColumn": "Push",
   "settings.profile.accessTo": "Acceso a {room}",
-  "settings.profile.display": "Mostrar {room}",
-  "settings.profile.tuckedColumn": "Recogida",
-  "settings.profile.tuck": "Recoger {room}",
-  "settings.profile.notificationsFor": "Notificaciones de {room}",
-  "settings.profile.devicesFor": "Notificaciones push de {room}",
   "settings.profile.promptConflict":
     "Las instrucciones especiales cambiaron en otro lugar. Tu borrador se conserva. Revisa el texto actual antes de volver a guardar.",
   "settings.profile.currentPrompt": "Instrucciones especiales actuales",
@@ -565,6 +557,12 @@ Cosas que puedes hacer por él:
     "Los ajustes de la sala cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
   "settings.room.deleteEmpty": "Eliminar la sala vacía",
   "settings.room.yourView": "Tu vista",
+  "settings.room.viewLevel.hidden": "Oculta",
+  "settings.room.viewLevel.tucked": "Recogida",
+  "settings.room.viewLevel.shown": "Mostrada",
+  "settings.room.viewLevel.notify": "Notificaciones",
+  "settings.room.viewLevel.push": "Push",
+  "settings.room.viewLevelFor": "Tu vista de {room}",
 
   "settings.theme.intro":
     "Se guarda en este navegador. También puedes hacer clic en la ventana de la oficina para recorrer los temas sin abrir esta página.",

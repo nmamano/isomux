@@ -475,18 +475,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.profile.accessHint":
     "Access: rooms this member can see and act in (office-owner managed).",
   "settings.profile.viewHint":
-    "Displayed: which of your accessible rooms appear in your own view. Notifications: sound when an agent in that room answers your message. Push: a notification on your devices when an agent in that room answers your message. A room must be displayed to notify.",
+    "Tucked: off the tab bar, under Tucked rooms. Notifications: a sound when an agent in the room answers your message. Push: also a notification on your devices.",
   "settings.profile.roomColumn": "Room",
   "settings.profile.accessColumn": "Access",
-  "settings.profile.displayedColumn": "Displayed",
-  "settings.profile.notificationsColumn": "Notifications",
-  "settings.profile.devicesColumn": "Push",
   "settings.profile.accessTo": "Access to {room}",
-  "settings.profile.display": "Display {room}",
-  "settings.profile.tuckedColumn": "Tucked",
-  "settings.profile.tuck": "Tuck {room}",
-  "settings.profile.notificationsFor": "Notifications for {room}",
-  "settings.profile.devicesFor": "Push notifications for {room}",
   "settings.profile.promptConflict":
     "Special instructions changed elsewhere. Your draft is kept. Review the current text before you save again.",
   "settings.profile.currentPrompt": "Current special instructions",
@@ -574,6 +566,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Room settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
   "settings.room.deleteEmpty": "Delete empty room",
   "settings.room.yourView": "Your view",
+  "settings.room.viewLevel.hidden": "Hidden",
+  "settings.room.viewLevel.tucked": "Tucked",
+  "settings.room.viewLevel.shown": "Shown",
+  "settings.room.viewLevel.notify": "Notifications",
+  "settings.room.viewLevel.push": "Push",
+  "settings.room.viewLevelFor": "Your view of {room}",
 
   "settings.theme.intro":
     "Stored in this browser. You can also click the office window to walk through the themes without opening this page.",

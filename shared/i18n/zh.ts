@@ -440,18 +440,10 @@ App 的一些原则：
   "settings.profile.accessHint":
     "访问权限：此成员可以查看和操作的房间（由办公室所有者管理）。",
   "settings.profile.viewHint":
-    "显示：在个人视图中显示哪些有权访问的房间。通知：房间中的智能体回复你的消息时播放声音。推送：房间中的智能体回复你的消息时向你的设备发送通知。房间必须显示才能发出通知。",
+    "收起：不在标签栏上，位于“收起的房间”中。通知：房间中的智能体回复你的消息时播放声音。推送：另外向你的设备发送通知。",
   "settings.profile.roomColumn": "房间",
   "settings.profile.accessColumn": "访问权限",
-  "settings.profile.displayedColumn": "显示",
-  "settings.profile.notificationsColumn": "通知",
-  "settings.profile.devicesColumn": "推送",
   "settings.profile.accessTo": "{room} 的访问权限",
-  "settings.profile.display": "显示 {room}",
-  "settings.profile.tuckedColumn": "收起",
-  "settings.profile.tuck": "收起 {room}",
-  "settings.profile.notificationsFor": "{room} 的通知",
-  "settings.profile.devicesFor": "{room} 的推送通知",
   "settings.profile.promptConflict":
     "特别指令已在其他位置更改。你的草稿已保留。请查看当前文本后再保存。",
   "settings.profile.currentPrompt": "当前特别指令",
@@ -531,6 +523,12 @@ App 的一些原则：
     "此页面加载后，房间设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.room.deleteEmpty": "删除空房间",
   "settings.room.yourView": "你的视图",
+  "settings.room.viewLevel.hidden": "隐藏",
+  "settings.room.viewLevel.tucked": "收起",
+  "settings.room.viewLevel.shown": "显示",
+  "settings.room.viewLevel.notify": "通知",
+  "settings.room.viewLevel.push": "推送",
+  "settings.room.viewLevelFor": "你对 {room} 的视图",
   "settings.theme.intro":
     "存储在此浏览器中。也可以点击办公室的窗户来切换主题，无需打开此页面。",
   "settings.device.intro":

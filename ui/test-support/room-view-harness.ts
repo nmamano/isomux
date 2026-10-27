@@ -165,10 +165,19 @@ export async function mount(
 }
 
 export type View = Awaited<ReturnType<typeof mount>>["view"];
-export const box = (view: View, key: string) =>
-  view.container.querySelector<HTMLInputElement>(`[data-view-choice="${key}"]`);
-export async function click(view: View, key: string) {
-  await act(async () => fireEvent.click(box(view, key)!));
+// The view level control (task 611c968e): the chosen level, or null when
+// the pane shows no control.
+const levelGroup = (view: View) =>
+  view.container.querySelector<HTMLElement>(
+    '[role="radiogroup"][data-view-level]',
+  );
+export const level = (view: View) =>
+  levelGroup(view)?.dataset.viewLevel ?? null;
+export async function pick(view: View, to: string) {
+  const step = levelGroup(view)!.querySelector<HTMLButtonElement>(
+    `[role="radio"][data-view-level="${to}"]`,
+  )!;
+  await act(async () => fireEvent.click(step));
 }
 // Save is the last button in the pane's footer.
 const saveButton = (view: View): HTMLButtonElement | undefined => {

@@ -81,6 +81,12 @@ import {
 import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
+import {
+  roomViewLevel,
+  withRoomViewLevel,
+  type RoomViewLevel,
+} from "../../shared/room-view-level.ts";
+import { RoomViewLevelControl } from "./RoomViewLevelControl.tsx";
 import { forgetThisDevice } from "../push-subscription.ts";
 import {
   getSettingsGroupsOpen,
@@ -1223,14 +1229,24 @@ function UserEditPanel({
   const [notifSetting, setNotifSetting] = useState<NotifRoomsSetting>(
     user.notifRooms,
   );
+  // Like tucked below: a tuck made in the tab bar also drops the room's
+  // notifications on the server, so the change lands here when the member
+  // has not edited the column.
+  const [notifBase, setNotifBase] = useState<NotifRoomsSetting>(
+    user.notifRooms,
+  );
+  if (!sameRoomSet(notifBase, user.notifRooms)) {
+    setNotifBase(user.notifRooms);
+    if (sameRoomSet(notifSetting, notifBase)) setNotifSetting(user.notifRooms);
+  }
   const [allowedSetting, setAllowedSetting] = useState<string[]>(
     user.allowedRooms,
   );
   // Per-user DISPLAY preference: room ids the user has hidden
   // from their own view. SELF-only, like notifications - an owner editing a
   // member manages access, not their view. Saved as the complement (the
-  // "shown" list) via PUT /api/me/view/shown. The three room settings are
-  // hierarchical: ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
+  // "shown" list) via PUT /api/me/view/shown. Access holds the view, and the
+  // view is one ordered level per room (shared/room-view-level.ts).
   const [hiddenSetting, setHiddenSetting] = useState<string[]>(user.hidden);
   // Rooms tucked into the tab bar's overflow chip. The bar writes the same
   // field, so a tuck made there while this form is open lands here when the
@@ -1256,7 +1272,7 @@ function UserEditPanel({
       ? user.allowedRooms
       : allowedSetting;
   // A MEMBER's projected `rooms` exclude the rooms they've hidden, so the
-  // Displayed column could never offer re-showing one. GET /api/me/rooms
+  // Your view column could never offer re-showing one. GET /api/me/rooms
   // returns id+name for every ACCESSIBLE room (hidden included) - fetched for
   // member self-edit and REFETCHED whenever their access set changes (an
   // owner granting/revoking a room while this panel is mounted lands as a
@@ -1272,7 +1288,7 @@ function UserEditPanel({
       .then((r) => setMeRooms(r.rooms))
       .catch(() => {});
   }, [isOwner, isMe, accessKey]);
-  // Rooms whose turn ends push to the member's devices (the Push column).
+  // Rooms whose turn ends push to the member's devices (the Push level).
   // Like tucked: the room settings pane writes the same field, so a change
   // saved there lands here when the member has not edited the column.
   const userPush = user.pushRooms ?? NO_ROOM_IDS;
@@ -1365,48 +1381,24 @@ function UserEditPanel({
       });
   }
 
-  // notifSetting and allowedSetting are both strict string[] (no "all"
-  // sentinel). Toggling adds or removes a roomId.
-  function toggleRoomNotif(roomId: string) {
-    const has = notifSetting.includes(roomId);
-    setNotifSetting(
-      has
-        ? notifSetting.filter((id) => id !== roomId)
-        : [...notifSetting, roomId],
+  // One room's view level sets its entry in all four lists at once
+  // (shared/room-view-level.ts). The server holds the same invariant
+  // (clampViewFields).
+  function setRoomLevel(roomId: string, level: RoomViewLevel) {
+    const next = withRoomViewLevel(
+      {
+        hidden: hiddenSetting,
+        tucked: tuckedSetting,
+        notifRooms: notifSetting,
+        pushRooms: pushSetting,
+      },
+      roomId,
+      level,
     );
-  }
-
-  function toggleRoomPush(roomId: string) {
-    setPushSetting(
-      pushSetting.includes(roomId)
-        ? pushSetting.filter((id) => id !== roomId)
-        : [...pushSetting, roomId],
-    );
-  }
-
-  // Hiding a room prunes its notification and its device notification
-  // (NOTIFICATIONS ⊆ DISPLAYED, DEVICES ⊆ DISPLAYED). The
-  // server applies the same clamp on save (clampViewFields); the client-side
-  // mirror keeps the form state consistent mid-edit.
-  function toggleRoomDisplayed(roomId: string) {
-    const wasHidden = hiddenSetting.includes(roomId);
-    setHiddenSetting(
-      wasHidden
-        ? hiddenSetting.filter((id) => id !== roomId)
-        : [...hiddenSetting, roomId],
-    );
-    if (!wasHidden) {
-      setNotifSetting(notifSetting.filter((id) => id !== roomId));
-      setPushSetting(pushSetting.filter((id) => id !== roomId));
-    }
-  }
-
-  function toggleRoomTucked(roomId: string) {
-    setTuckedSetting(
-      tuckedSetting.includes(roomId)
-        ? tuckedSetting.filter((id) => id !== roomId)
-        : [...tuckedSetting, roomId],
-    );
+    setHiddenSetting(next.hidden);
+    setTuckedSetting(next.tucked);
+    setNotifSetting(next.notifRooms);
+    setPushSetting(next.pushRooms);
   }
 
   // When a room is removed from access, prune notifSetting to fit. The server
@@ -1603,15 +1595,17 @@ function UserEditPanel({
             .map((r) => r.id),
         });
       }
+      // Tucked before notifications: the server drops a tucked room's
+      // notifications, so an untuck must land first.
+      if (isMe && !sameRoomSet(tuckedSetting, userTucked)) {
+        await apiFetch("PUT", "/api/me/view/tucked", {
+          tucked: tuckedSetting,
+        });
+      }
       // notif-rooms takes the full list.
       if (isMe && !sameRoomSet(notifSetting, user.notifRooms)) {
         await apiFetch("PUT", "/api/me/view/notif-rooms", {
           notifRooms: notifSetting,
-        });
-      }
-      if (isMe && !sameRoomSet(tuckedSetting, userTucked)) {
-        await apiFetch("PUT", "/api/me/view/tucked", {
-          tucked: tuckedSetting,
         });
       }
       if (isMe && !sameRoomSet(pushSetting, userPush)) {
@@ -1749,11 +1743,11 @@ function UserEditPanel({
           />
         )}
 
-        {/* Rooms: ONE table for the hierarchical per-room settings -
-            ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS, and DISPLAYED ⊇ DEVICES.
-            Access is owner-managed on member targets; the other columns are
-            SELF-only view prefs (owner-editing-member: Access only;
-            self-edit: Displayed, Tucked, Notifications, Push). A member
+        {/* Rooms: ONE table for the per-room settings - Access, and within
+            it one view level per room (Hidden < Tucked < Shown <
+            Notifications < Push). Access is owner-managed on member targets;
+            Your view is a SELF-only pref (owner-editing-member: Access only;
+            self-edit: Your view). A member
             viewer only ever mounts this panel for themselves (canEdit), so
             !isOwner ⇒ isMe. */}
         {(isOwner && (!ownerTarget || isMe)) || (!isOwner && isMe) ? (
@@ -1774,7 +1768,7 @@ function UserEditPanel({
                 display: "grid",
                 gridTemplateColumns: roomTableColumns([
                   ...(isOwner && !ownerTarget ? [80] : []),
-                  ...(isMe ? [80, 80, 90, 80] : []),
+                  ...(isMe ? [150] : []),
                 ]),
                 alignItems: "center",
               }}
@@ -1796,23 +1790,8 @@ function UserEditPanel({
                   </span>
                 )}
                 {isMe && (
-                  <span style={roomColumnHeader}>
-                    {t("settings.profile.displayedColumn")}
-                  </span>
-                )}
-                {isMe && (
-                  <span style={roomColumnHeader}>
-                    {t("settings.profile.tuckedColumn")}
-                  </span>
-                )}
-                {isMe && (
-                  <span style={roomColumnHeader}>
-                    {t("settings.profile.notificationsColumn")}
-                  </span>
-                )}
-                {isMe && (
-                  <span style={roomColumnHeader}>
-                    {t("settings.profile.devicesColumn")}
+                  <span style={{ ...roomColumnHeader, textAlign: "left" }}>
+                    {t("settings.room.yourView")}
                   </span>
                 )}
               </div>
@@ -1836,11 +1815,19 @@ function UserEditPanel({
               ) : (
                 rowsForPrefs.map((r) => {
                   const hasAccess = accessibleForPrefs.includes(r.id);
-                  const displayed = hasAccess && !hiddenSetting.includes(r.id);
-                  const wantsNotif = displayed && notifSetting.includes(r.id);
-                  const wantsPush = displayed && pushSetting.includes(r.id);
-                  // A hidden room keeps its tucked flag: shown, but locked.
-                  const tucked = hasAccess && tuckedSetting.includes(r.id);
+                  // A room without access reads as hidden, and its
+                  // control is locked.
+                  const level: RoomViewLevel = hasAccess
+                    ? roomViewLevel(
+                        {
+                          hidden: hiddenSetting,
+                          tucked: tuckedSetting,
+                          notifRooms: notifSetting,
+                          pushRooms: pushSetting,
+                        },
+                        r.id,
+                      )
+                    : "hidden";
                   return (
                     <div
                       key={r.id}
@@ -1887,115 +1874,22 @@ function UserEditPanel({
                       {isMe && (
                         <span
                           style={{
-                            padding: "6px 0",
+                            padding: "4px 2px",
                             display: "flex",
-                            justifyContent: "center",
+                            minWidth: 0,
                           }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={displayed}
-                            disabled={!hasAccess}
-                            onChange={() => {
-                              // Defensive handler-level gate mirroring the
-                              // notif one below: DISPLAYED ⊆ ACCESS.
+                          <RoomViewLevelControl
+                            level={level}
+                            onChange={(l) => {
+                              // Defensive handler-level gate: the view is
+                              // within access.
                               if (!hasAccess) return;
-                              toggleRoomDisplayed(r.id);
+                              setRoomLevel(r.id, l);
                             }}
-                            aria-label={t("settings.profile.display", {
-                              room: r.name,
-                            })}
-                            style={{
-                              accentColor: "var(--accent)",
-                              cursor: hasAccess ? "pointer" : "default",
-                              opacity: hasAccess ? 1 : 0.35,
-                            }}
-                          />
-                        </span>
-                      )}
-                      {isMe && (
-                        <span
-                          style={{
-                            padding: "6px 0",
-                            display: "flex",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={tucked}
-                            disabled={!displayed}
-                            onChange={() => {
-                              if (!displayed) return;
-                              toggleRoomTucked(r.id);
-                            }}
-                            aria-label={t("settings.profile.tuck", {
-                              room: r.name,
-                            })}
-                            style={{
-                              accentColor: "var(--accent)",
-                              cursor: displayed ? "pointer" : "default",
-                              opacity: displayed ? 1 : 0.35,
-                            }}
-                          />
-                        </span>
-                      )}
-                      {isMe && (
-                        <span
-                          style={{
-                            padding: "6px 0",
-                            display: "flex",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={wantsNotif}
-                            disabled={!displayed}
-                            onChange={() => {
-                              // Defensive: also gate at the handler, not just
-                              // via `disabled`, so a future refactor or stale
-                              // click can't add notif for a hidden or
-                              // inaccessible room (NOTIFICATIONS ⊆ DISPLAYED).
-                              if (!displayed) return;
-                              toggleRoomNotif(r.id);
-                            }}
-                            aria-label={t("settings.profile.notificationsFor", {
-                              room: r.name,
-                            })}
-                            style={{
-                              accentColor: "var(--accent)",
-                              cursor: displayed ? "pointer" : "default",
-                              opacity: displayed ? 1 : 0.35,
-                            }}
-                          />
-                        </span>
-                      )}
-                      {isMe && (
-                        <span
-                          style={{
-                            padding: "6px 0",
-                            display: "flex",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={wantsPush}
-                            disabled={!displayed}
-                            onChange={() => {
-                              // DEVICES ⊆ DISPLAYED, gated like Notifications.
-                              if (!displayed) return;
-                              toggleRoomPush(r.id);
-                            }}
-                            aria-label={t("settings.profile.devicesFor", {
-                              room: r.name,
-                            })}
-                            style={{
-                              accentColor: "var(--accent)",
-                              cursor: displayed ? "pointer" : "default",
-                              opacity: displayed ? 1 : 0.35,
-                            }}
+                            roomName={r.name}
+                            size="row"
+                            disabled={!hasAccess}
                           />
                         </span>
                       )}

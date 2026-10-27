@@ -689,6 +689,106 @@ describe("users.json field normalization (Phase 1.3)", () => {
     _testResetUsers();
     expect(getUserById("on")?.pushRooms).toEqual(["r2"]);
   });
+
+  // Task 611c968e: the four view boxes became one ordered level. A stored
+  // combination off the levels moves to the nearest level that keeps what
+  // the member gets: a hidden or tucked room loses its notifications and
+  // push, and a push room gains notifications. Room x of each record is one
+  // row of the mapping table; r9 is a valid room that must not move.
+  it("moves each record's view lists onto a level once, and leaves a record already on one as it is", () => {
+    const rec = (
+      id: string,
+      x: { hidden?: true; tucked?: true; notif?: true; push?: true },
+    ) => ({
+      id,
+      name: id,
+      role: "member",
+      allowedRooms: ["x", "r9"],
+      createdAt: 1,
+      hidden: x.hidden ? ["x"] : [],
+      tucked: x.tucked ? ["x"] : [],
+      notifRooms: x.notif ? ["r9", "x"] : ["r9"],
+      pushRooms: x.push ? ["x", "r9"] : ["r9"],
+    });
+    const rows = {
+      hiddenall: rec("hiddenall", {
+        hidden: true,
+        tucked: true,
+        notif: true,
+        push: true,
+      }),
+      tuckednp: rec("tuckednp", { tucked: true, notif: true, push: true }),
+      tuckedp: rec("tuckedp", { tucked: true, push: true }),
+      pushonly: rec("pushonly", { push: true }),
+    };
+    // On a level already: tucked, shown, notifications, push. Compact JSON,
+    // so a rewrite (pretty-printed) would show in the bytes.
+    const valid = {
+      tucked: rec("tucked", { tucked: true }),
+      shown: rec("shown", {}),
+      notify: rec("notify", { notif: true }),
+      both: rec("both", { notif: true, push: true }),
+    };
+    seed("users.json", JSON.stringify(valid));
+    _testResetUsers();
+    listUsers();
+    expect(readFileSync(stateFile("users.json"), "utf-8")).toBe(
+      JSON.stringify(valid),
+    );
+    expect(getUserById("both")?.notifRooms).toEqual(["r9", "x"]);
+    expect(getUserById("both")?.pushRooms).toEqual(["x", "r9"]);
+
+    seed("users.json", JSON.stringify({ ...valid, ...rows }));
+    _testResetUsers();
+    const has = (id: string) => {
+      const u = getUserById(id)!;
+      return {
+        hidden: u.hidden.includes("x"),
+        tucked: u.tucked.includes("x"),
+        notif: u.notifRooms.includes("x"),
+        push: u.pushRooms.includes("x"),
+      };
+    };
+    expect(has("hiddenall")).toEqual({
+      hidden: true,
+      tucked: true,
+      notif: false,
+      push: false,
+    });
+    expect(has("tuckednp")).toEqual({
+      hidden: false,
+      tucked: true,
+      notif: false,
+      push: false,
+    });
+    expect(has("tuckedp")).toEqual({
+      hidden: false,
+      tucked: true,
+      notif: false,
+      push: false,
+    });
+    expect(has("pushonly")).toEqual({
+      hidden: false,
+      tucked: false,
+      notif: true,
+      push: true,
+    });
+    for (const id of Object.keys({ ...valid, ...rows })) {
+      expect(getUserById(id)?.notifRooms).toContain("r9");
+      expect(getUserById(id)?.pushRooms).toContain("r9");
+    }
+    // Persisted: a reload from disk reads the moved lists.
+    const onDisk = JSON.parse(
+      readFileSync(stateFile("users.json"), "utf-8"),
+    ) as Record<string, Record<string, unknown>>;
+    expect(onDisk.tuckednp.notifRooms).toEqual(["r9"]);
+    expect(onDisk.tuckednp.pushRooms).toEqual(["r9"]);
+    expect([...(onDisk.pushonly.notifRooms as string[])].sort()).toEqual([
+      "r9",
+      "x",
+    ]);
+    expect(onDisk.hiddenall.pushRooms).toEqual(["r9"]);
+  });
 });
 
 // ---------------------------------------------------------------------------

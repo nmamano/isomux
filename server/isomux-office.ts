@@ -7450,9 +7450,13 @@ interface ViewChange {
 // the next fields: order deduped (first wins) + filtered to accessible (hidden-
 // but-accessible ids KEPT, so hide/show is non-destructive); hidden = the
 // accessible rooms NOT in the desired shown set (or the stored hidden re-
-// filtered to accessible); notifRooms and pushRooms within effective shown;
-// tucked deduped +
-// filtered to accessible (hidden ids kept, as for order). applyViewChange
+// filtered to accessible); tucked deduped + filtered to accessible (hidden ids
+// kept, as for order); notifRooms and pushRooms within effective shown and
+// off tucked rooms, with push within notifRooms (shared/room-view-level.ts:
+// each room is on one level). The list the change carries wins: a change
+// that carries pushRooms adds those rooms to notifRooms; any other change,
+// the empty re-clamp included, drops push rooms without notifications.
+// applyViewChange
 // (view.*) and the users.setAccess prune-clamp both clamp through this,
 // so the invariant lives in exactly one place.
 function clampViewFields(
@@ -7482,19 +7486,26 @@ function clampViewFields(
   } else {
     hidden = current.hidden.filter((id) => accessible.has(id));
   }
-  const hiddenSet = new Set(hidden);
-  const effectiveShown = new Set(
-    [...accessible].filter((id) => !hiddenSet.has(id)),
-  );
-  const notifRooms = dedupeFirstWins([
-    ...(change.notifRooms ?? current.notifRooms),
-  ]).filter((id) => effectiveShown.has(id));
-  const pushRooms = dedupeFirstWins([
-    ...(change.pushRooms ?? current.pushRooms),
-  ]).filter((id) => effectiveShown.has(id));
   const tucked = dedupeFirstWins([...(change.tucked ?? current.tucked)]).filter(
     (id) => accessible.has(id),
   );
+  const hiddenSet = new Set(hidden);
+  const tuckedSet = new Set(tucked);
+  const canNotify = (id: string) =>
+    accessible.has(id) && !hiddenSet.has(id) && !tuckedSet.has(id);
+  const notifRooms = dedupeFirstWins([
+    ...(change.notifRooms ?? current.notifRooms),
+  ]).filter(canNotify);
+  let pushRooms = dedupeFirstWins([
+    ...(change.pushRooms ?? current.pushRooms),
+  ]).filter(canNotify);
+  if (change.pushRooms !== undefined && change.notifRooms === undefined) {
+    for (const id of pushRooms) {
+      if (!notifRooms.includes(id)) notifRooms.push(id);
+    }
+  } else {
+    pushRooms = pushRooms.filter((id) => notifRooms.includes(id));
+  }
   return { order, hidden, notifRooms, tucked, pushRooms };
 }
 
@@ -7541,9 +7552,13 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   const hiddenChanged =
     [...next.hidden].sort().join("\u0000") !== prevHiddenKey;
   const orderChanged = next.order.join("\u0000") !== prevOrderKey;
-  const recordChanged =
-    hiddenChanged ||
+  const notifChanged =
     [...next.notifRooms].sort().join("\u0000") !== prevNotifKey;
+  // A notifRooms write keeps its public frames (view.setNotifRooms emits
+  // user_updated). A tuck or push write that moves notifRooms through the
+  // clamp stays private, like the field it carries.
+  const recordChanged =
+    hiddenChanged || (notifChanged && change.notifRooms !== undefined);
   if (hiddenChanged) {
     // The visible set changed: newly shown rooms need their transcripts.
     pushProjectedFullStateForUserId(targetUserId);
@@ -7560,12 +7575,13 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
     emitUserUpdated(r.user);
     emitUsersList();
   } else if (
+    notifChanged ||
     [...next.tucked].sort().join("\u0000") !== prevTuckedKey ||
     [...next.pushRooms].sort().join("\u0000") !== prevPushKey
   ) {
     // Tucked and pushRooms are private and not in full_state: they leave the
     // projection as it is, so only the record goes out, on the private
-    // channels.
+    // channels. So does the notifRooms change their clamp makes.
     emitPrivateUserRecord(r.user);
   }
   return true;

@@ -19,10 +19,10 @@
 //
 // The write ops delegate to the SAME core (applyViewChange in the index seam),
 // so the view invariants - order deduped + filtered to accessible; hidden =
-// accessible minus shown; notifRooms and pushRooms within effective shown - live in exactly
-// one place. The handler NEVER emits; the core fans out (projected full_state
+// accessible minus shown; notifRooms and pushRooms within effective shown and
+// off tucked rooms, push within notifRooms - live in exactly one place. The handler NEVER emits; the core fans out (projected full_state
 // for shown, room_order_updated for order, user_updated for notifRooms, the private
-// record for tucked and pushRooms).
+// record for tucked and pushRooms, notifications they move included).
 //
 // NO-ORACLE (Isomuxer3 Q2): handlers reject malformed body SHAPES (a non-array
 // where room ids are expected), but NEVER an unknown / inaccessible /

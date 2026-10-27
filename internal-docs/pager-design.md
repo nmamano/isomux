@@ -108,7 +108,7 @@ Web Push (added later, task dc2dc0ea): the same events also go to each
 device where the member turned on notifications, encrypted for the device
 (RFC 8291) and signed with the office's VAPID key (`web-push.json`, made on
 first use). Every page goes, whatever the member's room notification settings
-(PM ruling, 2026-10-16); the turn-end push follows the member's per-room Devices setting (pushRooms). Repeat timers are in memory, so a restart between a
+(PM ruling, 2026-10-16); the turn-end push follows the rooms the member set to the Push view level (pushRooms). Repeat timers are in memory, so a restart between a
 resolve and its push loses that "Resolved" push. Sign-out removes the device.
 Code: `server/web-push-*.ts`, `ui/sw.js`, `ui/components/PushDevicesBlock.tsx`.
 

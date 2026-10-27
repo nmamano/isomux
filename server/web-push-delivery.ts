@@ -17,7 +17,7 @@
 //
 // Turn ends (onTurnEnd): a member also gets a push when an agent they can see
 // ends a turn that member started, in a room on the member's pushRooms (read
-// at each send; the Devices column in the room settings, independent of the
+// at each send; the Push view level in the room settings, which includes the
 // sound's notifRooms). These are the turn ends that sound the browser's
 // turn-end sound (shared/turn-end.ts). Not for the lobby: any
 // member or guest talks to the receptionist, and a push reaches every

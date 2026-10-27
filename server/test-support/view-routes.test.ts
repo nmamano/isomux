@@ -394,14 +394,19 @@ describe("view.setTucked (task 6c23d908)", () => {
     const r2 = server.agentManager.createRoom("R2");
     grant(member.username, [r1, r2]);
     grant(other.username, [r1, r2]);
+    // Each write below also changes the member's notifications (task
+    // 611c968e): the tuck drops r2's, the push adds r1's. That change stays
+    // on the private channels too.
+    const memberRecordId = getUserByName(member.username)!.id;
+    updateUserById(memberRecordId, { notifRooms: [r2], pushRooms: [] });
 
     const sock = await connectSettled(server, member.rawSessionId);
     const otherSock = await connectSettled(server, other.rawSessionId);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
 
-    for (const [path, body, field, want] of [
-      ["tucked", { tucked: [r2] }, "tucked", [r2]],
-      ["push-rooms", { pushRooms: [r1] }, "pushRooms", [r1]],
+    for (const [path, body, field, want, notif] of [
+      ["tucked", { tucked: [r2] }, "tucked", [r2], []],
+      ["push-rooms", { pushRooms: [r1] }, "pushRooms", [r1], [r1]],
     ] as const) {
       const selfBefore = sock.messages.length;
       const otherBefore = otherSock.messages.length;
@@ -413,6 +418,9 @@ describe("view.setTucked (task 6c23d908)", () => {
       const selfNew = framesAfter(sock, selfBefore);
       expect(selfNew.map((m) => m.type)).toEqual(["user_self_updated"]);
       expect((selfNew[0].user as Record<string, unknown>)[field]).toEqual(want);
+      expect((selfNew[0].user as Record<string, unknown>).notifRooms).toEqual(
+        notif,
+      );
       expect(framesAfter(otherSock, otherBefore)).toEqual([]);
       // Owners get the full record on the admin channel, as for hidden and
       // order; nothing goes out on the public channel.
@@ -485,8 +493,10 @@ describe("view.setPushRooms (task 0c3fa26f)", () => {
       }),
     ).toBe(204);
     expect(getUserById(memberId)!.pushRooms).toEqual([r2, r1]);
-    // Independent of the sound's rooms.
-    expect(getUserById(memberId)!.notifRooms).toEqual([]);
+    // Push comes with notifications (task 611c968e).
+    expect([...getUserById(memberId)!.notifRooms].sort()).toEqual(
+      [r1, r2].sort(),
+    );
     expect(
       await putView(server, member.rawSessionId, "push-rooms", {
         pushRooms: r1,
@@ -557,5 +567,76 @@ describe("view.setPushRooms (task 0c3fa26f)", () => {
     expect(getUserById(memberId)!.role).toBe("member");
     expect(getUserById(memberId)!.allowedRooms).toEqual([r1]);
     expect(getUserById(memberId)!.pushRooms).toEqual([r1]);
+  });
+});
+
+// Task 611c968e - one ordered view level per room: Hidden < Tucked < Shown <
+// Notifications < Push. The clamp keeps the stored lists on a level whatever
+// the route: a tucked room has no notifications and no push, and push comes
+// with notifications. The list a write carries wins.
+describe("the view level invariant (task 611c968e)", () => {
+  async function setUp() {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const member = await server.seedMember("Mia");
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    grant(member.username, [r1, r2]);
+    const memberId = getUserByName(member.username)!.id;
+    updateUserById(memberId, { notifRooms: [], pushRooms: [], tucked: [] });
+    const put = async (path: string, body: unknown) =>
+      expect(await putView(server!, member.rawSessionId, path, body)).toBe(204);
+    const lists = () => {
+      const u = getUserById(memberId)!;
+      return {
+        tucked: [...u.tucked].sort(),
+        notifRooms: [...u.notifRooms].sort(),
+        pushRooms: [...u.pushRooms].sort(),
+      };
+    };
+    return { r1, r2, put, lists };
+  }
+
+  it("a tuck drops the room's notifications and push, an untuck does not bring them back, and a tucked room takes neither", async () => {
+    const { r1, r2, put, lists } = await setUp();
+    await put("push-rooms", { pushRooms: [r1, r2] });
+    expect(lists().pushRooms).toEqual([r1, r2].sort());
+    expect(lists().notifRooms).toEqual([r1, r2].sort());
+
+    await put("tucked", { tucked: [r2] });
+    expect(lists()).toEqual({
+      tucked: [r2],
+      notifRooms: [r1],
+      pushRooms: [r1],
+    });
+
+    await put("tucked", { tucked: [] });
+    expect(lists()).toEqual({ tucked: [], notifRooms: [r1], pushRooms: [r1] });
+
+    await put("tucked", { tucked: [r2] });
+    await put("notif-rooms", { notifRooms: [r1, r2] });
+    expect(lists().notifRooms).toEqual([r1]);
+    await put("push-rooms", { pushRooms: [r1, r2] });
+    expect(lists()).toEqual({
+      tucked: [r2],
+      notifRooms: [r1],
+      pushRooms: [r1],
+    });
+  });
+
+  it("a push write turns notifications on for its rooms; a notifications write without a room turns its push off; a push write without a room keeps its notifications", async () => {
+    const { r1, r2, put, lists } = await setUp();
+    await put("push-rooms", { pushRooms: [r2] });
+    expect(lists()).toEqual({ tucked: [], notifRooms: [r2], pushRooms: [r2] });
+
+    await put("notif-rooms", { notifRooms: [r1] });
+    expect(lists()).toEqual({ tucked: [], notifRooms: [r1], pushRooms: [] });
+
+    await put("push-rooms", { pushRooms: [r1] });
+    expect(lists()).toEqual({ tucked: [], notifRooms: [r1], pushRooms: [r1] });
+
+    // Push to Notifications is one push write.
+    await put("push-rooms", { pushRooms: [] });
+    expect(lists()).toEqual({ tucked: [], notifRooms: [r1], pushRooms: [] });
   });
 });
