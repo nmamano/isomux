@@ -94,12 +94,16 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
         alignItems: isMobile ? "flex-start" : "center",
         justifyContent: "center",
         overflowY: "auto",
+        // The card has no backdrop-filter of its own: a blur nested in this
+        // one is the suspect for the page painting over the card for a
+        // frame during scroll on macOS (task a09fa236). Contain stops a
+        // scroll here from chaining into the page.
+        overscrollBehavior: "contain",
       }}
     >
       <div
         style={{
           background: "var(--bg-overlay)",
-          backdropFilter: "blur(16px)",
           border: "1px solid var(--border-light)",
           borderRadius: 16,
           padding: "24px 28px",

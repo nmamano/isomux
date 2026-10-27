@@ -1630,6 +1630,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         alignItems: isMobile ? "stretch" : "center",
         justifyContent: "center",
         overflowY: "auto",
+        // The card has no backdrop-filter of its own: a blur nested in this
+        // one is the suspect for the page painting over the card for a
+        // frame during scroll on macOS (task a09fa236). Contain stops a
+        // scroll here from chaining into the page.
+        overscrollBehavior: "contain",
       }}
     >
       <div
@@ -1642,7 +1647,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         }
         style={{
           background: "var(--bg-overlay)",
-          backdropFilter: "blur(16px)",
           border: isMobile ? "none" : "1px solid var(--border-light)",
           borderRadius: isMobile ? 0 : 16,
           display: "flex",
@@ -1660,6 +1664,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         <div
           style={{
             overflowY: "auto",
+            overscrollBehavior: "contain",
             flex: 1,
             padding: isMobile
               ? "max(24px, env(safe-area-inset-top)) 20px 0"
