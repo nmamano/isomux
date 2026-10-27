@@ -13,7 +13,12 @@ import { STATE_ROOT } from "../config.ts";
 import { opencodeBackend } from "../backends/opencode/adapter.ts";
 import type { ListModelsOptions, OneShotOptions } from "../backends/types.ts";
 import { loadLog } from "../persistence.ts";
-import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
+import {
+  removeManagedUserEnv,
+  writeManagedOfficeEnv,
+  writeManagedUserEnv,
+} from "../user-env.ts";
+import { DEFAULT_AGENT_CAPABILITIES } from "../../shared/types.ts";
 import { getUserByName } from "../users.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -183,6 +188,121 @@ describe("OpenCode launch env", () => {
       }
     } finally {
       listModels.mockRestore();
+      fake.sessions.forEach((s) => s.close());
+    }
+  });
+
+  // Task 2008c993 (Nil, 2026-10-27): while a member's OpenCode agents use the
+  // office key after her own key hit its limit, her schedule runs start with
+  // the same key and revision. Otherwise a run would start her one shared
+  // server again with the refused key.
+  it("is the agents' office key on a schedule run while the member's OpenCode key is in a fallback", async () => {
+    const MEMBER_KEY = "member-opencode-key";
+    const OFFICE_KEY = "office-opencode-key";
+    const fake = new FakeBackend({
+      capabilities: { ...DEFAULT_AGENT_CAPABILITIES, limitResume: false },
+      session: {
+        onSend: (text, _a, s) => {
+          // OpenCode Zen or Go refuses the member's key.
+          if (
+            text.endsWith("work") &&
+            s.opts.env?.OPENCODE_API_KEY === MEMBER_KEY
+          ) {
+            s.push({ kind: "usage_limit_stop" });
+            s.push({
+              kind: "turn_completed",
+              status: "failed",
+              error: "Quota exceeded for this plan.",
+            });
+          } else s.completeTurn({ text: "ok" });
+        },
+      },
+    });
+    try {
+      const srv = await startTestServer({ fakeBackend: fake });
+      server = srv;
+      const owner = await srv.seedOwner("Morgan");
+      userId = getUserByName(owner.username)!.id;
+      writeManagedUserEnv(userId, { OPENCODE_API_KEY: MEMBER_KEY });
+      writeManagedOfficeEnv({ OPENCODE_API_KEY: OFFICE_KEY });
+      const read = await srv.http("/api/office/settings", {
+        rawSessionId: owner.rawSessionId,
+      });
+      const { version } = (await read.json()) as { version: string };
+      const put = await srv.http("/api/office/settings", {
+        method: "PUT",
+        rawSessionId: owner.rawSessionId,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version, providerFallback: true }),
+      });
+      expect(put.status).toBeLessThan(300);
+
+      const room = srv.agentManager.getRooms()[0];
+      const info = await srv.agentManager.spawn(
+        "Launch",
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        room.id,
+        undefined,
+        "gate/model",
+        undefined,
+        owner.username,
+        "opencode",
+        undefined,
+        userId,
+      );
+      if (!info) throw new Error("spawn returned null");
+      srv.agentManager.enqueueMessage(info.id, {
+        sender: { kind: "user", username: owner.username },
+        text: "work",
+      });
+      const keyOf = (input: LaunchInput | undefined) =>
+        input?.env?.OPENCODE_API_KEY;
+      const agentSessions = () =>
+        fake.sessions.filter((s) => s.opts.agentId === info.id);
+      await waitUntil(
+        () => agentSessions().some((s) => keyOf(s.opts) === OFFICE_KEY),
+        "the agent moved to the office key",
+      );
+      // The refusal came on her own key, so the fallback is what moved it.
+      expect(keyOf(agentSessions()[0].opts)).toBe(MEMBER_KEY);
+      const onOffice: LaunchInput = agentSessions().find(
+        (s) => keyOf(s.opts) === OFFICE_KEY,
+      )!.opts;
+      expect(onOffice.environmentRevision).not.toBe(
+        agentSessions()[0].opts.environmentRevision,
+      );
+
+      const before = fake.sessions.length;
+      const job = srv.cronjobManager.addCronjob({
+        name: "Fallback run",
+        schedule: { type: "interval", minutes: 60 },
+        prompt: "do the thing",
+        cwd: STATE_ROOT,
+        agentType: "opencode",
+        modelFamily: "gate/model",
+        effort: "medium",
+        permissionMode: "bypassPermissions",
+        username: owner.username,
+      });
+      expect(
+        srv.cronjobManager.runCronjobNow(job.id, owner.username),
+      ).not.toBeNull();
+      await waitUntil(
+        () =>
+          fake.sessions.slice(before).some((s) => s.opts.agentId !== info.id),
+        "run session",
+      );
+      const run: LaunchInput = fake.sessions
+        .slice(before)
+        .find((s) => s.opts.agentId !== info.id)!.opts;
+      expect(keyOf(run) === OFFICE_KEY, "the run's key").toBe(true);
+      expect(launchEnv(run.env) === launchEnv(onOffice.env)).toBe(true);
+      expect(run.environmentKey).toBe(onOffice.environmentKey);
+      expect(run.environmentRevision).toBe(onOffice.environmentRevision);
+    } finally {
       fake.sessions.forEach((s) => s.close());
     }
   });

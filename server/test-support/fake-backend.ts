@@ -364,6 +364,10 @@ export interface FakeBackendConfig {
   sessionResumableError?: string | ((sessionId: string) => string | null);
   // Per-session defaults applied to every created/resumed FakeSession.
   session?: FakeSessionConfig;
+  // The id of each created session (default fake-session-<n>). Real Claude
+  // session ids and Codex thread ids are UUIDs, and the Codex rollout lookup
+  // matches only those.
+  newSessionId?: () => string;
 }
 
 // A Backend whose sessions are scriptable FakeSessions. Construct one per test,
@@ -457,7 +461,8 @@ export class FakeBackend implements Backend {
 
   createSession(opts: CreateSessionOptions): BackendSession {
     this.createSessionCount++;
-    const sessionId = `fake-session-${++this.sessionCounter}`;
+    const sessionId =
+      this.cfg.newSessionId?.() ?? `fake-session-${++this.sessionCounter}`;
     const session = new FakeSession(opts, sessionId, false, this.cfg.session);
     this.sessions.push(session);
     return session;

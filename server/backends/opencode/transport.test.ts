@@ -1709,6 +1709,41 @@ describe("OpenCode 2 permissions", () => {
 });
 
 describe("OpenCode 2 failures (T10)", () => {
+  // Task 2008c993: a refusal of OpenCode's own Zen or Go plan is a usage
+  // limit stop, which the office fallback acts on. It names no reset time, and
+  // the turn still ends with the provider's words. Any other provider's quota,
+  // and a rate limit, are not.
+  for (const [model, type, stops] of [
+    ["opencode/big-pickle", "provider.quota", true],
+    ["opencode-go/kimi-k2", "provider.free-limit", true],
+    ["opencode/big-pickle", "provider.rate-limit", false],
+    ["provider/model", "provider.quota", false],
+    ["provider/model", "provider.free-limit", false],
+  ] as const) {
+    it(`${stops ? "reports" : "does not report"} a usage limit stop for ${type} on ${model}`, async () => {
+      const refusal = "Quota exceeded for this plan.";
+      const h = setup({
+        fake: {
+          turns: [failingTurn({ type, status: 429, message: refusal })],
+        },
+        transport: { model },
+      });
+      const { events, end } = await h.turn();
+      // No reset time: the refusal names none.
+      const limit = kinds(events, "usage_limit_stop").map(
+        (e) => (e as { resetsAtMs?: number }).resetsAtMs,
+      );
+      expect(limit).toStrictEqual(stops ? [undefined] : []);
+      if (stops)
+        expect(events.map((e) => e.kind).slice(-2)).toEqual([
+          "usage_limit_stop",
+          "turn_completed",
+        ]);
+      expect(end?.status).toBe("failed");
+      expect(english(end!.error!)).toContain(refusal);
+    });
+  }
+
   it("quotes the provider's refusal for a 4xx other than 401", async () => {
     const h = setup({
       fake: { turns: [fixtureTurn("probe-invalid-request-400")] },

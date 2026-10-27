@@ -1688,13 +1688,17 @@ const LIMIT_TEXT =
   "You've hit your limit · resets Jul 11, 5pm (America/Los_Angeles)";
 const RESETS_AT = 1792361400;
 
-function rateLimitEvent(status: "allowed" | "rejected", resetsAt = RESETS_AT) {
+function rateLimitEvent(
+  status: "allowed" | "rejected",
+  resetsAt = RESETS_AT,
+  rateLimitType = "five_hour",
+) {
   return {
     type: "rate_limit_event",
     rate_limit_info: {
       status,
       resetsAt,
-      rateLimitType: "five_hour",
+      rateLimitType,
       overageStatus: "rejected",
       overageDisabledReason: "out_of_credits",
       isUsingOverage: false,
@@ -1788,6 +1792,33 @@ describe("Claude usage-limit stop", () => {
       ]);
     } finally {
       s.close();
+    }
+  });
+
+  // Task 2008c993: a weekly limit of one model family stops only that
+  // family's sessions, so the office fallback covers only them.
+  it("names the model family of a weekly limit that only one family reached", async () => {
+    for (const [type, family] of [
+      ["seven_day_opus", "opus"],
+      ["seven_day_sonnet", "sonnet"],
+      ["seven_day", undefined],
+      ["five_hour", undefined],
+    ] as const) {
+      const s = makeLimitSession();
+      try {
+        const evs = await s.turn([
+          rateLimitEvent("rejected", RESETS_AT, type),
+          limitMessage(),
+          RESULT,
+        ]);
+        const seen = stops(evs).map((e) => {
+          const stop = e as { resetsAtMs?: number; family?: string };
+          return [type, stop.resetsAtMs, stop.family];
+        });
+        expect(seen).toStrictEqual([[type, RESETS_AT * 1000, family]]);
+      } finally {
+        s.close();
+      }
     }
   });
 

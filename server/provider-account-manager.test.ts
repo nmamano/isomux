@@ -12,6 +12,34 @@ import { ProviderAccountManager } from "./provider-account-manager.ts";
 import { ClaudeAccountClient } from "./backends/claude/account.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import { writeManagedUserEnv, removeManagedUserEnv } from "./user-env.ts";
+import {
+  setProviderFallbackForTests,
+  type ProviderFallback,
+} from "./provider-fallback.ts";
+
+// The office fallback's account changes (task 2008c993): a member's own
+// sign-in or sign-out ends their fallback entry for that provider. Runs `body`
+// with a fallback that records each change, and puts the office's back.
+async function withFallbackChanges(
+  body: (changes: Array<[string, string]>) => Promise<void>,
+): Promise<void> {
+  const changes: Array<[string, string]> = [];
+  const recording: ProviderFallback = {
+    isEnabled: () => true,
+    setEnabled: () => {},
+    entry: () => null,
+    start: () => {},
+    accountChanged: (userId, provider) => {
+      changes.push([userId, provider]);
+    },
+  };
+  const previous = setProviderFallbackForTests(recording);
+  try {
+    await body(changes);
+  } finally {
+    setProviderFallbackForTests(previous);
+  }
+}
 
 const disconnectedAccountClient = () => ({
   start: async () => {},
@@ -366,7 +394,12 @@ describe("ProviderAccountManager", () => {
     await manager.list("user-a");
     await manager.list("user-b");
 
-    const result = await manager.disconnect("user-a", "codex", "office");
+    let result!: Awaited<ReturnType<typeof manager.disconnect>>;
+    await withFallbackChanges(async (changes) => {
+      result = await manager.disconnect("user-a", "codex", "office");
+      // The office sign-in is no member's own account.
+      expect(changes).toEqual([]);
+    });
     expect(changed).toEqual([["codex", "/tmp/isomux-codex"]]);
 
     expect(result.ok).toBe(true);
@@ -428,7 +461,11 @@ describe("ProviderAccountManager", () => {
     const changed: Array<[string, string]> = [];
     manager.onAccountChanged = (provider, dir) => changed.push([provider, dir]);
 
-    const result = await manager.disconnect("user-a", "claude", "personal");
+    let result!: Awaited<ReturnType<typeof manager.disconnect>>;
+    await withFallbackChanges(async (changes) => {
+      result = await manager.disconnect("user-a", "claude", "personal");
+      expect(changes).toEqual([["user-a", "claude"]]);
+    });
     expect(changed).toEqual([["claude", home]]);
 
     expect(result.ok).toBe(true);
@@ -1139,14 +1176,20 @@ describe("ProviderAccountManager", () => {
     );
     const changed: Array<[string, string]> = [];
     manager.onAccountChanged = (provider, dir) => changed.push([provider, dir]);
-    await manager.startLogin("user-a", "claude", "personal", "browser");
-    expect(activated).toEqual([]);
-    // Starting a sign-in changes no account; completing it does.
-    expect(changed).toEqual([]);
-    complete();
-    await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
-    expect(activated).toEqual([["user-a", "claude"]]);
-    expect(changed).toEqual([["claude", "/tmp/provider-homes/user-a/claude"]]);
+    await withFallbackChanges(async (changes) => {
+      await manager.startLogin("user-a", "claude", "personal", "browser");
+      expect(activated).toEqual([]);
+      // Starting a sign-in changes no account; completing it does.
+      expect(changed).toEqual([]);
+      expect(changes).toEqual([]);
+      complete();
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
+      expect(activated).toEqual([["user-a", "claude"]]);
+      expect(changed).toEqual([
+        ["claude", "/tmp/provider-homes/user-a/claude"],
+      ]);
+      expect(changes).toEqual([["user-a", "claude"]]);
+    });
   });
 
   it("starts office Claude browser login in the effective office directory", async () => {

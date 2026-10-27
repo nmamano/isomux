@@ -253,6 +253,17 @@ export interface ManagedAgent {
   // pending resume's fire time (persisted as agents.json limitResumeAt).
   limitStopResetsAtMs: number | null;
   limitResumeAt: number | null;
+  // A usage limit stopped the running turn on the member's own sign-in and
+  // the agent falls back to the office sign-in: its end queues the continue
+  // instead of arming the resume (server/provider-fallback.ts).
+  limitStopFallback?: boolean;
+  // The OPENCODE_API_KEY the live OpenCode session started with.
+  launchedOpenCodeKey?: string;
+  // The agent's sessions run on the office sign-in because its member's own
+  // sign-in reached its usage limit (persisted as agents.json
+  // officeFallback). Only the account check at turn start changes it, after
+  // the conversation moved.
+  officeFallback: boolean;
   // Set by flushQueue for the turn its batch starts when the batch holds a
   // wake after a server restart (server/restart-wake.ts); read when that turn
   // is recorded, and reset when the flush ends.

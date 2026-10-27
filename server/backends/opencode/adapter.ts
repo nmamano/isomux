@@ -44,6 +44,7 @@ import {
   openCodeSupervisorForEnvironment,
   reloadOpenCodeServer,
   updateOpenCodeSupervisorSettings,
+  awaitOpenCodeServerSettings,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { inspectOpenCodeStoredSession } from "./storage.ts";
@@ -386,6 +387,15 @@ export function createOpenCodeBackend(
     updateSavedSettings: (opts) => {
       if (options.supervisor) return;
       updateOpenCodeSupervisorSettings(
+        opts.environmentKey,
+        opts.env,
+        opts.environmentRevision,
+        opts.mcpServers,
+      );
+    },
+    awaitCurrentServer: async (opts) => {
+      if (options.supervisor) return;
+      await awaitOpenCodeServerSettings(
         opts.environmentKey,
         opts.env,
         opts.environmentRevision,

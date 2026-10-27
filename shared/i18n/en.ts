@@ -535,6 +535,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.memberUsageCap": "Pace member usage",
   "settings.office.memberUsageCapHint":
     "Members' turns on the office sign-in stop at a line that rises each day of the week, up to the member share.",
+  "settings.office.providerFallback": "Fall back to the office sign-in",
+  "settings.office.providerFallbackHint":
+    "When a member's own sign-in reaches its usage limit, their agents continue on the office sign-in until it resets.",
   "settings.office.memberUsageShare": "Member share of the weekly limit",
   "settings.office.memberUsageShareOption": "{share}%",
   "settings.office.memberUsageWeekly":
@@ -2872,6 +2875,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Usage limit reset. Isomux resumed the agent.",
   "systemEntries.restartWake.resumed":
     "The server restarted during the turn. Isomux resumed the agent.",
+  "systemEntries.providerFallback.toOffice":
+    "The agent uses the office {provider} sign-in until {at} ({relative}), while the manager's own sign-in is at its usage limit.",
+  "systemEntries.providerFallback.backToOwn":
+    "The agent is back on the manager's own {provider} sign-in.",
   "systemEntries.usageLimit.stopped":
     "Usage limit reached. Resets {at} ({relative}).",
   "systemEntries.usageCap.pace":

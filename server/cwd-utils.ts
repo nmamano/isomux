@@ -181,7 +181,7 @@ const CODEX_ROLLOUT_HEADER_SCAN_LINES = 16;
 // to canonical shape matches what we actually issue and keeps malformed
 // input from getting our friendly preflight error instead of Codex's own
 // (more accurate) invalid-id surfacing.
-const CODEX_THREAD_ID_PATTERN =
+export const CODEX_THREAD_ID_PATTERN =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 // Returns true if a Codex rollout file exists for `threadId` under
@@ -222,7 +222,7 @@ export function inspectCodexStoredSession(
 // Returns the path to the rollout file for `threadId`, or null if not found.
 // Returns the empty string sentinel if the dir cap was hit (caller treats
 // this as "indeterminate, assume durable").
-function findCodexRolloutPath(
+export function findCodexRolloutPath(
   threadId: string,
   env?: { [key: string]: string | undefined },
 ): string | null {

@@ -670,9 +670,14 @@ export interface QueuedMessage {
   // (server/limit-resume.ts). The sender is the receiver; `text` is the whole
   // agent-facing message, and the chat shows a system line instead of it.
   limitResume?: boolean;
-  // With limitResume: the members of the turn the usage limit stopped, so
-  // the resumed turn is still theirs.
+  // With limitResume or fallbackContinue: the members of the turn the usage
+  // limit stopped, so the resumed turn is still theirs.
   limitResumeMemberIds?: string[];
+  // The turn isomux sends itself after a usage limit stopped a turn on the
+  // member's own sign-in and the agent moved to the office sign-in
+  // (server/provider-fallback.ts). Same shape as limitResume; the chat shows
+  // the switch line instead of it.
+  fallbackContinue?: boolean;
   // The wake isomux sends itself after a server restart cut the agent's turn
   // (server/restart-wake.ts). Same shape as limitResume.
   restartWake?: boolean;

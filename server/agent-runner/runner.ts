@@ -39,6 +39,7 @@ export const ENTRY_NAMES = new Set([
   "codex-hook-config",
   "codex-trust-hash",
   "opencode-inspect",
+  "session-move",
 ]);
 const ENTRY_DIR = join(import.meta.dir, "entries");
 

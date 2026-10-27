@@ -263,6 +263,14 @@ interface HandlerDeps {
     username?: string,
     device?: string,
   ) => boolean;
+  // The account check at a turn start (server/provider-fallback.ts): moves
+  // the agent to the sign-in its member's fallback wants before the turn
+  // takes the session.
+  // null when there is nothing to check.
+  alignAccount: (
+    agentId: string,
+    managed: ManagedAgent,
+  ) => Promise<unknown> | null;
   // A rejected turn, after the caller handled its session swaps: the same
   // lines and end state as a member's send (agent-manager ownedTurnFailure).
   // `frame` words an error it cannot classify.
@@ -1432,6 +1440,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     }
 
+    const accountCheck = deps.alignAccount(agentId, managed);
+    if (accountCheck) await accountCheck;
     // A dormant agent (lazy-spawned, idle-evicted, or released by /clear) holds
     // no live session, so the runAgentTurn below would throw "agent has no
     // session". Wake it first - this is the skill-dispatch site, reached only

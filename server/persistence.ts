@@ -538,6 +538,21 @@ export function ensureSessionClaudeConfigDir(
   return root;
 }
 
+// A conversation moved to another account folder
+// (server/session-account-move.ts): its pin follows it.
+export function setSessionClaudeConfigDir(
+  agentId: string,
+  sessionId: string,
+  root: string,
+): void {
+  const map = loadSessionsMap(agentId);
+  map[sessionId] = {
+    ...(map[sessionId] ?? { topic: null, lastModified: Date.now() }),
+    claudeConfigDir: root,
+  };
+  saveSessionsMap(agentId, map);
+}
+
 // The engine config a session runs under. Mirrors the per-session cwd model:
 // stored in sessions.json, with the agent's own fields as a denormalized mirror
 // of the active session's values.
@@ -908,6 +923,9 @@ export interface PersistedAgent {
   // The pending resume after a usage limit, epoch ms (server/limit-resume.ts).
   // Absent when none is pending.
   limitResumeAt?: number;
+  // The agent runs on the office sign-in because its member's own sign-in
+  // reached its usage limit (server/provider-fallback.ts). Absent when not.
+  officeFallback?: true;
 }
 
 export interface PersistedUsage {
@@ -1288,6 +1306,16 @@ export function loadMemberUsageCap(): boolean {
 
 export function saveMemberUsageCap(enabled: boolean): void {
   saveOfficeConfigField("memberUsageCap", enabled);
+}
+
+// The fallback to the office sign-in (server/provider-fallback.ts), beside
+// the settings in office-config.json. An absent switch reads as off.
+export function loadProviderFallback(): boolean {
+  return readOfficeConfigRaw().providerFallback === true;
+}
+
+export function saveProviderFallback(enabled: boolean): void {
+  saveOfficeConfigField("providerFallback", enabled);
 }
 
 // The "Record terminals" switch (server/terminal-recorder.ts), beside the

@@ -165,12 +165,18 @@ export function MemberUsageCard({
     if (!settings) return;
     setSaving(true);
     setError(null);
-    const body: OfficeSettingsReq = {
-      version: settings.version,
-      memberUsageCap: usageCap,
-      ...(shareKnown ? { memberUsageShare: usageShare } : {}),
-    };
     try {
+      // The version of a fresh read: the fallback card beside this one
+      // writes the same settings, and the PUT carries only these fields.
+      const { version } = await apiFetch<OfficeSettingsRes>(
+        "GET",
+        "/api/office/settings",
+      );
+      const body: OfficeSettingsReq = {
+        version,
+        memberUsageCap: usageCap,
+        ...(shareKnown ? { memberUsageShare: usageShare } : {}),
+      };
       await apiFetch<void>("PUT", "/api/office/settings", body);
       setSavedAt(Date.now());
       try {

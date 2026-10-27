@@ -1421,12 +1421,13 @@ export class OpenCodeTransport {
     // A turn that ends on a sign-in failure sends auth_needed first.
     const settle = (
       event: NormalizedEvent,
-      options: { authNeeded?: boolean } = {},
+      options: { authNeeded?: boolean; usageLimit?: boolean } = {},
     ): void => {
       if (settled) return;
       settled = true;
       this.deadlineScheduler.clearTimeout(progressTimer);
       showOpenParts();
+      if (options.usageLimit) sink({ kind: "usage_limit_stop" });
       if (options.authNeeded) {
         sink({ kind: "auth_needed" });
         sink(event);
@@ -1858,14 +1859,19 @@ export class OpenCodeTransport {
         });
         return;
       }
-      settle({
-        kind: "turn_completed",
-        status: "failed",
-        error: refusal ?? openCodeErrorMessage(error),
-        ...(refusal !== null && openCodeModelUnavailableRefusal(error)
-          ? { modelUnavailable: true as const }
-          : {}),
-      });
+      settle(
+        {
+          kind: "turn_completed",
+          status: "failed",
+          error: refusal ?? openCodeErrorMessage(error),
+          ...(refusal !== null && openCodeModelUnavailableRefusal(error)
+            ? { modelUnavailable: true as const }
+            : {}),
+        },
+        {
+          usageLimit: refusal !== null && openCodePlanLimit(error, this.model),
+        },
+      );
     };
     // The frames that came before the prompt answer, decided by its id.
     const decideEarly = async (): Promise<boolean> => {
@@ -3335,6 +3341,19 @@ export type OpenCodeProviderFailure =
 
 // The providers OPENCODE_API_KEY signs in to: OpenCode Zen and OpenCode Go.
 const OPENCODE_KEY_PROVIDERS = new Set(["opencode", "opencode-go"]);
+
+// A refusal of the OpenCode Zen or Go plan behind OPENCODE_API_KEY: a usage
+// limit stop, which the office fallback acts on (server/provider-fallback.ts).
+// It names no reset time.
+function openCodePlanLimit(
+  error: Readonly<SafeOpenCodeError>,
+  model: string,
+): boolean {
+  return (
+    (error.name === "provider.quota" || error.name === "provider.free-limit") &&
+    OPENCODE_KEY_PROVIDERS.has(splitModel(model)[0])
+  );
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"

@@ -16,8 +16,8 @@
 // office.{read,set}Instructions read and write the prompt alone, with a
 // version over the text only. The settings routes do not carry it.
 //
-// office.getSettings returns the display name, the member usage cap switch
-// and the member share. office.getMemberUsageStatus returns the cap's status
+// office.getSettings returns the display name, the member usage cap switch,
+// the member share and the fallback to the office sign-in. office.getMemberUsageStatus returns the cap's status
 // lines, which read the providers.
 // The legacy envFile field remains persistence-only until
 // the boot migration clears it.
@@ -69,8 +69,9 @@ export interface OfficeSettingsDeps {
   // Validate-then-apply, guarded by the version from a preceding getSettings.
   // `name === undefined` preserves the current name; null or empty clears it.
   // `memberUsageCap === undefined` preserves the switch, and
-  // `memberUsageShare === undefined` the share, and `recordTerminals ===
-  // undefined` the "Record terminals" switch.
+  // `memberUsageShare === undefined` the share, `recordTerminals ===
+  // undefined` the "Record terminals" switch, and `providerFallback ===
+  // undefined` the fallback to the office sign-in.
   // Throws nothing - invalid input returns { ok: false }. `ctx` names the
   // writer for the switch's own audit row.
   applySettings(
@@ -79,6 +80,7 @@ export interface OfficeSettingsDeps {
       memberUsageCap?: boolean;
       memberUsageShare?: number;
       recordTerminals?: boolean;
+      providerFallback?: boolean;
       expectedVersion: string;
     },
     ctx: RouteHandlerContext,
@@ -133,6 +135,7 @@ export function officeSettingsHandlers(
         memberUsageCap?: unknown;
         memberUsageShare?: unknown;
         recordTerminals?: unknown;
+        providerFallback?: unknown;
       };
       // Distinguish "omitted" (undefined → preserve) from "set to null" (→
       // clear) for the name. JSON access yields undefined for an absent key and
@@ -169,6 +172,16 @@ export function officeSettingsHandlers(
         );
       }
       if (
+        b.providerFallback !== undefined &&
+        typeof b.providerFallback !== "boolean"
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          "providerFallback must be a boolean",
+        );
+      }
+      if (
         b.memberUsageShare !== undefined &&
         !validMemberShare(b.memberUsageShare)
       ) {
@@ -184,6 +197,7 @@ export function officeSettingsHandlers(
           memberUsageCap: b.memberUsageCap,
           memberUsageShare: b.memberUsageShare,
           recordTerminals: b.recordTerminals,
+          providerFallback: b.providerFallback,
           expectedVersion: b.version,
         },
         ctx,

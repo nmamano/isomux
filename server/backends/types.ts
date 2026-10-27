@@ -1,5 +1,6 @@
 import type { LogMessage, LogText } from "../../shared/i18n/log-message.ts";
 import type { AgentMcpServer } from "../mcp-servers.ts";
+import type { FallbackFamily } from "../provider-fallback.ts";
 // Backend abstraction shared by Claude (claude-agent-sdk) and Codex (App Server).
 //
 // SessionManager holds the session lifecycle; agent-manager.ts holds queue / abort / fork / topic-gen
@@ -237,10 +238,17 @@ export type NormalizedEvent =
   // the model reads it before its next request. `steerId` is the id that
   // steer() was called with.
   | { kind: "steer_delivered"; steerId: string }
-  // A usage limit stopped the running turn, and the engine reported when the
-  // limit resets (epoch ms). Emitted before that turn's turn_completed, and
-  // only when the reset time is known (server/limit-resume.ts).
-  | { kind: "usage_limit_stop"; resetsAtMs: number }
+  // A usage limit stopped the running turn. Emitted before that turn's
+  // turn_completed. Claude and Codex emit it only when the reset time
+  // (epoch ms) is known (server/limit-resume.ts); OpenCode emits it for a
+  // refusal of its own Zen or Go plan, with the reset time when the refusal
+  // names one. `family`: a Claude stop that only one model family's weekly
+  // limit caused (server/provider-fallback.ts).
+  | {
+      kind: "usage_limit_stop";
+      resetsAtMs?: number;
+      family?: FallbackFamily;
+    }
   // Backend requested interactive input that is not a tool permission. The
   // payload stays backend-owned and default-denied; callers only need the
   // reviewed request kind and id to fail an unattended turn visibly.
@@ -642,6 +650,18 @@ export interface Backend {
     environmentRevision: string;
     mcpServers: AgentMcpServer[];
   }): void;
+
+  // The same inputs as updateSavedSettings, for a change a turn must not
+  // start without (the office sign-in fallback, server/provider-fallback.ts):
+  // resolves once the shared server of this environment runs with them, or
+  // at once when none runs. A replacement waits for the server's running
+  // turns, so this can wait as long as the longest of them.
+  awaitCurrentServer?(opts: {
+    environmentKey: string;
+    env: { [key: string]: string | undefined } | undefined;
+    environmentRevision: string;
+    mcpServers: AgentMcpServer[];
+  }): Promise<void>;
 
   // Loads the engine's plugins and config again for the shared server of
   // this environment: "reloaded" when it happened now, "pending" when it

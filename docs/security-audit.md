@@ -202,7 +202,7 @@ A terminal panel does not get an agent token.
 
 An owner can make any agent privileged. A member can make privileged only the agents that they spawned. No agent can set the flag.
 
-A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1), change the office instructions, the office name, the member usage cap and the **Record terminals** setting, and give any agent another manager, which puts that agent on the new manager's credentials (section 7). It cannot mint sign-in links, revoke sessions, change room access or other office settings, or open a terminal panel.
+A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1), change the office instructions, the office name, the member usage cap, the **Record terminals** setting and the fallback to the office sign-in, and give any agent another manager, which puts that agent on the new manager's credentials (section 7). It cannot mint sign-in links, revoke sessions, change room access or other office settings, or open a terminal panel.
 
 A privileged agent can read and edit its manager's special instructions, or any member's when its manager is an office owner. This does not grant other user-record edits. Prompt writes from agents and humans require the version from the read; stale writes return 409.
 

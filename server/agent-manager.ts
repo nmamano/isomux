@@ -101,6 +101,7 @@ import {
   ensureSessionCwd,
   getSessionClaudeConfigDir,
   ensureSessionClaudeConfigDir,
+  setSessionClaudeConfigDir,
   getSessionManager,
   stampSessionManagers,
   getSessionEngineConfig,
@@ -250,6 +251,24 @@ import {
   type AutoHandoffTrigger,
 } from "./auto-handoff.ts";
 import {
+  entryCovers,
+  FALLBACK_CONTINUE_TEXT,
+  OPENCODE_FALLBACK_RETRY_MS,
+  providerFallback,
+  type FallbackAccount,
+  type FallbackEntry,
+  type FallbackFamily,
+  type FallbackProvider,
+  type ProviderFallback,
+} from "./provider-fallback.ts";
+import {
+  codexHomeOfThread,
+  copySessionFilesInAgentSpace,
+  removeSessionSourceInAgentSpace,
+  type SessionMove,
+} from "./session-account-move.ts";
+import { personalProviderHome } from "./provider-homes.ts";
+import {
   LIMIT_RESUME_BOOT_DELAY_MS,
   LIMIT_RESUME_TEXT,
   limitResumeDueAt,
@@ -290,6 +309,7 @@ import { getBackend as defaultResolveBackend } from "./backends/index.ts";
 import {
   claudeSignInState,
   isClaudeCloudSelected,
+  isClaudeCodeAuthenticated,
 } from "./backends/claude-install-check.ts";
 import {
   ISOMUX_CODEX_HOME,
@@ -326,6 +346,7 @@ import {
   claudeFamilyModelsForUserId,
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
+  envSourceForUserId,
   legacyEnvironmentSourceKeyForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
@@ -373,6 +394,7 @@ import {
   directInputCapped,
   managerCapped,
   memberUsageCap,
+  officeUsageTarget,
   UsageCapError,
   usageCapText,
   usageHeadsUpText,
@@ -461,6 +483,15 @@ export interface ManagerDeps {
   // Whether the server is stopping (server/server-stop.ts). Defaults to the
   // real one; tests set it.
   serverStopping?: () => boolean;
+  // The fallback switch and state (server/provider-fallback.ts). Defaults to
+  // providerFallback().
+  providerFallback?: ProviderFallback;
+  // The office sign-in a member's agents fall back to, or null when the
+  // office has none for the provider. Defaults to the office env and the
+  // engine's sign-in check; tests inject it.
+  fallbackOfficeAccount?: (
+    provider: FallbackProvider,
+  ) => FallbackAccount | null;
 }
 
 export interface LimitResumeClock {
@@ -2543,6 +2574,7 @@ export function createAgentManager(deps: ManagerDeps) {
       ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
       ...(a.info.limitResume === false ? { limitResume: false } : {}),
       ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
+      ...(a.officeFallback ? { officeFallback: true as const } : {}),
     };
   }
 
@@ -2958,6 +2990,7 @@ export function createAgentManager(deps: ManagerDeps) {
       autoHandoffNotice: null,
       limitStopResetsAtMs: null,
       limitResumeAt: null,
+      officeFallback: p.officeFallback === true,
       pendingFreshRecoveryNotice: false,
       authNeededThisTurn: false,
       subscriptionUsage: null,
@@ -3160,7 +3193,7 @@ export function createAgentManager(deps: ManagerDeps) {
             target: openCodeSupervisorForEnvironment(
               move.toKey,
               buildOpenCodeLaunchEnvironmentForUserId(move.userId),
-              environmentSourceRevisionForUserId(move.userId),
+              openCodeEnvironmentRevisionForUserId(move.userId),
               agentMcpServers(move.userId),
               openCodeSkillPathsForUserId(move.userId),
             ),
@@ -3694,7 +3727,10 @@ export function createAgentManager(deps: ManagerDeps) {
       if (m.sender.kind === "user")
         for (const id of memberIdsOf(m.sender.username)) ids.add(id);
       // Loaded from message-queues.json, so checked.
-      if (m.limitResume && Array.isArray(m.limitResumeMemberIds))
+      if (
+        (m.limitResume || m.fallbackContinue) &&
+        Array.isArray(m.limitResumeMemberIds)
+      )
         for (const id of m.limitResumeMemberIds)
           if (typeof id === "string") ids.add(id);
     }
@@ -4549,7 +4585,7 @@ export function createAgentManager(deps: ManagerDeps) {
         ? {
             env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),
             environmentKey: environmentSourceKeyForUserId(managed.info.userId),
-            environmentRevision: environmentSourceRevisionForUserId(
+            environmentRevision: openCodeEnvironmentRevisionForUserId(
               managed.info.userId,
             ),
             skillPaths: openCodeSkillPathsForUserId(managed.info.userId),
@@ -4572,7 +4608,7 @@ export function createAgentManager(deps: ManagerDeps) {
         ? {
             env: buildOpenCodeLaunchEnvironmentForUserId(userId),
             environmentKey: environmentSourceKeyForUserId(userId),
-            environmentRevision: environmentSourceRevisionForUserId(userId),
+            environmentRevision: openCodeEnvironmentRevisionForUserId(userId),
             skillPaths: openCodeSkillPathsForUserId(userId),
           }
         : { env: buildEnvForUserId(userId) }),
@@ -5682,9 +5718,15 @@ export function createAgentManager(deps: ManagerDeps) {
       }
       case "turn_completed": {
         // A usage limit stopped this turn: its notice is the turn's one line.
-        // Read before the blocks below clear it.
+        // Read before the blocks below clear it. OpenCode writes no notice:
+        // its refusal stays the turn's error line.
         const limitStopped =
-          (agents.get(agentId)?.limitStopResetsAtMs ?? null) !== null;
+          (agents.get(agentId)?.limitStopResetsAtMs ?? null) !== null &&
+          agents.get(agentId)?.info.agentType !== "opencode";
+        // The turn continues on the office sign-in: the agent is not left in
+        // error, so the continue's flush starts at the idle transition.
+        const fallbackContinues =
+          agents.get(agentId)?.limitStopFallback === true;
         // Items delivered at this turn's tool boundaries leave the queue now,
         // before the idle transition below can start a flush that would send
         // them again. Only the installed session's claim drains (liveClaimed).
@@ -5696,10 +5738,19 @@ export function createAgentManager(deps: ManagerDeps) {
             // A usage limit stopped the brief turn: no handoff, and no
             // resume, which would ask the old session for the brief again as
             // a normal reply. The attempt stays open (runAutoHandoff).
-            if (m.limitStopResetsAtMs !== null) {
+            if (m.limitStopResetsAtMs !== null || m.limitStopFallback) {
               m.autoHandoffCapture.limitStopped = true;
               m.limitStopResetsAtMs = null;
+              m.limitStopFallback = false;
             }
+          }
+          // A usage limit stopped this turn on the member's own sign-in, and
+          // the agent falls back: the continue is queued now, in place of
+          // the resume, before the turn's deferred resolves below.
+          if (m?.limitStopFallback) {
+            m.limitStopFallback = false;
+            m.limitStopResetsAtMs = null;
+            queueFallbackContinue(agentId, m);
           }
           // A usage limit stopped this turn: arm the resume now, before the
           // turn's deferred resolves below and a queued message starts a
@@ -5838,7 +5889,9 @@ export function createAgentManager(deps: ManagerDeps) {
               // surface.
               updateState(
                 agentId,
-                isAuthError ? "waiting_for_response" : "error",
+                isAuthError || fallbackContinues
+                  ? "waiting_for_response"
+                  : "error",
               );
             };
             // An agent the office seeded on a free model moves to another
@@ -5853,6 +5906,7 @@ export function createAgentManager(deps: ManagerDeps) {
               !isHotAbortDirty &&
               !isAuthError &&
               !limitStopped &&
+              !fallbackContinues &&
               !managed.freeModelRetryTurn &&
               managed.info.agentType === "opencode" &&
               managed.info.officeFreeModel !== undefined &&
@@ -5929,7 +5983,11 @@ export function createAgentManager(deps: ManagerDeps) {
       case "usage_limit_stop": {
         // Read at the turn's end (turn_completed above).
         const managed = agents.get(agentId);
-        if (managed) managed.limitStopResetsAtMs = ev.resetsAtMs;
+        if (!managed) break;
+        const resumeAt = fallbackStop(managed, ev);
+        if (resumeAt !== null) managed.limitStopResetsAtMs = resumeAt;
+        // OpenCode names no reset: its refusal is the turn's error line.
+        if (ev.resetsAtMs === undefined) break;
         // In place of the engine's sentence, which the adapter drops: it
         // names the server's time zone, and each reader gets the reset in
         // their own.
@@ -6754,8 +6812,35 @@ export function createAgentManager(deps: ManagerDeps) {
     managed: ManagedAgent,
     sessionId: string | null = managed.sessionManager.sessionId,
   ): { [key: string]: string | undefined } | undefined {
-    let base = buildEnvForUserId(managed.info.userId);
-    if (managed.info.agentType === "claude" && sessionId) {
+    const provider = managed.info.agentType;
+    let base =
+      provider === "opencode"
+        ? buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId)
+        : buildEnvForUserId(managed.info.userId);
+    // On the office sign-in (alignAccount): new sessions start there. A
+    // Claude session's pin still wins below, and a Codex thread is looked up
+    // in both homes, so a conversation runs where its files are.
+    if (provider !== "opencode") {
+      const name = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+      const office = managed.officeFallback ? officeAccountDir(provider) : null;
+      if (office)
+        base = { ...(base ?? getAgentHost().baseEnv()), [name]: office };
+      if (provider === "codex" && sessionId && fallbackInPlay(managed)) {
+        const chosen = effectiveProviderDirectory(
+          "codex",
+          base ?? getAgentHost().baseEnv(),
+        );
+        const home = codexHomeOfThread(
+          sessionId,
+          [chosen, ...fallbackHomes(managed)].filter(
+            (dir, i, all) => all.indexOf(dir) === i,
+          ),
+        );
+        if (home && home !== chosen)
+          base = { ...(base ?? getAgentHost().baseEnv()), CODEX_HOME: home };
+      }
+    }
+    if (provider === "claude" && sessionId) {
       const root = resolveClaudeSessionRoot(
         sessionId,
         managed.info.cwd,
@@ -6774,6 +6859,398 @@ export function createAgentManager(deps: ManagerDeps) {
     // subprocess keeps PATH/HOME/etc. Redaction tests assert it stays out of
     // prompts, logs, errors, diffs, and the WS.
     return { ...(base ?? getAgentHost().baseEnv()), ISOMUX_AGENT_TOKEN: token };
+  }
+
+  // Fallback to the office sign-in (server/provider-fallback.ts). The state
+  // is per member and provider. Each agent follows it at its next turn start
+  // (alignAccount), which moves the conversation to the account it wants.
+  const fallbackState = (): ProviderFallback =>
+    deps.providerFallback ?? providerFallback();
+
+  // The office sign-in a member's agents fall back to, or null when the
+  // office has none for the provider.
+  function officeFallbackAccount(
+    provider: FallbackProvider,
+  ): FallbackAccount | null {
+    if (deps.fallbackOfficeAccount) return deps.fallbackOfficeAccount(provider);
+    try {
+      if (provider === "opencode") {
+        const source = envSourceForUserId(null, "OPENCODE_API_KEY");
+        const key = buildEnvForUserId(null)?.OPENCODE_API_KEY;
+        return key &&
+          (source === "office_variable" || source === "office_secret")
+          ? { apiKey: key }
+          : null;
+      }
+      const target = officeUsageTarget(provider);
+      const signedIn =
+        provider === "claude"
+          ? isClaudeCodeAuthenticated(target.env)
+          : isCodexAuthenticated(target.env);
+      return signedIn ? { dir: target.dir } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // The office account folder, signed in or not: where an agent on the
+  // office sign-in keeps its conversation.
+  function officeAccountDir(provider: "claude" | "codex"): string | null {
+    if (deps.fallbackOfficeAccount) {
+      const account = deps.fallbackOfficeAccount(provider);
+      return account && "dir" in account ? account.dir : null;
+    }
+    try {
+      return officeUsageTarget(provider).dir;
+    } catch {
+      return null;
+    }
+  }
+
+  // The account the member's agents use without a fallback, and whether it
+  // is the member's own sign-in: a personal provider home, or an
+  // OPENCODE_API_KEY the member set.
+  function ownAccount(
+    userId: string | null | undefined,
+    provider: FallbackProvider,
+  ): { account: FallbackAccount; own: boolean } | null {
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(userId);
+    } catch {
+      return null;
+    }
+    if (provider === "opencode") {
+      const key = env?.OPENCODE_API_KEY;
+      if (!key) return null;
+      const source = userId
+        ? envSourceForUserId(userId, "OPENCODE_API_KEY")
+        : null;
+      return {
+        account: { apiKey: key },
+        own: source === "member_variable" || source === "member_secret",
+      };
+    }
+    const dir = effectiveProviderDirectory(
+      provider,
+      env ?? getAgentHost().baseEnv(),
+    );
+    let own = false;
+    try {
+      own =
+        !!userId &&
+        resolve(dir) === resolve(personalProviderHome(userId, provider));
+    } catch {
+      own = false;
+    }
+    return { account: { dir }, own };
+  }
+
+  function sameAccount(a: FallbackAccount, b: FallbackAccount): boolean {
+    if ("dir" in a && "dir" in b) return resolve(a.dir) === resolve(b.dir);
+    if ("apiKey" in a && "apiKey" in b) return a.apiKey === b.apiKey;
+    return false;
+  }
+
+  // The member's own sign-in and the office's, while a fallback from one to
+  // the other can apply: the switch is on, the member's agents run on their
+  // own sign-in, and the office has another one.
+  function fallbackPair(
+    userId: string | null | undefined,
+    provider: FallbackProvider,
+  ): { member: FallbackAccount; office: FallbackAccount } | null {
+    if (!userId || !fallbackState().isEnabled()) return null;
+    const own = ownAccount(userId, provider);
+    if (!own?.own) return null;
+    const office = officeFallbackAccount(provider);
+    if (!office || sameAccount(own.account, office)) return null;
+    return { member: own.account, office };
+  }
+
+  // The fallback the member's sessions on `modelFamily` run on now, or null.
+  function officeWanted(
+    userId: string | null | undefined,
+    provider: FallbackProvider,
+    modelFamily: string | undefined,
+  ): { office: FallbackAccount; entry: FallbackEntry } | null {
+    // The entry first: it is nearly always absent, and the pair reads the
+    // member's and the office's env.
+    if (!userId || !fallbackState().isEnabled()) return null;
+    const entry = fallbackState().entry(userId, provider);
+    if (!entry) return null;
+    if (provider === "claude" && !entryCovers(entry, modelFamily)) return null;
+    const pair = fallbackPair(userId, provider);
+    return pair ? { office: pair.office, entry } : null;
+  }
+
+  // Whether a Codex thread may be in either home.
+  function fallbackInPlay(managed: ManagedAgent): boolean {
+    return managed.officeFallback || fallbackState().isEnabled();
+  }
+
+  // The homes a Codex thread of the agent can be in, besides the one its
+  // env picks.
+  function fallbackHomes(managed: ManagedAgent): string[] {
+    const own = ownAccount(managed.info.userId, "codex");
+    const office = officeAccountDir("codex");
+    return [
+      ...(own && "dir" in own.account ? [own.account.dir] : []),
+      ...(office ? [office] : []),
+    ];
+  }
+
+  // The account the live session started on.
+  function liveAccount(managed: ManagedAgent): FallbackAccount | null {
+    if (!managed.sessionManager.session) return null;
+    if (managed.info.agentType === "opencode")
+      return managed.launchedOpenCodeKey
+        ? { apiKey: managed.launchedOpenCodeKey }
+        : null;
+    if (managed.info.agentType === "claude")
+      return managed.launchedClaudeConfigDir
+        ? { dir: managed.launchedClaudeConfigDir }
+        : null;
+    return managed.billingAccount ? { dir: managed.billingAccount.dir } : null;
+  }
+
+  // The folder that holds the agent's conversation now, or null when it
+  // has none on disk.
+  function conversationDir(
+    managed: ManagedAgent,
+    sessionId: string,
+  ): string | null {
+    const live = liveAccount(managed);
+    const liveDir = live && "dir" in live ? live.dir : undefined;
+    if (managed.info.agentType === "claude")
+      return (
+        getSessionClaudeConfigDir(managed.info.id, sessionId) ?? liveDir ?? null
+      );
+    const homes = [...(liveDir ? [liveDir] : []), ...fallbackHomes(managed)];
+    return codexHomeOfThread(sessionId, homes) ?? liveDir ?? null;
+  }
+
+  // Busy work on the live session: it is not replaced for an account check.
+  function accountSwitchBlocked(managed: ManagedAgent): boolean {
+    const sm = managed.sessionManager;
+    return (
+      sm.session !== null &&
+      (sm.pendingTurn !== null ||
+        sm.abortPromise !== null ||
+        managed.info.sessionSwapping ||
+        inMultiStepFlow(managed))
+    );
+  }
+
+  // The account check at a turn start, before the turn captures its session
+  // (design: task 2008c993). The agent's sessions go to the office sign-in
+  // while its member's fallback wants that, and back otherwise. A live
+  // session on the other account is closed, the conversation moves, and a
+  // new session resumes it there. One chat line at each switch. "failed":
+  // the move failed, and the agent stays where it was.
+  // null: nothing to check, decided without yielding, so a turn start with
+  // no fallback in play keeps its timing.
+  const accountChecks = new Map<
+    string,
+    Promise<"same" | "switched" | "failed">
+  >();
+  function alignAccount(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<"same" | "switched" | "failed"> | null {
+    const running = accountChecks.get(agentId);
+    if (running) return running;
+    const wanted = officeWanted(
+      managed.info.userId,
+      managed.info.agentType,
+      managed.info.modelFamily,
+    );
+    if (!wanted && !managed.officeFallback) return null;
+    const check = alignAccountNow(agentId, managed, wanted).finally(() =>
+      accountChecks.delete(agentId),
+    );
+    accountChecks.set(agentId, check);
+    return check;
+  }
+
+  async function alignAccountNow(
+    agentId: string,
+    managed: ManagedAgent,
+    wanted: { office: FallbackAccount; entry: FallbackEntry } | null,
+  ): Promise<"same" | "switched" | "failed"> {
+    const provider = managed.info.agentType;
+    const toOffice = wanted !== null;
+    const target =
+      wanted?.office ?? ownAccount(managed.info.userId, provider)?.account;
+    if (!target) return "same";
+    const sm = managed.sessionManager;
+    const live = liveAccount(managed);
+    const liveMoves =
+      sm.session !== null && !(live && sameAccount(live, target));
+    if (!liveMoves && managed.officeFallback === toOffice) return "same";
+    if (accountSwitchBlocked(managed)) return "same";
+    const sessionId = sm.sessionId;
+    if (liveMoves) {
+      managed.dormantReason = "idle";
+      await sm.closeAndDrainSession(managed);
+    }
+    // Claude and Codex keep the conversation in the account folder.
+    if (sessionId && "dir" in target && provider !== "opencode") {
+      const from = conversationDir(managed, sessionId);
+      if (from && resolve(from) !== resolve(target.dir)) {
+        const move: SessionMove =
+          provider === "claude"
+            ? {
+                engine: "claude",
+                sessionId,
+                cwd: managed.info.cwd,
+                fromRoot: from,
+                toRoot: target.dir,
+              }
+            : {
+                engine: "codex",
+                threadId: sessionId,
+                fromHome: from,
+                toHome: target.dir,
+              };
+        try {
+          await copySessionFilesInAgentSpace(move);
+          if (provider === "claude")
+            setSessionClaudeConfigDir(agentId, sessionId, target.dir);
+        } catch (err) {
+          console.error(
+            `[provider-fallback] ${agentId}: the conversation stays on its account; its move failed:`,
+            errMessage(err),
+          );
+          if (liveMoves) reinstallAfterAccountCheck(managed);
+          return "failed";
+        }
+        await removeSessionSourceInAgentSpace(move).catch((err: unknown) =>
+          console.error(
+            `[provider-fallback] ${agentId}: the moved conversation's old files stay:`,
+            errMessage(err),
+          ),
+        );
+      }
+    }
+    if (managed.officeFallback !== toOffice) {
+      managed.officeFallback = toOffice;
+      if (agents.get(agentId) === managed) persistAll();
+      const providerName = providerDisplayName(provider);
+      addLogEntry(
+        agentId,
+        "system",
+        wanted
+          ? msg("systemEntries.providerFallback.toOffice", {
+              provider: providerName,
+              at: { time: wanted.entry.until, shape: "weekdayDateTime" },
+              relative: { relative: wanted.entry.until },
+            })
+          : msg("systemEntries.providerFallback.backToOwn", {
+              provider: providerName,
+            }),
+      );
+    }
+    // One OpenCode server serves all of the member's OpenCode work: no turn
+    // starts until it runs with the key this agent now wants.
+    if (provider === "opencode") await awaitOpenCodeServer(managed);
+    if (liveMoves) reinstallAfterAccountCheck(managed);
+    return "switched";
+  }
+
+  async function awaitOpenCodeServer(managed: ManagedAgent): Promise<void> {
+    const backend = getBackend("opencode");
+    if (!backend.awaitCurrentServer) return;
+    const userId = managed.info.userId;
+    try {
+      await backend.awaitCurrentServer({
+        environmentKey: environmentSourceKeyForUserId(userId),
+        env: buildOpenCodeLaunchEnvironmentForUserId(userId),
+        environmentRevision: openCodeEnvironmentRevisionForUserId(userId),
+        mcpServers: agentMcpServers(userId),
+      });
+    } catch (err) {
+      console.error(
+        `[provider-fallback] ${managed.info.id}: the OpenCode server did not move to the new key:`,
+        errMessage(err),
+      );
+    }
+  }
+
+  // The check closed the live session: the conversation resumes at once,
+  // with no wake line. A failure leaves no session; the wake that follows
+  // reports it.
+  function reinstallAfterAccountCheck(managed: ManagedAgent): void {
+    if (managed.sessionManager.session) return;
+    try {
+      const sessionId = pickAutoResumeSessionId(managed);
+      managed.sessionManager.installSession(
+        managed,
+        sessionId ? createSession(managed, sessionId) : createSession(managed),
+      );
+    } catch (err) {
+      console.error(
+        `[provider-fallback] ${managed.info.id}: no session after the account check:`,
+        errMessage(err),
+      );
+    }
+  }
+
+  // A usage limit stopped the running turn. On the member's own sign-in,
+  // with a fallback to go to, the member's entry starts and the turn's end
+  // queues the continue (limitStopFallback). On the office sign-in, the
+  // resume waits for the earlier of the two resets. Returns the reset time
+  // the turn's end arms the resume at, or null.
+  function fallbackStop(
+    managed: ManagedAgent,
+    stop: { resetsAtMs?: number; family?: FallbackFamily },
+  ): number | null {
+    const today = stop.resetsAtMs ?? null;
+    const provider = managed.info.agentType;
+    const userId = managed.info.userId;
+    const pair = fallbackPair(userId, provider);
+    const live = liveAccount(managed);
+    if (!pair || !live || !userId) return today;
+    if (sameAccount(live, pair.member)) {
+      fallbackState().start(userId, provider, {
+        until:
+          stop.resetsAtMs ??
+          limitResumeClock.now() + OPENCODE_FALLBACK_RETRY_MS,
+        ...(provider === "claude" && stop.family
+          ? { family: stop.family }
+          : {}),
+      });
+      managed.limitStopFallback = true;
+      return today;
+    }
+    if (managed.officeFallback && sameAccount(live, pair.office)) {
+      const entry = fallbackState().entry(userId, provider);
+      if (entry)
+        return today === null ? entry.until : Math.min(today, entry.until);
+    }
+    return today;
+  }
+
+  // The turn the fallback continues on the office sign-in. With the
+  // agent's resume after a limit off, none: its next turn moves.
+  function queueFallbackContinue(agentId: string, managed: ManagedAgent): void {
+    if (managed.info.limitResume === false) return;
+    const self = getAgentDisplay(agentId);
+    if (!self) return;
+    const result = enqueueMessage(agentId, {
+      sender: {
+        kind: "agent",
+        agentId,
+        agentName: self.name,
+        roomName: self.roomName,
+      },
+      text: FALLBACK_CONTINUE_TEXT,
+      fallbackContinue: true,
+      limitResumeMemberIds: [...managed.info.turnMemberIds],
+    });
+    if (!result.ok)
+      console.warn(
+        `Continue on the office sign-in not queued for ${agentId}: ${result.status} ${result.error}`,
+      );
   }
 
   // Re-derive each agent's limitedClaudeFamilies and claudeFamilyModels after
@@ -6972,7 +7449,34 @@ export function createAgentManager(deps: ManagerDeps) {
   function buildOpenCodeLaunchEnvironmentForUserId(
     userId: string | null | undefined,
   ): { [key: string]: string | undefined } | undefined {
-    return buildEnvForUserId(userId);
+    const env = buildEnvForUserId(userId);
+    // A member on the office sign-in (server/provider-fallback.ts): one
+    // server serves all of the member's OpenCode work, so all of it moves.
+    const wanted = officeWanted(userId, "opencode", undefined);
+    if (wanted && "apiKey" in wanted.office)
+      return {
+        ...(env ?? getAgentHost().baseEnv()),
+        OPENCODE_API_KEY: wanted.office.apiKey,
+      };
+    return env;
+  }
+
+  // The environment revision an agent's sessions pass.
+  function sessionEnvironmentRevision(managed: ManagedAgent): string {
+    return managed.info.agentType === "opencode"
+      ? openCodeEnvironmentRevisionForUserId(managed.info.userId)
+      : environmentSourceRevisionForUserId(managed.info.userId);
+  }
+
+  // The environment revision of the member's OpenCode server: a new one when
+  // the server must start again on the other key.
+  function openCodeEnvironmentRevisionForUserId(
+    userId: string | null | undefined,
+  ): string {
+    const revision = environmentSourceRevisionForUserId(userId);
+    return officeWanted(userId, "opencode", undefined)
+      ? `${revision}:office-fallback`
+      : revision;
   }
 
   // A saved env variable, secret or MCP server in `scope` (an office save
@@ -6994,7 +7498,7 @@ export function createAgentManager(deps: ManagerDeps) {
         getBackend("opencode").updateSavedSettings?.({
           environmentKey: key,
           env: buildOpenCodeLaunchEnvironmentForUserId(userId),
-          environmentRevision: environmentSourceRevisionForUserId(userId),
+          environmentRevision: openCodeEnvironmentRevisionForUserId(userId),
           mcpServers: agentMcpServers(userId),
         });
       }
@@ -7321,9 +7825,7 @@ export function createAgentManager(deps: ManagerDeps) {
       sandbox: managed.info.codexSandbox,
       env,
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
-      environmentRevision: environmentSourceRevisionForUserId(
-        managed.info.userId,
-      ),
+      environmentRevision: sessionEnvironmentRevision(managed),
       mcpServers: agentMcpServers(managed.info.userId),
       ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
     };
@@ -7338,6 +7840,8 @@ export function createAgentManager(deps: ManagerDeps) {
       isClaudeCloudSelected(env ?? getAgentHost().baseEnv());
     managed.claudeApiKeySource = undefined;
     managed.billingAccount = billingAccountFor(managed.info.agentType, env);
+    managed.launchedOpenCodeKey =
+      managed.info.agentType === "opencode" ? env?.OPENCODE_API_KEY : undefined;
     managed.launchedUsageKey = usageAccountKey(
       managed.info.agentType,
       env ?? getAgentHost().baseEnv(),
@@ -7505,6 +8009,7 @@ export function createAgentManager(deps: ManagerDeps) {
       autoHandoffNotice: null,
       limitStopResetsAtMs: null,
       limitResumeAt: null,
+      officeFallback: false,
       pendingFreshRecoveryNotice: false,
       authNeededThisTurn: false,
       subscriptionUsage: null,
@@ -7647,6 +8152,7 @@ export function createAgentManager(deps: ManagerDeps) {
     requestHandoff,
     persistAll,
     requeueSwappedSend,
+    alignAccount,
     wakeDormantSession: (agentId, managed, rawText, username, device) =>
       wakeSessionForSend(agentId, managed, {
         // echoEarly:false - executeSkill echoes the user's command AFTER the
@@ -7817,7 +8323,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // The resume after a usage limit, and the wake after a server restart,
     // are whole messages of their own.
     if (
-      (m.limitResume || m.restartWake) &&
+      (m.limitResume || m.restartWake || m.fallbackContinue) &&
       m.sender.kind === "agent" &&
       m.sender.agentId === receiverAgentId
     ) {
@@ -7907,6 +8413,10 @@ export function createAgentManager(deps: ManagerDeps) {
         );
         continue;
       }
+      // The continue on the office sign-in: the switch line already says it.
+      if (m.fallbackContinue) {
+        continue;
+      }
       addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
     }
     // Trigger topic generation only after the user_message log entries
@@ -7968,6 +8478,7 @@ export function createAgentManager(deps: ManagerDeps) {
       !m.handoff &&
       !m.limitResume &&
       !m.restartWake &&
+      !m.fallbackContinue &&
       !m.native
     );
   }
@@ -8396,6 +8907,8 @@ export function createAgentManager(deps: ManagerDeps) {
       limitResumeMemberIds?: string[];
       // QueuedMessage.restartWake.
       restartWake?: boolean;
+      // QueuedMessage.fallbackContinue.
+      fallbackContinue?: boolean;
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -8435,8 +8948,13 @@ export function createAgentManager(deps: ManagerDeps) {
     if (capRefusal) return capRefusal;
 
     const id = generateQueuedId(managed.messageQueue);
+    // The continue on the office sign-in is queued by the stopped turn's
+    // own end, so no reply came before it.
     const queuedDuringBusyTurn =
-      state !== "error" && !isQueueIdleState(state) && !msg.resend;
+      state !== "error" &&
+      !isQueueIdleState(state) &&
+      !msg.resend &&
+      !msg.fallbackContinue;
     // A steer at a busy receiver whose backend delivers at tool boundaries
     // waits for the running tool batch instead of aborting the turn
     // (internal-docs/steer-delivery-design.md). Decided here, against the same
@@ -8463,6 +8981,7 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(msg.handoff ? { handoff: true } : {}),
       ...(msg.limitResume ? { limitResume: true } : {}),
       ...(msg.restartWake ? { restartWake: true } : {}),
+      ...(msg.fallbackContinue ? { fallbackContinue: true } : {}),
       ...(msg.limitResumeMemberIds?.length
         ? { limitResumeMemberIds: msg.limitResumeMemberIds }
         : {}),
@@ -8653,6 +9172,30 @@ export function createAgentManager(deps: ManagerDeps) {
           await managed.sessionManager.abortPromise;
         } catch {}
         // Re-check again after the abort handoff.
+        if (!agents.has(agentId)) return;
+        if (!isQueueIdleState(managed.info.state)) return;
+        if (inMultiStepFlow(managed)) return;
+        if (managed.messageQueue.length === 0 && !handoffWaiting(managed))
+          return;
+      }
+      // The account check (server/provider-fallback.ts), before the batch
+      // takes the session. A failed move keeps the conversation on the
+      // member's own sign-in: the continue meant for the office sign-in is
+      // dropped, and the agent waits for the member's reset instead.
+      const accountCheck = alignAccount(agentId, managed);
+      if (accountCheck && (await accountCheck) === "failed") {
+        const continues = new Set(
+          managed.messageQueue.filter((m) => m.fallbackContinue),
+        );
+        if (continues.size > 0) {
+          drainQueueItems(agentId, managed, continues);
+          const entry = managed.info.userId
+            ? fallbackState().entry(managed.info.userId, managed.info.agentType)
+            : null;
+          if (entry) armLimitResume(agentId, managed, entry.until);
+        }
+      }
+      if (accountCheck) {
         if (!agents.has(agentId)) return;
         if (!isQueueIdleState(managed.info.state)) return;
         if (inMultiStepFlow(managed)) return;
@@ -9531,6 +10074,13 @@ export function createAgentManager(deps: ManagerDeps) {
         await managed.sessionManager.abortPromise;
       } catch {}
     }
+    // The account check (server/provider-fallback.ts) for a message that
+    // starts a turn: before the wake below and before the turn takes the
+    // session.
+    if (echoEarly) {
+      const accountCheck = alignAccount(agentId, managed);
+      if (accountCheck) await accountCheck;
+    }
     // Defensive: a permission request can briefly appear during the abort drain
     // (the SDK's `canUseTool` can fire from buffered events before the dying
     // session's signal listener at line 1051 clears pendingPermission). If
@@ -10142,6 +10692,10 @@ export function createAgentManager(deps: ManagerDeps) {
     // (the normal lazy-restore path - skipped at the top because isSlash). A
     // genuinely-broken (non-dormant) session is left alone so runAgentTurn
     // surfaces the descriptive "no session, type /clear" error.
+    if (isSlash) {
+      const accountCheck = alignAccount(agentId, managed);
+      if (accountCheck) await accountCheck;
+    }
     if (!managed.sessionManager.session && managed.info.dormant) {
       if (
         !wakeSessionForSend(agentId, managed, {
@@ -12360,9 +12914,7 @@ export function createAgentManager(deps: ManagerDeps) {
         cwd: managed.info.cwd,
         env,
         environmentKey,
-        environmentRevision: environmentSourceRevisionForUserId(
-          managed.info.userId,
-        ),
+        environmentRevision: sessionEnvironmentRevision(managed),
         mcpServers: agentMcpServers(managed.info.userId),
         ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
       });
@@ -12630,9 +13182,7 @@ export function createAgentManager(deps: ManagerDeps) {
         interactive: true,
         env: editEnv,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
-        environmentRevision: environmentSourceRevisionForUserId(
-          managed.info.userId,
-        ),
+        environmentRevision: sessionEnvironmentRevision(managed),
         ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
       };
       const backendMessages = await backend.getSessionMessages(
@@ -13333,6 +13883,7 @@ export function createAgentManager(deps: ManagerDeps) {
     refreshLimitedClaudeFamilies,
     providerAccountChanged,
     buildOpenCodeLaunchEnvironmentForUserId,
+    openCodeEnvironmentRevisionForUserId,
     openCodeSkillPathsForUserId,
     pushOpenCodeSettings,
     environmentSourceKeyForUserId,

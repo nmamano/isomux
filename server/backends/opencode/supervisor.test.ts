@@ -1378,6 +1378,52 @@ describe("OpenCode shared server supervisor", () => {
     after.release();
   }, 20_000);
 
+  // Task 2008c993: the office sign-in fallback changes the key the member's
+  // shared server starts with, and the agent's turn must not start before the
+  // server runs with it. The wait lasts while another agent's turn runs on
+  // the old server, and ends with the replacement.
+  it("waits until the server runs with new settings: through a running turn, and at once with none running", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const memberDir = join(path, "member-opencode");
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      { S4_ENV_CANARY: "member-key" },
+      binary,
+    );
+    // Nothing runs: no wait.
+    await supervisor.waitUntilCurrent();
+
+    const other = await supervisor.acquire();
+    await other.beginTurn();
+    const priorPid = other.pid;
+    supervisor.updateSettings(
+      { OPENCODE_CONFIG_DIR: memberDir, S4_ENV_CANARY: "office-key" },
+      "revision-office",
+      [],
+    );
+    let current = false;
+    const waiting = supervisor.waitUntilCurrent().then(() => {
+      current = true;
+    });
+    await Bun.sleep(200);
+    expect(current, "the wait lasts while the other turn runs").toBe(false);
+    expect(alive(priorPid)).toBe(true);
+
+    other.endTurn();
+    await waiting;
+    expect(alive(priorPid), "the wait ends after the replacement").toBe(false);
+    const next = await supervisor.acquire();
+    await next.beginTurn();
+    expect(next.replacementPending).toBe(false);
+    await expectChildEnvironment(next.pid, { S4_ENV_CANARY: "office-key" });
+    next.endTurn();
+    next.release();
+    other.release();
+  }, 20_000);
+
   it("takes saved settings with no server running: nothing is pending, and the next start uses them", async () => {
     const path = await root();
     const { binary, launchMarker } = await makeHealthOnlyBinary(path);

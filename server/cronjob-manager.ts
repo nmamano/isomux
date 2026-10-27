@@ -213,6 +213,13 @@ export interface CronjobManagerDeps {
   // The skill folders of a member's OpenCode server (the agent manager's,
   // so a run passes the same list as the member's agent sessions).
   resolveOpenCodeSkillPaths?: (userId: string | null | undefined) => string[];
+  // The launch env and environment revision of a member's OpenCode server
+  // (the agent manager's, so a run starts the server as the member's agents
+  // do). Omitted: the member's env and environment revision.
+  resolveOpenCodeLaunch?: (userId: string | null | undefined) => {
+    env: Record<string, string | undefined> | undefined;
+    environmentRevision: string;
+  };
   // Owner lookup for env/identity (production: getUserByName).
   resolveUser: typeof defaultResolveUser;
   // The whole cron config/run persistence surface, injected as one unit.
@@ -995,10 +1002,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const env = buildEnvForUserId(userId);
     const mcpServers = deps.resolveMcpServers?.(userId) ?? [];
     if (agentType !== "opencode") return { env, mcpServers };
+    // One OpenCode server serves all of a member's OpenCode work, so a run
+    // starts it with the key the member's agents use (on a provider fallback,
+    // the office key).
+    const launch = deps.resolveOpenCodeLaunch?.(userId);
     return {
-      env,
+      env: launch ? launch.env : env,
       environmentKey: environmentSourceKeyForUserId(userId),
-      environmentRevision: environmentSourceRevisionForUserId(userId),
+      environmentRevision: launch
+        ? launch.environmentRevision
+        : environmentSourceRevisionForUserId(userId),
       mcpServers,
       ...(deps.resolveOpenCodeSkillPaths
         ? { skillPaths: deps.resolveOpenCodeSkillPaths(userId) }
@@ -2744,6 +2757,7 @@ export function createProductionCronjobManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
   limitRefusal?: CronjobManagerDeps["limitRefusal"];
   resolveOpenCodeSkillPaths?: CronjobManagerDeps["resolveOpenCodeSkillPaths"];
+  resolveOpenCodeLaunch?: CronjobManagerDeps["resolveOpenCodeLaunch"];
 }): CronjobManager {
   return createCronjobManager({
     ...(overrides?.limitRefusal
@@ -2757,6 +2771,9 @@ export function createProductionCronjobManager(overrides?: {
       mcpServersForUserId(createMcpServerSources(), userId),
     ...(overrides?.resolveOpenCodeSkillPaths
       ? { resolveOpenCodeSkillPaths: overrides.resolveOpenCodeSkillPaths }
+      : {}),
+    ...(overrides?.resolveOpenCodeLaunch
+      ? { resolveOpenCodeLaunch: overrides.resolveOpenCodeLaunch }
       : {}),
     resolveUser: defaultResolveUser,
     persistence: cronPersistence,

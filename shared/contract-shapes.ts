@@ -901,6 +901,9 @@ export interface OfficeSettingsReq {
   memberUsageShare?: number;
   // The "Record terminals" switch. Omitted preserves it.
   recordTerminals?: boolean;
+  // The fallback to the office sign-in when a member's own sign-in reaches
+  // its usage limit (server/provider-fallback.ts). Omitted preserves it.
+  providerFallback?: boolean;
 }
 
 // `notes`: the usage note of each variable that has one (integrations A4).
@@ -1308,6 +1311,7 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "name"> & {
   memberUsageCap?: boolean;
   memberUsageShare?: number;
   recordTerminals?: boolean;
+  providerFallback?: boolean;
 };
 
 // office.getMemberUsageStatus response: the member usage cap's status lines,

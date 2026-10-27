@@ -3,10 +3,23 @@
 // (server/test-support/split-rig.integration.test.ts) checks a real foreign uid.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { execFileSync } from "child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { connect, createServer, type Server } from "net";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
+import { getAgentHost, setAgentHost } from "../agent-host.ts";
+import { claudeProjectDir } from "../cwd-utils.ts";
+import {
+  copySessionFilesInAgentSpace,
+  removeSessionSourceInAgentSpace,
+} from "../session-account-move.ts";
 import { runIsomuxDiff } from "../isomux-diff.ts";
 import {
   readRunnerInfo,
@@ -365,6 +378,41 @@ describe("agent runner identity and entries", () => {
       kind: "bad_dir",
       attempted: join(repo, "missing"),
     });
+  });
+
+  // Task 2008c993: in split mode the account folders are agent space, so a
+  // conversation moves between accounts through the runner.
+  it("moves a conversation between accounts, and a failed move rejects", async () => {
+    start();
+    const cwd = join(dir, "work");
+    const fromRoot = join(dir, "member");
+    const toRoot = join(dir, "office");
+    const sid = crypto.randomUUID();
+    const transcript = (root: string) =>
+      join(claudeProjectDir(cwd, { CLAUDE_CONFIG_DIR: root }), `${sid}.jsonl`);
+    mkdirSync(dirname(transcript(fromRoot)), { recursive: true });
+    writeFileSync(transcript(fromRoot), "line\n");
+    const move = {
+      engine: "claude" as const,
+      sessionId: sid,
+      cwd,
+      fromRoot,
+      toRoot,
+    };
+    const previous = getAgentHost();
+    setAgentHost(await RunnerAgentHost.connect(socketPath));
+    try {
+      await copySessionFilesInAgentSpace(move);
+      expect(readFileSync(transcript(toRoot), "utf8")).toBe("line\n");
+      expect(existsSync(transcript(fromRoot))).toBe(true);
+      await removeSessionSourceInAgentSpace(move);
+      expect(existsSync(transcript(fromRoot))).toBe(false);
+      expect(readFileSync(transcript(toRoot), "utf8")).toBe("line\n");
+      // Nothing left to copy in the member's folder.
+      await expectRejection(copySessionFilesInAgentSpace(move), /./);
+    } finally {
+      setAgentHost(previous);
+    }
   });
 
   it("reports each diagnostic try by its error code", async () => {

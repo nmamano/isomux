@@ -8,6 +8,13 @@ import type { OfficeSettings } from "../../shared/types.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
 import { memberUsageCap } from "../member-usage-cap.ts";
+import {
+  providerFallback,
+  resetProviderFallback,
+} from "../provider-fallback.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { STATE_ROOT } from "../config.ts";
 
 describe("office settings", () => {
   // Phase 3a slice 3a.5 - office.{getSettings,setSettings} on the unified REST
@@ -339,6 +346,76 @@ describe("office settings", () => {
           (m) => (m as { type?: string }).type === "office_settings_updated",
         ),
       ).toBe(false);
+    });
+
+    // Task 2008c993: the fallback to the office sign-in when a member's own
+    // sign-in reaches its usage limit. Same owner rule as the rest of the
+    // blob (checked for the route below).
+    it("providerFallback: off by default, saved, in the version, kept when omitted, refused when not a boolean, read again at boot", async () => {
+      const srv = await startTestServer();
+      server = srv;
+      const owner = await srv.seedOwner("Morgan");
+      const read = async () =>
+        (await api(srv, "/api/office/settings", {
+          rawSessionId: owner.rawSessionId,
+        })) as {
+          status: number;
+          body: { version: string; providerFallback?: boolean };
+        };
+      const put = (body: Record<string, unknown>) =>
+        api(srv, "/api/office/settings", {
+          method: "PUT",
+          rawSessionId: owner.rawSessionId,
+          body,
+        });
+
+      const before = await read();
+      expect(before.body.providerFallback).toBe(false);
+      expect(providerFallback().isEnabled()).toBe(false);
+      expect(
+        (await put({ version: before.body.version, providerFallback: true }))
+          .status,
+      ).toBe(204);
+      const on = await read();
+      expect(on.body.providerFallback).toBe(true);
+      expect(on.body.version).not.toBe(before.body.version);
+      expect(providerFallback().isEnabled()).toBe(true);
+      const config = JSON.parse(
+        readFileSync(join(STATE_ROOT, "office-config.json"), "utf8"),
+      ) as { providerFallback?: boolean };
+      expect(config.providerFallback).toBe(true);
+
+      // Another field's save keeps it.
+      expect(
+        (await put({ version: on.body.version, name: "Acme" })).status,
+      ).toBe(204);
+      const kept = await read();
+      expect(kept.body.providerFallback).toBe(true);
+
+      for (const bad of ["yes", 1, null]) {
+        const r = await put({
+          version: kept.body.version,
+          providerFallback: bad,
+        });
+        const err = (r.body as { error?: { code?: string } } | null)?.error;
+        expect([bad, r.status, err?.code]).toEqual([
+          bad,
+          400,
+          "invalid_request",
+        ]);
+      }
+      expect((await read()).body.version).toBe(kept.body.version);
+      expect(providerFallback().isEnabled()).toBe(true);
+
+      // A boot reads the switch from the state root.
+      resetProviderFallback();
+      expect(providerFallback().isEnabled()).toBe(true);
+      expect(
+        (await put({ version: kept.body.version, providerFallback: false }))
+          .status,
+      ).toBe(204);
+      resetProviderFallback();
+      expect(providerFallback().isEnabled()).toBe(false);
     });
   });
 });

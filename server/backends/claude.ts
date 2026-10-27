@@ -142,6 +142,7 @@ import {
   providerText,
 } from "./provider-text.ts";
 import { authSignal } from "./auth-signal.ts";
+import { claudeStopFamily } from "../provider-fallback.ts";
 
 // The terminal sign-in and sign-out run `claude` when the member has it on
 // PATH, and otherwise the binary bundled with the Agent SDK, so they never
@@ -1721,7 +1722,11 @@ interface TrackedTask {
 // stop is ignored: the main thread then makes its own call and gets its own
 // message.
 class ClaudeUsageLimitTracker {
-  private latest: { status?: unknown; resetsAt?: unknown } | null = null;
+  private latest: {
+    status?: unknown;
+    resetsAt?: unknown;
+    rateLimitType?: unknown;
+  } | null = null;
   private stoppedThisTurn = false;
 
   // The main thread's synthetic limit message.
@@ -1751,7 +1756,17 @@ class ClaudeUsageLimitTracker {
     const resetsAt = this.latest.resetsAt;
     if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt)) return [];
     if (resetsAt <= 0) return [];
-    return [{ kind: "usage_limit_stop", resetsAtMs: resetsAt * 1000 }];
+    const type = this.latest.rateLimitType;
+    const family = claudeStopFamily(
+      typeof type === "string" ? type : undefined,
+    );
+    return [
+      {
+        kind: "usage_limit_stop",
+        resetsAtMs: resetsAt * 1000,
+        ...(family ? { family } : {}),
+      },
+    ];
   }
 }
 

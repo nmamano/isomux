@@ -206,6 +206,8 @@ export class OpenCodeSupervisor {
   private readonly idleShutdownMs: number;
   private launchEnv: Record<string, string | undefined>;
   private environmentRevision: string;
+  // Callers of waitUntilCurrent, woken after each replacement try.
+  private currentWaiters = new Set<() => void>();
   private currentMcpServers: AgentMcpServer[];
   private replacementPromise: Promise<void> | null = null;
   private starting: Promise<void> | null = null;
@@ -443,6 +445,25 @@ export class OpenCodeSupervisor {
     this.updateMcpServers(mcpServers);
     if (this.updateLaunchEnvironment(launchEnv, environmentRevision))
       this.replaceOnceIdle();
+  }
+
+  // Resolves once no running server has older revisions than the current
+  // ones: at once when none runs, else after the replacement that the last
+  // turn or hold to end runs. A replacement that failed ends the wait too.
+  async waitUntilCurrent(): Promise<void> {
+    while (this.recordStale()) {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      this.currentWaiters.add(resolve);
+      this.replaceOnceIdle();
+      await promise;
+      if (this.activeTurns === 0 && this.holds === 0) return;
+    }
+  }
+
+  private wakeCurrentWaiters(): void {
+    const waiters = [...this.currentWaiters];
+    this.currentWaiters.clear();
+    for (const wake of waiters) wake();
   }
 
   // A member's reload: a new server process. 2.1.4 also reloads a folder's
@@ -713,11 +734,15 @@ export class OpenCodeSupervisor {
   // at acquire.
   private replaceOnceIdle(): void {
     if (this.activeTurns > 0 || this.holds > 0) return;
-    void this.replaceIdleServer().catch(() => {
-      console.error(
-        "[opencode] Server replacement after the last turn failed.",
-      );
-    });
+    void this.replaceIdleServer()
+      .catch(() => {
+        console.error(
+          "[opencode] Server replacement after the last turn failed.",
+        );
+      })
+      // A waiter checks again: a failed replacement leaves it waiting for
+      // the next turn or hold to end.
+      .finally(() => this.wakeCurrentWaiters());
   }
 
   // True when the replacement ran.
@@ -782,6 +807,22 @@ export function updateOpenCodeSupervisorSettings(
   environmentSupervisors
     .get(supervisorKey(environmentKey))
     ?.updateSettings(launchEnvFor(env), environmentRevision, mcpServers);
+}
+
+// A change a turn must not start without (the office sign-in fallback): the
+// existing supervisor takes the new inputs and the caller waits until its
+// server runs with them. No supervisor in this process: no server of this
+// process runs, and the next acquire starts one with the new inputs.
+export async function awaitOpenCodeServerSettings(
+  environmentKey: string,
+  env: Record<string, string | undefined> | undefined,
+  environmentRevision: string,
+  mcpServers: AgentMcpServer[],
+): Promise<void> {
+  const supervisor = environmentSupervisors.get(supervisorKey(environmentKey));
+  if (!supervisor) return;
+  supervisor.updateSettings(launchEnvFor(env), environmentRevision, mcpServers);
+  await supervisor.waitUntilCurrent();
 }
 
 // A member's /reload-plugins for the server of this environment key. With no

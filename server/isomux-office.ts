@@ -498,6 +498,10 @@ import {
   resetMemberUsageCap,
   usageCapText,
 } from "./member-usage-cap.ts";
+import {
+  providerFallback,
+  resetProviderFallback,
+} from "./provider-fallback.ts";
 import { measureStorageCached, type StorageRoots } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
@@ -926,6 +930,11 @@ function createManagers(startOpts: StartServerOpts): void {
     resolveBackend: startOpts.resolveBackend,
     resolveOpenCodeSkillPaths: (userId) =>
       agentManager.openCodeSkillPathsForUserId(userId),
+    resolveOpenCodeLaunch: (userId) => ({
+      env: agentManager.buildOpenCodeLaunchEnvironmentForUserId(userId),
+      environmentRevision:
+        agentManager.openCodeEnvironmentRevisionForUserId(userId),
+    }),
     limitRefusal: (job) => {
       const maker = job.createdByAgentId
         ? ordinaryScheduleMaker(job.createdByAgentId)
@@ -2228,6 +2237,7 @@ function officeSettingsVersion(): string {
       memberUsageCap().isEnabled(),
       memberUsageCap().share(),
       loadRecordTerminals(),
+      providerFallback().isEnabled(),
     ]),
   );
 }
@@ -2261,6 +2271,7 @@ function applyOfficeSettings(
     memberUsageCap?: boolean;
     memberUsageShare?: number;
     recordTerminals?: boolean;
+    providerFallback?: boolean;
     expectedVersion: string;
   },
   actor: AuditActor,
@@ -2300,6 +2311,12 @@ function applyOfficeSettings(
     input.memberUsageShare !== memberUsageCap().share()
   )
     memberUsageCap().setShare(input.memberUsageShare);
+  // Agents move to or from the office sign-in at their next turn.
+  if (
+    input.providerFallback !== undefined &&
+    input.providerFallback !== providerFallback().isEnabled()
+  )
+    providerFallback().setEnabled(input.providerFallback);
   if (
     input.recordTerminals !== undefined &&
     input.recordTerminals !== loadRecordTerminals()
@@ -2427,9 +2444,10 @@ async function listBackendModels(input: {
       cwd,
       env,
       environmentKey: agentManager.environmentSourceKeyForUserId(input.userId),
-      environmentRevision: agentManager.environmentSourceRevisionForUserId(
-        input.userId,
-      ),
+      environmentRevision:
+        input.agentType === "opencode"
+          ? agentManager.openCodeEnvironmentRevisionForUserId(input.userId)
+          : agentManager.environmentSourceRevisionForUserId(input.userId),
       ...(input.agentType === "opencode"
         ? {
             skillPaths: agentManager.openCodeSkillPathsForUserId(input.userId),
@@ -5370,6 +5388,7 @@ function buildExecutorDeps(
         memberUsageCap: memberUsageCap().isEnabled(),
         memberUsageShare: memberUsageCap().share(),
         recordTerminals: loadRecordTerminals(),
+        providerFallback: providerFallback().isEnabled(),
       }),
       // Status reads the providers, so only while the cap is on.
       getMemberUsageStatus: async (provider) => ({
@@ -9400,6 +9419,7 @@ export interface ServerHandle {
 // doesn't inherit a prior server's sockets / id counter.
 function resetServerModuleState(): void {
   resetMemberUsageCap();
+  resetProviderFallback();
   browsers.clear();
   apiTokenSockets.clear();
   connectionIdCounter = 0;

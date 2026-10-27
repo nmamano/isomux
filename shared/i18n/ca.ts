@@ -523,6 +523,10 @@ Coses que pots fer per ell:
   "settings.office.memberUsageCap": "Marcar el ritme d'ús dels membres",
   "settings.office.memberUsageCapHint":
     "Els torns dels membres amb la sessió de tota l'oficina s'aturen en un límit que puja cada dia de la setmana, fins a la part dels membres.",
+  "settings.office.providerFallback":
+    "Fer servir la sessió de tota l'oficina com a reserva",
+  "settings.office.providerFallbackHint":
+    "Quan la sessió pròpia d'un membre arriba al límit d'ús, els seus agents continuen amb la sessió de tota l'oficina fins que es restableix.",
   "settings.office.memberUsageShare": "Part dels membres del límit setmanal",
   "settings.office.memberUsageShareOption": "{share} %",
   "settings.office.memberUsageWeekly":
@@ -2906,6 +2910,10 @@ Coses que pots fer per ell:
     "El límit d'ús s'ha restablert. Isomux ha reprès l'agent.",
   "systemEntries.restartWake.resumed":
     "El servidor s'ha reiniciat durant el torn. Isomux ha reprès l'agent.",
+  "systemEntries.providerFallback.toOffice":
+    "L'agent fa servir la sessió de {provider} de tota l'oficina fins al {at} ({relative}), mentre la sessió pròpia del responsable és al seu límit d'ús.",
+  "systemEntries.providerFallback.backToOwn":
+    "L'agent torna a la sessió pròpia de {provider} del responsable.",
   "systemEntries.usageLimit.stopped":
     "S'ha arribat al límit d'ús. Es reinicia el {at} ({relative}).",
   "systemEntries.usageCap.pace":

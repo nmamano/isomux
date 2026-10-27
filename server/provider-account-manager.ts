@@ -34,6 +34,7 @@ import {
   isPersonalProviderActive,
   personalProviderHome,
 } from "./provider-homes.ts";
+import { providerFallback } from "./provider-fallback.ts";
 import { memberUsageCap } from "./member-usage-cap.ts";
 import { clearClaudeConnectors } from "./claude-connectors.ts";
 import { getAgentHost } from "./agent-host.ts";
@@ -1000,6 +1001,13 @@ export class ProviderAccountManager {
       // The office may now be a different account: drop the cap's reading.
       if (active.target.scope === "office")
         memberUsageCap().invalidate(active.target.provider);
+      // A member's own account may be another one now: a fallback for the
+      // old one's limit no longer applies.
+      else
+        providerFallback().accountChanged(
+          active.userId,
+          active.target.provider,
+        );
       if (active.target.provider === "claude")
         clearClaudeConnectors(active.target.dir);
       this.onAccountChanged(active.target.provider, active.target.dir);
@@ -1126,6 +1134,7 @@ export class ProviderAccountManager {
     if (scope === "personal" && target.autoPersonal)
       this.deactivatePersonal(userId, provider);
     if (scope === "office") memberUsageCap().invalidate(provider);
+    else providerFallback().accountChanged(userId, provider);
     if (provider === "claude") clearClaudeConnectors(target.dir);
     this.onAccountChanged(provider, target.dir);
 

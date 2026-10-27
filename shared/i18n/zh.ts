@@ -497,6 +497,9 @@ App 的一些原则：
   "settings.office.memberUsageCap": "控制成员用量节奏",
   "settings.office.memberUsageCapHint":
     "成员使用办公室通用登录的轮次会在每日上限处停止；该上限每天递增，最多到成员份额。",
+  "settings.office.providerFallback": "回退到办公室通用登录",
+  "settings.office.providerFallbackHint":
+    "成员自己的登录达到用量限制后，其智能体改用办公室通用登录继续，直到限制重置。",
   "settings.office.memberUsageShare": "成员可用的每周限额份额",
   "settings.office.memberUsageShareOption": "{share}%",
   "settings.office.memberUsageWeekly":
@@ -2614,6 +2617,10 @@ App 的一些原则：
     "用量限制已重置。Isomux 已让智能体继续。",
   "systemEntries.restartWake.resumed":
     "服务器在回合中重启。Isomux 已让智能体继续。",
+  "systemEntries.providerFallback.toOffice":
+    "在 {at}（{relative}）之前，智能体使用办公室通用的 {provider} 登录，因为负责人自己的登录已达到用量限制。",
+  "systemEntries.providerFallback.backToOwn":
+    "智能体已回到负责人自己的 {provider} 登录。",
   "systemEntries.usageLimit.stopped":
     "已达到用量限制。将于 {at} 重置（{relative}）。",
   "systemEntries.usageCap.pace":
