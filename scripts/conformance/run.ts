@@ -60,9 +60,9 @@ import {
   failedOfficeCalls,
   findMarkerTask,
   judgeCommit,
+  messagingFailure,
   newOpenAsk,
   parseUsageLog,
-  replyFrom,
   skillLoaded,
   slashResolved,
   usageCallsSince,
@@ -363,13 +363,15 @@ async function runStep(
       break;
     case "messaging":
       message = `Send a message to the agent ${peer.name} (agent id ${peer.id}) that asks it to reply to you with the word ${nonce}. Then end your turn; its reply comes to you as a new message.`;
-      judge = async (since) => {
-        if (!replyFrom(office.entries(peer.id), subject.id, nonce, since))
-          return `the peer got no message with ${nonce} from the agent`;
-        if (!replyFrom(office.entries(subject.id), peer.id, nonce, since))
-          return `the agent got no reply with ${nonce} from the peer`;
-        return null;
-      };
+      judge = async (since) =>
+        messagingFailure(
+          office.entries(subject.id),
+          office.entries(peer.id),
+          subject.id,
+          peer.id,
+          nonce,
+          since,
+        );
       break;
     case "git":
       message = `In your working folder, create the file conformance.txt that contains ${nonce}, and commit it with the message "conformance ${nonce}". Do not set or change the git author.`;

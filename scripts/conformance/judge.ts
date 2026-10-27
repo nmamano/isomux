@@ -221,3 +221,66 @@ export function failedOfficeCalls(
     return e.metadata?.isError === true || OFFICE_ERROR.test(e.content);
   });
 }
+
+// Why the messaging step is red, or null when both legs were delivered. The
+// leading clause names the missing leg; the suffix says what the sender's
+// log shows: its send accepted (agent_outbound) but not in the receiver's
+// log, its send refused by the office, other messages it sent, or no send.
+export function messagingFailure(
+  subjectEntries: LogEntry[],
+  peerEntries: LogEntry[],
+  subjectId: string,
+  peerId: string,
+  nonce: string,
+  since: number,
+): string | null {
+  // One line of the report: whitespace folded, cut at 120 characters.
+  const quote = (text: string) =>
+    `"${text.replace(/\s+/g, " ").trim().slice(0, 120)}"`;
+  const sent = (entries: LogEntry[]) =>
+    entries.filter((e) => e.kind === "agent_outbound" && e.timestamp >= since);
+  // What the sender's log shows about its send to the receiver, or null.
+  const sendStory = (
+    senderEntries: LogEntry[],
+    receiverId: string,
+    sender: string,
+    receiver: string,
+  ): string | null => {
+    const accepted = sent(senderEntries).find(
+      (e) =>
+        e.metadata?.recipient_agent_id === receiverId &&
+        e.content.includes(nonce),
+    );
+    if (accepted)
+      return `; ${sender} sent it (message ${String(accepted.metadata?.message_id)}) and ${receiver}'s log has no such message`;
+    const refused = failedOfficeCalls(senderEntries, receiverId, since)[0];
+    if (refused) return `; ${sender}'s send failed: ${quote(refused.content)}`;
+    return null;
+  };
+
+  if (!replyFrom(peerEntries, subjectId, nonce, since)) {
+    const reason = `the peer got no message with ${nonce} from the agent`;
+    return (
+      reason +
+      (sendStory(subjectEntries, peerId, "the agent", "the peer") ?? "")
+    );
+  }
+  if (replyFrom(subjectEntries, peerId, nonce, since)) return null;
+  const reason = `the agent got no reply with ${nonce} from the peer`;
+  const story = sendStory(peerEntries, subjectId, "the peer", "the agent");
+  if (story) return reason + story;
+  const others = sent(peerEntries).slice(0, 3);
+  if (others.length)
+    return `${reason}; the peer sent: ${others
+      .map(
+        (e) =>
+          `to ${String(e.metadata?.recipient_agent_name ?? e.metadata?.recipient_agent_id)}: ${quote(e.content)}`,
+      )
+      .join("; ")}`;
+  const said = peerEntries
+    .filter(
+      (e) => e.kind === "text" && e.timestamp >= since && e.content.trim(),
+    )
+    .pop();
+  return `${reason}; the peer sent no message${said ? ` and said ${quote(said.content)}` : ""}`;
+}

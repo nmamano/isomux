@@ -7,6 +7,7 @@ import {
   failedOfficeCalls,
   findMarkerTask,
   judgeCommit,
+  messagingFailure,
   newOpenAsk,
   parseUsageLog,
   replyFrom,
@@ -198,6 +199,258 @@ describe("replyFrom", () => {
       inbound(P, NONCE, 900),
     ];
     expect(replyFrom(entries, P, NONCE, 1000)).toBeNull();
+  });
+});
+
+describe("messagingFailure", () => {
+  const NONCE = "cf-5f37";
+  const STEP = 1000;
+  // The reason's leading clauses: the nightly report and the board key on
+  // them, so they stay as they were before the suffix existed.
+  const LEG1 = `the peer got no message with ${NONCE} from the agent`;
+  const LEG2 = `the agent got no reply with ${NONCE} from the peer`;
+  let seq = 0;
+  const entry = (
+    agentId: string,
+    kind: LogEntry["kind"],
+    content: string,
+    timestamp: number,
+    metadata?: Record<string, unknown>,
+  ): LogEntry => ({
+    id: `e${++seq}`,
+    agentId,
+    timestamp,
+    kind,
+    content,
+    ...(metadata ? { metadata } : {}),
+  });
+  // The office's shapes: the receiver's user_message names the sender; the
+  // sender's agent_outbound names the recipient and the message id
+  // (addAgentOutbound in server/agent-manager.ts).
+  const inbound = (to: string, from: string, text: string, at: number) =>
+    entry(to, "user_message", text, at, { sender_agent_id: from });
+  const outbound = (
+    from: string,
+    to: string,
+    text: string,
+    at: number,
+    messageId: string,
+    toName: string | null = to,
+  ) =>
+    entry(from, "agent_outbound", text, at, {
+      recipient_agent_id: to,
+      recipient_agent_name: toName,
+      message_id: messageId,
+    });
+  // A send the office refused: the call names the recipient in its URL and
+  // its result is the office's error body.
+  const refusedSend = (from: string, to: string, error: string, at: number) => {
+    const toolId = `call-${++seq}`;
+    return [
+      entry(from, "tool_call", "Bash", at, {
+        toolId,
+        input: {
+          command: `curl -s -X POST localhost:4000/api/agents/${to}/messages --data-binary @-`,
+        },
+      }),
+      entry(from, "tool_result", error, at + 1, { toolUseId: toolId }),
+    ];
+  };
+  const memberStep = entry(
+    S,
+    "user_message",
+    `Send a message to the agent Peer (agent id ${P}) that asks it to reply to you with the word ${NONCE}.`,
+    STEP,
+    { username: "Owner" },
+  );
+  const asked = inbound(P, S, `Please reply with ${NONCE}`, STEP + 200);
+  const sentAsk = outbound(
+    S,
+    P,
+    `Please reply with ${NONCE}`,
+    STEP + 190,
+    "m-ask",
+  );
+  const judge = (subject: LogEntry[], peer: LogEntry[]) =>
+    messagingFailure(subject, peer, S, P, NONCE, STEP);
+
+  it("is green when both legs reached their receiver", () => {
+    const subject = [memberStep, sentAsk, inbound(S, P, NONCE, STEP + 400)];
+    const peer = [asked, outbound(P, S, NONCE, STEP + 390, "m-reply")];
+    expect(judge(subject, peer)).toBeNull();
+  });
+
+  // Leg 1 first: with nothing delivered either way, the missing first leg
+  // is the cause.
+  it("names leg 1 when neither leg arrived, and adds nothing when the agent sent nothing", () => {
+    expect(judge([memberStep], [])).toBe(LEG1);
+  });
+
+  it("leg 1: names the message the office accepted from the agent", () => {
+    const reason = judge([memberStep, sentAsk], []);
+    expect(reason?.startsWith(LEG1)).toBe(true);
+    expect(reason).toContain("m-ask");
+  });
+
+  it("leg 1: quotes the agent's send the office refused", () => {
+    const reason = judge(
+      [
+        memberStep,
+        ...refusedSend(S, P, '{"error":{"code":"turn_stale"}}', STEP + 100),
+      ],
+      [],
+    );
+    expect(reason?.startsWith(LEG1)).toBe(true);
+    expect(reason).toContain("turn_stale");
+  });
+
+  // The office accepted the peer's reply (agent_outbound exists only after
+  // enqueue returned ok), yet the agent's log has no such message: the
+  // product case, and the message id is what to chase.
+  it("leg 2: names the reply the office accepted but the agent's log lacks", () => {
+    const reason = judge(
+      [memberStep, sentAsk],
+      [asked, outbound(P, S, `Here: ${NONCE}`, STEP + 390, "m-lost")],
+    );
+    expect(reason?.startsWith(LEG2)).toBe(true);
+    expect(reason).toContain("m-lost");
+  });
+
+  // An office refusal leaves no agent_outbound; it must not read as a peer
+  // that never tried.
+  it("leg 2: quotes the peer's send the office refused, before its other sends", () => {
+    const peer = [
+      asked,
+      ...refusedSend(
+        P,
+        S,
+        '{"error":{"code":"forbidden","message":"stale turn"}}',
+        STEP + 300,
+      ),
+      outbound(P, OTHER, "unrelated note", STEP + 350, "m-other", "Other"),
+    ];
+    const reason = judge([memberStep, sentAsk], peer);
+    expect(reason?.startsWith(LEG2)).toBe(true);
+    expect(reason).toContain("stale turn");
+    expect(reason).not.toContain("unrelated note");
+  });
+
+  it("leg 2: an accepted reply wins over a refused attempt before it", () => {
+    const peer = [
+      asked,
+      ...refusedSend(
+        P,
+        S,
+        '{"error":{"code":"forbidden","message":"stale turn"}}',
+        STEP + 300,
+      ),
+      outbound(P, S, NONCE, STEP + 390, "m-retry"),
+    ];
+    const reason = judge([memberStep, sentAsk], peer);
+    expect(reason).toContain("m-retry");
+    expect(reason).not.toContain("stale turn");
+  });
+
+  it("leg 2: names the recipient and text of a reply sent to the wrong agent", () => {
+    const peer = [
+      asked,
+      outbound(P, OTHER, `To you: ${NONCE}`, STEP + 390, "m-w", "Other Agent"),
+    ];
+    const reason = judge([memberStep, sentAsk], peer);
+    expect(reason?.startsWith(LEG2)).toBe(true);
+    expect(reason).toContain("Other Agent");
+    expect(reason).toContain("To you:");
+  });
+
+  it("leg 2: names the recipient by id when the office had no name for it", () => {
+    const peer = [asked, outbound(P, OTHER, NONCE, STEP + 390, "m-w", null)];
+    expect(judge([memberStep, sentAsk], peer)).toContain(OTHER);
+  });
+
+  it("leg 2: quotes a reply to the agent that lacks the nonce", () => {
+    const peer = [
+      asked,
+      outbound(P, S, "Got your message, done.", STEP + 390, "m-n"),
+    ];
+    const reason = judge([memberStep, sentAsk], peer);
+    expect(reason?.startsWith(LEG2)).toBe(true);
+    expect(reason).toContain("Got your message, done.");
+  });
+
+  // The reason is one line of the report: at most three sends, each cut,
+  // with line breaks folded.
+  it("leg 2: lists at most three sends, each on one line and cut", () => {
+    const long = `first line\n\nsecond ${"x".repeat(200)}TAIL`;
+    const peer = [
+      asked,
+      outbound(P, OTHER, long, STEP + 300, "m1"),
+      outbound(P, OTHER, "send-two", STEP + 310, "m2"),
+      outbound(P, OTHER, "send-three", STEP + 320, "m3"),
+      outbound(P, OTHER, "send-four", STEP + 330, "m4"),
+    ];
+    const reason = judge([memberStep, sentAsk], peer) ?? "";
+    expect(reason).not.toContain("\n");
+    expect(reason).toContain("first line second");
+    expect(reason).not.toContain("TAIL");
+    expect(reason).toContain("send-two");
+    expect(reason).toContain("send-three");
+    expect(reason).not.toContain("send-four");
+  });
+
+  // The peer answered in its own chat instead of sending.
+  it("leg 2: quotes the peer's last chat text when it sent nothing", () => {
+    const peer = [
+      asked,
+      entry(P, "text", "Let me look at the page.", STEP + 300),
+      entry(P, "text", `Reply: ${NONCE}`, STEP + 380),
+      entry(P, "text", "   ", STEP + 390),
+    ];
+    const reason = judge([memberStep, sentAsk], peer);
+    expect(reason?.startsWith(LEG2)).toBe(true);
+    expect(reason).toContain(`Reply: ${NONCE}`);
+    expect(reason).not.toContain("Let me look");
+  });
+
+  it("leg 2: says more than the leading clause when the peer sent and said nothing", () => {
+    const reason = judge([memberStep, sentAsk], [asked]);
+    expect(reason?.startsWith(LEG2)).toBe(true);
+    expect((reason ?? "").length).toBeGreaterThan(LEG2.length);
+  });
+
+  // A conversation runs several steps: what came before this one is not
+  // this step's evidence.
+  it("ignores every source before the step", () => {
+    const before = STEP - 100;
+    expect(
+      judge([memberStep, inbound(S, P, NONCE, before)], [asked])?.startsWith(
+        LEG2,
+      ),
+    ).toBe(true);
+    expect(
+      judge([memberStep, outbound(S, P, NONCE, before, "m-old")], []),
+    ).toBe(LEG1);
+    expect(
+      judge(
+        [
+          memberStep,
+          ...refusedSend(S, P, '{"error":{"code":"old_refusal"}}', before),
+        ],
+        [],
+      ),
+    ).toBe(LEG1);
+    const quiet = judge([memberStep, sentAsk], [asked]);
+    expect(
+      judge(
+        [memberStep, sentAsk],
+        [
+          asked,
+          outbound(P, S, NONCE, before, "m-old"),
+          ...refusedSend(P, S, '{"error":{"code":"old_refusal"}}', before),
+          outbound(P, OTHER, "old-note", before, "m-old2"),
+          entry(P, "text", "old chat", before),
+        ],
+      ),
+    ).toBe(quiet);
   });
 });
 
