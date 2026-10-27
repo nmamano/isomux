@@ -137,9 +137,9 @@ describe("the waiting pose", () => {
 });
 
 describe("the chat header pill", () => {
-  const pill = (tasks: BackgroundTask[], compact = false) =>
+  const pill = (tasks: BackgroundTask[], phone = false) =>
     render(
-      onLanguage(null, createElement(HeaderBackgroundPill, { tasks, compact })),
+      onLanguage(null, createElement(HeaderBackgroundPill, { tasks, phone })),
     );
 
   it("shows nothing without background work", () => {
@@ -184,11 +184,17 @@ describe("the chat header pill", () => {
     expect(view.queryAllByRole("listitem")).toHaveLength(0);
   });
 
-  it("on a phone shows only the count, and still names it for a screen reader", () => {
-    const button = pill(TASKS.slice(0, 2), true).getByRole("button");
-    expect(button.textContent?.trim()).toBe("2");
-    const name = button.getAttribute("aria-label") ?? "";
-    expect(name).toContain("2");
-    expect(name.trim()).not.toBe("2");
-  });
+  // Nil, sign-off of daa9dbef: the words took too much header width. The
+  // pill shows the count alone on every layout, and still names it for a
+  // screen reader and on hover.
+  for (const phone of [false, true]) {
+    it(`shows only the count ${phone ? "on a phone" : "on a desktop"}, and names it for a screen reader and on hover`, () => {
+      const button = pill(TASKS.slice(0, 2), phone).getByRole("button");
+      expect(button.textContent?.trim()).toBe("2");
+      const name = button.getAttribute("aria-label") ?? "";
+      expect(name).toContain("2");
+      expect(name.trim()).not.toBe("2");
+      expect(button.getAttribute("title")).toBe(name);
+    });
+  }
 });

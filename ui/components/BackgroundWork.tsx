@@ -120,14 +120,15 @@ const ROW_KEYS = {
   workflow: "logView.background.workflow",
 } as const;
 
-/** Chat header, every state: the count, and a click lists what runs. */
+/** Chat header, every state: the ring and the count (the words are its
+ *  tooltip, to keep the header narrow), and a click lists what runs. */
 export function HeaderBackgroundPill({
   tasks,
-  compact = false,
+  phone = false,
 }: {
   tasks: BackgroundTask[];
-  /** Phone header: ring and count only. */
-  compact?: boolean;
+  /** Phone header: the open list anchors to the screen's right edge. */
+  phone?: boolean;
 }) {
   const { t, tn } = useI18n();
   const [open, setOpen] = useState(false);
@@ -176,7 +177,8 @@ export function HeaderBackgroundPill({
         data-background-pill=""
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        aria-label={compact ? countText : undefined}
+        aria-label={countText}
+        title={countText}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -192,7 +194,7 @@ export function HeaderBackgroundPill({
         }}
       >
         <BackgroundIcon size={11} />
-        {compact ? tasks.length : countText}
+        {tasks.length}
       </button>
       {open && rect && (
         <Portal>
@@ -203,7 +205,7 @@ export function HeaderBackgroundPill({
             style={{
               position: "fixed",
               top: rect.bottom + 6,
-              ...(compact ? { right: 8 } : { left: rect.left }),
+              ...(phone ? { right: 8 } : { left: rect.left }),
               zIndex: 1000,
               minWidth: 260,
               maxWidth: "min(360px, 80vw)",

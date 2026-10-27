@@ -2462,7 +2462,7 @@ export function LogView({
                   )}
                   <HeaderBackgroundPill
                     tasks={agent.backgroundTasks ?? []}
-                    compact
+                    phone
                   />
                   {showAgentSubscriptionUsageIndicator(agent.agentType) && (
                     <SubscriptionPill
