@@ -586,7 +586,7 @@ const mintedRow: React.CSSProperties = {
   gap: 10,
   margin: "4px 0",
 };
-const codeStyle: React.CSSProperties = {
+export const codeStyle: React.CSSProperties = {
   minWidth: 0,
   display: "block",
   wordBreak: "break-all",

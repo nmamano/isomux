@@ -9,6 +9,25 @@ const { translatorFor } = await import("../../shared/i18n/translate");
 afterAll(() => setApiShim(null));
 
 test("Chrome pairing adds named browsers; each one unpairs through its own self route", async () => {
+  // The name field starts with the browser the member is on.
+  const originalAgent = Object.getOwnPropertyDescriptor(navigator, "userAgent");
+  const originalPlatform = Object.getOwnPropertyDescriptor(
+    navigator,
+    "platform",
+  );
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  });
+  Object.defineProperty(navigator, "platform", {
+    configurable: true,
+    value: "Win32",
+  });
+  const prefill = translatorFor("en").t("browser.defaultName", {
+    browser: "Chrome",
+    os: "Windows",
+  });
   type Status =
     import("../../shared/browser-extension-protocol").MemberBrowserStatus;
   let status: Status = {
@@ -40,6 +59,9 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
   await act(async () => {});
   expect(view.queryAllByTestId("browser-row")).toHaveLength(0);
   expect(writes).toHaveLength(0);
+  expect((view.getByTestId("browser-name") as HTMLInputElement).value).toBe(
+    prefill,
+  );
   await act(async () =>
     fireEvent.change(view.getByTestId("browser-name"), {
       target: { value: "Work laptop" },
@@ -49,7 +71,9 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
   expect(writes).toEqual([
     ["POST", "/api/me/browser/pair", { name: "Work laptop" }],
   ]);
-  expect((view.getByTestId("browser-name") as HTMLInputElement).value).toBe("");
+  expect((view.getByTestId("browser-name") as HTMLInputElement).value).toBe(
+    prefill,
+  );
   expect((view.getByTestId("browser-code") as HTMLInputElement).value).toBe(
     "fixture-code",
   );
@@ -87,7 +111,11 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
   expect(rows[1].textContent).toContain("Desk");
   // A paired member still creates codes the same way; no replace flag.
   await act(async () => fireEvent.click(paired.getByTestId("browser-pair")));
-  expect(writes.at(-1)).toEqual(["POST", "/api/me/browser/pair", { name: "" }]);
+  expect(writes.at(-1)).toEqual([
+    "POST",
+    "/api/me/browser/pair",
+    { name: prefill },
+  ]);
   await act(async () =>
     fireEvent.click(paired.getAllByTestId("browser-revoke")[0]),
   );
@@ -109,6 +137,13 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
       translatorFor(language).t("browser.generate"),
     );
     translated.unmount();
+  }
+  for (const [key, original] of [
+    ["userAgent", originalAgent],
+    ["platform", originalPlatform],
+  ] as const) {
+    if (original) Object.defineProperty(navigator, key, original);
+    else delete (navigator as unknown as Record<string, unknown>)[key];
   }
 });
 

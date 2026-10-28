@@ -119,8 +119,8 @@ export const ca: Catalog = {
   "browser.generate": "Crea un codi de vinculació",
   "browser.replace": "Substitueix la vinculació",
   "browser.name": "Nom del navegador",
-  "browser.nameHint":
-    "Opcional, per exemple Portàtil de la feina. Els agents veuen aquest nom.",
+  "browser.nameHint": "Els agents veuen aquest nom.",
+  "browser.defaultName": "{browser} a {os}",
   "browser.pairedOn": "Vinculat el {date}",
   "browser.code": "Codi de vinculació",
   "browser.expires": "Caduca a les {time}",

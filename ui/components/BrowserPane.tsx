@@ -2,15 +2,48 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
 import { useI18n } from "../i18n";
 import type { MemberBrowserStatus } from "../../shared/browser-extension-protocol";
-import { sectionHeader, hint, cardStyle } from "./access-shared";
-import { dialogCancelBtn, dialogInput, dialogLabel } from "./dialog-styles";
+import { sectionHeader, hint, cardStyle, codeStyle } from "./access-shared";
+import {
+  dialogInput,
+  dialogLabel,
+  dialogSaveBtn,
+  disabledLook,
+  filledSecondaryBtn,
+} from "./dialog-styles";
+import { guessBrowserName } from "../browser-name";
 
 // Chrome refuses to open chrome:// pages from a web page link or
 // window.open, so members copy the address into the address bar.
 const EXTENSIONS_PAGE = "chrome://extensions";
 
+// The main action of each step is the primary button; a download link looks
+// like one too.
+const primaryLink = {
+  ...dialogSaveBtn,
+  display: "inline-block",
+  textDecoration: "none",
+};
+const primary = (disabled: boolean) => ({
+  ...dialogSaveBtn,
+  ...(disabled ? disabledLook : null),
+});
+const secondary = (disabled: boolean) => ({
+  ...filledSecondaryBtn,
+  ...(disabled ? disabledLook : null),
+});
+
 export function BrowserPane() {
   const { t, rich } = useI18n();
+  // Prefilled from the browser the member is on, for example Chrome on
+  // Windows; empty when that is not a browser to pair.
+  const defaultName = () => {
+    const guess = guessBrowserName(
+      navigator.userAgent,
+      navigator.platform,
+      navigator.maxTouchPoints ?? 0,
+    );
+    return guess ? t("browser.defaultName", guess) : "";
+  };
   const [status, setStatus] = useState<MemberBrowserStatus>();
   const [pair, setPair] = useState<{ code: string; expiresAt: number }>();
   const [now, setNow] = useState(() => Date.now());
@@ -67,7 +100,7 @@ export function BrowserPane() {
       if (!mounted.current) return;
       if (method === "POST") {
         setPair(result);
-        setName("");
+        setName(defaultName());
       }
       await refresh();
     } catch {
@@ -79,7 +112,7 @@ export function BrowserPane() {
   const [revealed, setRevealed] = useState(false);
   const [officeCopied, setOfficeCopied] = useState(false);
   const [extensionsCopied, setExtensionsCopied] = useState(false);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(defaultName);
   const expired = !!pair && now >= pair.expiresAt;
   const outdated = status?.browsers.filter((b) => b.outdated) ?? [];
   return (
@@ -101,15 +134,15 @@ export function BrowserPane() {
               <p style={{ margin: 0 }}>
                 {t("browser.outdated", {
                   names: outdated.map((b) => b.name).join(", "),
-                })}{" "}
-                <a
-                  style={{ color: "var(--accent-text)" }}
-                  href="/api/me/browser/extension.zip"
-                  download="isomux-browser.zip"
-                >
-                  {t("browser.download", { version: status.version })}
-                </a>
+                })}
               </p>
+              <a
+                style={{ ...primaryLink, marginTop: 8 }}
+                href="/api/me/browser/extension.zip"
+                download="isomux-browser.zip"
+              >
+                {t("browser.download", { version: status.version })}
+              </a>
               <p style={{ ...hint, marginBottom: 0 }}>
                 {t("browser.updateSteps")}
               </p>
@@ -122,7 +155,7 @@ export function BrowserPane() {
             <ol style={{ margin: 0, paddingLeft: 22, display: "grid", gap: 8 }}>
               <li>
                 <a
-                  style={{ color: "var(--accent-text)" }}
+                  style={primaryLink}
                   href="/api/me/browser/extension.zip"
                   download="isomux-browser.zip"
                 >
@@ -137,7 +170,7 @@ export function BrowserPane() {
                       <code>{EXTENSIONS_PAGE}</code>{" "}
                       <button
                         data-testid="browser-extensions-copy"
-                        style={{ ...dialogCancelBtn, padding: "2px 8px" }}
+                        style={filledSecondaryBtn}
                         onClick={() => {
                           void navigator.clipboard
                             .writeText(EXTENSIONS_PAGE)
@@ -206,7 +239,7 @@ export function BrowserPane() {
                   </span>
                   <button
                     data-testid="browser-revoke"
-                    style={dialogCancelBtn}
+                    style={secondary(busy)}
                     disabled={busy}
                     onClick={() =>
                       void change(
@@ -220,18 +253,20 @@ export function BrowserPane() {
                 </li>
               ))}
             </ul>
-            <label style={dialogLabel} htmlFor="browser-office">
-              {t("browser.office")}
-            </label>
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              <input
-                id="browser-office"
-                style={{ ...dialogInput, minWidth: 0 }}
-                readOnly
-                value={window.location.origin}
-              />
+            <div style={dialogLabel}>{t("browser.office")}</div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
+              <code data-testid="browser-office" style={codeStyle}>
+                {window.location.origin}
+              </code>
               <button
-                style={dialogCancelBtn}
+                style={{ ...filledSecondaryBtn, flexShrink: 0 }}
                 onClick={() => {
                   void navigator.clipboard
                     .writeText(window.location.origin)
@@ -259,7 +294,7 @@ export function BrowserPane() {
               />
               <button
                 data-testid="browser-pair"
-                style={dialogCancelBtn}
+                style={{ ...primary(busy), flexShrink: 0 }}
                 disabled={busy}
                 onClick={() =>
                   void change("POST", "/api/me/browser/pair", { name })
@@ -286,7 +321,7 @@ export function BrowserPane() {
                     value={expired ? "" : pair.code}
                   />
                   <button
-                    style={dialogCancelBtn}
+                    style={{ ...secondary(expired), flexShrink: 0 }}
                     disabled={expired}
                     aria-pressed={revealed}
                     onClick={() => setRevealed(!revealed)}
@@ -294,7 +329,7 @@ export function BrowserPane() {
                     {t(revealed ? "browser.hide" : "browser.show")}
                   </button>
                   <button
-                    style={dialogCancelBtn}
+                    style={{ ...primary(expired), flexShrink: 0 }}
                     disabled={expired}
                     onClick={() => {
                       void navigator.clipboard.writeText(pair.code).then(

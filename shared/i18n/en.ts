@@ -130,8 +130,8 @@ export const en = {
   "browser.generate": "Create pairing code",
   "browser.replace": "Replace pairing",
   "browser.name": "Browser name",
-  "browser.nameHint":
-    "Optional, for example Work laptop. Agents see this name.",
+  "browser.nameHint": "Agents see this name.",
+  "browser.defaultName": "{browser} on {os}",
   "browser.pairedOn": "Paired {date}",
   "browser.code": "Pairing code",
   "browser.expires": "Expires at {time}",
