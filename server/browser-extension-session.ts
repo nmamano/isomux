@@ -7,12 +7,14 @@ import {
 import type { Browser, Dialog, Page } from "playwright-core";
 import {
   readBrowserFrames,
+  MissingSelectorError,
   resolveBrowserFrame,
   StalledWaitError,
   withinDeadline,
 } from "./browser-frames";
 import {
   CHECK_REASON,
+  CLICK_REASON,
   SELECT_REASON,
   checkHitTarget,
   checkNotPerformedReason,
@@ -26,7 +28,10 @@ import {
   type ExtensionConnection,
 } from "./browser-extension-bridge";
 import { officePageRefused } from "./browser-office-gate";
-import type { BrowserExtensionService } from "./browser-extension-service";
+import {
+  EXTENSION_MAX_BYTES,
+  type BrowserExtensionService,
+} from "./browser-extension-service";
 import type { BrowserExtensionStore } from "./browser-extension-store";
 import {
   BROWSER_ACTION_DEADLINE_MS,
@@ -109,6 +114,10 @@ const notSentResult = () => failure("action_timeout", NOT_SENT_ERROR);
 export const PAGE_ANSWER_MS = 5000;
 const PAGE_UNANSWERED_ERROR = `The page did not answer within ${PAGE_ANSWER_MS / 1000} s. Control remains on. It may still be loading: try once more. If it fails again, use another tab.`;
 class PageUnansweredError extends Error {}
+// A scoped read whose selector matches no element (task f63edd81).
+export const MISSING_SELECTOR_ERROR = `The page was not read: ${CLICK_REASON.missing}.`;
+// A command whose answer from Chrome was over EXTENSION_MAX_BYTES.
+export const ANSWER_TOO_LARGE_ERROR = `The page's answer was over ${EXTENSION_MAX_BYTES / 1024 / 1024} MiB, too large to send. Control remains on. Read a smaller part of the page.`;
 // The first line of an error, sorted into a class for the log. The message
 // itself can carry page data and never reaches a log.
 const ERROR_CLASSES: [RegExp, string][] = [
@@ -986,6 +995,7 @@ export class ExtensionBrowserSessions {
     // Read before task() starts: it runs to its first await at once, and a
     // command refused in that tick must count.
     const refusals = connection.officeRefusals(grant);
+    const tooLarge = connection.answersTooLarge(grant);
     // A gate that closes during the action ends it: Playwright would wait on
     // the refused page until the action timeout, with no command in flight.
     // Ending the client stops the action's retries from landing on the page
@@ -997,6 +1007,12 @@ export class ExtensionBrowserSessions {
       const live = this.sessions.get(key)?.transport ?? transport;
       this.end(key);
       live?.close();
+    });
+    // An answer too large to relay does not get smaller on a retry: the
+    // action ends now, and its client goes so that Playwright stops retrying.
+    const stopTooLargeWatch = connection.onAnswerTooLarge(grant, () => {
+      interrupt(failure("action_failed", ANSWER_TOO_LARGE_ERROR));
+      this.retire(key, connection, grant, "answer_too_large");
     });
     const operation = task().finally(() => {
       operationSettled = true;
@@ -1076,6 +1092,11 @@ export class ExtensionBrowserSessions {
           this.retire(key, connection, grant, "page_unanswered");
           return failure("action_failed", PAGE_UNANSWERED_ERROR);
         }
+        if (error instanceof MissingSelectorError)
+          return failure("action_failed", MISSING_SELECTOR_ERROR);
+        // The bridge failed a command whose answer was too large to relay.
+        if (connection.answersTooLarge(grant) > tooLarge)
+          return failure("action_failed", ANSWER_TOO_LARGE_ERROR);
         if (error instanceof StalledWaitError)
           return await settleTimeout("operation_timeout", "stalled_wait");
         if (
@@ -1134,6 +1155,7 @@ export class ExtensionBrowserSessions {
       return withDialogs(result);
     } finally {
       stopGateWatch();
+      stopTooLargeWatch();
       watched?.removeEventListener("abort", onEnd);
       clearTimeout(timer);
       // A dialog that opens after the response gets no accept and no record.

@@ -102,6 +102,8 @@ type Assignment = {
   pages: Map<string, { url?: string; gated: boolean }>;
   childPages: Map<string, string>;
   officeRefusals: number;
+  // Commands whose answer was too large to relay (receiveOversized).
+  answersTooLarge: number;
   creating: boolean;
   connected: boolean;
   // The current client's announce of the tab: in flight, then done.
@@ -218,7 +220,7 @@ export class BrowserExtensionBridge {
       });
       connection.sendMetadata();
     } catch (error) {
-      connection.close();
+      connection.close("send_failed");
       throw error;
     }
     return connection;
@@ -294,6 +296,33 @@ export class BrowserExtensionBridge {
   }
 }
 
+function listen(
+  map: Map<string, Set<() => void>>,
+  grant: string,
+  listener: () => void,
+): () => void {
+  let listeners = map.get(grant);
+  if (!listeners) map.set(grant, (listeners = new Set()));
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size && map.get(grant) === listeners) map.delete(grant);
+  };
+}
+
+// The routing fields of an extension message, for a log line: never its
+// params or result, which can carry page content.
+function envelope(msg: Fields): Fields {
+  return {
+    ...(typeof msg.kind === "string" ? { kind: msg.kind } : {}),
+    ...(typeof msg.id === "number" ? { id: msg.id } : {}),
+    ...(typeof msg.method === "string" ? { method: msg.method } : {}),
+    ...(typeof msg.assignment === "string"
+      ? { assignment: msg.assignment }
+      : {}),
+  };
+}
+
 export class ExtensionConnection {
   readonly generation = crypto.randomUUID();
   private active = true;
@@ -301,6 +330,7 @@ export class ExtensionConnection {
   private pending = new Map<number, Pending>();
   private assignments = new Map<string, Assignment>();
   private gateListeners = new Map<string, Set<() => void>>();
+  private tooLargeListeners = new Map<string, Set<() => void>>();
   // leaveOffice waits, keyed by the page session they navigate.
   private leaves = new Set<{
     a: Assignment;
@@ -343,6 +373,11 @@ export class ExtensionConnection {
     return this.assignments.get(grant)?.officeRefusals ?? 0;
   }
 
+  /** Commands on this grant whose answer was too large to relay so far. */
+  answersTooLarge(grant: string): number {
+    return this.assignments.get(grant)?.answersTooLarge ?? 0;
+  }
+
   /** True while the gate of the grant's leaf page is closed. */
   officeGated(grant: string): boolean {
     const a = this.assignments.get(grant);
@@ -352,14 +387,13 @@ export class ExtensionConnection {
   /** Calls listener after each gate close on the grant; returns the
    * unsubscribe. */
   onGateClose(grant: string, listener: () => void): () => void {
-    let listeners = this.gateListeners.get(grant);
-    if (!listeners) this.gateListeners.set(grant, (listeners = new Set()));
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-      if (!listeners.size && this.gateListeners.get(grant) === listeners)
-        this.gateListeners.delete(grant);
-    };
+    return listen(this.gateListeners, grant, listener);
+  }
+
+  /** Calls listener when a command of the grant gets an answer too large to
+   * relay; returns the unsubscribe. */
+  onAnswerTooLarge(grant: string, listener: () => void): () => void {
+    return listen(this.tooLargeListeners, grant, listener);
   }
 
   // The page key of the grant's leaf: a popup's session, or the tab's own.
@@ -410,7 +444,8 @@ export class ExtensionConnection {
         },
       });
     } catch {
-      this.close();
+      // The socket is gone: its close ends the connection.
+      this.sendFailed(a, method);
     }
   }
 
@@ -862,6 +897,7 @@ export class ExtensionConnection {
       pages: new Map(),
       childPages: new Map(),
       officeRefusals: 0,
+      answersTooLarge: 0,
       creating: true,
       connected: false,
       announced: false,
@@ -1132,10 +1168,7 @@ export class ExtensionConnection {
         done,
         settled,
         timedOut: false,
-        method:
-          method === "cdp" && typeof params.method === "string"
-            ? params.method
-            : method,
+        method: this.pendingMethod(method, params),
         session:
           typeof sessionId !== "string" || sessionId === a.session
             ? "main"
@@ -1154,7 +1187,13 @@ export class ExtensionConnection {
           params,
         });
       } catch {
-        this.close();
+        // Only this command fails. A socket that is gone ends the connection
+        // through its close.
+        this.pending.delete(id);
+        clearTimeout(timer);
+        settled();
+        this.sendFailed(a, this.pendingMethod(method, params));
+        reject(new Error("Browser command was not sent"));
       }
     });
   }
@@ -1170,10 +1209,74 @@ export class ExtensionConnection {
     );
   }
 
+  /** A parsed extension message over EXTENSION_MAX_BYTES: fails only the
+   * command or the grant it belongs to (task f63edd81). */
+  receiveOversized(message: unknown, bytes: number): void {
+    if (!this.active) return;
+    let msg: Fields;
+    try {
+      msg = fields(message);
+    } catch {
+      this.close("too_large", { bytes });
+      return;
+    }
+    if (msg.generation !== this.generation) return;
+    console.info(
+      "[browser-extension] " +
+        JSON.stringify({
+          reason: "too_large",
+          generation: this.generation,
+          ...envelope(msg),
+          bytes,
+        }),
+    );
+    if (msg.kind === "result" && typeof msg.id === "number") {
+      const pending = this.pending.get(msg.id);
+      if (!pending) return;
+      this.pending.delete(msg.id);
+      clearTimeout(pending.timer);
+      pending.settled();
+      const owner = this.assignments.get(pending.assignment);
+      if (owner) owner.answersTooLarge++;
+      if (!pending.timedOut)
+        pending.reject(new Error("Browser answer too large to relay"));
+      // After the answer: a listener that throws cannot leave the command
+      // unanswered, and it ends nothing.
+      if (owner)
+        for (const listener of [
+          ...(this.tooLargeListeners.get(owner.id) ?? []),
+        ])
+          try {
+            listener();
+          } catch (error) {
+            console.info(
+              "[browser-extension] " +
+                JSON.stringify({
+                  reason: "listener_failed",
+                  generation: this.generation,
+                  assignment: owner.id,
+                  errorName: error instanceof Error ? error.name : typeof error,
+                }),
+            );
+          }
+      return;
+    }
+    if (msg.kind === "event" && typeof msg.assignment === "string") {
+      const a = this.assignments.get(msg.assignment);
+      if (a) this.fault(a, "too_large");
+      return;
+    }
+    this.close("too_large", { bytes, ...envelope(msg) });
+  }
+
   receive(message: unknown): void {
     if (!this.active) return;
+    // The grant the message belongs to, once known. A fault after that ends
+    // only this grant; one before it ends the connection.
+    let owned: Assignment | undefined;
+    let msg: Fields | undefined;
     try {
-      const msg = fields(message);
+      msg = fields(message);
       if (msg.generation !== this.generation) return;
       if (msg.kind === "offer") {
         if (
@@ -1201,6 +1304,7 @@ export class ExtensionConnection {
         if (!pending) return;
         const owner = this.assignments.get(pending.assignment);
         if (!owner) return;
+        owned = owner;
         if (!this.authorized(owner) || this.expired(owner)) {
           this.release(owner);
           return;
@@ -1219,6 +1323,7 @@ export class ExtensionConnection {
         throw new Error("Invalid event");
       const a = this.assignments.get(msg.assignment);
       if (!a) return;
+      owned = a;
       if (!this.authorized(a) || this.expired(a)) {
         this.release(a);
         return;
@@ -1319,7 +1424,7 @@ export class ExtensionConnection {
           if (page === params.sessionId) a.childPages.delete(child);
         if (a.leafTargetId === popup.targetId)
           a.leafTargetId = popup.openerId as string;
-        a.peer.send({
+        this.deliver(a, {
           method: "Target.detachedFromTarget",
           params: { sessionId: params.sessionId, targetId: popup.targetId },
         });
@@ -1385,14 +1490,57 @@ export class ExtensionConnection {
         a.dialogs.delete(params.sessionId);
         if (frame.deliveredTo !== a.peer) return;
       } else if (msg.method.startsWith("Target.")) return;
-      a.peer.send({
+      this.deliver(a, {
         method: msg.method,
         params,
         sessionId: child || a.session,
       });
-    } catch {
-      this.close();
+    } catch (error) {
+      const detail = {
+        ...(msg ? envelope(msg) : {}),
+        errorName: error instanceof Error ? error.name : typeof error,
+      };
+      if (!owned) this.close("receive_error", detail);
+      else if (!owned.closed) this.fault(owned, "receive_error", detail);
     }
+  }
+
+  // Hands an event to the grant's agent client. A client that throws on it
+  // retires; the grant and the connection stay.
+  private deliver(a: Assignment, message: Fields): void {
+    try {
+      a.peer.send(message);
+    } catch {
+      this.retireClient(a.id, "client_error");
+    }
+  }
+
+  // Ends one grant after a fault in its own messages. If that fails too, the
+  // connection ends.
+  private fault(a: Assignment, cause: string, detail: Fields = {}): void {
+    try {
+      this.release(a, cause, detail);
+    } catch {
+      this.close(cause, detail);
+    }
+  }
+
+  private sendFailed(a: Assignment, method: string): void {
+    console.info(
+      "[browser-extension] " +
+        JSON.stringify({
+          reason: "send_failed",
+          generation: this.generation,
+          assignment: a.id,
+          method,
+        }),
+    );
+  }
+
+  private pendingMethod(method: string, params: Fields): string {
+    return method === "cdp" && typeof params.method === "string"
+      ? params.method
+      : method;
   }
 
   private async dispatch(
@@ -1619,7 +1767,7 @@ export class ExtensionConnection {
             params: { method: "Page.captureScreenshot", params, sessionId },
           });
         } catch {
-          this.close();
+          this.sendFailed(a, "Page.captureScreenshot");
           return;
         }
       }
@@ -1693,7 +1841,7 @@ export class ExtensionConnection {
     return outcome.result;
   }
 
-  private release(a: Assignment): void {
+  private release(a: Assignment, cause?: string, detail: Fields = {}): void {
     if (a.closed) return;
     console.info(
       "[browser-extension] " +
@@ -1703,6 +1851,7 @@ export class ExtensionConnection {
           assignment: a.id,
           controlSession: a.session,
           pending: this.pendingCount(a.id),
+          ...(cause ? { ...detail, cause } : {}),
         }),
     );
     a.closed = true;
@@ -1739,9 +1888,20 @@ export class ExtensionConnection {
     this.sendMetadata();
   }
 
-  close(): void {
+  /** Ends the connection and every grant on it. cause and detail go to the
+   * log line; detail never carries page content. */
+  close(cause = "closed", detail: Fields = {}): void {
     if (!this.active) return;
     this.active = false;
+    console.info(
+      "[browser-extension] " +
+        JSON.stringify({
+          ...detail,
+          reason: "connection_ended",
+          generation: this.generation,
+          cause,
+        }),
+    );
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.settled();

@@ -26,6 +26,10 @@ const MAX_READ_FRAMES = 64;
 /** Replaces the value of a password field in a snapshot. */
 export const PASSWORD_MASK = "[password masked]";
 const CHILD_READ_MS = 1500;
+/** How long a scoped read waits for its selector to match an element. */
+export const SCOPED_READ_ATTACH_MS = 3000;
+/** A scoped read whose selector matched no element within SCOPED_READ_ATTACH_MS. */
+export class MissingSelectorError extends Error {}
 
 // The marker names the class of failure only: an error message can carry
 // page content.
@@ -100,11 +104,32 @@ export async function readBrowserFrames(
     if (output.length >= limit) break;
     try {
       if (frame.isDetached()) throw new Error("Detached frame");
+      const body = frame.locator(scope?.selector ?? "body");
+      // A selector that matches nothing fails here, not at the deadline.
+      // first(): a selector that matches more than once keeps the read's own
+      // error.
+      // A wait the action deadline cut short stays a deadline timeout.
+      if (scope?.selector !== undefined) {
+        const left = Math.max(1, deadline - Date.now());
+        try {
+          await body.first().waitFor({
+            state: "attached",
+            timeout: Math.min(SCOPED_READ_ATTACH_MS, left),
+          });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.name === "TimeoutError" &&
+            left > SCOPED_READ_ATTACH_MS
+          )
+            throw new MissingSelectorError("No element matches the selector");
+          throw error;
+        }
+      }
       const remaining = Math.max(1, deadline - Date.now());
       const options = {
         timeout: path.length ? Math.min(CHILD_READ_MS, remaining) : remaining,
       };
-      const body = frame.locator(scope?.selector ?? "body");
       append(
         action === "text"
           ? await body.innerText(options)

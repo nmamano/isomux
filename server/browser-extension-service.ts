@@ -16,6 +16,7 @@ import {
   extensionOutdated,
   fields,
   validExtensionPackage,
+  type Fields,
   type MemberBrowserStatus,
 } from "../shared/browser-extension-protocol";
 
@@ -25,7 +26,10 @@ export interface ExtensionWsData {
   connection?: ExtensionConnection;
   deadline?: ReturnType<typeof setTimeout>;
   heartbeat?: ReturnType<typeof setInterval>;
-  lastPong?: number;
+  // The last message from the extension, of any kind: a sign of life.
+  lastSeen?: number;
+  // The code for the socket close that the connection's own close sends.
+  closeCode?: number;
   credentialHash?: string;
 }
 export const EXTENSION_SOCKET_PATH = "/browser-extension/ws";
@@ -124,7 +128,12 @@ export class BrowserExtensionService {
       .map((b) => b.name);
   }
   // Ends the member's live connections, or only the one with this credential.
-  disconnect(member: string, terminal = false, credentialHash?: string): void {
+  disconnect(
+    member: string,
+    terminal = false,
+    credentialHash?: string,
+    cause = "revoked",
+  ): void {
     for (const ws of this.sockets) {
       if (ws.data.connection?.memberId !== member) continue;
       if (
@@ -133,8 +142,7 @@ export class BrowserExtensionService {
       )
         continue;
       if (terminal) ws.send(JSON.stringify({ kind: "refused" }));
-      ws.data.connection.close();
-      ws.close(terminal ? 4003 : 1000);
+      this.end(ws, cause, terminal ? 4003 : 1000);
     }
   }
   revalidate(): void {
@@ -142,7 +150,7 @@ export class BrowserExtensionService {
       const connection = ws.data.connection;
       if (!connection) continue;
       if (!this.access.memberExists(connection.memberId))
-        this.disconnect(connection.memberId, true);
+        this.disconnect(connection.memberId, true, undefined, "member_removed");
       else connection.revalidate();
     }
   }
@@ -151,13 +159,34 @@ export class BrowserExtensionService {
     ws.data.deadline = setTimeout(() => ws.close(1008), 5000);
   }
   message(ws: ServerWebSocket<ExtensionWsData>, data: string | Buffer): void {
+    const bytes = Buffer.byteLength(data);
+    const live = ws.data.connection;
+    let msg: Fields | undefined;
+    if (live) {
+      ws.data.lastSeen = Date.now();
+      // After the hello, a message the service cannot take ends this
+      // connection with a code the extension reconnects after. Refused and
+      // 4003 make it stop until the member pairs again (task f63edd81).
+      try {
+        msg = fields(JSON.parse(String(data)));
+      } catch {
+        this.end(ws, "bad_message", 1008, { bytes });
+        return;
+      }
+      if (msg.kind === "pong") return;
+      if (msg.kind !== "unpair") {
+        try {
+          if (bytes > EXTENSION_MAX_BYTES) live.receiveOversized(msg, bytes);
+          else live.receive(msg);
+        } catch {
+          this.end(ws, "receive_error", 1008, { bytes });
+        }
+        return;
+      }
+    }
     try {
-      if (
-        Buffer.byteLength(data) >
-        (ws.data.connection ? EXTENSION_MAX_BYTES : 4096)
-      )
-        throw new Error();
-      const msg = fields(JSON.parse(String(data)));
+      if (!live && bytes > 4096) throw new Error();
+      msg ??= fields(JSON.parse(String(data)));
       if (!ws.data.connection) {
         if (
           msg.version !== BROWSER_EXTENSION_PROTOCOL ||
@@ -207,15 +236,26 @@ export class BrowserExtensionService {
           send: (value) => {
             ws.send(JSON.stringify(value));
           },
-          close: () => ws.close(),
+          close: () => ws.close(ws.data.closeCode),
         });
+        console.info(
+          "[browser-extension] " +
+            JSON.stringify({
+              reason: "connection_opened",
+              generation: ws.data.connection.generation,
+              auth: typeof msg.code === "string" ? "code" : "credential",
+              ...(validExtensionPackage(msg.package)
+                ? { package: msg.package }
+                : {}),
+            }),
+        );
         ws.data.credentialHash = browserCredentialHash(credential);
         this.packages.set(
           ws.data.credentialHash,
           validExtensionPackage(msg.package) ? msg.package : null,
         );
         clearTimeout(ws.data.deadline);
-        ws.data.lastPong = Date.now();
+        ws.data.lastSeen = Date.now();
         ws.data.heartbeat = setInterval(() => this.heartbeat(ws), 15_000);
         ws.data.heartbeat.unref?.();
       } else if (msg.kind === "unpair") {
@@ -249,24 +289,33 @@ export class BrowserExtensionService {
             generation: connection.generation,
           }),
         );
-        connection.close();
-      } else if (
-        msg.kind === "pong" &&
-        msg.generation === ws.data.connection.generation
-      ) {
-        ws.data.lastPong = Date.now();
-      } else ws.data.connection.receive(msg);
+        connection.close("unpaired");
+      }
     } catch {
       ws.send(JSON.stringify({ kind: "refused" }));
-      ws.data.connection?.close();
-      ws.close(4003);
+      this.end(ws, "refused", 4003);
     }
+  }
+  // Ends the socket's connection with a logged cause, and the socket with
+  // code.
+  private end(
+    ws: ServerWebSocket<ExtensionWsData>,
+    cause: string,
+    code: number,
+    detail: Fields = {},
+  ): void {
+    ws.data.closeCode = code;
+    ws.data.connection?.close(cause, detail);
+    ws.close(code);
   }
   heartbeat(ws: ServerWebSocket<ExtensionWsData>): void {
     this.revalidate();
     if (!this.sockets.has(ws)) return;
-    if (Date.now() - ws.data.lastPong! > 45_000) {
-      ws.data.connection?.close();
+    const silent = Date.now() - ws.data.lastSeen!;
+    if (silent > 45_000) {
+      ws.data.connection?.close("pong_overdue", {
+        msSinceLastMessage: silent,
+      });
       return;
     }
     ws.send(
@@ -276,11 +325,18 @@ export class BrowserExtensionService {
       }),
     );
   }
-  close(ws: ServerWebSocket<ExtensionWsData>): void {
+  close(
+    ws: ServerWebSocket<ExtensionWsData>,
+    code?: number,
+    reason?: string,
+  ): void {
     clearTimeout(ws.data.deadline);
     clearInterval(ws.data.heartbeat);
     this.sockets.delete(ws);
-    ws.data.connection?.close();
+    ws.data.connection?.close("socket_closed", {
+      ...(code === undefined ? {} : { code }),
+      ...(reason ? { closeReason: reason.slice(0, 120) } : {}),
+    });
   }
   stop(): void {
     for (const ws of [...this.sockets]) {

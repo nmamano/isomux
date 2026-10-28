@@ -9182,7 +9182,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       },
       close(socket, code, reason) {
         if (socket.data.kind === "extension") {
-          extensionService!.close(socket as ServerWebSocket<ExtensionWsData>);
+          extensionService!.close(
+            socket as ServerWebSocket<ExtensionWsData>,
+            code,
+            reason,
+          );
           return;
         }
         if (socket.data.kind === "api") {

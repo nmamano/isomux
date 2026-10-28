@@ -1,9 +1,11 @@
 import { test, expect, spyOn } from "bun:test";
 import { errors, type Frame } from "playwright-core";
 import {
+  MissingSelectorError,
   PASSWORD_MASK,
   readBrowserFrames,
   resolveBrowserFrame,
+  SCOPED_READ_ATTACH_MS,
   StalledWaitError,
   withinDeadline,
 } from "./browser-frames";
@@ -30,6 +32,10 @@ function frame(text: string, children: Frame[] = [], detached = false): Frame {
       selector === PASSWORD_FIELDS
         ? noPasswordFields
         : {
+            first() {
+              return this;
+            },
+            waitFor: async () => {},
             innerText: async () => text,
             ariaSnapshot: async () => `- text: ${text}`,
             locator: () => ({
@@ -208,6 +214,54 @@ test("scoped reads select one frame and one locator without child traversal", as
   ).toBe(true);
 });
 
+// Task f63edd81: a selector that matches nothing fails after the short
+// attach wait, not at the action deadline. A wait that the deadline cut short
+// stays a deadline timeout.
+test("a scoped selector that never attaches fails as missing only when the attach bound was the binding one", async () => {
+  for (const [deadline, missing] of [
+    [SCOPED_READ_ATTACH_MS + 5000, true],
+    [SCOPED_READ_ATTACH_MS - 1000, false],
+  ] as const) {
+    const waits: number[] = [];
+    let reads = 0;
+    const root = frame("Root");
+    const original = root.locator.bind(root);
+    root.locator = (selector: string) => {
+      const locator = original(selector);
+      if (selector !== "#gone") return locator;
+      return {
+        ...locator,
+        first: () => ({
+          waitFor: async ({ timeout }: { timeout: number }) => {
+            waits.push(timeout);
+            throw new errors.TimeoutError("private locator diagnostic");
+          },
+        }),
+        innerText: async () => {
+          reads++;
+          return "";
+        },
+      } as unknown as ReturnType<Frame["locator"]>;
+    };
+    const error = await readBrowserFrames(root, "text", 20_000, deadline, {
+      selector: "#gone",
+    }).catch((e: unknown) => e);
+    expect({
+      deadline,
+      missing: error instanceof MissingSelectorError,
+    }).toEqual({ deadline, missing });
+    if (!missing) expect((error as Error).name).toBe("TimeoutError");
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeLessThanOrEqual(
+      Math.min(SCOPED_READ_ATTACH_MS, deadline),
+    );
+    expect(waits[0]).toBeGreaterThan(
+      Math.min(SCOPED_READ_ATTACH_MS, deadline) - 500,
+    );
+    expect(reads).toBe(0);
+  }
+});
+
 function editableFrame(
   snapshot: (timeout: number) => string,
   count: () => number,
@@ -379,6 +433,10 @@ function passwordFrame(options: {
             }),
           }
         : {
+            first() {
+              return this;
+            },
+            waitFor: async () => {},
             innerText: async () => "",
             ariaSnapshot: async () => {
               const snapshot =

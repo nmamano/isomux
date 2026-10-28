@@ -52,9 +52,19 @@ Pairing returns `{kind: "paired", version: 4, credential}` before
 hash to the saved extension Origin. Each credential has at most one live
 connection; a duplicate is refused.
 
-Later messages are limited to 8 MiB before JSON parsing. Each command has a
-30-second deadline. The server sends a ping every 15 seconds and closes control
-when a pong is absent for 45 seconds. The extension has a matching watchdog.
+A fault in one tab never ends the connection or another tab (task f63edd81).
+A later message over 8 MiB is parsed and fails only what it belongs to: a
+command answer fails that command (the agent gets `action_failed` at once and
+the client retires, so Playwright stops retrying), and an event ends its grant.
+A message that does not parse, or names no grant, ends the connection with a
+non-terminal code (1008 or 1000), so the extension reconnects and resends its
+offers. `refused` and 4003, which make the extension stop until the member
+pairs again, are only for the hello, the credential, membership and unpair. An
+event of a grant that fails a check (an invalid popup or child target) ends that
+grant; a client that throws on an event retires; a command the socket did not
+take fails alone. Each command has a 30-second deadline. The server sends a
+ping every 15 seconds and closes control after 45 seconds with no message of
+any kind from the extension. The extension has a matching watchdog.
 Transient loss reconnects with 1/2/4/8/16/30-second backoff plus small jitter.
 A Chrome alarm wakes a suspended extension worker to retry; startup also reads
 its saved connection. Chrome may delay alarms; this is recovery, not a timing
@@ -320,7 +330,7 @@ The per-grant caller queue checks a separate recovery barrier before dispatch. A
 
 For goto only, the bridge sends Page.stopLoading to the assignment’s owned root or active popup, then drains the original navigation command. Fill uses Runtime checks and Input.insertText; click uses Runtime/DOM checks and Input.dispatchMouseEvent; press uses Input.dispatchKeyEvent; payload upload uses Runtime.callFunctionOn. These commands have no generic cancellation claim: they remain fenced until their actual result, ownership loss or the ceiling. A command whose response deadline expires remains a tombstone; its late response resolves the barrier and is not delivered twice to Playwright. At `FENCE_CEILING_MS` after its own timeout, an unanswered command retires the client as above. A retained client disconnect does not revoke the user offer, and replacement clients cannot attach over pending commands.
 
-Page.stopLoading, introduced in extension 0.3.1, remains on the owned-page allowlist in protocol 4. Update the extension with the server for navigation cleanup. Logs contain action kind, deadline winner, elapsed time, assignment/generation, pending count, settlement/release state, the CDP method and session (main, popup or child frame) of a timed-out or dropped command, and the check that refused a not-sent action, never selectors, text, URLs, file contents or CDP payloads.
+Page.stopLoading, introduced in extension 0.3.1, remains on the owned-page allowlist in protocol 4. Update the extension with the server for navigation cleanup. Logs contain action kind, deadline winner, elapsed time, assignment/generation, pending count, settlement/release state, the CDP method and session (main, popup or child frame) of a timed-out or dropped command, and the check that refused a not-sent action, never selectors, text, URLs, file contents or CDP payloads. `connection_opened` names the generation, `auth` (`code` or `credential`) and the extension package; `connection_ended` names its cause (`socket_closed` with the close code, `pong_overdue` with `msSinceLastMessage`, `bad_message`, `receive_error`, `too_large`, `refused`, `unpaired`, `revoked`, `member_removed`, `send_failed`). `too_large` lines and the causes carry the message size and its kind, id and CDP method only. A `grant_released` that a fault caused carries that cause.
 
 The extension popup masks pairing codes by default. Show/Hide explicitly reveals or masks the field; opening the pairing form, submitting it or closing the popup masks it again. The same behavior applies to initial and replacement pairing.
 

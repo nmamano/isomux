@@ -7,8 +7,15 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildBrowserExtension } from "../scripts/build-browser-extension";
 import { browserExtensionFixture } from "./test-support/browser-extension-fixture";
-import type { ExtensionBrowserSessions } from "./browser-extension-session";
-import type { BrowserResult } from "./browser-actions";
+import {
+  ANSWER_TOO_LARGE_ERROR,
+  type ExtensionBrowserSessions,
+} from "./browser-extension-session";
+import {
+  BROWSER_ACTION_DEADLINE_MS,
+  type BrowserResult,
+} from "./browser-actions";
+import { SCOPED_READ_ATTACH_MS } from "./browser-frames";
 import { CHECK_REASON, CLICK_REASON, SELECT_REASON } from "./browser-input";
 import type { Dialog, Page } from "playwright-core";
 import {
@@ -1224,6 +1231,106 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         expect(result.error).not.toContain("Head");
       },
     );
+  },
+  60_000,
+);
+
+// Task f63edd81: a scoped read whose selector matched nothing waited out the
+// whole action deadline. The production deadline makes that wait visible.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a scoped read whose selector matches nothing fails fast, and one that matches soon still answers",
+  async () => {
+    await withOfferedTab(
+      () =>
+        html(
+          `<!doctype html><title>Scoped</title><main id="main"><p>here</p></main><button id="arm">arm</button><script>document.getElementById("arm").onclick = () => setTimeout(() => { const p = document.createElement("p"); p.id = "late"; p.textContent = "late text"; document.body.append(p); }, 1000)</script>`,
+        ),
+      async ({ act }) => {
+        const { ok, failed, read } = expectations(act);
+        for (const action of ["snapshot", "text"]) {
+          const missing = await act({
+            action,
+            selector: ".scaffold-layout__main >> nth=0",
+          });
+          const result = failed(missing);
+          expect({ action, code: result.code }).toEqual({
+            action,
+            code: "action_failed",
+          });
+          expect(result.error).toContain(CLICK_REASON.missing);
+          expect(missing.elapsed).toBeLessThan(SCOPED_READ_ATTACH_MS + 2000);
+        }
+        // Control stays on: the next reads on the tab answer.
+        expect(await read("#main")).toBe("here");
+        expect(ok(await act({ action: "snapshot" })).snapshot).toContain(
+          "here",
+        );
+        // An element that appears 1 s after the call is waited for.
+        ok(await act({ action: "click", selector: "#arm" }));
+        const late = await act({ action: "text", selector: "#late" });
+        expect(ok(late).text).toBe("late text");
+        expect(late.elapsed).toBeLessThan(SCOPED_READ_ATTACH_MS + 2000);
+      },
+      BROWSER_ACTION_DEADLINE_MS,
+    );
+  },
+  120_000,
+);
+
+// Task f63edd81: an extension message over the office's size cap refused the
+// whole browser, which then stayed off until the member paired again. The
+// service routes such a message to receiveOversized (its unit tests prove
+// that); here a lower threshold stands in for the cap, so that a real read
+// on a real tab crosses it.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a read whose answer is too large fails that read only, and control stays on",
+  async () => {
+    const threshold = 200_000;
+    let armed = false;
+    let oversized = 0;
+    const connections = new Set<unknown>();
+    const prototype = ExtensionConnection.prototype as unknown as {
+      receive: (message: unknown) => void;
+      receiveOversized: (message: unknown, bytes: number) => void;
+    };
+    const original = prototype.receive;
+    const receive = spyOn(prototype, "receive").mockImplementation(function (
+      this: typeof prototype,
+      message: unknown,
+    ) {
+      connections.add(this);
+      const bytes = Buffer.byteLength(JSON.stringify(message));
+      if (armed && bytes > threshold) {
+        oversized++;
+        return this.receiveOversized(message, bytes);
+      }
+      return original.call(this, message);
+    });
+    try {
+      await withOfferedTab(
+        () =>
+          html(
+            `<!doctype html><title>Large</title><p id="small">small</p><pre id="big">${"large text ".repeat(40_000)}</pre>`,
+          ),
+        async ({ act }) => {
+          const { failed, read } = expectations(act);
+          armed = true;
+          const large = await act({ action: "text" });
+          const result = failed(large);
+          // The condition: the answer did cross the threshold.
+          expect(oversized).toBeGreaterThan(0);
+          expect(result.code).toBe("action_failed");
+          expect(result.error).toBe(ANSWER_TOO_LARGE_ERROR);
+          // At once: a retry gets the same answer, so none is made.
+          expect(large.elapsed).toBeLessThan(DEADLINE_MS / 2);
+          // The same tab answers the next read, on the same connection.
+          expect(await read("#small")).toBe("small");
+          expect(connections.size).toBe(1);
+        },
+      );
+    } finally {
+      receive.mockRestore();
+    }
   },
   60_000,
 );

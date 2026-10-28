@@ -198,6 +198,48 @@ async function create(
   };
 }
 
+// A second offered tab, "other-owned", with its own agent client attached.
+async function secondTab(h: Awaited<ReturnType<typeof harness>>) {
+  const assignment = await offer(
+    h.connection,
+    h.extension.messages,
+    "other-agent",
+    "other-owned",
+  );
+  const client = peer();
+  const agent = h.connection.assign("other-agent", client);
+  await autoAttachBrowser(
+    h.connection,
+    h.extension.messages,
+    agent,
+    "other-owned",
+  );
+  const attached = client.messages.find(
+    (msg) => msg.method === "Target.attachedToTarget",
+  )!;
+  return {
+    assignment,
+    client,
+    agent,
+    sessionId: fields(attached.params).sessionId,
+  };
+}
+// The [browser-extension] lines logged while run() runs.
+async function bridgeLog(run: () => unknown) {
+  const lines: Fields[] = [];
+  const info = spyOn(console, "info").mockImplementation((text) => {
+    const line = String(text);
+    if (line.startsWith("[browser-extension] "))
+      lines.push(JSON.parse(line.slice("[browser-extension] ".length)));
+  });
+  try {
+    await run();
+  } finally {
+    info.mockRestore();
+  }
+  return lines;
+}
+
 describe("browser extension isolation", () => {
   test("structural transport URL checks", () => {
     for (const url of [
@@ -450,22 +492,50 @@ describe("browser extension isolation", () => {
       h.connection.close();
     }
   });
-  test("a child target cannot claim another assignment's target", async () => {
-    const h = await harness();
-    const { assignment } = await create(h);
-    h.connection.receive({
-      kind: "event",
-      generation: h.connection.generation,
-      assignment,
-      method: "Target.attachedToTarget",
-      params: {
-        sessionId: "child",
-        targetInfo: { targetId: "owned", type: "iframe" },
-      },
+  // Task f63edd81: the refused event ends only the grant that sent it. It
+  // used to end the whole browser connection.
+  for (const [claim, targetId] of [
+    ["its own", "owned"],
+    ["another assignment's", "other-owned"],
+  ])
+    test(`a child target cannot claim ${claim} target; only its grant ends`, async () => {
+      const h = await harness();
+      const { assignment } = await create(h);
+      const second = await secondTab(h);
+      const lines = await bridgeLog(() =>
+        h.connection.receive({
+          kind: "event",
+          generation: h.connection.generation,
+          assignment,
+          method: "Target.attachedToTarget",
+          params: {
+            sessionId: "child",
+            targetInfo: { targetId, type: "iframe" },
+          },
+        }),
+      );
+      // The other tab and the browser connection stay.
+      expect(h.extension.closed).toBe(false);
+      expect(second.client.closed).toBe(false);
+      expect(h.connection.offered("other-agent")).toBe(second.assignment);
+      expect(lines.some((l) => l.assignment === second.assignment)).toBe(false);
+      expect(h.client.closed).toBe(true);
+      expect(h.connection.offered("agent")).toBeUndefined();
+      expect(
+        lines.find(
+          (l) => l.reason === "grant_released" && l.assignment === assignment,
+        )!.cause,
+      ).toBeString();
+      // A message that names no grant still ends the connection.
+      h.connection.receive({
+        kind: "event",
+        generation: h.connection.generation,
+        method: "Runtime.consoleAPICalled",
+        params: {},
+      });
+      expect(h.extension.closed).toBe(true);
+      expect(second.client.closed).toBe(true);
     });
-    expect(h.client.closed).toBe(true);
-    h.connection.close();
-  });
 });
 
 test("owned popup chain is visible only to its assignment and rejects a foreign opener", async () => {
@@ -521,7 +591,12 @@ test("owned popup chain is visible only to its assignment and rejects a foreign 
       },
     },
   });
-  expect(h.extension.closed).toBe(true);
+  // Task f63edd81: the refused popup ends its own grant, not the connection
+  // or the other agent's tab.
+  expect(h.extension.closed).toBe(false);
+  expect(h.client.closed).toBe(true);
+  expect(h.connection.offered("agent")).toBeUndefined();
+  expect(other.closed).toBe(false);
   expect(
     h.client.messages.some(
       (m) =>
@@ -4064,4 +4139,143 @@ describe("a tab whose main frame id is not its target id", () => {
       h.connection.close();
     }
   });
+});
+
+// Task f63edd81: one tab's fault ended every tab of the browser.
+describe("a fault in one tab stays in that tab", () => {
+  test("a malformed answer ends only the grant of its command", async () => {
+    const h = await harness();
+    const { sessionId, assignment } = await create(h);
+    const second = await secondTab(h);
+    try {
+      const work = h.agent.receive({
+        id: 5,
+        method: "Runtime.evaluate",
+        sessionId,
+        params: {},
+      });
+      const command = h.extension.messages.at(-1)!;
+      expect(command.assignment).toBe(assignment);
+      const lines = await bridgeLog(() =>
+        h.connection.receive({
+          kind: "result",
+          generation: h.connection.generation,
+          id: command.id,
+          result: null,
+        }),
+      );
+      await work;
+      expect(h.extension.closed).toBe(false);
+      expect(second.client.closed).toBe(false);
+      expect(h.client.closed).toBe(true);
+      expect(h.connection.offered("agent")).toBeUndefined();
+      expect(
+        lines.find(
+          (l) => l.reason === "grant_released" && l.assignment === assignment,
+        )!.cause,
+      ).toBeString();
+      // The other tab still runs commands.
+      const other = second.agent.receive({
+        id: 6,
+        method: "Runtime.evaluate",
+        sessionId: second.sessionId,
+        params: {},
+      });
+      const next = h.extension.messages.at(-1)!;
+      expect(next.assignment).toBe(second.assignment);
+      h.connection.receive({
+        kind: "result",
+        generation: h.connection.generation,
+        id: next.id,
+        result: { result: { value: 1 } },
+      });
+      await other;
+      expect(second.client.messages.find((m) => m.id === 6)).toMatchObject({
+        result: { result: { value: 1 } },
+      });
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a command the socket did not take fails alone and fences nothing", async () => {
+    const h = await harness();
+    const { sessionId, assignment } = await create(h);
+    const second = await secondTab(h);
+    try {
+      let refuse = true;
+      h.extension.send = function (message: Fields) {
+        if (refuse && message.kind === "command") {
+          refuse = false;
+          throw new Error("socket gone");
+        }
+        this.messages.push(message);
+      };
+      await h.agent.receive({
+        id: 5,
+        method: "Runtime.evaluate",
+        sessionId,
+        params: {},
+      });
+      // Precondition: the send was refused.
+      expect(refuse).toBe(false);
+      expect(h.extension.closed).toBe(false);
+      expect(h.client.messages.find((m) => m.id === 5)?.error).toBeDefined();
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      expect(h.connection.offered("agent")).toBe(assignment);
+      expect(h.connection.offered("other-agent")).toBe(second.assignment);
+      // The next command on the same tab goes out.
+      void h.agent.receive({
+        id: 6,
+        method: "Runtime.evaluate",
+        sessionId,
+        params: {},
+      });
+      expect(h.extension.messages.at(-1)).toMatchObject({
+        kind: "command",
+        assignment,
+      });
+    } finally {
+      h.connection.close();
+    }
+  });
+});
+
+// Task f63edd81: the session's too-large listener runs inside the
+// extension's message; a throw there must not end the browser connection.
+test("a too-large listener that throws fails only its command; the connection and the other tab stay", async () => {
+  const h = await harness();
+  const { sessionId, assignment } = await create(h);
+  const second = await secondTab(h);
+  const stop = h.connection.onAnswerTooLarge(assignment, () => {
+    throw new Error("listener fault");
+  });
+  try {
+    const work = h.agent.receive({
+      id: 5,
+      method: "Runtime.evaluate",
+      sessionId,
+      params: {},
+    });
+    const command = h.extension.messages.at(-1)!;
+    expect(command.assignment).toBe(assignment);
+    h.connection.receiveOversized(
+      {
+        kind: "result",
+        generation: h.connection.generation,
+        id: command.id,
+        result: {},
+      },
+      9 * 1024 * 1024,
+    );
+    await work;
+    expect(h.extension.closed).toBe(false);
+    expect(h.client.messages.find((m) => m.id === 5)?.error).toBeDefined();
+    expect(h.connection.pendingCount(assignment)).toBe(0);
+    expect(second.client.closed).toBe(false);
+    expect(h.connection.offered("other-agent")).toBe(second.assignment);
+  } finally {
+    stop();
+    h.connection.close();
+  }
 });
