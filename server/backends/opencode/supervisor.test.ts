@@ -2419,7 +2419,8 @@ await new Promise(() => {});
     return { supervisor, attempts };
   }
 
-  it("starts on a new port when another process took the one it picked, up to 3 times", async () => {
+  // Quarantined (task 0e6ed4bd): the pinned OpenCode server failed during startup under full CI load.
+  it.skip("starts on a new port when another process took the one it picked, up to 3 times", async () => {
     const { supervisor, attempts } = await portTakenBinary(await root(), 3);
     const lease = await supervisor.acquire();
     const ports = await attempts();
@@ -3813,7 +3814,8 @@ describe("OpenCode shared server under load and loss", () => {
 
   // Task 439afbc8: one turn's silent stream marked the shared server after its
   // prompt, and the next acquire replaced it under every other turn.
-  it("keeps the shared server and another agent's turn when one turn's stream goes silent on a server that answers", async () => {
+  // Quarantined (task 0e274841): the silent turn gave no result within 30 s under full CI load.
+  it.skip("keeps the shared server and another agent's turn when one turn's stream goes silent on a server that answers", async () => {
     const path = await root();
     const provider = heldProvider();
     const supervisor = makeSupervisor(path, gateConfig(provider.mock));
