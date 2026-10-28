@@ -18,6 +18,11 @@ import {
   fields,
   pageCommandAllowed,
   type Fields,
+  EXTENSION_MAX_BYTES,
+  trimOversizedEvent,
+  utf8Bytes,
+  type BrowserAttachFailure,
+  type BrowserDetachCause,
 } from "../shared/browser-extension-protocol";
 import { confirmPairedCode } from "./pairing-draft";
 
@@ -371,7 +376,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       };
       const accepted = await requestOffer(c, id, tab);
       if (!accepted || c.tabs.get(id) !== tab || tab.phase !== "offering") {
-        await revoke(c, id);
+        await revoke(c, id, "offer_refused");
         throw tab.unanswered ? new TabUnansweredError() : new Error();
       }
       check(c);
@@ -406,7 +411,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
         });
         await chrome.windows.update(target.windowId, { focused: true });
       } else if (msg.action === "stop") {
-        await revoke(c, msg.assignment);
+        await revoke(c, msg.assignment, "off");
       } else throw new Error();
     }
   }
@@ -481,11 +486,15 @@ function resumeOffer(c: Connection, id: string, r: ResumeOffer): void {
     expiresAt: r.expiresAt,
     offerOrigin: r.offerOrigin,
   }).then((accepted) => {
-    if (!accepted && !c.closed) void revoke(c, id);
+    if (!accepted && !c.closed) void revoke(c, id, "offer_refused");
   });
 }
 
-async function revoke(c: Connection, id: string): Promise<void> {
+async function revoke(
+  c: Connection,
+  id: string,
+  cause: BrowserDetachCause,
+): Promise<void> {
   const tab = c.tabs.get(id);
   if (!tab) return;
   if (!c.closed && resumable.delete(id)) void saveResumable();
@@ -499,7 +508,7 @@ async function revoke(c: Connection, id: string): Promise<void> {
     generation: c.generation,
     assignment: id,
     method: "detached",
-    params: {},
+    params: { cause },
   });
   refreshBadges();
   tab.releasing = (async () => {
@@ -511,9 +520,38 @@ async function revoke(c: Connection, id: string): Promise<void> {
   return tab.releasing;
 }
 
+// No frame goes over EXTENSION_MAX_BYTES: the office's socket closes on a
+// frame over its limit, which ends every offer (task 694e958e). An answer over
+// it fails with its size. An event goes out cut, or ends only its own grant.
 function send(c: Connection, message: Fields): void {
-  if (!c.closed && current === c && c.ws.readyState === WebSocket.OPEN)
-    c.ws.send(JSON.stringify(message));
+  if (c.closed || current !== c || c.ws.readyState !== WebSocket.OPEN) return;
+  let json = JSON.stringify(message);
+  // A UTF-16 unit is at most 3 UTF-8 bytes.
+  const bytes =
+    json.length * 3 > EXTENSION_MAX_BYTES ? utf8Bytes(json) : json.length;
+  if (bytes > EXTENSION_MAX_BYTES) {
+    if (message.kind === "result")
+      json = JSON.stringify({
+        kind: "result",
+        generation: message.generation,
+        id: message.id,
+        error: "Browser command failed",
+        tooLarge: bytes,
+      });
+    else if (
+      message.kind === "event" &&
+      typeof message.assignment === "string"
+    ) {
+      // The cut changes its input: cut a copy, not the live params.
+      const trimmed = trimOversizedEvent(fields(JSON.parse(json)));
+      if (!trimmed) {
+        void revoke(c, message.assignment, "too_large");
+        return;
+      }
+      json = JSON.stringify(trimmed);
+    }
+  }
+  c.ws.send(json);
 }
 function check(c: Connection): void {
   if (
@@ -545,6 +583,21 @@ async function detach(tab: OwnedTab): Promise<void> {
 }
 // A tab that gave no answer to an attach command within ATTACH_ANSWER_MS.
 class TabUnansweredError extends Error {}
+// An attach that failed for a reason the office logs.
+class AttachError extends Error {
+  constructor(readonly reason: BrowserAttachFailure) {
+    super("Browser attach failed");
+  }
+}
+function attachFailure(error: unknown): BrowserAttachFailure {
+  if (error instanceof TabUnansweredError) return "unanswered";
+  if (error instanceof AttachError) return error.reason;
+  // Duck-typed: Chrome's error can come from another realm.
+  const message = (error as { message?: unknown } | null)?.message;
+  if (typeof message === "string" && /already attached/i.test(message))
+    return "already_attached";
+  return "attach_failed";
+}
 // One command of an attach or a detach, bounded by ATTACH_ANSWER_MS. It
 // rejects with TabUnansweredError when the tab gives no answer.
 function answered(
@@ -629,40 +682,40 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   if (msg.method === "attach") {
     const owned = c.tabs.get(id);
     if (!owned || owned.phase !== "offering" || owned.work || !c.offers.has(id))
-      throw new Error("No pending tab offer");
+      throw new AttachError("ended");
     c.creating.add(id);
     owned.work = (async () => {
       try {
         const tab = await chrome.tabs.get(owned.tabId);
         check(c);
         if (!/^https?:\/\//.test(tab.url ?? "") || !c.creating.has(id))
-          throw new Error("Tab is unavailable");
+          throw new AttachError("tab_unavailable");
         await chrome.debugger.attach({ tabId: owned.tabId }, "1.3");
         check(c);
-        if (!c.creating.has(id)) throw new Error("Browser control ended");
+        if (!c.creating.has(id)) throw new AttachError("ended");
         await answered({ tabId: owned.tabId }, "Page.enable");
         check(c);
-        if (!c.creating.has(id)) throw new Error("Browser control ended");
+        if (!c.creating.has(id)) throw new AttachError("ended");
         await answered(
           { tabId: owned.tabId },
           "Page.setInterceptFileChooserDialog",
           { enabled: true },
         );
         check(c);
-        if (!c.creating.has(id)) throw new Error("Browser control ended");
+        if (!c.creating.has(id)) throw new AttachError("ended");
         await answered(
           { tabId: owned.tabId },
           "Emulation.setFocusEmulationEnabled",
           { enabled: true },
         );
         check(c);
-        if (!c.creating.has(id)) throw new Error("Browser control ended");
+        if (!c.creating.has(id)) throw new AttachError("ended");
         const result = fields(
           await answered({ tabId: owned.tabId }, "Target.getTargetInfo"),
         );
         check(c);
         if (!c.creating.has(id) || owned.phase !== "offering")
-          throw new Error("Browser control ended");
+          throw new AttachError("ended");
         const target = fields(result.targetInfo);
         if (
           target.type !== "page" ||
@@ -670,7 +723,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
           typeof target.url !== "string" ||
           !/^https?:\/\//.test(target.url)
         )
-          throw new Error("Tab is unavailable");
+          throw new AttachError("tab_unavailable");
         owned.targetId = target.targetId;
         return result;
       } catch (error) {
@@ -687,7 +740,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   }
   const tab = c.tabs.get(id);
   if (msg.method === "detach") {
-    await revoke(c, id);
+    await revoke(c, id, "office");
     return {};
   }
   if (!tab || tab.phase !== "on" || msg.method !== "cdp")
@@ -943,7 +996,7 @@ async function configure(reset = true): Promise<void> {
                   a.expiresAt === tab.expiresAt,
               )
             )
-              void revoke(c, id);
+              void revoke(c, id, "metadata");
           }
           return;
         }
@@ -991,12 +1044,15 @@ async function configure(reset = true): Promise<void> {
               id: msg.id,
               result,
             }),
-          () =>
+          (error) =>
             send(c, {
               kind: "result",
               generation: c.generation,
               id: msg.id,
               error: "Browser command failed",
+              ...(msg.method === "attach"
+                ? { reason: attachFailure(error) }
+                : {}),
             }),
         );
       } catch {
@@ -1173,8 +1229,8 @@ function recoverDebugger(
   };
   let recovering = false;
   const retire = () => {
-    if (recovering) void revoke(c, assignment);
-    else retireDebugger(c, assignment, main, tab.tabId);
+    if (recovering) void revoke(c, assignment, "recovery_failed");
+    else retireDebugger(c, assignment, main, tab.tabId, "recovery_failed");
   };
   const timer = setTimeout(() => {
     if (tab.recovery !== recovery) return;
@@ -1254,9 +1310,10 @@ function retireDebugger(
   assignment: string,
   tab: OwnedTab,
   tabId: number,
+  cause: BrowserDetachCause,
 ): void {
   if (tabId === tab.tabId) {
-    void revoke(c, assignment);
+    void revoke(c, assignment, cause);
     return;
   }
   const popup = [...tab.popups].find(([, owned]) => owned.tabId === tabId);
@@ -1324,7 +1381,7 @@ chrome.debugger.onDetach.addListener((source, reason) => {
       recoverDebugger(c, assignment, tab, detached);
       continue;
     }
-    retireDebugger(c, assignment, tab, source.tabId);
+    retireDebugger(c, assignment, tab, source.tabId, "debugger_detached");
   }
 });
 chrome.storage.onChanged.addListener((changes, area) => {

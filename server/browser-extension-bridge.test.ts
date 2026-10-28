@@ -8,6 +8,7 @@ import {
 import {
   BROWSER_REATTACH_MS,
   browserSocketURL,
+  EXTENSION_MAX_BYTES,
   fields,
   type Fields,
 } from "../shared/browser-extension-protocol";
@@ -4327,4 +4328,290 @@ test("a too-large listener that throws fails only its command; the connection an
     stop();
     h.connection.close();
   }
+});
+
+// Task 694e958e: the extension never sends a frame over EXTENSION_MAX_BYTES,
+// because Bun ends the whole socket for a frame over its payload limit. For
+// an answer over the cap it sends a small failed result with the size, and
+// every grant that ends logs why, so a resumed grant that ends can be read.
+describe("an answer the extension reports as too large, and why a grant ends", () => {
+  const tooLarge = EXTENSION_MAX_BYTES + 1024;
+  // A command from the agent and the extension's failed result for it.
+  async function answerWith(
+    h: Awaited<ReturnType<typeof harness>>,
+    sessionId: unknown,
+    extra: Fields,
+  ) {
+    const work = h.agent.receive({
+      id: 5,
+      method: "Runtime.evaluate",
+      sessionId,
+      params: {},
+    });
+    const command = h.extension.messages.at(-1)!;
+    expect(command.kind).toBe("command");
+    const lines = await bridgeLog(() =>
+      h.connection.receive({
+        kind: "result",
+        generation: h.connection.generation,
+        id: command.id,
+        error: "Browser command failed",
+        ...extra,
+      }),
+    );
+    await work;
+    return { lines, command };
+  }
+
+  test("an answer reported as too large fails only its command as too large; the grant, the other tab and the connection stay", async () => {
+    const h = await harness();
+    const { sessionId, assignment } = await create(h);
+    const second = await secondTab(h);
+    let fired = 0;
+    const stop = h.connection.onAnswerTooLarge(assignment, () => fired++);
+    try {
+      const { lines, command } = await answerWith(h, sessionId, { tooLarge });
+      // The session's too-large listener gives the agent the too-large
+      // error, not a plain failure.
+      expect(fired).toBe(1);
+      expect(h.client.messages.find((m) => m.id === 5)?.error).toBeDefined();
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      expect(lines.find((l) => l.reason === "too_large")).toMatchObject({
+        id: command.id,
+        bytes: tooLarge,
+        source: "extension",
+      });
+      expect(
+        lines.filter(
+          (l) =>
+            l.reason === "connection_ended" || l.reason === "grant_released",
+        ),
+      ).toEqual([]);
+      expect(h.extension.closed).toBe(false);
+      expect(h.connection.offered("agent")).toBe(assignment);
+      expect(h.connection.offered("other-agent")).toBe(second.assignment);
+      expect(second.client.closed).toBe(false);
+    } finally {
+      stop();
+      h.connection.close();
+    }
+  });
+
+  // tooLarge goes into a log line, which never carries page content.
+  for (const value of [
+    "secret page text",
+    EXTENSION_MAX_BYTES,
+    1024,
+    2 ** 60,
+    tooLarge + 0.5,
+  ])
+    test(`a tooLarge of ${JSON.stringify(value)} is a plain failure and does not reach the log`, async () => {
+      const h = await harness();
+      const { sessionId, assignment } = await create(h);
+      let fired = 0;
+      const stop = h.connection.onAnswerTooLarge(assignment, () => fired++);
+      try {
+        const { lines } = await answerWith(h, sessionId, { tooLarge: value });
+        expect(fired).toBe(0);
+        expect(h.client.messages.find((m) => m.id === 5)?.error).toBeDefined();
+        expect(lines.filter((l) => l.reason === "too_large")).toEqual([]);
+        expect(JSON.stringify(lines)).not.toContain("secret page text");
+        expect(h.connection.offered("agent")).toBe(assignment);
+        expect(h.extension.closed).toBe(false);
+      } finally {
+        stop();
+        h.connection.close();
+      }
+    });
+
+  // The grant_released lines that run() logs.
+  async function released(run: () => unknown) {
+    return (await bridgeLog(run)).filter((l) => l.reason === "grant_released");
+  }
+  const detached = (
+    h: Awaited<ReturnType<typeof harness>>,
+    assignment: string,
+    params: Fields,
+  ) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment,
+      method: "detached",
+      params,
+    });
+
+  test("a grant the extension ends logs extension_detached with the extension's cause from its list, and nothing else it sent", async () => {
+    for (const [params, extensionCause] of [
+      [{ cause: "metadata" }, "metadata"],
+      [{ cause: "too_large" }, "too_large"],
+      [{ cause: "debugger_detached" }, "debugger_detached"],
+      [{ cause: "secret page text" }, undefined],
+      [{ cause: 7 }, undefined],
+      // An extension older than 0.4.6 sends no cause.
+      [{}, undefined],
+    ] as const) {
+      const h = await harness();
+      const assignment = h.connection.offered("agent")!;
+      const lines = await released(() => detached(h, assignment, params));
+      expect(lines).toHaveLength(1);
+      expect(lines[0].assignment).toBe(assignment);
+      expect(lines[0].cause).toBe("extension_detached");
+      if (extensionCause === undefined)
+        expect(lines[0]).not.toHaveProperty("extensionCause");
+      else expect(lines[0].extensionCause).toBe(extensionCause);
+      expect(JSON.stringify(lines)).not.toContain("secret page text");
+      h.connection.close();
+    }
+  });
+
+  test("a grant that ends at a revalidation the member no longer passes, or at the connection's end, names that cause", async () => {
+    const h = await harness();
+    const second = await secondTab(h);
+    const first = h.connection.offered("agent")!;
+    h.revoke();
+    const revalidated = await released(() => h.connection.revalidate());
+    expect(revalidated.map((l) => [l.assignment, l.cause])).toEqual([
+      [first, "revalidate_unauthorized"],
+      [second.assignment, "revalidate_unauthorized"],
+    ]);
+
+    const g = await harness();
+    const other = await secondTab(g);
+    const own = g.connection.offered("agent")!;
+    const ended = await released(() => g.connection.close());
+    expect(ended.map((l) => [l.assignment, l.cause])).toEqual([
+      [own, "connection_closed"],
+      [other.assignment, "connection_closed"],
+    ]);
+  });
+
+  // An offer whose attach the extension could not make.
+  async function failedOffer(reason: unknown) {
+    const extension = peer();
+    const bridge = new BrowserExtensionBridge({
+      memberForCredentialHash: (hash) =>
+        hash === browserCredentialHash("attach-credential")
+          ? "member"
+          : undefined,
+      mayUse: (member, agent) => member === "member" && agent === "agent",
+    });
+    const connection = bridge.connect("attach-credential", extension);
+    const assignment = crypto.randomUUID();
+    const lines = await bridgeLog(async () => {
+      connection.receive({
+        kind: "offer",
+        durationMinutes: 0,
+        generation: connection.generation,
+        assignment,
+        scope: { kind: "agent", agentId: "agent" },
+      });
+      const attach = extension.messages.findLast((m) => m.method === "attach");
+      // The enabling condition: the office asked the extension to attach.
+      expect(attach).toBeDefined();
+      connection.receive({
+        kind: "result",
+        generation: connection.generation,
+        id: attach!.id,
+        error: "Browser command failed",
+        ...(reason === undefined ? {} : { reason }),
+      });
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+    connection.close();
+    return { lines, assignment };
+  }
+
+  test("an offer whose attach fails logs offer_failed at the attach stage with the extension's reason from its list", async () => {
+    for (const [reason, logged] of [
+      ["already_attached", "already_attached"],
+      ["unanswered", "unanswered"],
+      ["secret page text", undefined],
+      [undefined, undefined],
+    ] as const) {
+      const { lines, assignment } = await failedOffer(reason);
+      const line = lines.find(
+        (l) => l.reason === "grant_released" && l.assignment === assignment,
+      );
+      expect(line).toMatchObject({ cause: "offer_failed", stage: "attach" });
+      if (logged === undefined) expect(line).not.toHaveProperty("attachReason");
+      else expect(line!.attachReason).toBe(logged);
+      // A grant that never started logs no start.
+      expect(lines.filter((l) => l.reason === "grant_started")).toEqual([]);
+      expect(JSON.stringify(lines)).not.toContain("secret page text");
+    }
+  });
+
+  test("a grant logs its start once it is made, with resumed for an offer the extension sends again, and its release names the same control session", async () => {
+    const extension = peer();
+    const bridge = new BrowserExtensionBridge({
+      memberForCredentialHash: (hash) =>
+        hash === browserCredentialHash("start-credential")
+          ? "member"
+          : undefined,
+      mayUse: (member, agent) => member === "member" && agent === "agent",
+    });
+    const connection = bridge.connect("start-credential", extension);
+    const start = async (assignment: string, resume: Fields) => {
+      const lines = await bridgeLog(async () => {
+        connection.receive({
+          kind: "offer",
+          durationMinutes: 0,
+          generation: connection.generation,
+          assignment,
+          scope: { kind: "all" },
+          ...resume,
+        });
+        const attach = extension.messages.findLast(
+          (m) => m.method === "attach",
+        )!;
+        connection.receive({
+          kind: "result",
+          generation: connection.generation,
+          id: attach.id,
+          result: {
+            targetInfo: {
+              targetId: crypto.randomUUID(),
+              type: "page",
+              url: "https://example.com/",
+            },
+          },
+        });
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      });
+      return lines.filter((l) => l.reason === "grant_started");
+    };
+    const fresh = crypto.randomUUID();
+    const resumed = crypto.randomUUID();
+    const freshLines = await start(fresh, {});
+    const resumedLines = await start(resumed, {
+      expiresAt: null,
+      offerOrigin: "https://example.com",
+    });
+    expect(freshLines).toEqual([
+      {
+        reason: "grant_started",
+        generation: connection.generation,
+        assignment: fresh,
+        controlSession: expect.any(String),
+        resumed: false,
+      },
+    ]);
+    expect(resumedLines).toEqual([
+      {
+        reason: "grant_started",
+        generation: connection.generation,
+        assignment: resumed,
+        controlSession: expect.any(String),
+        resumed: true,
+      },
+    ]);
+    const ended = await released(() => connection.close());
+    expect(
+      Object.fromEntries(ended.map((l) => [l.assignment, l.controlSession])),
+    ).toEqual({
+      [fresh]: freshLines[0].controlSession,
+      [resumed]: resumedLines[0].controlSession,
+    });
+  });
 });

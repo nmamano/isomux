@@ -2,6 +2,7 @@ import { beforeAll, test, expect } from "bun:test";
 import { runInNewContext } from "node:vm";
 import {
   ATTACH_ANSWER_MS,
+  EXTENSION_MAX_BYTES,
   fields,
   type Fields,
 } from "../shared/browser-extension-protocol";
@@ -37,6 +38,13 @@ async function harness(
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
   let debuggerDetached!: (source: { tabId: number }, reason: string) => void;
+  let cdpEvent!: (
+    source: { tabId: number; sessionId?: string },
+    method: string,
+    params?: Fields,
+  ) => void;
+  // The UTF-8 size of every frame the extension sent.
+  const frames: number[] = [];
   let targets = [{ id: "owned", tabId: 7, type: "page" }];
   let updated!: (id: number, change: { status?: string }) => void;
   let badgeDelay: () => Promise<void> = async () => {};
@@ -88,6 +96,7 @@ async function harness(
       sockets.push(this);
     }
     send(data: string) {
+      frames.push(Buffer.byteLength(data));
       const msg = fields(JSON.parse(data));
       this.sent.push(msg);
       if (autoAck && msg.kind === "result" && msg.id === 1)
@@ -231,7 +240,11 @@ async function harness(
         }
         return answer(target, method, params);
       },
-      onEvent: { addListener() {} },
+      onEvent: {
+        addListener(fn: typeof cdpEvent) {
+          cdpEvent = fn;
+        },
+      },
       onDetach: {
         addListener(fn: typeof debuggerDetached) {
           debuggerDetached = fn;
@@ -400,11 +413,18 @@ async function harness(
         });
       return () => finish();
     },
-    failAttach: () => {
+    failAttach: (message = "attach failed") => {
       attach = async () => {
-        throw new Error("attach failed");
+        throw new Error(message);
       };
     },
+    // Chrome's answer to the next Runtime.evaluate commands.
+    answerEvaluation: (value: unknown) => {
+      evaluation = async () => value;
+    },
+    cdpEvent: (tabId: number, method: string, params: Fields) =>
+      cdpEvent({ tabId }, method, params),
+    frames,
     removeTab: () => {
       getTab = async () => {
         throw new Error("tab closed");
@@ -723,7 +743,7 @@ test("popup is exact-extension-only, does not disclose credentials, and stops a 
     generation: "generation-1",
     assignment: h.assignment(),
     method: "detached",
-    params: {},
+    params: { cause: "off" },
   });
   h.socket.close();
 });
@@ -1869,9 +1889,10 @@ for (const from of [
     // One bound: the reason does not wait for a second timer.
     expect(replied).toBe(true);
     expect(h.pendingTimers(ATTACH_ANSWER_MS)).toBe(0);
-    expect(
-      h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
-    ).toBeDefined();
+    const failed = h.socket.sent.find((m) => m.kind === "result" && m.id === 1);
+    expect(failed?.error).toBeDefined();
+    // The office logs why the offer failed (task 694e958e).
+    expect(failed?.reason).toBe("unanswered");
     expect(h.detachedTabs).toContain(7);
     expect(await reply).toMatchObject({
       error: expect.any(String),
@@ -1903,13 +1924,25 @@ test("a tab that answers the attach late but inside the bound is offered", async
   expect(await listed(h)).toEqual([{ id: h.assignment(), phase: "on" }]);
 });
 
-test("an attach that fails for another cause gives no dialog reason", async () => {
-  const h = await harness();
-  h.failAttach();
-  const reply = await h.offer();
-  expect(reply.error).toBeDefined();
-  expect(reply.reason).toBeUndefined();
-});
+// The office logs the reason the extension sends (task 694e958e); the popup
+// shows only the dialog reason.
+for (const [message, sent] of [
+  ["attach failed", "attach_failed"],
+  [
+    "Another debugger is already attached to the tab with id: 7.",
+    "already_attached",
+  ],
+] as const)
+  test(`an attach that fails with "${message}" gives no dialog reason and tells the office ${sent}`, async () => {
+    const h = await harness();
+    h.failAttach(message);
+    const reply = await h.offer();
+    expect(reply.error).toBeDefined();
+    expect(reply.reason).toBeUndefined();
+    const failed = h.socket.sent.find((m) => m.kind === "result" && m.id === 1);
+    expect(failed?.error).toBeDefined();
+    expect(failed?.reason).toBe(sent);
+  });
 
 test("a site-opened popup that gives no answer is dropped at the bound; a later popup attaches and Stop completes", async () => {
   const h = await harness();
@@ -1936,6 +1969,173 @@ test("a site-opened popup that gives no answer is dropped at the bound; a later 
     generation: "generation-1",
     assignment: h.assignment(),
     method: "detached",
-    params: {},
+    params: { cause: "office" },
   });
 });
+
+// Task 694e958e: the office's socket closes on a frame over its payload limit,
+// which ends every offered tab at once. The extension sends no frame over
+// EXTENSION_MAX_BYTES.
+const largest = (h: Harness) => Math.max(...h.frames);
+const detachCauses = (h: Harness) =>
+  h.socket.sent
+    .filter((m) => m.kind === "event" && m.method === "detached")
+    .map((m) => [m.assignment, fields(m.params).cause]);
+
+test("an answer over the size cap fails only its command, with its size; the tab and the connection stay, and the next answer goes out whole", async () => {
+  const h = await harness();
+  await h.offer();
+  // Two UTF-8 bytes per character: under the cap in characters, over it in
+  // bytes.
+  const value = "é".repeat(EXTENSION_MAX_BYTES / 2 + 1024);
+  h.answerEvaluation({ result: { type: "string", value } });
+  h.command(2, "cdp", { method: "Runtime.evaluate", params: {} });
+  await settled();
+  // The enabling condition: Chrome gave the answer.
+  expect(h.calls.filter((call) => call === "Runtime.evaluate")).toHaveLength(1);
+  const failed = h.socket.sent.find((m) => m.kind === "result" && m.id === 2)!;
+  // Scalars only: a failure must not print the 8 MiB value.
+  expect("result" in failed).toBe(false);
+  expect(failed.error).toBeDefined();
+  expect(Number.isSafeInteger(failed.tooLarge)).toBe(true);
+  expect(failed.tooLarge).toBeGreaterThan(EXTENSION_MAX_BYTES);
+  expect(largest(h)).toBeLessThanOrEqual(EXTENSION_MAX_BYTES);
+  expect(h.sockets).toHaveLength(1);
+  expect(h.socket.readyState).toBe(1);
+  expect(await listed(h)).toEqual([{ id: h.assignment(), phase: "on" }]);
+  expect(detachCauses(h)).toEqual([]);
+
+  h.answerEvaluation({ result: { type: "string", value: "small" } });
+  h.command(3, "cdp", { method: "Runtime.evaluate", params: {} });
+  await settled();
+  const next = h.socket.sent.find((m) => m.kind === "result" && m.id === 3)!;
+  expect(next).not.toHaveProperty("tooLarge");
+  expect(next.result).toEqual({ result: { type: "string", value: "small" } });
+});
+
+test("an event over the size cap goes out without its request body and with its URL whole; the grant stays", async () => {
+  const h = await harness();
+  await h.offer();
+  const url = "https://example.com/upload?q=1";
+  h.cdpEvent(7, "Network.requestWillBeSent", {
+    requestId: "r1",
+    request: {
+      url,
+      method: "POST",
+      hasPostData: true,
+      postData: "x".repeat(EXTENSION_MAX_BYTES + 10),
+    },
+  });
+  await settled();
+  const sent = h.socket.sent.filter(
+    (m) => m.method === "Network.requestWillBeSent",
+  );
+  expect(sent).toHaveLength(1);
+  const request = fields(fields(sent[0].params).request);
+  // Scalars only: a failure must not print the 8 MiB body.
+  expect("postData" in request).toBe(false);
+  expect([request.url, request.method, request.hasPostData]).toEqual([
+    url,
+    "POST",
+    true,
+  ]);
+  expect(fields(sent[0].params).requestId).toBe("r1");
+  expect(sent[0].assignment).toBe(h.assignment());
+  expect(largest(h)).toBeLessThanOrEqual(EXTENSION_MAX_BYTES);
+  expect(await listed(h)).toEqual([{ id: h.assignment(), phase: "on" }]);
+  expect(detachCauses(h)).toEqual([]);
+});
+
+test("an event still over the size cap after the cut ends only its own tab's grant, with cause too_large; the other tab and the connection stay", async () => {
+  const h = await harness();
+  expect(await h.offer({ kind: "all" })).not.toHaveProperty("error");
+  const first = h.assignment();
+  h.selected(8);
+  expect(await h.offer({ kind: "all" })).not.toHaveProperty("error");
+  const second = h.assignment();
+  // Each string is at the cut length, so the cut keeps every one.
+  const piece = "y".repeat(64 * 1024);
+  const count = Math.ceil(EXTENSION_MAX_BYTES / piece.length) + 4;
+  h.cdpEvent(7, "Runtime.consoleAPICalled", {
+    type: "log",
+    args: Array.from({ length: count }, () => ({
+      type: "string",
+      value: piece,
+    })),
+  });
+  await settled();
+  expect(largest(h)).toBeLessThanOrEqual(EXTENSION_MAX_BYTES);
+  expect(
+    h.socket.sent.filter((m) => m.method === "Runtime.consoleAPICalled").length,
+  ).toBe(0);
+  expect(detachCauses(h)).toEqual([[first, "too_large"]]);
+  expect(h.detachedTabs).toContain(7);
+  expect(h.detachedTabs).not.toContain(8);
+  expect(await listed(h)).toEqual([{ id: second, phase: "on" }]);
+  expect(h.sockets).toHaveLength(1);
+  expect(h.socket.readyState).toBe(1);
+});
+
+// Each way the extension ends an offer names itself in its "detached" event,
+// so the office log tells them apart.
+for (const cause of [
+  "off",
+  "office",
+  "metadata",
+  "debugger_detached",
+  "recovery_failed",
+  "offer_refused",
+] as const) {
+  test(`an offer the extension ends at ${cause} sends that cause`, async () => {
+    const h = await harness(cause !== "offer_refused");
+    if (cause === "offer_refused") {
+      // No office answer yet: the popup's reply waits for it.
+      const reply = h.offer();
+      await settled();
+      // The enabling condition: the extension attached and answered.
+      const attached = h.socket.sent.find(
+        (m) => m.kind === "result" && m.id === 1,
+      );
+      expect(attached).toBeDefined();
+      expect(attached!.error).toBeUndefined();
+      h.socket.receive({
+        kind: "offered",
+        generation: "generation-1",
+        assignment: h.assignment(),
+        error: true,
+      });
+      expect(await reply).toHaveProperty("error");
+    } else {
+      await h.offer();
+      expect(await listed(h)).toEqual([{ id: h.assignment(), phase: "on" }]);
+      if (cause === "off")
+        await h.ui({
+          action: "stop",
+          generation: "generation-1",
+          assignment: h.assignment(),
+        });
+      else if (cause === "office") h.command(2, "detach");
+      else if (cause === "metadata")
+        h.socket.receive({
+          kind: "metadata",
+          generation: "generation-1",
+          member: { id: "m", name: "Member" },
+          agents: [{ id: "a", name: "Agent" }],
+          assignments: [],
+        });
+      else if (cause === "debugger_detached")
+        h.debuggerDetached("canceled_by_user");
+      else {
+        h.delayCreate();
+        const prior = new Set(h.timers.keys());
+        h.debuggerDetached("target_closed");
+        await settle();
+        const timers = [...h.timers].filter(([id]) => !prior.has(id));
+        expect(timers).toHaveLength(1);
+        timers[0][1]();
+      }
+    }
+    await settled();
+    expect(detachCauses(h)).toEqual([[h.assignment(), cause]]);
+  });
+}

@@ -20,6 +20,7 @@ import { CHECK_REASON, CLICK_REASON, SELECT_REASON } from "./browser-input";
 import type { Dialog, Page } from "playwright-core";
 import {
   ATTACH_ANSWER_MS,
+  EXTENSION_MAX_BYTES,
   type Fields,
 } from "../shared/browser-extension-protocol";
 import { translatorFor } from "../shared/i18n/translate";
@@ -1334,6 +1335,41 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       );
     } finally {
       receive.mockRestore();
+    }
+  },
+  60_000,
+);
+
+// Task 694e958e: the office's socket ends the whole connection, and so every
+// offered tab, for a frame over its payload limit, before the bridge sees it.
+// The fixture's limit is EXTENSION_MAX_BYTES, under Bun's default in the
+// office: a real read whose answer crosses it must fail alone.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a read whose answer is over the socket's payload limit fails that read only, and the connection stays",
+  async () => {
+    const closes = spyOn(ExtensionConnection.prototype, "close");
+    try {
+      await withOfferedTab(
+        () =>
+          html(
+            `<!doctype html><title>Over the limit</title><p id="small">small</p><pre id="big">${"x".repeat(EXTENSION_MAX_BYTES + 1024 * 1024)}</pre>`,
+          ),
+        async ({ act }) => {
+          const { failed, read } = expectations(act);
+          // The enabling condition: the tab answers on this connection.
+          expect(await read("#small")).toBe("small");
+          const large = await act({ action: "text" });
+          const result = failed(large);
+          expect(result.code).toBe("action_failed");
+          expect(result.error).toBe(ANSWER_TOO_LARGE_ERROR);
+          expect(closes).toHaveBeenCalledTimes(0);
+          // The same tab answers the next read, on the same connection.
+          expect(await read("#small")).toBe("small");
+          expect(closes).toHaveBeenCalledTimes(0);
+        },
+      );
+    } finally {
+      closes.mockRestore();
     }
   },
   60_000,

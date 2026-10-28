@@ -1,19 +1,10 @@
 // Browser control may not take an agent to an Isomux office page that the
 // member did not offer. Every office response carries this header; the bridge
 // learns office origins from it.
-export const OFFICE_MARKER_HEADER = "x-isomux-office";
+import { httpOrigin } from "../shared/browser-extension-protocol";
 
-/** The origin of an http(s) URL, or undefined. */
-export function httpOrigin(url: string): string | undefined {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:"
-      ? parsed.origin
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
+export { httpOrigin };
+export const OFFICE_MARKER_HEADER = "x-isomux-office";
 
 /** True when url is an http(s) page of a known office other than the offer's. */
 export function officePageRefused(

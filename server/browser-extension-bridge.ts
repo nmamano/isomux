@@ -13,11 +13,17 @@ import {
   type BridgePeer,
   type Fields,
   type BrowserDisplay,
+  EXTENSION_MAX_BYTES,
+  httpOrigin,
+  trimOversizedEvent,
+  BROWSER_ATTACH_FAILURES,
+  BROWSER_DETACH_CAUSES,
+  type BrowserAttachFailure,
 } from "../shared/browser-extension-protocol";
+export { EXTENSION_MAX_BYTES };
 import {
   OFFICE_MARKER_HEADER,
   OfficeOrigins,
-  httpOrigin,
   officePageRefused,
 } from "./browser-office-gate";
 
@@ -310,44 +316,44 @@ function listen(
   };
 }
 
-export const EXTENSION_MAX_BYTES = 8 * 1024 * 1024;
-// The longest string an oversized event keeps (task a42c729b).
-const EVENT_STRING_CAP = 64 * 1024;
+// Why a grant ended, in its grant_released line (task 694e958e).
+type ReleaseCause =
+  | "attach_timeout"
+  | "bad_client_message"
+  | "check_failed"
+  | "client_closed"
+  | "connection_closed"
+  | "expired"
+  | "extension_detached"
+  | "message_expired"
+  | "message_unauthorized"
+  | "offer_failed"
+  | "receive_error"
+  | "recovery_timeout"
+  | "recovery_unexpected"
+  | "revalidate_expired"
+  | "revalidate_unauthorized"
+  | "revoked"
+  | "too_large";
 
-// Cuts every long string in a value, in place. A cut keeps the origin the
-// office gate reads, so a long string whose prefix has another origin (a URL
-// with long userinfo) stays whole.
-function cutStrings(value: unknown): unknown {
-  if (typeof value === "string") {
-    if (value.length <= EVENT_STRING_CAP) return value;
-    const cut = value.slice(0, EVENT_STRING_CAP);
-    return httpOrigin(cut) === httpOrigin(value) ? cut : value;
+// A command the extension answered with a failure. An attach failure carries
+// the extension's reason when it is one from the list.
+class CommandFailedError extends Error {
+  readonly attachReason?: BrowserAttachFailure;
+  constructor(reason: unknown) {
+    super("Browser command failed");
+    if (BROWSER_ATTACH_FAILURES.some((known) => known === reason))
+      this.attachReason = reason as BrowserAttachFailure;
   }
-  if (Array.isArray(value))
-    for (let i = 0; i < value.length; i++) value[i] = cutStrings(value[i]);
-  else if (value && typeof value === "object")
-    for (const [key, field] of Object.entries(value))
-      (value as Fields)[key] = cutStrings(field);
-  return value;
 }
 
-// An event over EXTENSION_MAX_BYTES without its request body and with its long
-// strings cut, or undefined when it is still over the cap. Playwright reads
-// the body only for Request.postData(); hasPostData stays.
-function trimOversizedEvent(msg: Fields): Fields | undefined {
-  if (msg.params && typeof msg.params === "object") {
-    if (msg.method === "Network.requestWillBeSent") {
-      const request = (msg.params as Fields).request;
-      if (request && typeof request === "object") {
-        delete (request as Fields).postData;
-        delete (request as Fields).postDataEntries;
-      }
-    }
-    cutStrings(msg.params);
-  }
-  return Buffer.byteLength(JSON.stringify(msg)) > EXTENSION_MAX_BYTES
-    ? undefined
-    : msg;
+// The extension's cause in a "detached" event, when it is one from the list.
+function extensionCause(params: unknown): Fields {
+  const cause =
+    params && typeof params === "object" ? (params as Fields).cause : undefined;
+  return BROWSER_DETACH_CAUSES.some((known) => known === cause)
+    ? { extensionCause: cause }
+    : {};
 }
 
 // The routing fields of an extension message, for a log line: never its
@@ -673,7 +679,7 @@ export class ExtensionConnection {
       close: () => {
         if (assignment.peer !== peer) return;
         if (!retainGrant) {
-          this.release(assignment);
+          this.release(assignment, "client_closed");
           return;
         }
         assignment.connected = false;
@@ -813,7 +819,7 @@ export class ExtensionConnection {
     const result = [];
     for (const a of this.assignments.values()) {
       if (this.expired(a)) {
-        this.release(a);
+        this.release(a, "expired");
         continue;
       }
       if (!a.target || !this.accessible(a, agent)) continue;
@@ -869,7 +875,7 @@ export class ExtensionConnection {
   revoke(agentId: string, target?: string): void {
     const id = this.offered(agentId, target);
     const a = id ? this.assignments.get(id) : undefined;
-    if (a) this.release(a);
+    if (a) this.release(a, "revoked");
   }
 
   private authorized(a: Assignment): boolean {
@@ -947,8 +953,11 @@ export class ExtensionConnection {
       closed: false,
     };
     this.assignments.set(id, a);
+    // Where the offer failed, for the log.
+    let stage: "attach" | "target" | "start" = "attach";
     try {
       const result = await this.request(a, "attach", {});
+      stage = "target";
       this.check(a);
       const target = fields(result.targetInfo);
       if (
@@ -960,6 +969,7 @@ export class ExtensionConnection {
       )
         throw new Error("Invalid offered target");
       a.target = target;
+      stage = "start";
       // A resumed offer keeps its first pin: a tab that moved onto an office
       // page while the office was away starts behind the gate.
       a.offerOrigin = resume ? resume.offerOrigin : httpOrigin(target.url);
@@ -976,7 +986,7 @@ export class ExtensionConnection {
       this.check(a);
       if (a.expiresAt !== null)
         a.cancelExpiry = this.clock.schedule(() => {
-          if (this.assignments.get(id) === a) this.release(a);
+          if (this.assignments.get(id) === a) this.release(a, "expired");
         }, a.expiresAt - this.clock.now());
       this.peer.send({
         kind: "offered",
@@ -987,9 +997,24 @@ export class ExtensionConnection {
         expiresAt: a.expiresAt,
         offerOrigin: a.offerOrigin,
       });
+      console.info(
+        "[browser-extension] " +
+          JSON.stringify({
+            reason: "grant_started",
+            generation: this.generation,
+            assignment: id,
+            controlSession: a.session,
+            resumed: resume !== undefined,
+          }),
+      );
       this.sendMetadata();
-    } catch {
-      this.release(a);
+    } catch (error) {
+      this.release(a, "offer_failed", {
+        stage,
+        ...(error instanceof CommandFailedError && error.attachReason
+          ? { attachReason: error.attachReason }
+          : {}),
+      });
       if (this.active)
         this.peer.send({
           kind: "offered",
@@ -1002,7 +1027,8 @@ export class ExtensionConnection {
 
   revalidate(): void {
     for (const a of this.assignments.values())
-      if (!this.authorized(a) || this.expired(a)) this.release(a);
+      if (!this.authorized(a)) this.release(a, "revalidate_unauthorized");
+      else if (this.expired(a)) this.release(a, "revalidate_expired");
     this.sendMetadata();
   }
 
@@ -1033,6 +1059,11 @@ export class ExtensionConnection {
     return a.expiresAt !== null && this.clock.now() >= a.expiresAt;
   }
 
+  // Why a grant cannot take a message from the extension.
+  private refusal(a: Assignment): ReleaseCause {
+    return this.authorized(a) ? "message_expired" : "message_unauthorized";
+  }
+
   private check(a: Assignment): void {
     if (
       !this.active ||
@@ -1041,7 +1072,7 @@ export class ExtensionConnection {
       this.assignments.get(a.id) !== a ||
       !this.authorized(a)
     ) {
-      this.release(a);
+      this.release(a, "check_failed");
       throw new Error("Browser control ended; pending outcomes may be unknown");
     }
   }
@@ -1176,7 +1207,7 @@ export class ExtensionConnection {
         const pending = this.pending.get(id);
         if (!pending) return;
         if (method === "attach") {
-          this.release(a);
+          this.release(a, "attach_timeout");
           return;
         }
         // A timeout is not evidence of socket loss. Retain this entry until the
@@ -1252,7 +1283,11 @@ export class ExtensionConnection {
   /** A parsed extension message over EXTENSION_MAX_BYTES: fails only the
    * command it answers (task f63edd81). An event goes on trimmed, or ends
    * only its grant (task a42c729b). */
-  receiveOversized(message: unknown, bytes: number): void {
+  receiveOversized(
+    message: unknown,
+    bytes: number,
+    source?: "extension",
+  ): void {
     if (!this.active) return;
     let msg: Fields;
     try {
@@ -1276,6 +1311,7 @@ export class ExtensionConnection {
           generation: this.generation,
           ...envelope(msg),
           bytes,
+          ...(source ? { source } : {}),
           ...(event ? { action: trimmed ? "trimmed" : "ended" } : {}),
         }),
     );
@@ -1356,16 +1392,25 @@ export class ExtensionConnection {
         if (!owner) return;
         owned = owner;
         if (!this.authorized(owner) || this.expired(owner)) {
-          this.release(owner);
+          this.release(owner, this.refusal(owner));
           return;
         }
         this.check(owner);
+        // An answer the extension did not send because it was over the cap.
+        if (
+          msg.error &&
+          Number.isSafeInteger(msg.tooLarge) &&
+          (msg.tooLarge as number) > EXTENSION_MAX_BYTES
+        ) {
+          this.receiveOversized(msg, msg.tooLarge as number, "extension");
+          return;
+        }
         const result = msg.error ? undefined : fields(msg.result);
         this.pending.delete(msg.id);
         clearTimeout(pending.timer);
         pending.settled();
         if (pending.timedOut) return;
-        if (msg.error) pending.reject(new Error("Browser command failed"));
+        if (msg.error) pending.reject(new CommandFailedError(msg.reason));
         else pending.resolve(result!);
         return;
       }
@@ -1375,13 +1420,13 @@ export class ExtensionConnection {
       if (!a) return;
       owned = a;
       if (!this.authorized(a) || this.expired(a)) {
-        this.release(a);
+        this.release(a, this.refusal(a));
         return;
       }
       this.check(a);
       if (msg.method === "recovering") {
         if (a.recovery) {
-          this.release(a);
+          this.release(a, "recovery_unexpected");
           return;
         }
         let finish!: () => void;
@@ -1391,7 +1436,10 @@ export class ExtensionConnection {
         a.recovery = {
           done,
           finish,
-          timer: setTimeout(() => this.release(a), BROWSER_REATTACH_MS),
+          timer: setTimeout(
+            () => this.release(a, "recovery_timeout"),
+            BROWSER_REATTACH_MS,
+          ),
         };
         // Retire only this CDP client. Its close cannot revoke the retained
         // grant, and late results cannot enter the next client session.
@@ -1415,7 +1463,7 @@ export class ExtensionConnection {
       }
       if (msg.method === "recovered") {
         if (!a.recovery) {
-          this.release(a);
+          this.release(a, "recovery_unexpected");
           return;
         }
         clearTimeout(a.recovery.timer);
@@ -1424,7 +1472,7 @@ export class ExtensionConnection {
         return;
       }
       if (msg.method === "detached") {
-        this.release(a);
+        this.release(a, "extension_detached", extensionCause(msg.params));
         return;
       }
       if (a.recovery || !a.target || typeof msg.method !== "string") return;
@@ -1567,7 +1615,7 @@ export class ExtensionConnection {
 
   // Ends one grant after a fault in its own messages. If that fails too, the
   // connection ends.
-  private fault(a: Assignment, cause: string, detail: Fields = {}): void {
+  private fault(a: Assignment, cause: ReleaseCause, detail: Fields = {}): void {
     try {
       this.release(a, cause, detail);
     } catch {
@@ -1603,12 +1651,12 @@ export class ExtensionConnection {
     try {
       msg = fields(message);
     } catch {
-      this.release(a);
+      this.release(a, "bad_client_message");
       return;
     }
     const { id, method, sessionId } = msg;
     if (!Number.isSafeInteger(id) || typeof method !== "string") {
-      this.release(a);
+      this.release(a, "bad_client_message");
       return;
     }
     try {
@@ -1891,17 +1939,22 @@ export class ExtensionConnection {
     return outcome.result;
   }
 
-  private release(a: Assignment, cause?: string, detail: Fields = {}): void {
+  private release(
+    a: Assignment,
+    cause: ReleaseCause,
+    detail: Fields = {},
+  ): void {
     if (a.closed) return;
     console.info(
       "[browser-extension] " +
         JSON.stringify({
+          ...detail,
           reason: "grant_released",
           generation: this.generation,
           assignment: a.id,
           controlSession: a.session,
           pending: this.pendingCount(a.id),
-          ...(cause ? { ...detail, cause } : {}),
+          cause,
         }),
     );
     a.closed = true;
@@ -1960,7 +2013,8 @@ export class ExtensionConnection {
       );
     }
     this.pending.clear();
-    for (const a of this.assignments.values()) this.release(a);
+    for (const a of this.assignments.values())
+      this.release(a, "connection_closed");
     this.stopLearning();
     this.onClose();
     this.peer.close();

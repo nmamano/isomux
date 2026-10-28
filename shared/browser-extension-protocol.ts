@@ -238,3 +238,96 @@ export function officeSocketURL(value: string): string {
   url.pathname = "/browser-extension/ws";
   return url.href;
 }
+
+/** The origin of an http(s) URL, or undefined. */
+export function httpOrigin(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed.origin
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// Why the extension ended an offer, in its "detached" event (params.cause).
+export const BROWSER_DETACH_CAUSES = [
+  "off",
+  "office",
+  "offer_refused",
+  "metadata",
+  "recovery_failed",
+  "debugger_detached",
+  "too_large",
+] as const;
+export type BrowserDetachCause = (typeof BROWSER_DETACH_CAUSES)[number];
+// Why the extension could not attach to an offered tab, in the attach
+// command's failed result (reason).
+export const BROWSER_ATTACH_FAILURES = [
+  "already_attached",
+  "tab_unavailable",
+  "unanswered",
+  "ended",
+  "attach_failed",
+] as const;
+export type BrowserAttachFailure = (typeof BROWSER_ATTACH_FAILURES)[number];
+
+// The largest extension message the office takes whole.
+export const EXTENSION_MAX_BYTES = 8 * 1024 * 1024;
+/** The UTF-8 size of text, in bytes, with no copy of it. */
+export function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    if (unit < 0x80) bytes += 1;
+    else if (unit < 0x800) bytes += 2;
+    else if (
+      unit >= 0xd800 &&
+      unit <= 0xdbff &&
+      i + 1 < text.length &&
+      (text.charCodeAt(i + 1) & 0xfc00) === 0xdc00
+    ) {
+      bytes += 4;
+      i++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+// The longest string an oversized event keeps (task a42c729b).
+const EVENT_STRING_CAP = 64 * 1024;
+
+// Cuts every long string in a value, in place. A cut keeps the origin the
+// office gate reads, so a long string whose prefix has another origin (a URL
+// with long userinfo) stays whole.
+function cutStrings(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (value.length <= EVENT_STRING_CAP) return value;
+    const cut = value.slice(0, EVENT_STRING_CAP);
+    return httpOrigin(cut) === httpOrigin(value) ? cut : value;
+  }
+  if (Array.isArray(value))
+    for (let i = 0; i < value.length; i++) value[i] = cutStrings(value[i]);
+  else if (value && typeof value === "object")
+    for (const [key, field] of Object.entries(value))
+      (value as Fields)[key] = cutStrings(field);
+  return value;
+}
+
+// An event over EXTENSION_MAX_BYTES without its request body and with its long
+// strings cut, or undefined when it is still over the cap. It changes msg in
+// place. Playwright reads the body only for Request.postData(); hasPostData
+// stays.
+export function trimOversizedEvent(msg: Fields): Fields | undefined {
+  if (msg.params && typeof msg.params === "object") {
+    if (msg.method === "Network.requestWillBeSent") {
+      const request = (msg.params as Fields).request;
+      if (request && typeof request === "object") {
+        delete (request as Fields).postData;
+        delete (request as Fields).postDataEntries;
+      }
+    }
+    cutStrings(msg.params);
+  }
+  return utf8Bytes(JSON.stringify(msg)) > EXTENSION_MAX_BYTES ? undefined : msg;
+}
