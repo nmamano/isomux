@@ -78,9 +78,11 @@ const badgeTabs = new Set<number>();
 let badgeWork = Promise.resolve();
 let cleanup = Promise.resolve();
 // The offers to send again after a connection loss, such as an office restart,
-// by assignment id. An entry leaves only on the office's answer to its resume
-// or the member's Off. Session storage keeps the list across a worker restart;
-// an extension reload or a Chrome restart clears it.
+// by assignment id. An offer is written when it turns ON, so a worker that
+// Chrome stops without close() leaves it to the next worker. An entry leaves
+// on the end of its offer (Off, a revoke, a refused resume) or a terminal
+// close. Session storage keeps the list across a worker restart; an extension
+// reload or a Chrome restart clears it.
 type ResumeOffer = {
   tabId: number;
   scope: BrowserGrantScope;
@@ -128,6 +130,25 @@ function saveResumable(): Promise<void> {
     .catch(() => {})
     .then(() => chrome.storage.session.set({ [RESUME_KEY]: list }));
   return resumeWrites;
+}
+// Keeps an ON offer to send again after a connection loss.
+function remember(c: Connection, id: string, tab: OwnedTab): void {
+  if (
+    !c.offerResume ||
+    !tab.scope ||
+    tab.durationMinutes === undefined ||
+    !tab.offerOrigin
+  )
+    return;
+  resumable.set(id, {
+    tabId: tab.tabId,
+    scope: tab.scope,
+    ...(tab.agent ? { agent: tab.agent } : {}),
+    durationMinutes: tab.durationMinutes,
+    expiresAt: tab.expiresAt ?? null,
+    offerOrigin: tab.offerOrigin,
+  });
+  void saveResumable();
 }
 // Disconnect, pairing, unpairing and a refusal end every offer.
 async function clearResumable(): Promise<void> {
@@ -381,6 +402,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       }
       check(c);
       tab.phase = "on";
+      remember(c, id, tab);
       refreshBadges();
     } else if (msg.action === "unpair") {
       await clearResumable();
@@ -467,8 +489,8 @@ function requestOffer(
 }
 
 // Called at ready, before any popup offer or metadata can take the tab. The
-// office's answer settles the entry; a connection loss leaves it for the next
-// connection.
+// office's answer keeps the entry with its deadline, or a refusal deletes it;
+// a connection loss leaves it for the next connection.
 function resumeOffer(c: Connection, id: string, r: ResumeOffer): void {
   const tab: OwnedTab = {
     tabId: r.tabId,
@@ -628,25 +650,13 @@ function close(c: Connection): void {
   clearTimeout(c.watchdog);
   if (current === c) current = undefined;
   c.ws.close();
-  // A loss the member did not ask for keeps the ON offers, to send them again.
-  if (!c.terminal && c.offerResume) {
-    for (const [id, tab] of c.tabs)
-      if (
-        tab.phase === "on" &&
-        tab.scope &&
-        tab.durationMinutes !== undefined &&
-        tab.offerOrigin
-      )
-        resumable.set(id, {
-          tabId: tab.tabId,
-          scope: tab.scope,
-          ...(tab.agent ? { agent: tab.agent } : {}),
-          durationMinutes: tab.durationMinutes,
-          expiresAt: tab.expiresAt ?? null,
-          offerOrigin: tab.offerOrigin,
-        });
-    void saveResumable();
-  }
+  // A loss the member did not ask for keeps the ON offers, to send them again;
+  // a terminal close ends them. A resume still in flight keeps its entry.
+  for (const [id, tab] of c.tabs)
+    if (tab.phase === "on") {
+      if (!c.terminal) remember(c, id, tab);
+      else if (resumable.delete(id)) void saveResumable();
+    }
   const retiring = [...c.tabs.values()];
   for (const tab of retiring) tab.phase = "revoking";
   cleanup = Promise.all([
@@ -833,7 +843,7 @@ async function configure(reset = true): Promise<void> {
       (typeof config.credential !== "string" && typeof config.code !== "string")
     )
       return;
-    await Promise.all([cleanup, resumeLoaded]);
+    await Promise.all([cleanup, resumeLoaded, leftovers]);
     if (serial !== configuration) return;
     const ws = new WebSocket(browserSocketURL(config.url));
     const c: Connection = {
@@ -1018,11 +1028,11 @@ async function configure(reset = true): Promise<void> {
               tab.offerOrigin = msg.offerOrigin;
             if (tab.resuming) {
               tab.phase = "on";
+              remember(c, msg.assignment, tab);
               refreshBadges();
             }
-          }
+          } else if (resumable.delete(msg.assignment)) void saveResumable();
           tab.resuming = false;
-          if (resumable.delete(msg.assignment)) void saveResumable();
           c.offers.get(msg.assignment)?.(!msg.error);
           c.offers.delete(msg.assignment);
           return;
@@ -1398,6 +1408,24 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "reconnect" && !current) void configure(false);
 });
+// A worker that Chrome stopped without close() leaves its debugger sessions
+// attached, and Chrome refuses a new attach to those tabs. This worker holds
+// none yet, so it detaches every tab first; a detach of a tab this extension
+// did not attach fails and changes nothing.
+const leftovers = chrome.debugger.getTargets().then(
+  (targets) =>
+    Promise.all(
+      targets.map(async ({ tabId, type }) => {
+        if (type !== "page" || tabId === undefined) return;
+        // Its badge may still say ON.
+        badgeTabs.add(tabId);
+        try {
+          await chrome.debugger.detach({ tabId });
+        } catch {}
+      }),
+    ).then(() => {}),
+  () => {},
+);
 chrome.runtime.onStartup.addListener(() => {
   void configure();
 });

@@ -26,13 +26,17 @@ async function harness(
   // chrome.storage.session of an earlier worker, for a worker restart.
   // slowSession: session reads answer after the first socket could open.
   // extensionVersion: this extension's manifest version (default: the real
-  // one). officePackage: the office's package in ready.
+  // one). officePackage: the office's package in ready. leftover: the tabs
+  // whose debugger session an earlier worker of this extension left attached
+  // when Chrome stopped it; Chrome refuses a new attach to them until this
+  // extension detaches them, and refuses a detach of any other tab.
   opts: {
     offerResume?: boolean;
     session?: Map<string, unknown>;
     slowSession?: boolean;
     extensionVersion?: string;
     officePackage?: string;
+    leftover?: number[];
   } = {},
 ) {
   const sockets: FakeSocket[] = [];
@@ -45,7 +49,19 @@ async function harness(
   ) => void;
   // The UTF-8 size of every frame the extension sent.
   const frames: number[] = [];
-  let targets = [{ id: "owned", tabId: 7, type: "page" }];
+  const leftover = opts.leftover ? new Set(opts.leftover) : undefined;
+  let targets: Array<{ id: string; tabId?: number; type: string }> = leftover
+    ? [
+        // A tab this extension never attached, and a target with no tab.
+        { id: "foreign", tabId: 5, type: "page" },
+        { id: "worker", type: "service_worker" },
+        ...[...leftover].map((tabId) => ({
+          id: tabId === 7 ? "owned" : `target-${tabId}`,
+          tabId,
+          type: "page",
+        })),
+      ]
+    : [{ id: "owned", tabId: 7, type: "page" }];
   let updated!: (id: number, change: { status?: string }) => void;
   let badgeDelay: () => Promise<void> = async () => {};
   let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
@@ -210,13 +226,25 @@ async function harness(
     },
     debugger: {
       getTargets: async () => targets,
-      attach: () => {
+      attach: async (target: { tabId: number }) => {
         calls.push("attach");
-        return attach();
+        if (leftover?.has(target.tabId))
+          throw new Error(
+            `Another debugger is already attached to the tab with id: ${target.tabId}.`,
+          );
+        await attach();
+        leftover?.add(target.tabId);
       },
-      detach: (target: { tabId: number }) => {
+      detach: async (target: { tabId: number }) => {
         calls.push("detach");
         detachedTabs.push(target.tabId);
+        // Chrome answers a detach later than the storage reads a worker
+        // starts with.
+        if (leftover) for (let i = 0; i < 3; i++) await settle();
+        if (leftover && !leftover.delete(target.tabId))
+          throw new Error(
+            `Debugger is not attached to the tab with id: ${target.tabId}.`,
+          );
         const dialog = dialogs.get(target.tabId);
         for (const command of dialog?.pending.splice(0) ?? [])
           command.fail(new Error("Detached while handling command."));
@@ -288,6 +316,10 @@ async function harness(
     clearTimeout: (id: number) => timers.delete(id),
   });
   for (let i = 0; i < 100 && !sockets.length; i++) await settle();
+  // A test's calls start at its first connection: the worker's start-up
+  // release of leftover debugger sessions is not one of them.
+  calls.length = 0;
+  detachedTabs.length = 0;
   const socket = sockets[0];
   socket.onopen?.();
   socket.receive({
@@ -1829,6 +1861,253 @@ test("a resumed tab is reserved from ready on: a popup offer cannot take the tab
   expect(offers(ws)[1]).toMatchObject({
     scope: { kind: "agent", agentId: "b" },
   });
+});
+
+// Task 416df5d8: Chrome can stop the worker (a crash, a forced kill) with
+// tabs attached and without close(). The offers to resume are kept from the
+// moment each turns ON, and the next worker first releases the debugger
+// sessions its predecessor left, which still belong to this extension.
+async function onOfferOf(
+  h: Harness,
+  tabId: number,
+  agentId: string,
+  generation = "generation-1",
+) {
+  h.selected(tabId);
+  const result = h.ui({
+    action: "offer",
+    generation,
+    scope: { kind: "agent", agentId },
+  });
+  await settle();
+  const ws = h.sockets.at(-1)!;
+  const assignment = String(offers(ws).at(-1)!.assignment);
+  ws.receive({
+    kind: "command",
+    assignment,
+    id: 100 + tabId,
+    generation,
+    method: "attach",
+    params: {},
+  });
+  await settle();
+  ws.receive({
+    kind: "offered",
+    generation,
+    assignment,
+    scope: { kind: "agent", agentId },
+    durationMinutes: 0,
+    expiresAt: null,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  expect((await result).error).toBeUndefined();
+  return assignment;
+}
+// The next worker after Chrome stopped this one with no close().
+const nextWorker = (h: Harness, leftover: number[]) =>
+  harness(false, true, { offerResume: true, session: h.session, leftover });
+const lastBadge = (h: Harness, tabId: number) =>
+  h.badges.findLast((b) => b.tabId === tabId)?.text;
+// The answer to command id: "attached", or the reason the attach failed.
+async function attachAnswer(ws: { sent: Fields[] }, id: number) {
+  for (let i = 0; i < 20; i++) {
+    const answer = ws.sent.find((m) => m.kind === "result" && m.id === id);
+    if (answer) return answer.error === undefined ? "attached" : answer.reason;
+    await settle();
+  }
+  return "no answer";
+}
+
+test("a worker stopped without a close leaves its ON offer to the next worker, which resumes it on the same tab", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const expiresAt = Date.now() + 15 * 60_000;
+  const id = await onOffer(h, expiresAt);
+  const later = await nextWorker(h, [7]);
+  expect(offers(later.socket)).toEqual([
+    {
+      kind: "offer",
+      generation: "generation-1",
+      assignment: id,
+      scope: { kind: "agent", agentId: "a" },
+      durationMinutes: 15,
+      expiresAt,
+      offerOrigin: ORIGIN,
+    },
+  ]);
+  later.socket.receive({
+    kind: "command",
+    assignment: id,
+    id: 1,
+    generation: "generation-1",
+    method: "attach",
+    params: {},
+  });
+  expect(await attachAnswer(later.socket, 1)).toBe("attached");
+  later.socket.receive({
+    kind: "offered",
+    generation: "generation-1",
+    assignment: id,
+    scope: { kind: "agent", agentId: "a" },
+    durationMinutes: 15,
+    expiresAt,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  expect(await listed(later)).toEqual([{ id, phase: "on" }]);
+  expect(lastBadge(later, 7)).toBe("ON");
+});
+
+test("a resumed offer the office accepts stays to resume, with the deadline of the office's answer", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const id = await onOffer(h, Date.now() + 15 * 60_000);
+  const ws = await restart(h, 2);
+  expect(offers(ws).map((m) => m.assignment)).toEqual([id]);
+  // The office answers with its own deadline for the grant.
+  const answered = Date.now() + 10 * 60_000;
+  ws.receive({
+    kind: "offered",
+    generation: "generation-2",
+    assignment: id,
+    scope: { kind: "agent", agentId: "a" },
+    durationMinutes: 15,
+    expiresAt: answered,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  expect(await listed(h)).toEqual([{ id, phase: "on" }]);
+  const later = await nextWorker(h, [7]);
+  expect(offers(later.socket)).toEqual([
+    expect.objectContaining({ assignment: id, expiresAt: answered }),
+  ]);
+});
+
+for (const end of ["off", "metadata"] as const)
+  test(`an ON offer ended by ${end === "off" ? "the member's Off" : "the office's metadata"} is not resumed by the next worker; the other ON offer is`, async () => {
+    const h = await harness(false, true, { offerResume: true });
+    const ended = await onOfferOf(h, 7, "a");
+    const kept = await onOfferOf(h, 8, "b");
+    expect(await listed(h)).toEqual([
+      { id: ended, phase: "on" },
+      { id: kept, phase: "on" },
+    ]);
+    if (end === "off")
+      await h.ui({
+        action: "stop",
+        assignment: ended,
+        generation: "generation-1",
+      });
+    else
+      h.socket.receive({
+        kind: "metadata",
+        generation: "generation-1",
+        member: { id: "m", name: "Member" },
+        agents: [
+          { id: "a", name: "Agent" },
+          { id: "b", name: "Other" },
+        ],
+        assignments: [
+          {
+            id: kept,
+            scope: { kind: "agent", agentId: "b" },
+            agent: { id: "b", name: "Other" },
+            durationMinutes: 0,
+            expiresAt: null,
+          },
+        ],
+      });
+    await settle();
+    expect(await listed(h)).toEqual([{ id: kept, phase: "on" }]);
+    const later = await nextWorker(h, [8]);
+    expect(offers(later.socket).map((m) => m.assignment)).toEqual([kept]);
+  });
+
+test("Reconnect ends the ON offers: neither its new connection nor a later worker resumes them", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const id = await onOfferOf(h, 7, "a");
+  // The enabling state: before Reconnect, a next worker would resume it.
+  const before = await nextWorker(h, [7]);
+  expect(offers(before.socket).map((m) => m.assignment)).toEqual([id]);
+  const ws = await h.reconnect();
+  expect(h.sockets).toHaveLength(2);
+  ws.onopen?.();
+  ws.receive({
+    kind: "ready",
+    version: 4,
+    generation: "generation-2",
+    debuggerRecovery: true,
+    offerResume: true,
+  });
+  await settle();
+  expect((await h.ui({ action: "state" })).state).toBe("connected");
+  expect(offers(ws)).toEqual([]);
+  expect(await listed(h)).toEqual([]);
+  const later = await nextWorker(h, [7]);
+  expect(offers(later.socket)).toEqual([]);
+});
+
+test("a new worker releases the debugger sessions its predecessor left before its first attach, and clears a leftover ON badge", async () => {
+  const h = await harness(false, true, { offerResume: true });
+  const resumed = await onOfferOf(h, 7, "a");
+  // Tab 8 was attached for an offer the office had not answered yet.
+  h.selected(8);
+  void h.ui({
+    action: "offer",
+    generation: "generation-1",
+    scope: { kind: "agent", agentId: "b" },
+  });
+  await settle();
+  h.socket.receive({
+    kind: "command",
+    assignment: String(offers(h.socket).at(-1)!.assignment),
+    id: 9,
+    generation: "generation-1",
+    method: "attach",
+    params: {},
+  });
+  await settle();
+  expect(lastBadge(h, 7)).toBe("ON");
+  const later = await nextWorker(h, [7, 8]);
+  // The member offers tab 8 again, and Chrome lets this worker attach it.
+  later.selected(8);
+  const result = later.ui({
+    action: "offer",
+    generation: "generation-1",
+    scope: { kind: "agent", agentId: "b" },
+  });
+  await settle();
+  const fresh = String(offers(later.socket).at(-1)!.assignment);
+  later.socket.receive({
+    kind: "command",
+    assignment: fresh,
+    id: 1,
+    generation: "generation-1",
+    method: "attach",
+    params: {},
+  });
+  expect(await attachAnswer(later.socket, 1)).toBe("attached");
+  later.socket.receive({
+    kind: "offered",
+    generation: "generation-1",
+    assignment: fresh,
+    scope: { kind: "agent", agentId: "b" },
+    durationMinutes: 0,
+    expiresAt: null,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  expect((await result).error).toBeUndefined();
+  expect(lastBadge(later, 8)).toBe("ON");
+  // The offer on tab 7 was resumed, and the office no longer holds it.
+  expect(offers(later.socket)[0]?.assignment).toBe(resumed);
+  later.socket.receive({
+    kind: "offered",
+    generation: "generation-1",
+    assignment: resumed,
+    error: true,
+  });
+  await settle();
+  expect(lastBadge(later, 7)).toBe(null);
 });
 
 // Task 825bb286: the hello reports this extension's package, and the popup
