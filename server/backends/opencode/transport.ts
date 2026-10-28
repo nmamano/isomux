@@ -1496,6 +1496,7 @@ export class OpenCodeTransport {
       const session = asRecord(asRecord(rawSession).data);
       const messages = await this.readMessages(sessionId, signal);
       if (signal.aborted || settled) return;
+      armFromMessages(turn, messages);
       const finished = finishedAfterInput(session, messages, turn);
       if (finished) {
         deliver({
@@ -1736,6 +1737,7 @@ export class OpenCodeTransport {
         failAlone();
         return;
       }
+      if (promptSent) armFromMessages(turn, messages);
       const missed = promptSent
         ? turnReplayFrames(sessionId, messages, turn.id)
         : [];
@@ -2853,6 +2855,20 @@ function sseFrames(events: object[]): Uint8Array {
   return new TextEncoder().encode(
     events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
   );
+}
+
+// A delivered frame that a silence lost: 2.1.4 lists the turn's input only
+// once it is delivered (probe, 2026-10-28), so the input in the messages
+// arms the turn, and its end frame counts. Its created time is server time,
+// as the frame's is; without one, only an idle item after it ends the turn.
+function armFromMessages(turn: TurnInput, messages: unknown[]): void {
+  if (turn.armed || turn.id === null) return;
+  const input = messages
+    .map(asRecord)
+    .find((item) => item.type === "user" && item.id === turn.id);
+  if (!input) return;
+  turn.armed = true;
+  turn.deliveredAt = numberField(asRecord(input.time), "created") ?? undefined;
 }
 
 // The outcome of a session that went idle after this turn's input, or null:

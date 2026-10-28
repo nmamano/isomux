@@ -905,6 +905,48 @@ it("moves a turn whose stream goes silent to a new stream, with the text it miss
   expect(turn.fake.prompts(), "the prompt is never sent again").toBe(1);
 });
 
+// Task 0e6ed4bd: OpenCode delivered the input while the stream was silent,
+// so the delivered frame is lost, and only the recovery's message read shows
+// that the busy period after it is this turn's.
+for (const ended of ["on the new stream", "while the stream was silent"]) {
+  it(`ends a turn whose delivery fell in the silence when it ends ${ended}`, async () => {
+    const missed = ended !== "on the new stream";
+    const answer = "msg_answer";
+    const turn = driven({
+      fake: {
+        active: () => ({ [FAKE_SESSION]: { type: "running" } }),
+        messages: () => [
+          messageItems.user("msg_earlier", "hi", 1),
+          messageItems.idle("msg_earlier_idle", "succeeded", 2),
+          messageItems.user(INPUT_1, "go", 1_001),
+          messageItems.assistant(answer, [{ type: "text", text: "Hi" }], {
+            created: 1_002,
+          }),
+          ...(missed
+            ? [messageItems.idle("msg_idle", "succeeded", 1_003)]
+            : []),
+        ],
+      },
+    });
+    await turn.send();
+    await settleUntil(() => false, 10);
+    expect(turn.fake.prompts(), "the prompt went out").toBe(1);
+    await missStreamDeadline(turn);
+    if (!missed) {
+      expect(turn.fake.count("event"), "a second subscription").toBe(2);
+      turn.fake.emit(f.succeeded());
+    }
+    await settleUntil(() => turn.completions.length > 0);
+    // The recovery alone ends it: the progress check is 60 s away.
+    expect(turn.fake.count("session.active"), "no progress check").toBe(0);
+    // MUTANT: the recovery finds the input but does not arm the turn, so the
+    // loop takes the end for a late end of an earlier busy period.
+    expect(turn.completions).toMatchObject([{ status: "completed" }]);
+    expect(turn.texts).toEqual(["Hi"]);
+    expect(turn.lease.marked).toEqual([]);
+  });
+}
+
 it("shows text once when the new stream repeats a part the recovery read", async () => {
   const answer = "msg_answer";
   const turn = driven({
@@ -1842,6 +1884,41 @@ it("settles a turn whose session went idle unseen from its outcome", async () =>
   await turn.sendDelivered();
   await turn.beat(PROGRESS_MS);
   await settleUntil(() => turn.completions.length > 0);
+  expect(turn.completions).toMatchObject([{ status: "completed" }]);
+  expect(turn.texts).toEqual(["Done"]);
+  expect(turn.fake.interrupts()).toBe(0);
+});
+
+// Task 0e6ed4bd: the delivered frame never came, so only the progress
+// check's message read shows that OpenCode took the input.
+it("settles a turn from the progress check when it never saw the delivery", async () => {
+  const turn = driven({
+    fake: {
+      active: () => ({}),
+      session: () => ({
+        outcome: "succeeded",
+        time: { created: 1, updated: 5_000, idle: 5_000 },
+      }),
+      messages: () => [
+        messageItems.user(INPUT_1, "go", 1_001),
+        messageItems.assistant("msg_answer", [{ type: "text", text: "Done" }], {
+          created: 1_002,
+        }),
+        messageItems.idle("msg_idle", "succeeded", 5_000),
+      ],
+    },
+  });
+  await turn.send();
+  await settleUntil(() => false, 10);
+  turn.fake.emit(f.succeeded());
+  await settleUntil(() => false);
+  expect(turn.completions, "an end before the delivery is dropped").toEqual([]);
+  await turn.beat(PROGRESS_MS);
+  await settleUntil(() => turn.completions.length > 0);
+  expect(turn.fake.count("session.active"), "the check ran").toBeGreaterThan(0);
+  // MUTANT: the check finds the outcome but does not arm the turn, so the
+  // loop drops the outcome frame, re-arms the check, and the turn waits until
+  // the member stops it.
   expect(turn.completions).toMatchObject([{ status: "completed" }]);
   expect(turn.texts).toEqual(["Done"]);
   expect(turn.fake.interrupts()).toBe(0);

@@ -2385,6 +2385,8 @@ describe("OpenCode shared server supervisor", () => {
     otherPort = false,
   ) {
     const marker = join(path, "port-attempts");
+    // What each attempt did, for the failure message (task 0e6ed4bd).
+    const events = join(path, "port-events");
     const binary = join(path, "port-taken-opencode");
     await writeFile(
       binary,
@@ -2392,17 +2394,25 @@ describe("OpenCode shared server supervisor", () => {
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 const marker = ${JSON.stringify(marker)};
+const events = ${JSON.stringify(events)};
+process.on("exit", (code) => appendFileSync(events, \`exit \${port} \${code}\\n\`));
 const before = existsSync(marker) ? readFileSync(marker, "utf8").split("\\n").filter(Boolean).length : 0;
 appendFileSync(marker, port + "\\n");
 if (before < ${taken}) {
+  appendFileSync(events, \`taken \${port}\\n\`);
   const named = ${otherPort ? "port + 1" : "port"};
   process.stderr.write(\`timestamp=2026-10-25T00:00:00.000Z level=ERROR message="cli process failed" cause="Cause([Fail(ServeError (cause: Error: Failed to start server. Is port \${named} in use?))])"\\n\`);
   process.exit(1);
 }
-Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
-  if (new URL(request.url).pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed" });
-  return Response.json({ version: "2.1.4", pid: process.pid });
-}});
+try {
+  Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
+    if (new URL(request.url).pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed" });
+    return Response.json({ version: "2.1.4", pid: process.pid });
+  }});
+} catch (error) {
+  appendFileSync(events, \`bind-failed \${port} \${error?.code ?? error}\\n\`);
+  throw error;
+}
 await new Promise(() => {});
 `,
     );
@@ -2416,13 +2426,25 @@ await new Promise(() => {});
     supervisors.push(supervisor);
     const attempts = async () =>
       (await readFile(marker, "utf8")).split("\n").filter(Boolean).map(Number);
-    return { supervisor, attempts };
+    // The error with what each attempt did: a real bind failure, a child that
+    // never ran, or an exit for another reason.
+    const explain = async (error: unknown) => {
+      const read = (file: string) => readFile(file, "utf8").catch(() => "");
+      return new Error(
+        `${String(error)}\nattempts:\n${await read(marker)}events:\n${await read(events)}`,
+      );
+    };
+    return { supervisor, attempts, explain };
   }
 
-  // Quarantined (task 0e6ed4bd): the pinned OpenCode server failed during startup under full CI load.
-  it.skip("starts on a new port when another process took the one it picked, up to 3 times", async () => {
-    const { supervisor, attempts } = await portTakenBinary(await root(), 3);
-    const lease = await supervisor.acquire();
+  it("starts on a new port when another process took the one it picked, up to 3 times", async () => {
+    const { supervisor, attempts, explain } = await portTakenBinary(
+      await root(),
+      3,
+    );
+    const lease = await supervisor.acquire().catch(async (error: unknown) => {
+      throw await explain(error);
+    });
     const ports = await attempts();
     // MUTANT: no retry, so a lost race fails the turn.
     expect(ports).toHaveLength(4);
@@ -3814,8 +3836,7 @@ describe("OpenCode shared server under load and loss", () => {
 
   // Task 439afbc8: one turn's silent stream marked the shared server after its
   // prompt, and the next acquire replaced it under every other turn.
-  // Quarantined (task 0e274841): the silent turn gave no result within 30 s under full CI load.
-  it.skip("keeps the shared server and another agent's turn when one turn's stream goes silent on a server that answers", async () => {
+  it("keeps the shared server and another agent's turn when one turn's stream goes silent on a server that answers", async () => {
     const path = await root();
     const provider = heldProvider();
     const supervisor = makeSupervisor(path, gateConfig(provider.mock));
