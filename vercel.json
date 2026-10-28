@@ -15,6 +15,17 @@
       "permanent": true
     },
     {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.isomux.com"
+        }
+      ],
+      "destination": "https://isomux.com/",
+      "permanent": true
+    },
+    {
       "source": "/:path*",
       "has": [
         {

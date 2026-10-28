@@ -74,6 +74,7 @@ const DIVERGES: Record<
     status: number;
     contentType?: string;
     cacheControl?: string;
+    location?: string;
     bodySha256?: string;
     body?: (text: string) => void;
     headers: boolean;
@@ -119,6 +120,13 @@ const DIVERGES: Record<
     bodySha256: NOT_FOUND_HTML.bodySha256,
     headers: false,
   },
+  "www apex": {
+    why: "the site host redirects www/ to the apex; Vercel served the home page there (path-to-regexp does not match / with /:path*)",
+    status: 308,
+    location: "https://isomux.com/",
+    cacheControl: PAGE,
+    headers: false,
+  },
   "vercel insights": {
     why: "Vercel Web Analytics is removed; the path is a Vercel platform path",
     status: 404,
@@ -137,7 +145,6 @@ const FILES: Record<string, string> = {
   "home markdown HEAD": "_agent/index.md",
   "home markdown q-lower": "index.html",
   "home browser accept": "index.html",
-  "www apex": "index.html",
   "clean page": "about.html",
   "clean page trailing slash": "about.html",
   "clean page HEAD": "about.html",
@@ -280,6 +287,8 @@ describe("parity with isomux.com on Vercel", () => {
       if (diverges.contentType)
         expect(res.headers.get("content-type")).toBe(diverges.contentType);
       if (diverges.bodySha256) expect(sha256(body)).toBe(diverges.bodySha256);
+      if (diverges.location)
+        expect(res.headers.get("location")).toBe(diverges.location);
       diverges.body?.(new TextDecoder().decode(body));
     } else {
       expect(cache).toBe(cachePolicy(row));
@@ -419,6 +428,25 @@ describe("redirects stay on isomux.com", () => {
     const location = res.headers.get("location");
     if (location !== null)
       expect(new URL(location, "https://isomux.com/").host).toBe("isomux.com");
+  });
+});
+
+describe("www root redirect", () => {
+  it("keeps the query", async () => {
+    const res = await (
+      await site()
+    )(new Request("https://www.isomux.com/?x=1&y=2"));
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe("https://isomux.com/?x=1&y=2");
+  });
+
+  it("answers HEAD with the redirect and no body", async () => {
+    const res = await (
+      await site()
+    )(new Request("https://www.isomux.com/", { method: "HEAD" }));
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe("https://isomux.com/");
+    expect((await res.arrayBuffer()).byteLength).toBe(0);
   });
 });
 
