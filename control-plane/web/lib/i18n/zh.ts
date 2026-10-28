@@ -27,6 +27,8 @@ export const zh: Catalog = {
     "由于我们这边的问题，邮件登录暂时无法使用。请稍后再试，或写信至 {support}。",
   "signIn.emailFailed": "无法发送邮件。请稍后重试。",
   "signIn.linkFailed": "该登录链接已过期或已被使用。请重新获取。",
+  "signIn.googleAccountRefused":
+    "你的账户已移除 Google 登录。请通过邮件链接登录。",
   "signIn.linkHeading": "登录",
   "signIn.linkSignInAs": "以 {email} 身份登录",
   "signIn.linkInvalid": "此登录链接无效。<signin>重新获取</signin>。",

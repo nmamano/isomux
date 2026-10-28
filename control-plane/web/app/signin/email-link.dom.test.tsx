@@ -37,6 +37,8 @@ const { createRoot } = await import("react-dom/client");
 const { SignInForm } = await import("./signin-form");
 const { EmailLinkForm } = await import("./email/email-link-form");
 const { createSignInTokens } = await import("../../lib/signin-link.server");
+const { GOOGLE_REMOVED_MARKER } =
+  await import("../../lib/google-removed-marker");
 
 const realFetch = globalThis.fetch;
 afterAll(async () => {
@@ -189,6 +191,40 @@ describe("the sign-in page", () => {
     );
     expect(find("email-link-status")?.textContent).toContain(sentence);
     expect(find("email-link-address")?.tagName ?? null).not.toBeNull();
+  });
+});
+
+describe("the sign-in page after a refused Google sign-in", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/signin");
+  });
+
+  /** The alert the page shows when it opens with this error, or null. */
+  async function alertFor(error: string | null): Promise<string | null> {
+    window.history.replaceState(
+      null,
+      "",
+      error === null ? "/signin" : `/signin?error=${error}`,
+    );
+    serve({ [PROVIDERS]: providers("google", "email-link") });
+    await render(createElement(SignInForm));
+    const alert = container.querySelector('[role="alert"]');
+    const text = alert ? (alert.textContent ?? "").trim() : null;
+    await act(async () => root?.unmount());
+    root = null;
+    container.remove();
+    return text;
+  }
+
+  test("a removed Google account gets its own alert, not the failed-link one", async () => {
+    // The enabling conditions: no error is no alert, and a failed link has one.
+    expect(await alertFor(null)).toBeNull();
+    const linkFailed = await alertFor("CredentialsSignin");
+    expect(linkFailed).toBeTruthy();
+
+    const removed = await alertFor(GOOGLE_REMOVED_MARKER);
+    expect(removed).toBeTruthy();
+    expect(removed).not.toBe(linkFailed);
   });
 });
 

@@ -105,6 +105,8 @@ async function seedAdmissions(
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// The server secret a removed Google sign-in is marked with (removeGoogleSignIn).
+const SUBJECT_KEY = "test-subject-key-signup";
 
 /** The subscription row reconciliation writes once a Checkout is paid. */
 async function payFor(
@@ -495,11 +497,13 @@ describe("google subject binding", () => {
   test("binds on first sign-in and is stable afterwards", async () => {
     const store = await tempStore();
     const first = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "a@example.com",
       emailVerified: true,
     });
     const again = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "a@example.com",
       emailVerified: true,
@@ -511,17 +515,20 @@ describe("google subject binding", () => {
   test("one subject cannot claim a second account", async () => {
     const store = await tempStore();
     await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "a@example.com",
       emailVerified: true,
     });
     await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-2",
       email: "b@example.com",
       emailVerified: true,
     });
     expect(
       bindGoogleSubject(store, {
+        subjectKey: SUBJECT_KEY,
         subject: "sub-1",
         email: "b@example.com",
         emailVerified: true,
@@ -532,12 +539,14 @@ describe("google subject binding", () => {
   test("an account bound to one subject is never silently rebound", async () => {
     const store = await tempStore();
     await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "a@example.com",
       emailVerified: true,
     });
     expect(
       bindGoogleSubject(store, {
+        subjectKey: SUBJECT_KEY,
         subject: "sub-9",
         email: "a@example.com",
         emailVerified: true,
@@ -551,11 +560,13 @@ describe("google subject binding", () => {
   test("the index refuses a duplicate subject even without our checks", async () => {
     const store = await tempStore();
     await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "a@example.com",
       emailVerified: true,
     });
     const other = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-2",
       email: "b@example.com",
       emailVerified: true,
@@ -582,6 +593,7 @@ describe("email sign-in and Google share one account per address", () => {
   test("an email sign-in reaches the Google-made account, whatever the case", async () => {
     const store = await tempStore();
     const google = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "User@Proton.Me",
       emailVerified: true,
@@ -601,6 +613,7 @@ describe("email sign-in and Google share one account per address", () => {
     );
     // Google writes the address with the case the customer gave it.
     const google = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "User@Proton.Me",
       emailVerified: true,
@@ -614,6 +627,7 @@ describe("email sign-in and Google share one account per address", () => {
     const store = await tempStore();
     const byLink = await accountForEmailSignIn(store, "user@proton.me");
     const refused = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-attacker",
       email: "user@proton.me",
       emailVerified: false,
@@ -627,6 +641,7 @@ describe("email sign-in and Google share one account per address", () => {
   test("an unverified Google address cannot create an account a later email sign-in would land in", async () => {
     const store = await tempStore();
     const refused = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-attacker",
       email: "user@proton.me",
       emailVerified: false,
@@ -636,6 +651,7 @@ describe("email sign-in and Google share one account per address", () => {
     // The control: the same call verified does create it, so the refusal
     // above was the verification and not the fixture.
     const made = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-attacker",
       email: "user@proton.me",
       emailVerified: true,
@@ -646,11 +662,13 @@ describe("email sign-in and Google share one account per address", () => {
   test("a subject already bound still signs in when Google reports the address unverified", async () => {
     const store = await tempStore();
     const first = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "a@example.com",
       emailVerified: true,
     });
     const again = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "a@example.com",
       emailVerified: false,
@@ -1271,6 +1289,7 @@ describe("the tenant key survives a changed email", () => {
   test("one Google subject with a new address still reaches its own account", async () => {
     const store = await tempStore();
     const first = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "before@example.com",
       emailVerified: true,
@@ -1284,6 +1303,7 @@ describe("the tenant key survives a changed email", () => {
 
     // Google returns the same subject with a different address.
     const later = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-1",
       email: "after@example.com",
       emailVerified: true,

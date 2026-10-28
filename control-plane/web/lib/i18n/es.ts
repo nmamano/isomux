@@ -44,6 +44,8 @@ export const es: Catalog = {
     "No hemos podido enviar el correo. Vuelve a intentarlo más tarde.",
   "signIn.linkFailed":
     "Ese enlace de inicio de sesión ha caducado o ya se ha usado. Pide uno nuevo.",
+  "signIn.googleAccountRefused":
+    "Se quitó el inicio de sesión con Google de tu cuenta. Inicia sesión con un enlace por correo.",
   "signIn.linkHeading": "Iniciar sesión",
   "signIn.linkSignInAs": "Iniciar sesión como {email}",
   "signIn.linkInvalid":

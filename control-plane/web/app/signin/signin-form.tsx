@@ -7,6 +7,7 @@ import { useLanguage } from "../../lib/i18n/use-language";
 import { translatorFor, type Translator } from "../../lib/i18n/translate";
 import { SIGNIN_LINK_TTL_MS } from "../../lib/signin-link-payload";
 import { RATE_LIMITED_MARKER } from "../../lib/rate-limit-marker";
+import { GOOGLE_REMOVED_MARKER } from "../../lib/google-removed-marker";
 
 const EMAIL_LINK_PROVIDER = "email-link";
 /** The error Auth.js puts on the sign-in page when a Credentials sign-in is
@@ -51,11 +52,13 @@ export function SignInForm() {
   // query is the external system: the page is prerendered and cannot see it.
   const [rateLimited, setRateLimited] = useState(false);
   const [linkFailed, setLinkFailed] = useState(false);
+  const [googleRefused, setGoogleRefused] = useState(false);
   useEffect(() => {
     const error = new URLSearchParams(window.location.search).get("error");
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRateLimited(error === RATE_LIMITED_MARKER);
     setLinkFailed(error === LINK_FAILED_ERROR);
+    setGoogleRefused(error === GOOGLE_REMOVED_MARKER);
   }, []);
   const [emailLink, setEmailLink] = useState(false);
   useEffect(() => {
@@ -89,6 +92,11 @@ export function SignInForm() {
       {linkFailed && (
         <p className="callout callout-danger" role="alert">
           {t("signIn.linkFailed")}
+        </p>
+      )}
+      {googleRefused && (
+        <p className="callout callout-danger" role="alert">
+          {t("signIn.googleAccountRefused")}
         </p>
       )}
       {emailLink && <EmailLinkRequest t={t} />}

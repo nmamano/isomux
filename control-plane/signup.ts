@@ -20,6 +20,7 @@
 // therefore incapable of moving a Checkout session to a different plan, coupon
 // or instance under one idempotency key.
 
+import { createHmac } from "node:crypto";
 import { isUniqueViolation, type Store } from "./store.ts";
 import {
   checkoutOverSql,
@@ -234,6 +235,22 @@ export async function instanceOwnedBy(
 
 export class SubjectBindingConflict extends Error {}
 
+/** A Google sign-in that would make a new account for a Google account an
+ * account removed (removeGoogleSignIn). */
+export class GoogleSignInRemoved extends SubjectBindingConflict {}
+
+const REMOVED_GOOGLE_CONTEXT = "isomux removed Google sign-in v1";
+
+/** The mark removeGoogleSignIn leaves for a Google subject: an HMAC keyed by a
+ * server secret, so the column holds nothing usable outside the server. The
+ * key is derived from the secret, so it is never the session JWT's key. */
+export function removedGoogleSubjectHash(key: string, subject: string): string {
+  const derived = createHmac("sha256", key)
+    .update(REMOVED_GOOGLE_CONTEXT)
+    .digest();
+  return createHmac("sha256", derived).update(subject).digest("hex");
+}
+
 export async function accountByGoogleSubject(
   store: Store,
   subject: string,
@@ -260,6 +277,9 @@ export async function accountByGoogleSubject(
  * Google subject made, and an unverified claim on its address would otherwise
  * take it - or pre-create it, so that the real owner's later email sign-in
  * lands in an account the claimant can enter.
+ *
+ * A Google account an account removed (removeGoogleSignIn) does not make a new
+ * account: it still binds by address, which clears that account's mark.
  */
 export async function bindGoogleSubject(
   store: Store,
@@ -267,6 +287,8 @@ export async function bindGoogleSubject(
     subject: string;
     email: string;
     emailVerified: boolean;
+    /** The server secret removedGoogleSubjectHash is keyed by. */
+    subjectKey: string;
     now?: () => number;
   },
 ): Promise<AccountRow> {
@@ -291,8 +313,12 @@ export async function bindGoogleSubject(
           `${args.email} is already bound to a different Google account`,
         );
       }
+      const hash = removedGoogleSubjectHash(args.subjectKey, args.subject);
       const bound = await casAccount(store, byEmail.id, byEmail.version, {
         google_subject: args.subject,
+        ...(byEmail.removed_google_subject_hash === hash
+          ? { removed_google_subject_hash: null }
+          : {}),
       });
       if (!bound) {
         throw new Error(
@@ -300,6 +326,15 @@ export async function bindGoogleSubject(
         );
       }
       return bound;
+    }
+    const removed = await store.sqlGet<{ id: string }>(
+      "select id from accounts where removed_google_subject_hash = $1 limit 1",
+      [removedGoogleSubjectHash(args.subjectKey, args.subject)],
+    );
+    if (removed) {
+      throw new GoogleSignInRemoved(
+        "this Google account was removed from its account; sign in with an email link",
+      );
     }
     const made = await ensureAccount(store, { id: newId(), email: args.email });
     const bound = await casAccount(store, made.id, made.version, {
@@ -476,17 +511,25 @@ export async function stripeCustomersForAccount(
  *
  * Afterwards that Google account reaches this one only by its address, the way
  * an unbound Google sign-in does (bindGoogleSubject): after an email change it
- * no longer does, and email is the way in.
+ * no longer does, and email is the way in. It does not make a new account
+ * either: the account keeps a mark for it (removedGoogleSubjectHash), one slot,
+ * so a later removal overwrites it. A changed AUTH_SECRET makes old marks stop
+ * matching, and that Google account can then make an empty account again.
  */
 export async function removeGoogleSignIn(
   store: Store,
   accountId: string,
+  subjectKey: string,
 ): Promise<boolean> {
   return store.tx(async () => {
     const account = await getAccount(store, accountId);
     if (!account?.google_subject) return false;
     const unbound = await casAccount(store, account.id, account.version, {
       google_subject: null,
+      removed_google_subject_hash: removedGoogleSubjectHash(
+        subjectKey,
+        account.google_subject,
+      ),
       session_epoch: account.session_epoch + 1,
     });
     if (!unbound) {

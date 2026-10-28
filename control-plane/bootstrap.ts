@@ -229,6 +229,22 @@ export async function migrateSessionEpochColumn(
   }
 }
 
+/** Owner-role migration for the mark a Google removal leaves (signup.ts
+ * removeGoogleSignIn). */
+export async function migrateRemovedGoogleColumn(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [
+      "alter table if exists accounts add column if not exists removed_google_subject_hash text",
+    ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /** Owner-role migration for durable ordinary-signup Checkout recovery. */
 export async function migratePendingCheckoutColumns(
   dsn: string,
@@ -423,6 +439,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-session-epoch",
     run: migrateSessionEpochColumn,
     ready: "session epoch column",
+  },
+  {
+    command: "migrate-removed-google",
+    run: migrateRemovedGoogleColumn,
+    ready: "removed Google sign-in column",
   },
   {
     command: "migrate-signup-attribution",
@@ -1011,6 +1032,7 @@ export async function bootstrapDatabase(
   await migrateCertificateContactColumns(dsn);
   await migrateWelcomeMailsTable(dsn);
   await migrateSessionEpochColumn(dsn);
+  await migrateRemovedGoogleColumn(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
@@ -1021,6 +1043,7 @@ export async function bootstrapDatabase(
     await migrateCertificateContactColumns(dsn);
     await migrateWelcomeMailsTable(dsn);
     await migrateSessionEpochColumn(dsn);
+    await migrateRemovedGoogleColumn(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

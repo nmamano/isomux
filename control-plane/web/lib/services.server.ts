@@ -1164,6 +1164,14 @@ export async function revealInvite(
   return fetchInviteFromSeam(config, { accountId, instanceId, operationId });
 }
 
+/** The key a removed Google sign-in's mark is made with (signup.ts
+ * removedGoogleSubjectHash). Auth.js does not run without AUTH_SECRET. */
+function googleSubjectKey(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error("AUTH_SECRET is not set");
+  return secret;
+}
+
 /**
  * The account a sign-in resolves to, for every provider.
  *
@@ -1181,12 +1189,16 @@ export async function identityForSignIn(args: {
   email: string;
   /** Google's email_verified claim; read only for provider "google". */
   emailVerified?: boolean;
-}): Promise<{ ok: true; accountId: string } | { ok: false; reason: string }> {
+}): Promise<
+  | { ok: true; accountId: string }
+  | { ok: false; reason: string; code?: "google-removed" }
+> {
   const {
     bindGoogleSubject,
     accountForDevSignIn,
     accountForEmailSignIn,
     SubjectBindingConflict,
+    GoogleSignInRemoved,
   } = await import("../../signup");
   try {
     if (args.provider === "google") {
@@ -1196,6 +1208,7 @@ export async function identityForSignIn(args: {
           subject: args.subject!,
           email: args.email,
           emailVerified: args.emailVerified === true,
+          subjectKey: googleSubjectKey(),
         }),
       );
       return { ok: true, accountId: account.id };
@@ -1211,6 +1224,9 @@ export async function identityForSignIn(args: {
     );
     return { ok: true, accountId: account.id };
   } catch (err) {
+    if (err instanceof GoogleSignInRemoved) {
+      return { ok: false, reason: err.message, code: "google-removed" };
+    }
     if (err instanceof SubjectBindingConflict) {
       return { ok: false, reason: err.message };
     }
@@ -1275,7 +1291,9 @@ export async function removeGoogleSignInFor(
   accountId: string,
 ): Promise<boolean> {
   const { removeGoogleSignIn } = await import("../../signup");
-  return withStore((store) => removeGoogleSignIn(store, accountId));
+  return withStore((store) =>
+    removeGoogleSignIn(store, accountId, googleSubjectKey()),
+  );
 }
 
 /** The account's session epoch, or null when it does not exist. */

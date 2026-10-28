@@ -34,6 +34,9 @@ export interface AccountRow {
   /** Raised by every change that ends the account's other sessions; a session
    * carries the value it was issued at (signup.ts sessionEpoch). */
   session_epoch: number;
+  /** A keyed hash of the Google subject this account last removed (signup.ts
+   * removeGoogleSignIn), or null. */
+  removed_google_subject_hash: string | null;
   version: number;
   created_at: number;
   updated_at: number;
@@ -228,7 +231,11 @@ export async function casAccount(
   patch: Partial<
     Pick<
       AccountRow,
-      "email" | "google_subject" | "stripe_customer_id" | "session_epoch"
+      | "email"
+      | "google_subject"
+      | "stripe_customer_id"
+      | "session_epoch"
+      | "removed_google_subject_hash"
     >
   >,
 ): Promise<AccountRow | null> {

@@ -23,6 +23,7 @@ const SECRET = "fixture-secret-0123456789abcdef0123456789";
 const RESEND_KEY = "re_fixture_key_8d2e61";
 const ORIGIN = "http://localhost:3999";
 const WEB_DIR = path.join(import.meta.dir, "web");
+const SUBJECT_KEY = "test-subject-key-email-signin";
 
 afterEach(async () => {
   await releaseTestStores();
@@ -86,6 +87,7 @@ describe("email sign-in, configured", () => {
     const store = await openTestStoreOn(dsn);
     // Google keeps the case the customer typed; the link request is lowercased.
     const google = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "sub-user",
       email: "User@Proton.Me",
       emailVerified: true,

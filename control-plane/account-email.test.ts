@@ -15,9 +15,11 @@ import {
   bindGoogleSubject,
   changeAccountEmail,
   emailChangeRefusal,
+  GoogleSignInRemoved,
   removeGoogleSignIn,
   sessionEpoch,
   stripeCustomersForAccount,
+  SubjectBindingConflict,
 } from "./signup.ts";
 import {
   ensureAccount,
@@ -37,13 +39,33 @@ afterEach(async () => {
 
 const GMAIL = "Customer.Name@Gmail.com";
 const SUBJECT = "google-sub-customer";
+// The server secret a removed Google sign-in is marked with.
+const SUBJECT_KEY = "test-subject-key-account-email";
 
-async function googleAccount(store: Store) {
+/** A verified Google sign-in, under SUBJECT_KEY unless a key is named. */
+async function signInWithGoogle(
+  store: Store,
+  subject: string,
+  email: string,
+  subjectKey = SUBJECT_KEY,
+) {
   return bindGoogleSubject(store, {
-    subject: SUBJECT,
-    email: GMAIL,
+    subjectKey,
+    subject,
+    email,
     emailVerified: true,
   });
+}
+
+async function googleAccount(store: Store) {
+  return signInWithGoogle(store, SUBJECT, GMAIL);
+}
+
+async function accountCount(store: Store): Promise<number> {
+  const row = await store.sqlGet<{ n: string }>(
+    "select count(*) as n from accounts",
+  );
+  return Number(row?.n);
 }
 
 interface AuditLine {
@@ -88,6 +110,7 @@ describe("moving a Google-made account to an email sign-in", () => {
     );
     // The Google sign-in still works through its bound subject.
     const viaGoogle = await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: SUBJECT,
       email: GMAIL,
       emailVerified: true,
@@ -95,22 +118,25 @@ describe("moving a Google-made account to an email sign-in", () => {
     expect(viaGoogle.id).toBe(account.id);
     expect(await sessionEpoch(store, account.id)).toBe(1);
 
-    expect(await removeGoogleSignIn(store, account.id)).toBe(true);
+    expect(await removeGoogleSignIn(store, account.id, SUBJECT_KEY)).toBe(true);
     const removed = await getAccount(store, account.id);
     expect(removed?.google_subject).toBeNull();
     expect(removed?.session_epoch).toBe(2);
     expect(await sessionEpoch(store, account.id)).toBe(2);
     // Nothing left to remove, and nothing ends.
-    expect(await removeGoogleSignIn(store, account.id)).toBe(false);
+    expect(await removeGoogleSignIn(store, account.id, SUBJECT_KEY)).toBe(
+      false,
+    );
     expect(await sessionEpoch(store, account.id)).toBe(2);
 
-    // The old Google account now lands somewhere else.
-    const afterRemoval = await bindGoogleSubject(store, {
-      subject: SUBJECT,
-      email: GMAIL,
-      emailVerified: true,
-    });
-    expect(afterRemoval.id).not.toBe(account.id);
+    // The old Google account no longer reaches it, and does not make a new,
+    // empty account either (task f41fae71).
+    const accounts = await accountCount(store);
+    const refusal = await signInWithGoogle(store, SUBJECT, GMAIL).catch(
+      (err: unknown) => err,
+    );
+    expect(refusal).toBeInstanceOf(GoogleSignInRemoved);
+    expect(await accountCount(store)).toBe(accounts);
     // And email stays the way in.
     expect((await accountForEmailSignIn(store, "work@example.com")).id).toBe(
       account.id,
@@ -151,6 +177,7 @@ describe("an address that cannot become the account's", () => {
     const account = await googleAccount(store);
     // Google keeps the case the other customer typed.
     await bindGoogleSubject(store, {
+      subjectKey: SUBJECT_KEY,
       subject: "google-sub-other",
       email: "Taken@Example.com",
       emailVerified: true,
@@ -204,7 +231,9 @@ describe("an address that cannot become the account's", () => {
         newEmail: "a@example.com",
       }),
     ).toEqual({ ok: false, code: "no-account" });
-    expect(await removeGoogleSignIn(store, "acct-missing")).toBe(false);
+    expect(await removeGoogleSignIn(store, "acct-missing", SUBJECT_KEY)).toBe(
+      false,
+    );
     // No account is no epoch: web/auth.ts reads that as no session.
     expect(await sessionEpoch(store, "acct-missing")).toBeNull();
   });
@@ -327,5 +356,117 @@ describe("the Stripe customers an address change follows", () => {
       "cus_own",
     ]);
     expect(customers).toHaveLength(3);
+  });
+});
+
+// After a removal, a Google sign-in for the removed Google account that would
+// make a new account is refused (task f41fae71): it used to make an empty
+// account at the old address, which then looked like the customer's account
+// with its offices gone. An address bind still works: that is how a customer
+// adds Google back, and how whoever holds the old inbox signs in.
+describe("a removed Google account", () => {
+  async function removedAfterMove(store: Store) {
+    const account = await googleAccount(store);
+    await changeAccountEmail(store, {
+      accountId: account.id,
+      newEmail: "work@example.com",
+    });
+    expect(await removeGoogleSignIn(store, account.id, SUBJECT_KEY)).toBe(true);
+    return account;
+  }
+
+  async function markOf(store: Store, accountId: string) {
+    const row = await store.sqlGet<{
+      google_subject: string | null;
+      removed_google_subject_hash: string | null;
+    }>(
+      "select google_subject, removed_google_subject_hash from accounts where id = $1",
+      [accountId],
+    );
+    return row;
+  }
+
+  test("the refusal names no address, and the account keeps a keyed mark, not the Google id", async () => {
+    const store = await openTestStore();
+    const account = await removedAfterMove(store);
+
+    const mark = (await markOf(store, account.id))?.removed_google_subject_hash;
+    expect(mark).toBeString();
+    expect(mark).not.toContain(SUBJECT);
+
+    const accounts = await accountCount(store);
+    const refusal = await signInWithGoogle(store, SUBJECT, GMAIL).catch(
+      (err: unknown) => err,
+    );
+    // A SubjectBindingConflict is what identityForSignIn turns into a refused
+    // sign-in rather than a server error.
+    expect(refusal).toBeInstanceOf(GoogleSignInRemoved);
+    expect(refusal).toBeInstanceOf(SubjectBindingConflict);
+    const message = (refusal as Error).message.toLowerCase();
+    expect(message).not.toContain(GMAIL.toLowerCase());
+    expect(message).not.toContain("work@example.com");
+    expect(await accountCount(store)).toBe(accounts);
+
+    // The mark is keyed by the server secret: under another secret it is not
+    // recognised, so a plain digest of the Google id would not pass here.
+    const otherKey = await signInWithGoogle(store, SUBJECT, GMAIL, "other-key");
+    expect(otherKey.id).not.toBe(account.id);
+    expect(await accountCount(store)).toBe(accounts + 1);
+  });
+
+  test("an address bind puts Google back on the account and clears its mark", async () => {
+    const store = await openTestStore();
+    const account = await googleAccount(store);
+    expect(await removeGoogleSignIn(store, account.id, SUBJECT_KEY)).toBe(true);
+    // The enabling condition: the removal left a mark.
+    expect(
+      (await markOf(store, account.id))?.removed_google_subject_hash,
+    ).toBeString();
+
+    const back = await signInWithGoogle(store, SUBJECT, GMAIL);
+    expect(back.id).toBe(account.id);
+    expect(await markOf(store, account.id)).toEqual({
+      google_subject: SUBJECT,
+      removed_google_subject_hash: null,
+    });
+  });
+
+  test("a different Google account binding by address leaves the mark, and the removed one stays refused", async () => {
+    const store = await openTestStore();
+    const account = await removedAfterMove(store);
+    const mark = (await markOf(store, account.id))?.removed_google_subject_hash;
+    expect(mark).toBeString();
+
+    const other = await signInWithGoogle(
+      store,
+      "google-sub-work",
+      "work@example.com",
+    );
+    expect(other.id).toBe(account.id);
+    expect(await markOf(store, account.id)).toEqual({
+      google_subject: "google-sub-work",
+      removed_google_subject_hash: mark!,
+    });
+
+    const accounts = await accountCount(store);
+    expect(
+      await signInWithGoogle(store, SUBJECT, GMAIL).catch(
+        (err: unknown) => err,
+      ),
+    ).toBeInstanceOf(GoogleSignInRemoved);
+    expect(await accountCount(store)).toBe(accounts);
+  });
+
+  test("an account made at the old address takes the removed Google account by address, and keeps it", async () => {
+    const store = await openTestStore();
+    const account = await removedAfterMove(store);
+    // Whoever reads the old inbox signs in by email link: a new account.
+    const holder = await accountForEmailSignIn(store, GMAIL);
+    expect(holder.id).not.toBe(account.id);
+
+    // Only a sign-in that would MAKE an account is refused.
+    expect((await signInWithGoogle(store, SUBJECT, GMAIL)).id).toBe(holder.id);
+    // Now bound, the subject reaches that account whatever the mark says.
+    expect((await signInWithGoogle(store, SUBJECT, GMAIL)).id).toBe(holder.id);
   });
 });

@@ -42,6 +42,8 @@ export const ca: Catalog = {
     "No hem pogut enviar el correu. Torna-ho a provar més tard.",
   "signIn.linkFailed":
     "Aquest enllaç d'inici de sessió ha caducat o ja s'ha fet servir. Demana'n un de nou.",
+  "signIn.googleAccountRefused":
+    "S'ha tret l'inici de sessió amb Google del teu compte. Inicia la sessió amb un enllaç per correu.",
   "signIn.linkHeading": "Inicia la sessió",
   "signIn.linkSignInAs": "Inicia la sessió com a {email}",
   "signIn.linkInvalid":

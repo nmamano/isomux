@@ -698,7 +698,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     verb: "select",
     via:
       "identityForSignIn -> signup:bindGoogleSubject, signup:accountForEmailSignIn " +
-      "(accountByGoogleSubject, accountByAddress); continueSignup -> " +
+      "(accountByGoogleSubject, accountByAddress, and the removed Google mark " +
+      "before it creates an account); continueSignup -> " +
       "stripe/billing-store:getAccount; ops:opsFloor, ops:opsInstance, " +
       "ops:acknowledgeInstance -> operator.ts isOperator; accountSettings -> " +
       "stripe/billing-store:getAccount; emailChangeRefusalFor, changeAccountEmailFor " +
@@ -719,12 +720,14 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     verb: "update",
     via:
       "identityForSignIn -> signup:bindGoogleSubject -> stripe/billing-store.ts " +
-      "casAccount binds the Google subject; ops:opsFloor, ops:opsInstance and " +
+      "casAccount binds the Google subject and clears a matching removed Google " +
+      "mark; ops:opsFloor, ops:opsInstance and " +
       "ops:acknowledgeInstance -> operator.ts isOperator, whose select ... for " +
       "share inside a transaction needs UPDATE on the row it locks; " +
       "changeAccountEmailFor -> signup:changeAccountEmail and removeGoogleSignInFor " +
       "-> signup:removeGoogleSignIn -> stripe/billing-store.ts casAccount write " +
-      "the email and clear the Google subject, each raising the session epoch",
+      "the email and clear the Google subject (leaving its removed Google mark), " +
+      "each raising the session epoch",
   },
   {
     table: "name_reservations",
@@ -929,6 +932,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
     report: ["credentialValues", "redactLogText"],
     requests: ["confirmHandoff", "requestInvite", "requestRestart"],
     signup: [
+      "GoogleSignInRemoved",
       "OFFICE_DOMAIN",
       "SubjectBindingConflict",
       "accountForDevSignIn",
@@ -992,6 +996,7 @@ export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
   "report:credentialValues":
     "lists credential values to redact from a log line",
   "report:redactLogText": "redacts a log line",
+  "signup:GoogleSignInRemoved": "an error class",
   "signup:OFFICE_DOMAIN": "the office host suffix, a constant",
   "signup:SubjectBindingConflict": "an error class",
   "signup:checkoutInputsFor":

@@ -44,6 +44,8 @@ export const en = {
   "signIn.emailFailed": "We could not send the email. Try again later.",
   "signIn.linkFailed":
     "That sign-in link has expired or was already used. Ask for a new one.",
+  "signIn.googleAccountRefused":
+    "Google sign-in was removed from your account. Sign in with an email link.",
   "signIn.linkHeading": "Sign in",
   "signIn.linkSignInAs": "Sign in as {email}",
   "signIn.linkInvalid":

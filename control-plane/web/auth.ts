@@ -38,6 +38,7 @@ import { inspect } from "node:util";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { identityForSignIn, sessionEpochFor } from "./lib/services.server";
+import { googleSignIn } from "./lib/google-signin.server";
 import { deploymentSignInTokens } from "./lib/signin-link.server";
 import { redactLogText } from "../report";
 
@@ -139,24 +140,7 @@ const { handlers, auth, signIn, signOut, unstable_update } = NextAuth({
   session: { strategy: "jwt" },
   pages: { signIn: "/signin" },
   callbacks: {
-    async signIn({ account, user, profile }) {
-      if (account?.provider !== "google") return true;
-      const subject = account.providerAccountId || profile?.sub;
-      const email = user.email ?? profile?.email;
-      if (!subject || !email) return false;
-      // A sign-in that cannot be bound must not become a session: two accounts
-      // sharing one Google identity is the state this refuses to create. The
-      // account id it resolves to is carried into the token below.
-      const identity = await identityForSignIn({
-        provider: "google",
-        subject,
-        email,
-        emailVerified: profile?.email_verified === true,
-      });
-      if (!identity.ok) return false;
-      user.id = identity.accountId;
-      return true;
-    },
+    signIn: googleSignIn,
     async jwt({ token, user, trigger, session }) {
       if (user?.id) {
         // Written once, at sign-in, from the durable binding.

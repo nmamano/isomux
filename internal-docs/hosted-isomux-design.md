@@ -130,8 +130,8 @@ first slice and test it against a real cheap VPS.
   account's email, applied only from a link mailed to the new address and
   opened while signed in to the account, with the Stripe customers' email
   following and a notice to the old address, and it removes a bound Google
-  sign-in, after which email is the way in. Either change ends the account's
-  other sessions.
+  sign-in, after which email is the way in and that Google account cannot make
+  a new account. Either change ends the account's other sessions.
 - Stripe Checkout is implemented. Signed
   Stripe webhooks reach the provisioner and refresh the subscription cache from
   Stripe's API; self-serve trials are not part of the deployed product.

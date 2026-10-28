@@ -5,9 +5,10 @@
 -- hosted-support-read sends this text verbatim, as the body of a prepared
 -- statement. Each column read here needs a column grant in role.sql: a column
 -- left out of role.sql cannot be read here by accident. Left out on purpose:
--- operations.evidence, the detail columns, accounts.google_subject, customer SSH
--- keys, provider addresses and host keys, checkout session ids, and the
--- certificate_credentials and reinstatement_attempts tables.
+-- operations.evidence, the detail columns, accounts.google_subject and
+-- accounts.removed_google_subject_hash, customer SSH keys, provider addresses
+-- and host keys, checkout session ids, and the certificate_credentials and
+-- reinstatement_attempts tables.
 select jsonb_build_object(
   'generated_at', (extract(epoch from now()) * 1000)::bigint,
   'accounts', coalesce((
