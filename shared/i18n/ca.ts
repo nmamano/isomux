@@ -1930,7 +1930,24 @@ Coses que pots fer per ell:
     "Secret de l'oficina: el desa un propietari de l'oficina.",
   "cards.secretRequest.hint":
     "El valor no entra al xat. L'agent rep un substitut.",
-  "cards.secretRequest.save": "Desar el secret",
+  "cards.secretRequest.save": "Desar",
+  "cards.secretRequest.variableTitle": "Sol·licitud de variable: {name}",
+  "cards.secretRequest.variablePersonal":
+    "Es desa a les variables del responsable d'aquest agent.",
+  "cards.secretRequest.variableOffice":
+    "Variable de l'oficina: la desa un propietari de l'oficina.",
+  "cards.secretRequest.variableHint":
+    "El valor no entra al xat. Els agents reben la variable al pròxim inici.",
+  "cards.secretRequest.mcpServerTitle": "Sol·licitud de servidor MCP: {name}",
+  "cards.secretRequest.mcpServerPersonal":
+    "S'afegeix als servidors MCP del responsable d'aquest agent.",
+  "cards.secretRequest.mcpServerOffice":
+    "Servidor MCP de l'oficina: l'afegeix un propietari de l'oficina.",
+  "cards.secretRequest.mcpServerHint":
+    "Els agents reben el servidor al pròxim inici.",
+  "cards.secretRequest.unsupportedTitle": "Sol·licitud: {name}",
+  "cards.secretRequest.unsupported":
+    "Aquesta versió d'Isomux no pot desar aquesta sol·licitud.",
   "cards.secretRequest.decline": "Rebutjar",
   "cards.secretRequest.saved":
     "Desat. L'agent rep un substitut en el proper inici.",
@@ -2934,8 +2951,24 @@ Coses que pots fer per ell:
     "Secret {name} desat com a secret de l'oficina.",
   "systemEntries.secretRequest.savedPersonal":
     "Secret {name} desat als secrets del membre {member}.",
-  "systemEntries.secretRequest.declined":
-    "Sol·licitud del secret {name} rebutjada.",
+  "systemEntries.secretRequest.variableSaved": "Variable {name} desada.",
+  "systemEntries.secretRequest.variableSavedOffice":
+    "Variable {name} desada com a variable de l'oficina.",
+  "systemEntries.secretRequest.variableSavedPersonal":
+    "Variable {name} desada a les variables del membre {member}.",
+  "systemEntries.secretRequest.mcpServerSaved": "Servidor MCP {name} afegit.",
+  "systemEntries.secretRequest.mcpServerSavedOffice":
+    "Servidor MCP {name} afegit com a servidor MCP de l'oficina.",
+  "systemEntries.secretRequest.mcpServerSavedPersonal":
+    "Servidor MCP {name} afegit als servidors MCP del membre {member}.",
+  "systemEntries.stepAsk.providerSignedIn": "Sessió iniciada a {provider}.",
+  "systemEntries.stepAsk.providerSignedInOffice":
+    "Sessió iniciada al compte de {provider} de l'oficina.",
+  "systemEntries.stepAsk.mcpSignedIn":
+    "Sessió iniciada al servidor MCP {name}.",
+  "systemEntries.stepAsk.browserPaired": "Chrome vinculat.",
+  "systemEntries.stepAsk.githubLinked": "Sala enllaçada amb GitHub.",
+  "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
   "systemEntries.limitResume.resumed":
     "El límit d'ús s'ha restablert. Isomux ha reprès l'agent.",
   "systemEntries.restartWake.resumed":

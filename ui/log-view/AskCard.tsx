@@ -518,7 +518,14 @@ function ReplyAskCard({
               <button
                 type="button"
                 data-ask-office-link={entry.link}
-                onClick={() => openLink(link)}
+                onClick={() =>
+                  // A step ask's tab marks the setting of its step.
+                  openLink(
+                    entry.step && !("agentId" in link)
+                      ? { ...link, focus: entry.step }
+                      : link,
+                  )
+                }
                 style={{
                   background: "none",
                   border: "none",

@@ -1059,37 +1059,104 @@ export interface TerminalCommandPayload {
   command: string; // single-line shell command
 }
 
-// An agent's request for a secret (server/secret-requests.ts). It holds no
-// value: the member types the value in a masked field, so it never enters the
-// chat. An open request is an ask (AskEntry.secret).
-export interface SecretAskRequest {
+// An agent's request for a value the member types (server/secret-requests.ts):
+// a secret, a variable or an MCP server (task c71cb60f). It holds no value:
+// the member types it in the ask's form, so it never enters the chat. An open
+// request is an ask (AskEntry.secret). The field keeps the name `secret` for
+// every kind, so an older server loads each kind as a secret request: a
+// masked form, never a reply box.
+interface ValueAskRequestBase {
   requestId: string;
   scope: "personal" | "office";
   name: string;
-  hosts: string[];
-  form: SecretForm;
   reason: string;
-  // The app that gets the value in its environment (task 315a62c0): the
-  // grant's registration, so a re-created app of the same name gets nothing.
-  // Absent on a request for the agent's own use.
-  app?: { name: string; createdAt: number };
-  // A personal request: the member whose secrets get the value (the
+  // A personal request: the member whose connections get the value (the
   // manager, or the app's owner for an app). Absent on older requests, which
-  // save into memberUserId's secrets.
+  // save into memberUserId's.
   ownerUserId?: string;
   // An office request for one office owner. Absent: every owner answers.
   // Not memberUserId, which older servers refuse on an office request.
   answerUserId?: string;
 }
 
+// A secret for the proxy or an app. `kind` is absent on disk.
+export interface SecretValueRequest extends ValueAskRequestBase {
+  kind?: undefined;
+  hosts: string[];
+  form: SecretForm;
+  // The app that gets the value in its environment (task 315a62c0): the
+  // grant's registration, so a re-created app of the same name gets nothing.
+  // Absent on a request for the agent's own use.
+  app?: { name: string; createdAt: number };
+}
+
+// The fields an older server's load check requires: fixed on the new kinds,
+// and read by no code that knows the kind.
+interface OlderLoaderFields {
+  hosts: [];
+  form: { kind: "authorization" };
+}
+
+// A variable, in the managed env of the scope.
+export interface VariableValueRequest
+  extends ValueAskRequestBase, OlderLoaderFields {
+  kind: "variable";
+}
+
+// An MCP server registration. `url` and `secret` are the agent's proposals,
+// which the member can change in the form.
+export interface McpServerValueRequest
+  extends ValueAskRequestBase, OlderLoaderFields {
+  kind: "mcp-server";
+  url?: string;
+  secret?: string;
+}
+
+export type SecretAskRequest =
+  | SecretValueRequest
+  | VariableValueRequest
+  | McpServerValueRequest;
+
+// A step ask (task c71cb60f): a step on the Integrations page that is not a
+// typed value. The ask's link opens the step's tab, and the ask closes itself
+// when the server sees the step done (server/step-asks.ts). The agent sends
+// the kind and its own fields; the server fills the rest at create.
+export type StepAskRequest =
+  // The member's own account (personal), or the office's.
+  | {
+      kind: "provider-sign-in";
+      provider: "claude" | "codex";
+      scope: "personal" | "office";
+    }
+  // An OAuth MCP server of the scope. A personal one is the agent's
+  // manager's, named in ownerUserId at create.
+  | {
+      kind: "mcp-sign-in";
+      name: string;
+      scope: "personal" | "office";
+      ownerUserId?: string;
+    }
+  // The manager's paired Chrome.
+  | { kind: "browser-pairing" }
+  // The GitHub issue link of the agent's room at create.
+  | { kind: "github-link"; roomId: string };
+
+// Whether this release knows the request's kind. The asks file also loads a
+// kind from a later release (server/asks.ts); such a request can only be
+// declined here.
+export function knownValueRequest(request: SecretAskRequest): boolean {
+  const kind: unknown = request.kind;
+  return kind === undefined || kind === "variable" || kind === "mcp-server";
+}
+
 // Structured payload attached to LogEntry when kind === "secret-request".
 // Servers before secret requests became asks put this card in the chat; it
 // is read-only now. A later system entry with metadata.secretRequestSettled =
 // requestId names its outcome.
-export interface SecretRequestPayload extends SecretAskRequest {
+export type SecretRequestPayload = SecretValueRequest & {
   // The server boot that opened it. Unused.
   bootId?: string;
-}
+};
 
 // Which loop a tool call came from, when it was NOT the agent's own. A
 // subagent (Claude's Agent/Task tool, Codex's collab child threads) runs its
@@ -1417,6 +1484,10 @@ export interface AskEntry {
   // The agent's session when it opened the ask. The reply note names it when
   // the reply reaches a later session.
   sessionId?: string;
+  // A step ask (task c71cb60f): its link is the step's tab, set by the
+  // server, and the ask closes itself when the step is done. Fixed after
+  // create.
+  step?: StepAskRequest;
 }
 
 // An ask as a route or push sends it: the opening session stays server-side.

@@ -141,6 +141,17 @@ async function world() {
       return user ? { id: user.id, name: user.name } : null;
     },
     memberName: (userId) => getUserById(userId)?.name ?? null,
+    // The variable and MCP server writes (task c71cb60f): unused here.
+    writes: {
+      setVariable: () => {
+        throw new Error("unused");
+      },
+      createMcpServer: () => {
+        throw new Error("unused");
+      },
+    },
+    variableExists: () => false,
+    mcpServerExists: () => false,
     settled: (agentId, requestId, outcome, line, answeredBy) =>
       mgr.emitAgentSecretRequestSettled(
         agentId,

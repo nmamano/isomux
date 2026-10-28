@@ -35,6 +35,7 @@ import type {
   OfficeMcpServerSummaryWire,
 } from "../../../shared/contract-shapes.ts";
 import { mcpServerHost } from "../../../shared/mcp-servers.ts";
+import { mcpServerFailure, writeMcpServer } from "../../connection-writes.ts";
 import { callerIsIntegrationOwner, memberSubject } from "./member-subject.ts";
 import {
   pushOpenCodeSettings,
@@ -49,6 +50,8 @@ export interface McpServersDeps {
   // The audit row of a finished sign-in: the callback is a GET, which the
   // executor does not audit.
   auditSignIn: (ctx: Parameters<RouteHandler>[0], targets: string[]) => void;
+  // A sign-in finished (step asks, task c71cb60f).
+  signedIn?: () => void;
   isOfficeOwnerUserId: (userId: string) => boolean;
   userIdForUsername: (username: string) => string | null;
   usernameForUserId: (userId: string) => string | null;
@@ -121,43 +124,8 @@ function answer(
     return status === "created"
       ? created({ server: row(change.server) })
       : ok({ server: row(change.server) });
-  switch (change.kind) {
-    case "invalid": {
-      const { field, reason } = change.error;
-      return fail(
-        400,
-        "invalid_mcp_server",
-        `the ${field} field is not valid`,
-        { field, reason },
-      );
-    }
-    case "exists":
-      return fail(
-        409,
-        "mcp_server_exists",
-        "an MCP server with this name exists",
-      );
-    case "not_found":
-      return fail(404, "not_found");
-    case "secret_not_found":
-      return fail(
-        422,
-        "secret_not_found",
-        "no secret with this name in the same scope",
-      );
-    case "secret_host":
-      return fail(
-        422,
-        "secret_host_mismatch",
-        "the secret does not list the server's host",
-      );
-    case "secret_exists":
-      return fail(
-        409,
-        "secret_exists",
-        "a secret in the same scope has the name the sign-in uses",
-      );
-  }
+  const failure = mcpServerFailure(change);
+  return fail(failure.status, failure.code, failure.message, failure.detail);
 }
 
 function guarded(handler: RouteHandler): RouteHandler {
@@ -208,9 +176,11 @@ function scopedHandlers(
       if (!scope) return fail(404, "not_found");
       const body = bodyWith(ctx.body, CREATE_KEYS);
       if (!body) return invalidRequest();
-      const result = deps.oauth.create(scope, body);
+      // writeMcpServer pushes (connection-writes.ts), as a value request's
+      // save does.
+      const result = writeMcpServer(deps, scope, body);
       return result.ok
-        ? savedIn(deps, scope)(answer(result.change, rowFor(ctx), "created"))
+        ? answer(result.change, rowFor(ctx), "created")
         : invalidRequest();
     },
     update: (ctx) => {
@@ -287,6 +257,7 @@ function callbackHandler(deps: McpServersDeps): RouteHandler {
     // The sign-in completes the server's headers, so the OpenCode servers
     // take them as after a save. The redirect carries no field.
     pushOpenCodeSettings(deps.pushOpenCodeSettings, result.scope);
+    deps.signedIn?.();
     return backToIntegrations("ok");
   };
 }

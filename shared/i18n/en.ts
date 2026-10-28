@@ -1882,7 +1882,24 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.secretRequest.office": "Office secret: an office owner saves it.",
   "cards.secretRequest.hint":
     "The value stays out of the chat. The agent gets a stand-in.",
-  "cards.secretRequest.save": "Save secret",
+  "cards.secretRequest.save": "Save",
+  "cards.secretRequest.variableTitle": "Variable request: {name}",
+  "cards.secretRequest.variablePersonal":
+    "Saved in the variables of this agent's manager.",
+  "cards.secretRequest.variableOffice":
+    "Office variable: an office owner saves it.",
+  "cards.secretRequest.variableHint":
+    "The value stays out of the chat. Agents get the variable at their next start.",
+  "cards.secretRequest.mcpServerTitle": "MCP server request: {name}",
+  "cards.secretRequest.mcpServerPersonal":
+    "Added to the MCP servers of this agent's manager.",
+  "cards.secretRequest.mcpServerOffice":
+    "Office MCP server: an office owner adds it.",
+  "cards.secretRequest.mcpServerHint":
+    "Agents get the server at their next start.",
+  "cards.secretRequest.unsupportedTitle": "Request: {name}",
+  "cards.secretRequest.unsupported":
+    "This version of Isomux cannot save this request.",
   "cards.secretRequest.decline": "Decline",
   "cards.secretRequest.saved":
     "Saved. The agent gets a stand-in at its next start.",
@@ -2896,7 +2913,23 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Secret {name} saved as an office secret.",
   "systemEntries.secretRequest.savedPersonal":
     "Secret {name} saved in {member}'s secrets.",
-  "systemEntries.secretRequest.declined": "Secret request for {name} declined.",
+  "systemEntries.secretRequest.variableSaved": "Variable {name} saved.",
+  "systemEntries.secretRequest.variableSavedOffice":
+    "Variable {name} saved as an office variable.",
+  "systemEntries.secretRequest.variableSavedPersonal":
+    "Variable {name} saved in {member}'s variables.",
+  "systemEntries.secretRequest.mcpServerSaved": "MCP server {name} added.",
+  "systemEntries.secretRequest.mcpServerSavedOffice":
+    "MCP server {name} added as an office MCP server.",
+  "systemEntries.secretRequest.mcpServerSavedPersonal":
+    "MCP server {name} added to {member}'s MCP servers.",
+  "systemEntries.stepAsk.providerSignedIn": "Signed in to {provider}.",
+  "systemEntries.stepAsk.providerSignedInOffice":
+    "Signed in to the office {provider} account.",
+  "systemEntries.stepAsk.mcpSignedIn": "Signed in to the MCP server {name}.",
+  "systemEntries.stepAsk.browserPaired": "Chrome paired.",
+  "systemEntries.stepAsk.githubLinked": "Room linked to GitHub.",
+  "systemEntries.secretRequest.declined": "Request for {name} declined.",
   "systemEntries.limitResume.resumed":
     "Usage limit reset. Isomux resumed the agent.",
   "systemEntries.restartWake.resumed":

@@ -19,7 +19,11 @@
 // save body to the secret store and nowhere else; the ask holds the request
 // only.
 
-import type { AskEntry, SecretAskRequest } from "../shared/types.ts";
+import {
+  knownValueRequest,
+  type AskEntry,
+  type SecretAskRequest,
+} from "../shared/types.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 import {
   askVisibleTo,
@@ -37,6 +41,16 @@ import {
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { hasCredentialShape } from "./log-redaction.ts";
+import {
+  mcpServerFailure,
+  type ConnectionWrites,
+  type McpServerRefusal,
+} from "./connection-writes.ts";
+import { isManagedEnvKey, ManagedEnvValidationError } from "./user-env.ts";
+import {
+  checkMcpServerName,
+  checkMcpServerUrl,
+} from "../shared/mcp-servers.ts";
 import {
   SecretStoreUnreadableError,
   type SecretChange,
@@ -70,6 +84,12 @@ export interface SecretRequestDeps {
   memberByName: (name: string) => { id: string; name: string } | null;
   // A member's name by id, or null when the member is gone.
   memberName: (userId: string) => string | null;
+  // The variable and MCP server writes, as the Integrations routes make them
+  // (task c71cb60f).
+  writes: Pick<ConnectionWrites, "setVariable" | "createMcpServer">;
+  // Whether the scope has a variable, or an MCP server, with this name.
+  variableExists: (scope: SecretScope, name: string) => boolean;
+  mcpServerExists: (scope: SecretScope, name: string) => boolean;
   // The outcome: a system line in the agent's chat, and the same line to the
   // agent as an office notice from the member who answered.
   settled: (
@@ -143,6 +163,65 @@ const invalidRequest = (message: string): SecretRequestFailure => ({
   message,
 });
 
+function mcpFailure(change: McpServerRefusal): SecretRequestFailure {
+  const { status, code, message, detail } = mcpServerFailure(change);
+  return {
+    ok: false,
+    status: status as SecretRequestFailure["status"],
+    code,
+    ...(message !== undefined ? { message } : {}),
+    ...(detail !== undefined ? { detail } : {}),
+  };
+}
+
+const variableExists: SecretRequestFailure = {
+  ok: false,
+  status: 409,
+  code: "variable_exists",
+  message: "a variable with this name exists",
+};
+
+// The outcome line of a save, per kind: an office one, a member's (named),
+// and a member's whose name is gone.
+const SAVED_LINES = {
+  secret: {
+    office: "systemEntries.secretRequest.savedOffice",
+    personal: "systemEntries.secretRequest.savedPersonal",
+    plain: "systemEntries.secretRequest.saved",
+  },
+  variable: {
+    office: "systemEntries.secretRequest.variableSavedOffice",
+    personal: "systemEntries.secretRequest.variableSavedPersonal",
+    plain: "systemEntries.secretRequest.variableSaved",
+  },
+  "mcp-server": {
+    office: "systemEntries.secretRequest.mcpServerSavedOffice",
+    personal: "systemEntries.secretRequest.mcpServerSavedPersonal",
+    plain: "systemEntries.secretRequest.mcpServerSaved",
+  },
+} as const;
+
+// What a refusal calls the kind, for the agent.
+const KIND_NOUN = {
+  secret: "secret",
+  variable: "variable",
+  "mcp-server": "MCP server",
+} as const;
+
+// The body keys an open takes, per kind.
+const OPEN_KEYS = {
+  secret: ["kind", "name", "hosts", "form", "reason", "scope", "app", "member"],
+  variable: ["kind", "name", "reason", "scope", "member"],
+  "mcp-server": ["kind", "name", "url", "secret", "reason", "scope", "member"],
+} as const satisfies Record<string, readonly string[]>;
+
+// What an older server's load check requires of every request, on the kinds
+// it does not know (shared/types.ts).
+const OLDER_LOADER_FIELDS = {
+  hosts: [] as [],
+  form: { kind: "authorization" as const },
+};
+
 export function createSecretRequests(deps: SecretRequestDeps) {
   const openRequests = (): SecretAsk[] =>
     deps.asks.listAll().filter((e): e is SecretAsk => e.secret !== undefined);
@@ -202,20 +281,92 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     }
   }
 
-  // What a save says: the app the secret went to, else its scope.
+  // What a save says, by kind: its scope, and the member for a personal
+  // one. An app secret's line names the app instead (save).
   function savedLine(
+    kind: "secret" | "variable" | "mcp-server",
     scope: SecretScope,
     name: string,
-    app: string | undefined,
   ): LogMessage {
-    if (app)
-      return msg("systemEntries.secretRequest.savedForApp", { name, app });
-    if (scope.kind === "office")
-      return msg("systemEntries.secretRequest.savedOffice", { name });
+    const keys = SAVED_LINES[kind];
+    if (scope.kind === "office") return msg(keys.office, { name });
     const member = deps.memberName(scope.userId);
     return member
-      ? msg("systemEntries.secretRequest.savedPersonal", { name, member })
-      : msg("systemEntries.secretRequest.saved", { name });
+      ? msg(keys.personal, { name, member })
+      : msg(keys.plain, { name });
+  }
+
+  // The saved value's ask goes. If the removal fails, the value is saved,
+  // so the agent still hears it; the ask stays until the store can write,
+  // and a second save gets the kind's exists code.
+  function closeSaved(entry: SecretAsk): void {
+    try {
+      deps.asks.remove(entry.id);
+    } catch {
+      console.error(
+        `[secret-requests] ask ${entry.id} was saved but could not be closed`,
+      );
+    }
+  }
+
+  // A variable request's save: the value alone, never over a variable set
+  // since the open. No answer or log holds the value.
+  function writeVariable(
+    scope: SecretScope,
+    name: string,
+    body: Record<string, unknown>,
+  ): SecretRequestResult<object> {
+    if (!Object.keys(body).every((k) => k === "value"))
+      return invalidRequest("the body takes only value");
+    if (typeof body.value !== "string" || body.value === "")
+      return invalidRequest("value is required");
+    if (deps.variableExists(scope, name)) return variableExists;
+    try {
+      const outcome = deps.writes.setVariable(scope, name, body.value);
+      if (!outcome.ok)
+        return {
+          ok: false,
+          status: outcome.status as SecretRequestFailure["status"],
+          code: outcome.code,
+          ...(outcome.message !== undefined
+            ? { message: outcome.message }
+            : {}),
+        };
+    } catch (error) {
+      if (error instanceof ManagedEnvValidationError)
+        return {
+          ok: false,
+          status: 400,
+          code: "invalid_env",
+          message: "the value is not valid",
+        };
+      throw error;
+    }
+    return { ok: true };
+  }
+
+  // An MCP server request's save: the URL and the secret as the member set
+  // them, checked as the Integrations page checks them. No answer or log
+  // holds the URL, which can carry a token.
+  function writeMcpServer(
+    scope: SecretScope,
+    name: string,
+    body: Record<string, unknown>,
+  ): SecretRequestResult<object> {
+    if (!Object.keys(body).every((k) => k === "url" || k === "secret"))
+      return invalidRequest("the body takes only url, secret");
+    if (typeof body.url !== "string") return invalidRequest("url is required");
+    const secret = body.secret ?? null;
+    if (secret !== null && typeof secret !== "string")
+      return invalidRequest("secret must be a secret name or null");
+    const result = deps.writes.createMcpServer(scope, {
+      name,
+      url: body.url,
+      secret,
+    });
+    if (!result.ok) return invalidRequest("the request has the wrong shape");
+    if (!result.change.ok) return mcpFailure(result.change);
+    return { ok: true };
   }
 
   // The agent's ask. Checks what the store would check, so the member never
@@ -225,15 +376,10 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     body: unknown,
   ): SecretRequestResult<{ requestId: string }> {
     if (!isObject(body)) return invalidRequest("the body must be an object");
-    const allowed = [
-      "name",
-      "hosts",
-      "form",
-      "reason",
-      "scope",
-      "app",
-      "member",
-    ];
+    const kind = body.kind === undefined ? "secret" : body.kind;
+    if (kind !== "secret" && kind !== "variable" && kind !== "mcp-server")
+      return invalidRequest("kind is secret, variable or mcp-server");
+    const allowed: readonly string[] = OPEN_KEYS[kind];
     if (!Object.keys(body).every((key) => allowed.includes(key)))
       return invalidRequest(`the body takes only ${allowed.join(", ")}`);
     const managerId = deps.agentUserId(agentId);
@@ -328,25 +474,9 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         code: "member_not_allowed",
         message:
           scopeName === "office"
-            ? "only an office owner can save an office secret"
-            : "only the member whose secrets get the value, or an office owner, can save it",
+            ? `only an office owner can save an office ${KIND_NOUN[kind]}`
+            : `only the member whose ${KIND_NOUN[kind]}s get the value, or an office owner, can save it`,
       };
-    const nameError = checkSecretName(body.name);
-    if (nameError) return fieldFailure(nameError);
-    const name = body.name as string;
-    if (hasCredentialShape(name))
-      return fieldFailure({ field: "name", reason: "invalid" });
-    if (app && isAppReservedSecretName(name))
-      return fieldFailure({ field: "name", reason: "reserved" });
-    // An app request has no hosts (refused above).
-    const hosts = app
-      ? { ok: true as const, hosts: [] }
-      : checkSecretHosts(body.hosts);
-    if (!hosts.ok) return fieldFailure(hosts.error);
-    const modelKey = checkModelKeyHosts(name, hosts.hosts);
-    if (modelKey) return fieldFailure(modelKey);
-    const form = checkSecretForm(body.form ?? { kind: "authorization" });
-    if (!form.ok) return fieldFailure(form.error);
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
     if (!reason || reason.length > SECRET_REQUEST_REASON_MAX)
       return invalidRequest(
@@ -358,16 +488,99 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       ownerId === undefined
         ? { kind: "office" }
         : { kind: "user", userId: ownerId };
-    if (deps.store.list(scope).some((secret) => secret.name === name))
-      return changeFailure({ ok: false, kind: "exists" });
-    if (app && clashes(scope, name, app.name))
-      return fieldFailure({ field: "apps", reason: "clash" });
+    const base = {
+      requestId: crypto.randomUUID(),
+      scope:
+        scopeName === "office" ? ("office" as const) : ("personal" as const),
+      reason,
+      ...(ownerId !== undefined ? { ownerUserId: ownerId } : {}),
+      // An office request for one owner names them here, never in
+      // memberUserId: an older server refuses an office ask with a member,
+      // and would set its whole asks file aside after a rollback.
+      ...(scopeName === "office" && answerId !== undefined
+        ? { answerUserId: answerId }
+        : {}),
+    };
+    let secret: SecretAskRequest;
+    if (kind === "secret") {
+      const nameError = checkSecretName(body.name);
+      if (nameError) return fieldFailure(nameError);
+      const name = body.name as string;
+      if (hasCredentialShape(name))
+        return fieldFailure({ field: "name", reason: "invalid" });
+      if (app && isAppReservedSecretName(name))
+        return fieldFailure({ field: "name", reason: "reserved" });
+      // An app request has no hosts (refused above).
+      const hosts = app
+        ? { ok: true as const, hosts: [] }
+        : checkSecretHosts(body.hosts);
+      if (!hosts.ok) return fieldFailure(hosts.error);
+      const modelKey = checkModelKeyHosts(name, hosts.hosts);
+      if (modelKey) return fieldFailure(modelKey);
+      const form = checkSecretForm(body.form ?? { kind: "authorization" });
+      if (!form.ok) return fieldFailure(form.error);
+      if (deps.store.list(scope).some((secret) => secret.name === name))
+        return changeFailure({ ok: false, kind: "exists" });
+      if (app && clashes(scope, name, app.name))
+        return fieldFailure({ field: "apps", reason: "clash" });
+      secret = {
+        ...base,
+        name,
+        hosts: hosts.hosts,
+        form: form.form,
+        ...(app ? { app: { name: app.name, createdAt: app.createdAt } } : {}),
+      };
+    } else if (kind === "variable") {
+      const name = body.name;
+      if (
+        typeof name !== "string" ||
+        !isManagedEnvKey(name) ||
+        hasCredentialShape(name)
+      )
+        return invalidRequest("name must be a variable name");
+      if (deps.variableExists(scope, name)) return variableExists;
+      secret = { ...base, kind, name, ...OLDER_LOADER_FIELDS };
+    } else {
+      const nameError = checkMcpServerName(body.name);
+      if (nameError)
+        return mcpFailure({ ok: false, kind: "invalid", error: nameError });
+      const name = body.name as string;
+      if (hasCredentialShape(name))
+        return invalidRequest("name must be an MCP server name");
+      if (body.secret !== undefined && typeof body.secret !== "string")
+        return invalidRequest("secret must be a secret name");
+      const proposedSecret = body.secret;
+      if (body.url !== undefined) {
+        const url = checkMcpServerUrl(body.url, proposedSecret !== undefined);
+        if (!url.ok)
+          return mcpFailure({ ok: false, kind: "invalid", error: url.error });
+      }
+      // The host need not match yet: the member can change the URL.
+      if (
+        proposedSecret !== undefined &&
+        !deps.store.list(scope).some((s) => s.name === proposedSecret)
+      )
+        return mcpFailure({ ok: false, kind: "secret_not_found" });
+      if (deps.mcpServerExists(scope, name))
+        return mcpFailure({ ok: false, kind: "exists" });
+      secret = {
+        ...base,
+        kind,
+        name,
+        ...(body.url !== undefined ? { url: body.url as string } : {}),
+        ...(proposedSecret !== undefined ? { secret: proposedSecret } : {}),
+        ...OLDER_LOADER_FIELDS,
+      };
+    }
+    const { name } = secret;
     const open = openRequests();
-    // One open request per secret, whichever agent asks: a second ask would
-    // put a second form for the same secret in front of a member.
+    // One open request per secret, variable or server, whichever agent
+    // asks: a second ask would put a second form for the same value in front
+    // of a member.
     if (
       open.some(
         (e) =>
+          e.secret.kind === secret.kind &&
           e.secret.name === name &&
           e.secret.scope === scopeName &&
           (scopeName === "office" ||
@@ -391,22 +604,6 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       SECRET_REQUESTS_OPEN_MAX
     )
       return tooMany;
-    const secret: SecretAskRequest = {
-      requestId: crypto.randomUUID(),
-      scope: scopeName,
-      name,
-      hosts: hosts.hosts,
-      form: form.form,
-      reason,
-      ...(app ? { app: { name: app.name, createdAt: app.createdAt } } : {}),
-      ...(ownerId !== undefined ? { ownerUserId: ownerId } : {}),
-      // An office request for one owner names them here, never in
-      // memberUserId: an older server refuses an office ask with a member,
-      // and would set its whole asks file aside after a rollback.
-      ...(scopeName === "office" && answerId !== undefined
-        ? { answerUserId: answerId }
-        : {}),
-    };
     // The ask's own bound (all of the agent's asks) answers as this one.
     const made = deps.asks.create({
       agentId,
@@ -435,12 +632,36 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       const found = guarded(() => answerable(userId, agentId, requestId));
       if (!found.ok) return found;
       if (!isObject(body)) return invalidRequest("the body must be an object");
+      const { entry, scope } = found;
+      const request = entry.secret;
+      if (!knownValueRequest(request))
+        return {
+          ok: false,
+          status: 409,
+          code: "request_unsupported",
+          message: "this server cannot save this request; decline it",
+        };
+      if (request.kind !== undefined) {
+        const written =
+          request.kind === "variable"
+            ? writeVariable(scope, request.name, body)
+            : writeMcpServer(scope, request.name, body);
+        if (!written.ok) return written;
+        closeSaved(entry);
+        deps.settled(
+          agentId,
+          requestId,
+          "saved",
+          savedLine(request.kind, scope, request.name),
+          userId as string,
+        );
+        return { ok: true, name: request.name };
+      }
       if (
         !Object.keys(body).every((k) => ["value", "hosts", "form"].includes(k))
       )
         return invalidRequest("the body takes only value, hosts, form");
-      const { entry, scope } = found;
-      const { name, app } = entry.secret;
+      const { name, app } = request;
       if (
         app &&
         body.hosts !== undefined &&
@@ -475,15 +696,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
           : {}),
       });
       if (!change.ok) return changeFailure(change);
-      try {
-        deps.asks.remove(entry.id);
-      } catch {
-        // The secret is saved, so the agent still hears it. The ask stays
-        // until the store can write; a second save gets secret_exists.
-        console.error(
-          `[secret-requests] ask ${entry.id} was saved but could not be closed`,
-        );
-      }
+      closeSaved(entry);
       try {
         await deps.onChanged?.();
       } catch {
@@ -493,7 +706,12 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         agentId,
         requestId,
         "saved",
-        savedLine(scope, name, app?.name),
+        app
+          ? msg("systemEntries.secretRequest.savedForApp", {
+              name,
+              app: app.name,
+            })
+          : savedLine("secret", scope, name),
         userId as string,
       );
       return { ok: true, name };

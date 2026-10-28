@@ -9,7 +9,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, fireEvent } = await import("@testing-library/react");
+const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const {
   ask,
   boot,
@@ -81,4 +81,36 @@ it("switches to the Pages tab for an ask's link to it, and closes out of the Inb
   );
   expect(window.location.pathname).toBe("/");
   expect(view.container.querySelector('[role="tablist"]')).toBeNull();
+});
+
+// A step ask (task c71cb60f): its link opens the step's tab, and the tab
+// marks the setting the step is done in. The marks per kind are in
+// ui/integrations/IntegrationsView.step-focus.dom.test.tsx.
+it("opens a step ask's tab with the step's setting marked; a plain ask's link marks nothing", async () => {
+  setAsks([
+    {
+      ...ask("q1", "a1", "/integrations/browser"),
+      step: { kind: "browser-pairing" },
+    },
+    ask("q2", "a1", "/integrations/browser"),
+  ]);
+  const view = await boot();
+  await act(async () => fireEvent.click(inboxButton(view)!));
+  await act(async () => fireEvent.click(officeLink(view, "q2")!));
+  expect(window.location.pathname).toBe("/integrations");
+  expect(view.container.querySelector("[data-step-focus]")).toBeNull();
+  await go("back");
+  await act(async () => fireEvent.click(officeLink(view, "q1")!));
+  expect(
+    view.container
+      .querySelector('[data-integrations-tab][aria-current="true"]')
+      ?.getAttribute("data-integrations-tab"),
+  ).toBe("browser");
+  await waitFor(() =>
+    expect(
+      [...view.container.querySelectorAll("[data-step-focus]")].map((el) =>
+        el.getAttribute("data-step-focus"),
+      ),
+    ).toEqual(["browser-pairing"]),
+  );
 });

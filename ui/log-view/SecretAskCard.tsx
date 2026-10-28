@@ -1,17 +1,28 @@
-// An agent's request for a secret, as an ask (server/secret-requests.ts):
-// the member types the value in a masked field here, so it never enters the
+// An agent's request for a value, as an ask (server/secret-requests.ts): a
+// secret, a variable or an MCP server (task c71cb60f). For a secret the
+// member types the value in a masked field here, so it never enters the
 // chat, and can edit the hosts. A request for an app has no hosts: the app
-// reads the value from its environment. The server sends the ask only to the
+// reads the value from its environment. A variable's field is masked when
+// its name is a key. For an MCP server the member sets the URL and picks a
+// secret of the target scope, or none. The server sends the ask only to the
 // member who may answer it (the agent's manager or the member the request
-// names, or an office owner for an office secret). A save or a decline
-// closes it; the masked value lives in this component's state only.
+// names, or an office owner for an office request). A save or a decline
+// closes it; the typed value lives in this component's state only.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { AskMemberWire, SecretAskRequest } from "../../shared/types.ts";
+import {
+  knownValueRequest,
+  type AskMemberWire,
+  type SecretAskRequest,
+} from "../../shared/types.ts";
 import { apiFetch, ApiError } from "../api.ts";
-import { useI18n } from "../i18n.tsx";
-import { useDispatch } from "../store.tsx";
+import { useI18n, type UiTranslator } from "../i18n.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
+import { isModelKeySecretName } from "../../shared/secret-hosts.ts";
+import { mcpServerHost } from "../../shared/mcp-servers.ts";
+import { looksLikeKey } from "../integrations/VariablesSection.tsx";
+import { useMcpErrorText } from "../integrations/McpSection.tsx";
 import { timeSince } from "../../shared/i18n/time.ts";
 import {
   dialogCancelBtn,
@@ -23,6 +34,21 @@ import { MaskedInput } from "../components/MaskedInput.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
+
+// The card's title, which the collapsed stack shows too.
+export function valueAskTitle(
+  t: UiTranslator["t"],
+  secret: SecretAskRequest,
+): string {
+  const { name } = secret;
+  if (!knownValueRequest(secret))
+    return t("cards.secretRequest.unsupportedTitle", { name });
+  if (secret.kind === "variable")
+    return t("cards.secretRequest.variableTitle", { name });
+  if (secret.kind === "mcp-server")
+    return t("cards.secretRequest.mcpServerTitle", { name });
+  return t("cards.secretRequest.title", { name });
+}
 
 const hintStyle = {
   fontSize: 12,
@@ -43,17 +69,63 @@ export function SecretAskCard({
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
+  const { users } = useAppState();
   const [hosts, setHosts] = useState(secret.hosts.join("\n"));
   const [value, setValue] = useState("");
+  const [url, setUrl] = useState(
+    secret.kind === "mcp-server" ? (secret.url ?? "") : "",
+  );
+  const [picked, setPicked] = useState(
+    secret.kind === "mcp-server" ? (secret.secret ?? "") : "",
+  );
+  // The target scope's secrets, for an MCP server's credential choice.
+  const [choices, setChoices] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const app = secret.app?.name;
+  const app = secret.kind === undefined ? secret.app?.name : undefined;
+  const mcpErrorText = useMcpErrorText(mcpServerHost(url.trim()));
+  // The member whose connections get the value: the owner, else (an older
+  // request) the member it is for.
+  const ownerId = secret.ownerUserId ?? entry.memberUserId;
+  // The users map is keyed by lowercase name.
+  const ownerName = ownerId
+    ? [...users.values()].find((user) => user.id === ownerId)?.name
+    : undefined;
+  const secretsPath =
+    secret.scope === "office"
+      ? "/api/office/secrets"
+      : ownerName
+        ? `/api/users/${encodeURIComponent(ownerName)}/secrets`
+        : null;
+  const isMcp = secret.kind === "mcp-server";
+  const known = knownValueRequest(secret);
+  useEffect(() => {
+    if (!isMcp || !secretsPath) return;
+    let alive = true;
+    apiFetch<{ secrets?: { name: string }[] }>("GET", secretsPath)
+      .then((result) => {
+        if (alive) setChoices((result?.secrets ?? []).map((row) => row.name));
+      })
+      // No list: the member can still save with no secret.
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [isMcp, secretsPath]);
 
   const since = timeSince(language, entry.createdAt);
   const age = since.kind === "now" ? t("common.justNow") : since.text;
   const base = `/api/agents/${encodeURIComponent(entry.agentId)}/secret-requests/${encodeURIComponent(secret.requestId)}`;
 
   function errorText(caught: unknown, kind: "save" | "decline"): string {
+    if (kind === "save" && secret.kind === "mcp-server")
+      return mcpErrorText(caught);
+    if (kind === "save" && secret.kind === "variable")
+      return caught instanceof ApiError && caught.code === "variable_exists"
+        ? t("integrations.variables.exists")
+        : caught instanceof ApiError && caught.code === "forbidden"
+          ? t("cards.secretRequest.forbidden")
+          : t("settings.env.saveFailed");
     const failed =
       kind === "save"
         ? t("settings.secrets.saveFailed")
@@ -75,22 +147,28 @@ export function SecretAskCard({
     return failed;
   }
 
+  function saveBody(): Record<string, unknown> {
+    if (secret.kind === "variable") return { value: value.trim() };
+    if (secret.kind === "mcp-server")
+      return { url: url.trim(), secret: picked === "" ? null : picked };
+    return {
+      value: value.trim(),
+      ...(app
+        ? {}
+        : {
+            hosts: hosts
+              .split(/[\s,]+/)
+              .map((host) => host.trim())
+              .filter(Boolean),
+          }),
+    };
+  }
+
   async function answer(kind: "save" | "decline") {
     setBusy(true);
     setError(null);
     try {
-      if (kind === "save")
-        await apiFetch("POST", `${base}/save`, {
-          value: value.trim(),
-          ...(app
-            ? {}
-            : {
-                hosts: hosts
-                  .split(/[\s,]+/)
-                  .map((host) => host.trim())
-                  .filter(Boolean),
-              }),
-        });
+      if (kind === "save") await apiFetch("POST", `${base}/save`, saveBody());
       else await apiFetch("POST", `${base}/decline`);
       setValue("");
       dispatch({ type: "ask_removed", id: entry.id });
@@ -139,7 +217,7 @@ export function SecretAskCard({
             overflowWrap: "break-word",
           }}
         >
-          {t("cards.secretRequest.title", { name: secret.name })}
+          {valueAskTitle(t, secret)}
         </div>
         <span
           style={{
@@ -162,64 +240,145 @@ export function SecretAskCard({
           onFocusAgent={onFocusAgent}
         />
       </div>
-      {app ? (
-        <p style={hintStyle}>
-          {secret.scope === "office"
-            ? t("cards.secretRequest.appOffice", { app })
-            : t("cards.secretRequest.app", { app })}
-        </p>
-      ) : (
+      {!known ? (
+        // A kind from a later release: only the decline is offered here.
+        <p style={hintStyle}>{t("cards.secretRequest.unsupported")}</p>
+      ) : secret.kind === "variable" ? (
         <>
           <p style={hintStyle}>
             {secret.scope === "office"
-              ? t("cards.secretRequest.office")
-              : t("cards.secretRequest.personal")}{" "}
-            {form}
+              ? t("cards.secretRequest.variableOffice")
+              : t("cards.secretRequest.variablePersonal")}
+          </p>
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <span style={dialogLabel}>{t("settings.secrets.value")}</span>
+            {isModelKeySecretName(secret.name) || looksLikeKey(secret.name) ? (
+              <MaskedInput
+                value={value}
+                placeholder={t("settings.secrets.valuePlaceholder")}
+                style={dialogInput}
+                onChange={(event) => setValue(event.target.value)}
+              />
+            ) : (
+              <input
+                type="text"
+                value={value}
+                spellCheck={false}
+                autoComplete="off"
+                disabled={busy}
+                style={dialogInput}
+                onChange={(event) => setValue(event.target.value)}
+              />
+            )}
+          </label>
+          <p style={hintStyle}>{t("cards.secretRequest.variableHint")}</p>
+        </>
+      ) : secret.kind === "mcp-server" ? (
+        <>
+          <p style={hintStyle}>
+            {secret.scope === "office"
+              ? t("cards.secretRequest.mcpServerOffice")
+              : t("cards.secretRequest.mcpServerPersonal")}
           </p>
           <label style={{ display: "block", marginBottom: 4 }}>
-            <span style={dialogLabel}>{t("settings.secrets.hosts")}</span>
-            <textarea
-              rows={Math.min(4, Math.max(2, secret.hosts.length))}
+            <span style={dialogLabel}>{t("integrations.mcp.url")}</span>
+            <input
+              type="text"
+              value={url}
               spellCheck={false}
-              value={hosts}
+              autoComplete="off"
               disabled={busy}
-              style={{
-                ...dialogInput,
-                fontFamily: "monospace",
-                resize: "vertical",
-              }}
-              onChange={(event) => setHosts(event.target.value)}
+              placeholder="https://mcp.example.com/mcp"
+              style={{ ...dialogInput, fontFamily: "monospace" }}
+              onChange={(event) => setUrl(event.target.value)}
             />
           </label>
-          <p style={hintStyle}>{t("settings.secrets.vouch")}</p>
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <span style={dialogLabel}>{t("integrations.mcp.savedSecret")}</span>
+            <select
+              value={picked}
+              disabled={busy}
+              style={{ ...dialogInput, fontFamily: "monospace" }}
+              onChange={(event) => setPicked(event.target.value)}
+            >
+              <option value="">{t("integrations.mcp.authNone")}</option>
+              {[...new Set([...choices, ...(picked ? [picked] : [])])].map(
+                (name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+          <p style={hintStyle}>{t("cards.secretRequest.mcpServerHint")}</p>
+        </>
+      ) : (
+        <>
+          {app ? (
+            <p style={hintStyle}>
+              {secret.scope === "office"
+                ? t("cards.secretRequest.appOffice", { app })
+                : t("cards.secretRequest.app", { app })}
+            </p>
+          ) : (
+            <>
+              <p style={hintStyle}>
+                {secret.scope === "office"
+                  ? t("cards.secretRequest.office")
+                  : t("cards.secretRequest.personal")}{" "}
+                {form}
+              </p>
+              <label style={{ display: "block", marginBottom: 4 }}>
+                <span style={dialogLabel}>{t("settings.secrets.hosts")}</span>
+                <textarea
+                  rows={Math.min(4, Math.max(2, secret.hosts.length))}
+                  spellCheck={false}
+                  value={hosts}
+                  disabled={busy}
+                  style={{
+                    ...dialogInput,
+                    fontFamily: "monospace",
+                    resize: "vertical",
+                  }}
+                  onChange={(event) => setHosts(event.target.value)}
+                />
+              </label>
+              <p style={hintStyle}>{t("settings.secrets.vouch")}</p>
+            </>
+          )}
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <span style={dialogLabel}>{t("settings.secrets.value")}</span>
+            <MaskedInput
+              value={value}
+              placeholder={t("settings.secrets.valuePlaceholder")}
+              style={dialogInput}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </label>
+          <p style={hintStyle}>
+            {t(
+              app ? "cards.secretRequest.appHint" : "cards.secretRequest.hint",
+            )}
+          </p>
         </>
       )}
-      <label style={{ display: "block", marginBottom: 8 }}>
-        <span style={dialogLabel}>{t("settings.secrets.value")}</span>
-        <MaskedInput
-          value={value}
-          placeholder={t("settings.secrets.valuePlaceholder")}
-          style={dialogInput}
-          onChange={(event) => setValue(event.target.value)}
-        />
-      </label>
-      <p style={hintStyle}>
-        {t(app ? "cards.secretRequest.appHint" : "cards.secretRequest.hint")}
-      </p>
       {error && (
         <p role="alert" style={{ ...hintStyle, color: "var(--red-text)" }}>
           {error}
         </p>
       )}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button
-          type="button"
-          style={dialogSaveBtn}
-          disabled={busy || value.trim() === ""}
-          onClick={() => void answer("save")}
-        >
-          {busy ? t("common.saving") : t("cards.secretRequest.save")}
-        </button>
+        {known && (
+          <button
+            type="button"
+            style={dialogSaveBtn}
+            disabled={busy || (isMcp ? url.trim() === "" : value.trim() === "")}
+            onClick={() => void answer("save")}
+          >
+            {busy ? t("common.saving") : t("cards.secretRequest.save")}
+          </button>
+        )}
         <button
           type="button"
           style={dialogCancelBtn}

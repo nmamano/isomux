@@ -22,7 +22,27 @@ For a secret that an app reads from its environment, add `app` with the app's na
 
 The route answers `{requestId}`. End your turn and wait. To withdraw the request, delete its ask. An Isomux notice tells you when the member saves or declines. A saved secret's variable holds its placeholder from your next start.
 
-Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 400 `invalid_secret` with reason `model_key` for a model sign-in key name such as `OPENAI_API_KEY`, which a member sets as a variable instead; 409 `secret_exists` when the secret exists (tell the member, who can replace its value on the Integrations page); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer); 422 `unknown_member`, or `member_no_access` when that member cannot reach your room; 422 `unknown_app`; 409 `no_app_owner` for a personal request for an app with no owner (ask for an office secret); 409 `no_manager` when you have no manager and name no member; 400 `invalid_request` for an app request with hosts.
+Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 400 `invalid_secret` with reason `model_key` for a model sign-in key name such as `OPENAI_API_KEY`: ask for it with `kind` `variable` (below); 409 `secret_exists` when the secret exists (tell the member, who can replace its value on the Integrations page); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer); 422 `unknown_member`, or `member_no_access` when that member cannot reach your room; 422 `unknown_app`; 409 `no_app_owner` for a personal request for an app with no owner (ask for an office secret); 409 `no_manager` when you have no manager and name no member; 400 `invalid_request` for an app request with hosts.
+
+## Asking for a variable or an MCP server
+
+The same route asks a member to set a variable or add an MCP server, with the same `scope`, `member` and `reason` rules, the same wait and the same notice. Add `kind`: `secret` (the default), `variable` or `mcp-server`.
+
+- `{kind:"variable",name,reason}` asks for a variable, model sign-in keys such as `OPENAI_API_KEY` included. The member types the value; a key's field is masked. You get the variable from your next start.
+- `{kind:"mcp-server",name,reason,url?,secret?}` asks for an MCP server. `url` and `secret` (a secret in the target scope) are proposals the member can change. The member can also type a URL you do not know, for example one with a token in it. You get the server from your next start.
+
+Errors: 400 `invalid_request` for a field the kind does not take or a variable name that is not valid; 409 `variable_exists` or `mcp_server_exists` when it is set (the member edits it on the Integrations page); 400 `invalid_mcp_server` for a bad server name or URL; 422 `secret_not_found` for a proposed secret that is not in the target scope.
+
+## Asking for a step
+
+Some settings are not a value: a Claude or Codex sign-in, an MCP server's OAuth sign-in, pairing your manager's Chrome, and a room's GitHub issue link. Ask the member for one with an ask (see the asks page) whose JSON body has `step`. The card's button opens the Integrations tab with the setting marked. The ask closes itself when the step is done, and an Isomux notice tells you; until then the member can also reply or dismiss it.
+
+- `{kind:"provider-sign-in",provider,scope?}`: `provider` is `claude` or `codex`; `scope` is `personal` (the default: your manager's own sign-in) or `office` (an office owner).
+- `{kind:"mcp-sign-in",name,scope?}`: an MCP server that signs in with OAuth, your manager's (`personal`, the default) or the office's.
+- `{kind:"browser-pairing"}`: your manager's Chrome.
+- `{kind:"github-link"}`: your room's GitHub issue link (an office owner).
+
+Errors: 400 `invalid_request` for a step that is not one of these, a `link` with a step, or a personal sign-in or browser pairing for a member other than your manager; 403 `member_not_allowed` when the member may not do the step (an office step needs an office owner); 422 `unknown_mcp_server`; 409 `not_oauth` for a server that does not sign in with OAuth; 409 `step_done` when the step is done.
 
 ## Changing connections
 

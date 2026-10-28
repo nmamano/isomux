@@ -13,6 +13,10 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 import { isManagedEnvKey, ManagedEnvValidationError } from "../../user-env.ts";
 import { memberSubject } from "./member-subject.ts";
+import {
+  writeVariable,
+  type VariableWriteDeps,
+} from "../../connection-writes.ts";
 import type { SecretScope } from "../../secret-store.ts";
 import {
   pushOpenCodeSettings,
@@ -108,6 +112,13 @@ export function userEnvHandlers(
   );
   const saved = (scope: SecretScope) => () =>
     pushOpenCodeSettings(deps.pushOpenCodeSettings, scope);
+  const variableWrites: VariableWriteDeps = {
+    setUserVariable: (userId, name, value, note) =>
+      deps.setOne(userId, name, value, note),
+    setOfficeVariable: (name, value, note) =>
+      deps.setOfficeOne(name, value, note),
+    pushOpenCodeSettings: deps.pushOpenCodeSettings,
+  };
   const officeVariable = (
     ctx: Parameters<RouteHandler>[0],
   ): { name: string } | HandlerResult => {
@@ -169,9 +180,18 @@ export function userEnvHandlers(
       const body = setBody(ctx.body);
       if (!body)
         return fail(400, "invalid_request", "the body is { value, note? }");
+      // writeVariable pushes (connection-writes.ts), as a value request's
+      // save does.
       return writeOutcome(
-        () => deps.setOne(target.userId, target.name, body.value, body.note),
-        saved({ kind: "user", userId: target.userId }),
+        () =>
+          writeVariable(
+            variableWrites,
+            { kind: "user", userId: target.userId },
+            target.name,
+            body.value,
+            body.note,
+          ),
+        () => {},
       );
     },
     "userEnv.remove": (ctx) => {
@@ -220,8 +240,15 @@ export function userEnvHandlers(
       if (!body)
         return fail(400, "invalid_request", "the body is { value, note? }");
       return writeOutcome(
-        () => deps.setOfficeOne(target.name, body.value, body.note),
-        saved({ kind: "office" }),
+        () =>
+          writeVariable(
+            variableWrites,
+            { kind: "office" },
+            target.name,
+            body.value,
+            body.note,
+          ),
+        () => {},
       );
     },
     "officeEnv.remove": (ctx) => {

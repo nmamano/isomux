@@ -17,6 +17,7 @@
 // The store emits the per-recipient events on commit, so these handlers never
 // emit directly. LEAF over the executor, the store and shared types.
 
+import type { StepAsks, StepCheck } from "../../step-asks.ts";
 import {
   ok,
   created,
@@ -79,6 +80,8 @@ export interface AsksDeps {
   // Whether a member can reach a room.
   memberCanSeeRoom(userId: string, roomId: string): boolean;
   isOfficeOwner(userId: string): boolean;
+  // Step asks (task c71cb60f): the check of a create's `step`.
+  steps: Pick<StepAsks, "check">;
   // An ask's chat affordances: the chat's checks, paths against the agent's
   // cwd, and the copy of a read file. Null when the agent is gone.
   affordances: {
@@ -486,7 +489,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   };
 
   return {
-    "agents.createAsk": guarded((ctx) => {
+    "agents.createAsk": guarded(async (ctx) => {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       const checked = checkPromptField(body);
       if (!checked.ok) return fail(400, "invalid_text", checked.message);
@@ -533,6 +536,30 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         );
       if (body.link !== undefined && !linkReachable(body.link, memberUserId))
         return invalidLink();
+      // A step ask's link is the step's tab, set here.
+      let step: Extract<StepCheck, { ok: true }> | undefined;
+      if (body.step !== undefined) {
+        if (body.link !== undefined)
+          return fail(
+            400,
+            "invalid_request",
+            "a step ask takes no link: Isomux sets it",
+          );
+        const checkedStep = await deps.steps.check({
+          step: body.step,
+          roomId: agent.roomId,
+          managerUserId: agent.managerUserId,
+          memberUserId,
+          memberNamed: body.member !== undefined,
+        });
+        if (!checkedStep.ok)
+          return fail(
+            checkedStep.status,
+            checkedStep.code,
+            checkedStep.message,
+          );
+        step = checkedStep;
+      }
       if (store.listForAgent(ctx.params.id).length >= ASK_MAX_OPEN_PER_AGENT)
         return tooManyAsks();
       const resolved = resolveAffordances(ctx.params.id, lists.lists);
@@ -542,6 +569,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         memberUserId,
         prompt: checked.prompt,
         ...(body.link !== undefined ? { link: body.link as string } : {}),
+        ...(step ? { link: step.link, step: step.step } : {}),
         ...(options ? { options } : {}),
         ...(recommended !== undefined ? { recommended } : {}),
         // On a create every sent list is non-empty, so none is null.
@@ -582,6 +610,15 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (prev.secret)
         return secretRequest(
           "A secret request cannot be edited. Delete it to withdraw it.",
+        );
+      // A step and its link are fixed after create (task c71cb60f).
+      if (body.step !== undefined)
+        return fail(400, "invalid_request", "an ask's step cannot be edited");
+      if (prev.step && body.link !== undefined)
+        return fail(
+          400,
+          "invalid_request",
+          "a step ask's link cannot be edited",
         );
       if (
         body.link !== undefined &&

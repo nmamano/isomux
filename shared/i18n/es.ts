@@ -1926,7 +1926,24 @@ Cosas que puedes hacer por él:
     "Secreto de la oficina: lo guarda un propietario de la oficina.",
   "cards.secretRequest.hint":
     "El valor no entra en el chat. El agente recibe un sustituto.",
-  "cards.secretRequest.save": "Guardar secreto",
+  "cards.secretRequest.save": "Guardar",
+  "cards.secretRequest.variableTitle": "Solicitud de variable: {name}",
+  "cards.secretRequest.variablePersonal":
+    "Se guarda en las variables del responsable de este agente.",
+  "cards.secretRequest.variableOffice":
+    "Variable de la oficina: la guarda un propietario de la oficina.",
+  "cards.secretRequest.variableHint":
+    "El valor no entra en el chat. Los agentes reciben la variable en su próximo inicio.",
+  "cards.secretRequest.mcpServerTitle": "Solicitud de servidor MCP: {name}",
+  "cards.secretRequest.mcpServerPersonal":
+    "Se añade a los servidores MCP del responsable de este agente.",
+  "cards.secretRequest.mcpServerOffice":
+    "Servidor MCP de la oficina: lo añade un propietario de la oficina.",
+  "cards.secretRequest.mcpServerHint":
+    "Los agentes reciben el servidor en su próximo inicio.",
+  "cards.secretRequest.unsupportedTitle": "Solicitud: {name}",
+  "cards.secretRequest.unsupported":
+    "Esta versión de Isomux no puede guardar esta solicitud.",
   "cards.secretRequest.decline": "Rechazar",
   "cards.secretRequest.saved":
     "Guardado. El agente recibe un sustituto en su próximo inicio.",
@@ -2929,8 +2946,24 @@ Cosas que puedes hacer por él:
     "Secreto {name} guardado como secreto de la oficina.",
   "systemEntries.secretRequest.savedPersonal":
     "Secreto {name} guardado en los secretos de {member}.",
-  "systemEntries.secretRequest.declined":
-    "Solicitud del secreto {name} rechazada.",
+  "systemEntries.secretRequest.variableSaved": "Variable {name} guardada.",
+  "systemEntries.secretRequest.variableSavedOffice":
+    "Variable {name} guardada como variable de la oficina.",
+  "systemEntries.secretRequest.variableSavedPersonal":
+    "Variable {name} guardada en las variables de {member}.",
+  "systemEntries.secretRequest.mcpServerSaved": "Servidor MCP {name} añadido.",
+  "systemEntries.secretRequest.mcpServerSavedOffice":
+    "Servidor MCP {name} añadido como servidor MCP de la oficina.",
+  "systemEntries.secretRequest.mcpServerSavedPersonal":
+    "Servidor MCP {name} añadido a los servidores MCP de {member}.",
+  "systemEntries.stepAsk.providerSignedIn": "Sesión iniciada en {provider}.",
+  "systemEntries.stepAsk.providerSignedInOffice":
+    "Sesión iniciada en la cuenta de {provider} de la oficina.",
+  "systemEntries.stepAsk.mcpSignedIn":
+    "Sesión iniciada en el servidor MCP {name}.",
+  "systemEntries.stepAsk.browserPaired": "Chrome vinculado.",
+  "systemEntries.stepAsk.githubLinked": "Sala enlazada con GitHub.",
+  "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.limitResume.resumed":
     "El límite de uso se restableció. Isomux reanudó el agente.",
   "systemEntries.restartWake.resumed":

@@ -9,6 +9,7 @@ import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { asksFor, openAsks } from "../asks-sync.ts";
 import { AskCard } from "./AskCard.tsx";
+import { valueAskTitle } from "./SecretAskCard.tsx";
 
 // The stack's height before it scrolls: about two and a half cards on a
 // desktop, so a cut card shows there is more.
@@ -120,9 +121,7 @@ export function AsksStack({
             }}
           >
             {entries[0].secret
-              ? t("cards.secretRequest.title", {
-                  name: entries[0].secret.name,
-                })
+              ? valueAskTitle(t, entries[0].secret)
               : entries[0].prompt.replace(/\s+/g, " ")}
           </span>
         </button>

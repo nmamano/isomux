@@ -26,6 +26,7 @@ import {
   type Attachment,
   type FilePayload,
   type SecretAskRequest,
+  type StepAskRequest,
 } from "../shared/types.ts";
 
 // Sanity bounds only.
@@ -114,7 +115,21 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
         typeof r.app.name === "string" &&
         typeof r.app.createdAt === "number")) &&
     (r.ownerUserId === undefined || typeof r.ownerUserId === "string") &&
-    (r.answerUserId === undefined || typeof r.answerUserId === "string")
+    (r.answerUserId === undefined || typeof r.answerUserId === "string") &&
+    // The kind (task c71cb60f): absent for a secret. Only a secret names an
+    // app; only an MCP server request proposes a URL and a secret. Any other
+    // non-empty kind loads, as a link does: a kind from a later release
+    // cannot fail the file after a rollback (the request cannot be saved
+    // here, only declined).
+    (r.kind === undefined
+      ? r.url === undefined && r.secret === undefined
+      : r.kind === "variable"
+        ? r.app === undefined && r.url === undefined && r.secret === undefined
+        : r.kind === "mcp-server"
+          ? r.app === undefined &&
+            (r.url === undefined || typeof r.url === "string") &&
+            (r.secret === undefined || typeof r.secret === "string")
+          : typeof r.kind === "string" && r.kind !== "")
   );
 }
 
@@ -159,6 +174,13 @@ function isAskEntry(v: unknown): v is AskEntry {
   if (r.link !== undefined && (typeof r.link !== "string" || r.link === ""))
     return false;
   if (r.sessionId !== undefined && typeof r.sessionId !== "string")
+    return false;
+  // A step (task c71cb60f): any non-empty kind, as for a link, so a step a
+  // later release adds cannot fail the file; this release never closes it.
+  if (
+    r.step !== undefined &&
+    !(isObject(r.step) && typeof r.step.kind === "string" && r.step.kind !== "")
+  )
     return false;
   // The bounds are checked on write only, as for a link.
   if (
@@ -364,6 +386,7 @@ export interface AskStore {
     recommended?: string;
     affordances?: AskAffordances;
     sessionId?: string;
+    step?: StepAskRequest;
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
   // link, options, recommended and each affordance list: undefined keeps the
   // ask's value, null removes it. Removing the options removes the mark.
@@ -443,6 +466,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       recommended,
       affordances,
       sessionId,
+      step,
     }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
@@ -462,6 +486,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(recommended !== undefined ? { recommended } : {}),
         ...affordances,
         ...(sessionId ? { sessionId } : {}),
+        ...(step ? { step } : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);

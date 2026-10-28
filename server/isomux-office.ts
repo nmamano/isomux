@@ -431,6 +431,8 @@ import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
 import { createSecretRequests } from "./secret-requests.ts";
+import { createConnectionWrites } from "./connection-writes.ts";
+import { createStepAsks, type StepAsks } from "./step-asks.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import { createMcpOAuth, type McpOAuth } from "./mcp-oauth.ts";
 import { dropOAuthTokensOfScope } from "./mcp-oauth-tokens.ts";
@@ -792,6 +794,12 @@ setMcpPlaceholderProvider((scope, name) =>
 let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
 let askStore: AskStore | undefined;
+// Step asks (task c71cb60f): made with the routes. Every hook that may have
+// done a step calls stepsChanged.
+let stepAsks: StepAsks | undefined;
+function stepsChanged(): void {
+  void stepAsks?.reconcile();
+}
 // Members chat: the humans-only stream on the Lobby tab. The store is
 // month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts).
 let membersChat: MembersChatStore;
@@ -896,6 +904,7 @@ function createManagers(startOpts: StartServerOpts): void {
   providerAccountManager = new ProviderAccountManager(
     (userId, accounts) => {
       liveEmit("provider_accounts_updated", { accounts }, { userId });
+      stepsChanged();
     },
     startOpts.createCodexAccountClient,
     undefined,
@@ -922,12 +931,14 @@ function createManagers(startOpts: StartServerOpts): void {
           userId,
           accounts,
         );
-        if (snapshot && !options.signal.aborted)
+        if (snapshot && !options.signal.aborted) {
           liveEmit(
             "provider_accounts_updated",
             { accounts: snapshot },
             { userId },
           );
+          stepsChanged();
+        }
       }
       return accounts;
     },
@@ -938,6 +949,7 @@ function createManagers(startOpts: StartServerOpts): void {
     new BrowserExtensionStore(join(STATE_ROOT, "browser-connections.json")),
     {
       memberExists: (member) => !!getUserById(member),
+      paired: stepsChanged,
       mayUse: mayUseExtension,
       agents: () => agentManager.getAllAgents().map((agent) => agent.id),
       memberName: (member) => getUserById(member)?.name ?? "",
@@ -3786,6 +3798,7 @@ function buildExecutorDeps(
       links: () => githubLinks,
       roomExists: (roomId) => !!agentManager.roomById(roomId),
       userIdOf: (identity) => identity.userId,
+      linked: stepsChanged,
     }),
   );
   register(terminalRecordingHandlers());
@@ -3903,9 +3916,34 @@ function buildExecutorDeps(
     }),
   );
 
+  // Step asks (task c71cb60f): each predicate reads the state as it is now.
+  stepAsks = createStepAsks({
+    asks: askStore!,
+    isOfficeOwner: (userId) => askAudience.isOfficeOwner(userId),
+    providerConnected: async (userId, provider, scope) =>
+      (await providerAccountManager.list(userId)).some(
+        (account) =>
+          account.provider === provider &&
+          account.scope === scope &&
+          account.accountStatus === "connected",
+      ),
+    mcpServer: (scope, name) => {
+      const server = mcpSources.servers
+        .list(scope)
+        .find((row) => row.name === name);
+      return server
+        ? { oauth: server.oauth !== null, signedIn: !!server.oauth?.signedIn }
+        : null;
+    },
+    browserPaired: (userId) => !!extensionService?.store.paired(userId),
+    roomLinked: (roomId) => githubLinks.get(roomId) !== null,
+    settled: (agentId, askId, line, memberUserId) =>
+      agentManager.emitAgentStepAskDone(agentId, askId, line, memberUserId),
+  });
   register(
     askHandlers({
       store: askStore!,
+      steps: stepAsks,
       agent: (agentId) => {
         const agent = agentManager.getAgent(agentId);
         return agent
@@ -4813,6 +4851,40 @@ function buildExecutorDeps(
     resendSessionContexts();
     return { ok: true as const };
   };
+  // One variable. The variables routes and the value requests both write
+  // through these (connection-writes.ts).
+  const setUserVariable = (
+    userId: string,
+    name: string,
+    value: string,
+    note: unknown,
+  ) =>
+    replaceUserEnv(
+      userId,
+      { ...readManagedUserEnv(userId), [name]: value },
+      note === undefined
+        ? undefined
+        : { ...readManagedUserEnvNotes(userId), [name]: note },
+    );
+  // As setUserVariable: no await between the read and the write.
+  const setOfficeVariable = (name: string, value: string, note: unknown) =>
+    replaceOfficeEnv(
+      { ...readManagedOfficeEnv(), [name]: value },
+      note === undefined
+        ? undefined
+        : { ...readManagedOfficeEnvNotes(), [name]: note },
+    );
+  // One variable or one new MCP server, with its after-effects, for the
+  // value requests.
+  const connectionWrites = createConnectionWrites({
+    setUserVariable,
+    setOfficeVariable,
+    oauth: () => {
+      if (!mcpOAuth) throw new Error("the MCP OAuth flow is not ready");
+      return mcpOAuth;
+    },
+    pushOpenCodeSettings: (scope) => agentManager.pushOpenCodeSettings(scope),
+  });
   register(
     userEnvHandlers({
       get: (userId) => {
@@ -4838,16 +4910,7 @@ function buildExecutorDeps(
       replace: replaceUserEnv,
       // Read, change one name, and write through replace, with no await in
       // between, so it cannot interleave with a whole-map PUT.
-      setOne: (userId, name, value, note) => {
-        const values = { ...readManagedUserEnv(userId), [name]: value };
-        return replaceUserEnv(
-          userId,
-          values,
-          note === undefined
-            ? undefined
-            : { ...readManagedUserEnvNotes(userId), [name]: note },
-        );
-      },
+      setOne: setUserVariable,
       removeOne: (userId, name) => {
         const values = { ...readManagedUserEnv(userId) };
         if (!Object.hasOwn(values, name)) return false;
@@ -4863,13 +4926,7 @@ function buildExecutorDeps(
       }),
       replaceOffice: replaceOfficeEnv,
       // As setOne and removeOne: no await between the read and the write.
-      setOfficeOne: (name, value, note) =>
-        replaceOfficeEnv(
-          { ...readManagedOfficeEnv(), [name]: value },
-          note === undefined
-            ? undefined
-            : { ...readManagedOfficeEnvNotes(), [name]: note },
-        ),
+      setOfficeOne: setOfficeVariable,
       removeOfficeOne: (name) => {
         const values = { ...readManagedOfficeEnv() };
         if (!Object.hasOwn(values, name)) return false;
@@ -4950,6 +5007,16 @@ function buildExecutorDeps(
           return agent ? (agent.userId ?? null) : undefined;
         },
         memberName: (userId) => getUserById(userId)?.name ?? null,
+        writes: connectionWrites,
+        variableExists: (scope, name) =>
+          Object.hasOwn(
+            (scope.kind === "office"
+              ? readManagedOfficeEnv()
+              : readManagedUserEnv(scope.userId)) ?? {},
+            name,
+          ),
+        mcpServerExists: (scope, name) =>
+          mcpSources.servers.list(scope).some((server) => server.name === name),
         settled: (agentId, requestId, outcome, line, answeredBy) =>
           agentManager.emitAgentSecretRequestSettled(
             agentId,
@@ -4981,6 +5048,7 @@ function buildExecutorDeps(
           targets,
           fields: [],
         }),
+      signedIn: stepsChanged,
       isOfficeOwnerUserId: (userId) =>
         buildLiveGuardDeps().isOfficeOwnerUserId(userId),
       userIdForUsername: (username) =>
@@ -6541,6 +6609,7 @@ function buildExecutorDeps(
       refresh: async (userId) => {
         const accounts = await providerAccountManager.list(userId, true);
         liveEmit("provider_accounts_updated", { accounts }, { userId });
+        stepsChanged();
         return accounts;
       },
       start: (userId, provider, scope, method) =>
@@ -9342,6 +9411,9 @@ function runBackgroundBoot(
         `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
       );
     }
+    // A step done while the server was down closes its ask now, once the
+    // agents are back to hear it.
+    stepsChanged();
     try {
       backfillOfficeFreeModelMarks();
     } catch (err) {

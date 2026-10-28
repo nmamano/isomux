@@ -75,6 +75,8 @@ export class BrowserExtensionService {
       agentName?(agent: string): string;
       agents?(member: string): string[];
       officeOrigins?(): string[];
+      // A member paired a browser (step asks, task c71cb60f).
+      paired?(member: string): void;
     },
   ) {
     this.bridge = new BrowserExtensionBridge({
@@ -211,6 +213,7 @@ export class BrowserExtensionService {
             targets: [paired.browser],
             fields: [],
           });
+          this.access.paired?.(paired.member);
           credential = paired.credential;
           ws.send(
             JSON.stringify({

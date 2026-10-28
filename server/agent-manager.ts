@@ -3453,12 +3453,36 @@ export function createAgentManager(deps: ManagerDeps) {
     line: LogMessage,
     answeredBy: string,
   ): void {
+    emitAgentAskOutcome(
+      agentId,
+      line,
+      { secretRequestSettled: requestId, outcome },
+      answeredBy,
+    );
+  }
+
+  // A step ask closed itself (task c71cb60f): its step is done.
+  function emitAgentStepAskDone(
+    agentId: string,
+    askId: string,
+    line: LogMessage,
+    memberUserId: string,
+  ): void {
+    emitAgentAskOutcome(agentId, line, { stepAskDone: askId }, memberUserId);
+  }
+
+  // An ask's outcome the agent did not see happen: a system line in its
+  // chat (with `metadata`), and the same line to the agent as an office
+  // notice from `member`, whose turn and usage cap it is.
+  function emitAgentAskOutcome(
+    agentId: string,
+    line: LogMessage,
+    metadata: Record<string, unknown>,
+    member: string,
+  ): void {
     if (!agents.has(agentId)) return;
-    addLogEntry(agentId, "system", line, {
-      secretRequestSettled: requestId,
-      outcome,
-    });
-    const username = getUserById(answeredBy)?.name;
+    addLogEntry(agentId, "system", line, metadata);
+    const username = getUserById(member)?.name;
     void prepareEnqueue(agentId)
       .then(() => {
         const result = enqueueMessage(agentId, {
@@ -3468,10 +3492,10 @@ export function createAgentManager(deps: ManagerDeps) {
         });
         if (!result.ok)
           console.error(
-            `[secret-requests] the agent was not told: ${result.status} ${result.error}`,
+            `[asks] the agent was not told an outcome: ${result.status} ${result.error}`,
           );
       })
-      .catch(() => console.error("[secret-requests] the agent was not told"));
+      .catch(() => console.error("[asks] the agent was not told an outcome"));
   }
 
   // Copy a path that passed probeReadFile into the agent's files dir
@@ -13964,6 +13988,7 @@ export function createAgentManager(deps: ManagerDeps) {
     emitAgentEditRequest,
     emitAgentTerminalCommand,
     emitAgentSecretRequestSettled,
+    emitAgentStepAskDone,
     emitAgentReadFile,
     copyAskReadFile,
     emitAgentDiff,

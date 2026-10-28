@@ -16,6 +16,7 @@ const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
+type SecretValueRequest = import("../../shared/types.ts").SecretValueRequest;
 
 const { t } = translatorFor("en");
 const FAKE = "fake-requested-value-0000-ui";
@@ -48,15 +49,31 @@ afterAll(() => {
 });
 
 let posts: { path: string; body: unknown }[] = [];
+let gets: string[] = [];
 let answer: (path: string) => Promise<unknown> = async () => undefined;
+// The secrets a scope's list answers with (an MCP server request's
+// credential choice).
+const SCOPE_SECRETS = ["DOCS_TOKEN", "GH_TOKEN"].map((name) => ({
+  name,
+  hosts: ["mcp.example.com"],
+  form: { kind: "authorization" },
+  createdAt: 1,
+  valueSetAt: 1,
+  updatedAt: 1,
+  note: null,
+  apps: [],
+}));
 beforeEach(() => {
   posts = [];
+  gets = [];
   answer = async () => ({ name: "GH_TOKEN" });
   setApiShim(async (method, path, body) => {
     if (method === "POST") {
       posts.push({ path, body });
       return answer(path);
     }
+    gets.push(path);
+    if (path.endsWith("/secrets")) return { secrets: SCOPE_SECRETS };
     return undefined;
   });
 });
@@ -67,13 +84,24 @@ afterAll(() => setApiShim(null));
 const APP_ASK: AskEntry = {
   ...SECRET_ASK,
   secret: {
-    ...SECRET_ASK.secret!,
+    ...(SECRET_ASK.secret as SecretValueRequest),
     name: "YOUTUBE_CLIENT_SECRET",
     hosts: [],
     app: { name: "game-video", createdAt: 1000 },
     ownerUserId: "u2",
   },
 };
+
+// The members the cards name: u1 is the manager, u2 an office owner.
+const USERS = [
+  { id: "u1", name: "alice", role: "member" },
+  { id: "u2", name: "nil", role: "owner" },
+].map((u) => ({
+  ...u,
+  avatarColor: "#336699",
+  avatarVariant: 0,
+  createdAt: 1,
+})) as unknown as import("../../shared/types.ts").UserPublicWire[];
 
 function Seed({
   entry,
@@ -84,6 +112,7 @@ function Seed({
 }) {
   const dispatch = useDispatch();
   useEffect(() => {
+    dispatch({ type: "users_list", users: USERS });
     dispatch({ type: "asks_loaded", entries: [entry], revision: 0 });
   }, [dispatch, entry]);
   return <>{children}</>;
@@ -286,4 +315,163 @@ it("a URL in the reason is a link that opens in a new tab; a javascript: link is
   expect(card(bad)?.querySelectorAll("a").length).toBe(0);
   expect(card(bad)?.textContent).toContain("javascript:alert(1)");
   bad.unmount();
+});
+
+// Value requests for the other Integrations settings (task c71cb60f): a
+// variable and an MCP server, on the same card, routes and rules.
+const VARIABLE_ASK = (name: string): AskEntry => ({
+  ...SECRET_ASK,
+  secret: {
+    requestId: "req-1",
+    kind: "variable",
+    scope: "personal",
+    name,
+    hosts: [],
+    form: { kind: "authorization" },
+    reason: "OpenCode needs it.",
+    ownerUserId: "u1",
+  },
+});
+const MCP_URL = "https://mcp.example.com/mcp";
+const MCP_ASK = (scope: "personal" | "office"): AskEntry => ({
+  ...SECRET_ASK,
+  ...(scope === "office" ? { memberUserId: undefined } : {}),
+  secret: {
+    requestId: "req-1",
+    kind: "mcp-server",
+    scope,
+    name: "docs",
+    url: MCP_URL,
+    hosts: [],
+    form: { kind: "authorization" },
+    reason: "To read the docs server.",
+    ...(scope === "personal" ? { ownerUserId: "u1" } : {}),
+  },
+});
+const inputs = (view: ReturnType<typeof render>) => [
+  ...card(view)!.querySelectorAll<HTMLInputElement>("input"),
+];
+
+it("a variable request for a model key: one masked value field, no hosts, and the save sends the value alone", async () => {
+  const view = await mount(false, VARIABLE_ASK("OPENAI_API_KEY"));
+  expect(card(view)?.textContent).toContain("OPENAI_API_KEY");
+  expect(view.queryByLabelText(t("settings.secrets.hosts"))).toBeNull();
+  expect(inputs(view)).toHaveLength(1);
+  expectMasked(valueInput(view));
+  fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(posts).toEqual([
+    {
+      path: "/api/agents/a%201/secret-requests/req-1/save",
+      body: { value: FAKE },
+    },
+  ]);
+  expect(card(view)).toBeNull();
+  expect(view.container.innerHTML).not.toContain(FAKE);
+  view.unmount();
+});
+
+it("a variable request for a plain setting: a plain value field", async () => {
+  const view = await mount(false, VARIABLE_ASK("TZ"));
+  expect(card(view)?.querySelector("[data-masked-credential]")).toBeNull();
+  const [field] = inputs(view);
+  expect(inputs(view)).toHaveLength(1);
+  expect(field.type).toBe("text");
+  expect(saveButton(view).disabled).toBe(true);
+  fireEvent.change(field, { target: { value: "Europe/Madrid" } });
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(posts.map((p) => p.body)).toEqual([{ value: "Europe/Madrid" }]);
+  view.unmount();
+});
+
+it("an MCP server request: the URL starts at the proposal, the credential choice is None or a secret of the target scope, and the save sends both", async () => {
+  const view = await mount(false, MCP_ASK("personal"));
+  expect(card(view)?.textContent).toContain("docs");
+  // The owner's secrets, by their username.
+  await waitFor(() => expect(gets).toContain("/api/users/alice/secrets"));
+  const url = inputs(view).find((i) => i.value === MCP_URL);
+  expect(url).toBeDefined();
+  const select = card(view)!.querySelector("select")!;
+  await waitFor(() =>
+    expect(
+      [...select.options].map((o) => o.value).filter((v) => v !== ""),
+    ).toEqual(["DOCS_TOKEN", "GH_TOKEN"]),
+  );
+  // Nothing picked yet: None.
+  expect(select.value).toBe("");
+  fireEvent.change(url!, { target: { value: `${MCP_URL}/v2` } });
+  fireEvent.change(select, { target: { value: "DOCS_TOKEN" } });
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(posts).toEqual([
+    {
+      path: "/api/agents/a%201/secret-requests/req-1/save",
+      body: { url: `${MCP_URL}/v2`, secret: "DOCS_TOKEN" },
+    },
+  ]);
+  expect(card(view)).toBeNull();
+  view.unmount();
+});
+
+it("an office MCP server request lists the office secrets, and None saves no secret", async () => {
+  const view = await mount(false, MCP_ASK("office"));
+  await waitFor(() => expect(gets).toContain("/api/office/secrets"));
+  expect(gets.some((g) => g.startsWith("/api/users/"))).toBe(false);
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(posts.map((p) => p.body)).toEqual([{ url: MCP_URL, secret: null }]);
+  view.unmount();
+});
+
+it("an MCP server refusal keeps the card and says why, not a bare failure", async () => {
+  answer = async () => {
+    throw new ApiError(422, "secret_host_mismatch", "host mismatch");
+  };
+  const view = await mount(false, MCP_ASK("personal"));
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  const alert = view.getByRole("alert").textContent ?? "";
+  expect(alert.length).toBeGreaterThan(0);
+  expect(alert).not.toBe(t("settings.secrets.saveFailed"));
+  expect(alert).not.toBe(t("settings.mcpServers.saveFailed"));
+  expect(card(view)).not.toBeNull();
+  view.unmount();
+});
+
+// A kind from a later release (after a rollback): nothing to fill in here,
+// so the card offers the decline alone.
+it("a request of a kind this release does not know: no form and no save, the name, and a decline", async () => {
+  const later = VARIABLE_ASK("FUTURE_SETTING");
+  const entry = {
+    ...later,
+    secret: { ...later.secret, kind: "later-kind" },
+  } as unknown as AskEntry;
+  const view = await mount(false, entry);
+  expect(card(view)?.textContent).toContain("FUTURE_SETTING");
+  expect(card(view)!.querySelectorAll("input, textarea, select").length).toBe(
+    0,
+  );
+  expect(
+    view.queryByRole("button", { name: t("cards.secretRequest.save") }),
+  ).toBeNull();
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: t("cards.secretRequest.decline") }),
+    );
+  });
+  expect(posts).toEqual([
+    {
+      path: "/api/agents/a%201/secret-requests/req-1/decline",
+      body: undefined,
+    },
+  ]);
+  expect(card(view)).toBeNull();
+  view.unmount();
 });

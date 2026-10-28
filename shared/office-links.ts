@@ -11,6 +11,8 @@
 // same way: it opens that chat and the address bar shows "/" (agentIdForPath,
 // task 680747d8).
 
+import type { StepAskRequest } from "./types.ts";
+
 export const OFFICE_PAGES = [
   "tasks",
   "cronjobs",
@@ -51,6 +53,8 @@ export function pathForPage(page: Page | null): string {
 export interface PageLink {
   page: Page;
   tab?: IntegrationsTab;
+  // A step ask's step, which the Integrations tab marks (task c71cb60f).
+  focus?: StepAskRequest;
 }
 
 export interface AgentLink {

@@ -5,6 +5,7 @@
 // reads as the list of links. The token is picked from the office secrets
 // the sync will send to GitHub (task edcc3e34).
 
+import { StepMark } from "./step-focus.tsx";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
@@ -56,7 +57,15 @@ function statusKey(status: GithubLinkStatus): PlainMessageKey {
 }
 
 // onSecrets switches the page to the Secrets tab.
-export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
+export function GithubSection({
+  onSecrets,
+  focusRoomId,
+}: {
+  onSecrets: () => void;
+  // The room a step ask names (task c71cb60f): the tab opens on it, with
+  // its form marked.
+  focusRoomId?: string;
+}) {
   const { t } = useI18n();
   const { rooms, allRooms } = useAppState();
   const choices = (allRooms.length > 0 ? allRooms : rooms).filter(
@@ -115,16 +124,21 @@ export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
       const next: Record<string, GithubLinkWire> = {};
       for (const link of found) if (link) next[link.roomId] = link;
       setLinks(next);
-      // Open on the first linked room, else the first room.
+      // Open on the room a step names, else the first linked room, else
+      // the first room.
       setPicked(
         (prev) =>
-          prev ?? roomIds.find((roomId) => next[roomId]) ?? roomIds[0] ?? null,
+          prev ??
+          (focusRoomId && roomIds.includes(focusRoomId) ? focusRoomId : null) ??
+          roomIds.find((roomId) => next[roomId]) ??
+          roomIds[0] ??
+          null,
       );
     });
     return () => {
       cancelled = true;
     };
-  }, [ids]);
+  }, [ids, focusRoomId]);
 
   if (choices.length === 0)
     return (
@@ -155,21 +169,23 @@ export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
           </option>
         ))}
       </select>
-      <RoomGithubLink
-        key={roomId}
-        roomId={roomId}
-        saved={links[roomId] ?? null}
-        usable={usable}
-        onSecrets={onSecrets}
-        onSaved={(link) =>
-          setLinks((prev) => {
-            const next = { ...prev };
-            if (link) next[roomId] = link;
-            else delete next[roomId];
-            return next;
-          })
-        }
-      />
+      <StepMark active={roomId === focusRoomId} kind="github-link">
+        <RoomGithubLink
+          key={roomId}
+          roomId={roomId}
+          saved={links[roomId] ?? null}
+          usable={usable}
+          onSecrets={onSecrets}
+          onSaved={(link) =>
+            setLinks((prev) => {
+              const next = { ...prev };
+              if (link) next[roomId] = link;
+              else delete next[roomId];
+              return next;
+            })
+          }
+        />
+      </StepMark>
     </section>
   );
 }

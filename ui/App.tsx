@@ -606,7 +606,11 @@ export function App({ routing = true }: { routing?: boolean }) {
         return;
       }
       pageState[link.page].clear();
-      if (link.tab) setIntegrationsRequest({ tab: link.tab });
+      if (link.tab)
+        setIntegrationsRequest({
+          tab: link.tab,
+          ...(link.focus ? { focus: link.focus } : {}),
+        });
       if (link.page === "pager" || link.page === "asks")
         openInboxTab(link.page);
       else pageState[link.page].setOpen(true);

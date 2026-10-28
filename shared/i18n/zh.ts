@@ -1717,7 +1717,20 @@ App 的一些原则：
   "cards.secretRequest.personal": "保存到此智能体负责人的密钥中。",
   "cards.secretRequest.office": "办公室密钥：由办公室所有者保存。",
   "cards.secretRequest.hint": "值不会进入聊天。智能体拿到的是占位值。",
-  "cards.secretRequest.save": "保存密钥",
+  "cards.secretRequest.save": "保存",
+  "cards.secretRequest.variableTitle": "变量请求：{name}",
+  "cards.secretRequest.variablePersonal": "保存到此智能体负责人的变量中。",
+  "cards.secretRequest.variableOffice": "办公室变量：由办公室所有者保存。",
+  "cards.secretRequest.variableHint":
+    "值不会进入聊天。智能体在下次启动时获得该变量。",
+  "cards.secretRequest.mcpServerTitle": "MCP 服务器请求：{name}",
+  "cards.secretRequest.mcpServerPersonal":
+    "添加到此智能体负责人的 MCP 服务器中。",
+  "cards.secretRequest.mcpServerOffice":
+    "办公室 MCP 服务器：由办公室所有者添加。",
+  "cards.secretRequest.mcpServerHint": "智能体在下次启动时获得该服务器。",
+  "cards.secretRequest.unsupportedTitle": "请求：{name}",
+  "cards.secretRequest.unsupported": "此版本的 Isomux 无法保存此请求。",
   "cards.secretRequest.decline": "拒绝",
   "cards.secretRequest.saved": "已保存。智能体下次启动时会拿到占位值。",
   "cards.secretRequest.declined": "已拒绝。",
@@ -2636,7 +2649,23 @@ App 的一些原则：
   "systemEntries.secretRequest.savedOffice": "密钥 {name} 已保存为办公室密钥。",
   "systemEntries.secretRequest.savedPersonal":
     "密钥 {name} 已保存到 {member} 的密钥中。",
-  "systemEntries.secretRequest.declined": "密钥 {name} 的请求已被拒绝。",
+  "systemEntries.secretRequest.variableSaved": "变量 {name} 已保存。",
+  "systemEntries.secretRequest.variableSavedOffice":
+    "变量 {name} 已保存为办公室变量。",
+  "systemEntries.secretRequest.variableSavedPersonal":
+    "变量 {name} 已保存到 {member} 的变量中。",
+  "systemEntries.secretRequest.mcpServerSaved": "MCP 服务器 {name} 已添加。",
+  "systemEntries.secretRequest.mcpServerSavedOffice":
+    "MCP 服务器 {name} 已添加为办公室 MCP 服务器。",
+  "systemEntries.secretRequest.mcpServerSavedPersonal":
+    "MCP 服务器 {name} 已添加到 {member} 的 MCP 服务器中。",
+  "systemEntries.stepAsk.providerSignedIn": "已登录 {provider}。",
+  "systemEntries.stepAsk.providerSignedInOffice":
+    "已登录办公室的 {provider} 账号。",
+  "systemEntries.stepAsk.mcpSignedIn": "已登录 MCP 服务器 {name}。",
+  "systemEntries.stepAsk.browserPaired": "Chrome 已配对。",
+  "systemEntries.stepAsk.githubLinked": "房间已关联到 GitHub。",
+  "systemEntries.secretRequest.declined": "{name} 的请求已被拒绝。",
   "systemEntries.limitResume.resumed":
     "用量限制已重置。Isomux 已让智能体继续。",
   "systemEntries.restartWake.resumed":

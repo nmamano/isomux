@@ -21,7 +21,7 @@ const member: Identity = {
   capabilities: USER_CAPABILITIES,
 };
 
-function rig() {
+function rig(over: Partial<AsksDeps> = {}) {
   const store = createAskStore({
     persistence: {
       load: () => ({ kind: "missing" }),
@@ -46,6 +46,12 @@ function rig() {
     memberName: () => "pat",
     memberCanSeeRoom: () => true,
     isOfficeOwner: () => false,
+    // Step asks (task c71cb60f): unused here.
+    steps: {
+      check: () => {
+        throw new Error("unused");
+      },
+    },
     affordances: {
       checkCommand: () => ({ ok: true }) as never,
       probeEditFile: () => null,
@@ -79,6 +85,7 @@ function rig() {
       return board.delete(id);
     },
     attributionFor: () => ({ createdBy: "pat", username: "pat" }),
+    ...over,
   };
   const handlers = askHandlers(deps);
   const made = store.create({
@@ -266,5 +273,131 @@ describe("an ask filed as a task", () => {
     ]);
     held[1].resolve({ ok: true });
     expect(await file).toBe("json 201");
+  });
+});
+
+// Step asks (task c71cb60f): the create hands the step to the step check
+// and stores the step and the link it gives; the agent sends no link with
+// a step, and neither changes after the create. The check itself is
+// server/step-asks.test.ts.
+describe("a step ask", () => {
+  const STEP = { kind: "browser-pairing" };
+  const CHECKED = {
+    ok: true as const,
+    step: { kind: "browser-pairing" as const },
+    link: "/integrations/browser",
+  };
+  function stepRig(answer: Awaited<ReturnType<AsksDeps["steps"]["check"]>>) {
+    const inputs: unknown[] = [];
+    const t = rig({
+      memberByName: (name) =>
+        name === "nil" ? { id: "u-owner", name: "nil" } : null,
+      steps: {
+        check: async (input) => {
+          inputs.push(input);
+          return answer;
+        },
+      },
+    });
+    const create = (body: Record<string, unknown>) =>
+      t.handlers["agents.createAsk"]({
+        ...t.ctx(),
+        params: { id: "a1" },
+        body,
+      });
+    return { ...t, inputs, create };
+  }
+
+  it("stores the step and the link the check gives, and passes the check who the ask is for", async () => {
+    const t = stepRig(CHECKED);
+    const made = await t.create({ text: "Pair your Chrome?", step: STEP });
+    expect([made.kind, made.kind === "json" ? made.status : null]).toEqual([
+      "json",
+      201,
+    ]);
+    const stored = t.store
+      .listAll()
+      .find((e) => e.prompt === "Pair your Chrome?")!;
+    expect([stored.step, stored.link, stored.memberUserId]).toEqual([
+      { kind: "browser-pairing" },
+      "/integrations/browser",
+      "u1",
+    ]);
+    await t.create({ text: "Sign in?", step: STEP, member: "nil" });
+    expect(t.inputs).toEqual([
+      {
+        step: STEP,
+        roomId: "r1",
+        managerUserId: "u1",
+        memberUserId: "u1",
+        memberNamed: false,
+      },
+      {
+        step: STEP,
+        roomId: "r1",
+        managerUserId: "u1",
+        memberUserId: "u-owner",
+        memberNamed: true,
+      },
+    ]);
+  });
+
+  it("answers the check's refusal, and refuses a link with a step before checking it", async () => {
+    const t = stepRig({
+      ok: false,
+      status: 409,
+      code: "step_done",
+      message: "done",
+    });
+    const before = t.store.listAll().length;
+    expect(await t.outcome(t.create({ text: "Pair?", step: STEP }))).toBe(
+      "409 step_done",
+    );
+    expect(
+      await t.outcome(
+        t.create({ text: "Pair?", step: STEP, link: "/integrations/browser" }),
+      ),
+    ).toBe("400 invalid_request");
+    expect(t.inputs).toHaveLength(1);
+    expect(t.store.listAll()).toHaveLength(before);
+  });
+
+  it("keeps the step and its link through an edit; the rest of the ask still edits", async () => {
+    const t = stepRig(CHECKED);
+    await t.create({ text: "Pair your Chrome?", step: STEP });
+    const stored = t.store
+      .listAll()
+      .find((e) => e.prompt === "Pair your Chrome?")!;
+    const edit = (body: Record<string, unknown>) =>
+      t.outcome(
+        t.handlers["agents.editAsk"]({
+          ...t.ctx(),
+          params: { id: "a1", askId: stored.id },
+          body,
+        }),
+      );
+    expect(await edit({ text: "Pair?", step: { kind: "github-link" } })).toBe(
+      "400 invalid_request",
+    );
+    expect(await edit({ text: "Pair?", link: "/integrations/mcp" })).toBe(
+      "400 invalid_request",
+    );
+    expect(await edit({ text: "Pair?", link: "" })).toBe("400 invalid_request");
+    // A plain ask cannot gain a step either.
+    expect(
+      await t.outcome(
+        t.handlers["agents.editAsk"]({
+          ...t.ctx(),
+          params: { id: "a1", askId: t.entry.id },
+          body: { text: "Toast?", step: STEP },
+        }),
+      ),
+    ).toBe("400 invalid_request");
+    expect(await edit({ text: "Pair your Chrome now?" })).toBe("json 200");
+    expect(t.store.get(stored.id)).toMatchObject({
+      prompt: "Pair your Chrome now?",
+      step: { kind: "browser-pairing" },
+      link: "/integrations/browser",
+    });
   });
 });

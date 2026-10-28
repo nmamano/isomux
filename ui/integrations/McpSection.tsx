@@ -75,6 +75,7 @@ import {
 } from "./target.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
+import { StepMark, useStepFocus } from "./step-focus.tsx";
 
 // A row as the list shows it. A member reading the office's servers gets the
 // name, the host and the note only.
@@ -259,7 +260,7 @@ function tokenSecretName(server: string): string {
 
 // An MCP server route's refusal, a fixed sentence per code. `host` is the
 // server's host, for the secret that does not list it.
-function useMcpErrorText(host: string) {
+export function useMcpErrorText(host: string) {
   const { t } = useI18n();
   const secretError = useSecretErrorText();
   return (caught: unknown): string => {
@@ -559,103 +560,110 @@ function McpItem({
           })
         : null
     : null;
+  // The server a step ask names (task c71cb60f), on this card.
+  const focus = useStepFocus();
   return (
-    <ItemRow
-      data-mcp-server-name={row.name}
-      logo={<Logo label={row.name} />}
-      title={<span style={mono}>{row.name}</span>}
-      detail={
-        row.host || credential ? (
-          <>
-            {row.host && <Data>{row.host}</Data>}
-            {row.host && credential && " · "}
-            {credential}
-          </>
-        ) : undefined
-      }
-      status={status && <Pill tone={status.tone}>{t(status.key)}</Pill>}
-      actions={
-        editable && mode.kind === "idle" ? (
-          <>
-            {needsSignIn ? (
+    <StepMark
+      active={focus?.kind === "mcp-sign-in" && focus.name === row.name}
+      kind="mcp-sign-in"
+    >
+      <ItemRow
+        data-mcp-server-name={row.name}
+        logo={<Logo label={row.name} />}
+        title={<span style={mono}>{row.name}</span>}
+        detail={
+          row.host || credential ? (
+            <>
+              {row.host && <Data>{row.host}</Data>}
+              {row.host && credential && " · "}
+              {credential}
+            </>
+          ) : undefined
+        }
+        status={status && <Pill tone={status.tone}>{t(status.key)}</Pill>}
+        actions={
+          editable && mode.kind === "idle" ? (
+            <>
+              {needsSignIn ? (
+                <Btn
+                  small
+                  kind="primary"
+                  disabled={busy}
+                  onClick={onSignIn}
+                  data-mcp-sign-in
+                >
+                  {t("settings.mcpServers.signIn")}
+                </Btn>
+              ) : (
+                !problem && <TestButton test={test} run={() => void run()} />
+              )}
               <Btn
                 small
-                kind="primary"
-                disabled={busy}
-                onClick={onSignIn}
-                data-mcp-sign-in
+                onClick={() => setMode({ kind: "edit", name: row.name })}
+                data-mcp-edit
               >
-                {t("settings.mcpServers.signIn")}
+                {t("common.edit")}
               </Btn>
-            ) : (
-              !problem && <TestButton test={test} run={() => void run()} />
-            )}
-            <Btn
-              small
-              onClick={() => setMode({ kind: "edit", name: row.name })}
-              data-mcp-edit
-            >
-              {t("common.edit")}
-            </Btn>
-            <Btn
-              small
-              kind="danger"
-              onClick={() => setMode({ kind: "remove", name: row.name })}
-              data-mcp-remove
-            >
-              {t("integrations.remove")}
-            </Btn>
-          </>
-        ) : null
-      }
-    >
-      <NoteLine note={row.note} />
-      {signedIn && (
-        <SignInNotice
-          code={signedIn}
-          server={row.name}
-          scroll
-          style={{ fontSize: 12, margin: "6px 0 0" }}
-        />
-      )}
-      {problem && (
-        <div data-mcp-problem={problem} style={errorText}>
-          {problemText({ t, rich }, problem, row.host)}
-        </div>
-      )}
-      {overridden && (
-        <div data-mcp-overridden style={{ ...hintText, marginTop: 4 }}>
-          {t("settings.connections.list.mcpOverridden")}
-        </div>
-      )}
-      <TestResult test={test} />
-      {here && mode.kind === "edit" && server && (
-        <McpEditor
-          target={target}
-          path={path.slice(0, path.lastIndexOf("/"))}
-          secretsPath={secretsPath}
-          secrets={secrets}
-          editing={server}
-          onCancel={() => setMode({ kind: "idle" })}
-          onSaved={onChanged}
-          onSignIn={onSignIn}
-        />
-      )}
-      {here && mode.kind === "remove" && (
-        <Confirm
-          data-mcp-remove-panel=""
-          heading={whoseHeading("integrations.dialog.remove", target, {
-            name: row.name,
-          })}
-          action={t("integrations.remove")}
-          danger
-          request={() => apiFetch("DELETE", path)}
-          errorFor={errorFor}
-          onCancel={() => setMode({ kind: "idle" })}
-          onDone={onChanged}
-        />
-      )}
-    </ItemRow>
+              <Btn
+                small
+                kind="danger"
+                onClick={() => setMode({ kind: "remove", name: row.name })}
+                data-mcp-remove
+              >
+                {t("integrations.remove")}
+              </Btn>
+            </>
+          ) : null
+        }
+      >
+        <NoteLine note={row.note} />
+        {signedIn && (
+          <SignInNotice
+            code={signedIn}
+            server={row.name}
+            scroll
+            style={{ fontSize: 12, margin: "6px 0 0" }}
+          />
+        )}
+        {problem && (
+          <div data-mcp-problem={problem} style={errorText}>
+            {problemText({ t, rich }, problem, row.host)}
+          </div>
+        )}
+        {overridden && (
+          <div data-mcp-overridden style={{ ...hintText, marginTop: 4 }}>
+            {t("settings.connections.list.mcpOverridden")}
+          </div>
+        )}
+        <TestResult test={test} />
+        {here && mode.kind === "edit" && server && (
+          <McpEditor
+            target={target}
+            path={path.slice(0, path.lastIndexOf("/"))}
+            secretsPath={secretsPath}
+            secrets={secrets}
+            editing={server}
+            onCancel={() => setMode({ kind: "idle" })}
+            onSaved={onChanged}
+            onSignIn={onSignIn}
+          />
+        )}
+        {here && mode.kind === "remove" && (
+          <Confirm
+            data-mcp-remove-panel=""
+            heading={whoseHeading("integrations.dialog.remove", target, {
+              name: row.name,
+            })}
+            action={t("integrations.remove")}
+            danger
+            request={() => apiFetch("DELETE", path)}
+            errorFor={errorFor}
+            onCancel={() => setMode({ kind: "idle" })}
+            onDone={onChanged}
+          />
+        )}
+      </ItemRow>
+    </StepMark>
   );
 }
 

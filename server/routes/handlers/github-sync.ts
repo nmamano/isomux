@@ -10,6 +10,8 @@ export interface GithubSyncRouteDeps {
   roomExists(roomId: string): boolean;
   // The caller's user id: the link records who saved it.
   userIdOf(identity: Identity): string | null;
+  // A room's link was saved (step asks, task c71cb60f).
+  linked?(roomId: string): void;
 }
 
 export function githubSyncHandlers(
@@ -27,6 +29,7 @@ export function githubSyncHandlers(
       if (!userId) return fail(403, "forbidden");
       const result = deps.links().set(ctx.params.roomId, ctx.body, userId);
       if (!result.ok) return fail(result.status, result.code, result.message);
+      deps.linked?.(ctx.params.roomId);
       return ok({ link: toLinkWire(result.link) });
     },
     "githubSync.delete": (ctx) => {
