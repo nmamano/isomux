@@ -2,6 +2,8 @@ import { createContext, useContext } from "react";
 
 import type { SecretRequestPayload } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
+import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 // The outcome of each settled secret request in the transcript, keyed by
 // request id. ChatTranscript reads it from the system entries that close a
@@ -47,7 +49,9 @@ export function SecretRequestCard({
       <div style={{ fontWeight: 650, marginBottom: 4 }}>
         {t("cards.secretRequest.title", { name: payload.name })}
       </div>
-      <p style={{ ...hintStyle, whiteSpace: "pre-wrap" }}>{payload.reason}</p>
+      <p style={hintStyle} {...noTranslate()}>
+        <InlineMarkdown content={payload.reason} code />
+      </p>
       <p style={hintStyle}>
         {payload.scope === "office"
           ? t("cards.secretRequest.office")

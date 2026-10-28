@@ -27,11 +27,14 @@ const STATE = {
   agents: [{ id: "a1", userId: "u-alice" }],
 } as unknown as typeof initialState;
 
-function card(outcomes: Map<string, "saved" | "declined"> = new Map()) {
+function card(
+  outcomes: Map<string, "saved" | "declined"> = new Map(),
+  payload = PAYLOAD,
+) {
   return render(
     <StateCtx.Provider value={STATE}>
       <SecretRequestOutcomes.Provider value={outcomes}>
-        <SecretRequestCard payload={PAYLOAD} />
+        <SecretRequestCard payload={payload} />
       </SecretRequestOutcomes.Provider>
     </StateCtx.Provider>,
   );
@@ -62,4 +65,27 @@ it("shows the request and its outcome from the transcript, else closed, with no 
     expect(hasForm(view)).toBe(false);
     view.unmount();
   }
+});
+
+// The reason is agent text: a web URL in it opens in a new tab, as in an ask,
+// and an unsafe link stays text.
+it("a URL in the reason is a link that opens in a new tab; a javascript: link is not", () => {
+  const url = "https://github.com/settings/tokens";
+  const linked = `Make one at ${url} with repo scope.`;
+  const view = card(new Map(), { ...PAYLOAD, reason: linked });
+  expect(view.container.textContent).toContain(linked);
+  expect(
+    [...view.container.querySelectorAll("a")].map((a) => ({
+      href: a.getAttribute("href"),
+      target: a.target,
+      noopener: a.rel.split(" ").includes("noopener"),
+    })),
+  ).toEqual([{ href: url, target: "_blank", noopener: true }]);
+  view.unmount();
+
+  const unsafe = "Run [this](javascript:alert(1)) first.";
+  const bad = card(new Map(), { ...PAYLOAD, reason: unsafe });
+  expect(bad.container.querySelectorAll("a").length).toBe(0);
+  expect(bad.container.textContent).toContain("javascript:alert(1)");
+  bad.unmount();
 });

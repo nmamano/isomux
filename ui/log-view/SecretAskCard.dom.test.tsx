@@ -244,3 +244,46 @@ it("an app gone since the request keeps the card and says why, not a bare failur
   expect(card(view)).not.toBeNull();
   view.unmount();
 });
+
+// The reason is the agent's prompt: a web URL in it opens in a new tab, as in
+// any ask, and an unsafe link stays text. The reason keeps its own words
+// under page translation; the card's own copy does not.
+const translated = (element: Element) =>
+  element.closest("[translate]")?.getAttribute("translate") !== "no";
+
+it("a URL in the reason is a link that opens in a new tab; a javascript: link is not", async () => {
+  const url = "https://github.com/settings/tokens";
+  const linked = `Make one at ${url} with repo scope.`;
+  const view = await mount(false, {
+    ...SECRET_ASK,
+    prompt: linked,
+    secret: { ...SECRET_ASK.secret!, reason: linked },
+  });
+  expect(card(view)?.textContent).toContain(linked);
+  const links = [...card(view)!.querySelectorAll("a")];
+  expect(
+    links.map((a) => ({
+      href: a.getAttribute("href"),
+      target: a.target,
+      noopener: a.rel.split(" ").includes("noopener"),
+      translated: translated(a),
+    })),
+  ).toEqual([
+    { href: url, target: "_blank", noopener: true, translated: false },
+  ]);
+  const scopeHint = [...card(view)!.querySelectorAll("p")].find((p) =>
+    p.textContent?.includes(t("cards.secretRequest.personal")),
+  );
+  expect(scopeHint && translated(scopeHint)).toBe(true);
+  view.unmount();
+
+  const unsafe = "Run [this](javascript:alert(1)) first.";
+  const bad = await mount(false, {
+    ...SECRET_ASK,
+    prompt: unsafe,
+    secret: { ...SECRET_ASK.secret!, reason: unsafe },
+  });
+  expect(card(bad)?.querySelectorAll("a").length).toBe(0);
+  expect(card(bad)?.textContent).toContain("javascript:alert(1)");
+  bad.unmount();
+});

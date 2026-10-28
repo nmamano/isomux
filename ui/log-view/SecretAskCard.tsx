@@ -21,6 +21,8 @@ import {
 } from "../components/dialog-styles.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
+import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 const hintStyle = {
   fontSize: 12,
@@ -149,7 +151,9 @@ export function SecretAskCard({
           {age}
         </span>
       </div>
-      <p style={{ ...hintStyle, whiteSpace: "pre-wrap" }}>{secret.reason}</p>
+      <p style={hintStyle} {...noTranslate()}>
+        <InlineMarkdown content={secret.reason} code />
+      </p>
       <div style={{ margin: "-4px 0 8px" }}>
         <AskAboutButton
           entry={entry}
