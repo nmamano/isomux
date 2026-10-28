@@ -62,18 +62,37 @@ beforeEach(() => {
 });
 afterAll(() => setApiShim(null));
 
-function Seed({ children }: { children: React.ReactNode }) {
+// A request for an app's secret (task 315a62c0): the value goes to the app's
+// environment, so it has no hosts.
+const APP_ASK: AskEntry = {
+  ...SECRET_ASK,
+  secret: {
+    ...SECRET_ASK.secret!,
+    name: "YOUTUBE_CLIENT_SECRET",
+    hosts: [],
+    app: { name: "game-video", createdAt: 1000 },
+    ownerUserId: "u2",
+  },
+};
+
+function Seed({
+  entry,
+  children,
+}: {
+  entry: AskEntry;
+  children: React.ReactNode;
+}) {
   const dispatch = useDispatch();
   useEffect(() => {
-    dispatch({ type: "asks_loaded", entries: [SECRET_ASK], revision: 0 });
-  }, [dispatch]);
+    dispatch({ type: "asks_loaded", entries: [entry], revision: 0 });
+  }, [dispatch, entry]);
   return <>{children}</>;
 }
 
-async function mount(isMobile = false) {
+async function mount(isMobile = false, entry: AskEntry = SECRET_ASK) {
   const view = render(
     <StoreProvider>
-      <Seed>
+      <Seed entry={entry}>
         <AsksStack agentId="a 1" isMobile={isMobile} />
       </Seed>
     </StoreProvider>,
@@ -186,6 +205,42 @@ it("a failed decline says the decline failed, not the save, and the card stays",
   expect(view.getByRole("alert").textContent).toBe(
     t("cards.secretRequest.declineFailed"),
   );
+  expect(card(view)).not.toBeNull();
+  view.unmount();
+});
+
+it("an app request names the app, has no hosts field, and saves the value with no hosts", async () => {
+  const view = await mount(false, APP_ASK);
+  expect(card(view)?.textContent).toContain("game-video");
+  expect(view.queryByLabelText(t("settings.secrets.hosts"))).toBeNull();
+  expectMasked(valueInput(view));
+  fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(posts).toHaveLength(1);
+  const { path, body } = posts[0] as {
+    path: string;
+    body: { value: string; hosts?: string[] };
+  };
+  expect(path).toBe("/api/agents/a%201/secret-requests/req-1/save");
+  expect([body.value, body.hosts ?? []]).toEqual([FAKE, []]);
+  expect(card(view)).toBeNull();
+  view.unmount();
+});
+
+it("an app gone since the request keeps the card and says why, not a bare failure", async () => {
+  answer = async () => {
+    throw new ApiError(409, "app_gone", "app gone");
+  };
+  const view = await mount(false, APP_ASK);
+  fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  const alert = view.getByRole("alert").textContent ?? "";
+  expect(alert.length).toBeGreaterThan(0);
+  expect(alert).not.toBe(t("settings.secrets.saveFailed"));
   expect(card(view)).not.toBeNull();
   view.unmount();
 });

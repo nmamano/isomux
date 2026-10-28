@@ -1062,6 +1062,17 @@ export interface SecretAskRequest {
   hosts: string[];
   form: SecretForm;
   reason: string;
+  // The app that gets the value in its environment (task 315a62c0): the
+  // grant's registration, so a re-created app of the same name gets nothing.
+  // Absent on a request for the agent's own use.
+  app?: { name: string; createdAt: number };
+  // A personal request: the member whose secrets get the value (the
+  // manager, or the app's owner for an app). Absent on older requests, which
+  // save into memberUserId's secrets.
+  ownerUserId?: string;
+  // An office request for one office owner. Absent: every owner answers.
+  // Not memberUserId, which older servers refuse on an office request.
+  answerUserId?: string;
 }
 
 // Structured payload attached to LogEntry when kind === "secret-request".

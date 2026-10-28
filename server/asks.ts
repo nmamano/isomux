@@ -108,7 +108,13 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
     typeof form === "object" &&
     form !== null &&
     typeof form.kind === "string" &&
-    typeof r.reason === "string"
+    typeof r.reason === "string" &&
+    (r.app === undefined ||
+      (isObject(r.app) &&
+        typeof r.app.name === "string" &&
+        typeof r.app.createdAt === "number")) &&
+    (r.ownerUserId === undefined || typeof r.ownerUserId === "string") &&
+    (r.answerUserId === undefined || typeof r.answerUserId === "string")
   );
 }
 
@@ -203,7 +209,8 @@ export interface AskAudienceDeps {
 }
 
 // Whether a member sees an ask and may answer it, decided live: the member
-// it names, or any office owner for an office secret request, and in both
+// it names, or for an office secret request any office owner (or the one
+// owner the request names), and in both
 // cases only while the member can reach the agent's room. Every list, push
 // and answer check goes through here.
 export function askVisibleTo(
@@ -214,8 +221,18 @@ export function askVisibleTo(
   if (!userId) return false;
   const roomId = deps.agentRoomId(entry.agentId);
   if (roomId === null || !deps.canSeeRoom(userId, roomId)) return false;
-  if (entry.secret?.scope === "office") return deps.isOfficeOwner(userId);
-  return entry.memberUserId !== undefined && entry.memberUserId === userId;
+  // The answerer must still be allowed to write the secrets the value goes
+  // to (task 315a62c0): their own, or any as an office owner.
+  if (entry.secret?.scope === "office")
+    return (
+      deps.isOfficeOwner(userId) &&
+      (entry.secret.answerUserId === undefined ||
+        entry.secret.answerUserId === userId)
+    );
+  if (entry.memberUserId === undefined || entry.memberUserId !== userId)
+    return false;
+  const owner = entry.secret?.ownerUserId;
+  return owner === undefined || owner === userId || deps.isOfficeOwner(userId);
 }
 
 // Whether `filename` is a read file of an open, non-secret ask from

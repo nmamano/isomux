@@ -1934,8 +1934,15 @@ Cosas que puedes hacer por él:
   "cards.secretRequest.declineFailed": "No se pudo rechazar la solicitud.",
   "cards.secretRequest.closed":
     "Esta solicitud está cerrada. El agente puede volver a pedirlo.",
-  "cards.secretRequest.forbidden":
-    "Solo el responsable del agente responde a esta solicitud, o un propietario de la oficina si es un secreto de la oficina.",
+  "cards.secretRequest.forbidden": "Esta solicitud es para otro miembro.",
+  "cards.secretRequest.app":
+    "Para la app {app}, se guarda en los secretos de su propietario.",
+  "cards.secretRequest.appOffice":
+    "Para la app {app}, se guarda como secreto de la oficina.",
+  "cards.secretRequest.appHint":
+    "El valor no entra en el chat. Si la app está en marcha, se reinicia para leerlo.",
+  "cards.secretRequest.appGone":
+    "La app se eliminó o se sustituyó después de la solicitud del agente. Rechaza la solicitud.",
   "cards.terminalCommand.copy": "Copiar en la terminal",
   "cards.tool.noOutput": "(sin salida)",
   "cards.tool.morePaths": "{path} +{count} más",

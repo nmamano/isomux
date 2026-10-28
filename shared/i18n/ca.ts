@@ -1939,7 +1939,15 @@ Coses que pots fer per ell:
   "cards.secretRequest.closed":
     "Aquesta sol·licitud està tancada. L'agent ho pot tornar a demanar.",
   "cards.secretRequest.forbidden":
-    "Només el responsable de l'agent respon aquesta sol·licitud, o un propietari de l'oficina si és un secret de l'oficina.",
+    "Aquesta sol·licitud és per a un altre membre.",
+  "cards.secretRequest.app":
+    "Per a l'app {app}, es desa als secrets del seu propietari.",
+  "cards.secretRequest.appOffice":
+    "Per a l'app {app}, es desa com a secret de l'oficina.",
+  "cards.secretRequest.appHint":
+    "El valor no entra al xat. Si l'app està en marxa, es reinicia per llegir-lo.",
+  "cards.secretRequest.appGone":
+    "L'app s'ha eliminat o substituït després de la sol·licitud de l'agent. Rebutja la sol·licitud.",
   "cards.terminalCommand.copy": "Copia a la terminal",
   "cards.tool.noOutput": "(sense sortida)",
   "cards.tool.morePaths": "{path} +{count} més",

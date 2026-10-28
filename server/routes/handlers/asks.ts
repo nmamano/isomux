@@ -185,12 +185,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
 
   const wire = (entry: AskEntry): AskAgentWire => ({
     ...askMemberWire(entry),
-    // An office secret request is for every owner and names no member.
-    member:
-      entry.memberUserId === undefined
-        ? null
-        : (deps.memberName(entry.memberUserId) ?? entry.memberUserId),
+    // An office secret request names its one owner on the request, or no
+    // member when it is for every owner.
+    member: memberOf(entry.memberUserId ?? entry.secret?.answerUserId),
   });
+  const memberOf = (userId: string | undefined) =>
+    userId === undefined ? null : (deps.memberName(userId) ?? userId);
 
   const audience: AskAudienceDeps = {
     isOfficeOwner: (userId) => deps.isOfficeOwner(userId),

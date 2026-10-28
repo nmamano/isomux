@@ -107,6 +107,8 @@ async function world() {
       mgr.getAgent(agentId)
         ? (mgr.getAgent(agentId)!.userId ?? null)
         : undefined,
+    appFor: () => null,
+    memberByName: () => null,
     emitSettled: (agentId, requestId, outcome, name) =>
       mgr.emitAgentSecretRequestSettled(agentId, requestId, outcome, name),
     tellAgent: (agentId, _userId, text) => {

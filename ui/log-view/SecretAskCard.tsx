@@ -1,9 +1,10 @@
 // An agent's request for a secret, as an ask (server/secret-requests.ts):
 // the member types the value in a masked field here, so it never enters the
-// chat, and can edit the hosts. The server sends the ask only to the member
-// who may answer it (the agent's manager, or an office owner for an office
-// secret). A save or a decline closes it; the masked value lives in this
-// component's state only.
+// chat, and can edit the hosts. A request for an app has no hosts: the app
+// reads the value from its environment. The server sends the ask only to the
+// member who may answer it (the agent's manager or the member the request
+// names, or an office owner for an office secret). A save or a decline
+// closes it; the masked value lives in this component's state only.
 
 import { useState } from "react";
 
@@ -44,6 +45,7 @@ export function SecretAskCard({
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const app = secret.app?.name;
 
   const since = timeSince(language, entry.createdAt);
   const age = since.kind === "now" ? t("common.justNow") : since.text;
@@ -57,6 +59,7 @@ export function SecretAskCard({
     if (!(caught instanceof ApiError)) return failed;
     const detail = caught.detail ?? {};
     if (caught.code === "forbidden") return t("cards.secretRequest.forbidden");
+    if (caught.code === "app_gone") return t("cards.secretRequest.appGone");
     if (caught.code === "host_not_allowed")
       return t("settings.secrets.error.neverListed", {
         host: typeof detail.host === "string" ? detail.host : "",
@@ -77,10 +80,14 @@ export function SecretAskCard({
       if (kind === "save")
         await apiFetch("POST", `${base}/save`, {
           value: value.trim(),
-          hosts: hosts
-            .split(/[\s,]+/)
-            .map((host) => host.trim())
-            .filter(Boolean),
+          ...(app
+            ? {}
+            : {
+                hosts: hosts
+                  .split(/[\s,]+/)
+                  .map((host) => host.trim())
+                  .filter(Boolean),
+              }),
         });
       else await apiFetch("POST", `${base}/decline`);
       setValue("");
@@ -151,28 +158,38 @@ export function SecretAskCard({
           onFocusAgent={onFocusAgent}
         />
       </div>
-      <p style={hintStyle}>
-        {secret.scope === "office"
-          ? t("cards.secretRequest.office")
-          : t("cards.secretRequest.personal")}{" "}
-        {form}
-      </p>
-      <label style={{ display: "block", marginBottom: 4 }}>
-        <span style={dialogLabel}>{t("settings.secrets.hosts")}</span>
-        <textarea
-          rows={Math.min(4, Math.max(2, secret.hosts.length))}
-          spellCheck={false}
-          value={hosts}
-          disabled={busy}
-          style={{
-            ...dialogInput,
-            fontFamily: "monospace",
-            resize: "vertical",
-          }}
-          onChange={(event) => setHosts(event.target.value)}
-        />
-      </label>
-      <p style={hintStyle}>{t("settings.secrets.vouch")}</p>
+      {app ? (
+        <p style={hintStyle}>
+          {secret.scope === "office"
+            ? t("cards.secretRequest.appOffice", { app })
+            : t("cards.secretRequest.app", { app })}
+        </p>
+      ) : (
+        <>
+          <p style={hintStyle}>
+            {secret.scope === "office"
+              ? t("cards.secretRequest.office")
+              : t("cards.secretRequest.personal")}{" "}
+            {form}
+          </p>
+          <label style={{ display: "block", marginBottom: 4 }}>
+            <span style={dialogLabel}>{t("settings.secrets.hosts")}</span>
+            <textarea
+              rows={Math.min(4, Math.max(2, secret.hosts.length))}
+              spellCheck={false}
+              value={hosts}
+              disabled={busy}
+              style={{
+                ...dialogInput,
+                fontFamily: "monospace",
+                resize: "vertical",
+              }}
+              onChange={(event) => setHosts(event.target.value)}
+            />
+          </label>
+          <p style={hintStyle}>{t("settings.secrets.vouch")}</p>
+        </>
+      )}
       <label style={{ display: "block", marginBottom: 8 }}>
         <span style={dialogLabel}>{t("settings.secrets.value")}</span>
         <MaskedInput
@@ -182,7 +199,9 @@ export function SecretAskCard({
           onChange={(event) => setValue(event.target.value)}
         />
       </label>
-      <p style={hintStyle}>{t("cards.secretRequest.hint")}</p>
+      <p style={hintStyle}>
+        {t(app ? "cards.secretRequest.appHint" : "cards.secretRequest.hint")}
+      </p>
       {error && (
         <p role="alert" style={{ ...hintStyle, color: "var(--red-text)" }}>
           {error}

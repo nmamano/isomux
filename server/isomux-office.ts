@@ -4933,6 +4933,20 @@ function buildExecutorDeps(
         },
         placeholderOf: (scope, name) =>
           secretsRuntime.placeholderOf(scope, name),
+        appFor: (name) => {
+          const record = appRegistry.get(name);
+          return record
+            ? {
+                name: record.name,
+                createdAt: record.createdAt,
+                userId: record.userId,
+              }
+            : null;
+        },
+        memberByName: (name) => {
+          const user = getUserByName(name);
+          return user ? { id: user.id, name: user.name } : null;
+        },
         agentUserId: (agentId) => {
           const agent = agentManager.getAgent(agentId);
           return agent ? (agent.userId ?? null) : undefined;

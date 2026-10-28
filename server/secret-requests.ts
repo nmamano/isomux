@@ -8,6 +8,13 @@
 // restart. A save or a decline removes the ask; so does the agent's delete
 // of the ask, which withdraws the request.
 //
+// A request can name an app (task 315a62c0): the value then goes to that
+// app's environment, saved with its grant in the app owner's secrets (or
+// the office's), and takes no hosts. A request can also name the member who
+// answers. That member must be allowed to write the secrets the value goes
+// to: their own, or any as an office owner. The rule is checked when the
+// request opens and again, live, by askVisibleTo.
+//
 // No function here returns, logs or emits a value. The value goes from the
 // save body to the secret store and nowhere else; the ask holds the request
 // only.
@@ -20,6 +27,7 @@ import {
   type AskStore,
 } from "./asks.ts";
 import {
+  isAppReservedSecretName,
   checkSecretForm,
   checkSecretHosts,
   checkModelKeyHosts,
@@ -28,7 +36,12 @@ import {
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { hasCredentialShape } from "./log-redaction.ts";
-import type { SecretChange, SecretScope, SecretStore } from "./secret-store.ts";
+import {
+  SecretStoreUnreadableError,
+  type SecretChange,
+  type SecretScope,
+  type SecretStore,
+} from "./secret-store.ts";
 
 export const SECRET_REQUEST_REASON_MAX = 500;
 // A sanity bound, not a quota: one agent rarely has more than one open.
@@ -47,6 +60,14 @@ export interface SecretRequestDeps {
   // The agent's manager: a user id, null for an unowned agent, undefined
   // when there is no such agent.
   agentUserId: (agentId: string) => string | null | undefined;
+  // A live app by name (task 315a62c0): its registration binds the grant,
+  // its owner is the scope of a personal request. Null when no live app has
+  // the name.
+  appFor: (
+    name: string,
+  ) => { name: string; createdAt: number; userId: string | null } | null;
+  // A member by username (case-insensitive), or null.
+  memberByName: (name: string) => { id: string; name: string } | null;
   // The system entry that records the outcome in the agent's chat.
   emitSettled: (
     agentId: string,
@@ -124,13 +145,31 @@ export function createSecretRequests(deps: SecretRequestDeps) {
   const openRequests = (): SecretAsk[] =>
     deps.asks.listAll().filter((e): e is SecretAsk => e.secret !== undefined);
 
-  // A personal request is for the agent's manager when it opened, saved in
-  // that member's secrets; an office request goes to the office's.
+  // A personal request saves into the secrets of its owner (the manager,
+  // or the app's owner); a request from before owners existed, into its
+  // answerer's. An office request goes to the office's.
   function scopeOf(entry: SecretAsk): SecretScope | null {
     if (entry.secret.scope === "office") return { kind: "office" };
-    return entry.memberUserId
-      ? { kind: "user", userId: entry.memberUserId }
-      : null;
+    const userId = entry.secret.ownerUserId ?? entry.memberUserId;
+    return userId ? { kind: "user", userId } : null;
+  }
+
+  // Whether `name` in another scope already goes to `app`: the store
+  // refuses such a grant (one app, one value per name). A scope that
+  // cannot be read holds no grant that the check sees, as in the store.
+  function clashes(scope: SecretScope, name: string, app: string): boolean {
+    const key = (s: SecretScope) => (s.kind === "office" ? "" : s.userId);
+    return deps.store.scopes().some((other) => {
+      if (key(other) === key(scope)) return false;
+      try {
+        return deps.store
+          .list(other)
+          .some((s) => s.name === name && s.apps.includes(app));
+      } catch (error) {
+        if (error instanceof SecretStoreUnreadableError) return false;
+        throw error;
+      }
+    });
   }
 
   // The request, when this member may answer it (askVisibleTo: the manager
@@ -168,30 +207,125 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     body: unknown,
   ): SecretRequestResult<{ requestId: string }> {
     if (!isObject(body)) return invalidRequest("the body must be an object");
-    const allowed = ["name", "hosts", "form", "reason", "scope"];
+    const allowed = [
+      "name",
+      "hosts",
+      "form",
+      "reason",
+      "scope",
+      "app",
+      "member",
+    ];
     if (!Object.keys(body).every((key) => allowed.includes(key)))
       return invalidRequest(`the body takes only ${allowed.join(", ")}`);
-    const userId = deps.agentUserId(agentId);
-    if (userId === undefined)
+    const managerId = deps.agentUserId(agentId);
+    if (managerId === undefined)
       return { ok: false, status: 404, code: "not_found" };
     const scopeName = body.scope ?? "personal";
     if (scopeName !== "personal" && scopeName !== "office")
       return invalidRequest("scope is personal or office");
-    if (scopeName === "personal" && !userId)
+    if (body.app !== undefined && typeof body.app !== "string")
+      return invalidRequest("app must be an app name");
+    if (body.member !== undefined && typeof body.member !== "string")
+      return invalidRequest("member must be a username");
+    if (
+      body.app !== undefined &&
+      body.hosts !== undefined &&
+      !(Array.isArray(body.hosts) && body.hosts.length === 0)
+    )
+      return invalidRequest(
+        "a request for an app takes no hosts: the app reads the value from its environment",
+      );
+    const app = body.app === undefined ? null : deps.appFor(body.app);
+    if (body.app !== undefined && !app)
       return {
         ok: false,
-        status: 409,
-        code: "no_member",
+        status: 422,
+        code: "unknown_app",
+        message: "no app has this name",
+      };
+    // The member whose secrets get the value: the app's owner for an app,
+    // else the manager.
+    let ownerId: string | undefined;
+    if (scopeName === "personal") {
+      if (app) {
+        if (!app.userId)
+          return {
+            ok: false,
+            status: 409,
+            code: "no_app_owner",
+            message:
+              "this app has no owner, so ask for an office secret instead",
+          };
+        ownerId = app.userId;
+      } else if (!managerId)
+        return {
+          ok: false,
+          status: 409,
+          code: "no_member",
+          message:
+            "this agent has no manager, so ask for an office secret instead",
+        };
+      else ownerId = managerId;
+    }
+    // The member who answers: the one named, else the manager for a
+    // personal request and every office owner for an office one.
+    let answerId: string | undefined;
+    if (body.member !== undefined) {
+      const member = deps.memberByName(body.member);
+      if (!member)
+        return {
+          ok: false,
+          status: 422,
+          code: "unknown_member",
+          message: "no member has this username",
+        };
+      const roomId = deps.audience.agentRoomId(agentId);
+      if (roomId === null || !deps.audience.canSeeRoom(member.id, roomId))
+        return {
+          ok: false,
+          status: 422,
+          code: "member_no_access",
+          message: "that member cannot reach this agent's room",
+        };
+      answerId = member.id;
+    } else if (scopeName === "personal") {
+      if (!managerId)
+        return {
+          ok: false,
+          status: 409,
+          code: "no_manager",
+          message: "this agent has no manager, so name a member",
+        };
+      answerId = managerId;
+    }
+    if (
+      answerId !== undefined &&
+      answerId !== ownerId &&
+      !deps.audience.isOfficeOwner(answerId)
+    )
+      return {
+        ok: false,
+        status: 403,
+        code: "member_not_allowed",
         message:
-          "this agent has no manager, so ask for an office secret instead",
+          scopeName === "office"
+            ? "only an office owner can save an office secret"
+            : "only the member whose secrets get the value, or an office owner, can save it",
       };
     const nameError = checkSecretName(body.name);
     if (nameError) return fieldFailure(nameError);
-    if (hasCredentialShape(body.name as string))
+    const name = body.name as string;
+    if (hasCredentialShape(name))
       return fieldFailure({ field: "name", reason: "invalid" });
-    const hosts = checkSecretHosts(body.hosts);
+    if (app && isAppReservedSecretName(name))
+      return fieldFailure({ field: "name", reason: "reserved" });
+    // An app request has no hosts (refused above).
+    const hosts = app
+      ? { ok: true as const, hosts: [] }
+      : checkSecretHosts(body.hosts);
     if (!hosts.ok) return fieldFailure(hosts.error);
-    const modelKey = checkModelKeyHosts(body.name as string, hosts.hosts);
+    const modelKey = checkModelKeyHosts(name, hosts.hosts);
     if (modelKey) return fieldFailure(modelKey);
     const form = checkSecretForm(body.form ?? { kind: "authorization" });
     if (!form.ok) return fieldFailure(form.error);
@@ -203,21 +337,23 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     if (hasCredentialShape(reason))
       return invalidRequest("the reason must not hold a credential");
     const scope: SecretScope =
-      scopeName === "office"
+      ownerId === undefined
         ? { kind: "office" }
-        : { kind: "user", userId: userId as string };
-    const name = body.name as string;
+        : { kind: "user", userId: ownerId };
     if (deps.store.list(scope).some((secret) => secret.name === name))
       return changeFailure({ ok: false, kind: "exists" });
+    if (app && clashes(scope, name, app.name))
+      return fieldFailure({ field: "apps", reason: "clash" });
     const open = openRequests();
-    // One open request per secret: a second ask would put a second form for
-    // the same secret in front of the member.
+    // One open request per secret, whichever agent asks: a second ask would
+    // put a second form for the same secret in front of a member.
     if (
       open.some(
         (e) =>
           e.secret.name === name &&
           e.secret.scope === scopeName &&
-          (scopeName === "office" || e.memberUserId === userId),
+          (scopeName === "office" ||
+            (e.secret.ownerUserId ?? e.memberUserId) === ownerId),
       )
     )
       return {
@@ -244,11 +380,19 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       hosts: hosts.hosts,
       form: form.form,
       reason,
+      ...(app ? { app: { name: app.name, createdAt: app.createdAt } } : {}),
+      ...(ownerId !== undefined ? { ownerUserId: ownerId } : {}),
+      // An office request for one owner names them here, never in
+      // memberUserId: an older server refuses an office ask with a member,
+      // and would set its whole asks file aside after a rollback.
+      ...(scopeName === "office" && answerId !== undefined
+        ? { answerUserId: answerId }
+        : {}),
     };
     // The ask's own bound (all of the agent's asks) answers as this one.
     const made = deps.asks.create({
       agentId,
-      ...(scopeName === "personal" ? { memberUserId: userId as string } : {}),
+      ...(scopeName === "personal" ? { memberUserId: answerId } : {}),
       prompt: reason,
       secret,
     });
@@ -278,12 +422,39 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       )
         return invalidRequest("the body takes only value, hosts, form");
       const { entry, scope } = found;
-      const { name } = entry.secret;
+      const { name, app } = entry.secret;
+      if (
+        app &&
+        body.hosts !== undefined &&
+        !(Array.isArray(body.hosts) && body.hosts.length === 0)
+      )
+        return invalidRequest("a request for an app takes no hosts");
+      // The app the request named, still the same registration, and for a
+      // member secret still that member's (a member secret goes only to an
+      // app its member owns).
+      if (app) {
+        const live = deps.appFor(app.name);
+        if (
+          !live ||
+          live.createdAt !== app.createdAt ||
+          (scope.kind === "user" && live.userId !== scope.userId)
+        )
+          return {
+            ok: false,
+            status: 409,
+            code: "app_gone",
+            message:
+              "the app was removed or replaced since the request; decline it",
+          };
+      }
       const change = deps.store.create(scope, {
         name,
         value: body.value,
-        hosts: body.hosts ?? entry.secret.hosts,
+        hosts: app ? [] : (body.hosts ?? entry.secret.hosts),
         form: body.form ?? entry.secret.form,
+        ...(app
+          ? { apps: [{ name: app.name, createdAt: app.createdAt }] }
+          : {}),
       });
       if (!change.ok) return changeFailure(change);
       try {
@@ -301,6 +472,14 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         console.error("[secret-requests] the proxy did not take a change");
       }
       deps.emitSettled(agentId, requestId, "saved", name);
+      if (app) {
+        deps.tellAgent(
+          agentId,
+          userId as string,
+          `I saved the secret ${name} you asked for, for the app ${app.name}. The app has $${name} in its environment from its next start; a running app restarts now. You get no placeholder for it.`,
+        );
+        return { ok: true, name };
+      }
       const placeholder = deps.placeholderOf(scope, name);
       const hosts = change.secret.hosts.join(", ");
       deps.tellAgent(

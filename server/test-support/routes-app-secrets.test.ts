@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { mintApiToken } from "../api-tokens.ts";
 import { appSecretsDir, appSecretsPath } from "../app-secrets.ts";
 import { STATE_ROOT } from "../config.ts";
-import { mintAgentToken } from "../identity/tokens.ts";
+import { getAgentTokenRaw, mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 
@@ -318,6 +318,77 @@ describe("an agent never gives a secret to an app", () => {
     // Gone is gone: putting it back is an add.
     expect((await patch(["bot"])).status).toBe(403);
     expect(await listed(o, o.memberBase, session)).toEqual({ BOT_TOKEN: [] });
+  });
+});
+
+// Task 315a62c0: an agent asks for an app's secret, and the member it names
+// types the value in the ask; the value lands in the app's file.
+describe("a secret request for an app", () => {
+  it("the named office owner saves it into the app owner's secrets, the app's file holds it and the app restarts", async () => {
+    const o = await office();
+    const memberId = getUserByName(o.member.username)!.id;
+    const [room] = o.srv.agentManager.getRooms();
+    const agent = await o.srv.agentManager.spawn(
+      "Asker",
+      o.srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      room.id,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+      undefined,
+      memberId,
+    );
+    if (!agent) throw new Error("spawn failed");
+    // The member name in another case than the account's.
+    const opened = await call(
+      o.srv,
+      "POST",
+      `/api/agents/${agent.id}/secret-requests`,
+      {
+        bearer: getAgentTokenRaw(agent.id)!,
+        body: {
+          name: "BOT_TOKEN",
+          app: "bot",
+          member: o.morgan.username.toUpperCase(),
+          reason: "The bot signs in.",
+        },
+      },
+    );
+    expect(opened.status).toBe(200);
+    const { requestId } = opened.body as { requestId: string };
+    const asksOf = async (session: string) =>
+      (
+        (await call(o.srv, "GET", "/api/asks", { session })).body as {
+          secret?: { requestId: string };
+        }[]
+      ).map((e) => e.secret?.requestId);
+    expect(await asksOf(o.morgan.rawSessionId)).toEqual([requestId]);
+    expect(await asksOf(o.member.rawSessionId)).toEqual([]);
+    const saved = await call(
+      o.srv,
+      "POST",
+      `/api/agents/${agent.id}/secret-requests/${requestId}/save`,
+      { session: o.morgan.rawSessionId, body: { value: VALUE } },
+    );
+    expect(saved.status).toBe(200);
+    expect(saved.text).not.toContain(VALUE);
+    expect(appEnv("bot")).toEqual({ BOT_TOKEN: VALUE });
+    expect(restarts(o)).toEqual(["restart:bot"]);
+    expect(await listed(o, o.memberBase, o.member.rawSessionId)).toEqual({
+      BOT_TOKEN: ["bot"],
+    });
+    expect(
+      await listed(
+        o,
+        `/api/users/${o.morgan.username}/secrets`,
+        o.morgan.rawSessionId,
+      ),
+    ).toEqual({});
   });
 });
 

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { SECRET_MIN_VALUE_LENGTH } from "../shared/secret-hosts.ts";
 import type { AskEntry } from "../shared/types.ts";
 import {
+  askVisibleTo,
   createAskFilePersistence,
   createAskStore,
   type AskChange,
@@ -48,7 +49,29 @@ function asksFile(path: string) {
   return { persistence, control };
 }
 
-function setup(agents: Record<string, string | null> = { a1: "u-alice" }) {
+// Members by username, office owners, apps by name, and who cannot reach
+// the agents' room. Tests change apps and owners in place.
+const MEMBERS: Record<string, string> = {
+  Nil: "u-owner",
+  Dana: "u-owner2",
+  Alice: "u-alice",
+  Bob: "u-bob",
+  Carol: "u-carol",
+  Eve: "u-eve",
+};
+type App = { createdAt: number; userId: string | null };
+
+function setup(
+  agents: Record<string, string | null> = { a1: "u-alice" },
+  apps: Record<string, App> = {},
+) {
+  const owners = new Set(["u-owner", "u-owner2"]);
+  const audience = {
+    isOfficeOwner: (userId: string) => owners.has(userId),
+    agentRoomId: (agentId: string) =>
+      Object.hasOwn(agents, agentId) ? "r1" : null,
+    canSeeRoom: (userId: string) => userId !== "u-eve",
+  };
   const root = mkdtempSync(join(tmpdir(), "isomux-secret-requests-"));
   roots.push(root);
   const store = createSecretStore(root);
@@ -69,12 +92,7 @@ function setup(agents: Record<string, string | null> = { a1: "u-alice" }) {
     const requests = createSecretRequests({
       store,
       asks,
-      audience: {
-        isOfficeOwner: (userId) => userId === "u-owner",
-        agentRoomId: (agentId) =>
-          Object.hasOwn(agents, agentId) ? "r1" : null,
-        canSeeRoom: () => true,
-      },
+      audience,
       onChanged: async () => {
         changes++;
         if (gate) await gate;
@@ -83,6 +101,14 @@ function setup(agents: Record<string, string | null> = { a1: "u-alice" }) {
         `ghp_PLACEHOLDER${scope.kind}${name}`.slice(0, 40),
       agentUserId: (agentId) =>
         Object.hasOwn(agents, agentId) ? agents[agentId] : undefined,
+      appFor: (name) =>
+        Object.hasOwn(apps, name) ? { name, ...apps[name] } : null,
+      memberByName: (name) => {
+        const found = Object.keys(MEMBERS).find(
+          (m) => m.toLowerCase() === name.toLowerCase(),
+        );
+        return found ? { id: MEMBERS[found], name: found } : null;
+      },
       emitSettled: (...args) => settled.push(args),
       tellAgent: (agentId, userId, text) =>
         told.push({ agentId, userId, text }),
@@ -94,6 +120,8 @@ function setup(agents: Record<string, string | null> = { a1: "u-alice" }) {
     ...first,
     store,
     asksPath,
+    owners,
+    audience,
     events,
     settled,
     told,
@@ -117,6 +145,8 @@ function opened(
 
 const code = (result: { ok: boolean; code?: string }) =>
   result.ok ? "ok" : result.code;
+const failure = (result: { ok: boolean; status?: number; code?: string }) =>
+  result.ok ? "ok" : `${result.status} ${result.code}`;
 
 // Everything that leaves the request besides the secret store: the asks
 // file, the ask events, and console output during the call.
@@ -251,6 +281,8 @@ describe("the agent's ask", () => {
       },
       placeholderOf: () => null,
       agentUserId: () => "u-alice",
+      appFor: () => null,
+      memberByName: () => null,
       emitSettled: () => {},
       tellAgent: () => {},
     });
@@ -470,5 +502,359 @@ describe("a restart", () => {
     expect(t.told.map((m) => m.agentId)).toEqual(["a1"]);
     expect(next.asks.listAll()).toEqual([]);
     expectNoValue({ ...t, asks: next.asks }, saved);
+  });
+});
+
+// An app secret request (task 315a62c0): the value goes to an app's
+// environment, saved in the app owner's secrets (or the office's) with the
+// app's grant, and the request can go to a member other than the manager.
+// The answerer must be allowed to write the target secrets: that member, or
+// an office owner.
+describe("an app secret request", () => {
+  const GAME = { createdAt: 1000, userId: "u-carol" };
+  const APP_ASK = {
+    name: "YOUTUBE_CLIENT_SECRET",
+    app: "game-video",
+    reason: "The video app signs in to YouTube.",
+  };
+  const carol = { kind: "user", userId: "u-carol" } as const;
+  const entryOf = (t: ReturnType<typeof setup>, requestId: string) => {
+    const entry = t.asks
+      .listAll()
+      .find((e) => e.secret?.requestId === requestId);
+    if (!entry) throw new Error(`no ask for ${requestId}`);
+    return entry;
+  };
+  const saveAs = async (
+    t: ReturnType<typeof setup>,
+    userId: string,
+    agentId: string,
+    requestId: string,
+    body: Record<string, unknown> = { value: VALUE },
+  ) => failure(await t.requests.save(userId, agentId, requestId, body));
+
+  it("an office owner named on the request saves it into the app owner's secrets, with the grant and no hosts", async () => {
+    const t = setup({ a3: "u-carol" }, { "game-video": GAME });
+    // The member name resolves whatever its case.
+    const requestId = opened(
+      t.requests.open("a3", { ...APP_ASK, member: "nil" }),
+    );
+    const entry = entryOf(t, requestId);
+    expect(entry.memberUserId).toBe("u-owner");
+    expect(entry.secret).toMatchObject({
+      scope: "personal",
+      name: "YOUTUBE_CLIENT_SECRET",
+      hosts: [],
+      app: { name: "game-video", createdAt: 1000 },
+      ownerUserId: "u-carol",
+    });
+    // Only the named member answers: not the manager, not another owner.
+    expect(await saveAs(t, "u-carol", "a3", requestId)).toBe("403 forbidden");
+    expect(await saveAs(t, "u-owner2", "a3", requestId)).toBe("403 forbidden");
+    const { result, output } = await captureConsole(() =>
+      t.requests.save("u-owner", "a3", requestId, { value: VALUE }),
+    );
+    expect(result).toEqual({ ok: true, name: "YOUTUBE_CLIENT_SECRET" });
+    expect(t.store.list(carol)).toMatchObject([
+      { name: "YOUTUBE_CLIENT_SECRET", hosts: [], apps: ["game-video"] },
+    ]);
+    expect(
+      t.store.readSecretValues(carol, "YOUTUBE_CLIENT_SECRET")?.value,
+    ).toBe(VALUE);
+    expect(t.store.list({ kind: "user", userId: "u-owner" })).toEqual([]);
+    expect(t.changes()).toBe(1);
+    expect(t.asks.listAll()).toEqual([]);
+    expect(t.settled).toEqual([
+      ["a3", requestId, "saved", "YOUTUBE_CLIENT_SECRET"],
+    ]);
+    // The agent hears it from the member who saved, about the app; with no
+    // host there is no placeholder to give.
+    expect(t.told).toHaveLength(1);
+    expect(t.told[0].userId).toBe("u-owner");
+    expect(t.told[0].text).toContain("game-video");
+    expect(t.told[0].text).not.toContain("ghp_PLACEHOLDER");
+    expectNoValue(t, result, output, t.settled, t.told);
+  });
+
+  it("goes to the manager by default; a named member instead; and only to one who may write the app owner's secrets", async () => {
+    const t = setup({ a1: "u-alice", a3: "u-carol" }, { "game-video": GAME });
+    // The app's owner manages the agent: the request is theirs.
+    const own = opened(t.requests.open("a3", { ...APP_ASK, name: "OWN" }));
+    expect(entryOf(t, own).memberUserId).toBe("u-carol");
+    expect(await saveAs(t, "u-carol", "a3", own)).toBe("ok");
+    expect(t.store.list(carol).map((s) => [s.name, s.apps])).toEqual([
+      ["OWN", ["game-video"]],
+    ]);
+    // Alice manages a1 but may not write Carol's secrets, and neither may
+    // Bob; Carol and an office owner may.
+    expect(
+      failure(t.requests.open("a1", { ...APP_ASK, name: "BY_ALICE" })),
+    ).toBe("403 member_not_allowed");
+    expect(
+      failure(
+        t.requests.open("a1", { ...APP_ASK, name: "BY_BOB", member: "Bob" }),
+      ),
+    ).toBe("403 member_not_allowed");
+    expect(t.asks.listAll()).toEqual([]);
+    const byCarol = opened(
+      t.requests.open("a1", { ...APP_ASK, name: "BY_CAROL", member: "Carol" }),
+    );
+    expect(entryOf(t, byCarol).memberUserId).toBe("u-carol");
+    const byNil = opened(
+      t.requests.open("a1", { ...APP_ASK, name: "BY_NIL", member: "Nil" }),
+    );
+    expect(entryOf(t, byNil).secret?.ownerUserId).toBe("u-carol");
+    expect(await saveAs(t, "u-alice", "a1", byNil)).toBe("403 forbidden");
+    expect(await saveAs(t, "u-owner", "a1", byNil)).toBe("ok");
+    expect(await saveAs(t, "u-carol", "a1", byCarol)).toBe("ok");
+    expect(
+      t.store
+        .list(carol)
+        .map((s) => s.name)
+        .sort(),
+    ).toEqual(["BY_CAROL", "BY_NIL", "OWN"]);
+    expect(t.store.list({ kind: "user", userId: "u-alice" })).toEqual([]);
+  });
+
+  it("an office app request goes to every owner, or to the one owner named; a named non-owner is refused", async () => {
+    const t = setup({ a1: "u-alice" }, { "game-video": GAME });
+    const office = { kind: "office" } as const;
+    const anyOwner = opened(
+      t.requests.open("a1", { ...APP_ASK, name: "ANY_OWNER", scope: "office" }),
+    );
+    const any = entryOf(t, anyOwner);
+    expect("memberUserId" in any).toBe(false);
+    expect(any.secret?.answerUserId).toBeUndefined();
+    expect(await saveAs(t, "u-alice", "a1", anyOwner)).toBe("403 forbidden");
+    expect(await saveAs(t, "u-owner2", "a1", anyOwner)).toBe("ok");
+    const named = opened(
+      t.requests.open("a1", {
+        ...APP_ASK,
+        name: "NAMED_OWNER",
+        scope: "office",
+        member: "Nil",
+      }),
+    );
+    // The named owner rides on the request, never in memberUserId, which an
+    // older server refuses on an office request (its whole asks file would
+    // be set aside after a rollback).
+    const one = entryOf(t, named);
+    expect("memberUserId" in one).toBe(false);
+    expect(one.secret?.answerUserId).toBe("u-owner");
+    expect(await saveAs(t, "u-owner2", "a1", named)).toBe("403 forbidden");
+    expect(await saveAs(t, "u-owner", "a1", named)).toBe("ok");
+    expect(t.store.list(office).map((s) => [s.name, s.apps])).toEqual([
+      ["ANY_OWNER", ["game-video"]],
+      ["NAMED_OWNER", ["game-video"]],
+    ]);
+    // Carol owns the app but not the office.
+    expect(
+      failure(
+        t.requests.open("a1", {
+          ...APP_ASK,
+          name: "BY_CAROL",
+          scope: "office",
+          member: "Carol",
+        }),
+      ),
+    ).toBe("403 member_not_allowed");
+  });
+
+  it("a named member answers a request for the agent's own use, saved in the manager's secrets", async () => {
+    const t = setup({ a1: "u-alice" });
+    const requestId = opened(t.requests.open("a1", { ...ASK, member: "Nil" }));
+    expect(entryOf(t, requestId).memberUserId).toBe("u-owner");
+    expect(await saveAs(t, "u-alice", "a1", requestId)).toBe("403 forbidden");
+    expect(await saveAs(t, "u-owner", "a1", requestId)).toBe("ok");
+    expect(
+      t.store.list({ kind: "user", userId: "u-alice" }).map((s) => s.name),
+    ).toEqual(["GH_TOKEN"]);
+    expect(t.store.list({ kind: "user", userId: "u-owner" })).toEqual([]);
+    // The secret is for the agent: it gets its placeholder.
+    expect(t.told[0].text).toContain("ghp_PLACEHOLDERuserGH_TOKEN");
+    expect(
+      failure(t.requests.open("a1", { ...ASK, name: "OTHER", member: "Bob" })),
+    ).toBe("403 member_not_allowed");
+  });
+
+  it("refuses at open what the save could not do, checked against the target secrets", () => {
+    const t = setup(
+      { a1: "u-alice", a3: "u-carol", lone: null },
+      { "game-video": GAME, orphan: { createdAt: 5, userId: null } },
+    );
+    const open = (agentId: string, body: Record<string, unknown>) =>
+      t.requests.open(agentId, { ...APP_ASK, ...body });
+    expect(failure(open("a3", { app: "no-such-app" }))).toBe("422 unknown_app");
+    expect(failure(open("a3", { member: "Zed" }))).toBe("422 unknown_member");
+    expect(failure(open("a3", { member: "Eve" }))).toBe("422 member_no_access");
+    // The app reads the value from its environment: a request for an app
+    // takes no hosts.
+    expect(failure(open("a3", { hosts: ["api.github.com"] }))).toBe(
+      "400 invalid_request",
+    );
+    // An unowned app has no member secrets to save into.
+    expect(failure(open("a3", { app: "orphan" }))).toBe("409 no_app_owner");
+    // An agent with no manager has no default answerer.
+    expect(failure(open("lone", {}))).toBe("409 no_manager");
+    const reserved = open("a3", { name: "PORT" });
+    expect(reserved.ok ? null : reserved.detail).toEqual({
+      field: "name",
+      reason: "reserved",
+    });
+    // The office already gives this name to the app.
+    t.store.create(
+      { kind: "office" },
+      {
+        name: "SHARED",
+        value: VALUE,
+        hosts: [],
+        form: { kind: "authorization" },
+        apps: [{ name: "game-video", createdAt: 1000 }],
+      },
+    );
+    const clash = open("a3", { name: "SHARED" });
+    expect(clash.ok ? null : [clash.code, clash.detail]).toEqual([
+      "invalid_secret",
+      { field: "apps", reason: "clash" },
+    ]);
+    // Exists in the app owner's secrets, which are not the manager's.
+    t.store.create(carol, {
+      name: "EXISTING",
+      value: VALUE,
+      hosts: ["api.github.com"],
+      form: { kind: "authorization" },
+    });
+    expect(failure(open("a1", { name: "EXISTING", member: "Nil" }))).toBe(
+      "409 secret_exists",
+    );
+    expect(t.asks.listAll()).toEqual([]);
+    // What may open: hosts given as an empty list, an office request for an
+    // unowned app, and a manager-less agent's request to a named member.
+    opened(open("a3", { name: "EMPTY_HOSTS", hosts: [] }));
+    opened(open("a3", { name: "ORPHAN", app: "orphan", scope: "office" }));
+    const lone = opened(open("lone", { name: "LONE", member: "Nil" }));
+    expect(entryOf(t, lone)).toMatchObject({
+      memberUserId: "u-owner",
+      secret: { ownerUserId: "u-carol" },
+    });
+  });
+
+  it("one open request per target secret, whichever agent asks", () => {
+    const t = setup({ a1: "u-alice", a3: "u-carol" }, { "game-video": GAME });
+    opened(t.requests.open("a3", { ...APP_ASK, name: "DUP" }));
+    // Same name, same target (Carol's secrets), another agent and answerer.
+    expect(
+      failure(
+        t.requests.open("a1", { ...APP_ASK, name: "DUP", member: "Nil" }),
+      ),
+    ).toBe("409 request_open");
+    // Same name in Alice's secrets is another secret.
+    opened(t.requests.open("a1", { ...ASK, name: "DUP" }));
+  });
+
+  it("a save re-checks the app: gone, re-created or given to another owner is app_gone, and the request stays", async () => {
+    const apps: Record<string, App> = { "game-video": { ...GAME } };
+    const t = setup({ a3: "u-carol" }, apps);
+    const requestId = opened(t.requests.open("a3", APP_ASK));
+    const officeId = opened(
+      t.requests.open("a3", {
+        ...APP_ASK,
+        name: "OFFICE_ONE",
+        scope: "office",
+      }),
+    );
+    delete apps["game-video"];
+    expect(await saveAs(t, "u-carol", "a3", requestId)).toBe("409 app_gone");
+    apps["game-video"] = { createdAt: 2000, userId: "u-carol" };
+    expect(await saveAs(t, "u-carol", "a3", requestId)).toBe("409 app_gone");
+    apps["game-video"] = { createdAt: 1000, userId: "u-bob" };
+    expect(await saveAs(t, "u-carol", "a3", requestId)).toBe("409 app_gone");
+    // The owner limits only member secrets: the office's still save.
+    expect(await saveAs(t, "u-owner", "a3", officeId)).toBe("ok");
+    expect(t.store.list(carol)).toEqual([]);
+    expect(t.asks.listAll().map((e) => e.secret?.requestId)).toEqual([
+      requestId,
+    ]);
+    expect(t.settled).toEqual([["a3", officeId, "saved", "OFFICE_ONE"]]);
+    // A member cannot add hosts to it either.
+    apps["game-video"] = { ...GAME };
+    expect(
+      await saveAs(t, "u-carol", "a3", requestId, {
+        value: VALUE,
+        hosts: ["api.github.com"],
+      }),
+    ).toBe("400 invalid_request");
+    expect(t.store.list(carol)).toEqual([]);
+    expect(await saveAs(t, "u-carol", "a3", requestId)).toBe("ok");
+    expect(t.store.list(carol).map((s) => [s.name, s.apps])).toEqual([
+      ["YOUTUBE_CLIENT_SECRET", ["game-video"]],
+    ]);
+  });
+
+  it("the answerer's right is decided live: an owner who loses the role stops seeing and answering it", async () => {
+    const t = setup({ a1: "u-alice" }, { "game-video": GAME });
+    const personal = opened(
+      t.requests.open("a1", { ...APP_ASK, member: "Nil" }),
+    );
+    const office = opened(
+      t.requests.open("a1", {
+        ...APP_ASK,
+        name: "OFFICE_ONE",
+        scope: "office",
+        member: "Nil",
+      }),
+    );
+    const visible = () =>
+      [personal, office].map((id) =>
+        askVisibleTo(entryOf(t, id), "u-owner", t.audience),
+      );
+    expect(visible()).toEqual([true, true]);
+    t.owners.delete("u-owner");
+    expect(visible()).toEqual([false, false]);
+    expect(await saveAs(t, "u-owner", "a1", personal)).toBe("403 forbidden");
+    expect(await saveAs(t, "u-owner", "a1", office)).toBe("403 forbidden");
+    t.owners.add("u-owner");
+    expect(await saveAs(t, "u-owner", "a1", personal)).toBe("ok");
+    expect(await saveAs(t, "u-owner", "a1", office)).toBe("ok");
+  });
+
+  it("survives a restart: the next boot loads both kinds and saves them", async () => {
+    const t = setup({ a1: "u-alice" }, { "game-video": GAME });
+    const personal = opened(
+      t.requests.open("a1", { ...APP_ASK, member: "Nil" }),
+    );
+    const office = opened(
+      t.requests.open("a1", {
+        ...APP_ASK,
+        name: "OFFICE_ONE",
+        scope: "office",
+        member: "Nil",
+      }),
+    );
+    const next = t.boot();
+    // Loaded, not set aside: the store answers.
+    expect(next.asks.listAll().map((e) => e.secret?.requestId)).toEqual([
+      personal,
+      office,
+    ]);
+    expect(
+      failure(
+        await next.requests.save("u-owner2", "a1", office, { value: VALUE }),
+      ),
+    ).toBe("403 forbidden");
+    expect(
+      failure(
+        await next.requests.save("u-owner", "a1", personal, { value: VALUE }),
+      ),
+    ).toBe("ok");
+    expect(
+      failure(
+        await next.requests.save("u-owner", "a1", office, { value: VALUE }),
+      ),
+    ).toBe("ok");
+    expect(t.store.list(carol).map((s) => s.apps)).toEqual([["game-video"]]);
+    expect(t.store.list({ kind: "office" }).map((s) => s.apps)).toEqual([
+      ["game-video"],
+    ]);
   });
 });

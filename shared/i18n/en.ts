@@ -1890,8 +1890,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.secretRequest.declineFailed": "Could not decline the request.",
   "cards.secretRequest.closed":
     "This request is closed. The agent can ask again.",
-  "cards.secretRequest.forbidden":
-    "Only the agent's manager answers this request, or an office owner for an office secret.",
+  "cards.secretRequest.forbidden": "This request is for another member.",
+  "cards.secretRequest.app": "For the app {app}, saved in its owner's secrets.",
+  "cards.secretRequest.appOffice":
+    "For the app {app}, saved as an office secret.",
+  "cards.secretRequest.appHint":
+    "The value stays out of the chat. A running app restarts to read it.",
+  "cards.secretRequest.appGone":
+    "The app was removed or replaced since the agent asked. Decline the request.",
   "cards.terminalCommand.copy": "Copy to terminal",
   "cards.tool.noOutput": "(no output)",
   "cards.tool.morePaths": "{path} +{count} more",

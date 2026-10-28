@@ -1722,8 +1722,13 @@ App 的一些原则：
   "cards.secretRequest.declined": "已拒绝。",
   "cards.secretRequest.declineFailed": "无法拒绝此请求。",
   "cards.secretRequest.closed": "此请求已关闭。智能体可以再次请求。",
-  "cards.secretRequest.forbidden":
-    "只有此智能体的负责人可以回应此请求；办公室密钥则由办公室所有者回应。",
+  "cards.secretRequest.forbidden": "此请求是给另一位成员的。",
+  "cards.secretRequest.app": "用于应用 {app}，保存到其所有者的密钥中。",
+  "cards.secretRequest.appOffice": "用于应用 {app}，保存为办公室密钥。",
+  "cards.secretRequest.appHint":
+    "值不会进入聊天。正在运行的应用会重启以读取它。",
+  "cards.secretRequest.appGone":
+    "智能体提出请求后，该应用已被删除或替换。请拒绝此请求。",
   "cards.terminalCommand.copy": "复制到终端",
   "cards.tool.noOutput": "（无输出）",
   "cards.tool.morePaths": "{path} 及另外 {count} 个",
