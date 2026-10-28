@@ -2630,6 +2630,13 @@ App 的一些原则：
     "自动交接未完成。Isomux 会在智能体下次回复后再试。",
   "systemEntries.autoHandoff.paused":
     "本对话的自动交接已暂停：它开始时已超过交接阈值。",
+  "systemEntries.secretRequest.saved": "密钥 {name} 已保存。",
+  "systemEntries.secretRequest.savedForApp":
+    "密钥 {name} 已为应用 {app} 保存。",
+  "systemEntries.secretRequest.savedOffice": "密钥 {name} 已保存为办公室密钥。",
+  "systemEntries.secretRequest.savedPersonal":
+    "密钥 {name} 已保存到 {member} 的密钥中。",
+  "systemEntries.secretRequest.declined": "密钥 {name} 的请求已被拒绝。",
   "systemEntries.limitResume.resumed":
     "用量限制已重置。Isomux 已让智能体继续。",
   "systemEntries.restartWake.resumed":

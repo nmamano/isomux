@@ -1,6 +1,6 @@
 // The secret request core (secrets loop, B4): what the agent may ask, who may
-// answer, that an open request is an ask that survives a restart, and that
-// no answer, ask, event or message carries the value.
+// answer, that an open request is an ask that survives a restart, what the
+// outcome line says, and that no answer, ask, event or line carries the value.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -21,6 +21,7 @@ import {
   SECRET_REQUESTS_OPEN_MAX,
 } from "./secret-requests.ts";
 import { createSecretStore } from "./secret-store.ts";
+import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 
 const VALUE = "ghp_FAKErequestFAKErequestFAKErequest012";
 const ASK = {
@@ -59,7 +60,16 @@ const MEMBERS: Record<string, string> = {
   Carol: "u-carol",
   Eve: "u-eve",
 };
+// A member removed after the agent asked: the id resolves to no name.
+const GONE = "u-gone";
 type App = { createdAt: number; userId: string | null };
+type Settled = {
+  agentId: string;
+  requestId: string;
+  outcome: "saved" | "declined";
+  line: LogMessage;
+  answeredBy: string;
+};
 
 function setup(
   agents: Record<string, string | null> = { a1: "u-alice" },
@@ -77,8 +87,7 @@ function setup(
   const store = createSecretStore(root);
   const asksPath = join(root, "asks.json");
   const events: AskChange[] = [];
-  const settled: unknown[][] = [];
-  const told: { agentId: string; userId: string; text: string }[] = [];
+  const settled: Settled[] = [];
   let changes = 0;
   // While set, the proxy push waits on it (holdChanges).
   let gate: Promise<void> | null = null;
@@ -97,8 +106,6 @@ function setup(
         changes++;
         if (gate) await gate;
       },
-      placeholderOf: (scope, name) =>
-        `ghp_PLACEHOLDER${scope.kind}${name}`.slice(0, 40),
       agentUserId: (agentId) =>
         Object.hasOwn(agents, agentId) ? agents[agentId] : undefined,
       appFor: (name) =>
@@ -109,9 +116,10 @@ function setup(
         );
         return found ? { id: MEMBERS[found], name: found } : null;
       },
-      emitSettled: (...args) => settled.push(args),
-      tellAgent: (agentId, userId, text) =>
-        told.push({ agentId, userId, text }),
+      memberName: (userId) =>
+        Object.keys(MEMBERS).find((m) => MEMBERS[m] === userId) ?? null,
+      settled: (agentId, requestId, outcome, line, answeredBy) =>
+        settled.push({ agentId, requestId, outcome, line, answeredBy }),
     });
     return { asks, requests, control };
   }
@@ -124,7 +132,6 @@ function setup(
     audience,
     events,
     settled,
-    told,
     boot,
     changes: () => changes,
     // Hold the next proxy push until the returned function runs.
@@ -147,6 +154,9 @@ const code = (result: { ok: boolean; code?: string }) =>
   result.ok ? "ok" : result.code;
 const failure = (result: { ok: boolean; status?: number; code?: string }) =>
   result.ok ? "ok" : `${result.status} ${result.code}`;
+// Each outcome without its line: [agent, request, outcome, answered by].
+const outcomes = (t: { settled: Settled[] }) =>
+  t.settled.map((s) => [s.agentId, s.requestId, s.outcome, s.answeredBy]);
 
 // Everything that leaves the request besides the secret store: the asks
 // file, the ask events, and console output during the call.
@@ -279,12 +289,11 @@ describe("the agent's ask", () => {
         agentRoomId: () => "r1",
         canSeeRoom: () => true,
       },
-      placeholderOf: () => null,
       agentUserId: () => "u-alice",
       appFor: () => null,
       memberByName: () => null,
-      emitSettled: () => {},
-      tellAgent: () => {},
+      memberName: () => null,
+      settled: () => {},
     });
     expect(code(broken.open("a1", ASK))).toBe("request_failed");
     expect(
@@ -310,7 +319,7 @@ function expectNoValue(t: ReturnType<typeof setup>, ...more: unknown[]) {
 }
 
 describe("the member's answer", () => {
-  it("the manager saves with edited hosts; the agent gets the placeholder, never the value", async () => {
+  it("the manager saves with edited hosts; the outcome never carries the value", async () => {
     const t = setup();
     const requestId = opened(t.requests.open("a1", ASK));
     const { result, output } = await captureConsole(() =>
@@ -327,15 +336,12 @@ describe("the member's answer", () => {
       form: { kind: "authorization" },
     });
     expect(t.changes()).toBe(1);
-    expect(t.settled).toEqual([["a1", requestId, "saved", "GH_TOKEN"]]);
-    expect(t.told).toHaveLength(1);
-    expect(t.told[0].userId).toBe("u-alice");
-    expect(t.told[0].text).toContain("ghp_PLACEHOLDERuserGH_TOKEN");
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
     // The save closed the ask: an upsert and then a removal.
     expect(t.asks.listAll()).toEqual([]);
     expect(t.events.map((e) => e.kind)).toEqual(["upserted", "removed"]);
     // The value is in the secret store and nowhere else.
-    expectNoValue(t, result, output, t.settled, t.told);
+    expectNoValue(t, result, output, t.settled);
     // Settled: a second answer finds nothing.
     const again = await t.requests.save("u-alice", "a1", requestId, {
       value: VALUE,
@@ -397,15 +403,14 @@ describe("the member's answer", () => {
     ).toBe(true);
   });
 
-  it("the manager declines; the agent is told, the ask closes and nothing is stored", async () => {
+  it("the manager declines; the outcome is settled, the ask closes and nothing is stored", async () => {
     const t = setup();
     const requestId = opened(t.requests.open("a1", ASK));
     expect(t.requests.decline("u-alice", "a1", requestId)).toEqual({
       ok: true,
       name: "GH_TOKEN",
     });
-    expect(t.settled).toEqual([["a1", requestId, "declined", "GH_TOKEN"]]);
-    expect(t.told).toHaveLength(1);
+    expect(outcomes(t)).toEqual([["a1", requestId, "declined", "u-alice"]]);
     expect(t.asks.listAll()).toEqual([]);
     expect(t.store.list({ kind: "user", userId: "u-alice" })).toEqual([]);
     expect(t.changes()).toBe(0);
@@ -426,7 +431,6 @@ describe("the member's answer", () => {
     // The save waits on the proxy push now; the agent hears nothing until it
     // lands, so its confirmation reaches the process that has the secret.
     expect(t.changes()).toBe(1);
-    expect(t.told).toEqual([]);
     expect(t.settled).toEqual([]);
     expect(code(t.requests.decline("u-alice", "a1", requestId))).toBe(
       "not_found",
@@ -437,8 +441,7 @@ describe("the member's answer", () => {
     ).toBe("not_found");
     release();
     expect(await saving).toEqual({ ok: true, name: "GH_TOKEN" });
-    expect(t.settled).toEqual([["a1", requestId, "saved", "GH_TOKEN"]]);
-    expect(t.told).toHaveLength(1);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
   });
 
   it("the agent's delete of the ask withdraws the request", async () => {
@@ -457,7 +460,7 @@ describe("the member's answer", () => {
 });
 
 describe("a store that cannot write", () => {
-  it("a save still settles and tells the agent: the secret exists", async () => {
+  it("a save still settles: the secret exists", async () => {
     const t = setup();
     const requestId = opened(t.requests.open("a1", ASK));
     t.control.failWrites = true;
@@ -465,8 +468,7 @@ describe("a store that cannot write", () => {
       t.requests.save("u-alice", "a1", requestId, { value: VALUE }),
     );
     expect(result.ok).toBe(true);
-    expect(t.settled).toEqual([["a1", requestId, "saved", "GH_TOKEN"]]);
-    expect(t.told).toHaveLength(1);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
     // The ask stays until the store can write; a second save is refused.
     expect(t.asks.listAll()).toHaveLength(1);
     expect(output).not.toContain(VALUE);
@@ -475,7 +477,7 @@ describe("a store that cannot write", () => {
     ).toBe("secret_exists");
   });
 
-  it("a decline fails with nothing settled or told, and the ask stays", () => {
+  it("a decline fails with nothing settled, and the ask stays", () => {
     const t = setup();
     const requestId = opened(t.requests.open("a1", ASK));
     t.control.failWrites = true;
@@ -483,13 +485,12 @@ describe("a store that cannot write", () => {
       "request_failed",
     );
     expect(t.settled).toEqual([]);
-    expect(t.told).toEqual([]);
     expect(t.asks.listAll()).toHaveLength(1);
   });
 });
 
 describe("a restart", () => {
-  it("keeps an open request: the next boot's store answers the save, and the agent is told", async () => {
+  it("keeps an open request: the next boot's store answers the save, and settles it", async () => {
     const t = setup();
     const requestId = opened(t.requests.open("a1", ASK));
     const next = t.boot();
@@ -499,7 +500,7 @@ describe("a restart", () => {
       value: VALUE,
     });
     expect(saved).toEqual({ ok: true, name: "GH_TOKEN" });
-    expect(t.told.map((m) => m.agentId)).toEqual(["a1"]);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
     expect(next.asks.listAll()).toEqual([]);
     expectNoValue({ ...t, asks: next.asks }, saved);
   });
@@ -564,16 +565,9 @@ describe("an app secret request", () => {
     expect(t.store.list({ kind: "user", userId: "u-owner" })).toEqual([]);
     expect(t.changes()).toBe(1);
     expect(t.asks.listAll()).toEqual([]);
-    expect(t.settled).toEqual([
-      ["a3", requestId, "saved", "YOUTUBE_CLIENT_SECRET"],
-    ]);
-    // The agent hears it from the member who saved, about the app; with no
-    // host there is no placeholder to give.
-    expect(t.told).toHaveLength(1);
-    expect(t.told[0].userId).toBe("u-owner");
-    expect(t.told[0].text).toContain("game-video");
-    expect(t.told[0].text).not.toContain("ghp_PLACEHOLDER");
-    expectNoValue(t, result, output, t.settled, t.told);
+    // Settled as answered by the member who saved, not the manager.
+    expect(outcomes(t)).toEqual([["a3", requestId, "saved", "u-owner"]]);
+    expectNoValue(t, result, output, t.settled);
   });
 
   it("goes to the manager by default; a named member instead; and only to one who may write the app owner's secrets", async () => {
@@ -670,8 +664,6 @@ describe("an app secret request", () => {
       t.store.list({ kind: "user", userId: "u-alice" }).map((s) => s.name),
     ).toEqual(["GH_TOKEN"]);
     expect(t.store.list({ kind: "user", userId: "u-owner" })).toEqual([]);
-    // The secret is for the agent: it gets its placeholder.
-    expect(t.told[0].text).toContain("ghp_PLACEHOLDERuserGH_TOKEN");
     expect(
       failure(t.requests.open("a1", { ...ASK, name: "OTHER", member: "Bob" })),
     ).toBe("403 member_not_allowed");
@@ -775,7 +767,7 @@ describe("an app secret request", () => {
     expect(t.asks.listAll().map((e) => e.secret?.requestId)).toEqual([
       requestId,
     ]);
-    expect(t.settled).toEqual([["a3", officeId, "saved", "OFFICE_ONE"]]);
+    expect(outcomes(t)).toEqual([["a3", officeId, "saved", "u-owner"]]);
     // A member cannot add hosts to it either.
     apps["game-video"] = { ...GAME };
     expect(
@@ -855,6 +847,118 @@ describe("an app secret request", () => {
     expect(t.store.list(carol).map((s) => s.apps)).toEqual([["game-video"]]);
     expect(t.store.list({ kind: "office" }).map((s) => s.apps)).toEqual([
       ["game-video"],
+    ]);
+  });
+});
+
+// What the chat and the agent are told (task 9019f2f8): one line that says
+// what happened - the secret, and the app or the secrets it went to - and
+// nothing on how to use it.
+describe("the outcome line", () => {
+  const GAME = { createdAt: 1000, userId: "u-carol" };
+  const APP_ASK = {
+    name: "YOUTUBE_CLIENT_SECRET",
+    app: "game-video",
+    reason: "The video app signs in to YouTube.",
+  };
+  const lineOf = (t: { settled: Settled[] }, requestId: string) =>
+    t.settled.find((s) => s.requestId === requestId)?.line;
+  const save = async (
+    t: ReturnType<typeof setup>,
+    userId: string,
+    agentId: string,
+    requestId: string,
+  ) => {
+    const saved = await t.requests.save(userId, agentId, requestId, {
+      value: VALUE,
+    });
+    if (!saved.ok) throw new Error(`save refused: ${saved.code}`);
+  };
+
+  it("a personal save names the member whose secrets hold it, not the member who answered", async () => {
+    const t = setup({ a1: "u-alice" });
+    const own = opened(t.requests.open("a1", ASK));
+    const byNil = opened(
+      t.requests.open("a1", { ...ASK, name: "BY_NIL", member: "Nil" }),
+    );
+    await save(t, "u-alice", "a1", own);
+    await save(t, "u-owner", "a1", byNil);
+    expect(lineOf(t, own)).toEqual(
+      msg("systemEntries.secretRequest.savedPersonal", {
+        name: "GH_TOKEN",
+        member: "Alice",
+      }),
+    );
+    expect(lineOf(t, byNil)).toEqual(
+      msg("systemEntries.secretRequest.savedPersonal", {
+        name: "BY_NIL",
+        member: "Alice",
+      }),
+    );
+    expect(outcomes(t).map((o) => o[3])).toEqual(["u-alice", "u-owner"]);
+  });
+
+  it("an office save says the office secrets", async () => {
+    const t = setup({ a1: "u-alice" });
+    const office = opened(t.requests.open("a1", { ...ASK, scope: "office" }));
+    await save(t, "u-owner", "a1", office);
+    expect(lineOf(t, office)).toEqual(
+      msg("systemEntries.secretRequest.savedOffice", { name: "GH_TOKEN" }),
+    );
+  });
+
+  it("an app save names the app, whichever secrets hold it", async () => {
+    const t = setup({ a3: "u-carol" }, { "game-video": GAME });
+    const personal = opened(t.requests.open("a3", APP_ASK));
+    const office = opened(
+      t.requests.open("a3", {
+        ...APP_ASK,
+        name: "OFFICE_ONE",
+        scope: "office",
+      }),
+    );
+    await save(t, "u-carol", "a3", personal);
+    await save(t, "u-owner", "a3", office);
+    expect(lineOf(t, personal)).toEqual(
+      msg("systemEntries.secretRequest.savedForApp", {
+        name: "YOUTUBE_CLIENT_SECRET",
+        app: "game-video",
+      }),
+    );
+    expect(lineOf(t, office)).toEqual(
+      msg("systemEntries.secretRequest.savedForApp", {
+        name: "OFFICE_ONE",
+        app: "game-video",
+      }),
+    );
+  });
+
+  it("a personal save into the secrets of a member with no name left says only the secret", async () => {
+    const t = setup({ a9: GONE });
+    const requestId = opened(t.requests.open("a9", ASK));
+    await save(t, GONE, "a9", requestId);
+    expect(lineOf(t, requestId)).toEqual(
+      msg("systemEntries.secretRequest.saved", { name: "GH_TOKEN" }),
+    );
+  });
+
+  it("a decline names the secret, for an agent's own request and an app's", () => {
+    const t = setup({ a3: "u-carol" }, { "game-video": GAME });
+    const own = opened(t.requests.open("a3", ASK));
+    const app = opened(t.requests.open("a3", APP_ASK));
+    expect(t.requests.decline("u-carol", "a3", own).ok).toBe(true);
+    expect(t.requests.decline("u-carol", "a3", app).ok).toBe(true);
+    expect(t.settled.map((s) => [s.outcome, s.line])).toEqual([
+      [
+        "declined",
+        msg("systemEntries.secretRequest.declined", { name: "GH_TOKEN" }),
+      ],
+      [
+        "declined",
+        msg("systemEntries.secretRequest.declined", {
+          name: "YOUTUBE_CLIENT_SECRET",
+        }),
+      ],
     ]);
   });
 });

@@ -3443,23 +3443,35 @@ export function createAgentManager(deps: ManagerDeps) {
     return { ok: true };
   }
 
-  // The system entry that records a secret request's outcome. It also
-  // settles a card from a server before secret requests were asks.
+  // A secret request's outcome: the system entry that records it (it also
+  // settles a card from a server before secret requests were asks), and the
+  // same line to the agent as an office notice from the member who answered.
   function emitAgentSecretRequestSettled(
     agentId: string,
     requestId: string,
     outcome: "saved" | "declined",
-    name: string,
+    line: LogMessage,
+    answeredBy: string,
   ): void {
     if (!agents.has(agentId)) return;
-    addLogEntry(
-      agentId,
-      "system",
-      outcome === "saved"
-        ? `Secret ${name} saved.`
-        : `Secret request for ${name} declined.`,
-      { secretRequestSettled: requestId, outcome },
-    );
+    addLogEntry(agentId, "system", line, {
+      secretRequestSettled: requestId,
+      outcome,
+    });
+    const username = getUserById(answeredBy)?.name;
+    void prepareEnqueue(agentId)
+      .then(() => {
+        const result = enqueueMessage(agentId, {
+          sender: { kind: "user", ...(username ? { username } : {}) },
+          text: `[Isomux: ${renderLogText(english, line)}]`,
+          notice: true,
+        });
+        if (!result.ok)
+          console.error(
+            `[secret-requests] the agent was not told: ${result.status} ${result.error}`,
+          );
+      })
+      .catch(() => console.error("[secret-requests] the agent was not told"));
   }
 
   // Copy a path that passed probeReadFile into the agent's files dir
@@ -8452,6 +8464,8 @@ export function createAgentManager(deps: ManagerDeps) {
     ) {
       return "";
     }
+    // An office notice is a whole message too, from no one the agent talks to.
+    if (m.notice) return "";
     if (m.ask && m.sender.kind === "user") {
       return `${senderPrefixText(m.sender, receiverAgentId)}${askReplyNote(m.ask, getCurrentSessionId(receiverAgentId))}`;
     }
@@ -8537,7 +8551,8 @@ export function createAgentManager(deps: ManagerDeps) {
         continue;
       }
       // The continue on the office sign-in: the switch line already says it.
-      if (m.fallbackContinue) {
+      // An office notice: its system line is already in the chat.
+      if (m.fallbackContinue || m.notice) {
         continue;
       }
       addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
@@ -9032,6 +9047,8 @@ export function createAgentManager(deps: ManagerDeps) {
       restartWake?: boolean;
       // QueuedMessage.fallbackContinue.
       fallbackContinue?: boolean;
+      // QueuedMessage.notice.
+      notice?: boolean;
     },
     // Agent-initiated steering. Set by the inter-agent send
     // route when the sender passed "steer":true. Deliberately an option on THIS
@@ -9077,7 +9094,8 @@ export function createAgentManager(deps: ManagerDeps) {
       state !== "error" &&
       !isQueueIdleState(state) &&
       !msg.resend &&
-      !msg.fallbackContinue;
+      !msg.fallbackContinue &&
+      !msg.notice;
     // A steer at a busy receiver whose backend delivers at tool boundaries
     // waits for the running tool batch instead of aborting the turn
     // (internal-docs/steer-delivery-design.md). Decided here, against the same
@@ -9105,6 +9123,7 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(msg.limitResume ? { limitResume: true } : {}),
       ...(msg.restartWake ? { restartWake: true } : {}),
       ...(msg.fallbackContinue ? { fallbackContinue: true } : {}),
+      ...(msg.notice ? { notice: true } : {}),
       ...(msg.limitResumeMemberIds?.length
         ? { limitResumeMemberIds: msg.limitResumeMemberIds }
         : {}),
@@ -9662,6 +9681,7 @@ export function createAgentManager(deps: ManagerDeps) {
       ...(m.scheduledFor !== undefined ? { scheduledFor: m.scheduledFor } : {}),
       ...(m.handoff ? { handoff: true } : {}),
       ...(m.carried ? { carried: true } : {}),
+      ...(m.notice ? { notice: true } : {}),
       ...(m.attachments?.length
         ? { attachments: m.attachments.map((a) => a.originalName) }
         : {}),

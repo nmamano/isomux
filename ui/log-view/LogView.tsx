@@ -8,7 +8,7 @@ import {
 } from "./ActivityIndicator.tsx";
 import { StatusShape } from "../components/StatusShape.tsx";
 import { coalesceCodexDiagnostics } from "../../shared/codex-diagnostics.ts";
-import { chatVisibleEntries } from "./chat-entries.ts";
+import { chatVisibleEntries, chatVisibleQueue } from "./chat-entries.ts";
 import {
   useState,
   useRef,
@@ -1973,7 +1973,7 @@ export function LogView({
       // Ctrl/Cmd+Enter with an empty composer still means "deliver the queue
       // now" - hit the same endpoint as the Send-now button instead of
       // silently doing nothing. No-op when nothing is queued.
-      if (opts?.sendNow && (agent.queue ?? []).length > 0) {
+      if (opts?.sendNow && chatVisibleQueue(agent.queue).length > 0) {
         apiFetch("POST", `/api/agents/${agent.id}/send-now`).catch(() => {});
       }
       return false;
@@ -2901,7 +2901,7 @@ export function LogView({
               </div>
             )}
             <QueueChips
-              queue={agent.queue ?? []}
+              queue={chatVisibleQueue(agent.queue)}
               agentId={agent.id}
               isMobile={isMobile}
             />
@@ -3399,7 +3399,7 @@ export function LogView({
               ) : null}
               {isMobile &&
                 (isBusy &&
-                (agent.queue ?? []).length === 0 &&
+                chatVisibleQueue(agent.queue).length === 0 &&
                 !input.trim() &&
                 validAttachments.length === 0 ? (
                   <button

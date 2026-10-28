@@ -681,6 +681,12 @@ export interface QueuedMessage {
   // The wake isomux sends itself after a server restart cut the agent's turn
   // (server/restart-wake.ts). Same shape as limitResume.
   restartWake?: boolean;
+  // An office notice: `text` is the whole agent-facing message, and the chat
+  // already shows the system line it stands for, so its delivery writes no
+  // chat entry. The sender is the member whose act it reports (a secret
+  // request's answer), so the turn stays theirs, but the agent reads no
+  // member label.
+  notice?: boolean;
   // A message sent again after the provider refused the office-seeded free
   // model it went to: the flush sends it on its own, and a second refusal is
   // not retried.
@@ -702,6 +708,7 @@ export type QueuedMessageView = Pick<
   | "scheduledFor"
   | "handoff"
   | "carried"
+  | "notice"
 > & { attachments?: string[] };
 
 // A message scheduled for future delivery (POST /api/agents/:id/messages with

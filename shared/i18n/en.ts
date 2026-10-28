@@ -2889,6 +2889,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Automatic handoff did not complete. Isomux tries again after the agent's next reply.",
   "systemEntries.autoHandoff.paused":
     "Automatic handoff is paused for this conversation: it started above the handoff threshold.",
+  "systemEntries.secretRequest.saved": "Secret {name} saved.",
+  "systemEntries.secretRequest.savedForApp":
+    "Secret {name} saved for the app {app}.",
+  "systemEntries.secretRequest.savedOffice":
+    "Secret {name} saved as an office secret.",
+  "systemEntries.secretRequest.savedPersonal":
+    "Secret {name} saved in {member}'s secrets.",
+  "systemEntries.secretRequest.declined": "Secret request for {name} declined.",
   "systemEntries.limitResume.resumed":
     "Usage limit reset. Isomux resumed the agent.",
   "systemEntries.restartWake.resumed":

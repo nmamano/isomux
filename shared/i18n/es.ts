@@ -2922,6 +2922,15 @@ Cosas que puedes hacer por él:
     "El traspaso automático no se completó. Isomux lo intenta de nuevo tras la próxima respuesta del agente.",
   "systemEntries.autoHandoff.paused":
     "El traspaso automático está en pausa en esta conversación: empezó por encima del umbral de traspaso.",
+  "systemEntries.secretRequest.saved": "Secreto {name} guardado.",
+  "systemEntries.secretRequest.savedForApp":
+    "Secreto {name} guardado para la app {app}.",
+  "systemEntries.secretRequest.savedOffice":
+    "Secreto {name} guardado como secreto de la oficina.",
+  "systemEntries.secretRequest.savedPersonal":
+    "Secreto {name} guardado en los secretos de {member}.",
+  "systemEntries.secretRequest.declined":
+    "Solicitud del secreto {name} rechazada.",
   "systemEntries.limitResume.resumed":
     "El límite de uso se restableció. Isomux reanudó el agente.",
   "systemEntries.restartWake.resumed":

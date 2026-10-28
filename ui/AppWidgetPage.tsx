@@ -20,7 +20,10 @@ import {
   useChatTranscript,
 } from "./log-view/ChatTranscript.tsx";
 import { LiveCharacter } from "./office/LiveCharacter.tsx";
-import { chatVisibleEntries } from "./log-view/chat-entries.ts";
+import {
+  chatVisibleEntries,
+  chatVisibleQueue,
+} from "./log-view/chat-entries.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
 import { readSafariEnv, safariHref } from "./safari-link.ts";
 import {
@@ -974,6 +977,7 @@ export function WidgetChat({
       onRecheck();
     }
   };
+  const queued = chatVisibleQueue(agent.queue).length;
   return (
     <div
       className="app-widget-chat-content"
@@ -1074,9 +1078,9 @@ export function WidgetChat({
           void send();
         }}
       >
-        {agent.queue?.length ? (
+        {queued ? (
           <div className="app-widget-queue" role="status">
-            {t("logView.queue.count", { count: agent.queue.length })}
+            {t("logView.queue.count", { count: queued })}
           </div>
         ) : null}
         <div className="app-widget-images">

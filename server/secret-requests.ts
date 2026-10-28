@@ -1,7 +1,7 @@
 // Secret requests (secrets loop, slice B4): an agent asks for a credential,
 // and the member types the value in a masked form, so the value never enters
-// the transcript. The agent gets the placeholder and a confirmation; the
-// member can decline.
+// the transcript. The agent gets the placeholder from its next start, and an
+// office notice of the outcome; the member can decline.
 //
 // An open request is an ask (asks.ts, AskEntry.secret): it waits in the
 // agent's asks stack for the member who may answer it and survives a
@@ -20,6 +20,7 @@
 // only.
 
 import type { AskEntry, SecretAskRequest } from "../shared/types.ts";
+import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 import {
   askVisibleTo,
   AsksUnavailableError,
@@ -56,7 +57,6 @@ export interface SecretRequestDeps {
   // The secrets runtime's change hook (secrets.ts): pushes the new secret to
   // the proxy and releases the agents in scope, so their next start has it.
   onChanged?: () => Promise<void>;
-  placeholderOf: (scope: SecretScope, name: string) => string | null;
   // The agent's manager: a user id, null for an unowned agent, undefined
   // when there is no such agent.
   agentUserId: (agentId: string) => string | null | undefined;
@@ -68,15 +68,17 @@ export interface SecretRequestDeps {
   ) => { name: string; createdAt: number; userId: string | null } | null;
   // A member by username (case-insensitive), or null.
   memberByName: (name: string) => { id: string; name: string } | null;
-  // The system entry that records the outcome in the agent's chat.
-  emitSettled: (
+  // A member's name by id, or null when the member is gone.
+  memberName: (userId: string) => string | null;
+  // The outcome: a system line in the agent's chat, and the same line to the
+  // agent as an office notice from the member who answered.
+  settled: (
     agentId: string,
     requestId: string,
     outcome: "saved" | "declined",
-    name: string,
+    line: LogMessage,
+    answeredBy: string,
   ) => void;
-  // A message to the agent from the member who answered.
-  tellAgent: (agentId: string, userId: string, text: string) => void;
 }
 
 export type SecretRequestFailure = {
@@ -198,6 +200,22 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       if (err instanceof AsksUnavailableError) return requestFailed;
       throw err;
     }
+  }
+
+  // What a save says: the app the secret went to, else its scope.
+  function savedLine(
+    scope: SecretScope,
+    name: string,
+    app: string | undefined,
+  ): LogMessage {
+    if (app)
+      return msg("systemEntries.secretRequest.savedForApp", { name, app });
+    if (scope.kind === "office")
+      return msg("systemEntries.secretRequest.savedOffice", { name });
+    const member = deps.memberName(scope.userId);
+    return member
+      ? msg("systemEntries.secretRequest.savedPersonal", { name, member })
+      : msg("systemEntries.secretRequest.saved", { name });
   }
 
   // The agent's ask. Checks what the store would check, so the member never
@@ -471,23 +489,12 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       } catch {
         console.error("[secret-requests] the proxy did not take a change");
       }
-      deps.emitSettled(agentId, requestId, "saved", name);
-      if (app) {
-        deps.tellAgent(
-          agentId,
-          userId as string,
-          `I saved the secret ${name} you asked for, for the app ${app.name}. The app has $${name} in its environment from its next start; a running app restarts now. You get no placeholder for it.`,
-        );
-        return { ok: true, name };
-      }
-      const placeholder = deps.placeholderOf(scope, name);
-      const hosts = change.secret.hosts.join(", ");
-      deps.tellAgent(
+      deps.settled(
         agentId,
+        requestId,
+        "saved",
+        savedLine(scope, name, app?.name),
         userId as string,
-        `I saved the secret ${name} you asked for. From your next start, $${name} holds its placeholder` +
-          (placeholder ? ` (${placeholder})` : "") +
-          `. Use it as the value: the proxy puts the real value into requests to ${hosts} only.`,
       );
       return { ok: true, name };
     },
@@ -506,11 +513,12 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         } catch {
           return requestFailed;
         }
-        deps.emitSettled(agentId, requestId, "declined", name);
-        deps.tellAgent(
+        deps.settled(
           agentId,
+          requestId,
+          "declined",
+          msg("systemEntries.secretRequest.declined", { name }),
           userId as string,
-          `I declined your request for the secret ${name}.`,
         );
         return { ok: true, name };
       });

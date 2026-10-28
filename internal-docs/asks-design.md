@@ -48,7 +48,7 @@ A secret request (`server/secret-requests.ts`, `POST /api/agents/:id/secret-requ
 - An app request (`app: {name, createdAt}`) has no hosts. Its save re-checks that the app is the same registration and, for a personal request, still the owner's (409 `app_gone`, the ask stays), and gives the secret that app's grant.
 - The member answers on the secret request's save and decline routes. A reply, dismiss or filed task gets 409 `secret_request`, so a value typed there never reaches the chat or the agent. The agent's edit gets the same 409; its delete withdraws the request.
 - The save creates the secret, then removes the ask, with no await between the permission check and the removal. If the removal fails, the agent is still told, since the secret exists. A decline removes the ask first and tells the agent only after that.
-- The chat shows the agent's call, the system line with the outcome and the agent's save or decline message. A `secret-request` log entry from a server before this change draws a read-only card: its outcome, else closed.
+- The chat shows the agent's call and a system line with the outcome. The agent gets the same line, in English, as an office notice (`QueuedMessage.notice`): its sender is the member who answered, so the turn and the usage cap are that member's, but the agent reads only `[Isomux: <line>]`, and its delivery writes no chat entry. The queue strip leaves notices out. A `secret-request` log entry from a server before this change draws a read-only card: its outcome, else closed.
 
 ## UI
 

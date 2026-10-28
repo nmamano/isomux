@@ -4931,8 +4931,6 @@ function buildExecutorDeps(
           await secretsChanged();
           agentManager.pushOpenCodeSettings({ kind: "office" });
         },
-        placeholderOf: (scope, name) =>
-          secretsRuntime.placeholderOf(scope, name),
         appFor: (name) => {
           const record = appRegistry.get(name);
           return record
@@ -4951,27 +4949,15 @@ function buildExecutorDeps(
           const agent = agentManager.getAgent(agentId);
           return agent ? (agent.userId ?? null) : undefined;
         },
-        emitSettled: (agentId, requestId, outcome, name) =>
+        memberName: (userId) => getUserById(userId)?.name ?? null,
+        settled: (agentId, requestId, outcome, line, answeredBy) =>
           agentManager.emitAgentSecretRequestSettled(
             agentId,
             requestId,
             outcome,
-            name,
+            line,
+            answeredBy,
           ),
-        tellAgent: (agentId, userId, text) => {
-          const username = getUserById(userId)?.name;
-          void agentManager
-            .prepareEnqueue(agentId)
-            .then(() =>
-              agentManager.enqueueMessage(agentId, {
-                sender: { kind: "user", ...(username ? { username } : {}) },
-                text,
-              }),
-            )
-            .catch(() =>
-              console.error("[secret-requests] the agent was not told"),
-            );
-        },
       }),
     ),
   );

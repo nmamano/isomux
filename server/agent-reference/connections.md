@@ -20,7 +20,7 @@ When you need a credential you do not have, ask for it as a secret. Never ask a 
 
 For a secret that an app reads from its environment, add `app` with the app's name and leave out `hosts` and `form`. The value goes to that app only: `personal` saves it in the app owner's secrets, `office` in the office's. You get no placeholder for it, and a running app restarts to read it.
 
-The route answers `{requestId}`. End your turn and wait. To withdraw the request, delete its ask. When the member saves, you get a message with the placeholder, and the variable holds it from your next start. When the member declines, you get a message that says so.
+The route answers `{requestId}`. End your turn and wait. To withdraw the request, delete its ask. An Isomux notice tells you when the member saves or declines. A saved secret's variable holds its placeholder from your next start.
 
 Errors: 422 `host_not_allowed` for a model or package registry host, which never gets a secret; 400 `invalid_secret` with reason `model_key` for a model sign-in key name such as `OPENAI_API_KEY`, which a member sets as a variable instead; 409 `secret_exists` when the secret exists (tell the member, who can replace its value on the Integrations page); 409 `no_member` for a personal secret when you have no manager; 409 `request_open` when a request for this secret is open (wait for the member's answer); 422 `unknown_member`, or `member_no_access` when that member cannot reach your room; 422 `unknown_app`; 409 `no_app_owner` for a personal request for an app with no owner (ask for an office secret); 409 `no_manager` when you have no manager and name no member; 400 `invalid_request` for an app request with hosts.
 

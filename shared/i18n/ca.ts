@@ -2927,6 +2927,15 @@ Coses que pots fer per ell:
     "El traspàs automàtic no s'ha completat. Isomux ho torna a provar després de la propera resposta de l'agent.",
   "systemEntries.autoHandoff.paused":
     "El traspàs automàtic està en pausa en aquesta conversa: ha començat per sobre del llindar de traspàs.",
+  "systemEntries.secretRequest.saved": "Secret {name} desat.",
+  "systemEntries.secretRequest.savedForApp":
+    "Secret {name} desat per a l'app {app}.",
+  "systemEntries.secretRequest.savedOffice":
+    "Secret {name} desat com a secret de l'oficina.",
+  "systemEntries.secretRequest.savedPersonal":
+    "Secret {name} desat als secrets del membre {member}.",
+  "systemEntries.secretRequest.declined":
+    "Sol·licitud del secret {name} rebutjada.",
   "systemEntries.limitResume.resumed":
     "El límit d'ús s'ha restablert. Isomux ha reprès l'agent.",
   "systemEntries.restartWake.resumed":

@@ -1,4 +1,4 @@
-import type { LogEntry } from "../../shared/types.ts";
+import type { LogEntry, QueuedMessage } from "../../shared/types.ts";
 
 // Log kinds the chat never shows. Both are the server's sender-side record of a
 // message the agent sent; the curl card of the same tool call is the view
@@ -18,4 +18,12 @@ export function chatVisibleEntries(logs: LogEntry[]): LogEntry[] {
   return logs.some(isChatHidden)
     ? logs.filter((entry) => !isChatHidden(entry))
     : logs;
+}
+
+// The queue as the chat shows it: an office notice waits there too, but its
+// system line is already in the chat (QueuedMessage.notice).
+export function chatVisibleQueue(
+  queue: QueuedMessage[] | undefined,
+): QueuedMessage[] {
+  return (queue ?? []).filter((m) => !m.notice);
 }
