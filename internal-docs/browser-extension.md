@@ -380,9 +380,10 @@ rendered text only from contenteditables. It omits empty values and values
 already in the ARIA snapshot. It never changes the page to expose the text.
 
 `browser-selector-errors.ts` maps known Playwright parser diagnostics to fixed
-`invalid_request` guidance. It returns no exception fragment. Timeouts,
-strictness failures, missing frames and unknown failures keep their existing
-codes. Semantic selector example: `role=dialog >> role=button[name=/^Post$/]`;
+`invalid_request` guidance. A strictness failure (a selector that matches
+several elements) is also `invalid_request`, with the match count only. It
+returns no exception fragment. Timeouts, missing frames and unknown failures
+keep their existing codes. Semantic selector example: `role=dialog >> role=button[name=/^Post$/]`;
 `[exact=true]` is not a supported role attribute. CSS `[role="button"]` checks
 an explicit HTML attribute rather than the computed accessibility role.
 

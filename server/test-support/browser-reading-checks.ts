@@ -68,9 +68,13 @@ export async function checkBrowserReading(page: Page, action: Action) {
     expect(
       (await action({ action: kind, framePath: [9] })).body.error?.code,
     ).toBe("action_failed");
-    expect(
-      (await action({ action: kind, selector: "div" })).body.error?.code,
-    ).toBe("action_failed");
+    // Many divs match: a strictness failure is a request error with the
+    // match count only, never the matched page content.
+    const ambiguous = await action({ action: kind, selector: "div" });
+    expect(ambiguous.status).toBe(400);
+    expect(ambiguous.body.error?.code).toBe("invalid_request");
+    expect(JSON.stringify(ambiguous.body)).not.toContain(draft);
+    expect(JSON.stringify(ambiguous.body)).not.toContain(hidden);
   }
   const own = await action({
     action: "snapshot",

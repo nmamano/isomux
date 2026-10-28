@@ -439,15 +439,17 @@ async function runOfficeScenario(
           })
         ).body.error.code,
       ).toBe("action_failed");
-      expect(
-        (
-          await action(first.id, {
-            action: "click",
-            framePath: [0],
-            selector: "button",
-          })
-        ).body.error.code,
-      ).toBe("action_failed");
+      // The frame has two buttons: a strictness failure is a request error
+      // that names no page content.
+      const ambiguous = await action(first.id, {
+        action: "click",
+        framePath: [0],
+        selector: "button",
+      });
+      expect(ambiguous.status).toBe(400);
+      expect(ambiguous.body.error.code).toBe("invalid_request");
+      expect(JSON.stringify(ambiguous.body)).not.toContain("Apply frame");
+      expect(JSON.stringify(ambiguous.body)).not.toContain("frame-apply");
       expect(await activeState()).toEqual(activeBefore);
       const snapshot = await action(first.id, { action: "snapshot" });
       expect(snapshot.status).toBe(200);
@@ -658,15 +660,22 @@ async function runOfficeScenario(
         )
       ).status,
     ).toBe(403);
+    // Two file inputs match: the strictness failure uploads nothing.
+    const ambiguousUpload = await action(first.id, {
+      action: "upload",
+      selector: "input[type=file]",
+      path: uploadPath,
+    });
+    expect(ambiguousUpload.status).toBe(400);
+    expect(ambiguousUpload.body.error.code).toBe("invalid_request");
     expect(
-      (
-        await action(first.id, {
-          action: "upload",
-          selector: "input[type=file]",
-          path: uploadPath,
-        })
-      ).body.error.code,
-    ).toBe("action_failed");
+      await firstPage
+        .locator("#other-attachment")
+        .evaluate((element) => (element as HTMLInputElement).files!.length),
+    ).toBe(0);
+    expect(
+      await firstPage.locator("#attachment").getAttribute("data-input"),
+    ).toBe("1");
     expect(
       await secondPage
         .locator("#attachment")

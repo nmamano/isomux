@@ -13,7 +13,17 @@ test("known selector parse failures return fixed guidance without private input"
       `locator.ariaSnapshot: Unexpected token "${privateText}" while parsing css selector "[".\nDOM: ${privateText}`,
     ),
   );
-  for (const result of [role, css]) {
+  // A scoped read waits for its element first (task 0a7ba348): these are the
+  // first lines Playwright gives there.
+  const scoped = [
+    `waitFor: Error: Unknown attribute "${privateText}", must be one of "name".`,
+    `waitFor: Unexpected token "" while parsing css selector "[${privateText}". Did you mean to CSS.escape it?`,
+    `waitFor: Unknown engine "bogus" while parsing selector bogus=${privateText} >> nth=0`,
+    `waitFor: InvalidSelectorError: Unexpected end of selector while parsing selector \`button[name=/[/${privateText}]\``,
+  ].map((message) =>
+    selectorSyntaxFailure(new Error(`${message}\nDOM: ${privateText}`)),
+  );
+  for (const result of [role, css, ...scoped]) {
     expect(result).toMatchObject({
       ok: false,
       status: 400,
@@ -62,9 +72,12 @@ test("a selector that matches several elements names the count and no page text"
     );
   const seven = strict("locator.innerText", 7);
   const twelve = strict("page.click", 12);
+  // An upload through the extension names its call this way (task 0a7ba348).
+  const two = strict("async setInputFiles", 2);
   for (const [result, count] of [
     [seven, "7"],
     [twelve, "12"],
+    [two, "2"],
   ] as const) {
     expect(result).toMatchObject({
       ok: false,

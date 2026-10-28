@@ -7,9 +7,10 @@ export function selectorSyntaxFailure(
 ): BrowserFailure | undefined {
   if (!(error instanceof Error) || error.name === "TimeoutError") return;
   const first = error.message.split("\n", 1)[0];
-  // Only the count: the locator and the matched elements are page data.
+  // Only the count: the locator and the matched elements are page data. An
+  // upload through the extension names its call "async setInputFiles".
   const strict =
-    /^(?:[\w.]+: )?Error: strict mode violation: .* resolved to (\d+) elements:/.exec(
+    /^(?:(?:async )?[\w.]+: )?Error: strict mode violation: .* resolved to (\d+) elements:/.exec(
       first,
     );
   if (strict)
@@ -20,7 +21,7 @@ export function selectorSyntaxFailure(
       error: `The selector matched ${strict[1]} elements. Make it match one element, for example by adding >> nth=0.`,
     };
   const parsed =
-    /^(?:(?:page|locator)\.)?(?:click|fill|press|setInputFiles|innerText|ariaSnapshot): (.*)$/.exec(
+    /^(?:(?:page|locator)\.)?(?:click|fill|press|setInputFiles|innerText|ariaSnapshot|waitFor): (.*)$/.exec(
       first,
     );
   if (!parsed) return;
