@@ -1289,6 +1289,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     let armed = false;
     let oversized = 0;
     const connections = new Set<unknown>();
+    const routed = new WeakSet<object>();
     const prototype = ExtensionConnection.prototype as unknown as {
       receive: (message: unknown) => void;
       receiveOversized: (message: unknown, bytes: number) => void;
@@ -1300,7 +1301,10 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     ) {
       connections.add(this);
       const bytes = Buffer.byteLength(JSON.stringify(message));
-      if (armed && bytes > threshold) {
+      // receiveOversized hands a trimmed event back to receive, which must
+      // not route it there again (task a42c729b).
+      if (armed && bytes > threshold && !routed.has(message as object)) {
+        routed.add(message as object);
         oversized++;
         return this.receiveOversized(message, bytes);
       }

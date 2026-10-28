@@ -625,25 +625,205 @@ test("an answer over the size cap fails only its own command; the browser and th
   }
 });
 
-test("an event over the size cap releases only its tab", async () => {
+// Task a42c729b: an oversized event loses its large strings and goes through
+// as any event; only one that stays over the cap ends its grant.
+const EVENT_STRING_CAP = 64 * 1024;
+// The events the client of tab got with this method.
+const delivered = (tab: { client: { messages: Fields[] } }, method: string) =>
+  tab.client.messages.filter((m) => m.method === method);
+// The next command on tab still reaches the extension and comes back.
+async function commandWorks(
+  h: Awaited<ReturnType<typeof twoTabs>>,
+  tab: Awaited<ReturnType<typeof twoTabs>>["tabs"][number],
+  id: number,
+) {
+  const work = tab.peer.receive({
+    id,
+    method: "Runtime.evaluate",
+    sessionId: tab.sessionId,
+    params: { expression: "1" },
+  });
+  const sent = await h.commandFor(tab.assignment, "Runtime.evaluate");
+  h.send({ kind: "result", id: sent.id, result: { result: { value: 1 } } });
+  await work;
+  expect(tab.client.messages.find((m) => m.id === id)).toMatchObject({
+    result: { result: { value: 1 } },
+  });
+}
+// The tab's grant and client are still on, and no grant ended.
+function stillOn(
+  h: Awaited<ReturnType<typeof twoTabs>>,
+  lines: Fields[],
+  tab: Awaited<ReturnType<typeof twoTabs>>["tabs"][number],
+) {
+  expect(h.socket.closed()).toBe(false);
+  expect(h.connection.offered(tab.agent)).toBe(tab.assignment);
+  expect(tab.client.closed).toBe(false);
+  expect(lines.some((l) => l.reason === "grant_released")).toBe(false);
+}
+
+test("an event over the size cap reaches its client with its long strings cut; the grant stays", async () => {
   const f = serviceFixture("browser-too-large-event-");
   try {
     const h = await twoTabs(f.service, f.store.pair("member").code);
     const [one, two] = h.tabs;
+    const value = padding("https://secret.test/");
     const lines = await logged(() =>
       h.send({
         kind: "event",
         assignment: one.assignment,
         method: "Runtime.consoleAPICalled",
-        params: { args: [{ value: padding("https://secret.test/") }] },
+        params: { type: "log", args: [{ type: "string", value }] },
+      }),
+    );
+    stillOn(h, lines, one);
+    const [got] = delivered(one, "Runtime.consoleAPICalled");
+    const cut = (fields(got.params).args as Fields[])[0].value as string;
+    // The start of the string, no longer than the cap.
+    expect(cut.length).toBeGreaterThan(0);
+    expect(cut.length).toBeLessThanOrEqual(EVENT_STRING_CAP);
+    expect(value.startsWith(cut)).toBe(true);
+    expect(fields(got.params).type).toBe("log");
+    expect(delivered(two, "Runtime.consoleAPICalled")).toEqual([]);
+    // The log names the size and what happened, never the content.
+    const line = lines.find((l) => l.reason === "too_large");
+    expect(line).toMatchObject({
+      kind: "event",
+      method: "Runtime.consoleAPICalled",
+      assignment: one.assignment,
+      action: "trimmed",
+    });
+    expect(line!.bytes).toBeGreaterThan(EXTENSION_MAX_BYTES);
+    expect(JSON.stringify(lines)).not.toContain("secret.test");
+    await commandWorks(h, one, 6);
+  } finally {
+    f.done();
+  }
+});
+
+test("a request event over the size cap reaches its client without its body", async () => {
+  const f = serviceFixture("browser-too-large-body-");
+  try {
+    const h = await twoTabs(f.service, f.store.pair("member").code);
+    const [one] = h.tabs;
+    // Chrome sends the body twice: as text and as base64 parts.
+    const parts = Array.from({ length: 1000 }, () => ({
+      bytes: "y".repeat(1000),
+    }));
+    const url = "https://a.test/api/save";
+    const lines = await logged(() =>
+      h.send({
+        kind: "event",
+        assignment: one.assignment,
+        method: "Network.requestWillBeSent",
+        params: {
+          requestId: "req-1",
+          loaderId: "loader",
+          frameId: "tab-1",
+          type: "XHR",
+          documentURL: "https://a.test/",
+          request: {
+            url,
+            method: "POST",
+            headers: {},
+            hasPostData: true,
+            postData: padding("z"),
+            postDataEntries: parts,
+          },
+        },
+      }),
+    );
+    stillOn(h, lines, one);
+    const [got] = delivered(one, "Network.requestWillBeSent");
+    const params = fields(got.params);
+    expect(params.requestId).toBe("req-1");
+    const request = fields(params.request);
+    expect(request.url).toBe(url);
+    expect(request.method).toBe("POST");
+    expect(request.hasPostData).toBe(true);
+    expect("postData" in request).toBe(false);
+    expect("postDataEntries" in request).toBe(false);
+    expect(lines.find((l) => l.reason === "too_large")).toMatchObject({
+      method: "Network.requestWillBeSent",
+      action: "trimmed",
+    });
+    await commandWorks(h, one, 6);
+  } finally {
+    f.done();
+  }
+});
+
+test("a navigation to a data: URL over the size cap reaches its client with the URL cut", async () => {
+  const f = serviceFixture("browser-too-large-data-url-");
+  try {
+    const h = await twoTabs(f.service, f.store.pair("member").code);
+    const [one] = h.tabs;
+    const url = "data:text/html;base64," + "A".repeat(EXTENSION_MAX_BYTES + 1);
+    const lines = await logged(() =>
+      h.send({
+        kind: "event",
+        assignment: one.assignment,
+        method: "Page.frameNavigated",
+        params: {
+          frame: {
+            id: "tab-1",
+            loaderId: "loader-2",
+            url,
+            securityOrigin: "://",
+            mimeType: "text/html",
+          },
+          type: "Navigation",
+        },
+      }),
+    );
+    stillOn(h, lines, one);
+    const [got] = delivered(one, "Page.frameNavigated");
+    const frame = fields(fields(got.params).frame);
+    expect(frame.id).toBe("tab-1");
+    expect(frame.loaderId).toBe("loader-2");
+    const cut = frame.url as string;
+    expect(cut.startsWith("data:text/html;base64,A")).toBe(true);
+    expect(cut.length).toBeLessThanOrEqual(EVENT_STRING_CAP);
+    expect(url.startsWith(cut)).toBe(true);
+    await commandWorks(h, one, 6);
+  } finally {
+    f.done();
+  }
+});
+
+test("an event still over the size cap after the cut releases only its tab", async () => {
+  const f = serviceFixture("browser-too-large-event-ended-");
+  try {
+    const h = await twoTabs(f.service, f.store.pair("member").code);
+    const [one, two] = h.tabs;
+    // Many short strings: none is long enough to cut.
+    const args = Array.from(
+      { length: Math.ceil(EXTENSION_MAX_BYTES / 1000) + 10 },
+      () => ({
+        type: "string",
+        value: "https://secret.test/" + "x".repeat(980),
+      }),
+    );
+    const lines = await logged(() =>
+      h.send({
+        kind: "event",
+        assignment: one.assignment,
+        method: "Runtime.consoleAPICalled",
+        params: { type: "log", args },
       }),
     );
     expect(h.socket.messages.some((m) => m.kind === "refused")).toBe(false);
     expect(h.socket.closed()).toBe(false);
     expect(h.connection.offered("agent")).toBeUndefined();
     expect(one.client.closed).toBe(true);
+    expect(delivered(one, "Runtime.consoleAPICalled")).toEqual([]);
     expect(h.connection.offered("other-agent")).toBe(two.assignment);
     expect(two.client.closed).toBe(false);
+    expect(lines.find((l) => l.reason === "too_large")).toMatchObject({
+      method: "Runtime.consoleAPICalled",
+      assignment: one.assignment,
+      action: "ended",
+    });
     expect(
       lines.find(
         (l) => l.reason === "grant_released" && l.assignment === one.assignment,
@@ -655,6 +835,7 @@ test("an event over the size cap releases only its tab", async () => {
       ),
     ).toBe(false);
     expect(JSON.stringify(lines)).not.toContain("secret.test");
+    await commandWorks(h, two, 6);
   } finally {
     f.done();
   }

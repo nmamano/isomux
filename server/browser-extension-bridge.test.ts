@@ -2114,6 +2114,55 @@ describe("office gate", () => {
   const read = (h: Gate, sessionId = h.sessionId) =>
     command(h, "Runtime.evaluate", { expression: "1" }, sessionId);
 
+  // Task a42c729b: an event over the size cap is cut and then checked like
+  // any event. The cut must not change the origin the gate reads.
+  const oversized = (h: Gate, [method, params]: [string, Fields]) => {
+    const message = {
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: h.assignment,
+      method,
+      params,
+    };
+    h.connection.receiveOversized(
+      message,
+      Buffer.byteLength(JSON.stringify(message)),
+    );
+  };
+  const big = 9 * 1024 * 1024;
+
+  test("an oversized event toward an office, cut to size, still closes the gate", async () => {
+    const h = await gateHarness();
+    try {
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      // A long query string: the cut keeps the origin.
+      oversized(h, request(`${OFFICE}/settings?q=${"x".repeat(big)}`));
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      expect(h.connection.offered("agent")).toBe(h.assignment);
+      expect(h.client.closed).toBe(false);
+      await expectGated(h);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("an oversized commit to an office whose URL a cut would move elsewhere still closes the gate", async () => {
+    const h = await gateHarness();
+    try {
+      // Cut to its first 64 KiB, this URL loses the @ and names another
+      // host. Its frame name brings the event over the cap.
+      const url = `https://${"u".repeat(70 * 1024)}@office.test/`;
+      expect(new URL(url).origin).toBe(OFFICE);
+      const [method, params] = commit(url);
+      fields(params.frame).name = "n".repeat(big);
+      oversized(h, [method, params]);
+      expect(h.connection.officeGated(h.assignment)).toBe(true);
+      await expectGated(h);
+    } finally {
+      h.connection.close();
+    }
+  });
+
   test("a main-frame navigation toward a known office closes the page gate until a commit elsewhere", async () => {
     const h = await gateHarness();
     try {

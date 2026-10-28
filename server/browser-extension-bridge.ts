@@ -310,6 +310,46 @@ function listen(
   };
 }
 
+export const EXTENSION_MAX_BYTES = 8 * 1024 * 1024;
+// The longest string an oversized event keeps (task a42c729b).
+const EVENT_STRING_CAP = 64 * 1024;
+
+// Cuts every long string in a value, in place. A cut keeps the origin the
+// office gate reads, so a long string whose prefix has another origin (a URL
+// with long userinfo) stays whole.
+function cutStrings(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (value.length <= EVENT_STRING_CAP) return value;
+    const cut = value.slice(0, EVENT_STRING_CAP);
+    return httpOrigin(cut) === httpOrigin(value) ? cut : value;
+  }
+  if (Array.isArray(value))
+    for (let i = 0; i < value.length; i++) value[i] = cutStrings(value[i]);
+  else if (value && typeof value === "object")
+    for (const [key, field] of Object.entries(value))
+      (value as Fields)[key] = cutStrings(field);
+  return value;
+}
+
+// An event over EXTENSION_MAX_BYTES without its request body and with its long
+// strings cut, or undefined when it is still over the cap. Playwright reads
+// the body only for Request.postData(); hasPostData stays.
+function trimOversizedEvent(msg: Fields): Fields | undefined {
+  if (msg.params && typeof msg.params === "object") {
+    if (msg.method === "Network.requestWillBeSent") {
+      const request = (msg.params as Fields).request;
+      if (request && typeof request === "object") {
+        delete (request as Fields).postData;
+        delete (request as Fields).postDataEntries;
+      }
+    }
+    cutStrings(msg.params);
+  }
+  return Buffer.byteLength(JSON.stringify(msg)) > EXTENSION_MAX_BYTES
+    ? undefined
+    : msg;
+}
+
 // The routing fields of an extension message, for a log line: never its
 // params or result, which can carry page content.
 function envelope(msg: Fields): Fields {
@@ -1210,7 +1250,8 @@ export class ExtensionConnection {
   }
 
   /** A parsed extension message over EXTENSION_MAX_BYTES: fails only the
-   * command or the grant it belongs to (task f63edd81). */
+   * command it answers (task f63edd81). An event goes on trimmed, or ends
+   * only its grant (task a42c729b). */
   receiveOversized(message: unknown, bytes: number): void {
     if (!this.active) return;
     let msg: Fields;
@@ -1221,6 +1262,13 @@ export class ExtensionConnection {
       return;
     }
     if (msg.generation !== this.generation) return;
+    const event = msg.kind === "event" && typeof msg.assignment === "string";
+    let trimmed: Fields | undefined;
+    try {
+      if (event) trimmed = trimOversizedEvent(msg);
+    } catch {
+      // A value too deep to walk ends only its grant, below.
+    }
     console.info(
       "[browser-extension] " +
         JSON.stringify({
@@ -1228,6 +1276,7 @@ export class ExtensionConnection {
           generation: this.generation,
           ...envelope(msg),
           bytes,
+          ...(event ? { action: trimmed ? "trimmed" : "ended" } : {}),
         }),
     );
     if (msg.kind === "result" && typeof msg.id === "number") {
@@ -1261,8 +1310,9 @@ export class ExtensionConnection {
           }
       return;
     }
-    if (msg.kind === "event" && typeof msg.assignment === "string") {
-      const a = this.assignments.get(msg.assignment);
+    if (event) {
+      if (trimmed) return this.receive(trimmed);
+      const a = this.assignments.get(msg.assignment as string);
       if (a) this.fault(a, "too_large");
       return;
     }

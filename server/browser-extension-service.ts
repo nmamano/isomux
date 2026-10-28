@@ -4,6 +4,7 @@ import { browserDisplay } from "./browser-extension-display";
 import type { ServerWebSocket } from "bun";
 import {
   BrowserExtensionBridge,
+  EXTENSION_MAX_BYTES,
   browserCredentialHash,
   type ExtensionConnection,
 } from "./browser-extension-bridge";
@@ -33,7 +34,7 @@ export interface ExtensionWsData {
   credentialHash?: string;
 }
 export const EXTENSION_SOCKET_PATH = "/browser-extension/ws";
-export const EXTENSION_MAX_BYTES = 8 * 1024 * 1024;
+export { EXTENSION_MAX_BYTES };
 
 // The host classifier runs first. This separate socket never uses office auth.
 // The Origin check only keeps web pages out: a page cannot send a
