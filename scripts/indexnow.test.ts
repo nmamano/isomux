@@ -13,9 +13,9 @@ import {
   INDEXNOW_KEY,
   SITE_HOST,
   changedUrls,
-  pickBaseSha,
+  pickBaseRunSha,
   pingIndexNow,
-  type Deployment,
+  type SiteImageRun,
 } from "./indexnow.ts";
 
 const ORIGIN = `https://${SITE_HOST}`;
@@ -105,42 +105,51 @@ describe("changedUrls", () => {
   });
 });
 
-describe("pickBaseSha", () => {
-  const dep = (
+describe("pickBaseRunSha", () => {
+  const run = (
     id: number,
-    sha: string,
-    createdAt: string,
-    over: Partial<Deployment> = {},
-  ): Deployment => ({
+    runNumber: number,
+    headSha: string,
+    over: Partial<SiteImageRun> = {},
+  ): SiteImageRun => ({
     id,
-    sha,
-    environment: "Production",
-    createdAt,
-    succeeded: true,
+    runNumber,
+    headBranch: "main",
+    headSha,
+    status: "completed",
+    conclusion: "success",
     ...over,
   });
 
-  it("picks the newest earlier successful Production deployment", () => {
-    const deployments = [
-      dep(7, "later", "2026-10-19T09:00:00Z"),
-      dep(6, "current", "2026-10-19T08:00:00Z"),
-      dep(5, "preview", "2026-10-19T07:00:00Z", { environment: "Preview" }),
-      dep(4, "failed", "2026-10-19T06:00:00Z", { succeeded: false }),
-      dep(3, "base", "2026-10-19T05:00:00Z"),
-      dep(2, "older", "2026-10-19T04:00:00Z"),
+  it("picks the newest earlier successful Site image run on main", () => {
+    const runs = [
+      // Finished while this job waited: newer than the current run.
+      run(900, 60, "later"),
+      run(800, 59, "running", { status: "in_progress", conclusion: null }),
+      run(700, 58, "current"),
+      run(600, 57, "cancelled", { conclusion: "cancelled" }),
+      run(500, 56, "failed", { conclusion: "failure" }),
+      run(450, 55, "branch", { headBranch: "rehearsal" }),
+      run(400, 54, "base"),
+      run(300, 53, "older"),
     ];
-    expect(pickBaseSha(deployments, 6)).toBe("base");
-    // The API's order is not a contract: the pick goes by createdAt.
-    expect(pickBaseSha([...deployments].reverse(), 6)).toBe("base");
+    expect(pickBaseRunSha(runs, 700)).toBe("base");
+    // The API's order is not a contract: the pick goes by run number, and run ids
+    // are not in run order.
+    const shuffled = [...runs]
+      .reverse()
+      .map((r) => ({ ...r, id: 10_000 - r.id }));
+    expect(pickBaseRunSha(shuffled, 10_000 - 700)).toBe("base");
   });
 
-  it("returns null when no earlier deployment qualifies", () => {
-    const deployments = [
-      dep(6, "current", "2026-10-19T08:00:00Z"),
-      dep(5, "preview", "2026-10-19T07:00:00Z", { environment: "Preview" }),
-      dep(4, "failed", "2026-10-19T06:00:00Z", { succeeded: false }),
+  it("returns null when no earlier run qualifies, or the current run is not listed", () => {
+    const runs = [
+      run(700, 58, "current"),
+      run(600, 57, "cancelled", { conclusion: "cancelled" }),
+      run(450, 55, "branch", { headBranch: "rehearsal" }),
     ];
-    expect(pickBaseSha(deployments, 6)).toBeNull();
+    expect(pickBaseRunSha(runs, 700)).toBeNull();
+    expect(pickBaseRunSha([run(400, 54, "base")], 700)).toBeNull();
   });
 });
 

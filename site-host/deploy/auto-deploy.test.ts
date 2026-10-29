@@ -35,7 +35,7 @@ const IMAGE = "ghcr.io/nmamano/isomux-site";
 const REPO = "nmamano/isomux";
 const ZONE = "0123456789abcdef0123456789abcdef";
 const TOKEN = "stub-purge-token-7f3a";
-const HOSTS = ["isomux.com", "www.isomux.com", "stage.isomux.com"];
+const HOSTS = ["isomux.com", "www.isomux.com"];
 const here = import.meta.dir;
 const script = join(here, "auto-deploy.sh");
 

@@ -1,9 +1,10 @@
-// IndexNow: after each Production deploy of isomux.com, tell Bing, Yandex and
-// the other IndexNow engines which sitemap URLs changed. Run by
-// .github/workflows/indexnow.yml on Vercel's deployment_status event.
+// IndexNow: after each deploy of isomux.com, tell Bing, Yandex and the other
+// IndexNow engines which sitemap URLs changed. Run by
+// .github/workflows/indexnow.yml after each successful Site image run on main
+// (the VPS deploys that image within minutes).
 //
 // "Changed" is measured on the built site, not on the sources: the workflow
-// runs build:docs at this deploy and at the previous one, and a URL goes in
+// runs build:docs at this run and at the previous one, and a URL goes in
 // the list when its built page differs, is new, or left the sitemap. Doc pages
 // carry the nav of every page and build-docs.ts templates all of them, so a
 // source-to-URL map would need rules that drift; the built diff needs none.
@@ -17,12 +18,15 @@ export const INDEXNOW_KEY = "fbffa404de590d880791f3058b42c157";
 export const SITE_HOST = "isomux.com";
 const ENDPOINT = "https://api.indexnow.org/indexnow";
 
-export type Deployment = {
+// One run of the Site image workflow (.github/workflows/site-image.yml), as
+// the GitHub actions runs API lists it.
+export type SiteImageRun = {
   id: number;
-  sha: string;
-  environment: string;
-  createdAt: string;
-  succeeded: boolean;
+  runNumber: number;
+  headBranch: string;
+  headSha: string;
+  status: string;
+  conclusion: string | null;
 };
 
 // The file a sitemap path serves from, resolved as Vercel's cleanUrls does:
@@ -68,25 +72,23 @@ export function changedUrls(
   return [...changed, ...removed];
 }
 
-// The sha of the newest successful Production deployment created before the
-// current one.
-export function pickBaseSha(
-  deployments: Deployment[],
-  currentId: number,
+// The head sha of the newest successful Site image run on main numbered
+// before the current run, or null when there is none.
+export function pickBaseRunSha(
+  runs: SiteImageRun[],
+  currentRunId: number,
 ): string | null {
-  const current = deployments.find((d) => d.id === currentId);
+  const current = runs.find((r) => r.id === currentRunId);
   if (!current) return null;
-  const before = Date.parse(current.createdAt);
-  const candidates = deployments
+  const candidates = runs
     .filter(
-      (d) =>
-        d.id !== currentId &&
-        d.environment === "Production" &&
-        d.succeeded &&
-        Date.parse(d.createdAt) < before,
+      (r) =>
+        r.headBranch === "main" &&
+        r.conclusion === "success" &&
+        r.runNumber < current.runNumber,
     )
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  return candidates[0]?.sha ?? null;
+    .sort((a, b) => b.runNumber - a.runNumber);
+  return candidates[0]?.headSha ?? null;
 }
 
 // 200 is accepted; 202 is accepted while IndexNow validates the key. Any
@@ -122,38 +124,41 @@ async function github(path: string): Promise<unknown> {
   return res.json();
 }
 
-// Vercel makes one Production deployment per push to main, so the last 20
-// hold the previous deploy unless 20 deploys in a row failed.
-async function fetchDeployments(repo: string): Promise<Deployment[]> {
-  const list = (await github(
-    `/repos/${repo}/deployments?environment=Production&per_page=20`,
-  )) as { id: number; sha: string; environment: string; created_at: string }[];
-  return Promise.all(
-    list.map(async (d) => {
-      const statuses = (await github(
-        `/repos/${repo}/deployments/${d.id}/statuses?per_page=100`,
-      )) as { state: string }[];
-      return {
-        id: d.id,
-        sha: d.sha,
-        environment: d.environment,
-        createdAt: d.created_at,
-        succeeded: statuses.some((s) => s.state === "success"),
-      };
-    }),
-  );
+// Site image runs once per push to main, so the last 50 runs on main hold the
+// previous successful one unless 50 in a row failed.
+async function fetchRuns(repo: string): Promise<SiteImageRun[]> {
+  const page = (await github(
+    `/repos/${repo}/actions/workflows/site-image.yml/runs?branch=main&per_page=50`,
+  )) as {
+    workflow_runs: {
+      id: number;
+      run_number: number;
+      head_branch: string;
+      head_sha: string;
+      status: string;
+      conclusion: string | null;
+    }[];
+  };
+  return page.workflow_runs.map((r) => ({
+    id: r.id,
+    runNumber: r.run_number,
+    headBranch: r.head_branch,
+    headSha: r.head_sha,
+    status: r.status,
+    conclusion: r.conclusion,
+  }));
 }
 
-// bun scripts/indexnow.ts base-sha <deployment id>
-//   prints the sha of the previous Production deploy, or nothing.
+// bun scripts/indexnow.ts base-sha <run id>
+//   prints the head sha of the previous successful Site image run, or nothing.
 // bun scripts/indexnow.ts ping --head <site dir> [--base <site dir>] [--dry-run]
 //   prints the changed URLs and, without --dry-run, sends them.
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command === "base-sha") {
     const repo = process.env.GITHUB_REPOSITORY;
-    if (!repo || !args[0]) throw new Error("usage: base-sha <deployment id>");
-    const sha = pickBaseSha(await fetchDeployments(repo), Number(args[0]));
+    if (!repo || !args[0]) throw new Error("usage: base-sha <run id>");
+    const sha = pickBaseRunSha(await fetchRuns(repo), Number(args[0]));
     if (sha) console.log(sha);
     return;
   }

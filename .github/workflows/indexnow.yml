@@ -1,27 +1,34 @@
 name: IndexNow
 
-# After each Production deploy of isomux.com, send IndexNow the sitemap URLs
-# whose built page changed since the previous deploy (scripts/indexnow.ts).
-# Vercel's Git integration posts the GitHub deployment status that starts it.
+# After each deploy of isomux.com, send IndexNow the sitemap URLs whose built
+# page changed since the previous deploy (scripts/indexnow.ts). A successful
+# Site image run on main starts it; the VPS deploys that image on its next
+# tick, so the job waits for it before the ping.
 on:
-  deployment_status:
+  workflow_run:
+    workflows: [Site image]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
-  deployments: read
+  actions: read
 
 jobs:
   ping:
     if: >-
       github.repository == 'nmamano/isomux' &&
-      github.event.deployment.environment == 'Production' &&
-      github.event.deployment_status.state == 'success'
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'push' ||
+       github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - name: Check out the deployed commit
+      - name: Check out the built commit
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.deployment.sha }}
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Set up Bun
@@ -36,11 +43,11 @@ jobs:
         id: base
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DEPLOYMENT_ID: ${{ github.event.deployment.id }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
         # On its own line so a failed lookup fails the step; inside echo it
         # would exit 0 and ping every page.
         run: |
-          sha=$(bun scripts/indexnow.ts base-sha "$DEPLOYMENT_ID")
+          sha=$(bun scripts/indexnow.ts base-sha "$RUN_ID")
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       # A base that does not build makes every page count as changed.
@@ -56,12 +63,39 @@ jobs:
           bun install --frozen-lockfile
           bun run build:docs
 
-      - name: Ping IndexNow
+      - name: List the changed URLs
+        id: urls
         env:
           BASE_BUILT: ${{ steps.base_build.outcome == 'success' }}
         run: |
+          # To a file, not through a pipe, so a failed run fails the step.
           if [ "$BASE_BUILT" = true ]; then
-            bun scripts/indexnow.ts ping --head site --base "$RUNNER_TEMP/base/site"
+            echo "base=$RUNNER_TEMP/base/site" >> "$GITHUB_OUTPUT"
+            bun scripts/indexnow.ts ping --head site --base "$RUNNER_TEMP/base/site" --dry-run > "$RUNNER_TEMP/urls.txt"
+          else
+            bun scripts/indexnow.ts ping --head site --dry-run > "$RUNNER_TEMP/urls.txt"
+          fi
+          cat "$RUNNER_TEMP/urls.txt"
+          echo "count=$(head -1 "$RUNNER_TEMP/urls.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # The VPS timer ticks 5 to 5.5 min apart and a deploy tick takes about
+      # 15 s with its cache purge, so 15 min after the image run ended the
+      # VPS serves it (or has rolled it back).
+      - name: Wait for the VPS deploy
+        if: steps.urls.outputs.count != '0'
+        env:
+          RUN_ENDED: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          wait=$(( $(date -d "$RUN_ENDED" +%s) + 900 - $(date +%s) ))
+          if [ "$wait" -gt 0 ]; then sleep "$wait"; fi
+
+      - name: Ping IndexNow
+        if: steps.urls.outputs.count != '0'
+        env:
+          BASE: ${{ steps.urls.outputs.base }}
+        run: |
+          if [ -n "$BASE" ]; then
+            bun scripts/indexnow.ts ping --head site --base "$BASE"
           else
             bun scripts/indexnow.ts ping --head site
           fi

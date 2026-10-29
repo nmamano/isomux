@@ -1,6 +1,6 @@
 {
   "source": "Live isomux.com on Vercel, recorded by site-host/record-parity.ts (redirect: manual, no proxy, no compression). Headers that change per response or deploy (date, age, etag, last-modified, content-length, x-vercel-*, x-matched-path) are not recorded.",
-  "recordedAt": "2026-10-25T19:43:26.987Z",
+  "recordedAt": "2026-10-28T04:26:12.955Z",
   "cases": [
     {
       "name": "home",
@@ -9,14 +9,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:17.983Z",
+      "recordedAt": "2026-10-28T04:26:05.824Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -27,8 +27,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 36952,
-      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+      "bodyBytes": 36890,
+      "bodySha256": "8b115e7c09edef140873352ea233d770360aa132537ddcf22bd193522ff5e97b"
     },
     {
       "name": "home HEAD",
@@ -37,14 +37,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.024Z",
+      "recordedAt": "2026-10-28T04:26:05.989Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -66,14 +66,14 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:18.056Z",
+      "recordedAt": "2026-10-28T04:26:06.303Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"index.md\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -95,14 +95,14 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:18.092Z",
+      "recordedAt": "2026-10-28T04:26:06.455Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"index.md\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -124,14 +124,14 @@
         "accept-encoding": "identity",
         "accept": "text/markdown;q=0.2, text/html;q=0.9"
       },
-      "recordedAt": "2026-10-25T19:43:18.123Z",
+      "recordedAt": "2026-10-28T04:26:06.497Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -142,8 +142,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 36952,
-      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+      "bodyBytes": 36890,
+      "bodySha256": "8b115e7c09edef140873352ea233d770360aa132537ddcf22bd193522ff5e97b"
     },
     {
       "name": "home 406",
@@ -153,11 +153,11 @@
         "accept-encoding": "identity",
         "accept": "application/pdf"
       },
-      "recordedAt": "2026-10-25T19:43:18.160Z",
+      "recordedAt": "2026-10-28T04:26:06.531Z",
       "status": 406,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -180,14 +180,14 @@
         "accept-encoding": "identity",
         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
       },
-      "recordedAt": "2026-10-25T19:43:18.186Z",
+      "recordedAt": "2026-10-28T04:26:06.568Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -198,8 +198,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 36952,
-      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+      "bodyBytes": 36890,
+      "bodySha256": "8b115e7c09edef140873352ea233d770360aa132537ddcf22bd193522ff5e97b"
     },
     {
       "name": "home POST",
@@ -208,12 +208,12 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.221Z",
+      "recordedAt": "2026-10-28T04:26:06.606Z",
       "status": 405,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -234,7 +234,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.233Z",
+      "recordedAt": "2026-10-28T04:26:06.619Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -255,7 +255,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.250Z",
+      "recordedAt": "2026-10-28T04:26:06.628Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -276,14 +276,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.265Z",
+      "recordedAt": "2026-10-28T04:26:06.798Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"about\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -292,8 +292,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 19736,
-      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+      "bodyBytes": 19674,
+      "bodySha256": "c7cbdbfc611b6f6b2e9ace37450fd3f27b0d6eb51af733ac6d143195892265e6"
     },
     {
       "name": "clean page trailing slash",
@@ -302,14 +302,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.283Z",
+      "recordedAt": "2026-10-28T04:26:06.814Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"about\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -318,8 +318,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 19736,
-      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+      "bodyBytes": 19674,
+      "bodySha256": "c7cbdbfc611b6f6b2e9ace37450fd3f27b0d6eb51af733ac6d143195892265e6"
     },
     {
       "name": "html extension",
@@ -328,7 +328,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.294Z",
+      "recordedAt": "2026-10-28T04:26:06.824Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -349,7 +349,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.304Z",
+      "recordedAt": "2026-10-28T04:26:06.837Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -370,14 +370,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.313Z",
+      "recordedAt": "2026-10-28T04:26:06.857Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"about\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -397,14 +397,14 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:18.326Z",
+      "recordedAt": "2026-10-28T04:26:06.897Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"about\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -413,8 +413,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 19736,
-      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+      "bodyBytes": 19674,
+      "bodySha256": "c7cbdbfc611b6f6b2e9ace37450fd3f27b0d6eb51af733ac6d143195892265e6"
     },
     {
       "name": "clean page 406 (no middleware)",
@@ -424,14 +424,14 @@
         "accept-encoding": "identity",
         "accept": "application/pdf"
       },
-      "recordedAt": "2026-10-25T19:43:18.338Z",
+      "recordedAt": "2026-10-28T04:26:06.914Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"about\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -440,8 +440,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 19736,
-      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+      "bodyBytes": 19674,
+      "bodySha256": "c7cbdbfc611b6f6b2e9ace37450fd3f27b0d6eb51af733ac6d143195892265e6"
     },
     {
       "name": "nested page",
@@ -450,7 +450,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.349Z",
+      "recordedAt": "2026-10-28T04:26:06.924Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -471,14 +471,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.384Z",
+      "recordedAt": "2026-10-28T04:26:07.081Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"docs\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -488,8 +488,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 66122,
-      "bodySha256": "ca182099817df5137e9967dad0a454c23532389ae53d1d0debb49e2f348e2c1a"
+      "bodyBytes": 54665,
+      "bodySha256": "5eae7f226087a2decb6890208e2d8e8e05269ba21c7dd7a68519f4db32ff36b0"
     },
     {
       "name": "docs slash",
@@ -498,14 +498,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.425Z",
+      "recordedAt": "2026-10-28T04:26:07.111Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"docs\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -515,8 +515,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 66122,
-      "bodySha256": "ca182099817df5137e9967dad0a454c23532389ae53d1d0debb49e2f348e2c1a"
+      "bodyBytes": 54665,
+      "bodySha256": "5eae7f226087a2decb6890208e2d8e8e05269ba21c7dd7a68519f4db32ff36b0"
     },
     {
       "name": "docs markdown",
@@ -526,14 +526,14 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:18.472Z",
+      "recordedAt": "2026-10-28T04:26:07.283Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"index.md\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -543,8 +543,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 26306,
-      "bodySha256": "61ff599586965a947f8e69310482506732103871e9db8922c9b9fa29c152402e"
+      "bodyBytes": 20633,
+      "bodySha256": "f86dc2ff6f33d1cbc0dba84b90f0625f7c0d715fe1e9d02069ec2c0f5abd6f1f"
     },
     {
       "name": "docs slash markdown",
@@ -554,14 +554,14 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:18.506Z",
+      "recordedAt": "2026-10-28T04:26:07.312Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"index.md\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -571,8 +571,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 26306,
-      "bodySha256": "61ff599586965a947f8e69310482506732103871e9db8922c9b9fa29c152402e"
+      "bodyBytes": 20633,
+      "bodySha256": "f86dc2ff6f33d1cbc0dba84b90f0625f7c0d715fe1e9d02069ec2c0f5abd6f1f"
     },
     {
       "name": "doc page",
@@ -581,14 +581,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.531Z",
+      "recordedAt": "2026-10-28T04:26:07.460Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"hosting\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -598,8 +598,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 16407,
-      "bodySha256": "26c7ce88959a6b2a3adc19b882dbc9f7a3a6e1fd7cce5db687fcbb00b7e86d45"
+      "bodyBytes": 16834,
+      "bodySha256": "23a993864b72e20dd60f5b06f4675a81583ea6a90eaf089747fa057d44bdb1c9"
     },
     {
       "name": "doc page slash",
@@ -608,14 +608,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:18.562Z",
+      "recordedAt": "2026-10-28T04:26:07.493Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"hosting\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -625,8 +625,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 16407,
-      "bodySha256": "26c7ce88959a6b2a3adc19b882dbc9f7a3a6e1fd7cce5db687fcbb00b7e86d45"
+      "bodyBytes": 16834,
+      "bodySha256": "23a993864b72e20dd60f5b06f4675a81583ea6a90eaf089747fa057d44bdb1c9"
     },
     {
       "name": "doc page markdown",
@@ -636,14 +636,14 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:18.763Z",
+      "recordedAt": "2026-10-28T04:26:07.644Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"index.md\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -653,8 +653,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 3135,
-      "bodySha256": "05eb7cc99974209c6e67d80896787dc611932cfac64781a51f1a59ac83609101"
+      "bodyBytes": 3122,
+      "bodySha256": "cce5addf95f3d6c657d4d20619e2cd02238551d97315d01acf87d47c020ee87b"
     },
     {
       "name": "doc page 406",
@@ -664,11 +664,11 @@
         "accept-encoding": "identity",
         "accept": "image/png"
       },
-      "recordedAt": "2026-10-25T19:43:18.793Z",
+      "recordedAt": "2026-10-28T04:26:07.685Z",
       "status": 406,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -689,11 +689,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.062Z",
+      "recordedAt": "2026-10-28T04:26:07.837Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -715,11 +715,11 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:20.138Z",
+      "recordedAt": "2026-10-28T04:26:07.898Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -740,11 +740,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.224Z",
+      "recordedAt": "2026-10-28T04:26:07.955Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -765,14 +765,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.244Z",
+      "recordedAt": "2026-10-28T04:26:07.969Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"index.md\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -781,8 +781,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 3135,
-      "bodySha256": "05eb7cc99974209c6e67d80896787dc611932cfac64781a51f1a59ac83609101"
+      "bodyBytes": 3122,
+      "bodySha256": "cce5addf95f3d6c657d4d20619e2cd02238551d97315d01acf87d47c020ee87b"
     },
     {
       "name": "agent index md",
@@ -791,14 +791,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.253Z",
+      "recordedAt": "2026-10-28T04:26:07.989Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"index.md\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -817,7 +817,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.265Z",
+      "recordedAt": "2026-10-28T04:26:08.020Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -838,7 +838,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.274Z",
+      "recordedAt": "2026-10-28T04:26:08.033Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -859,11 +859,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.304Z",
+      "recordedAt": "2026-10-28T04:26:08.060Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -874,7 +874,7 @@
         "x-frame-options": "SAMEORIGIN"
       },
       "bodyBytes": 79,
-      "bodySha256": "9c0ebe059e659bcc3afa6c91740c75594da19ea5aa2f6cc1cfbba2bdd7ca8689"
+      "bodySha256": "5405ca259294c861e2dcbefadb84c720151fad87fb224771951b61c719b42b7d"
     },
     {
       "name": "redirect agent self-hosted",
@@ -883,7 +883,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.312Z",
+      "recordedAt": "2026-10-28T04:26:08.075Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -904,7 +904,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.329Z",
+      "recordedAt": "2026-10-28T04:26:08.085Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -925,7 +925,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.341Z",
+      "recordedAt": "2026-10-28T04:26:08.100Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -946,7 +946,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.351Z",
+      "recordedAt": "2026-10-28T04:26:08.112Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -967,7 +967,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.367Z",
+      "recordedAt": "2026-10-28T04:26:08.121Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -988,7 +988,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.375Z",
+      "recordedAt": "2026-10-28T04:26:08.138Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -1009,7 +1009,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.387Z",
+      "recordedAt": "2026-10-28T04:26:08.148Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -1030,7 +1030,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.398Z",
+      "recordedAt": "2026-10-28T04:26:08.173Z",
       "status": 307,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -1050,7 +1050,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.409Z",
+      "recordedAt": "2026-10-28T04:26:08.184Z",
       "status": 307,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -1069,14 +1069,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.543Z",
+      "recordedAt": "2026-10-28T04:26:08.255Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "link": "</.well-known/api-catalog>; rel=\"api-catalog\", </openapi.json>; rel=\"service-desc\"; type=\"application/openapi+json\", </llms.txt>; rel=\"describedby\"; type=\"text/plain\", </docs>; rel=\"service-doc\"; type=\"text/html\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -1087,8 +1087,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 36952,
-      "bodySha256": "d159a74963abef0d915b320de616b4bc07bb9134c6ea6fef0071ad10cde4caff"
+      "bodyBytes": 36890,
+      "bodySha256": "8b115e7c09edef140873352ea233d770360aa132537ddcf22bd193522ff5e97b"
     },
     {
       "name": "www path query",
@@ -1097,7 +1097,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.553Z",
+      "recordedAt": "2026-10-28T04:26:08.265Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -1118,7 +1118,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.561Z",
+      "recordedAt": "2026-10-28T04:26:08.285Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -1139,7 +1139,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.573Z",
+      "recordedAt": "2026-10-28T04:26:08.302Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -1160,14 +1160,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.788Z",
+      "recordedAt": "2026-10-28T04:26:08.477Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"security.txt\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1186,14 +1186,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.811Z",
+      "recordedAt": "2026-10-28T04:26:08.491Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"security.txt\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1212,14 +1212,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.955Z",
+      "recordedAt": "2026-10-28T04:26:08.625Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"api-catalog.json\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/linkset+json; profile=\"https://www.rfc-editor.org/info/rfc9727\"",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1238,14 +1238,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:20.971Z",
+      "recordedAt": "2026-10-28T04:26:08.642Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"api-catalog.json\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1264,11 +1264,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.350Z",
+      "recordedAt": "2026-10-28T04:26:08.692Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1289,11 +1289,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.419Z",
+      "recordedAt": "2026-10-28T04:26:08.739Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1315,11 +1315,11 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:22.460Z",
+      "recordedAt": "2026-10-28T04:26:08.803Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/markdown; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1340,11 +1340,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.533Z",
+      "recordedAt": "2026-10-28T04:26:08.844Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1364,11 +1364,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.607Z",
+      "recordedAt": "2026-10-28T04:26:08.919Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1389,11 +1389,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.667Z",
+      "recordedAt": "2026-10-28T04:26:08.958Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1414,11 +1414,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.728Z",
+      "recordedAt": "2026-10-28T04:26:09.029Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1438,11 +1438,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.833Z",
+      "recordedAt": "2026-10-28T04:26:09.118Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1462,11 +1462,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:22.895Z",
+      "recordedAt": "2026-10-28T04:26:09.147Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1486,11 +1486,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.091Z",
+      "recordedAt": "2026-10-28T04:26:09.180Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1510,11 +1510,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.170Z",
+      "recordedAt": "2026-10-28T04:26:09.222Z",
       "status": 405,
       "headers": {
         "cache-control": "no-store",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "ratelimit": "\"minute\";r=5;t=0, \"hour\";r=20;t=0",
@@ -1536,11 +1536,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.220Z",
+      "recordedAt": "2026-10-28T04:26:09.259Z",
       "status": 405,
       "headers": {
         "cache-control": "no-store",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "ratelimit": "\"minute\";r=5;t=0, \"hour\";r=20;t=0",
@@ -1562,11 +1562,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.234Z",
+      "recordedAt": "2026-10-28T04:26:09.274Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain",
         "location": "/api/chat",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
@@ -1588,11 +1588,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.287Z",
+      "recordedAt": "2026-10-28T04:26:09.317Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1613,11 +1613,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.328Z",
+      "recordedAt": "2026-10-28T04:26:09.350Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1638,14 +1638,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.341Z",
+      "recordedAt": "2026-10-28T04:26:09.484Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"demo\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self' https://nilmamano.com; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self' https://nilmamano.com; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1663,14 +1663,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.353Z",
+      "recordedAt": "2026-10-28T04:26:09.496Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"demo\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1689,14 +1689,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.533Z",
+      "recordedAt": "2026-10-28T04:26:09.649Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"app\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1715,14 +1715,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.549Z",
+      "recordedAt": "2026-10-28T04:26:09.786Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"robots.txt\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1741,14 +1741,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.703Z",
+      "recordedAt": "2026-10-28T04:26:09.924Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"llms.txt\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1757,8 +1757,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 4188,
-      "bodySha256": "63e8c937082a9950ffd264f77929099ed42dedc5384cbf7359b1f7cbec97d054"
+      "bodyBytes": 4366,
+      "bodySha256": "13413a9d1a50bcc8c6e0af4aabfc35800673cf119e2959a30b4866aeb9072bdb"
     },
     {
       "name": "openapi",
@@ -1767,14 +1767,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:23.846Z",
+      "recordedAt": "2026-10-28T04:26:10.072Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"openapi.json\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1783,8 +1783,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 5214,
-      "bodySha256": "f018773d46734b72e4d5787221eb32e0b3fdd6fb11fc4d714b213a79f1031d73"
+      "bodyBytes": 5780,
+      "bodySha256": "eb951411606858a7d193455236c35cb183087eb0d115ae75bbbaed651f8e4e2a"
     },
     {
       "name": "sitemap",
@@ -1793,14 +1793,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.007Z",
+      "recordedAt": "2026-10-28T04:26:10.212Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"sitemap.xml\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/xml",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1809,8 +1809,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 2585,
-      "bodySha256": "101e2683505e477ea6a668380c24557e86ccf16d8f4bce5dc7009992ef334cdd"
+      "bodyBytes": 2651,
+      "bodySha256": "896ce4a868784e7776dd3c397f28ee360c647a6d64bfd3354a014deb8ffb47ce"
     },
     {
       "name": "css",
@@ -1819,14 +1819,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.031Z",
+      "recordedAt": "2026-10-28T04:26:10.344Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"footer.css\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/css; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1845,14 +1845,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.046Z",
+      "recordedAt": "2026-10-28T04:26:10.507Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"chatbot.js\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/javascript; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1861,8 +1861,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 11502,
-      "bodySha256": "83fc1eabe20198da7312c6a2c04d974e887435d39678fcc72348605febeca6c5"
+      "bodyBytes": 13201,
+      "bodySha256": "8ee4617ef25e82691d644979e5bc0d8928cb6ffbf8f261727241739a5c0e15e6"
     },
     {
       "name": "svg",
@@ -1871,14 +1871,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.068Z",
+      "recordedAt": "2026-10-28T04:26:10.641Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"favicon.svg\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "image/svg+xml",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1897,14 +1897,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.212Z",
+      "recordedAt": "2026-10-28T04:26:10.775Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"favicon.ico\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "image/vnd.microsoft.icon",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1923,14 +1923,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.360Z",
+      "recordedAt": "2026-10-28T04:26:10.934Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"favicon.png\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "image/png",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1949,14 +1949,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.568Z",
+      "recordedAt": "2026-10-28T04:26:11.127Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"add-to-home-screen.jpeg\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "image/jpeg",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -1975,14 +1975,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:24.814Z",
+      "recordedAt": "2026-10-28T04:26:11.628Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"office-trimmed.mp4\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "video/mp4",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2001,14 +2001,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.389Z",
+      "recordedAt": "2026-10-28T04:26:11.883Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"office.gif\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "image/gif",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2027,14 +2027,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.521Z",
+      "recordedAt": "2026-10-28T04:26:12.040Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"fbffa404de590d880791f3058b42c157.txt\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/plain; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2053,14 +2053,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.535Z",
+      "recordedAt": "2026-10-28T04:26:12.185Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"es\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2069,8 +2069,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 37902,
-      "bodySha256": "65743df0947227938aba8a34c6fc6733eea5bf07e7e64efc4fe500ade29ffb88"
+      "bodyBytes": 37840,
+      "bodySha256": "828d597173e4f0fb7305977645d75deb228e02b7417b968d0553e4296f52464c"
     },
     {
       "name": "locale page no slash",
@@ -2079,14 +2079,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.557Z",
+      "recordedAt": "2026-10-28T04:26:12.201Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"es\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2095,8 +2095,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 37902,
-      "bodySha256": "65743df0947227938aba8a34c6fc6733eea5bf07e7e64efc4fe500ade29ffb88"
+      "bodyBytes": 37840,
+      "bodySha256": "828d597173e4f0fb7305977645d75deb228e02b7417b968d0553e4296f52464c"
     },
     {
       "name": "locale hosted",
@@ -2105,14 +2105,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.573Z",
+      "recordedAt": "2026-10-28T04:26:12.349Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"hosted\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2121,8 +2121,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 26944,
-      "bodySha256": "7cdb01ce36c8deedac50f73c72dd9c81f31f6d8a82979fbbc08acb9ab3ca96ba"
+      "bodyBytes": 26882,
+      "bodySha256": "7e7b3750a8f292a0820e6ad951505c5d3d71d502223be7da0fb1e6f5dadd4fa2"
     },
     {
       "name": "hosted-terms",
@@ -2131,14 +2131,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.733Z",
+      "recordedAt": "2026-10-28T04:26:12.545Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"hosted-terms\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2147,8 +2147,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 18581,
-      "bodySha256": "a0f51497673c5098473513a4e8cc044f7a76e88fb029aeae4faa64ef997e7f97"
+      "bodyBytes": 18519,
+      "bodySha256": "06fc3cdf31aec064e25ad19587db887285f926457e3fc85ec4815875e4f552aa"
     },
     {
       "name": "hosted-privacy",
@@ -2157,14 +2157,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.923Z",
+      "recordedAt": "2026-10-28T04:26:12.556Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"hosted-privacy\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2173,8 +2173,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 16741,
-      "bodySha256": "d4ab49709023b886fdd47e96e5742d7ba44bdb048c3779ec2391b10e7ff90207"
+      "bodyBytes": 16782,
+      "bodySha256": "11d16ac7ebcd6f42d6255768b3e4b5942d1452b8e7454a4e6e1d47ec46963168"
     },
     {
       "name": "double slash",
@@ -2183,14 +2183,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.937Z",
+      "recordedAt": "2026-10-28T04:26:12.578Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"about\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2199,8 +2199,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 19736,
-      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+      "bodyBytes": 19674,
+      "bodySha256": "c7cbdbfc611b6f6b2e9ace37450fd3f27b0d6eb51af733ac6d143195892265e6"
     },
     {
       "name": "encoded",
@@ -2209,14 +2209,14 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.954Z",
+      "recordedAt": "2026-10-28T04:26:12.595Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
         "access-control-allow-origin": "*",
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"about\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2225,8 +2225,8 @@
         "x-content-type-options": "nosniff",
         "x-frame-options": "SAMEORIGIN"
       },
-      "bodyBytes": 19736,
-      "bodySha256": "d02ebe27539bc59c205755f99e61e145043e7d70f80f1551df072de09a49ed4d"
+      "bodyBytes": 19674,
+      "bodySha256": "c7cbdbfc611b6f6b2e9ace37450fd3f27b0d6eb51af733ac6d143195892265e6"
     },
     {
       "name": "traversal",
@@ -2235,7 +2235,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:25.966Z",
+      "recordedAt": "2026-10-28T04:26:12.601Z",
       "status": 400,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2244,7 +2244,7 @@
         "strict-transport-security": "max-age=63072000"
       },
       "bodyBytes": 65,
-      "bodySha256": "795185d615bc87e63dd8f3afff21d6f4ff291203d7e622aae5b1b24358085b18"
+      "bodySha256": "2db56eb085b9e4c8f1bf60782ccd6b59ead743e4a91d1d7a1e9f5ff7e6ce00f8"
     },
     {
       "name": "vercel insights",
@@ -2253,7 +2253,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.001Z",
+      "recordedAt": "2026-10-28T04:26:12.618Z",
       "status": 200,
       "headers": {
         "accept-ranges": "bytes",
@@ -2276,7 +2276,7 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:26.025Z",
+      "recordedAt": "2026-10-28T04:26:12.626Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2298,7 +2298,7 @@
         "accept-encoding": "identity",
         "accept": "image/png"
       },
-      "recordedAt": "2026-10-25T19:43:26.036Z",
+      "recordedAt": "2026-10-28T04:26:12.638Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2320,7 +2320,7 @@
         "accept-encoding": "identity",
         "accept": "text/markdown"
       },
-      "recordedAt": "2026-10-25T19:43:26.057Z",
+      "recordedAt": "2026-10-28T04:26:12.662Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2341,7 +2341,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.069Z",
+      "recordedAt": "2026-10-28T04:26:12.696Z",
       "status": 307,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2361,7 +2361,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.080Z",
+      "recordedAt": "2026-10-28T04:26:12.708Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2382,11 +2382,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.122Z",
+      "recordedAt": "2026-10-28T04:26:12.750Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2407,11 +2407,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.166Z",
+      "recordedAt": "2026-10-28T04:26:12.791Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2431,12 +2431,12 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.793Z",
+      "recordedAt": "2026-10-28T04:26:12.820Z",
       "status": 405,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
         "content-disposition": "inline; filename=\"docs\"",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
         "server": "Vercel",
@@ -2456,7 +2456,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.808Z",
+      "recordedAt": "2026-10-28T04:26:12.839Z",
       "status": 308,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2477,11 +2477,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.852Z",
+      "recordedAt": "2026-10-28T04:26:12.879Z",
       "status": 404,
       "headers": {
         "cache-control": "public, max-age=60",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "text/html; charset=utf-8",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "referrer-policy": "strict-origin-when-cross-origin",
@@ -2502,7 +2502,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.861Z",
+      "recordedAt": "2026-10-28T04:26:12.890Z",
       "status": 400,
       "headers": {
         "cache-control": "public, max-age=0, must-revalidate",
@@ -2511,7 +2511,7 @@
         "strict-transport-security": "max-age=63072000"
       },
       "bodyBytes": 65,
-      "bodySha256": "e9287a63ca8df770e8ab58fe1f401e2555849420ca0b4d1f4fbf042e62fe995a"
+      "bodySha256": "bf6b9ec5f995321d2faa2649648100ee7c1fb2c0382ac0bfb0e63a39696ddf56"
     },
     {
       "name": "bad percent",
@@ -2520,7 +2520,7 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.871Z",
+      "recordedAt": "2026-10-28T04:26:12.896Z",
       "status": 400,
       "headers": {
         "connection": "close",
@@ -2536,11 +2536,11 @@
       "requestHeaders": {
         "accept-encoding": "identity"
       },
-      "recordedAt": "2026-10-25T19:43:26.987Z",
+      "recordedAt": "2026-10-28T04:26:12.955Z",
       "status": 400,
       "headers": {
         "cache-control": "no-store",
-        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+        "content-security-policy": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
         "content-type": "application/json",
         "permissions-policy": "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
         "ratelimit": "\"minute\";r=4;t=60, \"hour\";r=19;t=3600",

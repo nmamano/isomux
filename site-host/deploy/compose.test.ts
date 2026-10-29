@@ -146,13 +146,8 @@ describe("the site socket", () => {
       expect.objectContaining({ source: socketDir, target: socketDir }),
     );
 
-    for (const file of ["isomux-site.caddy", "isomux-site.stage.caddy"]) {
-      const caddy = readFileSync(join(dir, file), "utf8");
-      expect({
-        file,
-        upstream: caddy.match(/reverse_proxy\s+(\S+)/)?.[1],
-      }).toEqual({ file, upstream: `unix/${socket}` });
-    }
+    const caddy = readFileSync(join(dir, "isomux-site.caddy"), "utf8");
+    expect(caddy.match(/reverse_proxy\s+(\S+)/)?.[1]).toBe(`unix/${socket}`);
 
     const tmpfiles = readFileSync(
       join(dir, "isomux-site.tmpfiles.conf"),
@@ -162,5 +157,23 @@ describe("the site socket", () => {
       .filter((line) => line.trim() && !line.trim().startsWith("#"));
     expect(tmpfiles).toHaveLength(1);
     expect(tmpfiles[0].split(/\s+/).slice(0, 2)).toEqual(["d", socketDir]);
+  });
+});
+
+// The host's cloudflare_only snippet aborts a peer outside Cloudflare's ranges. In the
+// HTTPS block Caddy orders abort before reverse_proxy, so an import there gates the site.
+// The http:// block has no gate: Caddy orders redir before abort, so it could not run.
+describe("isomux-site.caddy", () => {
+  it("refuses HTTPS peers that are not Cloudflare", () => {
+    const caddy = readFileSync(join(dir, "isomux-site.caddy"), "utf8");
+    const block = caddy.match(
+      /^isomux\.com, www\.isomux\.com \{\n([\s\S]*?)\n\}/m,
+    );
+    expect(block).not.toBeNull();
+    const lines = block![1]
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"));
+    expect(lines[0]).toBe("import cloudflare_only");
   });
 });

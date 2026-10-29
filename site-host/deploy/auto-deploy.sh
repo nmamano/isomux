@@ -52,7 +52,7 @@ main() {
   socket=${ISOMUX_SITE_SOCKET:-/run/isomux-site/site.sock}
   # Every name the site answers on. One list for every install: a purge of a name that
   # is not proxied yet does nothing.
-  purge_hosts=(isomux.com www.isomux.com stage.isomux.com)
+  purge_hosts=(isomux.com www.isomux.com)
   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
   state=$root/auto-deploy
 
