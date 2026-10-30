@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { chromium } from "playwright-core";
+import { chromium, type Frame } from "playwright-core";
 import { PASSWORD_MASK, readBrowserFrames } from "./browser-frames";
 import {
   PASSWORD_FILLS,
@@ -63,6 +63,120 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       expect(text).toContain("Step 3 of 4");
       for (const leak of [...PASSWORD_LEAKS, "frame-secret"])
         expect(text).not.toContain(leak);
+    } finally {
+      await browser.close();
+    }
+  },
+  30_000,
+);
+
+// Task 1be94be4: a page that hides its content with aria-hidden (a modal
+// library marks a dialog's siblings, and may leave them so) has an empty
+// accessibility tree while its text still reads. The snapshot section says so,
+// without page content, so the agent turns to text and CSS selectors. A blank
+// section, or content that is not rendered, still reads as empty.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a snapshot of rendered content hidden by aria-hidden says so; blank or unrendered content stays empty",
+  async () => {
+    const browser = await chromium.launch({
+      executablePath: "/usr/bin/google-chrome",
+      args: ["--no-sandbox"],
+    });
+    try {
+      const page = await browser.newPage();
+      const root = page.mainFrame();
+      const words = "Zephyrine Quillwort";
+      const hidden = `<main aria-hidden="true"><h1>${words}</h1><button>Persist</button><div id="panel"><p>${words}</p></div></main>`;
+      // The premise of each case, read straight from Chrome.
+      const premise = async (frame: Frame, selector: string) => ({
+        snapshot: await frame.locator(selector).ariaSnapshot(),
+        text: (await frame.locator(selector).innerText()).trim() !== "",
+        visible: await frame.locator(selector).isVisible(),
+      });
+      const snapshot = (scope?: { selector?: string; framePath?: number[] }) =>
+        readBrowserFrames(root, "snapshot", 20_000, 5000, scope);
+
+      // The report: the dialog closed, its siblings stayed aria-hidden.
+      await page.setContent(
+        hidden + `<div class="cdk-overlay-container"></div>`,
+      );
+      expect(await premise(root, "body")).toEqual({
+        snapshot: "",
+        text: true,
+        visible: true,
+      });
+      const marker = await snapshot();
+      expect(marker).toMatch(/^\[[^\n]*aria-hidden[^\n]*\]$/);
+      expect(marker).not.toMatch(/Zephyrine|Quillwort|Persist/);
+      expect(await snapshot({ selector: "#panel" })).toBe(marker);
+
+      // aria-hidden on the read element, on an ancestor of it, and in the
+      // other case spelling Chrome honours.
+      for (const html of [
+        `<body aria-hidden="true">${hidden}</body>`,
+        `<html aria-hidden="true"><body><p>${words}</p></body></html>`,
+        `<p aria-hidden="TRUE">${words}</p>`,
+      ]) {
+        await page.setContent(html);
+        expect(await premise(root, "body")).toEqual({
+          snapshot: "",
+          text: true,
+          visible: true,
+        });
+        expect(await snapshot()).toBe(marker);
+      }
+
+      // In a child frame the marker fills that frame's section only.
+      await page.setContent(
+        `<p>Visible top</p><iframe srcdoc='${hidden}'></iframe>`,
+      );
+      expect(await premise(page.frames()[1], "body")).toEqual({
+        snapshot: "",
+        text: true,
+        visible: true,
+      });
+      expect(await snapshot()).toBe(
+        `- paragraph: Visible top\n- iframe\n\n--- Frame framePath=[0] ---\n${marker}`,
+      );
+      expect(await snapshot({ framePath: [0] })).toBe(marker);
+
+      // Rendered and aria-hidden, but no text: a blank section stays blank.
+      await page.setContent(
+        `<div aria-hidden="true" style="height:80px;background:#ccc"></div>`,
+      );
+      expect(await premise(root, "body")).toEqual({
+        snapshot: "",
+        text: false,
+        visible: true,
+      });
+      expect(await snapshot()).toBe("");
+
+      // aria-hidden content with text that is not rendered: innerText reads
+      // textContent there, so text alone would claim a hidden tree.
+      await page.setContent(`<body style="display:none">${hidden}</body>`);
+      expect(await premise(root, "body")).toEqual({
+        snapshot: "",
+        text: true,
+        visible: false,
+      });
+      expect(await snapshot()).toBe("");
+      await page.setContent(
+        `<p>Visible top</p><div id="off" style="display:none">${hidden}</div><iframe style="display:none" srcdoc='${hidden}'></iframe>`,
+      );
+      expect(await premise(root, "#off")).toEqual({
+        snapshot: "",
+        text: true,
+        visible: false,
+      });
+      expect(await premise(page.frames()[1], "body")).toEqual({
+        snapshot: "",
+        text: true,
+        visible: false,
+      });
+      expect(await snapshot({ selector: "#off" })).toBe("");
+      expect(await snapshot()).toBe(
+        `- paragraph: Visible top\n\n--- Frame framePath=[0] ---\n`,
+      );
     } finally {
       await browser.close();
     }

@@ -723,3 +723,86 @@ test("withinDeadline passes a settled outcome and rejects a stall once", async (
     process.off("unhandledRejection", onUnhandled);
   }
 });
+
+// Task 1be94be4: an empty snapshot section is checked for content that the
+// page hides with aria-hidden. Whatever those checks call, a check that throws,
+// rejects or never answers leaves the section as it was: blank, and never a
+// failed read or an unread-frame marker. A call with a timeout honours it; a
+// call without one (as count()) may never answer.
+function blankFrame(mode: "throws" | "rejects" | "stalls"): Frame {
+  const chain = new Set([
+    "locator",
+    "last",
+    "nth",
+    "and",
+    "or",
+    "filter",
+    "getByRole",
+  ]);
+  const fail = (options?: { timeout?: number }) => {
+    if (mode === "throws") throw new Error("private probe content");
+    if (mode === "rejects")
+      return Promise.reject(new Error("private probe content"));
+    if (typeof options?.timeout !== "number") return new Promise(() => {});
+    return Bun.sleep(options.timeout).then(() => {
+      throw new errors.TimeoutError("private probe content");
+    });
+  };
+  const scope: object = new Proxy(
+    {},
+    {
+      get: (_target, property) => {
+        if (property === "then") return undefined;
+        if (property === "ariaSnapshot") return async () => "";
+        // The scoped read's own attach wait is not a check.
+        if (property === "first") return () => scope;
+        if (property === "waitFor") return async () => {};
+        if (mode !== "throws" && chain.has(String(property)))
+          return () => scope;
+        return fail;
+      },
+    },
+  );
+  return new Proxy(
+    {
+      childFrames: () => [],
+      isDetached: () => false,
+      locator: (selector: string) =>
+        selector === PASSWORD_FIELDS ? noPasswordFields : scope,
+    },
+    {
+      get: (target, property) =>
+        property in target
+          ? target[property as keyof typeof target]
+          : property === "then"
+            ? undefined
+            : property === "getByRole" && mode !== "throws"
+              ? () => scope
+              : fail,
+    },
+  ) as unknown as Frame;
+}
+
+for (const mode of ["throws", "rejects", "stalls"] as const)
+  test(`an aria-hidden check that ${mode === "stalls" ? "never answers" : mode} keeps the blank snapshot section`, async () => {
+    const reads = [
+      readBrowserFrames(blankFrame(mode), "snapshot", 20_000, 300),
+      readBrowserFrames(blankFrame(mode), "snapshot", 20_000, 300, {
+        selector: "#entry",
+      }),
+      readBrowserFrames(
+        frame("Shell", [blankFrame(mode)]),
+        "snapshot",
+        20_000,
+        300,
+      ),
+    ];
+    const outcomes = await Promise.all(
+      reads.map((read) => settledWithin(read, 2500)),
+    );
+    expect(outcomes).toEqual([
+      { value: "" },
+      { value: "" },
+      { value: "- text: Shell\n\n--- Frame framePath=[0] ---\n" },
+    ]);
+  });

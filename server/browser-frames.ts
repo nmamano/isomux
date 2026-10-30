@@ -165,6 +165,9 @@ async function snapshotWithEditableText(
   const passwords = [...before, ...(await readPasswordValues(frame, deadline))];
   if (snapshot.length >= limit || Date.now() >= deadline)
     return maskPasswordValues(snapshot, passwords);
+  // A blank tree has no accessible textbox to supplement.
+  if (!snapshot.trim())
+    return (await hidesTree(scope, deadline)) ? HIDDEN_TREE_MARKER : snapshot;
   // Public locator reads use Playwright's utility world. Page evaluation needs
   // a main-world context that may not be announced again when an All grant
   // changes clients without detaching Chrome's debugger.
@@ -201,6 +204,26 @@ async function snapshotWithEditableText(
       : snapshot,
     passwords,
   );
+}
+
+const HIDDEN_TREE_MARKER =
+  "[empty accessibility tree: the page hides this content with aria-hidden, often after a dialog. Use the text action and CSS selectors; role= selectors do not match it]";
+
+// A blank ARIA tree over rendered text means the page hides that text from
+// the tree. Rendered matters: innerText of a display:none element is its
+// textContent. A probe that fails or runs out of time keeps the blank read.
+async function hidesTree(scope: Locator, deadline: number): Promise<boolean> {
+  try {
+    // isVisible() has no timeout of its own.
+    if (!(await withinDeadline(scope.isVisible(), deadline - Date.now())))
+      return false;
+    const text = await scope.innerText({
+      timeout: Math.max(1, deadline - Date.now()),
+    });
+    return text.trim() !== "";
+  } catch {
+    return false;
+  }
 }
 
 // Password values are read before and after the snapshot, so a value that
