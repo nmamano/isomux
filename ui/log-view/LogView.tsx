@@ -26,7 +26,6 @@ import type {
   QueuedMessage,
   Attachment,
 } from "../../shared/types.ts";
-import { formatIdentity } from "../../shared/identity.ts";
 import {
   familyDisplayLabel,
   MAX_UPLOAD_BYTES,
@@ -52,7 +51,7 @@ import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
-import { serializeEntries } from "./LogEntryCard.tsx";
+import { SenderDevice, serializeEntries } from "./LogEntryCard.tsx";
 import {
   PINNED_BAR_HEIGHT,
   pinnedHumanMessageId,
@@ -406,10 +405,13 @@ function QueueChips({
                     ? i18n.t("common.sender.webhook", {
                         name: msg.sender.webhookName,
                       })
-                    : formatIdentity({
-                        username: msg.sender.username,
-                        device: msg.sender.device,
-                      }) || i18n.t("common.you");
+                    : msg.sender.username || i18n.t("common.you");
+          // A member's device keeps its own case after the shouted name; a
+          // device without a name shows nothing (task 0a911d08).
+          const device =
+            msg.sender.kind === "user" && msg.sender.username
+              ? msg.sender.device
+              : undefined;
           const attachmentCount = msg.attachments?.length ?? 0;
           return (
             <div
@@ -443,7 +445,14 @@ function QueueChips({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {i18n.t("logView.queue.chip", { label })}
+                  {i18n.rich("logView.queue.chip", {
+                    label: (
+                      <>
+                        {label}
+                        <SenderDevice device={device} />
+                      </>
+                    ),
+                  })}
                 </div>
                 {/* An answer to an ask says so, as the sent message will. */}
                 {msg.ask && <AskLink ask={msg.ask} isMobile={isMobile} />}

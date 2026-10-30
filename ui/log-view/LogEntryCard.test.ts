@@ -43,16 +43,31 @@ describe("serializeEntries", () => {
 });
 
 describe("describeMessageSender", () => {
-  // Each row: the metadata the server stamps, the label, and whether the card
-  // treats it as a person (solid band, editable). A non-human sender must win
-  // over a username stamped alongside it: the app's owner or the job's creator
-  // is not the sender.
+  // Each row: the metadata the server stamps, the label, the device the
+  // header shows apart from the label (task 0a911d08: the name is in caps, the
+  // device keeps its case), and whether the card treats it as a person (solid
+  // band, editable). A non-human sender must win over a username stamped
+  // alongside it: the app's owner or the job's creator is not the sender.
   const cases: Array<
-    [string, Record<string, unknown> | undefined, string | undefined, boolean]
+    [
+      string,
+      Record<string, unknown> | undefined,
+      string | undefined,
+      string | undefined,
+      boolean,
+    ]
   > = [
-    ["a member", { username: "Nil", device: "Phone" }, "Nil (Phone)", true],
-    // The card falls back to "You".
-    ["no metadata", undefined, undefined, true],
+    ["a member", { username: "Nil", device: "Phone" }, "Nil", "Phone", true],
+    ["a member without a device", { username: "Nil" }, "Nil", undefined, true],
+    // The card falls back to "You", and a device alone names nobody.
+    ["no metadata", undefined, undefined, undefined, true],
+    [
+      "a device without a username",
+      { device: "Windows" },
+      undefined,
+      undefined,
+      true,
+    ],
     [
       "an agent",
       { sender_agent_name: "Isomuxer3", sender_agent_room: "Isomux Dev" },
@@ -60,12 +75,14 @@ describe("describeMessageSender", () => {
         name: "Isomuxer3",
         room: "Isomux Dev",
       }),
+      undefined,
       false,
     ],
     [
       "an app, with its owner's username",
       { sender_app_name: "habits", username: "Nil" },
       EN.t("common.sender.app", { name: "habits" }),
+      undefined,
       false,
     ],
     [
@@ -76,6 +93,7 @@ describe("describeMessageSender", () => {
         username: "Nil",
       },
       EN.t("common.sender.cronjob", { name: "Business health check" }),
+      undefined,
       false,
     ],
     [
@@ -86,6 +104,7 @@ describe("describeMessageSender", () => {
         username: "Nil",
       },
       EN.t("common.sender.webhook", { name: "pr-review" }),
+      undefined,
       false,
     ],
     // The token is the member's authority, so the label stays theirs, but the
@@ -93,13 +112,19 @@ describe("describeMessageSender", () => {
     [
       "an API token",
       { username: "Nil", device: 'API token "test" (pat-123)' },
-      'Nil (API token "test" (pat-123))',
+      "Nil",
+      'API token "test" (pat-123)',
       false,
     ],
   ];
 
-  it.each(cases)("%s", (_name, metadata, label, fromHuman) => {
-    expect(describeMessageSender(EN, metadata)).toEqual({ label, fromHuman });
+  it.each(cases)("%s", (_name, metadata, label, device, fromHuman) => {
+    // toEqual: a device left out and a device set to undefined are the same.
+    expect(describeMessageSender(EN, metadata)).toEqual({
+      label,
+      device,
+      fromHuman,
+    });
     // The edit affordance reads the same answer.
     expect(senderIsHuman(metadata)).toBe(fromHuman);
   });

@@ -15,7 +15,7 @@ import type {
   Attachment,
   SubagentOrigin,
 } from "../../shared/types.ts";
-import { formatIdentity, isApiTokenDevice } from "../../shared/identity.ts";
+import { isApiTokenDevice } from "../../shared/identity.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
@@ -471,10 +471,32 @@ export function senderIsHuman(
   return !isApiTokenDevice(metadata?.device as string | undefined);
 }
 
+// The device part of a member's sender label ("Windows", or an app widget's
+// app, page and title), after the name. The header shouts the name in caps;
+// the device keeps the case it was sent in (task 0a911d08).
+export function SenderDevice({ device }: { device?: string }) {
+  if (!device) return null;
+  return (
+    <>
+      {" "}
+      <span
+        style={{
+          textTransform: "none",
+          letterSpacing: "normal",
+          fontWeight: 400,
+          color: "var(--text-muted)",
+        }}
+      >
+        ({device})
+      </span>
+    </>
+  );
+}
+
 export function describeMessageSender(
   i18n: Translator,
   metadata: Record<string, unknown> | undefined,
-): { label: string | undefined; fromHuman: boolean } {
+): { label: string | undefined; device?: string; fromHuman: boolean } {
   const senderAgentName = metadata?.sender_agent_name as string | undefined;
   const senderAgentRoom = metadata?.sender_agent_room as string | undefined;
   const senderAppName = metadata?.sender_app_name as string | undefined;
@@ -519,10 +541,15 @@ export function describeMessageSender(
       fromHuman: false,
     };
   }
-  const username = metadata?.username as string | undefined;
-  const device = metadata?.device as string | undefined;
+  // The name and the device apart, so the header can shout only the name. A
+  // device without a name shows nothing, as in formatIdentity.
+  const username = (metadata?.username as string | undefined) || undefined;
+  const device = username
+    ? (metadata?.device as string | undefined) || undefined
+    : undefined;
   return {
-    label: formatIdentity({ username, device }) || undefined,
+    label: username,
+    ...(device ? { device } : {}),
     fromHuman: senderIsHuman(metadata),
   };
 }
@@ -584,10 +611,11 @@ export const LogEntryCard = memo(function LogEntryCard({
   const detached = useContext(DetachedSubagentSteps).get(entry.id);
   switch (entry.kind) {
     case "user_message": {
-      const { label: senderLabel, fromHuman } = describeMessageSender(
-        i18n,
-        entry.metadata,
-      );
+      const {
+        label: senderLabel,
+        device: senderDevice,
+        fromHuman,
+      } = describeMessageSender(i18n, entry.metadata);
       // An answer to an ask: the link above it, and a dismiss in the
       // viewer's language (the agent reads the English word).
       const ask = askRefOf(entry);
@@ -599,6 +627,7 @@ export const LogEntryCard = memo(function LogEntryCard({
             entryId={entry.id}
             isMobile={isMobile}
             username={senderLabel}
+            device={senderDevice}
             onCancel={onCancelEdit}
             onSubmit={onSubmitEdit}
           />
@@ -653,6 +682,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           }
           isMobile={isMobile}
           username={senderLabel}
+          device={senderDevice}
           fromNonHuman={!fromHuman}
           // Collapse app reports; scheduled-job messages stay fully visible.
           collapsible={!!entry.metadata?.sender_app_name}
@@ -1136,6 +1166,7 @@ export function UserMessage({
   content,
   isMobile,
   username,
+  device,
   fromNonHuman,
   outgoing,
   collapsible = false,
@@ -1161,6 +1192,8 @@ export function UserMessage({
   content: string;
   isMobile?: boolean;
   username?: string;
+  // The device part of a member's label, shown after the name in its own case.
+  device?: string;
   // Sender is not a person: another agent, or one of this agent's apps. Drives
   // the muted/dashed/italic treatment that keeps a non-human message from
   // reading like the member.
@@ -1283,6 +1316,7 @@ export function UserMessage({
           {compact
             ? (username ?? t("common.you"))
             : (username ?? t("common.you")).toUpperCase()}
+          <SenderDevice device={device} />
         </div>
       )}
       {beforeContent}
@@ -1552,6 +1586,7 @@ export function EditableUserMessage({
   entryId,
   isMobile,
   username,
+  device,
   onCancel,
   onSubmit,
 }: {
@@ -1559,6 +1594,7 @@ export function EditableUserMessage({
   entryId: string;
   isMobile?: boolean;
   username?: string;
+  device?: string;
   onCancel?: () => void;
   onSubmit?: (entryId: string, newText: string) => void;
 }) {
@@ -1624,6 +1660,7 @@ export function EditableUserMessage({
         }}
       >
         {(username ?? t("common.you")).toUpperCase()}
+        <SenderDevice device={device} />
       </div>
       <textarea
         ref={textareaRef}
