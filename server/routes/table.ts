@@ -502,6 +502,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: authn(agentDirectoryReader),
     emits: [],
   }),
+  // An agent's face as an image, for apps and any page that shows agents. The
+  // identities GET /agents serves, for an agent in a room they reach.
+  defineRoute<void, Uint8Array>({
+    opId: "agents.avatar",
+    method: "GET",
+    path: "/api/agents/:id/avatar.svg",
+    auth: authn(
+      and(
+        agentDirectoryReader,
+        requiresRoomAccess({ kind: "paramAgentId", name: "id" }),
+      ),
+    ),
+    emits: [],
+  }),
   defineRoute<SpawnReq, AgentEnvelope>({
     opId: "agents.spawn",
     audit: { owner: "executor", targets: createdResource("agent") },

@@ -1,5 +1,8 @@
+// The server renders this file (server/agent-avatar.ts), so it imports react,
+// shared/ and the ui files the server also renders only, and touches no
+// browser global at module scope.
 import { useId } from "react";
-import { SceneBackgroundMark } from "../components/BackgroundWork.tsx";
+import { SceneBackgroundMark } from "../components/BackgroundMark.tsx";
 import type { AgentState, AgentOutfit } from "../../shared/types.ts";
 
 import { costumeOf } from "../../shared/outfit-options.ts";
@@ -550,6 +553,7 @@ export function Character({
   const wrap = (children: React.ReactNode, anim?: React.CSSProperties) =>
     headCrop ? (
       <svg
+        xmlns="http://www.w3.org/2000/svg"
         width={headCrop}
         height={headCrop}
         viewBox="10 21 32 32"

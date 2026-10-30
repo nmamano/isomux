@@ -821,6 +821,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   // The agent-discovery manifest is exposed both at /agents and /api/agents.
   ["GET", "/agents", "apiCall.agents.list"],
   ["GET", "/api/agents", "apiCall.agents.list"],
+  ["GET", "/api/agents/*/avatar.svg", "apiCall.agents.avatar"],
   ["POST", "/api/agents/*/messages", "apiCall.agents.sendMessage"],
   ["POST", "/api/agents/*/asks", "apiCall.asks.create"],
   ["GET", "/api/agents/*/asks", "apiCall.asks.list"],

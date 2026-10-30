@@ -1698,6 +1698,7 @@ Coses que pots fer per ell:
     "Llistar agents (filtre de rebotiga no vàlid)",
   "apiCall.agents.listInvalidFilter":
     "Llistar agents (filtre d'eliminats no vàlid)",
+  "apiCall.agents.avatar": "Obtenir l'avatar d'un agent",
   "apiCall.agents.sendMessage": "Enviar un missatge a un agent",
   "apiCall.agents.sendMessageTo": "Enviar un missatge a {who}",
   "apiCall.agents.steerMessage": "Enviar un missatge a {who} a mig torn",

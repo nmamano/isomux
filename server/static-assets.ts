@@ -13,6 +13,7 @@ import { stat } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { brotliCompress, constants, gzip } from "node:zlib";
+import { etagMatches } from "./etag.ts";
 
 export interface StaticAssetsDeps {
   gzip?: (bytes: Uint8Array) => Promise<Uint8Array>;
@@ -80,14 +81,6 @@ function acceptedEncodings(req: Request): Set<string> {
     accepted.add(name);
   }
   return accepted;
-}
-
-function etagMatches(ifNoneMatch: string | null, etag: string): boolean {
-  if (ifNoneMatch === null) return false;
-  const bare = (tag: string) => tag.trim().replace(/^W\//, "");
-  return ifNoneMatch
-    .split(",")
-    .some((tag) => tag.trim() === "*" || bare(tag) === bare(etag));
 }
 
 interface CacheEntry {

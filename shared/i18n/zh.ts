@@ -1503,6 +1503,7 @@ App 的一些原则：
   "apiCall.agents.listWithBackRooms": "列出办公室智能体（含后屋）",
   "apiCall.agents.listInvalidBack": "列出智能体（后屋筛选条件无效）",
   "apiCall.agents.listInvalidFilter": "列出智能体（终止状态筛选条件无效）",
+  "apiCall.agents.avatar": "获取智能体头像",
   "apiCall.agents.sendMessage": "发送智能体消息",
   "apiCall.agents.sendMessageTo": "向 {who} 发送消息",
   "apiCall.agents.steerMessage": "在 {who} 的回合中发送消息",

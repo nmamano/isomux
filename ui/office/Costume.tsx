@@ -1,3 +1,5 @@
+// The server renders this file (server/agent-avatar.ts), so it imports react
+// and shared/ only and touches no browser global at module scope.
 import type { AgentOutfit } from "../../shared/types.ts";
 
 type Costume = NonNullable<AgentOutfit["costume"]>;

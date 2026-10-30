@@ -408,6 +408,7 @@ import { fileLogSource } from "./log-source.ts";
 import { runSearchInChild } from "./log-search-runner.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { agentDirectoryHandlers } from "./routes/handlers/agent-directory.ts";
+import { agentAvatarHandlers } from "./routes/handlers/agent-avatar.ts";
 import { appSignInHandlers } from "./routes/handlers/app-sign-in.ts";
 import { skillUsageHandlers } from "./routes/handlers/skill-usage.ts";
 import { skillsHandlers } from "./routes/handlers/skills.ts";
@@ -3849,6 +3850,11 @@ function buildExecutorDeps(
       killedAgents: () => agentManager.getKilledAgentSummaries(),
       killedAgentsForManager: (userId) =>
         agentManager.getKilledAgentSummariesForManager(userId),
+    }),
+  );
+  register(
+    agentAvatarHandlers({
+      outfitOf: (agentId) => agentManager.getAgent(agentId)?.outfit ?? null,
     }),
   );
   register(

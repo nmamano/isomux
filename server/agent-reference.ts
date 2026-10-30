@@ -53,6 +53,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   Record<string, AgentReferenceTopic>
 > = {
   "agents.discovery": "discovery",
+  "agents.avatar": "discovery",
   "agents.spawn": "spawning",
   "agents.kill": "spawning",
   "agents.revive": "agent-management",

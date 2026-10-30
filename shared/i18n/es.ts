@@ -1693,6 +1693,7 @@ Cosas que puedes hacer por él:
     "Listar agentes (filtro de trastienda no válido)",
   "apiCall.agents.listInvalidFilter":
     "Listar agentes (filtro de eliminados no válido)",
+  "apiCall.agents.avatar": "Obtener el avatar de un agente",
   "apiCall.agents.sendMessage": "Enviar un mensaje a un agente",
   "apiCall.agents.sendMessageTo": "Enviar un mensaje a {who}",
   "apiCall.agents.steerMessage": "Enviar un mensaje a {who} a mitad de turno",

@@ -1,31 +1,14 @@
 // Background work an agent's session still runs (AgentInfo.backgroundTasks):
-// the ring that replaces the zZ of an idle agent, and the chat-header pill
-// that lists what runs. SVG only: iOS draws dingbat glyphs as emoji.
+// the chat-header pill that lists what runs. The ring that replaces the zZ of
+// an idle agent is in BackgroundMark.tsx. SVG only: iOS draws dingbat glyphs
+// as emoji.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Portal } from "./Portal.tsx";
 import { useI18n } from "../i18n.tsx";
 import type { BackgroundTask } from "../../shared/types.ts";
+import { spin } from "./BackgroundMark.tsx";
 
-function reducedMotion(): boolean {
-  return (
-    typeof matchMedia === "function" &&
-    matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-/** The arc turns once in 2.4 s; with reduced motion it stands still. */
-function spin(cx: number, cy: number) {
-  if (reducedMotion()) return null;
-  return (
-    <animateTransform
-      attributeName="transform"
-      type="rotate"
-      values={`0 ${cx} ${cy};360 ${cx} ${cy}`}
-      dur="2.4s"
-      repeatCount="indefinite"
-    />
-  );
-}
+export { SceneBackgroundMark } from "./BackgroundMark.tsx";
 
 /** A slow-turning open ring: work runs, but not as a turn. */
 function BackgroundIcon({ size }: { size: number }) {
@@ -56,61 +39,6 @@ function BackgroundIcon({ size }: { size: number }) {
         {spin(6, 6)}
       </path>
     </svg>
-  );
-}
-
-/** Drawn in the character's own SVG units, centred on cx,cy (by default
- *  where the zZ sits). Above nine it writes 9+: on a phone the digit is
- *  about 6 px. */
-export function SceneBackgroundMark({
-  count,
-  cx = 46,
-  cy = 16,
-}: {
-  count: number;
-  cx?: number;
-  cy?: number;
-}) {
-  const text = count > 9 ? "9+" : String(count);
-  return (
-    <g data-background-mark="" transform={`translate(${cx - 46} ${cy - 16})`}>
-      <circle
-        cx="46"
-        cy="16"
-        r="9"
-        fill="rgba(20,28,48,0.72)"
-        stroke="rgba(200,220,255,0.35)"
-        strokeWidth="0.8"
-      />
-      <circle
-        cx="46"
-        cy="16"
-        r="6.6"
-        fill="none"
-        stroke="rgba(200,220,255,0.25)"
-        strokeWidth="1.4"
-      />
-      <path
-        d="M46 9.4 A6.6 6.6 0 0 1 52.6 16"
-        fill="none"
-        stroke="rgba(200,220,255,0.9)"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      >
-        {spin(46, 16)}
-      </path>
-      <text
-        x="46"
-        y={text.length > 1 ? 18.6 : 19}
-        fontSize={text.length > 1 ? 7 : 8.5}
-        fontWeight="bold"
-        textAnchor="middle"
-        fill="rgba(220,232,255,0.95)"
-        fontFamily="system-ui, sans-serif"
-      >
-        {text}
-      </text>
-    </g>
   );
 }
 

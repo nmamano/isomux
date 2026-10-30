@@ -1097,6 +1097,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agentReference.get": { caps: [], emits: [] },
   // GET /agents, the office directory.
   "agents.discovery": { caps: [], emits: [] },
+  // An agent's face as an image: the directory's readers, per agent room.
+  "agents.avatar": { caps: [], emits: [] },
   // Agents - lifecycle
   // Any-of: an operator or member through agent:manage, every agent through
   // agent:spawn (task eb98cff1; kill only of an agent it spawned).
@@ -2130,6 +2132,7 @@ const API_REACHABLE_OPIDS = [
   "agentReference.list",
   "agentReference.get",
   "agents.discovery",
+  "agents.avatar",
   "agents.spawn",
   "agents.kill",
   "agents.revive",
@@ -2628,77 +2631,85 @@ describe("route table: every API route has a handler", () => {
   });
 });
 
-// GET /agents (agents.discovery): every office identity, and an API token only
-// with api:discover-agents. The app arms are in the app-reach walk above.
-describe("route table: agents.discovery reach", () => {
-  const route = API_ROUTES.find((r) => r.opId === "agents.discovery")!;
-  const deps: GuardDeps = {
-    hasRoomAccess: () => false,
-    roomIdForAgent: () => null,
-    userIdForUsername: () => null,
-    cronjobCreatorUserId: () => null,
-    cronjobCreatorAgentId: () => null,
-    agentSpawnerAgentId: () => null,
-    appOwnerUserId: () => null,
-    webhookOwnerUserId: () => null,
-    webhookCreatorAgentId: () => null,
-    isOfficeOwnerUserId: () => false,
-    agentManagerUserId: () => null,
-    killedAgentManagerUserId: () => null,
-    killedAgentLastRoomId: () => null,
-    roomExists: () => false,
-    cronRunVisibleTo: () => false,
-  };
-  const allowed = (identity: Identity): boolean =>
-    runAuthorize(route.auth, identity, {}, undefined, deps).ok;
-  const api = (capabilities: readonly Capability[]): Identity => ({
-    scope: "api",
-    userId: "u1",
-    role: "member",
-    apiTokenId: "pat-1",
-    apiTokenName: "Laptop",
-    capabilities: [...capabilities],
-  });
+// GET /agents (agents.discovery) and an agent's avatar (agents.avatar): every
+// office identity, and an API token only with api:discover-agents. Room access
+// is granted here, so the capability is the only thing that can refuse; the
+// avatar's room half and the app arms are in routes-agent-avatar.test.ts and
+// the app-reach walk above.
+for (const opId of ["agents.discovery", "agents.avatar"]) {
+  describe(`route table: ${opId} reach`, () => {
+    const route = API_ROUTES.find((r) => r.opId === opId)!;
+    const deps: GuardDeps = {
+      hasRoomAccess: () => true,
+      roomIdForAgent: () => "r1",
+      userIdForUsername: () => null,
+      cronjobCreatorUserId: () => null,
+      cronjobCreatorAgentId: () => null,
+      agentSpawnerAgentId: () => null,
+      appOwnerUserId: () => null,
+      webhookOwnerUserId: () => null,
+      webhookCreatorAgentId: () => null,
+      isOfficeOwnerUserId: () => false,
+      agentManagerUserId: () => null,
+      killedAgentManagerUserId: () => null,
+      killedAgentLastRoomId: () => null,
+      roomExists: () => false,
+      cronRunVisibleTo: () => false,
+    };
+    const allowed = (identity: Identity): boolean =>
+      runAuthorize(route.auth, identity, { id: "a1" }, undefined, deps).ok;
+    const api = (capabilities: readonly Capability[]): Identity => ({
+      scope: "api",
+      userId: "u1",
+      role: "member",
+      apiTokenId: "pat-1",
+      apiTokenName: "Laptop",
+      capabilities: [...capabilities],
+    });
 
-  it("admits a member, an agent and a cron run", () => {
-    expect(
-      allowed({
-        scope: "user",
-        userId: "u1",
-        role: "member",
-        capabilities: USER_CAPABILITIES,
-      }),
-    ).toBe(true);
-    expect(
-      allowed({
-        scope: "agent",
-        userId: "u1",
-        role: "member",
-        agentId: "a1",
-        capabilities: AGENT_CAPABILITIES,
-      }),
-    ).toBe(true);
-    expect(
-      allowed({
-        scope: "cron-run",
-        userId: "u1",
-        role: "member",
-        cronjobId: "job-1",
-        runId: "run-1",
-        capabilities: RUN_CAPABILITIES,
-      }),
-    ).toBe(true);
-  });
+    it("admits a member, an agent and a cron run", () => {
+      expect(route).toBeDefined();
+      expect(
+        allowed({
+          scope: "user",
+          userId: "u1",
+          role: "member",
+          capabilities: USER_CAPABILITIES,
+        }),
+      ).toBe(true);
+      expect(
+        allowed({
+          scope: "agent",
+          userId: "u1",
+          role: "member",
+          agentId: "a1",
+          capabilities: AGENT_CAPABILITIES,
+        }),
+      ).toBe(true);
+      expect(
+        allowed({
+          scope: "cron-run",
+          userId: "u1",
+          role: "member",
+          cronjobId: "job-1",
+          runId: "run-1",
+          capabilities: RUN_CAPABILITIES,
+        }),
+      ).toBe(true);
+    });
 
-  it("admits an API token only while it holds api:discover-agents", () => {
-    // The enabling condition: the full API set holds it.
-    expect(API_CAPABILITIES).toContain("api:discover-agents");
-    expect(allowed(api(API_CAPABILITIES))).toBe(true);
-    expect(
-      allowed(api(API_CAPABILITIES.filter((c) => c !== "api:discover-agents"))),
-    ).toBe(false);
+    it("admits an API token only while it holds api:discover-agents", () => {
+      // The enabling condition: the full API set holds it.
+      expect(API_CAPABILITIES).toContain("api:discover-agents");
+      expect(allowed(api(API_CAPABILITIES))).toBe(true);
+      expect(
+        allowed(
+          api(API_CAPABILITIES.filter((c) => c !== "api:discover-agents")),
+        ),
+      ).toBe(false);
+    });
   });
-});
+}
 
 // Voice input (task 4481e64b): each call spends the caller's user's
 // OPENAI_API_KEY. A member, their API token and their agents may spend it; a

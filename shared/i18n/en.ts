@@ -1662,6 +1662,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.agents.listWithBackRooms": "List office agents, back rooms included",
   "apiCall.agents.listInvalidBack": "List agents (invalid back filter)",
   "apiCall.agents.listInvalidFilter": "List agents (invalid killed filter)",
+  "apiCall.agents.avatar": "Get an agent's avatar",
   "apiCall.agents.sendMessage": "Send agent message",
   "apiCall.agents.sendMessageTo": "Send a message to {who}",
   "apiCall.agents.steerMessage": "Message {who} mid-turn",
