@@ -15,7 +15,6 @@ import {
   useEffect,
   useMemo,
   useCallback,
-  useContext,
   type RefCallback,
 } from "react";
 import type {
@@ -63,7 +62,6 @@ import { ChatTranscript, useChatTranscript } from "./ChatTranscript.tsx";
 import { citationBlock, insertCite } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
 import { sendAttempt, takeAttempt } from "./outbox.ts";
-import { WidgetAppCtx } from "../widget-app-context.ts";
 import { OutboxRows } from "./OutboxRows.tsx";
 import { AsksStack } from "./AsksStack.tsx";
 import { errMessage } from "../../shared/errors.ts";
@@ -749,7 +747,6 @@ export function LogView({
     agents: allAgents,
     rooms: allRooms,
   } = useAppState();
-  const widgetApp = useContext(WidgetAppCtx);
   const taskMap: TaskMap = useMemo(
     () => new Map(tasks.map((task) => [task.id, task])),
     [tasks],
@@ -2013,9 +2010,6 @@ export function LogView({
       attachments,
       device: device || undefined,
       sendNow: opts?.sendNow,
-      // Only the app's own agent: the server refuses the context elsewhere.
-      appContext:
-        widgetApp?.agentId === agent.id ? widgetApp.appContext : undefined,
     });
     // Not saved, so not sent: the composer keeps the only copy.
     setSaveError(!recorded);

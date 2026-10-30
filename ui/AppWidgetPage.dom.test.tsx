@@ -505,91 +505,27 @@ it("folds a settled tool group, expands results on demand, and updates the offic
   ).toBeNull();
 });
 
-it("toggles the desktop chat with its launcher, and Escape closes it", async () => {
-  sessionStorage.clear();
-  const { StateCtx, initialState } = await import("./store.tsx");
-  const iframesOn = iframesOff();
-  setApiShim(async () => ({
-    ...boot,
-    appUrl: "https://hello.office.example",
-    sessionExpiresAt: Date.now() + 1000000,
-    chat: { agentId: agent.id, agentName: agent.name },
-  }));
-  let view: ReturnType<typeof render> | undefined;
-  try {
-    await act(async () => {
-      view = render(
-        <StateCtx.Provider
-          value={{ ...initialState, agents: [agent], connected: true }}
-        >
-          <AppWidgetPage boot={boot} />
-        </StateCtx.Provider>,
-      );
-    });
-    const launcher = view!.container.querySelector<HTMLButtonElement>(
-      ".app-widget-launcher",
-    )!;
-    const panel = view!.container.querySelector<HTMLElement>(
-      "#" + launcher.getAttribute("aria-controls"),
-    )!;
-    const isOpen = () => {
-      const expanded = launcher.getAttribute("aria-expanded");
-      expect(panel.style.display).toBe(expanded === "true" ? "flex" : "none");
-      return expanded === "true";
-    };
-    // The direct link is only in the open panel's header: the closed dock
-    // holds the launcher alone (Nil, 2026-10-20).
-    const direct = "https://hello.office.example/" + window.location.search;
-    const dock = view!.container.querySelector(".app-widget-dock")!;
-    const dockLink = () =>
-      view!.container.querySelector<HTMLAnchorElement>(".app-widget-dock a");
-    const headerLink = () =>
-      panel.querySelector<HTMLAnchorElement>("header a.app-widget-direct");
-    expect(isOpen()).toBe(false);
-    expect(dock.contains(launcher)).toBe(true);
-    expect(dockLink()).toBeNull();
-    fireEvent.click(launcher);
-    expect(isOpen()).toBe(true);
-    expect(dockLink()).toBeNull();
-    expect(headerLink()?.href).toBe(direct);
-    expect(headerLink()?.target).toBe("_blank");
-    // The launcher is the only close control: the chat header holds none.
-    expect(panel.querySelector("header button")).toBeNull();
-    fireEvent.click(launcher);
-    expect(isOpen()).toBe(false);
-    expect(dockLink()).toBeNull();
-    fireEvent.click(launcher);
-    fireEvent.keyDown(panel.querySelector("textarea")!, { key: "Escape" });
-    expect(isOpen()).toBe(false);
-    expect(document.activeElement).toBe(launcher);
-  } finally {
-    view?.unmount();
-    iframesOn();
-  }
-});
-
-// With no expanded view the widget shows no direct link: a phone's chat
-// launcher opens the office instead. With no chat target there is no widget,
-// and the lone dock link is the way out of the frame; on the iPhone Home
-// Screen it must leave for Safari, since that window has no Back button.
-for (const [variant, phone, homeScreen] of [
+// One chat on every device (task 55d1bb8b, Nil, 2026-10-28): a phone opens
+// the panel over the app in place, as a desktop does, so the panel's header
+// (direct link, install entry) is reachable there too. The iPhone Home Screen
+// window opens it in place as well; nothing leaves for Safari or the office.
+for (const [device, phone, homeScreen] of [
+  ["desktop", false, false],
   ["phone", true, false],
   ["phone on the iPhone Home Screen", true, true],
-  ["no chat target", false, false],
-  ["no chat target on the iPhone Home Screen", false, true],
 ] as const) {
-  it(`shows the direct link only where no chat launcher is (${variant})`, async () => {
+  it(`toggles the chat in place with its launcher, and Escape closes it (${device})`, async () => {
     sessionStorage.clear();
+    const { StateCtx, initialState } = await import("./store.tsx");
     const { asDevice, IPHONE_HOME_SCREEN } =
       await import("./test-support/ios-home-screen.ts");
     const undo = homeScreen ? asDevice(IPHONE_HOME_SCREEN) : () => {};
-    const { StateCtx, initialState } = await import("./store.tsx");
     const iframesOn = iframesOff();
     setApiShim(async () => ({
       ...boot,
       appUrl: "https://hello.office.example",
       sessionExpiresAt: Date.now() + 1000000,
-      chat: phone ? { agentId: agent.id, agentName: agent.name } : null,
+      chat: { agentId: agent.id, agentName: agent.name },
     }));
     let view: ReturnType<typeof render> | undefined;
     try {
@@ -607,20 +543,254 @@ for (const [variant, phone, homeScreen] of [
           </StateCtx.Provider>,
         );
       });
+      const launcher = view!.container.querySelector<HTMLElement>(
+        ".app-widget-launcher",
+      )!;
+      // A button that opens the chat here, not a link that leaves the page.
+      expect(launcher.tagName).toBe("BUTTON");
+      expect(launcher.hasAttribute("href")).toBe(false);
+      const controls = launcher.getAttribute("aria-controls");
+      expect(controls).toBeTruthy();
+      const panel = document.getElementById(controls!)!;
+      expect(panel).not.toBeNull();
+      const isOpen = () => {
+        const expanded = launcher.getAttribute("aria-expanded");
+        expect(panel.style.display).toBe(expanded === "true" ? "flex" : "none");
+        return expanded === "true";
+      };
+      // Opening and closing the chat keeps the app's frame: same element, same
+      // page, no reload.
+      const frame = () => view!.container.querySelector("iframe");
+      const src = frame()!.getAttribute("src");
+      expect(src).toBeTruthy();
+      frame()!.setAttribute("data-test-first-frame", "");
+      const sameFrame = () => {
+        expect(frame()?.hasAttribute("data-test-first-frame")).toBe(true);
+        expect(frame()!.getAttribute("src")).toBe(src);
+      };
+      // The direct link is only in the open panel's header: the closed dock
+      // holds the launcher alone (Nil, 2026-10-20). The Home Screen window
+      // has no Back button, so the link leaves for Safari there.
+      const direct =
+        (homeScreen ? "x-safari-" : "") +
+        "https://hello.office.example/" +
+        window.location.search;
+      const dock = view!.container.querySelector(".app-widget-dock")!;
+      const dockLink = () =>
+        view!.container.querySelector<HTMLAnchorElement>(".app-widget-dock a");
+      const headerLink = () =>
+        panel.querySelector<HTMLAnchorElement>("header a.app-widget-direct");
+      const textarea = panel.querySelector("textarea")!;
+      expect(isOpen()).toBe(false);
+      expect(dock.contains(launcher)).toBe(true);
+      expect(dockLink()).toBeNull();
+      await act(async () => {
+        fireEvent.click(launcher);
+      });
+      expect(isOpen()).toBe(true);
+      sameFrame();
+      expect(dockLink()).toBeNull();
+      expect(headerLink()?.getAttribute("href")).toBe(direct);
+      expect(headerLink()?.target).toBe("_blank");
+      // A desktop opens the chat ready to type. A phone does not: the soft
+      // keyboard would cover the app and half the panel at each open, as the
+      // office composer avoids (LogView autoFocus={!isMobile}).
+      expect(document.activeElement === textarea).toBe(!phone);
+      // The launcher is the only close control: the chat header holds none.
+      expect(panel.querySelector("header button")).toBeNull();
+      await act(async () => {
+        fireEvent.click(launcher);
+      });
+      expect(isOpen()).toBe(false);
+      sameFrame();
+      expect(dockLink()).toBeNull();
+      await act(async () => {
+        fireEvent.click(launcher);
+      });
+      expect(isOpen()).toBe(true);
+      fireEvent.keyDown(textarea, { key: "Escape" });
+      expect(isOpen()).toBe(false);
+      expect(document.activeElement).toBe(launcher);
+      sameFrame();
+    } finally {
+      view?.unmount();
+      iframesOn();
+      undo();
+    }
+  });
+}
+
+// A phone's panel covers about 80% of the screen and ends above the launcher,
+// which closes it. 80dvh does not shrink for the soft keyboard, so the panel
+// takes its box from the visual viewport: with the keyboard up it fits the
+// visible area, and the composer stays in sight (as LogView does for the
+// office chat). iOS moves the visual viewport by scroll, not resize. The dock
+// stands on the safe area (34px on an iPhone Home Screen), and the panel ends
+// above the dock wherever it stands; a dock with no measured offset is 20px up.
+for (const [device, phone, dockBottom] of [
+  ["phone", true, ""],
+  ["phone with a raised dock", true, "60px"],
+  ["desktop", false, ""],
+] as const) {
+  it(`fits the open chat to the visible area of a ${device}`, async () => {
+    sessionStorage.clear();
+    const computed = globalThis.getComputedStyle;
+    globalThis.getComputedStyle = (element, pseudo) => {
+      const style = computed(element, pseudo);
+      if (!dockBottom || !element.classList.contains("app-widget-dock"))
+        return style;
+      return new Proxy(style, {
+        get: (target, key) =>
+          key === "bottom" ? dockBottom : Reflect.get(target, key),
+      });
+    };
+    const { StateCtx, initialState } = await import("./store.tsx");
+    const iframesOn = iframesOff();
+    const layoutHeight = 800;
+    const innerHeight = Object.getOwnPropertyDescriptor(window, "innerHeight");
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: layoutHeight,
+    });
+    const viewport = Object.assign(new EventTarget(), {
+      offsetTop: 0,
+      offsetLeft: 0,
+      height: layoutHeight,
+      width: 390,
+      scale: 1,
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: viewport,
+    });
+    setApiShim(async () => ({
+      ...boot,
+      appUrl: "https://hello.office.example",
+      sessionExpiresAt: Date.now() + 1000000,
+      chat: { agentId: agent.id, agentName: agent.name },
+    }));
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => {
+        view = render(
+          <StateCtx.Provider
+            value={{
+              ...initialState,
+              agents: [agent],
+              connected: true,
+              isMobile: phone,
+            }}
+          >
+            <AppWidgetPage boot={boot} />
+          </StateCtx.Provider>,
+        );
+      });
+      const launcher = view!.container.querySelector<HTMLElement>(
+        ".app-widget-launcher",
+      )!;
+      await act(async () => {
+        fireEvent.click(launcher);
+      });
+      const panel =
+        view!.container.querySelector<HTMLElement>("#app-widget-chat")!;
+      expect(panel).not.toBeNull();
+      expect(panel.style.display).toBe("flex");
+      if (!phone) {
+        // The desktop panel keeps its stylesheet box (out of this task).
+        expect([panel.style.top, panel.style.height]).toEqual(["", ""]);
+        return;
+      }
+      const box = () => {
+        const top = parseFloat(panel.style.top);
+        const height = parseFloat(panel.style.height);
+        expect([Number.isFinite(top), Number.isFinite(height)]).toEqual([
+          true,
+          true,
+        ]);
+        return { top, bottom: top + height, height };
+      };
+      // The visual viewport changes, as the browser reports it.
+      const move = async (
+        next: { offsetTop: number; height: number },
+        event: "resize" | "scroll",
+      ) => {
+        Object.assign(viewport, next);
+        await act(async () => {
+          viewport.dispatchEvent(new Event(event));
+        });
+      };
+      // The launcher is more than 40px high: the panel ends above it.
+      const aboveLauncher =
+        layoutHeight - Math.max(20, parseFloat(dockBottom) || 0) - 60;
+      const keyboardDown = () => {
+        const { top, bottom, height } = box();
+        expect(top).toBeGreaterThanOrEqual(0);
+        expect(bottom).toBeLessThanOrEqual(aboveLauncher);
+        expect(Math.abs(height - 0.8 * layoutHeight)).toBeLessThanOrEqual(1);
+      };
+      keyboardDown();
+      // The keyboard opens: the visual viewport shrinks to 400px.
+      await move({ offsetTop: 0, height: 400 }, "resize");
+      const up = box();
+      expect(up.top).toBeGreaterThanOrEqual(0);
+      expect(up.bottom).toBeLessThanOrEqual(400);
+      // It fills the visible area, not a fixed short box.
+      expect(up.height).toBeGreaterThanOrEqual(0.9 * 400);
+      // iOS scrolls the page under the keyboard: the visible area moves down.
+      await move({ offsetTop: 150, height: 400 }, "scroll");
+      const scrolled = box();
+      expect(scrolled.top).toBeGreaterThanOrEqual(150);
+      expect(scrolled.bottom).toBeLessThanOrEqual(550);
+      expect(scrolled.height).toBeGreaterThanOrEqual(0.9 * 400);
+      // The keyboard closes: back to the full box.
+      await move({ offsetTop: 0, height: layoutHeight }, "resize");
+      keyboardDown();
+    } finally {
+      view?.unmount();
+      iframesOn();
+      Reflect.deleteProperty(window, "visualViewport");
+      if (innerHeight)
+        Object.defineProperty(window, "innerHeight", innerHeight);
+      globalThis.getComputedStyle = computed;
+    }
+  });
+}
+
+// With no chat target there is no widget, and the lone dock link is the way
+// out of the frame; on the iPhone Home Screen it must leave for Safari, since
+// that window has no Back button.
+for (const [variant, homeScreen] of [
+  ["no chat target", false],
+  ["no chat target on the iPhone Home Screen", true],
+] as const) {
+  it(`shows the direct link in the dock where no chat launcher is (${variant})`, async () => {
+    sessionStorage.clear();
+    const { asDevice, IPHONE_HOME_SCREEN } =
+      await import("./test-support/ios-home-screen.ts");
+    const undo = homeScreen ? asDevice(IPHONE_HOME_SCREEN) : () => {};
+    const { StateCtx, initialState } = await import("./store.tsx");
+    const iframesOn = iframesOff();
+    setApiShim(async () => ({
+      ...boot,
+      appUrl: "https://hello.office.example",
+      sessionExpiresAt: Date.now() + 1000000,
+      chat: null,
+    }));
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => {
+        view = render(
+          <StateCtx.Provider
+            value={{ ...initialState, agents: [agent], connected: true }}
+          >
+            <AppWidgetPage boot={boot} />
+          </StateCtx.Provider>,
+        );
+      });
       const dock = view!.container.querySelector(".app-widget-dock")!;
       const links = view!.container.querySelectorAll<HTMLAnchorElement>("a");
       expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
-      expect(dock.querySelector(".app-widget-launcher") !== null).toBe(phone);
-      if (phone) {
-        // On the iPhone Home Screen the launcher is itself a link to Safari
-        // (ui/AppWidgetPage.install.dom.test.tsx); no other link shows.
-        expect(
-          [...links].filter(
-            (link) => !link.classList.contains("app-widget-launcher"),
-          ),
-        ).toHaveLength(0);
-        return;
-      }
+      expect(dock.querySelector(".app-widget-launcher")).toBeNull();
       expect(links).toHaveLength(1);
       expect(dock.contains(links[0])).toBe(true);
       expect(links[0].getAttribute("href")).toBe(

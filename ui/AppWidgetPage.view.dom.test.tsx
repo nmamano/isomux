@@ -128,13 +128,11 @@ async function mountWidget(
     });
   };
   const send = async (text: string) => {
-    if (!opts.isMobile) {
-      const launcher = view!.container.querySelector<HTMLButtonElement>(
-        ".app-widget-launcher",
-      )!;
-      if (launcher.getAttribute("aria-expanded") !== "true")
-        fireEvent.click(launcher);
-    }
+    const launcher = view!.container.querySelector<HTMLButtonElement>(
+      ".app-widget-launcher",
+    )!;
+    if (launcher.getAttribute("aria-expanded") !== "true")
+      fireEvent.click(launcher);
     await act(async () => {
       fireEvent.change(view!.getByRole("textbox"), {
         target: { value: text },
@@ -209,33 +207,37 @@ const viewReport = (path: string, title?: string) => ({
   ...(title === undefined ? {} : { title }),
 });
 
-it("sends the page the member sees, from the frame's own report only", async () => {
-  const w = await mountWidget();
-  try {
-    // No report yet: the frame's first page, with no title.
-    await w.send("before any report");
-    expect(w.posts.at(-1)?.appContext).toEqual({
-      ...boot,
-      view: { path: "/" + window.location.search },
-    });
-    await w.report(viewReport("/recipes/3?step=2#notes", "Pasta"));
-    // Not this frame, or not this app: ignored.
-    await w.report(viewReport("/other", "Other"), {});
-    await w.report(
-      viewReport("/other", "Other"),
-      w.frameWindow,
-      "https://evil.example",
-    );
-    await w.send("after a report");
-    expect(w.posts).toHaveLength(2);
-    expect(w.posts.at(-1)?.appContext).toEqual({
-      ...boot,
-      view: { path: "/recipes/3?step=2#notes", title: "Pasta" },
-    });
-  } finally {
-    w.done();
-  }
-});
+// A phone sends from the same panel (task 55d1bb8b), so its messages carry the
+// page too.
+for (const isMobile of [false, true]) {
+  it(`sends the page the member sees, from the frame's own report only (mobile: ${isMobile})`, async () => {
+    const w = await mountWidget({ isMobile });
+    try {
+      // No report yet: the frame's first page, with no title.
+      await w.send("before any report");
+      expect(w.posts.at(-1)?.appContext).toEqual({
+        ...boot,
+        view: { path: "/" + window.location.search },
+      });
+      await w.report(viewReport("/recipes/3?step=2#notes", "Pasta"));
+      // Not this frame, or not this app: ignored.
+      await w.report(viewReport("/other", "Other"), {});
+      await w.report(
+        viewReport("/other", "Other"),
+        w.frameWindow,
+        "https://evil.example",
+      );
+      await w.send("after a report");
+      expect(w.posts).toHaveLength(2);
+      expect(w.posts.at(-1)?.appContext).toEqual({
+        ...boot,
+        view: { path: "/recipes/3?step=2#notes", title: "Pasta" },
+      });
+    } finally {
+      w.done();
+    }
+  });
+}
 
 for (const isMobile of [false, true]) {
   it(`reloads the page in place once the app serves, when the agent asks (mobile: ${isMobile})`, async () => {

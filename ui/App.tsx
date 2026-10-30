@@ -591,9 +591,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   // clicked on, so Close and Back return there. The page's one-shot state is
   // cleared first, so Settings opens on no stale row. The Inbox's tabs do not
   // stack: a link to one from the other switches the tab. A link to an agent
-  // closes every page and opens that agent's chat in its room, as the app
-  // widget's office door does (WidgetOfficeBridge); a back agent's chat
-  // reopens the back screen through focusedInBack.
+  // closes every page and opens that agent's chat in its room; a back agent's
+  // chat reopens the back screen through focusedInBack.
   const openOfficeLink = useCallback(
     (link: OfficeLink) => {
       if ("agentId" in link) {

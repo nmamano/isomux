@@ -2,16 +2,13 @@
 // offers a real install: the page holds beforeinstallprompt and the install
 // entry calls prompt(). iOS Safari has no such event, so the entry shows the
 // Share > Add to Home Screen steps. The entry sits beside "Open app
-// directly": in the chat panel's header when there is a chat, in the dock
-// when there is none, and nowhere on a phone with a chat, which has neither.
+// directly": in the chat panel's header when there is a chat, on a phone too
+// (task 55d1bb8b), and in the dock when there is none.
 // The Apps page links here with #install, which opens the steps (or, on
 // Chrome, the install offer once the event arrives) in a popover with its own
 // close control. prompt() needs a click, so on Chrome the offer holds its own
 // button. Only one install surface shows at a time: opening or closing the
 // panel closes them all.
-//
-// The iPhone Home Screen window has no Back control: there the phone's Chat
-// launcher leaves for Safari instead of taking the app's window to the office.
 
 import { afterAll, afterEach, beforeAll, expect, it, mock } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -89,11 +86,9 @@ function installEvent() {
 async function mount({
   chat = false,
   isMobile = false,
-  onOpenOffice,
 }: {
   chat?: boolean;
   isMobile?: boolean;
-  onOpenOffice?: (agent: unknown) => void;
 } = {}) {
   sessionStorage.clear();
   setApiShim(async () => ({
@@ -107,7 +102,7 @@ async function mount({
       <StateCtx.Provider
         value={{ ...initialState, agents: [agent], connected: true, isMobile }}
       >
-        <AppWidgetPage boot={boot} onOpenOffice={onOpenOffice} />
+        <AppWidgetPage boot={boot} />
       </StateCtx.Provider>,
     );
   });
@@ -266,27 +261,43 @@ for (const browser of ["iPad Safari", "Chrome"] as const) {
   });
 }
 
+// Nil, 2026-10-28: the install entry must be reachable on a phone. It is in
+// the chat panel's header there, as on a desktop.
 for (const browser of ["iPhone Safari", "Chrome"] as const) {
-  it(`has no install entry on a phone with a chat, and ${INSTALL_HASH} opens an offer that its close control closes (${browser})`, async () => {
+  it(`installs from the chat panel's header on a phone with a chat (${browser})`, async () => {
     if (browser === "Chrome") asChrome();
     else undoDevice = asDevice(IPHONE_SAFARI);
-    window.history.replaceState(null, "", `/hello/${INSTALL_HASH}`);
     const page = await mount({ chat: true, isMobile: true });
     const { event, prompt } = installEvent();
     if (browser === "Chrome")
       await act(async () => {
         window.dispatchEvent(event);
       });
-    expect(page.launcher()).not.toBeNull();
-    expect(page.entries()).toHaveLength(0);
-    const popover = page.popover();
-    expect(popover).not.toBeNull();
+    expect(page.entries()).toHaveLength(1);
+    expect(page.dock()!.contains(page.entries()[0])).toBe(false);
+    await page.toggleChat();
+    const button = page.install();
+    expect(button).not.toBeNull();
+    const header = page.header()!;
+    expect(header.contains(button)).toBe(true);
+    expect(directLinkIn(header)).not.toBeNull();
     await act(async () => {
-      fireEvent.click(closeControl(popover!));
+      fireEvent.click(button!);
     });
-    expect(page.popover()).toBeNull();
+    if (browser === "Chrome") {
+      expect(prompt).toHaveBeenCalledTimes(1);
+      expect(page.entries()).toHaveLength(0);
+      return;
+    }
     expect(prompt).toHaveBeenCalledTimes(0);
-    expect(page.entries()).toHaveLength(0);
+    expect(button!.getAttribute("aria-expanded")).toBe("true");
+    const steps = document.getElementById(
+      button!.getAttribute("aria-controls")!,
+    );
+    expect(steps).not.toBeNull();
+    expect(page.panel()!.contains(steps)).toBe(true);
+    expect(page.steps()).toHaveLength(1);
+    expect(page.popover()).toBeNull();
   });
 }
 
@@ -332,7 +343,9 @@ for (const [label, chat] of [
     );
     const page = await mount({ chat, isMobile: chat });
     expect(page.popover()).not.toBeNull();
-    if (chat) expect(page.entries()).toHaveLength(0);
+    // With a chat the entry sits in the closed panel; the popover alone shows
+    // the steps.
+    if (chat) expect(page.steps()).toHaveLength(1);
     else expect(page.install()!.getAttribute("aria-expanded")).toBe("true");
     expect(window.location.hash).toBe("");
     expect(window.location.pathname).toBe("/hello/");
@@ -379,30 +392,3 @@ it("does not open the Chrome offer when the event comes without the hash, and ke
   expect(directLinkIn(page.dock()!)).not.toBeNull();
   expect(page.popover()).toBeNull();
 });
-
-// The flip is standalone: Safari has a Back button, the Home Screen window
-// has none.
-for (const [label, device, leaves] of [
-  ["iPhone Safari", IPHONE_SAFARI, false],
-  ["the iPhone Home Screen", IPHONE_HOME_SCREEN, true],
-] as const) {
-  it(`the phone's Chat launcher ${leaves ? "leaves for Safari" : "opens the office"} in ${label}`, async () => {
-    undoDevice = asDevice(device);
-    const onOpenOffice = mock(() => {});
-    const page = await mount({ chat: true, isMobile: true, onOpenOffice });
-    const launcher = page.container.querySelector<HTMLElement>(
-      ".app-widget-launcher",
-    );
-    expect(launcher).not.toBeNull();
-    if (leaves) {
-      expect(launcher!.tagName).toBe("A");
-      expect(launcher!.getAttribute("href")).toBe(
-        "x-safari-" + window.location.origin + "/agents/" + agent.id,
-      );
-      return;
-    }
-    expect(launcher!.tagName).toBe("BUTTON");
-    fireEvent.click(launcher!);
-    expect(onOpenOffice).toHaveBeenCalledTimes(1);
-  });
-}

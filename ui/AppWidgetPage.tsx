@@ -1,11 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type RefObject,
 } from "react";
 import type { AppView, AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
@@ -87,6 +89,7 @@ const WIDGET_CSS = `
 .app-widget button.app-widget-direct { padding:0; border:0; border-radius:0; background:none; text-decoration:underline; }
 .app-widget-direct:hover { color:var(--text-primary); }
 .app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
+.app-widget-panel-phone { left:8px; right:8px; width:auto; max-width:none; height:min(80dvh,calc(100dvh - max(20px,env(safe-area-inset-bottom)) - 84px)); }
 .app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
 .app-widget-header h1 { flex:1; font-size:16px; margin:0; }
 .app-widget-header h1 a { color:var(--accent-text); text-decoration:none; }
@@ -109,20 +112,53 @@ const WIDGET_CSS = `
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
 `;
 
-export function AppWidgetPage({
-  boot,
-  returnPath,
-  onOpenOffice,
-}: {
-  boot: AppWidgetBoot;
-  // The page a phone member left for the office, for the first frame src.
-  returnPath?: string | null;
-  onOpenOffice?: (agent: AgentInfo, view: AppView) => void;
-}) {
+// On a phone the open chat covers 80% of the page and ends above the dock.
+// The keyboard does not shrink dvh, so the box follows the visual viewport, as
+// the office chat does (LogView): with the keyboard up, the chat fits the area
+// above it. Without visualViewport, the CSS height applies. Each open measures
+// again: the dock appears only after the first status read, and on the iPhone
+// Home Screen it stands on the safe area.
+function usePhonePanelBox(
+  active: boolean,
+  open: boolean,
+  dock: RefObject<HTMLDivElement | null>,
+): { top: number; height: number } | null {
+  const [box, setBox] = useState<{ top: number; height: number } | null>(null);
+  // Before paint, so the panel never shows at the old box.
+  useLayoutEffect(() => {
+    const vv = window.visualViewport;
+    if (!active || !vv) return;
+    const update = () => {
+      const dockBottom = dock.current
+        ? parseFloat(getComputedStyle(dock.current).bottom)
+        : NaN;
+      const dockClear = (dockBottom >= 20 ? dockBottom : 20) + 76;
+      const bottom = Math.min(
+        window.innerHeight - dockClear,
+        vv.offsetTop + vv.height - 8,
+      );
+      const top = Math.max(vv.offsetTop + 8, bottom - 0.8 * window.innerHeight);
+      setBox({ top, height: Math.max(0, bottom - top) });
+    };
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [active, open, dock]);
+  return active ? box : null;
+}
+
+export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const { t } = useI18n();
   const state = useAppState();
   const frame = useRef<HTMLIFrameElement>(null);
   const launcher = useRef<HTMLButtonElement>(null);
+  const dock = useRef<HTMLDivElement>(null);
   const [appUrl, setAppUrl] = useState<string | null>(null);
   const requestSeq = useRef(0);
   const recovering = useRef(false);
@@ -258,7 +294,7 @@ export function AppWidgetPage({
       if (lastRequest.current === undefined)
         lastRequest.current = next.reloadRequestedAt ?? 0;
       else noteRequest.current(next);
-      setFrameUrl(frameStart(next.appUrl, startPath, returnPath));
+      setFrameUrl(frameStart(next.appUrl, startPath));
     } catch {
       if (seq !== requestSeq.current) return;
       setStatus(null);
@@ -266,7 +302,7 @@ export function AppWidgetPage({
       setUnavailable(true);
       setOpen(false);
     }
-  }, [boot, accessStamp, recover, returnPath, startPath]);
+  }, [boot, accessStamp, recover, startPath]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -511,9 +547,9 @@ export function AppWidgetPage({
     ? safariHref(frameStart(appUrl, startPath), readSafariEnv())
     : null;
   const chatReady = !!target && !!agent;
+  const phoneBox = usePhonePanelBox(state.isMobile, open, dock);
   // With a chat, only the open panel's header holds the direct link; with no
-  // chat, the dock does. The install entry sits beside it, so a phone with a
-  // chat (no panel) has none: the Apps page's #install still opens the offer.
+  // chat, the dock does. The install entry sits beside it.
   const dockDirect = !chatReady && directHref;
   const dockInstall = !chatReady && install;
   const headerInstall = chatReady && install;
@@ -533,43 +569,6 @@ export function AppWidgetPage({
     <>
       <ShareIcon />
       {t("appWidget.installSteps")}
-    </>
-  );
-  // The iPhone Home Screen window has no Back control: the phone's Chat
-  // leaves for Safari instead of taking the app's window to the office.
-  const safariChat =
-    agent && state.isMobile
-      ? safariHref(
-          window.location.origin + AGENT_LINK_PREFIX + agent.id,
-          readSafariEnv(),
-        )
-      : null;
-  const chatInSafari = safariChat?.startsWith("x-safari-") ? safariChat : null;
-  // One body for both launcher elements, so they cannot drift apart.
-  const launcherBody = agent && (
-    <>
-      <span
-        aria-hidden="true"
-        className="app-widget-avatar"
-        data-agent-id={agent.id}
-        data-agent-state={agent.state}
-      >
-        <LiveCharacter agent={agent} height={36} />
-      </span>
-      {t("appWidget.launcher")}
-      {unread && (
-        <span
-          aria-hidden="true"
-          style={{
-            display: "inline-block",
-            width: 8,
-            height: 8,
-            marginLeft: 8,
-            borderRadius: "50%",
-            background: "currentColor",
-          }}
-        />
-      )}
     </>
   );
   return (
@@ -622,7 +621,7 @@ export function AppWidgetPage({
         </div>
       )}
       {(dockDirect || chatReady || dockInstall || appChanged) && (
-        <div className="app-widget-dock">
+        <div ref={dock} className="app-widget-dock">
           {appChanged && (
             <div className="app-widget-changed" aria-live="polite">
               {t("appWidget.appChanged")}
@@ -660,102 +659,111 @@ export function AppWidgetPage({
               <OpenIcon size={16} />
             </a>
           )}
-          {target && agent && chatInSafari && (
-            <a
-              className="app-widget-launcher"
-              href={chatInSafari}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => {
-                setReadMark({ agent: target?.agentId, latest });
-              }}
-            >
-              {launcherBody}
-            </a>
-          )}
-          {target && agent && !chatInSafari && (
+          {target && agent && (
             <button
               ref={launcher}
               className="app-widget-launcher"
-              aria-expanded={state.isMobile ? undefined : open}
-              aria-controls={state.isMobile ? undefined : "app-widget-chat"}
+              aria-expanded={open}
+              aria-controls="app-widget-chat"
               onClick={() => {
-                if (state.isMobile) {
-                  onOpenOffice?.(agent, currentView());
-                  return;
-                }
                 toggleChat(!open);
                 setReadMark({ agent: target?.agentId, latest });
               }}
             >
-              {launcherBody}
+              <span
+                aria-hidden="true"
+                className="app-widget-avatar"
+                data-agent-id={agent.id}
+                data-agent-state={agent.state}
+              >
+                <LiveCharacter agent={agent} height={36} />
+              </span>
+              {t("appWidget.launcher")}
+              {unread && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-block",
+                    width: 8,
+                    height: 8,
+                    marginLeft: 8,
+                    borderRadius: "50%",
+                    background: "currentColor",
+                  }}
+                />
+              )}
             </button>
           )}
         </div>
       )}
       {target && agent && (
-        <>
-          {!state.isMobile && (
-            <section
-              id="app-widget-chat"
-              className="app-widget-panel"
-              role="dialog"
-              aria-label={t("appWidget.title", { agentName: target.agentName })}
-              style={{ display: open ? "flex" : "none" }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") close();
-              }}
-            >
-              <WidgetChat
-                key={widgetDraftKey(boot, target.agentId)}
-                boot={boot}
-                agent={agent}
-                logs={logs}
-                stateChangedAt={state.stateChangedAt.get(agent.id)}
-                connected={state.connected}
-                open={open}
-                directHref={directHref}
-                installEntry={
-                  headerInstall && (
-                    <button
-                      type="button"
-                      className="app-widget-direct"
-                      aria-expanded={
-                        install === "ios-steps" ? installOpen : undefined
-                      }
-                      aria-controls={
-                        install === "ios-steps" && installOpen
-                          ? "app-widget-install-steps"
-                          : undefined
-                      }
-                      onClick={toggleInstall}
-                    >
-                      <InstallIcon size={13} />
-                      {t("appWidget.install")}
-                    </button>
-                  )
-                }
-                installSteps={
-                  headerInstall &&
-                  install === "ios-steps" &&
-                  installOpen &&
-                  open && (
-                    <p
-                      id="app-widget-install-steps"
-                      className="app-widget-steps"
-                    >
-                      {installSteps}
-                    </p>
-                  )
-                }
-                onRecheck={() => {
-                  void refresh();
-                }}
-                currentView={currentView}
-              />
-            </section>
-          )}
-        </>
+        <section
+          id="app-widget-chat"
+          className={
+            state.isMobile
+              ? "app-widget-panel app-widget-panel-phone"
+              : "app-widget-panel"
+          }
+          role="dialog"
+          aria-label={t("appWidget.title", { agentName: target.agentName })}
+          style={{
+            display: open ? "flex" : "none",
+            ...(phoneBox && {
+              top: phoneBox.top,
+              height: phoneBox.height,
+              bottom: "auto",
+            }),
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") close();
+          }}
+        >
+          <WidgetChat
+            key={widgetDraftKey(boot, target.agentId)}
+            boot={boot}
+            agent={agent}
+            logs={logs}
+            stateChangedAt={state.stateChangedAt.get(agent.id)}
+            connected={state.connected}
+            open={open}
+            isMobile={state.isMobile}
+            directHref={directHref}
+            installEntry={
+              headerInstall && (
+                <button
+                  type="button"
+                  className="app-widget-direct"
+                  aria-expanded={
+                    install === "ios-steps" ? installOpen : undefined
+                  }
+                  aria-controls={
+                    install === "ios-steps" && installOpen
+                      ? "app-widget-install-steps"
+                      : undefined
+                  }
+                  onClick={toggleInstall}
+                >
+                  <InstallIcon size={13} />
+                  {t("appWidget.install")}
+                </button>
+              )
+            }
+            installSteps={
+              headerInstall &&
+              install === "ios-steps" &&
+              installOpen &&
+              open && (
+                <p id="app-widget-install-steps" className="app-widget-steps">
+                  {installSteps}
+                </p>
+              )
+            }
+            onRecheck={() => {
+              void refresh();
+            }}
+            currentView={currentView}
+          />
+        </section>
       )}
     </main>
   );
@@ -814,6 +822,7 @@ export function WidgetChat({
   logs,
   connected,
   open,
+  isMobile = false,
   directHref,
   installEntry,
   installSteps,
@@ -826,6 +835,7 @@ export function WidgetChat({
   logs: LogEntry[];
   connected: boolean;
   open: boolean;
+  isMobile?: boolean;
   directHref?: string | null;
   // "Install as app", beside the direct link, and the steps it opens.
   installEntry?: ReactNode;
@@ -860,9 +870,11 @@ export function WidgetChat({
   const lastScrollTop = useRef(0);
   const wasOpen = useRef(false);
   const scrollToEnd = () => end.current?.scrollIntoView?.({ block: "end" });
+  // On a phone, focus would raise the keyboard over the app at each open, as
+  // the office composer avoids (LogView's autoFocus).
   useEffect(() => {
-    if (open) textarea.current?.focus();
-  }, [open]);
+    if (open && !isMobile) textarea.current?.focus();
+  }, [open, isMobile]);
   useEffect(() => {
     if (open && !wasOpen.current) follow.current = true;
     wasOpen.current = open;

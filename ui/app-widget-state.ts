@@ -82,14 +82,13 @@ export function widgetAppPath(
   return page + search + hash;
 }
 
-// The frame's first src: the page the member left for the office, when it is
-// on the app, or else the page the widget address names. A path such as
-// //other.example must not move the frame off the app: it falls back to the
-// root.
+// The frame's src: the given page, when it is on the app, or else the page
+// the widget address names. A path such as //other.example must not move the
+// frame off the app: it falls back to the root.
 export function frameStart(
   appUrl: string,
   startPath: string,
-  returnPath?: string | null,
+  page?: string | null,
 ): string {
   const onApp = (path: string) => {
     try {
@@ -100,45 +99,7 @@ export function frameStart(
     }
     return null;
   };
-  return (
-    (returnPath ? onApp(returnPath) : null) ??
-    onApp(startPath || "/") ??
-    appUrl + "/"
-  );
-}
-
-// The page a phone member left for the office chat, kept for the reload that
-// Back makes, and read once (task d7ac4f73).
-function returnKey(boot: AppWidgetBoot, marker: string): string {
-  return `app-widget:return:${boot.name}:${boot.registration}:${marker}`;
-}
-
-export function saveReturnPath(
-  storage: Pick<Storage, "setItem">,
-  boot: AppWidgetBoot,
-  marker: string,
-  path: string,
-): void {
-  try {
-    storage.setItem(returnKey(boot, marker), path);
-  } catch {
-    // Without storage, Back opens the app's root.
-  }
-}
-
-export function takeReturnPath(
-  storage: Pick<Storage, "getItem" | "removeItem">,
-  boot: AppWidgetBoot,
-  marker: string,
-): string | null {
-  try {
-    const key = returnKey(boot, marker);
-    const path = storage.getItem(key);
-    storage.removeItem(key);
-    return path;
-  } catch {
-    return null;
-  }
+  return (page ? onApp(page) : null) ?? onApp(startPath || "/") ?? appUrl + "/";
 }
 
 export function beginAppHandshake(

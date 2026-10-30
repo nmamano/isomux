@@ -157,7 +157,7 @@ it("reads the app page from the widget address", () => {
     });
 });
 
-it("starts the frame at the page, falls back to the root off the app, and lets the return path win", () => {
+it("starts the frame at the page, falls back to the root off the app, and lets the given page win", () => {
   const app = "https://hello.office.example";
   const cases: [string, string | undefined, string][] = [
     ["/", undefined, app + "/"],
@@ -170,14 +170,14 @@ it("starts the frame at the page, falls back to the root off the app, and lets t
     ["/blog", "/recipes/3", app + "/recipes/3"],
     ["/blog", "//evil.example", app + "/blog"],
   ];
-  for (const [start, returnPath, src] of cases)
+  for (const [start, page, src] of cases)
     expect({
       start,
-      returnPath,
-      src: frameStart(app, start, returnPath),
+      page,
+      src: frameStart(app, start, page),
     }).toEqual({
       start,
-      returnPath,
+      page,
       src,
     });
 });
