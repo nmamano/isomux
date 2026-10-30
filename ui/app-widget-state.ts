@@ -11,8 +11,10 @@ export const APP_RELOAD_POLL_TRIES = 60;
 // widget mounts a new frame instead.
 export const APP_RELOAD_FALLBACK_MS = 5000;
 const APP_WIDGET_AUTH_COOLDOWN_MS = 60_000;
+// allow-popups-to-escape-sandbox: the office tab the frame opens for a page of
+// the app (task 469e8886) must not inherit the frame's sandbox.
 export const APP_WIDGET_SANDBOX =
-  "allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-modals";
+  "allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox allow-modals";
 
 export interface AppWidgetBoot {
   name: string;
@@ -68,23 +70,41 @@ export function framePath(frameUrl: string): string {
   return url.pathname + url.search + url.hash;
 }
 
+// The app page a widget address names (task 469e8886): /<app>/blog?x#y names
+// /blog?x#y, and /<app> or /<app>/ the root.
+export function widgetAppPath(
+  name: string,
+  pathname: string,
+  search: string,
+  hash: string,
+): string {
+  const page = pathname.slice(name.length + 1) || "/";
+  return page + search + hash;
+}
+
 // The frame's first src: the page the member left for the office, when it is
-// on the app, or else the app's root with the wrapper's query. A path such as
-// //other.example must not move the frame off the app.
+// on the app, or else the page the widget address names. A path such as
+// //other.example must not move the frame off the app: it falls back to the
+// root.
 export function frameStart(
   appUrl: string,
-  search: string,
+  startPath: string,
   returnPath?: string | null,
 ): string {
-  if (returnPath) {
+  const onApp = (path: string) => {
     try {
-      const url = new URL(returnPath, appUrl + "/");
+      const url = new URL(path, appUrl + "/");
       if (url.origin === new URL(appUrl).origin) return url.href;
     } catch {
-      // Not a path: the root.
+      // Not a path.
     }
-  }
-  return appUrl + "/" + search;
+    return null;
+  };
+  return (
+    (returnPath ? onApp(returnPath) : null) ??
+    onApp(startPath || "/") ??
+    appUrl + "/"
+  );
 }
 
 // The page a phone member left for the office chat, kept for the reload that

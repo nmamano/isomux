@@ -8774,7 +8774,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           appHostDomain() !== null &&
           normalizeRequestHost(req.headers.get("host")) === appHostDomain()
         ) {
-          const match = /^\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)\/?$/.exec(
+          // /<name>, /<name>/ and /<name>/<page of the app> (task 469e8886).
+          const match = /^\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\/.*)?$/.exec(
             url.pathname,
           );
           if (match && !RESERVED_APP_NAMES.has(match[1])) {
@@ -8911,11 +8912,15 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           if (app && canUserAccessApp(app, auth.identity.userId)) {
             const publicUrl = appPublicUrl(app.hostLabel, appHostDomain());
             if (req.method === "HEAD") {
-              // HEAD keeps the old bodyless redirect to the app itself.
+              // HEAD keeps the old bodyless redirect to the app itself, at
+              // the page the address names. The pathname setter keeps the
+              // app's origin whatever the page is (//evil.example included).
               if (
                 appShortUrl(app, publicUrl, buildPublicOrigin().origin) !== null
               ) {
                 const target = new URL(publicUrl!);
+                target.pathname =
+                  url.pathname.slice(app.name.length + 1) || "/";
                 target.search = url.search;
                 return new Response(null, {
                   status: 302,
@@ -8925,7 +8930,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                   },
                 });
               }
-            } else if (!url.pathname.endsWith("/")) {
+            } else if (url.pathname === `/${app.name}`) {
               // The install manifest's scope is /<app>/: the page moves inside
               // it. Only here, so a hidden or unknown name gets no redirect.
               return new Response(null, {

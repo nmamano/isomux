@@ -49,6 +49,7 @@ import {
   beginAppHandshake,
   framePath,
   frameStart,
+  widgetAppPath,
   isAppSessionSignal,
   isAppViewReport,
   widgetDraftKey,
@@ -159,6 +160,17 @@ export function AppWidgetPage({
   const [installAsked, setInstallAsked] = useState(
     () => window.location.hash === INSTALL_HASH,
   );
+  // The app page this widget address names (task 469e8886), read before the
+  // effect below clears the install hash, which is the widget's and never the
+  // frame's.
+  const [startPath] = useState(() =>
+    widgetAppPath(
+      boot.name,
+      window.location.pathname,
+      window.location.search,
+      window.location.hash === INSTALL_HASH ? "" : window.location.hash,
+    ),
+  );
   const [stepsOpen, setStepsOpen] = useState(installAsked);
   const held = useSyncExternalStore(
     subscribeInstallPrompt,
@@ -204,7 +216,13 @@ export function AppWidgetPage({
         app: new URL(url).hostname.split(".")[0],
         mode: "wrapper",
         registration: String(boot.registration),
-        r: "/" + window.location.search,
+        // The page comes back with the member; a hash cannot.
+        r: widgetAppPath(
+          boot.name,
+          window.location.pathname,
+          window.location.search,
+          "",
+        ),
       });
       window.location.assign("/auth/app?" + query.toString());
     },
@@ -240,7 +258,7 @@ export function AppWidgetPage({
       if (lastRequest.current === undefined)
         lastRequest.current = next.reloadRequestedAt ?? 0;
       else noteRequest.current(next);
-      setFrameUrl(frameStart(next.appUrl, window.location.search, returnPath));
+      setFrameUrl(frameStart(next.appUrl, startPath, returnPath));
     } catch {
       if (seq !== requestSeq.current) return;
       setStatus(null);
@@ -248,7 +266,7 @@ export function AppWidgetPage({
       setUnavailable(true);
       setOpen(false);
     }
-  }, [boot, accessStamp, recover, returnPath]);
+  }, [boot, accessStamp, recover, returnPath, startPath]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -490,7 +508,7 @@ export function AppWidgetPage({
     launcher.current?.focus();
   };
   const directHref = appUrl
-    ? safariHref(appUrl + "/" + window.location.search, readSafariEnv())
+    ? safariHref(frameStart(appUrl, startPath), readSafariEnv())
     : null;
   const chatReady = !!target && !!agent;
   // With a chat, only the open panel's header holds the direct link; with no

@@ -1071,8 +1071,10 @@ describe("relay: the app-view script", () => {
     return appRecord(pages.port as number);
   }
 
+  // Bound to the app's name, which its widget page is under, not its host
+  // label.
   const script = () =>
-    `<script>${appViewScript(buildPublicOrigin().origin)}</script>`;
+    `<script>${appViewScript(buildPublicOrigin().origin, "hello")}</script>`;
   const varyNames = (res: Response) =>
     (res.headers.get("vary") ?? "")
       .split(",")
@@ -1087,7 +1089,10 @@ describe("relay: the app-view script", () => {
   }
 
   it("appends the script to a framed page, after the app's own bytes", async () => {
+    // A second-generation host label: the script names the app, not the host.
     const app = startPages();
+    app.hostLabel = "hello-g2";
+    app.hostGen = 2;
     const res = await relay(
       get("/page", { headers: { ...FRAMED, "Accept-Encoding": "gzip, br" } }),
       { app },

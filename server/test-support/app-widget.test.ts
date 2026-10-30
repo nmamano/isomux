@@ -222,7 +222,7 @@ it("serves the wrapper only to a member who can see the app, and reads the app o
   const seen: { cookie: string | null; authorization: string | null }[] = [];
   upstream = startApp(appRegistry.get("hello")!.port, seen);
   const expectHidden = async (rawSession?: string) => {
-    for (const suffix of ["", "/"]) {
+    for (const suffix of ["", "/", "/blog/post-1?x=1"]) {
       const hidden = await navigate(srv.port, `/hello${suffix}`, rawSession);
       const unknown = await navigate(srv.port, `/unknown${suffix}`, rawSession);
       expect(answer(hidden)).toEqual(answer(unknown));
@@ -243,9 +243,35 @@ it("serves the wrapper only to a member who can see the app, and reads the app o
   // The read is a fresh request: the member's office cookie stays home.
   expect(seen).toEqual([{ cookie: null, authorization: null }]);
 
+  // A page of the app has its own widget address (task 469e8886): the same
+  // wrapper, booted for this app, with no redirect.
+  const deep = await navigate(srv.port, "/hello/blog/post-1?x=1", rawSessionId);
+  expect(deep.status).toBe(200);
+  const boots = await elements(deep.body, 'meta[name="isomux-app-widget"]', [
+    "content",
+  ]);
+  expect(boots).toHaveLength(1);
+  expect(JSON.parse(boots[0].content!)).toEqual({
+    name: "hello",
+    registration: appRegistrationGeneration(appRegistry.get("hello")!),
+  });
+  // The shell loads at any depth: every script and stylesheet address is
+  // absolute.
+  const assets = [
+    ...(await elements(deep.body, "script[src]", ["src"])).map((e) => e.src!),
+    ...(await elements(deep.body, "link[href]", ["href"])).map((e) => e.href!),
+  ];
+  expect(assets.length).toBeGreaterThan(0);
+  for (const asset of assets)
+    expect({ asset, absolute: /^(\/|https:)/.test(asset) }).toEqual({
+      asset,
+      absolute: true,
+    });
+  expect(seen).toHaveLength(2);
+
   updateUserById(getUserByName("Member")!.id, { allowedRooms: [] });
   await expectHidden(rawSessionId);
-  expect(seen).toHaveLength(1);
+  expect(seen).toHaveLength(2);
 });
 
 // Install as app (task 8a07aa4e). Chrome installs a page only through the

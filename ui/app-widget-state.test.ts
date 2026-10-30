@@ -1,10 +1,12 @@
 import { expect, it } from "bun:test";
 import {
   beginAppHandshake,
+  frameStart,
   isAppSessionSignal,
   isAppViewReport,
   widgetDraftKey,
   screenshotHint,
+  widgetAppPath,
 } from "./app-widget-state.ts";
 
 it("accepts only the fixed signal from this app iframe", () => {
@@ -129,4 +131,53 @@ it("selects screenshot hints from desktop platform with mobile and unknown fallb
   ] as const;
   for (const [platform, ua, touches, expected] of cases)
     expect(screenshotHint(platform, ua, touches)).toBe(expected);
+});
+
+// Task 469e8886: a widget address names a page of the app, and the frame
+// starts there, never off the app.
+it("reads the app page from the widget address", () => {
+  const cases: [string, string, string, string][] = [
+    ["/hello/", "", "", "/"],
+    ["/hello", "?x=1", "", "/?x=1"],
+    ["/hello/", "?x=1", "#top", "/?x=1#top"],
+    ["/hello/blog/post-1", "?x=1", "#top", "/blog/post-1?x=1#top"],
+    ["/hello/blog/", "", "", "/blog/"],
+  ];
+  for (const [pathname, search, hash, page] of cases)
+    expect({
+      pathname,
+      search,
+      hash,
+      page: widgetAppPath("hello", pathname, search, hash),
+    }).toEqual({
+      pathname,
+      search,
+      hash,
+      page,
+    });
+});
+
+it("starts the frame at the page, falls back to the root off the app, and lets the return path win", () => {
+  const app = "https://hello.office.example";
+  const cases: [string, string | undefined, string][] = [
+    ["/", undefined, app + "/"],
+    ["", undefined, app + "/"],
+    ["/?x=1", undefined, app + "/?x=1"],
+    ["/blog/post-1?x=1#top", undefined, app + "/blog/post-1?x=1#top"],
+    ["//evil.example/x", undefined, app + "/"],
+    ["/\\evil.example/x", undefined, app + "/"],
+    ["https://evil.example/", undefined, app + "/"],
+    ["/blog", "/recipes/3", app + "/recipes/3"],
+    ["/blog", "//evil.example", app + "/blog"],
+  ];
+  for (const [start, returnPath, src] of cases)
+    expect({
+      start,
+      returnPath,
+      src: frameStart(app, start, returnPath),
+    }).toEqual({
+      start,
+      returnPath,
+      src,
+    });
 });

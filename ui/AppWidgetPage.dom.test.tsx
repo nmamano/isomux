@@ -944,3 +944,79 @@ it("a recorded send neither shows in the widget chat nor marks it unread", async
     iframesOn();
   }
 });
+
+// Task 469e8886: a widget address names a page of the app. The frame opens
+// there (never with the widget's own install hash), the frame may open a new
+// office tab, and sign-in recovery comes back to the same page.
+it("opens the frame at the page its address names, and keeps that page through sign-in", async () => {
+  const { INSTALL_HASH } = await import("./app-install.ts");
+  const appUrl = "https://hello.office.example";
+  const before = window.location.pathname + window.location.search;
+  const iframesOn = iframesOff();
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  let live = true;
+  setApiShim(async () => ({
+    ...boot,
+    appUrl,
+    sessionExpiresAt: live ? Date.now() + 1000000 : null,
+    chat: null,
+  }));
+  const mount = async (address: string) => {
+    sessionStorage.clear();
+    window.history.replaceState(null, "", address);
+    let view: ReturnType<typeof render> | undefined;
+    await act(async () => {
+      view = render(<AppWidgetPage boot={boot} />);
+    });
+    return view!;
+  };
+  try {
+    for (const [address, src] of [
+      ["/hello/blog/post-1?x=1#top", appUrl + "/blog/post-1?x=1#top"],
+      ["/hello/blog/post-1?x=1" + INSTALL_HASH, appUrl + "/blog/post-1?x=1"],
+      ["/hello/?x=1", appUrl + "/?x=1"],
+    ]) {
+      const view = await mount(address);
+      const frame = view.container.querySelector("iframe");
+      const tokens = (frame?.getAttribute("sandbox") ?? "").split(/\s+/);
+      expect({
+        address,
+        src: frame?.getAttribute("src"),
+        // "Open without chat" opens the same page.
+        direct: view.container
+          .querySelector(".app-widget-dock a")
+          ?.getAttribute("href"),
+        // The new office tab must not inherit the frame's sandbox.
+        escapes:
+          tokens.includes("allow-popups") &&
+          tokens.includes("allow-popups-to-escape-sandbox"),
+        // The frame still cannot navigate the office tab.
+        topNavigation: tokens.some((t) => t.startsWith("allow-top-navigation")),
+      }).toEqual({
+        address,
+        src,
+        direct: src,
+        escapes: true,
+        topNavigation: false,
+      });
+      view.unmount();
+    }
+    expect(assign).not.toHaveBeenCalled();
+
+    live = false;
+    const view = await mount("/hello/blog/post-1?x=1#top");
+    expect(assign).toHaveBeenCalledTimes(1);
+    const target = new URL(
+      String(assign.mock.calls[0][0]),
+      "https://office.example",
+    );
+    expect(target.pathname).toBe("/auth/app");
+    expect(target.searchParams.get("mode")).toBe("wrapper");
+    expect(target.searchParams.get("r")).toBe("/blog/post-1?x=1");
+    view.unmount();
+  } finally {
+    assign.mockRestore();
+    iframesOn();
+    window.history.replaceState(null, "", before);
+  }
+});

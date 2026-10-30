@@ -497,7 +497,7 @@ describe("app-host handshake: the registration binding", () => {
     expect(appSessionExpiresAt(app, hash)).toBeNull();
   });
 
-  it("binds wrapper return to the registration and forwards only the query", async () => {
+  it("binds wrapper return to the registration and returns to the widget at the same page", async () => {
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     const app = appRegistry.list().find((a) => a.hostLabel === label)!;
     const registration = appRegistrationGeneration(app);
@@ -505,23 +505,41 @@ describe("app-host handshake: the registration binding", () => {
       app: label,
       mode: "wrapper",
       registration: String(registration),
-      r: "/other-path?tab=one%20two&x=3",
     });
-    const minted = await mint(srv, `?${params}`, { rawSessionId });
-    const redeemed = await redeem(srv, label, codeFromMint(minted));
-    expect(redeemed.headers.location).toBe(
-      `${HTTPS_ORIGIN}/${app.name}?tab=one%20two&x=3`,
-    );
-    expect(redeemed.setCookies).toHaveLength(1);
-    // The path never reaches the office Location, so an encoded authority or
-    // another app's name cannot steer the wrapper return.
-    for (const safePath of ["/%2f%2fevil.example/", "/another-app"]) {
-      params.set("r", safePath);
-      const encodedMint = await mint(srv, `?${params}`, { rawSessionId });
-      const encodedRedeem = await redeem(srv, label, codeFromMint(encodedMint));
-      expect(encodedRedeem.headers.location).toBe(
-        `${HTTPS_ORIGIN}/${app.name}`,
-      );
+    const wrapperReturn = async (r: string) => {
+      params.set("r", r);
+      const minted = await mint(srv, `?${params}`, { rawSessionId });
+      const redeemed = await redeem(srv, label, codeFromMint(minted));
+      expect(redeemed.setCookies).toHaveLength(1);
+      return redeemed.headers.location;
+    };
+    // The app page the widget showed comes back under the app's own widget
+    // address (task 469e8886).
+    for (const [r, page] of [
+      ["/", "/"],
+      ["/?x=1", "/?x=1"],
+      ["/other-path?tab=one%20two&x=3", "/other-path?tab=one%20two&x=3"],
+    ]) {
+      expect({ r, location: await wrapperReturn(r) }).toEqual({
+        r,
+        location: `${HTTPS_ORIGIN}/${app.name}${page}`,
+      });
+    }
+    // Nothing in the path leaves the app's widget: not an encoded authority,
+    // another app's name, or a dot segment.
+    for (const r of [
+      "/%2f%2fevil.example/",
+      "/another-app",
+      "/../another-app",
+      "/%2e%2e/another-app",
+      "/./../../api/apps",
+    ]) {
+      const location = new URL(await wrapperReturn(r));
+      expect({
+        r,
+        origin: location.origin,
+        underWidget: location.pathname.startsWith(`/${app.name}/`),
+      }).toEqual({ r, origin: HTTPS_ORIGIN, underWidget: true });
     }
     params.set("r", "/");
     params.set("registration", String(registration + 1));

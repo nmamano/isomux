@@ -84,12 +84,6 @@ describe("short app links through the office request pipeline", () => {
       { host: OFFICE_HOST, method: "HEAD", path: "/board/deeper" },
       {
         host: OFFICE_HOST,
-        method: "HEAD",
-        path: "/board/deeper",
-        headers: asMember,
-      },
-      {
-        host: OFFICE_HOST,
         method: "POST",
         path: "/board",
         headers: { "Content-Length": "0" },
@@ -131,21 +125,22 @@ describe("short app links through the office request pipeline", () => {
     expect(
       readFileSync(join(srv.stateRoot, "apps", "apps.json"), "utf8"),
     ).not.toContain('"shortUrl"');
-    for (const suffix of [
-      "",
-      "/",
-      "?x=1",
-      "/?x=1",
-      // Only the query travels, so nothing in it can move the target host.
-      "?@evil.example",
-      "?//evil.example",
+    // The path after the name and the query travel to the app's own host
+    // (task 469e8886); nothing in them can move the target host.
+    for (const [suffix, page] of [
+      ["", "/"],
+      ["/", "/"],
+      ["?x=1", "/?x=1"],
+      ["/?x=1", "/?x=1"],
+      ["?@evil.example", "/?@evil.example"],
+      ["?//evil.example", "/?//evil.example"],
+      ["/deeper", "/deeper"],
+      ["/blog/post-1?x=1", "/blog/post-1?x=1"],
     ]) {
       const response = await raw(srv.port, {
         ...memberHead,
         path: `/board${suffix}`,
       });
-      const target = new URL(app.url!);
-      target.search = new URL(`${HTTPS_ORIGIN}/board${suffix}`).search;
       expect({
         suffix,
         status: response.status,
@@ -155,10 +150,29 @@ describe("short app links through the office request pipeline", () => {
       }).toEqual({
         suffix,
         status: 302,
-        location: target.href,
+        location: `https://board.${OFFICE_HOST}${page}`,
         cacheControl: "no-store",
         body: "",
       });
+    }
+    for (const suffix of [
+      "//evil.example",
+      "//evil.example/x",
+      "/%2f%2fevil.example",
+      "/@evil.example",
+    ]) {
+      const response = await raw(srv.port, {
+        ...memberHead,
+        path: `/board${suffix}`,
+      });
+      expect({ suffix, status: response.status }).toEqual({
+        suffix,
+        status: 302,
+      });
+      expect({
+        suffix,
+        origin: new URL(response.headers.location).origin,
+      }).toEqual({ suffix, origin: `https://board.${OFFICE_HOST}` });
     }
     await expectUnchanged();
     // A stranger's HEAD of a live name reads byte for byte like one of a name

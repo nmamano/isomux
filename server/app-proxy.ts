@@ -500,6 +500,7 @@ export async function relayToApp(
     const response = injectAppView(
       new Response(guarded.body, { status: upstream.status, headers }),
       req,
+      ctx.app.name,
     );
     setAppFramingPolicy(response.headers);
     return response;

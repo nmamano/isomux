@@ -778,8 +778,12 @@ export function handleAppAuthRedeem(
   });
   if (started === null) return handshake(400, SIGN_IN_FAILED_BODY);
 
+  // The wrapper returns to the app's widget at the page it showed (task
+  // 469e8886). The parse resolves dot segments, so the page stays under the
+  // widget address.
+  const page = new URL(record.returnPath, "https://app.invalid");
   const destination = record.wrapperReturn
-    ? `${buildPublicOrigin().origin}/${ctx.app.name}${new URL(record.returnPath, "https://app.invalid").search}`
+    ? `${buildPublicOrigin().origin}/${ctx.app.name}${page.pathname}${page.search}`
     : record.returnPath;
   return handshakeRedirect(destination, [
     appCookieLine(started.token, started.maxAgeSec),
