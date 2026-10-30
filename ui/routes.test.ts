@@ -56,8 +56,9 @@ describe("pageForPath", () => {
       ["/pager", "pager"],
       ["/asks", "asks"],
       ["/asks/", "asks"],
-      ["/inbox", "pager"],
-      ["/inbox/", "pager"],
+      // A typed /inbox opens the first tab, Asks.
+      ["/inbox", "asks"],
+      ["/inbox/", "asks"],
     ] as const)
       expect([path, pageForPath(path)]).toEqual([path, page]);
   });

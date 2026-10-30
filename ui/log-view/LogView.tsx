@@ -99,6 +99,7 @@ import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { choiceCardText } from "../../shared/i18n/log-message.ts";
 import { noTranslate } from "../no-translate.ts";
+import { useInboxNavAction, type InboxTab } from "../inbox.ts";
 import {
   COMPOSER_MOBILE_FONT_SIZE,
   composerMaxHeight,
@@ -705,6 +706,7 @@ export function LogView({
   onEditAgent,
   onOpenTasks,
   onOpenTask,
+  onOpenInbox,
   onSwipeLeft,
   onSwipeRight,
 }: {
@@ -714,6 +716,8 @@ export function LogView({
   onEditAgent: () => void;
   onOpenTasks?: () => void;
   onOpenTask?: (id: string) => void;
+  // Absent in fixtures that render the chat without the Inbox.
+  onOpenInbox?: (tab: InboxTab) => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
@@ -722,6 +726,7 @@ export function LogView({
     [rawLogs],
   );
   const i18n = useI18n();
+  const inboxAction = useInboxNavAction(onOpenInbox);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const {
@@ -1395,6 +1400,7 @@ export function LogView({
           },
         ]
       : []),
+    ...(inboxAction ? [inboxAction] : []),
     ...(logs.length > 0
       ? [
           {

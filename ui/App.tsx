@@ -1118,6 +1118,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onEditAgent={() => setEditAgent(focusedAgent)}
           onOpenTasks={openTasks}
           onOpenTask={openTask}
+          onOpenInbox={openInboxTab}
           onSwipeLeft={swipeAgentNext}
           onSwipeRight={swipeAgentPrev}
         />

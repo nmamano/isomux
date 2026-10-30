@@ -1,6 +1,8 @@
 // The Inbox through the real App and store: the office bar entry counts the
-// open pages and asks, opens the tab that has work, the tabs switch in place,
-// and an old path lands on its tab. An ask's link is in
+// open pages and asks, opens the first tab (Asks) when an ask is open, the
+// tabs switch in place, and an old path lands on its tab. The rule for the
+// tab the entry opens is pinned in ui/inbox.test.ts, and the chat bar's entry
+// in ui/App.inbox-chat.dom.test.tsx. An ask's link is in
 // ui/App.inbox-ask-links.dom.test.tsx, the setup in
 // ui/test-support/inbox-fixture.tsx, and the tabs' own views in
 // ui/components/PagerView.dom.test.tsx and AsksView.dom.test.tsx.
@@ -27,7 +29,7 @@ const {
 
 setUpInboxTests();
 
-it("counts open pages plus open asks, and opens on Pages while the member has an open page", async () => {
+it("counts open pages plus open asks, and opens on Asks, the first tab, while an ask is open", async () => {
   // One page for this member, one for someone else: only the first counts.
   setPages([page("p1", "u1"), page("p2", "u2")]);
   const view = await boot();
@@ -36,15 +38,22 @@ it("counts open pages plus open asks, and opens on Pages while the member has an
   // The hidden-room ask is in the store but neither counted nor listed.
   expect(button.querySelector(".nav-action-badge")?.textContent).toBe("3");
   await act(async () => fireEvent.click(button));
-  expect(window.location.pathname).toBe("/inbox/pages");
-  expect(selectedTab(view)).toBe("pager");
+  // An open page does not pick the tab while an ask is open.
+  expect(window.location.pathname).toBe("/inbox/asks");
+  expect(selectedTab(view)).toBe("asks");
+  // Asks is the first tab.
+  expect(
+    [...view.container.querySelectorAll('[role="tab"]')].map((t) =>
+      t.getAttribute("data-inbox-tab"),
+    ),
+  ).toEqual(["asks", "pager"]);
   expect(tabCount(view, "pager")).toBe("1");
   expect(tabCount(view, "asks")).toBe("2");
-  expect(pageRows(view)).toBe(2);
-  expect(askCards(view)).toBe(0);
+  expect(askCards(view)).toBe(2);
+  expect(pageRows(view)).toBe(0);
   // The panel is labelled by the selected tab.
   const panel = view.container.querySelector('[role="tabpanel"]')!;
-  expect(panel.getAttribute("aria-labelledby")).toBe(tab(view, "pager")!.id);
+  expect(panel.getAttribute("aria-labelledby")).toBe(tab(view, "asks")!.id);
 });
 
 it("opens on Asks with no open page, and an agent's name there opens its chat", async () => {

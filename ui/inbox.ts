@@ -4,6 +4,9 @@
 
 import { useMemo } from "react";
 import { useAppState } from "./store.tsx";
+import { useI18n } from "./i18n.tsx";
+import { InboxIcon } from "./components/NavIcons.tsx";
+import type { NavAction } from "./components/NavActions.tsx";
 import { openPagesFor } from "./pager-sync.ts";
 import { openAsks, visibleAsks } from "./asks-sync.ts";
 import type { AskMemberWire, PagerEntry } from "../shared/types.ts";
@@ -33,9 +36,12 @@ export function inboxCounts(
   };
 }
 
-/** The tab the bar entry opens: Pages when a page is open, else Asks. */
+/**
+ * The tab the bar entry opens: the first tab, Asks, unless only Pages has
+ * open items.
+ */
 export function inboxTabFor(counts: InboxCounts): InboxTab {
-  return counts.pages > 0 ? "pager" : "asks";
+  return counts.asks === 0 && counts.pages > 0 ? "pager" : "asks";
 }
 
 export function useInboxCounts(): InboxCounts {
@@ -45,4 +51,25 @@ export function useInboxCounts(): InboxCounts {
     () => inboxCounts(pager, asks, agents, userId, answeredAsks),
     [pager, asks, agents, userId, answeredAsks],
   );
+}
+
+/**
+ * The Inbox entry of the office bar and the chat bar, one source so the two
+ * cannot drift. Null without `onOpen`, for fixtures without the Inbox.
+ */
+export function useInboxNavAction(
+  onOpen: ((tab: InboxTab) => void) | undefined,
+): NavAction | null {
+  const counts = useInboxCounts();
+  const i18n = useI18n();
+  if (!onOpen) return null;
+  const open = counts.pages + counts.asks;
+  return {
+    id: "inbox",
+    icon: InboxIcon,
+    label: i18n.t("nav.inbox"),
+    title: open ? i18n.tn("nav.inboxOpenCount", open) : i18n.t("nav.inbox"),
+    onClick: () => onOpen(inboxTabFor(counts)),
+    badge: open,
+  };
 }

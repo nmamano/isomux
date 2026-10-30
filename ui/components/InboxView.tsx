@@ -1,5 +1,5 @@
-// The Inbox (task c952e551): the header and two tabs, Pages (PagerView) and
-// Asks (AsksView), each with its open count. The tab is the route: "pager" is
+// The Inbox (task c952e551): the header and two tabs, Asks (AsksView) and
+// Pages (PagerView), each with its open count. The tab is the route: "pager" is
 // /inbox/pages and "asks" is /inbox/asks (ui/routes.ts), so App owns it and
 // renders the tab's view as children.
 
@@ -49,8 +49,8 @@ export function InboxView({
   const { t } = useI18n();
   const counts = useInboxCounts();
   const tabs: { tab: InboxTab; label: string; count: number }[] = [
-    { tab: "pager", label: t("inbox.tab.pages"), count: counts.pages },
     { tab: "asks", label: t("asks.title"), count: counts.asks },
+    { tab: "pager", label: t("inbox.tab.pages"), count: counts.pages },
   ];
 
   return (

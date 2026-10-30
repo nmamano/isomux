@@ -52,10 +52,10 @@ export function pageForPath(pathname: string): Page | null {
       return "pager";
     case "/inbox/asks":
       return "asks";
-    // A typed /inbox opens Pages: the boot cannot know yet whether a page is
-    // open. Accepted, never produced.
+    // A typed /inbox opens Asks, the first tab: the boot cannot know yet
+    // what is open. Accepted, never produced.
     case "/inbox":
-      return "pager";
+      return "asks";
     // The Inbox tabs were their own pages until 2026-10-18. Accepted so an
     // old link keeps working, never produced.
     case "/pager":

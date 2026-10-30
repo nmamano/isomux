@@ -131,9 +131,10 @@ other one (internal-docs/asks-design.md):
   status.
 - Actions: ack and resolve. The row links to the source agent's chat.
 - The Discord link opens the view with that page selected.
-- The Inbox entry in the office bar opens this tab when the member has an open
-  page. Its badge counts open pages for the member plus their open asks, and
-  each tab shows its own count.
+- The Inbox entry in the office bar and the chat bar opens the first tab, Asks,
+  and opens this tab only when the member has open pages and no open asks. Its
+  badge counts open pages for the member plus their open asks, and each tab
+  shows its own count.
 
 Visibility follows room access, the same as tasks.
 

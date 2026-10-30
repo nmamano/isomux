@@ -32,7 +32,7 @@ import {
   useFeatures,
   useRoomList,
 } from "../store.tsx";
-import { inboxTabFor, useInboxCounts, type InboxTab } from "../inbox.ts";
+import { useInboxNavAction, type InboxTab } from "../inbox.ts";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
@@ -70,7 +70,6 @@ import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
   TasksIcon,
-  InboxIcon,
   ClockIcon,
   AppsIcon,
   SkillsIcon,
@@ -275,8 +274,7 @@ export function OfficeView({
     () => askCounts(openAsks(asks, answeredAsks)),
     [asks, answeredAsks],
   );
-  const inbox = useInboxCounts();
-  const inboxOpen = inbox.pages + inbox.asks;
+  const inboxAction = useInboxNavAction(onOpenInbox);
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
@@ -502,20 +500,7 @@ export function OfficeView({
       title: t("nav.tasksShortcut"),
       onClick: onOpenTasks,
     },
-    ...(onOpenInbox
-      ? [
-          {
-            id: "inbox",
-            icon: InboxIcon,
-            label: t("nav.inbox"),
-            title: inboxOpen
-              ? i18n.tn("nav.inboxOpenCount", inboxOpen)
-              : t("nav.inbox"),
-            onClick: () => onOpenInbox(inboxTabFor(inbox)),
-            badge: inboxOpen,
-          },
-        ]
-      : []),
+    ...(inboxAction ? [inboxAction] : []),
     {
       id: "cronjobs",
       icon: ClockIcon,
