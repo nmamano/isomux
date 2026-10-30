@@ -1,7 +1,7 @@
-// The "b" shortcut (Nil, 2026-10-15): in a room with the back room setting
-// on it goes between the front and the back room; with the setting off it
-// does nothing, and it stays out of the way while you type. The rule itself
-// is in ui/routes.test.ts; this file proves App's wiring.
+// The "b" shortcut (Nil, 2026-10-15): it goes between a room's front and its
+// back room, which every room but the lobby has (task e2fb9fa0), and it stays
+// out of the way while you type. The rule itself is in ui/routes.test.ts;
+// this file proves App's wiring.
 
 import {
   afterAll,
@@ -53,7 +53,7 @@ afterEach(() => {
   typingField = null;
 });
 
-function boot(backRoom: boolean, secondRoom = false): View {
+function boot(secondRoom = false): View {
   // Land in the room, not the lobby.
   saveView("ricky", { roomId: "r1", agentId: null, panel: null, lobby: false });
   setShim(
@@ -72,7 +72,6 @@ function boot(backRoom: boolean, secondRoom = false): View {
             name: "Room",
             prompt: null,
             canCloseWhenEmpty: true,
-            backRoom,
           },
           ...(secondRoom
             ? [
@@ -81,7 +80,6 @@ function boot(backRoom: boolean, secondRoom = false): View {
                   name: "Other room",
                   prompt: null,
                   canCloseWhenEmpty: true,
-                  backRoom: false,
                 },
               ]
             : []),
@@ -140,13 +138,13 @@ function shownRoom(): string | null {
 
 const backShowing = (view: View) =>
   view.container.querySelector("[data-back-room]") !== null;
-// The front's trap door: the room is up, with its setting on.
+// The front's trap door: the room is up.
 const trapDoor = (view: View) =>
   view.container.querySelector("[data-trap-door]") !== null;
 
 describe("the back room shortcut", () => {
   it("goes to the back room and back to the front", async () => {
-    const view = boot(true);
+    const view = boot();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
@@ -161,8 +159,8 @@ describe("the back room shortcut", () => {
     expect(trapDoor(view)).toBe(true);
   });
 
-  it("does nothing while typing, or in a room with the setting off", async () => {
-    const view = boot(true);
+  it("does nothing while typing", async () => {
+    const view = boot();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
@@ -171,23 +169,6 @@ describe("the back room shortcut", () => {
     document.body.appendChild(typingField);
     await pressB(typingField);
     expect(backShowing(view)).toBe(false);
-
-    await act(async () =>
-      shimEmit({
-        type: "room_back_room_updated",
-        roomId: "r1",
-        backRoom: false,
-      } as never),
-    );
-    // The room is up, and has no trap door now.
-    expect(view.queryByTitle("Tasks (t)")).not.toBeNull();
-    expect(trapDoor(view)).toBe(false);
-    // The office draws no back screen in such a room whatever App holds, so
-    // the history entry is what shows App opened nothing.
-    const entries = window.history.length;
-    await pressB();
-    expect(backShowing(view)).toBe(false);
-    expect(window.history.length).toBe(entries);
   });
 });
 
@@ -198,7 +179,7 @@ describe("Shift and Shift+Tab in a back room", () => {
   // Each App boot costs a few hundred ms against the file's DOM cap, so each
   // test walks many cases on one boot.
   async function bootInBack(secondRoom = false): Promise<View> {
-    const view = boot(true, secondRoom);
+    const view = boot(secondRoom);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
@@ -301,6 +282,5 @@ describe("Shift and Shift+Tab in a back room", () => {
 
     await shiftTab();
     expect(shownRoom()).not.toBe("r1");
-    expect(trapDoor(view)).toBe(false);
   });
 });

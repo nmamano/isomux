@@ -1,6 +1,6 @@
 # Spawning agents
 
-Spawn an agent with `POST /api/agents` and `{name,roomId,cwd?,desk?,agentType?,permissionMode?,codexSandbox?,modelFamily?,effort?,instructions?}`, in a room your manager can access. The new agent has your manager and is never privileged. Tell it its work in a message (see messaging). With no `cwd`, the agent starts in the room's folder, or in `~` where the room has none. A room has 8 front desks (`desk` 0 to 7) for the agents people talk to. With its back room setting on, it also has a back room that seats up to 100: no `desk` or `desk: null` gives a back room seat, and a taken front desk falls through to a free one, then the back room. With the setting off, no `desk` or a taken desk gives the first free front desk, and `desk: null` returns 409 `back_room_off`.
+Spawn an agent with `POST /api/agents` and `{name,roomId,cwd?,desk?,agentType?,permissionMode?,codexSandbox?,modelFamily?,effort?,instructions?}`, in a room your manager can access. The new agent has your manager and is never privileged. Tell it its work in a message (see messaging). With no `cwd`, the agent starts in the room's folder, or in `~` where the room has none. A room has 8 front desks (`desk` 0 to 7) for the agents people talk to, and a back room that seats up to 100: no `desk` or `desk: null` gives a back room seat, and a taken front desk falls through to a free one, then the back room. The lobby has one desk and no back room.
 
 With no `permissionMode`, the new agent gets its engine's mode that never asks: `bypassPermissions` for Claude and OpenCode, `never` for Codex. A Codex agent in `never` passes its sandbox to a Codex child.
 
@@ -14,4 +14,4 @@ Safe example: `GET /agents`, to see that the name you pick is free.
 
 ## Route contract
 
-`POST /api/agents` returns 201 `{agent}`. `DELETE /api/agents/:id` returns 204. A room your manager cannot access, an agent you did not spawn, or `spawn_exceeds_agent` returns 403; a full spawn tree returns 429 `spawn_limit`. An invalid body returns 400/422; a taken name, a full room (`no_free_desk`), a full back room (`back_room_full`) or a back room that is off returns 409.
+`POST /api/agents` returns 201 `{agent}`. `DELETE /api/agents/:id` returns 204. A room your manager cannot access, an agent you did not spawn, or `spawn_exceeds_agent` returns 403; a full spawn tree returns 429 `spawn_limit`. An invalid body returns 400/422; a taken name, a full room (`no_free_desk`) or a full back room (`back_room_full`) returns 409.

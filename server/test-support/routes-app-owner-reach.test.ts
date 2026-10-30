@@ -209,7 +209,6 @@ describe("app owner reach: GET /agents", () => {
     server = srv;
     await srv.seedOwner("Morgan");
     const room = srv.agentManager.getRooms()[0].id;
-    expect(srv.agentManager.setRoomBackRoom(room, true).ok).toBe(true);
     const owner = await spawn(srv, "Lister", "Morgan", room);
     const back = await srv.agentManager.spawn(
       "BackSeat",

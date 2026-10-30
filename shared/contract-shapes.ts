@@ -646,9 +646,9 @@ export interface RoomRenameReq {
   // Merged into the room's choices: a value sets that slot, null clears it back
   // to the preset, an absent key leaves it. `decor: null` clears every choice.
   decor?: RoomDecorPatch | null;
-  // Turns the back room on or off. Off is refused (409 back_room_in_use)
-  // while agents sit there. The lobby has no back room.
-  backRoom?: boolean;
+  // Ignored, whatever its value: every room but the lobby has a back room.
+  // Accepted so an older client that still sends the setting gets no error.
+  backRoom?: unknown;
   // The folder new agents in the room start in: an absolute or "~"-rooted path
   // to an existing directory (400 invalid_cwd otherwise). null or "" clears it
   // back to "~". Absent leaves it alone.
@@ -661,7 +661,6 @@ export interface RoomSettingsRes {
   skin: RoomSkin | null;
   pet: RoomPet | null;
   decor: RoomDecor | null;
-  backRoom: boolean;
   // The folder new agents start in; null means "~".
   cwd: string | null;
 }

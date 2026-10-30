@@ -156,11 +156,7 @@ import {
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
-import {
-  BACK_ROOM_FULL_MESSAGE,
-  BACK_ROOM_OFF_MESSAGE,
-  hasBackRoom,
-} from "../shared/desks.ts";
+import { BACK_ROOM_FULL_MESSAGE, hasBackRoom } from "../shared/desks.ts";
 import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
 import {
   startUpdateChecker,
@@ -5756,8 +5752,6 @@ function buildExecutorDeps(
       },
       setSkin: (roomId, skin) => agentManager.setRoomSkin(roomId, skin),
       setDecor: (roomId, patch) => agentManager.setRoomDecor(roomId, patch),
-      setBackRoom: (roomId, backRoom) =>
-        agentManager.setRoomBackRoom(roomId, backRoom),
       cwdProblem: (cwd) => {
         try {
           agentManager.validateCwd(cwd);
@@ -5778,7 +5772,6 @@ function buildExecutorDeps(
               skin: room.skin ?? null,
               pet: room.pet ?? null,
               decor: room.decor ?? null,
-              backRoom: room.backRoom === true,
               cwd: room.cwd ?? null,
             }
           : null;
@@ -6019,25 +6012,15 @@ function buildExecutorDeps(
             };
           }
           // The room is full: a room with a back room fills it last; the
-          // lobby, and a room with the setting off, have front desks only.
-          // null names the back room, which a room with the setting off lacks
-          // (the handler refuses that first; this covers a race with the
-          // setting).
+          // lobby has its one front desk only.
           const room = agentManager
             .getRooms()
             .find((r) => r.id === input.roomId);
-          if (hasBackRoom(room)) {
-            return {
-              ok: false,
-              reason: "back_room_full",
-              message: BACK_ROOM_FULL_MESSAGE,
-            };
-          }
-          return input.desk === null && room?.type !== "lobby"
+          return hasBackRoom(room)
             ? {
                 ok: false,
-                reason: "back_room_off",
-                message: BACK_ROOM_OFF_MESSAGE,
+                reason: "back_room_full",
+                message: BACK_ROOM_FULL_MESSAGE,
               }
             : {
                 ok: false,
@@ -8036,12 +8019,6 @@ function emitAgentEvent(event: AgentEvent): void {
       liveEmit("room_decor_updated", {
         roomId: event.roomId,
         decor: event.decor,
-      });
-      break;
-    case "room_back_room_updated":
-      liveEmit("room_back_room_updated", {
-        roomId: event.roomId,
-        backRoom: event.backRoom,
       });
       break;
     case "room_cwd_updated":

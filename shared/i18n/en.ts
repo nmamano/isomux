@@ -558,13 +558,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.intro":
     "The vent on the wall, the s key and a double-click on the room tab open this page.",
   "settings.room.namePlaceholder": "Room name",
-  "settings.room.backRoom": "Back room",
-  "settings.room.backRoomHint": "More than {count} agents, behind a trap door.",
   "settings.room.cwdHint": "New agents in this room start here.",
-  "settings.room.backRoomInUse.one":
-    "{count} agent sits in the back room. Move it out first.",
-  "settings.room.backRoomInUse.other":
-    "{count} agents sit in the back room. Move them out first.",
   "settings.room.prompt": "Instructions",
   "settings.room.promptHint": "(optional, added after the office instructions)",
   "settings.room.promptTitle": "{room} · Room Instructions",

@@ -1,5 +1,5 @@
 // Room state below the HTTP layer: what OfficeState writes and emits for a
-// room's skin, decor and back room setting, how it places agents by stable
+// room's skin and decor, how it places agents by stable
 // room id, and the two mappings that carry each room field between memory and
 // disk. A field that misses either mapping looks right for one session and is
 // gone after a restart - and no route test can see that, because both sides of
@@ -9,7 +9,7 @@
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { OfficeState } from "../../shared/office-state.ts";
-import { deskOfBackSeat, isBackSeat } from "../../shared/desks.ts";
+import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import {
   applyRoomDecorPatch,
   parseRoomDecorPatch,
@@ -20,12 +20,7 @@ import {
   createAgentManager,
   createProductionAgentManager,
 } from "../agent-manager.ts";
-import {
-  loadAgents,
-  saveAgents,
-  type PersistedAgent,
-  type Room,
-} from "../persistence.ts";
+import { loadAgents, saveAgents, type Room } from "../persistence.ts";
 import { removeStateDir } from "./temp-state.ts";
 import { STATE_ROOT } from "../config.ts";
 import { mkdirSync } from "fs";
@@ -34,12 +29,11 @@ function rooms(...ids: string[]) {
   return ids.map((id) => ({ id, name: id, prompt: null }));
 }
 
-function office(backRoom?: boolean) {
+function office() {
   const state = new OfficeState();
-  const flag = backRoom === undefined ? {} : { backRoom };
   state.setRooms([
-    { id: "r1", name: "One", prompt: null, ...flag },
-    { id: "r2", name: "Two", prompt: null, ...flag },
+    { id: "r1", name: "One", prompt: null },
+    { id: "r2", name: "Two", prompt: null },
     { id: "lobby", name: "Lobby", prompt: null, type: "lobby" },
   ]);
   return state;
@@ -91,22 +85,6 @@ describe("the events OfficeState emits for a room field", () => {
     ]);
     expect(state.rooms[0].decor).toBe(null);
   });
-
-  it("setRoomBackRoom turns it on and off and emits room_back_room_updated", () => {
-    const state = office(false);
-    const seen: unknown[] = [];
-    state.onChange((e) => seen.push(e));
-    expect(state.setRoomBackRoom("r1", true).ok).toBe(true);
-    expect(isBackSeat(spawn(state, "B", "r1", null)?.desk ?? -1)).toBe(true);
-    expect(seen).toContainEqual({
-      type: "room_back_room_updated",
-      roomId: "r1",
-      backRoom: true,
-    });
-    expect(state.setRoomBackRoom("r2", true).ok).toBe(true);
-    expect(state.setRoomBackRoom("r2", false).ok).toBe(true);
-    expect(state.rooms.find((r) => r.id === "r2")?.backRoom).toBe(false);
-  });
 });
 
 describe("decor values", () => {
@@ -138,45 +116,26 @@ describe("decor values", () => {
   });
 });
 
-describe("a room with the back room off", () => {
-  it("absent reads as off, the same as false", () => {
-    for (const state of [office(), office(false)]) {
-      expect(spawn(state, "N", "r1", null)).toBeNull();
-      expect(spawn(state, "U", "r1")?.desk).toBe(0);
-    }
+// Every room but the lobby has a back room, with no setting (task e2fb9fa0).
+// Mutant: hasBackRoom as it was (only with backRoom true).
+describe("every room has a back room", () => {
+  it("null takes a back seat; no desk takes a front desk, then a back seat once the front is full", () => {
+    const state = office();
+    expect(isBackSeat(spawn(state, "N", "r1", null)?.desk ?? -1)).toBe(true);
+    for (let d = 0; d < DESK_COUNT; d++)
+      expect(spawn(state, `F${d}`, "r1")?.desk).toBe(d);
+    expect(isBackSeat(spawn(state, "Over", "r1")?.desk ?? -1)).toBe(true);
+    // The lobby still has none.
+    expect(spawn(state, "L", "lobby", null)).toBeNull();
   });
 
-  it("a back agent moved with no desk into a room with it off takes a front desk", () => {
-    const state = office(false);
-    state.setRoomBackRoom("r1", true);
+  it("a back agent moved with no desk keeps its area: a back seat in the other room", () => {
+    const state = office();
     const b = spawn(state, "B", "r1", null)!;
     expect(isBackSeat(b.desk)).toBe(true);
     expect(state.placeAgent(b.id, "r2").ok).toBe(true);
-    expect(state.getAgent(b.id)?.desk).toBe(0);
-  });
-
-  it("off is refused while agents sit in this room's back, with their count; nothing moves", () => {
-    const state = office(true);
-    const b1 = spawn(state, "B1", "r1", null)!;
-    const b2 = spawn(state, "B2", "r1", null)!;
-    spawn(state, "F", "r1", 0);
-    // A back agent in another room does not count.
-    spawn(state, "Other", "r2", null);
-    const seen: unknown[] = [];
-    state.onChange((e) => seen.push(e));
-    expect(state.setRoomBackRoom("r1", false)).toEqual({
-      ok: false,
-      reason: "in_use",
-      count: 2,
-    });
-    expect(seen).toEqual([]);
-    expect(state.rooms.find((r) => r.id === "r1")?.backRoom).toBe(true);
-    expect(state.getAgent(b1.id)?.desk).toBe(b1.desk);
-    expect(state.getAgent(b2.id)?.desk).toBe(b2.desk);
-    // Moved out, the setting turns off.
-    expect(state.placeAgent(b1.id, "r1", 1).ok).toBe(true);
-    expect(state.placeAgent(b2.id, "r1", 2).ok).toBe(true);
-    expect(state.setRoomBackRoom("r1", false).ok).toBe(true);
+    expect(state.getAgent(b.id)?.roomId).toBe("r2");
+    expect(isBackSeat(state.getAgent(b.id)?.desk ?? -1)).toBe(true);
   });
 });
 
@@ -232,9 +191,9 @@ describe("room fields survive a round trip through the disk", () => {
     mkdirSync(STATE_ROOT, { recursive: true });
   });
 
-  // Mutants: drop `skin`, `decor` or `backRoom` from the persistAll mapping in
-  // server/agent-manager.ts.
-  it("skin, decor and the back room setting written through the manager reach agents.json", () => {
+  // Mutants: drop `skin` or `decor` from the persistAll mapping in
+  // server/agent-manager.ts, or keep writing `backRoom` there.
+  it("skin and decor written through the manager reach agents.json, and no backRoom key does", () => {
     const mgr = createAgentManager({
       resolveBackend: () => new FakeBackend(),
       officeState: new OfficeState({ rooms: rooms("room-a") }),
@@ -243,40 +202,22 @@ describe("room fields survive a round trip through the disk", () => {
     const onDisk = () => loadAgents().find((r) => r.id === "room-a");
     expect(mgr.setRoomSkin("room-a", "hospital")).toBe("ok");
     expect(mgr.setRoomDecor("room-a", { curtains: "tied" })).toBe("ok");
-    expect(mgr.setRoomBackRoom("room-a", true).ok).toBe(true);
     expect(onDisk()).toMatchObject({
       skin: "hospital",
       decor: { curtains: "tied" },
-      backRoom: true,
     });
-    expect(mgr.setRoomBackRoom("room-a", false).ok).toBe(true);
-    expect(onDisk()?.backRoom).toBe(false);
+    expect("backRoom" in (onDisk() ?? {})).toBe(false);
   });
 
-  function agentAt(id: string, desk: number): PersistedAgent {
-    return {
-      id,
-      name: id,
-      desk,
-      cwd: "/tmp",
-      outfit: undefined as unknown as PersistedAgent["outfit"],
-      permissionMode: "default",
-      lastSessionId: null,
-      topic: null,
-      customInstructions: null,
-    };
-  }
-
-  // Mutants: drop `skin`, `decor` or `backRoom` from the loaded-rooms mapping
-  // that seeds OfficeState in createProductionAgentManager, or drop the back
-  // room default for a room that holds back agents.
-  it("at boot: stored fields reach the rooms; a room stored before the back room setting reads as on only when it holds back agents", () => {
-    const back = deskOfBackSeat({ table: 0, stool: 0 });
+  // Mutants: drop `skin` or `decor` from the loaded-rooms mapping that seeds
+  // OfficeState in createProductionAgentManager; keep a stored `backRoom` on
+  // the loaded room; let hasBackRoom read a stored false; write `backRoom` in
+  // persistAll.
+  it("at boot: stored fields reach the rooms, and a stored backRoom (false, true or none) is dropped: every room has a back room", () => {
     const seeded: Room[] = [
-      { id: "aaaa0001", name: "Old, back", prompt: null, agents: [] },
-      { id: "aaaa0002", name: "Old, front", prompt: null, agents: [] },
+      { id: "aaaa0001", name: "Old", prompt: null, agents: [] },
       {
-        id: "aaaa0003",
+        id: "aaaa0002",
         name: "Stored on",
         prompt: null,
         backRoom: true,
@@ -285,31 +226,30 @@ describe("room fields survive a round trip through the disk", () => {
         agents: [],
       },
       {
-        id: "aaaa0004",
+        id: "aaaa0003",
         name: "Stored off",
         prompt: null,
         backRoom: false,
         agents: [],
       },
-    ];
-    seeded[0].agents.push(agentAt("agent-b", back), agentAt("agent-f", 0));
-    seeded[1].agents.push(agentAt("agent-g", 0));
+    ] as Room[];
     saveAgents(seeded);
-    // The rooms stored before the setting have no key on disk.
-    expect("backRoom" in loadAgents()[0]).toBe(false);
-    expect(loadAgents()[2]).toMatchObject({
+    const mgr = createProductionAgentManager();
+    const room = (id: string) => mgr.getRooms().find((r) => r.id === id);
+    expect(room("aaaa0002")).toMatchObject({
       skin: "hospital",
       decor: { pet: "shown" },
     });
-    const loaded = createProductionAgentManager().getRooms();
-    const room = (id: string) => loaded.find((r) => r.id === id);
-    expect(room("aaaa0001")?.backRoom).toBe(true);
-    expect(room("aaaa0002")?.backRoom).toBe(false);
-    expect(room("aaaa0003")).toMatchObject({
-      backRoom: true,
-      skin: "hospital",
-      decor: { pet: "shown" },
-    });
-    expect(room("aaaa0004")?.backRoom).toBe(false);
+    // Placement reads the loaded rooms as they are: each takes a back seat.
+    const state = new OfficeState({ rooms: mgr.getRooms() });
+    for (const r of seeded) {
+      expect("backRoom" in (room(r.id) ?? {})).toBe(false);
+      expect(
+        isBackSeat(spawn(state, `B-${r.id}`, r.id, null)?.desk ?? -1),
+      ).toBe(true);
+    }
+    // The next write carries no backRoom for any room.
+    expect(mgr.setRoomSkin("aaaa0001", "hospital")).toBe("ok");
+    expect(loadAgents().filter((r) => "backRoom" in r)).toEqual([]);
   });
 });

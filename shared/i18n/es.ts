@@ -549,13 +549,7 @@ Cosas que puedes hacer por él:
   "settings.room.intro":
     "La rejilla de la pared, la tecla s y un doble clic en la pestaña de la sala abren esta página.",
   "settings.room.namePlaceholder": "Nombre de la sala",
-  "settings.room.backRoom": "Trastienda",
-  "settings.room.backRoomHint": "Más de {count} agentes, tras una trampilla.",
   "settings.room.cwdHint": "Los agentes nuevos de esta sala empiezan aquí.",
-  "settings.room.backRoomInUse.one":
-    "{count} agente está en la trastienda. Sácalo primero.",
-  "settings.room.backRoomInUse.other":
-    "{count} agentes están en la trastienda. Sácalos primero.",
   "settings.room.prompt": "Instrucciones",
   "settings.room.promptHint":
     "(opcional, se añade después de las instrucciones de la oficina)",

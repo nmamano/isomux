@@ -54,7 +54,6 @@ function boot(cwd: string | undefined): View {
             name: "Room",
             prompt: null,
             canCloseWhenEmpty: true,
-            backRoom: true,
             ...(cwd === undefined ? {} : { cwd }),
           },
         ],

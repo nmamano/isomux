@@ -408,7 +408,7 @@ export function OfficeView({
     [swipeRef, viewport.setContainer],
   );
 
-  // A room with its back room setting off has no back screen (task b16f1e6a).
+  // The lobby has no back screen.
   const currentHasBackRoom = hasBackRoom(
     rooms.find((r) => r.id === currentRoomId),
   );
@@ -1012,7 +1012,7 @@ export function OfficeView({
                           }}
                         />
                       )}
-                    {/* Only where the room's back room setting is on. */}
+                    {/* Every room but the lobby. */}
                     {currentHasBackRoom && (
                       <TrapDoor
                         attention={backAttention}

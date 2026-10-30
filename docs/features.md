@@ -65,7 +65,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Lobby** - a room every member can open; members with no other room land there.
 - **Lobby elevator** - add other Isomux offices as floors and open them from the lobby.
 - **Isometric rooms with 8 desks** - see all your agents at a glance.
-- **Back room** - turn it on in a room's settings, and a basement behind a trap door holds up to 100 more agents. The front keeps the agents people talk to.
+- **Back room** - a basement behind a trap door holds up to 100 more agents. The front keeps the agents people talk to.
 - **Room working directory** - set one in a room's settings, and new agents in the room start there.
 - **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize).
 - **Animated characters** - sleeping when idle, typing when working, waving when waiting for you.

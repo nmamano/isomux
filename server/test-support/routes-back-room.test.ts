@@ -1,9 +1,10 @@
 // The back room over REST (task 5b503e32): spawn, move and revive with no
 // desk or desk null, the refusals that name a back seat or a taken desk, and
-// the 409 for a full back room. The setting (task b16f1e6a): PATCH
-// /api/rooms/:roomId turns it on and off, GET settings reads it, and with it
-// off spawn, move and revive take front desks only. GET /agents with back
-// room agents: routes-agents-manifest.test.ts.
+// the 409 for a full back room. Every room but the lobby has a back room with
+// no setting (task e2fb9fa0), so these run in rooms as the server makes them;
+// PATCH /api/rooms/:roomId still takes a `backRoom` key from an older client
+// and ignores it. GET /agents with back room agents:
+// routes-agents-manifest.test.ts.
 
 import { sessionCookieName } from "../auth.ts";
 import { describe, it, expect, afterEach } from "bun:test";
@@ -74,7 +75,6 @@ async function setup() {
   server = srv;
   const owner = await srv.seedOwner("Morgan");
   const r1 = srv.agentManager.getRooms()[0].id;
-  srv.agentManager.setRoomBackRoom(r1, true);
   return { srv, owner, r1 };
 }
 
@@ -170,7 +170,6 @@ describe("a full room: front and back taken", () => {
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
-    srv.agentManager.setRoomBackRoom(r2, true);
     const x = await spawnCore(srv, "X", r1, 0);
     const k = await spawnCore(srv, "K", r1, 1);
     await srv.agentManager.kill(k.id);
@@ -209,7 +208,6 @@ describe("revive into the back room", () => {
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
-    srv.agentManager.setRoomBackRoom(r1, true);
     const x = await spawnCore(srv, "K", r1, 0);
     await srv.agentManager.kill(x.id);
     return { srv, owner, r1, x };
@@ -315,164 +313,69 @@ describe("the lobby with no desk", () => {
   });
 });
 
-// The setting starts off in a new room.
-async function setupOff() {
-  const srv = await startTestServer({
-    fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
-  });
-  server = srv;
-  const owner = await srv.seedOwner("Morgan");
-  const r1 = srv.agentManager.getRooms()[0].id;
-  return { srv, owner, r1 };
-}
-
-const backRoomOf = (srv: TestServer, roomId: string) =>
-  srv.agentManager.getRooms().find((r) => r.id === roomId)?.backRoom === true;
-
-describe("PATCH /api/rooms/:roomId backRoom", () => {
-  it("a new room is off; PATCH turns it on and off, and GET settings reads it", async () => {
-    const { srv, owner } = await setupOff();
-    const r2 = srv.agentManager.createRoom("R2");
-    const read = async () =>
-      (
-        (
-          await req(srv, "GET", `/api/rooms/${r2}/settings`, {
-            rawSessionId: owner.rawSessionId,
-          })
-        ).body as { backRoom: unknown }
-      ).backRoom;
-    expect(await read()).toBe(false);
-    const on = await req(srv, "PATCH", `/api/rooms/${r2}`, {
-      body: { backRoom: true },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(on.status).toBe(204);
-    expect(await read()).toBe(true);
-    const off = await req(srv, "PATCH", `/api/rooms/${r2}`, {
-      body: { backRoom: false },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(off.status).toBe(204);
-    expect(await read()).toBe(false);
-  });
-
-  it("off with agents in the back -> 409 back_room_in_use with the count; nothing in the body is written", async () => {
-    const { srv, owner, r1 } = await setupOff();
-    srv.agentManager.setRoomBackRoom(r1, true);
+// An older client still sends `backRoom`: the key is accepted and ignored,
+// whatever its value and on any room that exists, the lobby included.
+describe("PATCH /api/rooms/:roomId with backRoom", () => {
+  // Mutants: keep the old 409 back_room_in_use, 422 invalid_back_room or 422
+  // back_room_not_supported; answer 204 before the room is looked up; emit a
+  // room event or write the room for a body that carries only backRoom.
+  it("alone -> 204 and nothing changes, for any value and the lobby; beside a name the name applies; an unknown room -> 404", async () => {
+    const { srv, owner, r1 } = await setup();
+    srv.agentManager.ensureLobby();
     const b = await spawnCore(srv, "B", r1, null);
-    await spawnCore(srv, "C", r1, null);
-    const nameBefore = srv.agentManager
-      .getRooms()
-      .find((r) => r.id === r1)?.name;
-    const res = await req(srv, "PATCH", `/api/rooms/${r1}`, {
+    const seat = b.desk;
+    expect(isBackSeat(seat)).toBe(true);
+    const nameOf = () =>
+      srv.agentManager.getRooms().find((r) => r.id === r1)?.name;
+    const nameBefore = nameOf();
+    const sock = await srv.connectWs(owner.rawSessionId);
+
+    const answers: Array<[string, unknown, number]> = [];
+    for (const roomId of [r1, "lobby"]) {
+      for (const value of [true, false, "x", null]) {
+        const res = await req(srv, "PATCH", `/api/rooms/${roomId}`, {
+          body: { backRoom: value },
+          rawSessionId: owner.rawSessionId,
+        });
+        answers.push([roomId, value, res.status]);
+      }
+    }
+    expect(answers.filter(([, , status]) => status !== 204)).toEqual([]);
+    expect(nameOf()).toBe(nameBefore);
+    expect(srv.agentManager.getAgent(b.id)?.desk).toBe(seat);
+
+    const both = await req(srv, "PATCH", `/api/rooms/${r1}`, {
       body: { backRoom: false, name: "Renamed" },
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(409);
-    expect(errOf(res.body)?.code).toBe("back_room_in_use");
-    expect(errOf(res.body)?.count).toBe(2);
-    expect(backRoomOf(srv, r1)).toBe(true);
-    expect(srv.agentManager.getRooms().find((r) => r.id === r1)?.name).toBe(
-      nameBefore,
-    );
-    expect(isBackSeat(srv.agentManager.getAgent(b.id)?.desk ?? -1)).toBe(true);
+    expect(both.status).toBe(204);
+    expect(nameOf()).toBe("Renamed");
+    expect(srv.agentManager.getAgent(b.id)?.desk).toBe(seat);
+    // The rename's event is the barrier: every PATCH before it was answered,
+    // so a room event for any of them would be in the buffer by now.
+    await sock.waitFor("room_renamed");
+    const roomEvents = sock.messages
+      .map((m) => (m as { type?: string }).type ?? "")
+      .filter((t) => t.startsWith("room_"));
+    expect(roomEvents).toEqual(["room_renamed"]);
+    sock.close();
+
+    const unknown = await req(srv, "PATCH", "/api/rooms/no-such-room", {
+      body: { backRoom: true },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(unknown.status).toBe(404);
+    expect(errOf(unknown.body)?.code).toBe("room_not_found");
   });
 
-  it("the lobby -> 422 back_room_not_supported; a non-boolean -> 422 invalid_back_room", async () => {
-    const { srv, owner, r1 } = await setupOff();
-    srv.agentManager.ensureLobby();
-    for (const value of [true, false]) {
-      const lobby = await req(srv, "PATCH", `/api/rooms/lobby`, {
-        body: { backRoom: value },
-        rawSessionId: owner.rawSessionId,
-      });
-      expect(lobby.status).toBe(422);
-      expect(errOf(lobby.body)?.code).toBe("back_room_not_supported");
-    }
-    const bad = await req(srv, "PATCH", `/api/rooms/${r1}`, {
-      body: { backRoom: "yes" },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(bad.status).toBe(422);
-    expect(errOf(bad.body)?.code).toBe("invalid_back_room");
-    expect(backRoomOf(srv, r1)).toBe(false);
-  });
-});
-
-describe("with the back room off", () => {
-  it("spawn: no desk -> 201 at the first free front desk; desk null -> 409 back_room_off; a full front -> 409 no_free_desk", async () => {
-    const { srv, owner, r1 } = await setupOff();
-    await spawnCore(srv, "F0", r1, 0);
-    const res = await req(srv, "POST", "/api/agents", {
-      body: { name: "N", cwd: srv.stateRoot, roomId: r1 },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(res.status).toBe(201);
-    expect(deskOf(res.body)).toBe(1);
-    const nul = await req(srv, "POST", "/api/agents", {
-      body: { name: "Nul", cwd: srv.stateRoot, roomId: r1, desk: null },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(nul.status).toBe(409);
-    expect(errOf(nul.body)?.code).toBe("back_room_off");
-    for (let d = 2; d < DESK_COUNT; d++) await spawnCore(srv, `F${d}`, r1, d);
-    for (const desk of [undefined, 0]) {
-      const full = await req(srv, "POST", "/api/agents", {
-        body: { name: `Full${desk}`, cwd: srv.stateRoot, roomId: r1, desk },
-        rawSessionId: owner.rawSessionId,
-      });
-      expect(full.status).toBe(409);
-      expect(errOf(full.body)?.code).toBe("no_free_desk");
-    }
-    expect(
-      srv.agentManager.getAllAgents().some((a) => isBackSeat(a.desk)),
-    ).toBe(false);
-  });
-
-  it("move: desk null -> 409 back_room_off; no desk into a full front -> 409 no_free_desk", async () => {
-    const { srv, owner, r1 } = await setupOff();
-    const r2 = srv.agentManager.createRoom("R2");
-    const x = await spawnCore(srv, "X", r1, 0);
-    const nul = await req(srv, "POST", `/api/agents/${x.id}/move`, {
-      body: { targetRoomId: r1, desk: null },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(nul.status).toBe(409);
-    expect(errOf(nul.body)?.code).toBe("back_room_off");
-    for (let d = 0; d < DESK_COUNT; d++) await spawnCore(srv, `F${d}`, r2, d);
-    const full = await req(srv, "POST", `/api/agents/${x.id}/move`, {
-      body: { targetRoomId: r2 },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(full.status).toBe(409);
-    expect(errOf(full.body)?.code).toBe("no_free_desk");
-    expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r1);
-  });
-
-  it("revive: no desk -> 200 at the first free front desk; desk null -> 409 back_room_off; a full front -> 409 no_free_desk", async () => {
-    const { srv, owner, r1 } = await setupOff();
-    const k = await spawnCore(srv, "K", r1, 0);
-    await srv.agentManager.kill(k.id);
-    const nul = await req(srv, "POST", `/api/agents/${k.id}/revive`, {
-      body: { roomId: r1, desk: null },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(nul.status).toBe(409);
-    expect(errOf(nul.body)?.code).toBe("back_room_off");
-    await spawnCore(srv, "F0", r1, 0);
-    const res = await req(srv, "POST", `/api/agents/${k.id}/revive`, {
-      body: { roomId: r1 },
+  it("GET settings carries no backRoom", async () => {
+    const { srv, owner, r1 } = await setup();
+    const res = await req(srv, "GET", `/api/rooms/${r1}/settings`, {
       rawSessionId: owner.rawSessionId,
     });
     expect(res.status).toBe(200);
-    expect(deskOf(res.body)).toBe(1);
-    await srv.agentManager.kill(k.id);
-    for (let d = 1; d < DESK_COUNT; d++) await spawnCore(srv, `F${d}`, r1, d);
-    const full = await req(srv, "POST", `/api/agents/${k.id}/revive`, {
-      body: { roomId: r1 },
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(full.status).toBe(409);
-    expect(errOf(full.body)?.code).toBe("no_free_desk");
+    expect(Object.keys(res.body as object).sort()).toEqual(
+      ["cwd", "decor", "pet", "skin"].sort(),
+    );
   });
 });

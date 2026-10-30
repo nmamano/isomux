@@ -550,7 +550,6 @@ type Action =
   | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
   | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
   | { type: "room_decor_updated"; roomId: string; decor: RoomDecor | null }
-  | { type: "room_back_room_updated"; roomId: string; backRoom: boolean }
   | { type: "room_cwd_updated"; roomId: string; cwd: string | null }
   | { type: "users_list"; users: UserPublicWire[] }
   | { type: "user_updated"; user: UserPublicWire; prevName?: string }
@@ -1667,12 +1666,6 @@ export function reducer(state: AppState, action: Action): AppState {
     case "room_decor_updated": {
       const newRooms = state.rooms.map((r) =>
         r.id === action.roomId ? { ...r, decor: action.decor } : r,
-      );
-      return { ...state, rooms: newRooms };
-    }
-    case "room_back_room_updated": {
-      const newRooms = state.rooms.map((r) =>
-        r.id === action.roomId ? { ...r, backRoom: action.backRoom } : r,
       );
       return { ...state, rooms: newRooms };
     }

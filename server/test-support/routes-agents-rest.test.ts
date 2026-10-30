@@ -188,16 +188,14 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
     expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r1); // untouched
   });
 
-  // Task 5b503e32: with the back room on, a full front no longer refuses a
-  // move; the agent takes a back room seat. With it off, the move is 409
-  // no_free_desk as before (routes-back-room.test.ts).
+  // Task 5b503e32: a full front no longer refuses a move; the agent takes a
+  // back room seat. Every room has one (task e2fb9fa0).
   it("target room with a full front -> 200, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
     const r2 = srv.agentManager.createRoom("R2");
-    srv.agentManager.setRoomBackRoom(r2, true);
     for (let d = 0; d < 8; d++) await spawnAt(srv, `F${d}`, r2, d); // fill r2
     const x = await spawnAt(srv, "X", r1, 0);
     const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
@@ -401,15 +399,13 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(errCode(res.body)).toBe("name_taken");
   });
 
-  // Task 5b503e32: with the back room on, a full front no longer refuses a
-  // spawn; the agent takes a back room seat. With it off, the spawn is 409
-  // no_free_desk as before (routes-back-room.test.ts).
+  // Task 5b503e32: a full front no longer refuses a spawn; the agent takes a
+  // back room seat. Every room has one (task e2fb9fa0).
   it("full front -> 201, the agent takes a back room seat", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
-    srv.agentManager.setRoomBackRoom(r1, true);
     for (let d = 0; d < 8; d++) await spawnAt(srv, `Fill${d}`, r1, d);
     const res = await req(srv, "POST", "/api/agents", {
       body: spawnBody(srv, "Extra", r1, 0),
@@ -1936,8 +1932,6 @@ describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
     const ownerRecord = getUserByName(owner.username);
     if (!ownerRecord) throw new Error("seeded owner record missing");
     const r1 = srv.agentManager.getRooms()[0].id;
-    // Room for the limit test's 50 children past the 8 front desks.
-    srv.agentManager.setRoomBackRoom(r1, true);
     const work = join(srv.stateRoot, "work");
     const elsewhere = join(srv.stateRoot, "elsewhere");
     mkdirSync(join(work, "sub"), { recursive: true });

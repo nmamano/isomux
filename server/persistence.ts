@@ -989,9 +989,8 @@ export interface Room {
   // The decor choices on top of the skin, or absent/null for none. Optional
   // for the same reason as `skin`.
   decor?: RoomDecor | null;
-  // Whether the room has a back room. Optional for the same reason as `pet`:
-  // absent reads as off, unless the room holds back agents at load.
-  backRoom?: boolean;
+  // Older releases also wrote `backRoom`, the back room setting. Load ignores
+  // it: every room but the lobby has a back room (task e2fb9fa0).
   // The folder new agents in the room start in, or absent/null for "~".
   // Optional for the same reason as `pet`.
   cwd?: string | null;

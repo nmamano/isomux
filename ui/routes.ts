@@ -274,7 +274,7 @@ export function pageShortcut(
 }
 
 export interface BackRoomShortcutState {
-  /** The current room has its back room setting on, and is not the lobby. */
+  /** The current room has a back room: it is not the lobby. */
   hasBackRoom: boolean;
   backRoomOpen: boolean;
   /** An agent's log or a page shows over the office. */

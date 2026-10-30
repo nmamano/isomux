@@ -1494,9 +1494,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     </div>
   );
 
-  // Each room offers its front and, where its setting is on, its back room
-  // (tasks f0af4677, b16f1e6a). The agent's own room offers the area it is
-  // not in.
+  // Each room offers its front and, outside the lobby, its back room (tasks
+  // f0af4677, e2fb9fa0). The agent's own room offers the area it is not in.
   const moveTo = (targetRoomId: string, desk?: number | null) =>
     requestClose(() => {
       apiFetch("POST", `/api/agents/${agent!.id}/move`, {

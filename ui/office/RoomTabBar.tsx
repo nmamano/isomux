@@ -218,8 +218,8 @@ export function RoomTabBar({
   // A desk dragged from the scene (task f0af4677), or a figure from the back
   // screen (task 335384f8): every tab takes it to that room's front, and a
   // "Back room" target beside the tab takes it to that room's back room,
-  // where its setting is on (task b16f1e6a). The agent's own room offers
-  // only the area the agent is not in.
+  // outside the lobby. The agent's own room offers only the area the agent
+  // is not in.
   const draggedDesk = useDraggedDesk();
   const deskDrag = draggedDesk !== null;
   const [deskOver, setDeskOver] = useState<string | null>(null);

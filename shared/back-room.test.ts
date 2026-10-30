@@ -147,8 +147,8 @@ describe("OfficeState placement", () => {
   function office() {
     const state = new OfficeState();
     state.setRooms([
-      { id: "r1", name: "One", prompt: null, backRoom: true },
-      { id: "r2", name: "Two", prompt: null, backRoom: true },
+      { id: "r1", name: "One", prompt: null },
+      { id: "r2", name: "Two", prompt: null },
       { id: "lobby", name: "Lobby", prompt: null, type: "lobby" },
     ]);
     return state;
@@ -358,19 +358,13 @@ describe("roomIsFull", () => {
       stool: i % BACK_ROOM_MAX_SIDE,
     }),
   );
-  it("a room with the back room off is full at 8 front agents", () => {
-    expect(roomIsFull({}, front)).toBe(true);
-    expect(roomIsFull({ backRoom: false }, front)).toBe(true);
-    expect(roomIsFull({ backRoom: false }, front.slice(1))).toBe(false);
-  });
-  it("a room with the back room on is full only when its back room is full too", () => {
-    expect(roomIsFull({ backRoom: true }, front)).toBe(false);
-    expect(roomIsFull({ backRoom: true }, [...front, ...back])).toBe(true);
-    expect(roomIsFull({ backRoom: true }, [...front, ...back.slice(1)])).toBe(
-      false,
-    );
+  // Every room but the lobby has a back room (task e2fb9fa0).
+  it("a room is full only when its back room is full too", () => {
+    expect(roomIsFull({}, front)).toBe(false);
+    expect(roomIsFull({}, [...front, ...back])).toBe(true);
+    expect(roomIsFull({}, [...front, ...back.slice(1)])).toBe(false);
   });
   it("the lobby is full at its one desk", () => {
-    expect(roomIsFull({ type: "lobby", backRoom: true }, [0])).toBe(true);
+    expect(roomIsFull({ type: "lobby" }, [0])).toBe(true);
   });
 });

@@ -547,13 +547,7 @@ Coses que pots fer per ell:
   "settings.room.intro":
     "La reixeta de la paret, la tecla s i un doble clic a la pestanya de la sala obren aquesta pàgina.",
   "settings.room.namePlaceholder": "Nom de la sala",
-  "settings.room.backRoom": "Rebotiga",
-  "settings.room.backRoomHint": "Més de {count} agents, darrere d'una trapa.",
   "settings.room.cwdHint": "Els agents nous d'aquesta sala comencen aquí.",
-  "settings.room.backRoomInUse.one":
-    "{count} agent és a la rebotiga. Treu-lo primer.",
-  "settings.room.backRoomInUse.other":
-    "{count} agents són a la rebotiga. Treu-los primer.",
   "settings.room.prompt": "Instruccions",
   "settings.room.promptHint":
     "(opcional, s'afegeix després de les instruccions de l'oficina)",

@@ -72,12 +72,10 @@ import {
 } from "./session-manager.ts";
 import {
   isValidDesk,
-  isBackSeat,
   roomSlotCount,
   hasBackRoom,
   firstFreeBackSeat,
   BACK_ROOM_FULL_MESSAGE,
-  BACK_ROOM_OFF_MESSAGE,
 } from "../shared/desks.ts";
 import {
   appendLog,
@@ -2381,19 +2379,6 @@ export function createAgentManager(deps: ManagerDeps) {
     return "ok";
   }
 
-  /** Turns the room's back room on or off (OfficeState.setRoomBackRoom). Off
-   *  is refused while agents sit there; the answer carries how many. */
-  function setRoomBackRoom(
-    roomId: string,
-    backRoom: boolean,
-  ): ReturnType<OfficeState["setRoomBackRoom"]> {
-    const r = officeState.setRoomBackRoom(roomId, backRoom);
-    if (!r.ok) return r;
-    for (const event of r.events) eventHandler(event);
-    persistAll();
-    return r;
-  }
-
   /** Sets the folder new agents in the room start in (null clears it). Like
    *  the pet it changes nothing a running agent reads. */
   function setRoomCwd(roomId: string, cwd: string | null): boolean {
@@ -2595,7 +2580,6 @@ export function createAgentManager(deps: ManagerDeps) {
       pet: r.pet ?? null,
       skin: r.skin ?? null,
       decor: r.decor ?? null,
-      ...(r.type !== "lobby" ? { backRoom: r.backRoom === true } : {}),
       ...(r.cwd ? { cwd: r.cwd } : {}),
       type: r.type,
       ...(r.id === LOBBY_ROOM_ID && lobbySeedPending
@@ -11601,21 +11585,14 @@ export function createAgentManager(deps: ManagerDeps) {
     agentId: string,
     roomId: string,
     // A front desk, or null / omitted for the first free back room seat. In
-    // a room with its back room off, omitted is the first free front desk and
-    // null is refused.
+    // the lobby, omitted is its one desk.
     requestedDesk?: number | null,
   ): Promise<
     | { ok: true; agent: AgentInfo }
     | {
         ok: false;
         error: string;
-        field?:
-          | "name"
-          | "desk"
-          | "room"
-          | "back_room"
-          | "back_room_off"
-          | "room_full";
+        field?: "name" | "desk" | "room" | "back_room" | "room_full";
       }
   > {
     // 1. Must be currently killed (not in live map).
@@ -11670,15 +11647,7 @@ export function createAgentManager(deps: ManagerDeps) {
       desk = requestedDesk;
     } else {
       const room = officeState.rooms[roomIdx];
-      // null asks for a back seat; a room with its back room off has none.
-      if (requestedDesk === null && room.type !== "lobby" && !hasBackRoom(room))
-        return {
-          ok: false,
-          error: BACK_ROOM_OFF_MESSAGE,
-          field: "back_room_off",
-        };
-      // The lobby, and a room with its back room off, have front desks only:
-      // no desk there is the first free one.
+      // The lobby has front desks only: no desk there is the first free one.
       if (!hasBackRoom(room)) {
         let free = -1;
         for (let i = 0; i < roomSlotCount(room); i++) {
@@ -13963,7 +13932,6 @@ export function createAgentManager(deps: ManagerDeps) {
     setRoomPet,
     setRoomSkin,
     setRoomDecor,
-    setRoomBackRoom,
     setRoomCwd,
     moveAgent,
     placeAgent,
@@ -14103,15 +14071,6 @@ export function createProductionAgentManager(overrides?: {
             pet: r.pet ?? null,
             skin: r.skin ?? null,
             decor: r.decor ?? null,
-            // A room stored before the setting existed has no field: it reads
-            // as off, unless it already holds back agents, which keep their
-            // seats.
-            ...(r.type !== "lobby"
-              ? {
-                  backRoom:
-                    r.backRoom ?? r.agents.some((a) => isBackSeat(a.desk)),
-                }
-              : {}),
             ...(r.cwd ? { cwd: r.cwd } : {}),
             type: r.type,
           }))

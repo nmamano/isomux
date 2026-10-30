@@ -7,11 +7,9 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
 const { mount, act, shimEmit } = fixture;
-// The back room setting is on (task b16f1e6a) unless a case turns it off.
-const room = (id: string, backRoom = true) => ({
-  ...fixture.room(id),
-  backRoom,
-});
+// A room as the server sends it: every room but the lobby has a back room,
+// with no field for it (task e2fb9fa0).
+const { room } = fixture;
 const { deskOfBackSeat, DESK_COUNT } = await import("../../shared/desks.ts");
 const { fireEvent } = fixture;
 const { setApiShim } = await import("../api.ts");
@@ -87,13 +85,13 @@ it("counts front agents in the header and shows back agents only through the tra
   expect(hatch?.getAttribute("aria-label")).toMatch(/(^|\D)2(\D|$)/);
 });
 
-it("draws no trap door in a room with the back room setting off", async () => {
-  const view = mount([room("first", false)]);
+it("names the trap door in the footer drag hint", async () => {
+  const view = mount([room("first")]);
   await act(async () =>
     shimEmit({
       type: "full_state",
       agents: [agent("Front", 0, "idle")],
-      rooms: [room("first", false)],
+      rooms: [room("first")],
       office: { name: "Back room test", prompt: null },
       recentCwds: [],
       killedAgents: [],
@@ -101,40 +99,27 @@ it("draws no trap door in a room with the back room setting off", async () => {
     } as never),
   );
   expect(view.container.textContent).toContain("Front");
-  expect(view.container.querySelector("[data-trap-door]")).toBeNull();
-  // The footer drag hint names no trap door either. The other hint stays in
-  // the footer, hidden, to keep its size (task f158d7f9).
+  expect(view.container.querySelector("[data-trap-door]")).not.toBeNull();
+  // The other hint stays in the footer, hidden, to keep its size (task
+  // f158d7f9).
   expect(EN.t("office.hints.dragDesk")).not.toBe(
     EN.t("office.hints.dragDeskTrapDoor"),
   );
   const dragHint = () => view.container.querySelectorAll("[data-drag-hint]");
   expect(dragHint().length).toBe(1);
-  expect(dragHint()[0]?.textContent).toBe(EN.t("office.hints.dragDesk"));
-  const reserve = dragHint()[0]?.parentElement?.children ?? [];
-  expect(reserve.length).toBe(2);
-  expect([...reserve].map((e) => e.getAttribute("aria-hidden"))).toEqual([
-    null,
-    "true",
-  ]);
-  // The same room with the setting on draws it.
-  await act(async () =>
-    shimEmit({
-      type: "room_back_room_updated",
-      roomId: "first",
-      backRoom: true,
-    } as never),
-  );
-  expect(view.container.querySelector("[data-trap-door]")).not.toBeNull();
-  expect(dragHint().length).toBe(1);
   expect(dragHint()[0]?.textContent).toBe(
     EN.t("office.hints.dragDeskTrapDoor"),
   );
+  const reserve = [...(dragHint()[0]?.parentElement?.children ?? [])];
+  expect(reserve).toHaveLength(2);
+  expect(
+    reserve.filter((e) => e.getAttribute("aria-hidden") === "true"),
+  ).toHaveLength(1);
 });
 
-// A door refuses a room it cannot take at once, rather than accepting the
-// drop and losing the server's 409: with the setting off, a full front is a
-// full room; with it on, the back room still has seats.
-it("a door refuses a next room with a full front and the setting off", async () => {
+// A full front is not a full room: the back room still has seats, so a door
+// takes the drop into a next room whose front is full.
+it("a door moves an agent into a next room with a full front", async () => {
   const moves: unknown[] = [];
   setApiShim(async (method, path, body) => {
     if (method === "POST" && path.endsWith("/move")) moves.push(body);
@@ -142,7 +127,7 @@ it("a door refuses a next room with a full front and the setting off", async () 
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     return {};
   });
-  const rooms = [room("first"), room("second", false)];
+  const rooms = [room("first"), room("second")];
   const full = Array.from({ length: DESK_COUNT }, (_, d) => ({
     ...agent(`S${d}`, d, "idle"),
     roomId: "second",
@@ -168,16 +153,6 @@ it("a door refuses a next room with a full front and the setting off", async () 
         },
       );
     });
-  await drop();
-  expect(moves).toEqual([]);
-  // With the setting on, the same full front still takes the agent.
-  await act(async () =>
-    shimEmit({
-      type: "room_back_room_updated",
-      roomId: "second",
-      backRoom: true,
-    } as never),
-  );
   await drop();
   expect(moves).toEqual([{ targetRoomId: "second" }]);
 });

@@ -1,7 +1,7 @@
 // Room tabs and the back room (task f0af4677): a tab click reports itself, so
 // the back screen can close onto a front, and during a desk drag each tab
-// takes the desk to that room's front or, where its setting is on (task
-// b16f1e6a), to its back room.
+// takes the desk to that room's front or to its back room, which every room
+// but the lobby has (task e2fb9fa0).
 import { afterAll, afterEach, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -20,12 +20,11 @@ const { DESK_COUNT, BACK_ROOM_SEATS, firstFreeBackSeat, deskOfBackSeat } =
   await import("../../shared/desks.ts");
 
 type RoomWire = import("../../shared/types.ts").RoomWire;
-const room = (id: string, backRoom = true): RoomWire => ({
+const room = (id: string): RoomWire => ({
   id,
   name: `Room ${id}`,
   prompt: null,
   canCloseWhenEmpty: false,
-  backRoom,
 });
 const noop = () => {};
 
@@ -94,8 +93,7 @@ function mount(agents: ReturnType<typeof agent>[], onSelectRoom = noop) {
     shimEmit({
       type: "full_state",
       agents,
-      // Room d has its back room setting off.
-      rooms: [room("a"), room("b"), room("c"), room("d", false)],
+      rooms: [room("a"), room("b"), room("c"), room("d")],
       office: { name: "Tab test", prompt: null },
       recentCwds: [],
       killedAgents: [],
@@ -133,16 +131,8 @@ it("offers each room's back room only while a desk is dragged", () => {
   const view = mount([agent("x", "a", 2)]);
   expect(view.container.querySelector("[data-desk-drop]")).toBeNull();
   startDeskDrag(2);
-  for (const id of ["a", "b", "c"])
+  for (const id of ["a", "b", "c", "d"])
     expect(target(view, `${id}:back`)).not.toBeNull();
-});
-
-it("offers no back room target for a room with the setting off", () => {
-  const view = mount([agent("x", "a", 2)]);
-  startDeskDrag(2);
-  expect(target(view, "d:front")).not.toBeNull();
-  expect(target(view, "c:back")).not.toBeNull();
-  expect(view.container.querySelector('[data-desk-drop="d:back"]')).toBeNull();
 });
 
 it("moves a dropped desk to a room's first free front desk or its back room", () => {

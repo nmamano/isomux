@@ -90,21 +90,16 @@ export function isValidPlacement(
   );
 }
 
-/** Whether a room takes back seats now: its back room setting is on. The
- *  lobby never has one. Off, a room is its 8 front desks, as before the back
- *  room existed. */
-export function hasBackRoom(room?: {
-  type?: RoomType;
-  backRoom?: boolean;
-}): boolean {
-  return room?.type !== "lobby" && room?.backRoom === true;
+/** Whether a room takes back seats: every room except the lobby. */
+export function hasBackRoom(room?: { type?: RoomType }): boolean {
+  return room !== undefined && room.type !== "lobby";
 }
 
 /** Whether a room takes no more agents: its front desks are all taken and,
  *  where it has a back room, so are the back seats. `desks` holds the desk of
  *  every agent in the room. */
 export function roomIsFull(
-  room: { type?: RoomType; backRoom?: boolean } | undefined,
+  room: { type?: RoomType } | undefined,
   desks: Iterable<number>,
 ): boolean {
   let front = 0;
@@ -159,16 +154,3 @@ export function firstFreeBackSeat(desks: Iterable<number>): number | null {
 // The server's error text for a spawn, move or revive into a full back room.
 // English only, like the server's other error messages.
 export const BACK_ROOM_FULL_MESSAGE = `The back room is full (${BACK_ROOM_SEATS} agents).`;
-
-// The server's error text for desk: null (a back seat) in a room whose back
-// room setting is off.
-export const BACK_ROOM_OFF_MESSAGE =
-  "This room has no back room. Turn it on in the room settings.";
-
-// The server's error text when the back room setting is turned off while
-// agents sit there. Nothing moves on its own: the caller moves them first.
-export function backRoomInUseMessage(count: number): string {
-  return count === 1
-    ? "1 agent sits in the back room. Move it out first."
-    : `${count} agents sit in the back room. Move them out first.`;
-}

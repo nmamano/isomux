@@ -22,7 +22,6 @@ import {
   type RoomLook,
 } from "../room-look.ts";
 import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
-import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import { noTranslate } from "../no-translate.ts";
 import { isFullUserView } from "../user-merge.ts";
 import { followRecord } from "../room-view-choice.ts";
@@ -56,7 +55,7 @@ export function RoomPane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { agents, rooms, users, sessionContext } = useAppState();
-  const { t, tn } = useI18n();
+  const { t } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried explicitly on the wire:
   // room.canCloseWhenEmpty protects the lobby and the first ordinary room
@@ -84,18 +83,6 @@ export function RoomPane({
   const [baselinePrompt, setBaselinePrompt] = useState("");
   const [baselineLook, setBaselineLook] = useState<RoomLook>(() =>
     initialRoomLook(room),
-  );
-  // The back room switch, saved through the same PATCH. Turning it off while
-  // agents sit there comes back as a 409 the error line shows.
-  const [backRoom, setBackRoom] = useState(room?.backRoom === true);
-  // While agents sit in the back room, the switch stays on (Nil, 2026-10-15);
-  // the server's back_room_in_use refusal is the backstop.
-  const backAgents = agents.filter(
-    (a) => a.roomId === roomId && isBackSeat(a.desk),
-  ).length;
-  const backRoomLocked = backAgents > 0 && room?.backRoom === true;
-  const [baselineBackRoom, setBaselineBackRoom] = useState(
-    room?.backRoom === true,
   );
   // The folder new agents in the room start in, saved through the same PATCH.
   // Empty means "~". A folder the server refuses comes back on the error line.
@@ -181,17 +168,13 @@ export function RoomPane({
     // Save tries the identical body again.
     const lookBody =
       room && room.type !== "lobby" ? roomLookBody(look, baselineLook) : null;
-    const backRoomChanged =
-      room != null && room.type !== "lobby" && backRoom !== baselineBackRoom;
     const trimmedCwd = cwd.trim();
     const cwdChanged = trimmedCwd !== baselineCwd.trim();
     const renameBody: RoomRenameReq | null =
-      room &&
-      (trimmedName !== room.name || lookBody || backRoomChanged || cwdChanged)
+      room && (trimmedName !== room.name || lookBody || cwdChanged)
         ? {
             ...(trimmedName !== room.name ? { name: trimmedName } : {}),
             ...lookBody,
-            ...(backRoomChanged ? { backRoom } : {}),
             ...(cwdChanged ? { cwd: trimmedCwd || null } : {}),
           }
         : null;
@@ -225,7 +208,6 @@ export function RoomPane({
         setPrompt(saved.instructions ?? "");
         setBaselinePrompt(saved.instructions ?? "");
         setBaselineName(trimmedName);
-        setBaselineBackRoom(backRoom);
         setCwd(trimmedCwd);
         setBaselineCwd(trimmedCwd);
         setLook(savedRoomLook(look));
@@ -333,7 +315,6 @@ export function RoomPane({
     (settingsLoaded &&
       (name.trim() !== baselineName ||
         prompt !== baselinePrompt ||
-        backRoom !== baselineBackRoom ||
         cwd.trim() !== baselineCwd.trim() ||
         roomLookBody(look, baselineLook) !== null)) ||
     mem.dirty ||
@@ -341,7 +322,6 @@ export function RoomPane({
   const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
     setName(baselineName);
     setPrompt(baselinePrompt);
-    setBackRoom(baselineBackRoom);
     setCwd(baselineCwd);
     setLook(baselineLook);
     setView(viewBase);
@@ -395,22 +375,6 @@ export function RoomPane({
               placeholder={t("settings.room.namePlaceholder")}
               style={inputStyle}
             />
-            <label style={{ ...viewRowStyle, marginTop: 14 }}>
-              <input
-                type="checkbox"
-                data-room-setting="backRoom"
-                checked={backRoom || backRoomLocked}
-                disabled={backRoomLocked}
-                onChange={() => setBackRoom(!backRoom)}
-                style={checkboxStyle(!backRoomLocked)}
-              />
-              {t("settings.room.backRoom")}
-              <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-                {backRoomLocked
-                  ? tn("settings.room.backRoomInUse", backAgents)
-                  : t("settings.room.backRoomHint", { count: DESK_COUNT })}
-              </span>
-            </label>
           </>
         )}
 
@@ -620,7 +584,6 @@ export function RoomPane({
               onClick={() => {
                 setName(baselineName);
                 setPrompt(baselinePrompt);
-                setBackRoom(baselineBackRoom);
                 setLook(baselineLook);
                 setView(viewBase);
                 mem.reset();
@@ -659,20 +622,6 @@ export function RoomPane({
 }
 
 const inputStyle: React.CSSProperties = dialogInput;
-const viewRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  fontSize: 12,
-  color: "var(--text-primary)",
-  marginTop: 10,
-};
-const checkboxStyle = (enabled: boolean): React.CSSProperties => ({
-  accentColor: "var(--accent)",
-  cursor: enabled ? "pointer" : "default",
-  opacity: enabled ? 1 : 0.35,
-  margin: 0,
-});
 const cancelBtnStyle: React.CSSProperties = {
   ...dialogCancelBtn,
   fontFamily: "var(--font-ui)",

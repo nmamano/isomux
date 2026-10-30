@@ -22,26 +22,19 @@ drawn and how agent lists show it (one line per back room, see Discovery).
 
 The lobby has no back room. It keeps its 1 slot.
 
-## The setting (task b16f1e6a)
+## Always there (task e2fb9fa0)
 
-The back room is a per-room setting, `backRoom`, off for a new room (Nil,
-2026-10-15). Members turn it on in the room settings, agents with
-`PATCH /api/rooms/:roomId` and `{backRoom}`; `GET /api/rooms/:roomId/settings`
-reads it, and it rides the room wire (event `room_back_room_updated`).
+Every room except the lobby has a back room (Nil, 2026-10-30: "one fewer
+setting"). From task b16f1e6a until then it was a per-room setting, off for a
+new room.
 
-- Off: the room is its 8 front desks, as before the back room. No desk on a
-  spawn, move or revive takes the first free front desk; a full front is 409
-  `no_free_desk`, and `desk: null` is 409 `back_room_off`. No trap door, no
-  back room target in the move dialog or beside the room tab, no "Move to back
-  room" in the desk menu.
-- On: everything below.
-- Turning it off while agents sit in the back is 409 `back_room_in_use` with
-  their `count`. Nothing is moved or killed on its own.
-- Stored on the room record in agents.json. A room stored before the setting
-  has no field: it reads as off, unless it holds back agents at load, which
-  reads as on. The previous release loads a file with the field and drops it
-  on its next write.
-- The lobby has none: 422 `back_room_not_supported`.
+- A stored `backRoom` field on a room in agents.json, true or false, is
+  ignored at load and not written again. An older release reads the absent
+  field as off unless back agents sit there, so a downgrade loses no agent.
+- `PATCH /api/rooms/:roomId` ignores a `backRoom` key, whatever its value, so
+  an older client gets no error. A body with only that key is a 204 no-op for
+  a room that exists, the lobby included, and 404 for one that does not.
+- The lobby has none: `desk: null` there is 422 `invalid_desk`.
 
 ## Seats and storage
 
@@ -134,8 +127,8 @@ Approved by the Lead, 2026-10-15.
 ## The front
 
 - The trap door: a wooden hatch on the front floor at scene point (445, 310),
-  in every skin, always there in every room with the back room on (tasks
-  f0af4677, b16f1e6a). Light
+  in every skin, always there in every room but the lobby (tasks
+  f0af4677, e2fb9fa0). Light
   shows through the planks when a back agent works; badges above it:
   "{n} asking", "{n} error", each hidden at 0. A back agent's unread output
   lights nothing on the front, the room tab dot included: people rarely talk

@@ -1256,7 +1256,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["room_closed", "user_updated", "users_list"],
   }),
   // Partial update over the room's fields: the body carries `name`, `pet`,
-  // `skin`, `decor`, `backRoom`, `cwd`, or any mix, and each is applied only when present. The opId
+  // `skin`, `decor`, `cwd`, or any mix, and each is applied only when present.
+  // A `backRoom` key, the setting older clients send, is ignored. The opId
   // still reads "rooms.rename" because it namespaces idempotency keys and the
   // handler map; renaming it would be a rename across two test tables for a
   // cosmetic gain.
@@ -1271,7 +1272,6 @@ export const API_ROUTES: readonly RouteDef[] = [
       "room_pet_updated",
       "room_skin_updated",
       "room_decor_updated",
-      "room_back_room_updated",
       "room_cwd_updated",
     ],
   }),

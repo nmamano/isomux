@@ -61,7 +61,6 @@ const ROOMS = [
     name: "Second room",
     prompt: null,
     canCloseWhenEmpty: true,
-    backRoom: true,
   },
 ];
 

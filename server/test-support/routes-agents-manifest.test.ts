@@ -716,7 +716,6 @@ describe("GET /agents for an agent: one entry per back room", () => {
     server = srv;
     const owner = await srv.seedOwner("Morgan");
     const r1 = srv.agentManager.getRooms()[0].id;
-    srv.agentManager.setRoomBackRoom(r1, true);
     const lead = await spawnOwnedBy(srv, "Lead", r1, 0, owner.username);
     for (const name of ["Worker 1", "Worker 2", "Worker 3"])
       await spawnOwnedBy(srv, name, r1, null, owner.username);
@@ -785,9 +784,7 @@ describe("GET /agents for an agent: one entry per back room", () => {
     const owner = await srv.seedOwner("Morgan");
     const member = await srv.seedMember("Mem");
     const r1 = srv.agentManager.getRooms()[0].id;
-    srv.agentManager.setRoomBackRoom(r1, true);
     const r2 = srv.agentManager.createRoom("Members Only");
-    srv.agentManager.setRoomBackRoom(r2, true);
     await setAccess(srv, owner.rawSessionId, member.username, [r2]);
     await spawnOwnedBy(srv, "Hidden Worker", r1, null, owner.username);
     const mine = await spawnOwnedBy(srv, "Mine", r2, 0, member.username);
