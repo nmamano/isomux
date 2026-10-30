@@ -117,7 +117,7 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
     (r.ownerUserId === undefined || typeof r.ownerUserId === "string") &&
     (r.answerUserId === undefined || typeof r.answerUserId === "string") &&
     // The kind (task c71cb60f): absent for a secret. Only a secret names an
-    // app; only an MCP server request proposes a URL and a secret. Any other
+    // app; only an MCP server request proposes a URL and a sign-in. Any other
     // non-empty kind loads, as a link does: a kind from a later release
     // cannot fail the file after a rollback (the request cannot be saved
     // here, only declined).
@@ -128,7 +128,8 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
         : r.kind === "mcp-server"
           ? r.app === undefined &&
             (r.url === undefined || typeof r.url === "string") &&
-            (r.secret === undefined || typeof r.secret === "string")
+            (r.secret === undefined || typeof r.secret === "string") &&
+            (r.oauth === undefined || r.oauth === true)
           : typeof r.kind === "string" && r.kind !== "")
   );
 }

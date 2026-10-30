@@ -16,7 +16,6 @@ import type {
   ConnectionScope,
   McpServerListRes,
   McpServerProblem,
-  McpServerSignInRes,
   McpServerWire,
   SecretListRes,
   SecretWire,
@@ -63,7 +62,7 @@ import {
   useSecretErrorText,
 } from "./SecretsSection.tsx";
 import { useMyConnections } from "./my-connections.tsx";
-import { rememberSignIn } from "./sign-in-return.ts";
+import { startMcpSignIn } from "./sign-in-return.ts";
 import { useAlive } from "./use-alive.ts";
 import {
   basePath,
@@ -379,12 +378,7 @@ export function McpSection({
     setBusy(true);
     setError(null);
     try {
-      const { authorizationUrl } = await apiFetch<McpServerSignInRes>(
-        "POST",
-        `${path}/${encodeURIComponent(name)}/sign-in`,
-      );
-      rememberSignIn({ server: name, target });
-      window.location.assign(authorizationUrl);
+      await startMcpSignIn(target, name);
     } catch (caught) {
       if (!alive.current) return;
       setError(

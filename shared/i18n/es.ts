@@ -1954,6 +1954,8 @@ Cosas que puedes hacer por él:
     "Se añade a los servidores MCP del responsable de este agente.",
   "cards.secretRequest.mcpServerOffice":
     "Servidor MCP de la oficina: lo añade un propietario de la oficina.",
+  "cards.secretRequest.mcpServerSecretHint":
+    "Isomux envía este secreto al servidor para iniciar sesión.",
   "cards.secretRequest.mcpServerHint":
     "Los agentes reciben el servidor en su próximo inicio.",
   "cards.secretRequest.unsupportedTitle": "Solicitud: {name}",

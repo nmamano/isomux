@@ -3,8 +3,9 @@
 // member types the value in a masked field here, so it never enters the
 // chat, and can edit the hosts. A request for an app has no hosts: the app
 // reads the value from its environment. A variable's field is masked when
-// its name is a key. For an MCP server the member sets the URL and picks a
-// secret of the target scope, or none. The server sends the ask only to the
+// its name is a key. For an MCP server the member sets the URL and the
+// sign-in: OAuth, a secret of the target scope, or none; an OAuth save then
+// starts the sign-in, as the Integrations page does. The server sends the ask only to the
 // member who may answer it (the agent's manager or the member the request
 // names, or an office owner for an office request). A save or a decline
 // closes it; the typed value lives in this component's state only.
@@ -23,6 +24,9 @@ import { isModelKeySecretName } from "../../shared/secret-hosts.ts";
 import { mcpServerHost } from "../../shared/mcp-servers.ts";
 import { looksLikeKey } from "../integrations/VariablesSection.tsx";
 import { useMcpErrorText } from "../integrations/McpSection.tsx";
+import { Choice } from "../integrations/kit.tsx";
+import { startMcpSignIn } from "../integrations/sign-in-return.ts";
+import type { Target } from "../integrations/target.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
 import {
   dialogCancelBtn,
@@ -69,7 +73,7 @@ export function SecretAskCard({
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
-  const { users } = useAppState();
+  const { users, sessionContext } = useAppState();
   const [hosts, setHosts] = useState(secret.hosts.join("\n"));
   const [value, setValue] = useState("");
   const [url, setUrl] = useState(
@@ -78,12 +82,25 @@ export function SecretAskCard({
   const [picked, setPicked] = useState(
     secret.kind === "mcp-server" ? (secret.secret ?? "") : "",
   );
+  // An MCP server's sign-in, from the agent's proposal.
+  const [auth, setAuth] = useState<"oauth" | "saved" | "none">(
+    secret.kind !== "mcp-server"
+      ? "none"
+      : secret.oauth
+        ? "oauth"
+        : secret.secret
+          ? "saved"
+          : "none",
+  );
   // The target scope's secrets, for an MCP server's credential choice.
-  const [choices, setChoices] = useState<string[]>([]);
+  const [choices, setChoices] = useState<{ name: string; hosts: string[] }[]>(
+    [],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const app = secret.kind === undefined ? secret.app?.name : undefined;
-  const mcpErrorText = useMcpErrorText(mcpServerHost(url.trim()));
+  const host = mcpServerHost(url.trim());
+  const mcpErrorText = useMcpErrorText(host);
   // The member whose connections get the value: the owner, else (an older
   // request) the member it is for.
   const ownerId = secret.ownerUserId ?? entry.memberUserId;
@@ -97,14 +114,39 @@ export function SecretAskCard({
       : ownerName
         ? `/api/users/${encodeURIComponent(ownerName)}/secrets`
         : null;
+  // Whose MCP servers, for the sign-in after an OAuth save.
+  const target: Target | null =
+    secret.scope === "office"
+      ? { kind: "office" }
+      : ownerName
+        ? {
+            kind: ownerId === sessionContext?.userId ? "self" : "member",
+            username: ownerName,
+          }
+        : null;
   const isMcp = secret.kind === "mcp-server";
+  // Secrets that list the URL's host (all of them while it has none), as on
+  // the Integrations page. The proposed one stays a choice.
+  const usable = choices
+    .filter((choice) => !host || choice.hosts.includes(host))
+    .map((choice) => choice.name);
+  const secretChoices = [...new Set([...usable, ...(picked ? [picked] : [])])];
   const known = knownValueRequest(secret);
   useEffect(() => {
     if (!isMcp || !secretsPath) return;
     let alive = true;
-    apiFetch<{ secrets?: { name: string }[] }>("GET", secretsPath)
+    apiFetch<{ secrets?: { name: string; hosts: string[] }[] }>(
+      "GET",
+      secretsPath,
+    )
       .then((result) => {
-        if (alive) setChoices((result?.secrets ?? []).map((row) => row.name));
+        if (alive)
+          setChoices(
+            (result?.secrets ?? []).map(({ name, hosts }) => ({
+              name,
+              hosts,
+            })),
+          );
       })
       // No list: the member can still save with no secret.
       .catch(() => {});
@@ -150,7 +192,12 @@ export function SecretAskCard({
   function saveBody(): Record<string, unknown> {
     if (secret.kind === "variable") return { value: value.trim() };
     if (secret.kind === "mcp-server")
-      return { url: url.trim(), secret: picked === "" ? null : picked };
+      return auth === "oauth"
+        ? { url: url.trim(), secret: null, oauth: true }
+        : {
+            url: url.trim(),
+            secret: auth === "saved" && picked !== "" ? picked : null,
+          };
     return {
       value: value.trim(),
       ...(app
@@ -172,6 +219,11 @@ export function SecretAskCard({
       else await apiFetch("POST", `${base}/decline`);
       setValue("");
       dispatch({ type: "ask_removed", id: entry.id });
+      // The save closed the ask, so the card can be gone by now: nothing
+      // here waits on it. A sign-in that does not start leaves the server
+      // signed out, and its Integrations row offers the sign-in.
+      if (kind === "save" && isMcp && auth === "oauth" && target)
+        startMcpSignIn(target, secret.name).catch(() => {});
     } catch (caught) {
       // 404: the request closed elsewhere (another owner, the agent's
       // withdraw); the push removes it too.
@@ -293,24 +345,54 @@ export function SecretAskCard({
               onChange={(event) => setUrl(event.target.value)}
             />
           </label>
-          <label style={{ display: "block", marginBottom: 8 }}>
-            <span style={dialogLabel}>{t("integrations.mcp.savedSecret")}</span>
-            <select
-              value={picked}
-              disabled={busy}
-              style={{ ...dialogInput, fontFamily: "monospace" }}
-              onChange={(event) => setPicked(event.target.value)}
-            >
-              <option value="">{t("integrations.mcp.authNone")}</option>
-              {[...new Set([...choices, ...(picked ? [picked] : [])])].map(
-                (name) => (
+          <div style={{ marginBottom: 8 }}>
+            <span style={dialogLabel}>{t("integrations.mcp.auth")}</span>
+            <Choice
+              label={t("integrations.mcp.auth")}
+              value={auth}
+              onChange={setAuth}
+              options={[
+                { value: "oauth", label: t("integrations.mcp.authOauth") },
+                ...(secretChoices.length > 0
+                  ? [
+                      {
+                        value: "saved" as const,
+                        label: t("integrations.mcp.authSaved"),
+                      },
+                    ]
+                  : []),
+                { value: "none", label: t("integrations.mcp.authNone") },
+              ]}
+            />
+          </div>
+          {auth === "oauth" && (
+            <p style={hintStyle}>{t("integrations.mcp.oauthHint")}</p>
+          )}
+          {auth === "saved" && (
+            <label style={{ display: "block", marginBottom: 8 }}>
+              <span style={dialogLabel}>
+                {t("integrations.mcp.savedSecret")}
+              </span>
+              <select
+                value={picked}
+                disabled={busy}
+                style={{ ...dialogInput, fontFamily: "monospace" }}
+                onChange={(event) => setPicked(event.target.value)}
+              >
+                <option value="" disabled>
+                  {t("integrations.mcp.pickSecret")}
+                </option>
+                {secretChoices.map((name) => (
                   <option key={name} value={name}>
                     {name}
                   </option>
-                ),
-              )}
-            </select>
-          </label>
+                ))}
+              </select>
+              <span style={{ ...hintStyle, display: "block", marginTop: 4 }}>
+                {t("cards.secretRequest.mcpServerSecretHint")}
+              </span>
+            </label>
+          )}
           <p style={hintStyle}>{t("cards.secretRequest.mcpServerHint")}</p>
         </>
       ) : (
@@ -373,10 +455,19 @@ export function SecretAskCard({
           <button
             type="button"
             style={dialogSaveBtn}
-            disabled={busy || (isMcp ? url.trim() === "" : value.trim() === "")}
+            disabled={
+              busy ||
+              (isMcp
+                ? url.trim() === "" || (auth === "saved" && picked === "")
+                : value.trim() === "")
+            }
             onClick={() => void answer("save")}
           >
-            {busy ? t("common.saving") : t("cards.secretRequest.save")}
+            {busy
+              ? t("common.saving")
+              : isMcp && auth === "oauth" && target
+                ? t("integrations.mcp.saveAndSignIn")
+                : t("cards.secretRequest.save")}
           </button>
         )}
         <button

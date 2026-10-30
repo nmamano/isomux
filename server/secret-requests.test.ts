@@ -1532,6 +1532,109 @@ describe("an MCP server request", () => {
     expect([serversOf(t, alice), t.pushes]).toEqual([[], []]);
   });
 
+  // A server that signs in with OAuth (task acf443f4): the agent says so
+  // instead of proposing a secret, and the save makes a server the member
+  // signs in to.
+  it("an OAuth request: the ask keeps the flag, and the save makes a signed-out OAuth server with no secret", async () => {
+    const t = setup();
+    const requestId = opened(
+      t.requests.open("a1", { ...MCP_ASK, oauth: true }),
+    );
+    const [entry] = t.asks.listAll();
+    expect(entry.secret).toMatchObject({ kind: "mcp-server", oauth: true });
+    expect(entry.secret).not.toHaveProperty("secret");
+    expect(
+      await t.requests.save("u-alice", "a1", requestId, {
+        url: URL,
+        secret: null,
+        oauth: true,
+      }),
+    ).toEqual({ ok: true, name: "docs" });
+    expect(
+      t.servers.list(alice).map((s) => [s.name, s.secret, s.oauth]),
+    ).toEqual([["docs", null, { clientId: null, signedIn: false }]]);
+    expect(t.pushes).toEqual([
+      { scope: alice, variables: [], servers: ["docs"] },
+    ]);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
+  });
+
+  it("refuses at open an OAuth flag with a secret, a flag that is not true, and an OAuth server on plain http", () => {
+    const t = setup();
+    secrets(t);
+    const LOOPBACK = "http://127.0.0.1:8080/mcp";
+    const refused: [string, unknown, string][] = [
+      [
+        "OAuth and a secret",
+        { ...MCP_ASK, oauth: true, secret: "DOCS_TOKEN" },
+        "400 invalid_request",
+      ],
+      ["oauth false", { ...MCP_ASK, oauth: false }, "400 invalid_request"],
+      ["oauth a string", { ...MCP_ASK, oauth: "yes" }, "400 invalid_request"],
+      // A server that signs in sends a credential: the URL rules of a
+      // secret, so not even loopback http.
+      [
+        "OAuth on loopback http",
+        { ...MCP_ASK, oauth: true, url: LOOPBACK },
+        "400 invalid_mcp_server",
+      ],
+    ];
+    expect(
+      refused.map(([what, body]) => [
+        what,
+        failure(t.requests.open("a1", body)),
+      ]),
+    ).toEqual(refused.map(([what, , expected]) => [what, expected]));
+    expect(t.asks.listAll()).toEqual([]);
+    // The same loopback URL with no sign-in is a request.
+    expect(failure(t.requests.open("a1", { ...MCP_ASK, url: LOOPBACK }))).toBe(
+      "ok",
+    );
+  });
+
+  it("the member picks the sign-in: the request's flag is only a proposal, and OAuth with a secret is refused at the save", async () => {
+    const t = setup();
+    secrets(t);
+    const plain = opened(t.requests.open("a1", MCP_ASK));
+    const signIn = opened(
+      t.requests.open("a1", { ...MCP_ASK, name: "notes", oauth: true }),
+    );
+    const refused: [unknown, string][] = [
+      [{ url: URL, secret: "DOCS_TOKEN", oauth: true }, "400 invalid_request"],
+      [{ url: URL, secret: null, oauth: false }, "400 invalid_request"],
+      [
+        { url: "http://127.0.0.1:8080/mcp", secret: null, oauth: true },
+        "400 invalid_mcp_server",
+      ],
+    ];
+    for (const [body, expected] of refused)
+      expect([
+        body,
+        failure(await t.requests.save("u-alice", "a1", plain, body)),
+      ]).toEqual([body, expected]);
+    expect([t.servers.list(alice), t.pushes, t.settled]).toEqual([[], [], []]);
+    // OAuth on a request that proposed none; none on one that proposed it.
+    expect(
+      await t.requests.save("u-alice", "a1", plain, {
+        url: URL,
+        secret: null,
+        oauth: true,
+      }),
+    ).toEqual({ ok: true, name: "docs" });
+    expect(
+      await t.requests.save("u-alice", "a1", signIn, {
+        url: URL,
+        secret: "DOCS_TOKEN",
+      }),
+    ).toEqual({ ok: true, name: "notes" });
+    expect(
+      t.servers.list(alice).map((s) => [s.name, s.secret, s.oauth !== null]),
+    ).toEqual([
+      ["docs", null, true],
+      ["notes", "DOCS_TOKEN", false],
+    ]);
+  });
+
   it("survives a restart as an MCP server request: the next boot creates the server", async () => {
     const t = setup();
     const requestId = opened(

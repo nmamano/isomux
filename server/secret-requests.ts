@@ -212,7 +212,16 @@ const KIND_NOUN = {
 const OPEN_KEYS = {
   secret: ["kind", "name", "hosts", "form", "reason", "scope", "app", "member"],
   variable: ["kind", "name", "reason", "scope", "member"],
-  "mcp-server": ["kind", "name", "url", "secret", "reason", "scope", "member"],
+  "mcp-server": [
+    "kind",
+    "name",
+    "url",
+    "secret",
+    "oauth",
+    "reason",
+    "scope",
+    "member",
+  ],
 } as const satisfies Record<string, readonly string[]>;
 
 // What an older server's load check requires of every request, on the kinds
@@ -345,24 +354,35 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     return { ok: true };
   }
 
-  // An MCP server request's save: the URL and the secret as the member set
-  // them, checked as the Integrations page checks them. No answer or log
-  // holds the URL, which can carry a token.
+  // An MCP server request's save: the URL and the sign-in (a secret, OAuth
+  // or none) as the member set them, checked as the Integrations page checks
+  // them. No answer or log holds the URL, which can carry a token.
   function writeMcpServer(
     scope: SecretScope,
     name: string,
     body: Record<string, unknown>,
   ): SecretRequestResult<object> {
-    if (!Object.keys(body).every((k) => k === "url" || k === "secret"))
-      return invalidRequest("the body takes only url, secret");
+    if (
+      !Object.keys(body).every(
+        (k) => k === "url" || k === "secret" || k === "oauth",
+      )
+    )
+      return invalidRequest("the body takes only url, secret, oauth");
     if (typeof body.url !== "string") return invalidRequest("url is required");
     const secret = body.secret ?? null;
     if (secret !== null && typeof secret !== "string")
       return invalidRequest("secret must be a secret name or null");
+    if (body.oauth !== undefined && body.oauth !== true)
+      return invalidRequest("oauth must be true");
+    const oauth = body.oauth === true;
+    if (oauth && secret !== null)
+      return invalidRequest("an OAuth server takes no secret");
     const result = deps.writes.createMcpServer(scope, {
       name,
       url: body.url,
       secret,
+      // No pasted client: the server registers one at the sign-in.
+      ...(oauth ? { oauth: {} } : {}),
     });
     if (!result.ok) return invalidRequest("the request has the wrong shape");
     if (!result.change.ok) return mcpFailure(result.change);
@@ -549,9 +569,18 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         return invalidRequest("name must be an MCP server name");
       if (body.secret !== undefined && typeof body.secret !== "string")
         return invalidRequest("secret must be a secret name");
+      if (body.oauth !== undefined && body.oauth !== true)
+        return invalidRequest("oauth must be true");
+      const oauth = body.oauth === true;
       const proposedSecret = body.secret;
+      if (oauth && proposedSecret !== undefined)
+        return invalidRequest("an OAuth server takes no secret");
       if (body.url !== undefined) {
-        const url = checkMcpServerUrl(body.url, proposedSecret !== undefined);
+        // A server that signs in sends a credential: a secret's URL rules.
+        const url = checkMcpServerUrl(
+          body.url,
+          proposedSecret !== undefined || oauth,
+        );
         if (!url.ok)
           return mcpFailure({ ok: false, kind: "invalid", error: url.error });
       }
@@ -569,6 +598,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         name,
         ...(body.url !== undefined ? { url: body.url as string } : {}),
         ...(proposedSecret !== undefined ? { secret: proposedSecret } : {}),
+        ...(oauth ? { oauth: true as const } : {}),
         ...OLDER_LOADER_FIELDS,
       };
     }

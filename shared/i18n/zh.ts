@@ -1744,6 +1744,8 @@ App 的一些原则：
     "添加到此智能体负责人的 MCP 服务器中。",
   "cards.secretRequest.mcpServerOffice":
     "办公室 MCP 服务器：由办公室所有者添加。",
+  "cards.secretRequest.mcpServerSecretHint":
+    "Isomux 将此密钥发送给服务器以登录。",
   "cards.secretRequest.mcpServerHint": "智能体在下次启动时获得该服务器。",
   "cards.secretRequest.unsupportedTitle": "请求：{name}",
   "cards.secretRequest.unsupported": "此版本的 Isomux 无法保存此请求。",

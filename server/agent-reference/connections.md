@@ -31,9 +31,9 @@ Errors: 422 `host_not_allowed` for a model or package registry host, which never
 The same route asks a member to set a variable or add an MCP server, with the same `scope`, `member` and `reason` rules, the same wait and the same notice. Add `kind`: `secret` (the default), `variable` or `mcp-server`.
 
 - `{kind:"variable",name,reason}` asks for a variable, model sign-in keys such as `OPENAI_API_KEY` included. The member types the value; a key's field is masked. You get the variable from your next start.
-- `{kind:"mcp-server",name,reason,url?,secret?}` asks for an MCP server. `url` and `secret` (a secret in the target scope) are proposals the member can change. The member can also type a URL you do not know, for example one with a token in it. You get the server from your next start.
+- `{kind:"mcp-server",name,reason,url?,secret?,oauth?}` asks for an MCP server. `url` and the sign-in are proposals the member can change: `secret` is a secret in the target scope, and `oauth:true` is for a server that signs in with OAuth, which takes no secret. The member can also type a URL you do not know, for example one with a token in it. An OAuth server's save sends the member to its sign-in page. You get the server from your next start.
 
-Errors: 400 `invalid_request` for a field the kind does not take or a variable name that is not valid; 409 `variable_exists` or `mcp_server_exists` when it is set (the member edits it on the Integrations page); 400 `invalid_mcp_server` for a bad server name or URL; 422 `secret_not_found` for a proposed secret that is not in the target scope.
+Errors: 400 `invalid_request` for a field the kind does not take, a variable name that is not valid, or `oauth` with `secret`; 409 `variable_exists` or `mcp_server_exists` when it is set (the member edits it on the Integrations page); 400 `invalid_mcp_server` for a bad server name or URL; 422 `secret_not_found` for a proposed secret that is not in the target scope.
 
 ## Asking for a step
 

@@ -1957,6 +1957,8 @@ Coses que pots fer per ell:
     "S'afegeix als servidors MCP del responsable d'aquest agent.",
   "cards.secretRequest.mcpServerOffice":
     "Servidor MCP de l'oficina: l'afegeix un propietari de l'oficina.",
+  "cards.secretRequest.mcpServerSecretHint":
+    "Isomux envia aquest secret al servidor per iniciar la sessió.",
   "cards.secretRequest.mcpServerHint":
     "Els agents reben el servidor al pròxim inici.",
   "cards.secretRequest.unsupportedTitle": "Sol·licitud: {name}",

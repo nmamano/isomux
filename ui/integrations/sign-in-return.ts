@@ -5,7 +5,9 @@
 // must still say whose server it was. The note lives in this tab's
 // sessionStorage, is read once, and goes stale after 15 minutes.
 
-import type { Target } from "./target.ts";
+import type { McpServerSignInRes } from "../../shared/contract-shapes.ts";
+import { apiFetch } from "../api.ts";
+import { basePath, type Target } from "./target.ts";
 
 const KEY = "isomux:mcpSignIn";
 const MAX_AGE_MS = 15 * 60_000;
@@ -47,4 +49,19 @@ export function takeSignIn(now = Date.now()): SignInNote | null {
   } catch {
     return null;
   }
+}
+
+// Start the sign-in to a server of `target`: the browser leaves for the
+// authorization server. A caller that unmounts meanwhile (an ask card that
+// the save closed) still gets the redirect; a refusal rejects.
+export async function startMcpSignIn(
+  target: Target,
+  server: string,
+): Promise<void> {
+  const { authorizationUrl } = await apiFetch<McpServerSignInRes>(
+    "POST",
+    `${basePath(target)}/mcp-servers/${encodeURIComponent(server)}/sign-in`,
+  );
+  rememberSignIn({ server, target });
+  window.location.assign(authorizationUrl);
 }

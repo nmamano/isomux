@@ -1908,6 +1908,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Added to the MCP servers of this agent's manager.",
   "cards.secretRequest.mcpServerOffice":
     "Office MCP server: an office owner adds it.",
+  "cards.secretRequest.mcpServerSecretHint":
+    "Isomux sends this secret to the server to sign in.",
   "cards.secretRequest.mcpServerHint":
     "Agents get the server at their next start.",
   "cards.secretRequest.unsupportedTitle": "Request: {name}",

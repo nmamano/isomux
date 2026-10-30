@@ -1112,13 +1112,15 @@ export interface VariableValueRequest
   kind: "variable";
 }
 
-// An MCP server registration. `url` and `secret` are the agent's proposals,
-// which the member can change in the form.
+// An MCP server registration. `url` and the sign-in (`secret`, or `oauth`
+// for a server that signs in with OAuth) are the agent's proposals, which the
+// member can change in the form.
 export interface McpServerValueRequest
   extends ValueAskRequestBase, OlderLoaderFields {
   kind: "mcp-server";
   url?: string;
   secret?: string;
+  oauth?: true;
 }
 
 export type SecretAskRequest =

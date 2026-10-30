@@ -1,7 +1,7 @@
 // A secret request in the asks stack: the masked form in place of the reply
 // field, the save and decline routes, and the card leaving once the request
 // closed. Mounted through AsksStack, the path every ask list renders.
-import { afterAll, beforeEach, expect, it } from "bun:test";
+import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { expectMasked } from "../test-support/masked.ts";
 
@@ -14,6 +14,7 @@ const { StoreProvider, useDispatch } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
+const { takeSignIn } = await import("../integrations/sign-in-return.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type SecretValueRequest = import("../../shared/types.ts").SecretValueRequest;
@@ -52,10 +53,13 @@ let posts: { path: string; body: unknown }[] = [];
 let gets: string[] = [];
 let answer: (path: string) => Promise<unknown> = async () => undefined;
 // The secrets a scope's list answers with (an MCP server request's
-// credential choice).
-const SCOPE_SECRETS = ["DOCS_TOKEN", "GH_TOKEN"].map((name) => ({
+// credential choice): one for the server's host, one for another.
+const SCOPE_SECRETS = [
+  ["DOCS_TOKEN", "mcp.example.com"],
+  ["GH_TOKEN", "api.github.com"],
+].map(([name, host]) => ({
   name,
-  hosts: ["mcp.example.com"],
+  hosts: [host],
   form: { kind: "authorization" },
   createdAt: 1,
   valueSetAt: 1,
@@ -113,6 +117,15 @@ function Seed({
   const dispatch = useDispatch();
   useEffect(() => {
     dispatch({ type: "users_list", users: USERS });
+    // The viewer is alice, the manager.
+    dispatch({
+      type: "session_context",
+      context: {
+        userId: "u1",
+        username: "alice",
+        role: "member",
+      } as import("../../shared/types.ts").SessionContext,
+    });
     dispatch({ type: "asks_loaded", entries: [entry], revision: 0 });
   }, [dispatch, entry]);
   return <>{children}</>;
@@ -388,23 +401,38 @@ it("a variable request for a plain setting: a plain value field", async () => {
   view.unmount();
 });
 
-it("an MCP server request: the URL starts at the proposal, the credential choice is None or a secret of the target scope, and the save sends both", async () => {
+// The sign-in choice, as the Integrations form draws it.
+const authChoice = (view: ReturnType<typeof render>, value: string) =>
+  card(view)!.querySelector<HTMLElement>(`[data-choice="${value}"]`);
+const checkedAuth = (view: ReturnType<typeof render>) =>
+  [...card(view)!.querySelectorAll<HTMLElement>("[data-choice]")]
+    .filter((b) => b.getAttribute("aria-checked") === "true")
+    .map((b) => b.dataset.choice);
+const secretOptions = (view: ReturnType<typeof render>) =>
+  [...card(view)!.querySelector("select")!.options]
+    .map((o) => o.value)
+    .filter((v) => v !== "")
+    .sort();
+
+it("an MCP server request with no proposal starts at None, with no secret list; a saved secret is a choice, listed by the URL's host, and the save sends it", async () => {
   const view = await mount(false, MCP_ASK("personal"));
   expect(card(view)?.textContent).toContain("docs");
   // The owner's secrets, by their username.
   await waitFor(() => expect(gets).toContain("/api/users/alice/secrets"));
   const url = inputs(view).find((i) => i.value === MCP_URL);
   expect(url).toBeDefined();
-  const select = card(view)!.querySelector("select")!;
-  await waitFor(() =>
-    expect(
-      [...select.options].map((o) => o.value).filter((v) => v !== ""),
-    ).toEqual(["DOCS_TOKEN", "GH_TOKEN"]),
-  );
-  // Nothing picked yet: None.
-  expect(select.value).toBe("");
+  expect(checkedAuth(view)).toEqual(["none"]);
+  expect(card(view)!.querySelector("select")).toBeNull();
+  await waitFor(() => expect(authChoice(view, "saved")).not.toBeNull());
+  await act(async () => {
+    fireEvent.click(authChoice(view, "saved")!);
+  });
+  // GH_TOKEN goes to another host.
+  expect(secretOptions(view)).toEqual(["DOCS_TOKEN"]);
   fireEvent.change(url!, { target: { value: `${MCP_URL}/v2` } });
-  fireEvent.change(select, { target: { value: "DOCS_TOKEN" } });
+  fireEvent.change(card(view)!.querySelector("select")!, {
+    target: { value: "DOCS_TOKEN" },
+  });
   await act(async () => {
     fireEvent.click(saveButton(view));
   });
@@ -416,6 +444,134 @@ it("an MCP server request: the URL starts at the proposal, the credential choice
   ]);
   expect(card(view)).toBeNull();
   view.unmount();
+});
+
+it("a proposed secret starts picked and stays a choice when its hosts miss; the list follows the URL as it is edited", async () => {
+  const entry = MCP_ASK("personal");
+  const view = await mount(false, {
+    ...entry,
+    secret: { ...entry.secret!, secret: "GH_TOKEN" },
+  } as AskEntry);
+  await waitFor(() =>
+    expect(secretOptions(view)).toEqual(["DOCS_TOKEN", "GH_TOKEN"]),
+  );
+  expect(checkedAuth(view)).toEqual(["saved"]);
+  expect(card(view)!.querySelector("select")!.value).toBe("GH_TOKEN");
+  const url = inputs(view).find((i) => i.value === MCP_URL)!;
+  fireEvent.change(url, { target: { value: "https://other.example.com/mcp" } });
+  expect(secretOptions(view)).toEqual(["GH_TOKEN"]);
+  view.unmount();
+  // No proposal and no secret for the host: no saved-secret choice.
+  const other = await mount(false, {
+    ...entry,
+    secret: { ...entry.secret!, url: "https://other.example.com/mcp" },
+  } as AskEntry);
+  await waitFor(() => expect(gets).toContain("/api/users/alice/secrets"));
+  await act(async () => {});
+  expect(authChoice(other, "saved")).toBeNull();
+  expect(checkedAuth(other)).toEqual(["none"]);
+  other.unmount();
+});
+
+const OAUTH_ASK = (scope: "personal" | "office"): AskEntry => {
+  const entry = MCP_ASK(scope);
+  return { ...entry, secret: { ...entry.secret!, oauth: true } } as AskEntry;
+};
+const AUTHORIZE = "https://auth.example.com/authorize";
+const signInAnswers = () => {
+  answer = async (path) =>
+    path.endsWith("/sign-in")
+      ? { authorizationUrl: AUTHORIZE }
+      : { name: "docs" };
+};
+const saveAndSignIn = (view: ReturnType<typeof render>) =>
+  view.getByRole("button", { name: t("integrations.mcp.saveAndSignIn") });
+
+it("an OAuth request starts at OAuth with no secret list; the save makes an OAuth server, then the browser goes to sign in, though the card is gone", async () => {
+  // The sign-in start answers only once the card is gone.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  answer = async (path) => {
+    if (!path.endsWith("/sign-in")) return { name: "docs" };
+    await held;
+    return { authorizationUrl: AUTHORIZE };
+  };
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    const view = await mount(false, OAUTH_ASK("personal"));
+    expect(checkedAuth(view)).toEqual(["oauth"]);
+    expect(card(view)!.querySelector("select")).toBeNull();
+    await act(async () => {
+      fireEvent.click(saveAndSignIn(view));
+    });
+    // The save closed the ask: the card is gone while the start is pending.
+    await waitFor(() => expect(card(view)).toBeNull());
+    expect(posts.map((p) => p.path)).toEqual([
+      "/api/agents/a%201/secret-requests/req-1/save",
+      "/api/users/alice/mcp-servers/docs/sign-in",
+    ]);
+    expect(posts[0].body).toEqual({ url: MCP_URL, secret: null, oauth: true });
+    expect(assign).not.toHaveBeenCalled();
+    await act(async () => release());
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(AUTHORIZE));
+    // The way back names the server and its owner.
+    expect(takeSignIn()).toEqual({
+      server: "docs",
+      target: { kind: "self", username: "alice" },
+    });
+    view.unmount();
+  } finally {
+    assign.mockRestore();
+  }
+});
+
+it("an office OAuth request signs in to the office server", async () => {
+  signInAnswers();
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    const view = await mount(false, OAUTH_ASK("office"));
+    await act(async () => {
+      fireEvent.click(saveAndSignIn(view));
+    });
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(AUTHORIZE));
+    expect(posts.map((p) => p.path)).toEqual([
+      "/api/agents/a%201/secret-requests/req-1/save",
+      "/api/office/mcp-servers/docs/sign-in",
+    ]);
+    expect(takeSignIn()).toEqual({
+      server: "docs",
+      target: { kind: "office" },
+    });
+    view.unmount();
+  } finally {
+    assign.mockRestore();
+  }
+});
+
+it("the request's OAuth is only the starting choice: with None the save makes a plain server and no sign-in starts", async () => {
+  signInAnswers();
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    const view = await mount(false, OAUTH_ASK("personal"));
+    await act(async () => {
+      fireEvent.click(authChoice(view, "none")!);
+    });
+    expect(checkedAuth(view)).toEqual(["none"]);
+    await act(async () => {
+      fireEvent.click(saveButton(view));
+    });
+    expect(posts).toEqual([
+      {
+        path: "/api/agents/a%201/secret-requests/req-1/save",
+        body: { url: MCP_URL, secret: null },
+      },
+    ]);
+    expect(assign).not.toHaveBeenCalled();
+    expect(takeSignIn()).toBeNull();
+    view.unmount();
+  } finally {
+    assign.mockRestore();
+  }
 });
 
 it("an office MCP server request lists the office secrets, and None saves no secret", async () => {
