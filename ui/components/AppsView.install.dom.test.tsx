@@ -2,8 +2,9 @@
 // who sees an app with a short link may install it, so a member who cannot
 // manage the app gets a menu too, holding only this item. The item is a link
 // to the short link with the install hash, which opens the app page's
-// install steps. On the iPhone Home Screen office it stays in the window,
-// which holds the session.
+// install steps. In an installed office (the iPhone Home Screen office) no
+// page installs, so the item shows the steps in place instead: opening the
+// app page there loaded the app only to show them (Nil, 2026-10-30).
 
 import { afterAll, afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -90,9 +91,9 @@ async function mount(list: AppListWire[]) {
 for (const [label, setUp, href] of [
   ["Chrome", asChrome, SHORT + INSTALL_HASH],
   [
-    "the iPhone Home Screen office",
+    "iPhone Safari",
     () => {
-      undoDevice = asDevice(IPHONE_HOME_SCREEN);
+      undoDevice = asDevice({ ...IPHONE_HOME_SCREEN, standalone: false });
     },
     SHORT + INSTALL_HASH,
   ],
@@ -134,4 +135,57 @@ it("offers no menu to a member who cannot manage the app where the browser canno
   // happy-dom is neither Chromium nor iOS.
   const page = await mount([app("short", { shortUrl: SHORT })]);
   expect(page.menuButton("short")).toBeNull();
+});
+
+it("shows the install steps in place in the iPhone Home Screen office, without opening the app", async () => {
+  undoDevice = asDevice(IPHONE_HOME_SCREEN);
+  const written: string[] = [];
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      writeText: async (text: string) => {
+        written.push(text);
+      },
+    },
+  });
+  const { en } = await import("../../shared/i18n/en.ts");
+  const { within } = await import("@testing-library/react");
+  try {
+    const page = await mount([app("short", { shortUrl: SHORT })]);
+    await page.openMenu("short");
+    expect(page.actions()).toEqual(["install"]);
+    // A button, not a link: nothing navigates.
+    expect(page.installLink()).toBeNull();
+    const item = document.querySelector<HTMLElement>(
+      '[data-app-menu] [data-app-menu-action="install"] button',
+    );
+    expect(item).not.toBeNull();
+    expect(document.querySelector("[data-app-install-sheet]")).toBeNull();
+    await act(async () => item!.click());
+    const sheet = document.querySelector<HTMLElement>(
+      "[data-app-install-sheet]",
+    );
+    expect(sheet).not.toBeNull();
+    expect(sheet!.getAttribute("role")).toBe("dialog");
+    expect(sheet!.textContent).toContain("short");
+    expect(
+      within(sheet!)
+        .getByRole("link", { name: en["appWidget.openInSafari"] })
+        .getAttribute("href"),
+    ).toBe("x-safari-" + SHORT + INSTALL_HASH);
+    await act(async () =>
+      within(sheet!)
+        .getByRole("button", { name: en["appWidget.copyLink"] })
+        .click(),
+    );
+    expect(written).toEqual([SHORT + INSTALL_HASH]);
+    await act(async () =>
+      within(sheet!).getByRole("button", { name: en["common.close"] }).click(),
+    );
+    expect(document.querySelector("[data-app-install-sheet]")).toBeNull();
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
 });

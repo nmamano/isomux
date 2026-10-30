@@ -2652,6 +2652,8 @@ Cosas que puedes hacer por él:
   "apps.menu.archive": "Archivar",
   "apps.menu.unarchive": "Desarchivar",
   "apps.menu.delete": "Eliminar...",
+  "apps.installInBrowser":
+    "Para instalar {appName}, ábrela en un navegador donde tengas la sesión iniciada.",
   "apps.menu.install": "Instalar como app",
   "apps.actionFailed.archive": "No se pudo archivar.",
   "apps.actionFailed.unarchive": "No se pudo desarchivar.",

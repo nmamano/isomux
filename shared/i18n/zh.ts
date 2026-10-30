@@ -2396,6 +2396,7 @@ App 的一些原则：
   "apps.menu.archive": "归档",
   "apps.menu.unarchive": "取消归档",
   "apps.menu.delete": "删除…",
+  "apps.installInBrowser": "要安装 {appName}，请在已登录的浏览器中打开它。",
   "apps.menu.install": "安装为应用",
   "apps.actionFailed.archive": "无法归档。",
   "apps.actionFailed.unarchive": "无法取消归档。",

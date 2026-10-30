@@ -10,7 +10,15 @@
 // button. Only one install surface shows at a time: opening or closing the
 // panel closes them all.
 
-import { afterAll, afterEach, beforeAll, expect, it, mock } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 const { render, fireEvent, act, within } =
@@ -89,6 +97,8 @@ async function mount({
   chat = false,
   isMobile = false,
   officeWindow = false,
+  signedIn = true,
+  keepStorage = false,
 }: {
   chat?: boolean;
   isMobile?: boolean;
@@ -97,8 +107,12 @@ async function mount({
   // sessionStorage. "mark": iOS opened a new page, so only the office's
   // localStorage mark is there.
   officeWindow?: false | "page" | "mark";
+  // false: the app session is gone, so the page signs in again (recover).
+  signedIn?: boolean;
+  // The page comes back in the same tab: its sessionStorage stays.
+  keepStorage?: boolean;
 } = {}) {
-  sessionStorage.clear();
+  if (!keepStorage) sessionStorage.clear();
   localStorage.removeItem(OFFICE_WINDOW_KEY);
   if (officeWindow === "page")
     sessionStorage.setItem(OFFICE_RETURN_KEY, "/apps");
@@ -106,7 +120,7 @@ async function mount({
   setApiShim(async () => ({
     ...boot,
     appUrl: "https://hello.office.example",
-    sessionExpiresAt: Date.now() + 1000000,
+    sessionExpiresAt: signedIn ? Date.now() + 1000000 : null,
     chat: chat ? { agentId: agent.id, agentName: agent.name } : null,
   }));
   await act(async () => {
@@ -504,4 +518,47 @@ it(`opens the browser steps for ${INSTALL_HASH} at load in the iPhone Home Scree
     within(popover!).queryByRole("button", { name: en["appWidget.copyLink"] }),
   ).not.toBeNull();
   expect(window.location.hash).toBe("");
+});
+
+// Nil, 2026-10-30: the steps showed while the app loaded and then went away.
+// The page signed in to the app again (recover), and the page that came back
+// had lost the install hash. The ask now survives the round trip, once.
+it(`keeps the steps for ${INSTALL_HASH} across a sign-in round trip`, async () => {
+  undoDevice = asDevice(IPHONE_SAFARI);
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    window.history.replaceState(null, "", `/hello/${INSTALL_HASH}`);
+    let page = await mount({ signedIn: false });
+    expect(assign).toHaveBeenCalledTimes(1);
+    expect(String(assign.mock.calls[0][0])).not.toContain("install");
+    view!.unmount();
+    view = undefined;
+    // The sign-in returns to the page, without the hash.
+    window.history.replaceState(null, "", "/hello/");
+    page = await mount({ keepStorage: true });
+    expect(page.popover()).not.toBeNull();
+    expect(page.steps()).toHaveLength(1);
+    view!.unmount();
+    view = undefined;
+    // Once: a later load of the page opens nothing.
+    page = await mount({ keepStorage: true });
+    expect(page.popover()).toBeNull();
+  } finally {
+    assign.mockRestore();
+  }
+});
+
+it("keeps nothing across a sign-in round trip when no install was asked", async () => {
+  undoDevice = asDevice(IPHONE_SAFARI);
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    await mount({ signedIn: false });
+    expect(assign).toHaveBeenCalledTimes(1);
+    view!.unmount();
+    view = undefined;
+    const page = await mount({ keepStorage: true });
+    expect(page.popover()).toBeNull();
+  } finally {
+    assign.mockRestore();
+  }
 });

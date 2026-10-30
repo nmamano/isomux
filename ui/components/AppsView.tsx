@@ -40,6 +40,9 @@ import {
   canOfferInstall,
   readInstallEnv,
 } from "../app-install.ts";
+import { readSafariEnv } from "../safari-link.ts";
+import { BrowserInstall } from "./BrowserInstall.tsx";
+import { filledSecondaryBtn } from "./dialog-styles.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -587,7 +590,8 @@ function AppActionsMenu({
 }: {
   actions: MenuAction[];
   disabled: boolean;
-  // The "install" item is a link to the app page, which installs it.
+  // The "install" item is a link to the app page, which installs it. null:
+  // the item is a button (onAction).
   installHref: string | null;
   onAction: (action: MenuAction) => void;
 }) {
@@ -733,7 +737,9 @@ function AppActionsMenu({
                   <MenuItem
                     label={t(MENU_LABELS[action])}
                     danger={action === "delete"}
-                    disabled={disabled && action !== "log"}
+                    disabled={
+                      disabled && action !== "log" && action !== "install"
+                    }
                     onClick={() => {
                       setAt(null);
                       onAction(action);
@@ -878,6 +884,11 @@ export function AppsView({
   const [error, setError] = useState<PageError | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
+  // The install steps of an installed office's window (Nil, 2026-10-30).
+  const [installSheet, setInstallSheet] = useState<{
+    name: string;
+    href: string;
+  } | null>(null);
   const [onlyMine, setOnlyMine] = useState(() => getAppFilter("onlyMine"));
   const [archivedOpen, setArchivedOpen] = useState(false);
   const selfUserId = sessionContext?.userId ?? null;
@@ -1075,6 +1086,10 @@ export function AppsView({
       canOfferInstall(readInstallEnv())
         ? appInstallHref(app.shortUrl)
         : null;
+    // In an installed office the item shows the steps in place: no page
+    // installs from its window, and opening the app page there would load the
+    // app only to show them (Nil, 2026-10-30).
+    const installInPlace = installHref !== null && readInstallEnv().standalone;
     const actions: MenuAction[] = [
       ...(installHref ? (["install"] as const) : []),
       ...(app.canManage === true ? appMenuActions(app) : []),
@@ -1246,10 +1261,15 @@ export function AppsView({
           <AppActionsMenu
             actions={actions}
             disabled={isBusy}
-            installHref={installHref}
+            installHref={installInPlace ? null : installHref}
             onAction={(action) => {
-              // The install item is a link; the rest are a manager's.
-              if (action === "install" || app.canManage !== true) return;
+              if (action === "install") {
+                if (installInPlace)
+                  setInstallSheet({ name: app.name, href: installHref });
+                return;
+              }
+              // The rest are a manager's.
+              if (app.canManage !== true) return;
               if (action === "log") void showLogs(app);
               else if (action === "delete") setConfirmDelete(app);
               else void act(app.name, action);
@@ -1605,6 +1625,60 @@ export function AppsView({
                 style={btnStyle(true, busy !== null)}
               >
                 {t("apps.delete")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {installSheet && (
+        <div
+          onClick={() => setInstallSheet(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+            zIndex: 1000,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-label={t("apps.menu.install")}
+            data-app-install-sheet=""
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--bg-surface-solid)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: 18,
+              maxWidth: 420,
+              width: "100%",
+              fontSize: 14,
+              lineHeight: 1.5,
+            }}
+          >
+            <BrowserInstall
+              text={t("apps.installInBrowser", { appName: installSheet.name })}
+              href={installSheet.href}
+              safari={readSafariEnv()}
+            />
+            <div
+              style={{
+                marginTop: 16,
+                display: "flex",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setInstallSheet(null)}
+                style={{ ...filledSecondaryBtn, fontFamily: "inherit" }}
+              >
+                {t("common.close")}
               </button>
             </div>
           </div>

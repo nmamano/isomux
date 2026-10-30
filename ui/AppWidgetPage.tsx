@@ -27,7 +27,8 @@ import {
   chatVisibleQueue,
 } from "./log-view/chat-entries.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
-import { readSafariEnv, safariHref, type SafariEnv } from "./safari-link.ts";
+import { readSafariEnv } from "./safari-link.ts";
+import { BrowserInstall } from "./components/BrowserInstall.tsx";
 import {
   homeScreenOfficeReturn,
   officeReturnHref,
@@ -60,6 +61,7 @@ import {
   isAppSessionSignal,
   isAppViewReport,
   widgetDraftKey,
+  widgetInstallKey,
   screenshotHint,
   type AppWidgetBoot,
 } from "./app-widget-state.ts";
@@ -84,12 +86,9 @@ const WIDGET_CSS = `
 .app-widget .app-widget-changed button { padding:5px 10px; font-size:13px; }
 .app-widget .app-widget-dock-install { padding:0; }
 .app-widget a.app-widget-launcher { border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
-.app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:280px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; align-items:flex-start; gap:10px; }
+.app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:300px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; align-items:flex-start; gap:10px; }
 .app-widget-install > :first-child { flex:1; }
 .app-widget-install p,.app-widget-steps p { margin:0; display:flex; align-items:center; gap:8px; }
-.app-widget-browser-install { display:flex; flex-direction:column; gap:8px; }
-.app-widget-browser-actions { display:flex; flex-wrap:wrap; gap:8px; }
-.app-widget .app-widget-browser-actions button,.app-widget .app-widget-browser-actions a { padding:6px 12px; font-size:13px; border:1px solid var(--border); border-radius:9px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
 .app-widget-install p svg,.app-widget-steps svg { flex-shrink:0; color:var(--accent-text); }
 .app-widget .app-widget-install-close { display:flex; padding:4px; border:0; background:none; color:var(--text-secondary); }
 .app-widget-install-close:hover { color:var(--text-primary); }
@@ -211,39 +210,6 @@ function usePhonePanelBox(
   return active ? box : null;
 }
 
-// "Install as app" in the installed office's window: no page installs from
-// there, so the member opens this page in a browser, where it installs. The
-// browser must hold a session: Safari may not, so the link can also be copied
-// into another one.
-function BrowserInstall({ href, safari }: { href: string; safari: SafariEnv }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  const inSafari = safariHref(href, safari);
-  return (
-    <div className="app-widget-browser-install">
-      <p>{t("appWidget.installInBrowser")}</p>
-      <div className="app-widget-browser-actions">
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard
-              ?.writeText(href)
-              .then(() => setCopied(true))
-              .catch(() => {});
-          }}
-        >
-          {copied ? t("common.copied") : t("appWidget.copyLink")}
-        </button>
-        {inSafari !== href && (
-          <a href={inSafari} target="_blank" rel="noopener noreferrer">
-            {t("appWidget.openInSafari")}
-          </a>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const { t } = useI18n();
   const state = useAppState();
@@ -284,9 +250,19 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   // One flag per install mode serves both surfaces: the popover, or the steps
   // in the open chat panel. Opening or closing the panel clears them, so only
   // one surface shows at a time.
-  const [installAsked, setInstallAsked] = useState(
-    () => window.location.hash === INSTALL_HASH,
-  );
+  // A sign-in round trip (recover) drops the hash: the ask waits for the
+  // page's return in this tab's sessionStorage. Without it the popover showed
+  // while the app loaded and went away (Nil, 2026-10-30).
+  const [installAsked, setInstallAsked] = useState(() => {
+    if (window.location.hash === INSTALL_HASH) return true;
+    try {
+      const kept = sessionStorage.getItem(widgetInstallKey(boot)) !== null;
+      sessionStorage.removeItem(widgetInstallKey(boot));
+      return kept;
+    } catch {
+      return false;
+    }
+  });
   // The app page this widget address names (task 469e8886), read before the
   // effect below clears the install hash, which is the widget's and never the
   // frame's.
@@ -299,6 +275,10 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
     ),
   );
   const [stepsOpen, setStepsOpen] = useState(installAsked);
+  const keepInstall = useRef(installAsked);
+  useEffect(() => {
+    keepInstall.current = installAsked || stepsOpen;
+  }, [installAsked, stepsOpen]);
   const held = useSyncExternalStore(
     subscribeInstallPrompt,
     () => heldInstallPrompt() !== null,
@@ -348,6 +328,12 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       }
       recovering.current = true;
       ++requestSeq.current;
+      if (keepInstall.current)
+        try {
+          sessionStorage.setItem(widgetInstallKey(boot), "1");
+        } catch {
+          // Storage off: the page comes back without the popover.
+        }
       const query = new URLSearchParams({
         app: new URL(url).hostname.split(".")[0],
         mode: "wrapper",
@@ -675,6 +661,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const installSteps =
     install === "browser" ? (
       <BrowserInstall
+        text={t("appWidget.installInBrowser")}
         href={`${window.location.origin}/${boot.name}${INSTALL_HASH}`}
         safari={safariEnv}
       />

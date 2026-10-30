@@ -2594,6 +2594,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.menu.archive": "Archive",
   "apps.menu.unarchive": "Unarchive",
   "apps.menu.delete": "Delete...",
+  "apps.installInBrowser":
+    "To install {appName}, open it in a browser where you are signed in.",
   "apps.menu.install": "Install as app",
   "apps.actionFailed.archive": "Could not archive.",
   "apps.actionFailed.unarchive": "Could not unarchive.",

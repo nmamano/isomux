@@ -28,6 +28,11 @@ export function widgetDraftKey(boot: AppWidgetBoot, agentId: string): string {
   return `app-widget:draft:${boot.name}:${boot.registration}:${agentId}`;
 }
 
+// The install popover asked for across a sign-in round trip (sessionStorage).
+export function widgetInstallKey(boot: AppWidgetBoot): string {
+  return `app-widget:install:${boot.name}:${boot.registration}`;
+}
+
 export function isAppSessionSignal(
   event: Pick<MessageEvent, "data" | "origin" | "source">,
   frameWindow: Window | null,

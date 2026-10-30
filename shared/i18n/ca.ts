@@ -2658,6 +2658,8 @@ Coses que pots fer per ell:
   "apps.menu.archive": "Arxiva",
   "apps.menu.unarchive": "Desarxiva",
   "apps.menu.delete": "Elimina...",
+  "apps.installInBrowser":
+    "Per instal·lar {appName}, obre-la en un navegador on tinguis la sessió iniciada.",
   "apps.menu.install": "Instal·la com a app",
   "apps.actionFailed.archive": "No s'ha pogut arxivar.",
   "apps.actionFailed.unarchive": "No s'ha pogut desarxivar.",
