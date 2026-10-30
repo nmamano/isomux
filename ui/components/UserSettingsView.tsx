@@ -155,8 +155,8 @@ export type Selection =
 const COLLAPSIBLE_GROUPS = new Set(["rooms", "members"]);
 
 // The collapsible group that holds a selection, if it is closed in `open`,
-// added to a copy of it. Your own profile is the You > Profile row, so it
-// opens nothing.
+// added to a copy of it. Your own profile is the You > Profile row, and the
+// New member row shows in a closed Members group, so they open nothing.
 function withGroupOf(
   open: Set<string>,
   selection: Selection | null,
@@ -165,8 +165,7 @@ function withGroupOf(
   const group =
     selection?.kind === "room"
       ? "rooms"
-      : selection?.kind === "newMember" ||
-          (selection?.kind === "user" && selection.id !== session?.userId)
+      : selection?.kind === "user" && selection.id !== session?.userId
         ? "members"
         : null;
   return group === null || open.has(group) ? open : new Set(open).add(group);
@@ -760,44 +759,45 @@ export function UserSettingsView({
                     </Row>
                   );
                 })}
-                {isOwner && (
-                  <button
-                    onClick={() => select({ kind: "newMember" })}
-                    aria-current={
-                      selection?.kind === "newMember" ? "true" : undefined
-                    }
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      width: "100%",
-                      textAlign: "left",
-                      font: "inherit",
-                      fontSize: 13,
-                      color: "var(--text-muted)",
-                      padding: "8px 14px",
-                      border: "none",
-                      cursor: "pointer",
-                      background:
-                        selection?.kind === "newMember"
-                          ? "var(--bg-hover)"
-                          : "transparent",
-                      borderLeft:
-                        selection?.kind === "newMember"
-                          ? "2px solid var(--accent)"
-                          : "2px solid transparent",
-                    }}
-                  >
-                    <span
-                      aria-hidden="true"
-                      style={{ width: 22, textAlign: "center", fontSize: 16 }}
-                    >
-                      +
-                    </span>
-                    {t("settings.members.newMember")}
-                  </button>
-                )}
               </>
+            )}
+            {/* Outside the open check: it stays under a collapsed list. */}
+            {isOwner && (
+              <button
+                onClick={() => select({ kind: "newMember" })}
+                aria-current={
+                  selection?.kind === "newMember" ? "true" : undefined
+                }
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  width: "100%",
+                  textAlign: "left",
+                  font: "inherit",
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  padding: "8px 14px",
+                  border: "none",
+                  cursor: "pointer",
+                  background:
+                    selection?.kind === "newMember"
+                      ? "var(--bg-hover)"
+                      : "transparent",
+                  borderLeft:
+                    selection?.kind === "newMember"
+                      ? "2px solid var(--accent)"
+                      : "2px solid transparent",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{ width: 22, textAlign: "center", fontSize: 16 }}
+                >
+                  +
+                </span>
+                {t("settings.members.newMember")}
+              </button>
             )}
 
             {groupsAfterRoster.map((group) => (
@@ -959,7 +959,7 @@ export function UserSettingsView({
                 isMobile={isMobile}
                 closeRef={detailCloseRef}
                 onClose={() => setSelection(null)}
-                onCreated={(id) => setSelection({ kind: "user", id })}
+                onCreated={(id) => show({ kind: "user", id })}
               />
             ) : selectedUser && isFullUserView(selectedUser) ? (
               <UserEditPanel

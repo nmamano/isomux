@@ -2,14 +2,16 @@
 // and Storage leave the Office group for a group after Members; Pager and API
 // tokens left for Integrations; Rooms and Members start collapsed. A header
 // click opens or closes its group and is kept on the device; a selection
-// inside a closed group opens it for this visit only.
+// inside a closed group opens it for this visit only. The New member row
+// shows in both states, so selecting it opens nothing (task 65542daf).
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, fireEvent, render } = await import("@testing-library/react");
+const { act, fireEvent, render, within } =
+  await import("@testing-library/react");
 const { createElement } = await import("react");
 const { UserSettingsView } = await import("./UserSettingsView.tsx");
 const { onLanguage, selfUserRecord } =
@@ -20,7 +22,11 @@ const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { t } = translatorFor("en");
 
 // Anything unlisted rejects, which every pane that loads here catches.
-setApiShim(async (_method, path) => {
+setApiShim(async (method, path) => {
+  // A create answers with an id already on the roster: the broadcast that
+  // adds a new record is not part of this fixture.
+  if (method === "POST" && path === "/api/users")
+    return { user: { id: MEMBER.id } };
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   if (path === "/api/office/settings")
@@ -111,6 +117,7 @@ const expanded = (view: View, group: "rooms" | "members") =>
 // The Rooms group's row and the Members group's row for the other member.
 const roomRow = (view: View) => row(view, ROOM.name);
 const memberRow = (view: View) => row(view, MEMBER.name);
+const newMemberRow = (view: View) => row(view, t("settings.members.newMember"));
 
 async function clickToggle(view: View, group: "rooms" | "members") {
   const el = toggle(view, group);
@@ -231,15 +238,85 @@ describe("Rooms and Members", () => {
     expect(expanded(plain, "rooms")).toBe("false");
   });
 
-  it("open Members for another member's editor and for New member", async () => {
+  it("open Members for another member's editor", async () => {
     const other = await mount({ initialUserId: MEMBER.id });
     expect(expanded(other, "members")).toBe("true");
     expect(memberRow(other)!.getAttribute("aria-current")).toBe("true");
     expect(expanded(other, "rooms")).toBe("false");
-    other.unmount();
+  });
+});
 
-    const created = await mount({ initialTarget: { kind: "newMember" } });
-    expect(expanded(created, "members")).toBe("true");
-    expect(memberRow(created)).not.toBeNull();
+// Task 65542daf: the New member row does not hide with the roster.
+describe("New member", () => {
+  it("shows to an owner under the Members header when collapsed, and after the rows when open", async () => {
+    const view = await mount();
+    const housekeeping = view.getByText(t("settings.sidebar.housekeeping"));
+    expect(expanded(view, "members")).toBe("false");
+    expect(memberRow(view)).toBeNull();
+    const collapsed = newMemberRow(view);
+    expect(collapsed).not.toBeNull();
+    expect(before(toggle(view, "members")!, collapsed!)).toBe(true);
+    expect(before(collapsed!, housekeeping)).toBe(true);
+
+    await clickToggle(view, "members");
+    expect(expanded(view, "members")).toBe("true");
+    const open = newMemberRow(view);
+    expect(open).not.toBeNull();
+    // Both roster rows, sorted by name, sit between the header and the row.
+    const rows = view
+      .queryAllByText(new RegExp(`^(${MEMBER.name}|Tester)$`))
+      .filter(
+        (el) =>
+          before(toggle(view, "members")!, el) && before(el, housekeeping),
+      );
+    expect(rows.length).toBe(2);
+    for (const r of rows) expect(before(r, open!)).toBe(true);
+    expect(before(open!, housekeeping)).toBe(true);
+  });
+
+  it("never shows to a member, open or collapsed", async () => {
+    const view = await mount({}, "member");
+    expect(expanded(view, "members")).toBe("false");
+    expect(newMemberRow(view)).toBeNull();
+    await clickToggle(view, "members");
+    // A member's roster rows are not buttons: the open list shows the name.
+    expect(expanded(view, "members")).toBe("true");
+    expect(view.queryAllByText(MEMBER.name).length).toBeGreaterThan(0);
+    expect(newMemberRow(view)).toBeNull();
+  });
+
+  it("keeps Members collapsed when selected", async () => {
+    const view = await mount({ initialTarget: { kind: "newMember" } });
+    expect(expanded(view, "members")).toBe("false");
+    expect(memberRow(view)).toBeNull();
+    expect(newMemberRow(view)!.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("stays in place on a click, and the member it creates opens Members", async () => {
+    const view = await mount();
+    expect(expanded(view, "members")).toBe("false");
+    expect(newMemberRow(view)).not.toBeNull();
+    expect(newMemberRow(view)!.getAttribute("aria-current")).toBeNull();
+    await act(async () => {
+      fireEvent.click(newMemberRow(view)!);
+    });
+    expect(newMemberRow(view)!.getAttribute("aria-current")).toBe("true");
+    expect(expanded(view, "members")).toBe("false");
+    expect(memberRow(view)).toBeNull();
+
+    const detail = view.getByTestId("settings-content");
+    fireEvent.change(detail.querySelector("input")!, {
+      target: { value: "Pia" },
+    });
+    await act(async () => {
+      fireEvent.click(
+        within(detail).getByRole("button", {
+          name: t("settings.members.create"),
+        }),
+      );
+    });
+    // The new member's row is selected and in view.
+    expect(expanded(view, "members")).toBe("true");
+    expect(memberRow(view)!.getAttribute("aria-current")).toBe("true");
   });
 });
