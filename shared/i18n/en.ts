@@ -572,14 +572,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.viewLevel.notify": "Sound",
   "settings.room.viewLevel.push": "Push",
   "settings.room.viewLevelFor": "Your visibility and alerts for {room}",
-  "settings.room.viewLevelInfo.hidden": "Not on your tab bar or in its menu.",
-  "settings.room.viewLevelInfo.tucked":
-    "In the menu at the end of the tab bar.",
+  "settings.room.viewLevelInfo.hidden": "Not on the tab bar.",
+  "settings.room.viewLevelInfo.tucked": "Tucked at the end of the tab bar.",
   "settings.room.viewLevelInfo.shown": "On the tab bar.",
   "settings.room.viewLevelInfo.notify":
-    "Also a sound when an agent in the room answers you while Isomux is in the background.",
+    "Makes a sound when an agent in the room answers you while Isomux is in the background.",
   "settings.room.viewLevelInfo.push":
-    "Also a notification on your devices when an agent in the room answers you. Turn it on for each device in Integrations → Pager.",
+    "Also sends a notification to your devices when an agent in the room answers you. Turn it on for each device in Integrations → Pager.",
 
   "settings.theme.intro":
     "Stored in this browser. You can also click the office window to walk through the themes without opening this page.",
