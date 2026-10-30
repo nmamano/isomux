@@ -69,6 +69,9 @@ export interface GuardDeps {
   cronjobCreatorUserId(cronjobId: string): string | null;
   // The agent that made `cronjobId`, or null if unknown or a member made it.
   cronjobCreatorAgentId(cronjobId: string): string | null;
+  // The agent that spawned LIVE agent `agentId`, or null if unknown or no
+  // agent spawned it (AgentInfo.spawnedByAgentId).
+  agentSpawnerAgentId(agentId: string): string | null;
   // The OWNER userId of the app registered under `name`, or null if no such app
   // exists / it has no owner. Unknown and unowned collapse into the same null,
   // so a caller cannot use a denial to probe which names are taken.
@@ -790,6 +793,20 @@ export const messageSend: Guard = (ctx) => {
 //                steer rate limit and tells the target an agent stopped it.
 //   CRON-RUN / APP → deny. The core's stop note names an agent or a member,
 //                    never an app.
+// agents.kill after the room check: a caller with agent:manage kills any
+// agent it reaches; an agent with only agent:spawn kills an agent it spawned.
+export const agentKill: Guard = (ctx) => {
+  if (identityHasCapability(ctx.identity, "agent:manage")) return ALLOW;
+  const target = ctx.params.id;
+  return ctx.identity.scope === "agent" &&
+    typeof ctx.identity.agentId === "string" &&
+    ctx.identity.agentId.length > 0 &&
+    typeof target === "string" &&
+    ctx.deps.agentSpawnerAgentId(target) === ctx.identity.agentId
+    ? ALLOW
+    : FORBIDDEN;
+};
+
 export const agentAbort: Guard = (ctx) => {
   switch (ctx.identity.scope) {
     case "user":

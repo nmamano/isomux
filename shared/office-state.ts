@@ -232,6 +232,9 @@ export class OfficeState {
     // the UI can label the agent without an extra lookup. Goes stale across
     // renames; behavior reads should go through userId.
     manager?: string | null;
+    // The spawning agent and its tree, when an agent spawned it.
+    spawnedByAgentId?: string;
+    spawnRootAgentId?: string;
     capabilities?: AgentInfo["capabilities"];
     limitedClaudeFamilies?: string[];
     claudeFamilyModels?: AgentInfo["claudeFamilyModels"];
@@ -321,6 +324,12 @@ export class OfficeState {
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
       userId: opts.userId ?? null,
       manager: opts.manager ?? null,
+      ...(opts.spawnedByAgentId
+        ? { spawnedByAgentId: opts.spawnedByAgentId }
+        : {}),
+      ...(opts.spawnRootAgentId
+        ? { spawnRootAgentId: opts.spawnRootAgentId }
+        : {}),
       // Privilege is never conferred at spawn - it is granted only via the
       // user-gated agents.setPrivileged route (so no agent can self-confer).
       privileged: false,

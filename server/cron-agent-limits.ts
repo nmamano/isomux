@@ -73,27 +73,36 @@ export function agentMakesSchedules(
   return agent.privileged === true || agentReach(agent) > 0;
 }
 
-// Where the job reaches more than the agent, else null. `realpath` resolves
-// both folders, so a symlink that points out is refused; a folder that does
-// not exist is refused too.
+// Where the job reaches more than the agent, else null.
 export function scheduleLimitBreach(
   job: ScheduleLimitJob,
   agent: ScheduleLimitAgent,
   realpath: (path: string) => string = realpathSync,
 ): "mode" | "folder" | null {
   if (jobReach(job) > agentReach(agent)) return "mode";
-  let jobDir: string;
+  return folderInside(job.cwd, agent.cwd, realpath) ? null : "folder";
+}
+
+// Whether `cwd` is the agent's folder or a folder inside it. `realpath`
+// resolves both, so a symlink that points out is outside; a folder that does
+// not exist is outside too. Also the spawn limit (server/spawn-agent-limits.ts).
+export function folderInside(
+  cwd: string,
+  agentCwd: string,
+  realpath: (path: string) => string = realpathSync,
+): boolean {
+  let dir: string;
   let agentDir: string;
   try {
-    jobDir = realpath(resolveCwd(job.cwd));
-    agentDir = realpath(resolveCwd(agent.cwd));
+    dir = realpath(resolveCwd(cwd));
+    agentDir = realpath(resolveCwd(agentCwd));
   } catch {
-    return "folder";
+    return false;
   }
-  const inside =
-    jobDir === agentDir ||
-    jobDir.startsWith(agentDir.endsWith(sep) ? agentDir : agentDir + sep);
-  return inside ? null : "folder";
+  return (
+    dir === agentDir ||
+    dir.startsWith(agentDir.endsWith(sep) ? agentDir : agentDir + sep)
+  );
 }
 
 // The refusal reason for the agent that asks, else null.

@@ -1504,7 +1504,7 @@ Cosas que puedes hacer por él:
     "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta la página Integraciones.",
   "dialogs.agent.privileged": "Acceso de operador con privilegios",
   "dialogs.agent.privilegedHint":
-    "Permite a este agente actuar por ti en toda la oficina: crear y eliminar agentes y dirigir sus conversaciones, gestionar salas, programaciones e integraciones, y publicar en el chat de miembros. Si eres propietario de la oficina, también puede añadir miembros y cambiar la configuración de la oficina. Actúa como sí mismo, con tu acceso.",
+    "Permite a este agente actuar por ti en toda la oficina: editar, mover y eliminar otros agentes y dirigir sus conversaciones, gestionar salas, programaciones e integraciones, y publicar en el chat de miembros. Si eres propietario de la oficina, también puede añadir miembros y cambiar la configuración de la oficina. Actúa como sí mismo, con tu acceso.",
   "dialogs.agent.privilegedRestart":
     "Al guardar se reinicia la sesión del agente.",
   "dialogs.agent.autoHandoff": "Traspaso automático",

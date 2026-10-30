@@ -33,6 +33,10 @@ export type Capability =
   | "office:read"
   | "agent:manage"
   | "agent:converse"
+  // Spawn an agent, and kill an agent this agent spawned. Held by the AGENT
+  // baseline (so the PRIVILEGED set too); USER and API spawn through
+  // agent:manage. Never passed to an app (APP_NEVER_INHERITED).
+  | "agent:spawn"
   // Grant/revoke an agent's `privileged` flag. USER-only and deliberately
   // ABSENT from both AGENT and the privileged-agent set, so it is the stage-1
   // half of the double-gate on agents.setPrivileged: no agent - privileged or
@@ -236,10 +240,12 @@ export const USER_CAPABILITIES: readonly Capability[] = [
 // and the app registry. An agent can message as itself, use the task board and
 // shared memory, register and manage its user's apps, read conversation logs
 // and usage checks it can reach, and use the self-affordances on its own chat.
-// It reaches only the schedules it made itself (cron:own). It cannot
-// spawn/kill, touch settings or mint invites - those capabilities are simply
-// absent.
+// It reaches only the schedules it made itself (cron:own). It spawns agents
+// and kills the ones it spawned (agent:spawn), within the limits in
+// server/spawn-agent-limits.ts. It cannot kill other agents, touch settings or
+// mint invites - those capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
+  "agent:spawn",
   "agent:send-as-self",
   "agent:send-to-api-token",
   "task:read",
@@ -363,7 +369,10 @@ export const APP_CAPABILITIES: readonly Capability[] = [
 // in its own chat, outbox or token, which an app does not have; chat:members
 // would post with no app author shape; secret:show is in no agent set, and is
 // named so that a later set that gains it does not hand it to apps.
+// agent:spawn stays with the agent: an app serves strangers, and the spawn
+// limits are measured on the spawning agent.
 export const APP_NEVER_INHERITED: readonly Capability[] = [
+  "agent:spawn",
   "self:affordance",
   "agent:send-as-self",
   "agent:send-to-api-token",

@@ -17,7 +17,7 @@
 // FakeBackend auto-completes), so spawn/kill/move are deterministic.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { resolveCwd } from "../cwd-utils.ts";
@@ -30,7 +30,7 @@ import {
   loadRecentCwds,
 } from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, updateUserById } from "../users.ts";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import { CODEX_MODELS } from "../../shared/types.ts";
 import type {
@@ -1908,5 +1908,548 @@ describe("agents.spawn REST: the room's working folder", () => {
     expect(
       srv.agentManager.getAllAgents().some((a) => a.name === "Empty"),
     ).toBe(false);
+  });
+});
+
+// Task eb98cff1: every agent spawns agents, not only a privileged one. An
+// ORDINARY agent (no agent:manage) spawns into rooms its manager can access,
+// the child has the same manager and is never privileged, and the child
+// reaches no more than its spawner, in mode and in folder. It kills only the
+// agents it spawned itself, and one spawn tree holds at most 50 live agents.
+describe("agents.spawn REST: an ordinary agent spawns (task eb98cff1)", () => {
+  type Engine = "claude" | "codex" | "opencode";
+  type CodexSandboxArg = "read-only" | "workspace-write" | "danger-full-access";
+  const MODEL: Record<Engine, string> = {
+    claude: "sonnet",
+    codex: "gpt-5.5",
+    opencode: "provider/model",
+  };
+
+  async function ordinarySetup(
+    engine: Engine,
+    mode: AgentPermissionMode,
+    sandbox?: CodexSandboxArg,
+  ) {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerRecord = getUserByName(owner.username);
+    if (!ownerRecord) throw new Error("seeded owner record missing");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    // Room for the limit test's 50 children past the 8 front desks.
+    srv.agentManager.setRoomBackRoom(r1, true);
+    const work = join(srv.stateRoot, "work");
+    const elsewhere = join(srv.stateRoot, "elsewhere");
+    mkdirSync(join(work, "sub"), { recursive: true });
+    mkdirSync(elsewhere, { recursive: true });
+    const spawner = await srv.agentManager.spawn(
+      "Spawner",
+      work,
+      mode,
+      0,
+      undefined,
+      r1,
+      undefined,
+      MODEL[engine],
+      undefined,
+      owner.username,
+      engine,
+      sandbox,
+      ownerRecord.id,
+    );
+    if (!spawner) throw new Error("spawner spawn failed");
+    // The enabling condition: an ordinary agent in the stated mode.
+    expect(spawner.privileged ?? false).toBe(false);
+    expect([spawner.agentType, spawner.permissionMode]).toEqual([engine, mode]);
+    const bearer = getAgentTokenRaw(spawner.id);
+    if (!bearer) throw new Error("spawner token missing");
+    let n = 0;
+    const spawn = (body: Record<string, unknown>, as = bearer) =>
+      req(srv, "POST", "/api/agents", {
+        bearer: as,
+        body: { name: `Child${++n}`, roomId: r1, cwd: work, ...body },
+      });
+    // Another ordinary agent of the same manager, at full reach.
+    const peer = async (name: string) => {
+      const a = await srv.agentManager.spawn(
+        name,
+        work,
+        "bypassPermissions",
+        null,
+        undefined,
+        r1,
+        undefined,
+        MODEL.claude,
+        undefined,
+        owner.username,
+        "claude",
+        undefined,
+        ownerRecord.id,
+      );
+      if (!a) throw new Error(`peer spawn failed: ${name}`);
+      expect(a.privileged ?? false).toBe(false);
+      return a;
+    };
+    return {
+      srv,
+      owner,
+      ownerRecord,
+      r1,
+      work,
+      elsewhere,
+      spawner,
+      spawn,
+      peer,
+    };
+  }
+
+  // The child of a spawn that has to succeed.
+  const childOf = (res: Res) => {
+    expect([res.status, errCode(res.body)]).toEqual([201, undefined]);
+    return (
+      res.body as {
+        agent: { id: string; permissionMode: string; codexSandbox?: string };
+      }
+    ).agent;
+  };
+
+  // One row per child request: the expected status, and for a 201 the mode
+  // (and Codex sandbox) the child resolved to. A refusal is 403
+  // spawn_exceeds_agent; the reason text is free.
+  type Row = {
+    child: Record<string, unknown>;
+    ok: false | { mode: string; sandbox?: string };
+  };
+  const claude = (permissionMode?: string) => ({
+    agentType: "claude",
+    modelFamily: MODEL.claude,
+    ...(permissionMode ? { permissionMode } : {}),
+  });
+  const codex = (permissionMode?: string, codexSandbox?: string) => ({
+    agentType: "codex",
+    modelFamily: MODEL.codex,
+    ...(permissionMode ? { permissionMode } : {}),
+    ...(codexSandbox ? { codexSandbox } : {}),
+  });
+  const opencode = (permissionMode?: string) => ({
+    agentType: "opencode",
+    modelFamily: MODEL.opencode,
+    ...(permissionMode ? { permissionMode } : {}),
+  });
+
+  const MATRIX: Array<{
+    spawner: [Engine, AgentPermissionMode, CodexSandboxArg?];
+    rows: Row[];
+  }> = [
+    {
+      spawner: ["claude", "default"],
+      rows: [
+        // No mode named: the spawner's own mode, not the new-agent bypass.
+        { child: claude(), ok: { mode: "default" } },
+        { child: claude("default"), ok: { mode: "default" } },
+        { child: claude("acceptEdits"), ok: false },
+        { child: claude("auto"), ok: false },
+        { child: claude("bypassPermissions"), ok: false },
+        // An unknown mode resolves to bypassPermissions: checked resolved.
+        { child: claude("nonsense"), ok: false },
+        // Another engine with no mode named: refused, never a full child.
+        { child: codex(), ok: false },
+        {
+          child: codex("untrusted", "read-only"),
+          ok: { mode: "untrusted", sandbox: "read-only" },
+        },
+        // No sandbox resolves to danger-full-access.
+        { child: codex("untrusted"), ok: false },
+        { child: codex("untrusted", "workspace-write"), ok: false },
+        { child: opencode("default"), ok: { mode: "default" } },
+        { child: opencode("bypassPermissions"), ok: false },
+      ],
+    },
+    {
+      spawner: ["claude", "acceptEdits"],
+      rows: [
+        { child: claude(), ok: { mode: "acceptEdits" } },
+        { child: claude("default"), ok: { mode: "default" } },
+        { child: claude("acceptEdits"), ok: { mode: "acceptEdits" } },
+        { child: claude("auto"), ok: false },
+        { child: opencode(), ok: false },
+      ],
+    },
+    {
+      spawner: ["claude", "auto"],
+      rows: [
+        { child: claude(), ok: { mode: "auto" } },
+        { child: claude("acceptEdits"), ok: { mode: "acceptEdits" } },
+        { child: claude("bypassPermissions"), ok: false },
+        { child: codex("on-request", "read-only"), ok: false },
+      ],
+    },
+    {
+      spawner: ["codex", "never", "workspace-write"],
+      rows: [
+        {
+          child: codex(),
+          ok: { mode: "never", sandbox: "workspace-write" },
+        },
+        {
+          child: codex("never", "read-only"),
+          ok: { mode: "never", sandbox: "read-only" },
+        },
+        { child: codex("never", "danger-full-access"), ok: false },
+        // Each axis on its own: a looser sandbox with a stricter approval
+        // policy is still refused.
+        { child: codex("on-request", "danger-full-access"), ok: false },
+        // on-failure resolves to on-request.
+        {
+          child: codex("on-failure", "workspace-write"),
+          ok: { mode: "on-request", sandbox: "workspace-write" },
+        },
+        { child: codex("never"), ok: false },
+        { child: claude("default"), ok: { mode: "default" } },
+        { child: claude("acceptEdits"), ok: false },
+        { child: claude(), ok: false },
+      ],
+    },
+    {
+      spawner: ["codex", "on-request", "read-only"],
+      rows: [
+        {
+          child: codex(),
+          ok: { mode: "on-request", sandbox: "read-only" },
+        },
+        {
+          child: codex("untrusted", "read-only"),
+          ok: { mode: "untrusted", sandbox: "read-only" },
+        },
+        { child: codex("never", "read-only"), ok: false },
+        { child: codex("on-request", "workspace-write"), ok: false },
+      ],
+    },
+    {
+      spawner: ["opencode", "default"],
+      rows: [
+        { child: opencode(), ok: { mode: "default" } },
+        { child: opencode("bypassPermissions"), ok: false },
+        { child: claude("default"), ok: { mode: "default" } },
+        { child: claude("acceptEdits"), ok: false },
+      ],
+    },
+    {
+      // Full reach: nothing to exceed, as before this task.
+      spawner: ["claude", "bypassPermissions"],
+      rows: [
+        { child: claude(), ok: { mode: "bypassPermissions" } },
+        {
+          child: codex("never", "danger-full-access"),
+          ok: { mode: "never", sandbox: "danger-full-access" },
+        },
+      ],
+    },
+    {
+      spawner: ["codex", "never", "danger-full-access"],
+      rows: [
+        {
+          child: claude("bypassPermissions"),
+          ok: { mode: "bypassPermissions" },
+        },
+      ],
+    },
+  ];
+
+  for (const { spawner: config, rows } of MATRIX) {
+    it(`mode: a ${config.join(" ")} spawner's children`, async () => {
+      const { spawn } = await ordinarySetup(...config);
+      const got = [];
+      for (const row of rows) {
+        const res = await spawn(row.child);
+        got.push({
+          child: row.child,
+          result:
+            res.status === 201
+              ? {
+                  mode: childOf(res).permissionMode,
+                  ...(childOf(res).codexSandbox !== undefined &&
+                  row.child.agentType === "codex"
+                    ? { sandbox: childOf(res).codexSandbox }
+                    : {}),
+                }
+              : [res.status, errCode(res.body)],
+        });
+      }
+      expect(got).toEqual(
+        rows.map((row) => ({
+          child: row.child,
+          result: row.ok === false ? [403, "spawn_exceeds_agent"] : row.ok,
+        })),
+      );
+    });
+  }
+
+  it("folder: a spawner below full reach keeps its children inside its folder", async () => {
+    const configs: Array<[Engine, AgentPermissionMode, CodexSandboxArg?]> = [
+      ["claude", "default"],
+      ["codex", "never", "workspace-write"],
+    ];
+    for (const config of configs) {
+      const { srv, work, elsewhere, spawn } = await ordinarySetup(
+        config[0],
+        config[1],
+        config[2],
+      );
+      // A link inside the folder that points out of it.
+      symlinkSync(elsewhere, join(work, "out"));
+      const child = config[0] === "codex" ? codex() : claude();
+      const results = [];
+      for (const cwd of [work, join(work, "sub"), elsewhere, join(work, "out")])
+        results.push([(await spawn({ ...child, cwd })).status]);
+      const refused = await spawn({ ...child, cwd: elsewhere });
+      expect({ config, results }).toEqual({
+        config,
+        results: [[201], [201], [403], [403]],
+      });
+      expect(errCode(refused.body)).toBe("spawn_exceeds_agent");
+      await srv.stop();
+      server = null;
+    }
+  });
+
+  it("folder: a spawner at full reach spawns in any folder", async () => {
+    const { elsewhere, spawn } = await ordinarySetup(
+      "claude",
+      "bypassPermissions",
+    );
+    expect((await spawn({ cwd: elsewhere })).status).toBe(201);
+  });
+
+  it("spawns only into a room its manager can access; the child has the spawner's manager, is never privileged, and records its spawner and tree", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerRecord = getUserByName(owner.username)!;
+    await srv.seedMember("Mia");
+    const mia = getUserByName("Mia")!;
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    expect(updateUserById(mia.id, { allowedRooms: [r1] }).ok).toBe(true);
+    const spawner = await srv.agentManager.spawn(
+      "Spawner",
+      srv.stateRoot,
+      "bypassPermissions",
+      0,
+      undefined,
+      r1,
+      undefined,
+      "sonnet",
+      undefined,
+      "Mia",
+      "claude",
+      undefined,
+      mia.id,
+    );
+    if (!spawner) throw new Error("spawner spawn failed");
+    expect(spawner.privileged ?? false).toBe(false);
+    const bearer = getAgentTokenRaw(spawner.id)!;
+    const spawnAs = (as: string, name: string, roomId: string) =>
+      req(srv, "POST", "/api/agents", {
+        bearer: as,
+        body: {
+          name,
+          roomId,
+          cwd: srv.stateRoot,
+          // Never honoured: the manager comes from the identity, and only a
+          // member sets privileged.
+          privileged: true,
+          userId: ownerRecord.id,
+          username: owner.username,
+        },
+      });
+
+    const blocked = await spawnAs(bearer, "InB", roomB);
+    expect([blocked.status, errCode(blocked.body)]).toEqual([403, "forbidden"]);
+    expect(srv.agentManager.getAllAgents().some((a) => a.name === "InB")).toBe(
+      false,
+    );
+
+    const res = await spawnAs(bearer, "Kid", r1);
+    expect(res.status).toBe(201);
+    const kid = srv.agentManager.getAgent(childOf(res).id)!;
+    expect({
+      userId: kid.userId,
+      privileged: kid.privileged ?? false,
+      spawnedByAgentId: kid.spawnedByAgentId,
+      spawnRootAgentId: kid.spawnRootAgentId,
+    }).toEqual({
+      userId: mia.id,
+      privileged: false,
+      spawnedByAgentId: spawner.id,
+      spawnRootAgentId: spawner.id,
+    });
+
+    const grand = await spawnAs(getAgentTokenRaw(kid.id)!, "Grand", r1);
+    expect(grand.status).toBe(201);
+    const g = srv.agentManager.getAgent(childOf(grand).id)!;
+    expect([g.userId, g.spawnedByAgentId, g.spawnRootAgentId]).toEqual([
+      mia.id,
+      kid.id,
+      spawner.id,
+    ]);
+
+    // A member's spawn records no spawner.
+    const byMember = await req(srv, "POST", "/api/agents", {
+      rawSessionId: owner.rawSessionId,
+      body: { name: "ByMember", roomId: r1, cwd: srv.stateRoot },
+    });
+    expect(byMember.status).toBe(201);
+    const m = srv.agentManager.getAgent(childOf(byMember).id)!;
+    expect([m.spawnedByAgentId, m.spawnRootAgentId]).toEqual([
+      undefined,
+      undefined,
+    ]);
+
+    // Killing its own child still needs the manager's access to the room.
+    const killKid = () =>
+      req(srv, "DELETE", `/api/agents/${kid.id}`, { bearer });
+    expect(updateUserById(mia.id, { allowedRooms: [] }).ok).toBe(true);
+    const noRoom = await killKid();
+    expect([noRoom.status, errCode(noRoom.body)]).toEqual([403, "forbidden"]);
+    expect(srv.agentManager.getAgent(kid.id)).toBeDefined();
+    expect(updateUserById(mia.id, { allowedRooms: [r1] }).ok).toBe(true);
+    expect((await killKid()).status).toBe(204);
+  });
+
+  it("kill: an ordinary agent kills an agent it spawned, and no other", async () => {
+    const { srv, owner, r1, spawn, spawner, peer } = await ordinarySetup(
+      "claude",
+      "bypassPermissions",
+    );
+    const bearer = getAgentTokenRaw(spawner.id)!;
+    const kid = childOf(await spawn({}));
+    const grand = childOf(await spawn({}, getAgentTokenRaw(kid.id)!));
+    const other = await peer("Other");
+    const otherBearer = getAgentTokenRaw(other.id)!;
+    const otherKid = childOf(await spawn({}, otherBearer));
+    const byMember = childOf(
+      await req(srv, "POST", "/api/agents", {
+        rawSessionId: owner.rawSessionId,
+        body: { name: "ByMember", roomId: r1, cwd: srv.stateRoot },
+      }),
+    );
+    const kill = (as: string, id: string) =>
+      req(srv, "DELETE", `/api/agents/${id}`, { bearer: as });
+    const live = (id: string) =>
+      srv.agentManager.getAllAgents().some((a) => a.id === id);
+    // The enabling condition for the refusals: every target is live and in
+    // a room the spawner's manager can access.
+    expect([kid.id, grand.id, otherKid.id, byMember.id].map(live)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+
+    expect((await kill(bearer, otherKid.id)).status).toBe(403); // another agent's child
+    expect((await kill(bearer, byMember.id)).status).toBe(403); // a member's agent
+    expect((await kill(bearer, grand.id)).status).toBe(403); // a child's child
+    expect((await kill(otherBearer, kid.id)).status).toBe(403);
+    expect([kid.id, grand.id, otherKid.id, byMember.id].map(live)).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+
+    expect((await kill(getAgentTokenRaw(kid.id)!, grand.id)).status).toBe(204);
+    expect((await kill(bearer, kid.id)).status).toBe(204);
+    expect([kid.id, grand.id].map(live)).toEqual([false, false]);
+  });
+
+  it("the spawner record survives a restart and a kill and revive", async () => {
+    const { srv, owner, r1, spawn, spawner } = await ordinarySetup(
+      "claude",
+      "bypassPermissions",
+    );
+    const kid = childOf(await spawn({}));
+    const persisted = loadAgents()
+      .flatMap((r) => r.agents)
+      .find((a) => a.id === kid.id);
+    expect([persisted?.spawnedByAgentId, persisted?.spawnRootAgentId]).toEqual([
+      spawner.id,
+      spawner.id,
+    ]);
+
+    const restarted = await srv.restart();
+    server = restarted;
+    const back = restarted.agentManager.getAgent(kid.id);
+    expect([back?.spawnedByAgentId, back?.spawnRootAgentId]).toEqual([
+      spawner.id,
+      spawner.id,
+    ]);
+    // The kill right comes from the restored record.
+    const res = await req(restarted, "DELETE", `/api/agents/${kid.id}`, {
+      bearer: getAgentTokenRaw(spawner.id)!,
+    });
+    expect(res.status).toBe(204);
+
+    const revived = await req(
+      restarted,
+      "POST",
+      `/api/agents/${kid.id}/revive`,
+      {
+        body: { roomId: r1 },
+        rawSessionId: owner.rawSessionId,
+      },
+    );
+    expect(revived.status).toBeLessThan(300);
+    const again = restarted.agentManager.getAgent(kid.id);
+    expect([again?.spawnedByAgentId, again?.spawnRootAgentId]).toEqual([
+      spawner.id,
+      spawner.id,
+    ]);
+  });
+
+  it("limit: one spawn tree holds at most 50 live agents; a kill frees a place", async () => {
+    const { srv, owner, r1, spawn, spawner, peer } = await ordinarySetup(
+      "claude",
+      "bypassPermissions",
+    );
+    const rootBearer = getAgentTokenRaw(spawner.id)!;
+    // One child, and 49 under it: the tree of the root holds 50.
+    const kid = childOf(await spawn({}));
+    const kidBearer = getAgentTokenRaw(kid.id)!;
+    const grandIds: string[] = [];
+    for (let i = 0; i < 49; i++) {
+      const res = await spawn({}, kidBearer);
+      expect(res.status).toBe(201);
+      grandIds.push(childOf(res).id);
+    }
+    const codes = async () => {
+      const a = await spawn({}, rootBearer);
+      const b = await spawn({}, kidBearer);
+      return [
+        [a.status, errCode(a.body)],
+        [b.status, errCode(b.body)],
+      ];
+    };
+    const full = [
+      [429, "spawn_limit"],
+      [429, "spawn_limit"],
+    ];
+    expect(await codes()).toEqual(full);
+
+    // Another tree, and a member, are not limited by this one.
+    const other = await peer("Other");
+    expect((await spawn({}, getAgentTokenRaw(other.id)!)).status).toBe(201);
+    const byMember = await req(srv, "POST", "/api/agents", {
+      rawSessionId: owner.rawSessionId,
+      body: { name: "ByMember", roomId: r1, cwd: srv.stateRoot },
+    });
+    expect(byMember.status).toBe(201);
+
+    const freed = await req(srv, "DELETE", `/api/agents/${grandIds[0]}`, {
+      bearer: kidBearer,
+    });
+    expect(freed.status).toBe(204);
+    expect((await spawn({}, rootBearer)).status).toBe(201);
+    expect(await codes()).toEqual(full);
   });
 });

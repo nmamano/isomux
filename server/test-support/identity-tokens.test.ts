@@ -69,6 +69,9 @@ const AGENT_EXACT: Capability[] = [
   // c4233bfd). The cronjobOwnerOrOfficeOwner guard scopes it to the maker
   // agent; cron:manage stays privileged.
   "cron:own",
+  // Spawn agents, and kill the ones this agent spawned (task eb98cff1). The
+  // child limits live in the spawn handler; members spawn through agent:manage.
+  "agent:spawn",
 ];
 const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
   ["AGENT", AGENT_CAPABILITIES, AGENT_EXACT],

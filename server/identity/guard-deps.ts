@@ -26,10 +26,12 @@ export interface GuardDepsLiveReaders {
   // roomId - the dense AgentInfo.room index has been removed from the wire.
   // `userId` is the agent's MANAGER (its spawning user) - used by the
   // agents.setPrivileged manager-match gate. The live AgentInfo carries it.
+  // `spawnedByAgentId` gates agents.kill for an ordinary agent.
   getAllAgents(): readonly {
     id: string;
     roomId: string;
     userId: string | null;
+    spawnedByAgentId?: string;
   }[];
   // The live global rooms list (dense, creation order); index → roomId.
   getRooms(): readonly { id: string }[];
@@ -117,6 +119,13 @@ export function buildProductionGuardDeps(
     cronjobCreatorAgentId(cronjobId: string): string | null {
       const job = live.listCronjobs().find((j) => j.id === cronjobId);
       return job?.createdByAgentId ?? null;
+    },
+
+    agentSpawnerAgentId(agentId: string): string | null {
+      return (
+        live.getAllAgents().find((a) => a.id === agentId)?.spawnedByAgentId ??
+        null
+      );
     },
 
     appOwnerUserId(name: string): string | null {

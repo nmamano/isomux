@@ -100,6 +100,7 @@ describe("provider account routes", () => {
         userIdForUsername: () => null,
         cronjobCreatorUserId: () => null,
         cronjobCreatorAgentId: () => null,
+        agentSpawnerAgentId: () => null,
         appOwnerUserId: () => null,
         webhookOwnerUserId: () => null,
         webhookCreatorAgentId: () => null,
@@ -410,6 +411,7 @@ describe("route table: public routes are routed AROUND authorize()", () => {
       userIdForUsername: () => null,
       cronjobCreatorUserId: () => null,
       cronjobCreatorAgentId: () => null,
+      agentSpawnerAgentId: () => null,
       appOwnerUserId: () => null,
       webhookOwnerUserId: () => null,
       webhookCreatorAgentId: () => null,
@@ -443,6 +445,7 @@ describe("route table: managed env values are self-only", () => {
     userIdForUsername: (name) => (name === "self" ? "u1" : "u2"),
     cronjobCreatorUserId: () => null,
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
     webhookCreatorAgentId: () => null,
@@ -755,6 +758,7 @@ describe("route table: managed office env is owner-only", () => {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => null,
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
     webhookCreatorAgentId: () => null,
@@ -888,6 +892,7 @@ describe("route table: users.create admits an owner's proxies for a plain member
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => null,
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
     webhookCreatorAgentId: () => null,
@@ -987,6 +992,7 @@ describe("route table: agent reference coverage", () => {
     userIdForUsername: () => "u1",
     cronjobCreatorUserId: () => "u1",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "u1",
     webhookOwnerUserId: () => "u1",
     // The agent made the hook, so the maker-only rotate counts as reachable.
@@ -1046,6 +1052,25 @@ describe("route table: agent reference coverage", () => {
     }
   });
 
+  // Task eb98cff1: an ordinary agent spawns and kills its own children, so the
+  // page that holds those routes is one it can read.
+  it("puts spawn and kill on a page an ordinary agent reaches and reads", () => {
+    const ordinary = identities[0];
+    const ownChild: GuardDeps = { ...deps, agentSpawnerAgentId: () => "a1" };
+    for (const opId of ["agents.spawn", "agents.kill"] as const) {
+      const route = API_ROUTES.find((r) => r.opId === opId)!;
+      const topic = AGENT_ROUTE_REFERENCE_TOPICS[opId];
+      const page = agentReferenceContent(ordinary, topic);
+      expect({
+        opId,
+        reaches: runAuthorize(route.auth, ordinary, params, body, ownChild).ok,
+        pins:
+          typeof page === "string" &&
+          page.includes(`\`${route.method} ${route.path}\``),
+      }).toEqual({ opId, reaches: true, pins: true });
+    }
+  });
+
   it("pins each mapped route's exact method and path in its topic", () => {
     const privileged = identities[1];
     for (const [opId, topic] of Object.entries(AGENT_ROUTE_REFERENCE_TOPICS)) {
@@ -1075,9 +1100,14 @@ const SPEC_ROUTE_CONTRACT: Record<
   // GET /agents, the office directory.
   "agents.discovery": { caps: [], emits: [] },
   // Agents - lifecycle
-  "agents.spawn": { caps: ["agent:manage"], emits: ["agent_added"] },
+  // Any-of: an operator or member through agent:manage, every agent through
+  // agent:spawn (task eb98cff1; kill only of an agent it spawned).
+  "agents.spawn": {
+    caps: ["agent:manage", "agent:spawn"],
+    emits: ["agent_added"],
+  },
   "agents.kill": {
-    caps: ["agent:manage"],
+    caps: ["agent:manage", "agent:spawn"],
     emits: ["agent_removed", "killed_agent_added"],
   },
   "agents.revive": {
@@ -1709,6 +1739,7 @@ describe("route table: an APP identity authorizes exactly the app-self routes", 
     userIdForUsername: () => "u-owner",
     cronjobCreatorUserId: () => "u-owner",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "u-owner",
     webhookOwnerUserId: () => "u-owner",
     webhookCreatorAgentId: () => null,
@@ -1900,9 +1931,12 @@ const APP_REFUSED_OPIDS = [
 // An ORDINARY agent may also clear its own conversation, and take back its own
 // queued messages (task e17989e0); an app has no conversation and sends under
 // no agent id of its own.
+// An app does not get its ordinary owner's agent:spawn either (task eb98cff1):
+// app code serves strangers. A privileged owner's app keeps agent:manage.
 const APP_REFUSED_SELF_ONLY_OPIDS = [
   "agents.newConversation",
   "agents.cancelQueued",
+  "agents.spawn",
 ];
 
 describe("route table: an APP has its live owner agent's reach", () => {
@@ -1912,6 +1946,7 @@ describe("route table: an APP has its live owner agent's reach", () => {
     userIdForUsername: () => "u-owner",
     cronjobCreatorUserId: () => "u-owner",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "u-owner",
     webhookOwnerUserId: () => "u-owner",
     webhookCreatorAgentId: () => null,
@@ -2165,6 +2200,7 @@ describe("agents.listSessions / readQueue / cancelQueued / terminal non-agent se
     userIdForUsername: () => "owner-1",
     cronjobCreatorUserId: () => "owner-1",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "owner-1",
     webhookOwnerUserId: () => "owner-1",
     webhookCreatorAgentId: () => null,
@@ -2412,6 +2448,7 @@ describe("route table: usage checks use log-read scope", () => {
     userIdForUsername: () => "u-owner",
     cronjobCreatorUserId: () => "u-owner",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "u-owner",
     webhookOwnerUserId: () => "u-owner",
     webhookCreatorAgentId: () => null,
@@ -2488,6 +2525,7 @@ describe("route table: an API identity authorizes exactly the remote-member surf
     userIdForUsername: () => "u-owner",
     cronjobCreatorUserId: () => "u-owner",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "u-owner",
     webhookOwnerUserId: () => "u-owner",
     webhookCreatorAgentId: () => null,
@@ -2534,6 +2572,7 @@ describe("member prompt route authority", () => {
     userIdForUsername: (name) => (name === "manager" ? "u1" : "u2"),
     cronjobCreatorUserId: () => "u1",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "u1",
     webhookOwnerUserId: () => "u1",
     webhookCreatorAgentId: () => null,
@@ -2630,6 +2669,7 @@ it("audit and restore reject member-owned API tokens and admit owner proxies", (
         userIdForUsername: () => null,
         cronjobCreatorUserId: () => null,
         cronjobCreatorAgentId: () => null,
+        agentSpawnerAgentId: () => null,
         appOwnerUserId: () => null,
         webhookOwnerUserId: () => null,
         webhookCreatorAgentId: () => null,
@@ -2728,6 +2768,7 @@ describe("route table: agents.discovery reach", () => {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => null,
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
     webhookCreatorAgentId: () => null,
@@ -2800,6 +2841,7 @@ describe("route table: voice routes reach", () => {
     userIdForUsername: () => "u1",
     cronjobCreatorUserId: () => "u1",
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => "u1",
     webhookOwnerUserId: () => "u1",
     webhookCreatorAgentId: () => null,

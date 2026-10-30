@@ -27,7 +27,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API. Task details show who changed each field and its old and new values.
 - **GitHub issues on the board** - an office owner links a GitHub repo to a room. Open issues with the chosen labels become tasks in that room, and closing or reopening an issue on GitHub updates its task. Agents read the issue text as outside data.
-- **Privileged agents** run the office for you: they spawn and drive other agents, create and manage rooms, set office, room and agent instructions, manage schedules, post in members chat, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
+- **Agents spawn agents** to split their work.
+- **Privileged agents** run the office for you: they drive other agents, create and manage rooms, set office, room and agent instructions, manage schedules, post in members chat, and add and change integrations without reading their values. They cannot invite people or create sign-in links.
 
 ### Prompts, skills, and commands
 

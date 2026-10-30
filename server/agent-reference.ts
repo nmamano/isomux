@@ -19,6 +19,7 @@ export const AGENT_REFERENCE_TOPICS = {
   cronjobs: "Schedule inspection",
   memory: "Shared memory",
   visuals: "Inline diagrams",
+  spawning: "Spawn agents and kill the ones you spawned",
   "agent-management": "Privileged agent setup and conversation driving",
   rooms: "Privileged room management",
   "cronjob-management": "Schedule management",
@@ -52,8 +53,8 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   Record<string, AgentReferenceTopic>
 > = {
   "agents.discovery": "discovery",
-  "agents.spawn": "agent-management",
-  "agents.kill": "agent-management",
+  "agents.spawn": "spawning",
+  "agents.kill": "spawning",
   "agents.revive": "agent-management",
   "agents.abort": "messaging",
   "agents.update": "agent-management",

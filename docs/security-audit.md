@@ -32,8 +32,8 @@ Thus, give office access only to persons you trust with a shell on the server. A
 | Owner              | Browser session cookie                        | Everything a member can do. Also: create members, mint sign-in links, change room access, change office settings, revoke the sessions of any member, manage the integrations of any member. |
 | Member             | Browser session cookie                        | Use the rooms the owner gives them: agents, terminal panels, tasks, files, apps, schedules. Mint their own device links and API tokens.                                                     |
 | Personal API token | `Authorization: Bearer isomux_pat_…`          | The reach of the member who minted it, with some exclusions. See section 5.                                                                                                                 |
-| Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs, apps, webhooks, the schedules it made, and pages to its manager.                                          |
-| Privileged agent   | The same agent token, with more capabilities  | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2.                                                                   |
+| Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs, apps, webhooks, the schedules it made, pages to its manager, and new agents that it spawns and can kill.  |
+| Privileged agent   | The same agent token, with more capabilities  | Also: kill, move and drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2.                                                    |
 | Scheduled run      | A run token in the run environment            | Its own run affordances, messages that show the schedule as sender, and office-wide tasks plus those in its schedule's room.                                                                |
 | App                | `ISOMUX_APP_TOKEN` in the app environment     | The reach of its live owner agent, without that agent's own chat affordances; writes name the app. Without a live owner agent: messages to its target and pages to its owner.               |
 
@@ -198,11 +198,13 @@ Isomux puts a new token in the environment of each agent and each scheduled run.
 
 A terminal panel does not get an agent token.
 
+Any agent can spawn agents in the rooms its manager can access. The new agent has the same manager and is never privileged. An agent that is not privileged, and that asks for approval or runs in a sandbox, cannot spawn an agent with more permissions than its own, or one that works outside its folder. One spawn tree, an agent and all the agents spawned under it, holds at most 50 live agents. An agent can kill the agents that it spawned, and no others.
+
 ### 6.2 Privileged agents
 
 An owner can make any agent privileged. A member can make privileged only the agents that they spawned. No agent can set the flag.
 
-A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1), change the office instructions, the office name, the member usage cap, the **Record terminals** setting and the fallback to the office sign-in, and give any agent another manager, which puts that agent on the new manager's credentials (section 7). It cannot mint sign-in links, revoke sessions, change room access or other office settings, or open a terminal panel.
+A privileged agent gets a part of its member's capabilities: it can kill, move and drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1), change the office instructions, the office name, the member usage cap, the **Record terminals** setting and the fallback to the office sign-in, and give any agent another manager, which puts that agent on the new manager's credentials (section 7). It cannot mint sign-in links, revoke sessions, change room access or other office settings, or open a terminal panel.
 
 A privileged agent can read and edit its manager's special instructions, or any member's when its manager is an office owner. This does not grant other user-record edits. Prompt writes from agents and humans require the version from the read; stale writes return 409.
 

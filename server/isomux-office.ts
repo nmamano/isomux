@@ -184,9 +184,17 @@ import {
 import { validateCwd } from "./cwd-utils.ts";
 import {
   modelFamilyMismatchError,
+  resolveAgentEngineSettings,
   resolveInteractiveModelSelection,
   validatePermissionMode,
 } from "./agent-validators.ts";
+import {
+  SPAWN_EXCEEDS_AGENT,
+  SPAWN_LIMIT,
+  SPAWN_TREE_LIMIT,
+  spawnExceedsAgent,
+  type SpawnLimitAgent,
+} from "./spawn-agent-limits.ts";
 import type {
   Cronjob,
   CronjobListWire,
@@ -3027,6 +3035,58 @@ function enqueueFailure(result: Extract<EnqueueResult, { ok: false }>): {
       ? { detail: { retryAtMs: result.usageCap.retryAtMs } }
       : {}),
   };
+}
+
+// The refusal of an agent's spawn: its tree is full, or the child, with the
+// mode and sandbox the core will resolve, reaches more than its limited
+// spawner. Else null.
+function spawnRefusal(
+  input: {
+    agentType?: AgentInfo["agentType"];
+    permissionMode?: AgentInfo["permissionMode"];
+    codexSandbox?: AgentInfo["codexSandbox"];
+    cwd: string;
+    userId: string | null;
+  },
+  spawner: { spawnRootAgentId: string; limits?: SpawnLimitAgent },
+  modelFamily: string | undefined,
+): {
+  ok: false;
+  reason: "spawn_limit" | "spawn_exceeds_agent";
+  message: string;
+} | null {
+  const inTree = agentManager
+    .getAllAgents()
+    .filter((a) => a.spawnRootAgentId === spawner.spawnRootAgentId).length;
+  if (inTree >= SPAWN_TREE_LIMIT)
+    return {
+      ok: false,
+      reason: SPAWN_LIMIT,
+      message: `One spawn tree holds at most ${SPAWN_TREE_LIMIT} live agents. Kill the agents it no longer needs.`,
+    };
+  if (!spawner.limits) return null;
+  const agentType = input.agentType ?? "claude";
+  const resolved = resolveAgentEngineSettings(
+    agentType,
+    {
+      permissionMode: input.permissionMode,
+      modelFamily,
+      codexSandbox: input.codexSandbox,
+    },
+    limitedClaudeFamiliesForUserId(input.userId),
+  );
+  const reason = spawnExceedsAgent(
+    {
+      agentType,
+      permissionMode: resolved.permissionMode,
+      codexSandbox: resolved.codexSandbox,
+      cwd: input.cwd,
+    },
+    spawner.limits,
+  );
+  return reason
+    ? { ok: false, reason: SPAWN_EXCEEDS_AGENT, message: reason }
+    : null;
 }
 
 // Token-derived task/cron attribution. createdBy is the caller's
@@ -5873,6 +5933,10 @@ function buildExecutorDeps(
         let modelFamily = modelSelection.modelFamily;
         if (input.agentType === "codex" && !modelFamily && input.userId)
           modelFamily = await resolveCodexDefaultModel(input.userId, input.cwd);
+        if (input.spawner) {
+          const refusal = spawnRefusal(input, input.spawner, modelFamily);
+          if (refusal) return refusal;
+        }
         saveRecentCwd(input.cwd);
         try {
           const spawned = await agentManager.spawn(
@@ -5899,6 +5963,10 @@ function buildExecutorDeps(
             input.agentType,
             input.codexSandbox,
             input.userId,
+            input.spawner && {
+              spawnedByAgentId: input.spawner.spawnedByAgentId,
+              spawnRootAgentId: input.spawner.spawnRootAgentId,
+            },
           );
           if (spawned) {
             notePromptContent(spawned.customInstructions);

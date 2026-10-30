@@ -69,6 +69,7 @@ function deps(over: Partial<GuardDeps> = {}): GuardDeps {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => SPAWNER,
     cronjobCreatorAgentId: () => null,
+    agentSpawnerAgentId: () => null,
     appOwnerUserId: () => null,
     webhookOwnerUserId: () => null,
     webhookCreatorAgentId: () => null,

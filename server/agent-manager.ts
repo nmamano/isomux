@@ -253,6 +253,7 @@ import {
   persistedAutoHandoffTokens,
   type AutoHandoffTrigger,
 } from "./auto-handoff.ts";
+import { spawnTreeFields } from "./spawn-agent-limits.ts";
 import {
   entryCovers,
   FALLBACK_CONTINUE_TEXT,
@@ -2576,6 +2577,7 @@ export function createAgentManager(deps: ManagerDeps) {
       manager: a.info.manager,
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
+      ...spawnTreeFields(a.info),
       ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
       ...(a.info.limitResume === false ? { limitResume: false } : {}),
@@ -2645,6 +2647,7 @@ export function createAgentManager(deps: ManagerDeps) {
         userId: a.info.userId,
         manager: a.info.manager,
         privileged: a.info.privileged ?? false,
+        ...spawnTreeFields(a.info),
         ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
         ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
         ...(a.info.limitResume === false ? { limitResume: false } : {}),
@@ -2922,6 +2925,7 @@ export function createAgentManager(deps: ManagerDeps) {
       userId,
       manager: p.manager ?? null,
       privileged: p.privileged ?? false,
+      ...spawnTreeFields(p),
       ...(p.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(p.autoHandoffTokens),
       ...(p.limitResume === false ? { limitResume: false } : {}),
@@ -8042,6 +8046,8 @@ export function createAgentManager(deps: ManagerDeps) {
     // call sites; resolved from `username` if null and the snapshot still
     // matches a known user.
     userId?: string | null,
+    // The spawning agent and the root of its spawn tree, when an agent spawns.
+    spawnTree?: { spawnedByAgentId: string; spawnRootAgentId: string },
   ): Promise<AgentInfo | null> {
     // Spawn is always allowed even if the backend CLI is missing - the failure
     // surfaces as a chat-visible error on first message (codex client's
@@ -8099,6 +8105,7 @@ export function createAgentManager(deps: ManagerDeps) {
         codexSandbox: validatedCodexSandbox,
         userId: ownerId,
         manager: username,
+        ...spawnTree,
         capabilities: getBackend(agentType).capabilities,
         limitedClaudeFamilies: limited,
         claudeFamilyModels: claudeFamilyModelsForUserId(ownerId),
@@ -11515,6 +11522,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // kill-time entry is authoritative - updateAgentHistory skips killed
           // agents, and revive reads entry.privileged).
           privileged: managed.info.privileged ?? false,
+          ...spawnTreeFields(managed.info),
           ...(managed.info.autoHandoff === false ? { autoHandoff: false } : {}),
           ...persistedAutoHandoffTokens(managed.info.autoHandoffTokens),
           ...(managed.info.limitResume === false ? { limitResume: false } : {}),
@@ -11773,6 +11781,7 @@ export function createAgentManager(deps: ManagerDeps) {
       userId: entry.userId,
       manager: entry.manager,
       privileged: entry.privileged ?? false,
+      ...spawnTreeFields(entry),
       ...(entry.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(entry.autoHandoffTokens),
       ...(entry.limitResume === false ? { limitResume: false } : {}),

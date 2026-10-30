@@ -1,7 +1,8 @@
 import type { AgentSystemPromptPreviewReq } from "../../../shared/contract-shapes.ts";
 // Agent-lifecycle resource handlers. The agent
 // spawn/kill/revive/abort/edit + move/swap-desks/topic mutation surface on the
-// unified REST surface (every op caps `agent:manage`).
+// unified REST surface (every op caps `agent:manage`; spawn and kill also take
+// `agent:spawn`, every agent's).
 //
 // Strangler EXPAND+CUT: 3a/3b declared these rows in table.ts but NEVER built a
 // handler - the agent lifecycle stayed WS-only. These handlers replace the
@@ -42,7 +43,14 @@ import {
   parseInstructionsWrite,
   refuseOldFields,
 } from "./instructions.ts";
-import type { Identity } from "../../identity/index.ts";
+import { identityHasCapability, type Identity } from "../../identity/index.ts";
+import {
+  childSpawnTree,
+  hasFullReach,
+  SPAWN_EXCEEDS_AGENT,
+  SPAWN_LIMIT,
+  type SpawnLimitAgent,
+} from "../../spawn-agent-limits.ts";
 import type { AbortResult } from "../../internal-types.ts";
 import {
   NEW_AGENT_PERMISSION_MODE,
@@ -134,6 +142,8 @@ export type SpawnResult =
         | "back_room_off"
         | "room_not_found"
         | "invalid_model_family"
+        | typeof SPAWN_EXCEEDS_AGENT
+        | typeof SPAWN_LIMIT
         | "spawn_failed";
       message: string;
     };
@@ -239,6 +249,15 @@ export interface AgentsDeps {
     codexSandbox?: AgentInfo["codexSandbox"];
     username: string | undefined;
     userId: string | null;
+    // When an agent spawns: the new agent's spawn tree, checked against
+    // SPAWN_TREE_LIMIT (-> spawn_limit), and for an agent without
+    // agent:manage below full reach the spawner, whose mode and folder the
+    // resolved child may not exceed (-> spawn_exceeds_agent).
+    spawner?: {
+      spawnedByAgentId: string;
+      spawnRootAgentId: string;
+      limits?: SpawnLimitAgent;
+    };
   }): Promise<SpawnResult>;
   // Revives a killed agent (the core RE-MINTS its token; revokes on rollback).
   // The target-room + lastRoomId ACL is enforced upstream (bodyRoom guard +
@@ -543,6 +562,10 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       // new-agent mode, and a Codex child of a Codex agent in never its sandbox
       // (tasks a7bdd069, f49289bd). A mode in the request wins, and
       // a codexSandbox in the request wins over the inherited one.
+      // An agent without agent:manage below full reach is limited to its own
+      // reach (task eb98cff1): its child of the same engine inherits its own
+      // mode and sandbox, and one of another engine gets no default, so the
+      // limit refuses it until the request names a mode.
       let permissionMode = b.permissionMode;
       let codexSandbox = b.codexSandbox;
       const childType = b.agentType ?? "claude";
@@ -550,14 +573,26 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         ctx.identity.scope === "agent" && ctx.identity.agentId
           ? deps.getAgent(ctx.identity.agentId)
           : undefined;
+      const manages = identityHasCapability(ctx.identity, "agent:manage");
+      // Fail closed: an agent without agent:manage spawns only from its own
+      // live record, which its limits and its spawn tree come from.
+      if (ctx.identity.scope === "agent" && !manages && !spawner)
+        return fail(403, "forbidden");
+      const limited =
+        spawner !== undefined && !manages && !hasFullReach(spawner);
       if (
         (permissionMode === undefined || permissionMode === null) &&
         spawner &&
         Object.hasOwn(NEW_AGENT_PERMISSION_MODE, childType)
       ) {
-        const inherited = spawnedAgentMode(spawner, childType);
-        permissionMode = inherited.permissionMode;
-        codexSandbox = codexSandbox ?? inherited.codexSandbox;
+        if (!limited) {
+          const inherited = spawnedAgentMode(spawner, childType);
+          permissionMode = inherited.permissionMode;
+          codexSandbox = codexSandbox ?? inherited.codexSandbox;
+        } else if (spawner.agentType === childType) {
+          permissionMode = spawner.permissionMode;
+          codexSandbox = codexSandbox ?? spawner.codexSandbox;
+        }
       }
       const { username } = deps.attributionFor(ctx.identity);
       const r = await deps.spawn({
@@ -581,18 +616,30 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         codexSandbox,
         username,
         userId: ctx.identity.userId,
+        ...(spawner
+          ? {
+              spawner: {
+                ...childSpawnTree(spawner),
+                ...(limited ? { limits: spawner } : {}),
+              },
+            }
+          : {}),
       });
       if (r.ok) return created({ agent: r.agent });
       const status =
-        r.reason === "invalid_cwd"
-          ? 400
-          : r.reason === "spawn_failed"
-            ? 500
-            : r.reason === "room_not_found"
-              ? 404
-              : r.reason === "invalid_model_family"
-                ? 422
-                : 409;
+        r.reason === SPAWN_EXCEEDS_AGENT
+          ? 403
+          : r.reason === SPAWN_LIMIT
+            ? 429
+            : r.reason === "invalid_cwd"
+              ? 400
+              : r.reason === "spawn_failed"
+                ? 500
+                : r.reason === "room_not_found"
+                  ? 404
+                  : r.reason === "invalid_model_family"
+                    ? 422
+                    : 409;
       return fail(status, r.reason, r.message);
     },
 

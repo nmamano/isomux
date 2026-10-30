@@ -874,6 +874,14 @@ export interface AgentInfo {
   // split.
   userId: string | null;
   manager: string | null;
+  // The agent that spawned this one, when an agent did (absent when a member,
+  // an API token or a privileged agent's app did). That agent may kill it.
+  // Persisted.
+  spawnedByAgentId?: string;
+  // The first agent of the spawn tree this agent belongs to: the spawner's
+  // root, or the spawner itself. The spawn limit counts live agents per root.
+  // Persisted.
+  spawnRootAgentId?: string;
   // Privileged agents carry their spawning user's room-scoped operator
   // capabilities in their bearer token (drive other agents' sessions: resume,
   // listSessions, sendNow, newConversation, lifecycle, cron over their own

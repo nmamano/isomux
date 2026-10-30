@@ -39,7 +39,7 @@ free for small teams · source-available · no account needed · works with your
 
 ### An office made for humans and agents
 
-- **Privileged agents can run the office for you**, like spawning other agents and managing rooms
+- **Privileged agents can run the office for you**, like driving other agents and managing rooms
 - [**Fully multiplayer**](https://x.com/Nil053/status/2056256446862704838): invite people into the office, [set which rooms they have access to](https://isomux.com/docs/access-and-invites), and see which agents they are currently talking to
 - **Speaks your language**: each person reads the office in their own language, like Spanish or Chinese
 - **Auditable**: a log of every change to office state

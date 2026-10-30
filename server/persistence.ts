@@ -911,6 +911,9 @@ export interface PersistedAgent {
   // sites coerce a missing value with `?? false`, so there is NO migration
   // backfill (which keeps the saveAgents→loadAgents round-trip lossless - see
   // migratePersistedAgent).
+  // Who spawned the agent and the root of its spawn tree (AgentInfo).
+  spawnedByAgentId?: string;
+  spawnRootAgentId?: string;
   privileged?: boolean;
   // Automatic handoff switch. Written only when off; absent reads as true.
   autoHandoff?: boolean;
@@ -1633,6 +1636,9 @@ export interface AgentHistoryEntry {
   // Privileged-token flag, snapshotted so a killed agent revives with the
   // same privilege it had. Absent ⇒ false (legacy/normal agents).
   privileged?: boolean;
+  // AgentInfo's spawn-tree fields, snapshotted so a revived agent keeps them.
+  spawnedByAgentId?: string;
+  spawnRootAgentId?: string;
   // Automatic handoff switch, snapshotted like privileged. Absent ⇒ on.
   autoHandoff?: boolean;
   // Its token trigger, snapshotted the same way. Absent ⇒ the default.

@@ -80,6 +80,7 @@ import {
   hasOwningUser,
   runParamMustEqualTokenRun,
   taskDelete,
+  agentKill,
   notApp,
   and,
   or,
@@ -515,7 +516,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: createdResource("agent") },
     method: "POST",
     path: "/api/agents",
-    auth: cap("agent:manage", bodyRoom("roomId")),
+    // Every agent spawns (agent:spawn), into its manager's rooms; the handler
+    // applies the spawn limits to an agent without agent:manage.
+    auth: cap(["agent:manage", "agent:spawn"], bodyRoom("roomId")),
     emits: ["agent_added"],
   }),
   defineRoute<void, NoContent>({
@@ -523,7 +526,11 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/agents/:id",
-    auth: cap("agent:manage", agentParam("id")),
+    // agent:spawn kills only an agent this agent spawned (agentKill).
+    auth: cap(
+      ["agent:manage", "agent:spawn"],
+      and(agentParam("id"), agentKill),
+    ),
     emits: ["agent_removed", "killed_agent_added"],
   }),
   defineRoute<ReviveReq, AgentEnvelope>({
