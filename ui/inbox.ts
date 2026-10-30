@@ -21,7 +21,8 @@ export interface InboxCounts {
 
 /**
  * The open items per tab. The bar's badge is their sum. An ask answered on
- * the Inbox (`answered`) no longer counts.
+ * the Inbox (`answered`) no longer counts, nor do the asks of
+ * `exceptAgentId`: the chat bar leaves out the asks its chat already shows.
  */
 export function inboxCounts(
   pager: readonly PagerEntry[],
@@ -29,10 +30,13 @@ export function inboxCounts(
   agents: readonly { id: string }[],
   userId: string | null,
   answered: ReadonlyMap<string, unknown>,
+  exceptAgentId?: string,
 ): InboxCounts {
   return {
     pages: openPagesFor(pager, userId),
-    asks: openAsks(visibleAsks(asks, agents), answered).length,
+    asks: openAsks(visibleAsks(asks, agents), answered).filter(
+      (e) => e.agentId !== exceptAgentId,
+    ).length,
   };
 }
 
@@ -44,23 +48,26 @@ export function inboxTabFor(counts: InboxCounts): InboxTab {
   return counts.asks === 0 && counts.pages > 0 ? "pager" : "asks";
 }
 
-export function useInboxCounts(): InboxCounts {
+export function useInboxCounts(exceptAgentId?: string): InboxCounts {
   const { pager, asks, agents, sessionContext, answeredAsks } = useAppState();
   const userId = sessionContext?.userId ?? null;
   return useMemo(
-    () => inboxCounts(pager, asks, agents, userId, answeredAsks),
-    [pager, asks, agents, userId, answeredAsks],
+    () => inboxCounts(pager, asks, agents, userId, answeredAsks, exceptAgentId),
+    [pager, asks, agents, userId, answeredAsks, exceptAgentId],
   );
 }
 
 /**
  * The Inbox entry of the office bar and the chat bar, one source so the two
- * cannot drift. Null without `onOpen`, for fixtures without the Inbox.
+ * cannot drift. The chat bar passes its agent as `exceptAgentId`, so the
+ * badge and the tab it opens count only what is elsewhere. Null without
+ * `onOpen`, for fixtures without the Inbox.
  */
 export function useInboxNavAction(
   onOpen: ((tab: InboxTab) => void) | undefined,
+  exceptAgentId?: string,
 ): NavAction | null {
-  const counts = useInboxCounts();
+  const counts = useInboxCounts(exceptAgentId);
   const i18n = useI18n();
   if (!onOpen) return null;
   const open = counts.pages + counts.asks;

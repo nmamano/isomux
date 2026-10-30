@@ -724,7 +724,7 @@ export function LogView({
     [rawLogs],
   );
   const i18n = useI18n();
-  const inboxAction = useInboxNavAction(onOpenInbox);
+  const inboxAction = useInboxNavAction(onOpenInbox, agent.id);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const {

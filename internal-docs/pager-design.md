@@ -134,7 +134,8 @@ other one (internal-docs/asks-design.md):
 - The Inbox entry in the office bar and the chat bar opens the first tab, Asks,
   and opens this tab only when the member has open pages and no open asks. Its
   badge counts open pages for the member plus their open asks, and each tab
-  shows its own count.
+  shows its own count. In the chat bar, the badge and the tab it opens leave
+  out the asks of the chat's agent, which show above its input.
 
 Visibility follows room access, the same as tasks.
 

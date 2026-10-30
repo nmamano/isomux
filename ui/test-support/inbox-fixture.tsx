@@ -41,6 +41,9 @@ const agent = {
   },
 } as unknown as AgentInfo;
 
+// A second agent in the same room, only in the tests that ask for it.
+const ranger: AgentInfo = { ...agent, id: "a2", name: "Ranger", desk: 1 };
+
 export const ask = (id: string, agentId: string, link?: string): AskEntry => ({
   id,
   agentId,
@@ -75,6 +78,11 @@ export const page = (id: string, targetUserId: string): PagerEntry => ({
 let pages: PagerEntry[] = [];
 // The asks GET /api/asks returns; ASKS unless a test sets its own.
 let asks: AskEntry[] = ASKS;
+// The agents full_state carries: Scout, and Ranger after addRanger().
+let agents: AgentInfo[] = [agent];
+export function addRanger() {
+  agents = [agent, ranger];
+}
 export function setPages(next: PagerEntry[]) {
   pages = next;
 }
@@ -120,6 +128,7 @@ export function setUpInboxTests() {
   beforeEach(() => {
     pages = [];
     asks = ASKS;
+    agents = [agent];
     answerPost = async () => ({});
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");
@@ -143,7 +152,7 @@ export async function boot(path = "/") {
       } as never);
       shimEmit({
         type: "full_state",
-        agents: [agent],
+        agents,
         rooms: [
           {
             id: "r1",
