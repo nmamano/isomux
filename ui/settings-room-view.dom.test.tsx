@@ -45,6 +45,8 @@ type Over = {
   tucked?: string[];
   notifRooms?: string[];
   pushRooms?: string[];
+  role?: "member";
+  allowedRooms?: string[];
 };
 type Room = (typeof rooms)[number] & { type?: "lobby" };
 type StoreRooms = { rooms?: Room[]; allRooms?: Room[] };
@@ -239,6 +241,56 @@ describe("Your view column", () => {
     );
     expect(legends).toHaveLength(1);
     expectLegend(legends[0], ROOM_VIEW_LEVELS, stepName);
+    view.unmount();
+  });
+
+  // Push turns on for a device (task b8a7836d): the legend holds the
+  // this-device control while a room the member can reach is at Push in the
+  // form, saved or not.
+  const pushSlot = (view: View) =>
+    view.container.querySelector<HTMLElement>(
+      "[data-room-view-legend] [data-room-push-device]",
+    );
+
+  it("puts the this-device control under the Push meaning while a room is at Push in the form", async () => {
+    const view = await mount({ notifRooms: ["r1"] });
+    expect(pushSlot(view)).toBeNull();
+    await pick(view, "r2", "push");
+    const slot = pushSlot(view)!;
+    expect(slot).not.toBeNull();
+    const pushName = view.container.querySelector(
+      '[data-room-view-legend] [data-view-level="push"] strong',
+    )!;
+    expect(
+      pushName.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await pick(view, "r2", "shown");
+    expect(pushSlot(view)).toBeNull();
+    view.unmount();
+
+    const saved = await mount({ notifRooms: ["r1"], pushRooms: ["r1"] });
+    expect(pushSlot(saved)).not.toBeNull();
+    saved.unmount();
+  });
+
+  it("a room in the push list that reads as hidden or tucked, or that the member cannot reach, is not at Push: no control", async () => {
+    for (const over of [
+      { hidden: ["r1"], pushRooms: ["r1"] },
+      { tucked: ["r1"], pushRooms: ["r1"] },
+    ]) {
+      const view = await mount(over);
+      expect(levelOf(view, "r1")).not.toBe("push");
+      expect(pushSlot(view)).toBeNull();
+      view.unmount();
+    }
+    // A member whose push list still names a room they lost access to.
+    const view = await mount({
+      role: "member",
+      allowedRooms: ["r1"],
+      pushRooms: ["r2"],
+    });
+    expect(levelOf(view, "r2")).toBe("hidden");
+    expect(pushSlot(view)).toBeNull();
     view.unmount();
   });
 

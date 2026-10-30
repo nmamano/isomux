@@ -571,7 +571,9 @@ Cosas que puedes hacer por él:
   "settings.room.viewLevelInfo.notify":
     "También un sonido cuando un agente de la sala te responde mientras Isomux está en segundo plano.",
   "settings.room.viewLevelInfo.push":
-    "También una notificación en tus dispositivos cuando un agente de la sala te responde. Actívala en cada dispositivo en Integraciones → Avisos.",
+    "También una notificación en tus dispositivos cuando un agente de la sala te responde.",
+  "settings.room.pushTurnOn": "Activar en este dispositivo",
+  "settings.room.pushOn": "Activado en este dispositivo.",
 
   "settings.theme.intro":
     "Se guarda en este navegador. También puedes hacer clic en la ventana de la oficina para recorrer los temas sin abrir esta página.",

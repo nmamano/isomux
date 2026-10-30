@@ -571,7 +571,9 @@ Coses que pots fer per ell:
   "settings.room.viewLevelInfo.notify":
     "També un so quan un agent de la sala et respon mentre Isomux és en segon pla.",
   "settings.room.viewLevelInfo.push":
-    "També una notificació als teus dispositius quan un agent de la sala et respon. Activa-la a cada dispositiu a Integracions → Avisos.",
+    "També una notificació als teus dispositius quan un agent de la sala et respon.",
+  "settings.room.pushTurnOn": "Activa-ho en aquest dispositiu",
+  "settings.room.pushOn": "Activat en aquest dispositiu.",
 
   "settings.theme.intro":
     "Es desa en aquest navegador. També pots fer clic a la finestra de l'oficina per recórrer els temes sense obrir aquesta pàgina.",

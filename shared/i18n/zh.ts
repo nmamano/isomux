@@ -536,7 +536,9 @@ App 的一些原则：
   "settings.room.viewLevelInfo.notify":
     "另外，Isomux 在后台时，房间中的智能体回复你会播放声音。",
   "settings.room.viewLevelInfo.push":
-    "另外，房间中的智能体回复你时，向你的设备发送通知。在“集成 → 呼叫”中为每台设备开启。",
+    "另外，房间中的智能体回复你时，向你的设备发送通知。",
+  "settings.room.pushTurnOn": "在此设备上开启",
+  "settings.room.pushOn": "已在此设备上开启。",
   "settings.theme.intro":
     "存储在此浏览器中。也可以点击办公室的窗户来切换主题，无需打开此页面。",
   "settings.device.intro":

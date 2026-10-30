@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { Fragment, useRef } from "react";
 import {
   ROOM_VIEW_LEVELS,
   type RoomViewLevel,
@@ -158,11 +158,14 @@ const LEVEL_MEANING: Record<RoomViewLevel, PlainMessageKey> = {
   push: "settings.room.viewLevelInfo.push",
 };
 
-// What each level means, under the names the control's steps show.
+// What each level means, under the names the control's steps show. `push`,
+// when given, renders under the Push meaning (the this-device control).
 export function RoomViewLevelLegend({
   style,
+  push,
 }: {
   style?: React.CSSProperties;
+  push?: React.ReactNode;
 }): React.ReactElement {
   const { t } = useI18n();
   return (
@@ -183,12 +186,19 @@ export function RoomViewLevelLegend({
       }}
     >
       {ROOM_VIEW_LEVELS.map((l) => (
-        <li key={l} data-view-level={l} style={{ display: "contents" }}>
-          <strong style={{ color: "var(--text-primary)", fontWeight: 600 }}>
-            {t(LEVEL_NAME[l])}
-          </strong>
-          <span>{t(LEVEL_MEANING[l])}</span>
-        </li>
+        <Fragment key={l}>
+          <li data-view-level={l} style={{ display: "contents" }}>
+            <strong style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+              {t(LEVEL_NAME[l])}
+            </strong>
+            <span>{t(LEVEL_MEANING[l])}</span>
+          </li>
+          {l === "push" && push && (
+            <li data-room-push-device style={{ gridColumn: 2 }}>
+              {push}
+            </li>
+          )}
+        </Fragment>
       ))}
     </ul>
   );

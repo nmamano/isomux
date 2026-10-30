@@ -70,3 +70,47 @@ it("names all five steps of the control, the same control as the Settings > Room
   ).toBeTruthy();
   view.unmount();
 });
+
+// Push turns on for a device, not a room (task b8a7836d): while Push is the
+// pending level, the legend holds the this-device control under the Push
+// meaning, so the member never needs the Pager page for it.
+it("puts the this-device control under the Push meaning while Push is the pending level, before Save", async () => {
+  const pushReads = () =>
+    h.calls.filter((c) => c.path.endsWith("/push-devices")).length;
+  // An office without a key: the control says why it has no button.
+  h.setOnCall((c) =>
+    c.path.endsWith("/push-devices")
+      ? { publicKey: "", devices: [] }
+      : undefined,
+  );
+  const slot = (view: View) =>
+    legendOf(view)?.querySelector<HTMLElement>("[data-room-push-device]") ??
+    null;
+  const { view } = await mount({});
+  expect(slot(view)).toBeNull();
+  expect(pushReads()).toBe(0);
+
+  await pick(view, "push");
+  const placed = slot(view)!;
+  expect(placed).not.toBeNull();
+  // Under the Push meaning, which is the legend's last line.
+  const pushName = legendOf(view)!.querySelector(
+    '[data-view-level="push"] strong',
+  )!;
+  expect(
+    pushName.compareDocumentPosition(placed) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  await h.settleUntil(
+    () => placed.querySelector('[data-testid="push-unsupported"]') !== null,
+  );
+  expect(pushReads()).toBe(1);
+
+  await pick(view, "notify");
+  expect(slot(view)).toBeNull();
+  view.unmount();
+
+  // A room already at Push shows it on open.
+  const atPush = await mount({ notifRooms: ["ward"], pushRooms: ["ward"] });
+  expect(slot(atPush.view)).not.toBeNull();
+  atPush.view.unmount();
+});

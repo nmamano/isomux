@@ -1,6 +1,9 @@
-// Integrations → Pager → This device: switch pager pushes on or off for
-// this browser, send a test, and remove the member's other devices (a
-// collapsed row). Server side: server/web-push-*.ts and the pushDevices.* routes.
+// Notifications on this device. PushDevicesBlock is Integrations → Pager →
+// This device: switch pushes on or off for this browser, send a test, and
+// remove the member's other devices (a collapsed row). PushThisDevice is the
+// "Turn on for this device" control under the Push level of the room view
+// legend. Both read and change the same devices through usePushDevices.
+// Server side: server/web-push-*.ts and the pushDevices.* routes.
 
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
@@ -31,14 +34,14 @@ const PUSH_FAILURE_KEYS = {
   unreachable: "push.failure.unreachable",
 } as const satisfies Record<PushDeviceFailure, MessageKey>;
 
-export function PushDevicesBlock({ username }: { username: string }) {
+// The member's push devices and this browser's place among them.
+export function usePushDevices(username: string) {
   const { t } = useI18n();
   const path = `/api/users/${encodeURIComponent(username)}/push-devices`;
   const [env] = useState(readPushEnv);
   const [data, setData] = useState<PushDevicesRes | null>(null);
   const [thisId, setThisId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [othersOpen, setOthersOpen] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
@@ -93,6 +96,8 @@ export function PushDevicesBlock({ username }: { username: string }) {
     run(async () => {
       // First, inside the tap: iOS asks only from a user gesture.
       const permission = await Notification.requestPermission();
+      // A dismissed prompt is not a refusal: nothing to say, tap again.
+      if (permission === "default") return null;
       if (permission !== "granted") {
         return { ok: false, text: t("push.settings.blocked") };
       }
@@ -130,10 +135,111 @@ export function PushDevicesBlock({ username }: { username: string }) {
       };
     });
 
-  const others = data?.devices.filter((d) => d.id !== thisId) ?? [];
   const blocked =
     support === "ok" && Notification.permission === "denied" && !thisId;
-  const on = thisId !== null;
+
+  return {
+    data,
+    support,
+    thisId,
+    on: thisId !== null,
+    blocked,
+    busy,
+    status,
+    turnOn,
+    remove,
+    test,
+  };
+}
+
+// Under the Push level of the room view legend: turn on notifications for
+// this browser without a trip to the Pager page.
+export function PushThisDevice({
+  username,
+}: {
+  username: string;
+}): React.ReactElement | null {
+  const { t } = useI18n();
+  const { data, support, on, blocked, busy, status, turnOn } =
+    usePushDevices(username);
+  // Set by a tap here, so a browser that was on before says nothing.
+  const [tapped, setTapped] = useState(false);
+
+  if (!data) return null;
+  if (support !== "ok") {
+    return (
+      <p
+        data-testid="push-unsupported"
+        data-reason={support}
+        style={{ ...dialogHint, margin: 0 }}
+      >
+        {support === "ios-install"
+          ? t("push.settings.iosInstall")
+          : t("push.settings.unsupported")}
+      </p>
+    );
+  }
+  if (on)
+    return tapped
+      ? statusLine({ ok: true, text: t("settings.room.pushOn") })
+      : null;
+  // A refused prompt leaves the browser blocked: one line says so.
+  if (blocked) {
+    return (
+      <p style={{ ...dialogHint, margin: 0 }}>{t("push.settings.blocked")}</p>
+    );
+  }
+  return (
+    <div style={row}>
+      <button
+        type="button"
+        data-testid="push-turn-on"
+        onClick={() => {
+          setTapped(true);
+          void turnOn();
+        }}
+        disabled={busy}
+        style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
+      >
+        {t("settings.room.pushTurnOn")}
+      </button>
+      {status && statusLine(status)}
+    </div>
+  );
+}
+
+function statusLine(status: { ok: boolean; text: string }) {
+  return (
+    <span
+      role="status"
+      data-testid="push-status"
+      data-ok={status.ok}
+      style={{
+        fontSize: 11,
+        color: status.ok ? "var(--text-muted)" : "var(--red-text)",
+      }}
+    >
+      {status.text}
+    </span>
+  );
+}
+
+export function PushDevicesBlock({ username }: { username: string }) {
+  const { t } = useI18n();
+  const {
+    data,
+    support,
+    thisId,
+    on,
+    blocked,
+    busy,
+    status,
+    turnOn,
+    remove,
+    test,
+  } = usePushDevices(username);
+  const [othersOpen, setOthersOpen] = useState(false);
+  const others = data?.devices.filter((d) => d.id !== thisId) ?? [];
 
   return (
     <div style={cardStyle} data-testid="push-devices">
@@ -173,19 +279,7 @@ export function PushDevicesBlock({ username }: { username: string }) {
               {t("push.settings.test")}
             </button>
           )}
-          {status && (
-            <span
-              role="status"
-              data-testid="push-status"
-              data-ok={status.ok}
-              style={{
-                fontSize: 11,
-                color: status.ok ? "var(--text-muted)" : "var(--red-text)",
-              }}
-            >
-              {status.text}
-            </span>
-          )}
+          {status && statusLine(status)}
         </div>
       ) : (
         <p

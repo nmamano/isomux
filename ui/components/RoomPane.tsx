@@ -35,6 +35,7 @@ import {
   RoomViewLevelControl,
   RoomViewLevelLegend,
 } from "./RoomViewLevelControl.tsx";
+import { PushThisDevice } from "./PushDevicesBlock.tsx";
 import {
   UnsavedChangesPrompt,
   useUnsavedChangesPrompt,
@@ -559,7 +560,14 @@ export function RoomPane({
                 roomName={room.name}
               />
             </div>
-            <RoomViewLevelLegend style={{ marginTop: 10 }} />
+            <RoomViewLevelLegend
+              style={{ marginTop: 10 }}
+              push={
+                view === "push" && self ? (
+                  <PushThisDevice username={self.name} />
+                ) : undefined
+              }
+            />
           </>
         )}
 

@@ -578,7 +578,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.viewLevelInfo.notify":
     "Makes a sound when an agent in the room answers you while Isomux is in the background.",
   "settings.room.viewLevelInfo.push":
-    "Also sends a notification to your devices when an agent in the room answers you. Turn it on for each device in Integrations → Pager.",
+    "Also sends a notification to your devices when an agent in the room answers you.",
+  "settings.room.pushTurnOn": "Turn on for this device",
+  "settings.room.pushOn": "On for this device.",
 
   "settings.theme.intro":
     "Stored in this browser. You can also click the office window to walk through the themes without opening this page.",

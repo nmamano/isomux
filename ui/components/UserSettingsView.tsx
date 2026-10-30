@@ -90,6 +90,7 @@ import {
   RoomViewLevelControl,
   RoomViewLevelLegend,
 } from "./RoomViewLevelControl.tsx";
+import { PushThisDevice } from "./PushDevicesBlock.tsx";
 import { forgetThisDevice } from "../push-subscription.ts";
 import {
   getSettingsGroupsOpen,
@@ -1313,6 +1314,21 @@ function UserEditPanel({
     // The viewer's own tab order, also when an owner edits another member.
     rooms.map((r) => r.id),
   );
+  // A row's drafted view level. A room without access reads as hidden, and
+  // its control is locked.
+  function draftLevel(roomId: string): RoomViewLevel {
+    if (!accessibleForPrefs.includes(roomId)) return "hidden";
+    return roomViewLevel(
+      {
+        hidden: hiddenSetting,
+        tucked: tuckedSetting,
+        notifRooms: notifSetting,
+        pushRooms: pushSetting,
+      },
+      roomId,
+    );
+  }
+  const anyPush = rowsForPrefs.some((r) => draftLevel(r.id) === "push");
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
   );
@@ -1761,7 +1777,12 @@ function UserEditPanel({
               <p style={sectionHintStyle}>{t("settings.profile.accessHint")}</p>
             )}
             {isMe && (
-              <RoomViewLevelLegend style={{ marginTop: 8, fontSize: 12 }} />
+              <RoomViewLevelLegend
+                style={{ marginTop: 8, fontSize: 12 }}
+                push={
+                  anyPush ? <PushThisDevice username={user.name} /> : undefined
+                }
+              />
             )}
             <div
               style={{
@@ -1830,19 +1851,7 @@ function UserEditPanel({
               ) : (
                 rowsForPrefs.map((r) => {
                   const hasAccess = accessibleForPrefs.includes(r.id);
-                  // A room without access reads as hidden, and its
-                  // control is locked.
-                  const level: RoomViewLevel = hasAccess
-                    ? roomViewLevel(
-                        {
-                          hidden: hiddenSetting,
-                          tucked: tuckedSetting,
-                          notifRooms: notifSetting,
-                          pushRooms: pushSetting,
-                        },
-                        r.id,
-                      )
-                    : "hidden";
+                  const level = draftLevel(r.id);
                   return (
                     <div
                       key={r.id}
