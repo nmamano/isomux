@@ -668,4 +668,69 @@ describe("translateSDKMessage - subagent origin", () => {
     });
     expect(own).not.toHaveProperty("subagent");
   });
+
+  // Task 62a7fe97. For a BACKGROUND Agent call the SDK forwards the
+  // subagent's text and thinking on the agent's stream (forwardSubagentText
+  // off, SDK 0.3.293). That is input for the agent, not its reply to the
+  // member: it must not become the agent's own text or thinking. The
+  // subagent's tool calls stay, marked.
+  function mixedTurn(parent: string | null, model = "claude-x") {
+    return {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        model,
+        content: [
+          { type: "thinking", thinking: "weigh the options" },
+          { type: "text", text: "## Verdict\n\nThe project is fine." },
+          { type: "tool_use", id: "toolu_child", name: "Read", input: {} },
+        ],
+      },
+      parent_tool_use_id: parent,
+    };
+  }
+
+  it("does not relay a subagent's text or thinking as the agent's own", () => {
+    // ENABLING CONDITION: the same turn from the agent's own loop gives
+    // both, so the drop below is caused by the subagent mark alone.
+    expect(translate(mixedTurn(null)).map((e) => e.kind)).toEqual([
+      "thinking",
+      "assistant_text",
+      "tool_call",
+    ]);
+    const events = translate(mixedTurn("toolu_parent"));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: "tool_call",
+      toolUseId: "toolu_child",
+      subagent: { parentToolUseId: "toolu_parent" },
+    });
+  });
+
+  // A synthetic block is the CLI's notice (limits, sign-in), not the
+  // subagent's voice. A background subagent can hit it while the agent's
+  // own loop is idle, so it is the only copy and stays.
+  it("still relays a subagent's synthetic notice, and its sign-in signal", () => {
+    const notice = translate({
+      type: "assistant",
+      message: {
+        model: "<synthetic>",
+        content: [{ type: "text", text: "queue flushed" }],
+      },
+      parent_tool_use_id: "toolu_parent",
+    });
+    expect(notice).toEqual([{ kind: "system_text", text: "queue flushed" }]);
+    const signIn = translate({
+      type: "assistant",
+      error: "authentication_failed",
+      message: {
+        model: "<synthetic>",
+        content: [
+          { type: "text", text: "Invalid API key · Please run /login" },
+        ],
+      },
+      parent_tool_use_id: "toolu_parent",
+    });
+    expect(signIn.map((e) => e.kind)).toContain("auth_needed");
+  });
 });

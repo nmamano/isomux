@@ -335,12 +335,15 @@ export type NormalizedEvent =
   // visible trigger for the wake turn that follows a settle. Foreground
   // subagents are deliberately filtered out by the adapter (they already
   // render as tool calls). `label` is pre-sanitized one-line text; `phase`
-  // lets the UI style settle outcomes distinctly.
+  // lets the UI style settle outcomes distinctly. `report` is a background
+  // agent's final message, set only on its settle; the UI shows it when the
+  // member opens the line.
   | {
       kind: "task_lifecycle";
       phase: "started" | "completed" | "failed" | "stopped";
       taskId: string;
       label: string;
+      report?: string;
     }
   // The full list of background work the session runs now (REPLACE
   // semantics), sent only when it changes: Claude from the SDK's

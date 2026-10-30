@@ -1358,9 +1358,10 @@ export type ImageSink = (args: {
 // `parent_tool_use_id` to the Agent/Task tool_use id when the message comes
 // from a subagent, and null when it comes from the agent's own loop. Subagent
 // tool calls ride the SAME message stream as the parent's (the SDK forwards
-// tool_use/tool_result blocks from subagents unconditionally; only their text
-// is gated behind `forwardSubagentText`), so without this the transcript reads
-// as one flat run of tool calls with no way to tell who made them.
+// tool_use/tool_result blocks from subagents unconditionally, and the text of
+// a background subagent too, even with `forwardSubagentText` off), so without
+// this the transcript reads as one flat run of tool calls with no way to tell
+// who made them.
 //
 // `subagent_type` and `task_description` are model-authored free text, so they
 // go through the same one-line cap as the task breadcrumbs. Older SDKs omit
@@ -1516,8 +1517,12 @@ export function* translateSDKMessage(
             yield { kind: "system_text", text: refusal };
             continue;
           }
-          if (!isSynthetic) yield { kind: "assistant_text", text: block.text };
-          else if (claudeAccessDenied)
+          // A subagent's own words are input for the agent, which relays
+          // what matters in its reply; the SDK forwards them only for a
+          // background subagent. Its synthetic notices stay (task 62a7fe97).
+          if (!isSynthetic) {
+            if (!subagent) yield { kind: "assistant_text", text: block.text };
+          } else if (claudeAccessDenied)
             yield {
               kind: "system_text",
               text: block.text,
@@ -1536,7 +1541,7 @@ export function* translateSDKMessage(
             input: (block.input ?? {}) as Record<string, unknown>,
             ...(subagent ? { subagent } : {}),
           };
-        } else if (block.type === "thinking" && block.thinking) {
+        } else if (block.type === "thinking" && block.thinking && !subagent) {
           yield { kind: "thinking", text: block.thinking };
         }
       }
@@ -1682,6 +1687,10 @@ export function* translateSDKMessage(
 // breadcrumbs on one agent and 78 of 78 on another, which in turn made the
 // earlyoom incidents in the ad86462c diagnosis look like mid-run backgrounding.
 //
+// An agent task's settle summary is the subagent's whole final report, so its
+// settle line names the task by its description and carries the summary as
+// `report`, for the UI to show when the member opens the line (task 62a7fe97).
+//
 // Settle breadcrumbs (task_notification) are emitted only for tasks tracked
 // at start, which both filters foreground-subagent noise and dedupes repeated
 // notifications for the same task. skip_transcript (ambient/housekeeping
@@ -1701,6 +1710,7 @@ interface TrackedTask {
   // skip_transcript on task_started mutes the settle breadcrumb too - the
   // task is still tracked so its notification stays filtered/deduped.
   silent: boolean;
+  agent: boolean;
 }
 
 // Usage-limit stops, for the resume after the reset (server/limit-resume.ts).
@@ -1810,6 +1820,9 @@ function backgroundTaskKind(taskType: string): BackgroundTask["kind"] {
 export class TaskBreadcrumbTracker {
   private tracked = new Map<string, TrackedTask>();
   private bgToolUseIds = new Set<string>();
+  // Foreground agent tasks, by task id: task_updated names no task type, so
+  // an agent moved to the background is known from its task_started.
+  private fgAgentTaskIds = new Set<string>();
 
   observe(msg: SDKMessage): NormalizedEvent[] {
     if (msg.type === "assistant") {
@@ -1837,6 +1850,13 @@ export class TaskBreadcrumbTracker {
         msg.task_type === "local_workflow" ||
         (msg.tool_use_id !== undefined &&
           this.bgToolUseIds.has(msg.tool_use_id));
+      const agent =
+        msg.task_type !== undefined &&
+        backgroundTaskKind(msg.task_type) === "agent";
+      if (!isBackground && agent) {
+        this.fgAgentTaskIds.add(msg.task_id);
+        trimInsertionOrdered(this.fgAgentTaskIds, TRACKED_TASKS_MAX);
+      }
       if (!isBackground || this.tracked.has(msg.task_id)) return [];
       // The correlated tool_use id is consumed - drop it so the bounded set
       // holds only ids still awaiting their task_started.
@@ -1844,13 +1864,13 @@ export class TaskBreadcrumbTracker {
         this.bgToolUseIds.delete(msg.tool_use_id);
       const desc = sanitizeTaskLabel(msg.description || msg.task_id);
       const silent = msg.skip_transcript === true;
-      this.tracked.set(msg.task_id, { desc, silent });
+      this.tracked.set(msg.task_id, { desc, silent, agent });
       trimInsertionOrdered(this.tracked, TRACKED_TASKS_MAX);
       if (silent) return [];
       const kindWord =
         msg.task_type === "local_workflow"
           ? "Workflow"
-          : msg.task_type === "local_agent"
+          : agent
             ? "Background agent"
             : "Background task";
       return [
@@ -1871,7 +1891,8 @@ export class TaskBreadcrumbTracker {
       if (msg.patch?.is_backgrounded !== true || this.tracked.has(msg.task_id))
         return [];
       const desc = sanitizeTaskLabel(msg.patch.description || msg.task_id);
-      this.tracked.set(msg.task_id, { desc, silent: false });
+      const agent = this.fgAgentTaskIds.delete(msg.task_id);
+      this.tracked.set(msg.task_id, { desc, silent: false, agent });
       trimInsertionOrdered(this.tracked, TRACKED_TASKS_MAX);
       return [
         {
@@ -1884,10 +1905,25 @@ export class TaskBreadcrumbTracker {
     }
 
     if (msg.subtype === "task_notification") {
+      this.fgAgentTaskIds.delete(msg.task_id);
       const rec = this.tracked.get(msg.task_id);
       if (!rec) return []; // foreground noise or duplicate notification
       this.tracked.delete(msg.task_id);
       if (rec.silent || msg.skip_transcript === true) return [];
+      if (rec.agent) {
+        const report = msg.summary?.trim();
+        return [
+          {
+            kind: "task_lifecycle",
+            phase: msg.status,
+            taskId: msg.task_id,
+            label: sanitizeTaskLabel(
+              `Background agent ${msg.status}: ${rec.desc}`,
+            ),
+            ...(report ? { report } : {}),
+          },
+        ];
+      }
       // The SDK summary is already a good one-liner ('Background command
       // "…" completed (exit code 0)'); fall back to a constructed label.
       // Sanitize the final string either way so event.label never exceeds

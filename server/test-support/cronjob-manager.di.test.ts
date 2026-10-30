@@ -2024,6 +2024,57 @@ describe("CronjobManager run text in each reader's language", () => {
     }
   });
 
+  // Task 62a7fe97: a background agent's report rides on its settle
+  // breadcrumb, so a cron run transcript keeps it as the agent chat does.
+  it("keeps a background agent's report on its settle breadcrumb", async () => {
+    const REPORT = "## Verdict\n\nFine.";
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) => {
+          s.pushAll([
+            {
+              kind: "task_lifecycle",
+              phase: "completed",
+              taskId: "a1",
+              label: "agent settled",
+              report: REPORT,
+            },
+            {
+              kind: "task_lifecycle",
+              phase: "completed",
+              taskId: "b1",
+              label: "command settled",
+            },
+            { kind: "turn_completed", status: "completed" },
+          ]);
+        },
+      },
+    });
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const job = mgr.addCronjob(intervalInput("TaskReport"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    try {
+      await waitFor(
+        () => mgr.findRun(job.id, run.id)?.status === "completed",
+        "run completed",
+      );
+      const taskEvents = events.flatMap((event) =>
+        event.type === "log_entry" && event.entry.metadata?.taskEvent
+          ? [event.entry.metadata.taskEvent]
+          : [],
+      );
+      expect(taskEvents).toEqual([
+        { taskId: "a1", phase: "completed", report: REPORT },
+        { taskId: "b1", phase: "completed" },
+      ]);
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
+  });
+
   it("stores a follow-up's missing cwd once for every typist, and answers the API in English", async () => {
     const { mgr, job, run, cwd, errors } = await completedRun();
     rmSync(cwd, { recursive: true });

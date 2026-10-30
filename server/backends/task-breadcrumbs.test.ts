@@ -203,6 +203,152 @@ describe("TaskBreadcrumbTracker - agents and workflows", () => {
   });
 });
 
+// Task 62a7fe97. For an agent task, task_notification.summary is the
+// subagent's whole final report (markdown, many lines). As a label it was cut
+// to one line with raw markdown marks. The settle line names the task by its
+// description, and the report rides along as `report` for the UI to expand.
+// A command or workflow summary is already a one-line status and stays the
+// label, with no report.
+describe("TaskBreadcrumbTracker - agent reports (62a7fe97)", () => {
+  const REPORT = "**1. Verdict:** The project is not derailed.\n\n- one\n- two";
+
+  function bgAgent(t: TaskBreadcrumbTracker, taskType: string) {
+    t.observe(
+      assistantToolUse("toolu_bg", "Agent", {
+        prompt: "audit",
+        run_in_background: true,
+      }),
+    );
+    const started = t.observe(
+      taskStarted({
+        task_id: "a901",
+        tool_use_id: "toolu_bg",
+        task_type: taskType,
+        description: "Audit the codebase",
+      }),
+    );
+    // ENABLING CONDITION: the task is tracked as background work.
+    expect(started).toHaveLength(1);
+  }
+
+  function settle(t: TaskBreadcrumbTracker, summary: string, taskId = "a901") {
+    const out = t.observe(
+      taskNotification({ task_id: taskId, tool_use_id: "toolu_bg", summary }),
+    );
+    expect(out).toHaveLength(1);
+    return out[0] as { phase: string; label: string; report?: string };
+  }
+
+  // Every agent task type the CLI has (backgroundTaskKind's "agent" set).
+  for (const taskType of ["local_agent", "remote_agent", "in_process_teammate"])
+    it(`labels a ${taskType} settle by its description and carries the report`, () => {
+      const t = new TaskBreadcrumbTracker();
+      bgAgent(t, taskType);
+      const ev = settle(t, `\n  ${REPORT}  \n`);
+      expect(ev.phase).toBe("completed");
+      expect(ev.label).toContain("Audit the codebase");
+      expect(ev.label).not.toContain("Verdict");
+      expect(ev.label).not.toContain("**");
+      // Trimmed, otherwise whole: line breaks and markdown kept for rendering.
+      expect(ev.report).toBe(REPORT);
+    });
+
+  it("omits the report when an agent's summary is empty or blank", () => {
+    for (const summary of ["", "  \n "]) {
+      const t = new TaskBreadcrumbTracker();
+      bgAgent(t, "local_agent");
+      const ev = settle(t, summary);
+      expect(ev.label).toContain("Audit the codebase");
+      expect(ev).not.toHaveProperty("report");
+    }
+  });
+
+  it("keeps the report whole past the label cap", () => {
+    const long = `${"word ".repeat(200)}end`;
+    const t = new TaskBreadcrumbTracker();
+    bgAgent(t, "local_agent");
+    const ev = settle(t, long);
+    expect(ev.label.length).toBeLessThanOrEqual(200);
+    expect(ev.report).toBe(long);
+  });
+
+  it("does the same for a foreground agent moved to the background", () => {
+    const t = new TaskBreadcrumbTracker();
+    // A FOREGROUND Agent call: its task_started is silent, but its type is
+    // what later marks the settle as an agent's.
+    t.observe(assistantToolUse("toolu_fg", "Agent", { prompt: "audit" }));
+    expect(
+      t.observe(
+        taskStarted({
+          task_id: "a902",
+          tool_use_id: "toolu_fg",
+          task_type: "local_agent",
+          description: "Audit the codebase",
+        }),
+      ),
+    ).toHaveLength(0);
+    const moved = t.observe({
+      ...(taskUpdated({
+        is_backgrounded: true,
+        description: "Audit the codebase",
+      }) as object),
+      task_id: "a902",
+    } as unknown as SDKMessage);
+    expect(moved).toHaveLength(1);
+    const ev = settle(t, REPORT, "a902");
+    expect(ev.label).toContain("Audit the codebase");
+    expect(ev.label).not.toContain("Verdict");
+    expect(ev.report).toBe(REPORT);
+  });
+
+  it("keeps the summary label and adds no report for a command or a workflow", () => {
+    const summary =
+      'Background command "Poll the gate log" completed (exit code 0)';
+    const bash = new TaskBreadcrumbTracker();
+    bash.observe(bgBashLaunch());
+    bash.observe(taskStarted());
+    const [cmd] = bash.observe(taskNotification({ summary }));
+    expect(cmd).toEqual({
+      kind: "task_lifecycle",
+      phase: "completed",
+      taskId: "b123",
+      label: summary,
+    });
+
+    // A foreground command moved to the background: same.
+    const moved = new TaskBreadcrumbTracker();
+    moved.observe(assistantToolUse("toolu_1", "Bash", { command: "bun test" }));
+    moved.observe(taskStarted());
+    moved.observe(taskUpdated({ is_backgrounded: true, description: "x" }));
+    const [cmd2] = moved.observe(taskNotification({ summary }));
+    expect(cmd2).not.toHaveProperty("report");
+    expect((cmd2 as { label: string }).label).toBe(summary);
+
+    const wf = new TaskBreadcrumbTracker();
+    wf.observe(
+      taskStarted({
+        task_id: "w1",
+        task_type: "local_workflow",
+        description: "review-changes",
+        tool_use_id: undefined,
+      }),
+    );
+    const [done] = wf.observe(
+      taskNotification({
+        task_id: "w1",
+        tool_use_id: undefined,
+        summary: "Workflow review-changes completed",
+      }),
+    );
+    expect(done).toEqual({
+      kind: "task_lifecycle",
+      phase: "completed",
+      taskId: "w1",
+      label: "Workflow review-changes completed",
+    });
+  });
+});
+
 describe("TaskBreadcrumbTracker - mid-run backgrounding", () => {
   it("ignores task_updated without is_backgrounded", () => {
     const t = new TaskBreadcrumbTracker();

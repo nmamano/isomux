@@ -829,7 +829,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
         // Background-task breadcrumb - same shape as the agent path so cron
         // run transcripts also show background work start/settle.
         writeLog(active, "system", ev.label, {
-          taskEvent: { taskId: ev.taskId, phase: ev.phase },
+          taskEvent: {
+            taskId: ev.taskId,
+            phase: ev.phase,
+            ...(ev.report ? { report: ev.report } : {}),
+          },
         });
         break;
       }

@@ -818,13 +818,18 @@ export const LogEntryCard = memo(function LogEntryCard({
       // agent-manager's task_lifecycle case). Render with a status dot so
       // settle outcomes scan at a glance; everything else stays SystemMessage.
       const taskEvent = entry.metadata?.taskEvent as
-        | { phase?: string }
+        | { phase?: string; report?: unknown }
         | undefined;
       if (taskEvent) {
         return (
           <TaskBreadcrumb
             content={display}
             phase={taskEvent.phase}
+            report={
+              typeof taskEvent.report === "string" ? taskEvent.report : ""
+            }
+            tasks={tasks}
+            onOpenTask={onOpenTask}
             isMobile={isMobile}
           />
         );
@@ -2355,32 +2360,33 @@ function SystemMessage({
 // system entry). Same unobtrusive centered style as single-line SystemMessage,
 // plus a CSS status dot - a plain <span>, deliberately not a Unicode glyph
 // (iOS Safari emoji-renders glyphs like ▶/●, overriding CSS color).
+// A background agent's settle carries its final report: the line is then a
+// toggle that opens the report below it, so the report is not shown as the
+// agent's own message.
 function TaskBreadcrumb({
   content,
   phase,
+  report,
+  tasks,
+  onOpenTask,
   isMobile,
 }: {
   content: string;
   phase?: string;
+  report: string;
+  tasks?: TaskMap;
+  onOpenTask?: (id: string) => void;
   isMobile?: boolean;
 }) {
+  const [open, setOpen] = useState(false);
   const dotColor =
     phase === "failed"
       ? "var(--red)"
       : phase === "completed"
         ? "var(--green)"
         : "var(--text-ghost)"; // started / stopped / unknown
-  return (
-    <div
-      style={{
-        margin: "8px 0",
-        padding: "6px 0",
-        textAlign: "center",
-        color: "var(--text-ghost)",
-        fontSize: isMobile ? 13 : 11,
-        fontStyle: "italic",
-      }}
-    >
+  const line = (
+    <>
       <span
         style={{
           display: "inline-block",
@@ -2393,6 +2399,57 @@ function TaskBreadcrumb({
         }}
       />
       {content}
+    </>
+  );
+  const lineStyle = {
+    color: "var(--text-ghost)",
+    fontSize: isMobile ? 13 : 11,
+    fontStyle: "italic",
+  } as const;
+  if (!report)
+    return (
+      <div
+        style={{
+          margin: "8px 0",
+          padding: "6px 0",
+          textAlign: "center",
+          ...lineStyle,
+        }}
+      >
+        {line}
+      </div>
+    );
+  return (
+    <div style={{ margin: "8px 0", padding: "6px 0", textAlign: "center" }}>
+      <button
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        style={{
+          border: "none",
+          background: "transparent",
+          padding: 0,
+          cursor: "pointer",
+          fontFamily: "inherit",
+          ...lineStyle,
+        }}
+      >
+        {line} <StatusShape kind="triangle" rotate={open ? 90 : 0} />
+      </button>
+      {open && (
+        <div
+          {...noTranslate()}
+          style={{
+            marginTop: 6,
+            padding: "10px 14px",
+            borderRadius: 10,
+            border: "1px solid var(--border-light)",
+            textAlign: "left",
+            fontSize: isMobile ? 15 : undefined,
+          }}
+        >
+          <Markdown content={report} tasks={tasks} onOpenTask={onOpenTask} />
+        </div>
+      )}
     </div>
   );
 }

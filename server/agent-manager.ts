@@ -5666,10 +5666,14 @@ export function createAgentManager(deps: ManagerDeps) {
       }
       case "task_lifecycle":
         // Background-task breadcrumb (start / settle). metadata.taskEvent
-        // lets the UI style settle outcomes; the label is pre-sanitized
-        // one-line text from the backend adapter.
+        // lets the UI style settle outcomes and open an agent's report; the
+        // label is pre-sanitized one-line text from the backend adapter.
         addLogEntry(agentId, "system", ev.label, {
-          taskEvent: { taskId: ev.taskId, phase: ev.phase },
+          taskEvent: {
+            taskId: ev.taskId,
+            phase: ev.phase,
+            ...(ev.report ? { report: ev.report } : {}),
+          },
         });
         break;
       case "provider_capacity_retry":
