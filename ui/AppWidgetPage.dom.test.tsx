@@ -833,19 +833,40 @@ for (const [variant, homeScreen] of [
 // or without a chat, so it is in sight without opening the panel. It stays in
 // the window (no target). With nothing stored the window is the app's own
 // Home Screen install, where the office is out of scope: no Back link. Off
-// the Home Screen the browser has its own Back.
-for (const [variant, device, stored, chat, back] of [
-  ["Home Screen, chat", "home", "/agents/one?x=1#end", true, true],
-  ["Home Screen, no chat", "home", "/apps", false, true],
-  ["Home Screen, nothing stored", "home", null, true, false],
-  ["Home Screen, another host stored", "home", "//evil.example/", true, false],
-  ["iPhone Safari", "safari", "/apps", true, false],
-  ["desktop", "desktop", "/apps", false, false],
+// the Home Screen the browser has its own Back. When iOS opened the app page
+// as a new page, sessionStorage is empty, but the office's localStorage mark
+// says the window is the office's: Back goes to the office home (Nil,
+// 2026-10-30).
+for (const [variant, device, stored, chat, back, mark = false] of [
+  [
+    "Home Screen, chat",
+    "home",
+    "/agents/one?x=1#end",
+    true,
+    "/agents/one?x=1#end",
+  ],
+  ["Home Screen, no chat", "home", "/apps", false, "/apps"],
+  ["Home Screen, nothing stored", "home", null, true, null],
+  ["Home Screen, another host stored", "home", "//evil.example/", true, null],
+  ["Home Screen, only the office mark", "home", null, true, "/", true],
+  [
+    "Home Screen, a stored page and the mark",
+    "home",
+    "/apps",
+    false,
+    "/apps",
+    true,
+  ],
+  ["iPhone Safari", "safari", "/apps", true, null, true],
+  ["desktop", "desktop", "/apps", false, null, true],
 ] as const) {
   it(`links back to the office page the window came from (${variant})`, async () => {
     sessionStorage.clear();
-    const { OFFICE_RETURN_KEY } = await import("./home-screen-office.ts");
+    const { OFFICE_RETURN_KEY, OFFICE_WINDOW_KEY } =
+      await import("./home-screen-office.ts");
+    localStorage.removeItem(OFFICE_WINDOW_KEY);
     if (stored !== null) sessionStorage.setItem(OFFICE_RETURN_KEY, stored);
+    if (mark) localStorage.setItem(OFFICE_WINDOW_KEY, "1");
     const { asDevice, IPHONE_HOME_SCREEN } =
       await import("./test-support/ios-home-screen.ts");
     const undo =
@@ -901,7 +922,7 @@ for (const [variant, device, stored, chat, back] of [
       expect(backLinks()).toHaveLength(1);
       const link = backLinks()[0];
       expect(dock.contains(link)).toBe(true);
-      expect(link.getAttribute("href")).toBe(stored);
+      expect(link.getAttribute("href")).toBe(back);
       expect(link.hasAttribute("target")).toBe(false);
       expect(link.getAttribute("aria-label")).toBeTruthy();
       // The Back link is the only link out in the dock: no direct link.
@@ -909,7 +930,7 @@ for (const [variant, device, stored, chat, back] of [
         Array.from(dock.querySelectorAll("a")).map((a) =>
           a.getAttribute("href"),
         ),
-      ).toEqual([stored]);
+      ).toEqual([back]);
       if (chat) {
         // Opening the panel shows no direct link either, and Back stays.
         await act(async () => {
@@ -925,6 +946,7 @@ for (const [variant, device, stored, chat, back] of [
       iframesOn();
       undo();
       sessionStorage.clear();
+      localStorage.clear();
     }
   });
 }

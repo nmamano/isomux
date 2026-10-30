@@ -28,7 +28,10 @@ import {
 } from "./log-view/chat-entries.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
 import { readSafariEnv, safariHref, type SafariEnv } from "./safari-link.ts";
-import { officeReturnHref } from "./home-screen-office.ts";
+import {
+  homeScreenOfficeReturn,
+  officeReturnHref,
+} from "./home-screen-office.ts";
 import {
   INSTALL_HASH,
   heldInstallPrompt,
@@ -117,10 +120,18 @@ const WIDGET_CSS = `
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
 `;
 
-// window.sessionStorage itself throws where storage is off.
+// window.sessionStorage and window.localStorage themselves throw where
+// storage is off.
 function sessionStorageOrEmpty(): Pick<Storage, "getItem"> {
   try {
     return window.sessionStorage;
+  } catch {
+    return { getItem: () => null };
+  }
+}
+function localStorageOrEmpty(): Pick<Storage, "getItem"> {
+  try {
+    return window.localStorage;
   } catch {
     return { getItem: () => null };
   }
@@ -290,12 +301,15 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
     subscribeInstallPrompt,
     () => heldInstallPrompt() !== null,
   );
-  // The office recorded its page in this window (home-screen-office.ts): in
-  // an installed office, the app page runs in the office's window, not in the
-  // app's own installed app.
-  const [officeWindow] = useState(
-    () => officeReturnHref(sessionStorageOrEmpty()) !== null,
+  // The office page this window came from (home-screen-office.ts). Set, in
+  // an installed office, when the app page runs in the office's window, not
+  // in the app's own installed app.
+  const [officeReturn] = useState(() =>
+    readSafariEnv().ios
+      ? homeScreenOfficeReturn(sessionStorageOrEmpty(), localStorageOrEmpty())
+      : officeReturnHref(sessionStorageOrEmpty()),
   );
+  const officeWindow = officeReturn !== null;
   const install = installMode(readInstallEnv(), held, officeWindow);
   useEffect(() => {
     if (window.location.hash !== INSTALL_HASH) return;
@@ -634,9 +648,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const homeScreen = safariEnv.ios && safariEnv.standalone;
   const directHref =
     appUrl && !homeScreen ? frameStart(appUrl, startPath) : null;
-  const backHref = homeScreen
-    ? officeReturnHref(sessionStorageOrEmpty())
-    : null;
+  const backHref = homeScreen ? officeReturn : null;
   const chatReady = !!target && !!agent;
   const phoneBox = usePhonePanelBox(state.isMobile, open, dock);
   // With a chat, only the open panel's header holds the direct link; with no

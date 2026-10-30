@@ -12,6 +12,8 @@
 import { describe, expect, it } from "bun:test";
 import {
   OFFICE_RETURN_KEY,
+  OFFICE_WINDOW_KEY,
+  homeScreenOfficeReturn,
   officeReturnHref,
   rememberOfficePage,
   trackOfficePage,
@@ -61,12 +63,15 @@ describe("rememberOfficePage", () => {
 // member taps an app link: the stored page is then the one they left from,
 // not the one the office opened on.
 describe("trackOfficePage", () => {
-  function fakeWindow(storage: () => Storage) {
+  function fakeWindow(storage: () => Storage, local: () => Storage = storage) {
     const listeners = new Map<string, (() => void)[]>();
     const win = {
       location: { pathname: "/", search: "", hash: "" } as Location,
       get sessionStorage() {
         return storage();
+      },
+      get localStorage() {
+        return local();
       },
       addEventListener: (type: string, listener: () => void) => {
         listeners.set(type, [...(listeners.get(type) ?? []), listener]);
@@ -93,6 +98,18 @@ describe("trackOfficePage", () => {
     expect(storage.items.get(OFFICE_RETURN_KEY)).toBe("/agents/one?x=1");
   });
 
+  it("marks the window's localStorage as the office's", () => {
+    const session = memoryStorage();
+    const local = memoryStorage();
+    const { win } = fakeWindow(
+      () => session as unknown as Storage,
+      () => local as unknown as Storage,
+    );
+    trackOfficePage(win);
+    expect(local.items.has(OFFICE_WINDOW_KEY)).toBe(true);
+    expect(session.items.has(OFFICE_WINDOW_KEY)).toBe(false);
+  });
+
   // Reading window.sessionStorage throws where storage is blocked.
   it("does not throw when the window has no storage", () => {
     let reads = 0;
@@ -103,7 +120,8 @@ describe("trackOfficePage", () => {
     trackOfficePage(win);
     fire("pagehide");
     expect(listeners.get("pagehide")).toHaveLength(1);
-    expect(reads).toBe(2);
+    // The mark, the page now and the page it leaves.
+    expect(reads).toBe(3);
   });
 });
 
@@ -148,5 +166,36 @@ describe("officeReturnHref", () => {
 
   it("gives no link when the storage throws", () => {
     expect(officeReturnHref(throwing)).toBeNull();
+  });
+});
+
+// Nil, 2026-10-30: an app page that iOS opened as a new page in the Home
+// Screen office had an empty sessionStorage, so it showed no install entry
+// and no Back link. The office's localStorage mark still says where it runs.
+describe("homeScreenOfficeReturn", () => {
+  const marked = () => memoryStorage({ [OFFICE_WINDOW_KEY]: "1" });
+  it("prefers the stored office page", () => {
+    expect(
+      homeScreenOfficeReturn(
+        memoryStorage({ [OFFICE_RETURN_KEY]: "/apps" }),
+        marked(),
+      ),
+    ).toBe("/apps");
+  });
+
+  it("goes to the office home when only the mark is there", () => {
+    expect(homeScreenOfficeReturn(memoryStorage(), marked())).toBe("/");
+    // A stored value that is no office path does not hide the mark.
+    expect(
+      homeScreenOfficeReturn(
+        memoryStorage({ [OFFICE_RETURN_KEY]: "//evil.example/" }),
+        marked(),
+      ),
+    ).toBe("/");
+  });
+
+  it("gives nothing in an app's own Home Screen app, or when storage throws", () => {
+    expect(homeScreenOfficeReturn(memoryStorage(), memoryStorage())).toBeNull();
+    expect(homeScreenOfficeReturn(throwing, throwing)).toBeNull();
   });
 });

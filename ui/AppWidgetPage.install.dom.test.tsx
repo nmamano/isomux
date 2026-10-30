@@ -23,7 +23,8 @@ const { captureInstallPrompt, heldInstallPrompt, INSTALL_HASH } =
 const { asDevice, IPHONE_HOME_SCREEN } =
   await import("./test-support/ios-home-screen.ts");
 const { en } = await import("../shared/i18n/en.ts");
-const { OFFICE_RETURN_KEY } = await import("./home-screen-office.ts");
+const { OFFICE_RETURN_KEY, OFFICE_WINDOW_KEY } =
+  await import("./home-screen-office.ts");
 
 // ui/index.tsx does this at boot on the short-link page.
 beforeAll(() => captureInstallPrompt(window));
@@ -91,12 +92,17 @@ async function mount({
 }: {
   chat?: boolean;
   isMobile?: boolean;
-  // The office recorded its page in this window: the page runs in the
-  // installed office's window, as an app link from the office opens it.
-  officeWindow?: boolean;
+  // The page runs in the installed office's window, as an app link from the
+  // office opens it. "page": the office's page is in this page's
+  // sessionStorage. "mark": iOS opened a new page, so only the office's
+  // localStorage mark is there.
+  officeWindow?: false | "page" | "mark";
 } = {}) {
   sessionStorage.clear();
-  if (officeWindow) sessionStorage.setItem(OFFICE_RETURN_KEY, "/apps");
+  localStorage.removeItem(OFFICE_WINDOW_KEY);
+  if (officeWindow === "page")
+    sessionStorage.setItem(OFFICE_RETURN_KEY, "/apps");
+  if (officeWindow === "mark") localStorage.setItem(OFFICE_WINDOW_KEY, "1");
   setApiShim(async () => ({
     ...boot,
     appUrl: "https://hello.office.example",
@@ -411,9 +417,32 @@ it("offers no install entry in the app's own Home Screen app", async () => {
   expect(page.entries()).toHaveLength(0);
 });
 
-for (const [label, chat] of [
-  ["from the chat panel's header", true],
-  ["from the dock without a chat", false],
+// An installed Android app shares the browser's storage, so the office's
+// mark is there too: on its own it does not make the window the office's.
+it("offers no install entry in an Android app's own installed window that shares the office's mark", async () => {
+  undoDevice = asDevice({
+    userAgent:
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36",
+    platform: "Linux armv8l",
+    maxTouchPoints: 5,
+    standalone: true,
+  });
+  asChrome();
+  const page = await mount({
+    chat: true,
+    isMobile: true,
+    officeWindow: "mark",
+  });
+  await page.toggleChat();
+  expect(page.panel()).not.toBeNull();
+  expect(page.entries()).toHaveLength(0);
+});
+
+for (const [label, chat, officeWindow] of [
+  ["from the chat panel's header", true, "page"],
+  ["from the dock without a chat", false, "page"],
+  // Nil, 2026-10-30: iOS opened the app page as a new page.
+  ["in a new page of the window", true, "mark"],
 ] as const) {
   it(`sends the member to a browser to install, in the iPhone Home Screen office (${label})`, async () => {
     undoDevice = asDevice(IPHONE_HOME_SCREEN);
@@ -428,7 +457,7 @@ for (const [label, chat] of [
       },
     });
     try {
-      const page = await mount({ chat, isMobile: true, officeWindow: true });
+      const page = await mount({ chat, isMobile: true, officeWindow });
       if (chat) await page.toggleChat();
       const button = page.install();
       expect(button).not.toBeNull();
@@ -468,7 +497,7 @@ for (const [label, chat] of [
 it(`opens the browser steps for ${INSTALL_HASH} at load in the iPhone Home Screen office`, async () => {
   undoDevice = asDevice(IPHONE_HOME_SCREEN);
   window.history.replaceState(null, "", `/hello/${INSTALL_HASH}`);
-  const page = await mount({ officeWindow: true });
+  const page = await mount({ officeWindow: "page" });
   const popover = page.popover();
   expect(popover).not.toBeNull();
   expect(
