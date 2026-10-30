@@ -2652,6 +2652,10 @@ Cosas que puedes hacer por él:
   "apps.menu.install": "Instalar como app",
   "apps.actionFailed.archive": "No se pudo archivar.",
   "apps.actionFailed.unarchive": "No se pudo desarchivar.",
+  "apps.notFound.title": "app no encontrada",
+  "apps.notFound.heading": "App no encontrada",
+  "apps.notFound.body":
+    "No hay ninguna app en esta dirección, o no puedes abrirla.",
   "common.untitledConversation": "Conversación sin título",
   "schedules.human.daily": "Cada día a las {time}",
   "schedules.human.weekly": "Cada semana, {weekday} a las {time}",

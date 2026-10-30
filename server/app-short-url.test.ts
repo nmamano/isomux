@@ -23,6 +23,9 @@ describe("app short URL eligibility", () => {
       "tls-ask.ts",
       "browser-extension-session.ts",
       "../ui/routes.ts",
+      // The office page list: a page name missing from the reserved set would
+      // be a not-found page for every member (task 38f33af3).
+      "../shared/office-links.ts",
     ]) {
       const js = transpiler.transformSync(
         readFileSync(new URL(file, import.meta.url), "utf8"),

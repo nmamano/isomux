@@ -49,7 +49,7 @@ import {
   RECEPTIONIST_PROFILE_KEY,
   RECEPTIONIST_OUTFIT,
 } from "../shared/receptionist-profile.ts";
-import { english, translatorForUserId } from "./i18n.ts";
+import { english, translatorForRequest, translatorForUserId } from "./i18n.ts";
 import { renderLogText } from "../shared/i18n/log-message.ts";
 import {
   INSTALL_KIND,
@@ -264,6 +264,7 @@ import {
 import { createStaticAssets } from "./static-assets.ts";
 import { join } from "path";
 import {
+  appNotFoundResponse,
   authenticate,
   resolveIdentityForRequest,
   checkOrigin,
@@ -8844,26 +8845,28 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
 
         // Short app link. Only the lookup happens here: GET and HEAD both wait
         // for office auth and visibility, so a stranger gets the same answer
-        // for a live name and an unknown one.
+        // for a live name and an unknown one. On another host (localhost, a
+        // tailnet name) the lookup only serves the redirect to the office host.
         let requestedApp: AppRecord | null = null;
+        let appAddress = false;
+        const onAppDomainHost =
+          normalizeRequestHost(req.headers.get("host")) === appHostDomain();
         if (
           (req.method === "GET" || req.method === "HEAD") &&
-          appHostDomain() !== null &&
-          normalizeRequestHost(req.headers.get("host")) === appHostDomain()
+          appHostDomain() !== null
         ) {
           // /<name>, /<name>/ and /<name>/<page of the app> (task 469e8886).
           const match = /^\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\/.*)?$/.exec(
             url.pathname,
           );
           if (match && !RESERVED_APP_NAMES.has(match[1])) {
-            let app: AppRecord | null = null;
+            appAddress = true;
             try {
-              app = appRegistry.get(match[1]);
+              requestedApp = appRegistry.get(match[1]);
             } catch (err) {
-              // A broken optional shortcut must not block the office shell.
+              // The address then opens no app; the office stays one link away.
               console.error("[apps] could not resolve short link:", err);
             }
-            requestedApp = app;
           }
         }
 
@@ -8984,9 +8987,26 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
 
-        if (requestedApp && auth.identity.userId) {
+        const canOpenApp =
+          requestedApp !== null &&
+          !!auth.identity.userId &&
+          canUserAccessApp(requestedApp, auth.identity.userId);
+        if (appAddress && !onAppDomainHost) {
+          // Apps open only on the office host. A hidden or unknown name keeps
+          // the office shell here, so no answer tells whether it exists. The
+          // path is appended as text: //evil.example stays on the office.
+          if (canOpenApp) {
+            return new Response(null, {
+              status: 302,
+              headers: {
+                Location: `${buildPublicOrigin().origin}${url.pathname}${url.search}`,
+                "Cache-Control": "no-store",
+              },
+            });
+          }
+        } else if (appAddress) {
           const app = requestedApp;
-          if (app && canUserAccessApp(app, auth.identity.userId)) {
+          if (app && canOpenApp) {
             const publicUrl = appPublicUrl(app.hostLabel, appHostDomain());
             if (req.method === "HEAD") {
               // HEAD keeps the old bodyless redirect to the app itself, at
@@ -9030,7 +9050,17 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               });
             }
           }
-          // Hidden and unknown apps retain the normal office-shell fallback.
+          // A hidden app, an unknown name and an unreadable registry get one
+          // page (task 38f33af3). The office shell would rewrite the address
+          // to "/" and show the office with no word of why.
+          return appNotFoundResponse(
+            req,
+            translatorForRequest(
+              auth.identity,
+              req.headers.get("accept-language"),
+            ),
+            officeName,
+          );
         }
 
         // The app sign-in mint (apps.mintSignIn) is a GET route. Another method

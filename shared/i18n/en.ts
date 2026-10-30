@@ -2594,6 +2594,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.menu.install": "Install as app",
   "apps.actionFailed.archive": "Could not archive.",
   "apps.actionFailed.unarchive": "Could not unarchive.",
+  "apps.notFound.title": "app not found",
+  "apps.notFound.heading": "App not found",
+  "apps.notFound.body":
+    "There is no app at this address, or you cannot open it.",
   "common.untitledConversation": "Untitled conversation",
   "schedules.human.daily": "Daily at {time}",
   "schedules.human.weekly": "Weekly {weekday} at {time}",

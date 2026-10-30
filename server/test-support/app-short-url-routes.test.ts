@@ -28,6 +28,7 @@ import {
 } from "./app-host-test-kit.ts";
 import { appRegistry } from "../app-registry.ts";
 import type { AppWire } from "../../shared/types.ts";
+import { OFFICE_LINK_PATHS } from "../../shared/office-links.ts";
 
 let server: TestServer | undefined;
 afterEach(async () => {
@@ -88,12 +89,13 @@ describe("short app links through the office request pipeline", () => {
         path: "/board",
         headers: { "Content-Length": "0" },
       },
-      // The link is the office's: any other Host is not redirected.
+      // On any other Host, a member who cannot see the app gets nothing new
+      // (the member who can see it is sent to the office host: see below).
       {
         host: "other.example",
         method: "HEAD",
         path: "/board",
-        headers: asMember,
+        headers: asOutsider,
       },
     ];
     const before = await Promise.all(
@@ -294,7 +296,8 @@ describe("short app links through the office request pipeline", () => {
 });
 
 it("keeps office routes and unknown pages available when the app registry is corrupt", async () => {
-  // A broken optional shortcut must not block the office shell.
+  // A broken registry must not change what an office route or an unknown page
+  // answers.
   const srv = await startFlatOffice((current) => {
     server = current;
   });
@@ -323,4 +326,274 @@ it("keeps office routes and unknown pages available when the app registry is cor
       stable: before[index].stable,
     });
   }
+});
+
+// An address that names no app the member can open (task 38f33af3). It used to
+// fall through to the office shell, which rewrites any unknown path to "/", so
+// the member saw the office and no sign of why. On the office host it is now a
+// small page of its own; a hidden app and an unknown name read the same, so the
+// page tells nobody which hidden apps exist.
+describe("an app address that opens no app", () => {
+  async function anOfficeWithAnOutsider() {
+    const { srv, rawSessionId, token } = await anOfficeWithAnApp((current) => {
+      server = current;
+    }, "board");
+    const outsider = await srv.seedMember("Outsider");
+    return {
+      srv,
+      token,
+      asMember: { Cookie: `${sessionCookieName()}=${rawSessionId}` },
+      asOutsider: { Cookie: `${sessionCookieName()}=${outsider.rawSessionId}` },
+    };
+  }
+
+  // The office shell this office serves a signed-in member at "/".
+  async function shellBody(
+    srv: TestServer,
+    headers: Record<string, string>,
+    host = OFFICE_HOST,
+  ): Promise<string> {
+    const home = await raw(srv.port, { host, path: "/", headers });
+    expect(home.status).toBe(200);
+    expect(home.body).toContain("<html");
+    return home.body;
+  }
+
+  it("answers a hidden app and an unknown name on the office host with the same not-found page", async () => {
+    const { srv, asMember, asOutsider } = await anOfficeWithAnOutsider();
+    const shell = await shellBody(srv, asMember);
+    // The enabling condition: the member can open board and the outsider
+    // cannot, so board is live for one and hidden for the other.
+    const open = await raw(srv.port, {
+      host: OFFICE_HOST,
+      path: "/board/",
+      headers: asMember,
+    });
+    expect(open.status).toBe(200);
+    expect(open.body).toContain("isomux-app-widget");
+
+    for (const suffix of ["", "/", "/blog/post-1?x=1"]) {
+      for (const [who, headers, path] of [
+        ["outsider, hidden app", asOutsider, `/board${suffix}`],
+        ["outsider, unknown name", asOutsider, `/zzunknown${suffix}`],
+        ["member, unknown name", asMember, `/zzunknown${suffix}`],
+      ] as const) {
+        const get = await raw(srv.port, { host: OFFICE_HOST, path, headers });
+        expect({
+          who,
+          path,
+          status: get.status,
+          contentType: get.headers["content-type"],
+          cacheControl: get.headers["cache-control"],
+          hasLocation: "location" in get.headers,
+          shell: get.body === shell,
+          widget: get.body.includes("isomux-app-widget"),
+          // The way back to the office.
+          officeLink: /href="\/"/.test(get.body),
+          // Nothing of the address comes back: the hidden and unknown pages
+          // must read alike.
+          echoesName: /board|zzunknown/.test(get.body),
+        }).toEqual({
+          who,
+          path,
+          status: 404,
+          contentType: "text/html; charset=utf-8",
+          cacheControl: "no-store",
+          hasLocation: false,
+          shell: false,
+          widget: false,
+          officeLink: true,
+          echoesName: false,
+        });
+        const head = await raw(srv.port, {
+          host: OFFICE_HOST,
+          method: "HEAD",
+          path,
+          headers,
+        });
+        expect({
+          who,
+          path,
+          status: head.status,
+          cacheControl: head.headers["cache-control"],
+          hasLocation: "location" in head.headers,
+          body: head.body,
+        }).toEqual({
+          who,
+          path,
+          status: 404,
+          cacheControl: "no-store",
+          hasLocation: false,
+          body: "",
+        });
+      }
+      // Byte for byte, for the same visitor: a hidden app is an unknown name.
+      for (const method of ["GET", "HEAD"]) {
+        const [hidden, unknown] = await Promise.all(
+          [`/board${suffix}`, `/zzunknown${suffix}`].map((path) =>
+            raw(srv.port, {
+              host: OFFICE_HOST,
+              method,
+              path,
+              headers: asOutsider,
+            }),
+          ),
+        );
+        expect({ method, suffix, stable: hidden.stable }).toEqual({
+          method,
+          suffix,
+          stable: unknown.stable,
+        });
+      }
+    }
+  });
+
+  it("keeps every office page path on the office host for a signed-in member", async () => {
+    const { srv, asMember } = await anOfficeWithAnOutsider();
+    const shell = await shellBody(srv, asMember);
+    const paths = [
+      ...OFFICE_LINK_PATHS,
+      "/agents/agent-1",
+      "/users",
+      "/?pager=abc",
+    ];
+    expect(paths).toContain("/inbox/pages");
+    for (const path of paths) {
+      const response = await raw(srv.port, {
+        host: OFFICE_HOST,
+        path,
+        headers: asMember,
+      });
+      expect({
+        path,
+        status: response.status,
+        shell: response.body === shell,
+      }).toEqual({ path, status: 200, shell: true });
+    }
+  });
+
+  it("serves the not-found page when the app registry is corrupt", async () => {
+    const { srv, asMember } = await anOfficeWithAnOutsider();
+    const request = {
+      host: OFFICE_HOST,
+      path: "/zzunknown",
+      headers: asMember,
+    };
+    const before = await raw(srv.port, request);
+    expect(before.status).toBe(404);
+    writeFileSync(join(srv.stateRoot, "apps", "apps.json"), "{not json");
+    expect(() => appRegistry.get("zzunknown")).toThrow();
+    const after = await raw(srv.port, request);
+    expect(after.stable).toBe(before.stable);
+    // The office itself stays up.
+    const home = await raw(srv.port, {
+      host: OFFICE_HOST,
+      path: "/",
+      headers: asMember,
+    });
+    expect(home.status).toBe(200);
+  });
+
+  it("keeps the office shell for any app-shaped address in an office without an app domain", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const token = await anAgentToken(srv);
+    await registerApp(srv, token, "board");
+    const member = await srv.seedMember("Member");
+    grantMemberAppRoom(srv, member.username);
+    const headers = { Cookie: `${sessionCookieName()}=${member.rawSessionId}` };
+    const shell = await shellBody(srv, headers, "localhost");
+    for (const path of ["/board", "/board/x", "/zzunknown", "/zzunknown/x"]) {
+      const response = await raw(srv.port, {
+        host: "localhost",
+        path,
+        headers,
+      });
+      expect({
+        path,
+        status: response.status,
+        shell: response.body === shell,
+      }).toEqual({ path, status: 200, shell: true });
+    }
+  });
+
+  it("shows a signed-out visitor the sign-in wall for a live, hidden or unknown name alike", async () => {
+    const { srv } = await anOfficeWithAnOutsider();
+    const wall = await raw(srv.port, {
+      host: OFFICE_HOST,
+      path: "/tasks",
+      headers: NAVIGATION_HEADERS,
+    });
+    for (const path of [
+      "/board",
+      "/board/x?y=1",
+      "/zzunknown",
+      "/zzunknown/x",
+    ]) {
+      const response = await raw(srv.port, {
+        host: OFFICE_HOST,
+        path,
+        headers: NAVIGATION_HEADERS,
+      });
+      expect({ path, stable: response.stable }).toEqual({
+        path,
+        stable: wall.stable,
+      });
+    }
+  });
+
+  it("sends a member on another host to the office host, only for an app they can open", async () => {
+    const { srv, asMember, asOutsider } = await anOfficeWithAnOutsider();
+    for (const host of ["other.example", `localhost:${srv.port}`]) {
+      for (const method of ["GET", "HEAD"]) {
+        for (const page of ["", "/", "/blog/post-1?x=1", "//evil.example/x"]) {
+          const response = await raw(srv.port, {
+            host,
+            method,
+            path: `/board${page}`,
+            headers: asMember,
+          });
+          expect({
+            host,
+            method,
+            page,
+            status: response.status,
+            location: response.headers.location,
+            cacheControl: response.headers["cache-control"],
+          }).toEqual({
+            host,
+            method,
+            page,
+            status: 302,
+            location: `${HTTPS_ORIGIN}/board${page}`,
+            cacheControl: "no-store",
+          });
+          expect(new URL(response.headers.location).origin).toBe(HTTPS_ORIGIN);
+        }
+      }
+      // A hidden app and an unknown name: the office, as before, on this host.
+      const shell = await shellBody(srv, asOutsider, host);
+      for (const [headers, path] of [
+        [asOutsider, "/board"],
+        [asOutsider, "/board/x"],
+        [asOutsider, "/zzunknown"],
+        [asMember, "/zzunknown/x"],
+      ] as const) {
+        const response = await raw(srv.port, { host, path, headers });
+        expect({
+          host,
+          path,
+          status: response.status,
+          hasLocation: "location" in response.headers,
+          shell: response.body === shell,
+        }).toEqual({
+          host,
+          path,
+          status: 200,
+          hasLocation: false,
+          shell: true,
+        });
+      }
+    }
+  });
 });

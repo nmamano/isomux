@@ -2658,6 +2658,10 @@ Coses que pots fer per ell:
   "apps.menu.install": "Instal·la com a app",
   "apps.actionFailed.archive": "No s'ha pogut arxivar.",
   "apps.actionFailed.unarchive": "No s'ha pogut desarxivar.",
+  "apps.notFound.title": "app no trobada",
+  "apps.notFound.heading": "App no trobada",
+  "apps.notFound.body":
+    "No hi ha cap app en aquesta adreça, o no la pots obrir.",
   "common.untitledConversation": "Conversa sense títol",
   "schedules.human.daily": "Cada dia a les {time}",
   "schedules.human.weekly": "Cada setmana, {weekday} a les {time}",

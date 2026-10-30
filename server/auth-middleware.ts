@@ -1246,6 +1246,31 @@ function renderInviteError(
   });
 }
 
+// An app address on the office host that opens no app for this member (task
+// 38f33af3). A hidden app and an unknown name get the same bytes, so the page
+// never names the address.
+export function appNotFoundResponse(
+  req: Request,
+  i18n: Translator,
+  officeName: string | null,
+): Response {
+  const { t } = i18n;
+  const body = baseHtml(
+    i18n.language,
+    authPageTitle(officeName, t("apps.notFound.title")),
+    `<h1>${t("apps.notFound.heading")}</h1><p>${escapeHtml(t("apps.notFound.body"))}</p>
+    <p><a href="/">${t("common.returnToOffice")}</a></p>`,
+  );
+  return new Response(req.method === "HEAD" ? null : body, {
+    status: 404,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      ...securityHeaders(),
+    },
+  });
+}
+
 function baseHtml(
   lang: SupportedLanguageCode,
   title: string,
