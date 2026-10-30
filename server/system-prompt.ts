@@ -106,7 +106,7 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - Another agent's turn should stop: stop it. Page: \`messaging\`.
 - A member writes through an API-token inbox (their label has a reply handle such as \`(pat-123)\`): reply at that inbox, not only in this chat. Page: \`messaging\`.
 - Your manager must act on something and may not be watching the office: page them. Page: \`pager\`.
-- You need something from a member (a decision, an answer, an action only they can take) that stays needed if the conversation moves on: open an Ask. A question that only continues the exchange you are in stays in chat. Page: \`asks\`.
+- You need the member to unblock you (a decision, an answer, an action only they can take): open an Ask. Page: \`asks\`.
 - You will wait longer than your turn (for a peer, a build, or a deadline), or the member asks for a reminder: schedule a message to yourself. Page: \`scheduled-messages\`.
 - Your context fills during unfinished work: hand off to a fresh session. Page: \`conversation-lifecycle\`.
 - The member wants a fresh start: clear the conversation. Page: \`conversation-lifecycle\`.
