@@ -2,7 +2,7 @@
 
 Task fd794190. Design agreed with Nil on 2026-10-18; the mocks Nil approved are in the lane b1034 report.
 
-An ask is a prompt from an agent to one member, answered when the member has time. It stays above the agent's chat input for that member until the member replies or dismisses it, so the agent does not repeat the question and the question does not get lost under later messages.
+An ask is a prompt from an agent to one member, for what the agent needs from them to get unblocked. It stays above the agent's chat input for that member until the member replies or dismisses it, so the agent does not repeat the question and the question does not get lost under later messages.
 
 ## Store
 

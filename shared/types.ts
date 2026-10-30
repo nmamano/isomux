@@ -1458,9 +1458,10 @@ export function generatePagerId(existing?: string[]): string {
   return generateHexId(existing, 8);
 }
 
-// An ask: a prompt from an agent to one member, answered when the
-// member has time (internal-docs/asks-design.md). Only open entries
-// exist; a reply, a dismiss or the agent's delete removes the entry.
+// An ask: a prompt from an agent to one member, for what the agent
+// needs from them to get unblocked (internal-docs/asks-design.md). Only
+// open entries exist; a reply, a dismiss or the agent's delete removes
+// the entry.
 export interface AskEntry {
   id: string;
   agentId: string;

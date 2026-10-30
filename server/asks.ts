@@ -1,7 +1,7 @@
-// Asks: a prompt from an agent to one member, answered when the member
-// has time (internal-docs/asks-design.md). The store holds open entries
-// only, in ~/.isomux/asks.json; a reply, a dismiss or the agent's delete
-// removes the entry.
+// Asks: a prompt from an agent to one member, for what the agent needs
+// from them to get unblocked (internal-docs/asks-design.md). The store
+// holds open entries only, in ~/.isomux/asks.json; a reply, a dismiss or
+// the agent's delete removes the entry.
 //
 // Load posture (the pager store's):
 //   - no file                 → no asks (a new or older install)

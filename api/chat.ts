@@ -348,7 +348,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Pager
 - Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord and repeats until someone acks or resolves it.
 - The Inbox in the office bar has two tabs. Pages lists every page the member can see, with ack and resolve. Asks lists their open asks. A badge counts both.
-- An agent can leave a member a question that can wait (an ask). It stays above the chat input, with a reply field, until the member replies or dismisses it. A dot on the agent's desk counts them.
+- An agent can open an ask when it needs a member to unblock it. It stays above the chat input, with a reply field, until the member replies or dismisses it. A dot on the agent's desk counts them.
 
 ### Other
 - Office language: each person picks English, Spanish, Catalan or Simplified Chinese under Settings → You → Language, and the whole office reads in it

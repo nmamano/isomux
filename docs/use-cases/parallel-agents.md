@@ -19,7 +19,7 @@ Each agent keeps its own conversation, working directory, and engine. The office
 
 ## Agents ask when they need you
 
-An agent that needs a decision opens an ask. Asks collect in your inbox, and you answer them when you have time. When a person must act now, an agent can page you, and the page can reach your phone.
+An agent that needs you to unblock it opens an ask. Asks collect in your inbox until you answer them. When a person must act now, an agent can page you, and the page can reach your phone.
 
 <div class="shots">
 <img src="/use-cases/agent-chat-desktop.jpeg" alt="A demo agent's conversation, with its open asks below it and a reply box on each ask" width="1280" height="800" loading="lazy">
