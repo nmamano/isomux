@@ -373,15 +373,23 @@ describe("POST /hooks/:id: the stages before the signature write no row", () => 
     expect((await rows(o)).length).toBe(1);
   });
 
-  // Quarantined: times out under full-suite load (task b86da506).
-  it.skip("a body over the cap gets 413 also without Content-Length", async () => {
+  it("a body over the cap gets 413 also without Content-Length", async () => {
     const o = await office();
+    // Each chunk is under the cap; the last byte takes the total over it. No
+    // byte follows, so the 413 must come before the body ends, and the server
+    // closes with nothing unread (unread bytes make the close a reset, which
+    // can drop the 413 before the client reads it).
     const chunk = new Uint8Array(1024 * 1024);
-    const chunks = Array.from(
-      { length: WEBHOOK_BODY_MAX_BYTES / chunk.byteLength + 1 },
-      () => chunk,
-    );
-    const over = await chunkedPost(o, chunks, `sha256=${"0".repeat(64)}`);
+    const chunks = [
+      ...Array.from(
+        { length: WEBHOOK_BODY_MAX_BYTES / chunk.byteLength },
+        () => chunk,
+      ),
+      new Uint8Array(1),
+    ];
+    const over = await chunkedPost(o, chunks, `sha256=${"0".repeat(64)}`, {
+      end: false,
+    });
     expect(over).toBe(413);
     // The control: the same chunked framing under the cap is read whole and
     // verified.
@@ -399,11 +407,14 @@ describe("POST /hooks/:id: the stages before the signature write no row", () => 
 });
 
 // A raw HTTP/1.1 POST with Transfer-Encoding: chunked and no Content-Length.
-// Resolves with the status the server answered.
+// Resolves with the status the server answered; rejects when the connection
+// ends before one. With end: false the body stops after the last chunk's
+// bytes, with no chunk end and no terminator.
 function chunkedPost(
   o: Office,
   chunks: Uint8Array[],
   signature: string,
+  { end = true }: { end?: boolean } = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     let out = "";
@@ -421,26 +432,30 @@ function chunkedPost(
           "",
         ].join("\r\n"),
       );
-      for (const chunk of chunks) {
-        if (socket.destroyed) break;
+      chunks.forEach((chunk, i) => {
         socket.write(`${chunk.byteLength.toString(16)}\r\n`);
         socket.write(chunk);
-        socket.write("\r\n");
-      }
-      if (!socket.destroyed) socket.write("0\r\n\r\n");
+        if (end || i < chunks.length - 1) socket.write("\r\n");
+      });
+      if (end) socket.write("0\r\n\r\n");
     });
-    const finish = () => {
+    const settle = (event: string, err?: NodeJS.ErrnoException) => {
       const status = Number(/^HTTP\/1\.1 (\d{3})/.exec(out)?.[1] ?? 0);
-      if (status === 0) reject(new Error(`no status in: ${out.slice(0, 200)}`));
-      else resolve(status);
+      if (status !== 0) resolve(status);
+      else {
+        const code = err?.code ? ` (${err.code})` : "";
+        reject(
+          new Error(`${event}${code} before a status: ${out.slice(0, 200)}`),
+        );
+      }
+      socket.destroy();
     };
     socket.on("data", (d) => {
       out += d.toString("latin1");
     });
-    socket.on("end", finish);
-    // The server may close while the client is still writing.
-    socket.on("error", () => (out ? finish() : undefined));
-    socket.on("close", () => (out ? finish() : undefined));
+    socket.on("end", () => settle("end"));
+    socket.on("error", (err) => settle("error", err));
+    socket.on("close", () => settle("close"));
   });
 }
 
