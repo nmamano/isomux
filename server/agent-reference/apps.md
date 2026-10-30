@@ -31,6 +31,8 @@ To limit an action to one member, read the member from the request. A request th
 
 Give members the registry `shortUrl` when present, else the direct `url`, else the box hostname and port; never give them server localhost. If only the office port is exposed, give an SSH port-forward command. The short address opens an office page with the app and its target agent's shared chat. Chat appears only for members who can access both the app and that agent's room. Members can paste, drop or attach screenshots to that shared chat. Isomux does not take screenshots. Add a path to open one page of the app: `<shortUrl>/blog`. The direct `url` opens the app alone.
 
+On the short address, the office's Chat button and its other controls sit over the app's bottom-right corner, on every screen size: 20 px from the right, 20 px or the bottom safe area (whichever is larger) from the bottom, 60 px tall and about 180 px wide (wider while it offers a reload). Keep a fixed bottom bar's controls and toasts out of that corner: leave 200 px free at the bar's right, or lift them 100 px above the bottom of the page. The direct `url` has no such controls.
+
 When a change to an app is ready for the member to see, call `POST /api/apps/:name/reload`: each open short-address page reloads the app once it serves, on the page the member is on. After a change to the server code, restart the app instead; a start or restart also reloads. Do not ask the member to reload. A tab that opened the direct `url` does not reload.
 
 Safe example: `GET /api/apps`.

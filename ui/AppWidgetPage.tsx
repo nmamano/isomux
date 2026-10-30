@@ -66,6 +66,8 @@ import {
 
 // The generic button and link rules style the widget's own controls. They
 // skip the chat log, so the transcript looks as it does in the office.
+// server/agent-reference/apps.md tells apps where .app-widget-dock sits and
+// its size: update it when they change.
 const WIDGET_CSS = `
 .app-widget { position:fixed; inset:0; background:var(--bg-base); color:var(--text-primary); font-family:var(--font-ui); }
 .app-widget-frame { border:0; width:100%; height:100%; display:block; }
