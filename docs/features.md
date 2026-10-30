@@ -133,7 +133,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 ## Automations
 
 - **Schedule recurring agent runs**: daily at HH:MM, weekly on a weekday, or every N minutes. A schedule can also run on demand only, from "Run now" or a webhook.
-- Each run is a **fresh agent session** with the same configurability as a desk agent (model, effort, cwd, permission mode).
+- Each run is a **fresh agent session**.
 - **Browsable run history**: every run is preserved as a transcript.
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
 - **Manual "Run now"** for any schedule, independent of its timing.

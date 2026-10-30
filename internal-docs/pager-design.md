@@ -1,6 +1,7 @@
 # Pager - v0 design
 
-Status: agreed with Nil on 2026-10-05. Not implemented. Code references describe
+Status: agreed with Nil on 2026-10-05 and implemented the same day (P1-P4, task
+cb34ffc9). Web Push came later (task dc2dc0ea). Code references describe
 the tree at commit `708374c2`.
 
 ## Why
