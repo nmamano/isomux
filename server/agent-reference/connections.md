@@ -12,6 +12,8 @@ Safe example: `GET /api/agent-connections`.
 
 A secret's variable holds a placeholder, not the value. Use it as you would the value, for example `curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user`. The office's proxy puts the value into requests to the secret's hosts only. Printing the variable shows only the placeholder.
 
+While you have a secret, `HTTPS_PROXY` points at that proxy and holds its password. Chrome drops the password, so pages it loads through the proxy stay empty or hang. In Playwright, launch with `proxy` holding the `server`, `username` and `password` from `HTTPS_PROXY`, and `bypass` from `NO_PROXY` plus your secrets' `hosts` from `GET /api/agent-connections`. Chrome does not trust the proxy's certificate for those hosts, and a page never needs a secret. For plain `google-chrome`, add `--no-proxy-server`. `bypass` and `--no-proxy-server` work only when the office server has direct internet access.
+
 ## Asking for a secret
 
 When you need a credential you do not have, ask for it as a secret. Never ask a member to paste a credential in the chat.
