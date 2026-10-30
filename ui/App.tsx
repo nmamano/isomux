@@ -587,21 +587,32 @@ export function App({ routing = true }: { routing?: boolean }) {
     [applyPage],
   );
 
+  // Opens an agent's chat from anywhere outside its desk (a page, a link):
+  // every page closes, the back screen and the lobby close, and the agent's
+  // room becomes the current room, so Back lands next to the agent (task
+  // 1faeb586). A back agent's chat reopens the back screen through
+  // focusedInBack.
+  const openAgentChat = useCallback(
+    (agentId: string) => {
+      const agent = agents.find((a) => a.id === agentId);
+      if (!agent) return;
+      applyPage(null);
+      setBackRoomOpen(false);
+      dispatch({ type: "set_current_room", roomId: agent.roomId });
+      dispatch({ type: "focus", agentId: agent.id });
+    },
+    [agents, applyPage, dispatch],
+  );
+
   // An ask's link opens its page on top of the chat or the Inbox it was
   // clicked on, so Close and Back return there. The page's one-shot state is
   // cleared first, so Settings opens on no stale row. The Inbox's tabs do not
   // stack: a link to one from the other switches the tab. A link to an agent
-  // closes every page and opens that agent's chat in its room; a back agent's
-  // chat reopens the back screen through focusedInBack.
+  // goes through openAgentChat.
   const openOfficeLink = useCallback(
     (link: OfficeLink) => {
       if ("agentId" in link) {
-        const agent = agents.find((a) => a.id === link.agentId);
-        if (!agent) return;
-        applyPage(null);
-        setBackRoomOpen(false);
-        dispatch({ type: "set_current_room", roomId: agent.roomId });
-        dispatch({ type: "focus", agentId: agent.id });
+        openAgentChat(link.agentId);
         return;
       }
       pageState[link.page].clear();
@@ -614,7 +625,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         openInboxTab(link.page);
       else pageState[link.page].setOpen(true);
     },
-    [pageState, openInboxTab, agents, applyPage, dispatch],
+    [pageState, openInboxTab, openAgentChat],
   );
 
   // An agent's address (/agents/<agentId>, the app widget's link) opens that
@@ -1058,27 +1069,12 @@ export function App({ routing = true }: { routing?: boolean }) {
           onClose={closeTasks}
           openTaskRequest={taskOpenRequest}
           onTaskOpenRequestHandled={() => setTaskOpenRequest(null)}
-          onFocusAgent={(agentId) => {
-            setTasksOpen(false);
-            dispatch({ type: "focus", agentId });
-          }}
+          onFocusAgent={openAgentChat}
         />
       ) : page === "cronjobs" ? (
-        <CronjobsView
-          onClose={closePage}
-          onFocusAgent={(agentId) => {
-            setCronjobsOpen(false);
-            dispatch({ type: "focus", agentId });
-          }}
-        />
+        <CronjobsView onClose={closePage} onFocusAgent={openAgentChat} />
       ) : page === "apps" ? (
-        <AppsView
-          onClose={closePage}
-          onFocusAgent={(agentId) => {
-            setAppsOpen(false);
-            dispatch({ type: "focus", agentId });
-          }}
-        />
+        <AppsView onClose={closePage} onFocusAgent={openAgentChat} />
       ) : page === "skills" ? (
         <SkillsView onClose={closePage} />
       ) : page === "integrations" ? (
@@ -1093,19 +1089,11 @@ export function App({ routing = true }: { routing?: boolean }) {
             <PagerView
               selectRequest={pagerSelectRequest}
               onSelectRequestHandled={clearPagerSelectRequest}
-              onFocusAgent={(agentId) => {
-                setPagerOpen(false);
-                dispatch({ type: "focus", agentId });
-              }}
+              onFocusAgent={openAgentChat}
               onOpenPagerSettings={() => openIntegrations({ tab: "pager" })}
             />
           ) : (
-            <AsksView
-              onFocusAgent={(agentId) => {
-                setAsksOpen(false);
-                dispatch({ type: "focus", agentId });
-              }}
-            />
+            <AsksView onFocusAgent={openAgentChat} />
           )}
         </InboxView>
       ) : focusedAgent ? (

@@ -1,9 +1,10 @@
 // Avatars and agent links in an agent's chat: the sender's avatar before its
 // name on a message from another agent or member, the receiver's on a
 // message the agent sends, and an agent's name that opens its chat.
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
+import { OfficeLinkOpener } from "../office-link.tsx";
 import { Character } from "../office/Character.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
@@ -78,7 +79,8 @@ export function MemberAvatar({ username }: { username: string | undefined }) {
 }
 
 // An agent's name that opens its chat, while the agent exists. A span with
-// the link role, so it can sit inside the tool-call card's button.
+// the link role, so it can sit inside the tool-call card's button. Under App
+// it opens the chat in the agent's room, as an ask's agent link does.
 export function AgentLink({
   agentId,
   children,
@@ -88,6 +90,7 @@ export function AgentLink({
 }) {
   const { agents } = useAppState();
   const dispatch = useDispatch();
+  const openLink = useContext(OfficeLinkOpener);
   if (!agentId || !agents.some((a) => a.id === agentId)) return <>{children}</>;
   const open = (e: {
     stopPropagation: () => void;
@@ -95,7 +98,8 @@ export function AgentLink({
   }) => {
     e.stopPropagation();
     e.preventDefault();
-    dispatch({ type: "focus", agentId });
+    if (openLink) openLink({ agentId });
+    else dispatch({ type: "focus", agentId });
   };
   return (
     <span
