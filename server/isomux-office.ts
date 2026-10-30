@@ -109,7 +109,6 @@ import {
 } from "./pager-store.ts";
 import {
   askMemberWire,
-  askReadFileOpenTo,
   askVisibleTo,
   AsksUnavailableError,
   createAskFilePersistence,
@@ -2865,15 +2864,6 @@ function buildLiveGuardDeps(): GuardDeps {
     listCronjobs: () => cronjobManager.listCronjobs(),
     listApps: () => appRegistry.list(),
     listWebhooks: () => webhookRegistry.list(),
-    askReadFileOpenTo: (userId, agentId, filename) =>
-      !!askStore &&
-      askReadFileOpenTo(
-        askStore.listAll(),
-        userId,
-        agentId,
-        filename,
-        askAudience,
-      ),
   };
   return buildProductionGuardDeps(readers);
 }
@@ -7471,9 +7461,6 @@ function deliverAskAnswer(
     sendMemberMessage(entry.agentId, text, username, device, undefined, {
       ask,
     });
-  // An app answers as its owner, and the device names the app, as a message
-  // from an app's chat does (conversation.ts withAppDevice).
-  if (identity.scope === "app") return send(`App ${identity.appName ?? ""}`);
   if (identity.scope !== "api") return send(opts.device);
   const display = agentManager.getAgentDisplay(entry.agentId);
   return sendApiTokenMessage(

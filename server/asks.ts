@@ -257,25 +257,6 @@ export function askVisibleTo(
   return owner === undefined || owner === userId || deps.isOfficeOwner(userId);
 }
 
-// Whether `filename` is a read file of an open, non-secret ask from
-// `agentId` that `userId` may answer: the one file reach an app with inbox
-// access gets (GuardDeps.askReadFileOpenTo).
-export function askReadFileOpenTo(
-  open: readonly AskEntry[],
-  userId: string,
-  agentId: string,
-  filename: string,
-  deps: AskAudienceDeps,
-): boolean {
-  return open.some(
-    (entry) =>
-      entry.agentId === agentId &&
-      !entry.secret &&
-      (entry.readFiles ?? []).some((f) => f.filename === filename) &&
-      askVisibleTo(entry, userId, deps),
-  );
-}
-
 // The prompt as the agent sent it, or the reason it is refused. `field` is
 // the body field it came from, for the message.
 function checkPrompt(

@@ -134,7 +134,6 @@ export interface AppsDeps {
       creator?: { id: string; name: string };
       thumbnailUpdatedAt?: number;
       archived?: boolean;
-      inboxAccess?: boolean;
     },
   ): AppRecord | null;
   // The server-held identity of one registration of a name
@@ -927,26 +926,6 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // d7ac4f73): the agent decides when the member sees a change.
     // No supervisor verb: the app's process is left alone.
     "apps.reload": actionHandler(deps, (name) => requestAppReload(name), false),
-
-    // The owner's switch for the app's reach into their asks. The guard
-    // admits the owner only; the app reads it on its next request.
-    "apps.setInboxAccess": (ctx) => {
-      const body = (ctx.body ?? {}) as Record<string, unknown>;
-      if (typeof body.enabled !== "boolean") {
-        return fail(400, "invalid_request", "enabled must be true or false");
-      }
-      try {
-        const before = deps.get(ctx.params.name);
-        if (!before) return fail(404, "not_found");
-        const after = deps.update(before.name, { inboxAccess: body.enabled });
-        if (!after) return fail(404, "not_found");
-        const wire = wireOf(after, deps.states([after.name]).get(after.name));
-        announced(after.name, () => deps.announce(wire, before));
-        return ok(wire);
-      } catch (err) {
-        return renderRegistryError(err);
-      }
-    },
 
     // A shared flag that moves a stopped app out of the way on the Apps page.
     // A running app cannot be archived: it would be hidden while it serves.

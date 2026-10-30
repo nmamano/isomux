@@ -1327,7 +1327,7 @@ function demoAppLog(app: Pick<AppWire, "port">): string[] {
 
 // An app as the client sees it. The fixture names the owner "demo-user"; the
 // demo's Ricky gets a generated id at boot, and the client matches by id (the
-// secrets apps checklist, the owner's menu items).
+// secrets apps checklist).
 function demoAppWire(app: AppWire): AppWire {
   const ricky = users.get("ricky");
   return ricky && app.userId === "demo-user"
@@ -3374,14 +3374,6 @@ export async function demoApi(
     return demoAppSet(name, {
       state: verb === "stop" ? "stopped" : "running",
       ...(verb === "stop" ? {} : { restartCount: 0, archived: undefined }),
-    });
-  }
-  // apps.setInboxAccess: the owner's switch.
-  const appInboxMatch = pathname.match(/^\/api\/apps\/([^/]+)\/inbox-access$/);
-  if (appInboxMatch && method === "PUT") {
-    const enabled = (body as { enabled?: unknown } | undefined)?.enabled;
-    return demoAppSet(decodeURIComponent(appInboxMatch[1]), {
-      inboxAccess: enabled === true || undefined,
     });
   }
   const appMatch = pathname.match(/^\/api\/apps\/([^/]+)$/);

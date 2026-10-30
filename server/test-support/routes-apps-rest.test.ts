@@ -2481,3 +2481,126 @@ describe("routes/apps REST: move to another creator", () => {
     ]);
   });
 });
+
+// v2026.10.29 shipped an owner's switch that let an app answer the owner's
+// asks (task 4a1e58c9), persisted as inboxAccess on the app record. It is gone
+// (task 4dce5b39): such a record still loads, the key confers nothing, and it
+// leaves the wire and the file. An app that acts for its member uses the
+// member's API token.
+describe("routes/apps REST: a record with the retired inboxAccess key", () => {
+  it("loads, gives the app no reach into its owner's asks, and drops the key", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const ownerUser = getUserByName("Morgan")!;
+    // Managed by the app's owner, so the app gets this agent's live reach.
+    const builder = await srv.agentManager.spawn(
+      "Builder",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      srv.agentManager.getRooms()[0].id,
+      undefined,
+      undefined,
+      undefined,
+      ownerUser.name,
+      "claude",
+      undefined,
+      ownerUser.id,
+    );
+    if (!builder) throw new Error("spawn Builder returned null");
+    const agentBearer = mintAgentToken(builder.id, ownerUser.id);
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: agentBearer,
+      body: body(srv, "feed"),
+    });
+    expect(reg.status).toBe(201);
+    const appBearer = srv.appSupervisor.tokenFiles.get("feed")!;
+    const opened = await api(srv, `/api/agents/${builder.id}/asks`, {
+      method: "POST",
+      bearer: agentBearer,
+      body: { text: "Ship it?" },
+    });
+    expect(opened.status).toBe(201);
+    const askId = (opened.body as { id: string }).id;
+    const openAskIds = async () => {
+      const list = await api(srv, "/api/asks", {
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(list.status).toBe(200);
+      return (list.body as { id: string }[]).map((a) => a.id);
+    };
+    expect(await openAskIds()).toEqual([askId]);
+
+    const path = join(srv.stateRoot, "apps", "apps.json");
+    const persisted = () =>
+      (JSON.parse(readFileSync(path, "utf8")) as { apps: AppRecord[] })
+        .apps[0] as AppRecord & Record<string, unknown>;
+    // A non-boolean value is no more corrupt than any other unknown field.
+    for (const value of [true, "yes"]) {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          ...JSON.parse(readFileSync(path, "utf8")),
+          apps: [{ ...persisted(), inboxAccess: value }],
+        }),
+      );
+      expect(persisted().inboxAccess).toBe(value);
+
+      // The enabling condition: the app has its live owner agent's reach, so
+      // a 403 below is the asks routes' scope, not an orphaned app.
+      const tasks = await api(srv, "/api/tasks", { bearer: appBearer });
+      expect({ value, status: tasks.status }).toEqual({ value, status: 200 });
+
+      const listed = await api(srv, "/api/asks", { bearer: appBearer });
+      expect({ value, status: listed.status, code: errCode(listed) }).toEqual({
+        value,
+        status: 403,
+        code: "forbidden",
+      });
+      for (const [verb, answer] of [
+        ["reply", { text: "Yes" }],
+        ["dismiss", {}],
+        ["file-task", {}],
+      ] as const) {
+        const r = await api(srv, `/api/asks/${askId}/${verb}`, {
+          method: "POST",
+          bearer: appBearer,
+          body: answer,
+        });
+        expect({ value, verb, status: r.status, code: errCode(r) }).toEqual({
+          value,
+          verb,
+          status: 403,
+          code: "forbidden",
+        });
+      }
+      expect(await openAskIds()).toEqual([askId]);
+
+      // Off the wire, to the owner and in the list.
+      const got = await api(srv, "/api/apps/feed", {
+        rawSessionId: owner.rawSessionId,
+      });
+      expect({ value, status: got.status }).toEqual({ value, status: 200 });
+      expect(got.body).not.toHaveProperty("inboxAccess");
+      const listedApps = await api(srv, "/api/apps", {
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(listedApps.status).toBe(200);
+      expect(JSON.stringify(listedApps.body)).toContain('"feed"');
+      expect(JSON.stringify(listedApps.body)).not.toContain("inboxAccess");
+    }
+
+    // The next write persists the record without the key.
+    const patched = await api(srv, "/api/apps/feed", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { description: "Antifeed" },
+    });
+    expect(patched.status).toBe(200);
+    expect(persisted().description).toBe("Antifeed");
+    expect(persisted()).not.toHaveProperty("inboxAccess");
+  });
+});
