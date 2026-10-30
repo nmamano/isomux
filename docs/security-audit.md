@@ -218,7 +218,7 @@ A privileged agent has the destructive reach of its member. For example, it can 
 Isomux checks each recognized tool call of Claude, Codex and OpenCode agents before it runs. No setting turns the check off. The check blocks:
 
 - destructive git commands, such as `git reset --hard`, `git push --force` and `git clean -f`,
-- `rm -rf` outside one entry in `/tmp` or `/var/tmp`,
+- `rm -rf` outside `/tmp` and `/var/tmp`, or through a symbolic link there,
 - writes into the state directory,
 - reads of files that usually hold secrets, such as `.env`, private keys, backend sign-in files, OpenCode's databases, and the secrets and managed environment files in the state directory,
 - recursive searches (`grep -r`, `rg`, the Grep tool) rooted at the secret store or above it, unless they exclude `secrets/`,

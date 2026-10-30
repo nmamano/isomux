@@ -1,4 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
 import { evaluateProposedAction } from "./safety-policy.ts";
 
 // These commands are classified only; none of them execute.
@@ -128,11 +137,8 @@ describe("rm is safe in a temp root only when every operand is there", () => {
   });
 
   // rm on /tmp/<name> removes that entry and never follows a symlink there.
-  // Anything deeper can pass through a link, which the policy does not stat:
-  // the link can come from earlier in the same command.
+  // A deeper path is checked on disk (the next describe); these deny on text.
   it.each([
-    "rm -rf /tmp/link/",
-    "rm -rf /tmp/a/b",
     "rm -rf /tmp/",
     "rm -rf /tmp/.",
     "rm -rf /tmp/..",
@@ -167,6 +173,111 @@ describe("rm is safe in a temp root only when every operand is there", () => {
     expect(reason("rm -rf /tmp/a /home/u")).toBe(reason("rm -rf /home/u"));
     expect(reason("rm -rf /tmp/a /")).toBe(reason("rm -rf /"));
     expect(reason("rm -rf /home/u")).not.toBe(reason("rm -rf ./src"));
+  });
+});
+
+// A path deeper in a temp root can pass through a symlink, so every directory
+// above the entry rm removes is checked on disk: a real directory or a missing
+// one qualifies, a link does not. A line that runs ln can make the link before
+// rm runs, so there only a direct child of the temp root qualifies (4b35d2a1).
+describe("rm deeper in a temp root", () => {
+  // The literal /tmp, not os.tmpdir(): the exception names /tmp itself.
+  const R = mkdtempSync("/tmp/safety-rm-");
+  const elsewhere = mkdtempSync("/tmp/safety-rm-target-");
+  mkdirSync(`${R}/real/sub/deep`, { recursive: true });
+  mkdirSync(`${R}/locked/sub`, { recursive: true });
+  symlinkSync(elsewhere, `${R}/link`);
+  symlinkSync(elsewhere, `${R}/real/inner`);
+  writeFileSync(`${elsewhere}/keep`, "");
+  chmodSync(`${R}/locked`, 0o000);
+  afterAll(() => {
+    chmodSync(`${R}/locked`, 0o755);
+    rmSync(R, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  });
+  const rmReason = () => reason("rm -rf ./build");
+
+  it("starts from the fixture it describes", () => {
+    expect(lstatSync(`${R}/real`).isDirectory()).toBe(true);
+    expect(lstatSync(`${R}/link`).isSymbolicLink()).toBe(true);
+    expect(lstatSync(`${R}/real/inner`).isSymbolicLink()).toBe(true);
+    expect(() => lstatSync(`${R}/missing`)).toThrow();
+  });
+
+  it.each([
+    [`rm -rf ${R}/real/x`, "a real parent"],
+    [`rm -rf ${R}/real/*`, "a glob in the last component"],
+    [`rm -rf ${R}/real/sub/deep/*`, "every parent real, three deep"],
+    [`rm -rf ${R}/real/`, "a trailing slash on a real directory"],
+    [`rm -rf ${R}/`, "a trailing slash on a real direct child"],
+    [`rm -rf ${R}/real/inner`, "a link as the entry removed, not followed"],
+    [`rm -rf ${R}/missing/data2/x`, "a parent that does not exist"],
+    [
+      `mkdir -p ${R}/missing/data2 && rm -rf ${R}/missing/data2/*`,
+      "made by mkdir -p on the same line",
+    ],
+    [`rm -rf ${R}/real/x ${R}/real/sub/y`, "two deep operands"],
+    [`ln -s ~ ${R}/new && rm -rf ${R}`, "a direct child beside ln"],
+  ])("allows %p (%s)", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  it("allows the reported clean-up line", () => {
+    // Antifeed Worker 2, 2026-10-29, with its scratch directory moved to R.
+    const line =
+      `ss -ltn | grep -c ':21068 '; mkdir -p ${R}/data2 && rm -rf ${R}/data2/* && ` +
+      `cd ~/nil/antifeed-wt-2 && (PORT=21068 ISOMUX_APP_DATA_DIR=${R}/data2 ` +
+      `ANTIFEED_WALKTHROUGH=1 setsid nohup bun run src/main.ts > ${R}/app2.log ` +
+      `2>&1 < /dev/null &); sleep 4; timeout 900 bun tools/card-checks.ts ` +
+      `http://localhost:21068 2>&1 | grep -v "^PASS" | tail -4; ` +
+      `grep -c "^PASS" <(timeout 1 true) ; pid=$(ss -ltnp | grep ':21068 ' | ` +
+      `grep -o 'pid=[0-9]*' | cut -d= -f2); kill $pid`;
+    expect(decision(line)).toBe("allow");
+  });
+
+  it.each([
+    [`rm -rf ${R}/link/x`, "a link as a parent"],
+    [`rm -rf ${R}/link/*`, "a glob under a link"],
+    [`rm -rf ${R}/link/`, "a trailing slash on a link"],
+    [`rm -rf ${R}/real/inner/x`, "a link two levels down"],
+    [`rm -rf ${R}/real/inner/`, "a trailing slash on a link two levels down"],
+    [`rm -rf ${R}/re*/x`, "a glob in a parent"],
+    [`rm -rf ${R}/real/*/`, "a glob that a trailing slash makes a parent"],
+    [`rm -rf ${R}/real/../x`, "a .. component"],
+    [`rm -rf ${R}/real/./x`, "a . component"],
+    [`rm -rf ${R}//real/x`, "an empty component"],
+    [`rm -rf ${R}/$x/y`, "an expansion in a parent"],
+    [`rm -rf ${R}/real/.*`, "a glob that can match .."],
+    [`rm -rf ${R}/locked/sub/x`, "a parent the hook cannot read"],
+    [`rm -rf ${R}/real/x ${R}/link/x`, "one good operand, one through a link"],
+    [`ln -s ~ ${R}/fresh && rm -rf ${R}/fresh/x`, "ln makes the parent first"],
+    [`ln -s ~ ${R}/other; rm -rf ${R}/real/x`, "ln anywhere on the line"],
+    [`bash -c "ln -s ~ ${R}/fresh" && rm -rf ${R}/fresh/x`, "ln in bash -c"],
+    [`sudo ln -s ~ ${R}/fresh && rm -rf ${R}/fresh/x`, "ln behind a wrapper"],
+    [
+      `find ${R}/real -maxdepth 0 -exec ln -s ~ ${R}/fresh \\; ; rm -rf ${R}/fresh/x`,
+      "ln in a find -exec list",
+    ],
+  ])("denies %p (%s) with the rm reason", (command) => {
+    expect(reason(command)).toBe(rmReason());
+  });
+
+  it("cannot read a parent it has no permission for", () => {
+    // The enabling condition of the case above: the walk meets EACCES, not
+    // ENOENT. Running as root would make this case meaningless.
+    expect(() => lstatSync(`${R}/locked/sub`)).toThrow(/EACCES/);
+  });
+
+  it("gives a temp operand next to a real path the reason of the real path", () => {
+    expect(reason(`rm -rf ${R}/real/x ./src`)).toBe(reason("rm -rf ./src"));
+    expect(reason(`rm -rf ${R}/real/x /home/u`)).toBe(reason("rm -rf /home/u"));
+  });
+
+  it("reads the disk at each check, not once", () => {
+    const command = `rm -rf ${R}/later/x`;
+    expect(decision(command)).toBe("allow");
+    symlinkSync(elsewhere, `${R}/later`);
+    expect(decision(command)).toBe("deny");
   });
 });
 

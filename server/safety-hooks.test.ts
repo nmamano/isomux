@@ -340,6 +340,19 @@ describe("process-kill guard", () => {
       ['"pkill" -f bun', "quoted command word"],
       ["pgrep -f bun 2>&1 | xargs kill", "a redirection inside the pipeline"],
       ["xargs -I {} pkill -f bun", "xargs replace-string flag"],
+      // pgrep -P is parent-scoped only on its own (4b35d2a1).
+      ["pgrep -P 123 -f bun | xargs kill", "pgrep -P with a name flag"],
+      ["pgrep -P 123 bun | xargs kill", "pgrep -P with a name pattern"],
+      [
+        'pgrep -P "$(pgrep -f bun)" | xargs kill',
+        "a lookup smuggled through pgrep -P",
+      ],
+      ["pgrep -P 1,2 | xargs kill", "a PID list is not a literal PID"],
+      ["pgrep -P | xargs kill", "-P with no PID"],
+      [
+        "pgrep -P 123; pgrep -f bun | while read c; do kill $c; done",
+        "another lookup on the same line",
+      ],
       // Reviewer1 round 2: clustered shell flags, and wrapper options whose
       // value would otherwise be read as the command.
       ['bash -lc "pkill -f bun"', "clustered shell flag"],
@@ -376,6 +389,14 @@ describe("process-kill guard", () => {
       // the line reads (Reviewer1 regression).
       ["pgrep -f bun | head; kill 12345", "a literal PID after a lookup"],
       ["pgrep x; kill $$", "the shell's own PID after a lookup"],
+      // pgrep -P selects by parent PID, as pkill -P does (4b35d2a1).
+      [
+        "for c in $(pgrep -P 2871036 2>/dev/null); do kill $c; done",
+        "killing the children of one known process",
+      ],
+      ["kill $(pgrep -P 12345)", "the same, through a substitution"],
+      ["pgrep -P12345 | xargs kill", "flag and value joined"],
+      ["pgrep -P $$ | xargs -r kill", "the shell's own children"],
     ] as const;
 
     for (const [command, why] of allowed) {

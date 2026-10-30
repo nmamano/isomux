@@ -15,6 +15,7 @@
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
 
+import { lstatSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "path";
 import {
@@ -2762,14 +2763,17 @@ function findRunsPastCap(command: string): boolean {
 const LITERAL_PID = /^(?:\d+|%\d*|\$\$|\$!)$/;
 
 /**
- * `pkill -P <pid>` targets the children of one process the agent already has a
- * PID for, so it carries none of the name-matching risk. The PID has to be a
- * literal: `pkill -P "$(pgrep -f bun)"` is a name match wearing the carve-out's
- * clothes. Any other flag (-f, -u, …) or a bare pattern operand also puts it
- * back in scope.
+ * `pkill -P <pid>` and `pgrep -P <pid>` select the children of one process the
+ * agent already has a PID for, so they carry none of the name-matching risk.
+ * The PID has to be a literal: `pkill -P "$(pgrep -f bun)"` is a name match
+ * wearing the carve-out's clothes. Any other flag (-f, -u, …) or a bare
+ * pattern operand also puts it back in scope.
  */
-function isParentScopedPkill(cmd: EffectiveCommand): boolean {
-  if (cmd.name !== "pkill") return false;
+function isParentScoped(
+  cmd: EffectiveCommand,
+  name: "pkill" | "pgrep",
+): boolean {
+  if (cmd.name !== name) return false;
   let sawParent = false;
   for (let i = 0; i < cmd.args.length; i++) {
     const arg = cmd.args[i].text;
@@ -2868,7 +2872,10 @@ function checkProcessKill(command: string): string | null {
   const commands = collectCommands(command);
 
   for (const cmd of commands) {
-    if (PATTERN_KILL_COMMANDS.includes(cmd.name) && !isParentScopedPkill(cmd))
+    if (
+      PATTERN_KILL_COMMANDS.includes(cmd.name) &&
+      !isParentScoped(cmd, "pkill")
+    )
       return PATTERN_KILL_REASON;
   }
 
@@ -2876,15 +2883,19 @@ function checkProcessKill(command: string): string | null {
   // are the same kill with the name matching moved one step upstream. Judged
   // across the whole command rather than per statement: shell loops and `;`
   // scatter the two halves into separate statements, so a tighter window only
-  // moves the hole. Two things keep that width honest - `ps` counts as a lookup
-  // only alongside `grep`, the step that turns it into a name match; and a kill
-  // that names literal PIDs is left alone however the line reads.
+  // moves the hole. Three things keep that width honest - `ps` counts as a
+  // lookup only alongside `grep`, the step that turns it into a name match;
+  // `pgrep -P <pid>` selects by parent, not by name; and a kill that names
+  // literal PIDs is left alone however the line reads.
   const names = new Set(commands.map((c) => c.name));
   const kills = commands.filter(
     (c) => c.name === "kill" || PATTERN_KILL_COMMANDS.includes(c.name),
   );
   const lookups =
-    NAME_LOOKUP_COMMANDS.some((n) => names.has(n)) ||
+    commands.some(
+      (c) =>
+        NAME_LOOKUP_COMMANDS.includes(c.name) && !isParentScoped(c, "pgrep"),
+    ) ||
     (names.has("ps") && names.has("grep"));
   if (lookups && kills.some((c) => !killsOnlyLiteralPids(c)))
     return PATTERN_KILL_REASON;
@@ -4018,9 +4029,10 @@ function checkBashSafety(
   // The parser supplies the commands, so a `bash -c` payload and a
   // substitution inside double quotes are judged as well, and a quoted
   // flag reads as the flag.
+  const runsLn = collectCommands(command).some((cmd) => cmd.name === "ln");
   for (const line of commandLines(command)) {
     for (const words of parseCommands(stripHeredocBodies(line), true, true)) {
-      const reason = destructiveReason(words);
+      const reason = destructiveReason(words, runsLn);
       if (reason) return denyMessage(reason, command);
     }
   }
@@ -4043,22 +4055,50 @@ function patternText(words: ShellWord[]): string {
 const TEMP_ROOTS = ["/tmp/", "/var/tmp/"];
 
 /**
- * The operand names one entry directly in a temp root, as written:
- * `/tmp/<name>` or `/var/tmp/<name>`. rm removes that entry itself and does
- * not follow a symlink there. A deeper path or a trailing slash can pass
- * through a symlink to anywhere, and the policy does not stat the disk (the
- * link can come from earlier in the same command), so those do not qualify.
- * Neither does an expansion (`$x`, `{a,..}`), `.`, `..`, or a glob that
- * starts with a dot, where it could match `..`.
+ * The operand names a path in a temp root, and rm cannot reach outside it
+ * through a symlink. rm does not follow the entry it removes, but it follows
+ * every directory above that entry, and the entry too when a trailing slash
+ * is written. Each of those must be a real directory on disk, or not exist
+ * yet. A line that runs `ln` can make the link before rm runs, so there only
+ * one entry directly in the temp root qualifies (task a447b095 kept every
+ * deeper path out for that reason).
+ *
+ * An expansion (`$x`, `{a,..}`), an empty part, `.` and `..` never qualify.
+ * A glob may stand only in the entry that rm does not follow, and not with a
+ * leading dot, where it could match `..`.
  */
-function isTempOperand(word: ShellWord): boolean {
+function isTempOperand(word: ShellWord, runsLn: boolean): boolean {
   const root = TEMP_ROOTS.find((r) => word.text.startsWith(r));
   if (!root) return false;
-  const name = word.text.slice(root.length);
-  if (!name || name.includes("/") || name === "." || name === "..")
+  const rest = word.text.slice(root.length);
+  const trailingSlash = rest.endsWith("/");
+  const parts = (trailingSlash ? rest.slice(0, -1) : rest).split("/");
+  if (parts.some((p) => !p || p === "." || p === ".." || /[$`{}]/.test(p)))
     return false;
-  if (/[$`{}]/.test(name)) return false;
-  return !/^\.[^/]*[*?[]/.test(name);
+  const followed = trailingSlash ? parts : parts.slice(0, -1);
+  if (followed.some((p) => /[*?[]/.test(p))) return false;
+  if (!trailingSlash && /^\.[^/]*[*?[]/.test(parts[parts.length - 1]))
+    return false;
+  if (followed.length === 0) return true;
+  if (runsLn) return false;
+  return followsOnlyRealDirectories(root, followed);
+}
+
+/**
+ * Walks down from the temp root. Only ENOENT counts as missing, and then the
+ * rest is missing too; any other error fails closed.
+ */
+function followsOnlyRealDirectories(root: string, parts: string[]): boolean {
+  let path = root.slice(0, -1);
+  for (const part of parts) {
+    path += `/${part}`;
+    try {
+      if (!lstatSync(path).isDirectory()) return false;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code === "ENOENT";
+    }
+  }
+  return true;
 }
 
 /**
@@ -4135,7 +4175,7 @@ function withoutGitGlobalOptions(words: ShellWord[]): ShellWord[] {
  * operand is a temp operand: the temp SAFE patterns match one operand, so
  * without that `rm -rf /tmp/a ./src` would pass as safe.
  */
-function destructiveReason(words: ShellWord[]): string | null {
+function destructiveReason(words: ShellWord[], runsLn: boolean): string | null {
   const plain = withoutGitGlobalOptions(words.filter((word) => !word.redirect));
   const text = normalizeAbsolutePaths(patternText(plain));
   const operands = rmOperands(words);
@@ -4145,7 +4185,12 @@ function destructiveReason(words: ShellWord[]): string | null {
     ? patternText([{ text: runs.name, quoted: false }, ...runs.args])
     : "";
   const safe = SAFE_PATTERNS.some((pattern) => pattern.test(safeText));
-  if (safe && operands !== null && operands.every(isTempOperand)) return null;
+  if (
+    safe &&
+    operands !== null &&
+    operands.every((word) => isTempOperand(word, runsLn))
+  )
+    return null;
   for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {
     if (!pattern.test(text)) continue;
     // `rm -rf /tmp/a ./src` is not a root or home deletion.
