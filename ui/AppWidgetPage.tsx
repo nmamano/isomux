@@ -27,7 +27,7 @@ import {
   chatVisibleQueue,
 } from "./log-view/chat-entries.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
-import { readSafariEnv } from "./safari-link.ts";
+import { readSafariEnv, safariHref, type SafariEnv } from "./safari-link.ts";
 import { officeReturnHref } from "./home-screen-office.ts";
 import {
   INSTALL_HASH,
@@ -81,7 +81,10 @@ const WIDGET_CSS = `
 .app-widget a.app-widget-launcher { border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
 .app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:280px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; align-items:flex-start; gap:10px; }
 .app-widget-install > :first-child { flex:1; }
-.app-widget-install p,.app-widget-steps { margin:0; display:flex; align-items:center; gap:8px; }
+.app-widget-install p,.app-widget-steps p { margin:0; display:flex; align-items:center; gap:8px; }
+.app-widget-browser-install { display:flex; flex-direction:column; gap:8px; }
+.app-widget-browser-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.app-widget .app-widget-browser-actions button,.app-widget .app-widget-browser-actions a { padding:6px 12px; font-size:13px; border:1px solid var(--border); border-radius:9px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
 .app-widget-install p svg,.app-widget-steps svg { flex-shrink:0; color:var(--accent-text); }
 .app-widget .app-widget-install-close { display:flex; padding:4px; border:0; background:none; color:var(--text-secondary); }
 .app-widget-install-close:hover { color:var(--text-primary); }
@@ -143,10 +146,17 @@ function BackIcon() {
 
 // On a phone the open chat covers 80% of the page and ends above the dock.
 // The keyboard does not shrink dvh, so the box follows the visual viewport, as
-// the office chat does (LogView): with the keyboard up, the chat fits the area
-// above it. Without visualViewport, the CSS height applies. Each open measures
-// again: the dock appears only after the first status read, and on the iPhone
-// Home Screen it stands on the safe area.
+// the office chat does (LogView): with the keyboard up, the chat fills the
+// visible area, and clears the dock only when the dock is in it. Without
+// visualViewport, the CSS height applies. Each open measures again: the dock
+// appears only after the first status read, and on the iPhone Home Screen it
+// stands on the safe area.
+//
+// In the iPhone Home Screen app the keyboard shrinks the window too, and
+// WebKit can report an offsetTop the shrunk window cannot hold: the box once
+// fell to zero height there and the chat seemed to close. The visible area is
+// held inside the window, and the page scroll iOS adds is undone, as LogView
+// does.
 function usePhonePanelBox(
   active: boolean,
   open: boolean,
@@ -158,15 +168,21 @@ function usePhonePanelBox(
     const vv = window.visualViewport;
     if (!active || !vv) return;
     const update = () => {
+      if (open && (window.scrollX !== 0 || window.scrollY !== 0))
+        window.scrollTo(0, 0);
+      const layout = window.innerHeight;
+      const height = Math.min(vv.height, layout);
+      const visibleTop = Math.min(Math.max(0, vv.offsetTop), layout - height);
+      const visibleBottom = visibleTop + height;
       const dockBottom = dock.current
         ? parseFloat(getComputedStyle(dock.current).bottom)
         : NaN;
-      const dockClear = (dockBottom >= 20 ? dockBottom : 20) + 76;
-      const bottom = Math.min(
-        window.innerHeight - dockClear,
-        vv.offsetTop + vv.height - 8,
-      );
-      const top = Math.max(vv.offsetTop + 8, bottom - 0.8 * window.innerHeight);
+      const dockEdge = layout - (dockBottom >= 20 ? dockBottom : 20);
+      const dockClear = layout - dockEdge + 76;
+      const dockShown =
+        layout - dockClear >= visibleTop && dockEdge <= visibleBottom + 1;
+      const bottom = dockShown ? layout - dockClear : visibleBottom - 8;
+      const top = Math.max(visibleTop + 8, bottom - 0.8 * layout);
       setBox({ top, height: Math.max(0, bottom - top) });
     };
     update();
@@ -180,6 +196,39 @@ function usePhonePanelBox(
     };
   }, [active, open, dock]);
   return active ? box : null;
+}
+
+// "Install as app" in the installed office's window: no page installs from
+// there, so the member opens this page in a browser, where it installs. The
+// browser must hold a session: Safari may not, so the link can also be copied
+// into another one.
+function BrowserInstall({ href, safari }: { href: string; safari: SafariEnv }) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const inSafari = safariHref(href, safari);
+  return (
+    <div className="app-widget-browser-install">
+      <p>{t("appWidget.installInBrowser")}</p>
+      <div className="app-widget-browser-actions">
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard
+              ?.writeText(href)
+              .then(() => setCopied(true))
+              .catch(() => {});
+          }}
+        >
+          {copied ? t("common.copied") : t("appWidget.copyLink")}
+        </button>
+        {inSafari !== href && (
+          <a href={inSafari} target="_blank" rel="noopener noreferrer">
+            {t("appWidget.openInSafari")}
+          </a>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
@@ -241,7 +290,13 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
     subscribeInstallPrompt,
     () => heldInstallPrompt() !== null,
   );
-  const install = installMode(readInstallEnv(), held);
+  // The office recorded its page in this window (home-screen-office.ts): in
+  // an installed office, the app page runs in the office's window, not in the
+  // app's own installed app.
+  const [officeWindow] = useState(
+    () => officeReturnHref(sessionStorageOrEmpty()) !== null,
+  );
+  const install = installMode(readInstallEnv(), held, officeWindow);
   useEffect(() => {
     if (window.location.hash !== INSTALL_HASH) return;
     // A reload must not open the popover again.
@@ -591,8 +646,10 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const headerInstall = chatReady && install;
   // On Chrome the popover waits for the event: prompt() needs it, and an
   // offer with nothing to click would be a dead end.
-  const installOpen =
-    install === "ios-steps" ? stepsOpen : install === "prompt" && installAsked;
+  const stepsMode = install === "ios-steps" || install === "browser";
+  const installOpen = stepsMode
+    ? stepsOpen
+    : install === "prompt" && installAsked;
   const runInstall = () => {
     setInstallAsked(false);
     void promptInstall();
@@ -601,12 +658,18 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
     if (install === "prompt") runInstall();
     else setStepsOpen(!stepsOpen);
   };
-  const installSteps = (
-    <>
-      <ShareIcon />
-      {t("appWidget.installSteps")}
-    </>
-  );
+  const installSteps =
+    install === "browser" ? (
+      <BrowserInstall
+        href={`${window.location.origin}/${boot.name}${INSTALL_HASH}`}
+        safari={safariEnv}
+      />
+    ) : (
+      <p>
+        <ShareIcon />
+        {t("appWidget.installSteps")}
+      </p>
+    );
   return (
     <main
       className="app-widget"
@@ -637,8 +700,8 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
           className="app-widget-install"
           data-app-install-popover=""
         >
-          {install === "ios-steps" ? (
-            <p>{installSteps}</p>
+          {stepsMode ? (
+            installSteps
           ) : (
             <button type="button" onClick={runInstall}>
               {t("appWidget.installConfirm", {
@@ -683,11 +746,9 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
               className="app-widget-dock-direct app-widget-dock-install"
               aria-label={t("appWidget.install")}
               title={t("appWidget.install")}
-              aria-expanded={install === "ios-steps" ? installOpen : undefined}
+              aria-expanded={stepsMode ? installOpen : undefined}
               aria-controls={
-                install === "ios-steps" && installOpen
-                  ? "app-widget-install"
-                  : undefined
+                stepsMode && installOpen ? "app-widget-install" : undefined
               }
               onClick={toggleInstall}
             >
@@ -780,11 +841,9 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
                 <button
                   type="button"
                   className="app-widget-direct"
-                  aria-expanded={
-                    install === "ios-steps" ? installOpen : undefined
-                  }
+                  aria-expanded={stepsMode ? installOpen : undefined}
                   aria-controls={
-                    install === "ios-steps" && installOpen
+                    stepsMode && installOpen
                       ? "app-widget-install-steps"
                       : undefined
                   }
@@ -797,12 +856,12 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
             }
             installSteps={
               headerInstall &&
-              install === "ios-steps" &&
+              stepsMode &&
               installOpen &&
               open && (
-                <p id="app-widget-install-steps" className="app-widget-steps">
+                <div id="app-widget-install-steps" className="app-widget-steps">
                   {installSteps}
-                </p>
+                </div>
               )
             }
             onRecheck={() => {

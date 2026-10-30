@@ -3622,6 +3622,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "appWidget.backToOffice": "Back to office",
   "appWidget.unavailable": "Chat is unavailable.",
   "appWidget.install": "Install as app",
+  "appWidget.installInBrowser":
+    "To install, open this page in a browser where you are signed in.",
+  "appWidget.copyLink": "Copy link",
+  "appWidget.openInSafari": "Open in Safari",
   "appWidget.installSteps": "Tap Share, then Add to Home Screen.",
   "appWidget.installConfirm": "Install {appName}",
   "officeInstall.notice": "Isomux works better as an app.",

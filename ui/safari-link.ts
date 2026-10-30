@@ -1,8 +1,8 @@
-// The one link that leaves the iPhone Home Screen office for Safari: "Install
-// as app", because Add to Home Screen is in Safari's Share menu. Other links
-// stay in the window, which holds the session (task 79beacd9). The
-// x-safari-https scheme (iOS 17 and later) makes the system open the URL in
-// Safari.
+// The one link that leaves the iPhone Home Screen office for Safari: "Open in
+// Safari" under the app page's "Install as app", because Add to Home Screen is
+// in a browser's Share menu. Other links stay in the window, which holds the
+// session (task 79beacd9). The x-safari-https scheme (iOS 17 and later) makes
+// the system open the URL in Safari.
 
 import { isIos, readPushEnv } from "./push-subscription.ts";
 

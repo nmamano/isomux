@@ -23,6 +23,7 @@ const { captureInstallPrompt, heldInstallPrompt, INSTALL_HASH } =
 const { asDevice, IPHONE_HOME_SCREEN } =
   await import("./test-support/ios-home-screen.ts");
 const { en } = await import("../shared/i18n/en.ts");
+const { OFFICE_RETURN_KEY } = await import("./home-screen-office.ts");
 
 // ui/index.tsx does this at boot on the short-link page.
 beforeAll(() => captureInstallPrompt(window));
@@ -86,11 +87,16 @@ function installEvent() {
 async function mount({
   chat = false,
   isMobile = false,
+  officeWindow = false,
 }: {
   chat?: boolean;
   isMobile?: boolean;
+  // The office recorded its page in this window: the page runs in the
+  // installed office's window, as an app link from the office opens it.
+  officeWindow?: boolean;
 } = {}) {
   sessionStorage.clear();
+  if (officeWindow) sessionStorage.setItem(OFFICE_RETURN_KEY, "/apps");
   setApiShim(async () => ({
     ...boot,
     appUrl: "https://hello.office.example",
@@ -391,4 +397,82 @@ it("does not open the Chrome offer when the event comes without the hash, and ke
   expect(page.dock()!.contains(button)).toBe(true);
   expect(directLinkIn(page.dock()!)).not.toBeNull();
   expect(page.popover()).toBeNull();
+});
+
+// Nil, 2026-10-30: in the iPhone Home Screen office he found no way to install
+// an app. No page installs from that window, so the entry sends the member to
+// a browser that holds a session: Safari through its link, or any other one
+// through the copied link. The app's own Home Screen app offers nothing.
+it("offers no install entry in the app's own Home Screen app", async () => {
+  undoDevice = asDevice(IPHONE_HOME_SCREEN);
+  const page = await mount({ chat: true, isMobile: true });
+  await page.toggleChat();
+  expect(page.panel()).not.toBeNull();
+  expect(page.entries()).toHaveLength(0);
+});
+
+for (const [label, chat] of [
+  ["from the chat panel's header", true],
+  ["from the dock without a chat", false],
+] as const) {
+  it(`sends the member to a browser to install, in the iPhone Home Screen office (${label})`, async () => {
+    undoDevice = asDevice(IPHONE_HOME_SCREEN);
+    const written: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          written.push(text);
+        },
+      },
+    });
+    try {
+      const page = await mount({ chat, isMobile: true, officeWindow: true });
+      if (chat) await page.toggleChat();
+      const button = page.install();
+      expect(button).not.toBeNull();
+      const region = chat ? page.header()! : page.dock()!;
+      expect(region.contains(button)).toBe(true);
+      await act(async () => {
+        fireEvent.click(button!);
+      });
+      expect(button!.getAttribute("aria-expanded")).toBe("true");
+      const steps = document.getElementById(
+        button!.getAttribute("aria-controls")!,
+      )!;
+      expect(steps).not.toBeNull();
+      // The Share steps belong to the browser, not to this window.
+      expect(page.steps()).toHaveLength(0);
+      const pageLink = `${window.location.origin}/${boot.name}${INSTALL_HASH}`;
+      const safari = within(steps).getByRole("link", {
+        name: en["appWidget.openInSafari"],
+      });
+      expect(safari.getAttribute("href")).toBe("x-safari-" + pageLink);
+      await act(async () => {
+        fireEvent.click(
+          within(steps).getByRole("button", { name: en["appWidget.copyLink"] }),
+        );
+      });
+      expect(written).toEqual([pageLink]);
+      expect(
+        within(steps).queryByRole("button", { name: en["common.copied"] }),
+      ).not.toBeNull();
+    } finally {
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+}
+
+it(`opens the browser steps for ${INSTALL_HASH} at load in the iPhone Home Screen office`, async () => {
+  undoDevice = asDevice(IPHONE_HOME_SCREEN);
+  window.history.replaceState(null, "", `/hello/${INSTALL_HASH}`);
+  const page = await mount({ officeWindow: true });
+  const popover = page.popover();
+  expect(popover).not.toBeNull();
+  expect(
+    within(popover!).queryByRole("button", { name: en["appWidget.copyLink"] }),
+  ).not.toBeNull();
+  expect(window.location.hash).toBe("");
 });

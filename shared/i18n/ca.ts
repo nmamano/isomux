@@ -3672,6 +3672,10 @@ Coses que pots fer per ell:
   "appWidget.backToOffice": "Torna a l'oficina",
   "appWidget.unavailable": "El xat no està disponible.",
   "appWidget.install": "Instal·la com a app",
+  "appWidget.installInBrowser":
+    "Per instal·lar-la, obre aquesta pàgina en un navegador on tinguis la sessió iniciada.",
+  "appWidget.copyLink": "Copia l'enllaç",
+  "appWidget.openInSafari": "Obre a Safari",
   "appWidget.installSteps":
     "Toca Comparteix i després Afegeix a la pantalla d'inici.",
   "appWidget.installConfirm": "Instal·la {appName}",

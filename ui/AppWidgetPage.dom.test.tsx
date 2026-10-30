@@ -746,6 +746,20 @@ for (const [device, phone, dockBottom] of [
       // The keyboard closes: back to the full box.
       await move({ offsetTop: 0, height: layoutHeight }, "resize");
       keyboardDown();
+      // The iPhone Home Screen app (Nil, 2026-10-30): the keyboard shrinks the
+      // window too, and WebKit reports an offset the window cannot hold. The
+      // chat stays in the window with room to type; it once fell to zero
+      // height there.
+      const shrunk = 400;
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: shrunk,
+      });
+      await move({ offsetTop: 380, height: shrunk }, "resize");
+      const homeScreen = box();
+      expect(homeScreen.top).toBeGreaterThanOrEqual(0);
+      expect(homeScreen.bottom).toBeLessThanOrEqual(shrunk);
+      expect(homeScreen.height).toBeGreaterThanOrEqual(0.5 * shrunk);
     } finally {
       view?.unmount();
       iframesOn();

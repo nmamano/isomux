@@ -3,10 +3,11 @@
 // Chromium browsers fire beforeinstallprompt when the page links a manifest it
 // can install, and the held event's prompt() shows the browser's own install
 // dialog. iOS has no such event: no page can install itself there, so the
-// page shows the Share > Add to Home Screen steps instead.
+// page shows the Share > Add to Home Screen steps instead. An app page in the
+// installed office's own window cannot install either: it sends the member to
+// a browser (Nil, 2026-10-30).
 
 import { isIos, readPushEnv, type PushEnv } from "./push-subscription.ts";
-import { safariHref, type SafariEnv } from "./safari-link.ts";
 
 // The hash the Apps page adds to the short link: the page opens its install
 // popover on load.
@@ -22,7 +23,9 @@ export interface InstallEnv {
   handheld: boolean;
 }
 
-export type InstallMode = "prompt" | "ios-steps" | null;
+// "browser": open the page in a browser, which installs it with one of the
+// other two.
+export type InstallMode = "prompt" | "ios-steps" | "browser" | null;
 
 // The Chromium event; not in the DOM typings.
 export interface BeforeInstallPromptEvent extends Event {
@@ -60,22 +63,29 @@ export function isHandheld(env: PushEnv, coarsePointer: boolean): boolean {
 }
 
 // What the page's Install button does here, given whether an event is held.
-export function installMode(env: InstallEnv, held: boolean): InstallMode {
-  if (env.standalone) return null;
+// officeWindow: the page runs in the installed office's window (it came from
+// the office), not in its own installed app.
+export function installMode(
+  env: InstallEnv,
+  held: boolean,
+  officeWindow = false,
+): InstallMode {
+  if (env.standalone) return officeWindow ? "browser" : null;
   if (env.ios) return "ios-steps";
   return env.promptSupported && held ? "prompt" : null;
 }
 
 // Whether the Apps page offers "Install as app" in this browser. The iPhone
-// Home Screen office counts: the item opens the page in Safari.
+// Home Screen office counts: the app page there sends the member to a browser.
 export function canOfferInstall(env: InstallEnv): boolean {
   return env.ios || env.promptSupported;
 }
 
-// Where the Apps page's item goes: the short link with INSTALL_HASH, through
-// Safari on the iPhone Home Screen office.
-export function appInstallHref(shortUrl: string, env: SafariEnv): string {
-  return safariHref(shortUrl + INSTALL_HASH, env);
+// Where the Apps page's item goes: the short link with INSTALL_HASH. In the
+// iPhone Home Screen office it stays in the window, which holds the session
+// that Safari may not have.
+export function appInstallHref(shortUrl: string): string {
+  return shortUrl + INSTALL_HASH;
 }
 
 let held: BeforeInstallPromptEvent | null = null;

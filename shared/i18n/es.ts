@@ -3665,6 +3665,10 @@ Cosas que puedes hacer por él:
   "appWidget.backToOffice": "Volver a la oficina",
   "appWidget.unavailable": "El chat no está disponible.",
   "appWidget.install": "Instalar como app",
+  "appWidget.installInBrowser":
+    "Para instalarla, abre esta página en un navegador donde tengas la sesión iniciada.",
+  "appWidget.copyLink": "Copiar enlace",
+  "appWidget.openInSafari": "Abrir en Safari",
   "appWidget.installSteps":
     "Toca Compartir y luego Añadir a pantalla de inicio.",
   "appWidget.installConfirm": "Instalar {appName}",

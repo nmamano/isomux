@@ -35,7 +35,6 @@ import type {
   PlainMessageKey,
   Translator,
 } from "../../shared/i18n/translate.ts";
-import { readSafariEnv } from "../safari-link.ts";
 import {
   appInstallHref,
   canOfferInstall,
@@ -588,8 +587,7 @@ function AppActionsMenu({
 }: {
   actions: MenuAction[];
   disabled: boolean;
-  // The "install" item is a link: on the iPhone Home Screen office it must
-  // leave for Safari, which only a navigation does.
+  // The "install" item is a link to the app page, which installs it.
   installHref: string | null;
   onAction: (action: MenuAction) => void;
 }) {
@@ -1075,7 +1073,7 @@ export function AppsView({
       typeof app.shortUrl === "string" &&
       app.shortUrl !== "" &&
       canOfferInstall(readInstallEnv())
-        ? appInstallHref(app.shortUrl, readSafariEnv())
+        ? appInstallHref(app.shortUrl)
         : null;
     const actions: MenuAction[] = [
       ...(installHref ? (["install"] as const) : []),

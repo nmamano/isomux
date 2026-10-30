@@ -1,9 +1,9 @@
 // "Install as app" in the Apps page's ⋯ menu (task 8a07aa4e). Every member
 // who sees an app with a short link may install it, so a member who cannot
 // manage the app gets a menu too, holding only this item. The item is a link
-// to the short link with the install hash, because on the iPhone Home Screen
-// office it must leave for Safari (the x-safari scheme works as a navigation),
-// where Add to Home Screen runs.
+// to the short link with the install hash, which opens the app page's
+// install steps. On the iPhone Home Screen office it stays in the window,
+// which holds the session.
 
 import { afterAll, afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -94,7 +94,7 @@ for (const [label, setUp, href] of [
     () => {
       undoDevice = asDevice(IPHONE_HOME_SCREEN);
     },
-    "x-safari-" + SHORT + INSTALL_HASH,
+    SHORT + INSTALL_HASH,
   ],
 ] as const) {
   it(`offers a member who cannot manage the app only Install, as a link (${label})`, async () => {

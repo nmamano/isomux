@@ -43,26 +43,28 @@ const FIREFOX: InstallEnv = {
   handheld: true,
 };
 
-for (const [label, env, held, mode] of [
-  ["Chrome with an event", CHROME, true, "prompt"],
+for (const [label, env, held, mode, officeWindow] of [
+  ["Chrome with an event", CHROME, true, "prompt", false],
   // No event yet, already installed, or the engagement rule: nothing to click.
-  ["Chrome with no event", CHROME, false, null],
-  ["an installed Chrome window", CHROME_APP, false, null],
-  ["iPhone Safari", IOS_SAFARI, false, "ios-steps"],
-  // Already on the Home Screen: there is nothing left to install.
-  ["an iPhone Home Screen window", IOS_HOME, false, null],
-  ["Firefox", FIREFOX, false, null],
+  ["Chrome with no event", CHROME, false, null, false],
+  ["an installed Chrome window", CHROME_APP, false, null, false],
+  ["iPhone Safari", IOS_SAFARI, false, "ios-steps", false],
+  // The app's own Home Screen app: there is nothing left to install.
+  ["an iPhone Home Screen window", IOS_HOME, false, null, false],
+  // The Home Screen office's window: a browser installs the app.
+  ["the iPhone Home Screen office", IOS_HOME, false, "browser", true],
+  ["an installed Chrome office", CHROME_APP, true, "browser", true],
+  ["Firefox", FIREFOX, false, null, false],
 ] as const) {
   it(`the short-link page offers ${String(mode)} in ${label}`, () => {
-    expect(installMode(env, held)).toBe(mode);
+    expect(installMode(env, held, officeWindow)).toBe(mode);
   });
 }
 
 for (const [label, env, offered] of [
   ["Chrome", CHROME, true],
   ["iPhone Safari", IOS_SAFARI, true],
-  // The iPhone Home Screen office sends the member to Safari, where Add to
-  // Home Screen runs.
+  // The app page there sends the member to a browser.
   ["the iPhone Home Screen office", IOS_HOME, true],
   ["Firefox", FIREFOX, false],
 ] as const) {
@@ -160,34 +162,12 @@ for (const [label, env, coarse, handheld] of [
   });
 }
 
-const SHORT = "https://office.example/loop";
-for (const [label, env, href] of [
-  [
-    "a browser",
-    { ios: false, standalone: false, iosMajor: null },
-    SHORT + INSTALL_HASH,
-  ],
-  [
-    "iPhone Safari",
-    { ios: true, standalone: false, iosMajor: 17 },
-    SHORT + INSTALL_HASH,
-  ],
-  [
-    "the iPhone Home Screen office",
-    { ios: true, standalone: true, iosMajor: 17 },
-    "x-safari-" + SHORT + INSTALL_HASH,
-  ],
-  // No x-safari scheme before iOS 17: the plain link at least does something.
-  [
-    "the iPhone Home Screen office on iOS 16",
-    { ios: true, standalone: true, iosMajor: 16 },
-    SHORT + INSTALL_HASH,
-  ],
-] as const) {
-  it(`the Apps page's install link from ${label}`, () => {
-    expect(appInstallHref(SHORT, env)).toBe(href);
-  });
-}
+// The Apps page's install link stays in the window, the Home Screen office's
+// too: Safari may hold no session.
+it("the Apps page's install link opens the short link with the install hash", () => {
+  const SHORT = "https://office.example/loop";
+  expect(appInstallHref(SHORT)).toBe(SHORT + INSTALL_HASH);
+});
 
 function installEvent(outcome: "accepted" | "dismissed") {
   const prompt = mock(async () => {});
