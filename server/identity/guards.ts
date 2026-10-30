@@ -234,7 +234,8 @@ export const agentFilesUpload: Guard = requiresRoomAccess({
 export const agentReferenceReader: Guard = ({ identity }) =>
   identity.scope === "user" ||
   identity.scope === "api" ||
-  identity.scope === "agent"
+  identity.scope === "agent" ||
+  identity.scope === "cron-run"
     ? ALLOW
     : FORBIDDEN;
 

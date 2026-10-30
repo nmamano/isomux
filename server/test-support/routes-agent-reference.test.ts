@@ -139,9 +139,10 @@ describe("agent reference routes", () => {
         status: 200,
       },
       {
+        // A schedule run reads the pages its job prompt names (task ee0b9c0d).
         name: "cron-run",
         init: { headers: { Authorization: `Bearer ${run}` } },
-        status: 403,
+        status: 200,
       },
       {
         name: "app",
@@ -149,11 +150,23 @@ describe("agent reference routes", () => {
         status: 403,
       },
     ] as const;
+    expect(PRIVILEGED_REFERENCE_TOPICS.has("audit")).toBe(true);
+    expect(PRIVILEGED_REFERENCE_TOPICS.has("messaging")).toBe(false);
     for (const call of calls) {
       const list = await srv.http("/api/agent-reference", call.init);
       expect(list.status, `${call.name} list`).toBe(call.status);
-      const topic = await srv.http("/api/agent-reference/tasks", call.init);
+      const topic = await srv.http("/api/agent-reference/messaging", call.init);
       expect(topic.status, `${call.name} topic`).toBe(call.status);
+      // A privileged page is the privileged agent's alone: every other reader
+      // gets the unknown-page answer, and a refused identity keeps its 403.
+      const closed = await srv.http("/api/agent-reference/audit", call.init);
+      expect(closed.status, `${call.name} privileged topic`).toBe(
+        call.status !== 200
+          ? call.status
+          : call.name === "privileged"
+            ? 200
+            : 404,
+      );
       if (call.status === 200) {
         const body = (await list.json()) as {
           version: string;

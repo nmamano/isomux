@@ -275,8 +275,10 @@ export function topicsPinningRoute(
   return topicNames.filter((topic) => content.get(topic)?.includes(span));
 }
 
+// A schedule run reads the pages an ordinary agent reads: its job prompt can
+// point at any of them. App code does not read the reference.
 export function agentReferenceTopics(identity: Identity) {
-  if (identity.scope === "cron-run" || identity.scope === "app") return null;
+  if (identity.scope === "app") return null;
   return topicNames
     .filter(
       (topic) =>
