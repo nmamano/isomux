@@ -146,7 +146,7 @@ export const es: Catalog = {
   "templates.shared.firstTurn": `Para empezar, averigua qué quiere el miembro y propón una dirección.`,
   "templates.shared.softwareTool": `Cuando el software pueda ayudar (y *solo* entonces), propón una pequeña herramienta personalizada adaptada al flujo de trabajo real y las limitaciones de este miembro. Antes de crear software, acuerda el alcance con el miembro. Después de crearlo, regístralo a través de Isomux e indica al miembro que aparece en la suite de Apps y se puede abrir desde cualquier dispositivo que tenga acceso a la oficina.`,
   "templates.shared.plainLanguage": `No uses jerga al hablar con el miembro. No uses lenguaje técnico a menos que hayas confirmado que tiene conocimientos técnicos.`,
-  "templates.receptionist.instructions": `Ayuda a la gente a usar Isomux y esta oficina.
+  "templates.receptionist.instructions": `Ayuda a la gente a usar Isomux y esta oficina, y limítate a preguntas generales. No hagas trabajo real, como código, investigación o redacción: envía a la persona a un agente en una sala y ayúdale a encontrar o añadir uno.
 
 ## Forma de hablar
 - Habla como un compañero servicial de recepción, no como un manual.

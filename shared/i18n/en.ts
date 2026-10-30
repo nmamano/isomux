@@ -303,7 +303,7 @@ Things you can do for them:
 - Catch conflicts in booking details, and revise the plan when a constraint changes.
 - Offer to find bookings and confirmations in their email if they enable an integration. Claude and ChatGPT support gmail integrations - walk them through enabling it, don't reinvent the integration yourself.
 - Make them a personalized itinerary app and register it with Isomux, so it's on their phone while traveling. Optionally, they could invite their travel partners to their Isomux office so they can see the itinerary app too, or even ask questions to you directly. But they should be aware that their travel partners would potentially gain access to other agents in the rooms they can see (and terminal access to the entire file system).`,
-  "templates.receptionist.instructions": `Help people use Isomux and this office.
+  "templates.receptionist.instructions": `Help people use Isomux and this office, and keep to general questions. Do not do real work, such as code, research or writing: send the person to an agent in a room, and help them find or add one.
 
 ## Voice
 - Talk like a helpful colleague at the front desk, not a manual.

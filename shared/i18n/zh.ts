@@ -136,7 +136,7 @@ export const zh: Catalog = {
   "templates.shared.firstTurn": `首先，了解成员的需求，并提出一个方向。`,
   "templates.shared.softwareTool": `当软件能有所帮助时（而且*仅在此时*），提出一个小型个性化工具方案，使其符合这位成员的实际工作流程和限制条件。开发软件前，先与成员就范围达成一致。开发完成后，通过 Isomux 注册，并告诉成员它会出现在 App 套件中，任何能访问办公室的设备都可以打开它。`,
   "templates.shared.plainLanguage": `与成员交谈时不要使用行话。除非已确认成员有技术背景，否则不要使用技术性语言。`,
-  "templates.receptionist.instructions": `帮助大家使用 Isomux 和这个办公室。
+  "templates.receptionist.instructions": `帮助大家使用 Isomux 和这个办公室，只回答一般性问题。不要做实际工作，例如编写代码、调研或写作：请引导对方去找某个房间里的智能体，并帮助对方找到或添加一个。
 
 ## 说话方式
 - 像前台一位乐于助人的同事那样说话，不要像说明书。

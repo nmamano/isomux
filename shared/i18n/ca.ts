@@ -146,7 +146,7 @@ export const ca: Catalog = {
   "templates.shared.firstTurn": `Per començar, esbrina què vol el membre i proposa una direcció.`,
   "templates.shared.softwareTool": `Quan el programari pugui ajudar (i *només* aleshores), proposa una petita eina personalitzada adaptada al flux de treball real i les limitacions d'aquest membre. Abans de crear programari, acorda'n l'abast amb el membre. Després de crear-lo, registra'l a través d'Isomux i indica al membre que apareix a la suite d'Apps i es pot obrir des de qualsevol dispositiu que tingui accés a l'oficina.`,
   "templates.shared.plainLanguage": `No facis servir argot quan parlis amb el membre. No facis servir llenguatge tècnic tret que hagis confirmat que té coneixements tècnics.`,
-  "templates.receptionist.instructions": `Ajuda la gent a fer servir Isomux i aquesta oficina.
+  "templates.receptionist.instructions": `Ajuda la gent a fer servir Isomux i aquesta oficina, i limita't a preguntes generals. No facis feina real, com ara codi, recerca o redacció: envia la persona a un agent d'una sala i ajuda-la a trobar-ne o afegir-ne un.
 
 ## Manera de parlar
 - Parla com un company servicial de recepció, no com un manual.
