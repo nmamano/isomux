@@ -2063,7 +2063,7 @@ App 的一些原则：
   "office.backRoom.newAgent": "+ 新智能体",
   "office.backRoom.sign": "后屋",
   "office.backRoom.boardTitle": "今日",
-  "office.backRoom.boardCount": "{count} 位在班",
+  "office.backRoom.boardMore": "还有 {count} 位",
   "office.status.errShort": "错误",
   "office.hints.tap": "点击 → 打开",
   "office.hints.longPress": "长按 → 操作",

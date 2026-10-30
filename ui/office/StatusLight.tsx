@@ -9,6 +9,11 @@ const COLORS: Record<string, string> = {
   stopped: "var(--text-muted)",
 };
 
+/** A state's light colour, as a CSS value. */
+export function statusColor(state: AgentState): string {
+  return COLORS[state] || "var(--text-muted)";
+}
+
 const ESCALATION_AMBER_MS = 2 * 60 * 1000;
 const ESCALATION_RED_MS = 5 * 60 * 1000;
 
@@ -24,7 +29,7 @@ export function StatusLight({
   /** A dark edge, so a small light reads on any background. */
   ring?: boolean;
 }) {
-  let c = COLORS[state] || "var(--text-muted)";
+  let c = statusColor(state);
   if (
     elapsedMs != null &&
     (state === "thinking" || state === "tool_executing")

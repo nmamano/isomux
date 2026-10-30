@@ -1,7 +1,8 @@
 // The back room screen (task 5b503e32): one seated figure per back agent at
 // its stored seat, the room's n x n size, one click to a log, the attention
-// bubbles, the bar's buttons, the ladder up to the front, the board's fit
-// on the wall (task f0af4677), and the bulbs' place (task 79c967a8).
+// bubbles, the bar's buttons and the ladder up to the front. The walls are
+// in BackRoomScreen.walls.dom.test.tsx, the board's lines in
+// BackRoomScreen.board.dom.test.tsx.
 import { afterEach, describe, expect, it } from "bun:test";
 import type { AgentInfo } from "../../../shared/types.ts";
 import { setUpDomTestFile } from "../../test-support/dom.ts";
@@ -10,82 +11,15 @@ setUpDomTestFile();
 const { cleanup, fireEvent, render } = await import("@testing-library/react");
 const { BackRoomScreen } = await import("./BackRoomScreen.tsx");
 const { onLanguage } = await import("../../test-support/language-fixture.tsx");
-const { firstFreeBackSeat, deskOfBackSeat, backRoomSide } =
-  await import("../../../shared/desks.ts");
-const { backRoomLayout } = await import("./geometry.ts");
+const { deskOfBackSeat } = await import("../../../shared/desks.ts");
 const { getDraggedDesk, setDraggedDesk } = await import("../drag-state.ts");
+const { backAgents, screenFor, show, figures } =
+  await import("../../test-support/back-room-fixture.tsx");
 
 afterEach(() => {
   cleanup();
   setDraggedDesk(null);
 });
-
-const OUTFIT = {
-  color: "#4A90D9",
-  hair: "#222",
-  hairStyle: "short",
-  skin: "#FFD5B8",
-  beard: "none",
-  accessory: null,
-  hat: "none",
-};
-
-function backAgents(n: number) {
-  const taken: number[] = [];
-  return Array.from({ length: n }, (_, i) => {
-    const desk = firstFreeBackSeat(taken)!;
-    taken.push(desk);
-    return {
-      id: `w${i}`,
-      name: `W${i}`,
-      desk,
-      roomId: "r1",
-      state: "idle",
-      outfit: OUTFIT,
-      pendingPrompt: null,
-    } as unknown as AgentInfo;
-  });
-}
-
-function screenFor(
-  agents: ReturnType<typeof backAgents>,
-  unread = new Set<string>(),
-  frontFull = false,
-  askCounts?: ReadonlyMap<string, number>,
-  calls: string[] = [],
-) {
-  return onLanguage(
-    "en",
-    <BackRoomScreen
-      roomName="Studio"
-      agents={agents}
-      needsAttention={unread}
-      askCounts={askCounts}
-      isMobile={false}
-      onBack={() => calls.push("back")}
-      onSpawn={() => calls.push("spawn")}
-      onOpenAgent={(id) => calls.push(`open:${id}`)}
-      onContextMenu={(_x, _y, a) => calls.push(`menu:${a.id}`)}
-      frontFull={frontFull}
-      onDropToFront={(a) => calls.push(`front:${a.id}`)}
-    />,
-  );
-}
-
-function show(
-  agents: ReturnType<typeof backAgents>,
-  unread = new Set<string>(),
-  frontFull = false,
-  askCounts?: ReadonlyMap<string, number>,
-) {
-  const calls: string[] = [];
-  const view = render(screenFor(agents, unread, frontFull, askCounts, calls));
-  return { view, calls };
-}
-
-const figures = (el: HTMLElement) => [
-  ...el.querySelectorAll("[data-back-figure]"),
-];
 
 describe("BackRoomScreen", () => {
   it("draws one figure per back agent, and a click opens that agent", () => {
@@ -197,81 +131,6 @@ describe("BackRoomScreen", () => {
     setDraggedDesk(3);
     view.rerender(screenFor([]));
     expect(getDraggedDesk()).toBe(3);
-  });
-
-  it("stands the ladder at the right wall's end and keeps the board clear of it", () => {
-    // From 3x3 to 10x10: the ladder's right edge stays inside the wall, past
-    // its middle; the board stays between the back corner and the ladder.
-    for (const n of [1, 24, 100]) {
-      const agents = backAgents(n);
-      const { view } = show(agents);
-      const layout = backRoomLayout(backRoomSide(agents.map((a) => a.desk)));
-      const backCorner = layout.at(0, 0).x;
-      const wallEnd = layout.at(layout.nc, 0).x;
-      const ladderXs = [
-        ...view.container
-          .querySelector("[data-back-ladder]")!
-          .getAttribute("d")!
-          .matchAll(/[ML](-?[\d.]+) /g),
-      ].map((m) => Number(m[1]));
-      expect(Math.max(...ladderXs)).toBeLessThanOrEqual(wallEnd);
-      expect(Math.min(...ladderXs)).toBeGreaterThan((backCorner + wallEnd) / 2);
-      const g = view.container.querySelector("[data-back-board]")!;
-      const m = /matrix\(([^)]+)\)/.exec(g.getAttribute("transform")!)!;
-      const [k, , , , x] = m[1].split(" ").map(Number);
-      const w = Number(g.querySelector("rect")!.getAttribute("width"));
-      expect(x).toBeGreaterThanOrEqual(backCorner);
-      expect(x + k * w).toBeLessThanOrEqual(Math.min(...ladderXs));
-      cleanup();
-    }
-  });
-
-  it("hangs every bulb above the wall title and the board, none in line with another", () => {
-    for (const n of [1, 24, 100]) {
-      const { view } = show(backAgents(n));
-      const sign = view.container.querySelector("[data-back-sign]")!;
-      const [, , , , , sy] = /matrix\(([^)]+)\)/
-        .exec(sign.getAttribute("transform")!)![1]
-        .split(" ")
-        .map(Number);
-      const text = sign.querySelector("text")!;
-      const font = Number(text.getAttribute("font-size"));
-      const len = [...text.textContent].length;
-      const signW =
-        len * (0.6 * font + Number(text.getAttribute("letter-spacing")));
-      // The title slants up to its right end, by half its width.
-      const signTop = sy - signW / 4 - font;
-      const board = view.container.querySelector("[data-back-board]")!;
-      const boardTop = Number(
-        /matrix\(([^)]+)\)/
-          .exec(board.getAttribute("transform")!)![1]
-          .split(" ")[5],
-      );
-      const bulbs = [...view.container.querySelectorAll("[data-back-bulb]")];
-      expect(bulbs.length).toBeGreaterThanOrEqual(4);
-      const xs: number[] = [];
-      let glowR = 0;
-      for (const b of bulbs) {
-        const cord = /^M(-?[\d.]+) (-?[\d.]+) L(-?[\d.]+) (-?[\d.]+)$/.exec(
-          b.querySelector("path")!.getAttribute("d")!,
-        )!;
-        const [, x0, y0] = cord.map(Number);
-        // The cord runs up past the top of the screen.
-        expect(y0).toBeLessThan(-1000);
-        // The glow comes first, the bulb last.
-        const [glow, disc] = [...b.querySelectorAll("circle")];
-        glowR = Number(glow.getAttribute("r"));
-        const discBottom =
-          Number(disc.getAttribute("cy")) + Number(disc.getAttribute("r"));
-        expect(discBottom).toBeLessThan(Math.min(signTop, boardTop));
-        xs.push(x0);
-      }
-      // No two glows overlap, so no bulb or cord hides behind another.
-      xs.sort((a, b) => a - b);
-      for (let k = 1; k < xs.length; k++)
-        expect(xs[k] - xs[k - 1]).toBeGreaterThan(2 * glowR);
-      cleanup();
-    }
   });
 
   it("gives the 0, + and - keys its own view, which zooms out past the front's limit", () => {

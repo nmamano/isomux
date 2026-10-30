@@ -2302,7 +2302,7 @@ Cosas que puedes hacer por él:
   "office.backRoom.newAgent": "+ Nuevo agente",
   "office.backRoom.sign": "TRASTIENDA",
   "office.backRoom.boardTitle": "HOY",
-  "office.backRoom.boardCount": "{count} EN TURNO",
+  "office.backRoom.boardMore": "+{count} más",
   "office.status.errShort": "error",
   "office.hints.tap": "TOCAR → abrir",
   "office.hints.longPress": "MANTENER PULSADO → acciones",

@@ -2308,7 +2308,7 @@ Coses que pots fer per ell:
   "office.backRoom.newAgent": "+ Agent nou",
   "office.backRoom.sign": "REBOTIGA",
   "office.backRoom.boardTitle": "AVUI",
-  "office.backRoom.boardCount": "{count} DE TORN",
+  "office.backRoom.boardMore": "+{count} més",
   "office.status.errShort": "error",
   "office.hints.tap": "TOCA → obre",
   "office.hints.longPress": "MANTÉN PREMUT → accions",

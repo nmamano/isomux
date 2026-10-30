@@ -1,7 +1,10 @@
-// The back room screen (task 5b503e32): the room's basement, a sweatshop of
-// n long tables with n stools. Each back agent is a seated figure with a
+// The back room screen (task 5b503e32): the room's basement, a workroom of
+// n long tables with n seats, a laptop at each agent's place, pendant lamps
+// and plants (task a442aa4f). Each back agent is a seated figure with a
 // nameplate (status light and name), a purple bubble when unread and an amber
-// one when it waits on a prompt; a click or tap opens its log. The figures do
+// one when it waits on a prompt; a click or tap opens its log. The board on
+// the left wall lists each agent's name and topic, and a click on a line
+// opens that agent too (task a442aa4f). The figures do
 // not animate: a hundred animated characters made the frame time 3 to 4 times
 // the front view's (measured 2026-10-15), and static ones cost nothing over
 // it. The room zooms and pans with the front's viewport code (task f0af4677).
@@ -15,7 +18,8 @@ import { backRoomSide, backSeatOf } from "../../../shared/desks.ts";
 import { useI18n } from "../../i18n.tsx";
 import { noTranslate } from "../../no-translate.ts";
 import { Character } from "../Character.tsx";
-import { StatusLight } from "../StatusLight.tsx";
+import { StatusLight, statusColor } from "../StatusLight.tsx";
+import { CornerPlant, PlantDefs } from "../plants.tsx";
 import { styleForModel } from "../../model-styles.ts";
 import { useViewport } from "../useViewport.ts";
 import { ZoomControls } from "../ZoomControls.tsx";
@@ -44,10 +48,16 @@ const BRICK = {
   endRight: "#7f5446",
   mortar: "rgba(60,30,20,0.18)",
 };
-const FLOOR = ["#b1aea8", "#a9a6a0"];
+// Warm wood parquet: blocks in two shades, planks across alternate blocks.
+const FLOOR = ["#c39a6b", "#b88f61"];
+const PLANK = "rgba(80,50,25,0.16)";
 // The slab's two visible sides, in the floor's two shades.
-const SLAB_LEFT = ["#8e8b86", "#86837e"];
-const SLAB_RIGHT = ["#7d7a75", "#76736e"];
+const SLAB_LEFT = ["#94704b", "#8b6946"];
+const SLAB_RIGHT = ["#7e5f3f", "#77593b"];
+const TABLE = { top: "#b38c63", front: "#94714d", side: "#7d5e40" };
+const LAPTOP = { base: "#9da3aa", lid: "#c8ccd2" };
+const CHAIR = { seat: "#3f6470", back: "#355561", leg: "#4a4a4a" };
+const SHADE = { outer: "#2f5446", rim: "#4d7a67" };
 // The walls' thickness, and a brick's length along a wall top.
 const WALL_T = 8;
 const BRICK_LEN = 26;
@@ -56,7 +66,7 @@ const LONG_PRESS_MS = 500;
 // screen at any pan and zoom (Nil: "the lamp cables should always reach the
 // very top of the screen").
 const CORD_H = 20000;
-// The bulbs hang above the wall title and the board (Nil, 2026-10-15), at
+// The lamps hang above the wall title and the board (Nil, 2026-10-15), at
 // these steps up from that line, so that no two line up.
 const BULB_STAGGER = [0, 34, 14, 46, 6, 26, 40, 18, 30, 10];
 const BULB_GAP = 24;
@@ -66,13 +76,27 @@ const SIGN_SPACING = 4;
 // right, under the trap door, which is on the right of the front floor.
 const LADDER_FROM_END = 1.6;
 const LADDER_SLOPE = TILE_B / TILE_A;
-// The board: its smallest width, its fonts, and its span on the right wall in
-// tiles (from near the back corner to short of the ladder).
-const BOARD_W = 120;
-const BOARD_TITLE_FONT = 10;
-const BOARD_COUNT_FONT = 13;
-const BOARD_C0 = 0.45;
-const BOARD_LADDER_GAP = 0.35;
+// The stencil's span on the right wall, in tiles: from near the back corner
+// to short of the ladder.
+const SIGN_C0 = 0.45;
+const SIGN_LADDER_GAP = 0.35;
+// The board on the left wall (task a442aa4f): its margins from the left and
+// back corners in tiles, its top's height over the floor, and its slots. A
+// slot holds one agent on two lines (name, then topic); the columns are as
+// many as the wall holds at the smallest width, so a 3x3 room gets two
+// columns of five, and its nine seats always fit.
+const BOARD_MARGIN_LEFT = 0.45;
+const BOARD_MARGIN_BACK = 0.7;
+const BOARD_TOP_H = 162;
+const BOARD_PAD = 8;
+const BOARD_TITLE_H = 22;
+const BOARD_TITLE_FONT = 11;
+const BOARD_FONT = 9;
+const BOARD_SLOT_H = 24;
+const BOARD_ROWS = 5;
+const BOARD_COL_MIN = 104;
+// Where a slot's name and topic start: right of the status dot.
+const BOARD_TEXT_X = 11;
 
 /** About how wide a monospace line draws: CJK glyphs take a full em, the
  *  rest 0.6 em. */
@@ -80,6 +104,19 @@ function textWidth(text: string, fontSize: number): number {
   let em = 0;
   for (const ch of text) em += /[\u2e80-\uffff]/.test(ch) ? 1 : 0.6;
   return em * fontSize;
+}
+
+/** The text cut to fit maxW, with an ellipsis when cut. Cuts between code
+ *  points, so an emoji or a CJK character is never split. */
+function fitText(text: string, fontSize: number, maxW: number): string {
+  if (textWidth(text, fontSize) <= maxW) return text;
+  let out = "";
+  const room = maxW - textWidth("…", fontSize);
+  for (const ch of text) {
+    if (textWidth(out + ch, fontSize) > room) break;
+    out += ch;
+  }
+  return out.trimEnd() + "…";
 }
 
 const poly = (pts: Point[]) =>
@@ -137,8 +174,6 @@ function Figure({
   const h = 68 * FIGURE_SCALE;
   const w = 52 * FIGURE_SCALE;
   const plate = styleForModel(agent.modelFamily);
-  const working =
-    agent.state === "thinking" || agent.state === "tool_executing";
   const press = useRef<number | null>(null);
   const pressed = useRef(false);
   const clearPress = () => {
@@ -225,12 +260,7 @@ function Figure({
         }}
       >
         <div style={{ width: w, height: h, pointerEvents: "none" }}>
-          <Character
-            state={agent.state}
-            outfit={agent.outfit}
-            height={h}
-            sweating={working}
-          />
+          <Character state={agent.state} outfit={agent.outfit} height={h} />
         </div>
       </div>
       {/* The nameplate: the front's, smaller. Neighbours on a table sit a
@@ -323,6 +353,68 @@ function Figure({
         </div>
       )}
     </>
+  );
+}
+
+/** One agent's line on the board: a status dot, the name and the topic, each
+ *  cut to the column, the whole text in the tooltip. */
+function BoardLine({
+  agent,
+  at,
+  width,
+  onOpen,
+  onKey,
+}: {
+  agent: AgentInfo;
+  at: Point;
+  width: number;
+  onOpen: () => void;
+  onKey: () => void;
+}) {
+  const textW = width - BOARD_TEXT_X - 4;
+  const label = agent.topic ? `${agent.name}: ${agent.topic}` : agent.name;
+  return (
+    <g
+      data-back-board-line={agent.id}
+      data-no-pan
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      transform={`translate(${at.x} ${at.y})`}
+      pointerEvents="all"
+      cursor="pointer"
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onKey();
+        }
+      }}
+      {...noTranslate()}
+    >
+      <title>{label}</title>
+      <rect width={width - 4} height={BOARD_SLOT_H - 2} fill="transparent" />
+      <circle cx={4} cy={7} r={3} fill={statusColor(agent.state)} />
+      <text
+        x={BOARD_TEXT_X}
+        y={10}
+        fontSize={BOARD_FONT}
+        fontWeight={700}
+        fill="rgba(255,255,255,0.92)"
+        fontFamily="'JetBrains Mono',monospace"
+      >
+        {fitText(agent.name, BOARD_FONT, textW)}
+      </text>
+      <text
+        x={BOARD_TEXT_X}
+        y={20}
+        fontSize={BOARD_FONT}
+        fill="rgba(255,255,255,0.7)"
+        fontFamily="'JetBrains Mono',monospace"
+      >
+        {fitText(agent.topic || "", BOARD_FONT, textW)}
+      </text>
+    </g>
   );
 }
 
@@ -521,10 +613,20 @@ export function BackRoomScreen({
     </>
   );
   const floor: React.ReactNode[] = [];
+  // The planks' seams, three planks a block, across c and r in turn: one path.
+  let planks = "";
   for (let r = 0; r < layout.nr; r += 1.5)
     for (let c = 0; c < layout.nc; c += 1.5) {
       const r2 = Math.min(layout.nr, r + 1.5);
       const c2 = Math.min(layout.nc, c + 1.5);
+      for (const f of [0.5, 1]) {
+        const [a, b] =
+          Math.round((r + c) / 1.5) % 2
+            ? [layout.at(c + f, r), layout.at(c + f, r2)]
+            : [layout.at(c, r + f), layout.at(c2, r + f)];
+        if (Math.round((r + c) / 1.5) % 2 ? c + f < c2 : r + f < r2)
+          planks += `M${a.x} ${a.y} L${b.x} ${b.y} `;
+      }
       floor.push(
         <path
           key={`${r}-${c}`}
@@ -540,6 +642,7 @@ export function BackRoomScreen({
         />,
       );
     }
+  floor.push(<path key="planks" d={planks} stroke={PLANK} strokeWidth={0.6} />);
   // The slab's sides carry the floor's checkerboard down over its thickness,
   // one face per edge block, as in the front rooms. The first face on each
   // side reaches out under the wall to its outer corner.
@@ -574,33 +677,51 @@ export function BackRoomScreen({
         `sr-${r}`,
       ),
     );
-  const sign = layout.at(0, layout.nr * 0.62);
   const ladderFoot = layout.at(layout.nc - LADDER_FROM_END, 0.15);
   const ladderTop = { x: ladderFoot.x + 26, y: ladderFoot.y - WALL_H - 70 };
-  // The board hangs on the right wall between the back corner and the
-  // ladder, centred, and shrinks to fit a small room's wall.
-  const boardCount = t("office.backRoom.boardCount", { count: agents.length });
-  const boardTitle = t("office.backRoom.boardTitle");
-  const boardW = Math.max(
-    BOARD_W,
-    textWidth(boardCount, BOARD_COUNT_FONT) + 24,
-    textWidth(boardTitle, BOARD_TITLE_FONT) + 24,
-  );
-  const boardSpan =
-    (layout.nc - LADDER_FROM_END - BOARD_LADDER_GAP - BOARD_C0) * TILE_A;
-  const boardScale = Math.min(1, boardSpan / boardW);
-  const board = layout.at(
-    BOARD_C0 + (boardSpan - boardW * boardScale) / 2 / TILE_A,
-    0,
-  );
-  // Bare bulbs on cords, two per two tables, spaced evenly from the floor's
-  // left corner to the ladder and staggered in height above the title and
-  // the board. The title slants up to its right end.
+  // The "BACK ROOM" stencil hangs on the right wall between the back corner
+  // and the ladder, centred, and shrinks to fit a small room's wall.
   const signText = t("office.backRoom.sign");
   const signW =
     textWidth(signText, SIGN_FONT) + SIGN_SPACING * [...signText].length;
-  const signTop = sign.y - WALL_H * 0.6 - signW / 4 - SIGN_FONT;
-  const boardTop = board.y - WALL_H * 0.78 - 4;
+  const signSpan =
+    (layout.nc - LADDER_FROM_END - SIGN_LADDER_GAP - SIGN_C0) * TILE_A;
+  const signScale = Math.min(1, signSpan / signW);
+  const sign = up(layout.at(SIGN_C0 + signSpan / 2 / TILE_A, 0), WALL_H * 0.55);
+  // The text slants down to its right: its left end is its highest point.
+  const signTop = sign.y - (signScale * signW) / 4 - signScale * SIGN_FONT;
+
+  // The board on the left wall, from near the left corner to short of the
+  // back corner: as many columns as fit, then the slots fill down each column.
+  const leftCorner = layout.at(0, layout.nr);
+  const boardW = (layout.nr - BOARD_MARGIN_LEFT - BOARD_MARGIN_BACK) * TILE_A;
+  const boardCols = Math.max(
+    1,
+    Math.floor((boardW - 2 * BOARD_PAD) / BOARD_COL_MIN),
+  );
+  const colW = (boardW - 2 * BOARD_PAD) / boardCols;
+  const boardH = BOARD_TITLE_H + BOARD_ROWS * BOARD_SLOT_H + BOARD_PAD;
+  const boardX = leftCorner.x + BOARD_MARGIN_LEFT * TILE_A;
+  // The wall's foot falls TILE_B per TILE_A toward the left corner.
+  const boardY =
+    leftCorner.y - (BOARD_MARGIN_LEFT * TILE_A * TILE_B) / TILE_A - BOARD_TOP_H;
+  // The board rises to its right: its top-right corner is its highest point.
+  const boardTop = boardY - (boardW * TILE_B) / TILE_A;
+  // Seated agents in seat order; past the slots, the last one counts the rest.
+  const listed = agents
+    .filter((a) => backSeatOf(a.desk))
+    .sort((a, b) => a.desk - b.desk);
+  const slots = boardCols * BOARD_ROWS;
+  const shown = listed.length > slots ? listed.slice(0, slots - 1) : listed;
+  const more = listed.length - shown.length;
+  const slotAt = (i: number) => ({
+    x: BOARD_PAD + Math.floor(i / BOARD_ROWS) * colW,
+    y: BOARD_TITLE_H + (i % BOARD_ROWS) * BOARD_SLOT_H,
+  });
+
+  // Pendant lamps, two per two tables, spaced evenly from the floor's left
+  // corner to the ladder and staggered in height above the stencil and the
+  // board.
   const bulbLine = Math.min(signTop, boardTop) - BULB_GAP;
   const bulbCount = 2 * Math.ceil(side / 2);
   const bulbX0 = layout.at(0, layout.nr).x;
@@ -609,6 +730,9 @@ export function BackRoomScreen({
     x: bulbX0 + (k + 0.5) * bulbStep,
     y: bulbLine - BULB_STAGGER[k % BULB_STAGGER.length],
   }));
+  // Plants: in the back corner, and in the front corner, clear of the seats.
+  const backPlant = layout.at(0.32, 0.32);
+  const frontPlant = layout.at(layout.nc - 0.4, layout.nr - 0.4);
 
   // Back to front: tables in order, each with its figures and empty stools
   // behind it.
@@ -645,18 +769,54 @@ export function BackRoomScreen({
             up(t2, TABLE_H),
             up(t3, TABLE_H),
           ])}
-          fill="#8b6a4c"
+          fill={TABLE.top}
           stroke="rgba(0,0,0,0.25)"
           strokeWidth={0.6}
         />
         <path
           d={poly([up(t3, TABLE_H), up(t2, TABLE_H), t2, t3])}
-          fill="#6e5239"
+          fill={TABLE.front}
         />
         <path
           d={poly([up(t1, TABLE_H), up(t2, TABLE_H), t2, t1])}
-          fill="#5a4330"
+          fill={TABLE.side}
         />
+        {/* A laptop at each taken seat, its lid toward us: one path for
+            the bases and one for the lids, to keep the element count low
+            in a full room. */}
+        {(() => {
+          let bases = "";
+          let lids = "";
+          for (let i = 0; i < side; i++) {
+            if (!seated.has(`${j},${i}`)) continue;
+            const c = tb.c0 + 0.5 + i;
+            const p = (dc: number, dr: number) =>
+              up(layout.at(c + dc, tb.r + dr), TABLE_H);
+            // The base reaches toward the agent; the lid stands on its
+            // front edge, its back to us.
+            const [b0, b1, b2, b3] = [
+              p(-0.15, 0.08),
+              p(0.15, 0.08),
+              p(0.15, 0.3),
+              p(-0.15, 0.3),
+            ];
+            bases += poly([b0, b1, b2, b3]) + " ";
+            lids += poly([b3, b2, up(b2, 9), up(b3, 9)]) + " ";
+          }
+          return (
+            bases && (
+              <>
+                <path d={bases} fill={LAPTOP.base} />
+                <path
+                  d={lids}
+                  fill={LAPTOP.lid}
+                  stroke="rgba(0,0,0,0.3)"
+                  strokeWidth={0.5}
+                />
+              </>
+            )
+          );
+        })()}
       </svg>,
     );
     for (let i = 0; i < side; i++) {
@@ -695,16 +855,51 @@ export function BackRoomScreen({
             }}
             aria-hidden="true"
           >
-            <ellipse cx={at.x} cy={at.y - 12} rx={8} ry={4} fill="#5d5d5d" />
+            {/* An empty chair facing the table: a post on a foot, the back
+                on the seat's far edge, then the seat. */}
             <path
-              d={`M${at.x - 6} ${at.y - 12} L${at.x - 6} ${at.y} M${at.x + 6} ${at.y - 12} L${at.x + 6} ${at.y}`}
-              stroke="#4a4a4a"
+              d={`M${at.x} ${at.y} L${at.x} ${at.y - 12} M${at.x - 6} ${at.y - 1} L${at.x + 6} ${at.y + 1}`}
+              stroke={CHAIR.leg}
               strokeWidth={2}
+            />
+            <path
+              d={poly([
+                { x: at.x, y: at.y - 18 },
+                { x: at.x + 12, y: at.y - 12 },
+                { x: at.x + 12, y: at.y - 28 },
+                { x: at.x, y: at.y - 34 },
+              ])}
+              fill={CHAIR.back}
+            />
+            <path
+              d={poly([
+                { x: at.x - 12, y: at.y - 12 },
+                { x: at.x, y: at.y - 18 },
+                { x: at.x + 12, y: at.y - 12 },
+                { x: at.x, y: at.y - 6 },
+              ])}
+              fill={CHAIR.seat}
             />
           </svg>,
         );
       }
     }
+  }
+
+  const boardLines: React.ReactNode[] = [];
+  for (let i = 0; i < shown.length; i++) {
+    const agent = shown[i];
+    boardLines.push(
+      <BoardLine
+        key={agent.id}
+        agent={agent}
+        at={slotAt(i)}
+        width={colW}
+        // A pan that ends on a line does not open it.
+        onOpen={viewport.wrapClick(() => onOpenAgent(agent.id))}
+        onKey={() => onOpenAgent(agent.id)}
+      />,
+    );
   }
 
   const barButton: React.CSSProperties = {
@@ -802,7 +997,7 @@ export function BackRoomScreen({
               transform: "translate(-50%, -50%)",
             }}
           >
-            <style>{`.back-room-still *, .back-room-still *::before, .back-room-still *::after { animation: none !important; transition: none !important; } .back-room-still [data-back-ladder]:focus:not(:focus-visible) { outline: none; }`}</style>
+            <style>{`.back-room-still *, .back-room-still *::before, .back-room-still *::after { animation: none !important; transition: none !important; } .back-room-still [data-back-ladder]:focus:not(:focus-visible), .back-room-still [data-back-board-line]:focus:not(:focus-visible) { outline: none; }`}</style>
             <svg
               width={layout.width}
               height={layout.height}
@@ -814,7 +1009,7 @@ export function BackRoomScreen({
               {slabs}
               <g
                 data-back-sign
-                transform={`matrix(1 -0.5 0 1 ${sign.x} ${sign.y - WALL_H * 0.6})`}
+                transform={`matrix(${signScale} ${signScale * 0.5} 0 ${signScale} ${sign.x} ${sign.y})`}
               >
                 <text
                   x={0}
@@ -829,38 +1024,59 @@ export function BackRoomScreen({
                   {signText}
                 </text>
               </g>
+              <defs>
+                <PlantDefs />
+              </defs>
+            </svg>
+            {/* The board: its own svg, out of the aria-hidden one, since its
+                lines are buttons. */}
+            <svg
+              width={layout.width}
+              height={layout.height}
+              style={{
+                position: "absolute",
+                inset: 0,
+                overflow: "visible",
+                pointerEvents: "none",
+              }}
+            >
               <g
                 data-back-board
-                transform={`matrix(${boardScale} ${boardScale * 0.5} 0 ${boardScale} ${board.x} ${board.y - WALL_H * 0.78})`}
+                transform={`matrix(1 -0.5 0 1 ${boardX} ${boardY})`}
               >
                 <rect
                   width={boardW}
-                  height={64}
+                  height={boardH}
                   fill="#2f3a33"
                   stroke="#6b5240"
                   strokeWidth={4}
+                  aria-hidden="true"
                 />
                 <text
                   x={boardW / 2}
-                  y={25}
+                  y={15}
                   textAnchor="middle"
                   fontSize={BOARD_TITLE_FONT}
+                  fontWeight={700}
+                  letterSpacing={2}
                   fill="rgba(255,255,255,0.85)"
                   fontFamily="'JetBrains Mono',monospace"
                 >
-                  {boardTitle}
+                  {t("office.backRoom.boardTitle")}
                 </text>
-                <text
-                  x={boardW / 2}
-                  y={45}
-                  textAnchor="middle"
-                  fontSize={BOARD_COUNT_FONT}
-                  fontWeight={700}
-                  fill="rgba(255,255,255,0.9)"
-                  fontFamily="'JetBrains Mono',monospace"
-                >
-                  {boardCount}
-                </text>
+                {boardLines}
+                {more > 0 && (
+                  <text
+                    data-back-board-more={more}
+                    x={slotAt(shown.length).x + BOARD_TEXT_X}
+                    y={slotAt(shown.length).y + 15}
+                    fontSize={BOARD_FONT}
+                    fill="rgba(255,255,255,0.7)"
+                    fontFamily="'JetBrains Mono',monospace"
+                  >
+                    {t("office.backRoom.boardMore", { count: more })}
+                  </text>
+                )}
               </g>
             </svg>
             <svg
@@ -1012,6 +1228,20 @@ export function BackRoomScreen({
                   <stop offset="100%" stopColor="rgba(255,230,150,0)" />
                 </radialGradient>
               </defs>
+              {/* The plants stand in front of the walls; nothing stands in
+                  front of them. */}
+              <g
+                transform={`translate(${backPlant.x} ${backPlant.y - 18}) scale(0.9)`}
+              >
+                <CornerPlant />
+              </g>
+              <g
+                transform={`translate(${frontPlant.x} ${frontPlant.y - 20}) scale(1)`}
+              >
+                <CornerPlant />
+              </g>
+              {/* A lamp: the cord, a cone shade with a lit rim, the bulb
+                  under it and its glow. */}
               {bulbs.map((p, k) => (
                 <g key={k} data-back-bulb>
                   <path
@@ -1021,11 +1251,33 @@ export function BackRoomScreen({
                   />
                   <circle
                     cx={p.x}
-                    cy={p.y + 6}
+                    cy={p.y + 16}
                     r={26}
                     fill="url(#back-room-bulb)"
                   />
-                  <circle cx={p.x} cy={p.y + 9} r={6} fill="#ffe9a8" />
+                  <path
+                    d={poly([
+                      { x: p.x - 3, y: p.y },
+                      { x: p.x + 3, y: p.y },
+                      { x: p.x + 11, y: p.y + 12 },
+                      { x: p.x - 11, y: p.y + 12 },
+                    ])}
+                    fill={SHADE.outer}
+                  />
+                  <ellipse
+                    cx={p.x}
+                    cy={p.y + 12}
+                    rx={11}
+                    ry={2.5}
+                    fill={SHADE.rim}
+                  />
+                  <ellipse
+                    cx={p.x}
+                    cy={p.y + 13}
+                    rx={4}
+                    ry={2.5}
+                    fill="#fff0bd"
+                  />
                 </g>
               ))}
             </svg>

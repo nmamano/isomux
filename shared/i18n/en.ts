@@ -2249,7 +2249,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "office.backRoom.newAgent": "+ New agent",
   "office.backRoom.sign": "BACK ROOM",
   "office.backRoom.boardTitle": "TODAY",
-  "office.backRoom.boardCount": "{count} ON SHIFT",
+  "office.backRoom.boardMore": "+{count} more",
   "office.status.errShort": "err",
   "office.hints.tap": "TAP → open",
   "office.hints.longPress": "LONG-PRESS → actions",

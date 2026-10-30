@@ -12,8 +12,8 @@ two areas:
 - **Front**: the room view of today, with 8 desks, for the agents that people
   talk to.
 - **Back room**: a basement on its own screen, reached through a trap door in
-  the front floor. It is a sweatshop: long tables with stools, up to 100
-  agents.
+  the front floor: long tables with a laptop at each agent's place, up to
+  100 agents.
 
 A back agent is a normal agent whose seat is in the back room: same settings,
 own instructions and memory, clear, handoff, messaging, paging and spawning,
@@ -153,17 +153,24 @@ Approved by the Lead, 2026-10-15.
 
 ## The back screen
 
-- A basement: brick walls, concrete floor, bulbs, "BACK ROOM" on the wall. One
-  look in every skin. The ladder up to the trap door stands at the right end
-  of the right wall, under the trap door; the board hangs between the back
-  corner and the ladder. The brick courses wrap over the walls' cut ends and
-  the tops show joints; the floor's checkerboard runs down the slab's sides,
-  which reach out under the walls (task f0af4677). The bulbs hang above the
-  "BACK ROOM" title and the board, spaced evenly from the floor's left corner
-  to the ladder at staggered heights, so no bulb or cord is in line with
-  another; the ladder shows a focus ring for keyboard focus only (task
-  79c967a8).
-- n tables of n stools. Each agent is its own `Character`, seated, with a
+- A basement: brick walls, a wood parquet floor, pendant lamps, a plant in
+  the back corner and one in the front corner (task a442aa4f). One look in
+  every skin. The ladder up to the trap door stands at the right end of the
+  right wall, under the trap door; the "BACK ROOM" stencil sits between the
+  back corner and the ladder. The brick courses wrap over the walls' cut ends
+  and the tops show joints; the floor's blocks run down the slab's sides,
+  which reach out under the walls (task f0af4677). The lamps hang above the
+  stencil and the board, spaced evenly from the floor's left corner to the
+  ladder at staggered heights, so no lamp or cord is in line with another;
+  the ladder shows a focus ring for keyboard focus only (task 79c967a8).
+- The board fills the left wall (task a442aa4f): a line per seated agent in
+  seat order, with a status dot, the name and the topic, each cut to its
+  column; the full text is the line's tooltip. A click, Enter or Space on a
+  line opens that agent's log. The columns are as many as the wall holds, so
+  a 3x3 room shows all nine seats; past the board's slots, its last slot
+  counts the rest.
+- n tables of n seats; an empty seat is a chair. Each agent is its own
+  `Character`, seated behind a laptop, with a
   small nameplate above the head (status light and name, the front's style), a
   purple "•••" bubble when unread, an amber "?" bubble when asking, and the
   error pose with a red light. Figures are static (no animation): measured
@@ -197,5 +204,5 @@ The demo office shows 1 back agent.
 1. Storage and server: seats, spawn, move and revive, the cap, growth and
    shrink rules. Then discovery, once the Lead settles the shape.
 2. The front: trap door, drag onto it, no room counts, header counts.
-3. The back screen: the sweatshop, growth, fit and pan, phone.
+3. The back screen: the room, growth, fit and pan, phone.
 4. The log strip, the demo with 1 back agent, docs.
