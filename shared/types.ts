@@ -1651,14 +1651,15 @@ export interface AppWire extends AppRecord {
   // restart `state` still tells the truth while the next attempt regenerates
   // the reason.
   startError?: string;
-  // Where the app answers on the public internet, when the office has app
+  // The app's address for members: an office path that shows the app with its
+  // shared chat. Absent without an app domain or for reserved names.
+  shortUrl?: string;
+  // The app's direct address, on its own host, when the office has app
   // hostnames at all. Derived from the office's public origin and the app's
   // issued LABEL (never its name, which is reusable), and never stored -
   // present exactly when a URL exists, absent otherwise, the same rule the
   // app's own ISOMUX_APP_URL follows.
   url?: string;
-  // Office path that redirects to url; absent without an app domain or for reserved names.
-  shortUrl?: string;
   // When the office last asked open app widgets to reload the app (the reload
   // route, or a verb that ran a new process). In memory: null after an office
   // restart, so a restart reloads nothing. Absent: no request since then.
@@ -1678,9 +1679,9 @@ export interface AppViewerWire {
   createdAt: number;
   state: AppState;
   restartCount: number;
-  url?: string;
-  // Office path that redirects to url; absent without an app domain or for reserved names.
+  // See AppWire: shortUrl is the address for members, url the direct one.
   shortUrl?: string;
+  url?: string;
   thumbnailUpdatedAt?: number;
   archived?: boolean;
   reloadRequestedAt?: number;

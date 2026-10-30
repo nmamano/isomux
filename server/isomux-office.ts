@@ -3572,8 +3572,9 @@ function viewerAppWire(app: AppWire): AppListWire | null {
     // the viewer cannot see.
     state: app.state,
     restartCount: app.restartCount,
-    ...(app.url !== undefined ? { url: app.url } : {}),
+    // shortUrl before url, as in toWire (server/routes/handlers/apps.ts).
     ...(app.shortUrl !== undefined ? { shortUrl: app.shortUrl } : {}),
+    ...(app.url !== undefined ? { url: app.url } : {}),
     ...(app.thumbnailUpdatedAt !== undefined
       ? { thumbnailUpdatedAt: app.thumbnailUpdatedAt }
       : {}),
@@ -3597,8 +3598,9 @@ function appWireForDependency(
     state: current.state,
     restartCount: current.restartCount,
     ...(current.startError ? { startError: current.startError } : {}),
-    ...(url !== null ? { url } : {}),
+    // shortUrl before url, as in toWire (server/routes/handlers/apps.ts).
     ...(shortUrl !== null ? { shortUrl } : {}),
+    ...(url !== null ? { url } : {}),
   };
 }
 

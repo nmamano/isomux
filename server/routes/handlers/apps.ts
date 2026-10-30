@@ -286,9 +286,11 @@ function toWire(
     restartCount,
     ...(startError ? { startError } : {}),
     // `!== null`, not truthiness: the rule is present-iff-there-is-a-URL, and
-    // an empty string would be a URL-shaped answer meaning "none".
-    ...(url !== null ? { url } : {}),
+    // an empty string would be a URL-shaped answer meaning "none". shortUrl
+    // comes first because it is the address agents give members; an agent
+    // that reads url first tends to give the direct address instead.
     ...(shortUrl !== null ? { shortUrl } : {}),
+    ...(url !== null ? { url } : {}),
     ...withReloadRequest(record.name),
   };
 }
