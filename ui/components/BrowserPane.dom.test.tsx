@@ -236,3 +236,72 @@ test("an out-of-date browser gets an update notice with the download; up-to-date
   expect(current.queryByTestId("browser-update")).toBeNull();
   current.unmount();
 });
+
+// Task f8d05b49: on the iPhone Home Screen office a download link opened the
+// iOS file preview, which has no way back. Both extension downloads (the
+// update notice and the setup step) stay in the office there: they fetch the
+// package and open the share sheet under its file name.
+test("on the iPhone Home Screen office, each extension download opens the share sheet", async () => {
+  const { asDevice, IPHONE_HOME_SCREEN, stubShareSheet } =
+    await import("../test-support/ios-home-screen");
+  const { resetHomeScreenDownloadCache } =
+    await import("../home-screen-download");
+  resetHomeScreenDownloadCache();
+  setApiShim(async () => ({
+    paired: true,
+    online: true,
+    member: { id: "self", name: "Fixture member" },
+    version: "0.4.5",
+    browsers: [
+      {
+        id: "desk",
+        name: "Desk",
+        pairedAt: 0,
+        online: true,
+        package: null,
+        outdated: true,
+      },
+    ],
+  }));
+  const undoDevice = asDevice(IPHONE_HOME_SCREEN);
+  const sheet = stubShareSheet("zip bytes", "application/zip");
+  const view = render(<BrowserPane />);
+  const prevented: boolean[] = [];
+  // Read after the link's own handler, then stop happy-dom from following it.
+  const record = (e: Event) => {
+    prevented.push(e.defaultPrevented);
+    e.preventDefault();
+  };
+  view.container.addEventListener("click", record);
+  try {
+    await act(async () => {});
+    const links = [
+      ...view.container.querySelectorAll<HTMLAnchorElement>(
+        'a[href="/api/me/browser/extension.zip"]',
+      ),
+    ];
+    // Precondition: the update notice and the setup step both rendered.
+    expect(links).toHaveLength(2);
+    expect(
+      links.map((l) => !!l.closest('[data-testid="browser-update"]')),
+    ).toEqual([true, false]);
+    for (const link of links) {
+      fireEvent.click(link);
+      await act(async () => {
+        for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0));
+      });
+    }
+    expect(prevented).toEqual([true, true]);
+    // The second link shares the package the first one fetched.
+    expect(sheet.fetches).toEqual(["/api/me/browser/extension.zip"]);
+    expect(sheet.shares.map((s) => s.files?.map((f) => f.name))).toEqual([
+      ["isomux-browser.zip"],
+      ["isomux-browser.zip"],
+    ]);
+  } finally {
+    view.container.removeEventListener("click", record);
+    view.unmount();
+    sheet.undo();
+    undoDevice();
+  }
+});

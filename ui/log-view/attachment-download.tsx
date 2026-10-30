@@ -1,12 +1,14 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { useI18n } from "../i18n.tsx";
 import { Portal } from "../components/Portal.tsx";
+import { homeScreenDownload } from "../home-screen-download.ts";
 
 // The chat's download control for attachments (image cards, file chips and the
 // lightbox). The server keeps only a sanitized file name, so the link asks the
 // file route for ?download=<original name>, which answers with
 // Content-Disposition: attachment under that name. The download attribute
-// says the same for browsers that honor it; both work on iOS.
+// says the same for browsers that honor it. On the iPhone Home Screen office
+// the click opens the share sheet instead (ui/home-screen-download.ts).
 
 export interface LightboxImage {
   src: string;
@@ -43,7 +45,12 @@ export function DownloadButton({
       aria-label={label}
       title={label}
       // Inside the lightbox a click would bubble to the backdrop and close it.
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        // The plain file route: an image in the chat is likely cached, so
+        // the share sheet opens while the tap still counts.
+        homeScreenDownload(e, src, name);
+      }}
       style={{
         display: "inline-flex",
         alignItems: "center",

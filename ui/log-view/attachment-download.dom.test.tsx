@@ -10,10 +10,14 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { fireEvent, render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { FileViewCard } = await import("./FileViewCard.tsx");
 const { UserMessage } = await import("./LogEntryCard.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
+const { asDevice, IPHONE_HOME_SCREEN, stubShareSheet } =
+  await import("../test-support/ios-home-screen.ts");
+const { resetHomeScreenDownloadCache } =
+  await import("../home-screen-download.ts");
 
 const IMAGE = {
   filename: "shot_1.png",
@@ -248,6 +252,69 @@ describe("FileViewCard: video and audio play inline", () => {
       for (const att of [IMAGE, VIDEO, AUDIO, OTHER])
         expectDownloadOf(byName.get(att.originalName)!, base, att);
       view.unmount();
+    });
+  }
+});
+
+// Task f8d05b49: on the iPhone Home Screen office a download link opened the
+// iOS file preview, which has no way back. There a tap on the download button
+// stays in the office: it fetches the file (the plain file route; the name
+// comes from the button) and opens the share sheet. iPhone Safari keeps the
+// link's own download.
+describe("chat attachments: download on an iPhone", () => {
+  const base = "/api/files/agent-1";
+  for (const [label, device, homeScreen] of [
+    ["Home Screen office", IPHONE_HOME_SCREEN, true],
+    ["Safari", { ...IPHONE_HOME_SCREEN, standalone: false }, false],
+  ] as const) {
+    it(`${label}: ${homeScreen ? "each download button opens the share sheet" : "the link downloads"}`, async () => {
+      resetHomeScreenDownloadCache();
+      const undoDevice = asDevice(device);
+      const sheet = stubShareSheet();
+      const view = render(
+        onLanguage(
+          "en",
+          <FileViewCard attachments={[IMAGE, FILE]} agentId="agent-1" />,
+        ),
+      );
+      const root = view.container;
+      // Read after the button's own handler (React listens on the root),
+      // then stop happy-dom from following the link.
+      const prevented: boolean[] = [];
+      const record = (e: Event) => {
+        prevented.push(e.defaultPrevented);
+        e.preventDefault();
+      };
+      root.addEventListener("click", record);
+      try {
+        loadImages(root);
+        const byName = new Map(
+          downloadLinks(root).map((l) => [l.getAttribute("download"), l]),
+        );
+        for (const att of [IMAGE, FILE]) {
+          fireEvent.click(byName.get(att.originalName)!);
+          await act(async () => {
+            for (let i = 0; i < 3; i++)
+              await new Promise((r) => setTimeout(r, 0));
+          });
+        }
+        expect(prevented).toEqual([homeScreen, homeScreen]);
+        const paths = sheet.fetches.map(
+          (f) => new URL(f, "http://office.test"),
+        );
+        expect(paths.map((u) => u.pathname)).toEqual(
+          homeScreen ? [IMAGE, FILE].map((a) => `${base}/${a.filename}`) : [],
+        );
+        expect(paths.every((u) => !u.searchParams.has("download"))).toBe(true);
+        expect(sheet.shares.map((s) => s.files?.map((f) => f.name))).toEqual(
+          homeScreen ? [[IMAGE.originalName], [FILE.originalName]] : [],
+        );
+      } finally {
+        root.removeEventListener("click", record);
+        view.unmount();
+        sheet.undo();
+        undoDevice();
+      }
     });
   }
 });

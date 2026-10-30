@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { apiFetch } from "../api";
 import { useI18n } from "../i18n";
 import type { MemberBrowserStatus } from "../../shared/browser-extension-protocol";
@@ -11,10 +11,17 @@ import {
   filledSecondaryBtn,
 } from "./dialog-styles";
 import { guessBrowserName } from "../browser-name";
+import { homeScreenDownload } from "../home-screen-download";
 
 // Chrome refuses to open chrome:// pages from a web page link or
 // window.open, so members copy the address into the address bar.
 const EXTENSIONS_PAGE = "chrome://extensions";
+const EXTENSION_ZIP = "/api/me/browser/extension.zip";
+const EXTENSION_ZIP_NAME = "isomux-browser.zip";
+
+function downloadExtension(e: MouseEvent) {
+  homeScreenDownload(e, EXTENSION_ZIP, EXTENSION_ZIP_NAME);
+}
 
 // The main action of each step is the primary button; a download link looks
 // like one too.
@@ -138,8 +145,9 @@ export function BrowserPane() {
               </p>
               <a
                 style={{ ...primaryLink, marginTop: 8 }}
-                href="/api/me/browser/extension.zip"
-                download="isomux-browser.zip"
+                href={EXTENSION_ZIP}
+                download={EXTENSION_ZIP_NAME}
+                onClick={downloadExtension}
               >
                 {t("browser.download", { version: status.version })}
               </a>
@@ -156,8 +164,9 @@ export function BrowserPane() {
               <li>
                 <a
                   style={primaryLink}
-                  href="/api/me/browser/extension.zip"
-                  download="isomux-browser.zip"
+                  href={EXTENSION_ZIP}
+                  download={EXTENSION_ZIP_NAME}
+                  onClick={downloadExtension}
                 >
                   {t("browser.download", { version: status.version })}
                 </a>
