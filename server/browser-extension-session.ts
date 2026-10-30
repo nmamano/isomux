@@ -54,6 +54,7 @@ type ActionDialogs = {
 
 type Session = {
   actor: string;
+  // The member whose browser it is.
   member: string;
   signal: AbortSignal;
   browser: Browser;
@@ -79,7 +80,7 @@ const failure = (
   error: string,
 ): BrowserResult => ({ ok: false, status: 500, code, error });
 const OFFICE_REFUSED =
-  'Browser control refuses an Isomux office page that your manager did not offer. Go to another page, or ask your manager to offer a tab that shows this page. If that tab already shows as offered, they must turn Agent control off and on again for it. The new offer has a new target: use action "tabs" to find it.';
+  'Browser control refuses an Isomux office page that the member who offered this tab did not offer. Go to another page, or ask that member to offer a tab that shows this page. If that tab already shows as offered, they must turn Agent control off and on again for it. The new offer has a new target: use action "tabs" to find it.';
 // The page data of a refused office page never reaches the agent: no url,
 // title, text, snapshot, screenshot or dialog.
 const officeRefused = (): BrowserResult => ({
@@ -263,26 +264,31 @@ export class ExtensionBrowserSessions {
   run(agent: string, body: unknown): Promise<BrowserResult> {
     const params = parseBrowserParams(body);
     if (!params.ok) return Promise.resolve(params);
+    // The manager: its browsers come first, and its state answers when no
+    // browser offers the agent a tab. Other members' browsers can offer too.
     const member = this.owner(agent);
     const bridge = this.service.bridge;
     if (params.action === "tabs") {
-      if (!member || !this.service.store.paired(member))
-        return Promise.resolve(
-          failure("browser_not_paired", "No Chrome browser is paired"),
-        );
-      if (!this.mayUse(member, agent)) return Promise.resolve(ended());
-      const outdated = this.service.outdatedBrowsers(member);
-      if (!bridge.connections(member).length)
-        return Promise.resolve(offline(outdated));
+      const tabs = bridge.targets(member, agent);
+      const outdated = member ? this.service.outdatedBrowsers(member) : [];
+      if (!tabs.length) {
+        if (!member || !this.service.store.paired(member))
+          return Promise.resolve(
+            failure("browser_not_paired", "No Chrome browser is paired"),
+          );
+        if (!this.mayUse(member, agent)) return Promise.resolve(ended());
+        if (!bridge.connections(member).length)
+          return Promise.resolve(offline(outdated));
+      }
       return Promise.resolve({
         ok: true,
         url: "",
         title: "",
-        tabs: bridge.targets(member, agent),
+        tabs,
         ...(outdated.length ? { outdatedBrowsers: outdated } : {}),
       });
     }
-    if (!params.target && member && bridge.ambiguous(member, agent))
+    if (!params.target && bridge.ambiguous(member, agent))
       return Promise.resolve(
         failure(
           "browser_target_required",
@@ -291,9 +297,7 @@ export class ExtensionBrowserSessions {
       );
     // The connection and grant are bound here. A queued action never moves to
     // another browser when an offer disappears or a new one takes precedence.
-    const queued = member
-      ? bridge.resolve(member, agent, params.target)
-      : undefined;
+    const queued = bridge.resolve(member, agent, params.target);
     const key = queued
       ? `${queued.connection.generation}:${queued.grant}`
       : agent;
@@ -302,11 +306,13 @@ export class ExtensionBrowserSessions {
       .catch(() => {})
       .then(async (): Promise<BrowserResult> => {
         if (this.owner(agent) !== member) return ended();
-        if (!member)
-          return params.action === "close"
-            ? { ok: true, url: "", title: "", closed: true }
-            : failure("browser_not_paired", "No Chrome browser is paired");
-        if (!this.mayUse(member, agent)) return ended();
+        if (!queued) {
+          if (!member)
+            return params.action === "close"
+              ? { ok: true, url: "", title: "", closed: true }
+              : failure("browser_not_paired", "No Chrome browser is paired");
+          if (!this.mayUse(member, agent)) return ended();
+        }
         if (!same(bridge.resolve(member, agent, params.target), queued))
           return ended();
         return this.extensionAction(member, agent, body, key, queued);
@@ -320,7 +326,7 @@ export class ExtensionBrowserSessions {
     return work;
   }
   private async extensionAction(
-    member: string,
+    member: string | undefined,
     agent: string,
     body: unknown,
     key: string,
@@ -330,30 +336,31 @@ export class ExtensionBrowserSessions {
     const actionStarted = performance.now();
     const params = parseBrowserParams(body);
     if (!params.ok) return params;
-    if (!this.service.store.paired(member))
-      return failure("browser_not_paired", "No Chrome browser is paired");
-    const outdated = this.service.outdatedBrowsers(member);
-    if (!this.service.bridge.connections(member).length)
-      return offline(outdated);
+    if (!bound) {
+      if (!member || !this.service.store.paired(member))
+        return failure("browser_not_paired", "No Chrome browser is paired");
+      const outdated = this.service.outdatedBrowsers(member);
+      if (!this.service.bridge.connections(member).length)
+        return offline(outdated);
+      return failure(
+        "browser_control_ended",
+        (params.target
+          ? 'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.'
+          : "Open the Chrome extension popup on an HTTP(S) tab, choose Only my agents, All agents or this agent, and turn on Agent control.") +
+          (outdated.length ? " " + outdatedNote(outdated) : ""),
+      );
+    }
+    const { connection, grant, target } = bound;
     let session = this.sessions.get(key);
     if (
       session &&
       (session.signal.aborted ||
         !session.browser.isConnected() ||
-        session.member !== member)
+        session.member !== connection.memberId)
     ) {
       this.end(key);
       session = undefined;
     }
-    if (!bound)
-      return failure(
-        "browser_control_ended",
-        (params.target
-          ? 'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.'
-          : "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control.") +
-          (outdated.length ? " " + outdatedNote(outdated) : ""),
-      );
-    const { connection, grant, target } = bound;
     // fence: the check that refused this action.
     const notSent = (fence: string) => {
       console.info(
@@ -513,7 +520,6 @@ export class ExtensionBrowserSessions {
     };
     const valid = () =>
       this.owner(agent) === member &&
-      this.mayUse(member, agent) &&
       same(this.service.bridge.resolve(member, agent, params.target), bound);
     if (session) watchEnd(session.signal);
     const task = async (): Promise<BrowserResult> => {
@@ -543,7 +549,7 @@ export class ExtensionBrowserSessions {
         }
         session = {
           actor: agent,
-          member,
+          member: connection.memberId,
           signal: transport.signal,
           browser,
           transport,

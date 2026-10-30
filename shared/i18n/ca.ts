@@ -59,8 +59,9 @@ export const ca: Catalog = {
   "audit.edited": "editat",
 
   "browser.offerHelp":
-    "Obre la pestanya que vols oferir, tria Tots o un agent a l’extensió i activa Control de l’agent.",
-  "browser.allAgents": "Tots",
+    "Obre la pestanya que vols oferir, tria Només els meus agents, Tots els agents o un agent a l’extensió i activa Control de l’agent.",
+  "browser.allAgents": "Tots els agents",
+  "browser.myAgents": "Només els meus agents",
   "browser.agent": "Agent",
   "browser.expiry": "El control caduca",
   "browser.expiryNever": "Mai",
@@ -80,7 +81,7 @@ export const ca: Catalog = {
   "browser.control": "Control de l’agent",
   "browser.title": "Ús del navegador",
   "browser.intro":
-    "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
+    "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades.",
   "browser.chromeHelp":
     "Els agents utilitzen Chrome als ordinadors que vinculis. Instal·la i vincula l’extensió a cadascun.",
   "browser.setup": "Configura Chrome",
@@ -96,8 +97,6 @@ export const ca: Catalog = {
   "browser.show": "Mostra",
   "browser.hide": "Amaga",
   "browser.owner": "Propietari del navegador: {name}",
-  "browser.ownership":
-    "Els agents fan servir el navegador del seu responsable i només les pestanyes que se’ls ofereixen.",
   "browser.paired": "Vinculat",
   "browser.unpaired": "Sense vincular",
   "browser.offline": "Sense connexió",

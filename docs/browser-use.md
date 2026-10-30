@@ -8,13 +8,13 @@ Agents can open pages, click and fill forms in a desktop Chrome tab that you off
 
 ## Install and pair
 
-In **Integrations → Browser Use**, download the extension and follow the steps there to load it in Chrome. Then create a pairing code there, open the extension and enter the office address and the code. A code expires after five minutes. Each member pairs their own browsers, with one code for each computer. Agents use the browsers of their manager, also when another member speaks in the chat.
+In **Integrations → Browser Use**, download the extension and follow the steps there to load it in Chrome. Then create a pairing code there, open the extension and enter the office address and the code. A code expires after five minutes. Each member pairs their own browsers, with one code for each computer. Agents use the browsers of their manager, also when another member speaks in the chat, and the tabs that other members offer to All agents.
 
 Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.
 
 ## Offer a tab
 
-Open an HTTP(S) tab, choose **All** (the default) or one agent in the extension popup, and turn on **Agent control**. An agent can have one tab of its own, and you can offer any number of tabs to All. Before you offer a tab, choose when control expires: **Never** (the default), **15 minutes**, **1 hour** or **4 hours**. Agent actions do not extend it. The **ON** badge marks offered tabs and the popups that their sites open. When you turn off control, the pages stay open.
+Open an HTTP(S) tab, choose **Only my agents** (the default), **All agents** or one agent in the extension popup, and turn on **Agent control**. **All agents** also gives the tab to the agents of other members in the rooms you can access, and they act as you in it. An agent can have one tab of its own, and you can offer any number of tabs to Only my agents or All agents. Before you offer a tab, choose when control expires: **Never** (the default), **15 minutes**, **1 hour** or **4 hours**. Agent actions do not extend it. The **ON** badge marks offered tabs and the popups that their sites open. When you turn off control, the pages stay open.
 
 ## Unpair a browser
 

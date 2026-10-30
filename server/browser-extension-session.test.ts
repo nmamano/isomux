@@ -2139,6 +2139,7 @@ test("target discovery resolves ambiguity without creating a session and recheck
           target,
           scope: { kind: "all" },
           browser: "Browser 1",
+          member: "",
           title: "",
           url: "https://example.com/",
         },

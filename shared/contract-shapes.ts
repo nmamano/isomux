@@ -352,7 +352,8 @@ export type AgentSubscriptionUsageResp =
     };
 
 /**
- * POST /api/agents/:id/browser - use the manager's paired Chrome browser.
+ * POST /api/agents/:id/browser - use a Chrome tab offered to the agent: by its
+ * manager, or by another member who offered it to All agents.
  * Chrome controls one offered tab plus its site-created popup chain.
  * `close` detaches and leaves pages/music running; viewport is ignored.
  * A lost command

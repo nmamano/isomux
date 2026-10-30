@@ -54,6 +54,10 @@ interface BrowserSuccess {
   tabs?: {
     target: string;
     scope: BrowserGrantScope;
+    /** The name of the paired browser that offered the tab. */
+    browser: string;
+    /** The name of the member whose browser it is. */
+    member: string;
     title: string;
     url: string;
     /** Only when true: the tab is on an office page the member did not

@@ -568,3 +568,106 @@ test("a failed offer names the dialog cause only when the tab did not answer", a
     window.dispatchEvent(new Event("pagehide"));
   }
 });
+
+// Task d4224f2f: the picker offers Only my agents (the default) and All
+// agents, the latter only when the office takes it.
+test("the agent picker offers Only my agents by default, and All agents when the office takes it", async () => {
+  type State = {
+    state: string;
+    generation: string;
+    office: string;
+    currentTab: { id: number; eligible: boolean };
+    agents: { id: string; name: string }[];
+    officeScope?: boolean;
+    assignments: Record<string, unknown>[];
+  };
+  const open = async (state: State) => {
+    document.body.innerHTML = popupHTML;
+    const messages: Record<string, unknown>[] = [];
+    await popupScript.runInNewContext({
+      document,
+      window,
+      navigator: { language: "en" },
+      Date,
+      chrome: {
+        storage: { session: noDraft },
+        tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+        runtime: {
+          sendMessage: async (message: Record<string, unknown>) => {
+            messages.push(message);
+            return structuredClone(state);
+          },
+        },
+      },
+      setInterval: () => 1,
+      clearInterval() {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return {
+      messages,
+      picker: document.getElementById("agent") as HTMLSelectElement,
+      toggle: document.getElementById("allow") as HTMLInputElement,
+      tabState: document.getElementById("tab-state")!,
+    };
+  };
+  const base: State = {
+    state: "connected",
+    generation: "g",
+    office: "https://example.com",
+    currentTab: { id: 7, eligible: true },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [],
+  };
+  const values = (picker: HTMLSelectElement) =>
+    [...picker.options].map((option) => option.value);
+  const label = (picker: HTMLSelectElement, value: string) =>
+    [...picker.options].find((option) => option.value === value)!.textContent;
+
+  // An office that does not take All agents offers.
+  const older = await open(base);
+  expect(values(older.picker)).toEqual(["all", "a"]);
+  expect(older.picker.value).toBe("all");
+  window.dispatchEvent(new Event("pagehide"));
+
+  const popup = await open({ ...base, officeScope: true });
+  expect(values(popup.picker)).toEqual(["all", "office", "a"]);
+  expect(popup.picker.value).toBe("all");
+  const mine = label(popup.picker, "all"),
+    everyone = label(popup.picker, "office");
+  expect(mine.trim()).not.toBe("");
+  expect(everyone.trim()).not.toBe("");
+  expect(everyone).not.toBe(mine);
+  popup.picker.value = "office";
+  popup.picker.dispatchEvent(new Event("change", { bubbles: true }));
+  popup.toggle.dispatchEvent(new Event("change", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(
+    popup.messages.findLast((message) => message.action === "offer")?.scope,
+  ).toEqual({ kind: "office" });
+  window.dispatchEvent(new Event("pagehide"));
+
+  // A tab offered to All agents names that choice, and Only my agents its own.
+  for (const [kind, name] of [
+    ["office", everyone],
+    ["all", mine],
+  ] as const) {
+    const on = await open({
+      ...base,
+      officeScope: true,
+      assignments: [
+        {
+          scope: { kind },
+          id: "grant",
+          tabId: 7,
+          current: true,
+          phase: "on",
+          durationMinutes: 0,
+          expiresAt: null,
+        },
+      ],
+    });
+    expect(on.picker.value).toBe(kind);
+    expect(on.tabState.textContent).toContain(name);
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});

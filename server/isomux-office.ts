@@ -862,12 +862,19 @@ function appHostingUnsupported(): string | null {
 let extensionService: BrowserExtensionService | undefined;
 let extensionSessions: ExtensionBrowserSessions | undefined;
 export function mayUseExtension(member: string, agentId: string): boolean {
+  return (
+    agentManager.getAgent(agentId)?.userId === member &&
+    mayReachExtension(member, agentId)
+  );
+}
+
+// A member reaches an agent in a room they can access, whoever manages it.
+export function mayReachExtension(member: string, agentId: string): boolean {
   const user = getUserById(member);
   const agent = agentManager.getAgent(agentId);
   return (
     !!user &&
     !!agent &&
-    agent.userId === member &&
     buildLiveGuardDeps().hasRoomAccess(
       { scope: "user", userId: member, role: user.role, capabilities: [] },
       agent.roomId,
@@ -951,6 +958,7 @@ function createManagers(startOpts: StartServerOpts): void {
       memberExists: (member) => !!getUserById(member),
       paired: stepsChanged,
       mayUse: mayUseExtension,
+      mayReach: mayReachExtension,
       agents: () => agentManager.getAllAgents().map((agent) => agent.id),
       memberName: (member) => getUserById(member)?.name ?? "",
       agentName: (agent) => agentManager.getAgent(agent)?.name ?? "",

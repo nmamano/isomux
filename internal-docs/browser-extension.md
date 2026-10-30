@@ -125,11 +125,14 @@ The public seam avoids the bundled WebSocket client's rejection of Bun's HTTP
 101 upgrade observed on 2026-09-19. The real extension uses outbound WebSocket.
 
 Each action reads the current manager id from the agent record. Assignments,
-commands, results and events require that exact member, current member existence,
-and access to the agent's current room. Mutation hooks actively revalidate;
+commands, results and events require that the paired member is that exact
+manager, still exists, and can access the agent's current room. An All agents
+offer instead requires that the credential still belongs to the member who
+offered it, that this member still exists, and that this member can access the
+agent's current room. Mutation hooks actively revalidate;
 heartbeat is a backstop. The latest chat speaker never supplies browser identity.
 
-Each individual agent has at most one exclusive offer; All offers share access among currently eligible agents of the paired owner. Root discovery exposes only that assignment's
+Each individual agent has at most one exclusive offer; Only my agents offers share access among currently eligible agents of the paired owner, and All agents offers among every agent in a room the owner can access. Root discovery exposes only that assignment's
 main tab and related popups. Profile-level cookie, storage, context and arbitrary
 root CDP commands fail. Synthetic browser sessions retain the same restricted
 view. `noDefaults` preserves the desktop profile's settings. Page commands use
@@ -350,6 +353,12 @@ The popup keeps what the member types into the pairing form (office and code) in
 
 Offers carry `scope:{kind:"all"}` or `scope:{kind:"agent",agentId}`. Popup default is All, with Office connection and Agent control sections. Metadata and acknowledgement validate the exact scope and expiry. Older peers fail closed. Reload requires re-offer; pairing data is preserved.
 
+### All agents offers (extension 0.4.8, task d4224f2f)
+
+The popup labels `{kind:"all"}` **Only my agents** (the default; the agents the member manages, as before) and offers `{kind:"office"}` as **All agents**: every agent in a room the member can access, whoever manages it (`mayReachExtension` in `server/isomux-office.ts`; `mayUseExtension` adds that the member manages the agent). `ready` carries `officeScope: true`, and the popup shows All agents only on a connection whose `ready` had it, so a newer extension on an older office keeps today's choices. Individual offers stay for the agents the member manages; `metadata.agents` is unchanged.
+
+An agent sees the office offers of every live connection whose member reaches it, next to its manager's offers; `tabs` entries add `member`, the offering member's name. An agent with no manager sees office offers only. Reach is live: when the offering member loses the agent's room, the agent loses the tab while the offer stays for the others, as an Only my agents offer does when its member loses a room. `close` by any agent ends the offer for every agent. A command that the bridge refuses before its first await answers a microtask later: it runs inside the Playwright client's own send, which records its callback only when that send returns.
+
 `tabs` returns accessible established grants with an opaque target handle, scope and cached title/URL hints from owned target admission. It sends no page commands, so a busy grant does not block discovery or another grant. Handles never reuse Chrome IDs. A handle is derived from the browser credential and the extension's assignment id, so a new offer gets a new handle and a resumed offer keeps its own. Explicit target selection rechecks current access at queue entry and dispatch. Unqualified routing prefers an individual offer, then a sole All offer; multiple All grants return `browser_target_required` with no page metadata or dispatch.
 
 Queues and timeout recovery belong to the generation/assignment, not an agent. A Playwright peer has one immutable actor. At an actor change, the prior operation and pending commands must settle (or reach the ceiling) before its retained client closes and a new client attaches to the same grant. A close that waits on Chrome gets one second; then the client's transport closes. Delayed retired peer commands/results/close cannot affect the replacement. Access loss rejects that caller without revoking an All grant for other eligible callers. Off, expiry, close and connection loss release the grant and its popup chain once for everyone. No automatic replay or transfer API exists; a resume after a connection loss is a new grant on the same tab, without its popups.
@@ -451,16 +460,19 @@ another. Generations, queues (`generation:assignment`) and timeout recovery are
 already per connection and stay unchanged.
 
 **Agent tab selection.** The bridge resolves an agent's offers across all live
-connections of its manager as one set:
+connections of its manager as one set, plus the All agents offers of other
+members' connections (see "All agents offers"):
 - An agent has at most one individual offer across all browsers. The check
   covers offers still being created on every connection and runs before the
   async attach, so two browsers cannot race. An individual offer from a second
   browser is refused. That popup only knows its own tabs, so it shows the
   generic refusal, not the "This agent already has a tab" conflict; a specific
   message would need an extension change.
-- Unqualified actions use the individual offer, otherwise a sole All offer
-  from any browser. Several All offers, on one browser or several, return
-  `browser_target_required`.
+- Unqualified actions use the individual offer, otherwise a sole Only my agents
+  or All agents offer from the manager's browsers, otherwise a sole All agents
+  offer of another member. Several offers in the tier that applies, on one
+  browser or several, return `browser_target_required`; a lower tier never
+  breaks the tie.
 - `tabs` lists offers from every connected browser and adds `browser` (its
   name) to each entry. Target handles are random and unique across browsers.
 - An action resolves its connection and grant together when it is queued. Before

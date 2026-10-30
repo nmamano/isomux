@@ -26,13 +26,16 @@ export function validGrantExpiry(
         expiresAt <= 8_640_000_000_000_000)
   );
 }
+// "all" is every agent the member manages (the name stays for stored and
+// resumed offers); "office" is every agent the member can reach.
 export type BrowserGrantScope =
   | { kind: "all" }
+  | { kind: "office" }
   | { kind: "agent"; agentId: string };
 export function validGrantScope(value: unknown): value is BrowserGrantScope {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const scope = value as Record<string, unknown>;
-  return scope.kind === "all"
+  return scope.kind === "all" || scope.kind === "office"
     ? Object.keys(scope).length === 1
     : scope.kind === "agent" &&
         typeof scope.agentId === "string" &&
@@ -46,7 +49,7 @@ export function sameGrantScope(
 ): boolean {
   return (
     a.kind === b.kind &&
-    (a.kind === "all" || (b.kind === "agent" && a.agentId === b.agentId))
+    (a.kind !== "agent" || (b.kind === "agent" && a.agentId === b.agentId))
   );
 }
 export type Fields = Record<string, unknown>;
@@ -207,6 +210,8 @@ export interface ExtensionUIState {
   // The office's package, when it is newer than this extension.
   update?: { latest: string };
   agents: BrowserDisplay[];
+  // The office accepts offers to every agent the member can reach.
+  officeScope?: boolean;
   currentTab?: { id: number; eligible: boolean };
   assignments: {
     id: string;

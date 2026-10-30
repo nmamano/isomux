@@ -71,6 +71,7 @@ export class BrowserExtensionService {
     private access: {
       memberExists(member: string): boolean;
       mayUse(member: string, agent: string): boolean;
+      mayReach?(member: string, agent: string): boolean;
       memberName?(member: string): string;
       agentName?(agent: string): string;
       agents?(member: string): string[];
@@ -87,6 +88,7 @@ export class BrowserExtensionService {
       browserName: (hash) => store.browserForHash(hash)?.browser.name ?? "",
       agents: (member) => access.agents?.(member) ?? [],
       mayUse: (member, agent) => access.mayUse(member, agent),
+      mayReach: (member, agent) => !!access.mayReach?.(member, agent),
       officeOrigins: () => access.officeOrigins?.() ?? [],
       ...(access.memberName && access.agentName
         ? {

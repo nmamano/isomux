@@ -55,8 +55,9 @@ export const zh: Catalog = {
   "audit.edited": "已编辑",
 
   "browser.offerHelp":
-    "打开要提供的标签页，在扩展弹窗中选择全部或一个代理，然后开启代理控制。",
-  "browser.allAgents": "全部",
+    "打开要提供的标签页，在扩展弹窗中选择仅我的代理、所有代理或一个代理，然后开启代理控制。",
+  "browser.allAgents": "所有代理",
+  "browser.myAgents": "仅我的代理",
   "browser.agent": "代理",
   "browser.expiry": "控制到期时间",
   "browser.expiryNever": "永不",
@@ -75,7 +76,7 @@ export const zh: Catalog = {
   "browser.control": "代理控制",
   "browser.title": "浏览器使用",
   "browser.intro":
-    "让代理使用桌面 Chrome 中现有的登录状态浏览、读取页面和填写表单。可将标签页提供给全部代理或一个代理。",
+    "让代理使用桌面 Chrome 中现有的登录状态浏览、读取页面和填写表单。",
   "browser.chromeHelp":
     "智能体使用你配对的电脑上的 Chrome。请在每台电脑上安装并配对扩展。",
   "browser.setup": "设置 Chrome",
@@ -89,7 +90,6 @@ export const zh: Catalog = {
   "browser.show": "显示",
   "browser.hide": "隐藏",
   "browser.owner": "浏览器所有者：{name}",
-  "browser.ownership": "代理使用其管理者的浏览器，且只能控制向其提供的标签页。",
   "browser.paired": "已配对",
   "browser.unpaired": "未配对",
   "browser.offline": "离线",

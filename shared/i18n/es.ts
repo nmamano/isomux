@@ -59,8 +59,9 @@ export const es: Catalog = {
   "audit.edited": "editado",
 
   "browser.offerHelp":
-    "Abre la pestaña que quieras ofrecer, elige Todos o un agente en la extensión y activa Control del agente.",
-  "browser.allAgents": "Todos",
+    "Abre la pestaña que quieras ofrecer, elige Solo mis agentes, Todos los agentes o un agente en la extensión y activa Control del agente.",
+  "browser.allAgents": "Todos los agentes",
+  "browser.myAgents": "Solo mis agentes",
   "browser.agent": "Agente",
   "browser.expiry": "El control caduca",
   "browser.expiryNever": "Nunca",
@@ -80,7 +81,7 @@ export const es: Catalog = {
   "browser.control": "Control del agente",
   "browser.title": "Uso del navegador",
   "browser.intro":
-    "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
+    "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas.",
   "browser.chromeHelp":
     "Los agentes usan Chrome en los ordenadores que vincules. Instala y vincula la extensión en cada uno.",
   "browser.setup": "Configurar Chrome",
@@ -96,8 +97,6 @@ export const es: Catalog = {
   "browser.show": "Mostrar",
   "browser.hide": "Ocultar",
   "browser.owner": "Propietario del navegador: {name}",
-  "browser.ownership":
-    "Los agentes usan el navegador de su responsable y solo las pestañas que se les ofrecen.",
   "browser.paired": "Vinculado",
   "browser.unpaired": "Sin vincular",
   "browser.offline": "Sin conexión",

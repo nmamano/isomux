@@ -1,5 +1,5 @@
 import { sessionCookieName } from "../auth.ts";
-import { mayUseExtension } from "../isomux-office";
+import { mayReachExtension, mayUseExtension } from "../isomux-office";
 import { getUserByName } from "../users";
 import {
   startFlatOffice,
@@ -353,6 +353,112 @@ test("current manager room access loss actively detaches a pending agent action"
     await Bun.sleep(5);
   expect(socket.messages.some((m) => m.method === "detach")).toBe(true);
   expect(socket.closed()).toBe(false);
+  socket.ws.close();
+});
+
+// Task d4224f2f: a member offers a tab to All agents, and an agent of
+// another member, whose manager has no browser, acts in it until the offering
+// member loses access to the agent's room.
+test("an agent acts in another member's All agents tab while that member can access its room", async () => {
+  server = await startTestServer();
+  const owner = await server.seedOwner();
+  const member = await server.seedMember("Offering member");
+  const memberId = getUserByName(member.username)!.id;
+  const room = server.agentManager.getOrdinaryRooms()[0].id;
+  const access = async (rooms: string[]) =>
+    (
+      await memberRequest(
+        server!,
+        owner,
+        "PUT",
+        `/api/users/${encodeURIComponent(member.username)}/access`,
+        { allowedRooms: rooms },
+      )
+    ).status;
+  expect(await access([room])).toBe(200);
+  const agent = await ownedAgent(server, owner, "owner agent");
+  expect(mayReachExtension(memberId, agent.id)).toBe(true);
+  expect(mayUseExtension(memberId, agent.id)).toBe(false);
+  expect(mayReachExtension(memberId, "missing-agent")).toBe(false);
+  expect(mayReachExtension("missing-member", agent.id)).toBe(false);
+  const { code } = await (
+    await memberRequest(server, member, "POST", "/api/me/browser/pair", {})
+  ).json();
+  const socket = await extensionSocket(server, {
+    kind: "hello",
+    version: 4,
+    code,
+  });
+  const ready = await socket.wait("ready");
+  expect(ready.officeScope).toBe(true);
+  socket.ws.send(
+    JSON.stringify({
+      kind: "offer",
+      generation: ready.generation,
+      durationMinutes: 0,
+      assignment: crypto.randomUUID(),
+      scope: { kind: "office" },
+    }),
+  );
+  const attach = await socket.wait("command");
+  expect(attach.method).toBe("attach");
+  socket.ws.send(
+    JSON.stringify({
+      kind: "result",
+      generation: ready.generation,
+      id: attach.id,
+      result: {
+        targetInfo: {
+          targetId: "owned",
+          browserContextId: "context",
+          type: "page",
+          url: "https://example.com/",
+        },
+      },
+    }),
+  );
+  expect((await socket.wait("offered")).error).toBeUndefined();
+  const browser = (body: unknown) =>
+    server!.http(`/api/agents/${agent.id}/browser`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  const tabs = await browser({ action: "tabs" });
+  expect(tabs.status).toBe(200);
+  expect(await tabs.json()).toMatchObject({
+    tabs: [
+      {
+        scope: { kind: "office" },
+        member: getUserByName(member.username)!.name,
+      },
+    ],
+  });
+  socket.messages.length = 0;
+  const pending = browser({ action: "goto", url: "https://example.com" });
+  const command = await socket.wait("command");
+  expect(command.method).toBe("cdp");
+  expect(await access([])).toBe(200);
+  expect(mayReachExtension(memberId, agent.id)).toBe(false);
+  // As with an Only my agents offer, the offer stays for the agents the member
+  // still reaches; this caller ends when its command answers.
+  socket.ws.send(
+    JSON.stringify({
+      kind: "result",
+      generation: ready.generation,
+      id: command.id,
+      result: {},
+    }),
+  );
+  const response = await pending;
+  expect(response.status).toBe(500);
+  expect((await response.json()).error.code).toBe("browser_control_ended");
+  expect(socket.messages.some((m) => m.method === "detach")).toBe(false);
+  const after = await browser({ action: "tabs" });
+  expect((await after.json()).error.code).toBe("browser_not_paired");
   socket.ws.close();
 });
 

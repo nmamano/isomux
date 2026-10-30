@@ -32,6 +32,8 @@ async function harness(
   // extension detaches them, and refuses a detach of any other tab.
   opts: {
     offerResume?: boolean;
+    // The office accepts offers to All agents (task d4224f2f).
+    officeScope?: boolean;
     session?: Map<string, unknown>;
     slowSession?: boolean;
     extensionVersion?: string;
@@ -328,6 +330,7 @@ async function harness(
     generation: "generation-1",
     debuggerRecovery,
     ...(opts.offerResume ? { offerResume: true } : {}),
+    ...(opts.officeScope ? { officeScope: true } : {}),
     ...(opts.officePackage ? { package: opts.officePackage } : {}),
   });
   socket.receive({
@@ -377,7 +380,10 @@ async function harness(
       return { result, assignment };
     },
     offer: async (
-      scope: { kind: "all" } | { kind: "agent"; agentId: string } = {
+      scope:
+        | { kind: "all" }
+        | { kind: "office" }
+        | { kind: "agent"; agentId: string } = {
         kind: "agent",
         agentId: "a",
       },
@@ -1327,6 +1333,44 @@ test("All reserves exact tabs, permits multiple roots and reconciles explicit sc
     });
     await settle();
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+  } finally {
+    h.socket.close();
+  }
+});
+
+test("the popup learns from ready whether the office takes All agents offers, and an All agents offer stays on", async () => {
+  const before = await harness();
+  try {
+    expect((await before.ui({ action: "state" })).officeScope).toBeFalsy();
+  } finally {
+    before.socket.close();
+  }
+  const h = await harness(true, true, { officeScope: true });
+  try {
+    expect((await h.ui({ action: "state" })).officeScope).toBe(true);
+    expect(await h.offer({ kind: "office" })).not.toHaveProperty("error");
+    expect(h.socket.sent.findLast((m) => m.kind === "offer")?.scope).toEqual({
+      kind: "office",
+    });
+    h.socket.receive({
+      kind: "metadata",
+      generation: "generation-1",
+      member: { id: "m", name: "Member" },
+      agents: [],
+      assignments: [
+        {
+          id: h.assignment(),
+          scope: { kind: "office" },
+          durationMinutes: 0,
+          expiresAt: null,
+        },
+      ],
+    });
+    await settle();
+    const state = await h.ui({ action: "state" });
+    expect(
+      (state.assignments as Fields[]).map((a) => fields(a.scope).kind),
+    ).toEqual(["office"]);
   } finally {
     h.socket.close();
   }

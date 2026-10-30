@@ -2614,6 +2614,7 @@ describe("office gate", () => {
           target: expect.any(String) as string,
           scope: { kind: "agent", agentId: "agent" },
           browser: "",
+          member: "",
           title: "",
           url: "",
           officePageRefused: true,

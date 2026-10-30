@@ -73,8 +73,9 @@ export const en = {
   "audit.edited": "edited",
 
   "browser.offerHelp":
-    "Open the tab to offer, choose All or an agent in the extension popup, and turn on Agent control.",
-  "browser.allAgents": "All",
+    "Open the tab to offer, choose Only my agents, All agents or one agent in the extension popup, and turn on Agent control.",
+  "browser.allAgents": "All agents",
+  "browser.myAgents": "Only my agents",
   "browser.agent": "Agent",
   "browser.expiry": "Control expires",
   "browser.expiryNever": "Never",
@@ -94,7 +95,7 @@ export const en = {
   "browser.control": "Agent control",
   "browser.title": "Browser Use",
   "browser.intro":
-    "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Offer a tab to All or one agent.",
+    "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins.",
   "browser.chromeHelp":
     "Agents use Chrome on the computers you pair. Install and pair the extension on each one.",
   "browser.setup": "Set up Chrome",
@@ -108,8 +109,6 @@ export const en = {
   "browser.show": "Show",
   "browser.hide": "Hide",
   "browser.owner": "Browser owner: {name}",
-  "browser.ownership":
-    "Agents use their manager’s browser and only the tabs offered to them.",
   "browser.paired": "Paired",
   "browser.unpaired": "Not paired",
   "browser.offline": "Offline",

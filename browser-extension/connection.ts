@@ -152,17 +152,24 @@ function render(next: typeof state) {
           })
       : "";
   const selected = current
-    ? current.scope.kind === "all"
-      ? "all"
-      : current.scope.agentId
+    ? current.scope.kind === "agent"
+      ? current.scope.agentId
+      : current.scope.kind
     : previous
       ? "all"
       : picker.value || "all";
   picker.replaceChildren();
-  const all = document.createElement("option");
-  all.value = "all";
-  all.textContent = t("browser.allAgents");
-  picker.append(all);
+  // "all" is the agents the member manages; "office" every agent they reach,
+  // offered only when the office takes it.
+  const groups: [string, PlainMessageKey][] = [["all", "browser.myAgents"]];
+  if (state.officeScope || current?.scope.kind === "office")
+    groups.push(["office", "browser.allAgents"]);
+  for (const [value, key] of groups) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = t(key);
+    picker.append(option);
+  }
   for (const agent of state.agents) {
     const option = document.createElement("option");
     option.value = agent.id;
@@ -201,9 +208,13 @@ function render(next: typeof state) {
             : "browser.revoking",
         {
           name:
-            current.scope.kind === "all"
-              ? t("browser.allAgents")
-              : current.agent!.name,
+            current.scope.kind === "agent"
+              ? current.agent!.name
+              : t(
+                  current.scope.kind === "office"
+                    ? "browser.allAgents"
+                    : "browser.myAgents",
+                ),
         },
       )
     : !state.currentTab?.eligible
@@ -231,8 +242,8 @@ toggle.addEventListener("change", () => {
   else
     void command("offer", {
       scope:
-        picker.value === "all"
-          ? { kind: "all" }
+        picker.value === "all" || picker.value === "office"
+          ? { kind: picker.value }
           : { kind: "agent", agentId: picker.value },
       tabId: state.currentTab?.id,
       durationMinutes: Number(expiry.value),

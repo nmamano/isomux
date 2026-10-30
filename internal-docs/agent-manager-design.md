@@ -41,12 +41,14 @@ The code reads the manager for these behaviors:
 - **Killed agents and transcripts.** Kill copies both fields into history. The
   killed list and killed-log guard use the recorded `userId`: the recorded
   manager and office owners can read them.
-- **Browser controls.** Actions use the current manager's paired Chrome
-  connection and a tab that member offered. The bridge checks on every action
+- **Browser controls.** Actions use a tab that the current manager offered, or
+  that another member offered to All agents. The bridge checks on every action
   that the agent's current manager is the paired member (`mayUseExtension` in
   `server/isomux-office.ts`; `ExtensionBrowserSessions.run` in
-  `server/browser-extension-session.ts`), so a transfer needs no browser step:
-  the old member's offer answers "ended" on the next action.
+  `server/browser-extension-session.ts`), or, for an All agents offer, that the
+  offering member can access the agent's room (`mayReachExtension`), so a
+  transfer needs no browser step: the old member's Only my agents or
+  individual offer answers "ended" on the next action.
 - **Remote API-token inboxes.** API tokens belong to members. An agent replies
   only through a token its manager owns, derived from the live agent. A transfer
   does not move or revoke API tokens.

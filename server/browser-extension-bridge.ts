@@ -156,6 +156,8 @@ type BrowserTab = {
   target: string;
   scope: BrowserGrantScope;
   browser: string;
+  // The member whose browser it is.
+  member: string;
   title: string;
   url: string;
   officePageRefused?: true;
@@ -164,7 +166,8 @@ type BrowserTab = {
 // No HTTP listener or production route is registered here. The caller supplies
 // a browser-only hash lookup and live member/agent authorization on every use.
 // A member can pair several browsers; each credential has at most one live
-// connection, and an agent sees the offers of all of them as one set.
+// connection, and an agent sees the offers of all of them as one set. An
+// agent also sees the "office" offers of other members who can reach it.
 export class BrowserExtensionBridge {
   private live = new Map<string, ExtensionConnection>();
   readonly offices: OfficeOrigins;
@@ -173,6 +176,7 @@ export class BrowserExtensionBridge {
       memberForCredentialHash(hash: string): string | undefined;
       browserName?(hash: string): string;
       mayUse(memberId: string, agentId: string): boolean;
+      mayReach?(memberId: string, agentId: string): boolean;
       memberDisplay?(member: string): BrowserDisplay;
       agentDisplay?(agent: string): BrowserDisplay;
       agents?(member: string): string[];
@@ -211,6 +215,9 @@ export class BrowserExtensionBridge {
       // including offers that are still attaching.
       (agent) => this.connections(member).some((c) => c.holdsAgent(agent)),
       this.offices,
+      (agent) =>
+        this.access.memberForCredentialHash(hash) === member &&
+        !!this.access.mayReach?.(member, agent),
     );
     this.live.set(hash, connection);
     try {
@@ -220,6 +227,8 @@ export class BrowserExtensionBridge {
         debuggerRecovery: true,
         // The extension sends its ON offers again after a connection loss.
         offerResume: true,
+        // The office takes offers to every agent the member can reach.
+        officeScope: true,
         // The office's extension package, so an older extension can say so.
         package: manifest.version,
         generation: connection.generation,
@@ -240,21 +249,29 @@ export class BrowserExtensionBridge {
     return this.live.get(hash);
   }
 
-  targets(memberId: string, agent: string): BrowserTab[] {
-    return this.offers(memberId, agent).map(({ tab }) => tab);
+  // manager: the agent's manager, whose browsers come first.
+  targets(manager: string | undefined, agent: string): BrowserTab[] {
+    return this.offers(manager, agent).map(({ tab }) => tab);
   }
 
+  // Every browser's offers the agent can use: another member's browser
+  // yields only its "office" offers, since the others need the manager.
   private offers(
-    memberId: string,
+    manager: string | undefined,
     agent: string,
   ): { connection: ExtensionConnection; tab: BrowserTab }[] {
-    return this.connections(memberId).flatMap((connection) =>
+    const live = [...this.live.values()];
+    return [
+      ...live.filter((c) => c.memberId === manager),
+      ...live.filter((c) => c.memberId !== manager),
+    ].flatMap((connection) =>
       connection.targets(agent).map((t) => ({
         connection,
         tab: {
           target: t.target,
           scope: t.scope,
           browser: this.access.browserName?.(connection.credentialHash) ?? "",
+          member: this.access.memberDisplay?.(connection.memberId).name ?? "",
           title: t.title,
           url: t.url,
           ...(t.officePageRefused ? { officePageRefused: true as const } : {}),
@@ -263,9 +280,25 @@ export class BrowserExtensionBridge {
     );
   }
 
-  // The individual offer first, then a sole All offer, across all browsers.
+  // Without a target: the agent's individual offer, else a sole offer from
+  // its manager's browsers, else a sole offer of another member.
+  private choose(
+    manager: string | undefined,
+    agent: string,
+  ): {
+    offers: { connection: ExtensionConnection; tab: BrowserTab }[];
+    chosen?: { connection: ExtensionConnection; tab: BrowserTab };
+  } {
+    const offers = this.offers(manager, agent);
+    const own = offers.find((o) => o.tab.scope.kind === "agent");
+    if (own) return { offers: [own], chosen: own };
+    const managers = offers.filter((o) => o.connection.memberId === manager);
+    const tier = managers.length ? managers : offers;
+    return { offers: tier, chosen: tier.length === 1 ? tier[0] : undefined };
+  }
+
   resolve(
-    memberId: string,
+    manager: string | undefined,
     agent: string,
     target?: string,
   ):
@@ -276,12 +309,10 @@ export class BrowserExtensionBridge {
         offerOrigin: string | undefined;
       }
     | undefined {
-    const offers = this.offers(memberId, agent);
     const chosen =
       target !== undefined
-        ? offers.find((o) => o.tab.target === target)
-        : (offers.find((o) => o.tab.scope.kind === "agent") ??
-          (offers.length === 1 ? offers[0] : undefined));
+        ? this.offers(manager, agent).find((o) => o.tab.target === target)
+        : this.choose(manager, agent).chosen;
     if (!chosen) return undefined;
     const grant = chosen.connection.offered(agent, chosen.tab.target);
     return grant
@@ -294,11 +325,8 @@ export class BrowserExtensionBridge {
       : undefined;
   }
 
-  ambiguous(memberId: string, agent: string): boolean {
-    const offers = this.offers(memberId, agent);
-    return (
-      !offers.some((o) => o.tab.scope.kind === "agent") && offers.length > 1
-    );
+  ambiguous(manager: string | undefined, agent: string): boolean {
+    return this.choose(manager, agent).offers.length > 1;
   }
 }
 
@@ -398,6 +426,8 @@ export class ExtensionConnection {
     private agentTaken: (agentId: string) => boolean = (agentId) =>
       this.holdsAgent(agentId),
     readonly offices: OfficeOrigins = new OfficeOrigins(() => []),
+    // Every agent the member can reach: the audience of an "office" offer.
+    private reach: (agentId: string) => boolean = () => false,
   ) {
     // A new office origin can refuse a page that committed before it was known.
     this.stopLearning = offices.onLearn(() => {
@@ -655,8 +685,8 @@ export class ExtensionConnection {
     const assignment = id ? this.assignments.get(id) : undefined;
     if (
       !this.active ||
-      !this.authorize(agentId) ||
       !assignment?.target ||
+      !this.accessible(assignment, agentId) ||
       assignment.connected ||
       assignment.recovery ||
       this.pendingCount(assignment.id)
@@ -804,8 +834,10 @@ export class ExtensionConnection {
     return (
       this.active &&
       this.ownerValid() &&
-      this.authorize(agent) &&
-      (a.scope.kind === "all" || a.scope.agentId === agent)
+      (a.scope.kind === "office"
+        ? this.reach(agent)
+        : this.authorize(agent) &&
+          (a.scope.kind === "all" || a.scope.agentId === agent))
     );
   }
 
@@ -881,7 +913,7 @@ export class ExtensionConnection {
   private authorized(a: Assignment): boolean {
     return (
       this.ownerValid() &&
-      (a.scope.kind === "all" || this.authorize(a.scope.agentId))
+      (a.scope.kind !== "agent" || this.authorize(a.scope.agentId))
     );
   }
 
@@ -1673,12 +1705,21 @@ export class ExtensionConnection {
       if (!this.accessible(a, actor)) throw new Error("Browser control ended");
       if (a.peer === peer) peer.send({ id, sessionId, result });
     } catch {
-      if (this.active && !a.closed && a.peer === peer)
-        peer.send({
-          id,
-          sessionId,
-          error: { code: -32000, message: "Browser command refused or failed" },
-        });
+      // A refusal can come before the first await, inside the client's own
+      // send: its callback for this id exists only once that send returns.
+      queueMicrotask(() => {
+        if (this.active && !a.closed && a.peer === peer)
+          try {
+            peer.send({
+              id,
+              sessionId,
+              error: {
+                code: -32000,
+                message: "Browser command refused or failed",
+              },
+            });
+          } catch {}
+      });
     }
   }
 

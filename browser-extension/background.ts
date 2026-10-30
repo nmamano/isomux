@@ -59,6 +59,8 @@ type Connection = {
   watchdog?: ReturnType<typeof setTimeout>;
   debuggerRecovery?: boolean;
   offerResume?: boolean;
+  // The office accepts "office" offers, from ready.
+  officeScope?: boolean;
   // The office's extension package, from ready.
   officePackage?: string;
   metadata?: BrowserMetadata;
@@ -268,6 +270,7 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
                 ? "offline"
                 : "unpaired",
     member: online ? c.metadata?.member : undefined,
+    ...(online && c.officeScope ? { officeScope: true } : {}),
     ...(online &&
     c.officePackage &&
     extensionOutdated(chrome.runtime.getManifest().version, c.officePackage)
@@ -931,6 +934,7 @@ async function configure(reset = true): Promise<void> {
           c.generation = msg.generation;
           c.debuggerRecovery = msg.debuggerRecovery === true;
           c.offerResume = msg.offerResume === true;
+          c.officeScope = msg.officeScope === true;
           if (validExtensionPackage(msg.package)) c.officePackage = msg.package;
           if (!c.offerResume) void clearResumable();
           else for (const [id, r] of resumable) resumeOffer(c, id, r);
