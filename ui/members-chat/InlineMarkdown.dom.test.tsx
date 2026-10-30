@@ -75,11 +75,11 @@ it("keeps a quote in a destination inside the href attribute", () => {
   expect(anchor.hasAttribute("onmouseover")).toBe(false);
 });
 
-// iOS keeps a same-origin link inside the Home Screen window, which has no
-// Back button: there an app's short link opens Safari. An office page stays in
-// the office, and a link to another site keeps the plain href (iOS opens it in
-// a Safari sheet).
-it("opens an app link in Safari from the iPhone Home Screen office, and nothing else", () => {
+// Safari does not hold the member's session (task 79beacd9): in the Home
+// Screen window an app's short link and an office page stay in the window,
+// and a link to another site keeps the plain href (iOS opens it in a Safari
+// sheet).
+it("keeps every link as it is in the iPhone Home Screen office", () => {
   const office = window.location.origin;
   const undo = asDevice(IPHONE_HOME_SCREEN);
   try {
@@ -91,8 +91,8 @@ it("opens an app link in Safari from the iPhone Home Screen office, and nothing 
     expect(
       view.getAllByRole("link").map((link) => link.getAttribute("href")),
     ).toEqual([
-      "x-safari-" + office + "/loop",
-      "x-safari-" + office + "/board",
+      office + "/loop",
+      office + "/board",
       office + "/settings",
       "https://example.com/",
     ]);

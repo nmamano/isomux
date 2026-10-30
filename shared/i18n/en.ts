@@ -3612,6 +3612,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "To share a screenshot: take one, then paste or attach it here.",
   "appWidget.attach": "Attach image",
   "appWidget.direct": "Open without chat",
+  "appWidget.backToOffice": "Back to office",
   "appWidget.unavailable": "Chat is unavailable.",
   "appWidget.install": "Install as app",
   "appWidget.installSteps": "Tap Share, then Add to Home Screen.",

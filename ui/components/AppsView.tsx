@@ -35,8 +35,7 @@ import type {
   PlainMessageKey,
   Translator,
 } from "../../shared/i18n/translate.ts";
-import { readSafariEnv, safariHref } from "../safari-link.ts";
-import type { SafariEnv } from "../safari-link.ts";
+import { readSafariEnv } from "../safari-link.ts";
 import {
   appInstallHref,
   canOfferInstall,
@@ -130,12 +129,11 @@ export function appLinkHref(
   app: Pick<AppWire, "name" | "shortUrl" | "url" | "port">,
   officeHostname: string,
   liveAppPreviews: boolean,
-  env: SafariEnv = readSafariEnv(),
 ): string {
   if (!liveAppPreviews) {
     return `/demo/app?name=${encodeURIComponent(app.name)}`;
   }
-  return safariHref(appHref(app, officeHostname), env);
+  return appHref(app, officeHostname);
 }
 
 // Not a component, so the translator arrives as an argument (ruling 18).

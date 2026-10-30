@@ -6,6 +6,7 @@ import { AppWidgetPage } from "./AppWidgetPage.tsx";
 import type { AppWidgetBoot } from "./app-widget-state.ts";
 import { LanguageProvider } from "./i18n.tsx";
 import { captureInstallPrompt } from "./app-install.ts";
+import { trackOfficePage } from "./home-screen-office.ts";
 
 const widgetMeta = document.querySelector<HTMLMetaElement>(
   'meta[name="isomux-app-widget"]',
@@ -16,6 +17,8 @@ const widgetBoot = widgetMeta
 // Both pages hold the install event: the short-link page installs its app,
 // the office page installs the office.
 captureInstallPrompt();
+// The office page tells an app page in the same window where to go back to.
+if (!widgetBoot) trackOfficePage(window);
 
 const root = createRoot(document.getElementById("root")!);
 root.render(

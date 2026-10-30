@@ -1,6 +1,5 @@
 import { useMemo, type ReactNode } from "react";
 import { Lexer, defaults, type MarkedToken, type Token } from "marked";
-import { readSafariEnv, safariHrefSameOrigin } from "../safari-link.ts";
 
 // The full log renderer also runs HTML, SVG, Mermaid and code hooks. Keep
 // this small inline grammar separate, and let React escape all source text.
@@ -50,11 +49,7 @@ function renderTokens(tokens: Token[], grammar: Grammar): ReactNode[] {
         return (
           <a
             key={index}
-            href={safariHrefSameOrigin(
-              token.href,
-              readSafariEnv(),
-              window.location.origin,
-            )}
+            href={token.href}
             target="_blank"
             rel="noopener noreferrer"
           >

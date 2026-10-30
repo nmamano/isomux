@@ -27,7 +27,8 @@ import {
   chatVisibleQueue,
 } from "./log-view/chat-entries.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
-import { readSafariEnv, safariHref } from "./safari-link.ts";
+import { readSafariEnv } from "./safari-link.ts";
+import { officeReturnHref } from "./home-screen-office.ts";
 import {
   INSTALL_HASH,
   heldInstallPrompt,
@@ -112,6 +113,33 @@ const WIDGET_CSS = `
 .app-widget-status { font-size:12px; color:var(--text-secondary); }
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
 `;
+
+// window.sessionStorage itself throws where storage is off.
+function sessionStorageOrEmpty(): Pick<Storage, "getItem"> {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return { getItem: () => null };
+  }
+}
+
+function BackIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M13 8H3M7 4 3 8l4 4" />
+    </svg>
+  );
+}
 
 // On a phone the open chat covers 80% of the page and ends above the dock.
 // The keyboard does not shrink dvh, so the box follows the visual viewport, as
@@ -544,8 +572,15 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
     toggleChat(false);
     launcher.current?.focus();
   };
-  const directHref = appUrl
-    ? safariHref(frameStart(appUrl, startPath), readSafariEnv())
+  // The iPhone Home Screen office has no Back button. The direct link would
+  // open Safari, which has no session, or leave the window with no way back:
+  // a link back to the office page replaces it there.
+  const safariEnv = readSafariEnv();
+  const homeScreen = safariEnv.ios && safariEnv.standalone;
+  const directHref =
+    appUrl && !homeScreen ? frameStart(appUrl, startPath) : null;
+  const backHref = homeScreen
+    ? officeReturnHref(sessionStorageOrEmpty())
     : null;
   const chatReady = !!target && !!agent;
   const phoneBox = usePhonePanelBox(state.isMobile, open, dock);
@@ -622,8 +657,18 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
           </button>
         </div>
       )}
-      {(dockDirect || chatReady || dockInstall || appChanged) && (
+      {(backHref || dockDirect || chatReady || dockInstall || appChanged) && (
         <div ref={dock} className="app-widget-dock">
+          {backHref && (
+            <a
+              className="app-widget-dock-direct app-widget-dock-back"
+              href={backHref}
+              aria-label={t("appWidget.backToOffice")}
+              title={t("appWidget.backToOffice")}
+            >
+              <BackIcon />
+            </a>
+          )}
           {appChanged && (
             <div className="app-widget-changed" aria-live="polite">
               {t("appWidget.appChanged")}

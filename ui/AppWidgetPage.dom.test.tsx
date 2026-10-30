@@ -508,7 +508,9 @@ it("folds a settled tool group, expands results on demand, and updates the offic
 // One chat on every device (task 55d1bb8b, Nil, 2026-10-28): a phone opens
 // the panel over the app in place, as a desktop does, so the panel's header
 // (direct link, install entry) is reachable there too. The iPhone Home Screen
-// window opens it in place as well; nothing leaves for Safari or the office.
+// window opens it in place as well; nothing leaves for Safari or the office,
+// and it has no direct link (task 79beacd9: Safari holds no session, and the
+// app's own host is outside the window).
 for (const [device, phone, homeScreen] of [
   ["desktop", false, false],
   ["phone", true, false],
@@ -569,12 +571,10 @@ for (const [device, phone, homeScreen] of [
         expect(frame()!.getAttribute("src")).toBe(src);
       };
       // The direct link is only in the open panel's header: the closed dock
-      // holds the launcher alone (Nil, 2026-10-20). The Home Screen window
-      // has no Back button, so the link leaves for Safari there.
-      const direct =
-        (homeScreen ? "x-safari-" : "") +
-        "https://hello.office.example/" +
-        window.location.search;
+      // holds the launcher alone (Nil, 2026-10-20).
+      const direct = homeScreen
+        ? null
+        : "https://hello.office.example/" + window.location.search;
       const dock = view!.container.querySelector(".app-widget-dock")!;
       const dockLink = () =>
         view!.container.querySelector<HTMLAnchorElement>(".app-widget-dock a");
@@ -590,8 +590,9 @@ for (const [device, phone, homeScreen] of [
       expect(isOpen()).toBe(true);
       sameFrame();
       expect(dockLink()).toBeNull();
-      expect(headerLink()?.getAttribute("href")).toBe(direct);
-      expect(headerLink()?.target).toBe("_blank");
+      expect(panel.querySelector("header")).not.toBeNull();
+      expect(headerLink()?.getAttribute("href") ?? null).toBe(direct);
+      if (direct) expect(headerLink()?.target).toBe("_blank");
       // A desktop opens the chat ready to type. A phone does not: the soft
       // keyboard would cover the app and half the panel at each open, as the
       // office composer avoids (LogView autoFocus={!isMobile}).
@@ -757,13 +758,13 @@ for (const [device, phone, dockBottom] of [
 }
 
 // With no chat target there is no widget, and the lone dock link is the way
-// out of the frame; on the iPhone Home Screen it must leave for Safari, since
-// that window has no Back button.
+// out of the frame. The iPhone Home Screen window has none (task 79beacd9):
+// the way out there is the Back link below.
 for (const [variant, homeScreen] of [
   ["no chat target", false],
   ["no chat target on the iPhone Home Screen", true],
 ] as const) {
-  it(`shows the direct link in the dock where no chat launcher is (${variant})`, async () => {
+  it(`${homeScreen ? "shows no direct link" : "shows the direct link in the dock"} where no chat launcher is (${variant})`, async () => {
     sessionStorage.clear();
     const { asDevice, IPHONE_HOME_SCREEN } =
       await import("./test-support/ios-home-screen.ts");
@@ -787,22 +788,129 @@ for (const [variant, homeScreen] of [
           </StateCtx.Provider>,
         );
       });
-      const dock = view!.container.querySelector(".app-widget-dock")!;
+      const dock = view!.container.querySelector(".app-widget-dock");
       const links = view!.container.querySelectorAll<HTMLAnchorElement>("a");
       expect(view!.container.querySelector("#app-widget-chat")).toBeNull();
-      expect(dock.querySelector(".app-widget-launcher")).toBeNull();
+      expect(view!.container.querySelector(".app-widget-launcher")).toBeNull();
+      expect(view!.container.querySelector("iframe")).not.toBeNull();
+      // With nothing stored, the Home Screen dock has nothing to hold.
+      if (homeScreen) {
+        expect(links).toHaveLength(0);
+        return;
+      }
+      expect(dock).not.toBeNull();
       expect(links).toHaveLength(1);
-      expect(dock.contains(links[0])).toBe(true);
+      expect(dock!.contains(links[0])).toBe(true);
       expect(links[0].getAttribute("href")).toBe(
-        (homeScreen ? "x-safari-" : "") +
-          "https://hello.office.example/" +
-          window.location.search,
+        "https://hello.office.example/" + window.location.search,
       );
       expect(links[0].getAttribute("aria-label")).toBeTruthy();
     } finally {
       view?.unmount();
       iframesOn();
       undo();
+    }
+  });
+}
+
+// The way back to the office from the iPhone Home Screen window (task
+// 79beacd9). The office stores the page it showed in this window's
+// sessionStorage; the app page then shows a Back link to it in the dock, with
+// or without a chat, so it is in sight without opening the panel. It stays in
+// the window (no target). With nothing stored the window is the app's own
+// Home Screen install, where the office is out of scope: no Back link. Off
+// the Home Screen the browser has its own Back.
+for (const [variant, device, stored, chat, back] of [
+  ["Home Screen, chat", "home", "/agents/one?x=1#end", true, true],
+  ["Home Screen, no chat", "home", "/apps", false, true],
+  ["Home Screen, nothing stored", "home", null, true, false],
+  ["Home Screen, another host stored", "home", "//evil.example/", true, false],
+  ["iPhone Safari", "safari", "/apps", true, false],
+  ["desktop", "desktop", "/apps", false, false],
+] as const) {
+  it(`links back to the office page the window came from (${variant})`, async () => {
+    sessionStorage.clear();
+    const { OFFICE_RETURN_KEY } = await import("./home-screen-office.ts");
+    if (stored !== null) sessionStorage.setItem(OFFICE_RETURN_KEY, stored);
+    const { asDevice, IPHONE_HOME_SCREEN } =
+      await import("./test-support/ios-home-screen.ts");
+    const undo =
+      device === "home"
+        ? asDevice(IPHONE_HOME_SCREEN)
+        : device === "safari"
+          ? asDevice({ ...IPHONE_HOME_SCREEN, standalone: false })
+          : () => {};
+    const { StateCtx, initialState } = await import("./store.tsx");
+    const iframesOn = iframesOff();
+    setApiShim(async () => ({
+      ...boot,
+      appUrl: "https://hello.office.example",
+      sessionExpiresAt: Date.now() + 1000000,
+      chat: chat ? { agentId: agent.id, agentName: agent.name } : null,
+    }));
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => {
+        view = render(
+          <StateCtx.Provider
+            value={{
+              ...initialState,
+              agents: [agent],
+              connected: true,
+              isMobile: device !== "desktop",
+            }}
+          >
+            <AppWidgetPage boot={boot} />
+          </StateCtx.Provider>,
+        );
+      });
+      const dock = view!.container.querySelector(".app-widget-dock")!;
+      expect(dock).not.toBeNull();
+      expect(view!.container.querySelector("iframe")).not.toBeNull();
+      // The launcher is there exactly when there is a chat.
+      expect(dock.querySelector(".app-widget-launcher") !== null).toBe(chat);
+      const backLinks = () =>
+        view!.container.querySelectorAll<HTMLAnchorElement>(
+          "a.app-widget-dock-back",
+        );
+      if (!back) {
+        expect(backLinks()).toHaveLength(0);
+        // Off the Home Screen the direct link is still there (in the dock
+        // with no chat, in the panel header with one).
+        if (device !== "home" && !chat)
+          expect(
+            dock.querySelector<HTMLAnchorElement>("a.app-widget-dock-direct")
+              ?.href,
+          ).toStartWith("https://hello.office.example/");
+        return;
+      }
+      expect(backLinks()).toHaveLength(1);
+      const link = backLinks()[0];
+      expect(dock.contains(link)).toBe(true);
+      expect(link.getAttribute("href")).toBe(stored);
+      expect(link.hasAttribute("target")).toBe(false);
+      expect(link.getAttribute("aria-label")).toBeTruthy();
+      // The Back link is the only link out in the dock: no direct link.
+      expect(
+        Array.from(dock.querySelectorAll("a")).map((a) =>
+          a.getAttribute("href"),
+        ),
+      ).toEqual([stored]);
+      if (chat) {
+        // Opening the panel shows no direct link either, and Back stays.
+        await act(async () => {
+          fireEvent.click(dock.querySelector(".app-widget-launcher")!);
+        });
+        const panel = document.getElementById("app-widget-chat")!;
+        expect(panel.style.display).toBe("flex");
+        expect(panel.querySelector("a.app-widget-direct")).toBeNull();
+        expect(backLinks()).toHaveLength(1);
+      }
+    } finally {
+      view?.unmount();
+      iframesOn();
+      undo();
+      sessionStorage.clear();
     }
   });
 }

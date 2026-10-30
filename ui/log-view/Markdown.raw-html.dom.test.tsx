@@ -56,14 +56,7 @@ const URL_ATTRS = new Set([
   "data",
   "poster",
 ]);
-const SAFE_SCHEMES = new Set([
-  "http",
-  "https",
-  "mailto",
-  // ui/safari-link.ts rewrites office app links on the iPhone Home Screen.
-  "x-safari-http",
-  "x-safari-https",
-]);
+const SAFE_SCHEMES = new Set(["http", "https", "mailto"]);
 
 // The scheme a browser reads from a URL attribute: it strips ASCII tab and
 // newline anywhere and leading or trailing C0 controls and spaces.

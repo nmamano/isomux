@@ -32,7 +32,6 @@ import {
 } from "./svg-sanitize.ts";
 import { decodeEntities, safeUrl, sanitizeHtml } from "./html-sanitize.ts";
 import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
-import { readSafariEnv, safariHrefSameOrigin } from "../safari-link.ts";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -106,12 +105,7 @@ marked.use({
       const titleAttr = title
         ? ` title="${escapeAttrValue(decodeEntities(title))}"`
         : "";
-      const target = safariHrefSameOrigin(
-        url,
-        readSafariEnv(),
-        window.location.origin,
-      );
-      return `<a href="${escapeAttrValue(target)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+      return `<a href="${escapeAttrValue(url)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
     },
   },
 });

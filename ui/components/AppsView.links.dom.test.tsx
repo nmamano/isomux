@@ -61,10 +61,10 @@ it("prints each preferred address and opens it from the name and address links",
   view.unmount();
 });
 
-// iOS keeps a same-origin link inside the Home Screen window, which has no
-// Back button, so there every app link opens Safari while the printed
-// address stays the plain one.
-it("opens every app in Safari from the iPhone Home Screen office", async () => {
+// Safari does not hold the member's session (task 79beacd9), so the iPhone
+// Home Screen office opens every app with the plain link, in the window where
+// the member is signed in.
+it("keeps every app link as it is in the iPhone Home Screen office", async () => {
   const undo = asDevice(IPHONE_HOME_SCREEN);
   try {
     const view = render(
@@ -84,10 +84,10 @@ it("opens every app in Safari from the iPhone Home Screen office", async () => {
       const address = Array.from(row.querySelectorAll("a")).find(
         (link) => link.textContent === expected[index],
       );
-      expect(address?.getAttribute("href")).toBe("x-safari-" + expected[index]);
+      expect(address?.getAttribute("href")).toBe(expected[index]);
       expect(
         view.getByRole("link", { name: app.name }).getAttribute("href"),
-      ).toBe("x-safari-" + expected[index]);
+      ).toBe(expected[index]);
     });
     view.unmount();
   } finally {

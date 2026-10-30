@@ -3276,6 +3276,7 @@ App 的一些原则：
   "appWidget.genericHint": "如需分享截图：截屏后，粘贴或附加到此处。",
   "appWidget.attach": "附加图片",
   "appWidget.direct": "不带聊天打开",
+  "appWidget.backToOffice": "返回办公室",
   "appWidget.unavailable": "聊天不可用。",
   "appWidget.install": "安装为应用",
   "appWidget.installSteps": "点按“分享”，然后点按“添加到主屏幕”。",

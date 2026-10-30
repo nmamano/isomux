@@ -1,20 +1,12 @@
 // Which links leave the iPhone Home Screen office for Safari (ui/safari-link.ts).
 //
 // Pins: only an iOS Home Screen web app on iOS 17 or later (or an unknown
-// version) gets the x-safari- prefix, and only on an absolute http(s) URL; the
-// chat variant rewrites only an app's short link (one path label on the
-// office's own origin that is not an office page), so an office page stays in
-// the Home Screen office and a link to another site keeps opening in the
-// Safari sheet it opens in today.
+// version) gets the x-safari- prefix, and only on an absolute http(s) URL.
 //
 // Pure T0: no DOM, no server, no LLM.
 
 import { describe, expect, it } from "bun:test";
-import {
-  safariHref,
-  safariHrefSameOrigin,
-  type SafariEnv,
-} from "./safari-link.ts";
+import { safariHref, type SafariEnv } from "./safari-link.ts";
 
 const HOME_SCREEN: SafariEnv = { ios: true, standalone: true, iosMajor: 17 };
 
@@ -49,70 +41,5 @@ describe("safariHref", () => {
       "x-safari-https://office.example/loop",
     ])
       expect(safariHref(other, HOME_SCREEN)).toBe(other);
-  });
-});
-
-describe("safariHrefSameOrigin", () => {
-  const origin = "https://office.example";
-
-  it("sends an app's short link to Safari", () => {
-    for (const href of [
-      "https://office.example/loop",
-      "https://office.example/loop/",
-      "https://office.example/standup-board?task=1#top",
-    ])
-      expect(safariHrefSameOrigin(href, HOME_SCREEN, origin)).toBe(
-        "x-safari-" + href,
-      );
-  });
-
-  // The office routes these itself, so the Home Screen window is the right
-  // place for them; Safari may not even be signed in.
-  it("leaves office pages and other office paths alone", () => {
-    for (const path of [
-      "/",
-      "/?pager=abc",
-      "/tasks",
-      "/tasks/?task=1",
-      "/settings",
-      "/inbox",
-      "/inbox/asks",
-      "/integrations/secrets",
-      "/agents/agent-1",
-      "/loop/board",
-    ]) {
-      const href = origin + path;
-      expect(safariHrefSameOrigin(href, HOME_SCREEN, origin)).toBe(href);
-    }
-  });
-
-  it("leaves every other origin alone", () => {
-    for (const href of [
-      "https://loop.office.example/",
-      "https://office.example.other.example/loop",
-      "http://office.example/loop",
-      "https://office.example:8443/loop",
-      "https://example.com/",
-    ])
-      expect(safariHrefSameOrigin(href, HOME_SCREEN, origin)).toBe(href);
-  });
-
-  it("leaves a destination that is not a URL alone instead of throwing", () => {
-    for (const href of [
-      "https://",
-      "javascript:alert(1)",
-      "mailto:a@b.example",
-    ])
-      expect(safariHrefSameOrigin(href, HOME_SCREEN, origin)).toBe(href);
-  });
-
-  it("follows safariHref's device rules", () => {
-    const href = "https://office.example/loop";
-    expect(
-      safariHrefSameOrigin(href, { ...HOME_SCREEN, standalone: false }, origin),
-    ).toBe(href);
-    expect(
-      safariHrefSameOrigin(href, { ...HOME_SCREEN, iosMajor: 16 }, origin),
-    ).toBe(href);
   });
 });

@@ -20,7 +20,7 @@ These are proposals, not settled policy. PM must take access, shared conversatio
 
 Desktop: the app fills the page. A bottom-right chat button opens a compact overlay with the target agent's name, shared-chat notice, transcript, composer, and image previews. The same button closes it (Escape too), which restores space without discarding a draft. New replies mark the closed button as unread. Normal busy, queued, error, and reconnect states use the existing chat behavior.
 
-Paste or drop images into the open widget, or select an image file. Show each image before sending and let the member remove it. The widget never captures the page. On mobile, the file picker accepts an OS screenshot; closing chat lets the member capture the app first. Focus returns to the launcher when chat closes. The member can always open the app directly if an app's own login or page behavior requires a top-level tab; that tab has no widget.
+Paste or drop images into the open widget, or select an image file. Show each image before sending and let the member remove it. The widget never captures the page. On mobile, the file picker accepts an OS screenshot; closing chat lets the member capture the app first. Focus returns to the launcher when chat closes. The member can open the app directly if an app's own login or page behavior requires a top-level tab; that tab has no widget. In the iPhone Home Screen office, the direct link is replaced by a link back to the office page the window came from: the window has no Back button, and the direct link would open Safari, which has no session, or leave the window with no way back (task 79beacd9).
 
 Proposed new copy, for review (placeholders in braces):
 
@@ -32,6 +32,7 @@ Proposed new copy, for review (placeholders in braces):
 - Other desktop/mobile hint: “To share a screenshot: take one, then paste or attach it here.”
 - File button: “Attach image”
 - Direct link: “Open without chat”
+- Back link (iPhone Home Screen office): “Back to office”
 - Unavailable state: “Chat is unavailable.”
 
 ## Message in, reply out, attachments
