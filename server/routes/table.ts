@@ -214,6 +214,9 @@ import type {
   TaskUpdateReq,
   TaskClaimReq,
   MembersChatPageRes,
+  FloorsListRes,
+  FloorAddReq,
+  FloorAddRes,
   MembersChatPostReq,
   MembersChatEditReq,
   MembersChatThumbsUpReq,
@@ -1203,6 +1206,33 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/members-chat/files/:filename",
     auth: cap("chat:members", operationalAuthenticated),
     emits: [],
+  }),
+
+  // Floors: the lobby elevator's links to other offices (shared/floors.ts).
+  // Any member, with the same reach as rooms.create. floors.add probes the
+  // other office's public card on the server before it saves anything.
+  defineRoute<void, FloorsListRes>({
+    opId: "floors.list",
+    method: "GET",
+    path: "/api/floors",
+    auth: cap("office:read", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<FloorAddReq, FloorAddRes>({
+    opId: "floors.add",
+    audit: { owner: "executor", targets: createdResource("floor") },
+    method: "POST",
+    path: "/api/floors",
+    auth: cap("room:manage", operationalAuthenticated),
+    emits: ["floors_updated"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "floors.remove",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "DELETE",
+    path: "/api/floors/:id",
+    auth: cap("room:manage", operationalAuthenticated),
+    emits: ["floors_updated"],
   }),
 
   defineRoute<RoomCreateReq, { room: RoomWire }>({
@@ -3070,6 +3100,16 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
     opId: "system.readyz",
     method: "GET",
     path: "/readyz",
+    auth: pub,
+    emits: [],
+  }),
+  // The public office card (server/office-card.ts): another office reads it
+  // before it adds this one as a floor. Answered before the auth wall, with
+  // the office name only; rate-limited like /readyz.
+  defineRoute({
+    opId: "system.officeCard",
+    method: "GET",
+    path: "/.well-known/isomux-office",
     auth: pub,
     emits: [],
   }),

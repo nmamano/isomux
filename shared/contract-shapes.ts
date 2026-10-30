@@ -36,6 +36,7 @@ import type {
   AskMemberWire,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
+import type { Floor } from "./floors.ts";
 
 // UserPublicWire's canonical home is shared/types.ts (next to UserRecord +
 // ServerMessage, which references it). Re-exported here so the route-table /
@@ -1427,6 +1428,19 @@ export interface MembersChatPageRes {
   hasMore: boolean;
   readPointer: string | null;
   unread: number;
+}
+
+// Floors: other offices the lobby elevator links to (shared/floors.ts). The
+// server probes the office card and takes the name from it, never from the
+// body.
+export interface FloorsListRes {
+  floors: Floor[];
+}
+export interface FloorAddReq {
+  url: string;
+}
+export interface FloorAddRes {
+  floor: Floor;
 }
 
 export interface MembersChatPostReq {

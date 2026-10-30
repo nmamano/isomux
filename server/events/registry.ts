@@ -26,6 +26,7 @@
 // The emit helper delegates to the projection logic so the live wire stays
 // byte-identical.
 
+import type { Floor } from "../../shared/floors.ts";
 import type { RoomPet } from "../../shared/pets.ts";
 import type { RoomSkin } from "../../shared/room-skins.ts";
 import type { RoomDecor } from "../../shared/room-decor.ts";
@@ -250,6 +251,8 @@ export interface EventPayloads {
     name: string | null;
     prompt: string | null;
   };
+  // The lobby elevator's floors after an add or a remove.
+  floors_updated: { floors: Floor[] };
   update_status: UpdateStatusWire;
 
   session_revoked: { sessionPrefix: string };
@@ -506,6 +509,7 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   office_settings_updated: { audience: "all", projectionKey: { kind: "all" } },
+  floors_updated: { audience: "all", projectionKey: { kind: "all" } },
   update_status: { audience: "all", projectionKey: { kind: "all" } },
 
   session_revoked: { audience: "owners", projectionKey: { kind: "owners" } },

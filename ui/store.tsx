@@ -31,6 +31,7 @@ import {
 } from "./office/room-list.tsx";
 import { selfTuckedRooms } from "./office/room-cycle.ts";
 import { KILLED_AGENT_CHIP_CAP, ordinaryRooms } from "../shared/types.ts";
+import type { Floor } from "../shared/floors.ts";
 import {
   ATTENTION_STATES,
   endsTurn,
@@ -196,6 +197,9 @@ export interface AppState {
   // from full_state or a page, bumped locally for a new message from someone
   // else until the next markRead answer.
   membersChat: MembersChatState;
+  // The lobby elevator's floors (shared/floors.ts), from full_state and
+  // floors_updated, in the order they were added.
+  floors: Floor[];
   // The Lobby tab is CLIENT state: no room, never in officeState or in any
   // access list. Open when the viewer clicked it, or landed on it because they
   // have no visible room. Selecting a room closes it.
@@ -373,8 +377,10 @@ type Action =
       unavailableEngines?: UnavailableEngines;
       unavailableFeatures?: UnavailableFeatures;
       membersChat?: MembersChatSummary;
+      floors?: Floor[];
       uiBuild?: string;
     }
+  | { type: "floors_updated"; floors: Floor[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -825,6 +831,8 @@ export function reducer(state: AppState, action: Action): AppState {
           }),
           loaded: false,
         },
+        // An older server sends none: no floors, not the list from before.
+        floors: action.floors ?? [],
         needsAttention: new Set(),
         slashCommands: new Map(),
         stateChangedAt: new Map(
@@ -1207,6 +1215,8 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case "set_mobile":
       return { ...state, isMobile: action.isMobile };
+    case "floors_updated":
+      return { ...state, floors: action.floors };
     case "office_settings_updated":
       // envFile is owner-only and no longer rides this all-audience event
       // (3b.5). PRESERVE the existing office.envFile (an owner's loaded value)
@@ -1876,6 +1886,7 @@ export const initialState: AppState = {
     readPointer: null,
     unread: 0,
   },
+  floors: [],
   lobbyOpen: false,
   membersChatShown: false,
   apps: [],

@@ -97,6 +97,9 @@ export interface LobbySceneProps {
   // The record player plays music on a click. Only the live office lobby sets
   // it, not the editor or the preview.
   jukebox?: boolean;
+  // The elevator opens the floors dialog on a click. Only the live office
+  // lobby sets it, not the editor or the preview.
+  onOpenElevator?: () => void;
 }
 
 // One shared empty list: a fresh `[]` default per render reads as a presence
@@ -122,6 +125,7 @@ export function LobbyScene({
   onOpenApps,
   onOpenCronjobs,
   jukebox = false,
+  onOpenElevator,
 }: LobbySceneProps) {
   const { t } = useI18n();
   const c = lobbyColors(mode);
@@ -172,6 +176,7 @@ export function LobbyScene({
           mode={mode}
           star={star}
           jukebox={jukebox}
+          onOpenElevator={onOpenElevator}
           receptionist={
             receptionist
               ? { ...spec.receptionist, node: receptionist.node }
@@ -184,6 +189,7 @@ export function LobbyScene({
           placements={shownPlacements}
           variants={variants}
           jukebox={jukebox}
+          onOpenElevator={onOpenElevator}
           receptionist={
             receptionist?.button
               ? { ...spec.receptionist, ...receptionist.button }
@@ -216,11 +222,13 @@ function LobbyControls({
   placements,
   variants,
   jukebox,
+  onOpenElevator,
   receptionist,
 }: {
   placements: Placement[];
   variants?: Record<string, string>;
   jukebox: boolean;
+  onOpenElevator?: () => void;
   receptionist?: { a: number; b: number; name: string; onOpen: () => void };
 }) {
   const { t } = useI18n();
@@ -240,7 +248,13 @@ function LobbyControls({
         ];
       })
     : [];
-  if (!receptionist && players.length === 0) return null;
+  const elevators = onOpenElevator
+    ? resolvePlacements(placements, variants).walls.flatMap(({ p, v }) =>
+        v.elevatorAt ? [wallBox(p, v.elevatorAt)] : [],
+      )
+    : [];
+  if (!receptionist && players.length === 0 && elevators.length === 0)
+    return null;
   const at = receptionist && floorXY(receptionist.b, receptionist.a);
   return (
     <svg
@@ -266,6 +280,16 @@ function LobbyControls({
       {players.map((box, i) => (
         <JukeboxButton key={i} box={box} />
       ))}
+      {onOpenElevator &&
+        elevators.map((box, i) => (
+          <SceneButton
+            key={`e${i}`}
+            kind="elevator"
+            label={t("lobby.elevator.open")}
+            onPress={onOpenElevator}
+            box={box}
+          />
+        ))}
     </svg>
   );
 }
@@ -290,6 +314,26 @@ interface SceneBox {
   height: number;
 }
 
+// The scene box around a wall prop's local box (in its wall's plane), placed
+// the way LobbyProps draws wall pieces: the wall skew, then the scale.
+function wallBox(p: Placement, box: SceneBox): SceneBox {
+  const wall = p.wall ?? "left";
+  const { x, y } = wall === "left" ? floorXY(p.b, 0) : floorXY(0, p.a);
+  const s = PROP_SCALE * (p.scale ?? 1);
+  const slope = wall === "left" ? -0.5 : 0.5;
+  const ys = [box.x, box.x + box.width].flatMap((lx) => [
+    box.y + slope * lx,
+    box.y + box.height + slope * lx,
+  ]);
+  const top = Math.min(...ys);
+  return {
+    x: x + s * box.x,
+    y: y - (p.h ?? 60) + s * top,
+    width: s * box.width,
+    height: s * (Math.max(...ys) - top),
+  };
+}
+
 // A keyboard button over a prop, like the theme window: Enter or Space
 // presses it. The layer takes no pointer events, so the mouse never reaches it.
 function SceneButton({
@@ -298,7 +342,7 @@ function SceneButton({
   onPress,
   box,
 }: {
-  kind: "receptionist" | "jukebox";
+  kind: "receptionist" | "jukebox" | "elevator";
   label: string;
   onPress: () => void;
   box: SceneBox;
@@ -821,6 +865,7 @@ export function LobbyProps({
   mode,
   star,
   jukebox = false,
+  onOpenElevator,
   receptionist,
 }: {
   placements: Placement[];
@@ -830,6 +875,7 @@ export function LobbyProps({
   mode: ThemeMode;
   star: PropStar | null;
   jukebox?: boolean;
+  onOpenElevator?: () => void;
   receptionist?: { a: number; b: number; node: ReactNode };
 }) {
   const { walls, rugs, floor } = resolvePlacements(placements, variants);
@@ -872,6 +918,7 @@ export function LobbyProps({
               star={star}
               back="far"
               jukebox={jukebox}
+              onOpenElevator={onOpenElevator}
             />
           </g>
         );

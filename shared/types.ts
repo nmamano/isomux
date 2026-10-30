@@ -8,6 +8,7 @@ import type { RoomDecor } from "./room-decor.ts";
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
+import type { Floor } from "./floors.ts";
 import { keyFrom } from "./i18n/translate.ts";
 import type { MessageKey, Translator } from "./i18n/translate.ts";
 import type { LogMessage, LogPart } from "./i18n/log-message.ts";
@@ -2503,6 +2504,9 @@ export type ServerMessage =
       unavailableFeatures?: UnavailableFeatures;
       // Absent on older servers.
       membersChat?: MembersChatSummary;
+      // The lobby elevator's floors, in the order they were added. Absent on
+      // older servers.
+      floors?: Floor[];
       // The UI build the server serves now (server/ui-build.ts). Absent when
       // unknown and on older servers.
       uiBuild?: string;
@@ -2603,6 +2607,8 @@ export type ServerMessage =
       updateOnly?: boolean;
     }
   | { type: "members_chat_deleted"; id: string }
+  // The lobby elevator's floors after an add or a remove.
+  | { type: "floors_updated"; floors: Floor[] }
   // The recipient's own read pointer moved (from any of their devices).
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
   | { type: "tasks"; tasks: TaskItem[] }

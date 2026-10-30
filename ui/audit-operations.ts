@@ -73,6 +73,8 @@ export const AUDIT_OPERATIONS = [
   // Old opId, gone in task 744fa64a: old audit rows.
   "cron.setPrompt",
   "cron.update",
+  "floors.add",
+  "floors.remove",
   "githubSync.delete",
   "githubSync.import",
   "githubSync.set",

@@ -35,6 +35,7 @@ import {
 import { useInboxNavAction, type InboxTab } from "../inbox.ts";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
+import { ElevatorDialog } from "../components/ElevatorDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
 import { useRoomSkinVars } from "./skins/index.tsx";
 import { GroundShadows } from "./GroundShadows.tsx";
@@ -277,6 +278,8 @@ export function OfficeView({
   const inboxAction = useInboxNavAction(onOpenInbox);
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
+  const [elevatorOpen, setElevatorOpen] = useState(false);
+  const closeElevator = useCallback(() => setElevatorOpen(false), []);
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   // The doors, their drop zones and the ghosts walk the room tabs, the tab
   // bar's own list (task 8070f62b); lookups by id use the full list.
@@ -584,6 +587,7 @@ export function OfficeView({
       }}
     >
       {newRoomOpen && <NewRoomDialog onClose={closeNewRoom} />}
+      {elevatorOpen && <ElevatorDialog onClose={closeElevator} />}
       {/* Top HUD bar */}
       {embed ? null : isMobile ? (
         <MobileHeader
@@ -866,6 +870,9 @@ export function OfficeView({
                     onToggleTheme={cycleTheme}
                     onOpenApps={embed ? undefined : onOpenApps}
                     onOpenCronjobs={onOpenCronjobs}
+                    onOpenElevator={
+                      embed ? undefined : () => setElevatorOpen(true)
+                    }
                   />
                 ) : (
                   <>

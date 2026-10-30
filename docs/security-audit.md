@@ -5,7 +5,7 @@ navTitle: Security audit
 
 # Isomux security audit
 
-**Date:** 2026-10-03, last updated 2026-10-25. This audit replaces the audit of 2026-05-17.
+**Date:** 2026-10-03, last updated 2026-10-30. This audit replaces the audit of 2026-05-17.
 
 **Method:** Static review of the Isomux source. No live attack tests were done.
 
@@ -118,6 +118,7 @@ The limit: a same-host proxy that sends no forwarding header (for example `socat
 Rate limits use the client address: the rightmost `X-Forwarded-For` entry from the declared proxy, or else the peer address:
 
 - `/readyz`: 30 requests per minute for each client. On-box requests have no limit.
+- The office card (`/.well-known/isomux-office`): the same limit as `/readyz`, with its own count, so card requests do not use the `/readyz` budget.
 - App sign-in: a limit for each app and client.
 - The container setup form: a limit for each client.
 - Webhook deliveries (`POST /hooks/:id`, which needs only a valid signature): for each hook, 300 requests per minute with a burst of 60, before the body read and the signature check. An unknown hook id gets 404 before this limit. A delivery rejected before the signature check only raises a counter; it writes no log row. Signed deliveries start at most 10 dispatches per minute and 500 accepted dispatches per day for each hook.
@@ -354,6 +355,14 @@ The office setting **Record terminals** is off by default. When an owner turns i
 - **Limits.** A recording stops at 100 MB. Recordings stay until an owner prunes them in the storage panel. Backups include them.
 - **Replay.** The replay terminal takes no input, ignores clipboard writes and opens no links. The route serves the file as a download.
 
+### 8.11 Lobby floors
+
+The lobby elevator links to other Isomux offices. Each office answers a public card at `/.well-known/isomux-office` with its name only, which its sign-in page title already shows. To add a floor, a member, a privileged agent or an API token gives an address, and the server reads the card there.
+
+- **Outbound requests.** One `GET` of that fixed path, with no cookie or credential. Isomux does not follow redirects, stops after 8 seconds, and reads at most 4 KB. Only the name comes back; every failure gets the same answer.
+- **Reach.** The request goes out from the server process, so it reaches addresses on the office's own network. The caller learns one bit about one fixed path at that address.
+- **What is stored.** The address (its origin only) and the name, in `floors.json`. No token or secret goes to the other office.
+
 ---
 
 ## 9. Findings
@@ -455,7 +464,7 @@ A same-host reverse proxy or tunnel configured **before** an owner claims forwar
 - Other: `server/preview-capture.ts`, `server/browser-extension-service.ts`, `server/office-usage.ts`
 - Hosting: `deploy/install.sh`, `deploy/container/`, `deploy/kubernetes/`
 
-## Appendix: sources for the webhook, pager and connection test statements
+## Appendix: sources for the webhook, pager, connection test and floor statements
 
 Paths are under `server/`, except those that start with `shared/`.
 
@@ -484,3 +493,4 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 8.7, the flow and its checks: `discover`, `send`, `startSignIn` and `finishSignIn` in `mcp-oauth.ts`; the `mcpServers.signIn`, `officeMcpServers.signIn` and `mcpOAuth.callback` routes in `routes/table.ts`.
 - Section 8.7, where the tokens are: `writeOwnedSecret` in `mcp-oauth.ts`; `mcp-oauth-tokens.ts`; `mcpServerSecret` in `mcp-servers.ts`.
 - Section 8.8, what an agent reads: the `agentConnections.list` route in `routes/table.ts`; `buildAgentConnections` in `agent-connections.ts`; `server/agent-reference/connections.md`.
+- Section 8.11, and the office card in section 4.5: `allowOfficeCardRequest` in `ready-limiter.ts`; `officeCardResponse`, `probeOffice` and `OFFICE_CARD_MAX_BYTES` in `office-card.ts`; `floorsHandlers` in `routes/handlers/floors.ts`; `createFloorsStore` in `floors-store.ts`; the `floors.*` routes in `routes/table.ts`.

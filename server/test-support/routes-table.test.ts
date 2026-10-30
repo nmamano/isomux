@@ -1312,6 +1312,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "membersChat.upload": { caps: ["chat:members"], emits: [] },
   "membersChat.getFile": { caps: ["chat:members"], emits: [] },
+  // Floors: the lobby elevator's links to other offices
+  "floors.list": { caps: ["office:read"], emits: [] },
+  "floors.add": { caps: ["room:manage"], emits: ["floors_updated"] },
+  "floors.remove": { caps: ["room:manage"], emits: ["floors_updated"] },
   // Rooms
   "rooms.create": { caps: ["room:manage"], emits: ["room_created"] },
   "rooms.close": {
@@ -2312,6 +2316,9 @@ const API_REACHABLE_OPIDS = [
   "membersChat.markRead",
   "membersChat.upload",
   "membersChat.getFile",
+  "floors.list",
+  "floors.add",
+  "floors.remove",
   "rooms.create",
   "rooms.close",
   "rooms.rename",

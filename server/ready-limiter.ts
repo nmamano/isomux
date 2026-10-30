@@ -1,8 +1,8 @@
-// Fixed-window per-client rate limit for the unauthenticated /readyz probe
-// (internal-docs/release-design.md).
+// Fixed-window per-client rate limits for the unauthenticated /readyz probe
+// and the public office card (internal-docs/release-design.md).
 //
-// /readyz is the one endpoint that answers off-box callers with no identity
-// at all, so it gets an anti-abuse limit. On-box callers are exempt AT THE
+// Both answer off-box callers with no identity at all, so each gets an
+// anti-abuse limit. On-box callers are exempt AT THE
 // CALL SITE (the updater's post-restart poll must never be able to
 // manufacture a rollback by tripping its own limit); this module only ever
 // sees off-box clients. The key is the client address from
@@ -24,24 +24,36 @@ interface Window {
   count: number;
 }
 
-const windows = new Map<string, Window>();
-
-export function allowReadyRequest(ip: string, now: number): boolean {
-  const w = windows.get(ip);
-  if (w && now - w.start < WINDOW_MS) {
-    w.count++;
-    return w.count <= MAX_PER_WINDOW;
-  }
-  if (!w && windows.size >= MAX_TRACKED_IPS) {
-    for (const [key, win] of windows) {
-      if (now - win.start >= WINDOW_MS) windows.delete(key);
+// One budget per caller of the limiter: the public office card
+// (server/office-card.ts) has the same posture as /readyz but its own windows,
+// so card probes never use up the updater's /readyz budget.
+function createLimiter() {
+  const windows = new Map<string, Window>();
+  const allow = (ip: string, now: number): boolean => {
+    const w = windows.get(ip);
+    if (w && now - w.start < WINDOW_MS) {
+      w.count++;
+      return w.count <= MAX_PER_WINDOW;
     }
-    if (windows.size >= MAX_TRACKED_IPS) return true; // fail open, untracked
-  }
-  windows.set(ip, { start: now, count: 1 });
-  return true;
+    if (!w && windows.size >= MAX_TRACKED_IPS) {
+      for (const [key, win] of windows) {
+        if (now - win.start >= WINDOW_MS) windows.delete(key);
+      }
+      if (windows.size >= MAX_TRACKED_IPS) return true; // fail open, untracked
+    }
+    windows.set(ip, { start: now, count: 1 });
+    return true;
+  };
+  return { allow, reset: () => windows.clear() };
 }
 
+const ready = createLimiter();
+const officeCard = createLimiter();
+
+export const allowReadyRequest = ready.allow;
+export const allowOfficeCardRequest = officeCard.allow;
+
 export function _resetReadyLimiterForTests(): void {
-  windows.clear();
+  ready.reset();
+  officeCard.reset();
 }

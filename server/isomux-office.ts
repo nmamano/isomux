@@ -174,7 +174,7 @@ import {
   type BackupStatus,
 } from "./backup.ts";
 import { getVersionInfo } from "./version.ts";
-import { allowReadyRequest } from "./ready-limiter.ts";
+import { allowOfficeCardRequest, allowReadyRequest } from "./ready-limiter.ts";
 import {
   classifyRequest,
   setTrustedProxy,
@@ -435,6 +435,14 @@ import {
   createMembersChatStore,
   type MembersChatStore,
 } from "./members-chat.ts";
+import { floorsHandlers } from "./routes/handlers/floors.ts";
+import { createFloorsStore, type FloorsStore } from "./floors-store.ts";
+import {
+  officeCardResponse,
+  probeOffice,
+  type OfficeProbeOptions,
+} from "./office-card.ts";
+import { OFFICE_CARD_PATH } from "../shared/floors.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
@@ -811,6 +819,8 @@ function stepsChanged(): void {
 // Members chat: the humans-only stream on the Lobby tab. The store is
 // month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts).
 let membersChat: MembersChatStore;
+// The lobby elevator's floors: <STATE_ROOT>/floors.json (server/floors-store.ts).
+let floors: FloorsStore;
 // Who sees and answers an ask (askVisibleTo), read live: GET /api/asks,
 // pushAskChange, the member answer routes and the secret request routes.
 const askAudience: AskAudienceDeps = {
@@ -1039,6 +1049,7 @@ function createManagers(startOpts: StartServerOpts): void {
   // agents), and delivery. The store and delivery call each other through
   // these closures.
   membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
+  floors = createFloorsStore();
   askStore = createAskStore({
     persistence: createAskFilePersistence(join(STATE_ROOT, "asks.json")),
     onChange: (change) => pushAskChange(change),
@@ -3826,6 +3837,7 @@ function buildExecutorDeps(
   backupStatus: () => BackupStatus = getBackupStatus,
   installKind: InstallKind = INSTALL_KIND,
   connectionTestFetch: ConnectionTestFetch = (url, init) => fetch(url, init),
+  officeProbe: OfficeProbeOptions = {},
 ): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
   const preconditions = new Map<RoutePrecondition, PreconditionFn>();
@@ -4677,6 +4689,16 @@ function buildExecutorDeps(
       emitDeleted: (id) => liveEmit("members_chat_deleted", { id }),
       emitRead: (userId, readPointer, unread) =>
         liveEmit("members_chat_read", { readPointer, unread }, { userId }),
+    }),
+  );
+
+  register(
+    floorsHandlers({
+      list: () => floors.list(),
+      add: (url, name) => floors.add(url, name),
+      remove: (id) => floors.remove(id),
+      probe: (origin) => probeOffice(origin, officeProbe),
+      emitFloors: (list) => liveEmit("floors_updated", { floors: list }),
     }),
   );
 
@@ -7218,6 +7240,7 @@ function sendProjectedFullState(
         appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
       // Every office session is a person, who holds chat:members.
       membersChat: membersChat.summary(session.userId),
+      floors: floors.list(),
       uiBuild: uiBuildTracker?.current() ?? undefined,
     } satisfies ServerMessage),
   );
@@ -8765,6 +8788,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
 
+        // GET /.well-known/isomux-office - the public office card another
+        // office reads before it adds this one as a floor (server/office-card.ts;
+        // PUBLIC_ROUTES carries system.officeCard). Rate-limited like /readyz,
+        // on a budget of its own, with the same on-box exemption.
+        if (url.pathname === OFFICE_CARD_PATH && req.method === "GET") {
+          const { onBox, client } = source();
+          if (!onBox && !allowOfficeCardRequest(client, Date.now())) {
+            return new Response("rate limited\n", { status: 429 });
+          }
+          return officeCardResponse(agentManager.getOfficeSettings().name);
+        }
+
         // POST /hooks/:id - the public webhook delivery route
         // (internal-docs/webhooks-design.md section 1; PUBLIC_ROUTES carries
         // hooks.deliver). Before the auth wall: the signature is the only
@@ -9630,6 +9665,9 @@ export interface StartServerOpts {
   webPushFetch?: (url: string, init: RequestInit) => Promise<Response>;
   // Inject the Test button's HTTP calls (integrations A3). Tests pass a stub.
   connectionTestFetch?: ConnectionTestFetch;
+  // The floors.add probe's fetch and timeout (server/office-card.ts). Tests
+  // shorten the timeout; production uses the real fetch and the default.
+  officeProbe?: OfficeProbeOptions;
   // Background-job skips. Tests set these so `bun test` does no timers, no
   // network (update checker), no daily backup, and no admin socket.
   skipSchedulers?: boolean;
@@ -9806,6 +9844,7 @@ export async function startServer(
     opts.getBackupStatus,
     opts.installKind,
     opts.connectionTestFetch,
+    opts.officeProbe,
   );
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The

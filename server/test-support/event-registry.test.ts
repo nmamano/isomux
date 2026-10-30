@@ -99,6 +99,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   cronjob_run_updated: "recipient-scoped",
   cron_run_log_entry: "recipient-scoped",
   office_settings_updated: "all",
+  floors_updated: "all",
   update_status: "all",
   // Auth-sensitive
   session_revoked: "owners",

@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import type { AgentOutfit } from "../../../shared/types.ts";
 import { EmployeePlaque } from "./props-plaque.tsx";
+import { Elevator, ELEVATOR_BOX } from "./props-elevator.tsx";
 import {
   SofaBoxy,
   SofaLoveseat,
@@ -58,6 +59,8 @@ export interface PropContext {
   back: "far" | "near";
   // The live lobby: the record player plays music on a click.
   jukebox?: boolean;
+  // The live lobby: the elevator opens the floors dialog on a click.
+  onOpenElevator?: () => void;
 }
 
 export interface PropVariant {
@@ -79,6 +82,9 @@ export interface PropVariant {
   // The box of the piece's record player (local, before the placement's
   // scale), so the lobby can put the player's keyboard button over it.
   recordPlayerAt?: { x: number; y: number; width: number; height: number };
+  // The same for the elevator, in its wall's own plane (before the wall skew),
+  // so the lobby can put the elevator's keyboard button over it.
+  elevatorAt?: { x: number; y: number; width: number; height: number };
 }
 
 export interface PropFamily {
@@ -359,6 +365,23 @@ export const LOBBY_PROPS: PropFamily[] = [
         shadow: { rx: 20, ry: 9 },
         noFlip: true,
         height: 56,
+      },
+    ],
+  },
+  {
+    id: "elevator",
+    label: "Elevator",
+    variants: [
+      {
+        id: "doors",
+        label: "Steel doors",
+        Component: ({ wall, onOpenElevator }) => (
+          <Elevator wall={wall} onOpen={onOpenElevator} />
+        ),
+        wall: true,
+        noFlip: true,
+        height: 95,
+        elevatorAt: ELEVATOR_BOX,
       },
     ],
   },
