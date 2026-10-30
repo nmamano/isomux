@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { useI18n } from "../i18n.tsx";
 import { Portal } from "../components/Portal.tsx";
 
@@ -73,6 +73,46 @@ export function DownloadButton({
         <path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11" />
       </svg>
     </a>
+  );
+}
+
+// An image in the chat, with its download button in the corner. A click on
+// the image opens it full size. The button waits for the image, so a chat of
+// loading images does not show buttons with no image under them. It also comes
+// when the browser cannot draw the file, as the only way to get it.
+export function ImageCard({
+  src,
+  name,
+  isMobile,
+  onOpen,
+}: {
+  src: string;
+  name: string;
+  isMobile?: boolean;
+  onOpen: () => void;
+}) {
+  const [settled, setSettled] = useState(false);
+  return (
+    <div style={{ position: "relative", maxWidth: "100%" }}>
+      <img
+        src={src}
+        alt={name}
+        onClick={onOpen}
+        onLoad={() => setSettled(true)}
+        onError={() => setSettled(true)}
+        style={{
+          display: "block",
+          maxWidth: isMobile ? "100%" : 300,
+          maxHeight: 200,
+          borderRadius: 4,
+          cursor: "pointer",
+          border: "1px solid var(--green-border)",
+        }}
+      />
+      {settled && (
+        <DownloadButton src={src} name={name} isMobile={isMobile} overlay />
+      )}
+    </div>
   );
 }
 

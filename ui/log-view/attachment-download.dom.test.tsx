@@ -1,7 +1,9 @@
 // The chat's download control (task 00b49489): every image card, file chip and
 // the lightbox carry a link that saves the file under its original name, on
 // both copies of the attachment UI (FileViewCard, and AttachmentDisplay through
-// UserMessage in the agent chat and the members chat).
+// UserMessage in the agent chat and the members chat). An image card shows its
+// link only once the image has loaded or failed (task b1252974); happy-dom
+// loads no image, so each test fires the event itself.
 
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -31,6 +33,10 @@ const stopNavigation = (e: Event) => e.preventDefault();
 
 function downloadLinks(root: ParentNode): HTMLAnchorElement[] {
   return [...root.querySelectorAll<HTMLAnchorElement>("a[download]")];
+}
+
+function loadImages(root: ParentNode) {
+  for (const img of root.querySelectorAll("img")) fireEvent.load(img);
 }
 
 // The link saves `att` from `base`: same file path, the original name in both
@@ -85,6 +91,7 @@ describe("chat attachments: download under the original name", () => {
       const view = render(onLanguage("en", c.mount()));
       const root = view.container;
       const imgCount = () => document.querySelectorAll("img").length;
+      loadImages(root);
 
       // One download link per attachment, on the card itself.
       const links = downloadLinks(root);
@@ -127,6 +134,39 @@ describe("chat attachments: download under the original name", () => {
   }
 });
 
+// Task b1252974: on a chat with many images, buttons that showed before their
+// images sat outside the layout. The image card's link comes with the image:
+// on load, and on error too, since the link is then the only way to get a
+// file the browser cannot draw.
+describe("chat attachments: the image card's download link waits for the image", () => {
+  for (const c of cases) {
+    for (const settle of ["load", "error"] as const) {
+      it(`${c.name}: no link before the image settles, the link after ${settle}`, () => {
+        const view = render(onLanguage("en", c.mount()));
+        const root = view.container;
+        const imageLink = () =>
+          downloadLinks(root).find(
+            (l) => l.getAttribute("download") === IMAGE.originalName,
+          );
+
+        // The card and the chip are there; only the image's link waits.
+        const img = root.querySelector("img");
+        expect(img).not.toBeNull();
+        expect(
+          downloadLinks(root).map((l) => l.getAttribute("download")),
+        ).toEqual([FILE.originalName]);
+
+        if (settle === "load") fireEvent.load(img!);
+        else fireEvent.error(img!);
+        expect(imageLink()).toBeDefined();
+        expectDownloadOf(imageLink()!, c.base, IMAGE);
+        expect(downloadLinks(root)).toHaveLength(2);
+        view.unmount();
+      });
+    }
+  }
+});
+
 // Task 3f5b8f33: the read-file card (and the ask card, which renders its
 // readFiles through it) plays video and audio inline, and still offers the
 // file chip and its download for each.
@@ -166,6 +206,7 @@ describe("FileViewCard: video and audio play inline", () => {
         ),
       );
       const root = view.container;
+      loadImages(root);
 
       // One player per media file, on the file route, with controls. The
       // video plays in the page on an iPhone, not only in fullscreen.

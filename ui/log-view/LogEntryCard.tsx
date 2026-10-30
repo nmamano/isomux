@@ -29,6 +29,7 @@ import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import {
   DownloadButton,
+  ImageCard,
   ImageLightbox,
   type LightboxImage,
 } from "./attachment-download.tsx";
@@ -386,30 +387,13 @@ function AttachmentDisplay({
           {images.map((att) => {
             const src = `${fileBase ?? `/api/files/${agentId}`}/${att.filename}`;
             return (
-              <div
-                key={att.filename}
-                style={{ position: "relative", maxWidth: "100%" }}
-              >
-                <img
-                  src={src}
-                  alt={att.originalName}
-                  onClick={() => setLightbox({ src, name: att.originalName })}
-                  style={{
-                    display: "block",
-                    maxWidth: isMobile ? "100%" : 300,
-                    maxHeight: 200,
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    border: "1px solid var(--green-border)",
-                  }}
-                />
-                <DownloadButton
-                  src={src}
-                  name={att.originalName}
-                  isMobile={isMobile}
-                  overlay
-                />
-              </div>
+              <ImageCard
+                key={src}
+                src={src}
+                name={att.originalName}
+                isMobile={isMobile}
+                onOpen={() => setLightbox({ src, name: att.originalName })}
+              />
             );
           })}
         </div>

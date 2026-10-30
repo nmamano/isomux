@@ -4,6 +4,7 @@ import { useI18n } from "../i18n.tsx";
 import { formatBytes } from "../../shared/i18n/number.ts";
 import {
   DownloadButton,
+  ImageCard,
   ImageLightbox,
   type LightboxImage,
 } from "./attachment-download.tsx";
@@ -41,30 +42,13 @@ export function FileViewCard({
           {images.map((att) => {
             const src = `/api/files/${agentId}/${att.filename}`;
             return (
-              <div
-                key={att.filename}
-                style={{ position: "relative", maxWidth: "100%" }}
-              >
-                <img
-                  src={src}
-                  alt={att.originalName}
-                  onClick={() => setLightbox({ src, name: att.originalName })}
-                  style={{
-                    display: "block",
-                    maxWidth: isMobile ? "100%" : 300,
-                    maxHeight: 200,
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    border: "1px solid var(--green-border)",
-                  }}
-                />
-                <DownloadButton
-                  src={src}
-                  name={att.originalName}
-                  isMobile={isMobile}
-                  overlay
-                />
-              </div>
+              <ImageCard
+                key={src}
+                src={src}
+                name={att.originalName}
+                isMobile={isMobile}
+                onOpen={() => setLightbox({ src, name: att.originalName })}
+              />
             );
           })}
         </div>
