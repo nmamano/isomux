@@ -89,7 +89,7 @@ The prompt lists these features with a topic name beside each one:
 | Shared memory | The agent fetches `GET /api/agent-reference/memory`. |
 | Inline diagrams | The agent fetches `GET /api/agent-reference/visuals`. |
 | Connections and their usage notes | The agent fetches `GET /api/agent-reference/connections`. |
-| Spawning agents and killing the ones it spawned | The agent fetches `GET /api/agent-reference/spawning`. |
+| Spawning agents and back-room workers, and killing the ones it spawned | The agent fetches `GET /api/agent-reference/spawning`. |
 | Privileged agent, room, members-chat, and member operations | A privileged agent fetches `agent-management`, `rooms`, `members-chat`, or `members`, one page per situation. |
 | Session closeout | The agent invokes the built-in `/wrap-session` skill when the session goal is complete. |
 

@@ -19,7 +19,7 @@ export const AGENT_REFERENCE_TOPICS = {
   cronjobs: "Schedule inspection",
   memory: "Shared memory",
   visuals: "Inline diagrams",
-  spawning: "Spawn agents and kill the ones you spawned",
+  spawning: "Spawn agents and back-room workers, and kill the ones you spawned",
   "agent-management": "Privileged agent setup and conversation driving",
   rooms: "Privileged room management",
   "cronjob-management": "Schedule management",

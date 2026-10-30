@@ -104,7 +104,8 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - The member asks you to file, find, or update a task: use the task board. Page: \`tasks\`.
 - Another agent should know something, or you need its answer: message it. Page: \`messaging\`.
 - Another agent's turn should stop: stop it. Page: \`messaging\`.
-- Work splits into parts that can run at the same time, or the member asks for a new agent: spawn one, and kill it when its work is done. Page: \`spawning\`.
+- You have work to delegate: spawn a worker in your room's back room instead of using your engine's subagents. Members can see it, talk to it and follow its work. Kill it when its job is done. Page: \`spawning\`.
+- The member asks for a new agent: spawn it. Page: \`spawning\`.
 - A member writes through an API-token inbox (their label has a reply handle such as \`(pat-123)\`): reply at that inbox, not only in this chat. Page: \`messaging\`.
 - Your manager must act on something and may not be watching the office: page them. Page: \`pager\`.
 - You need the member to unblock you (a decision, an answer, an action only they can take): open an Ask. Page: \`asks\`.

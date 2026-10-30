@@ -286,6 +286,82 @@ describe("system prompt schedule line", () => {
   });
 });
 
+// Task 018a9def (Nil, 2026-10-30): an agent with work to delegate spawns a
+// worker in its room's back room, which members can see, talk to and follow,
+// instead of using its engine's subagents, and kills it when the job is done.
+// A member's request for a new agent is not delegation: that agent is not sent
+// to the back room. The page seats the worker with no `desk`, which every room
+// gives a back room seat (task e2fb9fa0).
+describe("spawning steer", () => {
+  const sentences = (text: string) => text.split(/(?<=\.)\s+/);
+
+  it("steers delegated work to a back-room worker on every engine, and not the member's new agent", () => {
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      for (const privileged of [false, true]) {
+        const spawning = build(engine, privileged)
+          .split("\n")
+          .filter((l) => l.includes("Page: `spawning`"));
+        const said = spawning.flatMap(sentences);
+        const delegate = said.filter((s) => /back room/.test(s));
+        expect({ engine, privileged, delegate: delegate.length }).toEqual({
+          engine,
+          privileged,
+          delegate: 1,
+        });
+        // The back room replaces the engine's subagents, in the same sentence.
+        expect(delegate[0]).toMatch(/\binstead of\b[^.]*\bsubagents\b/);
+        // The line that sends work to the back room also says to kill it.
+        const line = spawning.find((l) => l.includes(delegate[0]))!;
+        expect(sentences(line).some((s) => /\bkill\b/i.test(s))).toBe(true);
+        // The member's new agent is still offered, and not as a worker.
+        const memberAsks = said.filter((s) =>
+          /\bmember asks\b[^.]*\bnew agent\b/.test(s),
+        );
+        expect(memberAsks.length).toBeGreaterThan(0);
+        for (const s of memberAsks) expect(s).not.toMatch(/back room|worker/);
+      }
+    }
+  });
+
+  it("says how to seat a worker and when to kill it on the spawning page", () => {
+    const identity: Identity = {
+      scope: "agent",
+      agentId: "a1",
+      userId: "u1",
+      role: "member",
+      capabilities: AGENT_CAPABILITIES,
+    };
+    const page = agentReferenceContent(identity, "spawning") ?? "";
+    const paragraphs = page.split("\n\n");
+    const workers = paragraphs.filter((p) => /\bsubagents\b/.test(p));
+    expect(workers).toHaveLength(1);
+    const worker = workers[0];
+    expect(worker).toMatch(/back room/);
+    // Seat with no `desk`, which gives a back room seat.
+    expect(worker).toMatch(/\bno `desk`/);
+    // A spawner below full permissions needs a `cwd` inside its own folder.
+    expect(worker).toContain("`cwd`");
+    // The spawner ends its turn waiting on a reply, so it schedules a wake-up.
+    expect(worker).toMatch(/\bschedule\b/);
+
+    const kill = sentences(page).filter((s) =>
+      s.includes("DELETE /api/agents/:id"),
+    );
+    // When: once its result is in, unless a member still works with it.
+    expect(
+      kill.some(
+        (s) => /\bresult\b/.test(s) && /\bunless\b[^.]*\bmember\b/.test(s),
+      ),
+    ).toBe(true);
+    // Who: only a privileged agent kills agents it did not spawn.
+    expect(
+      sentences(page).some(
+        (s) => /\bprivileged agent\b/.test(s) && /\bkills\b/.test(s),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("dynamic prompt layers", () => {
   it("renders hosted identity only for hosted installs", () => {
     expect(hostedIdentityNote("self-hosted", "https://acme.isomux.app")).toBe(
