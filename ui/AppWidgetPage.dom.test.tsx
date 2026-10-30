@@ -1162,12 +1162,18 @@ it("opens the frame at the page its address names, and keeps that page through s
           tokens.includes("allow-popups-to-escape-sandbox"),
         // The frame still cannot navigate the office tab.
         topNavigation: tokens.some((t) => t.startsWith("allow-top-navigation")),
+        // A video's full-screen button works only when the frame's
+        // permissions policy delegates full screen to the app.
+        fullscreen: (frame?.getAttribute("allow") ?? "")
+          .split(/[;\s]+/)
+          .includes("fullscreen"),
       }).toEqual({
         address,
         src,
         direct: src,
         escapes: true,
         topNavigation: false,
+        fullscreen: true,
       });
       view.unmount();
     }

@@ -15,6 +15,9 @@ const APP_WIDGET_AUTH_COOLDOWN_MS = 60_000;
 // the app (task 469e8886) must not inherit the frame's sandbox.
 export const APP_WIDGET_SANDBOX =
   "allow-scripts allow-same-origin allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox allow-modals";
+// A video's full-screen button calls requestFullscreen, which the browser
+// refuses inside a frame without this policy (task b0b728ed).
+export const APP_WIDGET_ALLOW = "fullscreen";
 
 export interface AppWidgetBoot {
   name: string;

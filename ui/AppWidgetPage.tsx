@@ -46,6 +46,7 @@ import {
   APP_RELOAD_MESSAGE,
   APP_RELOAD_POLL_MS,
   APP_RELOAD_POLL_TRIES,
+  APP_WIDGET_ALLOW,
   APP_WIDGET_RECHECK_MS,
   APP_WIDGET_SANDBOX,
   beginAppHandshake,
@@ -587,6 +588,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
           title={boot.name}
           src={remountSrc ?? frameUrl}
           sandbox={APP_WIDGET_SANDBOX}
+          allow={APP_WIDGET_ALLOW}
         />
       )}
       {unavailable && (
