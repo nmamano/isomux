@@ -6,10 +6,12 @@ Use `GET /agents?killed=1` for agents the manager spawned and later killed. Thes
 
 `GET /api/agents/:id/avatar.svg` serves an agent's face, the portrait the chat shows beside a sender, as a square SVG with a transparent background. Every identity that can see the agent in `GET /agents` can read it. An app page can show it in an `<img>`: the browser sends the member's sign-in.
 
+`GET /api/agents/:id/instructions` returns an agent's instructions as `{instructions,version}`; `instructions` is null when it has none. A privileged agent changes them (see agent-management).
+
 Member profiles are in `~/.isomux/users.json`. Read a profile when another member speaks and their preferences or member prompt matter.
 
 Safe example: `GET /agents`.
 
 ## Route contract
 
-`GET /agents` returns the live array above; `GET /agents?back=1` returns it with every back room agent listed. `back` takes only `1` and never goes with `killed`. `GET /agents?killed=1` returns the killed array above. User, API-token, agent, and cron-run identities are accepted, and an app identity while its owner agent is live; cron-run gets 403 on `?killed=1`. A caller without identity gets 401, a cross-origin browser request gets 403, and an unsupported `killed` or `back` value or a bad `limit` or `before` gets 400. `GET /api/agents/:id/avatar.svg` returns `image/svg+xml`, or 304 when `If-None-Match` matches. It gives 403 for an agent the caller cannot see, and for a killed or unknown id.
+`GET /agents` returns the live array above; `GET /agents?back=1` returns it with every back room agent listed. `back` takes only `1` and never goes with `killed`. `GET /agents?killed=1` returns the killed array above. User, API-token, agent, and cron-run identities are accepted, and an app identity while its owner agent is live; cron-run gets 403 on `?killed=1`. A caller without identity gets 401, a cross-origin browser request gets 403, and an unsupported `killed` or `back` value or a bad `limit` or `before` gets 400. `GET /api/agents/:id/avatar.svg` returns `image/svg+xml`, or 304 when `If-None-Match` matches. It gives 403 for an agent the caller cannot see, and for a killed or unknown id. `GET /api/agents/:id/instructions` gives the same 403s.

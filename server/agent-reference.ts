@@ -59,7 +59,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.revive": "agent-management",
   "agents.abort": "messaging",
   "agents.update": "agent-management",
-  "agents.readInstructions": "agent-management",
+  "agents.readInstructions": "discovery",
   "agents.setInstructions": "agent-management",
   "agents.move": "agent-management",
   "agents.setManager": "agent-management",

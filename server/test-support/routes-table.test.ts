@@ -1050,23 +1050,44 @@ describe("route table: agent reference coverage", () => {
     }
   });
 
-  // Task eb98cff1: an ordinary agent spawns and kills its own children, so the
-  // page that holds those routes is one it can read.
-  it("puts spawn and kill on a page an ordinary agent reaches and reads", () => {
-    const ordinary = identities[0];
+  // Tasks eb98cff1 and 841fee18: every route an ordinary agent may call is on
+  // a reference page it can read, so it never reaches a route with no contract.
+  it("puts every route an ordinary agent reaches on a page it reads", () => {
+    const ordinaries: Identity[] = (["member", "owner"] as const).map(
+      (role) => ({ ...identities[0], role }),
+    );
+    // The agent spawned the target, so the spawner-only kill counts.
     const ownChild: GuardDeps = { ...deps, agentSpawnerAgentId: () => "a1" };
-    for (const opId of ["agents.spawn", "agents.kill"] as const) {
-      const route = API_ROUTES.find((r) => r.opId === opId)!;
-      const topic = AGENT_ROUTE_REFERENCE_TOPICS[opId];
-      const page = agentReferenceContent(ordinary, topic);
-      expect({
-        opId,
-        reaches: runAuthorize(route.auth, ordinary, params, body, ownChild).ok,
-        pins:
-          typeof page === "string" &&
-          page.includes(`\`${route.method} ${route.path}\``),
-      }).toEqual({ opId, reaches: true, pins: true });
+    const reached = new Set<string>();
+    const unreadable: string[] = [];
+    for (const ordinary of ordinaries) {
+      for (const route of API_ROUTES) {
+        if (!runAuthorize(route.auth, ordinary, params, body, ownChild).ok) {
+          continue;
+        }
+        reached.add(route.opId);
+        if (route.opId in AGENT_ROUTE_REFERENCE_EXEMPTIONS) continue;
+        const topic = (AGENT_ROUTE_REFERENCE_TOPICS as Record<string, string>)[
+          route.opId
+        ];
+        const page = topic ? agentReferenceContent(ordinary, topic) : null;
+        if (
+          typeof page !== "string" ||
+          !page.includes(`\`${route.method} ${route.path}\``)
+        ) {
+          unreadable.push(`${ordinary.role} ${route.opId} -> ${topic}`);
+        }
+      }
     }
+    // The permissive deps reach the routes this guards.
+    for (const opId of [
+      "agents.spawn",
+      "agents.kill",
+      "agents.readInstructions",
+    ]) {
+      expect(reached.has(opId), `${opId} not reached`).toBe(true);
+    }
+    expect(unreadable).toEqual([]);
   });
 
   it("pins each mapped route's exact method and path in its topic", () => {
