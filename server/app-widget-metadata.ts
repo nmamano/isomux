@@ -90,6 +90,7 @@ export async function readWidgetMetadata(
     let title = "";
     let titleSeen = false;
     let inTitle = false;
+    let foreignTitle = false;
     let baseHref: string | null = null;
     const links: {
       href: string;
@@ -97,9 +98,21 @@ export async function readWidgetMetadata(
       sizes?: string;
       media?: string;
     }[] = [];
+    // The page title is document.title: the first <title> outside SVG,
+    // MathML and <template>. SVG tooltips are <title> elements too, and a
+    // streamed page (Next.js dev) puts its own title after them in the body.
+    // Handlers on one element run in registration order.
     await new HTMLRewriter()
+      .on("svg title, math title, template title", {
+        element() {
+          foreignTitle = true;
+        },
+      })
       .on("title", {
         element(el) {
+          const foreign = foreignTitle;
+          foreignTitle = false;
+          if (foreign) return;
           inTitle = !titleSeen;
           titleSeen = true;
           el.onEndTag(() => {
@@ -247,7 +260,7 @@ export async function applyWidgetMetadata(
     )
     .join("");
   return new HTMLRewriter()
-    .on("title", {
+    .on("head > title", {
       element(el) {
         el.setInnerContent(metadata.title);
       },

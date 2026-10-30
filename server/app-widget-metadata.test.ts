@@ -112,6 +112,42 @@ it("escapes hostile title and icon attributes and removes office identity", asyn
   expect(result.includes("apple-touch-icon")).toBe(false);
 });
 
+// The page title is the browser's document.title: the first <title> that is
+// not SVG or MathML content (an image tooltip) and not template content. A
+// Next.js dev server streams the real title into the body after the SVGs.
+for (const [label, page, title] of [
+  [
+    "SVG",
+    '<!doctype html><html><head><meta charset="utf-8"></head><body><svg><title>Tooltip</title></svg><svg/><title>Page</title></body></html>',
+    "Page",
+  ],
+  ["MathML", "<math><title>Formula</title></math><title>Page</title>", "Page"],
+  [
+    "template",
+    "<template><title>Template</title></template><title>Page</title>",
+    "Page",
+  ],
+  [
+    "SVG, MathML and template",
+    "<svg><title>Tooltip</title></svg><math><title>Formula</title></math><template><title>Template</title></template>",
+    "sample",
+  ],
+] as const) {
+  it(`skips ${label} titles when it reads the page title`, async () => {
+    const ctx = context(() => html(page));
+    expect((await readWidgetMetadata(ctx)).title).toBe(title);
+  });
+}
+
+it("sets only the head title of the office shell", async () => {
+  const result = await applyWidgetMetadata(
+    "<html><head><title>office</title></head><body><svg><title>Tooltip</title></svg></body></html>",
+    { title: "App", icons: [] },
+  );
+  expect(result).toContain("<head><title>App</title>");
+  expect(result).toContain("<svg><title>Tooltip</title></svg>");
+});
+
 // The icon must be the bytes the app host serves at /favicon.ico.
 async function hostIconBody(icons: { href: string; type?: string }[]) {
   expect(icons).toHaveLength(1);
