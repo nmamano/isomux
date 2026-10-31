@@ -283,8 +283,16 @@ export function AsksView({
           borderBottom: "1px solid var(--border-subtle)",
         }}
       >
+        {/* On a phone the sort takes its own line: a third of the row clips
+            its label. */}
         <div
-          style={{ display: "flex", gap: 8, maxWidth: 760, margin: "0 auto" }}
+          style={{
+            display: "flex",
+            flexWrap: isMobile ? "wrap" : undefined,
+            gap: 8,
+            maxWidth: 760,
+            margin: "0 auto",
+          }}
         >
           <CheckboxFilter
             name="room"
@@ -333,7 +341,10 @@ export function AsksView({
               setSort(next);
               setAsksSort(next);
             }}
-            style={{ ...selectStyle, marginLeft: isMobile ? 0 : "auto" }}
+            style={{
+              ...selectStyle,
+              ...(isMobile ? { flexBasis: "100%" } : { marginLeft: "auto" }),
+            }}
           >
             {ASKS_SORTS.map((s) => (
               <option key={s} value={s}>
