@@ -5,6 +5,9 @@ import { httpOrigin } from "../shared/browser-extension-protocol";
 
 export { httpOrigin };
 export const OFFICE_MARKER_HEADER = "x-isomux-office";
+// An app host sends a visitor without its sign-in through this office path,
+// which redirects back to the app (app-auth.ts).
+export const APP_MINT_PATH = "/auth/app";
 
 /** True when url is an http(s) page of a known office other than the offer's. */
 export function officePageRefused(
@@ -17,6 +20,20 @@ export function officePageRefused(
     origin !== undefined &&
     offices.has(origin) &&
     origin !== (offerOrigin && httpOrigin(offerOrigin))
+  );
+}
+
+/** True when url is the app sign-in hop (APP_MINT_PATH) of a known office:
+ * its pathname is exactly that path. */
+export function officeAppSignIn(
+  url: string,
+  offices: ReadonlySet<string>,
+): boolean {
+  const origin = httpOrigin(url);
+  return (
+    origin !== undefined &&
+    offices.has(origin) &&
+    new URL(url).pathname === APP_MINT_PATH
   );
 }
 

@@ -1946,6 +1946,8 @@ describe("office gate", () => {
       ids: 100,
       mainFrame: opts.mainFrame ?? "owned",
       url: opts.offerUrl ?? `${SITE}/start`,
+      // Ids of the gate's own commands that answer() answered.
+      answered: new Set<unknown>(),
     };
     await attach(h, opts.retainGrant ?? false);
     return h;
@@ -2065,21 +2067,23 @@ describe("office gate", () => {
           m.method === "cdp" &&
           fields(m.params).method === method,
       );
-    if (sent)
+    if (sent) {
+      h.answered.add(sent.id);
       h.connection.receive({
         kind: "result",
         generation: h.connection.generation,
         id: sent.id,
         result: reply,
       });
+    }
     await work;
     const answer = h.client.messages.find((m) => m.id === id);
     return { forwarded: !!sent, refused: !!answer?.error };
   }
   const passes = { forwarded: true, refused: false };
   const refused = { forwarded: false, refused: true };
-  // The CDP session of each Page.stopLoading the gate sent: undefined is the
-  // offered tab itself.
+  // The CDP session of each Page.stopLoading the gate sent: "tab" is the
+  // offered tab itself. Not undefined: toEqual takes [undefined] for [].
   const stops = (h: Gate) =>
     h.extension.messages
       .filter(
@@ -2088,7 +2092,7 @@ describe("office gate", () => {
           m.method === "cdp" &&
           fields(m.params).method === "Page.stopLoading",
       )
-      .map((m) => fields(m.params).sessionId);
+      .map((m) => fields(m.params).sessionId ?? "tab");
   // Every command class an action uses: reads, input, upload, capture, reload.
   const PAGE_COMMANDS: [string, Fields][] = [
     ["Runtime.evaluate", { expression: "document.title" }],
@@ -2172,10 +2176,10 @@ describe("office gate", () => {
       expect(h.connection.offerOrigin(h.assignment)).toBe(SITE);
 
       event(h, request(`${OFFICE}/settings?tab=tokens`));
-      // The gate stops the load outside the action fence: the next action is
-      // not held behind it.
-      expect(stops(h)).toEqual([undefined]);
-      expect(h.connection.pendingCount(h.assignment)).toBe(0);
+      // The gate stops the load. The stop is tracked like an action's command
+      // (task f13e0bfb): the next action waits for it.
+      expect(stops(h)).toEqual(["tab"]);
+      expect(h.connection.pendingCount(h.assignment)).toBe(1);
       expect(h.connection.officeGated(h.assignment)).toBe(true);
       await expectGated(h);
 
@@ -2201,19 +2205,11 @@ describe("office gate", () => {
       expect(h.connection.officeGated(h.assignment)).toBe(false);
       expect(await read(h)).toEqual(passes);
 
-      // The late answer to the gate's own stop is dropped.
-      const stop = h.extension.messages.find(
-        (m) =>
-          m.kind === "command" &&
-          fields(m.params).method === "Page.stopLoading",
-      )!;
-      h.connection.receive({
-        kind: "result",
-        generation: h.connection.generation,
-        id: stop.id,
-        result: {},
-      });
+      // A late answer to the gate's own stop, and a history read that shows
+      // an office page, do not close the gate again.
+      await drainGate(h, history(0, `${OFFICE}/`));
       expect(h.extension.closed).toBe(false);
+      expect(gated(h)).toBe(false);
       expect(await read(h)).toEqual(passes);
     } finally {
       h.connection.close();
@@ -2236,6 +2232,8 @@ describe("office gate", () => {
       // A closed gate does not keep the next client from the id, and the
       // bridge's own look at the frame tree is no refused command.
       const refusals = h.connection.officeRefusals(h.assignment);
+      // A client attaches once the gate's stops have answered.
+      await drainGate(h, history(0, `${OFFICE}/`));
       h.agent.close();
       await attach(h, true, `${OFFICE}/`);
       expect(h.connection.officeRefusals(h.assignment)).toBe(refusals);
@@ -2292,6 +2290,7 @@ describe("office gate", () => {
       event(g, ["popupDetached", { sessionId: "popup-session" }]);
       event(g, request(`${OFFICE}/`, { frameId: MOVED }));
       expect(g.connection.officeGated(g.assignment)).toBe(true);
+      await drainGate(g, history(0, `${OFFICE}/`));
       await attach(g, true, `${OFFICE}/`);
       expect(
         g.client.messages
@@ -2397,12 +2396,306 @@ describe("office gate", () => {
       try {
         for (const e of events) event(h, e);
         expect(h.connection.officeGated(h.assignment)).toBe(closes);
-        expect(stops(h)).toEqual(closes ? [undefined] : []);
+        expect(stops(h)).toEqual(closes ? ["tab"] : []);
         expect(await read(h)).toEqual(closes ? refused : passes);
       } finally {
         h.connection.close();
       }
     });
+
+  // Task f13e0bfb. The gate's own commands, answered as Chrome would: the
+  // oldest unanswered one of method. A stop's answer leads to a history read.
+  const sentGate = (h: Gate, method: string) =>
+    h.extension.messages.filter(
+      (m) =>
+        m.kind === "command" &&
+        m.method === "cdp" &&
+        fields(m.params).method === method,
+    );
+  async function answer(
+    h: Gate,
+    method: string,
+    result: Fields | Error = {},
+  ): Promise<unknown> {
+    const sent = sentGate(h, method).find((m) => !h.answered.has(m.id));
+    if (!sent) throw new Error(`No unanswered ${method}`);
+    h.answered.add(sent.id);
+    h.connection.receive({
+      kind: "result",
+      generation: h.connection.generation,
+      id: sent.id,
+      ...(result instanceof Error
+        ? { error: true, reason: result.message }
+        : { result }),
+    });
+    // The bridge sends its next command after an await.
+    await Bun.sleep(0);
+    return fields(sent.params).sessionId;
+  }
+  const unanswered = (h: Gate, method: string) =>
+    sentGate(h, method).filter((m) => !h.answered.has(m.id)).length;
+  // Chrome's Page.getNavigationHistory answer: url of each entry, and the
+  // entry the tab shows.
+  const history = (currentIndex: number, ...urls: string[]): Fields => ({
+    currentIndex,
+    entries: urls.map((url, id) => ({
+      id,
+      url,
+      userTypedURL: url,
+      title: "",
+      transitionType: "link",
+    })),
+  });
+  // Answers every unanswered stop and history read; each read shows shown.
+  async function drainGate(h: Gate, shown: Fields) {
+    for (;;)
+      if (unanswered(h, "Page.stopLoading"))
+        await answer(h, "Page.stopLoading");
+      else if (unanswered(h, "Page.getNavigationHistory"))
+        await answer(h, "Page.getNavigationHistory", shown);
+      else return;
+  }
+  // After a stop: answers it, then the history read with the tab's page.
+  async function settleStop(h: Gate, shown: Fields) {
+    const stop = await answer(h, "Page.stopLoading");
+    expect(await answer(h, "Page.getNavigationHistory", shown)).toBe(stop);
+  }
+  const gated = (h: Gate) => h.connection.officeGated(h.assignment);
+  const APP = "https://verisys.office.test";
+  // The app host sends a visitor with no app cookie to its office's
+  // /auth/app, which sends it back with a code (app-auth.ts).
+  const hop = (office: string, app: string): [string, Fields][] => {
+    const mint = `${office}/auth/app?app=verisys&r=%2Fdash`;
+    const back = `${app}/__isomux/auth?code=c`;
+    return [
+      request(`${app}/dash`),
+      request(mint, { redirectedFrom: `${app}/dash` }),
+      request(back, { redirectedFrom: mint }),
+      request(`${app}/dash`, { redirectedFrom: back }),
+    ];
+  };
+
+  test("an app's sign-in hop through a known office keeps the gate open", async () => {
+    const h = await gateHarness();
+    try {
+      // A learned office's apps sign in the same way as the seed's.
+      event(
+        h,
+        response("https://learned.test/app.js", marked, { type: "Script" }),
+      );
+      for (const [office, app] of [
+        [OFFICE, APP],
+        ["https://learned.test", "https://verisys.learned.test"],
+      ]) {
+        expect(
+          await command(h, "Page.navigate", { url: `${app}/dash` }),
+        ).toEqual(passes);
+        for (const e of hop(office, app)) event(h, e);
+        expect({ office, gated: gated(h) }).toEqual({ office, gated: false });
+        event(h, response(`${app}/dash`, {}));
+        event(h, commit(`${app}/dash`));
+        expect({ office, gated: gated(h) }).toEqual({ office, gated: false });
+        expect(await read(h)).toEqual(passes);
+      }
+      expect(stops(h)).toEqual([]);
+      expect(h.connection.officeRefusals(h.assignment)).toBe(0);
+      // A navigation straight to the hop is still one to an office page.
+      expect(
+        await command(h, "Page.navigate", {
+          url: `${OFFICE}/auth/app?app=verisys&r=%2F`,
+        }),
+      ).toEqual(refused);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a page that /auth/app answers itself closes the gate", async () => {
+    const h = await gateHarness();
+    try {
+      const [first, mint] = hop(OFFICE, APP);
+      event(h, first);
+      event(h, mint);
+      expect(gated(h)).toBe(false);
+      // A signed-out member's login page, or an error page, on the office.
+      const url = fields(fields(mint[1]).request).url as string;
+      event(h, response(url, marked));
+      expect(gated(h)).toBe(true);
+      expect(stops(h)).toEqual(["tab"]);
+      await expectGated(h);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  // Near misses of the hop's path are office pages like any other.
+  for (const path of [
+    "/auth/app/",
+    "/auth/apps",
+    "/AUTH/app",
+    "/auth/app%2f",
+    "/x/auth/app",
+  ])
+    test(`a redirect hop to the office's ${path} closes the gate`, async () => {
+      const h = await gateHarness();
+      try {
+        event(h, request(`${APP}/dash`));
+        event(
+          h,
+          request(`${OFFICE}${path}?app=verisys`, {
+            redirectedFrom: `${APP}/dash`,
+          }),
+        );
+        expect(gated(h)).toBe(true);
+        expect(stops(h)).toEqual(["tab"]);
+      } finally {
+        h.connection.close();
+      }
+    });
+
+  test("a redirect through a refused office page reopens the gate on the page the tab still shows", async () => {
+    const h = await gateHarness();
+    const closes: number[] = [];
+    h.connection.onGateClose(h.assignment, () => closes.push(1));
+    try {
+      const [first, mint] = hop(OFFICE, APP);
+      event(h, first);
+      event(h, mint);
+      // A signed-out member: /auth/app sends the tab on to the login page.
+      const login = `${OFFICE}/login?next=x`;
+      event(
+        h,
+        request(login, {
+          redirectedFrom: fields(fields(mint[1]).request).url as string,
+        }),
+      );
+      expect(gated(h)).toBe(true);
+      expect(stops(h)).toEqual(["tab"]);
+      // The stop is an action like any other: the next one waits for it.
+      expect(h.connection.pendingCount(h.assignment)).toBe(1);
+      expect(closes).toEqual([1]);
+      // The bridge asks the tab what it shows once the stop answers, and not
+      // before.
+      expect(unanswered(h, "Page.getNavigationHistory")).toBe(0);
+      await answer(h, "Page.stopLoading");
+      expect(gated(h)).toBe(true);
+      expect(unanswered(h, "Page.getNavigationHistory")).toBe(1);
+      // The entry the tab shows, not the newest one.
+      await answer(
+        h,
+        "Page.getNavigationHistory",
+        history(0, `${SITE}/start`, `${OFFICE}/forward`),
+      );
+      expect(gated(h)).toBe(false);
+      expect(h.connection.pendingCount(h.assignment)).toBe(0);
+      expect(await read(h)).toEqual(passes);
+      expect(closes).toEqual([1]);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("the gate reopens on the URL the tab reports, not the one the bridge last saw", async () => {
+    const h = await gateHarness();
+    try {
+      // The bridge last saw the offered page; the tab shows an office page.
+      event(h, request(`${OFFICE}/settings`));
+      await settleStop(h, history(0, `${OFFICE}/settings`, `${SITE}/start`));
+      expect(gated(h)).toBe(true);
+      await expectGated(h);
+      event(h, commit(`${SITE}/next`));
+      expect(gated(h)).toBe(false);
+
+      // A reopen keeps the URL it read: an office learned later finds the
+      // page on it.
+      event(h, request(`${OFFICE}/x`));
+      await settleStop(h, history(0, "https://later.test/page"));
+      expect(gated(h)).toBe(false);
+      event(
+        h,
+        response("https://later.test/app.js", marked, { type: "Script" }),
+      );
+      expect(gated(h)).toBe(true);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a refused request after a stop keeps the gate closed and stops again", async () => {
+    const h = await gateHarness();
+    const closes: number[] = [];
+    h.connection.onGateClose(h.assignment, () => closes.push(1));
+    try {
+      event(h, request(`${OFFICE}/a`));
+      await answer(h, "Page.stopLoading");
+      // Already closed: the page loads an office page again before the
+      // bridge reads what the tab shows.
+      event(h, request(`${OFFICE}/b`));
+      expect(stops(h)).toEqual(["tab", "tab"]);
+      expect(closes).toEqual([1]);
+      // The first stop's read is out of date: no reopen.
+      await answer(h, "Page.getNavigationHistory", history(0, `${SITE}/start`));
+      expect(gated(h)).toBe(true);
+      expect(await read(h)).toEqual(refused);
+      // The second stop's read is current.
+      await settleStop(h, history(0, `${SITE}/start`));
+      expect(gated(h)).toBe(false);
+      expect(await read(h)).toEqual(passes);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a gate stays closed when its stop or history read fails or names no page", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, request(`${OFFICE}/a`));
+      await answer(h, "Page.stopLoading", new Error("No target"));
+      expect(gated(h)).toBe(true);
+      // Chrome answers a later stop; the history read fails.
+      event(h, request(`${OFFICE}/b`));
+      await answer(h, "Page.stopLoading");
+      await answer(h, "Page.getNavigationHistory", new Error("No target"));
+      expect(gated(h)).toBe(true);
+      // A history with no entry at its index names no page.
+      event(h, request(`${OFFICE}/c`));
+      await settleStop(h, { currentIndex: 3, entries: [] });
+      expect(gated(h)).toBe(true);
+      expect(await read(h)).toEqual(refused);
+      expect(h.connection.pendingCount(h.assignment)).toBe(0);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("a popup's gate reads its own history to reopen", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, [
+        "popup",
+        {
+          sessionId: "popup-session",
+          targetInfo: {
+            type: "page",
+            targetId: "popup",
+            openerId: "owned",
+            url: `${SITE}/popup`,
+          },
+        },
+      ]);
+      event(
+        h,
+        request(`${OFFICE}/login`, { frameId: "popup" }),
+        "popup-session",
+      );
+      expect(stops(h)).toEqual(["popup-session"]);
+      expect(gated(h)).toBe(true);
+      await settleStop(h, history(0, `${SITE}/popup`));
+      expect(gated(h)).toBe(false);
+    } finally {
+      h.connection.close();
+    }
+  });
 
   test("a marked response teaches its origin to every connection of the process", async () => {
     const h = await gateHarness();
@@ -2488,7 +2781,7 @@ describe("office gate", () => {
         }),
       );
       expect(seen.connection.officeGated(seen.assignment)).toBe(true);
-      expect(stops(seen)).toEqual([undefined]);
+      expect(stops(seen)).toEqual(["tab"]);
       expect(await read(seen)).toEqual(refused);
     } finally {
       seen.connection.close();

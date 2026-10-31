@@ -25,8 +25,31 @@ export async function checkOfficeGate(opts: {
   const office = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    fetch(req) {
+    fetch(req): Response | Promise<Response> {
       const url = new URL(req.url);
+      // The app sign-in hop (app-auth.ts): back to the app, or, for a
+      // signed-out member, on to the office's login page.
+      if (url.pathname === "/auth/app") {
+        const r = url.searchParams.get("r") ?? "/";
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location:
+              r === "/signed-out" ? `${standIn}/login` : `${app}${r}?signed=1`,
+            "X-Isomux-Office": "1",
+          },
+        });
+      }
+      // Slower than the gate's stop, as an office across the network is:
+      // the stop lands before this page loads. A login page that commits
+      // first stays refused.
+      if (url.pathname === "/login")
+        return Bun.sleep(3000).then(
+          () =>
+            new Response("<title>Stand-in login</title>", {
+              headers: { "Content-Type": "text/html", "X-Isomux-Office": "1" },
+            }),
+        );
       if (url.pathname === "/hit" && req.method === "POST") {
         reached.clicks++;
         return new Response("ok", { headers: { "X-Isomux-Office": "1" } });
@@ -53,6 +76,24 @@ export async function checkOfficeGate(opts: {
   });
   // localhost, not 127.0.0.1: another origin than the stand-in office.
   const site = `http://localhost:${agentSite.port}`;
+  // An Isomux app of the stand-in office: it sends a visitor without its
+  // sign-in through the office's /auth/app (task f13e0bfb).
+  const appSite = Bun.serve({
+    hostname: "0.0.0.0",
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url);
+      if (!url.searchParams.has("signed"))
+        return Response.redirect(
+          `${standIn}/auth/app?app=a&r=${encodeURIComponent(url.pathname)}`,
+          302,
+        );
+      return new Response("<title>App page</title><p>app</p>", {
+        headers: { "Content-Type": "text/html" },
+      });
+    },
+  });
+  const app = `http://localhost:${appSite.port}`;
   try {
     expect(
       (await opts.offered({ action: "goto", url: `${site}/to-office` })).status,
@@ -85,6 +126,30 @@ export async function checkOfficeGate(opts: {
     expect(learned.body.error?.code).toBe("office_page_refused");
     expect(reached.documents).toBe(documents);
 
+    // An app of the office signs in through it: the goto lands on the app.
+    const opened = await opts.offered({ action: "goto", url: `${app}/dash` });
+    console.log("Office gate app hop:", JSON.stringify(opened));
+    expect(opened.status).toBe(200);
+    expect(opened.body.url).toBe(`${app}/dash?signed=1`);
+    expect((await opts.offered({ action: "text" })).status).toBe(200);
+    // A hop that ends on an office page is refused; the tab keeps the app
+    // page, and the agent can act on it again.
+    const signedOut = await opts.offered({
+      action: "goto",
+      url: `${app}/signed-out`,
+    });
+    expect(signedOut.status).toBe(403);
+    expect(signedOut.body.error?.code).toBe("office_page_refused");
+    expect(opts.offeredPage.url()).toBe(`${app}/dash?signed=1`);
+    let after = await opts.offered({ action: "text" });
+    for (let i = 0; i < 20 && after.status !== 200; i++) {
+      await Bun.sleep(100);
+      after = await opts.offered({ action: "text" });
+    }
+    console.log("Office gate after a refused hop:", JSON.stringify(after));
+    expect(after.status).toBe(200);
+    expect(after.body.text).toContain("app");
+
     // This office is known from the start.
     const own = await opts.offered({
       action: "goto",
@@ -92,7 +157,7 @@ export async function checkOfficeGate(opts: {
     });
     expect(own.status).toBe(403);
     expect(own.body.error?.code).toBe("office_page_refused");
-    expect(new URL(opts.offeredPage.url()).origin).toBe(site);
+    expect(new URL(opts.offeredPage.url()).origin).toBe(app);
 
     // A tab the member offered on this office stays usable there, and only
     // there.
@@ -112,5 +177,6 @@ export async function checkOfficeGate(opts: {
   } finally {
     await office.stop(true);
     await agentSite.stop(true);
+    await appSite.stop(true);
   }
 }

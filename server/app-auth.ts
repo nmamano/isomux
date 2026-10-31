@@ -31,6 +31,7 @@
 // to leak, and not one line of logging that touches a URL.
 
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
+import { APP_MINT_PATH } from "./browser-office-gate.ts";
 import { appRegistry } from "./app-registry.ts";
 import { appRegistrationGeneration } from "./app-registry.ts";
 import { buildPublicOrigin, revalidateByHash } from "./auth.ts";
@@ -53,7 +54,7 @@ export const APP_AUTH_PATH = "/__isomux/auth";
 
 // The office route that mints a code. Behind the office's ordinary auth wall,
 // so an unauthenticated visitor meets the normal login page here.
-export const APP_MINT_PATH = "/auth/app";
+export { APP_MINT_PATH };
 
 // Protocol value shared with the office wrapper. No app or member data crosses
 // the frame boundary, and unknown labels use the same response.

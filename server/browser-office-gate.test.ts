@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { OfficeOrigins, officePageRefused } from "./browser-office-gate";
+import {
+  OfficeOrigins,
+  officeAppSignIn,
+  officePageRefused,
+} from "./browser-office-gate";
 
 // The refusal rule (task 2a3b5645): an agent may not reach an office page that
 // the member did not offer. The bridge tests drive it through CDP events; this
@@ -66,4 +70,34 @@ test("the origin set normalizes, reads its seed at each check, and drops the old
   for (const h of ["e", "f", "g", "h"]) offices.learn(`https://${h}.test/`);
   expect(offices.has("https://moved.test")).toBe(true);
   expect(offices.has("https://office.test")).toBe(true);
+});
+
+// Task f13e0bfb: an Isomux app's sign-in hops through its office's /auth/app.
+// Only that exact path of a known office is the hop; the bridge tests own
+// what the gate does with it.
+test("the app sign-in hop is exactly /auth/app on a known office", () => {
+  const offices = new Set(["https://office.test", "http://office.lan:4000"]);
+  const cases: [url: string, hop: boolean][] = [
+    ["https://office.test/auth/app", true],
+    ["https://office.test/auth/app?app=verisys&r=%2F", true],
+    ["HTTPS://Office.Test:443/auth/app#x", true],
+    ["http://office.lan:4000/auth/app?app=a", true],
+    // Near misses of the path.
+    ["https://office.test/auth/app/", false],
+    ["https://office.test/auth/apps", false],
+    ["https://office.test/AUTH/app", false],
+    ["https://office.test/auth/app%2f", false],
+    ["https://office.test/auth/ap%70", false],
+    ["https://office.test/auth/app;x", false],
+    ["https://office.test/x/auth/app", false],
+    ["https://office.test/auth", false],
+    // The path on an origin that is not a known office.
+    ["https://office.test:8443/auth/app", false],
+    ["http://office.test/auth/app", false],
+    ["https://verisys.office.test/auth/app", false],
+    ["not a url", false],
+    ["about:blank", false],
+  ];
+  for (const [url, hop] of cases)
+    expect({ url, hop: officeAppSignIn(url, offices) }).toEqual({ url, hop });
 });

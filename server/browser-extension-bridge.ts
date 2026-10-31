@@ -24,6 +24,7 @@ export { EXTENSION_MAX_BYTES };
 import {
   OFFICE_MARKER_HEADER,
   OfficeOrigins,
+  officeAppSignIn,
   officePageRefused,
 } from "./browser-office-gate";
 
@@ -105,7 +106,9 @@ type Assignment = {
   // The office gate (browser-office-gate.ts). The offer origin is pinned at the
   // offer. Pages are keyed by CDP session: the tab's own, or a popup's.
   offerOrigin?: string;
-  pages: Map<string, { url?: string; gated: boolean }>;
+  // refusals counts the page's gate closes, so a reopen can tell that a
+  // later refusal came after the stop it answers.
+  pages: Map<string, { url?: string; gated: boolean; refusals: number }>;
   childPages: Map<string, string>;
   officeRefusals: number;
   // Commands whose answer was too large to relay (receiveOversized).
@@ -484,19 +487,65 @@ export class ExtensionConnection {
     return officePageRefused(url, a.offerOrigin, this.offices.all());
   }
 
-  // Closing stops the page load. The stop is outside this.pending and the
-  // action fence, as a capture kick is; receive() drops its late result.
+  // Closing stops the page load, also on a page already closed. A stop can
+  // leave the tab on its last page with no new commit, so when the stop
+  // answers, the gate reopens if the page the tab shows is not refused and
+  // no refusal came after this stop. A failed read keeps it closed.
   private closeGate(a: Assignment, key: string): void {
     const page = a.pages.get(key);
-    if (!page || page.gated) return;
+    if (!page) return;
+    const refusals = ++page.refusals;
+    const opened = !page.gated;
     page.gated = true;
-    this.unfenced(a, "Page.stopLoading", key);
-    for (const listener of [...(this.gateListeners.get(a.id) ?? [])])
-      listener();
+    const sessionId = key === a.session ? {} : { sessionId: key };
+    const shown = () =>
+      this.request(a, "cdp", {
+        method: "Page.getNavigationHistory",
+        params: {},
+        ...sessionId,
+      }).then((history) => {
+        const entries = history.entries;
+        const index = history.currentIndex;
+        const entry: unknown =
+          Array.isArray(entries) && typeof index === "number"
+            ? entries[index]
+            : undefined;
+        const url =
+          entry && typeof entry === "object"
+            ? (entry as Fields).url
+            : undefined;
+        if (
+          a.pages.get(key) !== page ||
+          page.refusals !== refusals ||
+          !page.gated ||
+          typeof url !== "string" ||
+          httpOrigin(url) === undefined ||
+          this.officeRefused(a, url)
+        )
+          return;
+        page.url = url;
+        page.gated = false;
+      });
+    if (this.active && !a.closed && !a.recovery)
+      try {
+        this.request(a, "cdp", {
+          method: "Page.stopLoading",
+          params: {},
+          ...sessionId,
+        })
+          .then(shown)
+          .catch(() => {});
+      } catch {
+        // check() failed: the grant has ended.
+      }
+    if (opened)
+      for (const listener of [...(this.gateListeners.get(a.id) ?? [])])
+        listener();
   }
 
   // A frame that waits for a client no client will resume stays blank, on the
-  // member's screen as in every read. Like a stop, outside the action fence.
+  // member's screen as in every read. Like a capture kick, outside the action
+  // fence.
   private resumeChild(a: Assignment, key: string): void {
     const child = a.children.get(key);
     if (!child?.waiting) return;
@@ -617,8 +666,14 @@ export class ExtensionConnection {
     const mainDocument =
       params.type === "Document" && params.frameId === targetId;
     if (method === "Network.requestWillBeSent" && mainDocument) {
+      // An app's sign-in hop through an office passes; the page that hop
+      // answers with closes the gate at its response.
       const url = (params.request as Fields | undefined)?.url;
-      if (typeof url === "string" && this.officeRefused(a, url))
+      if (
+        typeof url === "string" &&
+        this.officeRefused(a, url) &&
+        !officeAppSignIn(url, this.offices.all())
+      )
         this.closeGate(a, key);
     } else if (method === "Network.responseReceived" && mainDocument) {
       const url = (params.response as Fields | undefined)?.url;
@@ -1008,6 +1063,7 @@ export class ExtensionConnection {
       a.pages.set(a.session, {
         url: target.url,
         gated: this.officeRefused(a, target.url),
+        refusals: 0,
       });
       a.creating = false;
       a.expiresAt = resume
@@ -1533,6 +1589,7 @@ export class ExtensionConnection {
         a.pages.set(params.sessionId, {
           url: typeof target.url === "string" ? target.url : undefined,
           gated: false,
+          refusals: 0,
         });
         if (typeof target.url === "string" && this.officeRefused(a, target.url))
           this.closeGate(a, params.sessionId);
