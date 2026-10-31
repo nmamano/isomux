@@ -806,6 +806,8 @@ function ReplyAskCard({
               style={{
                 maxWidth: "100%",
                 padding: buttonPad,
+                // Tight space on the star's left, as on its right.
+                ...(option === entry.recommended ? { paddingLeft: 10 } : {}),
                 borderRadius: 8,
                 border: "1px solid var(--accent-text)",
                 background:

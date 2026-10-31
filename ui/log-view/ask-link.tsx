@@ -318,7 +318,10 @@ export function AskLink({
                       }
                     : {})}
                   style={{
-                    padding: "2px 8px",
+                    padding:
+                      option === ask.recommended
+                        ? "2px 8px 2px 6px"
+                        : "2px 8px",
                     borderRadius: 6,
                     border: "1px solid var(--border)",
                     background:
