@@ -2101,7 +2101,12 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // headless tool execution returns empty answers - which the agent then
     // rationalizes as "you accepted the defaults". Agents should ask
     // clarifying questions in plain chat instead.
-    disallowedTools: ["AskUserQuestion"],
+    //
+    // SendMessage and ListAgents reach other Claude sessions on the machine,
+    // never office agents, so an agent that picks them to message a peer
+    // fails (task 8660cc96). The cost: an agent cannot continue a subagent it
+    // spawned; it spawns a new one.
+    disallowedTools: ["AskUserQuestion", "SendMessage", "ListAgents"],
   };
   if (opts.skillFolder) sdkOpts.additionalDirectories = [opts.skillFolder];
   if (opts.env || isClaudeCloudSelected(env)) sdkOpts.env = env;

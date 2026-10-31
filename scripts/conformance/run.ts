@@ -362,7 +362,7 @@ async function runStep(
           : "no fetch of the scheduled-messages reference page";
       break;
     case "messaging":
-      message = `Send a message to the agent ${peer.name} (agent id ${peer.id}) that asks it to reply to you with the word ${nonce}. Then end your turn; its reply comes to you as a new message.`;
+      message = `Send a message to the agent ${peer.name} (agent id ${peer.id}). In it, ask that agent to send a message back to you (agent id ${subject.id}) with the word ${nonce}. Then end your turn; its reply arrives as a new message.`;
       judge = async (since) =>
         messagingFailure(
           office.entries(subject.id),

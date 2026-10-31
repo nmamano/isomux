@@ -1161,6 +1161,14 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
     });
     expect(opts.effort).toBe("high");
     expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
+    // Task 8660cc96: SendMessage and ListAgents reach Claude sessions outside
+    // the office, never an office agent, so a model that picks them fails to
+    // message its peer. The set is exact: a change to it is a conscious edit.
+    expect([...(opts.disallowedTools ?? [])].sort()).toEqual([
+      "AskUserQuestion",
+      "ListAgents",
+      "SendMessage",
+    ]);
     // Nor in the Options query() receives.
     for (const bag of [opts, sessionOptsToV1(opts)]) {
       expect(bag).not.toHaveProperty("executableArgs");
