@@ -2076,6 +2076,12 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
       type: "preset",
       preset: "claude_code",
       append: opts.systemPrompt,
+      // Render the prompt fresh on every launch, so edited instructions and
+      // memory reach an agent when its session restarts. Every Claude launch
+      // (create, resume, fork, edit) passes through here: a launch without
+      // this flag brings back the prompt the session recorded at its first
+      // message, with no error.
+      snapshot: false,
     },
     // effort is `string` at the Backend boundary; upstream validateEffort
     // guarantees a Claude-legal level (narrower than shared EffortLevel,

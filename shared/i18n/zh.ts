@@ -380,6 +380,7 @@ App 的一些原则：
   "common.unread": "未读",
   "common.roomFallback": "房间 {number}",
   "common.nextConversation": "更改将在下一次对话中生效。",
+  "common.restartOrNewConversation": "更改将在智能体重启或开始新对话时生效。",
   "common.schedule": "计划",
   "common.discardPrompt": "放弃未保存的更改？",
   "common.delete": "删除",
@@ -412,7 +413,7 @@ App 的一些原则：
   "preferences.intro": "你的语言会同步到你登录的所有设备。",
   "preferences.language": "语言",
   "preferences.languageHint":
-    "界面、智能体所写内容以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。",
+    "界面、智能体所写内容以及语音输入和播放使用的语言。智能体会在重启或开始新对话时采用此设置。",
   "preferences.saved": "已保存。",
   "preferences.saveFailed": "无法保存",
   "settings.selectHint": "从列表中选择一项设置",
@@ -490,7 +491,7 @@ App 的一些原则：
   "settings.office.rulesHint": "（添加到每个智能体的系统提示词中）",
   "settings.office.rulesTitle": "办公室指令",
   "settings.office.rulesExpandedHint":
-    "添加到每个智能体的系统提示词中。更改将在下一次对话中生效。",
+    "添加到每个智能体的系统提示词中。更改将在智能体重启或开始新对话时生效。",
   "settings.office.rulesPlaceholder":
     "例如：始终编写测试。使用 TypeScript。保持简洁。",
   "settings.office.memoryHint":
@@ -526,7 +527,7 @@ App 的一些原则：
   "settings.room.promptPlaceholder":
     "例如：你在营销房间中。请使用我们的品牌语气。",
   "settings.room.promptNote":
-    "更改将在下一次对话中生效。请在「集成」页面设置环境变量。",
+    "更改将在智能体重启或开始新对话时生效。请在「集成」页面设置环境变量。",
   "settings.room.memoryHint": "（此房间的长期信息；原始行；{size} / {cap}）",
   "settings.room.memoryTitle": "{room} · 记忆",
   "settings.room.memoryPlaceholder": "与此房间相关的记忆",
@@ -2597,7 +2598,7 @@ App 的一些原则：
   "commands.isomuxAllHands.footer":
     "如需了解某个智能体或对话的更多信息，请询问你的智能体。",
   "commands.isomuxSystemPrompt.header":
-    "**完整系统提示词** *（反映当前设置；在下一次对话中生效）*",
+    "**完整系统提示词** *（反映当前设置；在智能体重启或开始新对话时生效）*",
   "commands.isomuxCronjobSystemPrompt.noSchedules": "尚未配置定时任务。",
   "commands.isomuxCronjobSystemPrompt.pick": "选择定时任务：",
   "commands.isomuxCronjobSystemPrompt.ambiguous":

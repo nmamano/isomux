@@ -22,7 +22,7 @@ export function managerOf(agent: Pick<AgentInfo, "userId" | "manager">): {
   return { record, name: record?.name ?? agent.manager };
 }
 
-/** Build the exact system prompt used for the agent's next conversation. */
+/** Build the exact system prompt used the next time the agent's session starts. */
 export function buildAgentSystemPrompt(
   agent: Pick<
     AgentInfo,

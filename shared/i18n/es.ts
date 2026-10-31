@@ -396,6 +396,8 @@ Cosas que puedes hacer por él:
   "common.roomFallback": "Sala {number}",
   "common.nextConversation":
     "Los cambios se aplican en la siguiente conversación.",
+  "common.restartOrNewConversation":
+    "Los cambios se aplican cuando un agente se reinicia o empieza una nueva conversación.",
   "common.schedule": "Programación",
   "common.discardPrompt": "¿Descartar los cambios sin guardar?",
   "common.delete": "Eliminar",
@@ -430,7 +432,7 @@ Cosas que puedes hacer por él:
     "Tu idioma te sigue a todos los dispositivos desde los que inicias sesión.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
-    "El idioma de la interfaz, de lo que escriben tus agentes y de la entrada de voz y la lectura en voz alta. Los agentes lo aplican en su siguiente conversación.",
+    "El idioma de la interfaz, de lo que escriben tus agentes y de la entrada de voz y la lectura en voz alta. Los agentes lo aplican cuando se reinician o empiezan una nueva conversación.",
   "preferences.saved": "Guardado.",
   "preferences.saveFailed": "No se pudo guardar",
 
@@ -515,7 +517,7 @@ Cosas que puedes hacer por él:
   "settings.office.rulesHint": "(se añade al prompt de sistema de cada agente)",
   "settings.office.rulesTitle": "Instrucciones de la oficina",
   "settings.office.rulesExpandedHint":
-    "Se añade al prompt de sistema de cada agente. Los cambios se aplican en la siguiente conversación.",
+    "Se añade al prompt de sistema de cada agente. Los cambios se aplican cuando un agente se reinicia o empieza una nueva conversación.",
   "settings.office.rulesPlaceholder":
     "p. ej. Escribe siempre tests. Usa TypeScript. Sé conciso.",
   "settings.office.memoryHint":
@@ -557,7 +559,7 @@ Cosas que puedes hacer por él:
   "settings.room.promptPlaceholder":
     "p. ej. Estás en la sala de Marketing. Sigue la voz de nuestra marca.",
   "settings.room.promptNote":
-    "Los cambios se aplican en la siguiente conversación. Define las variables de entorno en la página Integraciones.",
+    "Los cambios se aplican cuando un agente se reinicia o empieza una nueva conversación. Define las variables de entorno en la página Integraciones.",
   "settings.room.memoryHint":
     "(hechos duraderos de esta sala; líneas en bruto; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memoria",
@@ -2885,7 +2887,7 @@ Cosas que puedes hacer por él:
   "commands.isomuxAllHands.footer":
     "Pregunta a tu agente si quieres saber más sobre cualquier agente o conversación.",
   "commands.isomuxSystemPrompt.header":
-    "**Prompt de sistema completo** *(refleja los ajustes actuales; se aplica en la próxima conversación)*",
+    "**Prompt de sistema completo** *(refleja los ajustes actuales; se aplica cuando el agente se reinicia o empieza una nueva conversación)*",
   "commands.isomuxCronjobSystemPrompt.noSchedules":
     "No hay ninguna programación configurada.",
   "commands.isomuxCronjobSystemPrompt.pick": "Elige una programación:",

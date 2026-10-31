@@ -312,7 +312,7 @@ export function OfficePane({
             margin: "3px 0 0",
           }}
         >
-          {t("common.nextConversation")}
+          {t("common.restartOrNewConversation")}
         </p>
 
         {!readOnly && (

@@ -1506,15 +1506,16 @@ export function createAgentManager(deps: ManagerDeps) {
   ) {
     const events = officeState.setOfficeSettings(prompt, envFile, name);
     // System prompt is rebuilt at every createSession from current office/room/agent
-    // config, so the new office prompt automatically lands on the next conversation.
+    // config, so the new office prompt lands when each agent's session next
+    // starts: a new conversation or a restart of the current one.
     for (const event of events) eventHandler(event);
   }
 
   function setRoomSettings(roomId: string, prompt: string | null): boolean {
     const events = officeState.setRoomSettings(roomId, prompt);
     if (events.length === 0) return false;
-    // System prompt is rebuilt at every createSession - next conversation picks up
-    // the new room prompt automatically.
+    // System prompt is rebuilt at every createSession - the new room prompt lands
+    // when each agent's session next starts (new conversation or restart).
     for (const event of events) eventHandler(event);
     return true;
   }

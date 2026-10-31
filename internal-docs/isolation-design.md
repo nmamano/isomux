@@ -246,7 +246,7 @@ If a managed file is unreadable or fails to parse, the spawn fails with the erro
 
 ### Effect timing
 
-Changes to prompts and env file paths take effect on the next agent conversation, not mid-session. This matches the existing office prompt behavior.
+Changes to prompts and env file paths take effect when the agent's session next starts: a new conversation, or a restart of the current one (resume, server restart, model change, wake after idle). A running session keeps what it started with.
 
 ### Rooms have stable IDs
 

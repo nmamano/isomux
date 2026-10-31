@@ -1150,10 +1150,14 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
   };
 
   function assertTypedShape(opts: FakeSdkClient["createCalls"][0]["opts"]) {
+    // snapshot: false (task 70ecad52): without it the SDK records the prompt
+    // at a session's first request and every later resume sends that record,
+    // so edited instructions and memory never reach a resumed agent.
     expect(opts.systemPrompt).toEqual({
       type: "preset",
       preset: "claude_code",
       append: "THE ASSEMBLED PROMPT",
+      snapshot: false,
     });
     expect(opts.effort).toBe("high");
     expect(opts.allowDangerouslySkipPermissions).toBeUndefined();

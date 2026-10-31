@@ -11,7 +11,9 @@
 //     completes;
 //   - session history lists the user turns in order, resume recalls a fact
 //     planted before it, a whole-history fork recalls it too, and a fork
-//     before a message drops that message (the edit-message path).
+//     before a message drops that message (the edit-message path);
+//   - a resume reads the system prompt it is launched with, not the one the
+//     session started with (edited instructions reach a restarted agent).
 // Topic-quality checks are deliberately deferred.
 //
 // Auth prerequisites (the suite runs under a temp ISOMUX_HOME via the test
@@ -106,16 +108,19 @@ function newCwd(cfg: ProviderConfig): string {
   return cwd;
 }
 
+const TERSE_PROMPT =
+  "You are a terse test agent. Do exactly what is asked and nothing more.";
+
 function openSession(
   cfg: ProviderConfig,
   cwd: string,
   resumeId?: string,
+  systemPrompt = TERSE_PROMPT,
 ): BackendSession {
   const opts = {
     agentId: `live-smoke-${cfg.name}`,
     cwd,
-    systemPrompt:
-      "You are a terse test agent. Do exactly what is asked and nothing more.",
+    systemPrompt,
     modelFamily: cfg.modelFamily,
     effort: "",
     permissionMode: cfg.permissionMode,
@@ -385,6 +390,50 @@ for (const cfg of PROVIDERS) {
           );
           expect(texts(empty, "user")).toEqual([]);
         }
+      },
+      TEST_TIMEOUT_MS,
+    );
+
+    // Task 70ecad52: the Claude SDK records a session's system prompt at its
+    // first request and, by default, sends that record on every resume, so an
+    // edited instruction never reached a resumed agent. The new code word can
+    // only come from the prompt the resume was launched with.
+    it(
+      "a resume reads the system prompt it is launched with",
+      async () => {
+        await prepare(cfg);
+        const cwd = newCwd(cfg);
+        const oldWord = `plover${randomBytes(4).toString("hex")}`;
+        const newWord = `curlew${randomBytes(4).toString("hex")}`;
+        const promptWith = (word: string) =>
+          `${TERSE_PROMPT} The current code word is ${word}. It is set only ` +
+          "here, in your system prompt, and can change between turns. When " +
+          "asked for the code word, reply with only the word this prompt " +
+          "gives now.";
+        const ask = "What is the code word? Reply with only the word.";
+
+        // The first launch saw its prompt: under the SDK default this is the
+        // prompt the session records.
+        const first = await runTurns(
+          cfg,
+          openSession(cfg, cwd, undefined, promptWith(oldWord)),
+          [ask],
+        );
+        expect(first.sessionId, told(cfg, first.turns)).not.toBe("");
+        expect(first.turns[0].status, told(cfg, first.turns)).toBe("completed");
+        expect(first.turns[0].text.toLowerCase()).toContain(oldWord);
+
+        const resumed = await runTurns(
+          cfg,
+          openSession(cfg, cwd, first.sessionId, promptWith(newWord)),
+          [ask],
+        );
+        expect(resumed.turns[0].status, told(cfg, resumed.turns)).toBe(
+          "completed",
+        );
+        const reply = resumed.turns[0].text.toLowerCase();
+        expect(reply).not.toContain(oldWord);
+        expect(reply).toContain(newWord);
       },
       TEST_TIMEOUT_MS,
     );

@@ -395,6 +395,8 @@ Coses que pots fer per ell:
   "common.unread": "sense llegir",
   "common.roomFallback": "Sala {number}",
   "common.nextConversation": "Els canvis s'apliquen a la conversa següent.",
+  "common.restartOrNewConversation":
+    "Els canvis s'apliquen quan un agent es reinicia o comença una conversa nova.",
   "common.schedule": "Programació",
   "common.discardPrompt": "Vols descartar els canvis sense desar?",
   "common.delete": "Elimina",
@@ -429,7 +431,7 @@ Coses que pots fer per ell:
     "El teu idioma et segueix a tots els dispositius des dels quals inicies la sessió.",
   "preferences.language": "Idioma",
   "preferences.languageHint":
-    "L'idioma de la interfície, del que escriuen els teus agents i de l'entrada de veu i la lectura en veu alta. Els agents l'apliquen a la conversa següent.",
+    "L'idioma de la interfície, del que escriuen els teus agents i de l'entrada de veu i la lectura en veu alta. Els agents l'apliquen quan es reinicien o comencen una conversa nova.",
   "preferences.saved": "Desat.",
   "preferences.saveFailed": "No s'ha pogut desar",
 
@@ -514,7 +516,7 @@ Coses que pots fer per ell:
   "settings.office.rulesHint": "(s'afegeix al prompt de sistema de cada agent)",
   "settings.office.rulesTitle": "Instruccions de l'oficina",
   "settings.office.rulesExpandedHint":
-    "S'afegeix al prompt de sistema de cada agent. Els canvis s'apliquen a la conversa següent.",
+    "S'afegeix al prompt de sistema de cada agent. Els canvis s'apliquen quan un agent es reinicia o comença una conversa nova.",
   "settings.office.rulesPlaceholder":
     "p. ex. Escriu sempre tests. Fes servir TypeScript. Sigues concís.",
   "settings.office.memoryHint":
@@ -555,7 +557,7 @@ Coses que pots fer per ell:
   "settings.room.promptPlaceholder":
     "p. ex. Ets a la sala de Màrqueting. Segueix la veu de la nostra marca.",
   "settings.room.promptNote":
-    "Els canvis s'apliquen a la conversa següent. Defineix les variables d'entorn a la pàgina Integracions.",
+    "Els canvis s'apliquen quan un agent es reinicia o comença una conversa nova. Defineix les variables d'entorn a la pàgina Integracions.",
   "settings.room.memoryHint":
     "(fets duradors d'aquesta sala; línies en brut; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memòria",
@@ -2888,7 +2890,7 @@ Coses que pots fer per ell:
   "commands.isomuxAllHands.footer":
     "Pregunta-ho al teu agent si vols saber més sobre qualsevol agent o conversa.",
   "commands.isomuxSystemPrompt.header":
-    "**Prompt de sistema complet** *(reflecteix la configuració actual; s'aplica a la propera conversa)*",
+    "**Prompt de sistema complet** *(reflecteix la configuració actual; s'aplica quan l'agent es reinicia o comença una conversa nova)*",
   "commands.isomuxCronjobSystemPrompt.noSchedules":
     "No hi ha cap programació configurada.",
   "commands.isomuxCronjobSystemPrompt.pick": "Tria una programació:",

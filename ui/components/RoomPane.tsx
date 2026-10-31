@@ -424,7 +424,7 @@ export function RoomPane({
         <ExpandableTextarea
           textareaRef={textareaRef}
           title={t("settings.room.promptTitle", { room: room.name })}
-          hint={t("common.nextConversation")}
+          hint={t("common.restartOrNewConversation")}
           value={prompt}
           onChange={setPrompt}
           placeholder={t("settings.room.promptPlaceholder")}

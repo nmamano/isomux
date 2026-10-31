@@ -405,6 +405,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.unread": "unread",
   "common.roomFallback": "Room {number}",
   "common.nextConversation": "Changes take effect on next conversation.",
+  "common.restartOrNewConversation":
+    "Changes take effect when an agent restarts or starts a new conversation.",
   "common.schedule": "Schedule",
   "common.discardPrompt": "Discard unsaved changes?",
   "common.delete": "Delete",
@@ -439,7 +441,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Your language follows you to every device you sign in from.",
   "preferences.language": "Language",
   "preferences.languageHint":
-    "The language of the interface, of what your agents write, and of voice input and playback. Agents pick it up on their next conversation.",
+    "The language of the interface, of what your agents write, and of voice input and playback. Agents pick it up when they restart or start a new conversation.",
   "preferences.saved": "Saved.",
   "preferences.saveFailed": "Could not save",
 
@@ -526,7 +528,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.rulesHint": "(added to the system prompt of every agent)",
   "settings.office.rulesTitle": "Office Instructions",
   "settings.office.rulesExpandedHint":
-    "Added to the system prompt of every agent. Changes take effect on next conversation.",
+    "Added to the system prompt of every agent. Changes take effect when an agent restarts or starts a new conversation.",
   "settings.office.rulesPlaceholder":
     "e.g. Always write tests. Use TypeScript. Be concise.",
   "settings.office.memoryHint":
@@ -565,7 +567,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.room.promptPlaceholder":
     "e.g. You're in the Marketing room. Match our brand voice.",
   "settings.room.promptNote":
-    "Changes take effect on next conversation. Set environment variables on the Integrations page.",
+    "Changes take effect when an agent restarts or starts a new conversation. Set environment variables on the Integrations page.",
   "settings.room.memoryHint":
     "(durable facts for this room; raw lines; {size} / {cap})",
   "settings.room.memoryTitle": "{room} · Memory",
@@ -2831,7 +2833,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
 
   // /isomux-system-prompt. The prompt itself is agent-facing and stays English.
   "commands.isomuxSystemPrompt.header":
-    "**Full system prompt** *(reflects current settings; takes effect on next conversation)*",
+    "**Full system prompt** *(reflects current settings; takes effect when the agent restarts or starts a new conversation)*",
 
   // /isomux-cronjob-system-prompt
   "commands.isomuxCronjobSystemPrompt.noSchedules":

@@ -2054,7 +2054,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   />
                   <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
                     {t("dialogs.agent.customInstructionsHint")}
-                    {!isSpawn && ` ${t("common.nextConversation")}`}
+                    {!isSpawn && ` ${t("common.restartOrNewConversation")}`}
                   </p>
                 </div>
                 {memoryBlock}
