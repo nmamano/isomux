@@ -95,16 +95,16 @@ it("a ignores typing, modifiers, and Settings", async () => {
 // "i" sets every page flag in one update, never the lone flip of "t" (task
 // f55581c3): App applies the whole update. Which flags each key sets is the
 // table in ui/routes.test.ts.
-it("i over Tasks over Apps shows Integrations, with Apps closed under it", async () => {
+it("i over Tasks over Apps shows the Inbox, with Apps closed under it", async () => {
   mount();
   await press("a");
   await press("t");
   expect(window.location.pathname).toBe("/tasks");
   await press("i");
-  expect(window.location.pathname).toBe("/integrations");
-  // Tasks on and off again: what is left underneath is Integrations, not
+  expect(window.location.pathname).toBe("/inbox/asks");
+  // Tasks on and off again: what is left underneath is the Inbox, not
   // Apps, which ranks above it.
   await press("t");
   await press("t");
-  expect(window.location.pathname).toBe("/integrations");
+  expect(window.location.pathname).toBe("/inbox/asks");
 });

@@ -184,8 +184,12 @@ const office: PageFlags = {
 };
 
 // Apply the returned setters as React does, including functional updates.
-function pressPageKey(state: PageFlags, key: string): PageFlags {
-  const update = pageShortcut({ key }, state);
+function pressPageKey(
+  state: PageFlags,
+  key: string,
+  inboxTab?: "pager" | "asks",
+): PageFlags {
+  const update = pageShortcut({ key, inboxTab }, state);
   expect(update !== null && update !== "home").toBe(true);
   if (update === null || update === "home")
     throw new Error("Expected page setters");
@@ -291,32 +295,44 @@ describe("page shortcuts and rendered-page precedence", () => {
     }
   });
 
-  // "i" sets every page flag in one update, never the lone flip of "t"
-  // (task f55581c3).
-  it("opens Integrations on i over any page, and clears the others", () => {
+  // "i" opens the Inbox (task d866bef9) and sets every page flag in one
+  // update, never the lone flip of "t" (task f55581c3). The tab is the one
+  // the bar's Inbox button opens, which App passes in; Asks without it.
+  it("opens the Inbox on i over any page below Settings, and clears the others", () => {
     const every = {
       ...office,
       tasksOpen: true,
       cronjobsOpen: true,
       appsOpen: true,
       skillsOpen: true,
-      pagerOpen: true,
-      asksOpen: true,
-    };
-    expect(pressPageKey(every, "i")).toEqual({
-      ...office,
       integrationsOpen: true,
+    };
+    expect(pressPageKey(every, "i")).toEqual({ ...office, asksOpen: true });
+    expect(pressPageKey(every, "i", "asks")).toEqual({
+      ...office,
+      asksOpen: true,
+    });
+    expect(pressPageKey(every, "i", "pager")).toEqual({
+      ...office,
+      pagerOpen: true,
     });
   });
 
-  it("closes Integrations on i only when it is the page shown", () => {
-    const open = pressPageKey(office, "i");
-    expect(pageShortcut({ key: "i" }, open)).toBe("home");
-    // Integrations, then t: Tasks is on top, so i brings Integrations back.
-    const underTasks = pressPageKey(open, "t");
-    expect(pageForFlags(underTasks)).toBe("tasks");
-    const back = pressPageKey(underTasks, "i");
-    expect(back).toEqual({ ...office, integrationsOpen: true });
+  it("closes the Inbox on i only when it is the page shown, on either tab", () => {
+    for (const tab of ["pager", "asks"] as const) {
+      const open = pressPageKey(office, "i", tab);
+      expect(pageForFlags(open)).toBe(tab);
+      // Shown on either tab, i closes it, whichever tab it would open.
+      expect(pageShortcut({ key: "i", inboxTab: "pager" }, open)).toBe("home");
+      expect(pageShortcut({ key: "i", inboxTab: "asks" }, open)).toBe("home");
+      // The Inbox, then t: Tasks is on top, so i brings the Inbox back.
+      const underTasks = pressPageKey(open, "t");
+      expect(pageForFlags(underTasks)).toBe("tasks");
+      expect(pressPageKey(underTasks, "i", tab)).toEqual({
+        ...office,
+        [flagForPage(tab)]: true,
+      });
+    }
   });
 
   it("keeps shortcuts out of inputs, modified keys, and Settings", () => {
@@ -363,14 +379,18 @@ describe("pageUnder", () => {
   // member can reach, shows the page it opened on top. A key that opened its
   // page under the one shown would make Escape close the wrong layer.
   it("every shortcut shows the page it opens, from every reachable state", () => {
+    for (const inboxTab of ["pager", "asks"] as const) walkShortcuts(inboxTab);
+  });
+
+  function walkShortcuts(inboxTab: "pager" | "asks") {
     const KEY_PAGE: Record<string, Page> = {
       t: "tasks",
       a: "apps",
-      i: "integrations",
+      i: inboxTab,
       s: "settings",
     };
     const apply = (state: PageFlags, key: string): PageFlags | null => {
-      const update = pageShortcut({ key }, state);
+      const update = pageShortcut({ key, inboxTab }, state);
       if (update === null) return null;
       const top = pageForFlags(state);
       // "home" closes the page on top (App's closePage).
@@ -404,7 +424,7 @@ describe("pageUnder", () => {
         if (next === null) continue;
         queue.push(next);
         const opened =
-          pageShortcut({ key }, state) !== "home" &&
+          pageShortcut({ key, inboxTab }, state) !== "home" &&
           !(key === "t" && state.tasksOpen);
         if (opened) expect(pageForFlags(next)).toBe(KEY_PAGE[key]);
       }
@@ -417,7 +437,7 @@ describe("pageUnder", () => {
       return depth;
     });
     expect(Math.max(...depths)).toBe(3);
-  });
+  }
 });
 
 describe("backRoomShortcut", () => {

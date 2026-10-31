@@ -85,10 +85,10 @@ export const chatShowing = (view: View) =>
 
 /** The shortcut, the marker its page renders, the path it shows at, and which
  *  of the shared cases this page carries. sameKeyCase: pressing the key again
- *  closes the page (Settings only opens; "i" closes through the same line as
- *  "a", so only "t" and "a" carry it). back: Back runs App's popstate handler,
- *  which is the same for every page, so one page carries it. Escape and Close
- *  are wired per page, so every page carries them. */
+ *  closes the page (Settings only opens, so only "t" and "a" carry it).
+ *  back: Back runs App's popstate handler, which is the same for every page,
+ *  so one page carries it. Escape and Close are wired per page, so every page
+ *  carries them. */
 export interface OverChatPage {
   key: string;
   marker: string;

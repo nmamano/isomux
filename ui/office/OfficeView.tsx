@@ -545,7 +545,6 @@ export function OfficeView({
             id: "integrations",
             icon: PlugIcon,
             label: t("common.integrations"),
-            title: t("nav.integrationsShortcut"),
             onClick: onOpenIntegrations,
           },
         ]

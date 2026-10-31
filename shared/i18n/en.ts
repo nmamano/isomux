@@ -413,7 +413,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.confirmQuestion": "Confirm?",
   "nav.tasksShortcut": "Tasks (t)",
   "nav.appsShortcut": "Apps (a)",
-  "nav.integrationsShortcut": "Integrations (i)",
   "nav.settingsShortcut": "Settings (s)",
   "common.moreActions": "More actions",
   "common.settings": "Settings",
@@ -3485,8 +3484,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "pager.discord.test": "Test page from Isomux.",
   // The Inbox, its nav entry and its Pages tab (ui/components/InboxView.tsx).
   "nav.inbox": "Inbox",
-  "nav.inboxOpenCount.one": "Inbox: {count} open item",
-  "nav.inboxOpenCount.other": "Inbox: {count} open items",
+  "nav.inboxShortcut": "Inbox (i)",
+  "nav.inboxOpenCount.one": "Inbox (i): {count} open item",
+  "nav.inboxOpenCount.other": "Inbox (i): {count} open items",
   "inbox.tab.pages": "Pages",
   // The Pages tab (ui/components/PagerView.tsx).
   "pager.view.shown": "{count} shown",

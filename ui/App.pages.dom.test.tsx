@@ -45,7 +45,7 @@ const DOORS: Array<{ page: Page; title: string; marker: string }> = [
   },
   {
     page: "integrations",
-    title: en["nav.integrationsShortcut"],
+    title: en["common.integrations"],
     marker: "[data-integrations-page]",
   },
   {

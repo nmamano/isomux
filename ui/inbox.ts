@@ -100,7 +100,9 @@ export function useInboxNavAction(
     id: "inbox",
     icon: InboxIcon,
     label: i18n.t("nav.inbox"),
-    title: open ? i18n.tn("nav.inboxOpenCount", open) : i18n.t("nav.inbox"),
+    title: open
+      ? i18n.tn("nav.inboxOpenCount", open)
+      : i18n.t("nav.inboxShortcut"),
     onClick: () => onOpen(inboxTabFor(counts)),
     badge: counts.pages + counts.newAsks,
   };

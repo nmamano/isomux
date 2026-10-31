@@ -190,7 +190,7 @@ export function flagForPage(page: Page): keyof PageFlags {
  *  It reads open order from pageForFlags' precedence, which holds because
  *  every door opens its page on top: "s" sets only Settings, "t" is the only
  *  key that leaves lower flags set, and "a" and "i" clear every flag under
- *  Settings. So a stack is at most Settings over Tasks over one other page.
+ *  Settings but their own page's. So a stack is at most Settings over Tasks over one other page.
  *  A door that opened a page UNDER the one shown would break this; the
  *  pageShortcut test in routes.test.ts goes red on such a key. */
 export function pageUnder(flags: PageFlags): Page | null {
@@ -209,6 +209,9 @@ export interface PageShortcutInput {
   /** Set only by the keyup path, when createLoneShiftTracker saw Shift
    *  pressed and released with no other key in between. */
   loneShift?: boolean;
+  /** The Inbox tab "i" opens: the tab of the bar's Inbox entry (inboxTabFor
+   *  in ui/inbox.ts). */
+  inboxTab?: "pager" | "asks";
 }
 
 export interface PageShortcutUpdate {
@@ -253,19 +256,21 @@ export function pageShortcut(
       asksOpen: false,
     };
   }
-  // Integrations sets every page flag in one update, unlike "t" (task
+  // The Inbox sets every page flag in one update, unlike "t" (task
   // f55581c3), and closes only when it is the page shown: over Tasks it
   // comes to the front.
   if (input.key === "i") {
-    if (pageForFlags(flags) === "integrations") return "home";
+    const top = pageForFlags(flags);
+    if (top === "pager" || top === "asks") return "home";
+    const tab = input.inboxTab ?? "asks";
     return {
       tasksOpen: false,
       cronjobsOpen: false,
       appsOpen: false,
       skillsOpen: false,
-      integrationsOpen: true,
-      pagerOpen: false,
-      asksOpen: false,
+      integrationsOpen: false,
+      pagerOpen: tab === "pager",
+      asksOpen: tab === "asks",
     };
   }
   // Settings only opens; leaving it must pass its own unsaved-edit guard.

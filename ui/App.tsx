@@ -36,7 +36,7 @@ import { usePagerSync } from "./pager-sync.ts";
 import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
 import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
-import type { InboxTab } from "./inbox.ts";
+import { inboxTabFor, useInboxCounts, type InboxTab } from "./inbox.ts";
 import { useAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
@@ -210,6 +210,11 @@ export function App({ routing = true }: { routing?: boolean }) {
     setAsksOpen(tab === "asks");
     if (tab !== "pager") setPagerSelectRequest(null);
   }, []);
+  // "i" opens the tab the bar's Inbox entry would: in a chat, the chat bar's,
+  // which leaves out the asks the chat already shows.
+  const shortcutInboxTab = inboxTabFor(
+    useInboxCounts(focusedAgentId ?? undefined),
+  );
   usePagerSync();
   useAsksSync();
 
@@ -812,6 +817,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
           altKey: e.altKey,
+          inboxTab: shortcutInboxTab,
         },
         {
           usersOpen,
@@ -842,6 +848,7 @@ export function App({ routing = true }: { routing?: boolean }) {
             setPagerOpen(pageUpdate.pagerOpen);
           if (pageUpdate.asksOpen !== undefined)
             setAsksOpen(pageUpdate.asksOpen);
+          if (pageUpdate.asksOpen) setPagerSelectRequest(null);
           // "s" opens the settings of the room you are standing in; the lobby
           // has no room row, so it opens the office row instead (Nil, 2026-09-14).
           if (pageUpdate.usersOpen)
@@ -981,6 +988,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     cronjobsOpen,
     pagerOpen,
     asksOpen,
+    shortcutInboxTab,
     openSettings,
     lobbyOpen,
     backRoomOpen,

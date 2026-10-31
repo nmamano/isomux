@@ -258,7 +258,7 @@ describe("back from an MCP sign-in", () => {
       view.getByRole("button", { name: t("common.back") }).click();
     });
     await act(async () => {
-      view.getByTitle(t("nav.integrationsShortcut")).click();
+      view.getByTitle(t("common.integrations")).click();
     });
     await act(async () => {
       (
