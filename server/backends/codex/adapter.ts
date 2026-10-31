@@ -62,8 +62,13 @@ import { BackendNotConfiguredError } from "../../internal-types.ts";
 import {
   codexRolloutFileExists,
   codexSessionsDir,
+  findCodexRolloutPath,
   inspectCodexStoredSession,
 } from "../../cwd-utils.ts";
+import {
+  codexInstructionsUpdate,
+  rolloutLines,
+} from "./instructions-update.ts";
 
 import type {
   ApprovalDecision,
@@ -1277,13 +1282,15 @@ export class CodexSession implements BackendSession {
       let threadInPlanMode = false;
       if (this.opts.resumeThreadId) {
         // Resume an existing thread. Pass current settings as overrides so
-        // a UI-side change to permissionMode/sandbox/model/systemPrompt
-        // propagates instead of being stuck on whatever the thread was born
-        // with - editAgent replaceSession → resumeSession is the path that
+        // a UI-side change to permissionMode/sandbox/model propagates
+        // instead of being stuck on whatever the thread was born with -
+        // editAgent replaceSession → resumeSession is the path that
         // exercises this, and without the overrides the resumed thread
-        // silently keeps the original policy.
+        // silently keeps the original policy. developerInstructions does not
+        // reach the thread's history: applyCurrentInstructions carries a
+        // changed systemPrompt.
         const resumeResp = await this.client.request<{
-          thread: { id: string };
+          thread: { id: string; path?: string | null };
           modelProvider?: string;
           collaborationMode?: { mode?: string } | null;
         }>("thread/resume", {
@@ -1300,6 +1307,10 @@ export class CodexSession implements BackendSession {
         if (resumeResp.modelProvider)
           this.modelProvider = resumeResp.modelProvider;
         threadInPlanMode = resumeResp.collaborationMode?.mode === "plan";
+        await this.applyCurrentInstructions(
+          resumeResp.thread.id,
+          resumeResp.thread.path ?? null,
+        );
       } else {
         const startParams = this.buildThreadStartParams(sandboxChoice.sandbox);
         const startResp = await this.client.request<{
@@ -1360,6 +1371,33 @@ export class CodexSession implements BackendSession {
         this.enqueue({ kind: "system_text", text: safety.warning });
       }
       this.markEnded();
+    }
+  }
+
+  // A resumed thread reads the developer instructions it started with
+  // (instructions-update.ts): append the current prompt when it differs. A
+  // failure keeps the thread on its earlier instructions, so it is logged
+  // and never blocks the resume.
+  private async applyCurrentInstructions(
+    threadId: string,
+    rolloutPath: string | null,
+  ): Promise<void> {
+    try {
+      const path = rolloutPath || findCodexRolloutPath(threadId, this.opts.env);
+      if (!path) throw new Error("no rollout file for the thread");
+      const update = await codexInstructionsUpdate(
+        rolloutLines(path),
+        this.opts.systemPrompt,
+      );
+      if (!update) return;
+      await this.client.request("thread/inject_items", {
+        threadId,
+        items: [update],
+      });
+    } catch (err) {
+      console.error(
+        `[codex] ${this.opts.agentId}: the resumed thread keeps its earlier instructions: ${errMessage(err)}`,
+      );
     }
   }
 

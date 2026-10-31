@@ -26,11 +26,11 @@
 //   OPENAI_API_KEY=sk-... ISOMUX_TEST_LIVE=1 bun test server/backends/live-smoke.test.ts
 import { afterAll, describe, expect, it } from "bun:test";
 import { randomBytes } from "crypto";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { claudeProjectDir } from "../cwd-utils.ts";
+import { claudeProjectDir, findCodexRolloutPath } from "../cwd-utils.ts";
 import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import { LIVE } from "../test-support/live-gate.ts";
@@ -45,6 +45,9 @@ import type {
   NormalizedMessage,
   SessionAccessOptions,
 } from "./types.ts";
+
+// A response_item payload in a Codex rollout, as far as the checks read it.
+type Item = { role?: string; content?: { text?: string }[] };
 
 // Isomux's own words arrive as messages (task c37a7365); the checks read the
 // English a reader would see.
@@ -396,8 +399,10 @@ for (const cfg of PROVIDERS) {
 
     // Task 70ecad52: the Claude SDK records a session's system prompt at its
     // first request and, by default, sends that record on every resume, so an
-    // edited instruction never reached a resumed agent. The new code word can
-    // only come from the prompt the resume was launched with.
+    // edited instruction never reached a resumed agent. Task d6550a09: Codex
+    // writes developer instructions into the thread only at thread/start, so
+    // the adapter injects a changed prompt after thread/resume. The new code
+    // word can only come from the prompt the resume was launched with.
     it(
       "a resume reads the system prompt it is launched with",
       async () => {
@@ -434,6 +439,32 @@ for (const cfg of PROVIDERS) {
         const reply = resumed.turns[0].text.toLowerCase();
         expect(reply).not.toContain(oldWord);
         expect(reply).toContain(newWord);
+
+        // Codex carries a changed prompt as one update in the thread's
+        // rollout (task d6550a09). A second resume with the same prompt adds
+        // none: an update the adapter cannot read back (a Codex rollout
+        // format change) would add a prompt copy at every resume.
+        if (cfg.name === "codex") {
+          const again = await runTurns(
+            cfg,
+            openSession(cfg, cwd, first.sessionId, promptWith(newWord)),
+            [ask],
+          );
+          expect(again.turns[0].status, told(cfg, again.turns)).toBe(
+            "completed",
+          );
+          expect(again.turns[0].text.toLowerCase()).toContain(newWord);
+          const path = findCodexRolloutPath(first.sessionId, process.env);
+          expect(path).toBeTruthy();
+          const updates = readFileSync(path!, "utf8")
+            .split("\n")
+            .filter((line) => line.includes('"response_item"'))
+            .map((line) => JSON.parse(line) as { payload?: Item })
+            .filter((entry) => entry.payload?.role === "developer")
+            .flatMap((entry) => entry.payload?.content ?? [])
+            .filter((part) => part.text?.includes(newWord));
+          expect(updates).toHaveLength(1);
+        }
       },
       TEST_TIMEOUT_MS,
     );

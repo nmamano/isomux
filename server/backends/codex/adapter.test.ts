@@ -90,6 +90,10 @@ class FakeCodexTransport implements CodexTransport {
   resumeCollaborationMode: unknown = null;
   // thread/start and thread/resume answer with this modelProvider when set.
   modelProvider: string | null = null;
+  // thread/resume answers with this thread.path (the rollout file).
+  resumePath: string | null = null;
+  // When set, request("thread/inject_items") rejects with it.
+  injectItemsError: Error | null = null;
   settingsUpdateError: Error | null = null;
   // When set, request("turn/steer") rejects with it (codex refuses the steer).
   turnSteerError: Error | null = null;
@@ -150,10 +154,15 @@ class FakeCodexTransport implements CodexTransport {
           ? { modelProvider: this.modelProvider }
           : {}),
         ...(method === "thread/resume"
-          ? { collaborationMode: this.resumeCollaborationMode }
+          ? {
+              collaborationMode: this.resumeCollaborationMode,
+              thread: { id: this.threadId, path: this.resumePath },
+            }
           : {}),
       } as T);
     }
+    if (method === "thread/inject_items" && this.injectItemsError)
+      return Promise.reject(this.injectItemsError);
     if (method === "thread/settings/update" && this.settingsUpdateError)
       return Promise.reject(this.settingsUpdateError);
     if (method === "turn/steer" && this.turnSteerError)
@@ -443,6 +452,177 @@ describe("CodexSession bootstrap", () => {
     expect(init.sessionId).toBe("resumed-thread-9");
     expect(fake.requests.map((r) => r.method)).toEqual(["thread/resume"]);
     expect(fake.requests[0].params).toMatchObject({ excludeTurns: true });
+  });
+
+  // Task d6550a09: Codex keeps the developer instructions a thread started
+  // with, so after thread/resume the adapter reads the rollout and appends
+  // the current prompt when the thread reads another one. This happens
+  // before system_init, so before any turn.
+  describe("resume: current instructions", () => {
+    const OLD_PROMPT = "You are agent A. The code word is plover.";
+    const NEW_PROMPT = "You are agent B. The code word is curlew.";
+    const THREAD_UUID = "01a02c02-2baa-7d22-88e9-3ca69e60277c";
+    // thread/start's developer message: Codex's own text, then the prompt.
+    const startedWith = (prompt: string): string =>
+      [
+        JSON.stringify({ type: "session_meta", payload: { id: THREAD_UUID } }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "developer",
+            content: [
+              { type: "input_text", text: "<permissions instructions>" },
+              { type: "input_text", text: prompt },
+            ],
+          },
+        }),
+      ].join("\n") + "\n";
+    function rollout(prompt: string): string {
+      const dir = mkdtempSync(join(tmpdir(), "codex-instructions-"));
+      tempDirs.push(dir);
+      const path = join(
+        dir,
+        `rollout-2026-10-31T00-00-00-${THREAD_UUID}.jsonl`,
+      );
+      writeFileSync(path, startedWith(prompt));
+      return path;
+    }
+    function captureErrors(): { lines: string[]; restore: () => void } {
+      const lines: string[] = [];
+      const spy = spyOn(console, "error").mockImplementation((...args) => {
+        lines.push(args.map(String).join(" "));
+      });
+      return { lines, restore: () => spy.mockRestore() };
+    }
+    async function resume(
+      fake: FakeCodexTransport,
+      overrides: Partial<CodexSessionInitOpts> = {},
+    ): Promise<string[]> {
+      fake.threadId = THREAD_UUID;
+      const { it } = start(fake, {
+        agentId: "agent-codex-7",
+        systemPrompt: NEW_PROMPT,
+        resumeThreadId: THREAD_UUID,
+        ...overrides,
+      });
+      const init = expectKind(
+        await nextEvent(it, "system_init"),
+        "system_init",
+      );
+      expect(init.sessionId).toBe(THREAD_UUID);
+      return fake.requests.map((r) => r.method);
+    }
+
+    it("a changed prompt is injected into the thread before system_init", async () => {
+      const fake = new FakeCodexTransport();
+      fake.resumePath = rollout(OLD_PROMPT);
+      const errors = captureErrors();
+      try {
+        expect(await resume(fake)).toEqual([
+          "thread/resume",
+          "thread/inject_items",
+        ]);
+      } finally {
+        errors.restore();
+      }
+      expect(errors.lines).toEqual([]);
+      const params = fake.requests[1].params as {
+        threadId: string;
+        items: { type: string; role: string; content: { text: string }[] }[];
+      };
+      expect(params.threadId).toBe(THREAD_UUID);
+      expect(params.items).toHaveLength(1);
+      expect(params.items[0]).toMatchObject({
+        type: "message",
+        role: "developer",
+      });
+      expect(params.items[0].content).toHaveLength(1);
+      expect(params.items[0].content[0].text).toContain(NEW_PROMPT);
+      expect(params.items[0].content[0].text).not.toContain(OLD_PROMPT);
+    });
+
+    it("an unchanged prompt injects nothing and logs nothing", async () => {
+      const fake = new FakeCodexTransport();
+      fake.resumePath = rollout(NEW_PROMPT);
+      const errors = captureErrors();
+      try {
+        expect(await resume(fake)).toEqual(["thread/resume"]);
+      } finally {
+        errors.restore();
+      }
+      expect(errors.lines).toEqual([]);
+    });
+
+    // thread.path is [UNSTABLE] and nullable in the app-server schema: the
+    // rollout is then found under the session's CODEX_HOME.
+    it("without thread.path, the rollout is found under CODEX_HOME", async () => {
+      const home = mkdtempSync(join(tmpdir(), "codex-instructions-home-"));
+      tempDirs.push(home);
+      const day = join(home, "sessions", "2026", "10", "31");
+      mkdirSync(day, { recursive: true });
+      writeFileSync(
+        join(day, `rollout-2026-10-31T00-00-00-${THREAD_UUID}.jsonl`),
+        startedWith(OLD_PROMPT),
+      );
+      const fake = new FakeCodexTransport();
+      const errors = captureErrors();
+      try {
+        expect(await resume(fake, { env: { CODEX_HOME: home } })).toEqual([
+          "thread/resume",
+          "thread/inject_items",
+        ]);
+      } finally {
+        errors.restore();
+      }
+      expect(errors.lines).toEqual([]);
+    });
+
+    // A failure keeps the earlier instructions: one log line that names the
+    // agent, and the thread starts as usual.
+    const failures: [string, (fake: FakeCodexTransport) => void, string[]][] = [
+      [
+        "a refused inject",
+        (fake) => {
+          fake.resumePath = rollout(OLD_PROMPT);
+          fake.injectItemsError = new Error("unknown method");
+        },
+        ["thread/resume", "thread/inject_items"],
+      ],
+      [
+        "no rollout file",
+        (fake) => {
+          fake.resumePath = null;
+        },
+        ["thread/resume"],
+      ],
+      [
+        "an unreadable rollout",
+        (fake) => {
+          fake.resumePath = join(tmpdir(), `missing-${THREAD_UUID}.jsonl`);
+        },
+        ["thread/resume"],
+      ],
+    ];
+    it.each(failures)(
+      "%s does not fail the resume",
+      async (_name, arrange, methods) => {
+        const fake = new FakeCodexTransport();
+        arrange(fake);
+        const errors = captureErrors();
+        try {
+          expect(
+            await resume(fake, {
+              env: { CODEX_HOME: join(tmpdir(), "no-codex-home-d6550a09") },
+            }),
+          ).toEqual(methods);
+        } finally {
+          errors.restore();
+        }
+        expect(errors.lines).toHaveLength(1);
+        expect(errors.lines[0]).toContain("agent-codex-7");
+      },
+    );
   });
 
   // The backend-level oneShotPrompt opens its own JsonRpcLiteClient and
