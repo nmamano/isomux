@@ -22,13 +22,18 @@ import {
   created,
   fail,
   noContent,
+  file,
   type RouteHandler,
 } from "../executor.ts";
+import { randomUUID } from "crypto";
+import { basename, extname } from "path";
+import { downloadHeader, mimeTypeForFilename } from "../../mime-types.ts";
 import type { Identity } from "../../identity/index.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
   type AskEntry,
+  type AskReadFile,
   type TaskItem,
 } from "../../../shared/types.ts";
 import {
@@ -86,9 +91,16 @@ export interface AsksDeps {
   affordances: {
     checkCommand(raw: string): CommandCheck;
     probeEditFile(agentId: string, rawPath: string): EditFileCheck | null;
-    probeReadFile(agentId: string, rawPath: string): ReadFileCheck | null;
+    probeReadFile(
+      agentId: string,
+      rawPath: string,
+      opts?: { capped?: boolean },
+    ): ReadFileCheck | null;
     copyReadFile(agentId: string, absPath: string): AskReadFileCopy | null;
   };
+  // The served file's headers, as agents.getFile sends them.
+  contentTypeFor(filename: string): string;
+  untrustedFileHeaders(): Record<string, string>;
   // Deliver the member's message to the agent, carrying the ask (and the
   // task it was filed as). Resolves at the acceptance decision, as a typed
   // member message does.
@@ -131,6 +143,11 @@ const COMMAND_REFUSALS: Record<
   too_long: `a command must be at most ${TERMINAL_COMMAND_MAX_LEN} characters`,
   multi_line: "a command must be one line; join steps with && or ;",
 };
+
+// A video or audio file in an ask is referenced where it is, not copied, and
+// has no size cap; any other read file is copied.
+const referencedInPlace = (path: string) =>
+  /^(video|audio)\//.test(mimeTypeForFilename(basename(path)));
 
 // An ask's refused path as an HTTP error: a credential store is forbidden,
 // anything else is the affordance's own 422.
@@ -288,8 +305,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   }
 
   // The chat's checks on every sent item, then the copies of the read
-  // files: a refusal before the copies leaves the files dir as it was. A
-  // sent empty list becomes null (remove).
+  // files and the references: a refusal before the copies leaves the files
+  // dir as it was. A sent empty list becomes null (remove).
   function resolveAffordances(
     agentId: string,
     lists: { [K in keyof AskAffordances]?: string[] },
@@ -319,16 +336,38 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         return { ok: false, result: pathRefused(probe, "invalid_edit_file") };
       editFiles.push(probe.file);
     }
-    const readPaths: string[] = [];
+    const readPaths: { path: string; size: number }[] = [];
     for (const raw of lists.readFiles ?? []) {
-      const probe = deps.affordances.probeReadFile(agentId, raw);
+      const probe = deps.affordances.probeReadFile(agentId, raw, {
+        capped: false,
+      });
       if (!probe) return gone;
       if (!probe.ok)
         return { ok: false, result: pathRefused(probe, "invalid_read_file") };
-      readPaths.push(probe.path);
+      if (!referencedInPlace(probe.path) && probe.size > MAX_READ_FILE_BYTES)
+        return {
+          ok: false,
+          result: pathRefused(
+            { kind: "too_large", path: probe.path, size: probe.size },
+            "invalid_read_file",
+          ),
+        };
+      readPaths.push(probe);
     }
-    const readFiles = [];
-    for (const path of readPaths) {
+    const readFiles: AskReadFile[] = [];
+    for (const { path, size } of readPaths) {
+      if (referencedInPlace(path)) {
+        const originalName = basename(path);
+        readFiles.push({
+          // A fresh name: an edit that sends the file again gets a new URL.
+          filename: `${randomUUID()}${extname(path)}`,
+          originalName,
+          mediaType: mimeTypeForFilename(originalName),
+          size,
+          path,
+        });
+        continue;
+      }
       const copied = deps.affordances.copyReadFile(agentId, path);
       if (!copied) return gone;
       if (!copied.ok)
@@ -671,5 +710,25 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.reply": guarded(answer(false)),
     "asks.dismiss": guarded(answer(true)),
     "asks.fileTask": guarded(fileTask),
+    // A file the ask references where it is. The path is probed again on
+    // every request: the file can be gone or replaced since the ask was
+    // made. Served as agents.getFile serves a copy.
+    "asks.getFile": guarded((ctx) => {
+      const entry = addressedTo(ctx.identity, ctx.params.askId);
+      const ref = entry?.readFiles?.find(
+        (f) => f.filename === ctx.params.filename && f.path !== undefined,
+      );
+      const noFile = () =>
+        fail(404, "not_found", "No such file in an open ask.");
+      if (!entry || !ref?.path) return noFile();
+      const probe = deps.affordances.probeReadFile(entry.agentId, ref.path, {
+        capped: false,
+      });
+      if (!probe?.ok) return noFile();
+      return file(probe.path, deps.contentTypeFor(ref.filename), {
+        ...deps.untrustedFileHeaders(),
+        ...downloadHeader(ctx.query, ref.filename),
+      });
+    }),
   };
 }

@@ -16,6 +16,7 @@
 // LEAF: imports only shared types and the atomic writer.
 
 import { readFileSync, renameSync } from "fs";
+import { isAbsolute } from "path";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -23,7 +24,7 @@ import {
   type AskEntry,
   type AskMemberWire,
   type AskRef,
-  type Attachment,
+  type AskReadFile,
   type FilePayload,
   type SecretAskRequest,
   type StepAskRequest,
@@ -149,6 +150,12 @@ const isAttachment = (v: unknown) =>
   typeof v.originalName === "string" &&
   typeof v.mediaType === "string" &&
   typeof v.size === "number";
+// A copy, or a reference: the route serves whatever `path` names, so only an
+// absolute path loads.
+const isAskReadFile = (v: unknown) =>
+  isAttachment(v) &&
+  isObject(v) &&
+  (v.path === undefined || (typeof v.path === "string" && isAbsolute(v.path)));
 
 // Three shapes: a plain ask and a personal secret request are for one
 // member; an office secret request is for every office owner and names no
@@ -208,7 +215,7 @@ function isAskEntry(v: unknown): v is AskEntry {
     (r.commands !== undefined &&
       !isListOf(r.commands, (c) => typeof c === "string" && c !== "")) ||
     (r.editFiles !== undefined && !isListOf(r.editFiles, isFilePayload)) ||
-    (r.readFiles !== undefined && !isListOf(r.readFiles, isAttachment))
+    (r.readFiles !== undefined && !isListOf(r.readFiles, isAskReadFile))
   )
     return false;
   if (r.secret === undefined) return hasMember;
@@ -330,7 +337,7 @@ export function checkRecommended(
 export interface AskAffordances {
   commands?: string[];
   editFiles?: FilePayload[];
-  readFiles?: Attachment[];
+  readFiles?: AskReadFile[];
 }
 export type AskAffordanceEdit = {
   [K in keyof AskAffordances]?: AskAffordances[K] | null;
@@ -559,7 +566,9 @@ export function askTaskFields(
     parts.push(`Commands:\n${entry.commands.map((c) => `- ${c}`).join("\n")}`);
   const files = [
     ...(entry.editFiles ?? []).map((f) => f.path),
-    ...(entry.readFiles ?? []).map((f) => f.originalName),
+    // A reference by its path: the task outlives the ask, and the path is
+    // the way back to the file.
+    ...(entry.readFiles ?? []).map((f) => f.path ?? f.originalName),
   ];
   if (files.length > 0)
     parts.push(`Files:\n${files.map((f) => `- ${f}`).join("\n")}`);

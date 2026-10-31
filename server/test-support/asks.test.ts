@@ -9,7 +9,10 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
+  symlinkSync,
   truncateSync,
+  unlinkSync,
   writeFileSync,
 } from "fs";
 import { join } from "path";
@@ -1997,12 +2000,39 @@ describe("chat affordances on an ask", () => {
 
   // Task 3f5b8f33: an .mp4 was stored as application/octet-stream, so the
   // card could not play it. iPhone browsers also need byte ranges to play.
-  it("keeps a video's and an audio file's type, and serves the video in byte ranges", async () => {
+  // Task 37a660e8: a video or audio file is referenced where it is, not
+  // copied, so a large video costs no copy and has no size cap.
+  const referenced = (e: AskEntry) =>
+    (e.readFiles ?? []).map((a) => [
+      a.originalName,
+      a.mediaType,
+      a.size,
+      (a as { path?: string }).path ?? null,
+    ]);
+  const askFile = (
+    w: Awaited<ReturnType<typeof world>>,
+    askId: string,
+    filename: string,
+    rawSessionId: string,
+    headers: Record<string, string> = {},
+    query = "",
+  ) =>
+    w.srv.http(`/api/asks/${askId}/files/${filename}${query}`, {
+      method: "GET",
+      rawSessionId,
+      headers,
+    });
+
+  it("references a video or an audio file where it is, with no copy and no size cap, and serves its current bytes in byte ranges", async () => {
     const w = await world();
-    const cwd = agentOf(w.srv, w.asker.id).cwd;
+    const cwd = seed(w);
     const VIDEO = Buffer.from(Array.from({ length: 100 }, (_, i) => i));
     writeFileSync(join(cwd, "short.mp4"), VIDEO);
     writeFileSync(join(cwd, "voice.mp3"), Buffer.from([0xff, 0xfb, 0x90]));
+    // Over read-file's 20 MB cap (sparse, so it costs no disk).
+    const BIG = 20 * 1024 * 1024 + 1;
+    writeFileSync(join(cwd, "long.mp4"), "");
+    truncateSync(join(cwd, "long.mp4"), BIG);
     const made = await call(
       w.srv,
       "POST",
@@ -2011,43 +2041,200 @@ describe("chat affordances on an ask", () => {
       {
         json: {
           text: "Publish this Short?",
-          readFiles: ["short.mp4", "voice.mp3"],
+          readFiles: ["plot.png", "short.mp4", "voice.mp3", "long.mp4"],
         },
       },
     );
     expect(made.status).toBe(201);
     const entry = made.body as AskEntry;
-    const want = {
-      commands: null,
-      editFiles: null,
-      readFiles: [
-        ["short.mp4", "video/mp4", VIDEO.length],
-        ["voice.mp3", "audio/mpeg", 3],
-      ],
-    };
-    expect(affordances(entry)).toEqual(want);
-    expect(affordances(stored(w, entry.id)!)).toEqual(want);
-
-    const res = await w.srv.http(
-      `/api/files/${w.asker.id}/${entry.readFiles![0].filename}`,
-      {
-        method: "GET",
+    // The list keeps its order; only the image is a copy, the media files
+    // carry the absolute path they are served from.
+    const want = [
+      ["plot.png", "image/png", PNG.length, null],
+      ["short.mp4", "video/mp4", VIDEO.length, join(cwd, "short.mp4")],
+      ["voice.mp3", "audio/mpeg", 3, join(cwd, "voice.mp3")],
+      ["long.mp4", "video/mp4", BIG, join(cwd, "long.mp4")],
+    ];
+    expect(referenced(entry)).toEqual(want);
+    expect(referenced(stored(w, entry.id)!)).toEqual(want);
+    const [listed] = (
+      await call(w.srv, "GET", "/api/asks", {
         rawSessionId: w.owner.rawSessionId,
-        headers: { Range: "bytes=10-19" },
-      },
-    );
+      })
+    ).body as AskEntry[];
+    expect(referenced(listed)).toEqual(want);
+    // Only the image was copied into the files dir.
+    const [png, video, voice, long] = entry.readFiles!;
+    expect(filesDir(w)).toEqual([png.filename]);
+    // Each reference has its own name, with the original extension for the
+    // served type.
+    expect(new Set([video, voice, long].map((a) => a.filename)).size).toBe(3);
+    expect(
+      [video, voice, long].map((a) => a.filename.split(".").pop()),
+    ).toEqual(["mp4", "mp3", "mp4"]);
+
+    const owner = w.owner.rawSessionId;
+    const res = await askFile(w, entry.id, video.filename, owner, {
+      Range: "bytes=10-19",
+    });
     expect({
       status: res.status,
       type: res.headers.get("content-type"),
       range: res.headers.get("content-range"),
+      cache: res.headers.get("cache-control"),
+      nosniff: res.headers.get("x-content-type-options"),
     }).toEqual({
       status: 206,
       type: "video/mp4",
       range: `bytes 10-19/${VIDEO.length}`,
+      cache: "private, no-cache",
+      nosniff: "nosniff",
     });
     expect(
       Buffer.from(await res.arrayBuffer()).equals(VIDEO.subarray(10, 20)),
     ).toBe(true);
+    const audio = await askFile(w, entry.id, voice.filename, owner);
+    expect([audio.status, audio.headers.get("content-type")]).toEqual([
+      200,
+      "audio/mpeg",
+    ]);
+    expect(Buffer.from(await audio.arrayBuffer())).toEqual(
+      Buffer.from([0xff, 0xfb, 0x90]),
+    );
+    // The file over the cap is served too: its last byte, by range.
+    const tail = await askFile(w, entry.id, long.filename, owner, {
+      Range: `bytes=${BIG - 1}-${BIG - 1}`,
+    });
+    expect([tail.status, tail.headers.get("content-range")]).toEqual([
+      206,
+      `bytes ${BIG - 1}-${BIG - 1}/${BIG}`,
+    ]);
+    // A download carries the name it asks for.
+    const download = await askFile(
+      w,
+      entry.id,
+      video.filename,
+      owner,
+      {},
+      "?download=short.mp4",
+    );
+    expect(download.status).toBe(200);
+    expect(download.headers.get("content-disposition")).toContain("attachment");
+
+    // Not a snapshot: the card plays the bytes at the path now.
+    const NEW = Buffer.from("new cut");
+    writeFileSync(join(cwd, "short.mp4"), NEW);
+    const again = await askFile(w, entry.id, video.filename, owner);
+    expect(again.status).toBe(200);
+    expect(Buffer.from(await again.arrayBuffer()).equals(NEW)).toBe(true);
+  });
+
+  it("serves a reference only to the ask's member, while the ask is open and the path is a regular file outside the credential store", async () => {
+    const w = await world();
+    const cwd = seed(w);
+    const CLIP = Buffer.from("clip bytes");
+    const clipPath = join(cwd, "clip.mp4");
+    writeFileSync(clipPath, CLIP);
+    const made = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/asks`,
+      w.as(w.asker.id),
+      {
+        json: {
+          text: "Approve the clip?",
+          readFiles: ["plot.png", "clip.mp4"],
+        },
+      },
+    );
+    expect(made.status).toBe(201);
+    const entry = made.body as AskEntry;
+    const [png, clip] = entry.readFiles!;
+    const owner = w.owner.rawSessionId;
+    const get = async (filename: string, session = owner) => {
+      const r = await askFile(w, entry.id, filename, session);
+      const body = Buffer.from(await r.arrayBuffer());
+      if (r.status === 200) return body.equals(CLIP) ? "200 clip" : "200 other";
+      const code = (
+        JSON.parse(body.toString()) as { error?: { code?: string } }
+      ).error?.code;
+      return `${r.status} ${code}`;
+    };
+    // The enabling case, before and after each refusal below.
+    expect(await get(clip.filename)).toBe("200 clip");
+
+    // Pat reaches the agent's room, so only the ask's member refuses Pat.
+    const pat = await w.srv.seedMember("Pat");
+    const patId = getUserByName(pat.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
+    expect(await get(clip.filename, pat.rawSessionId)).toBe("404 not_found");
+    // A copy's name, and a name the ask does not hold.
+    expect(await get(png.filename)).toBe("404 not_found");
+    expect(await get("0000.mp4")).toBe("404 not_found");
+    // A reference is not in the files dir.
+    const viaFiles = await w.srv.http(
+      `/api/files/${w.asker.id}/${clip.filename}`,
+      { method: "GET", rawSessionId: owner },
+    );
+    expect(viaFiles.status).toBe(404);
+
+    // The path turns into a link into the credential store after the ask.
+    mkdirSync(join(w.srv.stateRoot, "secrets"), { recursive: true });
+    const secretFile = join(w.srv.stateRoot, "secrets", "office.json");
+    writeFileSync(secretFile, "{}");
+    unlinkSync(clipPath);
+    symlinkSync(secretFile, clipPath);
+    expect(await get(clip.filename)).toBe("404 not_found");
+    unlinkSync(clipPath);
+    // A directory, then nothing.
+    mkdirSync(clipPath);
+    expect(await get(clip.filename)).toBe("404 not_found");
+    rmSync(clipPath, { recursive: true });
+    expect(await get(clip.filename)).toBe("404 not_found");
+    writeFileSync(clipPath, CLIP);
+    expect(await get(clip.filename)).toBe("200 clip");
+
+    // A closed ask serves nothing.
+    const dismissed = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${entry.id}/dismiss`,
+      { rawSessionId: owner },
+      { json: {} },
+    );
+    expect(dismissed.status).toBe(204);
+    expect(await get(clip.filename)).toBe("404 not_found");
+  });
+
+  it("keeps a reference through an edit that omits the list, and names it anew when the list is sent again", async () => {
+    const w = await world();
+    const cwd = seed(w);
+    writeFileSync(join(cwd, "clip.mp4"), "clip");
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const made = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Approve?", readFiles: ["clip.mp4"] },
+    });
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    const [first] = (made.body as AskEntry).readFiles!;
+    expect((first as { path?: string }).path).toBe(join(cwd, "clip.mp4"));
+    const patch = (json: unknown) =>
+      call(w.srv, "PATCH", `${base}/${id}`, w.as(w.asker.id), { json });
+    const owner = w.owner.rawSessionId;
+
+    const kept = await patch({ text: "Approve now?" });
+    expect(kept.status).toBe(200);
+    expect((kept.body as AskEntry).readFiles).toEqual([first]);
+    expect((await askFile(w, id, first.filename, owner)).status).toBe(200);
+
+    const resent = await patch({ text: "Approve?", readFiles: ["clip.mp4"] });
+    expect(resent.status).toBe(200);
+    const [second] = (resent.body as AskEntry).readFiles!;
+    expect((second as { path?: string }).path).toBe(join(cwd, "clip.mp4"));
+    expect(second.filename).not.toBe(first.filename);
+    expect((await askFile(w, id, second.filename, owner)).status).toBe(200);
+    expect((await askFile(w, id, first.filename, owner)).status).toBe(404);
+    expect(filesDir(w)).toEqual([]);
   });
 
   it("takes them as JSON, and an edit keeps a list it omits, replaces one it sends, and removes one with [] or a lone empty value", async () => {
@@ -2136,6 +2323,10 @@ describe("chat affordances on an ask", () => {
     mkdirSync(join(w.srv.stateRoot, "secrets"), { recursive: true });
     const secretFile = join(w.srv.stateRoot, "secrets", "office.json");
     writeFileSync(secretFile, "{}");
+    // A video is referenced, not copied, but takes the same path checks.
+    const secretVideo = join(w.srv.stateRoot, "secrets", "clip.mp4");
+    writeFileSync(secretVideo, "v");
+    mkdirSync(join(cwd, "adir.mp4"), { recursive: true });
 
     const base = `/api/agents/${w.asker.id}/asks`;
     const created = await call(w.srv, "POST", base, w.as(w.asker.id), {
@@ -2167,6 +2358,20 @@ describe("chat affordances on an ask", () => {
       ["read over 20 MB", { readFiles: ["huge.bin"] }, "422 invalid_read_file"],
       ["edit a credential", { editFiles: [secretFile] }, "403 forbidden_path"],
       ["read a credential", { readFiles: [secretFile] }, "403 forbidden_path"],
+      [
+        "read a credential video",
+        { readFiles: [secretVideo] },
+        "403 forbidden_path",
+      ],
+      ["missing video", { readFiles: ["gone.mp4"] }, "422 invalid_read_file"],
+      ["video directory", { readFiles: ["adir.mp4"] }, "422 invalid_read_file"],
+      // A good copy before a bad reference: every path is checked before
+      // any copy.
+      [
+        "good copy, missing video",
+        { readFiles: ["notes.md", "gone.mp4"] },
+        "422 invalid_read_file",
+      ],
       ["not a list", { commands: "ls" }, "422 invalid_affordances"],
       ["not strings", { readFiles: [1] }, "422 invalid_affordances"],
       ["null", { editFiles: null }, "422 invalid_affordances"],

@@ -58,6 +58,8 @@ function rig(over: Partial<AsksDeps> = {}) {
       probeReadFile: () => null,
       copyReadFile: () => null,
     },
+    contentTypeFor: () => "application/octet-stream",
+    untrustedFileHeaders: () => ({}),
     deliver: (_identity, _entry, text, opts) => {
       delivered.push(text);
       deliveredTaskIds.push(opts.taskId);

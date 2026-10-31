@@ -182,6 +182,13 @@ function AskAffordances({
           attachments={readFiles}
           agentId={agentId}
           isMobile={isMobile}
+          // A reference is served by the ask's own route, a copy from the
+          // agent's files dir.
+          srcFor={(att) =>
+            att.path
+              ? `/api/asks/${entry.id}/files/${att.filename}`
+              : `/api/files/${agentId}/${att.filename}`
+          }
         />
       )}
       {editFiles?.map((file, i) => (

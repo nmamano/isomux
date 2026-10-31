@@ -1487,12 +1487,13 @@ export interface AskEntry {
   // reply field starts with it. Only with options.
   recommended?: string;
   // Chat affordances on the card (server/agent-reference/asks.md): commands
-  // for the member's terminal panel, files for the editor card, and files
-  // copied into the agent's files dir when the ask was made or edited. Never
-  // on a secret request.
+  // for the member's terminal panel, files for the editor card, and files to
+  // show: a copy in the agent's files dir made when the ask was made or
+  // edited, or a reference to a video or audio file where it is. Never on a
+  // secret request.
   commands?: string[];
   editFiles?: FilePayload[];
-  readFiles?: Attachment[];
+  readFiles?: AskReadFile[];
   // The agent's session when it opened the ask. The reply note names it when
   // the reply reaches a later session.
   sessionId?: string;
@@ -1501,6 +1502,12 @@ export interface AskEntry {
   // create.
   step?: StepAskRequest;
 }
+
+// A file an ask shows. A copy is an Attachment in the agent's files dir. A
+// reference (a video or audio file) has `path`, the absolute location it is
+// served from by GET /api/asks/:askId/files/:filename; its filename is a
+// fresh name with the original extension, never in the files dir.
+export type AskReadFile = Attachment & { path?: string };
 
 // An ask as a route or push sends it: the opening session stays server-side.
 export type AskMemberWire = Omit<AskEntry, "sessionId">;

@@ -13,21 +13,27 @@ import {
 // read files of an ask card. Images render inline (clickable for lightbox);
 // video and audio play inline, with the file chip under the player; other
 // media types render as a clickable file chip via the same
-// /api/files/<agentId>/<filename> route used by uploaded attachments. Each
+// /api/files/<agentId>/<filename> route used by uploaded attachments, or
+// where `srcFor` says (an ask's reference to a file in place). Each
 // image and chip has a download button. `caption`
 // (preview-url provenance: sanitized origin + pathname) renders as a dim line
 // under the attachments when provided.
-export function FileViewCard({
+export function FileViewCard<T extends Attachment>({
   attachments,
   agentId,
   isMobile,
   caption,
+  srcFor,
 }: {
-  attachments: Attachment[];
+  attachments: T[];
   agentId: string;
   isMobile?: boolean;
   caption?: string;
+  // Where a file is served from, when not the agent's files dir (an ask's
+  // reference).
+  srcFor?: (att: T) => string;
 }) {
+  const srcOf = srcFor ?? ((att: T) => `/api/files/${agentId}/${att.filename}`);
   const [lightbox, setLightbox] = useState<LightboxImage | null>(null);
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
   const media = attachments.filter(isPlayable);
@@ -40,7 +46,7 @@ export function FileViewCard({
       {images.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {images.map((att) => {
-            const src = `/api/files/${agentId}/${att.filename}`;
+            const src = srcOf(att);
             return (
               <ImageCard
                 key={src}
@@ -54,7 +60,7 @@ export function FileViewCard({
         </div>
       )}
       {media.map((att, i) => {
-        const src = `/api/files/${agentId}/${att.filename}`;
+        const src = srcOf(att);
         return (
           <div
             key={att.filename}
@@ -108,7 +114,7 @@ export function FileViewCard({
             <FileChip
               key={att.filename}
               att={att}
-              src={`/api/files/${agentId}/${att.filename}`}
+              src={srcOf(att)}
               isMobile={isMobile}
             />
           ))}

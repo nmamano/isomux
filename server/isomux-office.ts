@@ -4042,13 +4042,15 @@ function buildExecutorDeps(
           const agent = agentManager.getAgent(agentId);
           return agent ? probeEditFile(rawPath, agent.cwd) : null;
         },
-        probeReadFile: (agentId, rawPath) => {
+        probeReadFile: (agentId, rawPath, opts) => {
           const agent = agentManager.getAgent(agentId);
-          return agent ? probeReadFile(rawPath, agent.cwd) : null;
+          return agent ? probeReadFile(rawPath, agent.cwd, opts) : null;
         },
         copyReadFile: (agentId, absPath) =>
           agentManager.copyAskReadFile(agentId, absPath),
       },
+      contentTypeFor: (filename) => httpContentTypeForFilename(filename),
+      untrustedFileHeaders,
       deliver: deliverAskAnswer,
       agentName: (agentId) => agentManager.getAgent(agentId)?.name ?? null,
       createTask: ({ title, description, createdBy, username, roomId }) =>

@@ -85,7 +85,13 @@ export function probeEditFile(rawPath: string, cwd: string): EditFileCheck {
   }
 }
 
-export function probeReadFile(rawPath: string, cwd: string): ReadFileCheck {
+// `capped: false` drops the MAX_READ_FILE_BYTES cap, for a file an ask
+// references in place instead of copying.
+export function probeReadFile(
+  rawPath: string,
+  cwd: string,
+  { capped = true }: { capped?: boolean } = {},
+): ReadFileCheck {
   const resolved = resolveEditorPath(rawPath, cwd);
   if (resolved.kind === "bad_path")
     return { ok: false, kind: "bad_path", path: resolved.attempted };
@@ -101,7 +107,7 @@ export function probeReadFile(rawPath: string, cwd: string): ReadFileCheck {
     return { ok: false, kind: "io_error", path, message: errMessage(err) };
   }
   if (!st.isFile()) return { ok: false, kind: "not_file", path };
-  if (st.size > MAX_READ_FILE_BYTES)
+  if (capped && st.size > MAX_READ_FILE_BYTES)
     return { ok: false, kind: "too_large", path, size: st.size };
   return { ok: true, path, size: st.size };
 }

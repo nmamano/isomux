@@ -980,6 +980,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   }),
+  // A file an ask references in place (a video or audio file), for the
+  // member the ask is for.
+  defineRoute<void, unknown>({
+    opId: "asks.getFile",
+    method: "GET",
+    path: "/api/asks/:askId/files/:filename",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    emits: [],
+  }),
   defineRoute<AskFileTaskReq, TaskItem>({
     opId: "asks.fileTask",
     audit: { owner: "executor", targets: resourceTargets },

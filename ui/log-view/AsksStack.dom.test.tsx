@@ -76,6 +76,15 @@ const ENTRIES: AskEntry[] = [
         mediaType: "image/png",
         size: 7,
       },
+      // A video referenced where it is (task 37a660e8): served by the ask's
+      // own file route, not the agent's files dir.
+      {
+        filename: "ef56.mp4",
+        originalName: "clip.mp4",
+        mediaType: "video/mp4",
+        size: 9,
+        path: "/w/clip.mp4",
+      },
       {
         filename: "cd34.txt",
         originalName: "log.txt",
@@ -803,6 +812,8 @@ function mountAffordances(features = PRODUCTION_FEATURES) {
   );
 }
 const ASK = '[data-ask="jjjj0010"]';
+const pathOf = (url: string | null) =>
+  new URL(url ?? "", "http://office.test").pathname;
 
 it("draws an ask's files, then its editor card, then its command, as the chat draws them", async () => {
   const view = mountAffordances();
@@ -811,22 +822,39 @@ it("draws an ask's files, then its editor card, then its command, as the chat dr
   const order = [
     ...card.querySelectorAll<HTMLElement>(
       // The download buttons (attachment-download.dom.test.tsx) are not parts.
-      "img, a[href^='/api/files/']:not([download]), [data-ask-edit-file], [data-ask-command]",
+      "img, video, a[href^='/api/']:not([download]), [data-ask-edit-file], [data-ask-command]",
     ),
   ].map((el) =>
     el.tagName === "IMG"
       ? `img ${el.getAttribute("src")}`
-      : el.tagName === "A"
-        ? `chip ${el.getAttribute("href")}`
-        : el.dataset.askEditFile !== undefined
-          ? `edit ${el.dataset.askEditFile}`
-          : `command ${el.dataset.askCommand}`,
+      : el.tagName === "VIDEO"
+        ? `video ${pathOf(el.getAttribute("src"))}`
+        : el.tagName === "A"
+          ? `chip ${el.getAttribute("href")}`
+          : el.dataset.askEditFile !== undefined
+            ? `edit ${el.dataset.askEditFile}`
+            : `command ${el.dataset.askCommand}`,
   );
   expect(order).toEqual([
     "img /api/files/a6/ab12.png",
+    "video /api/asks/jjjj0010/files/ef56.mp4",
+    "chip /api/asks/jjjj0010/files/ef56.mp4",
     "chip /api/files/a6/cd34.txt",
     "edit /w/notes.md",
     "command git branch -D t-a && git push origin --delete t-a",
+  ]);
+  // Each file downloads from where it is served. An image draws its
+  // download once it has loaded.
+  for (const img of card.querySelectorAll("img")) fireEvent.load(img);
+  expect(
+    [...card.querySelectorAll<HTMLAnchorElement>("a[download]")].map((a) => [
+      a.getAttribute("download"),
+      pathOf(a.getAttribute("href")),
+    ]),
+  ).toEqual([
+    ["plot.png", "/api/files/a6/ab12.png"],
+    ["clip.mp4", "/api/asks/jjjj0010/files/ef56.mp4"],
+    ["log.txt", "/api/files/a6/cd34.txt"],
   ]);
   // Above the reply field.
   const form = card.querySelector("form")!;

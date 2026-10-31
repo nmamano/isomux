@@ -16,7 +16,7 @@ When the member must do an Integrations step, send `step` instead of `link` (see
 
 When the answer is one of a few choices, or you recommend an answer, add 2 to 10 options, one `option=<text>` each in the query (or `options` in a JSON body). Each is at most 80 characters, and they must differ. The card shows a button for each. A tap puts that option in the reply field, and the member can edit it before sending. Mark the answer you recommend with `recommended=<option text>` (or `recommended` in a JSON body): the card marks that option and the reply field starts with it. Without a recommendation the field starts empty; an ask without options starts with "done". A secret request has no options.
 
-An ask can carry chat affordances, at most 10 in total: `commands` for the member's terminal panel (as terminal-command), `editFiles` to open in the editor (as edit-file) and `readFiles` to show in the card (as read-file). Paths resolve against your cwd, and a read file is copied when you create or edit the ask. In the query, add one `command=`, `editFile=` or `readFile=` per item, percent-encoded with `%20` for a space, since a `+` stays a plus. A command is easier in a JSON body:
+An ask can carry chat affordances, at most 10 in total: `commands` for the member's terminal panel (as terminal-command), `editFiles` to open in the editor (as edit-file) and `readFiles` to show in the card (as read-file). Paths resolve against your cwd, and a read file is copied when you create or edit the ask. A video or audio file is not copied and has no size limit: the card plays it from its path, so keep it there until the member answers. In the query, add one `command=`, `editFile=` or `readFile=` per item, percent-encoded with `%20` for a space, since a `+` stays a plus. A command is easier in a JSON body:
 
 ```
 curl -s -X POST "<office>/api/agents/<your-id>/asks" -H "<authorization>" -H 'Content-Type: application/json' --data-binary @- <<'EOF'
@@ -24,7 +24,7 @@ curl -s -X POST "<office>/api/agents/<your-id>/asks" -H "<authorization>" -H 'Co
 EOF
 ```
 
-The ask returns the resolved forms: `editFiles` as `{cwd, path}` and `readFiles` as the copies' `{filename, originalName, mediaType, size}`. A secret request has none.
+The ask returns the resolved forms: `editFiles` as `{cwd, path}` and `readFiles` as the copies' `{filename, originalName, mediaType, size}`, with `path` added for a video or audio file shown from its path. A secret request has none.
 
 The answer arrives as a normal message from the member, starting with `[Reply to your ask <id>: "<prompt>"]`. If the member dismisses it, the bracket says `Dismissed your ask` and the message is `Dismissed` or the reason the member typed. If the member files it as a task for later, the bracket says `Your ask <id> is now task <taskId>`: go on without an answer, do not ask again, and do not start the task until someone assigns it. In each case the ask closes.
 

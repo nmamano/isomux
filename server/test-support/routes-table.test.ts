@@ -1284,6 +1284,12 @@ const SPEC_ROUTE_CONTRACT: Record<
       "tasks",
     ],
   },
+  // A file an open ask references where it is (task 37a660e8): read-only,
+  // for the member who answers.
+  "asks.getFile": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: [],
+  },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.browser": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.contextUsage": { caps: ["log:read"], emits: [] },
@@ -2186,6 +2192,7 @@ const API_REACHABLE_OPIDS = [
   "asks.list",
   "asks.reply",
   "asks.dismiss",
+  "asks.getFile",
   "asks.fileTask",
   "agents.contextUsage",
   "agents.subscriptionUsage",

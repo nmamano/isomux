@@ -110,6 +110,15 @@ const AFFORDANCES = {
   ],
 };
 
+// A video referenced where it is (task 37a660e8).
+const REFERENCE = {
+  filename: "9f3c.mp4",
+  originalName: "clip.mp4",
+  mediaType: "video/mp4",
+  size: 9,
+  path: "/w/out/clip.mp4",
+};
+
 describe("the three shapes", () => {
   // Plain and personal secret asks name one member; an office secret ask
   // names none. Any other mix is a corrupt file.
@@ -252,6 +261,31 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // Task 37a660e8: a referenced read file carries the absolute path it is
+    // served from.
+    [
+      "a read file referenced by an absolute path",
+      { ...BASE, memberUserId: "u1", readFiles: [REFERENCE] },
+      true,
+    ],
+    [
+      "a read file referenced by a relative path",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        readFiles: [{ ...REFERENCE, path: "out/clip.mp4" }],
+      },
+      false,
+    ],
+    [
+      "a read file whose path is not a string",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        readFiles: [{ ...REFERENCE, path: 1 }],
+      },
+      false,
+    ],
     ...(["commands", "editFiles", "readFiles"] as const).map(
       (key): [string, unknown, boolean] => [
         `secret with ${key}`,
@@ -277,6 +311,27 @@ describe("the three shapes", () => {
         readdirSync(dir).some((f) => f.startsWith("asks.json.corrupt-")),
       ).toBe(!loads);
     });
+
+  it("keeps a referenced read file's path through a write and a load", () => {
+    const { path } = fileIn();
+    const first = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    const made = first.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Go?",
+      affordances: { readFiles: [AFFORDANCES.readFiles[0], REFERENCE] },
+    });
+    if (!made.ok) throw new Error("create failed");
+    const second = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    expect(second.get(made.entry.id)?.readFiles).toEqual([
+      AFFORDANCES.readFiles[0],
+      REFERENCE,
+    ]);
+  });
 
   it("refuses to create an entry of no shape, and writes nothing", () => {
     const { path } = fileIn();
@@ -498,6 +553,7 @@ describe("the task an ask is filed as", () => {
           mediaType: "image/png",
           size: 7,
         },
+        REFERENCE,
       ],
     });
     const { description } = askTaskFields(full, "Asker");
@@ -510,6 +566,9 @@ describe("the task an ask is filed as", () => {
       "git log --oneline -3",
       "/w/notes.md",
       "plot.png",
+      // A reference by its path: the task outlives the ask, and the path is
+      // the way back to the file.
+      REFERENCE.path,
     ])
       expect([part, lines.filter((l) => l.includes(part)).length]).toEqual([
         part,
