@@ -2837,6 +2837,84 @@ describe("an ask an app opens", () => {
     ]);
   });
 
+  // Task 62aa552f: the history keeps every change before the close, with who
+  // made it. The agent can edit and withdraw an app's ask, so the entry's app
+  // does not say who did.
+  it("keeps who made each change, the app or the agent, in the history and in the read by id", async () => {
+    const w = await world();
+    const app = await register(w, APP, w.as(w.asker.id));
+    const entry = await opened(w, app.token, "Ship the release?");
+    const byApp = await asApp(w, app.token, "PATCH", `/${entry.id}`, {
+      text: "Ship it today?",
+    });
+    expect(byApp.status).toBe(200);
+    const byAgent = await call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${entry.id}`,
+      w.as(w.asker.id),
+      { text: "Ship it now?" },
+    );
+    expect(byAgent.status).toBe(200);
+    expect((await asApp(w, app.token, "DELETE", `/${entry.id}`)).status).toBe(
+      204,
+    );
+    const mine = await open(w, "The agent's own question?");
+    expect(
+      (
+        await call(
+          w.srv,
+          "DELETE",
+          `/api/agents/${w.asker.id}/asks/${mine.id}`,
+          w.as(w.asker.id),
+        )
+      ).status,
+    ).toBe(204);
+
+    const page = await call(
+      w.srv,
+      "GET",
+      `/api/agents/${w.asker.id}/asks/history`,
+      w.as(w.asker.id),
+    );
+    expect(page.status).toBe(200);
+    const [mineClosed, appClosed] = (page.body as { asks: AskClosedWire[] })
+      .asks;
+    expect([mineClosed.id, appClosed.id]).toEqual([mine.id, entry.id]);
+    expect(appClosed.events).toEqual([
+      {
+        kind: "created",
+        at: entry.createdAt,
+        ask: { prompt: "Ship the release?" },
+      },
+      {
+        kind: "edited",
+        at: (byApp.body as AskAgentWire).updatedAt,
+        app: APP,
+        before: { prompt: "Ship the release?" },
+      },
+      {
+        kind: "edited",
+        at: (byAgent.body as AskAgentWire).updatedAt,
+        before: { prompt: "Ship it today?" },
+      },
+    ]);
+    expect("app" in appClosed.events[2]).toBe(false);
+    const { at: _appAt, ...appClose } = appClosed.closed;
+    expect(appClose).toEqual({ outcome: "withdrawn", by: null, app: APP });
+    const { at: _mineAt, ...mineClose } = mineClosed.closed;
+    expect(mineClose).toEqual({ outcome: "withdrawn", by: null });
+    expect(mineClosed.events).toEqual([
+      {
+        kind: "created",
+        at: mine.createdAt,
+        ask: { prompt: "The agent's own question?" },
+      },
+    ]);
+    // The read by id carries the same record as the history.
+    expect((await agentRead(w, w.asker.id, entry.id)).body).toEqual(appClosed);
+  });
+
   it("never reaches another app's asks, or an earlier app's of the same name, which stay open on the agent", async () => {
     const w = await world();
     const first = await register(w, APP, w.as(w.asker.id));

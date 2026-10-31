@@ -40,7 +40,9 @@ A secret request (see the connections page) is also one of your asks. It has `se
 
 Closed asks are kept. `GET /api/agents/:id/asks/history` lists an agent's closed asks, newest first: your own, or those of any agent whose logs you can read (see the conversation-history page). Add `member=<username>` for the asks for one member and `limit` (1 to 200, default 50). For the next page, send the response's `nextBefore` as `before`. To read another agent's ask, use this list: the route by id is for your own asks.
 
-A closed ask has `closed: {at, outcome, by, answer?, taskId?}`. `outcome` is `replied`, `dismissed`, `filed`, or for a secret request `saved` or `declined`, when a member answered; `withdrawn` when the agent, or the app that opened it, deleted the ask; `done` when its step was done; `agent_removed` when the agent was removed. `by` is the member who answered, or null. `answer` is their words as the agent got them, and `taskId` the filed task.
+A closed ask has `closed: {at, outcome, by, answer?, taskId?, app?}`. `outcome` is `replied`, `dismissed`, `filed`, or for a secret request `saved` or `declined`, when a member answered; `withdrawn` when the agent, or the app that opened it, deleted the ask; `done` when its step was done; `agent_removed` when the agent was removed. `by` is the member who answered, or null. `answer` is their words as the agent got them, and `taskId` the filed task. `app` names the app that withdrew the ask.
+
+A closed ask also has `events`, what happened before the close, oldest first. `{kind: "created", at, ask}` holds the ask as it was opened. `{kind: "edited", at, before, app?}` holds each field the edit changed with its value before the edit, null when the ask did not have it; `app` names the app that edited; without it, the agent edited. An older ask can lack some or all events.
 
 Safe example: `GET /api/agents/<your-id>/asks`.
 

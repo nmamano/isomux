@@ -260,7 +260,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const memberOf = (userId: string | undefined) =>
     userId === undefined ? null : (deps.memberName(userId) ?? userId);
   // A closed ask: who answered is named as they are now, null when gone.
-  const closedWire = ({ entry, closure }: AskHistoryRecord): AskClosedWire => {
+  const closedWire = ({
+    entry,
+    closure,
+    events,
+  }: AskHistoryRecord): AskClosedWire => {
     const { byUserId, ...rest } = closure;
     return {
       ...wire(entry),
@@ -268,6 +272,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         ...rest,
         by: byUserId === undefined ? null : deps.memberName(byUserId),
       },
+      events,
     };
   };
 
@@ -716,6 +721,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     body: Record<string, unknown>,
     askId: string,
     find: () => AskEntry | null,
+    // The editing app, for the edit's event; absent when the agent edits.
+    actor?: { app: string },
   ): HandlerResult => {
     const checked = checkPromptField(body);
     if (!checked.ok) return fail(400, "invalid_text", checked.message);
@@ -782,6 +789,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       resolved.affordances,
       recommended,
       priority,
+      actor,
     );
     return entry ? ok(wire(entry)) : notFound();
   };
@@ -970,6 +978,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         (ctx.body ?? {}) as Record<string, unknown>,
         ctx.params.askId,
         () => appOwn(app, ctx.params.askId),
+        { app: app.appName },
       );
     }),
 
@@ -977,7 +986,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       const app = callerApp(ctx.identity);
       if (!app) return appGone();
       if (!appOwn(app, ctx.params.askId)) return notFound();
-      return store.remove(ctx.params.askId, { outcome: "withdrawn" })
+      return store.remove(ctx.params.askId, {
+        outcome: "withdrawn",
+        app: app.appName,
+      })
         ? noContent()
         : notFound();
     }),

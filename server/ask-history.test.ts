@@ -10,6 +10,7 @@ import { join } from "path";
 import { openOfficeDatabase } from "./audit-store.ts";
 import { createAskHistory, type AskHistory } from "./ask-history.ts";
 import { createAskStore, type AskPersistence } from "./asks.ts";
+import type { AskEvent } from "../shared/types.ts";
 
 const dirs: string[] = [];
 const dbs: Database[] = [];
@@ -111,8 +112,8 @@ describe("a closed ask", () => {
       at: 30,
     });
     expect(history.has(a.id)).toBe(true);
-    // Still open: not in the history.
-    expect(history.has(d.id)).toBe(false);
+    // Still open: not closed in the history.
+    expect(history.get("a2", d.id)).toBeNull();
     // One agent's id is not another's.
     expect(history.get("a2", a.id)).toBeNull();
 
@@ -134,7 +135,7 @@ describe("a closed ask", () => {
     expect(rows.map((r) => r.entry.id).sort()).toEqual([a.id, b.id].sort());
     for (const r of rows)
       expect(r.closure).toEqual({ outcome: "agent_removed", at: 50 });
-    expect(history.has(kept.id)).toBe(false);
+    expect(history.get("a2", kept.id)).toBeNull();
   });
 
   it("is not recorded when its removal fails, and a failed record neither fails nor undoes the close", () => {
@@ -147,7 +148,7 @@ describe("a closed ask", () => {
     // Still open, and never in the history: open and closed at once is the
     // state the design rules out.
     expect(store.get(a.id)).toEqual(a);
-    expect(history.has(a.id)).toBe(false);
+    expect(history.get("a1", a.id)).toBeNull();
 
     const failing: AskHistory = {
       ...history,
@@ -179,6 +180,163 @@ describe("a closed ask", () => {
     expect(asked.length).toBeGreaterThanOrEqual(2);
     expect(a.id).not.toBe(asked[0]);
     expect(a.id).toBe(asked[asked.length - 1]);
+  });
+});
+
+// Task 62aa552f: what happened to an ask before its close.
+describe("an ask's events", () => {
+  it("are kept from the create to the close, oldest first: each edit with who made it and the values it changed, null for one the ask did not have", () => {
+    const { history } = open();
+    const { store, at } = storeWith(history);
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Ship it?",
+      options: ["Yes", "No"],
+      recommended: "Yes",
+      priority: "P1",
+      sessionId: "s-open",
+    });
+    if (!made.ok) throw new Error(made.code);
+    const id = made.entry.id;
+    at(110);
+    store.edit(id, "Ship it today?");
+    // New options without a mark clear the mark: the edit changed both.
+    at(120);
+    store.edit(id, "Ship it today?", undefined, ["Yes", "Later"], {}, null);
+    at(130);
+    store.edit(
+      id,
+      "Ship it today?",
+      undefined,
+      undefined,
+      { commands: ["bun test"] },
+      undefined,
+      null,
+      { app: "merger" },
+    );
+    // An edit that changes nothing is no event.
+    at(135);
+    store.edit(id, "Ship it today?");
+    at(140);
+    store.remove(id, { outcome: "replied", byUserId: "u1", answer: "Later" });
+
+    const events: AskEvent[] = [
+      {
+        kind: "created",
+        at: 100,
+        ask: {
+          prompt: "Ship it?",
+          options: ["Yes", "No"],
+          recommended: "Yes",
+          priority: "P1",
+        },
+      },
+      { kind: "edited", at: 110, before: { prompt: "Ship it?" } },
+      {
+        kind: "edited",
+        at: 120,
+        before: { options: ["Yes", "No"], recommended: "Yes" },
+      },
+      {
+        kind: "edited",
+        at: 130,
+        app: "merger",
+        before: { priority: "P1", commands: null },
+      },
+    ];
+    expect(history.get("a1", id)!.events).toEqual(events);
+    expect(history.list("a1", { limit: 50 }).items[0].events).toEqual(events);
+    // The close stays the closure, not an event.
+    expect(history.get("a1", id)!.closure).toEqual({
+      outcome: "replied",
+      byUserId: "u1",
+      answer: "Later",
+      at: 140,
+    });
+  });
+
+  it("are listed with their own ask only, and an ask closed before events were kept has none", () => {
+    const { history } = open();
+    const { store, ask, at } = storeWith(history);
+    // Closed by an older server: a history row and no events.
+    history.record(
+      {
+        id: "0ld0ld00",
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Old?",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      { outcome: "withdrawn", at: 2 },
+    );
+    const a = ask("a1", "u1", "One?");
+    const b = ask("a1", "u1", "Two?");
+    at(110);
+    store.edit(a.id, "One now?");
+    at(120);
+    store.edit(b.id, "Two now?");
+    store.remove(a.id, { outcome: "withdrawn" });
+    store.remove(b.id, { outcome: "withdrawn" });
+
+    // Each ask's prompts as it read before each change.
+    const prompts = (events: AskEvent[]) =>
+      events.map((e) =>
+        e.kind === "created" ? e.ask.prompt : e.before.prompt,
+      );
+    const page = history.list("a1", { limit: 50 }).items;
+    expect(page.map((r) => [r.entry.id, prompts(r.events)])).toEqual([
+      [b.id, ["Two?", "Two?"]],
+      [a.id, ["One?", "One?"]],
+      ["0ld0ld00", []],
+    ]);
+    expect(prompts(history.get("a1", b.id)!.events)).toEqual(["Two?", "Two?"]);
+    expect(history.get("a1", "0ld0ld00")!.events).toEqual([]);
+  });
+
+  it("are kept only for a change that committed, and a failed write neither fails nor undoes the change", () => {
+    const { history } = open();
+    const { store, io, ask, at } = storeWith(history);
+    const a = ask("a1", "u1", "Save fails?");
+    io.failSave = true;
+    at(110);
+    expect(() => store.edit(a.id, "Never saved?")).toThrow();
+    io.failSave = false;
+    store.remove(a.id, { outcome: "withdrawn" });
+    expect(history.get("a1", a.id)!.events.map((e) => e.kind)).toEqual([
+      "created",
+    ]);
+
+    const failing: AskHistory = {
+      ...history,
+      recordEvent: () => {
+        throw new Error("database locked");
+      },
+    };
+    const other = storeWith(failing);
+    const b = other.ask("a1", "u1", "Record fails?");
+    expect(other.store.get(b.id)?.prompt).toBe("Record fails?");
+    expect(other.store.edit(b.id, "Still edited?")?.prompt).toBe(
+      "Still edited?",
+    );
+    expect(other.store.get(b.id)?.prompt).toBe("Still edited?");
+  });
+
+  it("keep their ask's id taken: an open ask, or one whose close was never recorded", () => {
+    const { history } = open();
+    const { ask } = storeWith(history);
+    // Open, so the history has its create only.
+    const a = ask("a1", "u1", "Open?");
+    expect(history.get("a1", a.id)).toBeNull();
+    expect(history.has(a.id)).toBe(true);
+    history.recordEvent("a1", "abcd1234", {
+      kind: "created",
+      at: 1,
+      ask: { prompt: "Lost with asks.json?" },
+    });
+    expect(history.has("abcd1234")).toBe(true);
+    expect(history.has("abcd9999")).toBe(false);
   });
 });
 
@@ -240,6 +398,8 @@ describe("the office database", () => {
       (again.query("PRAGMA user_version").get() as { user_version: number })
         .user_version,
     ).toBe(1);
-    expect(createAskHistory(again).get("a1", a.id)?.entry.prompt).toBe("Kept?");
+    const kept = createAskHistory(again).get("a1", a.id);
+    expect(kept?.entry.prompt).toBe("Kept?");
+    expect(kept?.events.map((e) => e.kind)).toEqual(["created"]);
   });
 });

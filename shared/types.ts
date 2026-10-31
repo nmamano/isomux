@@ -1548,10 +1548,40 @@ export interface AskCloseInput {
   answer?: string;
   // The task a filed ask became.
   taskId?: string;
+  // The app that withdrew the ask; absent when the agent did.
+  app?: string;
 }
 export interface AskClosure extends AskCloseInput {
   at: number;
 }
+
+// The fields an ask's edit can change (task 62aa552f).
+export const ASK_EDITABLE_KEYS = [
+  "prompt",
+  "link",
+  "options",
+  "recommended",
+  "priority",
+  "commands",
+  "editFiles",
+  "readFiles",
+] as const satisfies readonly (keyof AskEntry)[];
+export type AskEditableKey = (typeof ASK_EDITABLE_KEYS)[number];
+
+// What happened to an ask before it closed, kept with its history record
+// (server/ask-history.ts). The close itself is the record's closure.
+export type AskEvent =
+  // The ask as it was opened: every editable field it had.
+  | { kind: "created"; at: number; ask: Pick<AskEntry, AskEditableKey> }
+  // Each field the edit changed, with its value before the edit: null when
+  // the ask did not have it. `app` names the app that edited; absent when
+  // the agent did.
+  | {
+      kind: "edited";
+      at: number;
+      app?: string;
+      before: { [K in AskEditableKey]?: AskEntry[K] | null };
+    };
 
 // The member message text of a bare dismiss. The chat shows it translated
 // from the entry's metadata; the agent reads these words.

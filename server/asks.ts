@@ -2,7 +2,8 @@
 // from them to get unblocked (internal-docs/asks-design.md). The store
 // holds open entries only, in ~/.isomux/asks.json; a reply, a dismiss or
 // the agent's delete removes the entry, and the store records the closed ask
-// in office.sqlite (server/ask-history.ts).
+// in office.sqlite (server/ask-history.ts), with each create and edit before
+// it.
 //
 // Load posture (the pager store's):
 //   - no file                 → no asks (a new or older install)
@@ -22,10 +23,13 @@ import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
 import type { AskHistory } from "./ask-history.ts";
 import {
+  ASK_EDITABLE_KEYS,
   generateAskId,
   isValidPriority,
   type AskCloseInput,
+  type AskEditableKey,
   type AskEntry,
+  type AskEvent,
   type AskMemberWire,
   type AskRef,
   type AskReadFile,
@@ -374,8 +378,9 @@ export interface AskStoreDeps {
   // After a committed change. A throw is logged and swallowed.
   onChange?(change: AskChange): void;
   // Where each removed entry is recorded, with how it closed, after the
-  // removal is committed (server/ask-history.ts). A throw is logged and
-  // swallowed: the ask is closed either way. Absent in leaf tests.
+  // removal is committed (server/ask-history.ts), and each create and edit
+  // as an event, after it is committed. A throw is logged and swallowed: the
+  // change stands either way. Absent in leaf tests.
   history?: AskHistory;
 }
 
@@ -410,6 +415,8 @@ export interface AskStore {
     affordances?: AskAffordanceEdit,
     recommended?: string | null,
     priority?: TaskPriority | null,
+    // Who edited, for the edit's event: an app by name; absent = the agent.
+    actor?: { app: string },
   ): AskEntry | null;
   // Closes the entry and records how (`close`).
   remove(id: string, close: AskCloseInput): AskEntry | null;
@@ -457,6 +464,19 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
           `[asks] ${entry.id} closed but could not be recorded: ${errMessage(err)}`,
         );
       }
+    }
+  }
+
+  // Records an event of an open entry, after its change is committed. A
+  // failure is logged, as in recordClosed: the change stands.
+  function recordEvent(entry: AskEntry, event: AskEvent): void {
+    if (!deps.history) return;
+    try {
+      deps.history.recordEvent(entry.agentId, entry.id, event);
+    } catch (err) {
+      console.error(
+        `[asks] ${entry.id} changed but its ${event.kind} event could not be recorded: ${errMessage(err)}`,
+      );
     }
   }
 
@@ -543,9 +563,26 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
+      const ask: Partial<Pick<AskEntry, AskEditableKey>> = {};
+      for (const key of ASK_EDITABLE_KEYS)
+        if (entry[key] !== undefined) Object.assign(ask, { [key]: entry[key] });
+      recordEvent(entry, {
+        kind: "created",
+        at,
+        ask: ask as Pick<AskEntry, AskEditableKey>,
+      });
       return { ok: true, entry: { ...entry } };
     },
-    edit(id, prompt, link, options, affordances = {}, recommended, priority) {
+    edit(
+      id,
+      prompt,
+      link,
+      options,
+      affordances = {},
+      recommended,
+      priority,
+      actor,
+    ) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
@@ -570,6 +607,18 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         entries.map((e) => (e.id === id ? entry : e)),
         [{ kind: "upserted", entry }],
       );
+      // Each changed field as it was; an edit that changed none is no event.
+      const before: Extract<AskEvent, { kind: "edited" }>["before"] = {};
+      for (const key of ASK_EDITABLE_KEYS)
+        if (JSON.stringify(prev[key]) !== JSON.stringify(entry[key]))
+          Object.assign(before, { [key]: prev[key] ?? null });
+      if (Object.keys(before).length > 0)
+        recordEvent(entry, {
+          kind: "edited",
+          at: entry.updatedAt,
+          ...(actor ? { app: actor.app } : {}),
+          before,
+        });
       return { ...entry };
     },
     remove(id, close) {

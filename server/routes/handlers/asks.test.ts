@@ -43,6 +43,7 @@ function rig(over: Partial<AsksDeps> = {}) {
     store,
     history: {
       record: () => {},
+      recordEvent: () => {},
       has: () => false,
       get: () => null,
       list: () => ({ items: [], nextBefore: null }),

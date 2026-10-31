@@ -34,6 +34,7 @@ import type {
   WebhookWire,
   PagerDeliveryFailure,
   AskMemberWire,
+  AskEvent,
   AskOutcome,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
@@ -852,7 +853,10 @@ export type AskClosedWire = AskAgentWire & {
     by: string | null;
     answer?: string;
     taskId?: string;
+    app?: string;
   };
+  // What happened before the close, oldest first (task 62aa552f).
+  events: AskEvent[];
 };
 export interface AskHistoryRes {
   asks: AskClosedWire[];
