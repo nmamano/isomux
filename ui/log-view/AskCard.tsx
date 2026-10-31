@@ -83,6 +83,7 @@ import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
+import { filledSecondaryBtn } from "../components/dialog-styles.ts";
 
 const PROMPT_LINES = 3;
 
@@ -519,12 +520,13 @@ function ReplyAskCard({
   }, [undoMs]);
 
   const buttonPad = isMobile ? "8px 14px" : "5px 14px";
+  // Filled, as on other cards: a transparent fill reads as plain text here.
   const secondaryButton = {
     padding: buttonPad,
     borderRadius: 8,
-    border: "1px solid var(--border)",
-    background: "transparent",
-    color: "var(--text-dim)",
+    border: filledSecondaryBtn.border,
+    background: filledSecondaryBtn.background,
+    color: filledSecondaryBtn.color,
     fontSize: 12,
     cursor: busy ? "default" : "pointer",
     flexShrink: 0,
@@ -904,7 +906,8 @@ function ReplyAskCard({
               ...(recommended ? { paddingLeft: 10 } : {}),
               borderRadius: 8,
               border: "1px solid var(--accent-text)",
-              background: recommended ? "var(--accent-bg)" : "transparent",
+              // Every option is filled; the recommended one more strongly.
+              background: `color-mix(in srgb, var(--accent-text) ${recommended ? 24 : 12}%, transparent)`,
               color: "var(--accent-text)",
               fontFamily: "var(--font-ui)",
               fontSize: isMobile ? 14 : 12,

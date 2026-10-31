@@ -29,10 +29,10 @@ import { startMcpSignIn } from "../integrations/sign-in-return.ts";
 import type { Target } from "../integrations/target.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
 import {
-  dialogCancelBtn,
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
+  filledSecondaryBtn,
 } from "../components/dialog-styles.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
@@ -468,7 +468,7 @@ export function SecretAskCard({
         )}
         <button
           type="button"
-          style={dialogCancelBtn}
+          style={filledSecondaryBtn}
           disabled={busy}
           onClick={() => void answer("decline")}
         >
@@ -476,7 +476,7 @@ export function SecretAskCard({
         </button>
         <AskAboutButton
           entry={entry}
-          style={dialogCancelBtn}
+          style={filledSecondaryBtn}
           disabled={busy}
           onFocusAgent={onFocusAgent}
           onChatAgent={onChatAgent}

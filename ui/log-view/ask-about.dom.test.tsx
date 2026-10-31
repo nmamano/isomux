@@ -259,7 +259,50 @@ it("has the button on a secret request too, quoting its own question", async () 
 // 30915188) follows it, last: both keep the ask open.
 const FOLLOWS = Node.DOCUMENT_POSITION_FOLLOWING;
 
+// happy-dom drops a border or background whose colour is color-mix(), which
+// the card buttons use (task b87b19d4), so it reads "" on both buttons. Keep
+// what React writes to those two for one test: React writes style[key].
+const RAW_KEYS = new Set(["border", "background"]);
+function withRawStyles(run: () => void) {
+  const proto = HTMLElement.prototype;
+  const original = Object.getOwnPropertyDescriptor(proto, "style")!;
+  const wrappers = new WeakMap<object, object>();
+  Object.defineProperty(proto, "style", {
+    configurable: true,
+    get() {
+      const real = original.get!.call(this) as Record<string | symbol, unknown>;
+      let wrapper = wrappers.get(real);
+      if (!wrapper) {
+        const raw = new Map<string | symbol, unknown>();
+        wrapper = new Proxy(real, {
+          get(target, key) {
+            if (raw.has(key)) return raw.get(key);
+            const value = target[key];
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+          set(target, key, value) {
+            if (RAW_KEYS.has(key as string)) raw.set(key, value);
+            target[key] = value;
+            return true;
+          },
+        });
+        wrappers.set(real, wrapper);
+      }
+      return wrapper;
+    },
+  });
+  try {
+    run();
+  } finally {
+    Object.defineProperty(proto, "style", original);
+  }
+}
+
 it("follows file-as-task in the reply row, after the ask's files, with Simplify last, styled like the buttons beside it", () => {
+  withRawStyles(styledLikeFileTask);
+});
+
+function styledLikeFileTask() {
   const { view } = mount("");
   const card = view.container.querySelector('[data-ask="ask00003"]')!;
   const image = card.querySelector("img");
@@ -301,9 +344,13 @@ it("follows file-as-task in the reply row, after the ask's files, with Simplify 
     );
   }
   view.unmount();
-});
+}
 
 it("on a secret request, is in the row with Decline, after it and after the form", () => {
+  withRawStyles(styledLikeDecline);
+});
+
+function styledLikeDecline() {
   const { view } = mount("");
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="ask00002"]',
@@ -326,4 +373,4 @@ it("on a secret request, is in the row with Decline, after it and after the form
     );
   }
   view.unmount();
-});
+}
