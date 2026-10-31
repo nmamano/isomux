@@ -318,3 +318,343 @@ describe("chat attachments: download on an iPhone", () => {
     });
   }
 });
+
+// Task 9aeb2266: the page forbids pinch zoom (the office pinches on its own),
+// so on a phone the lightbox was the only way to see an image and it could not
+// zoom; on a desktop an image larger than the window never showed full size.
+// The lightbox now zooms its own image. image-zoom.test.ts pins the numbers;
+// these pin the gestures. A 1000 x 800 window gives a 900 x 668 box, so a
+// 1170 x 390 image fits at 900 x 300: full size is 1.3x, a double-tap 2x.
+describe("ImageLightbox: zoom", () => {
+  const LARGE = { w: 1170, h: 390 };
+  const FIT_W = 900;
+  const happyDOM = (
+    window as unknown as {
+      happyDOM: { setViewport(v: { width: number; height: number }): void };
+    }
+  ).happyDOM;
+  const wait = (ms: number) =>
+    act(() => new Promise<void>((r) => setTimeout(r, ms)));
+  // Past the 300 ms double-tap window.
+  const TAP_WINDOW = 400;
+
+  function openLightbox(natural: { w: number; h: number }) {
+    happyDOM.setViewport({ width: 1000, height: 800 });
+    const card = () =>
+      onLanguage(
+        "en",
+        <FileViewCard attachments={[IMAGE]} agentId="agent-1" />,
+      );
+    const view = render(card());
+    const root = view.container;
+    loadImages(root);
+    fireEvent.click(root.querySelector("img")!);
+    const img = [...document.querySelectorAll("img")].find(
+      (i) => !root.contains(i),
+    )!;
+    expect(img).toBeDefined();
+    // happy-dom loads no image: give it the size a browser would read.
+    Object.defineProperty(img, "naturalWidth", { value: natural.w });
+    Object.defineProperty(img, "naturalHeight", { value: natural.h });
+    Object.defineProperty(img, "complete", { value: true });
+    fireEvent.load(img);
+    let backdrop: HTMLElement = img;
+    while (backdrop.parentElement !== document.body)
+      backdrop = backdrop.parentElement!;
+    return {
+      img,
+      backdrop,
+      // A re-render from above, as a streaming chat sends.
+      rerender: () => view.rerender(card()),
+      isOpen: () => document.body.contains(img),
+      width: () => parseFloat(img.style.width),
+      done: () => {
+        view.unmount();
+        happyDOM.setViewport({ width: 1024, height: 768 });
+      },
+    };
+  }
+
+  // A mouse press on `down`, an optional move, the release on `up`, and the
+  // click the browser then sends to their nearest common ancestor.
+  function mousePress(
+    down: Element,
+    up: Element,
+    click: Element,
+    move: { dx: number; dy: number } = { dx: 0, dy: 0 },
+  ) {
+    const at = { clientX: 200, clientY: 200 };
+    const to = { clientX: 200 + move.dx, clientY: 200 + move.dy };
+    fireEvent.pointerDown(down, { ...at, pointerType: "mouse", button: 0 });
+    fireEvent.mouseDown(down, { ...at, button: 0 });
+    if (move.dx || move.dy) {
+      fireEvent.pointerMove(down, { ...to, pointerType: "mouse", buttons: 1 });
+      fireEvent.mouseMove(down, { ...to, buttons: 1 });
+    }
+    fireEvent.pointerUp(up, { ...to, pointerType: "mouse", button: 0 });
+    fireEvent.mouseUp(up, { ...to, button: 0 });
+    fireEvent.click(click, { ...to, button: 0 });
+  }
+
+  // One finger tap as a phone sends it: pointer and touch events, then the
+  // compatibility mouse events and click unless touchend was prevented.
+  function tap(target: Element, x = 300, y = 300) {
+    const t = { identifier: 0, clientX: x, clientY: y, target };
+    const at = { clientX: x, clientY: y };
+    fireEvent.pointerDown(target, { ...at, pointerType: "touch" });
+    fireEvent.touchStart(target, {
+      touches: [t],
+      targetTouches: [t],
+      changedTouches: [t],
+    });
+    fireEvent.pointerUp(target, { ...at, pointerType: "touch" });
+    const notPrevented = fireEvent.touchEnd(target, {
+      touches: [],
+      targetTouches: [],
+      changedTouches: [t],
+    });
+    if (notPrevented) {
+      fireEvent.mouseDown(target, at);
+      fireEvent.mouseUp(target, at);
+      fireEvent.click(target, at);
+    }
+  }
+
+  it("desktop: a click shows a large image at full size, and a second click fits it again", () => {
+    const lb = openLightbox(LARGE);
+    try {
+      expect(lb.width()).toBeCloseTo(FIT_W, 3);
+      mousePress(lb.img, lb.img, lb.img);
+      expect(lb.isOpen()).toBe(true);
+      expect(lb.width()).toBeCloseTo(LARGE.w, 3);
+      // A drag pans the zoomed image; it is not a click.
+      mousePress(lb.img, lb.img, lb.img, { dx: 60, dy: 40 });
+      expect(lb.width()).toBeCloseTo(LARGE.w, 3);
+      mousePress(lb.img, lb.img, lb.img);
+      expect(lb.isOpen()).toBe(true);
+      expect(lb.width()).toBeCloseTo(FIT_W, 3);
+    } finally {
+      lb.done();
+    }
+  });
+
+  it("desktop: a click on an image that already shows at full size closes it", () => {
+    const lb = openLightbox({ w: 400, h: 300 });
+    try {
+      expect(lb.width()).toBeCloseTo(400, 3);
+      mousePress(lb.img, lb.img, lb.img);
+      expect(lb.isOpen()).toBe(false);
+    } finally {
+      lb.done();
+    }
+  });
+
+  it("the backdrop and the close button close it; a press on the image released on the backdrop does not", () => {
+    const viaBackdrop = openLightbox(LARGE);
+    try {
+      // The press starts on the image (a drag off it): it stays open.
+      mousePress(viaBackdrop.img, viaBackdrop.backdrop, viaBackdrop.backdrop, {
+        dx: 500,
+        dy: 0,
+      });
+      expect(viaBackdrop.isOpen()).toBe(true);
+      mousePress(
+        viaBackdrop.backdrop,
+        viaBackdrop.backdrop,
+        viaBackdrop.backdrop,
+      );
+      expect(viaBackdrop.isOpen()).toBe(false);
+    } finally {
+      viaBackdrop.done();
+    }
+
+    const viaButton = openLightbox(LARGE);
+    try {
+      // Zoomed, the image covers most of a phone: the button still closes.
+      mousePress(viaButton.img, viaButton.img, viaButton.img);
+      expect(viaButton.width()).toBeCloseTo(LARGE.w, 3);
+      const buttons = [...viaButton.backdrop.querySelectorAll("button")];
+      expect(buttons).toHaveLength(1);
+      expect(
+        buttons[0].getAttribute("aria-label")?.length ?? 0,
+      ).toBeGreaterThan(0);
+      mousePress(buttons[0], buttons[0], buttons[0]);
+      expect(viaButton.isOpen()).toBe(false);
+    } finally {
+      viaButton.done();
+    }
+  });
+
+  it("touch: a single tap at fit closes once the double-tap window has passed, and does not zoom", async () => {
+    const lb = openLightbox(LARGE);
+    try {
+      tap(lb.img);
+      expect(lb.isOpen()).toBe(true);
+      expect(lb.width()).toBeCloseTo(FIT_W, 3);
+      await wait(TAP_WINDOW);
+      expect(lb.isOpen()).toBe(false);
+    } finally {
+      lb.done();
+    }
+  });
+
+  it("touch: a double-tap zooms to 2x once, a single tap when zoomed does nothing, a double-tap fits again", async () => {
+    const lb = openLightbox(LARGE);
+    try {
+      tap(lb.img, 300, 300);
+      tap(lb.img, 305, 302);
+      // One action for the two taps and the clicks the browser adds to them.
+      expect(lb.width()).toBeCloseTo(FIT_W * 2, 3);
+      await wait(TAP_WINDOW);
+      expect(lb.isOpen()).toBe(true);
+      expect(lb.width()).toBeCloseTo(FIT_W * 2, 3);
+
+      tap(lb.img);
+      await wait(TAP_WINDOW);
+      expect(lb.isOpen()).toBe(true);
+      expect(lb.width()).toBeCloseTo(FIT_W * 2, 3);
+
+      tap(lb.img, 300, 300);
+      tap(lb.img, 300, 300);
+      expect(lb.width()).toBeCloseTo(FIT_W, 3);
+      expect(lb.isOpen()).toBe(true);
+    } finally {
+      lb.done();
+    }
+  });
+
+  it("touch: a two-finger pinch zooms by the change in finger distance, and the browser does not take it", () => {
+    const lb = openLightbox(LARGE);
+    try {
+      const fingers = (gap: number) => [
+        { identifier: 0, clientX: 400 - gap / 2, clientY: 300, target: lb.img },
+        { identifier: 1, clientX: 400 + gap / 2, clientY: 300, target: lb.img },
+      ];
+      const start = fingers(100);
+      fireEvent.touchStart(lb.img, {
+        touches: start,
+        targetTouches: start,
+        changedTouches: start,
+      });
+      const spread = fingers(150);
+      const notPrevented = fireEvent.touchMove(lb.img, {
+        touches: spread,
+        targetTouches: spread,
+        changedTouches: spread,
+      });
+      expect(notPrevented).toBe(false);
+      expect(lb.width()).toBeCloseTo(FIT_W * 1.5, 3);
+      fireEvent.touchEnd(lb.img, {
+        touches: [],
+        targetTouches: [],
+        changedTouches: spread,
+      });
+      expect(lb.isOpen()).toBe(true);
+      expect(lb.width()).toBeCloseTo(FIT_W * 1.5, 3);
+    } finally {
+      lb.done();
+    }
+  });
+
+  // Two fingers at `gap` px apart about (400 + shift, 300).
+  function twoFingers(target: Element, gap: number, shift = 0) {
+    return [
+      { identifier: 0, clientX: 400 + shift - gap / 2, clientY: 300, target },
+      { identifier: 1, clientX: 400 + shift + gap / 2, clientY: 300, target },
+    ];
+  }
+
+  it("touch: a pinch right after a tap, or a cancelled touch, does not close it", async () => {
+    const lb = openLightbox(LARGE);
+    try {
+      // The system takes the touch (iOS sends touchcancel): not a tap.
+      const t = { identifier: 0, clientX: 300, clientY: 300, target: lb.img };
+      fireEvent.touchStart(lb.img, {
+        touches: [t],
+        targetTouches: [t],
+        changedTouches: [t],
+      });
+      fireEvent.touchCancel(lb.img, {
+        touches: [],
+        targetTouches: [],
+        changedTouches: [t],
+      });
+      await wait(TAP_WINDOW);
+      expect(lb.isOpen()).toBe(true);
+
+      // A tap, then a pinch inside the double-tap window: the pinch wins.
+      tap(lb.img);
+      const start = twoFingers(lb.img, 100);
+      fireEvent.touchStart(lb.img, {
+        touches: start,
+        targetTouches: start,
+        changedTouches: start,
+      });
+      const spread = twoFingers(lb.img, 150);
+      fireEvent.touchMove(lb.img, {
+        touches: spread,
+        targetTouches: spread,
+        changedTouches: spread,
+      });
+      await wait(TAP_WINDOW);
+      expect(lb.isOpen()).toBe(true);
+      expect(lb.width()).toBeCloseTo(FIT_W * 1.5, 3);
+    } finally {
+      lb.done();
+    }
+  });
+
+  it("a re-render after a pinch keeps the scroll the member panned to", () => {
+    const lb = openLightbox(LARGE);
+    try {
+      const viewport = lb.img.parentElement!;
+      const start = twoFingers(lb.img, 100);
+      fireEvent.touchStart(lb.img, {
+        touches: start,
+        targetTouches: start,
+        changedTouches: start,
+      });
+      const spread = twoFingers(lb.img, 150);
+      fireEvent.touchMove(lb.img, {
+        touches: spread,
+        targetTouches: spread,
+        changedTouches: spread,
+      });
+      expect(lb.width()).toBeCloseTo(FIT_W * 1.5, 3);
+      // The fingers move together: a pan at the same scale.
+      const moved = twoFingers(lb.img, 150, -40);
+      fireEvent.touchMove(lb.img, {
+        touches: moved,
+        targetTouches: moved,
+        changedTouches: moved,
+      });
+      fireEvent.touchEnd(lb.img, {
+        touches: [],
+        targetTouches: [],
+        changedTouches: moved,
+      });
+      // Then one finger scrolls natively, and the chat re-renders.
+      viewport.scrollLeft = 3;
+      viewport.scrollTop = 0;
+      lb.rerender();
+      expect(lb.width()).toBeCloseTo(FIT_W * 1.5, 3);
+      expect(viewport.scrollLeft).toBe(3);
+    } finally {
+      lb.done();
+    }
+  });
+
+  it("a window resize (a phone turned) fits the image to the new window", () => {
+    const lb = openLightbox(LARGE);
+    try {
+      mousePress(lb.img, lb.img, lb.img);
+      expect(lb.width()).toBeCloseTo(LARGE.w, 3);
+      // 800 x 600: a 720 x 488 box, so 1170 x 390 fits at 720 x 240.
+      act(() => happyDOM.setViewport({ width: 800, height: 600 }));
+      expect(lb.width()).toBeCloseTo(720, 3);
+      expect(lb.isOpen()).toBe(true);
+    } finally {
+      lb.done();
+    }
+  });
+});
