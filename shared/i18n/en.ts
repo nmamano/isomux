@@ -1647,6 +1647,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.sortAgent": "By agent",
   "asks.sortRoom": "By room",
   "asks.sortPriority": "By priority",
+  "asks.sortAge": "By age",
   "asks.filteredEmpty": "No open asks match these filters.",
   "asks.showAll": "Show all",
   "apiCall.tasks.listOpen": "List open tasks",

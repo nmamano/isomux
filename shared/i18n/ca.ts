@@ -1676,6 +1676,7 @@ Coses que pots fer per ell:
   "asks.sortAgent": "Per agent",
   "asks.sortRoom": "Per sala",
   "asks.sortPriority": "Per prioritat",
+  "asks.sortAge": "Per antiguitat",
   "asks.filteredEmpty": "Cap petició oberta coincideix amb aquests filtres.",
   "asks.showAll": "Mostra-ho tot",
   "apiCall.tasks.listOpen": "Llistar tasques obertes",

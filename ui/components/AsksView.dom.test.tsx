@@ -102,16 +102,25 @@ function mount(
   return { view, focused, latest };
 }
 
+// The page in order: each group's agent and the cards under it up to the next
+// group, whether the group wraps its cards or only heads them.
+const runsOf = (view: ReturnType<typeof render>) => {
+  const runs: { agent: string; cards: string[] }[] = [];
+  for (const el of view.container.querySelectorAll<HTMLElement>(
+    "[data-asks-group], [data-ask]",
+  )) {
+    if (el.dataset.asksGroup !== undefined)
+      runs.push({ agent: el.dataset.asksGroup, cards: [] });
+    else runs[runs.length - 1].cards.push(el.dataset.ask!);
+  }
+  return runs;
+};
 const groupIds = (view: ReturnType<typeof render>) =>
-  [...view.container.querySelectorAll<HTMLElement>("[data-asks-group]")].map(
-    (el) => el.dataset.asksGroup,
-  );
+  runsOf(view).map((r) => r.agent);
 const cardIds = (view: ReturnType<typeof render>, agentId: string) =>
-  [
-    ...view.container.querySelectorAll<HTMLElement>(
-      `[data-asks-group="${agentId}"] [data-ask]`,
-    ),
-  ].map((el) => el.dataset.ask);
+  runsOf(view)
+    .filter((r) => r.agent === agentId)
+    .flatMap((r) => r.cards);
 
 it("groups by agent, longest wait first, cards oldest first, with the room", () => {
   const { view } = mount([
@@ -277,14 +286,7 @@ const BY_AGENT = ["a4:a4none,a4p1", "a1:a1old,a1top", "a2:a2only", "a3:a3p1"];
 const mountSorted = () =>
   mount(SORT_ASKS, { rooms: SORT_ROOMS, agents: SORT_AGENTS });
 const pageOrder = (view: ReturnType<typeof render>) =>
-  [...view.container.querySelectorAll<HTMLElement>("[data-asks-group]")].map(
-    (g) =>
-      `${g.dataset.asksGroup}:${[
-        ...g.querySelectorAll<HTMLElement>("[data-ask]"),
-      ]
-        .map((c) => c.dataset.ask)
-        .join(",")}`,
-  );
+  runsOf(view).map((r) => `${r.agent}:${r.cards.join(",")}`);
 type Control =
   | "data-asks-room-filter"
   | "data-asks-priority-filter"
@@ -319,6 +321,7 @@ describe("the filter row", () => {
     ]);
     expect(control(view, "data-asks-sort").value).toBe("agent");
     expect([...values("data-asks-sort")].sort()).toEqual([
+      "age",
       "agent",
       "priority",
       "room",
@@ -348,6 +351,65 @@ describe("the filter row", () => {
       "a4:a4p1,a4none",
       "a2:a2only",
     ]);
+  });
+
+  // Sort by age (task 66532fa7): one list, longest wait first, with a header
+  // at each change of agent, so an agent can head more than one run.
+  const BY_AGE = [
+    "a4:a4none",
+    "a1:a1old",
+    "a2:a2only",
+    "a3:a3p1",
+    "a4:a4p1",
+    "a1:a1top",
+  ];
+
+  it("sorts by age: one list, longest wait first, a header with the agent and room at each change of agent", () => {
+    const { view } = mountSorted();
+    choose(view, "data-asks-sort", "age");
+    expect(pageOrder(view)).toEqual(BY_AGE);
+    // The second a1 run has its own header: the name that opens the chat
+    // and the room.
+    const runs = view.container.querySelectorAll<HTMLElement>(
+      '[data-asks-group="a1"]',
+    );
+    expect(runs).toHaveLength(2);
+    for (const run of runs) {
+      expect(run.querySelector("[data-asks-agent]")?.tagName).toBe("BUTTON");
+      expect(run.textContent).toContain("Scout");
+      expect(run.textContent).toContain("Room One");
+    }
+    // A filter change redraws the runs, and no header is left behind.
+    choose(view, "data-asks-room-filter", "r2");
+    choose(view, "data-asks-room-filter", "all");
+    expect(pageOrder(view)).toEqual(BY_AGE);
+  });
+
+  it("sorts by age after the filters, so a hidden ask joins the runs on each side of it", () => {
+    const { view } = mount(
+      [
+        ranked("aOld", "a1", 90, "P1"),
+        ranked("bMid", "a2", 60, "P2"),
+        ranked("aNew", "a1", 30, "P1"),
+      ],
+      { rooms: SORT_ROOMS, agents: SORT_AGENTS },
+    );
+    choose(view, "data-asks-sort", "age");
+    expect(pageOrder(view)).toEqual(["a1:aOld", "a2:bMid", "a1:aNew"]);
+    choose(view, "data-asks-priority-filter", "P1");
+    expect(pageOrder(view)).toEqual(["a1:aOld,aNew"]);
+    choose(view, "data-asks-priority-filter", "all");
+    choose(view, "data-asks-room-filter", "r2");
+    expect(pageOrder(view)).toEqual(["a2:bMid"]);
+  });
+
+  it("sorts asks of the same age by ask id, whatever the agent or slice order", () => {
+    const { view } = mount(
+      [ask("tieB", "a1", 40), ask("tieA", "a2", 40), ask("tieC", "a1", 40)],
+      { rooms: SORT_ROOMS, agents: SORT_AGENTS },
+    );
+    choose(view, "data-asks-sort", "age");
+    expect(pageOrder(view)).toEqual(["a2:tieA", "a1:tieB,tieC"]);
   });
 
   it("filters by the agent's room and by exact priority, and groups by the cards it shows", () => {
@@ -405,6 +467,15 @@ describe("the filter row", () => {
       "a4:a4p1,a4none",
       "a2:a2only",
     ]);
+  });
+
+  it("remembers the age sort on this device", () => {
+    const first = mountSorted();
+    choose(first.view, "data-asks-sort", "age");
+    first.view.unmount();
+    const second = mountSorted();
+    expect(control(second.view, "data-asks-sort").value).toBe("age");
+    expect(pageOrder(second.view)).toEqual(BY_AGE);
   });
 
   it("falls back to the agent sort when the stored sort is not one it knows", () => {
@@ -616,6 +687,58 @@ it("shows the card again with the error and the draft when the held answer is re
   expect(fieldOf(view, "refused").disabled).toBe(false);
   await advance(ASK_UNDO_MS * 2);
   expect(posts).toHaveLength(1);
+});
+
+// Under the age sort a card is the same card while the cards around it go: a
+// run that loses its first card, or two runs of one agent that join when the
+// card between them goes, keep each held answer held, with its Undo
+// (task 66532fa7).
+it("keeps a held answer held under the age sort while other cards leave and runs join", async () => {
+  localStorage.clear();
+  jest.useFakeTimers();
+  const half = Math.floor(ASK_UNDO_MS / 2);
+  const { view } = mount([
+    ask("x", "a1", 90),
+    ask("y", "a1", 80),
+    ask("z", "a2", 60),
+    ask("w", "a1", 30),
+  ]);
+  act(
+    () =>
+      void fireEvent.change(
+        view.container.querySelector<HTMLSelectElement>(
+          "select[data-asks-sort]",
+        )!,
+        { target: { value: "age" } },
+      ),
+  );
+  try {
+    expect(groupIds(view)).toEqual(["a1", "a2", "a1"]);
+    await answerAsk(view, "x", "reply", "first");
+    await answerAsk(view, "z", "reply", "between");
+    await advance(half);
+    await answerAsk(view, "y", "reply", "head next");
+    await answerAsk(view, "w", "reply", "joins");
+    await advance(ASK_UNDO_MS - half);
+    // x and z are sent and gone: y now heads its run, and w's run joins it.
+    expect([...posts].sort()).toEqual([
+      "/api/asks/x/reply",
+      "/api/asks/z/reply",
+    ]);
+    expect(pageOrder(view)).toEqual(["a1:y,w"]);
+    expect(pendingOf(view, "y")).toBe("reply");
+    expect(pendingOf(view, "w")).toBe("reply");
+    await act(async () => fireEvent.click(undoOf(view, "w")));
+    expect(fieldOf(view, "w").value).toBe("joins");
+    await advance(half);
+    expect([...posts].sort()).toEqual([
+      "/api/asks/x/reply",
+      "/api/asks/y/reply",
+      "/api/asks/z/reply",
+    ]);
+  } finally {
+    localStorage.clear();
+  }
 });
 
 // The page going away (closed, reloaded, or hidden on a phone, where the OS

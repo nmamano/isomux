@@ -114,8 +114,13 @@ export function setAppFilter(filter: AppFilter, on: boolean): void {
 
 // The Inbox Asks tab's sort, remembered on this device. It starts as "agent",
 // and a value this build does not know reads as "agent".
-export type AsksSort = "agent" | "room" | "priority";
-export const ASKS_SORTS: readonly AsksSort[] = ["agent", "room", "priority"];
+export type AsksSort = "agent" | "room" | "priority" | "age";
+export const ASKS_SORTS: readonly AsksSort[] = [
+  "agent",
+  "room",
+  "priority",
+  "age",
+];
 const KEY_ASKS_SORT = "isomux-asks-sort";
 
 export function getAsksSort(): AsksSort {

@@ -1671,6 +1671,7 @@ Cosas que puedes hacer por él:
   "asks.sortAgent": "Por agente",
   "asks.sortRoom": "Por sala",
   "asks.sortPriority": "Por prioridad",
+  "asks.sortAge": "Por antigüedad",
   "asks.filteredEmpty": "Ninguna petición abierta coincide con estos filtros.",
   "asks.showAll": "Mostrar todo",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",

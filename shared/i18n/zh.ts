@@ -1488,6 +1488,7 @@ App 的一些原则：
   "asks.sortAgent": "按智能体",
   "asks.sortRoom": "按房间",
   "asks.sortPriority": "按优先级",
+  "asks.sortAge": "按等待时间",
   "asks.filteredEmpty": "没有符合这些筛选条件的待处理请示。",
   "asks.showAll": "显示全部",
   "apiCall.tasks.listOpen": "列出未完成任务",

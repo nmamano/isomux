@@ -1,7 +1,9 @@
 // The Inbox's Asks tab: the member's open asks from every agent they can see,
 // grouped by agent. A filter row filters them by the agent's room and by the
 // ask's priority, and sorts them by agent (the longest wait first), room or
-// priority (task 995fc76a). Each ask is the AskCard the chat's
+// priority (task 995fc76a), or by age: one list, the longest wait first, with
+// the agent's name over each run of its asks (task 66532fa7). Each ask is the
+// AskCard the chat's
 // stack draws, so its answers work the same here, except that an answer waits
 // ASK_UNDO_MS for an Undo before it is sent. The agent's name, and a card's
 // "Discuss in chat", open the chat panel over the Inbox (AgentChatPanel).
@@ -55,15 +57,19 @@ const SORT_LABELS = {
   agent: "asks.sortAgent",
   room: "asks.sortRoom",
   priority: "asks.sortPriority",
+  age: "asks.sortAge",
 } as const satisfies Record<AsksSort, string>;
 
 /**
- * The open asks per agent that the filters let through. One comparator per
- * sort orders the cards in a group, and the groups by their first card, then
- * by agent id: oldest first; or the room's place in `rooms`, then oldest; or
- * the priority, no priority last, then oldest. Only agents in the agents
- * slice get a group, so an ask whose agent the client does not have stays
- * out, as `visibleAsks` leaves it out of the count.
+ * The open asks that the filters let through, as runs of one agent's asks in
+ * page order. Under "agent", "room" and "priority" each agent has one run, and
+ * one comparator orders the cards in a run and the runs by their first card,
+ * then by agent id: oldest first; or the room's place in `rooms`, then oldest;
+ * or the priority, no priority last, then oldest. Under "age" all the asks are
+ * one list, oldest first, then by ask id, and a run ends where the agent
+ * changes, so an agent can head more than one run. Only agents in the agents
+ * slice get a run, so an ask whose agent the client does not have stays out,
+ * as `visibleAsks` leaves it out of the count.
  */
 function askGroups(
   asks: readonly AskMemberWire[],
@@ -96,6 +102,24 @@ function askGroups(
       )
       .sort((a, b) => compare({ entry: a, agent }, { entry: b, agent }));
     if (entries.length > 0) groups.push({ agent, entries });
+  }
+  if (sort === "age") {
+    const flat = groups
+      .flatMap(({ agent, entries }) =>
+        entries.map((entry) => ({ agent, entry })),
+      )
+      .sort(
+        (a, b) =>
+          a.entry.createdAt - b.entry.createdAt ||
+          (a.entry.id < b.entry.id ? -1 : 1),
+      );
+    const runs: AskGroup[] = [];
+    for (const { agent, entry } of flat) {
+      const last = runs[runs.length - 1];
+      if (last?.agent.id === agent.id) last.entries.push(entry);
+      else runs.push({ agent, entries: [entry] });
+    }
+    return runs;
   }
   return groups.sort(
     (a, b) =>
@@ -282,61 +306,61 @@ export function AsksView({
               </button>
             </div>
           ) : (
-            groups.map(({ agent, entries }) => (
-              <section
-                key={agent.id}
+            // One flat list: each run's header is a sibling before its cards,
+            // and a card's key is its ask id, so a card that moves to another
+            // run, or whose run's first card leaves, is not remounted (a
+            // remount would send its held answer at once).
+            groups.flatMap(({ agent, entries }, i) => [
+              <div
+                key={`group:${entries[0].id}`}
                 data-asks-group={agent.id}
-                style={{ marginBottom: isMobile ? 16 : 20 }}
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  margin: `${i === 0 ? 0 : isMobile ? 16 : 20}px 0 6px 2px`,
+                  fontFamily: "var(--font-ui)",
+                }}
               >
-                <div
+                <button
+                  type="button"
+                  {...noTranslate()}
+                  data-asks-agent={agent.id}
+                  onClick={() => (onChatAgent ?? onFocusAgent)(agent.id)}
                   style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 8,
-                    margin: "0 0 6px 2px",
-                    fontFamily: "var(--font-ui)",
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: "var(--accent-text)",
+                    fontSize: isMobile ? 15 : 14,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    textAlign: "left",
                   }}
                 >
-                  <button
-                    type="button"
-                    {...noTranslate()}
-                    data-asks-agent={agent.id}
-                    onClick={() => (onChatAgent ?? onFocusAgent)(agent.id)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      padding: 0,
-                      color: "var(--accent-text)",
-                      fontSize: isMobile ? 15 : 14,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    {agent.name}
-                  </button>
-                  <span
-                    {...noTranslate()}
-                    style={{
-                      color: "var(--text-muted)",
-                      fontSize: isMobile ? 12 : 11,
-                    }}
-                  >
-                    {roomNameById.get(agent.roomId) ?? ""}
-                  </span>
-                </div>
-                {entries.map((entry) => (
-                  <AskCard
-                    key={entry.id}
-                    entry={entry}
-                    isMobile={isMobile}
-                    onFocusAgent={onFocusAgent}
-                    onChatAgent={onChatAgent}
-                    undoMs={ASK_UNDO_MS}
-                  />
-                ))}
-              </section>
-            ))
+                  {agent.name}
+                </button>
+                <span
+                  {...noTranslate()}
+                  style={{
+                    color: "var(--text-muted)",
+                    fontSize: isMobile ? 12 : 11,
+                  }}
+                >
+                  {roomNameById.get(agent.roomId) ?? ""}
+                </span>
+              </div>,
+              ...entries.map((entry) => (
+                <AskCard
+                  key={entry.id}
+                  entry={entry}
+                  isMobile={isMobile}
+                  onFocusAgent={onFocusAgent}
+                  onChatAgent={onChatAgent}
+                  undoMs={ASK_UNDO_MS}
+                />
+              )),
+            ])
           )}
         </div>
       </div>
