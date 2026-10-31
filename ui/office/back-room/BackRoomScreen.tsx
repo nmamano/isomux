@@ -25,6 +25,7 @@ import { useViewport } from "../useViewport.ts";
 import { ZoomControls } from "../ZoomControls.tsx";
 import { getDraggedDesk, setDraggedDesk } from "../drag-state.ts";
 import { Vignette } from "../Vignette.tsx";
+import { Cloud } from "../Floor.tsx";
 import type { ViewportControls } from "../OfficeView.tsx";
 import {
   FIGURE_SCALE,
@@ -97,6 +98,15 @@ const BOARD_ROWS = 5;
 const BOARD_COL_MIN = 104;
 // Where a slot's name and topic start: right of the status dot.
 const BOARD_TEXT_X = 11;
+// The window: a basement window high on the right wall, over the stencil,
+// with its top level with the board's. The ground outside comes up to its
+// lower part. Its width is in tiles; its pane sits WINDOW_SET in from the
+// wall face, so the left reveal and the sill show.
+const WINDOW_W = 1.8;
+const WINDOW_H = 34;
+const WINDOW_SET = 6;
+const WINDOW_GROUND = 0.32;
+const WINDOW_FRAME = "#6b5240";
 
 /** About how wide a monospace line draws: CJK glyphs take a full em, the
  *  rest 0.6 em. */
@@ -690,6 +700,71 @@ export function BackRoomScreen({
   const sign = up(layout.at(SIGN_C0 + signSpan / 2 / TILE_A, 0), WALL_H * 0.55);
   // The text slants down to its right: its left end is its highest point.
   const signTop = sign.y - (signScale * signW) / 4 - signScale * SIGN_FONT;
+  // The window, centred over the stencil. The opening is on the wall face;
+  // the pane is the same shape moved WINDOW_SET out through the wall.
+  const windowW = Math.min(WINDOW_W, signSpan / TILE_A);
+  const windowC = SIGN_C0 + signSpan / 2 / TILE_A;
+  const winA = up(layout.at(windowC - windowW / 2, 0), BOARD_TOP_H - WINDOW_H);
+  const winB = up(layout.at(windowC + windowW / 2, 0), BOARD_TOP_H - WINDOW_H);
+  const opening = [winA, winB, up(winB, WINDOW_H), up(winA, WINDOW_H)];
+  const set = (p: Point) => ({ x: p.x + WINDOW_SET, y: p.y - WINDOW_SET / 2 });
+  const paneW = windowW * TILE_A;
+  const pane = (
+    <g
+      transform={`matrix(1 ${LADDER_SLOPE} 0 1 ${set(winA).x} ${set(winA).y - WINDOW_H})`}
+    >
+      <g className="window-night">
+        <rect width={paneW} height={WINDOW_H} fill="#0a0e1a" />
+        {[
+          [0.12, 0.25],
+          [0.3, 0.5],
+          [0.45, 0.18],
+          [0.62, 0.42],
+          [0.8, 0.2],
+          [0.92, 0.48],
+        ].map(([u, v], k) => (
+          <circle
+            key={k}
+            cx={u * paneW}
+            cy={v * WINDOW_H}
+            r={0.7}
+            fill="white"
+            opacity={0.5 + (k % 3) * 0.2}
+          />
+        ))}
+        <rect
+          y={WINDOW_H * (1 - WINDOW_GROUND)}
+          width={paneW}
+          height={WINDOW_H * WINDOW_GROUND}
+          fill="#1d2b1f"
+        />
+      </g>
+      <g className="window-day">
+        <rect width={paneW} height={WINDOW_H} fill="#87CEEB" />
+        <Cloud x={paneW * 0.3} y={WINDOW_H * 0.45} scale={0.5} opacity={0.9} />
+        <rect
+          y={WINDOW_H * (1 - WINDOW_GROUND)}
+          width={paneW}
+          height={WINDOW_H * WINDOW_GROUND}
+          fill="#6a9f4b"
+        />
+      </g>
+      <path
+        d={Array.from(
+          { length: Math.round(paneW / 4) },
+          (_, k) =>
+            `M${k * 4 + 2} ${WINDOW_H * (1 - WINDOW_GROUND)} l${k % 2 ? 1 : -1} -${2 + (k % 3)}`,
+        ).join(" ")}
+        stroke="rgba(30,60,25,0.5)"
+        strokeWidth={1}
+      />
+      <path
+        d={`M${paneW / 2} 0 V${WINDOW_H}`}
+        stroke={WINDOW_FRAME}
+        strokeWidth={2}
+      />
+    </g>
+  );
 
   // The board on the left wall, from near the left corner to short of the
   // back corner: as many columns as fit, then the slots fill down each column.
@@ -1007,6 +1082,27 @@ export function BackRoomScreen({
               {walls}
               {floor}
               {slabs}
+              <defs>
+                <clipPath id="back-window-clip">
+                  <path d={poly(opening)} />
+                </clipPath>
+              </defs>
+              {/* The opening shows its left reveal and its sill, as the
+                  wall's cut end and top do. */}
+              <g data-back-window clipPath="url(#back-window-clip)">
+                <path d={poly(opening)} fill={BRICK.endRight} />
+                <path
+                  d={poly([winA, winB, set(winB), set(winA)])}
+                  fill={BRICK.topRight}
+                />
+                {pane}
+                <path
+                  d={poly(opening.map(set))}
+                  fill="none"
+                  stroke={WINDOW_FRAME}
+                  strokeWidth={3}
+                />
+              </g>
               <g
                 data-back-sign
                 transform={`matrix(${signScale} ${signScale * 0.5} 0 ${signScale} ${sign.x} ${sign.y})`}
