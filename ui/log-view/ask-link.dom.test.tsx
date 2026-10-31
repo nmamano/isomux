@@ -395,9 +395,11 @@ it("expands an answered ask to its whole prompt and options, and a second click 
     expect(toggle().contains(shown)).toBe(false);
     expect(line.textContent.split(SECOND_LINE).length - 1).toBe(1);
     expect(toggle().getAttribute("aria-label")).toBeTruthy();
-    // The options in order, the recommended one marked; none is a control.
+    // The options in order, the recommended one marked by an SVG picture
+    // named by the catalog label, not by the word (iOS Safari draws a text
+    // glyph through the emoji font); none is a control.
     const recommended = en.t("asks.recommended");
-    expect(options().map((o) => o.textContent?.split(" ")[0])).toEqual([
+    expect(options().map((o) => o.textContent)).toEqual([
       "Tonight",
       "Tomorrow",
       "Hold",
@@ -407,14 +409,14 @@ it("expands an answered ask to its whole prompt and options, and a second click 
         "[data-ask-link-option-recommended]",
       ),
     ];
-    expect(marked.map((o) => o.textContent?.split(" ")[0])).toEqual([
-      "Tomorrow",
-    ]);
-    expect(options().map((o) => o.textContent?.includes(recommended))).toEqual([
-      false,
-      true,
-      false,
-    ]);
+    expect(marked.map((o) => o.textContent)).toEqual(["Tomorrow"]);
+    const marks = options().map((o) =>
+      [...o.querySelectorAll('[role="img"]')]
+        .filter((el) => el.getAttribute("aria-label") === recommended)
+        .map((el) => el.namespaceURI),
+    );
+    expect(marks).toEqual([[], ["http://www.w3.org/2000/svg"], []]);
+    expect(line.textContent).not.toContain(recommended);
     expect(line.querySelectorAll("button").length).toBe(2);
 
     fireEvent.click(toggle());

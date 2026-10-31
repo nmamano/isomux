@@ -444,6 +444,14 @@ const recommendedMarks = (card: HTMLElement) =>
     ),
   ].map((b) => b.textContent);
 
+// The recommended mark: a picture named by the catalog label, so a screen
+// reader says it and the reader does not see the word.
+const SVG_NS = "http://www.w3.org/2000/svg";
+const namedMarks = (root: HTMLElement, label: string) =>
+  [...root.querySelectorAll<Element>('[role="img"]')].filter(
+    (el) => el.getAttribute("aria-label") === label,
+  );
+
 it("starts the field with the recommended option, marks that option only, and one Reply sends it", async () => {
   const view = mount(false, "a8");
   await waitFor(() =>
@@ -454,22 +462,32 @@ it("starts the field with the recommended option, marks that option only, and on
   )!;
   const input = field(view.container, "mmmm0013");
   expect(input.value).toBe("No");
-  // The mark is on the option's own button, with the catalog's label.
-  expect(recommendedMarks(card).length).toBe(1);
-  expect(recommendedMarks(card)[0]).toContain("No");
+  // The mark is on the option's own button: a picture named by the catalog's
+  // label, not the word. An SVG, because iOS Safari draws a text glyph (a
+  // star) through the emoji font and ignores the theme color.
+  expect(recommendedMarks(card)).toEqual(["No"]);
   const label = (en as Record<string, string>)["asks.recommended"];
   expect(typeof label).toBe("string");
-  expect(card.textContent).toContain(label);
+  const marks = namedMarks(card, label);
+  expect(marks.length).toBe(1);
+  expect(marks[0].namespaceURI).toBe(SVG_NS);
+  expect(marks[0].textContent).toBe("");
+  expect(
+    marks[0]
+      .closest("[data-ask-option]")
+      ?.hasAttribute("data-ask-option-recommended"),
+  ).toBe(true);
+  expect(card.textContent).not.toContain(label);
   // The other option is an ordinary button.
   expect(optionButtons(card).map((b) => b.textContent)).toContain("Yes");
   // What the agent wrote (the question and each option) stays out of page
-  // translation; the mark, in the reader's language, does not. The reply
+  // translation; the mark's name, in the reader's language, does not. The reply
   // field holds "No" as its text too, so the option queries pass it over.
   const optionText = { ignore: "script, style, textarea" };
   expect(translated(getByText(card, "Keep the verifier rule?"))).toBe(false);
   expect(translated(getByText(card, "Yes", optionText))).toBe(false);
   expect(translated(getByText(card, "No", optionText))).toBe(false);
-  expect(translated(getByText(card, label))).toBe(true);
+  expect(translated(marks[0])).toBe(true);
   // Untouched, so focus selects it for typing over.
   act(() => input.focus());
   expect(selection(input)).toEqual([0, 2]);
@@ -480,8 +498,8 @@ it("starts the field with the recommended option, marks that option only, and on
     '[data-ask="nnnn0014"]',
   )!;
   expect(recommendedMarks(stale)).toEqual([]);
+  expect(namedMarks(stale, label)).toEqual([]);
   expect(field(view.container, "nnnn0014").value).toBe("");
-  expect(stale.textContent).not.toContain(label);
 
   await act(async () => {
     fireEvent.submit(card.querySelector("form")!);

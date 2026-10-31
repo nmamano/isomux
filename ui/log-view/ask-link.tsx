@@ -20,6 +20,7 @@ import { isomuxRequestForToolCall } from "./tool-call-groups.ts";
 import { jumpToLogEntry } from "./jump-to-entry.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { RecommendedStar } from "./recommended-star.tsx";
 
 /** The ask a user_message answers, from its metadata, or null. */
 export function askRefOf(entry: LogEntry): AskRef | null {
@@ -307,23 +308,30 @@ export function AskLink({
                   key={i}
                   data-ask-link-option=""
                   {...(option === ask.recommended
-                    ? { "data-ask-link-option-recommended": "" }
+                    ? {
+                        "data-ask-link-option-recommended": "",
+                        title: t("asks.recommended"),
+                      }
                     : {})}
                   style={{
                     padding: "2px 8px",
                     borderRadius: 6,
                     border: "1px solid var(--border)",
+                    background:
+                      option === ask.recommended
+                        ? "var(--accent-bg)"
+                        : undefined,
                     color: "var(--text-dim)",
                     overflowWrap: "anywhere",
                   }}
                 >
-                  <span {...noTranslate()}>{option}</span>
-                  {option === ask.recommended && " "}
                   {option === ask.recommended && (
-                    <span style={{ marginLeft: 3, opacity: 0.8 }}>
-                      {t("asks.recommended")}
-                    </span>
+                    <RecommendedStar
+                      size={isMobile ? 12 : 11}
+                      color="var(--accent-text)"
+                    />
                   )}
+                  <span {...noTranslate()}>{option}</span>
                 </li>
               ))}
             </ul>

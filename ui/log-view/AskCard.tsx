@@ -59,6 +59,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { RecommendedStar } from "./recommended-star.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
 import { askLinkFor } from "../../shared/office-links.ts";
 import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
@@ -703,7 +704,10 @@ function ReplyAskCard({
               type="button"
               data-ask-option=""
               {...(option === entry.recommended
-                ? { "data-ask-option-recommended": "" }
+                ? {
+                    "data-ask-option-recommended": "",
+                    title: t("asks.recommended"),
+                  }
                 : {})}
               disabled={busy}
               onClick={() => fillOption(option)}
@@ -712,7 +716,10 @@ function ReplyAskCard({
                 padding: buttonPad,
                 borderRadius: 8,
                 border: "1px solid var(--accent-text)",
-                background: "transparent",
+                background:
+                  option === entry.recommended
+                    ? "var(--accent-bg)"
+                    : "transparent",
                 color: "var(--accent-text)",
                 fontFamily: "var(--font-ui)",
                 fontSize: isMobile ? 14 : 12,
@@ -724,21 +731,11 @@ function ReplyAskCard({
                 opacity: busy ? 0.6 : 1,
               }}
             >
+              {option === entry.recommended && (
+                <RecommendedStar size={isMobile ? 13 : 11} />
+              )}
               {/* The agent's words; the recommended mark stays translatable. */}
               <span {...noTranslate()}>{option}</span>
-              {option === entry.recommended && " "}
-              {option === entry.recommended && (
-                <span
-                  style={{
-                    marginLeft: 3,
-                    fontSize: isMobile ? 12 : 11,
-                    fontWeight: 500,
-                    opacity: 0.8,
-                  }}
-                >
-                  {t("asks.recommended")}
-                </span>
-              )}
             </button>
           ))}
         </div>
