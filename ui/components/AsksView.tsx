@@ -54,6 +54,10 @@ interface AskFilter {
   priorities: readonly PriorityFilterValue[];
 }
 
+// More of each prompt than the chat's stack shows: a phone line holds about
+// 40 characters, and most asks fit in 20.
+const INBOX_PROMPT_LINES = 20;
+
 const passesRoom = (filter: AskFilter, agent: AgentInfo) =>
   !filter.hiddenRooms.has(agent.roomId);
 const passesPriority = (filter: AskFilter, entry: AskMemberWire) =>
@@ -471,6 +475,7 @@ export function AsksView({
                   onFocusAgent={onFocusAgent}
                   onChatAgent={onChatAgent}
                   undoMs={ASK_UNDO_MS}
+                  promptLines={INBOX_PROMPT_LINES}
                 />
               )),
             ])

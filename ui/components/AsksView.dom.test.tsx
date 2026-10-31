@@ -23,6 +23,7 @@ setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
 const { useReducer, useState, createElement } = await import("react");
 const { AsksView, ASK_UNDO_MS } = await import("./AsksView.tsx");
+const { AsksStack } = await import("../log-view/AsksStack.tsx");
 const { StateCtx, DispatchCtx, initialState, reducer } =
   await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
@@ -172,6 +173,64 @@ it("names the app that opened an ask on that ask's card in the agent's group", (
   expect(card("a1app").textContent).toContain("triage-bot");
   expect(card("a1own").textContent).not.toContain("triage-bot");
 });
+
+// The Inbox is where a member reads asks, so its card shows more of the prompt
+// before Show more than the chat's stack, where space is tight (task
+// 5af30517). happy-dom does not lay out, so this reads the clamp each draws.
+it("clamps an ask's prompt at more lines in the Inbox than in the chat's stack", () => {
+  // happy-dom drops -webkit-line-clamp, which React sets as
+  // style.WebkitLineClamp. Keep what React writes there for this test only.
+  const proto = CSSStyleDeclaration.prototype;
+  const written = new WeakMap<object, string>();
+  Object.defineProperty(proto, "WebkitLineClamp", {
+    configurable: true,
+    get() {
+      return written.get(this) ?? "";
+    },
+    set(value) {
+      written.set(this, String(value));
+    },
+  });
+  try {
+    clampCase();
+  } finally {
+    delete (proto as { WebkitLineClamp?: unknown }).WebkitLineClamp;
+  }
+});
+
+function clampCase() {
+  const long = { ...ask("a1long", "a1", 5), prompt: "Line\n".repeat(40) };
+  const state: AppState = {
+    ...initialState,
+    asks: [long],
+    rooms: [{ id: "r1", name: "Room One" }] as AppState["rooms"],
+    agents: [{ id: "a1", name: "Scout", roomId: "r1" }] as AppState["agents"],
+  };
+  const clampIn = (element: ReturnType<typeof createElement>) => {
+    const view = render(
+      createElement(
+        StateCtx.Provider,
+        { value: state },
+        createElement(DispatchCtx.Provider, { value: () => {} }, element),
+      ),
+    );
+    const prompt = view.container.querySelector<HTMLElement>(
+      '[data-ask="a1long"] [data-ask-prompt]',
+    )!;
+    const lines = Number(
+      (prompt.style as { WebkitLineClamp?: string }).WebkitLineClamp,
+    );
+    view.unmount();
+    return lines;
+  };
+  const stack = clampIn(
+    createElement(AsksStack, { agentId: "a1", isMobile: false }),
+  );
+  const inbox = clampIn(createElement(AsksView, { onFocusAgent: () => {} }));
+  // Both cards clamp: a missing clamp reads 0, not a larger number.
+  expect(stack).toBeGreaterThan(0);
+  expect(inbox).toBeGreaterThan(stack);
+}
 
 it("drops a group with its last card, then shows the empty state", async () => {
   const { view } = mount([ask("onlyA", "a1", 5), ask("onlyB", "a2", 10)]);

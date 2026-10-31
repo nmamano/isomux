@@ -125,6 +125,7 @@ export function AskCard({
   onFocusAgent,
   onChatAgent,
   undoMs,
+  promptLines,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
@@ -132,6 +133,8 @@ export function AskCard({
   // Set on the Inbox: Discuss in chat opens the in-place chat panel.
   onChatAgent?: (agentId: string) => void;
   undoMs?: number;
+  // The prompt's lines before Show more.
+  promptLines?: number;
 }) {
   return entry.secret ? (
     <SecretAskCard
@@ -148,6 +151,7 @@ export function AskCard({
       onFocusAgent={onFocusAgent}
       onChatAgent={onChatAgent}
       undoMs={undoMs}
+      promptLines={promptLines}
     />
   );
 }
@@ -237,12 +241,14 @@ function ReplyAskCard({
   onFocusAgent,
   onChatAgent,
   undoMs,
+  promptLines = PROMPT_LINES,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
   onChatAgent?: (agentId: string) => void;
   undoMs?: number;
+  promptLines?: number;
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
@@ -314,7 +320,7 @@ function ReplyAskCard({
     const el = promptRef.current;
     if (!el || expanded) return;
     setClamped(el.scrollHeight > el.clientHeight + 1);
-  }, [entry.prompt, expanded]);
+  }, [entry.prompt, expanded, promptLines]);
 
   const since = timeSince(language, entry.createdAt);
   const age = since.kind === "now" ? t("common.justNow") : since.text;
@@ -584,7 +590,7 @@ function ReplyAskCard({
                 ? {}
                 : {
                     display: "-webkit-box",
-                    WebkitLineClamp: PROMPT_LINES,
+                    WebkitLineClamp: promptLines,
                     WebkitBoxOrient: "vertical",
                     overflow: "hidden",
                   }),
