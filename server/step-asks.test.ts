@@ -459,6 +459,24 @@ describe("the reconcile", () => {
     expect(openIds(t)).toEqual([]);
   });
 
+  it("closes a done step's ask as done, for the ask history", async () => {
+    const t = setup();
+    const claude = await open(t, {
+      kind: "provider-sign-in",
+      provider: "claude",
+    });
+    const closes: unknown[] = [];
+    const remove = t.asks.remove.bind(t.asks);
+    t.asks.remove = (id, close) => {
+      closes.push(close);
+      return remove(id, close);
+    };
+    t.state.connected.add(`${ALICE}|claude|personal`);
+    await t.steps.reconcile();
+    expect(t.settled.map((s) => s.askId)).toEqual([claude.id]);
+    expect(closes).toEqual([{ outcome: "done" }]);
+  });
+
   it("an ask answered while its step was being read is not settled again", async () => {
     const t = setup();
     const claude = await open(t, {
@@ -470,7 +488,9 @@ describe("the reconcile", () => {
     t.state.connected.add(`${ALICE}|claude|personal`);
     const running = t.steps.reconcile();
     // The member dismisses it meanwhile.
-    expect(t.asks.remove(claude.id)?.id).toBe(claude.id);
+    expect(t.asks.remove(claude.id, { outcome: "dismissed" })?.id).toBe(
+      claude.id,
+    );
     release();
     await running;
     expect(t.settled).toEqual([]);

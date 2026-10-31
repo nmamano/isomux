@@ -1645,6 +1645,7 @@ Coses que pots fer per ell:
   "apiCall.asks.create": "Crear petició",
   "apiCall.asks.list": "Llistar peticions",
   "apiCall.asks.get": "Consultar petició",
+  "apiCall.asks.history": "Consultar peticions passades",
   "apiCall.asks.edit": "Editar petició",
   "apiCall.asks.delete": "Eliminar petició",
   "asks.title": "Peticions",

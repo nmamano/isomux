@@ -29,7 +29,10 @@ import {
   type AgentInfo,
   type TaskItem,
 } from "../../shared/types.ts";
-import type { AskAgentWire } from "../../shared/contract-shapes.ts";
+import type {
+  AskAgentWire,
+  AskClosedWire,
+} from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
 
@@ -192,13 +195,17 @@ describe("the agent's own list", () => {
       w.as(w.asker.id),
     );
     expect(deleted.status).toBe(204);
+    // Closed, not gone: the agent reads it with how it closed.
     const gone = await call(
       w.srv,
       "GET",
       `${base}/${created.id}`,
       w.as(w.asker.id),
     );
-    expect(gone.status).toBe(404);
+    expect([gone.status, (gone.body as AskClosedWire).closed?.outcome]).toEqual(
+      [200, "withdrawn"],
+    );
+    expect((await call(w.srv, "GET", base, w.as(w.asker.id))).body).toEqual([]);
   });
 
   it("never lets one agent's token reach another agent's asks", async () => {
@@ -977,7 +984,10 @@ describe("the member's answer", () => {
       `/api/agents/${w.asker.id}/asks/${created.id}`,
       w.as(w.asker.id),
     );
-    expect(after.status).toBe(404);
+    expect([
+      after.status,
+      (after.body as AskClosedWire).closed?.outcome,
+    ]).toEqual([200, "replied"]);
   });
 
   it("keeps the ask's options and recommended one on the answer, so the chat can show them", async () => {
@@ -1507,7 +1517,10 @@ describe("an ask filed as a task", () => {
       `/api/agents/${w.asker.id}/asks/${created.id}`,
       w.as(w.asker.id),
     );
-    expect(after.status).toBe(404);
+    expect([
+      after.status,
+      (after.body as AskClosedWire).closed?.outcome,
+    ]).toEqual([200, "filed"]);
 
     // The agent reads the task id in the note, then the bare words.
     await waitUntil(

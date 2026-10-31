@@ -41,6 +41,12 @@ function rig(over: Partial<AsksDeps> = {}) {
   const deleted: string[] = [];
   const deps: AsksDeps = {
     store,
+    history: {
+      record: () => {},
+      has: () => false,
+      get: () => null,
+      list: () => ({ items: [], nextBefore: null }),
+    },
     agent: () => ({ roomId: "r1", managerUserId: "u1" }),
     memberByName: () => null,
     memberName: () => "pat",

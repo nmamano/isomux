@@ -34,6 +34,7 @@ import type {
   WebhookWire,
   PagerDeliveryFailure,
   AskMemberWire,
+  AskOutcome,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
@@ -838,6 +839,22 @@ export interface AskFileTaskReq {
 // What an agent reads back: the member wire plus the target's username.
 // member is null for an office secret request, which is for every owner.
 export type AskAgentWire = AskMemberWire & { member: string | null };
+// A closed ask (task ff590b5e): the agent wire plus how it closed. `by` is
+// the answering member's username, null when there is none or it is gone.
+export type AskClosedWire = AskAgentWire & {
+  closed: {
+    at: number;
+    outcome: AskOutcome;
+    by: string | null;
+    answer?: string;
+    taskId?: string;
+  };
+};
+export interface AskHistoryRes {
+  asks: AskClosedWire[];
+  // The `before` of the next page; null when there is none.
+  nextBefore: number | null;
+}
 
 export interface ApiTokenInboxSendRes {
   messageId: string;

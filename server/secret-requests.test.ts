@@ -503,7 +503,7 @@ describe("the member's answer", () => {
     expect(code(t.requests.decline("u-alice", "a1", requestId))).toBe(
       "not_found",
     );
-    expect(t.asks.remove(entry.id)).toBeNull();
+    expect(t.asks.remove(entry.id, { outcome: "withdrawn" })).toBeNull();
     expect(
       code(await t.requests.save("u-alice", "a1", requestId, { value: VALUE })),
     ).toBe("not_found");
@@ -516,7 +516,7 @@ describe("the member's answer", () => {
     const t = setup();
     const requestId = opened(t.requests.open("a1", ASK));
     const [entry] = t.asks.listAll();
-    t.asks.remove(entry.id);
+    t.asks.remove(entry.id, { outcome: "withdrawn" });
     expect(
       code(await t.requests.save("u-alice", "a1", requestId, { value: VALUE })),
     ).toBe("not_found");

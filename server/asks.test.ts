@@ -76,7 +76,9 @@ describe("loading", () => {
     });
     if (!made.ok) throw new Error("create failed");
     fail = true;
-    expect(() => store.remove(made.entry.id)).toThrow();
+    expect(() =>
+      store.remove(made.entry.id, { outcome: "withdrawn" }),
+    ).toThrow();
     expect(store.get(made.entry.id)).toEqual(made.entry);
   });
 });

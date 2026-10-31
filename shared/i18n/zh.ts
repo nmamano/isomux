@@ -1457,6 +1457,7 @@ App 的一些原则：
   "apiCall.asks.create": "创建请示",
   "apiCall.asks.list": "列出请示",
   "apiCall.asks.get": "查看请示",
+  "apiCall.asks.history": "查看过往请示",
   "apiCall.asks.edit": "编辑请示",
   "apiCall.asks.delete": "删除请示",
   "asks.title": "请示",

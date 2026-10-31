@@ -87,13 +87,15 @@ async function ask(w: World, srv: TestServer, step: unknown) {
   return { status: response.status, body: (await json(response)) as AskEntry };
 }
 
-// The agent's token is read on each call: a restart issues a new one.
+// "open", the closed ask's outcome, or the status of a refused read. The
+// agent's token is read on each call: a restart issues a new one.
 async function askStatus(w: World, srv: TestServer, askId: string) {
   const response = await srv.http(`/api/agents/${w.agent.id}/asks/${askId}`, {
     headers: { Authorization: `Bearer ${getAgentTokenRaw(w.agent.id)}` },
   });
-  await json(response);
-  return response.status;
+  const body = (await json(response)) as { closed?: { outcome: string } };
+  if (response.status !== 200) return String(response.status);
+  return body.closed?.outcome ?? "open";
 }
 
 async function waitUntil(pred: () => Promise<boolean>, label: string) {
@@ -126,10 +128,10 @@ async function closesItself(
     opened.body.link,
     opened.body.step as unknown,
   ]).toEqual([201, expected.link, expected.step]);
-  expect(await askStatus(w, w.srv, opened.body.id)).toBe(200);
+  expect(await askStatus(w, w.srv, opened.body.id)).toBe("open");
   await doIt();
   await waitUntil(
-    async () => (await askStatus(w, w.srv, opened.body.id)) === 404,
+    async () => (await askStatus(w, w.srv, opened.body.id)) === "done",
     `the ${String(step.kind)} ask closes`,
   );
   // Done now: a second ask for the same step is refused.
@@ -298,11 +300,11 @@ describe("a step done while no hook saw it", () => {
     );
     expect(direct.ok).toBe(true);
     await Bun.sleep(50);
-    expect(await askStatus(w, w.srv, opened.body.id)).toBe(200);
+    expect(await askStatus(w, w.srv, opened.body.id)).toBe("open");
     const next = await w.srv.restart();
     server = next;
     await waitUntil(
-      async () => (await askStatus(w, next, opened.body.id)) === 404,
+      async () => (await askStatus(w, next, opened.body.id)) === "done",
       "the boot closes the ask",
     );
     expect(stepLines(next, w.agent.id)).toEqual([

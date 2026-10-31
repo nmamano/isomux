@@ -308,9 +308,9 @@ export function createSecretRequests(deps: SecretRequestDeps) {
   // The saved value's ask goes. If the removal fails, the value is saved,
   // so the agent still hears it; the ask stays until the store can write,
   // and a second save gets the kind's exists code.
-  function closeSaved(entry: SecretAsk): void {
+  function closeSaved(entry: SecretAsk, userId: string): void {
     try {
-      deps.asks.remove(entry.id);
+      deps.asks.remove(entry.id, { outcome: "saved", byUserId: userId });
     } catch {
       console.error(
         `[secret-requests] ask ${entry.id} was saved but could not be closed`,
@@ -677,7 +677,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
             ? writeVariable(scope, request.name, body)
             : writeMcpServer(scope, request.name, body);
         if (!written.ok) return written;
-        closeSaved(entry);
+        closeSaved(entry, userId as string);
         deps.settled(
           agentId,
           requestId,
@@ -726,7 +726,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
           : {}),
       });
       if (!change.ok) return changeFailure(change);
-      closeSaved(entry);
+      closeSaved(entry, userId as string);
       try {
         await deps.onChanged?.();
       } catch {
@@ -757,7 +757,10 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         if (!found.ok) return found;
         const { name } = found.entry.secret;
         try {
-          deps.asks.remove(found.entry.id);
+          deps.asks.remove(found.entry.id, {
+            outcome: "declined",
+            byUserId: userId as string,
+          });
         } catch {
           return requestFailed;
         }

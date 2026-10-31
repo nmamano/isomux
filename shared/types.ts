@@ -1512,6 +1512,40 @@ export type AskReadFile = Attachment & { path?: string };
 // An ask as a route or push sends it: the opening session stays server-side.
 export type AskMemberWire = Omit<AskEntry, "sessionId">;
 
+// How an ask closed (task ff590b5e). The record of each closed ask is kept in
+// office.sqlite (server/ask-history.ts).
+export const ASK_OUTCOMES = [
+  // The member's reply, a dismiss and a filed task.
+  "replied",
+  "dismissed",
+  "filed",
+  // The agent's delete.
+  "withdrawn",
+  // A step ask closed itself: its step is done.
+  "done",
+  // A secret request: saved or declined. The record never holds the value.
+  "saved",
+  "declined",
+  // The agent went (a kill or a delete).
+  "agent_removed",
+] as const;
+export type AskOutcome = (typeof ASK_OUTCOMES)[number];
+
+// The close as a store caller gives it; the store stamps the time.
+export interface AskCloseInput {
+  outcome: AskOutcome;
+  // The member who answered: a reply, dismiss, filed task, save or decline.
+  byUserId?: string;
+  // The member's words as the agent got them: the reply text, or the reason
+  // or note typed with a dismiss or a filed task.
+  answer?: string;
+  // The task a filed ask became.
+  taskId?: string;
+}
+export interface AskClosure extends AskCloseInput {
+  at: number;
+}
+
 // The member message text of a bare dismiss. The chat shows it translated
 // from the entry's metadata; the agent reads these words.
 export const ASK_DISMISSED_TEXT = "Dismissed";

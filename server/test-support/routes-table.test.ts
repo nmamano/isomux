@@ -1254,6 +1254,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.listAsks": { caps: ["self:affordance"], emits: [] },
   "agents.getAsk": { caps: ["self:affordance"], emits: [] },
+  "agents.askHistory": { caps: ["log:read"], emits: [] },
   "agents.editAsk": {
     caps: ["self:affordance"],
     emits: ["ask_upserted"],
@@ -2189,6 +2190,7 @@ const API_REACHABLE_OPIDS = [
   "agents.terminal",
   "secretRequests.save",
   "secretRequests.decline",
+  "agents.askHistory",
   "asks.list",
   "asks.reply",
   "asks.dismiss",

@@ -1,7 +1,8 @@
 // Asks: a prompt from an agent to one member, for what the agent needs
 // from them to get unblocked (internal-docs/asks-design.md). The store
 // holds open entries only, in ~/.isomux/asks.json; a reply, a dismiss or
-// the agent's delete removes the entry.
+// the agent's delete removes the entry, and the store records the closed ask
+// in office.sqlite (server/ask-history.ts).
 //
 // Load posture (the pager store's):
 //   - no file                 → no asks (a new or older install)
@@ -13,14 +14,16 @@
 // Every mutation writes the file first and changes memory after, so a failed
 // write leaves both as they were.
 //
-// LEAF: imports only shared types and the atomic writer.
+// LEAF: imports only shared types, the atomic writer and the history's type.
 
 import { readFileSync, renameSync } from "fs";
 import { isAbsolute } from "path";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
+import type { AskHistory } from "./ask-history.ts";
 import {
   generateAskId,
+  type AskCloseInput,
   type AskEntry,
   type AskMemberWire,
   type AskRef,
@@ -357,6 +360,10 @@ export interface AskStoreDeps {
   now?: () => number;
   // After a committed change. A throw is logged and swallowed.
   onChange?(change: AskChange): void;
+  // Where each removed entry is recorded, with how it closed, after the
+  // removal is committed (server/ask-history.ts). A throw is logged and
+  // swallowed: the ask is closed either way. Absent in leaf tests.
+  history?: AskHistory;
 }
 
 export interface AskStore {
@@ -387,8 +394,10 @@ export interface AskStore {
     affordances?: AskAffordanceEdit,
     recommended?: string | null,
   ): AskEntry | null;
-  remove(id: string): AskEntry | null;
-  // Every entry of a removed agent. Returns how many went.
+  // Closes the entry and records how (`close`).
+  remove(id: string, close: AskCloseInput): AskEntry | null;
+  // Every entry of a removed agent, each recorded as agent_removed. Returns
+  // how many went.
   removeAgent(agentId: string): number;
 }
 
@@ -415,6 +424,40 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
 
   function check(): void {
     if (!available) throw new AsksUnavailableError();
+  }
+
+  // Records closed entries, after their removal is committed. A failure is
+  // logged: the ask is closed, and a throw would make the caller retry a
+  // close whose answer the agent already has.
+  function recordClosed(closed: AskEntry[], close: AskCloseInput): void {
+    if (!deps.history) return;
+    const closure = { ...close, at: now() };
+    for (const entry of closed) {
+      try {
+        deps.history.record(entry, closure);
+      } catch (err) {
+        console.error(
+          `[asks] ${entry.id} closed but could not be recorded: ${errMessage(err)}`,
+        );
+      }
+    }
+  }
+
+  // An id no open entry has and the history does not hold, so an id names
+  // one ask forever. A history that cannot answer is logged and passed over.
+  function freshId(): string {
+    const open = entries.map((e) => e.id);
+    for (;;) {
+      const id = generateAskId(open);
+      try {
+        if (!deps.history?.has(id)) return id;
+      } catch (err) {
+        console.error(
+          `[asks] could not check ${id} against the history: ${errMessage(err)}`,
+        );
+        return id;
+      }
+    }
   }
 
   function commit(next: AskEntry[], changes: AskChange[]): void {
@@ -463,7 +506,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         return { ok: false, code: "too_many" };
       const at = now();
       const entry: AskEntry = {
-        id: generateAskId(entries.map((e) => e.id)),
+        id: freshId(),
         agentId,
         ...(memberUserId !== undefined ? { memberUserId } : {}),
         prompt,
@@ -506,7 +549,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       );
       return { ...entry };
     },
-    remove(id) {
+    remove(id, close) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
@@ -514,6 +557,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         entries.filter((e) => e.id !== id),
         [{ kind: "removed", entry: prev }],
       );
+      recordClosed([prev], close);
       return { ...prev };
     },
     removeAgent(agentId) {
@@ -524,6 +568,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         entries.filter((e) => e.agentId !== agentId),
         gone.map((entry) => ({ kind: "removed", entry })),
       );
+      recordClosed(gone, { outcome: "agent_removed" });
       return gone.length;
     },
   };

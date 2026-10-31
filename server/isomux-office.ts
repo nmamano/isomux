@@ -340,6 +340,7 @@ import {
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { pagerHandlers } from "./routes/handlers/pager.ts";
 import { askHandlers } from "./routes/handlers/asks.ts";
+import { officeAskHistory } from "./ask-history.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { voiceHandlers } from "./routes/handlers/voice.ts";
 import { voiceKeyForUserId } from "./voice-key.ts";
@@ -1047,9 +1048,11 @@ function createManagers(startOpts: StartServerOpts): void {
   // these closures.
   membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
   floors = createFloorsStore();
+  const askHistory = officeAskHistory();
   askStore = createAskStore({
     persistence: createAskFilePersistence(join(STATE_ROOT, "asks.json")),
     onChange: (change) => pushAskChange(change),
+    history: askHistory,
   });
   pagerSettings = createPagerSettingsStore(
     createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
@@ -4018,6 +4021,7 @@ function buildExecutorDeps(
   register(
     askHandlers({
       store: askStore!,
+      history: officeAskHistory(),
       steps: stepAsks,
       agent: (agentId) => {
         const agent = agentManager.getAgent(agentId);

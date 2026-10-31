@@ -245,7 +245,7 @@ export function createStepAsks(deps: StepAskDeps) {
   function close(entry: StepEntry): void {
     let removed: AskEntry | null;
     try {
-      removed = deps.asks.remove(entry.id);
+      removed = deps.asks.remove(entry.id, { outcome: "done" });
     } catch {
       console.error(`[step-asks] ask ${entry.id} could not be closed`);
       return;

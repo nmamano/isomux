@@ -18,6 +18,12 @@
 
 import type { StepAsks, StepCheck } from "../../step-asks.ts";
 import {
+  ASK_HISTORY_LIMIT_DEFAULT,
+  ASK_HISTORY_LIMIT_MAX,
+  type AskHistory,
+  type AskHistoryRecord,
+} from "../../ask-history.ts";
+import {
   ok,
   created,
   fail,
@@ -32,6 +38,7 @@ import type { Identity } from "../../identity/index.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
+  type AskCloseInput,
   type AskEntry,
   type AskReadFile,
   type TaskItem,
@@ -45,7 +52,10 @@ import {
   type ReadFileCheck,
 } from "../../affordance-checks.ts";
 import type { AskReadFileCopy } from "../../agent-manager.ts";
-import type { AskAgentWire } from "../../../shared/contract-shapes.ts";
+import type {
+  AskAgentWire,
+  AskClosedWire,
+} from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
   askMemberWire,
@@ -71,6 +81,9 @@ import {
 
 export interface AsksDeps {
   store: AskStore;
+  // The closed asks (task ff590b5e): getAsk falls back to them, and the
+  // history route lists them.
+  history: AskHistory;
   // The agent as it is now, or null when it is gone.
   agent(agentId: string): {
     roomId: string;
@@ -184,6 +197,29 @@ function pathRefused(
   }
 }
 
+// The history route's query, or null when it is refused: only member, before
+// and limit, the numbers as whole numbers, limit 1 to ASK_HISTORY_LIMIT_MAX.
+function parseHistoryQuery(
+  query: URLSearchParams,
+): { member?: string; before?: number; limit: number } | null {
+  const out: { member?: string; before?: number; limit: number } = {
+    limit: ASK_HISTORY_LIMIT_DEFAULT,
+  };
+  for (const key of query.keys())
+    if (key !== "member" && key !== "before" && key !== "limit") return null;
+  const member = query.get("member");
+  if (member !== null) out.member = member;
+  for (const key of ["before", "limit"] as const) {
+    const value = query.get(key);
+    if (value === null) continue;
+    if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))
+      return null;
+    out[key] = Number(value);
+  }
+  if (out.limit < 1 || out.limit > ASK_HISTORY_LIMIT_MAX) return null;
+  return out;
+}
+
 function guarded(handler: RouteHandler): RouteHandler {
   return async (ctx) => {
     try {
@@ -210,6 +246,17 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   });
   const memberOf = (userId: string | undefined) =>
     userId === undefined ? null : (deps.memberName(userId) ?? userId);
+  // A closed ask: who answered is named as they are now, null when gone.
+  const closedWire = ({ entry, closure }: AskHistoryRecord): AskClosedWire => {
+    const { byUserId, ...rest } = closure;
+    return {
+      ...wire(entry),
+      closed: {
+        ...rest,
+        by: byUserId === undefined ? null : deps.memberName(byUserId),
+      },
+    };
+  };
 
   const audience: AskAudienceDeps = {
     isOfficeOwner: (userId) => deps.isOfficeOwner(userId),
@@ -230,6 +277,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       ? entry
       : null;
   };
+
+  // Who answered and their words, for the closed ask's record. A bare
+  // dismiss or filed task has no words.
+  const answeredBy = (identity: Identity, text: string | undefined) => ({
+    ...(identity.userId ? { byUserId: identity.userId } : {}),
+    ...(text !== undefined ? { answer: text } : {}),
+  });
 
   const notFound = () => fail(404, "not_found", "No such open ask.");
   const invalidLink = () =>
@@ -444,9 +498,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // Close an answered ask. The agent has the message; a retry would send it
   // twice, so a failed write is logged and the entry stays open until the
   // store can write again.
-  const close = (entry: AskEntry) => {
+  const close = (entry: AskEntry, how: AskCloseInput) => {
     try {
-      store.remove(entry.id);
+      store.remove(entry.id, how);
     } catch (err) {
       console.error(
         `[asks] ${entry.id} was answered but could not be closed:`,
@@ -469,7 +523,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           device,
         });
         if (!result.ok) return fail(result.status, result.code, result.message);
-        close(entry);
+        close(entry, {
+          outcome: dismissed ? "dismissed" : "replied",
+          ...answeredBy(ctx.identity, checked.text),
+        });
         return noContent();
       } finally {
         delivering.delete(entry.id);
@@ -517,7 +574,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         deps.deleteTask(task.id);
         return fail(result.status, result.code, result.message);
       }
-      close(entry);
+      close(entry, {
+        outcome: "filed",
+        taskId: task.id,
+        ...answeredBy(ctx.identity, note),
+      });
       return created(task);
     } finally {
       delivering.delete(entry.id);
@@ -620,9 +681,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       ok(store.listForAgent(ctx.params.id).map(wire)),
     ),
 
+    // Open, or else closed (task ff590b5e).
     "agents.getAsk": guarded((ctx) => {
       const entry = own(ctx.params.id, ctx.params.askId);
-      return entry ? ok(wire(entry)) : notFound();
+      if (entry) return ok(wire(entry));
+      const closed = deps.history.get(ctx.params.id, ctx.params.askId);
+      return closed ? ok(closedWire(closed)) : notFound();
     }),
 
     "agents.editAsk": guarded((ctx) => {
@@ -693,7 +757,41 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
 
     "agents.deleteAsk": guarded((ctx) => {
       if (!own(ctx.params.id, ctx.params.askId)) return notFound();
-      return store.remove(ctx.params.askId) ? noContent() : notFound();
+      return store.remove(ctx.params.askId, { outcome: "withdrawn" })
+        ? noContent()
+        : notFound();
+    }),
+
+    // The agent's closed asks, for any caller with the reach of its logs
+    // (task ff590b5e). The agent may be killed: no live agent is required.
+    "agents.askHistory": guarded((ctx) => {
+      const query = parseHistoryQuery(ctx.query);
+      if (!query)
+        return fail(
+          400,
+          "invalid_query",
+          `the query takes member, before (a nextBefore) and limit (1 to ${ASK_HISTORY_LIMIT_MAX})`,
+        );
+      let memberUserId: string | undefined;
+      if (query.member !== undefined) {
+        const member = deps.memberByName(query.member);
+        if (!member)
+          return fail(
+            422,
+            "unknown_member",
+            `No member named ${query.member}.`,
+          );
+        memberUserId = member.id;
+      }
+      const page = deps.history.list(ctx.params.id, {
+        limit: query.limit,
+        ...(memberUserId !== undefined ? { memberUserId } : {}),
+        ...(query.before !== undefined ? { before: query.before } : {}),
+      });
+      return ok({
+        asks: page.items.map(closedWire),
+        nextBefore: page.nextBefore,
+      });
     }),
 
     "asks.list": guarded((ctx) => {

@@ -54,6 +54,12 @@ export function openOfficeDatabase(path: string): Database {
       CREATE TABLE IF NOT EXISTS github_issues (
         repo_key TEXT NOT NULL, number INTEGER NOT NULL, record TEXT NOT NULL,
         PRIMARY KEY(repo_key, number));
+      CREATE TABLE IF NOT EXISTS ask_history (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL,
+        agent_id TEXT NOT NULL, member_user_id TEXT, closed_at INTEGER NOT NULL,
+        record TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS ask_history_agent ON ask_history(agent_id, seq);
+      CREATE INDEX IF NOT EXISTS ask_history_id ON ask_history(id);
       PRAGMA user_version=1;`);
     })();
     return db;

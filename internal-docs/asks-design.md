@@ -6,10 +6,20 @@ An ask is a prompt from an agent to one member, for what the agent needs from th
 
 ## Store
 
-- `server/asks.ts` keeps the open entries in `~/.isomux/asks.json`, an array of `{id, agentId, memberUserId?, prompt, createdAt, updatedAt, link?, options?, recommended?, commands?, editFiles?, readFiles?, secret?}`. The load check admits three shapes: a plain ask and a personal secret request name one member; an office secret request names none, even when it is for one owner (see "Secret requests"). Closed entries are not kept: a reply, a dismiss, a filed task, the agent's delete, or the agent's removal deletes the entry.
+- `server/asks.ts` keeps the open entries in `~/.isomux/asks.json`, an array of `{id, agentId, memberUserId?, prompt, createdAt, updatedAt, link?, options?, recommended?, commands?, editFiles?, readFiles?, secret?}`. The load check admits three shapes: a plain ask and a personal secret request name one member; an office secret request names none, even when it is for one owner (see "Secret requests"). A reply, a dismiss, a filed task, a step done, a secret request's save or decline, the agent's delete, or the agent's removal deletes the entry from the file; the closed ask is kept in the history (below).
 - A missing file is an empty list, so an office from before this feature boots unchanged. A corrupt file is moved aside; an unreadable one makes the store refuse every call (the pager store's posture).
 - Every change writes the file first and changes memory after.
 - Bounds: a prompt is at most 4000 characters; an agent has at most 50 open.
+
+## History
+
+Task ff590b5e. Every closed ask is kept, as the logs are, in the `ask_history` table of `office.sqlite` (`server/ask-history.ts`): the entry as it was, its opening session included, and a closure `{at, outcome, byUserId?, answer?, taskId?}`. The outcomes are `ASK_OUTCOMES` in `shared/types.ts`. `answer` is the member's words as the agent got them, so a tapped option is its text; a bare dismiss or filed task and every secret request outcome have none, and the record never holds a secret value. The table is not in `asks.json` because an older server's load check ignores unknown keys and would load a closed entry as open after a rollback; `user_version` stays 1, so an older server opens the database and ignores the table.
+
+The store's `remove(id, close)` takes the outcome (required, so a new caller does not compile without one) and `removeAgent` records `agent_removed`. The record is written after the `asks.json` commit, never before, so a failed save leaves the ask open and unrecorded; a failed record is logged and swallowed (the `recordAudit` posture: the agent already has the answer, and a throw would make a retry send it twice). A new ask takes no id the history holds, so an id names one ask forever.
+
+`GET /api/agents/:id/asks/:askId` returns the agent's own ask, open or else closed with `closed: {at, outcome, by, answer?, taskId?}`, where `by` is the answering member's username at read time, null when there is none or the member is gone. `GET /api/agents/:id/asks/history` lists an agent's closed asks, newest close first, as `{asks, nextBefore}`; it takes `member=<username>`, `limit` (1 to 200, default 50) and `before=<nextBefore>`. Its reach is the logs' (`log:read` and `logSearchAccess`): every field of a closed ask is already in that agent's log, so the route shows nothing a log reader cannot read. A killed agent's owner reads it, so the handler needs no live agent. A read by id stays self-only.
+
+Left out: asks closed before this change are not in the history; there is no query across agents, so a Curator replaced by a new agent (a new id) starts an empty history (a handoff or clear keeps the id); no member UI; no retention cap. A closed ask's read file copies are no longer owed to the prune, so the record keeps their metadata only.
 
 ## Routes
 

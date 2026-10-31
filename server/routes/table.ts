@@ -189,6 +189,7 @@ import type {
   AskDismissReq,
   AskFileTaskReq,
   AskAgentWire,
+  AskHistoryRes,
   SecretRequestRes,
   SecretRequestSaveReq,
   SecretRequestAnswerRes,
@@ -937,6 +938,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: [],
+  }),
+  // An agent's closed asks (task ff590b5e), with the reach of its logs: every
+  // field of a closed ask - the prompt, the options, the member's answer - is
+  // already in that agent's log (the create call and the member's reply
+  // message), so this reach shows nothing a log reader cannot read; it only
+  // makes the calls queryable. logSearchAccess also admits a killed agent's
+  // owner, so the handler needs no live agent. Read by id stays self-only
+  // (agents.getAsk).
+  defineRoute<void, AskHistoryRes>({
+    opId: "agents.askHistory",
+    method: "GET",
+    path: "/api/agents/:id/asks/history",
+    auth: cap("log:read", logSearchAccess),
     emits: [],
   }),
   defineRoute<AskEditReq, AskAgentWire>({
