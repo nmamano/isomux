@@ -10,6 +10,9 @@ export interface AppVisibilityFacts {
 export interface AppViewerFacts {
   userId: string | null;
   isOfficeOwner: boolean;
+  // A room-limited API token: its own apps count only when their maker
+  // agent's room is one it reaches.
+  ownNeedsRoom?: boolean;
   hasCreatorRoomAccess: boolean;
 }
 
@@ -26,7 +29,12 @@ export function appVisibleTo(
   viewer: AppViewerFacts,
 ): boolean {
   if (viewer.isOfficeOwner) return true;
-  if (viewer.userId !== null && app.ownerUserId === viewer.userId) return true;
+  if (
+    viewer.userId !== null &&
+    app.ownerUserId === viewer.userId &&
+    (!viewer.ownNeedsRoom || viewer.hasCreatorRoomAccess)
+  )
+    return true;
   return (
     viewer.userId !== null &&
     app.createdByAgentId !== undefined &&

@@ -463,6 +463,32 @@ export function actsForAgent(identity: Identity): boolean {
   );
 }
 
+// The rooms a room-limited API token may reach, or null when the identity has
+// no room limit. A room-limited token reaches a room only while its member can
+// access it too, and has no office-owner reach.
+export function tokenRooms(identity: Identity): ReadonlySet<string> | null {
+  const rooms = identity.apiTokenLimits?.rooms;
+  return rooms ? new Set(rooms) : null;
+}
+
+// Whether the identity's room limit, if any, includes this room. It does not
+// check the member's own access.
+export function withinTokenRooms(identity: Identity, roomId: string): boolean {
+  return identity.apiTokenLimits?.rooms?.includes(roomId) ?? true;
+}
+
+// The given rooms without those outside the identity's room limit: the one
+// intersection for every room set a room-limited token is given.
+export function limitToTokenRooms(
+  identity: Identity,
+  roomIds: Set<string>,
+): Set<string> {
+  if (tokenRooms(identity) === null) return roomIds;
+  return new Set(
+    [...roomIds].filter((roomId) => withinTokenRooms(identity, roomId)),
+  );
+}
+
 // An ordinary agent, or an app of one: it holds cron:own but not cron:manage,
 // so it reaches only the schedules its agent made.
 export function cronOwnOnly(identity: Identity): boolean {

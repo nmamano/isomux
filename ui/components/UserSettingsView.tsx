@@ -76,7 +76,7 @@ import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
-import { ApiTokenCards } from "./ApiTokensPane.tsx";
+import { ApiTokenCards, useMemberRooms } from "./ApiTokensPane.tsx";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -1119,6 +1119,8 @@ function summarizeRoster(
 // the member's own revoke. Keyed on the username at the call site, like
 // MemberVariableNames.
 function MemberApiTokens({ username }: { username: string }) {
+  // The owner reaches every room, so their rooms name any token room.
+  const rooms = useMemberRooms();
   const { t } = useI18n();
   const [tokens, setTokens] = useState<ApiTokenWire[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1174,7 +1176,7 @@ function MemberApiTokens({ username }: { username: string }) {
         <p style={sectionHintStyle}>{t("settings.apiTokens.empty")}</p>
       ) : (
         <div style={{ marginTop: 10 }}>
-          <ApiTokenCards tokens={tokens} onRevoke={revoke} />
+          <ApiTokenCards tokens={tokens} onRevoke={revoke} rooms={rooms} />
         </div>
       )}
     </>

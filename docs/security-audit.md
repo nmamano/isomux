@@ -172,6 +172,8 @@ These exclusions do not make a boundary. A token can spawn an agent, and the age
 
 A member can limit a token to some areas of the office when they mint it (none, read, or read and write for each area). Isomux checks the limits on each request, before the route's own checks, and refuses a route that has no area. The limits cover only the token's own calls. Write access to these areas gives the token shell-equivalent access too, and the mint form marks them: agents and messages, agent management, rooms, office settings and members, memory, skills, schedules, apps, webhooks, files, asks, and environment and secrets. Each one can make an agent act with the member's reach. A token that can write tasks or the members chat writes text that agents read. The Read only preset leaves out the areas that can show secrets: logs, terminals, attachments and system prompts; files; and environment values and secrets.
 
+A token can also be limited to some rooms. It then reaches a room only while its member can access it too, never the lobby, and gets messages only from agents in its rooms. Office-wide data stays reachable by area. A room-limited token has no office-owner reach: owner-only surfaces, such as the office settings, the office secrets and the audit log, refuse it. The limit does not pass to an agent that the token spawns: that agent has its member's full room access.
+
 ### 5.2 Mint and storage
 
 Each member can mint tokens in **Integrations → API tokens**. Only a browser session can mint a token. An agent, an app or another token cannot. An agent reaches this page only in a Chrome tab that a member offered to it on the office (section 6.5).

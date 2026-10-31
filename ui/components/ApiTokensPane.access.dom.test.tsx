@@ -1,5 +1,5 @@
-// The Access choice in the API token mint form and the access line on each
-// token card (task 23339bea). The server's parse and refusal are pinned in
+// The Access and Rooms choices in the API token mint form and the access and
+// rooms lines on each token card (task 23339bea). The server's parse and refusal are pinned in
 // shared/api-token-limits.test.ts and
 // server/test-support/routes-api-tokens-rest.test.ts; this file pins what the
 // form sends and what the cards show.
@@ -31,7 +31,13 @@ function token(id: string, limits?: ApiTokenWire["limits"]): ApiTokenWire {
 
 let listed: ApiTokenWire[] = [];
 const minted: unknown[] = [];
+// The member's ordinary rooms, as GET /api/me/rooms lists them.
+const ROOMS = [
+  { id: "room-a", name: "Alpha" },
+  { id: "room-b", name: "Beta" },
+];
 setApiShim(async (method, path, body) => {
+  if (path === "/api/me/rooms" && method === "GET") return { rooms: ROOMS };
   if (path === "/api/me/api-tokens" && method === "GET")
     return { apiTokens: listed };
   if (path === "/api/me/api-tokens" && method === "POST") {
@@ -209,5 +215,105 @@ describe("API token cards: access", () => {
       custom: "custom",
       empty: "custom",
     });
+  });
+});
+
+const roomsSelect = (view: View) =>
+  el<HTMLSelectElement>(view, '[data-testid="api-token-rooms"]');
+
+const roomBoxes = (view: View) => [
+  ...view.container.querySelectorAll<HTMLInputElement>("input[data-room]"),
+];
+
+async function tick(box: HTMLInputElement) {
+  await act(async () => {
+    fireEvent.click(box);
+  });
+}
+
+describe("API token mint form: rooms", () => {
+  it("defaults to every room: no room list, and the mint sends no rooms", async () => {
+    const view = await mount();
+    expect(roomsSelect(view).value).toBe("all");
+    expect(roomBoxes(view)).toHaveLength(0);
+    expect("limits" in (await mint(view))).toBe(false);
+  });
+
+  it("Some rooms lists the member's rooms unchecked, and Full access sends only the rooms picked", async () => {
+    const view = await mount();
+    await change(roomsSelect(view), "some");
+    const boxes = roomBoxes(view);
+    expect(
+      boxes.map((box) => [box.getAttribute("data-room"), box.checked]),
+    ).toEqual([
+      ["room-a", false],
+      ["room-b", false],
+    ]);
+    // Each box is labelled with its room's name.
+    expect(view.container.textContent).toContain("Alpha");
+    expect(view.container.textContent).toContain("Beta");
+    await tick(boxes[1]);
+    expect((await mint(view)).limits).toEqual({ rooms: ["room-b"] });
+  });
+
+  it("rooms combine with an area preset", async () => {
+    const view = await mount();
+    await change(accessSelect(view), "readOnly");
+    await change(roomsSelect(view), "some");
+    await tick(el<HTMLInputElement>(view, 'input[data-room="room-a"]'));
+    expect((await mint(view)).limits).toEqual({
+      ...API_TOKEN_PRESETS.readOnly,
+      rooms: ["room-a"],
+    });
+  });
+
+  it("every room again drops the picked rooms from the mint", async () => {
+    const view = await mount();
+    await change(accessSelect(view), "readOnly");
+    await change(roomsSelect(view), "some");
+    await tick(el<HTMLInputElement>(view, 'input[data-room="room-a"]'));
+    await change(roomsSelect(view), "all");
+    expect(roomBoxes(view)).toHaveLength(0);
+    expect((await mint(view)).limits).toEqual(API_TOKEN_PRESETS.readOnly);
+  });
+});
+
+describe("API token cards: rooms", () => {
+  it("marks a token every room or some rooms, and names the rooms it can", async () => {
+    listed = [
+      token("full"),
+      token("reader", API_TOKEN_PRESETS.readOnly),
+      token("alpha", { rooms: ["room-a", "room-gone"] }),
+      token("nowhere", { ...API_TOKEN_PRESETS.readOnly, rooms: [] }),
+    ];
+    const view = await mount();
+    const card = (id: string) =>
+      el<HTMLElement>(view, `[data-api-token="${id}"]`);
+    const rooms = (id: string) =>
+      card(id)
+        .querySelector("[data-token-rooms]")
+        ?.getAttribute("data-token-rooms");
+    expect({
+      full: rooms("full"),
+      reader: rooms("reader"),
+      alpha: rooms("alpha"),
+      nowhere: rooms("nowhere"),
+    }).toEqual({
+      full: "all",
+      reader: "all",
+      alpha: "some",
+      nowhere: "some",
+    });
+    const alphaLine = card("alpha").querySelector("[data-token-rooms]")!;
+    expect(alphaLine.textContent).toContain("Alpha");
+    expect(alphaLine.textContent).not.toContain("Beta");
+    // An id the member's rooms cannot name is not shown raw.
+    expect(alphaLine.textContent).not.toContain("room-gone");
+    // The rooms axis does not change the access line.
+    expect(
+      card("nowhere")
+        .querySelector("[data-token-access]")
+        ?.getAttribute("data-token-access"),
+    ).toBe("readOnly");
   });
 });

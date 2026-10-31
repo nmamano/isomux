@@ -109,6 +109,7 @@ import {
 } from "./pager-store.ts";
 import {
   askMemberWire,
+  askAudienceFor,
   askVisibleTo,
   askShownToOwnerAsOther,
   askAgentWire,
@@ -235,6 +236,7 @@ import {
 } from "./identity/guard-deps.ts";
 import {
   cronjobOwnerOrOfficeOwner,
+  hasOfficeOwnerReach,
   logSearchAccess,
   queueCancelAny,
   type GuardDeps,
@@ -563,6 +565,7 @@ import {
   loadApiTokens,
   sendApiTokenMessage,
   enqueueApiTokenInboxMessage,
+  apiTokenRoomsById,
   isLiveApiTokenOwnedBy,
   listApiTokens,
   mintApiToken,
@@ -610,6 +613,9 @@ import {
 } from "./affordance-checks.ts";
 import {
   actsForAgent,
+  limitToTokenRooms,
+  tokenRooms,
+  withinTokenRooms,
   cronOwnOnly,
   reachAgentId,
   type Identity,
@@ -2878,6 +2884,17 @@ function buildLiveGuardDeps(): GuardDeps {
     listCronjobs: () => cronjobManager.listCronjobs(),
     listApps: () => appRegistry.list(),
     listWebhooks: () => webhookRegistry.list(),
+    resourceRoomId: (kind, id) => {
+      if (kind === "app") {
+        const app = appRegistry.get(id);
+        return app ? (appVisibilityFacts(app).creatorRoomId ?? null) : null;
+      }
+      if (kind === "webhook") {
+        const hook = webhookRegistry.get(id);
+        return hook ? webhookTargetRoomId(hook.target) : null;
+      }
+      return cronjobFactsById(id).liveRoomId;
+    },
   };
   return buildProductionGuardDeps(readers);
 }
@@ -3154,9 +3171,21 @@ function appActorName(appName: string): string {
 // gone. A run's board rooms come from boardRoomIdsForIdentity instead. This set
 // is not the run's room access either: room-gated guards use hasRoomAccess,
 // which keys on the run's userId and so gives a run its creator's rooms.
+//
+// A room-limited API token keeps only its rooms (tokenRooms).
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
   const user = roomAccessUserFor(identity);
-  return user ? accessibleRoomIdsFor(user) : new Set<string>();
+  if (!user) return new Set<string>();
+  return limitToTokenRooms(identity, accessibleRoomIdsFor(user));
+}
+
+// The office-owner rule for an identity's user: false for a room-limited API
+// token, which has no office-owner reach (hasOfficeOwnerReach).
+function identityUserIsOfficeOwner(
+  identity: Identity,
+  user: UserRecord | null | undefined,
+): boolean {
+  return user?.role === "owner" && tokenRooms(identity) === null;
 }
 
 // The user whose rooms an identity reaches, or null for a scope that reaches
@@ -3192,8 +3221,14 @@ function taskViewerForUser(user: UserRecord | null): TaskViewer {
 }
 
 function taskViewerForIdentity(identity: Identity): TaskViewer {
-  if (identity.scope !== "cron-run")
-    return taskViewerForUser(roomAccessUserFor(identity));
+  if (identity.scope !== "cron-run") {
+    const user = roomAccessUserFor(identity);
+    return {
+      accessibleRoomIds: accessibleRoomIdsForIdentity(identity),
+      liveRoomIds: new Set(agentManager.getRooms().map((room) => room.id)),
+      seesClosedRooms: identityUserIsOfficeOwner(identity, user),
+    };
+  }
   return {
     accessibleRoomIds: boardRoomIdsForIdentity(identity),
     liveRoomIds: new Set(agentManager.getRooms().map((room) => room.id)),
@@ -3310,7 +3345,8 @@ function appViewerFacts(
   const scopedIdentity = userId === null ? identity : { ...identity, userId };
   return {
     userId,
-    isOfficeOwner: viewerUser?.role === "owner",
+    isOfficeOwner: identityUserIsOfficeOwner(identity, viewerUser),
+    ...(tokenRooms(identity) !== null ? { ownNeedsRoom: true } : {}),
     hasCreatorRoomAccess:
       userId !== null && visibility.creatorRoomId !== undefined
         ? buildLiveGuardDeps().hasRoomAccess(
@@ -3538,10 +3574,18 @@ function agentMayOpenApp(
   return appVisibleTo(visibility, appViewerFacts(identity, visibility));
 }
 
-function canUserAccessApp(app: AppRecord, userId: string): boolean {
+// `identity`: the caller, when a route asks. A room-limited API token sees an
+// app by its own rooms (appViewerFacts), not its member's.
+function canUserAccessApp(
+  app: AppRecord,
+  userId: string,
+  identity?: Identity,
+): boolean {
   const user = getUserById(userId);
   if (!user) return false;
   const visibility = appVisibilityFacts(app);
+  if (identity && tokenRooms(identity) !== null)
+    return appVisibleTo(visibility, appViewerFacts(identity, visibility));
   return appVisibleTo(visibility, {
     userId,
     isOfficeOwner: user.role === "owner",
@@ -3855,7 +3899,8 @@ function buildExecutorDeps(
       originAllowed: checkOrigin,
       roomIdsFor: (identity) => {
         const user = identity.userId ? getUserById(identity.userId) : null;
-        return user ? accessibleRoomIdsFor(user) : new Set<string>();
+        if (!user) return new Set<string>();
+        return limitToTokenRooms(identity, accessibleRoomIdsFor(user));
       },
       isLobbyRoom: (roomId) => agentManager.roomById(roomId)?.type === "lobby",
       liveManifest: () => agentManager.getManifest(),
@@ -3970,7 +4015,8 @@ function buildExecutorDeps(
         return {
           accessibleRoomIds: accessibleRoomIdsForIdentity(identity),
           userId: user?.id ?? null,
-          isOfficeOwner: user?.role === "owner",
+          isOfficeOwner: identityUserIsOfficeOwner(identity, user),
+          ...(tokenRooms(identity) !== null ? { ownNeedsRoom: true } : {}),
         };
       },
       agentSource: (agentId) => {
@@ -4184,11 +4230,16 @@ function buildExecutorDeps(
       register: (input) => appRegistry.register(input),
       remove: (name) => appRegistry.remove(name),
       update: (name, patch) => appRegistry.update(name, patch),
-      resolveMessageTarget: (ownerUserId, agentId) => {
+      resolveMessageTarget: (ownerUserId, agentId, identity) => {
         if (!isSafeScopeId(agentId)) return "invalid_id";
         const owner = ownerUserId ? getUserById(ownerUserId) : null;
         const target = agentManager.getAgent(agentId);
         if (!owner || !target) return "unavailable";
+        if (
+          tokenRooms(identity) !== null &&
+          !buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)
+        )
+          return "unavailable";
         return accessibleRoomIdsFor(owner).has(target.roomId)
           ? "ok"
           : "unavailable";
@@ -4387,6 +4438,14 @@ function buildExecutorDeps(
     webhookTargetPrecondition({
       get: (id) => webhookRegistry.get(id),
       agentReachableByUser: webhookAgentReachable,
+      callerReachesAgent: (identity, agentId) => {
+        if (tokenRooms(identity) === null) return true;
+        const target = agentManager.getAgent(agentId);
+        return (
+          !!target &&
+          buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)
+        );
+      },
       cronjobExists: (cronjobId) =>
         cronjobManager.listCronjobs().some((job) => job.id === cronjobId),
       // An ordinary agent's own job must also still be within its limits,
@@ -4415,6 +4474,9 @@ function buildExecutorDeps(
   // than being stamped "unknown".
   register(
     memoryHandlers({
+      tokenReachesRoom: (identity, roomId) =>
+        buildLiveGuardDeps().hasRoomAccess(identity, roomId),
+      agentRoomId: (agentId) => agentManager.getAgent(agentId)?.roomId ?? null,
       read: (scope, scopeId) => memoryStore.read(scope, scopeId),
       append: (input) => memoryStore.append(input),
       replace: (input) => memoryStore.replace(input),
@@ -4722,7 +4784,8 @@ function buildExecutorDeps(
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
       untrustedFileHeaders,
       authorFor: membersChatAuthorFor,
-      isOwner: (userId) => getUserById(userId)?.role === "owner",
+      isOwner: (identity) =>
+        hasOfficeOwnerReach(identity, buildLiveGuardDeps()),
       emitMessage: (message, updateOnly) =>
         liveEmit("members_chat_message", {
           message,
@@ -5158,6 +5221,7 @@ function buildExecutorDeps(
             answeredBy,
           ),
       }),
+      (identity) => askAudienceFor(askAudience, identity),
     ),
   );
   mcpOAuth = createMcpOAuth({
@@ -6246,6 +6310,7 @@ function buildExecutorDeps(
       .getKilledAgentSummaries()
       .find((s) => s.id === ctx.params.id);
     if (!summary || !canAccess(user, summary.lastRoomId)) return denied;
+    if (!withinTokenRooms(ctx.identity, summary.lastRoomId)) return denied;
     return null;
   });
   // Conversation (send/edit/cancel/sendNow/newConversation/resume/
@@ -6263,7 +6328,7 @@ function buildExecutorDeps(
         if (
           !app ||
           !identity.userId ||
-          !canUserAccessApp(app, identity.userId) ||
+          !canUserAccessApp(app, identity.userId, identity) ||
           appRegistrationGeneration(app) !== context.registration
         )
           return { error: "app_unavailable" };
@@ -6518,10 +6583,13 @@ function buildExecutorDeps(
   });
   preconditions.set("apiTokenInboxTargetAvailable", (ctx) => {
     const senderAgentId = ctx.identity.agentId;
-    const userId = senderAgentId
-      ? agentManager.getAgent(senderAgentId)?.userId
-      : null;
-    return userId && isLiveApiTokenOwnedBy(ctx.params.tokenId, userId)
+    const sender = senderAgentId ? agentManager.getAgent(senderAgentId) : null;
+    const userId = sender?.userId;
+    // A room-limited token takes messages only from agents in its rooms.
+    const rooms = apiTokenRoomsById(ctx.params.tokenId);
+    return userId &&
+      isLiveApiTokenOwnedBy(ctx.params.tokenId, userId) &&
+      (rooms === null || rooms.includes(sender.roomId))
       ? null
       : fail(404, "api_token_unavailable", "API token unavailable.");
   });
@@ -6817,6 +6885,17 @@ function buildExecutorDeps(
       list: (userId) => listApiTokens(userId),
       mint: (input) => mintApiToken(input),
       revoke: (userId, id) => revokeApiToken(userId, id),
+      limitableRoomIds: (userId) => {
+        const user = getUserById(userId);
+        if (!user) return new Set<string>();
+        const accessible = accessibleRoomIdsFor(user);
+        return new Set(
+          agentManager
+            .getOrdinaryRooms()
+            .map((room) => room.id)
+            .filter((id) => accessible.has(id)),
+        );
+      },
       userIdForUsername: (username) => getUser(username)?.id ?? null,
       sendToInbox: async (input) => {
         const result = await enqueueApiTokenInboxMessage(input);

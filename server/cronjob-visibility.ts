@@ -22,6 +22,7 @@ import {
   cronOwnOnly,
   identityHasCapability,
   reachAgentId,
+  tokenRooms,
   type Identity,
 } from "./identity/index.ts";
 
@@ -45,6 +46,9 @@ export interface CronjobViewer {
   // cron:manage.
   canManage: boolean;
   hasRoomAccess(roomId: string): boolean;
+  // A room-limited API token: its member's own jobs count only in a room it
+  // reaches.
+  ownNeedsRoom?: boolean;
   // Set for an own-only caller (cronOwnOnly): the agent whose jobs alone it
   // sees and manages. Absent for every other viewer.
   ownAgentId?: string | null;
@@ -58,7 +62,9 @@ function makerOrOfficeOwner(
   return (
     viewer.userId !== null &&
     facts.makerUserId !== null &&
-    facts.makerUserId === viewer.userId
+    facts.makerUserId === viewer.userId &&
+    (!viewer.ownNeedsRoom ||
+      (facts.liveRoomId !== null && viewer.hasRoomAccess(facts.liveRoomId)))
   );
 }
 
@@ -123,6 +129,7 @@ export function cronjobViewerForIdentity(
     canManage:
       isUser || (operator && identityHasCapability(identity, "cron:manage")),
     hasRoomAccess,
+    ...(tokenRooms(identity) !== null ? { ownNeedsRoom: true } : {}),
     ...(ownAgentId ? { ownAgentId } : {}),
   };
 }

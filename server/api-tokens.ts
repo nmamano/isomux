@@ -539,6 +539,13 @@ export function isLiveApiTokenOwnedBy(
   return !!record && record.userId === userId && isLive(record, now);
 }
 
+// The rooms a live token is limited to, or null for a token without a room
+// limit (and for an unknown one: the ownership check refuses it first).
+export function apiTokenRoomsById(tokenId: string): readonly string[] | null {
+  ensureLoaded();
+  return tokens!.get(tokenId)?.limits?.rooms ?? null;
+}
+
 export async function enqueueApiTokenInboxMessage(input: {
   tokenId: string;
   userId: string;

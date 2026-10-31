@@ -10,7 +10,7 @@
 // username/cronjob lookups) is exercised with tiny fakes, and an integration T1
 // proves it agrees with the live rule-based ACL.
 //
-import type { Identity } from "./index.ts";
+import { withinTokenRooms, type Identity } from "./index.ts";
 import type { GuardDeps } from "./guards.ts";
 
 // The minimal live readers the adapter needs, as structural shapes so the
@@ -70,6 +70,10 @@ export interface GuardDepsLiveReaders {
     userId: string;
     createdByAgentId?: string;
   }[];
+  resourceRoomId?(
+    kind: "app" | "webhook" | "cronjob",
+    id: string,
+  ): string | null;
 }
 
 export function buildProductionGuardDeps(
@@ -79,7 +83,13 @@ export function buildProductionGuardDeps(
     hasRoomAccess(identity: Identity, roomId: string): boolean {
       // A null userId (an identity with no owning user) has access to nothing.
       if (!identity.userId) return false;
+      // A room-limited API token reaches a room only while its member does too.
+      if (!withinTokenRooms(identity, roomId)) return false;
       return live.hasRoomAccessForUser(identity.userId, roomId);
+    },
+
+    resourceRoomId(kind, id) {
+      return live.resourceRoomId?.(kind, id) ?? null;
     },
 
     roomIdForAgent(agentId: string): string | null {

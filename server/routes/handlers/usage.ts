@@ -1,6 +1,10 @@
 import type { UsageReportWire } from "../../../shared/contract-shapes.ts";
 import type { UserRecord } from "../../../shared/types.ts";
-import { usageAudienceForUser } from "../../usage-report.ts";
+import {
+  usageAudienceForToken,
+  usageAudienceForUser,
+} from "../../usage-report.ts";
+import { tokenRooms } from "../../identity/index.ts";
 import { ok, type RouteHandler } from "../executor.ts";
 
 export interface UsageDeps {
@@ -12,7 +16,9 @@ export function usageHandlers(deps: UsageDeps): Record<string, RouteHandler> {
   return {
     "usage.read": (ctx) => {
       const user = deps.getUserById(ctx.identity.userId);
-      return ok(deps.getReport(usageAudienceForUser(user)));
+      return ok(
+        deps.getReport(usageAudienceForToken(user, tokenRooms(ctx.identity))),
+      );
     },
   };
 }

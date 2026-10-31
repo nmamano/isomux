@@ -7,7 +7,11 @@
 // only shapes the answer.
 
 import { ok, fail, type RouteHandler } from "../executor.ts";
-import { actsForAgent, type Identity } from "../../identity/index.ts";
+import {
+  actsForAgent,
+  tokenRooms,
+  type Identity,
+} from "../../identity/index.ts";
 import type { KilledAgentSummary } from "../../../shared/types.ts";
 import {
   projectBackRooms,
@@ -71,12 +75,18 @@ export function agentDirectoryHandlers<T extends ManifestLike>(
         // refuses. A cron run carries its creator's userId, so without this
         // branch it would out-reach that log route.
         if (identity.scope === "cron-run") return fail(403, "forbidden");
-        const killed =
+        const all =
           identity.scope === "user" && identity.role === "owner"
             ? deps.killedAgents()
             : identity.userId
               ? deps.killedAgentsForManager(identity.userId)
               : [];
+        // A room-limited API token: only agents last in one of its rooms.
+        const limitRooms =
+          tokenRooms(identity) === null ? null : deps.roomIdsFor(identity);
+        const killed = limitRooms
+          ? all.filter((agent) => limitRooms.has(agent.lastRoomId))
+          : all;
         return ok(
           buildKilledManifest(
             pageKilledAgents(killed, page.limit, page.before),
@@ -85,11 +95,17 @@ export function agentDirectoryHandlers<T extends ManifestLike>(
       }
       // Projected to the rooms of the identity's user (owners every room,
       // members their grants, agents and cron runs their manager's or
-      // creator's). The lobby is listed for every identity.
+      // creator's). The lobby is listed for every identity but a room-limited
+      // API token, which reaches only its rooms.
       const accessible = deps.roomIdsFor(identity);
+      const withLobby = tokenRooms(identity) === null;
       const manifest = deps
         .liveManifest()
-        .filter((e) => accessible.has(e.roomId) || deps.isLobbyRoom(e.roomId));
+        .filter(
+          (e) =>
+            accessible.has(e.roomId) ||
+            (withLobby && deps.isLobbyRoom(e.roomId)),
+        );
       // An agent (or cron run) sees each back room as one summary entry
       // unless it asks for ?back=1.
       const collapseBackRooms =

@@ -27,7 +27,7 @@ import {
   MemoryLineTooLongError,
 } from "../../memory-store.ts";
 import { MEMORY_CAPS } from "../../../shared/memory-caps.ts";
-import type { Identity } from "../../identity/index.ts";
+import { tokenRooms, type Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
 import type {
   MemoryCreateReq,
@@ -35,6 +35,10 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 
 export interface MemoryDeps {
+  // A room-limited API token reaches room and agent memory only in a room it
+  // reaches; for it, a scope outside reads as missing. Absent: no check.
+  tokenReachesRoom?(identity: Identity, roomId: string): boolean;
+  agentRoomId?(agentId: string): string | null;
   // Whole raw file + optimistic-concurrency version.
   read(
     scope: MemoryScope,
@@ -96,6 +100,13 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   //   member   - omitted scopeId defaults to the caller's own/manager userId; any
   //            existing member may be targeted by any authenticated caller.
   //   other  - unsupported.
+  // Whether the caller reaches a room's memory: every caller but a
+  // room-limited API token, which needs the room among the ones it reaches.
+  function tokenReaches(identity: Identity, roomId: string | null | undefined) {
+    if (tokenRooms(identity) === null) return true;
+    return !!roomId && (deps.tokenReachesRoom?.(identity, roomId) ?? false);
+  }
+
   function resolveTarget(
     identity: Identity,
     scope: unknown,
@@ -122,7 +133,10 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
       }
       const name = deps.agentName(rawScopeId);
-      if (name === null) {
+      if (
+        name === null ||
+        !tokenReaches(identity, deps.agentRoomId?.(rawScopeId))
+      ) {
         return { error: fail(404, "agent_not_found", "no such agent") };
       }
       return { scope: "agent", scopeId: rawScopeId, name };
@@ -138,7 +152,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         };
       }
       const name = deps.roomName(rawScopeId);
-      if (name === null) {
+      if (name === null || !tokenReaches(identity, rawScopeId)) {
         return { error: fail(404, "room_not_found", "no such room") };
       }
       return { scope: "room", scopeId: rawScopeId, name };

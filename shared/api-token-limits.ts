@@ -27,9 +27,17 @@ export type ApiTokenArea = (typeof API_TOKEN_AREAS)[number];
 // Write includes read.
 export type ApiTokenAccess = "read" | "write";
 
+// An absent area is no access.
+export type ApiTokenAreaLevels = Partial<Record<ApiTokenArea, ApiTokenAccess>>;
+
+// At least one axis is present (no limits at all is full access). An absent
+// axis does not limit: no areas = every area, no rooms = every room the member
+// can access.
 export interface ApiTokenLimits {
-  // An absent area is no access.
-  areas: Partial<Record<ApiTokenArea, ApiTokenAccess>>;
+  areas?: ApiTokenAreaLevels;
+  // Ordinary room ids. The token reaches a room only while the member can
+  // access it too.
+  rooms?: string[];
 }
 
 // A route's place in the limits. "always": every token may call it (its own
@@ -61,7 +69,7 @@ export const FULL_ACCESS_WRITE_AREAS: ReadonlySet<ApiTokenArea> =
 export const READ_SHOWS_SECRETS: ReadonlySet<ApiTokenArea> =
   new Set<ApiTokenArea>(["logs", "files", "environment"]);
 
-const READ_ONLY: ApiTokenLimits = {
+const READ_ONLY: { areas: ApiTokenAreaLevels } = {
   areas: Object.fromEntries(
     API_TOKEN_AREAS.filter((area) => !READ_SHOWS_SECRETS.has(area)).map(
       (area) => [area, "read"],
@@ -70,8 +78,8 @@ const READ_ONLY: ApiTokenLimits = {
 };
 
 export const API_TOKEN_PRESETS: {
-  readOnly: ApiTokenLimits;
-  talkToAgents: ApiTokenLimits;
+  readOnly: { areas: ApiTokenAreaLevels };
+  talkToAgents: { areas: ApiTokenAreaLevels };
 } = {
   readOnly: READ_ONLY,
   talkToAgents: { areas: { ...READ_ONLY.areas, agents: "write" } },
@@ -83,20 +91,35 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 const KNOWN_AREAS: ReadonlySet<string> = new Set(API_TOKEN_AREAS);
 
-// null: not a valid limits value (an unknown area or level, or extra keys).
+// null: not a valid limits value (no axis, an unknown area or level, a bad or
+// repeated room id, or extra keys). Full access is no limits at all, never an
+// empty value.
 export function parseApiTokenLimits(value: unknown): ApiTokenLimits | null {
   if (!isPlainObject(value)) return null;
   const keys = Object.keys(value);
-  if (keys.length !== 1 || keys[0] !== "areas") return null;
-  const areas = value.areas;
-  if (!isPlainObject(areas)) return null;
-  const out: Partial<Record<ApiTokenArea, ApiTokenAccess>> = {};
-  for (const [area, level] of Object.entries(areas)) {
-    if (!KNOWN_AREAS.has(area)) return null;
-    if (level !== "read" && level !== "write") return null;
-    out[area as ApiTokenArea] = level;
+  if (keys.length === 0) return null;
+  if (keys.some((key) => key !== "areas" && key !== "rooms")) return null;
+  const out: ApiTokenLimits = {};
+  if ("areas" in value) {
+    const areas = value.areas;
+    if (!isPlainObject(areas)) return null;
+    const levels: ApiTokenAreaLevels = {};
+    for (const [area, level] of Object.entries(areas)) {
+      if (!KNOWN_AREAS.has(area)) return null;
+      if (level !== "read" && level !== "write") return null;
+      levels[area as ApiTokenArea] = level;
+    }
+    out.areas = levels;
   }
-  return { areas: out };
+  if ("rooms" in value) {
+    const rooms = value.rooms;
+    if (!Array.isArray(rooms)) return null;
+    if (!rooms.every((id) => typeof id === "string" && id.length > 0))
+      return null;
+    if (new Set(rooms).size !== rooms.length) return null;
+    out.rooms = [...(rooms as string[])];
+  }
+  return out;
 }
 
 // Whether a token with `limits` may call a route declaring `tokenArea`.
@@ -108,6 +131,7 @@ export function routeAllowedByLimits(
 ): boolean {
   if (!limits) return true;
   if (!tokenArea) return false;
+  if (!limits.areas) return true;
   if (tokenArea === "always") return true;
   const held = Object.hasOwn(limits.areas, tokenArea.area)
     ? limits.areas[tokenArea.area]

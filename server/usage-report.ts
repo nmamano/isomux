@@ -196,7 +196,8 @@ export function findUsageAtFork(
 // attribute them to a visible room - they are owner-only, and so is their spend.
 export type UsageAudience =
   | { kind: "owner" }
-  | { kind: "member"; roomIds: ReadonlySet<string> };
+  // noLobby: a room-limited API token, which reaches only its rooms.
+  | { kind: "member"; roomIds: ReadonlySet<string>; noLobby?: boolean };
 
 // Resolve the invoking user to an audience. Mirrors canAccess() in index.ts:
 // owners access every room by RULE (their `allowedRooms` is empty post-migration
@@ -210,6 +211,21 @@ export function usageAudienceForUser(
   return { kind: "member", roomIds: new Set(user?.allowedRooms ?? []) };
 }
 
+// A room-limited API token (tokenRooms): its rooms its member can access, no
+// lobby and no owner view. Any other caller: usageAudienceForUser.
+export function usageAudienceForToken(
+  user: UserRecord | undefined,
+  rooms: ReadonlySet<string> | null,
+): UsageAudience {
+  const base = usageAudienceForUser(user);
+  if (rooms === null) return base;
+  const reach =
+    base.kind === "owner"
+      ? [...rooms]
+      : [...rooms].filter((roomId) => base.roomIds.has(roomId));
+  return { kind: "member", roomIds: new Set(reach), noLobby: true };
+}
+
 export function buildUsageReportData(
   agents: Map<string, ManagedAgent>,
   rooms: RoomWire[],
@@ -217,7 +233,8 @@ export function buildUsageReportData(
 ): UsageReportWire {
   const isOwner = audience.kind === "owner";
   const canSeeRoom = (roomId: string): boolean =>
-    rooms.some((r) => r.id === roomId && r.type === "lobby") ||
+    (!(audience.kind === "member" && audience.noLobby) &&
+      rooms.some((r) => r.id === roomId && r.type === "lobby")) ||
     audience.kind === "owner" ||
     audience.roomIds.has(roomId);
   const reportRooms = rooms;

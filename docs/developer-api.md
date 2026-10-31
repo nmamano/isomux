@@ -21,9 +21,11 @@ A token has the issuing member's operational reach: agents and their conversatio
 
 ### Limit a token
 
-**Access** in the create form limits a token to some areas of the office. Full access, the default, gives the reach above. Read only reads every area except logs, files and the environment, and changes nothing. Talk to agents is Read only plus sending to agents. Custom sets each area to none, read, or read and write. The limits are fixed when you create the token. A call outside them gets `403` with the area and level it needs, for example `{"error":{"code":"forbidden","area":"tasks","level":"write"}}`, and the MCP server lists only the tools the token can call. Every token can read its own conversation.
+**Permission pack** in the create form limits a token to some areas of the office. Full access, the default, gives the reach above. Read only reads every area except logs, files and the environment, and changes nothing. Talk to agents is Read only plus sending to agents. Custom sets each area to none, read, or read and write. The limits are fixed when you create the token. A call outside them gets `403` with the area and level it needs, for example `{"error":{"code":"forbidden","area":"tasks","level":"write"}}`, and the MCP server lists only the tools the token can call. Every token can read its own conversation.
 
 The form marks the areas where write equals full access: with them a token can make an agent act with all of its member's reach, for example by sending it a message or changing its memory.
+
+**Rooms** limits a token to some of your rooms. It then reaches only those rooms, while you can access them too, and not the lobby. Office-wide data, such as the members chat and tasks without a room, stays reachable by area. A room-limited token has no office-owner powers, also when an owner creates it. An agent that such a token creates still reaches all of your rooms.
 
 The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 

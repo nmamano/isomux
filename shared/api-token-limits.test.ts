@@ -25,12 +25,25 @@ describe("parseApiTokenLimits", () => {
     expect(parseApiTokenLimits({ areas: {} })).toEqual({ areas: {} });
   });
 
+  it("accepts room ids, alone (every area) or with areas, and no rooms", () => {
+    for (const value of [
+      { rooms: ["room-a", "room-b"] },
+      { rooms: [] },
+      { areas: { tasks: "read" }, rooms: ["room-a"] },
+    ]) {
+      expect(parseApiTokenLimits(value)).toEqual(value as ApiTokenLimits);
+    }
+    // Areas absent is every area, not none.
+    expect("areas" in parseApiTokenLimits({ rooms: ["room-a"] })!).toBe(false);
+  });
+
   it("refuses an unknown area, an unknown level and extra keys", () => {
     const refused: Array<[string, unknown]> = [
       ["null", null],
       ["a string", "readOnly"],
       ["an array", []],
-      ["no areas", {}],
+      // Full access is no limits field, never an empty value.
+      ["no axis", {}],
       ["areas null", { areas: null }],
       ["areas an array", { areas: [] }],
       ["unknown area", { areas: { bogus: "read" } }],
@@ -43,7 +56,13 @@ describe("parseApiTokenLimits", () => {
       ["unknown level", { areas: { agents: "admin" } }],
       ["level null", { areas: { agents: null } }],
       ["level boolean", { areas: { agents: true } }],
-      ["extra top-level key", { areas: {}, rooms: null }],
+      ["extra top-level key", { areas: {}, bogus: true }],
+      ["rooms null", { rooms: null }],
+      ["rooms a string", { rooms: "room-a" }],
+      ["rooms an object", { rooms: { 0: "room-a" } }],
+      ["room id not a string", { rooms: [7] }],
+      ["room id empty", { rooms: [""] }],
+      ["duplicate room id", { rooms: ["room-a", "room-a"] }],
     ];
     for (const [label, value] of refused) {
       expect({ label, parsed: parseApiTokenLimits(value) }).toEqual({
@@ -74,6 +93,17 @@ describe("routeAllowedByLimits", () => {
     expect(routeAllowedByLimits({ areas: {} }, "always")).toBe(true);
   });
 
+  it("gives a rooms-only token every area at write, and still fails closed without an area", () => {
+    const roomsOnly: ApiTokenLimits = { rooms: ["room-a"] };
+    expect(
+      routeAllowedByLimits(roomsOnly, { area: "environment", level: "write" }),
+    ).toBe(true);
+    expect(
+      routeAllowedByLimits({ rooms: [] }, { area: "tasks", level: "read" }),
+    ).toBe(true);
+    expect(routeAllowedByLimits(roomsOnly, undefined)).toBe(false);
+  });
+
   it("grants read with read, read and write with write, and nothing in another area", () => {
     const cases: Array<[ApiTokenLimits, "read" | "write", boolean]> = [
       [readTasks, "read", true],
@@ -83,10 +113,10 @@ describe("routeAllowedByLimits", () => {
     ];
     for (const [limits, level, allowed] of cases) {
       expect({
-        held: limits.areas.tasks,
+        held: limits.areas?.tasks,
         level,
         allowed: routeAllowedByLimits(limits, { area: "tasks", level }),
-      }).toEqual({ held: limits.areas.tasks, level, allowed });
+      }).toEqual({ held: limits.areas?.tasks, level, allowed });
     }
     expect(
       routeAllowedByLimits(writeTasks, { area: "pager", level: "read" }),

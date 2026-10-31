@@ -21,6 +21,7 @@ import {
   FULL_ACCESS_WRITE_AREAS,
   type ApiTokenAccess,
   type ApiTokenArea,
+  type ApiTokenAreaLevels,
   type ApiTokenLimits,
 } from "../../shared/api-token-limits.ts";
 
@@ -33,7 +34,7 @@ type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
 // to it makes the choice "custom".
 const ACCESS_CHOICES = ["full", "readOnly", "talkToAgents", "custom"] as const;
 type AccessChoice = (typeof ACCESS_CHOICES)[number];
-type Areas = ApiTokenLimits["areas"];
+type Areas = ApiTokenAreaLevels;
 
 const ACCESS_LABEL: Record<AccessChoice, PlainMessageKey> = {
   full: "settings.apiTokens.access.full",
@@ -78,7 +79,7 @@ function sameAreas(a: Areas, b: Areas): boolean {
 // The choice a token's limits match: no limits is full access, a preset by its
 // name, anything else custom.
 function accessOf(limits: ApiTokenLimits | undefined): AccessChoice {
-  if (!limits) return "full";
+  if (!limits?.areas) return "full";
   if (sameAreas(limits.areas, API_TOKEN_PRESETS.readOnly.areas))
     return "readOnly";
   if (sameAreas(limits.areas, API_TOKEN_PRESETS.talkToAgents.areas))
@@ -94,6 +95,10 @@ export function ApiTokensPane() {
   const [expiresInDays, setExpiresInDays] = useState<ExpiryChoice>(30);
   const [access, setAccess] = useState<AccessChoice>("full");
   const [areas, setAreas] = useState<Areas>({});
+  // "all": no room limit. "some": only the picked rooms.
+  const [roomScope, setRoomScope] = useState<"all" | "some">("all");
+  const [pickedRooms, setPickedRooms] = useState<string[]>([]);
+  const memberRooms = useMemberRooms();
   const [rawToken, setRawToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState(false);
@@ -126,7 +131,7 @@ export function ApiTokensPane() {
     apiFetch<ApiTokenCreateRes>("POST", "/api/me/api-tokens", {
       name: name.trim(),
       expiresInDays,
-      ...(access === "full" ? {} : { limits: { areas } }),
+      ...mintLimits(access, areas, roomScope, pickedRooms, memberRooms),
     })
       .then((res) => {
         setTokens((current) => [res.apiToken, ...current]);
@@ -310,6 +315,58 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             ))}
           </div>
         )}
+        <label style={{ display: "block", fontSize: 12, marginTop: 8 }}>
+          {t("settings.apiTokens.rooms")}
+          <select
+            data-testid="api-token-rooms"
+            value={roomScope}
+            onChange={(event) =>
+              setRoomScope(event.target.value as "all" | "some")
+            }
+            style={{
+              ...dialogInput,
+              display: "block",
+              width: "100%",
+              marginTop: 5,
+            }}
+          >
+            <option value="all">{t("settings.apiTokens.rooms.all")}</option>
+            <option value="some">{t("settings.apiTokens.rooms.some")}</option>
+          </select>
+        </label>
+        {roomScope === "some" && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+              marginTop: 10,
+              fontSize: 12,
+            }}
+          >
+            {memberRooms.map((room) => (
+              <label
+                key={room.id}
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <input
+                  type="checkbox"
+                  data-room={room.id}
+                  checked={pickedRooms.includes(room.id)}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setPickedRooms((current) =>
+                      checked
+                        ? [...current, room.id]
+                        : current.filter((id) => id !== room.id),
+                    );
+                  }}
+                />
+                {room.name}
+              </label>
+            ))}
+          </div>
+        )}
         <button
           data-testid="api-token-create"
           onClick={create}
@@ -371,7 +428,11 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
         ) : tokens.length === 0 ? (
           <p style={hint}>{t("settings.apiTokens.empty")}</p>
         ) : (
-          <ApiTokenCards tokens={tokens} onRevoke={revoke} />
+          <ApiTokenCards
+            tokens={tokens}
+            onRevoke={revoke}
+            rooms={memberRooms}
+          />
         )}
       </div>
     </div>
@@ -423,6 +484,68 @@ function AreaRow({
   );
 }
 
+export interface MemberRoom {
+  id: string;
+  name: string;
+}
+
+// The ordinary rooms the signed-in member can access (GET /api/me/rooms), for
+// the room picker and to name a token's rooms. Empty until loaded or on error.
+export function useMemberRooms(): MemberRoom[] {
+  const [rooms, setRooms] = useState<MemberRoom[]>([]);
+  useEffect(() => {
+    let live = true;
+    apiFetch<{ rooms: MemberRoom[] }>("GET", "/api/me/rooms")
+      .then((res) => {
+        if (live && Array.isArray(res.rooms)) setRooms(res.rooms);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  return rooms;
+}
+
+// The limits a mint sends: none for Full access on every room, else the
+// areas (unless Full access) and the picked rooms (in the picker's order).
+function mintLimits(
+  access: AccessChoice,
+  areas: Areas,
+  roomScope: "all" | "some",
+  picked: readonly string[],
+  memberRooms: readonly MemberRoom[],
+): { limits?: ApiTokenLimits } {
+  const limits: ApiTokenLimits = {};
+  if (access !== "full") limits.areas = areas;
+  if (roomScope === "some")
+    limits.rooms = memberRooms
+      .map((room) => room.id)
+      .filter((id) => picked.includes(id));
+  return Object.keys(limits).length ? { limits } : {};
+}
+
+// What a token card says about its rooms: every room, or the rooms it names.
+// A room the viewer cannot name (closed, or out of reach) counts as "other".
+function roomsSummary(
+  t: ReturnType<typeof useI18n>["t"],
+  tn: ReturnType<typeof useI18n>["tn"],
+  language: string,
+  limits: ApiTokenLimits | undefined,
+  rooms: readonly MemberRoom[],
+): string {
+  const ids = limits?.rooms;
+  if (!ids) return t("settings.apiTokens.allRooms");
+  if (ids.length === 0) return t("settings.apiTokens.noRooms");
+  const names = ids.flatMap((id) => {
+    const room = rooms.find((r) => r.id === id);
+    return room ? [room.name] : [];
+  });
+  const others = ids.length - names.length;
+  if (others > 0) names.push(tn("settings.apiTokens.otherRooms", others));
+  return new Intl.ListFormat(language, { type: "conjunction" }).format(names);
+}
+
 // What a token card says about its access: the preset name, or for custom
 // each area with its level.
 function accessSummary(
@@ -431,13 +554,13 @@ function accessSummary(
   limits: ApiTokenLimits | undefined,
 ): string {
   const choice = accessOf(limits);
-  if (choice !== "custom" || !limits) return t(ACCESS_LABEL[choice]);
-  const granted = API_TOKEN_AREAS.filter((area) => limits.areas[area]).map(
-    (area) =>
-      t("settings.apiTokens.areaLevel", {
-        area: t(AREA_LABEL[area]),
-        level: t(LEVEL_LABEL[limits.areas[area]!]),
-      }),
+  const areas = limits?.areas;
+  if (choice !== "custom" || !areas) return t(ACCESS_LABEL[choice]);
+  const granted = API_TOKEN_AREAS.filter((area) => areas[area]).map((area) =>
+    t("settings.apiTokens.areaLevel", {
+      area: t(AREA_LABEL[area]),
+      level: t(LEVEL_LABEL[areas[area]!]),
+    }),
   );
   return t("settings.apiTokens.customAccess", {
     areas: granted.length
@@ -451,11 +574,14 @@ function accessSummary(
 export function ApiTokenCards({
   tokens,
   onRevoke,
+  rooms,
 }: {
   tokens: ApiTokenWire[];
   onRevoke: (id: string) => void;
+  // The viewer's rooms, to name a token's rooms.
+  rooms: readonly MemberRoom[];
 }) {
-  const { t, language } = useI18n();
+  const { t, tn, language } = useI18n();
   return tokens.map((token) => (
     <div
       key={token.id}
@@ -495,6 +621,14 @@ export function ApiTokenCards({
           <div style={hint} data-token-access={accessOf(token.limits)}>
             {t("settings.apiTokens.accessLine", {
               access: accessSummary(t, language, token.limits),
+            })}
+          </div>
+          <div
+            style={hint}
+            data-token-rooms={token.limits?.rooms ? "some" : "all"}
+          >
+            {t("settings.apiTokens.roomsLine", {
+              rooms: roomsSummary(t, tn, language, token.limits, rooms),
             })}
           </div>
         </div>

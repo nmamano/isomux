@@ -268,12 +268,13 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     userId: string | null,
     agentId: string,
     requestId: string,
+    audience: AskAudienceDeps = deps.audience,
   ): SecretRequestResult<{ entry: SecretAsk; scope: SecretScope }> {
     const entry = openRequests().find((e) => e.secret.requestId === requestId);
     if (!entry || entry.agentId !== agentId)
       return { ok: false, status: 404, code: "not_found" };
     const scope = scopeOf(entry);
-    if (!scope || !askVisibleTo(entry, userId, deps.audience))
+    if (!scope || !askVisibleTo(entry, userId, audience))
       return { ok: false, status: 403, code: "forbidden" };
     return { ok: true, entry, scope };
   }
@@ -656,10 +657,15 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       agentId: string,
       requestId: string,
       body: unknown,
+      // The caller's audience (askAudienceFor), when it differs from the
+      // member's.
+      audience?: AskAudienceDeps,
     ): Promise<SecretRequestResult<{ name: string }>> {
       // From the check to the ask's removal nothing awaits, so a decline,
       // a second save or the agent's withdraw cannot slip in between.
-      const found = guarded(() => answerable(userId, agentId, requestId));
+      const found = guarded(() =>
+        answerable(userId, agentId, requestId, audience),
+      );
       if (!found.ok) return found;
       if (!isObject(body)) return invalidRequest("the body must be an object");
       const { entry, scope } = found;
@@ -751,9 +757,10 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       userId: string | null,
       agentId: string,
       requestId: string,
+      audience?: AskAudienceDeps,
     ): SecretRequestResult<{ name: string }> {
       return guarded(() => {
-        const found = answerable(userId, agentId, requestId);
+        const found = answerable(userId, agentId, requestId, audience);
         if (!found.ok) return found;
         const { name } = found.entry.secret;
         try {

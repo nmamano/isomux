@@ -459,6 +459,9 @@ export interface PagerViewer {
   accessibleRoomIds: ReadonlySet<string>;
   userId: string | null;
   isOfficeOwner: boolean;
+  // A room-limited API token: an app page in a room outside its rooms is
+  // hidden from it, its own included.
+  ownNeedsRoom?: boolean;
 }
 
 // The one visibility rule, for the routes and the per-socket event. A viewer
@@ -471,6 +474,7 @@ export function pagerEntryVisible(
 ): boolean {
   const roomId = entry.source.roomId;
   if (roomId !== null && viewer.accessibleRoomIds.has(roomId)) return true;
+  if (roomId !== null && viewer.ownNeedsRoom) return false;
   return (
     entry.source.kind === "app" &&
     (viewer.isOfficeOwner ||

@@ -72,6 +72,7 @@ import {
   askAgentWire,
   askMemberWire,
   askTaskFields,
+  askAudienceFor,
   askShownToOwnerAsOther,
   askVisibleTo,
   AsksUnavailableError,
@@ -303,6 +304,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     agentRoomId: (agentId) => deps.agent(agentId)?.roomId ?? null,
     canSeeRoom: (userId, roomId) => deps.memberCanSeeRoom(userId, roomId),
   };
+  const audienceFor = (identity: Identity) =>
+    askAudienceFor(audience, identity);
 
   // The agent's own open entry, or null.
   const own = (agentId: string, id: string): AskEntry | null => {
@@ -331,8 +334,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const readableBy = (identity: Identity, id: string): AskEntry | null => {
     const entry = store.get(id);
     return entry &&
-      (askVisibleTo(entry, identity.userId, audience) ||
-        askShownToOwnerAsOther(entry, identity.userId, audience))
+      (askVisibleTo(entry, identity.userId, audienceFor(identity)) ||
+        askShownToOwnerAsOther(entry, identity.userId, audienceFor(identity)))
       ? entry
       : null;
   };
@@ -1147,17 +1150,19 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.list": guarded((ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return ok([]);
+      const seen = audienceFor(ctx.identity);
       return ok(
         store
           .listAll()
-          .filter((entry) => askVisibleTo(entry, userId, audience))
+          .filter((entry) => askVisibleTo(entry, userId, seen))
           .map(askMemberWire),
       );
     }),
 
     "asks.listOthers": guarded((ctx) => {
       const userId = ctx.identity.userId;
-      if (!userId || !deps.isOfficeOwner(userId))
+      const seen = audienceFor(ctx.identity);
+      if (!userId || !seen.isOfficeOwner(userId))
         return fail(
           403,
           "forbidden",
@@ -1166,7 +1171,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return ok(
         store
           .listAll()
-          .filter((entry) => askShownToOwnerAsOther(entry, userId, audience))
+          .filter((entry) => askShownToOwnerAsOther(entry, userId, seen))
           .map(wire),
       );
     }),

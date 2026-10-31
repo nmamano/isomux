@@ -152,10 +152,12 @@ export interface AppsDeps {
   now(): number;
   // Resolve a proposed message target against the APP OWNER's access, not the
   // caller's. An office owner managing somebody else's app must not widen what
-  // that app token can reach.
+  // that app token can reach. A room-limited API token caller must reach the
+  // agent's room too.
   resolveMessageTarget(
     ownerUserId: string | null,
     agentId: string,
+    identity: Identity,
   ): "ok" | "invalid_id" | "unavailable";
   // Whether this live agent is privileged now. False for an unknown agent.
   isPrivilegedAgent(agentId: string): boolean;
@@ -187,7 +189,7 @@ export interface AppsDeps {
   // the same value its unit injects as ISOMUX_APP_URL.
   publicUrl(app: AppRecord): string | null;
   shortUrl(app: AppRecord): string | null;
-  canAccess(app: AppRecord, userId: string): boolean;
+  canAccess(app: AppRecord, userId: string, identity: Identity): boolean;
 
   // Tell every socket that may see this app about it. Called with the SAME wire
   // object the response carries, so what the caller is told and what the office
@@ -475,7 +477,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       try {
         const app = deps.get(ctx.params.name);
         const userId = ctx.identity.userId;
-        if (!app || !userId || !deps.canAccess(app, userId)) {
+        if (!app || !userId || !deps.canAccess(app, userId, ctx.identity)) {
           return fail(404, "not_found");
         }
         const version = app.thumbnailUpdatedAt;
@@ -724,6 +726,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           const target = deps.resolveMessageTarget(
             before.userId,
             body.messageTargetAgentId,
+            ctx.identity,
           );
           if (target === "invalid_id") {
             return fail(

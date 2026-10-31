@@ -15,6 +15,7 @@
 import {
   actsForAgent,
   identityHasCapability,
+  tokenRooms,
   type Identity,
 } from "./identity/index.ts";
 
@@ -35,6 +36,9 @@ export interface WebhookViewer {
   // webhookOwnerOrOfficeOwner grants.
   officeWide: boolean;
   hasRoomAccess(roomId: string): boolean;
+  // A room-limited API token: its member's own hooks count only when the
+  // target's room is one it reaches.
+  ownNeedsRoom?: boolean;
 }
 
 export function webhookVisibleTo(
@@ -43,7 +47,12 @@ export function webhookVisibleTo(
 ): boolean {
   if (!viewer.participates) return false;
   if (viewer.officeWide) return true;
-  if (viewer.userId !== null && viewer.userId === facts.ownerUserId) {
+  if (
+    viewer.userId !== null &&
+    viewer.userId === facts.ownerUserId &&
+    (!viewer.ownNeedsRoom ||
+      (facts.liveRoomId !== null && viewer.hasRoomAccess(facts.liveRoomId)))
+  ) {
     return true;
   }
   return facts.liveRoomId !== null && viewer.hasRoomAccess(facts.liveRoomId);
@@ -66,7 +75,9 @@ export function webhookViewerForIdentity(
     officeWide:
       participates &&
       identity.userId !== null &&
+      tokenRooms(identity) === null &&
       isOfficeOwnerUserId(identity.userId),
     hasRoomAccess,
+    ...(tokenRooms(identity) !== null ? { ownNeedsRoom: true } : {}),
   };
 }

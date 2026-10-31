@@ -8,7 +8,7 @@ import { appReloadRequestedAt } from "../../app-revision.ts";
 export interface AppWidgetDeps {
   get(name: string): AppRecord | null;
   registration(app: AppRecord): number;
-  canAccess(app: AppRecord, userId: string): boolean;
+  canAccess(app: AppRecord, userId: string, identity: Identity): boolean;
   appUrl(app: AppRecord): string | null;
   sessionExpiresAt(app: AppRecord, sessionHash: string | null): number | null;
   chat(app: AppRecord, identity: Identity): AppWidgetStatus["chat"];
@@ -27,7 +27,7 @@ export function appWidgetHandlers(
       if (
         !app ||
         !ctx.identity.userId ||
-        !deps.canAccess(app, ctx.identity.userId)
+        !deps.canAccess(app, ctx.identity.userId, ctx.identity)
       )
         return fail(404, "not_found");
       const registration = deps.registration(app);
@@ -57,7 +57,7 @@ export function appWidgetHandlers(
       if (
         !app ||
         !ctx.identity.userId ||
-        !deps.canAccess(app, ctx.identity.userId) ||
+        !deps.canAccess(app, ctx.identity.userId, ctx.identity) ||
         !deps.appUrl(app)
       )
         return fail(404, "not_found");

@@ -21,6 +21,11 @@ import { readFileSync, renameSync } from "fs";
 import { isAbsolute } from "path";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
+import {
+  tokenRooms,
+  withinTokenRooms,
+  type Identity,
+} from "./identity/index.ts";
 import type { AskHistory } from "./ask-history.ts";
 import {
   ASK_EDITABLE_KEYS,
@@ -263,6 +268,21 @@ export interface AskAudienceDeps {
   // The agent's room, or null when the agent is gone.
   agentRoomId: (agentId: string) => string | null;
   canSeeRoom: (userId: string, roomId: string) => boolean;
+}
+
+// The audience as one caller reaches it: a room-limited API token sees only
+// its rooms and has no office-owner reach. Every other caller gets `base`.
+export function askAudienceFor(
+  base: AskAudienceDeps,
+  identity: Identity,
+): AskAudienceDeps {
+  if (tokenRooms(identity) === null) return base;
+  return {
+    isOfficeOwner: () => false,
+    agentRoomId: base.agentRoomId,
+    canSeeRoom: (userId, roomId) =>
+      withinTokenRooms(identity, roomId) && base.canSeeRoom(userId, roomId),
+  };
 }
 
 // Whether a member sees an ask and may answer it, decided live: the member

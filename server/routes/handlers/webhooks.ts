@@ -81,6 +81,8 @@ export interface WebhookTargetDeps {
     userId: string | null,
     agentId: string,
   ): "ok" | "invalid_id" | "unavailable";
+  // A room-limited API token also reaches the agent's room itself.
+  callerReachesAgent(identity: Identity, agentId: string): boolean;
   cronjobExists(cronjobId: string): boolean;
   // The caller passes cronjobOwnerOrOfficeOwner for this cronjob.
   callerManagesCronjob(identity: Identity, cronjobId: string): boolean;
@@ -214,7 +216,8 @@ export function webhookTargetPrecondition(
       if (reach === "invalid_id") {
         return fail(400, "invalid_target", "target.agentId is not an agent id");
       }
-      return reach === "ok"
+      return reach === "ok" &&
+        deps.callerReachesAgent(ctx.identity, target.agentId)
         ? null
         : fail(
             403,

@@ -10,13 +10,18 @@ import type {
   SecretRequestFailure,
   SecretRequests,
 } from "../../secret-requests.ts";
+import type { Identity } from "../../identity/index.ts";
+import type { AskAudienceDeps } from "../../asks.ts";
 
 function failed(result: SecretRequestFailure) {
   return fail(result.status, result.code, result.message, result.detail);
 }
 
+// `audienceFor`: the caller's ask audience (askAudienceFor), so a room-limited
+// API token answers only in its rooms and never as an office owner.
 export function secretRequestHandlers(
   requests: SecretRequests,
+  audienceFor: (identity: Identity) => AskAudienceDeps,
 ): Record<string, RouteHandler> {
   return {
     "agents.secretRequest": (ctx) => {
@@ -30,6 +35,7 @@ export function secretRequestHandlers(
           ctx.params.id,
           ctx.params.requestId,
           ctx.body,
+          audienceFor(ctx.identity),
         );
         return result.ok ? ok({ name: result.name }) : failed(result);
       } catch {
@@ -42,6 +48,7 @@ export function secretRequestHandlers(
         ctx.identity.userId ?? null,
         ctx.params.id,
         ctx.params.requestId,
+        audienceFor(ctx.identity),
       );
       return result.ok ? ok({ name: result.name }) : failed(result);
     },

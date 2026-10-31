@@ -31,6 +31,9 @@ export interface ApiTokenDeps {
     limits?: ApiTokenLimits;
   }): Promise<ApiTokenCreateRes>;
   revoke(userId: string, id: string): Promise<boolean>;
+  // The ordinary rooms the member can access now: the rooms a token may be
+  // limited to.
+  limitableRoomIds(userId: string): ReadonlySet<string>;
   userIdForUsername(username: string): string | null;
   sendToInbox(input: {
     tokenId: string;
@@ -99,11 +102,15 @@ export function apiTokenHandlers(
       let limits: ApiTokenLimits | undefined;
       if (body.limits !== undefined) {
         const parsed = parseApiTokenLimits(body.limits);
-        if (!parsed) {
+        const limitable = parsed?.rooms ? deps.limitableRoomIds(userId) : null;
+        if (
+          !parsed ||
+          (limitable && !parsed.rooms!.every((id) => limitable.has(id)))
+        ) {
           return fail(
             422,
             "invalid_limits",
-            'limits must be {areas: {<area>: "read" | "write"}} with known areas',
+            'limits must be {areas?: {<area>: "read" | "write"}, rooms?: [<room id>]} with at least one of them, known areas, and rooms you can access',
           );
         }
         limits = parsed;

@@ -85,7 +85,9 @@ export interface MembersChatDeps {
   // The author snapshot for this identity, or null when it cannot be resolved
   // (a user record that vanished, an agent that is gone) - rendered as 403.
   authorFor(identity: Identity): MembersChatAuthor | null;
-  isOwner(userId: string): boolean;
+  // An office owner's reach (hasOfficeOwnerReach): deletes any member's
+  // message. A room-limited API token does not have it.
+  isOwner(identity: Identity): boolean;
   emitMessage(message: MembersChatMessage, updateOnly?: boolean): void;
   emitDeleted(id: string): void;
   emitRead(userId: string, readPointer: string | null, unread: number): void;
@@ -246,7 +248,7 @@ export function membersChatHandlers(
       if (!userId) return fail(403, "forbidden");
       const existing = deps.get(ctx.params.id);
       if (!existing) return fail(404, "not_found");
-      if (existing.userId !== userId && !deps.isOwner(userId)) {
+      if (existing.userId !== userId && !deps.isOwner(ctx.identity)) {
         return fail(403, "forbidden");
       }
       if (!deps.delete(existing.id)) return fail(404, "not_found");

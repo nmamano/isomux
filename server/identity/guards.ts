@@ -18,6 +18,7 @@ import {
   cronOwnOnly,
   identityHasCapability,
   reachAgentId,
+  tokenRooms,
   type Identity,
 } from "./index.ts";
 
@@ -60,6 +61,14 @@ export interface GuardDeps {
   // `allowedRooms`). NON-LEAK: callers must not branch on the reason; false is
   // false. The body can change without touching this signature.
   hasRoomAccess(identity: Identity, roomId: string): boolean;
+  // The live ordinary room of an app (its maker agent's), a webhook (its
+  // target's) or a schedule, or null for none. Read only for a room-limited
+  // API token, whose "your own X" arms need the room in its rooms; absent, those
+  // arms refuse it.
+  resourceRoomId?(
+    kind: "app" | "webhook" | "cronjob",
+    id: string,
+  ): string | null;
   // The agent's current roomId, or null if the agent does not exist. A null
   // collapses with "inaccessible" into one indistinguishable deny.
   roomIdForAgent(agentId: string): string | null;
@@ -300,11 +309,26 @@ export function hasOfficeOwnerReach(
   deps: Pick<GuardDeps, "isOfficeOwnerUserId">,
 ): boolean {
   if (isOfficeOwnerIdentity(identity)) return true;
+  // Owner reach is every room; a room-limited token does not have it.
+  if (tokenRooms(identity) !== null) return false;
   return (
     (actsForAgent(identity) || identity.scope === "api") &&
     identity.userId !== null &&
     deps.isOfficeOwnerUserId(identity.userId)
   );
+}
+
+// A room-limited API token's "your own X" arm: the resource's live room must be
+// one it reaches. Every other identity passes, as before.
+function ownArmInTokenRooms(
+  identity: Identity,
+  deps: Pick<GuardDeps, "hasRoomAccess" | "resourceRoomId">,
+  kind: "app" | "webhook" | "cronjob",
+  id: string,
+): boolean {
+  if (tokenRooms(identity) === null) return true;
+  const roomId = deps.resourceRoomId?.(kind, id) ?? null;
+  return roomId !== null && deps.hasRoomAccess(identity, roomId);
 }
 
 // Owner-only managed-env reads - the office variables, and the name-only read of
@@ -324,6 +348,7 @@ function isEnvOwnerIdentity(
   isOfficeOwnerUserId: GuardDeps["isOfficeOwnerUserId"],
 ): boolean {
   if (isOfficeOwnerIdentity(identity)) return true;
+  if (tokenRooms(identity) !== null) return false;
   return (
     identity.scope === "api" &&
     identity.userId !== null &&
@@ -589,7 +614,9 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
     const name = params[nameParamName];
     if (!name) return FORBIDDEN;
     const ownerUserId = deps.appOwnerUserId(name);
-    return ownerUserId !== null && ownerUserId === identity.userId
+    return ownerUserId !== null &&
+      ownerUserId === identity.userId &&
+      ownArmInTokenRooms(identity, deps, "app", name)
       ? ALLOW
       : FORBIDDEN;
   };
@@ -616,7 +643,10 @@ export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
     const ownerUserId = deps.webhookOwnerUserId(id);
     if (ownerUserId === null) return FORBIDDEN;
     if (hasOfficeOwnerReach(identity, deps)) return ALLOW;
-    return ownerUserId === identity.userId ? ALLOW : FORBIDDEN;
+    return ownerUserId === identity.userId &&
+      ownArmInTokenRooms(identity, deps, "webhook", id)
+      ? ALLOW
+      : FORBIDDEN;
   };
 }
 
@@ -688,7 +718,9 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
     const cronjobId = params[idParamName];
     if (!cronjobId) return FORBIDDEN;
     const creatorUserId = deps.cronjobCreatorUserId(cronjobId);
-    return creatorUserId !== null && creatorUserId === identity.userId
+    return creatorUserId !== null &&
+      creatorUserId === identity.userId &&
+      ownArmInTokenRooms(identity, deps, "cronjob", cronjobId)
       ? ALLOW
       : FORBIDDEN;
   };
@@ -916,7 +948,12 @@ const killedAgentLogAccess: Guard = (ctx) => {
   const agentId = ctx.params.id;
   if (!agentId) return FORBIDDEN;
   const managerUserId = ctx.deps.killedAgentManagerUserId(agentId);
-  return managerUserId !== null && managerUserId === ctx.identity.userId
+  if (managerUserId === null || managerUserId !== ctx.identity.userId)
+    return FORBIDDEN;
+  // A room-limited token: the killed agent's last room must be one it reaches.
+  if (tokenRooms(ctx.identity) === null) return ALLOW;
+  const lastRoomId = ctx.deps.killedAgentLastRoomId(agentId);
+  return lastRoomId !== null && ctx.deps.hasRoomAccess(ctx.identity, lastRoomId)
     ? ALLOW
     : FORBIDDEN;
 };
