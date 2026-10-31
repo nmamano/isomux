@@ -473,6 +473,19 @@ function ReplyAskCard({
     <div data-ask={entry.id} style={cardBox}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {entry.app && (
+            <div
+              data-ask-app=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {t("asks.fromApp", { app: entry.app.name })}
+            </div>
+          )}
           <div
             ref={promptRef}
             data-ask-prompt=""

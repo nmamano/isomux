@@ -1467,6 +1467,7 @@ App 的一些原则：
   "asks.recommended": "推荐",
   "asks.link": "请示",
   "asks.openLink": "打开「{page}」",
+  "asks.fromApp": "来自应用 {app}",
   "asks.discuss": "在聊天中讨论",
   "asks.aboutPrefix": "关于你的请示「{question}」：",
   "asks.dismissed": "已忽略",

@@ -186,6 +186,16 @@ function isAskEntry(v: unknown): v is AskEntry {
     return false;
   if (r.sessionId !== undefined && typeof r.sessionId !== "string")
     return false;
+  if (
+    r.app !== undefined &&
+    !(
+      isObject(r.app) &&
+      typeof r.app.name === "string" &&
+      r.app.name !== "" &&
+      typeof r.app.createdAt === "number"
+    )
+  )
+    return false;
   // A step (task c71cb60f): any non-empty kind, as for a link, so a step a
   // later release adds cannot fail the file; this release never closes it.
   if (
@@ -383,6 +393,7 @@ export interface AskStore {
     affordances?: AskAffordances;
     sessionId?: string;
     step?: StepAskRequest;
+    app?: { name: string; createdAt: number };
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
   // link, options, recommended and each affordance list: undefined keeps the
   // ask's value, null removes it. Removing the options removes the mark.
@@ -499,6 +510,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       affordances,
       sessionId,
       step,
+      app,
     }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
@@ -519,6 +531,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...affordances,
         ...(sessionId ? { sessionId } : {}),
         ...(step ? { step } : {}),
+        ...(app ? { app } : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
@@ -619,14 +632,19 @@ export function askTaskFields(
     parts.push(`Files:\n${files.map((f) => `- ${f}`).join("\n")}`);
   if (note !== undefined && note.trim() !== "")
     parts.push(`Note: ${note.trim()}`);
-  parts.push(`From ${agentName}'s ask ${entry.id}.`);
+  parts.push(
+    entry.app
+      ? `From app ${entry.app.name}'s ask ${entry.id} to ${agentName}.`
+      : `From ${agentName}'s ask ${entry.id}.`,
+  );
   return { title, description: parts.join("\n\n") };
 }
 
 // The bracket the agent reads before the member's words. The reply can reach a
 // later session (after a clear, a handoff or /wrap-session) that never saw the
 // question, so the note quotes the whole prompt and, when the session that
-// opened the ask is not the current one, names it for a log search.
+// opened the ask is not the current one, names it for a log search. An ask an
+// app opened names the app, so the agent knows it did not ask it.
 export function askReplyNote(
   ref: AskRef,
   currentSessionId: string | null = null,
@@ -636,8 +654,11 @@ export function askReplyNote(
       ? ` (opened in session ${ref.sessionId})`
       : "";
   const quoted = JSON.stringify(ref.prompt.trim());
-  if (ref.taskId)
-    return `[Your ask ${ref.id}${from} is now task ${ref.taskId}: ${quoted}] `;
-  const verb = ref.dismissed ? "Dismissed your ask" : "Reply to your ask";
-  return `[${verb} ${ref.id}${from}: ${quoted}] `;
+  const whose = ref.app ? `app ${ref.app.name}'s` : "your";
+  if (ref.taskId) {
+    const subject = ref.app ? `App ${ref.app.name}'s` : "Your";
+    return `[${subject} ask ${ref.id}${from} is now task ${ref.taskId}: ${quoted}] `;
+  }
+  const verb = ref.dismissed ? "Dismissed" : "Reply to";
+  return `[${verb} ${whose} ask ${ref.id}${from}: ${quoted}] `;
 }

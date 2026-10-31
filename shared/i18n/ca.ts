@@ -1655,6 +1655,7 @@ Coses que pots fer per ell:
   "asks.recommended": "Recomanada",
   "asks.link": "Petició",
   "asks.openLink": "Obre {page}",
+  "asks.fromApp": "De l'app {app}",
   "asks.discuss": "Comenta-ho al xat",
   "asks.aboutPrefix": 'Sobre la teva petició "{question}": ',
   "asks.dismissed": "Descartada",

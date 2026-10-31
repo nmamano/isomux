@@ -2651,6 +2651,50 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("pager:raise", appScope),
     emits: ["pager_upserted"],
   }),
+  // The app opens asks in the name of its message target agent
+  // (internal-docs/asks-design.md, "App asks"): the ask is that agent's, and
+  // the member's answer goes to it. The app reaches only the asks its own
+  // registration opened, wherever its target has moved since.
+  defineRoute<AskCreateReq, AskAgentWire>({
+    opId: "asks.appCreate",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/app/asks",
+    auth: cap("app:ask", appScope),
+    plainText: { params: ASK_CREATE_PLAIN_TEXT_PARAMS },
+    emits: ["ask_upserted"],
+  }),
+  defineRoute<void, AskAgentWire[]>({
+    opId: "asks.appList",
+    method: "GET",
+    path: "/api/app/asks",
+    auth: cap("app:ask", appScope),
+    emits: [],
+  }),
+  defineRoute<void, AskAgentWire>({
+    opId: "asks.appGet",
+    method: "GET",
+    path: "/api/app/asks/:askId",
+    auth: cap("app:ask", appScope),
+    emits: [],
+  }),
+  defineRoute<AskEditReq, AskAgentWire>({
+    opId: "asks.appEdit",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PATCH",
+    path: "/api/app/asks/:askId",
+    auth: cap("app:ask", appScope),
+    plainText: { params: ASK_EDIT_PLAIN_TEXT_PARAMS },
+    emits: ["ask_upserted"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "asks.appDelete",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "DELETE",
+    path: "/api/app/asks/:askId",
+    auth: cap("app:ask", appScope),
+    emits: ["ask_removed"],
+  }),
 
   // Webhooks (internal-docs/webhooks-design.md section 7). Ownership is the
   // USER's, as for apps. The reads (list, get, deliveries, dry-run) follow the

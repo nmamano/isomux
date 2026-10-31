@@ -105,11 +105,14 @@ export type Capability =
   // sees all) is the appOwnerOrOfficeOwner guard's job, not the capability's.
   | "app:read"
   | "app:write"
-  // APP-identity only, and the ONLY capability an app token holds: a registered
-  // app messaging the agent that built it. Deliberately absent from USER and
+  // APP-identity only: a registered app messaging the agent that built it. Deliberately absent from USER and
   // AGENT - a human has the chat box and an agent has agents.sendMessage, so
   // granting it anywhere else would only widen what a stolen token reaches.
   | "app:message"
+  // APP-identity only, like app:message: a registered app opens asks in the
+  // name of its message target agent (POST /api/app/asks). An agent manages
+  // its own asks with self:affordance.
+  | "app:ask"
   // Shared by USER, AGENT and API - the webhook registry. Like app:read and
   // app:write, a BASELINE agent capability; the webhookOwnerOrOfficeOwner
   // guard scopes it to the caller's own hooks. CRON-RUN and APP do not hold
@@ -349,14 +352,16 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
   "task:write",
 ];
 
-// APP set: what an app has on its own - message its target (app:message) and
-// raise and resolve its own pages (pager:raise). With a live owner agent the app
-// also has that agent's set (appCapabilities), so an app token is as sensitive
-// as its owner agent's token. Without one, these two are all: a 403 for anything
+// APP set: what an app has on its own - message its target (app:message), open
+// asks in its target's name (app:ask), and raise and resolve its own pages
+// (pager:raise). With a live owner agent the app also has that agent's set
+// (appCapabilities), so an app token is as sensitive as its owner agent's
+// token. Without one, these three are all: a 403 for anything
 // else (I know who you are, you may not do that), not a 401. The whole-table
 // parity test in routes-table.test.ts pins both cases.
 export const APP_CAPABILITIES: readonly Capability[] = [
   "app:message",
+  "app:ask",
   "pager:raise",
 ];
 

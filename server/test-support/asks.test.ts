@@ -2475,3 +2475,442 @@ describe("chat affordances on an ask", () => {
     ]);
   });
 });
+
+// An app opens asks with its app token (task 1f453011; internal-docs/asks-design.md,
+// "App asks"). The ask is the app's message target's, for the app's owner
+// unless the app names a member, and the answer goes to that agent. The app
+// reaches only the asks its own registration opened, wherever its target has
+// moved since. Which identities reach /api/app/asks at all is pinned in
+// routes-table.test.ts.
+describe("an ask an app opens", () => {
+  const APP = "triage-bot";
+  type World = Awaited<ReturnType<typeof world>>;
+
+  // Register an app through the real route and read its token from the
+  // environment file the fake supervisor wrote.
+  async function register(
+    w: World,
+    name: string,
+    auth: { bearer?: string; rawSessionId?: string },
+  ): Promise<{ token: string; createdAt: number }> {
+    const r = await call(w.srv, "POST", "/api/apps", auth, {
+      json: { name, command: "bun run serve.ts", cwd: w.srv.stateRoot },
+    });
+    expect(r.status).toBe(201);
+    const token = w.srv.appSupervisor.tokenFiles.get(name);
+    if (!token) throw new Error(`no token file for ${name}`);
+    return { token, createdAt: (r.body as { createdAt: number }).createdAt };
+  }
+  const asApp = (
+    w: World,
+    token: string,
+    method: string,
+    path: string,
+    body?: { json?: unknown; text?: string },
+  ) => call(w.srv, method, `/api/app/asks${path}`, { bearer: token }, body);
+  // A create the test needs to succeed.
+  const opened = async (w: World, token: string, text: string) => {
+    const r = await asApp(w, token, "POST", "", { text });
+    expect(r.status).toBe(201);
+    return r.body as AskAgentWire;
+  };
+  const retarget = async (w: World, agentId: string) => {
+    const r = await call(w.srv, "PATCH", `/api/apps/${APP}`, w.as(w.asker.id), {
+      json: { messageTargetAgentId: agentId },
+    });
+    expect(r.status).toBe(200);
+  };
+  const agentRead = (w: World, agentId: string, id: string) =>
+    call(w.srv, "GET", `/api/agents/${agentId}/asks/${id}`, w.as(agentId));
+  // The agent reads a closed ask from the history (task ff590b5e): an app's
+  // delete closes it as withdrawn, and the record keeps the app.
+  const closedOn = async (w: World, agentId: string, id: string) => {
+    const r = await agentRead(w, agentId, id);
+    const body = r.body as AskEntry & { closed?: { outcome?: string } };
+    return [r.status, body.agentId, body.app?.name, body.closed?.outcome];
+  };
+  const stored = (w: World, id: string) =>
+    (
+      JSON.parse(
+        readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+      ) as AskEntry[]
+    ).find((e) => e.id === id);
+
+  it("opens one in its target agent's name for its owner, and lists, reads, edits and deletes its own only", async () => {
+    const w = await world();
+    const app = await register(w, APP, w.as(w.asker.id));
+    const made = await asApp(w, app.token, "POST", "", {
+      text: "Ship the release?\n",
+    });
+    expect(made.status).toBe(201);
+    const entry = made.body as AskAgentWire;
+    expect({
+      agentId: entry.agentId,
+      memberUserId: entry.memberUserId,
+      member: entry.member,
+      prompt: entry.prompt,
+      app: entry.app,
+    }).toEqual({
+      agentId: w.asker.id,
+      memberUserId: w.ownerId,
+      member: w.owner.username,
+      prompt: "Ship the release?",
+      app: { name: APP, createdAt: app.createdAt },
+    });
+
+    // The agent and the member see it as the agent's ask, with the app.
+    const idsAndApps = (r: Res) =>
+      (r.body as AskEntry[]).map((e) => [e.id, e.app?.name ?? null]);
+    const mine = await open(w, "The agent's own question?");
+    const agentList = await call(
+      w.srv,
+      "GET",
+      `/api/agents/${w.asker.id}/asks`,
+      w.as(w.asker.id),
+    );
+    expect(idsAndApps(agentList)).toEqual([
+      [entry.id, APP],
+      [mine.id, null],
+    ]);
+    const memberList = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    expect(idsAndApps(memberList)).toEqual([
+      [entry.id, APP],
+      [mine.id, null],
+    ]);
+
+    // The app's own routes reach its ask and not the agent's.
+    const listed = await asApp(w, app.token, "GET", "");
+    expect(listed.status).toBe(200);
+    expect((listed.body as AskEntry[]).map((e) => e.id)).toEqual([entry.id]);
+    const edited = await asApp(w, app.token, "PATCH", `/${entry.id}`, {
+      text: "Ship it today?",
+    });
+    expect(edited.status).toBe(200);
+    const read = await asApp(w, app.token, "GET", `/${entry.id}`);
+    expect((read.body as AskEntry).prompt).toBe("Ship it today?");
+    for (const [method, body] of [
+      ["GET", undefined],
+      ["PATCH", { text: "spoof" }],
+      ["DELETE", undefined],
+    ] as const) {
+      const r = await asApp(w, app.token, method, `/${mine.id}`, body);
+      expect(`${method} ${r.status} ${r.code}`).toBe(`${method} 404 not_found`);
+    }
+    const untouched = await agentRead(w, w.asker.id, mine.id);
+    expect((untouched.body as AskEntry).prompt).toBe(
+      "The agent's own question?",
+    );
+
+    const deleted = await asApp(w, app.token, "DELETE", `/${entry.id}`);
+    expect(deleted.status).toBe(204);
+    expect((await asApp(w, app.token, "GET", `/${entry.id}`)).status).toBe(404);
+    expect(await closedOn(w, w.asker.id, entry.id)).toEqual([
+      200,
+      w.asker.id,
+      APP,
+      "withdrawn",
+    ]);
+  });
+
+  it("never reaches another app's asks, or an earlier app's of the same name, which stay open on the agent", async () => {
+    const w = await world();
+    const first = await register(w, APP, w.as(w.asker.id));
+    const other = await register(w, "uptime-bot", w.as(w.asker.id));
+    const made = await opened(w, first.token, "First app's question?");
+    const reachesNothing = async (token: string) => {
+      const listed = await asApp(w, token, "GET", "");
+      expect([listed.status, listed.body]).toEqual([200, []]);
+      for (const [method, body] of [
+        ["GET", undefined],
+        ["PATCH", { text: "spoof" }],
+        ["DELETE", undefined],
+      ] as const) {
+        const r = await asApp(w, token, method, `/${made.id}`, body);
+        expect(`${method} ${r.status} ${r.code}`).toBe(
+          `${method} 404 not_found`,
+        );
+      }
+    };
+    await reachesNothing(other.token);
+
+    const del = await call(
+      w.srv,
+      "DELETE",
+      `/api/apps/${APP}`,
+      w.as(w.asker.id),
+    );
+    expect(del.status).toBe(204);
+    // A later registration gets a later createdAt.
+    await sleep(5);
+    const reborn = await register(w, APP, w.as(w.asker.id));
+    expect(reborn.createdAt).not.toBe(first.createdAt);
+    await reachesNothing(reborn.token);
+
+    // The deleted app's ask stays open on its agent, as it was.
+    const kept = await agentRead(w, w.asker.id, made.id);
+    expect(kept.status).toBe(200);
+    expect((kept.body as AskEntry).prompt).toBe("First app's question?");
+  });
+
+  it("keeps an ask with the agent that holds it when the owner moves the app's target", async () => {
+    const w = await world();
+    const app = await register(w, APP, w.as(w.asker.id));
+    const before = await opened(w, app.token, "Before the move?");
+    await retarget(w, w.other.id);
+    const after = await opened(w, app.token, "After the move?");
+    expect([before.agentId, after.agentId]).toEqual([w.asker.id, w.other.id]);
+    const listed = await asApp(w, app.token, "GET", "");
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.id, e.agentId]).sort(),
+    ).toEqual(
+      [
+        [before.id, w.asker.id],
+        [after.id, w.other.id],
+      ].sort(),
+    );
+
+    // An edit of the earlier ask copies its file for the agent that holds
+    // it, not for the current target.
+    writeFileSync(join(agentOf(w.srv, w.asker.id).cwd, "plan.md"), "# plan\n");
+    const edited = await asApp(
+      w,
+      app.token,
+      "PATCH",
+      `/${before.id}?readFile=plan.md`,
+      { text: "Before the move?" },
+    );
+    expect(edited.status).toBe(200);
+    const [copy] = (edited.body as AskEntry).readFiles ?? [];
+    expect(copy?.originalName).toBe("plan.md");
+    const filesOf = (agentId: string) =>
+      join(w.srv.stateRoot, "logs", agentId, "files", copy.filename);
+    expect(existsSync(filesOf(w.asker.id))).toBe(true);
+    expect(existsSync(filesOf(w.other.id))).toBe(false);
+    const held = await agentRead(w, w.asker.id, before.id);
+    expect((held.body as AskEntry).readFiles?.map((f) => f.filename)).toEqual([
+      copy.filename,
+    ]);
+
+    const deleted = await asApp(w, app.token, "DELETE", `/${before.id}`);
+    expect(deleted.status).toBe(204);
+    expect(await closedOn(w, w.asker.id, before.id)).toEqual([
+      200,
+      w.asker.id,
+      APP,
+      "withdrawn",
+    ]);
+  });
+
+  it("is for its owner unless it names a member, and names one only while its owner agent lives", async () => {
+    const w = await world();
+    const pat = await w.srv.seedMember("Pat");
+    const patId = getUserByName(pat.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
+    // Lee reaches no room.
+    const lee = await w.srv.seedMember("Lee");
+    const app = await register(w, APP, w.as(w.asker.id));
+    const lonely = await register(w, "lonely-bot", w.as(w.asker.id));
+    // The target is not the owner agent, so it outlives it below.
+    await retarget(w, w.other.id);
+
+    const forPat = await asApp(w, app.token, "POST", "", {
+      json: { text: "For Pat?", member: pat.username },
+    });
+    expect(forPat.status).toBe(201);
+    expect([
+      (forPat.body as AskEntry).agentId,
+      (forPat.body as AskEntry).memberUserId,
+    ]).toEqual([w.other.id, patId]);
+    const unknown = await asApp(w, app.token, "POST", "", {
+      json: { text: "For whom?", member: "nobody" },
+    });
+    expect([unknown.status, unknown.code]).toEqual([422, "unknown_member"]);
+    const noAccess = await asApp(w, app.token, "POST", "", {
+      json: { text: "For Lee?", member: lee.username },
+    });
+    expect([noAccess.status, noAccess.code]).toEqual([422, "member_no_access"]);
+
+    // The owner agent goes: the app still opens asks, for its owner only.
+    await w.srv.agentManager.kill(w.asker.id);
+    expect(w.srv.agentManager.getAgent(w.asker.id)).toBeUndefined();
+    const named = await asApp(w, app.token, "POST", "", {
+      json: { text: "For Pat again?", member: pat.username },
+    });
+    expect([named.status, named.code]).toEqual([403, "forbidden"]);
+    const plain = await asApp(w, app.token, "POST", "", {
+      text: "For the owner?",
+    });
+    expect(plain.status).toBe(201);
+    expect([
+      (plain.body as AskEntry).agentId,
+      (plain.body as AskEntry).memberUserId,
+    ]).toEqual([w.other.id, w.ownerId]);
+    // The other app's target was the agent that went.
+    const gone = await asApp(w, lonely.token, "POST", "", {
+      text: "Anyone there?",
+    });
+    expect([gone.status, gone.code]).toEqual([404, "target_gone"]);
+  });
+
+  it("is for its owner, not for the target agent's manager", async () => {
+    const w = await world();
+    // Pat owns the app and reaches the room; Asker's manager is Nil.
+    const pat = await w.srv.seedMember("Pat");
+    const patId = getUserByName(pat.username)!.id;
+    expect(updateUserById(patId, { allowedRooms: [w.room.id] })).toBeTruthy();
+    expect(agentOf(w.srv, w.asker.id).userId).toBe(w.ownerId);
+    const app = await register(w, APP, { rawSessionId: pat.rawSessionId });
+    const moved = await call(
+      w.srv,
+      "PATCH",
+      `/api/apps/${APP}`,
+      { rawSessionId: pat.rawSessionId },
+      { json: { messageTargetAgentId: w.asker.id } },
+    );
+    expect(moved.status).toBe(200);
+    const made = await opened(w, app.token, "Pat's call?");
+    expect([made.agentId, made.memberUserId, made.member]).toEqual([
+      w.asker.id,
+      patId,
+      pat.username,
+    ]);
+  });
+
+  it("refuses an app with no agent behind it, and a step", async () => {
+    const w = await world();
+    const human = await register(w, "human-bot", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    const none = await asApp(w, human.token, "POST", "", {
+      text: "Who answers?",
+    });
+    expect([none.status, none.code]).toEqual([409, "no_target"]);
+
+    const app = await register(w, APP, w.as(w.asker.id));
+    const step = await asApp(w, app.token, "POST", "", {
+      json: {
+        text: "Sign in?",
+        step: { kind: "mcp-sign-in", scope: "personal", name: "linear" },
+      },
+    });
+    expect([step.status, step.code]).toEqual([400, "invalid_request"]);
+    const listed = await asApp(w, app.token, "GET", "");
+    expect([listed.status, listed.body]).toEqual([200, []]);
+  });
+
+  it("sends the member's answer to the agent, naming the app, and records no opening session", async () => {
+    const w = await world();
+    const sessionOf = () => w.srv.agentManager.getCurrentSessionId(w.asker.id);
+    const start = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/messages`,
+      w.as(w.other.id),
+      { text: "start a session" },
+    );
+    expect(start.status).toBe(200);
+    await waitUntil(() => sessionOf() !== null, "first session");
+    const opener = sessionOf()!;
+
+    const app = await register(w, APP, w.as(w.asker.id));
+    const made = await opened(w, app.token, "Merge the release branch?");
+    // The agent's session did not open it.
+    const kept = stored(w, made.id);
+    expect(kept?.app).toEqual({ name: APP, createdAt: app.createdAt });
+    expect(kept?.sessionId).toBeUndefined();
+
+    const cleared = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/new-conversation`,
+      w.as(w.asker.id),
+      { json: {} },
+    );
+    expect(cleared.status).toBe(204);
+    await waitUntil(() => sessionOf() !== opener, "session cleared");
+
+    const r = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${made.id}/reply`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: { text: "go ahead" } },
+    );
+    expect(r.status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).some((t) => t.endsWith("go ahead")),
+      "reply delivered",
+    );
+    const sent = sentTexts(w.srv, w.asker.id).find((t) =>
+      t.endsWith("go ahead"),
+    )!;
+    expect(sent).toContain(APP);
+    expect(sent).toContain(made.id);
+    expect(sent).toContain("Merge the release branch?");
+    expect(sent).not.toContain(opener);
+    const logged = w.srv.agentManager
+      .getAgentLogs(w.asker.id)
+      .find((e) => e.kind === "user_message" && e.content === "go ahead")!;
+    const ref = logged.metadata?.ask as {
+      id?: string;
+      app?: { name?: string };
+    };
+    expect([ref.id, ref.app?.name]).toEqual([made.id, APP]);
+    expect((await asApp(w, app.token, "GET", `/${made.id}`)).status).toBe(404);
+  });
+
+  it("names the app in a dismiss and in a filed task, which also names the agent", async () => {
+    const w = await world();
+    const app = await register(w, APP, w.as(w.asker.id));
+    const dropped = await opened(w, app.token, "Drop the flaky test?");
+    const filed = await opened(w, app.token, "Rotate the keys?");
+    const sentFor = async (id: string) => {
+      await waitUntil(
+        () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(id)),
+        `answer to ${id} delivered`,
+      );
+      return sentTexts(w.srv, w.asker.id).find((t) => t.includes(id))!;
+    };
+    const owner = { rawSessionId: w.owner.rawSessionId };
+
+    const dismissed = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${dropped.id}/dismiss`,
+      owner,
+      { json: {} },
+    );
+    expect(dismissed.status).toBe(204);
+    expect(await sentFor(dropped.id)).toContain(APP);
+
+    const r = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${filed.id}/file-task`,
+      owner,
+      { json: {} },
+    );
+    expect(r.status).toBe(201);
+    const task = r.body as TaskItem;
+    expect(task.description).toContain(APP);
+    expect(task.description).toContain(w.asker.name);
+    const note = await sentFor(filed.id);
+    expect(note).toContain(APP);
+    expect(note).toContain(task.id);
+  });
+
+  it("keeps the app on the ask across a restart, and the app still reaches it", async () => {
+    const w = await world();
+    const app = await register(w, APP, w.as(w.asker.id));
+    const made = await opened(w, app.token, "Still yours?");
+    server = await w.srv.restart();
+    const listed = await call(server, "GET", "/api/app/asks", {
+      bearer: app.token,
+    });
+    expect((listed.body as AskEntry[]).map((e) => [e.id, e.app?.name])).toEqual(
+      [[made.id, APP]],
+    );
+  });
+});

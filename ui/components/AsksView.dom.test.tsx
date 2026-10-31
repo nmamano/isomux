@@ -117,6 +117,20 @@ it("groups by agent, longest wait first, cards oldest first, with the room", () 
   );
 });
 
+// The card is AskCard, whose app name AsksStack.dom.test.tsx pins; this pins
+// that the Inbox shows it too (task 1f453011).
+it("names the app that opened an ask on that ask's card in the agent's group", () => {
+  const { view } = mount([
+    { ...ask("a1app", "a1", 5), app: { name: "triage-bot", createdAt: NOW } },
+    ask("a1own", "a1", 3),
+  ]);
+  expect(cardIds(view, "a1")).toEqual(["a1app", "a1own"]);
+  const card = (id: string) =>
+    view.container.querySelector<HTMLElement>(`[data-ask="${id}"]`)!;
+  expect(card("a1app").textContent).toContain("triage-bot");
+  expect(card("a1own").textContent).not.toContain("triage-bot");
+});
+
 it("drops a group with its last card, then shows the empty state", async () => {
   const { view } = mount([ask("onlyA", "a1", 5), ask("onlyB", "a2", 10)]);
   expect(view.container.querySelector("[data-asks-empty]")).toBeNull();

@@ -1,7 +1,9 @@
 // Ask handlers (internal-docs/asks-design.md).
 //
 // Agent routes (/api/agents/:id/asks...): the route guard proves the
-// token's agent is :id, so an agent reaches only its own list. Member routes
+// token's agent is :id, so an agent reaches only its own list. App routes
+// (/api/app/asks...): an app opens asks in the name of its message target
+// agent, and reaches only the asks its own registration opened. Member routes
 // (/api/asks...): only a member askVisibleTo admits (the member the ask is
 // for, or an owner for an office secret request), while that member can
 // still reach the agent's room; anyone else gets the same 404 as an unknown
@@ -34,7 +36,7 @@ import {
 import { randomUUID } from "crypto";
 import { basename, extname } from "path";
 import { downloadHeader, mimeTypeForFilename } from "../../mime-types.ts";
-import type { Identity } from "../../identity/index.ts";
+import { actsForAgent, type Identity } from "../../identity/index.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
@@ -89,6 +91,14 @@ export interface AsksDeps {
     roomId: string;
     managerUserId: string | null;
     sessionId?: string | null;
+  } | null;
+  // The calling app as it is now: its registration time, its owner and the
+  // agent its messages go to (the configured target, else its creator; null
+  // when it has neither). Null when the app is gone.
+  app(appName: string): {
+    createdAt: number;
+    ownerUserId: string | null;
+    targetAgentId: string | null;
   } | null;
   // A member by username (case-insensitive), or null.
   memberByName(name: string): { id: string; name: string } | null;
@@ -585,97 +595,219 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
   };
 
-  return {
-    "agents.createAsk": guarded(async (ctx) => {
-      const body = (ctx.body ?? {}) as Record<string, unknown>;
-      const checked = checkPromptField(body);
-      if (!checked.ok) return fail(400, "invalid_text", checked.message);
-      if (body.member !== undefined && typeof body.member !== "string")
-        return fail(422, "invalid_request", "member must be a username");
-      if (body.link !== undefined && !askLinkFor(body.link))
-        return invalidLink();
-      let options: string[] | undefined;
-      if (body.options !== undefined) {
-        const checkedOptions = checkOptions(body.options);
-        if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
-        options = checkedOptions.options;
+  type Asker =
+    | {
+        ok: true;
+        agentId: string;
+        agent: NonNullable<ReturnType<AsksDeps["agent"]>>;
+        // The default member: the agent's manager, or the app's owner.
+        manager: string | null;
+        app?: { name: string; createdAt: number };
       }
-      let recommended: string | undefined;
-      if (body.recommended !== undefined) {
-        const checkedMark = checkRecommended(body.recommended, options);
-        if (!checkedMark.ok) return invalidOptions(checkedMark.message);
-        recommended = checkedMark.recommended;
-      }
-      const lists = affordanceLists(body, null);
-      if (!lists.ok) return lists.result;
-      const agent = deps.agent(ctx.params.id);
-      if (!agent) return fail(404, "not_found", "No such agent.");
-      let memberUserId: string;
-      if (body.member !== undefined) {
-        const member = deps.memberByName(body.member);
-        if (!member)
-          return fail(422, "unknown_member", `No member named ${body.member}.`);
-        memberUserId = member.id;
-      } else {
-        if (!agent.managerUserId)
-          return fail(
-            409,
-            "no_manager",
-            "This agent has no manager. Name a member with member=<username>.",
-          );
-        memberUserId = agent.managerUserId;
-      }
-      if (!deps.memberCanSeeRoom(memberUserId, agent.roomId))
+    | { ok: false; result: HandlerResult };
+
+  // A create, from an agent or an app: the body's own checks, then the agent
+  // the ask is for (resolve), then the checks that need that agent.
+  const create = async (
+    body: Record<string, unknown>,
+    resolve: (body: Record<string, unknown>) => Asker,
+  ): Promise<HandlerResult> => {
+    const checked = checkPromptField(body);
+    if (!checked.ok) return fail(400, "invalid_text", checked.message);
+    if (body.member !== undefined && typeof body.member !== "string")
+      return fail(422, "invalid_request", "member must be a username");
+    if (body.link !== undefined && !askLinkFor(body.link)) return invalidLink();
+    let options: string[] | undefined;
+    if (body.options !== undefined) {
+      const checkedOptions = checkOptions(body.options);
+      if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
+      options = checkedOptions.options;
+    }
+    let recommended: string | undefined;
+    if (body.recommended !== undefined) {
+      const checkedMark = checkRecommended(body.recommended, options);
+      if (!checkedMark.ok) return invalidOptions(checkedMark.message);
+      recommended = checkedMark.recommended;
+    }
+    const lists = affordanceLists(body, null);
+    if (!lists.ok) return lists.result;
+    const asker = resolve(body);
+    if (!asker.ok) return asker.result;
+    const { agentId, agent } = asker;
+    let memberUserId: string;
+    if (body.member !== undefined) {
+      const member = deps.memberByName(body.member);
+      if (!member)
+        return fail(422, "unknown_member", `No member named ${body.member}.`);
+      memberUserId = member.id;
+    } else {
+      if (!asker.manager)
         return fail(
-          422,
-          "member_no_access",
-          "That member cannot reach this agent's room.",
+          409,
+          "no_manager",
+          "This agent has no manager. Name a member with member=<username>.",
         );
-      if (body.link !== undefined && !linkReachable(body.link, memberUserId))
-        return invalidLink();
-      // A step ask's link is the step's tab, set here.
-      let step: Extract<StepCheck, { ok: true }> | undefined;
-      if (body.step !== undefined) {
-        if (body.link !== undefined)
-          return fail(
-            400,
-            "invalid_request",
-            "a step ask takes no link: Isomux sets it",
-          );
-        const checkedStep = await deps.steps.check({
-          step: body.step,
-          roomId: agent.roomId,
-          managerUserId: agent.managerUserId,
-          memberUserId,
-          memberNamed: body.member !== undefined,
-        });
-        if (!checkedStep.ok)
-          return fail(
-            checkedStep.status,
-            checkedStep.code,
-            checkedStep.message,
-          );
-        step = checkedStep;
-      }
-      if (store.listForAgent(ctx.params.id).length >= ASK_MAX_OPEN_PER_AGENT)
-        return tooManyAsks();
-      const resolved = resolveAffordances(ctx.params.id, lists.lists);
-      if (!resolved.ok) return resolved.result;
-      const result = store.create({
-        agentId: ctx.params.id,
+      memberUserId = asker.manager;
+    }
+    if (!deps.memberCanSeeRoom(memberUserId, agent.roomId))
+      return fail(
+        422,
+        "member_no_access",
+        "That member cannot reach this agent's room.",
+      );
+    if (body.link !== undefined && !linkReachable(body.link, memberUserId))
+      return invalidLink();
+    // A step ask's link is the step's tab, set here.
+    let step: Extract<StepCheck, { ok: true }> | undefined;
+    if (body.step !== undefined) {
+      if (body.link !== undefined)
+        return fail(
+          400,
+          "invalid_request",
+          "a step ask takes no link: Isomux sets it",
+        );
+      const checkedStep = await deps.steps.check({
+        step: body.step,
+        roomId: agent.roomId,
+        managerUserId: agent.managerUserId,
         memberUserId,
-        prompt: checked.prompt,
-        ...(body.link !== undefined ? { link: body.link as string } : {}),
-        ...(step ? { link: step.link, step: step.step } : {}),
-        ...(options ? { options } : {}),
-        ...(recommended !== undefined ? { recommended } : {}),
-        // On a create every sent list is non-empty, so none is null.
-        affordances: resolved.affordances as AskAffordances,
-        ...(agent.sessionId ? { sessionId: agent.sessionId } : {}),
+        memberNamed: body.member !== undefined,
       });
-      if (!result.ok) return tooManyAsks();
-      return created(wire(result.entry));
-    }),
+      if (!checkedStep.ok)
+        return fail(checkedStep.status, checkedStep.code, checkedStep.message);
+      step = checkedStep;
+    }
+    if (store.listForAgent(agentId).length >= ASK_MAX_OPEN_PER_AGENT)
+      return tooManyAsks();
+    const resolved = resolveAffordances(agentId, lists.lists);
+    if (!resolved.ok) return resolved.result;
+    const result = store.create({
+      agentId,
+      memberUserId,
+      prompt: checked.prompt,
+      ...(body.link !== undefined ? { link: body.link as string } : {}),
+      ...(step ? { link: step.link, step: step.step } : {}),
+      ...(options ? { options } : {}),
+      ...(recommended !== undefined ? { recommended } : {}),
+      // On a create every sent list is non-empty, so none is null.
+      affordances: resolved.affordances as AskAffordances,
+      // An app's ask has no opening session: the agent did not ask it.
+      ...(asker.app
+        ? { app: asker.app }
+        : agent.sessionId
+          ? { sessionId: agent.sessionId }
+          : {}),
+    });
+    if (!result.ok) return tooManyAsks();
+    return created(wire(result.entry));
+  };
+
+  // An edit, from an agent or an app: find gives the caller's own entry.
+  const edit = (
+    body: Record<string, unknown>,
+    askId: string,
+    find: () => AskEntry | null,
+  ): HandlerResult => {
+    const checked = checkPromptField(body);
+    if (!checked.ok) return fail(400, "invalid_text", checked.message);
+    // Absent keeps the link and "" removes it.
+    if (body.link !== undefined && body.link !== "" && !askLinkFor(body.link))
+      return invalidLink();
+    // Absent keeps the options and [] removes them.
+    let options: string[] | null | undefined;
+    if (Array.isArray(body.options) && body.options.length === 0)
+      options = null;
+    else if (body.options !== undefined) {
+      const checkedOptions = checkOptions(body.options);
+      if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
+      options = checkedOptions.options;
+    }
+    const prev = find();
+    if (!prev) return notFound();
+    if (prev.secret)
+      return secretRequest(
+        "A secret request cannot be edited. Delete it to withdraw it.",
+      );
+    // A step and its link are fixed after create (task c71cb60f).
+    if (body.step !== undefined)
+      return fail(400, "invalid_request", "an ask's step cannot be edited");
+    if (prev.step && body.link !== undefined)
+      return fail(400, "invalid_request", "a step ask's link cannot be edited");
+    if (
+      body.link !== undefined &&
+      body.link !== "" &&
+      !linkReachable(body.link, prev.memberUserId)
+    )
+      return invalidLink();
+    // The mark goes with the options: sent options without one clear it,
+    // and "" removes it.
+    let recommended: string | null | undefined;
+    if (body.recommended === undefined)
+      recommended = options === undefined ? undefined : null;
+    else if (body.recommended === "") recommended = null;
+    else {
+      const checkedMark = checkRecommended(
+        body.recommended,
+        options === undefined ? prev.options : (options ?? undefined),
+      );
+      if (!checkedMark.ok) return invalidOptions(checkedMark.message);
+      recommended = checkedMark.recommended;
+    }
+    const lists = affordanceLists(body, prev);
+    if (!lists.ok) return lists.result;
+    // Paths resolve for the agent that holds the ask.
+    const resolved = resolveAffordances(prev.agentId, lists.lists);
+    if (!resolved.ok) return resolved.result;
+    const entry = store.edit(
+      askId,
+      checked.prompt,
+      body.link === "" ? null : (body.link as string | undefined),
+      options,
+      resolved.affordances,
+      recommended,
+    );
+    return entry ? ok(wire(entry)) : notFound();
+  };
+
+  // The calling app as it is now, or null when it is gone (the token outlived
+  // the record by a moment).
+  const callerApp = (identity: Identity) => {
+    const appName = identity.appName;
+    if (identity.scope !== "app" || !appName) return null;
+    const app = deps.app(appName);
+    return app ? { appName, ...app } : null;
+  };
+  const appGone = () =>
+    fail(404, "not_found", "this app is no longer registered");
+  // The name AND the registration: a later app with a reused name never
+  // reaches an earlier one's asks, which stay open on their agent.
+  const openedBy = (
+    entry: AskEntry,
+    app: { appName: string; createdAt: number },
+  ): boolean =>
+    entry.app?.name === app.appName && entry.app.createdAt === app.createdAt;
+  const appOwn = (
+    app: { appName: string; createdAt: number },
+    id: string,
+  ): AskEntry | null => {
+    const entry = store.get(id);
+    return entry && openedBy(entry, app) ? entry : null;
+  };
+
+  return {
+    "agents.createAsk": guarded((ctx) =>
+      create((ctx.body ?? {}) as Record<string, unknown>, () => {
+        const agent = deps.agent(ctx.params.id);
+        return agent
+          ? {
+              ok: true,
+              agentId: ctx.params.id,
+              agent,
+              manager: agent.managerUserId,
+            }
+          : { ok: false, result: fail(404, "not_found", "No such agent.") };
+      }),
+    ),
 
     "agents.listAsks": guarded((ctx) =>
       ok(store.listForAgent(ctx.params.id).map(wire)),
@@ -689,71 +821,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return closed ? ok(closedWire(closed)) : notFound();
     }),
 
-    "agents.editAsk": guarded((ctx) => {
-      const body = (ctx.body ?? {}) as Record<string, unknown>;
-      const checked = checkPromptField(body);
-      if (!checked.ok) return fail(400, "invalid_text", checked.message);
-      // Absent keeps the link and "" removes it.
-      if (body.link !== undefined && body.link !== "" && !askLinkFor(body.link))
-        return invalidLink();
-      // Absent keeps the options and [] removes them.
-      let options: string[] | null | undefined;
-      if (Array.isArray(body.options) && body.options.length === 0)
-        options = null;
-      else if (body.options !== undefined) {
-        const checkedOptions = checkOptions(body.options);
-        if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
-        options = checkedOptions.options;
-      }
-      const prev = own(ctx.params.id, ctx.params.askId);
-      if (!prev) return notFound();
-      if (prev.secret)
-        return secretRequest(
-          "A secret request cannot be edited. Delete it to withdraw it.",
-        );
-      // A step and its link are fixed after create (task c71cb60f).
-      if (body.step !== undefined)
-        return fail(400, "invalid_request", "an ask's step cannot be edited");
-      if (prev.step && body.link !== undefined)
-        return fail(
-          400,
-          "invalid_request",
-          "a step ask's link cannot be edited",
-        );
-      if (
-        body.link !== undefined &&
-        body.link !== "" &&
-        !linkReachable(body.link, prev.memberUserId)
-      )
-        return invalidLink();
-      // The mark goes with the options: sent options without one clear it,
-      // and "" removes it.
-      let recommended: string | null | undefined;
-      if (body.recommended === undefined)
-        recommended = options === undefined ? undefined : null;
-      else if (body.recommended === "") recommended = null;
-      else {
-        const checkedMark = checkRecommended(
-          body.recommended,
-          options === undefined ? prev.options : (options ?? undefined),
-        );
-        if (!checkedMark.ok) return invalidOptions(checkedMark.message);
-        recommended = checkedMark.recommended;
-      }
-      const lists = affordanceLists(body, prev);
-      if (!lists.ok) return lists.result;
-      const resolved = resolveAffordances(ctx.params.id, lists.lists);
-      if (!resolved.ok) return resolved.result;
-      const entry = store.edit(
-        ctx.params.askId,
-        checked.prompt,
-        body.link === "" ? null : (body.link as string | undefined),
-        options,
-        resolved.affordances,
-        recommended,
-      );
-      return entry ? ok(wire(entry)) : notFound();
-    }),
+    "agents.editAsk": guarded((ctx) =>
+      edit((ctx.body ?? {}) as Record<string, unknown>, ctx.params.askId, () =>
+        own(ctx.params.id, ctx.params.askId),
+      ),
+    ),
 
     "agents.deleteAsk": guarded((ctx) => {
       if (!own(ctx.params.id, ctx.params.askId)) return notFound();
@@ -792,6 +864,105 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         asks: page.items.map(closedWire),
         nextBefore: page.nextBefore,
       });
+    }),
+
+    "asks.appCreate": guarded((ctx) => {
+      const app = callerApp(ctx.identity);
+      if (!app) return appGone();
+      return create((ctx.body ?? {}) as Record<string, unknown>, (body) => {
+        // A step is an agent's flow: the agent completes it.
+        if (body.step !== undefined)
+          return {
+            ok: false,
+            result: fail(
+              400,
+              "invalid_request",
+              "an app cannot open a step ask",
+            ),
+          };
+        if (!app.targetAgentId)
+          return {
+            ok: false,
+            result: fail(
+              409,
+              "no_target",
+              "this app was not registered by an agent, so no agent can receive the answer",
+            ),
+          };
+        const agent = deps.agent(app.targetAgentId);
+        if (!agent)
+          return {
+            ok: false,
+            result: fail(
+              404,
+              "target_gone",
+              "this app's message target no longer exists; its owner must point it at a live agent",
+            ),
+          };
+        // As a chosen message target: only with a live owner agent.
+        if (body.member !== undefined && !actsForAgent(ctx.identity))
+          return {
+            ok: false,
+            result: fail(
+              403,
+              "forbidden",
+              "this app has no live owner agent, so its asks go to its owner only",
+            ),
+          };
+        if (body.member === undefined && !app.ownerUserId)
+          return {
+            ok: false,
+            result: fail(
+              409,
+              "no_owner",
+              "this app has no owner to receive the ask",
+            ),
+          };
+        return {
+          ok: true,
+          agentId: app.targetAgentId,
+          agent,
+          manager: app.ownerUserId,
+          app: { name: app.appName, createdAt: app.createdAt },
+        };
+      });
+    }),
+
+    "asks.appList": guarded((ctx) => {
+      const app = callerApp(ctx.identity);
+      if (!app) return appGone();
+      return ok(
+        store
+          .listAll()
+          .filter((entry) => openedBy(entry, app))
+          .map(wire),
+      );
+    }),
+
+    "asks.appGet": guarded((ctx) => {
+      const app = callerApp(ctx.identity);
+      if (!app) return appGone();
+      const entry = appOwn(app, ctx.params.askId);
+      return entry ? ok(wire(entry)) : notFound();
+    }),
+
+    "asks.appEdit": guarded((ctx) => {
+      const app = callerApp(ctx.identity);
+      if (!app) return appGone();
+      return edit(
+        (ctx.body ?? {}) as Record<string, unknown>,
+        ctx.params.askId,
+        () => appOwn(app, ctx.params.askId),
+      );
+    }),
+
+    "asks.appDelete": guarded((ctx) => {
+      const app = callerApp(ctx.identity);
+      if (!app) return appGone();
+      if (!appOwn(app, ctx.params.askId)) return notFound();
+      return store.remove(ctx.params.askId, { outcome: "withdrawn" })
+        ? noContent()
+        : notFound();
     }),
 
     "asks.list": guarded((ctx) => {

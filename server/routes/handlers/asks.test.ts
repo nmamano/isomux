@@ -10,7 +10,7 @@ import { askHandlers, type AsksDeps } from "./asks.ts";
 import { createAskStore } from "../../asks.ts";
 import type { RouteHandlerContext } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import { USER_CAPABILITIES } from "../../identity/index.ts";
+import { APP_CAPABILITIES, USER_CAPABILITIES } from "../../identity/index.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import type { TaskItem } from "../../../shared/types.ts";
 
@@ -48,6 +48,8 @@ function rig(over: Partial<AsksDeps> = {}) {
       list: () => ({ items: [], nextBefore: null }),
     },
     agent: () => ({ roomId: "r1", managerUserId: "u1" }),
+    // Every app registered at the same moment: only the name tells two apart.
+    app: () => ({ createdAt: 1, ownerUserId: "u1", targetAgentId: "a1" }),
     memberByName: () => null,
     memberName: () => "pat",
     memberCanSeeRoom: () => true,
@@ -407,5 +409,57 @@ describe("a step ask", () => {
       step: { kind: "browser-pairing" },
       link: "/integrations/browser",
     });
+  });
+});
+
+// Two apps registered in the same millisecond have the same createdAt, which
+// the real server cannot set up on purpose; only the name tells their asks
+// apart (task 1f453011).
+describe("an app's own asks", () => {
+  const asApp = (appName: string): Identity => ({
+    scope: "app",
+    userId: "u1",
+    role: "member",
+    appName,
+    capabilities: APP_CAPABILITIES,
+  });
+
+  it("reach only the app of the same name, at the same registration time", async () => {
+    const { store, handlers, outcome } = rig();
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Merge the queue?",
+      app: { name: "one", createdAt: 1 },
+    });
+    if (!made.ok) throw new Error(made.code);
+    const id = made.entry.id;
+    const ctx = (appName: string, body: unknown = {}): RouteHandlerContext => ({
+      identity: asApp(appName),
+      params: { askId: id },
+      body,
+      rawBody: "",
+      query: new URLSearchParams(),
+      req: new Request("http://localhost/"),
+    });
+    const listed = async (appName: string) => {
+      const r = await handlers["asks.appList"](ctx(appName));
+      return r.kind === "json"
+        ? (r.body as Array<{ id: string }>).map((e) => e.id)
+        : r;
+    };
+    expect(await listed("one")).toEqual([id]);
+    expect(await outcome(handlers["asks.appGet"](ctx("one")))).toBe("json 200");
+
+    expect(await listed("two")).toEqual([]);
+    for (const [opId, body] of [
+      ["asks.appGet", {}],
+      ["asks.appEdit", { text: "spoof" }],
+      ["asks.appDelete", {}],
+    ] as const)
+      expect(`${opId} ${await outcome(handlers[opId](ctx("two", body)))}`).toBe(
+        `${opId} 404 not_found`,
+      );
+    expect(store.get(id)?.prompt).toBe("Merge the queue?");
   });
 });

@@ -114,6 +114,12 @@ const ENTRIES: AskEntry[] = [
     options: ["Yes", "No"],
     recommended: "Maybe",
   },
+  // Agent a9's first ask is from an app behind it (task 1f453011).
+  {
+    ...entry("oooo0015", "a9", "Merge the queue?", 6),
+    app: { name: "triage-bot", createdAt: NOW - 86_400_000 },
+  },
+  entry("pppp0016", "a9", "Its own question?", 5),
 ];
 // The one agent the store knows: the target of a7's first link.
 const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
@@ -194,6 +200,18 @@ it("shows this agent's asks only, oldest first, open on a desktop", async () => 
       .querySelector("[data-asks-stack]")
       ?.getAttribute("data-asks-stack"),
   ).toBe("open");
+  view.unmount();
+});
+
+it("names the app that opened an ask on that ask's card only", async () => {
+  const view = mount(false, "a9");
+  await waitFor(() =>
+    expect(cards(view.container)).toEqual(["oooo0015", "pppp0016"]),
+  );
+  const card = (id: string) =>
+    view.container.querySelector<HTMLElement>(`[data-ask="${id}"]`)!;
+  expect(card("oooo0015").textContent).toContain("triage-bot");
+  expect(card("pppp0016").textContent).not.toContain("triage-bot");
   view.unmount();
 });
 

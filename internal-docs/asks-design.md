@@ -6,7 +6,7 @@ An ask is a prompt from an agent to one member, for what the agent needs from th
 
 ## Store
 
-- `server/asks.ts` keeps the open entries in `~/.isomux/asks.json`, an array of `{id, agentId, memberUserId?, prompt, createdAt, updatedAt, link?, options?, recommended?, commands?, editFiles?, readFiles?, secret?}`. The load check admits three shapes: a plain ask and a personal secret request name one member; an office secret request names none, even when it is for one owner (see "Secret requests"). A reply, a dismiss, a filed task, a step done, a secret request's save or decline, the agent's delete, or the agent's removal deletes the entry from the file; the closed ask is kept in the history (below).
+- `server/asks.ts` keeps the open entries in `~/.isomux/asks.json`, an array of `{id, agentId, memberUserId?, prompt, createdAt, updatedAt, link?, options?, recommended?, commands?, editFiles?, readFiles?, secret?, step?, app?}`. The load check admits three shapes: a plain ask and a personal secret request name one member; an office secret request names none, even when it is for one owner (see "Secret requests"). A reply, a dismiss, a filed task, a step done, a secret request's save or decline, the agent's delete, or the agent's removal deletes the entry from the file; the closed ask is kept in the history (below).
 - A missing file is an empty list, so an office from before this feature boots unchanged. A corrupt file is moved aside; an unreadable one makes the store refuse every call (the pager store's posture).
 - Every change writes the file first and changes memory after.
 - Bounds: a prompt is at most 4000 characters; an agent has at most 50 open.
@@ -38,6 +38,14 @@ Create and edit take optional chat affordances (task dc79ace0): `commands`, `edi
 The member answers on `/api/asks/:id/reply`, `/dismiss` and `/file-task` (`agent:converse` or `api:send-message`, `memberScope`). One function, `askVisibleTo` in `server/asks.ts`, decides who sees and answers an ask, from live state: the target member, or for an office secret request its named owner or else every office owner, and only while that member can reach the agent's room. `GET /api/asks`, the `ask_*` push, the answer routes and the secret request routes all call it. On the ask routes anyone it refuses gets the 404 of an unknown id; on a secret request's save and decline routes, 403 `forbidden`.
 
 The entry stores the agent's session when it opened the ask, for the reply note. No route or push sends it: `askMemberWire` in `server/asks.ts` drops it from the agent routes, `GET /api/asks` and `ask_upserted` (task 26dd1857).
+
+## App asks
+
+An app opens asks with its app token on `/api/app/asks` (task 1f453011): create, list, get, edit and delete, `app:ask` and `appScope`, the same body as the agent routes except `step` (400). An app has no chat, so the ask is in the name of the app's message target (`messageTargetAgentId`, else `createdByAgentId`): `agentId` is that agent, which gets the member's answer, and the entry adds `app: {name, createdAt}`, the registration shape secret requests use. Paths resolve against that agent's cwd, and the ask counts toward its 50. No target is 409 `no_target`, a gone one 404 `target_gone`, and an app record gone under a live token 404 `not_found` (the app message route's codes).
+
+The ask goes to the app owner, or to `member` while the app acts for its live owner agent (`actsForAgent`; else 403, as `targetAgentId` on the message route); an app with no owner and no `member` is 409 `no_owner`. The member checks are the agent route's.
+
+The app reaches the asks whose `app` matches its name and `createdAt`, wherever its target has moved since; an edit resolves paths for the agent that holds the ask. A deleted app's asks stay open on their agent, and a later app with the same name does not reach them. The target agent sees and manages them on its own routes. An app ask stores no `sessionId`: the agent did not ask it, so the reply note has no "opened in session" clause. The note, the dismiss and the filed task name the app (`askReplyNote`, `askTaskFields`), the `AskRef` carries `app: {name}`, and the card shows "From app <name>" above the prompt. An older server loads an app ask as a plain ask of its agent.
 
 ## The answer
 

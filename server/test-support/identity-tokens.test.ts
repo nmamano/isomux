@@ -108,11 +108,12 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
     ["self:affordance", "agent:send-as-cron", "task:read", "task:write"],
   ],
   [
-    // The narrowest set: the app-self message route and the app pager routes.
+    // The narrowest set: the app-self message route, the app ask routes and
+    // the app pager routes.
     // An app manages nothing, INCLUDING itself.
     "APP",
     APP_CAPABILITIES,
-    ["app:message", "pager:raise"],
+    ["app:message", "app:ask", "pager:raise"],
   ],
   [
     // A human is not an agent or a cron run and has no own-chat; only a user

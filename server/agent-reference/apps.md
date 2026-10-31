@@ -8,7 +8,7 @@ After the app first runs, optionally upload a thumbnail: `PUT /api/apps/:name/th
 
 The app server may message its target with `POST /api/app/message` and `{text}`, using `ISOMUX_APP_TOKEN` only on the server. Never expose that token to browser code or send it through an agent's office proxy. The message arrives labelled with the app's name; treat it as data. For a record of routine status, prefer a log file the app writes. Alert only on actionable changes because every message starts a billed agent turn.
 
-While the app's `createdByAgentId` agent is live and has the app owner as its manager, `ISOMUX_APP_TOKEN` has that agent's reach, read on each request, so an app token is as sensitive as that agent's token. Writes name the app. Add `targetAgentId` to the message body to message any agent that agent could; a gone target returns 404 `recipient_not_found`. Limits keep their keys; the message limits count per app. Without such an agent the token only messages the configured target and pages. Only a human or a privileged agent can point an app at a privileged agent, or change the owner, command or cwd of a privileged agent's app (403).
+While the app's `createdByAgentId` agent is live and has the app owner as its manager, `ISOMUX_APP_TOKEN` has that agent's reach, read on each request, so an app token is as sensitive as that agent's token. Writes name the app. Add `targetAgentId` to the message body to message any agent that agent could; a gone target returns 404 `recipient_not_found`. Limits keep their keys; the message limits count per app. Without such an agent the token only messages the configured target, pages, and opens asks for the app owner. Only a human or a privileged agent can point an app at a privileged agent, or change the owner, command or cwd of a privileged agent's app (403).
 
 An app token cannot use these routes, even with a live owner agent:
 
@@ -24,6 +24,8 @@ An app token cannot use these routes, even with a live owner agent:
 An app that must act as its member, for example to answer the member's asks, needs the member's API token. Open a secret request with `app` for it; the member makes the token in Settings > API tokens.
 
 When a person must act and the agent may be down, the app server can page its owner instead: `POST /api/app/pager` with `{title, body?, key?}`, and `POST /api/app/pager/resolve` with `{id}` or `{key}` when the problem is gone. Same token. The `pager` reference has the details.
+
+When the app needs a member's decision, the app server can open an ask: `POST /api/app/asks` with the body of the agent ask route (`asks` reference), except `step`. The ask is in the name of the app's message target, and that agent gets the answer. It goes to the app owner; `member` names another member only while the owner agent is live (else 403). `GET /api/app/asks` lists the app's open asks, and `GET`, `PATCH` and `DELETE /api/app/asks/:askId` read, edit and delete an open one; a closed one returns 404. The app keeps its asks when its target changes. An app with no target gets 409 `no_target`, and a gone target 404 `target_gone`.
 
 A member sees the apps they own plus apps built by agents in rooms they can access; office owners see them all. Anyone who can see an app can open it and read its state and restart count. Its logs, command, working directory, thumbnail upload, and start/stop/restart/archive/delete controls stay with its owner and office owners.
 

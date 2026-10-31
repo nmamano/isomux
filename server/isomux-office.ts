@@ -4033,6 +4033,17 @@ function buildExecutorDeps(
             }
           : null;
       },
+      app: (appName) => {
+        const app = appRegistry.get(appName);
+        return app
+          ? {
+              createdAt: app.createdAt,
+              ownerUserId: app.userId,
+              targetAgentId:
+                app.messageTargetAgentId ?? app.createdByAgentId ?? null,
+            }
+          : null;
+      },
       memberByName: (name) => {
         const user = getUserByName(name);
         return user ? { id: user.id, name: user.name } : null;
@@ -7464,6 +7475,7 @@ function deliverAskAnswer(
     ...(opts.dismissed ? { dismissed: true } : {}),
     ...(opts.taskId ? { taskId: opts.taskId } : {}),
     ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
+    ...(entry.app ? { app: { name: entry.app.name } } : {}),
     // The chat shows the answered ask in full (ui/log-view/ask-link.tsx).
     ...(entry.options ? { options: entry.options } : {}),
     ...(entry.recommended !== undefined

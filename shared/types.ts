@@ -1501,6 +1501,10 @@ export interface AskEntry {
   // server, and the ask closes itself when the step is done. Fixed after
   // create.
   step?: StepAskRequest;
+  // The app that opened the ask (POST /api/app/asks), by registration, so a
+  // later app with the same name never reaches it. agentId is that app's
+  // message target when it opened the ask.
+  app?: { name: string; createdAt: number };
 }
 
 // A file an ask shows. A copy is an Attachment in the agent's files dir. A
@@ -1569,6 +1573,8 @@ export interface AskRef {
   // so the chat can show the answered ask in full.
   options?: string[];
   recommended?: string;
+  // The app that opened the ask, when an app did.
+  app?: { name: string };
 }
 
 export function generateAskId(existing?: string[]): string {

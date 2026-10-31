@@ -52,7 +52,7 @@ const ALL_CAPS = new Set<Capability>([
   ...AGENT_CAPABILITIES,
   ...PRIVILEGED_AGENT_CAPABILITIES,
   ...RUN_CAPABILITIES,
-  // app:message and pager:raise today; listed so a capability added to the APP
+  // app:message, app:ask and pager:raise today; listed so a capability added to the APP
   // set has to be a real Capability, and so this union does not quietly go
   // stale.
   ...APP_CAPABILITIES,
@@ -346,6 +346,29 @@ describe("route table: plain-text form", () => {
       ],
       ["asks.reply", []],
       ["apiTokenInbox.send", []],
+      [
+        "asks.appCreate",
+        [
+          "member",
+          "link",
+          "options",
+          "recommended",
+          "commands",
+          "editFiles",
+          "readFiles",
+        ],
+      ],
+      [
+        "asks.appEdit",
+        [
+          "link",
+          "options",
+          "recommended",
+          "commands",
+          "editFiles",
+          "readFiles",
+        ],
+      ],
     ]);
   });
 });
@@ -1600,6 +1623,13 @@ const SPEC_ROUTE_CONTRACT: Record<
   // The app pager routes: an app raises and resolves its own pages.
   "pager.appRaise": { caps: ["pager:raise"], emits: ["pager_upserted"] },
   "pager.appResolve": { caps: ["pager:raise"], emits: ["pager_upserted"] },
+  // The app ask routes: an app opens and manages its own asks, in its target
+  // agent's name. app:ask is held by APP scope alone, as app:message is.
+  "asks.appCreate": { caps: ["app:ask"], emits: ["ask_upserted"] },
+  "asks.appList": { caps: ["app:ask"], emits: [] },
+  "asks.appGet": { caps: ["app:ask"], emits: [] },
+  "asks.appEdit": { caps: ["app:ask"], emits: ["ask_upserted"] },
+  "asks.appDelete": { caps: ["app:ask"], emits: ["ask_removed"] },
   // Webhooks. The secret routes are webhook:write AND a human session.
   "webhooks.list": { caps: ["webhook:read"], emits: [] },
   "webhooks.get": { caps: ["webhook:read"], emits: [] },
@@ -1750,13 +1780,19 @@ describe("route table: typed preconditions are pinned (Phase 3 can't forget)", (
 // The allowlist below is the ONLY place a route becomes reachable by an app, and
 // editing it is meant to feel like a decision. It grew from [] to one entry when
 // app-to-agent messaging landed, and to three when apps could page their owner
-// (PM ruling, pager loop P3); anything joining it should have as much argument
+// (PM ruling, pager loop P3), and to eight when apps could open asks (Nil,
+// 2026-10-31, task 1f453011); anything joining it should have as much argument
 // behind it as that did.
 
 const APP_REACHABLE_OPIDS = [
   "apps.sendMessage",
   "pager.appRaise",
   "pager.appResolve",
+  "asks.appCreate",
+  "asks.appList",
+  "asks.appGet",
+  "asks.appEdit",
+  "asks.appDelete",
 ];
 
 describe("route table: an APP identity authorizes exactly the app-self routes", () => {
