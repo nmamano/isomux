@@ -14,7 +14,7 @@ import {
   rmSync,
   writeFileSync,
 } from "fs";
-import { createServer } from "net";
+import { connect } from "net";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -721,13 +721,27 @@ describe("ci-remote, push repair", () => {
 
 // --- remote half --------------------------------------------------------
 
-/** A port nothing listens on, for the script's Postgres-port check. */
-async function freePort(): Promise<number> {
-  const server = createServer();
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address() as { port: number };
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-  return port;
+// A port nothing listens on, by construction, for the script's Postgres-port
+// check: port 9 is below the ephemeral range, so no port-0 listener in the
+// suite can get it, and below 1024, so a non-root test cannot bind it. A freed
+// ephemeral port is not closed: another listener can take it before the
+// script checks it (task f5c01a27).
+const CLOSED_PORT = 9;
+
+/** How a TCP connect to 127.0.0.1:<port> ends: an error code, or neither. */
+function connectOutcome(port: number): Promise<string> {
+  return new Promise((resolve) => {
+    const socket = connect({ port, host: "127.0.0.1" });
+    const done = (outcome: string) => {
+      socket.destroy();
+      resolve(outcome);
+    };
+    socket.setTimeout(1000, () => done("timeout"));
+    socket.on("connect", () => done("answered"));
+    socket.on("error", (err: NodeJS.ErrnoException) =>
+      done(err.code ?? String(err)),
+    );
+  });
 }
 
 type Remote = {
@@ -847,9 +861,15 @@ exit 0`,
   // clear_dir gives up after a count of polls, not a time: skip its sleeps.
   if (opts.scopeStuck) stub(join(bin, "sleep"), "exit 0");
 
-  // The suite's Postgres port is busy on a dev box; the check needs a free one.
-  const port = await freePort();
-  let patched = text.replace(/^PG_PORT=5433$/m, `PG_PORT=${port}`);
+  // The suite's Postgres port is busy on a dev box; the check needs a closed
+  // one. The script reads any failed connect as free, so require a refusal,
+  // which a filtered port does not give.
+  const refused = await connectOutcome(CLOSED_PORT);
+  expect({ closedPort: CLOSED_PORT, refused }).toEqual({
+    closedPort: CLOSED_PORT,
+    refused: "ECONNREFUSED",
+  });
+  let patched = text.replace(/^PG_PORT=5433$/m, `PG_PORT=${CLOSED_PORT}`);
   expect(patched).not.toBe(text);
   if (opts.gateWait !== undefined) {
     const before = patched;
