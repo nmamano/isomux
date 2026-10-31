@@ -10,7 +10,16 @@ import {
   CHECK_ICON,
 } from "../components/CopyButton.tsx";
 
-export function AskIdChip({ id, isMobile }: { id: string; isMobile: boolean }) {
+export function AskIdChip({
+  id,
+  isMobile,
+  lineHeight,
+}: {
+  id: string;
+  isMobile: boolean;
+  // Matches the line of the header row it sits in, beside priority and age.
+  lineHeight?: string;
+}) {
   const { t } = useI18n();
   const { copied, copy } = useClipboardCopy();
   return (
@@ -30,6 +39,8 @@ export function AskIdChip({ id, isMobile }: { id: string; isMobile: boolean }) {
         color: copied ? "var(--green-text)" : "var(--text-ghost)",
         fontFamily: "'JetBrains Mono',monospace",
         fontSize: isMobile ? 12 : 11,
+        lineHeight,
+        flexShrink: 0,
         cursor: "pointer",
       }}
     >

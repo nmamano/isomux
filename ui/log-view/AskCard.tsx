@@ -729,52 +729,56 @@ function ReplyAskCard({
                 : t("cards.toolResult.showMore")}
             </button>
           )}
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "baseline",
-              columnGap: 14,
-              marginTop: 2,
-            }}
-          >
-            {link && linkLabel !== null && openLink && (
-              <button
-                type="button"
-                data-ask-office-link={entry.link}
-                onClick={() =>
-                  // A step ask's tab marks the setting of its step.
-                  openLink(
-                    entry.step && !("agentId" in link)
-                      ? { ...link, focus: entry.step }
-                      : link,
-                  )
-                }
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  color: "var(--accent-text)",
-                  fontSize: isMobile ? 13 : 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {t("asks.openLink", { page: linkLabel })}
-              </button>
-            )}
-            {entry.originalPrompt !== undefined && (
-              <button
-                type="button"
-                data-ask-show-original=""
-                onClick={() => setShowOriginal((v) => !v)}
-                style={linkButton}
-              >
-                {showOriginal ? t("asks.hideOriginal") : t("asks.showOriginal")}
-              </button>
-            )}
-            <AskIdChip id={entry.id} isMobile={isMobile} />
-          </div>
+          {((link && linkLabel !== null && openLink) ||
+            entry.originalPrompt !== undefined) && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "baseline",
+                columnGap: 14,
+                marginTop: 2,
+              }}
+            >
+              {link && linkLabel !== null && openLink && (
+                <button
+                  type="button"
+                  data-ask-office-link={entry.link}
+                  onClick={() =>
+                    // A step ask's tab marks the setting of its step.
+                    openLink(
+                      entry.step && !("agentId" in link)
+                        ? { ...link, focus: entry.step }
+                        : link,
+                    )
+                  }
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: "var(--accent-text)",
+                    fontSize: isMobile ? 13 : 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  {t("asks.openLink", { page: linkLabel })}
+                </button>
+              )}
+              {entry.originalPrompt !== undefined && (
+                <button
+                  type="button"
+                  data-ask-show-original=""
+                  onClick={() => setShowOriginal((v) => !v)}
+                  style={linkButton}
+                >
+                  {showOriginal
+                    ? t("asks.hideOriginal")
+                    : t("asks.showOriginal")}
+                </button>
+              )}
+            </div>
+          )}
           {showOriginal && entry.originalPrompt !== undefined && (
             <div
               data-ask-original=""
@@ -793,6 +797,11 @@ function ReplyAskCard({
             </div>
           )}
         </div>
+        <AskIdChip
+          id={entry.id}
+          isMobile={isMobile}
+          lineHeight={`${fontSize * 1.5}px`}
+        />
         {entry.priority && (
           <span
             data-ask-priority={entry.priority}
