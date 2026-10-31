@@ -84,6 +84,40 @@ describe("NavActions", () => {
     expect(view.queryByText("Apps")).toBeNull();
   });
 
+  // The chat log follows its bottom by assigning scrollTop, and each
+  // assignment fires a scroll event that a capture listener on window sees. A
+  // scroll of an element beside the trigger leaves the menu where it was, so
+  // it must stay open; a scroll that moves the trigger detaches the
+  // fixed-position menu from it, so that one closes it (task 094d3163).
+  it("keeps the mobile menu open through a scroll that does not move its trigger", () => {
+    const view = render(
+      <div>
+        <div data-testid="log" />
+        <div data-testid="header">
+          <NavActions actions={actions(() => {})} viewport="mobile" />
+        </div>
+      </div>,
+    );
+    const trigger = view.getByRole("button");
+    const open = () => {
+      fireEvent.click(trigger);
+      expect(view.queryByText("Tasks")).not.toBeNull();
+    };
+
+    open();
+    fireEvent.scroll(view.getByTestId("log"));
+    expect(view.queryByText("Tasks")).not.toBeNull();
+
+    // A scroll of an element that holds the trigger closes it.
+    fireEvent.scroll(view.getByTestId("header"));
+    expect(view.queryByText("Tasks")).toBeNull();
+
+    // So does a scroll of the page itself.
+    open();
+    fireEvent.scroll(document);
+    expect(view.queryByText("Tasks")).toBeNull();
+  });
+
   it("shows a badge count on desktop, and a dot plus the count on mobile", () => {
     const badged = [
       { id: "pager", icon: null, label: "Pager", onClick: () => {}, badge: 3 },

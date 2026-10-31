@@ -120,16 +120,22 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
         return;
       setOpen(false);
     };
-    const onScroll = () => setOpen(false);
+    // Only a scroll that moves the trigger detaches the fixed menu. The chat
+    // log scrolls itself to follow new entries, and must not close it.
+    const onScroll = (e: Event) => {
+      const t = e.target;
+      if (t instanceof Node && t.contains(triggerRef.current)) setOpen(false);
+    };
+    const onResize = () => setOpen(false);
     document.addEventListener("mousedown", close);
     document.addEventListener("touchstart", close);
     window.addEventListener("scroll", onScroll, true);
-    window.addEventListener("resize", onScroll);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("touchstart", close);
       window.removeEventListener("scroll", onScroll, true);
-      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("resize", onResize);
     };
   }, [open]);
 
