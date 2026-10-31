@@ -15,7 +15,14 @@ import {
   RIGHT_DOOR_COORD,
 } from "../useGhostTransitions.ts";
 import { SCENE_W, SCENE_H } from "../grid.ts";
-import { Cloud, SunRays, WallDoors, AppsWallScreen } from "../Floor.tsx";
+import {
+  Cloud,
+  SunRays,
+  WallDoors,
+  AppsWallScreen,
+  InboxWallTray,
+  type WallInbox,
+} from "../Floor.tsx";
 import type { ThemeMode } from "../../themes.ts";
 import {
   VB,
@@ -94,6 +101,7 @@ export interface LobbySceneProps {
   onToggleTheme?: () => void;
   onOpenApps?: () => void;
   onOpenCronjobs?: () => void;
+  inbox?: WallInbox;
   // The record player plays music on a click. Only the live office lobby sets
   // it, not the editor or the preview.
   jukebox?: boolean;
@@ -124,6 +132,7 @@ export function LobbyScene({
   onToggleTheme,
   onOpenApps,
   onOpenCronjobs,
+  inbox,
   jukebox = false,
   onOpenElevator,
 }: LobbySceneProps) {
@@ -162,6 +171,7 @@ export function LobbyScene({
         onToggleTheme={onToggleTheme}
         onOpenApps={onOpenApps}
         onOpenCronjobs={onOpenCronjobs}
+        inbox={inbox}
       />
       {decorateScene && <LobbyFloor c={c} />}
       {rightDoor && (
@@ -406,11 +416,13 @@ function LobbyWalls({
   onToggleTheme,
   onOpenApps,
   onOpenCronjobs,
+  inbox,
 }: {
   c: LobbyColors;
   onToggleTheme?: () => void;
   onOpenApps?: () => void;
   onOpenCronjobs?: () => void;
+  inbox?: WallInbox;
 }) {
   const { t } = useI18n();
   const L = FLOOR_LEFT;
@@ -615,6 +627,7 @@ function LobbyWalls({
       </g>
 
       <AppsWallScreen onOpenApps={onOpenApps} />
+      <InboxWallTray inbox={inbox} />
       {/* Clock on the right wall */}
       <g
         transform="translate(240,-85) skewY(27)"

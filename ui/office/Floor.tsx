@@ -36,6 +36,7 @@ import {
 } from "./door-label.ts";
 import { noTranslate } from "../no-translate.ts";
 import { useI18n } from "../i18n.tsx";
+import { badgeText } from "../components/NavActions.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
 const NEON_COLORS = [
@@ -1005,6 +1006,7 @@ export function Walls({
   onOpenApps,
   onOpenTasks,
   onOpenCronjobs,
+  inbox,
   taskCount = 0,
 }: {
   onToggleTheme?: () => void;
@@ -1013,6 +1015,7 @@ export function Walls({
   onOpenApps?: () => void;
   onOpenTasks?: () => void;
   onOpenCronjobs?: () => void;
+  inbox?: WallInbox;
   taskCount?: number;
 }) {
   const { currentRoomId, rooms } = useAppState();
@@ -1608,6 +1611,7 @@ export function Walls({
         {/* Center dot */}
         <circle cx="0" cy="0" r="1.5" fill="var(--clock-hand)" />
       </g>
+      <InboxWallTray inbox={inbox} />
       {/* Neon sign - right wall, hand-drawn tube letters with ligaments */}
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
       {wallArt === "neon" && (
@@ -2156,6 +2160,122 @@ export function AppsWallScreen({ onOpenApps }: { onOpenApps?: () => void }) {
         {t("common.apps")}
       </text>
       <circle cx="0" cy="22" r="0.8" fill="var(--text-dim)" />
+    </g>
+  );
+}
+
+/** The bar's Inbox entry as the office scene shows it: its open count, its
+ *  tooltip and its click. Without `onOpen` (embed, previews) the tray is a
+ *  drawing. */
+export type WallInbox = { count: number; title?: string; onOpen?: () => void };
+
+/** The in-tray on the right wall, left of the clock, in the rooms and the
+ *  lobby: it opens the Inbox. Letters stand in it while items are open, one to
+ *  three as the corkboard's cards, and a badge counts them as the bar does. */
+export function InboxWallTray({ inbox }: { inbox?: WallInbox }) {
+  const { t } = useI18n();
+  const count = inbox?.count ?? 0;
+  const onOpen = inbox?.onOpen;
+  const letters = Math.min(count, 3);
+  const badge = badgeText(count);
+  const badgeW = Math.max(13, 6 + badge.length * 5.5);
+  return (
+    <g
+      data-no-pan
+      data-inbox-tray
+      transform="translate(166, -122) skewY(27) scale(1.2)"
+      onClick={onOpen}
+      aria-label={onOpen ? t("nav.inbox") : undefined}
+      style={onOpen ? { cursor: "pointer", pointerEvents: "auto" } : undefined}
+    >
+      {onOpen && <title>{inbox?.title ?? t("nav.inbox")}</title>}
+      {onOpen && (
+        <rect x="-22" y="-28" width="46" height="52" fill="transparent" />
+      )}
+      {/* Back plate, with the rear case offset like the clock's. */}
+      <rect
+        x="-16.5"
+        y="-17"
+        width="35"
+        height="40"
+        rx="3"
+        fill="var(--wall-decor-stroke)"
+      />
+      <rect
+        x="-18"
+        y="-19"
+        width="35"
+        height="40"
+        rx="3"
+        fill="var(--wall-decor)"
+        stroke="var(--wall-decor-stroke)"
+        strokeWidth="1"
+      />
+      {[0, 1, 2].slice(0, letters).map((i) => (
+        <g
+          key={i}
+          data-inbox-letter
+          transform={`translate(${-6 + i * 5}, ${-11 + i * 3}) rotate(${-6 + i * 6})`}
+        >
+          <rect
+            x="-9"
+            y="-4"
+            width="18"
+            height="14"
+            rx="1"
+            fill="#f2ede2"
+            stroke="#b9ad94"
+            strokeWidth="0.6"
+          />
+          <path
+            d="M-9 -4 L0 3 L9 -4"
+            fill="none"
+            stroke="#b9ad94"
+            strokeWidth="0.6"
+          />
+        </g>
+      ))}
+      {/* The tray front, a wooden lip over the letters. */}
+      <rect
+        x="-15"
+        y="1"
+        width="29"
+        height="16"
+        rx="1.5"
+        fill="#7a5f42"
+        stroke="#4a3620"
+        strokeWidth="0.8"
+      />
+      <path d="M-14 2.5 L13 2.5" stroke="#a07d58" strokeWidth="1" />
+      <path
+        d="M-14 15.5 L13 15.5"
+        stroke="#000"
+        strokeWidth="1"
+        opacity="0.25"
+      />
+      {count > 0 && (
+        <g data-inbox-badge transform="translate(15, -18)">
+          <rect
+            x={-badgeW / 2}
+            y="-6.5"
+            width={badgeW}
+            height="13"
+            rx="6.5"
+            fill="var(--red)"
+          />
+          <text
+            x="0"
+            y="3.2"
+            textAnchor="middle"
+            fontSize="9"
+            fontWeight="700"
+            fill="#fff"
+            style={{ userSelect: "none" }}
+          >
+            {badge}
+          </text>
+        </g>
+      )}
     </g>
   );
 }

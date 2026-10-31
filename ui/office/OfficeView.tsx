@@ -33,7 +33,7 @@ import {
   useRoomList,
 } from "../store.tsx";
 import { useInboxNavAction, type InboxTab } from "../inbox.ts";
-import { Floor, WallDoors, Walls } from "./Floor.tsx";
+import { Floor, WallDoors, Walls, type WallInbox } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { ElevatorDialog } from "../components/ElevatorDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
@@ -334,6 +334,15 @@ export function OfficeView({
   useEffect(() => cancelRoomTurn, []);
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
+  // The scene's Inbox tray shows the bar entry. In embed the bar is hidden,
+  // so the tray shows the count but does not open the Inbox.
+  const wallInbox: WallInbox | undefined = inboxAction
+    ? {
+        count: inboxAction.badge ?? 0,
+        title: inboxAction.title,
+        onOpen: embed ? undefined : inboxAction.onClick,
+      }
+    : undefined;
   const decorateScene = useContext(SceneDecorationContext);
   const seasonalItems = useSeasonalItems();
   const chatHidden = !membersChatShown;
@@ -870,6 +879,7 @@ export function OfficeView({
                     onToggleTheme={cycleTheme}
                     onOpenApps={embed ? undefined : onOpenApps}
                     onOpenCronjobs={onOpenCronjobs}
+                    inbox={wallInbox}
                     onOpenElevator={
                       embed ? undefined : () => setElevatorOpen(true)
                     }
@@ -889,6 +899,7 @@ export function OfficeView({
                       onOpenApps={embed ? undefined : onOpenApps}
                       onOpenTasks={onOpenTasks}
                       onOpenCronjobs={onOpenCronjobs}
+                      inbox={wallInbox}
                       taskCount={tasks.filter(inDefaultTaskList).length}
                     />
                     {decorateScene && (

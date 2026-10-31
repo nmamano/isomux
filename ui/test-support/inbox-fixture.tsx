@@ -11,7 +11,8 @@ const { createElement } = await import("react");
 const { App } = await import("../App.tsx");
 const { SceneDecorationContext } =
   await import("../office/scene-decoration.tsx");
-const { StoreProvider } = await import("../store.tsx");
+const { FeaturesProvider, StoreProvider } = await import("../store.tsx");
+const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
 const { setApiShim } = await import("../api.ts");
 const { connect, setShim, shimEmit } = await import("../ws.ts");
 const { en } = await import("../../shared/i18n/en.ts");
@@ -160,7 +161,9 @@ export function setUpInboxTests() {
   afterEach(() => pushState?.mockRestore());
 }
 
-export async function boot(path = "/") {
+// `features` is the office the App runs in: production unless a test passes
+// another, as the landing-page embed does.
+export async function boot(path = "/", features = PRODUCTION_FEATURES) {
   window.history.replaceState(null, "", path);
   let hydrated!: () => void;
   const hydration = new Promise<void>((resolve) => {
@@ -193,15 +196,18 @@ export async function boot(path = "/") {
     },
   );
   const view = render(
-    createElement(
-      StoreProvider,
-      null,
-      createElement(
-        SceneDecorationContext.Provider,
-        { value: false },
-        createElement(App),
+    createElement(FeaturesProvider, {
+      features,
+      children: createElement(
+        StoreProvider,
+        null,
+        createElement(
+          SceneDecorationContext.Provider,
+          { value: false },
+          createElement(App),
+        ),
       ),
-    ),
+    }),
   );
   await act(async () => {
     await hydration;

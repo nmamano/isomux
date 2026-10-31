@@ -17,6 +17,12 @@ export type NavAction = {
   badge?: number;
 };
 
+/** A badge's text: the count, capped at "99+". The office scene's Inbox tray
+ *  shows the same text. */
+export function badgeText(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
+
 function Badge({ count }: { count: number }) {
   return (
     <span
@@ -35,7 +41,7 @@ function Badge({ count }: { count: number }) {
         boxSizing: "border-box",
       }}
     >
-      {count > 99 ? "99+" : count}
+      {badgeText(count)}
     </span>
   );
 }
