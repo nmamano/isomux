@@ -62,7 +62,7 @@ import type {
   AskReplyReq,
   AskSimplifyReq,
 } from "../../shared/contract-shapes.ts";
-import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
+import { AskPrompt } from "./AskPrompt.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { RecommendedStar } from "./recommended-star.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
@@ -659,7 +659,7 @@ function ReplyAskCard({
                   }),
             }}
           >
-            <InlineMarkdown content={entry.prompt} code />
+            <AskPrompt content={entry.prompt} />
           </div>
           {(clamped || expanded) && (
             <button
@@ -751,7 +751,7 @@ function ReplyAskCard({
                 overflowWrap: "break-word",
               }}
             >
-              <InlineMarkdown content={entry.originalPrompt} code />
+              <AskPrompt content={entry.originalPrompt} />
             </div>
           )}
         </div>

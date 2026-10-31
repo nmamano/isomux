@@ -10,6 +10,8 @@ Pull a per-agent spend breakdown before we change models?
 EOF
 ```
 
+The card shows bold, italics, `code` and links in the prompt. To show a text change, put it in a ` ```diff ` block: a line that starts with `-` shows in red, and one that starts with `+` in green. Put each `-` line right before its `+` line to mark the words that changed.
+
 A JSON body (`Content-Type: application/json`) takes `text` (or `prompt`), `member`, `link`, `step`, `options`, `recommended`, `priority`, `commands`, `editFiles` and `readFiles`. Query parameters work only with a text/plain body.
 
 When the member must do an Integrations step, send `step` instead of `link` (see the connections page): the ask then closes itself when the step is done. For any other office page, add `link=<page>` to the query (or `link` in a JSON body). The ask card then has a button that opens that page. The value is an office page name in path form, not a URL: `/tasks`, `/automations`, `/apps`, `/skills`, `/integrations`, `/settings`, `/inbox/pages`, `/inbox/asks`, or an Integrations tab: `/integrations/providers` (Claude and Codex sign-in), `/integrations/mcp`, `/integrations/secrets`, `/integrations/variables`, `/integrations/voice` (mic and read aloud), `/integrations/browser` (Chrome pairing), `/integrations/github` (a room's GitHub issue link; it opens only for an owner, and a member lands on the default tab), `/integrations/pager` (where the member's pages go), `/integrations/api-tokens`. Each of these paths on the office's web address also opens its page as a plain link. When the member must act in another agent's chat, set `link` to `/agents/<agentId>`: the button opens that agent's chat. The member must be able to reach the agent's room.

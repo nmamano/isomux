@@ -635,3 +635,30 @@ it("renders the expanded prompt as code and keeps its links live", () => {
   );
   view.unmount();
 });
+
+it("draws a diff block as diff rows in the expanded prompt", () => {
+  const entry = answerTo("diff", {
+    id: "abcd1234",
+    prompt:
+      "Approve the copy in `AskCard`?\n```diff\n- Save now\n+ Save later\n```",
+  });
+  const view = render(onLanguage("en", <Transcript entries={[entry]} />));
+  const line = view.container.querySelector<HTMLElement>(
+    '[data-log-entry-id="diff"] [data-ask-link="abcd1234"]',
+  )!;
+  fireEvent.click(line.querySelector("[data-ask-link-toggle]")!);
+  const full = line.querySelector<HTMLElement>("[data-ask-link-full]")!;
+  expect(full.querySelector("code")?.textContent).toBe("AskCard");
+  expect(
+    [
+      ...full.querySelectorAll<HTMLElement>("[data-ask-diff] [data-diff-line]"),
+    ].map((row) => row.dataset.diffLine),
+  ).toStrictEqual(["removed", "added"]);
+  expect(
+    [...full.querySelectorAll('[data-diff-word="changed"]')].map(
+      (w) => w.textContent,
+    ),
+  ).toStrictEqual(["now", "later"]);
+  expect(full.textContent).not.toContain("```");
+  view.unmount();
+});

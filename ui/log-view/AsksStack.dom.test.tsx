@@ -134,6 +134,17 @@ const ENTRIES: AskEntry[] = [
     ...entry("ssss0019", "b1", "Merge the fix now?", 7),
     originalPrompt: "Merge `t-1` after the CI on f00d?",
   },
+  // Agent b2's ask carries copy changes as ```diff blocks (task 8c661856),
+  // in the prompt and in the original.
+  {
+    ...entry(
+      "tttt0020",
+      "b2",
+      "Approve the copy in `AskCard`?\n```diff\nAsk card > link:\n- Show original\n+ Show the first version\n```\nShip it?",
+      3,
+    ),
+    originalPrompt: "Old ask:\n```diff\n- Save now\n+ Save later\n```",
+  },
 ];
 // The one agent the store knows: the target of a7's first link.
 const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
@@ -1386,6 +1397,69 @@ it("shows the original prompt on a toggle and hides it again, and draws no toggl
     inCard(view.container, "ssss0019", "[data-ask-show-original]")!,
   );
   expect(inCard(view.container, "ssss0019", "[data-ask-original]")).toBe(null);
+  view.unmount();
+});
+
+// A ```diff block in the prompt draws as diff rows, the -/+ marker kept as
+// text, the changed words marked; the text around it stays markdown.
+function expectDiff(
+  scope: HTMLElement,
+  rows: [string, string][],
+  changed: string[],
+) {
+  const block = scope.querySelector<HTMLElement>("[data-ask-diff]")!;
+  expect(block).not.toBe(null);
+  // The dark-mode re-route of the chat diff card's colors applies to it.
+  expect(block.classList.contains("d2h-isomux-host")).toBe(true);
+  // The marker stays as text, not color alone; the space after it may be a
+  // margin.
+  const MARKER: Record<string, string> = { removed: "-", added: "+" };
+  const drawn = [
+    ...block.querySelectorAll<HTMLElement>("[data-diff-line]"),
+  ].map((row) => {
+    const kind = row.dataset.diffLine!;
+    const text = row.textContent.trim();
+    const marker = MARKER[kind];
+    if (!marker) return [kind, text];
+    expect(text.startsWith(marker)).toBe(true);
+    return [kind, `${marker} ${text.slice(1).trim()}`];
+  });
+  expect(drawn).toStrictEqual(rows);
+  expect(
+    [...block.querySelectorAll<HTMLElement>('[data-diff-word="changed"]')].map(
+      (w) => w.textContent,
+    ),
+  ).toStrictEqual(changed);
+  expect(scope.textContent).not.toContain("```");
+}
+
+it("draws a diff block in the prompt and in the original as red and green rows", async () => {
+  const view = mount(false, "b2");
+  await waitFor(() => expect(cards(view.container)).toEqual(["tttt0020"]));
+  const prompt = inCard(view.container, "tttt0020", "[data-ask-prompt]")!;
+  expectDiff(
+    prompt,
+    [
+      ["context", "Ask card > link:"],
+      ["removed", "- Show original"],
+      ["added", "+ Show the first version"],
+    ],
+    ["original", "the first version"],
+  );
+  // Text outside the block is still markdown.
+  expect(prompt.querySelector("code")?.textContent).toBe("AskCard");
+  expect(prompt.textContent).toContain("Ship it?");
+  fireEvent.click(
+    inCard(view.container, "tttt0020", "[data-ask-show-original]")!,
+  );
+  expectDiff(
+    inCard(view.container, "tttt0020", "[data-ask-original]")!,
+    [
+      ["removed", "- Save now"],
+      ["added", "+ Save later"],
+    ],
+    ["now", "later"],
+  );
   view.unmount();
 });
 

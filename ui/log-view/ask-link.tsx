@@ -19,6 +19,7 @@ import { describeIsomuxRoute } from "./isomux-curl.ts";
 import { isomuxRequestForToolCall } from "./tool-call-groups.ts";
 import { jumpToLogEntry } from "./jump-to-entry.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
+import { AskPrompt } from "./AskPrompt.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { RecommendedStar } from "./recommended-star.tsx";
 
@@ -293,7 +294,7 @@ export function AskLink({
           }}
         >
           <div {...noTranslate()}>
-            <InlineMarkdown content={ask.prompt.trim()} code />
+            <AskPrompt content={ask.prompt.trim()} />
           </div>
           {options.length > 0 && (
             <ul
