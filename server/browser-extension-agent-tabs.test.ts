@@ -3,6 +3,10 @@
 // can reach ("office"). An agent then opens its own tab there with the open
 // action. Each opened tab belongs to the agent that opened it, and an agent
 // may hold several.
+//
+// Task 7355640c: the extension sends one access setting instead: which agents
+// ("mine", "members" for mine and the members picked, "office") may use the
+// tabs the member offers ("shared") and, with openTabs, open their own.
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -21,6 +25,7 @@ import { BrowserExtensionStore } from "./browser-extension-store";
 import { ExtensionBrowserSessions } from "./browser-extension-session";
 import type {
   AgentTabsScope,
+  BrowserAccess,
   BrowserGrantScope,
   Fields,
 } from "../shared/browser-extension-protocol";
@@ -28,14 +33,18 @@ import type {
 const OFFICE = "https://office.test";
 const origin = "chrome-extension://" + "a".repeat(32);
 
-// ann and bob share room r1; only bob reaches r2. ann manages ann-agent and
-// ann-helper; bob manages bob-agent and far-agent. orphan has no manager.
+// ann, bob and carol share room r1; only bob and dan reach r2. ann manages
+// ann-agent and ann-helper; bob manages bob-agent and far-agent; carol
+// manages carol-agent; dan manages dan-agent, which ann cannot reach. orphan
+// has no manager.
 function office() {
   const manager: Record<string, string | undefined> = {
     "ann-agent": "ann",
     "ann-helper": "ann",
     "bob-agent": "bob",
     "far-agent": "bob",
+    "carol-agent": "carol",
+    "dan-agent": "dan",
     orphan: undefined,
   };
   const room: Record<string, string> = {
@@ -43,12 +52,15 @@ function office() {
     "ann-helper": "r1",
     "bob-agent": "r1",
     "far-agent": "r2",
+    "carol-agent": "r1",
+    "dan-agent": "r2",
     orphan: "r1",
   };
   const rooms: Record<string, Set<string>> = {
     ann: new Set(["r1"]),
     bob: new Set(["r1", "r2"]),
     carol: new Set(["r1"]),
+    dan: new Set(["r2"]),
   };
   const mayReach = (member: string, agent: string) =>
     agent in room && !!rooms[member]?.has(room[agent]);
@@ -104,6 +116,8 @@ function bridgeOffice() {
     browserId: (hash) => byHash[hash]?.id ?? "",
     mayUse: o.mayUse,
     mayReach: o.mayReach,
+    managerOf: (agent) => o.manager[agent],
+    agents: () => Object.keys(o.manager),
     memberDisplay: (member) => ({ id: member, name: member }),
     agentDisplay: (agent) => ({ id: agent, name: agent }),
     officeOrigins: () => [OFFICE],
@@ -145,6 +159,13 @@ function bridgeOffice() {
           kind: "agentTabs",
           generation: connection.generation,
           scope,
+        }),
+      // The member's access setting, as the extension sends it.
+      access: (access: BrowserAccess) =>
+        connection.receive({
+          kind: "access",
+          generation: connection.generation,
+          access,
         }),
     };
   };
@@ -633,26 +654,29 @@ test("turning the setting off ends every opened tab; narrowing it ends the tabs 
   }
 });
 
-test("an opened tab ends when the agent leaves its reach, though an All agents offer survives the same revalidation", async () => {
+test("an opened tab ends when its agent leaves the setting's audience, though an All agents offer survives the same revalidation", async () => {
   const h = bridgeOffice();
   const ann = h.connect("ann-laptop");
   try {
-    ann.setting("office");
+    ann.setting("all");
     const mine = await h.bridge.open("ann", "ann-agent");
-    const bobs = await h.bridge.open("bob", "bob-agent", "Laptop");
-    const shared = await offer(ann, { kind: "office" });
-    if (!mine.ok || !bobs.ok) throw new Error("open failed");
+    if (!mine.ok) throw new Error("open failed");
     const mineGrant = grantOf(ann, "ann-agent", mine.target)!;
-    const bobsGrant = grantOf(ann, "bob-agent", bobs.target)!;
-
-    // ann no longer manages ann-agent: its tab via "all" ends.
+    // ann no longer manages ann-agent: under Only my agents its tab ends.
     h.manager["ann-agent"] = "bob";
     ann.connection.revalidate();
     expect(detached(ann, mineGrant)).toBe(true);
-    expect(detached(ann, bobsGrant)).toBe(false);
+    h.manager["ann-agent"] = "ann";
 
-    // ann leaves r1: bob's agent's tab via "office" ends; the shared offer
-    // stays for when she comes back.
+    ann.setting("office");
+    const bobs = await h.bridge.open("bob", "bob-agent", "Laptop");
+    const shared = await offer(ann, { kind: "office" });
+    if (!bobs.ok) throw new Error("open failed");
+    const bobsGrant = grantOf(ann, "bob-agent", bobs.target)!;
+    ann.connection.revalidate();
+    expect(detached(ann, bobsGrant)).toBe(false);
+    // ann leaves r1: bob's agent's tab ends; the shared offer stays for
+    // when she comes back.
     h.rooms.ann.delete("r1");
     ann.connection.revalidate();
     expect(detached(ann, bobsGrant)).toBe(true);
@@ -671,30 +695,56 @@ test("an opened tab resumes after a connection loss only while the setting cover
   const grant = grantOf(first, "ann-agent", opened.target)!;
   first.connection.close();
 
-  // [name, setting, via, extra offer fields]
+  // [name, setting, agent, via, extra offer fields]
   const refused: Array<
-    [string, AgentTabsScope | null, AgentTabsScope, Fields]
+    [string, AgentTabsScope | null, string, AgentTabsScope, Fields]
   > = [
-    ["setting off", null, "all", {}],
-    ["All agents tab, setting Only my agents", "all", "office", {}],
-    ["with an origin", "all", "all", { offerOrigin: "https://example.com" }],
-    ["a fresh opened offer", "all", "all", { expiresAt: undefined }],
-    ["with a deadline", "all", "all", { expiresAt: Date.now() + 60_000 }],
+    ["setting off", null, "ann-agent", "all", {}],
+    [
+      "another member's agent, setting Only my agents",
+      "all",
+      "bob-agent",
+      "office",
+      {},
+    ],
+    [
+      "with an origin",
+      "all",
+      "ann-agent",
+      "all",
+      { offerOrigin: "https://example.com" },
+    ],
+    [
+      "a fresh opened offer",
+      "all",
+      "ann-agent",
+      "all",
+      { expiresAt: undefined },
+    ],
+    [
+      "with a deadline",
+      "all",
+      "ann-agent",
+      "all",
+      { expiresAt: Date.now() + 60_000 },
+    ],
   ];
-  for (const [name, setting, via, extra] of refused) {
+  for (const [name, setting, agent, via, extra] of refused) {
     const b = h.connect("ann-laptop");
     try {
       b.setting(setting);
       const fresh = "expiresAt" in extra && extra.expiresAt === undefined;
       const r = fresh
-        ? await offer(b, { kind: "opened", agentId: "ann-agent", via })
-        : await resume(b, "ann-agent", via, undefined, extra);
+        ? await offer(b, { kind: "opened", agentId: agent, via })
+        : await resume(b, agent, via, undefined, extra);
       expect({ name, error: r.answer?.error }).toEqual({ name, error: true });
       expect({ name, closed: b.peer.closed }).toEqual({ name, closed: false });
-      expect({ name, tabs: h.bridge.targets("ann", "ann-agent") }).toEqual({
-        name,
-        tabs: [],
-      });
+      expect({ name, tabs: h.bridge.targets(h.manager[agent], agent) }).toEqual(
+        {
+          name,
+          tabs: [],
+        },
+      );
     } finally {
       b.connection.close();
     }
@@ -756,6 +806,292 @@ test("an opened tab has no pinned origin: on an office page it is gated", async 
   }
 });
 
+// Task 7355640c: one access setting per browser. Who sees the member's shared
+// offer, and who may open a tab, for each value. A row lists the agents
+// (with their managers) that see the offer and that may open a tab.
+test("the access setting decides which agents see a shared offer and may open tabs; before any setting only the member's own agents see it", async () => {
+  const h = bridgeOffice();
+  const ann = h.connect("ann-laptop");
+  try {
+    expect(ann.peer.messages.find((m) => m.kind === "ready")?.access).toBe(
+      true,
+    );
+    const shared = await offer(ann, { kind: "shared" });
+    expect(shared.answer).toBeDefined();
+    expect(shared.answer?.error).toBeUndefined();
+    const agents = [
+      "ann-agent",
+      "bob-agent",
+      "far-agent",
+      "carol-agent",
+      "dan-agent",
+      "orphan",
+    ];
+    const audience = () => ({
+      see: agents.filter((agent) =>
+        h.bridge
+          .targets(h.manager[agent], agent)
+          .some((t) => grantOf(ann, agent, t.target) === shared.assignment),
+      ),
+      open: agents.filter(
+        (agent) =>
+          h.bridge.agentTabBrowsers(h.manager[agent], agent).length > 0,
+      ),
+    });
+    // No access message yet: the member's own agents, no opened tabs.
+    expect(audience()).toEqual({ see: ["ann-agent"], open: [] });
+    const rows: Array<[BrowserAccess, string[]]> = [
+      // Picks stored under "mine" admit nobody else.
+      [{ agents: "mine", members: ["bob"], openTabs: true }, ["ann-agent"]],
+      [{ agents: "members", members: [], openTabs: true }, ["ann-agent"]],
+      // bob's agent in ann's rooms; far-agent is bob's but out of her reach.
+      [
+        { agents: "members", members: ["bob"], openTabs: true },
+        ["ann-agent", "bob-agent"],
+      ],
+      // dan's agent is out of reach: picking dan admits nothing.
+      [
+        { agents: "members", members: ["carol", "dan"], openTabs: true },
+        ["ann-agent", "carol-agent"],
+      ],
+      [
+        { agents: "office", members: [], openTabs: true },
+        ["ann-agent", "bob-agent", "carol-agent", "orphan"],
+      ],
+    ];
+    for (const [access, admitted] of rows) {
+      ann.access(access);
+      expect({ access, ...audience() }).toEqual({
+        access,
+        see: admitted,
+        open: admitted,
+      });
+    }
+    // openTabs off: nobody opens a tab; the shared offer keeps its audience.
+    for (const [access, admitted] of rows) {
+      ann.access({ ...access, openTabs: false });
+      expect({ access, ...audience() }).toEqual({
+        access,
+        see: admitted,
+        open: [],
+      });
+    }
+  } finally {
+    ann.connection.close();
+  }
+});
+
+test("an agent of a picked member opens its own tab in the member's browser, and only it sees that tab", async () => {
+  const h = bridgeOffice();
+  const ann = h.connect("ann-laptop");
+  try {
+    ann.access({ agents: "members", members: ["bob"], openTabs: true });
+    const opened = await h.bridge.open("bob", "bob-agent", "Laptop");
+    expect(opened).toMatchObject({ ok: true, connection: ann.connection });
+    if (!opened.ok) throw new Error("open failed");
+    expect(h.bridge.targets("bob", "bob-agent")).toEqual([
+      expect.objectContaining({
+        target: opened.target,
+        scope: expect.objectContaining({
+          kind: "opened",
+          agentId: "bob-agent",
+        }),
+      }),
+    ]);
+    expect(h.bridge.targets("ann", "ann-agent")).toEqual([]);
+    // carol is not picked.
+    expect(await h.bridge.open("carol", "carol-agent", "Laptop")).toMatchObject(
+      { ok: false },
+    );
+  } finally {
+    ann.connection.close();
+  }
+});
+
+// An action without a target: the agent's own opened tab comes before a
+// shared offer, as before an All agents offer.
+test("without a target, an agent's opened tab comes before a shared offer, and two shared offers need a target", async () => {
+  const h = bridgeOffice();
+  const ann = h.connect("ann-laptop");
+  try {
+    ann.access({ agents: "mine", members: [], openTabs: true });
+    const first = await offer(ann, { kind: "shared" });
+    expect(h.bridge.resolve("ann", "ann-agent")?.grant).toBe(first.assignment);
+    const opened = await h.bridge.open("ann", "ann-agent");
+    if (!opened.ok) throw new Error("open failed");
+    expect(h.bridge.resolve("ann", "ann-agent")?.grant).toBe(
+      grantOf(ann, "ann-agent", opened.target),
+    );
+    // ann-helper has no tab of its own: two shared offers are ambiguous.
+    await offer(ann, { kind: "shared" });
+    expect(h.bridge.ambiguous("ann", "ann-helper")).toBe(true);
+    expect(h.bridge.resolve("ann", "ann-helper")).toBeUndefined();
+  } finally {
+    ann.connection.close();
+  }
+});
+
+// A page event of the tab, as the extension sends it.
+const pageEvent = (b: Browser, assignment: string, method: string) =>
+  b.connection.receive({
+    kind: "event",
+    generation: b.connection.generation,
+    assignment,
+    method,
+    params: {},
+  });
+const got = (client: Wire, method: string) =>
+  client.messages.some((m) => m.method === method);
+// agent's live client on the shared offer, as an action holds it.
+const attachClient = (b: Browser, agent: string, assignment: string) => {
+  const client = wire();
+  const target = b.connection
+    .targets(agent)
+    .find((t) => grantOf(b, agent, t.target) === assignment)?.target;
+  expect({ agent, target: typeof target }).toEqual({
+    agent,
+    target: "string",
+  });
+  b.connection.assign(agent, client, true, target);
+  return client;
+};
+
+test("narrowing the access ends the opened tabs and cuts the live clients of the agents it no longer admits; widening admits them again at once", async () => {
+  const h = bridgeOffice();
+  const ann = h.connect("ann-laptop");
+  try {
+    ann.access({ agents: "members", members: ["bob"], openTabs: true });
+    const sharedA = await offer(ann, { kind: "shared" });
+    const sharedB = await offer(ann, { kind: "shared" });
+    const mine = await h.bridge.open("ann", "ann-agent");
+    const bobs = await h.bridge.open("bob", "bob-agent", "Laptop");
+    if (!mine.ok || !bobs.ok) throw new Error("open failed");
+    const mineGrant = grantOf(ann, "ann-agent", mine.target)!;
+    const bobsGrant = grantOf(ann, "bob-agent", bobs.target)!;
+    const bobClient = attachClient(ann, "bob-agent", sharedA.assignment);
+    const annClient = attachClient(ann, "ann-agent", sharedB.assignment);
+    // Both clients get their tab's events while the access admits them.
+    pageEvent(ann, sharedA.assignment, "Page.loadEventFired");
+    pageEvent(ann, sharedB.assignment, "Page.loadEventFired");
+    expect([
+      got(bobClient, "Page.loadEventFired"),
+      got(annClient, "Page.loadEventFired"),
+    ]).toEqual([true, true]);
+
+    ann.access({ agents: "mine", members: ["bob"], openTabs: true });
+    // bob's agent: its opened tab ends, its client is cut and gets no more
+    // events; the shared offers stay.
+    expect(detached(ann, bobsGrant)).toBe(true);
+    expect(bobClient.closed).toBe(true);
+    pageEvent(ann, sharedA.assignment, "Network.responseReceived");
+    expect(got(bobClient, "Network.responseReceived")).toBe(false);
+    expect(h.bridge.targets("bob", "bob-agent")).toEqual([]);
+    // ann's agent: nothing changes.
+    expect(detached(ann, mineGrant)).toBe(false);
+    expect(annClient.closed).toBe(false);
+    pageEvent(ann, sharedB.assignment, "Network.responseReceived");
+    expect(got(annClient, "Network.responseReceived")).toBe(true);
+    expect([sharedA, sharedB].map((s) => detached(ann, s.assignment))).toEqual([
+      false,
+      false,
+    ]);
+
+    // Widening again: bob's agent sees both shared offers at once.
+    ann.access({ agents: "members", members: ["bob"], openTabs: true });
+    expect(
+      h.bridge
+        .targets("bob", "bob-agent")
+        .map((t) => grantOf(ann, "bob-agent", t.target))
+        .sort(),
+    ).toEqual([sharedA.assignment, sharedB.assignment].sort());
+
+    // openTabs off ends ann's opened tab too; the shared offers stay.
+    ann.access({ agents: "members", members: ["bob"], openTabs: false });
+    expect(detached(ann, mineGrant)).toBe(true);
+    expect([sharedA, sharedB].map((s) => detached(ann, s.assignment))).toEqual([
+      false,
+      false,
+    ]);
+  } finally {
+    ann.connection.close();
+  }
+});
+
+test("at revalidation, a live client on a shared or All agents offer is cut when its agent leaves the offer's audience; the offer stays", async () => {
+  const h = bridgeOffice();
+  const ann = h.connect("ann-laptop");
+  try {
+    ann.access({ agents: "members", members: ["bob"], openTabs: false });
+    const shared = await offer(ann, { kind: "shared" });
+    const office = await offer(ann, { kind: "office" });
+    const bobClient = attachClient(ann, "bob-agent", shared.assignment);
+    const orphanClient = attachClient(ann, "orphan", office.assignment);
+    // bob-agent moves to carol, who is not picked.
+    h.manager["bob-agent"] = "carol";
+    ann.connection.revalidate();
+    expect([bobClient.closed, orphanClient.closed]).toEqual([true, false]);
+    pageEvent(ann, shared.assignment, "Page.loadEventFired");
+    expect(got(bobClient, "Page.loadEventFired")).toBe(false);
+    // ann leaves r1, where orphan is.
+    h.rooms.ann.delete("r1");
+    ann.connection.revalidate();
+    expect(orphanClient.closed).toBe(true);
+    pageEvent(ann, office.assignment, "Page.loadEventFired");
+    expect(got(orphanClient, "Page.loadEventFired")).toBe(false);
+    expect([shared, office].map((s) => detached(ann, s.assignment))).toEqual([
+      false,
+      false,
+    ]);
+  } finally {
+    ann.connection.close();
+  }
+});
+
+test("the extension learns which members it may pick: those with an agent the member reaches, and every member already picked", () => {
+  const h = bridgeOffice();
+  const ann = h.connect("ann-laptop");
+  try {
+    const members = () =>
+      (
+        (ann.peer.messages.findLast((m) => m.kind === "metadata")?.members ??
+          []) as { id: string; name: string }[]
+      )
+        .map((m) => `${m.id}:${m.name}`)
+        .sort();
+    expect(members()).toEqual(["bob:bob", "carol:carol"]);
+    // dan's only agent is out of ann's reach; the pick keeps him listed.
+    ann.access({ agents: "members", members: ["dan"], openTabs: false });
+    expect(members()).toEqual(["bob:bob", "carol:carol", "dan:dan"]);
+    // Picks stored under "mine" stay listed too.
+    ann.access({ agents: "mine", members: ["dan"], openTabs: false });
+    expect(members()).toEqual(["bob:bob", "carol:carol", "dan:dan"]);
+  } finally {
+    ann.connection.close();
+  }
+});
+
+test("an invalid access message closes the connection; one of an older generation changes nothing", async () => {
+  const h = bridgeOffice();
+  const ann = h.connect("ann-laptop");
+  ann.access({ agents: "mine", members: [], openTabs: false });
+  const shared = await offer(ann, { kind: "shared" });
+  ann.connection.receive({
+    kind: "access",
+    generation: "old",
+    access: { agents: "office", members: [], openTabs: true },
+  });
+  expect(h.bridge.targets(undefined, "orphan")).toEqual([]);
+  expect(h.bridge.agentTabBrowsers("ann", "ann-agent")).toEqual([]);
+  expect(ann.peer.closed).toBe(false);
+  expect(detached(ann, shared.assignment)).toBe(false);
+  ann.connection.receive({
+    kind: "access",
+    generation: ann.connection.generation,
+    access: { agents: "everyone", members: [], openTabs: true },
+  });
+  expect(ann.peer.closed).toBe(true);
+});
+
 // The agent's side, through the service as the office runs it. Each browser
 // connects with its hello, as a real extension does; the stand-in answers
 // open commands with an about:blank tab.
@@ -767,6 +1103,8 @@ function sessionOffice() {
     memberExists: () => true,
     mayUse: o.mayUse,
     mayReach: o.mayReach,
+    managerOf: (agent) => o.manager[agent],
+    agents: () => Object.keys(o.manager),
     memberName: (member) => member[0].toUpperCase() + member.slice(1),
     agentName: (agent) => agent,
     officeOrigins: () => [OFFICE],
@@ -833,6 +1171,15 @@ function sessionOffice() {
             scope,
           }),
         ),
+      access: (access: BrowserAccess) =>
+        service.message(
+          typed,
+          JSON.stringify({
+            kind: "access",
+            generation: connection.generation,
+            access,
+          }),
+        ),
       close: () => service.close(typed),
     };
   };
@@ -876,6 +1223,44 @@ test("the office lists each online browser's agent tabs setting", () => {
     expect(byName()).toEqual({ Laptop: "office", Desk: null });
     laptop.close();
     expect(byName()).toEqual({ Laptop: null, Desk: null });
+  } finally {
+    h.stop();
+  }
+});
+
+test("the office lists each online browser's access: whose agents may open tabs, and the members picked", () => {
+  const h = sessionOffice();
+  try {
+    const laptop = h.connect("ann", "Laptop");
+    const status = () => {
+      const browser = h.service.status("ann").browsers[0];
+      return { agentTabs: browser.agentTabs, members: browser.members };
+    };
+    const rows: Array<[BrowserAccess, ReturnType<typeof status>]> = [
+      [
+        { agents: "members", members: ["bob"], openTabs: true },
+        { agentTabs: "members", members: [{ id: "bob", name: "Bob" }] },
+      ],
+      [
+        { agents: "members", members: ["bob"], openTabs: false },
+        { agentTabs: null, members: undefined },
+      ],
+      [
+        { agents: "mine", members: ["bob"], openTabs: true },
+        { agentTabs: "all", members: undefined },
+      ],
+      [
+        { agents: "office", members: ["bob"], openTabs: true },
+        { agentTabs: "office", members: undefined },
+      ],
+    ];
+    for (const [access, expected] of rows) {
+      laptop.access(access);
+      expect({ access, status: status() }).toEqual({
+        access,
+        status: expected,
+      });
+    }
   } finally {
     h.stop();
   }

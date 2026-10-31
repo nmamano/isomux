@@ -1,6 +1,9 @@
 import { translatorFor } from "../shared/i18n/translate";
 import type { PlainMessageKey } from "../shared/i18n/translate";
-import type { ExtensionUIState } from "../shared/browser-extension-protocol";
+import type {
+  BrowserAccess,
+  ExtensionUIState,
+} from "../shared/browser-extension-protocol";
 import {
   pairedCode,
   readPairingDraft,
@@ -40,7 +43,6 @@ const [invocationTab] = await chrome.tabs.query({
 });
 const labels: Record<string, PlainMessageKey> = {
   "office-heading": "browser.officeSection",
-  "agent-heading": "browser.agent",
   "office-label": "browser.office",
   "code-label": "browser.code",
   pair: "browser.pair",
@@ -52,30 +54,27 @@ const labels: Record<string, PlainMessageKey> = {
   "offline-help": "browser.offlineHelp",
   "update-ready": "browser.updateReady",
   "update-steps": "browser.updateSteps",
-  "agent-label": "browser.agent",
-  "allow-label": "browser.allow",
-  "expiry-label": "browser.expiry",
-  "expiry-never": "browser.expiryNever",
-  "expiry-15": "browser.expiry15",
-  "expiry-60": "browser.expiry60",
-  "expiry-240": "browser.expiry240",
-  "agent-tabs-heading": "browser.agentTabs",
-  "agent-tabs-scope-label": "browser.agentTabsScope",
-  "agent-tabs-mine": "browser.myAgents",
-  "agent-tabs-office": "browser.allAgents",
-  "agent-tabs-allow-label": "browser.agentTabsAllow",
+  "agents-label": "browser.agents",
+  "agents-mine": "browser.myAgents",
+  "agents-members": "browser.pickedAgents",
+  "agents-office": "browser.allAgents",
+  "members-none": "browser.membersNone",
+  "allow-label": "browser.useTab",
+  "open-tabs-label": "browser.openTabs",
 };
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
 let state: ExtensionUIState & { generation?: string };
 let busy = false,
   showPair = false;
-const picker = element("agent") as HTMLSelectElement;
+const picker = element("agents") as HTMLSelectElement;
+const membersBox = element("members");
+const membersList = element("members-list");
 const toggle = element("allow") as HTMLInputElement;
-const expiry = element("expiry") as HTMLSelectElement;
-const agentTabsScope = element("agent-tabs-scope") as HTMLSelectElement;
-const agentTabsAllow = element("agent-tabs-allow") as HTMLInputElement;
+const openTabs = element("open-tabs") as HTMLInputElement;
 const agentTabsList = element("agent-tabs-list");
+// The member rows shown, so a poll that changes nothing keeps the focus.
+let memberRows = "";
 // The rows shown, so a poll that changes nothing keeps the buttons.
 let agentTabRows = "";
 async function command(action: string, extra: Record<string, unknown> = {}) {
@@ -115,11 +114,14 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
       reason === "unanswered" ? "browser.tabUnanswered" : "browser.failed",
     );
   } finally {
-    if (action !== "state") busy = false;
+    // Unlock the controls the command locked.
+    if (action !== "state") {
+      busy = false;
+      if (state) render(state);
+    }
   }
 }
 function render(next: typeof state) {
-  const previous = state?.assignments.find((a) => a.current);
   state = next;
   element("status").dataset.state = state.state;
   element("status").textContent = t(`browser.${state.state}`);
@@ -149,105 +151,89 @@ function render(next: typeof state) {
     link.href = `${state.office}/api/me/browser/extension.zip`;
     link.textContent = t("browser.download", { version: state.update.latest });
   }
+  renderAccess();
   const current = state.assignments.find((a) => a.current);
-  if (current) expiry.value = String(current.durationMinutes);
-  else if (previous) expiry.value = "0";
-  expiry.disabled = !!current || busy || state.state !== "connected";
-  element("expiry-state").textContent =
-    current && current.phase !== "offering"
-      ? current.expiresAt === null
-        ? t("browser.expiryNeverActive")
-        : t("browser.expiresAt", {
-            time: new Date(current.expiresAt).toLocaleString(),
-          })
-      : "";
-  const selected = current
-    ? current.scope.kind === "agent" || current.scope.kind === "opened"
-      ? current.scope.agentId
-      : current.scope.kind
-    : previous
-      ? "all"
-      : picker.value || "all";
-  picker.replaceChildren();
-  // "all" is the agents the member manages; "office" every agent they reach,
-  // offered only when the office takes it.
-  const groups: [string, PlainMessageKey][] = [["all", "browser.myAgents"]];
-  if (state.officeScope || current?.scope.kind === "office")
-    groups.push(["office", "browser.allAgents"]);
-  for (const [value, key] of groups) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = t(key);
-    picker.append(option);
-  }
-  for (const agent of state.agents) {
-    const option = document.createElement("option");
-    option.value = agent.id;
-    option.textContent = agent.name;
-    picker.append(option);
-  }
-  if (current?.agent && !state.agents.some((a) => a.id === current.agent!.id)) {
-    const option = document.createElement("option");
-    option.value = current.agent.id;
-    option.textContent = current.agent.name;
-    picker.append(option);
-  }
-  if ([...picker.options].some((option) => option.value === selected))
-    picker.value = selected;
-  picker.disabled = !!current || busy || state.state !== "connected";
-  const conflict = state.assignments.some(
-    (a) =>
-      a.scope.kind === "agent" &&
-      a.scope.agentId === picker.value &&
-      !a.current,
-  );
   toggle.checked = !!current && current.phase !== "revoking";
   toggle.disabled = current
     ? current.phase === "revoking"
-    : busy ||
-      state.state !== "connected" ||
-      !state.currentTab?.eligible ||
-      !picker.value ||
-      conflict;
+    : busy || state.state !== "connected" || !state.currentTab?.eligible;
   element("tab-state").textContent = current
-    ? t(
-        current.phase === "on"
-          ? "browser.assigned"
-          : current.phase === "offering"
-            ? "browser.offering"
-            : "browser.revoking",
-        {
-          name:
-            current.scope.kind === "agent" || current.scope.kind === "opened"
-              ? current.agent!.name
-              : t(
-                  current.scope.kind === "office"
-                    ? "browser.allAgents"
-                    : "browser.myAgents",
-                ),
-        },
-      )
-    : !state.currentTab?.eligible
+    ? current.phase === "offering"
+      ? t("browser.offering")
+      : current.phase === "revoking"
+        ? t("browser.revoking")
+        : current.scope.kind === "opened" && current.agent
+          ? t("browser.assigned", { name: current.agent.name })
+          : t("browser.tabShared")
+    : state.state === "connected" && !state.currentTab?.eligible
       ? t("browser.tabIneligible")
-      : conflict
-        ? t("browser.tabConflict")
-        : "";
+      : "";
   renderAgentTabs();
 }
-// The member's agent tabs setting and the tabs agents opened, on an office
-// that takes them.
+// The member's access setting: one picker for both switches. On an office
+// without shared access, a members pick works as My agents and is kept.
+const storedAccess = (): BrowserAccess =>
+  state.access ?? { agents: "mine", members: [], openTabs: false };
+function shownAccess(): BrowserAccess {
+  const access = storedAccess();
+  if (access.agents === "office" && !state.officeScope)
+    return { ...access, agents: "mine" };
+  if (access.agents === "members" && !state.sharedAccess)
+    return { ...access, agents: "mine" };
+  return access;
+}
+function renderAccess() {
+  const access = shownAccess();
+  (element("agents-members") as HTMLOptionElement).hidden = !state.sharedAccess;
+  (element("agents-office") as HTMLOptionElement).hidden = !state.officeScope;
+  picker.value = access.agents;
+  picker.disabled = busy || state.state !== "connected";
+  membersBox.hidden = access.agents !== "members";
+  const members = state.members ?? [];
+  const signature = JSON.stringify([members, access.members]);
+  if (signature !== memberRows) {
+    memberRows = signature;
+    membersList.replaceChildren(
+      ...members.map((member) => {
+        const row = document.createElement("li");
+        const label = document.createElement("label");
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = member.id;
+        box.checked = access.members.includes(member.id);
+        box.addEventListener("change", () =>
+          sendAccess({
+            members: box.checked
+              ? [...storedAccess().members, member.id]
+              : storedAccess().members.filter((id) => id !== member.id),
+          }),
+        );
+        label.append(box, member.name);
+        row.append(label);
+        return row;
+      }),
+    );
+  }
+  element("members-none").hidden = members.length > 0;
+  for (const box of membersList.querySelectorAll("input")) box.disabled = busy;
+}
+// Sends the stored setting with change applied; the background keeps it. A
+// value the office cannot take is only shown differently, never overwritten.
+function sendAccess(change: Partial<BrowserAccess>) {
+  const access = { ...storedAccess(), ...change };
+  // A pick for a member the office no longer lists stays stored.
+  access.members = [...new Set(access.members)];
+  void command("access", { access });
+}
+// Open their own tabs and the tabs agents opened, on an office that takes
+// them.
 function renderAgentTabs() {
   const section = element("agent-tabs");
-  section.hidden = !state.agentTabs || state.state !== "connected";
+  openTabs.checked = shownAccess().openTabs;
+  openTabs.disabled = busy;
+  section.hidden =
+    !(state.agentTabs || state.sharedAccess) || state.state !== "connected";
   if (section.hidden) return;
-  const scope = state.agentTabs!.scope;
-  const office = element("agent-tabs-office") as HTMLOptionElement;
-  office.hidden = !state.officeScope && scope !== "office";
-  if (scope) agentTabsScope.value = scope;
-  else if (office.hidden) agentTabsScope.value = "all";
-  agentTabsAllow.checked = scope !== null;
-  agentTabsAllow.disabled = busy;
-  agentTabsScope.disabled = busy;
   const rows = state.assignments.filter((a) => a.scope.kind === "opened");
   const signature = JSON.stringify(
     rows.map((a) => [a.id, a.agent?.name, a.manager?.name]),
@@ -295,30 +281,17 @@ element("pair-form").addEventListener("submit", (event) => {
 });
 for (const action of ["disconnect", "reconnect", "unpair"])
   element(action).addEventListener("click", () => void command(action));
-picker.addEventListener("change", () => render(state));
-const sendAgentTabs = () =>
-  void command("agentTabs", {
-    scope: agentTabsAllow.checked ? agentTabsScope.value : null,
-  });
-agentTabsAllow.addEventListener("change", sendAgentTabs);
-agentTabsScope.addEventListener("change", () => {
-  if (agentTabsAllow.checked) sendAgentTabs();
-});
+picker.addEventListener("change", () =>
+  sendAccess({ agents: picker.value as BrowserAccess["agents"] }),
+);
+openTabs.addEventListener("change", () =>
+  sendAccess({ openTabs: openTabs.checked }),
+);
 toggle.addEventListener("change", () => {
   const current = state.assignments.find((a) => a.current);
   if (current) void command("stop", { assignment: current.id });
-  else
-    void command("offer", {
-      scope:
-        picker.value === "all" || picker.value === "office"
-          ? { kind: picker.value }
-          : { kind: "agent", agentId: picker.value },
-      tabId: state.currentTab?.id,
-      durationMinutes: Number(expiry.value),
-    });
-  picker.disabled = true;
+  else void command("offer", { tabId: state.currentTab?.id });
   toggle.disabled = true;
-  expiry.disabled = true;
 });
 void command("state");
 const poll = setInterval(() => void command("state"), 1000);

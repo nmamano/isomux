@@ -20,6 +20,8 @@ import {
   BROWSER_DETACH_CAUSES,
   type BrowserAttachFailure,
   type AgentTabsScope,
+  type BrowserAccess,
+  validBrowserAccess,
   validAgentTabsScope,
 } from "../shared/browser-extension-protocol";
 export { EXTENSION_MAX_BYTES };
@@ -51,9 +53,10 @@ const offerHandle = (credentialHash: string, assignment: string): string => {
 type Resume = { expiresAt: number | null; offerOrigin?: string };
 
 // The offers an action without a target chooses from: the agent's own tabs
-// (its individual offer and the tabs it opened), else the shared offers of
-// its manager's browsers, else the shared offers of other members. The one
-// rule for the bridge and for each connection.
+// (the tabs it opened, and an individual offer from an extension older than
+// 0.6.0), else the shared offers (all, office, shared) of its manager's
+// browsers, else the shared offers of other members. The one rule for the
+// bridge and for each connection.
 function routingTier<T>(
   offers: T[],
   scope: (offer: T) => BrowserGrantScope,
@@ -117,6 +120,8 @@ type Assignment = {
   session: string;
   browserSession: string;
   peer: BridgePeer;
+  // The agent of the current client, from its assign.
+  actor?: string;
   // Clients retired so far; work of a retired client sends nothing new.
   retirements: number;
   target?: Fields;
@@ -207,6 +212,8 @@ export class BrowserExtensionBridge {
       browserId?(hash: string): string;
       mayUse(memberId: string, agentId: string): boolean;
       mayReach?(memberId: string, agentId: string): boolean;
+      // The member who manages the agent, or undefined for an unknown agent.
+      managerOf?(agentId: string): string | undefined;
       memberDisplay?(member: string): BrowserDisplay;
       agentDisplay?(agent: string): BrowserDisplay;
       agents?(member: string): string[];
@@ -248,6 +255,10 @@ export class BrowserExtensionBridge {
       (agent) =>
         this.access.memberForCredentialHash(hash) === member &&
         !!this.access.mayReach?.(member, agent),
+      (agent) => this.access.managerOf?.(agent),
+      this.access.memberDisplay
+        ? (other) => this.access.memberDisplay!(other)
+        : undefined,
     );
     this.live.set(hash, connection);
     try {
@@ -261,6 +272,8 @@ export class BrowserExtensionBridge {
         officeScope: true,
         // Members can let agents open their own tabs (task 73a9fb57).
         agentTabs: true,
+        // The extension sends {kind:"access"} and offers "shared" tabs.
+        access: true,
         // The office's extension package, so an older extension can say so.
         package: manifest.version,
         generation: connection.generation,
@@ -312,7 +325,7 @@ export class BrowserExtensionBridge {
     );
   }
 
-  // Without a target: the agent's individual offer, else a sole offer from
+  // Without a target: the agent's own tab, else a sole offer from
   // its manager's browsers, else a sole offer of another member.
   private choose(
     manager: string | undefined,
@@ -573,6 +586,9 @@ export class ExtensionConnection {
     readonly offices: OfficeOrigins = new OfficeOrigins(() => []),
     // Every agent the member can reach: the audience of an "office" offer.
     private reach: (agentId: string) => boolean = () => false,
+    private managerOf: (agentId: string) => string | undefined = () =>
+      undefined,
+    private otherMemberDisplay?: (member: string) => BrowserDisplay,
   ) {
     // A new office origin can refuse a page that committed before it was known.
     this.stopLearning = offices.onLearn(() => {
@@ -583,23 +599,20 @@ export class ExtensionConnection {
     });
   }
   private stopLearning: () => void;
-  private agentTabsScope: AgentTabsScope | null = null;
+  // Until the extension says, only the member's own agents use the browser.
+  private browserAccess: BrowserAccess = {
+    agents: "mine",
+    members: [],
+    openTabs: false,
+  };
 
-  // The agent tabs scope that lets agent open a tab here, or undefined: "all"
-  // when the member manages the agent, "office" when they only reach it.
+  // How agent may open a tab here, or undefined: "all" when the member
+  // manages the agent, "office" when the access admits it otherwise. via
+  // only names the tab's manager in the popup; the access decides.
   openVia(agent: string): AgentTabsScope | undefined {
-    if (!this.active || !this.ownerValid() || !this.agentTabsScope) return;
-    if (this.authorize(agent)) return "all";
-    if (this.agentTabsScope === "office" && this.reach(agent)) return "office";
-    return undefined;
-  }
-
-  // The setting covers a tab opened via this scope.
-  private covers(via: AgentTabsScope): boolean {
-    return (
-      this.agentTabsScope === "office" ||
-      (this.agentTabsScope === "all" && via === "all")
-    );
+    if (!this.active || !this.browserAccess.openTabs || !this.admits(agent))
+      return;
+    return this.authorize(agent) ? "all" : "office";
   }
 
   /** Opens an about:blank tab for agent in this browser. Resolves with its
@@ -631,19 +644,50 @@ export class ExtensionConnection {
     };
   }
 
-  // The member changed the agent tabs setting: tabs it no longer covers end.
-  private setAgentTabs(scope: AgentTabsScope | null): void {
-    this.agentTabsScope = scope;
+  // The member changed the access: tabs agents opened that it no longer
+  // admits end, and so do the live clients of agents it no longer admits.
+  private setAccess(access: BrowserAccess): void {
+    this.browserAccess = access;
     for (const a of [...this.assignments.values()])
       if (a.scope.kind === "opened" && !this.authorized(a))
         this.release(a, "agent_tabs_changed");
+      else this.cutActor(a, "access_changed");
     this.sendMetadata();
   }
 
-  /** Who may open tabs in this browser, as the extension last said; null
-   * when agent tabs are off or the extension never said. */
-  get agentTabs(): AgentTabsScope | null {
-    return this.agentTabsScope;
+  // An extension older than access sends only its agent tabs setting.
+  private setAgentTabs(scope: AgentTabsScope | null): void {
+    this.setAccess({
+      agents:
+        scope === null
+          ? this.browserAccess.agents
+          : scope === "office"
+            ? "office"
+            : "mine",
+      members: this.browserAccess.members,
+      openTabs: scope !== null,
+    });
+  }
+
+  // A grant's live client whose agent may no longer use it is cut; the grant
+  // stays for the agents that still may.
+  private cutActor(a: Assignment, cause: string): void {
+    if (a.connected && a.actor !== undefined && !this.accessible(a, a.actor))
+      this.retireClient(a.id, cause);
+  }
+
+  /** The member's access setting, as the extension last said. */
+  get access(): BrowserAccess {
+    return this.browserAccess;
+  }
+
+  /** Whose agents may open tabs in this browser: "all" for the member's own
+   * agents, "members" also the picked members', "office" every agent they
+   * reach; null when agent tabs are off or the extension never said. */
+  get agentTabs(): "all" | "members" | "office" | null {
+    const { agents, openTabs } = this.browserAccess;
+    if (!openTabs) return null;
+    return agents === "mine" ? "all" : agents;
   }
 
   /** The origin of the page the member offered, pinned at the offer. */
@@ -955,6 +999,7 @@ export class ExtensionConnection {
       );
     this.check(assignment);
     assignment.peer = peer;
+    assignment.actor = agentId;
     assignment.connected = true;
     assignment.announcing = undefined;
     assignment.announced = false;
@@ -1095,11 +1140,25 @@ export class ExtensionConnection {
       this.ownerValid() &&
       (a.scope.kind === "office"
         ? this.reach(agent)
-        : a.scope.kind === "opened"
-          ? a.scope.agentId === agent && this.authorized(a)
-          : this.authorize(agent) &&
-            (a.scope.kind === "all" || a.scope.agentId === agent))
+        : a.scope.kind === "shared"
+          ? this.admits(agent)
+          : a.scope.kind === "opened"
+            ? a.scope.agentId === agent && this.authorized(a)
+            : this.authorize(agent) &&
+              (a.scope.kind === "all" || a.scope.agentId === agent))
     );
+  }
+
+  // The browser's access admits the agent: the member manages it, or reaches
+  // it and the setting covers its manager.
+  admits(agent: string): boolean {
+    if (!this.ownerValid()) return false;
+    if (this.authorize(agent)) return true;
+    const { agents, members } = this.browserAccess;
+    if (agents === "mine" || !this.reach(agent)) return false;
+    if (agents === "office") return true;
+    const manager = this.managerOf(agent);
+    return manager !== undefined && members.includes(manager);
   }
 
   targets(agent: string): {
@@ -1188,13 +1247,8 @@ export class ExtensionConnection {
     if (!this.ownerValid()) return false;
     if (scope.kind === "agent") return this.authorize(scope.agentId);
     if (scope.kind !== "opened") return true;
-    // An opened tab needs the setting that let it, and the agent in reach.
-    return (
-      this.covers(scope.via) &&
-      (scope.via === "all"
-        ? this.authorize(scope.agentId)
-        : this.reach(scope.agentId))
-    );
+    // An opened tab needs agent tabs on and the agent in the access.
+    return this.browserAccess.openTabs && this.admits(scope.agentId);
   }
 
   // A resume with both fields, a pinned http(s) origin, and a deadline that
@@ -1387,9 +1441,10 @@ export class ExtensionConnection {
   }
 
   revalidate(): void {
-    for (const a of this.assignments.values())
+    for (const a of [...this.assignments.values()])
       if (!this.authorized(a)) this.release(a, "revalidate_unauthorized");
       else if (this.expired(a)) this.release(a, "revalidate_expired");
+      else this.cutActor(a, "revalidate_unauthorized");
     this.sendMetadata();
   }
 
@@ -1402,6 +1457,7 @@ export class ExtensionConnection {
       agents: this.agents()
         .filter((agent) => this.authorize(agent))
         .map((agent) => this.agentDisplay!(agent)),
+      members: this.pickable(),
       assignments: [...this.assignments.values()]
         .filter((a) => a.target && this.authorized(a))
         .map((a) => ({
@@ -1414,6 +1470,26 @@ export class ExtensionConnection {
           expiresAt: a.expiresAt,
         })),
     });
+  }
+
+  // The members the member may pick: those who manage an agent the member
+  // reaches, and every member already picked.
+  private pickable(): BrowserDisplay[] {
+    const ids = new Set<string>();
+    for (const agent of this.agents()) {
+      const manager = this.managerOf(agent);
+      if (
+        manager !== undefined &&
+        manager !== this.memberId &&
+        this.reach(agent)
+      )
+        ids.add(manager);
+    }
+    for (const member of this.browserAccess.members)
+      if (member !== this.memberId) ids.add(member);
+    const display =
+      this.otherMemberDisplay ?? ((id: string) => ({ id, name: id }));
+    return [...ids].map(display).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   private expired(a: Assignment): boolean {
@@ -1756,6 +1832,12 @@ export class ExtensionConnection {
         if (!validAgentTabsScope(msg.scope))
           throw new Error("Invalid agent tabs setting");
         this.setAgentTabs(msg.scope);
+        return;
+      }
+      if (msg.kind === "access") {
+        if (!validBrowserAccess(msg.access))
+          throw new Error("Invalid access setting");
+        this.setAccess(msg.access);
         return;
       }
       if (msg.kind === "result" && typeof msg.id === "number") {

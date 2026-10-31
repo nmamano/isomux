@@ -212,6 +212,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
       generation: connection.generation,
       member: { id: "m", name: "Member" },
       agents: [{ id: "a", name: "Aname" }],
+      members: [],
       assignments: [
         {
           id: expect.any(String),

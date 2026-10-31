@@ -34,20 +34,54 @@ export function validAgentTabsScope(
 ): value is AgentTabsScope | null {
   return value === null || value === "all" || value === "office";
 }
+const validAgentId = (value: unknown): boolean =>
+  typeof value === "string" && value.length > 0 && value.length <= 200;
+// Which agents may use a browser, for its offered tabs and the tabs agents
+// open: "mine" the agents the member manages, "members" also those of the
+// picked members, "office" every agent the member can reach. members stays
+// stored under the other values, so a switch back keeps the picks.
+export interface BrowserAccess {
+  agents: "mine" | "members" | "office";
+  members: string[];
+  openTabs: boolean;
+}
+// Members are unique non-empty ids of at most 200 characters, at most 200 of
+// them. The bridge refuses an invalid access message the way it refuses an
+// invalid agentTabs message: it throws and the connection closes.
+export function validBrowserAccess(value: unknown): value is BrowserAccess {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const access = value as Record<string, unknown>;
+  const members = access.members;
+  return (
+    Object.keys(access).length === 3 &&
+    (access.agents === "mine" ||
+      access.agents === "members" ||
+      access.agents === "office") &&
+    typeof access.openTabs === "boolean" &&
+    Array.isArray(members) &&
+    members.length <= 200 &&
+    members.every(validAgentId) &&
+    new Set(members).size === members.length
+  );
+}
 // "all" is every agent the member manages (the name stays for stored and
-// resumed offers); "office" is every agent the member can reach. "opened" is
-// a tab that the agent opened itself; via is the agent tabs scope that let it.
+// resumed offers); "office" is every agent the member can reach. "shared" is
+// whoever the browser's current access admits. "opened" is a tab that the
+// agent opened itself; via is the agent tabs scope that let it.
 export type BrowserGrantScope =
   | { kind: "all" }
   | { kind: "office" }
+  | { kind: "shared" }
   | { kind: "agent"; agentId: string }
   | { kind: "opened"; agentId: string; via: AgentTabsScope };
-const validAgentId = (value: unknown): boolean =>
-  typeof value === "string" && value.length > 0 && value.length <= 200;
 export function validGrantScope(value: unknown): value is BrowserGrantScope {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const scope = value as Record<string, unknown>;
-  if (scope.kind === "all" || scope.kind === "office")
+  if (
+    scope.kind === "all" ||
+    scope.kind === "office" ||
+    scope.kind === "shared"
+  )
     return Object.keys(scope).length === 1;
   if (scope.kind === "agent")
     return validAgentId(scope.agentId) && Object.keys(scope).length === 2;
@@ -166,6 +200,9 @@ export interface BrowserDisplay {
 }
 export interface BrowserMetadata {
   agents: BrowserDisplay[];
+  // Members other than this one who manage an agent the member can reach,
+  // and every picked member. Absent from an older office.
+  members?: BrowserDisplay[];
   member: BrowserDisplay;
   assignments: {
     id: string;
@@ -209,8 +246,11 @@ export interface MemberBrowserStatus {
     // carried none (before 0.4.5). Absent until it connects.
     package?: string | null;
     outdated: boolean;
-    // Whether agents may open tabs in it, while it is online; else null.
-    agentTabs: AgentTabsScope | null;
+    // Whose agents may open tabs in it, while it is online; else null. "all"
+    // is the member's own agents, "members" also those of the picked members.
+    agentTabs: "all" | "members" | "office" | null;
+    // The picked members, when agentTabs is "members".
+    members?: BrowserDisplay[];
   }[];
 }
 export interface ExtensionUIState {
@@ -229,14 +269,20 @@ export interface ExtensionUIState {
   agents: BrowserDisplay[];
   // The office accepts offers to every agent the member can reach.
   officeScope?: boolean;
-  // The office takes agent tabs: the member's setting for this browser.
-  agentTabs?: { scope: AgentTabsScope | null };
+  // The office takes agent tabs.
+  agentTabs?: boolean;
+  // While connected: the member's access setting for this browser.
+  access?: BrowserAccess;
+  // The members the member can pick (BrowserMetadata.members).
+  members: BrowserDisplay[];
+  // The office takes access messages and "shared" offers.
+  sharedAccess?: boolean;
   currentTab?: { id: number; eligible: boolean };
   assignments: {
     id: string;
     scope: BrowserGrantScope;
     agent?: BrowserDisplay;
-    // A tab opened via All agents: the name of the agent's manager.
+    // A tab opened by another member's agent: the name of its manager.
     manager?: { name: string };
     tabId: number;
     current: boolean;

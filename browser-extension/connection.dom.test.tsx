@@ -34,174 +34,6 @@ const sessionOn = (map: Map<string, unknown>) => ({
   },
 });
 
-test("popup defaults to Never, freezes the chosen duration and renders the server deadline", async () => {
-  document.body.innerHTML = popupHTML;
-  type Assignment = {
-    scope: { kind: "agent"; agentId: string };
-    id: string;
-    agent: { id: string; name: string };
-    tabId: number;
-    current: boolean;
-    phase: string;
-    durationMinutes: number;
-    expiresAt: number | null;
-  };
-  let state = {
-    state: "connected",
-    generation: "g",
-    office: "https://example.com",
-    currentTab: { id: 7, eligible: true },
-    agents: [{ id: "a", name: "Agent" }],
-    assignments: [] as Assignment[],
-  };
-  const messages: Record<string, unknown>[] = [];
-  let poll!: () => void;
-  let accept!: (value: typeof state & { error?: string }) => void;
-  const pending = () =>
-    new Promise<typeof state>((resolve) => {
-      accept = resolve;
-    });
-  await popupScript.runInNewContext({
-    document,
-    window,
-    navigator: { language: "en" },
-    Date,
-    chrome: {
-      storage: { session: noDraft },
-      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
-      runtime: {
-        sendMessage: async (message: Record<string, unknown>) => {
-          messages.push(message);
-          return message.action === "offer"
-            ? pending()
-            : structuredClone(state);
-        },
-      },
-    },
-    setInterval: (callback: () => void) => {
-      poll = callback;
-      return 1;
-    },
-    clearInterval() {},
-  });
-  const settle = async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  };
-  const expiry = document.getElementById("expiry") as HTMLSelectElement;
-  const toggle = document.getElementById("allow") as HTMLInputElement;
-  const picker = document.getElementById("agent") as HTMLSelectElement;
-  const display = document.getElementById("expiry-state")!;
-  await settle();
-  expect([...expiry.options].map((option) => option.value)).toEqual([
-    "0",
-    "15",
-    "60",
-    "240",
-  ]);
-  expect(expiry.value).toBe("0");
-  expect(expiry.disabled).toBe(false);
-  expect(document.querySelector("#office-control #status")).not.toBeNull();
-  expect(document.querySelector("#tab-control #agent")).not.toBeNull();
-  expect((document.getElementById("agent") as HTMLSelectElement).value).toBe(
-    "all",
-  );
-  expect(toggle.getAttribute("role")).toBe("switch");
-  expect(toggle.checked).toBe(false);
-  expect(document.getElementById("tab-state")!.textContent).toBe("");
-  expiry.value = "15";
-  toggle.dispatchEvent(new Event("change", { bubbles: true }));
-  expect(picker.disabled).toBe(true);
-  await settle();
-  expect(
-    messages.findLast((message) => message.action === "offer")?.durationMinutes,
-  ).toBe(15);
-  expect(
-    messages.findLast((message) => message.action === "offer")?.scope,
-  ).toEqual({ kind: "all" });
-  expect(picker.disabled).toBe(true);
-  poll();
-  await settle(); // Empty pre-ack metadata must not unlock the request.
-  expect(picker.disabled).toBe(true);
-  expect(toggle.disabled).toBe(true);
-  expect(expiry.disabled).toBe(true);
-  accept({ ...structuredClone(state), error: "fixture rejected offer" });
-  await settle();
-  expect(document.getElementById("error")!.textContent).not.toBe("");
-  poll();
-  await settle();
-  expect(picker.disabled).toBe(false);
-  expect(toggle.disabled).toBe(false);
-  expect(toggle.checked).toBe(false);
-  expect(expiry.disabled).toBe(false);
-  toggle.dispatchEvent(new Event("change", { bubbles: true }));
-  await settle();
-  expect(picker.disabled).toBe(true);
-
-  const assignment: Assignment = {
-    scope: { kind: "agent", agentId: "a" },
-    id: "grant",
-    agent: state.agents[0],
-    tabId: 7,
-    current: true,
-    phase: "offering",
-    durationMinutes: 15,
-    expiresAt: null,
-  };
-  state = { ...state, assignments: [assignment] };
-  poll();
-  await settle();
-  expect(expiry.value).toBe("15");
-  expect(expiry.disabled).toBe(true);
-  expect(display.textContent).toBe("");
-  const expiresAt = 1_800_123_456_000;
-  state = {
-    ...state,
-    assignments: [{ ...assignment, phase: "on", expiresAt }],
-  };
-  accept(structuredClone(state));
-  await settle();
-  expect(display.textContent).toContain(new Date(expiresAt).toLocaleString());
-  expect(expiry.disabled).toBe(true);
-  expect(toggle.checked).toBe(true);
-  expect(picker.disabled).toBe(true);
-  state = {
-    ...state,
-    assignments: [{ ...state.assignments[0], phase: "revoking" }],
-  };
-  poll();
-  await settle();
-  expect(expiry.disabled).toBe(true);
-  expect(expiry.value).toBe("15");
-  state = { ...state, assignments: [] };
-  poll();
-  await settle();
-  expect(expiry.disabled).toBe(false);
-  expect(expiry.value).toBe("0");
-  toggle.dispatchEvent(new Event("change", { bubbles: true }));
-  await settle();
-  expect(
-    messages.findLast((message) => message.action === "offer")?.durationMinutes,
-  ).toBe(0);
-  state = {
-    ...state,
-    assignments: [
-      {
-        ...assignment,
-        id: "new",
-        phase: "on",
-        durationMinutes: 0,
-        expiresAt: null,
-      },
-    ],
-  };
-  accept(structuredClone(state));
-  await settle();
-  expect(expiry.value).toBe("0");
-  expect(expiry.disabled).toBe(true);
-  expect(display.textContent).toContain(expiry.options[0].textContent);
-  window.dispatchEvent(new Event("pagehide"));
-});
-
 // Masking does not depend on the language; one locale is enough.
 test("pairing code stays masked unless explicitly shown, including replacement and failed submit", async () => {
   document.body.innerHTML = popupHTML;
@@ -569,105 +401,348 @@ test("a failed offer names the dialog cause only when the tab did not answer", a
   }
 });
 
-// Task d4224f2f: the picker offers Only my agents (the default) and All
-// agents, the latter only when the office takes it.
-test("the agent picker offers Only my agents by default, and All agents when the office takes it", async () => {
-  type State = {
-    state: string;
-    generation: string;
-    office: string;
-    currentTab: { id: number; eligible: boolean };
-    agents: { id: string; name: string }[];
-    officeScope?: boolean;
-    assignments: Record<string, unknown>[];
-  };
-  const open = async (state: State) => {
-    document.body.innerHTML = popupHTML;
-    const messages: Record<string, unknown>[] = [];
-    await popupScript.runInNewContext({
-      document,
-      window,
-      navigator: { language: "en" },
-      Date,
-      chrome: {
-        storage: { session: noDraft },
-        tabs: { query: async () => [{ id: 7, windowId: 1 }] },
-        runtime: {
-          sendMessage: async (message: Record<string, unknown>) => {
-            messages.push(message);
-            return structuredClone(state);
-          },
+// Task 7355640c: one Agents picker for both switches, "Use this tab" and
+// "Open their own tabs". The popup sends the access setting at once; the
+// background keeps it and answers with the new state.
+type PopupState = Record<string, unknown> & { assignments: unknown[] };
+const connected: PopupState = {
+  state: "connected",
+  generation: "g",
+  office: "https://example.com",
+  currentTab: { id: 7, eligible: true },
+  agents: [{ id: "a", name: "Agent" }],
+  members: [
+    { id: "bob", name: "Bob" },
+    { id: "carol", name: "Carol" },
+  ],
+  officeScope: true,
+  sharedAccess: true,
+  access: { agents: "mine", members: [], openTabs: false },
+  assignments: [],
+};
+const settleDom = () => new Promise((resolve) => setTimeout(resolve, 0));
+// A popup over a stand-in background that keeps the access it is sent.
+// answer, when it returns a promise, answers that message instead.
+async function openPopup(
+  initial: PopupState,
+  answer?: (message: Record<string, unknown>) => Promise<unknown> | undefined,
+) {
+  document.body.innerHTML = popupHTML;
+  let state = structuredClone(initial);
+  const messages: Record<string, unknown>[] = [];
+  let poll!: () => void;
+  await popupScript.runInNewContext({
+    document,
+    window,
+    navigator: { language: "en" },
+    Date,
+    chrome: {
+      storage: { session: noDraft },
+      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+      runtime: {
+        sendMessage: async (message: Record<string, unknown>) => {
+          messages.push(message);
+          const custom = answer?.(message);
+          if (custom) return custom;
+          if (message.action === "access")
+            state = { ...state, access: structuredClone(message.access) };
+          return structuredClone(state);
         },
       },
-      setInterval: () => 1,
-      clearInterval() {},
+    },
+    setInterval: (callback: () => void) => {
+      poll = callback;
+      return 1;
+    },
+    clearInterval() {},
+  });
+  await settleDom();
+  return {
+    messages,
+    sent: (action: string) => messages.filter((m) => m.action === action),
+    set: (next: PopupState) => {
+      state = structuredClone(next);
+    },
+    poll: async () => {
+      poll();
+      await settleDom();
+    },
+    picker: document.getElementById("agents") as HTMLSelectElement,
+    members: document.getElementById("members")!,
+    toggle: document.getElementById("allow") as HTMLInputElement,
+    openTabs: document.getElementById("open-tabs") as HTMLInputElement,
+    tabState: document.getElementById("tab-state")!,
+  };
+}
+const optionValues = (picker: HTMLSelectElement) =>
+  [...picker.options].filter((o) => !o.hidden).map((o) => o.value);
+const memberBoxes = (members: HTMLElement) => [
+  ...members.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+];
+const choose = async (picker: HTMLSelectElement, value: string) => {
+  picker.value = value;
+  picker.dispatchEvent(new Event("change", { bubbles: true }));
+  await settleDom();
+};
+
+test("the popup has one Agents picker for both switches: it sends the access at once, shows the members to pick, and keeps the picks", async () => {
+  const p = await openPopup(connected);
+  try {
+    // One picker in the whole popup, and no expiry choice.
+    expect([...document.querySelectorAll("select")].map((s) => s.id)).toEqual([
+      "agents",
+    ]);
+    expect(document.getElementById("expiry")).toBeNull();
+    expect(optionValues(p.picker)).toEqual(["mine", "members", "office"]);
+    const labels = [...p.picker.options].map((o) => o.textContent.trim());
+    expect(labels.every(Boolean)).toBe(true);
+    expect(new Set(labels).size).toBe(3);
+    expect(p.picker.value).toBe("mine");
+    expect(p.picker.disabled).toBe(false);
+    expect(p.members.hidden).toBe(true);
+    expect([p.toggle, p.openTabs].map((s) => s.getAttribute("role"))).toEqual([
+      "switch",
+      "switch",
+    ]);
+
+    await choose(p.picker, "members");
+    expect(p.sent("access").at(-1)?.access).toEqual({
+      agents: "members",
+      members: [],
+      openTabs: false,
     });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    return {
-      messages,
-      picker: document.getElementById("agent") as HTMLSelectElement,
-      toggle: document.getElementById("allow") as HTMLInputElement,
-      tabState: document.getElementById("tab-state")!,
+    expect(p.members.hidden).toBe(false);
+    expect(memberBoxes(p.members).map((b) => [b.value, b.checked])).toEqual([
+      ["bob", false],
+      ["carol", false],
+    ]);
+    expect(p.members.textContent).toContain("Bob");
+    expect(p.members.textContent).toContain("Carol");
+
+    memberBoxes(p.members)[0].click();
+    await settleDom();
+    expect(p.sent("access").at(-1)?.access).toEqual({
+      agents: "members",
+      members: ["bob"],
+      openTabs: false,
+    });
+    expect(memberBoxes(p.members).map((b) => b.checked)).toEqual([true, false]);
+
+    p.openTabs.click();
+    await settleDom();
+    expect(p.sent("access").at(-1)?.access).toEqual({
+      agents: "members",
+      members: ["bob"],
+      openTabs: true,
+    });
+
+    // Back to My agents: the picks stay stored, the list goes.
+    await choose(p.picker, "mine");
+    expect(p.sent("access").at(-1)?.access).toEqual({
+      agents: "mine",
+      members: ["bob"],
+      openTabs: true,
+    });
+    expect(p.members.hidden).toBe(true);
+
+    // Use this tab names no agents and no expiry: the background picks.
+    p.toggle.click();
+    await settleDom();
+    const offer = p.sent("offer").at(-1);
+    expect(offer).toBeDefined();
+    expect(["scope", "durationMinutes"].filter((k) => k in offer!)).toEqual([]);
+
+    // No other member has an agent in the member's rooms: the list says so.
+    p.set({
+      ...connected,
+      members: [],
+      access: { agents: "members", members: [], openTabs: false },
+    });
+    await p.poll();
+    expect(p.members.hidden).toBe(false);
+    expect(memberBoxes(p.members)).toHaveLength(0);
+    expect(p.members.textContent.trim()).not.toBe("");
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("with a tab on, the picker stays usable and a change applies at once; the switch stops control", async () => {
+  const on = {
+    ...connected,
+    assignments: [
+      {
+        scope: { kind: "shared" },
+        id: "grant",
+        tabId: 7,
+        current: true,
+        phase: "on",
+        durationMinutes: 0,
+        expiresAt: null,
+      },
+    ],
+  };
+  const p = await openPopup(on);
+  try {
+    expect(p.toggle.checked).toBe(true);
+    expect(p.tabState.textContent.trim()).not.toBe("");
+    expect(p.picker.disabled).toBe(false);
+    await choose(p.picker, "office");
+    expect(p.sent("access").at(-1)?.access).toEqual({
+      agents: "office",
+      members: [],
+      openTabs: false,
+    });
+    expect(p.sent("stop")).toEqual([]);
+    expect(p.toggle.checked).toBe(true);
+    p.toggle.click();
+    await settleDom();
+    expect(p.sent("stop").map((m) => m.assignment)).toEqual(["grant"]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("an office without shared access offers no members choice; a stored members pick shows as My agents, and a switch change keeps it stored", async () => {
+  const rows: Array<[boolean, string[]]> = [
+    [true, ["mine", "office"]],
+    [false, ["mine"]],
+  ];
+  for (const [officeScope, values] of rows) {
+    const p = await openPopup({
+      ...connected,
+      officeScope,
+      sharedAccess: undefined,
+      access: { agents: "members", members: ["bob"], openTabs: true },
+    });
+    try {
+      expect({ officeScope, values: optionValues(p.picker) }).toEqual({
+        officeScope,
+        values,
+      });
+      expect(p.picker.value).toBe("mine");
+      expect(p.members.hidden).toBe(true);
+      expect(p.openTabs.checked).toBe(true);
+      expect(p.sent("access")).toEqual([]);
+      // Turning Open their own tabs off changes only that: the background
+      // tells this office My agents, and the picks wait for an office that
+      // takes them.
+      p.openTabs.click();
+      await settleDom();
+      expect({ officeScope, access: p.sent("access").at(-1)?.access }).toEqual({
+        officeScope,
+        access: { agents: "members", members: ["bob"], openTabs: false },
+      });
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+    }
+  }
+});
+
+test("the tabs agents opened are listed under Open their own tabs, with Show and Close", async () => {
+  const opened = (id: string, agent: string, manager?: string) => ({
+    scope: { kind: "opened", agentId: agent, via: manager ? "office" : "all" },
+    id,
+    agent: { id: agent, name: agent },
+    ...(manager ? { manager: { name: manager } } : {}),
+    tabId: 9,
+    current: false,
+    phase: "on",
+    durationMinutes: 0,
+    expiresAt: null,
+  });
+  const p = await openPopup({
+    ...connected,
+    access: { agents: "members", members: ["bob"], openTabs: true },
+    assignments: [opened("t1", "Helper"), opened("t2", "Builder", "Bob")],
+  });
+  try {
+    const list = document.getElementById("agent-tabs-list")!;
+    expect(
+      p.openTabs.compareDocumentPosition(list) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+    const rows = [...list.querySelectorAll("li")];
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("Helper");
+    expect(rows[1].textContent).toContain("Builder");
+    expect(rows[1].textContent).toContain("Bob");
+    const [show, close] = [...rows[1].querySelectorAll("button")];
+    show.click();
+    await settleDom();
+    close.click();
+    await settleDom();
+    expect(
+      p.messages
+        .filter((m) => m.action === "focus" || m.action === "stop")
+        .map((m) => [m.action, m.assignment]),
+    ).toEqual([
+      ["focus", "t2"],
+      ["stop", "t2"],
+    ]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("Use this tab stays locked until the office answers, unlocks after a refusal, and follows the tab's phase", async () => {
+  let accept!: (value: unknown) => void;
+  const p = await openPopup(connected, (message) =>
+    message.action === "offer"
+      ? new Promise((resolve) => {
+          accept = resolve;
+        })
+      : undefined,
+  );
+  try {
+    expect(p.toggle.checked).toBe(false);
+    expect(p.toggle.disabled).toBe(false);
+    expect(p.tabState.textContent).toBe("");
+    p.toggle.click();
+    await settleDom();
+    expect(p.sent("offer")).toHaveLength(1);
+    expect(p.toggle.disabled).toBe(true);
+    // A poll before the answer does not unlock the switch.
+    await p.poll();
+    expect(p.toggle.disabled).toBe(true);
+    accept({ ...structuredClone(connected), error: "fixture refused" });
+    await settleDom();
+    expect(document.getElementById("error")!.textContent).not.toBe("");
+    await p.poll();
+    expect([p.toggle.disabled, p.toggle.checked]).toEqual([false, false]);
+
+    const grant = {
+      scope: { kind: "shared" },
+      id: "grant",
+      tabId: 7,
+      current: true,
+      durationMinutes: 0,
+      expiresAt: null,
     };
-  };
-  const base: State = {
-    state: "connected",
-    generation: "g",
-    office: "https://example.com",
-    currentTab: { id: 7, eligible: true },
-    agents: [{ id: "a", name: "Agent" }],
-    assignments: [],
-  };
-  const values = (picker: HTMLSelectElement) =>
-    [...picker.options].map((option) => option.value);
-  const label = (picker: HTMLSelectElement, value: string) =>
-    [...picker.options].find((option) => option.value === value)!.textContent;
-
-  // An office that does not take All agents offers.
-  const older = await open(base);
-  expect(values(older.picker)).toEqual(["all", "a"]);
-  expect(older.picker.value).toBe("all");
-  window.dispatchEvent(new Event("pagehide"));
-
-  const popup = await open({ ...base, officeScope: true });
-  expect(values(popup.picker)).toEqual(["all", "office", "a"]);
-  expect(popup.picker.value).toBe("all");
-  const mine = label(popup.picker, "all"),
-    everyone = label(popup.picker, "office");
-  expect(mine.trim()).not.toBe("");
-  expect(everyone.trim()).not.toBe("");
-  expect(everyone).not.toBe(mine);
-  popup.picker.value = "office";
-  popup.picker.dispatchEvent(new Event("change", { bubbles: true }));
-  popup.toggle.dispatchEvent(new Event("change", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(
-    popup.messages.findLast((message) => message.action === "offer")?.scope,
-  ).toEqual({ kind: "office" });
-  window.dispatchEvent(new Event("pagehide"));
-
-  // A tab offered to All agents names that choice, and Only my agents its own.
-  for (const [kind, name] of [
-    ["office", everyone],
-    ["all", mine],
-  ] as const) {
-    const on = await open({
-      ...base,
-      officeScope: true,
-      assignments: [
-        {
-          scope: { kind },
-          id: "grant",
-          tabId: 7,
-          current: true,
-          phase: "on",
-          durationMinutes: 0,
-          expiresAt: null,
-        },
-      ],
-    });
-    expect(on.picker.value).toBe(kind);
-    expect(on.tabState.textContent).toContain(name);
+    const phases: Array<[string, boolean, boolean]> = [
+      // [phase, checked, disabled]
+      ["offering", true, false],
+      ["on", true, false],
+      ["revoking", false, true],
+    ];
+    for (const [phase, checked, disabled] of phases) {
+      p.set({ ...connected, assignments: [{ ...grant, phase }] });
+      await p.poll();
+      expect({
+        phase,
+        checked: p.toggle.checked,
+        disabled: p.toggle.disabled,
+        line: p.tabState.textContent.trim() !== "",
+      }).toEqual({ phase, checked, disabled, line: true });
+    }
+    // A tab the extension cannot offer: the switch is off and says why.
+    p.set({ ...connected, currentTab: { id: 7, eligible: false } });
+    await p.poll();
+    expect([p.toggle.disabled, p.tabState.textContent.trim() !== ""]).toEqual([
+      true,
+      true,
+    ]);
+  } finally {
     window.dispatchEvent(new Event("pagehide"));
   }
 });

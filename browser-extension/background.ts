@@ -24,7 +24,9 @@ import {
   type BrowserAttachFailure,
   type BrowserDetachCause,
   type AgentTabsScope,
+  type BrowserAccess,
   validAgentTabsScope,
+  validBrowserAccess,
 } from "../shared/browser-extension-protocol";
 import { confirmPairedCode } from "./pairing-draft";
 
@@ -71,6 +73,8 @@ type Connection = {
   officeScope?: boolean;
   // The office takes agent tabs, from ready.
   agentTabs?: boolean;
+  // The office takes access messages and "shared" offers, from ready.
+  access?: boolean;
   // The office's extension package, from ready.
   officePackage?: string;
   metadata?: BrowserMetadata;
@@ -196,44 +200,97 @@ async function clearResumable(): Promise<void> {
   await saveResumable();
 }
 
-// Agent tabs (task 73a9fb57): the member's setting for this browser, kept in
-// chrome.storage.local, so it survives a Chrome restart and an extension
-// update. Unpair, pairing and a refusal clear it.
-const AGENT_TABS_KEY = "agentTabs";
-let agentTabsSetting: AgentTabsScope | null = null;
-const settingLoaded = chrome.storage.local.get(AGENT_TABS_KEY).then(
-  (stored) => {
-    const value = stored[AGENT_TABS_KEY];
-    const scope =
-      value && typeof value === "object" ? (value as Fields).scope : undefined;
-    if (validAgentTabsScope(scope)) agentTabsSetting = scope;
-  },
-  () => {},
-);
-// The setting lets an agent open a tab via this scope.
-const covers = (via: AgentTabsScope) =>
-  agentTabsSetting === "office" ||
-  (agentTabsSetting === "all" && via === "all");
-async function setAgentTabs(scope: AgentTabsScope | null): Promise<void> {
+// Which agents may use this browser (task 7355640c): the member's setting,
+// kept in chrome.storage.local, so it survives a Chrome restart and an
+// extension update. It took over the agent tabs setting (task 73a9fb57),
+// which an earlier version stored under "agentTabs". Unpair, pairing and a
+// refusal clear it.
+const ACCESS_KEY = "access";
+const LEGACY_AGENT_TABS_KEY = "agentTabs";
+const DEFAULT_ACCESS: BrowserAccess = {
+  agents: "mine",
+  members: [],
+  openTabs: false,
+};
+let access: BrowserAccess = DEFAULT_ACCESS;
+const settingLoaded = chrome.storage.local
+  .get([ACCESS_KEY, LEGACY_AGENT_TABS_KEY])
+  .then(
+    async (stored) => {
+      if (ACCESS_KEY in stored) {
+        if (validBrowserAccess(stored[ACCESS_KEY])) access = stored[ACCESS_KEY];
+      } else if (LEGACY_AGENT_TABS_KEY in stored) {
+        const value = stored[LEGACY_AGENT_TABS_KEY];
+        const scope =
+          value && typeof value === "object"
+            ? (value as Fields).scope
+            : undefined;
+        if (validAgentTabsScope(scope) && scope !== null) {
+          access = {
+            agents: scope === "office" ? "office" : "mine",
+            members: [],
+            openTabs: true,
+          };
+          await chrome.storage.local.set({ [ACCESS_KEY]: access });
+        }
+      }
+      await chrome.storage.local.remove(LEGACY_AGENT_TABS_KEY);
+    },
+    () => {},
+  );
+// The agent tabs setting that an office from before access takes: a picked
+// members setting becomes the narrower My agents.
+const legacyAgentTabs = (): AgentTabsScope | null =>
+  access.openTabs ? (access.agents === "office" ? "office" : "all") : null;
+// The setting still lets an agent open a tab via this scope. An office that
+// takes access ends the tabs of agents it no longer admits itself.
+const covers = (c: Connection | undefined, via: AgentTabsScope) =>
+  access.openTabs &&
+  (!!c?.access || access.agents === "office" || via === "all");
+// Tells the office the setting, in the form it takes.
+function sendAccess(c: Connection): void {
+  if (!c.generation || c.closed) return;
+  if (c.access) send(c, { kind: "access", generation: c.generation, access });
+  else if (c.agentTabs)
+    send(c, {
+      kind: "agentTabs",
+      generation: c.generation,
+      scope: legacyAgentTabs(),
+    });
+}
+async function setAccess(next: BrowserAccess | null): Promise<void> {
   await settingLoaded;
-  agentTabsSetting = scope;
-  if (scope === null) await chrome.storage.local.remove(AGENT_TABS_KEY);
-  else await chrome.storage.local.set({ [AGENT_TABS_KEY]: { scope } });
+  access = next ?? DEFAULT_ACCESS;
+  if (next === null) await chrome.storage.local.remove(ACCESS_KEY);
+  else await chrome.storage.local.set({ [ACCESS_KEY]: next });
   const c = current;
-  if (c?.generation && !c.closed && c.agentTabs)
-    send(c, { kind: "agentTabs", generation: c.generation, scope });
-  // Off, or a narrower scope, closes the tabs it no longer allows.
+  if (c) sendAccess(c);
+  // Off, or a narrower setting, closes the tabs it no longer allows.
   for (const [id, tab] of c?.tabs ?? [])
     if (
       tab.scope?.kind === "opened" &&
       tab.phase !== "revoking" &&
-      !covers(tab.scope.via)
+      !covers(c, tab.scope.via)
     )
       void revoke(c!, id, "off");
   for (const [id, r] of [...resumable])
-    if (r.scope.kind === "opened" && !covers(r.scope.via) && !c?.tabs.has(id))
+    if (
+      r.scope.kind === "opened" &&
+      !covers(c, r.scope.via) &&
+      !c?.tabs.has(id)
+    )
       forgetResumable(id);
 }
+
+// The scope of the member's offer from the popup: "shared" follows the
+// setting on an office that takes it; an older office gets the old scope, and
+// picked members the narrower My agents.
+const offerScope = (c: Connection): BrowserGrantScope =>
+  c.access
+    ? { kind: "shared" }
+    : access.agents === "office" && c.officeScope
+      ? { kind: "office" }
+      : { kind: "all" };
 
 // The tabs agents opened, as {tabId, targetId}, in chrome.storage.local. At
 // an extension update the next worker closes each one whose tab still shows
@@ -448,6 +505,7 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
   return {
     currentTab: selected,
     agents: online ? (c.metadata?.agents ?? []) : [],
+    members: online ? (c.metadata?.members ?? []) : [],
     office,
     state: online
       ? "connected"
@@ -464,9 +522,9 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
                 : "unpaired",
     member: online ? c.metadata?.member : undefined,
     ...(online && c.officeScope ? { officeScope: true } : {}),
-    ...(online && c.agentTabs
-      ? { agentTabs: { scope: agentTabsSetting } }
-      : {}),
+    ...(online && c.agentTabs ? { agentTabs: true } : {}),
+    ...(online && c.access ? { sharedAccess: true } : {}),
+    ...(online ? { access } : {}),
     ...(online &&
     c.officePackage &&
     extensionOutdated(chrome.runtime.getManifest().version, c.officePackage)
@@ -523,7 +581,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
     )
       throw new Error();
     await clearResumable();
-    await setAgentTabs(null);
+    await setAccess(null);
     await chrome.storage.local.setAccessLevel({
       accessLevel: "TRUSTED_CONTEXTS",
     });
@@ -554,9 +612,9 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
     // Off while the office is away: the offer is not sent again.
     forgetResumable(msg.assignment);
     await saveResumable();
-  } else if (msg.action === "agentTabs") {
-    if (!validAgentTabsScope(msg.scope)) throw new Error();
-    await setAgentTabs(msg.scope);
+  } else if (msg.action === "access") {
+    if (!validBrowserAccess(msg.access)) throw new Error();
+    await setAccess(msg.access);
   } else {
     const c = current;
     if (!c) throw new Error();
@@ -564,25 +622,15 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
     if (msg.generation !== c.generation) throw new Error();
     if (msg.action === "offer") {
       const selected = await currentTab(msg.tabId);
+      await settingLoaded;
       check(c);
-      const scope = msg.scope;
-      // Only the office's open makes a tab that an agent opened.
-      if (!validGrantScope(scope) || scope.kind === "opened") throw new Error();
-      const agent =
-        scope.kind === "agent"
-          ? c.metadata?.agents.find((a) => a.id === scope.agentId)
-          : undefined;
+      const scope = offerScope(c);
       if (
-        !validGrantDuration(msg.durationMinutes) ||
         !selected?.eligible ||
         !selected.active ||
         selected.windowId !== msg.windowId ||
-        (scope.kind === "agent" && !agent) ||
         [...c.tabs.values()].some(
           (tab) =>
-            (scope.kind === "agent" &&
-              tab.scope?.kind === "agent" &&
-              tab.scope.agentId === scope.agentId) ||
             tab.tabId === selected.id ||
             [...tab.popups.values()].some(
               (popup) => popup.tabId === selected.id,
@@ -594,8 +642,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       const tab: OwnedTab = {
         tabId: selected.id,
         scope,
-        agent,
-        durationMinutes: msg.durationMinutes,
+        durationMinutes: 0,
         expiresAt: null,
         phase: "offering",
         children: new Set(),
@@ -612,7 +659,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       refreshBadges();
     } else if (msg.action === "unpair") {
       await clearResumable();
-      await setAgentTabs(null);
+      await setAccess(null);
       const acknowledged = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => {
           c.terminal = true;
@@ -1065,7 +1112,7 @@ function openTab(c: Connection, id: string, params: Fields): Promise<Fields> {
     (params.managerName !== undefined && typeof params.managerName !== "string")
   )
     return Promise.reject(new Error("Invalid open"));
-  if (!c.agentTabs || !covers(scope.via))
+  if (!(c.agentTabs || c.access) || !covers(c, scope.via))
     return Promise.reject(new AttachError("agent_tabs_off"));
   if (c.tabs.has(id)) return Promise.reject(new AttachError("ended"));
   const tab: OwnedTab = {
@@ -1155,7 +1202,7 @@ async function configure(reset = true): Promise<void> {
     const refuse = () => {
       c.terminal = true;
       void clearResumable();
-      void setAgentTabs(null);
+      void setAccess(null);
       void chrome.alarms.clear("reconnect");
       void chrome.storage.local.set({
         connection: { ...config, blocked: true },
@@ -1232,15 +1279,11 @@ async function configure(reset = true): Promise<void> {
           c.offerResume = msg.offerResume === true;
           c.officeScope = msg.officeScope === true;
           c.agentTabs = msg.agentTabs === true;
+          c.access = msg.access === true;
           if (validExtensionPackage(msg.package)) c.officePackage = msg.package;
           // The setting goes first, so the office takes the opened tabs that
           // resume.
-          if (c.agentTabs)
-            send(c, {
-              kind: "agentTabs",
-              generation: c.generation,
-              scope: agentTabsSetting,
-            });
+          sendAccess(c);
           if (!c.offerResume) void clearResumable();
           else
             for (const [id, r] of [...resumable]) {
@@ -1248,7 +1291,7 @@ async function configure(reset = true): Promise<void> {
               // setting no longer allows ends.
               if (
                 r.scope.kind === "opened" &&
-                (!c.agentTabs || !covers(r.scope.via))
+                (!(c.agentTabs || c.access) || !covers(c, r.scope.via))
               )
                 forgetResumable(id);
               else resumeOffer(c, id, r);
@@ -1269,17 +1312,20 @@ async function configure(reset = true): Promise<void> {
             !Array.isArray(msg.assignments)
           )
             throw new Error();
+          const displays = (list: unknown[]) =>
+            list.map((value) => {
+              const item = fields(value);
+              if (typeof item.id !== "string" || typeof item.name !== "string")
+                throw new Error();
+              return { id: item.id, name: item.name };
+            });
+          if (msg.members !== undefined && !Array.isArray(msg.members))
+            throw new Error();
           c.metadata = {
             member: { id: member.id, name: member.name },
-            agents: (msg.agents as unknown[]).map((value) => {
-              const agent = fields(value);
-              if (
-                typeof agent.id !== "string" ||
-                typeof agent.name !== "string"
-              )
-                throw new Error();
-              return { id: agent.id, name: agent.name };
-            }),
+            agents: displays(msg.agents),
+            // An older office sends no members.
+            members: displays(msg.members ?? []),
             assignments: msg.assignments.map((value) => {
               const a = fields(value);
               if (!validGrantScope(a.scope)) throw new Error();

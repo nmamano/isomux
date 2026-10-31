@@ -1459,6 +1459,8 @@ async function timeoutSessionFixture(
       sendOnClose = true;
     },
     closeTransport: () => transport.close(),
+    // The fixture's held operation has finished.
+    settled: () => settled,
     retired: () => retired,
     calls: () => calls,
     connect,
@@ -2268,7 +2270,9 @@ test("target discovery resolves ambiguity without creating a session and recheck
   }
 });
 
-test("access loss after dispatch ends only that caller with unknown outcome and no replay", async () => {
+// Task 7355640c: the revalidation cuts the client of an agent that lost access
+// at once, so no page event reaches it while its command waits.
+test("access loss after dispatch cuts that caller's client at once: an unknown outcome, no replay, and the next agent gets a new client", async () => {
   const h = await timeoutSessionFixture(true, true);
   try {
     const action = h.sessions.run("agent", {
@@ -2282,6 +2286,8 @@ test("access loss after dispatch ends only that caller with unknown outcome and 
     expect(h.connection.pendingCount(h.grant)).toBe(1);
     h.allowed.delete("agent");
     h.connection.revalidate();
+    // The cut drops the pending command before Chrome answers it.
+    expect(h.connection.pendingCount(h.grant)).toBe(0);
     h.connection.receive({
       kind: "result",
       generation: h.connection.generation,
@@ -2292,9 +2298,13 @@ test("access loss after dispatch ends only that caller with unknown outcome and 
     expect(result).toMatchObject({ code: "browser_control_ended" });
     if (!result.ok) expect(result.error).toMatch(/unknown/i);
     expect(h.connection.offered("second")).toBe(h.grant);
+    // The old operation unwinds on the cut client; then the next agent acts.
+    for (let i = 0; i < 200 && !h.settled(); i++) await Bun.sleep(1);
+    expect(h.settled()).toBe(true);
     expect(
       await h.sessions.run("second", { action: "click", selector: "button" }),
     ).toMatchObject({ ok: true });
+    expect(h.connect).toHaveBeenCalledTimes(2);
     expect(h.messages.filter((m) => m.method === "cdp")).toHaveLength(1);
     expect(h.messages.some((m) => m.method === "detach")).toBe(false);
   } finally {

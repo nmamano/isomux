@@ -58,17 +58,17 @@
           <p id="update-steps"></p>
         </div>
       </section>
-      <section id="tab-control" aria-labelledby="agent-heading">
-        <h2 id="agent-heading"></h2>
-        <label id="agent-label" for="agent"></label>
-        <select id="agent" disabled></select>
-        <label id="expiry-label" for="expiry"></label>
-        <select id="expiry" disabled>
-          <option id="expiry-never" value="0" selected></option>
-          <option id="expiry-15" value="15"></option>
-          <option id="expiry-60" value="60"></option>
-          <option id="expiry-240" value="240"></option>
+      <section id="tab-control">
+        <label id="agents-label" for="agents"></label>
+        <select id="agents" disabled>
+          <option id="agents-mine" value="mine"></option>
+          <option id="agents-members" value="members"></option>
+          <option id="agents-office" value="office"></option>
         </select>
+        <div id="members" role="group" aria-labelledby="agents-members" hidden>
+          <ul id="members-list"></ul>
+          <p id="members-none"></p>
+        </div>
         <label class="control-switch"
           ><span id="allow-label"></span
           ><input type="checkbox" id="allow" role="switch" disabled /><span
@@ -77,24 +77,16 @@
           ></span
         ></label>
         <p id="tab-state" role="status"></p>
-        <p id="expiry-state"></p>
-      </section>
-      <section id="agent-tabs" aria-labelledby="agent-tabs-heading" hidden>
-        <h2 id="agent-tabs-heading"></h2>
-        <label id="agent-tabs-scope-label" for="agent-tabs-scope"></label>
-        <select id="agent-tabs-scope">
-          <option id="agent-tabs-mine" value="all"></option>
-          <option id="agent-tabs-office" value="office"></option>
-        </select>
-        <label class="control-switch"
-          ><span id="agent-tabs-allow-label"></span
-          ><input
-            type="checkbox"
-            id="agent-tabs-allow"
-            class="switch"
-            role="switch" /><span class="switch-track" aria-hidden="true"></span
-        ></label>
-        <ul id="agent-tabs-list"></ul>
+        <div id="agent-tabs" hidden>
+          <label class="control-switch"
+            ><span id="open-tabs-label"></span
+            ><input type="checkbox" id="open-tabs" role="switch" /><span
+              class="switch-track"
+              aria-hidden="true"
+            ></span
+          ></label>
+          <ul id="agent-tabs-list"></ul>
+        </div>
       </section>
       <p id="retained"></p>
       <p id="error" role="alert"></p>

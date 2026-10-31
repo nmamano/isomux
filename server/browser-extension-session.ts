@@ -80,7 +80,7 @@ const failure = (
   error: string,
 ): BrowserResult => ({ ok: false, status: 500, code, error });
 const OFFICE_REFUSED =
-  'Browser control refuses an Isomux office page that the member who offered this tab did not offer. Go to another page, or ask that member to offer a tab that shows this page. If that tab already shows as offered, they must turn Agent control off and on again for it. The new offer has a new target: use action "tabs" to find it.';
+  'Browser control refuses an Isomux office page that the member who offered this tab did not offer. Go to another page, or ask that member to offer a tab that shows this page. If that tab already shows as offered, they must turn Use this tab off and on again for it. The new offer has a new target: use action "tabs" to find it.';
 // The page data of a refused office page never reaches the agent: no url,
 // title, text, snapshot, screenshot or dialog.
 const officeRefused = (): BrowserResult => ({
@@ -152,7 +152,7 @@ const OPEN_ELSEWHERE =
 const withOpenElsewhere = (error: string, elsewhere: boolean) =>
   elsewhere ? `${error} ${OPEN_ELSEWHERE}` : error;
 const AGENT_TABS_OFF =
-  'Your manager\'s browser does not let agents open tabs. In your ask, give the member the choice: turn on "Agents may open tabs" in the extension popup, offer you a tab, or do the steps themselves.';
+  'Your manager\'s browser does not let agents open tabs. In your ask, give the member the choice: turn on "Open their own tabs" in the extension popup, offer you a tab, or do the steps themselves.';
 const agentTabsOutdated = (names: string[]) =>
   `${outdatedNote(names)} An updated extension can let agents open tabs.`;
 // playwright-core takes most of a second to load, so the office loads it at
@@ -447,7 +447,7 @@ export class ExtensionBrowserSessions {
         "browser_control_ended",
         (params.target
           ? 'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.'
-          : "Open the Chrome extension popup on an HTTP(S) tab, choose Only my agents, All agents or this agent, and turn on Agent control.") +
+          : "Open the Chrome extension popup on an HTTP(S) tab, choose Agents that include this agent, and turn on Use this tab.") +
           (outdated.length ? " " + outdatedNote(outdated) : ""),
       );
     }

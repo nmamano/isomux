@@ -40,7 +40,7 @@ const secondary = (disabled: boolean) => ({
 });
 
 export function BrowserPane() {
-  const { t, rich } = useI18n();
+  const { t, rich, language } = useI18n();
   // Prefilled from the browser the member is on, for example Chrome on
   // Windows; empty when that is not a browser to pair.
   const defaultName = () => {
@@ -250,11 +250,20 @@ export function BrowserPane() {
                         {" "}
                         ·{" "}
                         {t("browser.agentTabsSetting", {
-                          scope: t(
-                            b.agentTabs === "office"
-                              ? "browser.allAgents"
-                              : "browser.myAgents",
-                          ),
+                          scope:
+                            b.agentTabs === "members"
+                              ? t("browser.myAgentsAnd", {
+                                  members: new Intl.ListFormat(language, {
+                                    type: "conjunction",
+                                  }).format(
+                                    (b.members ?? []).map((m) => m.name),
+                                  ),
+                                })
+                              : t(
+                                  b.agentTabs === "office"
+                                    ? "browser.allAgents"
+                                    : "browser.myAgents",
+                                ),
                         })}
                       </span>
                     )}

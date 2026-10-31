@@ -983,6 +983,7 @@ function createManagers(startOpts: StartServerOpts): void {
       paired: stepsChanged,
       mayUse: mayUseExtension,
       mayReach: mayReachExtension,
+      managerOf: (agent) => agentManager.getAgent(agent)?.userId ?? undefined,
       agents: () => agentManager.getAllAgents().map((agent) => agent.id),
       memberName: (member) => getUserById(member)?.name ?? "",
       agentName: (agent) => agentManager.getAgent(agent)?.name ?? "",

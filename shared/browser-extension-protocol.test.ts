@@ -2,7 +2,9 @@ import { test, expect } from "bun:test";
 import {
   extensionOutdated,
   officeSocketURL,
+  validBrowserAccess,
   validGrantExpiry,
+  validGrantScope,
 } from "./browser-extension-protocol";
 
 test("office URL input accepts origins only and derives the encrypted socket", () => {
@@ -66,4 +68,58 @@ test("an extension is out of date exactly when its package is older than the off
     [undefined, "0.4.5"],
   ] as const)
     expect(extensionOutdated(reported, latest)).toBe(false);
+});
+
+// Task 7355640c: one access setting per browser says which agents may use it.
+// The office and the extension both read it from a message or from storage.
+test("an access setting has a known agents value, unique member ids within the caps, and an openTabs flag, and nothing else", () => {
+  const id = (n: number) => "m" + n;
+  for (const access of [
+    { agents: "mine", members: [], openTabs: false },
+    { agents: "members", members: ["m1", "m2"], openTabs: true },
+    // The picks stay stored under the other values.
+    { agents: "office", members: ["m1"], openTabs: false },
+    { agents: "members", members: ["x".repeat(200)], openTabs: false },
+    {
+      agents: "members",
+      members: Array.from({ length: 200 }, (_, n) => id(n)),
+      openTabs: true,
+    },
+  ])
+    expect({ access, valid: validBrowserAccess(access) }).toEqual({
+      access,
+      valid: true,
+    });
+  for (const access of [
+    null,
+    [],
+    "mine",
+    { agents: "all", members: [], openTabs: true },
+    { agents: "everyone", members: [], openTabs: true },
+    { agents: "mine", members: [], openTabs: "yes" },
+    { agents: "mine", openTabs: true },
+    { agents: "mine", members: [] },
+    { members: [], openTabs: true },
+    { agents: "members", members: "m1", openTabs: true },
+    { agents: "members", members: ["m1", "m1"], openTabs: true },
+    { agents: "members", members: [""], openTabs: true },
+    { agents: "members", members: [1], openTabs: true },
+    { agents: "members", members: ["x".repeat(201)], openTabs: true },
+    {
+      agents: "members",
+      members: Array.from({ length: 201 }, (_, n) => id(n)),
+      openTabs: true,
+    },
+    { agents: "mine", members: [], openTabs: true, extra: 1 },
+  ])
+    expect({ access, valid: validBrowserAccess(access) }).toEqual({
+      access,
+      valid: false,
+    });
+});
+
+test("a shared offer scope has its kind and nothing else", () => {
+  expect(validGrantScope({ kind: "shared" })).toBe(true);
+  expect(validGrantScope({ kind: "shared", agentId: "a" })).toBe(false);
+  expect(validGrantScope({ kind: "shared", via: "all" })).toBe(false);
 });

@@ -72,6 +72,7 @@ export class BrowserExtensionService {
       memberExists(member: string): boolean;
       mayUse(member: string, agent: string): boolean;
       mayReach?(member: string, agent: string): boolean;
+      managerOf?(agent: string): string | undefined;
       memberName?(member: string): string;
       agentName?(agent: string): string;
       agents?(member: string): string[];
@@ -90,6 +91,7 @@ export class BrowserExtensionService {
       agents: (member) => access.agents?.(member) ?? [],
       mayUse: (member, agent) => access.mayUse(member, agent),
       mayReach: (member, agent) => !!access.mayReach?.(member, agent),
+      managerOf: (agent) => access.managerOf?.(agent),
       officeOrigins: () => access.officeOrigins?.() ?? [],
       ...(access.memberName && access.agentName
         ? {
@@ -101,6 +103,22 @@ export class BrowserExtensionService {
         : {}),
     });
   }
+  // Whose agents may open tabs in the browser, and the picked members when
+  // the member picked some.
+  private agentTabs(
+    hash: string,
+  ): Pick<MemberBrowserStatus["browsers"][number], "agentTabs" | "members"> {
+    const connection = this.bridge.forCredentialHash(hash);
+    const agentTabs = connection?.agentTabs ?? null;
+    if (agentTabs !== "members") return { agentTabs };
+    return {
+      agentTabs,
+      members: connection!.access.members.map((id) =>
+        browserDisplay(id, this.access.memberName?.(id) ?? id),
+      ),
+    };
+  }
+
   status(member: string): MemberBrowserStatus {
     const browsers = this.store.browsers(member).map((b) => {
       const reported = this.packages.get(b.hash);
@@ -111,7 +129,7 @@ export class BrowserExtensionService {
         online: !!this.bridge.forCredentialHash(b.hash),
         ...(reported === undefined ? {} : { package: reported }),
         outdated: extensionOutdated(reported, manifest.version),
-        agentTabs: this.bridge.forCredentialHash(b.hash)?.agentTabs ?? null,
+        ...this.agentTabs(b.hash),
       };
     });
     return {
