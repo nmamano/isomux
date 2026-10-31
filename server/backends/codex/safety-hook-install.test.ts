@@ -1,15 +1,19 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import {
   chmodSync,
+  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   rmSync,
   statSync,
   utimesSync,
   writeFileSync,
+  writeSync,
 } from "fs";
 import { dirname, join, resolve } from "path";
 import { STATE_ROOT } from "../../config.ts";
@@ -46,6 +50,49 @@ function installGolden(): void {
   mkdirSync(dirname(CODEX_SAFETY_HOOK_PATH), { recursive: true });
   copyFileSync(_test.goldenPath, CODEX_SAFETY_HOOK_PATH);
   chmodSync(CODEX_SAFETY_HOOK_PATH, 0o700);
+}
+
+// The artifact is a compiled binary of about 100 MB. On a slow CI runner,
+// whole-file reads and writes in a fixture use most of a test's time limit
+// (task e1db6b41), so fixtures change and check one byte in place.
+function readByteAt(path: string, offset: number): number {
+  const fd = openSync(path, "r");
+  try {
+    const byte = Buffer.alloc(1);
+    readSync(fd, byte, 0, 1, offset);
+    return byte[0];
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function writeByteAt(path: string, offset: number, value: number): void {
+  const fd = openSync(path, "r+");
+  try {
+    writeSync(fd, Buffer.of(value), 0, 1, offset);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+// Same size, same inode, different content.
+function flipByteInPlace(path: string): { offset: number; original: number } {
+  const offset = Math.floor(statSync(path).size / 2);
+  const original = readByteAt(path, offset);
+  writeByteAt(path, offset, original ^ 0xff);
+  return { offset, original };
+}
+
+// A repair renames a new copy of the golden artifact over the hook. The
+// preflight hashes the result itself; this checks that the copy came from
+// the golden artifact and undid the flipped byte.
+function expectRepairedFromGolden(inoBefore: number, offset: number): void {
+  const installed = statSync(CODEX_SAFETY_HOOK_PATH);
+  expect(installed.ino).not.toBe(inoBefore);
+  expect(installed.size).toBe(statSync(_test.goldenPath).size);
+  expect(readByteAt(CODEX_SAFETY_HOOK_PATH, offset)).toBe(
+    readByteAt(_test.goldenPath, offset),
+  );
 }
 
 const TRUSTED_HASH = "sha256:fixed-trusted-hash";
@@ -187,9 +234,7 @@ describe("Codex safety hook installation", () => {
     utimesSync(CODEX_SAFETY_HOOK_PATH, fixedTime, fixedTime);
     const installedBefore = statSync(CODEX_SAFETY_HOOK_PATH);
     const goldenBefore = statSync(_test.goldenPath);
-    const bytes = readFileSync(CODEX_SAFETY_HOOK_PATH);
-    bytes[Math.floor(bytes.length / 2)] ^= 0xff;
-    writeFileSync(CODEX_SAFETY_HOOK_PATH, bytes);
+    const { offset } = flipByteInPlace(CODEX_SAFETY_HOOK_PATH);
     utimesSync(
       CODEX_SAFETY_HOOK_PATH,
       installedBefore.atime,
@@ -201,9 +246,7 @@ describe("Codex safety hook installation", () => {
 
     const result = await ensureCodexSafetyHook(defaultHome);
     expect(result.warning).toBeNull();
-    expect(readFileSync(CODEX_SAFETY_HOOK_PATH)).toEqual(
-      readFileSync(_test.goldenPath),
-    );
+    expectRepairedFromGolden(installedBefore.ino, offset);
     const goldenAfter = statSync(_test.goldenPath);
     expect(goldenAfter.ino).toBe(goldenBefore.ino);
     expect(goldenAfter.mtimeMs).toBe(goldenBefore.mtimeMs);
@@ -211,18 +254,15 @@ describe("Codex safety hook installation", () => {
 
   it("concurrent repairs in one process all keep the safety check", async () => {
     installGolden();
-    const bytes = readFileSync(CODEX_SAFETY_HOOK_PATH);
-    bytes[Math.floor(bytes.length / 2)] ^= 0xff;
-    writeFileSync(CODEX_SAFETY_HOOK_PATH, bytes);
+    const inoBefore = statSync(CODEX_SAFETY_HOOK_PATH).ino;
+    const { offset } = flipByteInPlace(CODEX_SAFETY_HOOK_PATH);
 
     // Two callers are enough to collide on a shared temporary file.
     const results = await Promise.all(
       Array.from({ length: 2 }, () => ensureCodexSafetyHook(defaultHome)),
     );
     for (const result of results) expect(result.warning).toBeNull();
-    expect(readFileSync(CODEX_SAFETY_HOOK_PATH)).toEqual(
-      readFileSync(_test.goldenPath),
-    );
+    expectRepairedFromGolden(inoBefore, offset);
   }, 30_000);
 
   // Quarantined on Intel macOS (task 7cf318ac): the rebuild timed out at 5 s there.
@@ -296,24 +336,29 @@ describe("Codex safety hook installation", () => {
   );
 
   it("fails open on a changed golden artifact instead of preparing it again", async () => {
-    installGolden();
-    const golden = readFileSync(_test.goldenPath);
-    const goldenStat = statSync(_test.goldenPath);
+    // A missing hook takes the same repair path as a changed one.
+    assertTestStatePath(CODEX_SAFETY_HOOK_PATH);
+    rmSync(CODEX_SAFETY_HOOK_PATH, { force: true });
+    assertTestStatePath(_test.goldenPath);
+    const { offset, original } = flipByteInPlace(_test.goldenPath);
+    const changed = statSync(_test.goldenPath);
     try {
-      const changed = Buffer.from(golden);
-      changed[Math.floor(changed.length / 2)] ^= 0xff;
-      writeFileSync(_test.goldenPath, changed);
-      const changedHash = sha256(_test.goldenPath);
-      const installed = readFileSync(CODEX_SAFETY_HOOK_PATH);
-      installed[Math.floor(installed.length / 2)] ^= 0xff;
-      writeFileSync(CODEX_SAFETY_HOOK_PATH, installed);
-
       const result = await ensureCodexSafetyHook(defaultHome);
       expect(result).toEqual({ warning: SAFETY_WARNING, hookIdentity: null });
-      expect(sha256(_test.goldenPath)).toBe(changedHash);
+      // Nothing installed from the changed copy, and the copy is neither
+      // rebuilt nor written.
+      expect(existsSync(CODEX_SAFETY_HOOK_PATH)).toBe(false);
+      const after = statSync(_test.goldenPath);
+      expect(after.ino).toBe(changed.ino);
+      expect(after.mtimeMs).toBe(changed.mtimeMs);
+      expect(after.ctimeMs).toBe(changed.ctimeMs);
+      expect(readByteAt(_test.goldenPath, offset)).toBe(original ^ 0xff);
     } finally {
-      writeFileSync(_test.goldenPath, golden);
-      chmodSync(_test.goldenPath, goldenStat.mode & 0o7777);
+      // A rebuilt golden is a new file: writing the old byte into it would
+      // break it for the cases after this one.
+      const now = statSync(_test.goldenPath, { throwIfNoEntry: false });
+      if (now?.ino === changed.ino)
+        writeByteAt(_test.goldenPath, offset, original);
     }
   });
 
@@ -593,8 +638,10 @@ describe("Codex safety hook installation", () => {
 // (task 43d82751). Any other process that starts Codex against the same state
 // root compares only and refuses on a mismatch.
 describe("Codex safety hook in a process other than the office server", () => {
-  // Names, bytes, inodes and mtimes of every file in both bin directories:
-  // a rebuild, a repair or a leftover temporary file all change it.
+  // Names, inodes, sizes and times of every file in both bin directories:
+  // a rebuild, a repair, a leftover temporary file or any write or chmod
+  // changes it. ctime cannot be set back from user space, so a write that
+  // restores the mtime still shows.
   function binSnapshot(): string[] {
     const dirs = [
       ...new Set([dirname(_test.goldenPath), dirname(CODEX_SAFETY_HOOK_PATH)]),
@@ -605,7 +652,7 @@ describe("Codex safety hook in a process other than the office server", () => {
         .map((name) => {
           const path = join(dir, name);
           const stat = statSync(path);
-          return `${path} ${stat.ino} ${stat.mtimeMs} ${sha256(path)}`;
+          return `${path} ${stat.ino} ${stat.size} ${stat.mtimeMs} ${stat.ctimeMs}`;
         }),
     );
   }
@@ -643,12 +690,10 @@ describe("Codex safety hook in a process other than the office server", () => {
     }
   }
 
-  function tamperInstalled(): void {
+  function tamperInstalled(): { ino: number; offset: number } {
     installGolden();
-    const bytes = readFileSync(CODEX_SAFETY_HOOK_PATH);
-    bytes[Math.floor(bytes.length / 2)] ^= 0xff;
-    writeFileSync(CODEX_SAFETY_HOOK_PATH, bytes);
-    expect(sha256(CODEX_SAFETY_HOOK_PATH)).not.toBe(sha256(_test.goldenPath));
+    const ino = statSync(CODEX_SAFETY_HOOK_PATH).ino;
+    return { ino, offset: flipByteInPlace(CODEX_SAFETY_HOOK_PATH).offset };
   }
 
   it("refuses on a changed installed hook and writes nothing", async () => {
@@ -700,12 +745,12 @@ describe("Codex safety hook in a process other than the office server", () => {
   }, 30_000);
 
   it("the office server still repairs a changed installed hook", async () => {
-    tamperInstalled();
+    const { ino, offset } = tamperInstalled();
     expect(_test.isHookWriter()).toBe(true);
     const result = await ensureCodexSafetyHook(defaultHome);
     expect(result.refusal).toBeUndefined();
     expect(result.warning).toBeNull();
-    expect(sha256(CODEX_SAFETY_HOOK_PATH)).toBe(sha256(_test.goldenPath));
+    expectRepairedFromGolden(ino, offset);
   }, 30_000);
 
   it("a refusal stops JsonRpcLiteClient.start() before Codex spawns", async () => {
