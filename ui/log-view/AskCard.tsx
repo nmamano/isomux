@@ -799,35 +799,49 @@ function ReplyAskCard({
             </div>
           )}
         </div>
-        <AskIdChip
-          id={entry.id}
-          isMobile={isMobile}
-          lineHeight={`${fontSize * 1.5}px`}
-        />
-        {entry.priority && (
-          <span
-            data-ask-priority={entry.priority}
-            style={{
-              color: PRIORITY_COLORS[entry.priority],
-              fontSize: isMobile ? 11 : 10,
-              fontWeight: 700,
-              lineHeight: `${fontSize * 1.5}px`,
-              flexShrink: 0,
-            }}
-          >
-            {entry.priority}
-          </span>
+        {!isMobile && (
+          <AskIdChip
+            id={entry.id}
+            isMobile={isMobile}
+            lineHeight={`${fontSize * 1.5}px`}
+          />
         )}
-        <span
+        {/* On mobile the id goes under priority and age, so the prompt keeps
+            its width. */}
+        <div
           style={{
-            color: "var(--text-ghost)",
-            fontSize: isMobile ? 12 : 11,
-            lineHeight: `${fontSize * 1.5}px`,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
             flexShrink: 0,
           }}
         >
-          {age}
-        </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            {entry.priority && (
+              <span
+                data-ask-priority={entry.priority}
+                style={{
+                  color: PRIORITY_COLORS[entry.priority],
+                  fontSize: isMobile ? 11 : 10,
+                  fontWeight: 700,
+                  lineHeight: `${fontSize * 1.5}px`,
+                }}
+              >
+                {entry.priority}
+              </span>
+            )}
+            <span
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: `${fontSize * 1.5}px`,
+              }}
+            >
+              {age}
+            </span>
+          </div>
+          {isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
+        </div>
       </div>
       <AskAffordances
         entry={entry}

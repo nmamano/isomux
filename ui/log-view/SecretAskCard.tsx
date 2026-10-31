@@ -274,16 +274,24 @@ export function SecretAskCard({
         >
           {valueAskTitle(t, secret)}
         </div>
-        <AskIdChip id={entry.id} isMobile={isMobile} />
-        <span
+        {!isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
+        {/* On mobile the id goes under the age, so the title keeps its
+            width. */}
+        <div
           style={{
-            color: "var(--text-ghost)",
-            fontSize: isMobile ? 12 : 11,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "flex-end",
             flexShrink: 0,
           }}
         >
-          {age}
-        </span>
+          <span
+            style={{ color: "var(--text-ghost)", fontSize: isMobile ? 12 : 11 }}
+          >
+            {age}
+          </span>
+          {isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
+        </div>
       </div>
       <p style={hintStyle} {...noTranslate()}>
         <InlineMarkdown content={secret.reason} code />
