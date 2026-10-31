@@ -13,6 +13,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
+const { shimEmit } = await import("./ws.ts");
 const {
   askCards,
   boot,
@@ -21,6 +22,8 @@ const {
   page,
   pageRows,
   pushCount,
+  ranger,
+  ask,
   selectedTab,
   setPages,
   setUpInboxTests,
@@ -102,6 +105,65 @@ it("switches tabs in place, and closes from either tab to what was under the Inb
   expect(window.location.pathname).toBe("/");
   expect(view.container.querySelector('[role="tablist"]')).toBeNull();
   expect(inboxButton(view)).toBeDefined();
+});
+
+// Task a930c9d6: the badge counts the open pages and the asks this browser
+// has not shown on the Asks tab, so a filter left on there never hides an
+// ask from it; the Asks tab and the entry's title keep every open ask. Another
+// tab of the same browser that shows an ask clears it here too.
+it("badges open pages plus asks not yet seen, while the Asks tab and the title count every open ask", async () => {
+  setPages([page("p1", "u1")]);
+  const view = await boot();
+  const badge = () =>
+    inboxButton(view)!.querySelector(".nav-action-badge")?.textContent ?? null;
+  const titleCount = () =>
+    Number(/\d+/.exec(inboxButton(view)!.getAttribute("title") ?? "")?.[0]);
+  // Nothing seen yet in this browser: every open ask is new.
+  expect(badge()).toBe("3");
+  await act(async () => fireEvent.click(inboxButton(view)!));
+  expect(tabCount(view, "asks")).toBe("2");
+  const close = () =>
+    act(async () => fireEvent.click(view.getByRole("button", { name: "←" })));
+  await close();
+  // Both asks were shown: the page alone lights the badge.
+  expect(badge()).toBe("1");
+  expect(titleCount()).toBe(3);
+
+  // A new ask lights it.
+  await act(async () =>
+    shimEmit({ type: "ask_upserted", entry: ask("q9", "a1") } as never),
+  );
+  expect(badge()).toBe("2");
+  expect(titleCount()).toBe(4);
+
+  // Another tab of this browser shows q9: this tab's badge follows.
+  const KEY = "isomux-asks-seen";
+  const shown = [...JSON.parse(localStorage.getItem(KEY)!), "q9"];
+  await act(async () => {
+    localStorage.setItem(KEY, JSON.stringify(shown));
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: KEY,
+        newValue: JSON.stringify(shown),
+      }),
+    );
+  });
+  expect(badge()).toBe("1");
+
+  // The agent of the hidden-room ask reaches the client (its room shown
+  // again): that ask was never on the tab, so it lights the badge.
+  await act(async () =>
+    shimEmit({
+      type: "agent_added",
+      agent: { ...ranger, id: "hidden" },
+    } as never),
+  );
+  expect(badge()).toBe("2");
+  expect(titleCount()).toBe(5);
+  await act(async () => fireEvent.click(inboxButton(view)!));
+  expect(tabCount(view, "asks")).toBe("4");
+  await close();
+  expect(badge()).toBe("1");
 });
 
 // One old path: the alias table is pinned in ui/routes.test.ts and the

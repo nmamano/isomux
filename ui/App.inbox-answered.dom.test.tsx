@@ -1,6 +1,8 @@
 // An ask the member answers on the Inbox counts as answered at once wherever
 // this member sees it (task ab332fb2): the Asks tab count, the office bar's
-// Inbox badge, the agent's desk dot and the agent's ask stack above the chat.
+// Inbox entry (its title counts every open item; its badge only the asks not
+// yet shown, task a930c9d6, whose answered rule is in ui/inbox.test.ts), the
+// agent's desk dot and the agent's ask stack above the chat.
 // Undo brings it back everywhere, and so does a send that fails, with the
 // error on the card. Through the real App and store; the Undo line itself and
 // its timer are in ui/components/AsksView.dom.test.tsx.
@@ -43,6 +45,9 @@ function holdPosts() {
 
 const badge = (view: View) =>
   inboxButton(view)?.querySelector(".nav-action-badge")?.textContent ?? null;
+// The open items the entry's title names.
+const titleCount = (view: View) =>
+  Number(/\d+/.exec(inboxButton(view)?.getAttribute("title") ?? "")?.[0] ?? 0);
 // The office opens on the lobby; the room's tab (an SVG group, named by its
 // title) shows Scout's desk.
 async function openRoom(view: View) {
@@ -76,12 +81,13 @@ async function settle(run: () => void) {
   await act(async () => {});
 }
 
-it("leaves the tab count at once, comes back on Undo, and leaves the badge and desk dot while in flight until the send fails", async () => {
+it("leaves the tab count at once, comes back on Undo, and leaves the entry's count and desk dot while in flight until the send fails", async () => {
   const { posts, settles } = holdPosts();
   const view = await boot();
   await openRoom(view);
   // Scout's two asks; the hidden-room ask counts nowhere.
   expect(badge(view)).toBe("2");
+  expect(titleCount(view)).toBe(2);
   expect(deskDot(view)).toBe("2");
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(tabCount(view, "asks")).toBe("2");
@@ -102,12 +108,16 @@ it("leaves the tab count at once, comes back on Undo, and leaves the badge and d
     fireEvent.click(view.getByRole("button", { name: "←" })),
   );
   expect(posts).toEqual(["/api/asks/q1/reply"]);
-  expect(badge(view)).toBe("1");
+  expect(titleCount(view)).toBe(1);
   expect(deskDot(view)).toBe("1");
+  // Both asks were shown on the tab: neither lights the badge.
+  expect(badge(view)).toBeNull();
 
   await settle(() => settles[0].fail("ask_busy"));
-  expect(badge(view)).toBe("2");
+  expect(titleCount(view)).toBe(2);
   expect(deskDot(view)).toBe("2");
+  // q1 is back, but it was shown already.
+  expect(badge(view)).toBeNull();
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(tabCount(view, "asks")).toBe("2");
   expect(

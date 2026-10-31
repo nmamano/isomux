@@ -10,28 +10,31 @@
 // "Discuss in chat", open the chat panel over the Inbox (AgentChatPanel).
 // The list is the store's asks slice (ui/asks-sync.ts), less the answers being
 // sent: an answer in its Undo time stays as its Undo line, and goes when it
-// is sent. InboxView draws the header and the tabs around it.
+// is sent. The filters and the sort are remembered per browser, and the asks
+// the tab shows are marked seen there for the Inbox badge (task a930c9d6).
+// InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
-import { asksFor } from "../asks-sync.ts";
+import { asksFor, visibleAsks } from "../asks-sync.ts";
 import { AskCard } from "../log-view/AskCard.tsx";
 import {
   ASKS_SORTS,
+  getAsksFilter,
   getAsksSort,
+  markAsksSeen,
+  setAsksFilter,
   setAsksSort,
   type AsksSort,
 } from "../device-settings.ts";
-import { comparePriority } from "../task-priority.ts";
 import {
-  CheckboxFilter,
+  comparePriority,
   FILTER_PRIORITIES,
-  prioritySummary,
-  toggled,
   type PriorityFilterValue,
-} from "./CheckboxFilter.tsx";
+} from "../task-priority.ts";
+import { CheckboxFilter, prioritySummary, toggled } from "./CheckboxFilter.tsx";
 import {
   ordinaryRooms,
   type AgentInfo,
@@ -169,14 +172,40 @@ export function AsksView({
 }) {
   const { asks, answeredAsks, agents, rooms, isMobile } = useAppState();
   const { t } = useI18n();
-  // The filters open on all every time, unlike the Pager's room filter: the
-  // Inbox badge counts every open ask, so the tab it opens shows them all.
-  // The sort is remembered on this device.
+  // The filters and the sort are remembered on this device. The Inbox badge
+  // counts the asks not yet shown here, whatever the filters, so a filter
+  // left on hides no new ask (task a930c9d6).
   // The rooms keep their unchecked ids, so a room that appears shows checked.
-  const [uncheckedRooms, setUncheckedRooms] = useState<string[]>([]);
-  const [priorities, setPriorities] = useState<PriorityFilterValue[]>([
-    ...FILTER_PRIORITIES,
-  ]);
+  const [storedFilter] = useState(getAsksFilter);
+  const [uncheckedRooms, setUncheckedRooms] = useState<string[]>(
+    storedFilter.uncheckedRooms,
+  );
+  const [priorities, setPriorities] = useState<PriorityFilterValue[]>(
+    storedFilter.priorities,
+  );
+  useEffect(
+    () => setAsksFilter({ uncheckedRooms, priorities }),
+    [uncheckedRooms, priorities],
+  );
+  // Every ask the member can see is seen once the tab shows on a visible
+  // page, also the ones the filters hide. An ask whose agent the client does
+  // not have stays new until it can show.
+  const [pageVisible, setPageVisible] = useState(
+    () => document.visibilityState !== "hidden",
+  );
+  useEffect(() => {
+    const onChange = () =>
+      setPageVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onChange);
+    return () => document.removeEventListener("visibilitychange", onChange);
+  }, []);
+  useEffect(() => {
+    if (!pageVisible) return;
+    markAsksSeen(
+      visibleAsks(asks, agents).map((e) => e.id),
+      asks.map((e) => e.id),
+    );
+  }, [asks, agents, pageVisible]);
   const [openFilter, setOpenFilter] = useState<"room" | "priority" | null>(
     null,
   );

@@ -2,7 +2,7 @@
 // localStorage is stubbed on globalThis - the module reads the global
 // directly.
 
-import { describe, it, expect, beforeEach, afterAll } from "bun:test";
+import { describe, it, expect, beforeEach, afterAll, spyOn } from "bun:test";
 
 const store = new Map<string, string>();
 const realLocalStorage = Object.getOwnPropertyDescriptor(
@@ -36,7 +36,12 @@ const {
   setUsagePin,
   getSettingsGroupsOpen,
   setSettingsGroupOpen,
+  getAsksFilter,
+  setAsksFilter,
+  getAsksSeen,
+  markAsksSeen,
 } = await import("./device-settings.ts");
+const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 
 // The usage pill's pinned limit (task df489513). Stored per device per agent
 // AND per provider: an agent switched between engines must not stay pinned to a
@@ -163,5 +168,115 @@ describe("settings groups open", () => {
     }
     setSettingsGroupOpen("rooms", true);
     expect([...getSettingsGroupsOpen()]).toEqual(["rooms"]);
+  });
+});
+
+// The Inbox Asks tab's room and priority filters, remembered per browser
+// (task a930c9d6). All rooms and all priorities is the default, and storing
+// it leaves nothing behind, as the sort does.
+describe("asks filter", () => {
+  beforeEach(() => store.clear());
+  const ALL = { uncheckedRooms: [], priorities: [...FILTER_PRIORITIES] };
+
+  it("starts on all, round-trips a choice, and an all choice stores nothing", () => {
+    expect(getAsksFilter()).toEqual(ALL);
+    setAsksFilter({ uncheckedRooms: ["r2", "r3"], priorities: ["P1", "none"] });
+    expect(getAsksFilter()).toEqual({
+      uncheckedRooms: ["r2", "r3"],
+      priorities: ["P1", "none"],
+    });
+    expect(store.size).toBe(1);
+    // Every priority unchecked is a choice too: the tab shows its
+    // "filters hide every ask" state, not all.
+    setAsksFilter({ uncheckedRooms: [], priorities: [] });
+    expect(getAsksFilter()).toEqual({ uncheckedRooms: [], priorities: [] });
+    setAsksFilter(ALL);
+    expect(getAsksFilter()).toEqual(ALL);
+    expect(store.size).toBe(0);
+  });
+
+  it("reads a broken or wrong-shaped value as all, and keeps the valid part of a mixed one", () => {
+    setAsksFilter({ uncheckedRooms: ["r2"], priorities: ["P1"] });
+    const [key] = [...store.keys()];
+    for (const raw of [
+      "{not json",
+      "null",
+      '"r2"',
+      "[]",
+      '{"uncheckedRooms":"r2","priorities":["P1"]}',
+      '{"uncheckedRooms":["r2"],"priorities":"P1"}',
+    ]) {
+      store.set(key, raw);
+      expect(getAsksFilter(), raw).toEqual(ALL);
+    }
+    // A level this build does not know and a room id that is not a string
+    // are dropped; the rest of the choice stands.
+    store.set(
+      key,
+      JSON.stringify({ uncheckedRooms: ["r2", 7], priorities: ["P9", "P1"] }),
+    );
+    expect(getAsksFilter()).toEqual({
+      uncheckedRooms: ["r2"],
+      priorities: ["P1"],
+    });
+  });
+});
+
+// The open asks this browser showed on the Asks tab (task a930c9d6): the
+// Inbox badge counts the open asks not in it. A mark adds the asks shown and
+// keeps only the ids still in the asks slice, so the set stays as small as
+// the open asks.
+describe("asks seen", () => {
+  beforeEach(() => store.clear());
+  const seen = () => [...getAsksSeen()].sort();
+
+  it("adds the shown asks, keeps a seen ask while it is in the slice, and drops it when it leaves", () => {
+    expect(seen()).toEqual([]);
+    markAsksSeen(["a", "b"], ["a", "b", "c"]);
+    expect(seen()).toEqual(["a", "b"]);
+    // "b" is not shown now (its agent's room is hidden), but still open.
+    markAsksSeen(["c"], ["b", "c"]);
+    expect(seen()).toEqual(["b", "c"]);
+  });
+
+  it("writes nothing on an empty slice or when nothing changes", () => {
+    markAsksSeen(["a", "b"], ["a", "b"]);
+    const [key] = [...store.keys()];
+    const stored = store.get(key);
+    // Before GET /api/asks lands the slice is empty: no wipe.
+    markAsksSeen([], []);
+    expect(seen()).toEqual(["a", "b"]);
+    const writes = spyOn(localStorage, "setItem");
+    try {
+      markAsksSeen(["b", "a"], ["a", "b"]);
+      markAsksSeen(["a"], ["b", "a"]);
+      expect(writes).not.toHaveBeenCalled();
+    } finally {
+      writes.mockRestore();
+    }
+    expect(store.get(key)).toBe(stored);
+    // Anchor: a change still writes.
+    markAsksSeen(["c"], ["a", "c"]);
+    expect(seen()).toEqual(["a", "c"]);
+  });
+
+  it("returns the same set while the stored value is unchanged, a new one after a change", () => {
+    markAsksSeen(["a"], ["a"]);
+    const first = getAsksSeen();
+    expect(getAsksSeen()).toBe(first);
+    markAsksSeen(["b"], ["a", "b"]);
+    expect(getAsksSeen()).not.toBe(first);
+    expect(seen()).toEqual(["a", "b"]);
+  });
+
+  it("reads a broken value as nothing seen, and drops ids that are not strings", () => {
+    markAsksSeen(["a"], ["a"]);
+    const [key] = [...store.keys()];
+    for (const raw of ["{not json", '"a"', '{"a":true}', "null"]) {
+      store.set(key, raw);
+      expect(seen(), raw).toEqual([]);
+    }
+    store.set(key, JSON.stringify(["a", 3, null, "b"]));
+    expect(seen()).toEqual(["a", "b"]);
   });
 });

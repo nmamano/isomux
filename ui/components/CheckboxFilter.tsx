@@ -4,20 +4,13 @@
 
 import { useEffect, useRef } from "react";
 import { noTranslate } from "../no-translate.ts";
-import { PRIORITY_ORDER } from "../task-priority.ts";
+import {
+  FILTER_PRIORITIES,
+  PRIORITY_ORDER,
+  type PriorityFilterValue,
+} from "../task-priority.ts";
 import type { TaskPriority } from "../../shared/types.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
-
-// A priority filter's choices: the levels, and "none" for no priority.
-export type PriorityFilterValue = TaskPriority | "none";
-export const FILTER_PRIORITIES: readonly PriorityFilterValue[] = [
-  "P0",
-  "P1",
-  "P2",
-  "P3",
-  "P4",
-  "none",
-];
 
 // Adjacent levels collapse to a range: "P0-P3, none".
 export function prioritySummary(

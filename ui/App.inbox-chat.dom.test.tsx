@@ -11,6 +11,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
+const { shimEmit } = await import("./ws.ts");
 const {
   addRanger,
   ask,
@@ -80,24 +81,37 @@ it("opens the Inbox from an agent's chat on what is open elsewhere, and the clos
   expect(badge(view)).toBe("1");
 });
 
-it("counts in a chat the asks of the other agents, and opens Asks for them", async () => {
+// The chat bar's badge counts, of the other agents' asks, only those not yet
+// shown on the Asks tab (task a930c9d6); the tab it opens and the tab counts
+// still go by every open ask.
+it("counts in a chat the new asks of the other agents, and opens Asks while another agent's ask is open", async () => {
   // No page; Scout's two asks and one from Ranger.
   addRanger();
   setAsks([ask("q1", "a1"), ask("q2", "a1"), ask("q4", "a2")]);
   const view = await boot();
   expect(badge(view)).toBe("3");
 
-  // In Scout's chat the badge counts Ranger's ask only, and opens Asks.
+  // Into Scout's chat through the Asks tab, which showed all three: nothing
+  // new, but Ranger's ask is still open, so the entry opens Asks.
   await openChat(view, "a1");
   expectScoutChat(view);
-  expect(badge(view)).toBe("1");
+  expect(badge(view)).toBeNull();
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(window.location.pathname).toBe("/inbox/asks");
   expect(tabCount(view, "asks")).toBe("3");
   expect(askCards(view)).toBe(3);
 
-  // In Ranger's chat it counts Scout's two asks.
+  // In Ranger's chat a new ask of Scout lights the badge; a new one of
+  // Ranger shows in this chat's stack and does not.
   await chatFromInbox(view, "a2");
   expect(document.title).toContain("Ranger");
-  expect(badge(view)).toBe("2");
+  expect(badge(view)).toBeNull();
+  await act(async () =>
+    shimEmit({ type: "ask_upserted", entry: ask("q5", "a1") } as never),
+  );
+  expect(badge(view)).toBe("1");
+  await act(async () =>
+    shimEmit({ type: "ask_upserted", entry: ask("q6", "a2") } as never),
+  );
+  expect(badge(view)).toBe("1");
 });

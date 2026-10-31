@@ -12,6 +12,17 @@ export const PRIORITY_ORDER: Record<TaskPriority, number> = {
   P4: 4,
 };
 
+// A priority filter's choices: the levels, and "none" for no priority.
+export type PriorityFilterValue = TaskPriority | "none";
+export const FILTER_PRIORITIES: readonly PriorityFilterValue[] = [
+  "P0",
+  "P1",
+  "P2",
+  "P3",
+  "P4",
+  "none",
+];
+
 export const PRIORITY_COLORS: Record<TaskPriority, string> = {
   P0: "var(--red-text)",
   P1: "var(--orange-text)",

@@ -8,6 +8,10 @@
 // is genuinely about THIS browser.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
+import {
+  FILTER_PRIORITIES,
+  type PriorityFilterValue,
+} from "./task-priority.ts";
 
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
@@ -137,6 +141,119 @@ export function setAsksSort(sort: AsksSort): void {
     if (sort === "agent") localStorage.removeItem(KEY_ASKS_SORT);
     else localStorage.setItem(KEY_ASKS_SORT, sort);
   } catch {}
+}
+
+// The Inbox Asks tab's filters, remembered on this device: the rooms the
+// member unchecked and the checked priorities. They start as all.
+export interface AsksFilterSetting {
+  uncheckedRooms: string[];
+  priorities: PriorityFilterValue[];
+}
+
+const KEY_ASKS_FILTER = "isomux-asks-filter";
+
+const isAllAsksFilter = (filter: AsksFilterSetting) =>
+  filter.uncheckedRooms.length === 0 &&
+  FILTER_PRIORITIES.every((p) => filter.priorities.includes(p));
+
+// A value that is not this shape reads as all; a room id that is not a
+// string, or a level this build does not know, is dropped.
+export function getAsksFilter(): AsksFilterSetting {
+  try {
+    const stored: unknown = JSON.parse(
+      localStorage.getItem(KEY_ASKS_FILTER) ?? "null",
+    );
+    if (stored && typeof stored === "object") {
+      const { uncheckedRooms, priorities } = stored as Record<string, unknown>;
+      if (Array.isArray(uncheckedRooms) && Array.isArray(priorities)) {
+        return {
+          uncheckedRooms: uncheckedRooms.filter(
+            (id): id is string => typeof id === "string",
+          ),
+          priorities: FILTER_PRIORITIES.filter((p) => priorities.includes(p)),
+        };
+      }
+    }
+  } catch {}
+  return { uncheckedRooms: [], priorities: [...FILTER_PRIORITIES] };
+}
+
+export function setAsksFilter(filter: AsksFilterSetting): void {
+  try {
+    if (isAllAsksFilter(filter)) localStorage.removeItem(KEY_ASKS_FILTER);
+    else localStorage.setItem(KEY_ASKS_FILTER, JSON.stringify(filter));
+  } catch {}
+}
+
+// The ids of the open asks this device showed on the Asks tab. The Inbox
+// badge counts only the open asks not in it.
+const KEY_ASKS_SEEN = "isomux-asks-seen";
+const asksSeenListeners = new Set<() => void>();
+// The last value read, by its raw string, so a reader gets the same set until
+// the stored value changes (useSyncExternalStore compares by identity).
+let asksSeenCache: { raw: string | null; seen: ReadonlySet<string> } | null =
+  null;
+
+function readAsksSeenRaw(): string | null {
+  try {
+    return localStorage.getItem(KEY_ASKS_SEEN);
+  } catch {
+    return null;
+  }
+}
+
+export function getAsksSeen(): ReadonlySet<string> {
+  const raw = readAsksSeenRaw();
+  if (asksSeenCache?.raw === raw) return asksSeenCache.seen;
+  let seen = new Set<string>();
+  try {
+    const stored: unknown = JSON.parse(raw ?? "[]");
+    if (Array.isArray(stored)) {
+      seen = new Set(
+        stored.filter((id): id is string => typeof id === "string"),
+      );
+    }
+  } catch {}
+  asksSeenCache = { raw, seen };
+  return seen;
+}
+
+/**
+ * Marks the asks the tab shows (`visibleIds`) seen, and keeps of the earlier
+ * ones only those still in the asks slice (`sliceIds`), so the set stays as
+ * small as the open asks. An empty slice (asks not loaded yet) writes nothing.
+ */
+export function markAsksSeen(
+  visibleIds: readonly string[],
+  sliceIds: readonly string[],
+): void {
+  if (sliceIds.length === 0) return;
+  const before = getAsksSeen();
+  const open = new Set(sliceIds);
+  const next = new Set([...before].filter((id) => open.has(id)));
+  for (const id of visibleIds) next.add(id);
+  if (next.size === before.size && [...next].every((id) => before.has(id))) {
+    return;
+  }
+  try {
+    localStorage.setItem(KEY_ASKS_SEEN, JSON.stringify([...next]));
+  } catch {
+    return;
+  }
+  for (const listener of asksSeenListeners) listener();
+}
+
+// Fires on a mark here and on a change from another tab of this browser.
+export function subscribeAsksSeen(onChange: () => void): () => void {
+  asksSeenListeners.add(onChange);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === KEY_ASKS_SEEN || e.key === null) onChange();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    asksSeenListeners.delete(onChange);
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 // Whether the member closed the office's "Install as app" notice

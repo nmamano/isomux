@@ -26,6 +26,7 @@ const { AsksView, ASK_UNDO_MS } = await import("./AsksView.tsx");
 const { StateCtx, DispatchCtx, initialState, reducer } =
   await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
+const { getAsksSeen, setAsksFilter } = await import("../device-settings.ts");
 const {
   checkedFilterValues,
   filterButton,
@@ -672,7 +673,10 @@ describe("the filter row", () => {
     ).toBeNull();
   });
 
-  it("remembers the sort on this device, but opens the filters on all again", async () => {
+  // Task a930c9d6: the filters are remembered per browser like the sort, so
+  // an Inbox opened again shows what the member left; Show all is remembered
+  // too.
+  it("remembers the sort and both filters on this device, and Show all", async () => {
     const first = mountSorted();
     choose(first.view, "data-asks-sort", "priority");
     await setRooms(first.view, ["r2"]);
@@ -683,17 +687,58 @@ describe("the filter row", () => {
     expect(control(second.view, "data-asks-sort").value).toBe("priority");
     expect(await checkedFilterValues(second.view.container, "room")).toEqual([
       "r2",
-      "r1",
     ]);
     expect(
       await checkedFilterValues(second.view.container, "priority"),
-    ).toEqual(ALL_PRIORITIES);
-    expect(pageOrder(second.view)).toEqual([
+    ).toEqual(["P1"]);
+    expect(pageOrder(second.view)).toEqual(["a4:a4p1"]);
+    // No level checked is remembered as such, not read back as all.
+    await setPriorities(second.view, []);
+    second.view.unmount();
+    const empty = mountSorted();
+    expect(pageOrder(empty.view)).toEqual([]);
+    const showAll = empty.view.container.querySelector<HTMLButtonElement>(
+      "[data-asks-filtered-empty] [data-asks-show-all]",
+    );
+    expect(showAll).not.toBeNull();
+    await act(async () => fireEvent.click(showAll!));
+    empty.view.unmount();
+    const third = mountSorted();
+    expect(await checkedFilterValues(third.view.container, "room")).toEqual([
+      "r2",
+      "r1",
+    ]);
+    expect(await checkedFilterValues(third.view.container, "priority")).toEqual(
+      ALL_PRIORITIES,
+    );
+    expect(pageOrder(third.view)).toEqual([
       "a1:a1top,a1old",
       "a3:a3p1",
       "a4:a4p1,a4none",
       "a2:a2only",
     ]);
+  });
+
+  // A room the member unchecks stays unchecked while it is gone from the
+  // office, so it comes back unchecked, and hides nothing meanwhile.
+  it("keeps a remembered unchecked room that went away, and it hides that room again when it comes back", async () => {
+    const first = mountSorted();
+    await setRooms(first.view, ["r1"]);
+    first.view.unmount();
+    const gone = mount(SORT_ASKS, {
+      rooms: SORT_ROOMS.filter((r) => r.id !== "r2"),
+      agents: SORT_AGENTS.map((a) => ({ ...a, roomId: "r1" })),
+    });
+    // r2 is gone and its agents moved: every ask shows.
+    expect(runsOf(gone.view).flatMap((r) => r.cards)).toHaveLength(
+      SORT_ASKS.length,
+    );
+    gone.view.unmount();
+    const back = mountSorted();
+    expect(await checkedFilterValues(back.view.container, "room")).toEqual([
+      "r1",
+    ]);
+    expect(pageOrder(back.view)).toEqual(["a1:a1old,a1top", "a3:a3p1"]);
   });
 
   it("remembers the age sort on this device", () => {
@@ -719,6 +764,101 @@ describe("the filter row", () => {
     const second = mountSorted();
     expect(control(second.view, "data-asks-sort").value).toBe("agent");
     expect(pageOrder(second.view)).toEqual(BY_AGENT);
+  });
+});
+
+// What this browser has seen (task a930c9d6): while the Asks tab shows on a
+// visible page, every open ask the member can see is marked seen, whatever
+// the filters, so the Inbox badge lights only for what came since. A seen ask
+// stays seen while it is open, even with its agent out of the agents slice.
+describe("asks seen", () => {
+  beforeEach(() => localStorage.clear());
+  const seen = () => [...getAsksSeen()].sort();
+  const ALL_SORT_IDS = SORT_ASKS.map((a) => a.id).sort();
+
+  it("marks every open ask it can show seen, whatever the filters, and one that arrives or whose agent arrives", async () => {
+    setAsksFilter({ uncheckedRooms: ["r2"], priorities: ["P1"] });
+    const { view, latest } = mount(
+      [...SORT_ASKS, ranked("ghostAsk", "a9", 3, "P1")],
+      { rooms: SORT_ROOMS, agents: SORT_AGENTS },
+    );
+    // The filters are on: only a3's P1 ask in r1 shows.
+    expect(pageOrder(view)).toEqual(["a3:a3p1"]);
+    // Every ask of an agent the client has, not the ghost's.
+    expect(seen()).toEqual(ALL_SORT_IDS);
+    // A new ask in the unchecked room: seen at once.
+    act(() =>
+      latest.dispatch({
+        type: "ask_upserted",
+        entry: ranked("a2late", "a2", 0, "P2"),
+      }),
+    );
+    expect(pageOrder(view)).toEqual(["a3:a3p1"]);
+    expect(seen()).toEqual([...ALL_SORT_IDS, "a2late"].sort());
+    // The ghost's agent arrives: its ask is now one the member can see.
+    act(() =>
+      latest.setPlace({
+        rooms: SORT_ROOMS,
+        agents: [
+          ...SORT_AGENTS,
+          { id: "a9", name: "Ghost", roomId: "r2" },
+        ] as AppState["agents"],
+      }),
+    );
+    expect(seen()).toEqual([...ALL_SORT_IDS, "a2late", "ghostAsk"].sort());
+  });
+
+  it("keeps a seen ask seen while its agent is out of the agents slice, and drops it when it closes", async () => {
+    const { latest } = mountSorted();
+    expect(seen()).toEqual(ALL_SORT_IDS);
+    // a4's room is hidden: a4 leaves the agents slice, its asks stay open.
+    act(() =>
+      latest.setPlace({
+        rooms: SORT_ROOMS,
+        agents: SORT_AGENTS.filter((a) => a.id !== "a4"),
+      }),
+    );
+    act(() =>
+      latest.dispatch({
+        type: "ask_upserted",
+        entry: ranked("a1late", "a1", 0),
+      }),
+    );
+    expect(seen()).toEqual([...ALL_SORT_IDS, "a1late"].sort());
+    // A closed ask leaves the set.
+    act(() => latest.dispatch({ type: "ask_removed", id: "a2only" }));
+    expect(seen()).toEqual(
+      [...ALL_SORT_IDS, "a1late"].filter((id) => id !== "a2only").sort(),
+    );
+  });
+
+  it("marks nothing while the page is hidden, and everything shown once it is visible again", async () => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    try {
+      const { view, latest } = mountSorted();
+      // The tab shows the asks; the page is hidden.
+      expect(pageOrder(view)).toEqual(BY_AGENT);
+      act(() =>
+        latest.dispatch({
+          type: "ask_upserted",
+          entry: ranked("a1late", "a1", 0),
+        }),
+      );
+      expect(seen()).toEqual([]);
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          get: () => "visible",
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(seen()).toEqual([...ALL_SORT_IDS, "a1late"].sort());
+    } finally {
+      delete (document as unknown as Record<string, unknown>).visibilityState;
+    }
   });
 });
 

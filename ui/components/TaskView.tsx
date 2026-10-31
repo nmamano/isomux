@@ -17,14 +17,13 @@ import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { openingRoomFilter } from "../room-filter.ts";
+import { CheckboxFilter, prioritySummary, toggled } from "./CheckboxFilter.tsx";
 import {
-  CheckboxFilter,
+  comparePriority,
+  PRIORITY_COLORS,
   FILTER_PRIORITIES,
-  prioritySummary,
-  toggled,
   type PriorityFilterValue,
-} from "./CheckboxFilter.tsx";
-import { comparePriority, PRIORITY_COLORS } from "../task-priority.ts";
+} from "../task-priority.ts";
 import { isClosedTask } from "../../shared/task-board.ts";
 import {
   ExpandableTextarea,
