@@ -29,6 +29,7 @@ import type { RouteAuth, RoutePrecondition } from "./table.ts";
 import type { RouteMatch } from "./match.ts";
 import type { Identity } from "../identity/index.ts";
 import { passesRouteStageOne, authorize } from "../identity/dispatch.ts";
+import { routeAllowedByLimits } from "../../shared/api-token-limits.ts";
 import {
   ALLOW,
   FORBIDDEN,
@@ -338,6 +339,22 @@ export async function executeRoute(
     callerSessionIdHash: opts?.callerSessionIdHash,
     via: opts?.via,
   };
+
+  // A limited API token is refused a route outside its areas before any guard
+  // runs, so a refused call learns nothing about the resource. The detail names
+  // what to grant; the route-to-area map is public.
+  if (!routeAllowedByLimits(identity.apiTokenLimits, route.tokenArea)) {
+    return render(
+      fail(
+        403,
+        "forbidden",
+        "This API token's limits do not allow this action.",
+        typeof route.tokenArea === "object"
+          ? { ...route.tokenArea }
+          : undefined,
+      ),
+    );
+  }
 
   const authz = runAuthorize(
     route.auth,

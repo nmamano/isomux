@@ -170,11 +170,13 @@ A token cannot:
 
 These exclusions do not make a boundary. A token can spawn an agent, and the agent runs shell commands as the server's OS user (section 3). Thus a token has shell-equivalent access. Treat it like a password for a shell account on the server.
 
+A member can limit a token to some areas of the office when they mint it (none, read, or read and write for each area). Isomux checks the limits on each request, before the route's own checks, and refuses a route that has no area. The limits cover only the token's own calls. Write access to these areas gives the token shell-equivalent access too, and the mint form marks them: agents and messages, agent management, rooms, office settings and members, memory, skills, schedules, apps, webhooks, files, asks, and environment and secrets. Each one can make an agent act with the member's reach. A token that can write tasks or the members chat writes text that agents read. The Read only preset leaves out the areas that can show secrets: logs, terminals, attachments and system prompts; files; and environment values and secrets.
+
 ### 5.2 Mint and storage
 
 Each member can mint tokens in **Integrations → API tokens**. Only a browser session can mint a token. An agent, an app or another token cannot. An agent reaches this page only in a Chrome tab that a member offered to it on the office (section 6.5).
 
-Isomux shows the raw token one time. It stores the SHA-256 hash, the name, the dates, and a display prefix: `isomux_pat_` and the first 8 characters of the secret. The file is `api-tokens.json` (mode 0600).
+Isomux shows the raw token one time. It stores the SHA-256 hash, the name, the dates, the limits, and a display prefix: `isomux_pat_` and the first 8 characters of the secret. The file is `api-tokens.json` (mode 0600).
 
 ### 5.3 Expiry and revocation
 

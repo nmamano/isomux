@@ -14,11 +14,77 @@ import {
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
+import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
+import {
+  API_TOKEN_AREAS,
+  API_TOKEN_PRESETS,
+  FULL_ACCESS_WRITE_AREAS,
+  type ApiTokenAccess,
+  type ApiTokenArea,
+  type ApiTokenLimits,
+} from "../../shared/api-token-limits.ts";
 
 const DEVELOPER_API_GUIDE = "https://isomux.com/docs/developer-api";
 
 const EXPIRY_OPTIONS = [30, 365, null] as const;
 type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
+
+// "full" mints without limits; the presets fill the area list, and any change
+// to it makes the choice "custom".
+const ACCESS_CHOICES = ["full", "readOnly", "talkToAgents", "custom"] as const;
+type AccessChoice = (typeof ACCESS_CHOICES)[number];
+type Areas = ApiTokenLimits["areas"];
+
+const ACCESS_LABEL: Record<AccessChoice, PlainMessageKey> = {
+  full: "settings.apiTokens.access.full",
+  readOnly: "settings.apiTokens.access.readOnly",
+  talkToAgents: "settings.apiTokens.access.talkToAgents",
+  custom: "settings.apiTokens.access.custom",
+};
+
+const AREA_LABEL: Record<ApiTokenArea, PlainMessageKey> = {
+  office: "settings.apiTokens.area.office",
+  rooms: "settings.apiTokens.area.rooms",
+  agents: "settings.apiTokens.area.agents",
+  agentManagement: "settings.apiTokens.area.agentManagement",
+  logs: "settings.apiTokens.area.logs",
+  files: "settings.apiTokens.area.files",
+  tasks: "settings.apiTokens.area.tasks",
+  asks: "settings.apiTokens.area.asks",
+  membersChat: "settings.apiTokens.area.membersChat",
+  memory: "settings.apiTokens.area.memory",
+  skills: "settings.apiTokens.area.skills",
+  schedules: "settings.apiTokens.area.schedules",
+  apps: "settings.apiTokens.area.apps",
+  webhooks: "settings.apiTokens.area.webhooks",
+  pager: "settings.apiTokens.area.pager",
+  environment: "settings.apiTokens.area.environment",
+  voice: "settings.apiTokens.area.voice",
+};
+
+const LEVEL_LABEL: Record<ApiTokenAccess | "none", PlainMessageKey> = {
+  none: "settings.apiTokens.level.none",
+  read: "settings.apiTokens.level.read",
+  write: "settings.apiTokens.level.write",
+};
+
+function sameAreas(a: Areas, b: Areas): boolean {
+  const keys = Object.keys(a) as ApiTokenArea[];
+  return (
+    keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k])
+  );
+}
+
+// The choice a token's limits match: no limits is full access, a preset by its
+// name, anything else custom.
+function accessOf(limits: ApiTokenLimits | undefined): AccessChoice {
+  if (!limits) return "full";
+  if (sameAreas(limits.areas, API_TOKEN_PRESETS.readOnly.areas))
+    return "readOnly";
+  if (sameAreas(limits.areas, API_TOKEN_PRESETS.talkToAgents.areas))
+    return "talkToAgents";
+  return "custom";
+}
 
 export function ApiTokensPane() {
   const { t, tn, rich } = useI18n();
@@ -26,6 +92,8 @@ export function ApiTokensPane() {
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
   const [expiresInDays, setExpiresInDays] = useState<ExpiryChoice>(30);
+  const [access, setAccess] = useState<AccessChoice>("full");
+  const [areas, setAreas] = useState<Areas>({});
   const [rawToken, setRawToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState(false);
@@ -58,6 +126,7 @@ export function ApiTokensPane() {
     apiFetch<ApiTokenCreateRes>("POST", "/api/me/api-tokens", {
       name: name.trim(),
       expiresInDays,
+      ...(access === "full" ? {} : { limits: { areas } }),
     })
       .then((res) => {
         setTokens((current) => [res.apiToken, ...current]);
@@ -72,6 +141,23 @@ export function ApiTokensPane() {
         ),
       )
       .finally(() => setPending(false));
+  }
+
+  function chooseAccess(choice: AccessChoice) {
+    setAccess(choice);
+    if (choice === "full") setAreas({});
+    else if (choice !== "custom")
+      setAreas({ ...API_TOKEN_PRESETS[choice].areas });
+  }
+
+  function setArea(area: ApiTokenArea, level: ApiTokenAccess | "none") {
+    setAccess("custom");
+    setAreas((current) => {
+      const next = { ...current };
+      if (level === "none") delete next[area];
+      else next[area] = level;
+      return next;
+    });
   }
 
   function revoke(id: string) {
@@ -138,6 +224,7 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
         <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
           {t("common.name")}
           <input
+            data-testid="api-token-name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder={t("settings.apiTokens.namePlaceholder")}
@@ -180,7 +267,51 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             ))}
           </select>
         </label>
+        <label style={{ display: "block", fontSize: 12, marginTop: 8 }}>
+          {t("settings.apiTokens.access")}
+          <select
+            data-testid="api-token-access"
+            value={access}
+            onChange={(event) =>
+              chooseAccess(event.target.value as AccessChoice)
+            }
+            style={{
+              ...dialogInput,
+              display: "block",
+              width: "100%",
+              marginTop: 5,
+            }}
+          >
+            {ACCESS_CHOICES.map((choice) => (
+              <option key={choice} value={choice}>
+                {t(ACCESS_LABEL[choice])}
+              </option>
+            ))}
+          </select>
+        </label>
+        {access !== "full" && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr auto",
+              alignItems: "center",
+              gap: "6px 10px",
+              marginTop: 10,
+              fontSize: 12,
+            }}
+          >
+            {API_TOKEN_AREAS.map((area) => (
+              <AreaRow
+                key={area}
+                area={area}
+                level={areas[area] ?? "none"}
+                onChange={(level) => setArea(area, level)}
+              />
+            ))}
+          </div>
+        )}
         <button
+          data-testid="api-token-create"
           onClick={create}
           disabled={pending || !name.trim()}
           style={{
@@ -247,7 +378,75 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
   );
 }
 
-// One card per token: name, prefix, expiry, last request and Revoke. The
+// One area of a limited token: its name, a none / read / read and write
+// select, and a mark when its write equals full access.
+function AreaRow({
+  area,
+  level,
+  onChange,
+}: {
+  area: ApiTokenArea;
+  level: ApiTokenAccess | "none";
+  onChange: (level: ApiTokenAccess | "none") => void;
+}) {
+  const { t } = useI18n();
+  const fullAccess = level === "write" && FULL_ACCESS_WRITE_AREAS.has(area);
+  return (
+    <>
+      <span>
+        {t(AREA_LABEL[area])}
+        {fullAccess && (
+          <span
+            data-full-access-warning={area}
+            style={{ color: "var(--red-text)", marginLeft: 6 }}
+          >
+            {t("settings.apiTokens.equalsFullAccess")}
+          </span>
+        )}
+      </span>
+      <select
+        data-area={area}
+        aria-label={t(AREA_LABEL[area])}
+        value={level}
+        onChange={(event) =>
+          onChange(event.target.value as ApiTokenAccess | "none")
+        }
+        style={dialogInput}
+      >
+        {(["none", "read", "write"] as const).map((option) => (
+          <option key={option} value={option}>
+            {t(LEVEL_LABEL[option])}
+          </option>
+        ))}
+      </select>
+    </>
+  );
+}
+
+// What a token card says about its access: the preset name, or for custom
+// each area with its level.
+function accessSummary(
+  t: ReturnType<typeof useI18n>["t"],
+  language: string,
+  limits: ApiTokenLimits | undefined,
+): string {
+  const choice = accessOf(limits);
+  if (choice !== "custom" || !limits) return t(ACCESS_LABEL[choice]);
+  const granted = API_TOKEN_AREAS.filter((area) => limits.areas[area]).map(
+    (area) =>
+      t("settings.apiTokens.areaLevel", {
+        area: t(AREA_LABEL[area]),
+        level: t(LEVEL_LABEL[limits.areas[area]!]),
+      }),
+  );
+  return t("settings.apiTokens.customAccess", {
+    areas: granted.length
+      ? new Intl.ListFormat(language, { type: "conjunction" }).format(granted)
+      : t("settings.apiTokens.noAreas"),
+  });
+}
+
+// One card per token: name, prefix, expiry, last request, access and Revoke. The
 // member's own pane and an owner's view of a member share it.
 export function ApiTokenCards({
   tokens,
@@ -291,6 +490,11 @@ export function ApiTokenCards({
                     ),
                   })
                 : t("settings.apiTokens.never"),
+            })}
+          </div>
+          <div style={hint} data-token-access={accessOf(token.limits)}>
+            {t("settings.apiTokens.accessLine", {
+              access: accessSummary(t, language, token.limits),
             })}
           </div>
         </div>

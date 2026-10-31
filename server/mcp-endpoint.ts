@@ -10,6 +10,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "./identity/index.ts";
 import type { ApiTokenInboxDrainRes } from "../shared/contract-shapes.ts";
+import { routeAllowedByLimits } from "../shared/api-token-limits.ts";
+import { matchRoute } from "./routes/match.ts";
+import { API_ROUTES } from "./routes/table.ts";
 
 export interface McpDispatchResult {
   status: number;
@@ -79,165 +82,185 @@ function buildServer(
   const server = new McpServer({ name: "isomux", version: "1.0.0" });
   const call = (method: "GET" | "POST", path: string, body?: unknown) =>
     deps.dispatch(identity, method, path, body);
-
-  server.registerTool(
-    "list_agents",
-    {
-      description:
-        "List the agents in the office rooms you can access. pendingPrompt is not null when the agent waits for a member's answer.",
-      annotations: { readOnlyHint: true },
-    },
-    async () => {
-      const res = await call("GET", "/agents");
-      if (res.status !== 200) return routeError(res);
-      const rows = (res.body as AgentRow[]).map((agent) => ({
-        id: agent.id,
-        name: agent.name,
-        roomName: agent.roomName,
-        topic: agent.topic ?? null,
-        pendingPrompt: agent.pendingPrompt ?? null,
-        busy: agent.inFlightTurn != null,
-      }));
-      return json(rows);
-    },
-  );
-
-  server.registerTool(
-    "read_conversation",
-    {
-      description:
-        "Read the newest entries of an agent's current conversation: messages to the agent and its replies.",
-      inputSchema: {
-        agentId: z.string().min(1),
-        limit: z.number().int().min(1).max(MAX_CONVERSATION_LIMIT).optional(),
-      },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ agentId, limit }) => {
-      const agentPath = `/api/agents/${encodeURIComponent(agentId)}`;
-      const sessions = await call("GET", `${agentPath}/sessions`);
-      if (sessions.status !== 200) return routeError(sessions);
-      const { currentSessionId, sessions: list } = sessions.body as {
-        currentSessionId: string | null;
-        sessions: Array<{ sessionId: string }>;
-      };
-      const sessionId = currentSessionId ?? list[0]?.sessionId ?? null;
-      if (sessionId === null) return json({ agentId, entries: [] });
-      const query = new URLSearchParams({
-        session: sessionId,
-        tier: "conversation",
-        limit: String(limit ?? DEFAULT_CONVERSATION_LIMIT),
-      });
-      const logs = await call("GET", `${agentPath}/logs?${query}`);
-      if (logs.status !== 200) return routeError(logs);
-      const read = logs.body as {
-        topic: string | null;
-        pendingPrompt: string | null;
-        truncated: boolean;
-        entries: Array<{ kind: string; timestamp: number; content: string }>;
-      };
-      return json({
-        agentId,
-        sessionId,
-        topic: read.topic,
-        pendingPrompt: read.pendingPrompt,
-        truncated: read.truncated,
-        entries: read.entries.map((entry) => ({
-          kind: entry.kind,
-          timestamp: entry.timestamp,
-          content: entry.content,
-        })),
-      });
-    },
-  );
-
-  server.registerTool(
-    "send_message",
-    {
-      description:
-        "Send a message to an agent as the member. Returns the sequence of the message in this token's log; pass it to read_replies as `after`. The agent's reply can take minutes.",
-      inputSchema: {
-        agentId: z.string().min(1),
-        text: z.string().min(1),
-      },
-    },
-    async ({ agentId, text }) => {
-      // The office runs a leading "/" as a command, with no decision by the
-      // agent. Only the member types commands.
-      if (text.startsWith("/")) {
-        return toolError(
-          "command_not_allowed",
-          "Text that starts with / runs a command. The member types commands in the office.",
-        );
-      }
-      const res = await call(
-        "POST",
-        `/api/agents/${encodeURIComponent(agentId)}/messages`,
-        { text },
+  // A tool is listed only when the token's limits let it call every route the
+  // tool uses.
+  const mayCall = (...routes: Array<["GET" | "POST", string]>) =>
+    routes.every(([method, path]) => {
+      const match = matchRoute(API_ROUTES, method, path);
+      return (
+        match !== null &&
+        routeAllowedByLimits(identity.apiTokenLimits, match.route.tokenArea)
       );
-      if (res.status !== 200) return routeError(res);
-      const sent = res.body as {
-        messageId: string;
-        sentAt: number;
-        sequence: number;
-      };
-      return json({
-        messageId: sent.messageId,
-        sentAt: sent.sentAt,
-        sequence: sent.sequence,
-      });
-    },
-  );
+    });
 
-  server.registerTool(
-    "read_replies",
-    {
-      description: `Read this token's log after a sequence: the agents' replies and the messages sent with this token. If there is nothing new, waits up to waitSeconds (at most ${MAX_WAIT_SECONDS}) for an entry. Pass the latest sequence you have read as \`after\`.`,
-      inputSchema: {
-        after: z.number().int().min(0),
-        waitSeconds: z.number().min(0).optional(),
+  if (mayCall(["GET", "/agents"])) {
+    server.registerTool(
+      "list_agents",
+      {
+        description:
+          "List the agents in the office rooms you can access. pendingPrompt is not null when the agent waits for a member's answer.",
+        annotations: { readOnlyHint: true },
       },
-    },
-    async ({ after, waitSeconds }, extra) => {
-      const waitMs =
-        Math.min(
-          Math.max(waitSeconds ?? MAX_WAIT_SECONDS, 0),
-          MAX_WAIT_SECONDS,
-        ) * 1000;
-      const tokenId = identity.apiTokenId ?? "";
-      // The waiter goes in before the first read, so an entry written
-      // between the read and the wait still wakes it.
-      const stop = new AbortController();
-      const abort = () => stop.abort();
-      requestSignal.addEventListener("abort", abort);
-      extra.signal.addEventListener("abort", abort);
-      try {
-        const woke =
-          waitMs > 0
-            ? deps.waitForTokenLogEntry(tokenId, waitMs, stop.signal)
-            : Promise.resolve();
-        const first = await call("POST", "/api/me/api-token-inbox/drain", {
-          after,
+      async () => {
+        const res = await call("GET", "/agents");
+        if (res.status !== 200) return routeError(res);
+        const rows = (res.body as AgentRow[]).map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          roomName: agent.roomName,
+          topic: agent.topic ?? null,
+          pendingPrompt: agent.pendingPrompt ?? null,
+          busy: agent.inFlightTurn != null,
+        }));
+        return json(rows);
+      },
+    );
+  }
+
+  if (
+    mayCall(["GET", "/api/agents/_/sessions"], ["GET", "/api/agents/_/logs"])
+  ) {
+    server.registerTool(
+      "read_conversation",
+      {
+        description:
+          "Read the newest entries of an agent's current conversation: messages to the agent and its replies.",
+        inputSchema: {
+          agentId: z.string().min(1),
+          limit: z.number().int().min(1).max(MAX_CONVERSATION_LIMIT).optional(),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      async ({ agentId, limit }) => {
+        const agentPath = `/api/agents/${encodeURIComponent(agentId)}`;
+        const sessions = await call("GET", `${agentPath}/sessions`);
+        if (sessions.status !== 200) return routeError(sessions);
+        const { currentSessionId, sessions: list } = sessions.body as {
+          currentSessionId: string | null;
+          sessions: Array<{ sessionId: string }>;
+        };
+        const sessionId = currentSessionId ?? list[0]?.sessionId ?? null;
+        if (sessionId === null) return json({ agentId, entries: [] });
+        const query = new URLSearchParams({
+          session: sessionId,
+          tier: "conversation",
+          limit: String(limit ?? DEFAULT_CONVERSATION_LIMIT),
         });
-        if (first.status !== 200) return routeError(first);
-        if (
-          (first.body as ApiTokenInboxDrainRes).entries.length > 0 ||
-          waitMs === 0
-        )
-          return json(replies(first.body as ApiTokenInboxDrainRes));
-        await woke;
-        const second = await call("POST", "/api/me/api-token-inbox/drain", {
-          after,
+        const logs = await call("GET", `${agentPath}/logs?${query}`);
+        if (logs.status !== 200) return routeError(logs);
+        const read = logs.body as {
+          topic: string | null;
+          pendingPrompt: string | null;
+          truncated: boolean;
+          entries: Array<{ kind: string; timestamp: number; content: string }>;
+        };
+        return json({
+          agentId,
+          sessionId,
+          topic: read.topic,
+          pendingPrompt: read.pendingPrompt,
+          truncated: read.truncated,
+          entries: read.entries.map((entry) => ({
+            kind: entry.kind,
+            timestamp: entry.timestamp,
+            content: entry.content,
+          })),
         });
-        if (second.status !== 200) return routeError(second);
-        return json(replies(second.body as ApiTokenInboxDrainRes));
-      } finally {
-        stop.abort();
-        requestSignal.removeEventListener("abort", abort);
-        extra.signal.removeEventListener("abort", abort);
-      }
-    },
-  );
+      },
+    );
+  }
+
+  if (mayCall(["POST", "/api/agents/_/messages"])) {
+    server.registerTool(
+      "send_message",
+      {
+        description:
+          "Send a message to an agent as the member. Returns the sequence of the message in this token's log; pass it to read_replies as `after`. The agent's reply can take minutes.",
+        inputSchema: {
+          agentId: z.string().min(1),
+          text: z.string().min(1),
+        },
+      },
+      async ({ agentId, text }) => {
+        // The office runs a leading "/" as a command, with no decision by the
+        // agent. Only the member types commands.
+        if (text.startsWith("/")) {
+          return toolError(
+            "command_not_allowed",
+            "Text that starts with / runs a command. The member types commands in the office.",
+          );
+        }
+        const res = await call(
+          "POST",
+          `/api/agents/${encodeURIComponent(agentId)}/messages`,
+          { text },
+        );
+        if (res.status !== 200) return routeError(res);
+        const sent = res.body as {
+          messageId: string;
+          sentAt: number;
+          sequence: number;
+        };
+        return json({
+          messageId: sent.messageId,
+          sentAt: sent.sentAt,
+          sequence: sent.sequence,
+        });
+      },
+    );
+  }
+
+  if (mayCall(["POST", "/api/me/api-token-inbox/drain"])) {
+    server.registerTool(
+      "read_replies",
+      {
+        description: `Read this token's log after a sequence: the agents' replies and the messages sent with this token. If there is nothing new, waits up to waitSeconds (at most ${MAX_WAIT_SECONDS}) for an entry. Pass the latest sequence you have read as \`after\`.`,
+        inputSchema: {
+          after: z.number().int().min(0),
+          waitSeconds: z.number().min(0).optional(),
+        },
+      },
+      async ({ after, waitSeconds }, extra) => {
+        const waitMs =
+          Math.min(
+            Math.max(waitSeconds ?? MAX_WAIT_SECONDS, 0),
+            MAX_WAIT_SECONDS,
+          ) * 1000;
+        const tokenId = identity.apiTokenId ?? "";
+        // The waiter goes in before the first read, so an entry written
+        // between the read and the wait still wakes it.
+        const stop = new AbortController();
+        const abort = () => stop.abort();
+        requestSignal.addEventListener("abort", abort);
+        extra.signal.addEventListener("abort", abort);
+        try {
+          const woke =
+            waitMs > 0
+              ? deps.waitForTokenLogEntry(tokenId, waitMs, stop.signal)
+              : Promise.resolve();
+          const first = await call("POST", "/api/me/api-token-inbox/drain", {
+            after,
+          });
+          if (first.status !== 200) return routeError(first);
+          if (
+            (first.body as ApiTokenInboxDrainRes).entries.length > 0 ||
+            waitMs === 0
+          )
+            return json(replies(first.body as ApiTokenInboxDrainRes));
+          await woke;
+          const second = await call("POST", "/api/me/api-token-inbox/drain", {
+            after,
+          });
+          if (second.status !== 200) return routeError(second);
+          return json(replies(second.body as ApiTokenInboxDrainRes));
+        } finally {
+          stop.abort();
+          requestSignal.removeEventListener("abort", abort);
+          extra.signal.removeEventListener("abort", abort);
+        }
+      },
+    );
+  }
 
   return server;
 }

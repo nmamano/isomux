@@ -28,6 +28,10 @@ import type {
   ApiTokenWire,
 } from "../shared/contract-shapes.ts";
 import { errMessage } from "../shared/errors.ts";
+import {
+  parseApiTokenLimits,
+  type ApiTokenLimits,
+} from "../shared/api-token-limits.ts";
 
 // null means the token never expires.
 export const API_TOKEN_EXPIRY_DAYS = [30, 365, null] as const;
@@ -51,6 +55,8 @@ export interface ResolvedApiToken {
   id: string;
   userId: string;
   name: string;
+  // Absent = full access.
+  limits?: ApiTokenLimits;
 }
 
 let onLogEntry: (tokenId: string, entry: ApiTokenLogEntry) => void = () => {};
@@ -135,7 +141,10 @@ function ensureLoaded(): void {
         (value.lastSequence !== undefined &&
           (!Number.isSafeInteger(value.lastSequence) ||
             value.lastSequence < 0)) ||
-        (typeof value.expiresAt !== "number" && value.expiresAt !== null)
+        (typeof value.expiresAt !== "number" && value.expiresAt !== null) ||
+        // A limits value the mint would refuse must never fall back to full
+        // access.
+        (value.limits !== undefined && !parseApiTokenLimits(value.limits))
       ) {
         console.error("Ignoring invalid API token record:", id);
         continue;
@@ -209,6 +218,9 @@ function ensureLoaded(): void {
         expiresAt: value.expiresAt,
         lastUsedAt:
           typeof value.lastUsedAt === "number" ? value.lastUsedAt : null,
+        ...(value.limits !== undefined
+          ? { limits: parseApiTokenLimits(value.limits)! }
+          : {}),
         lastSequence,
         ...(migrationFailed && inbox.length ? { inbox } : {}),
         lastDrainedAt: lastDrainedAtValid ? value.lastDrainedAt! : null,
@@ -455,6 +467,7 @@ function wire(record: StoredApiToken): ApiTokenWire {
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     lastUsedAt: record.lastUsedAt,
+    ...(record.limits ? { limits: record.limits } : {}),
   };
 }
 
@@ -470,6 +483,8 @@ export async function mintApiToken(input: {
   userId: string;
   name: string;
   expiresInDays: number | null;
+  // Absent = full access.
+  limits?: ApiTokenLimits;
   now?: number;
 }): Promise<{ token: string; apiToken: ApiTokenWire }> {
   return mutate(() => {
@@ -493,6 +508,7 @@ export async function mintApiToken(input: {
           ? null
           : now + input.expiresInDays * 24 * 60 * 60 * 1000,
       lastUsedAt: null,
+      ...(input.limits ? { limits: input.limits } : {}),
       lastSequence: 0,
       lastDrainedAt: null,
     };
@@ -741,7 +757,12 @@ export function resolveApiToken(
       );
     }
   }
-  return { id, userId: record.userId, name: record.name };
+  return {
+    id,
+    userId: record.userId,
+    name: record.name,
+    ...(record.limits ? { limits: record.limits } : {}),
+  };
 }
 
 export function _testResetApiTokens(): void {

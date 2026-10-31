@@ -3329,6 +3329,7 @@ export async function demoApi(
             ? null
             : now + b.expiresInDays * 24 * 60 * 60 * 1000,
         lastUsedAt: null,
+        ...(b.limits ? { limits: b.limits } : {}),
       };
       demoApiTokens = [apiToken, ...demoApiTokens];
       return { token: `isomux_pat_demo_${id}`, apiToken };

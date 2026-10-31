@@ -19,6 +19,12 @@ A signed-in member can create a named personal API token in **Integrations → A
 
 A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access, or grant the privileged-agent flag. An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link, can change the office instructions, name and member usage cap (see Instructions and Office settings), and can give an agent another manager with `PUT /api/agents/:id/manager` and `{userId}`. These exclusions are defense in depth: a token can spawn an agent that runs commands.
 
+### Limit a token
+
+**Access** in the create form limits a token to some areas of the office. Full access, the default, gives the reach above. Read only reads every area except logs, files and the environment, and changes nothing. Talk to agents is Read only plus sending to agents. Custom sets each area to none, read, or read and write. The limits are fixed when you create the token. A call outside them gets `403` with the area and level it needs, for example `{"error":{"code":"forbidden","area":"tasks","level":"write"}}`, and the MCP server lists only the tools the token can call. Every token can read its own conversation.
+
+The form marks the areas where write equals full access: with them a token can make an agent act with all of its member's reach, for example by sending it a message or changing its memory.
+
 The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 
 The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.

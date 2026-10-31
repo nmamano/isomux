@@ -20,13 +20,20 @@ import type {
 } from "../routes/table.ts";
 import type { RouteMatch } from "../routes/match.ts";
 import {
+  ALLOW,
   authenticated,
   officeOwner,
+  type Guard,
   type GuardDeps,
 } from "../identity/guards.ts";
+import type {
+  ApiTokenLimits,
+  RouteTokenArea,
+} from "../../shared/api-token-limits.ts";
 import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
+  API_CAPABILITIES,
   type Capability,
   type Identity,
 } from "../identity/index.ts";
@@ -534,4 +541,105 @@ it("inbox polling adds no audit row", async () => {
       .status,
   ).toBe(200);
   expect(deps.auditRows).toHaveLength(0);
+});
+
+// --- API token limits (task 23339bea) ---------------------------------------
+describe("executor: API token limits", () => {
+  function apiIdentity(limits?: ApiTokenLimits): Identity {
+    return {
+      scope: "api",
+      userId: "u1",
+      role: "member",
+      apiTokenId: "pat-1",
+      apiTokenName: "Laptop",
+      capabilities: API_CAPABILITIES,
+      ...(limits ? { apiTokenLimits: limits } : {}),
+    };
+  }
+
+  // A tasks route whose guard and handler count their runs.
+  function tasksRoute(
+    method: "GET" | "POST",
+    tokenArea: RouteTokenArea | undefined,
+  ) {
+    const runs = { guard: 0, handler: 0 };
+    const guard: Guard = () => {
+      runs.guard++;
+      return ALLOW;
+    };
+    const r: RouteDef = {
+      ...route(
+        "t.op",
+        method,
+        "/api/t",
+        capAuth(method === "GET" ? "task:read" : "task:write", guard),
+      ),
+      ...(tokenArea ? { tokenArea } : {}),
+    };
+    const deps = makeDeps({
+      "t.op": () => {
+        runs.handler++;
+        return ok({ done: true });
+      },
+    });
+    const call = (identity: Identity) =>
+      executeRoute(
+        match(r),
+        req(method, "/api/t", method === "GET" ? undefined : {}),
+        identity,
+        deps,
+      );
+    return { runs, call };
+  }
+
+  const readTasks: ApiTokenLimits = { areas: { tasks: "read" } };
+
+  it("refuses a write to a read-only area before the guard runs, naming the area and level", async () => {
+    const { runs, call } = tasksRoute("POST", {
+      area: "tasks",
+      level: "write",
+    });
+    const res = await call(apiIdentity(readTasks));
+    expect(res.status).toBe(403);
+    const { error } = await res.json();
+    expect(error).toMatchObject({
+      code: "forbidden",
+      area: "tasks",
+      level: "write",
+    });
+    // No guard: a refused call learns nothing about the resource.
+    expect(runs).toEqual({ guard: 0, handler: 0 });
+  });
+
+  it("lets the same token read the area, and a token without limits write it", async () => {
+    const read = tasksRoute("GET", { area: "tasks", level: "read" });
+    const readRes = await read.call(apiIdentity(readTasks));
+    expect(readRes.status).toBe(200);
+    expect(read.runs).toEqual({ guard: 1, handler: 1 });
+
+    const write = tasksRoute("POST", { area: "tasks", level: "write" });
+    const writeRes = await write.call(apiIdentity());
+    expect(writeRes.status).toBe(200);
+    expect(write.runs).toEqual({ guard: 1, handler: 1 });
+  });
+
+  it("refuses a limited token a route without an area, and lets a token without limits through", async () => {
+    const limited = tasksRoute("GET", undefined);
+    const refused = await limited.call(
+      apiIdentity({ areas: { tasks: "write" } }),
+    );
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error.code).toBe("forbidden");
+    expect(limited.runs).toEqual({ guard: 0, handler: 0 });
+
+    const full = tasksRoute("GET", undefined);
+    expect((await full.call(apiIdentity())).status).toBe(200);
+    expect(full.runs).toEqual({ guard: 1, handler: 1 });
+  });
+
+  it("lets a token with no areas call an always route", async () => {
+    const always = tasksRoute("POST", "always");
+    expect((await always.call(apiIdentity({ areas: {} }))).status).toBe(200);
+    expect(always.runs).toEqual({ guard: 1, handler: 1 });
+  });
 });

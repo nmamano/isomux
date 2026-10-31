@@ -366,6 +366,7 @@ function resolveBearerIdentity(
     capabilities: API_CAPABILITIES,
     apiTokenId: apiToken.id,
     apiTokenName: apiToken.name,
+    ...(apiToken.limits ? { apiTokenLimits: apiToken.limits } : {}),
   };
 }
 

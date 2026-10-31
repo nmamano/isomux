@@ -584,6 +584,95 @@ describe("personal API tokens", () => {
     expect(missing.status).toBe(422);
   });
 
+  it("mints a limited token that keeps its limits in both lists and is refused outside them", async () => {
+    // Task 23339bea. The route check itself is pinned in
+    // route-executor.test.ts; this is the mint, the lists and the live wiring
+    // from the stored record to the executor.
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const member = await srv.seedMember("Mia");
+    const room = srv.agentManager.getRooms()[0].id;
+    const target = await spawn(srv, "Target", room);
+    const mint = (session: string, body: Record<string, unknown>) =>
+      srv.http("/api/me/api-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Reader", expiresInDays: 30, ...body }),
+        rawSessionId: session,
+      });
+
+    for (const limits of [
+      { areas: { bogus: "read" } },
+      { areas: { agents: "admin" } },
+      { areas: {}, extra: true },
+      "readOnly",
+    ]) {
+      const refused = await mint(member.rawSessionId, { limits });
+      expect({ limits, status: refused.status }).toEqual({
+        limits,
+        status: 422,
+      });
+      expect((await refused.json()).error.code).toBe("invalid_limits");
+    }
+    const none = await srv.http("/api/me/api-tokens", {
+      rawSessionId: member.rawSessionId,
+    });
+    expect((await none.json()).apiTokens).toEqual([]);
+
+    const limits = { areas: { agents: "read" as const } };
+    const minted = await mint(member.rawSessionId, { limits });
+    expect(minted.status).toBe(201);
+    const created = (await minted.json()) as ApiTokenCreateRes;
+    expect(created.apiToken.limits).toEqual(limits);
+    const own = await srv.http("/api/me/api-tokens", {
+      rawSessionId: member.rawSessionId,
+    });
+    expect((await own.json()).apiTokens).toEqual([created.apiToken]);
+    const admin = await srv.http(
+      `/api/users/${encodeURIComponent(member.username)}/api-tokens`,
+      { rawSessionId: owner.rawSessionId },
+    );
+    expect((await admin.json()).apiTokens).toEqual([created.apiToken]);
+
+    // agents read: the directory answers, a send is refused before any guard.
+    const logsBefore = srv.agentManager.getAgentLogs(target.id).length;
+    const directory = await bearer(srv, created.token, "/agents");
+    expect(directory.status).toBe(200);
+    const send = await bearer(
+      srv,
+      created.token,
+      `/api/agents/${target.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "do something" }),
+      },
+    );
+    expect(send.status).toBe(403);
+    expect((await send.json()).error).toMatchObject({
+      code: "forbidden",
+      area: "agents",
+      level: "write",
+    });
+    expect(srv.agentManager.getAgentLogs(target.id)).toHaveLength(logsBefore);
+    // Outside its areas entirely, and its own inbox stays open.
+    const tasks = await bearer(srv, created.token, "/api/tasks");
+    expect(tasks.status).toBe(403);
+    expect((await tasks.json()).error).toMatchObject({
+      code: "forbidden",
+      area: "tasks",
+      level: "read",
+    });
+    expect(
+      (
+        await bearer(srv, created.token, "/api/me/api-token-inbox/drain", {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(200);
+  });
+
   // Expired, invalid and leaked-prefix values: server/api-tokens.test.ts.
   it("rejects API-attribution and delivery fields on a send, each with its code", async () => {
     const srv = await startTestServer();

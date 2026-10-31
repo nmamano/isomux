@@ -40,6 +40,7 @@ import type {
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
+import type { ApiTokenLimits } from "./api-token-limits.ts";
 
 // UserPublicWire's canonical home is shared/types.ts (next to UserRecord +
 // ServerMessage, which references it). Re-exported here so the route-table /
@@ -738,11 +739,15 @@ export interface ApiTokenWire {
   createdAt: number;
   expiresAt: number | null;
   lastUsedAt: number | null;
+  // Absent = full access.
+  limits?: ApiTokenLimits;
 }
 
 export interface ApiTokenCreateReq {
   name: string;
   expiresInDays: 30 | 365 | null;
+  // Absent = full access. Fixed at mint.
+  limits?: ApiTokenLimits;
 }
 
 export interface ApiTokenCreateRes {

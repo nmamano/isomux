@@ -34,6 +34,7 @@ import type { RouteHandlerContext, HandlerResult } from "./executor.ts";
 // guard still is one; only the live-state checks are preconditions.
 
 import type { Capability } from "../identity/index.ts";
+import type { RouteTokenArea } from "../../shared/api-token-limits.ts";
 import type { RouteAuthz } from "../identity/dispatch.ts";
 import {
   authenticated,
@@ -350,6 +351,10 @@ export interface RouteDef<Req = unknown, Res = unknown> {
   // each listed query parameter is one more field (shared/plain-text-form.ts).
   // Absent means JSON only.
   plainText?: { params: PlainTextParams<Req> };
+  // The route's area in a limited API token's limits (shared/api-token-limits.ts).
+  // Every route an API token passes stage 1 on declares one; a limited token is
+  // refused a route without one.
+  tokenArea?: RouteTokenArea;
   // Phantom type carriers (no runtime presence): bind the request/response types
   // for handler typing. defineRoute<Req,Res> attaches them.
   readonly __req?: Req;
@@ -447,6 +452,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/audit-log",
     auth: cap("audit:read", auditOwner),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   // Terminal recordings (task 749cb7fd): the audit log's readers.
@@ -455,6 +461,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/terminal-recordings",
     auth: cap("audit:read", auditOwner),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute({
@@ -462,6 +469,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/terminal-recordings/:id",
     auth: cap("audit:read", auditOwner),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute({
@@ -469,6 +477,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/tasks/:id/history",
     auth: cap("task:read", operationalAuthenticated),
+    tokenArea: { area: "tasks", level: "read" },
     emits: [],
   }),
   defineRoute({
@@ -476,6 +485,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/tasks/:id/restore",
     auth: cap("audit:read", auditOwner),
+    tokenArea: { area: "tasks", level: "write" },
     emits: ["tasks"],
     audit: { owner: "store" },
   }),
@@ -488,6 +498,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agent-reference",
     auth: authn(agentReferenceReader),
+    tokenArea: "always",
     emits: [],
   }),
   defineRoute<void, { version: string; topic: string; markdown: string }>({
@@ -495,6 +506,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agent-reference/:topic",
     auth: authn(agentReferenceReader),
+    tokenArea: "always",
     emits: [],
   }),
   // The office directory. Path outside /api on purpose: every agent, skill
@@ -504,6 +516,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/agents",
     auth: authn(agentDirectoryReader),
+    tokenArea: { area: "agents", level: "read" },
     emits: [],
   }),
   // An agent's face as an image, for apps and any page that shows agents. The
@@ -518,6 +531,7 @@ export const API_ROUTES: readonly RouteDef[] = [
         requiresRoomAccess({ kind: "paramAgentId", name: "id" }),
       ),
     ),
+    tokenArea: { area: "agents", level: "read" },
     emits: [],
   }),
   defineRoute<SpawnReq, AgentEnvelope>({
@@ -528,6 +542,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // Every agent spawns (agent:spawn), into its manager's rooms; the handler
     // applies the spawn limits to an agent without agent:manage.
     auth: cap(["agent:manage", "agent:spawn"], bodyRoom("roomId")),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_added"],
   }),
   defineRoute<void, NoContent>({
@@ -540,6 +555,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["agent:manage", "agent:spawn"],
       and(agentParam("id"), agentKill),
     ),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_removed", "killed_agent_added"],
   }),
   defineRoute<ReviveReq, AgentEnvelope>({
@@ -550,6 +566,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // Guard: access to the TARGET room (body.roomId). The ∧ lastRoomId access
     // check is a typed precondition (killed-agent last room is live-state).
     auth: cap("agent:manage", bodyRoom("roomId")),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_added", "killed_agent_removed"],
     preconditions: ["reviveLastRoomAccess"],
   }),
@@ -561,6 +578,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // An operator stops any agent it can reach; every agent stops any agent it
     // may message (see agentAbort).
     auth: cap(["agent:manage", "agent:send-as-self"], agentAbort),
+    tokenArea: { area: "agents", level: "write" },
     emits: [],
   }),
   defineRoute<EditAgentReq, AgentEnvelope>({
@@ -569,6 +587,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/agents/:id",
     auth: cap("agent:manage", agentParam("id")),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_updated"],
   }),
   // Read an agent's customInstructions blob + version token.
@@ -583,6 +602,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/instructions",
     auth: authn(agentParam("id")),
+    tokenArea: { area: "agents", level: "read" },
     emits: [],
   }),
   // The write half: same auth as agents.update, which also takes the text.
@@ -592,6 +612,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/agents/:id/instructions",
     auth: cap("agent:manage", agentParam("id")),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_updated"],
   }),
   defineRoute<void, AgentSystemPromptRes>({
@@ -599,6 +620,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/system-prompt",
     auth: authn(agentParam("id")),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute<AgentSystemPromptPreviewReq, AgentSystemPromptRes>({
@@ -610,6 +632,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/system-prompt-preview",
     auth: authn(bodyRoom("roomId")),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   // Owner-administrative privilege toggle. Its OWN route (not a field on
@@ -651,6 +674,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/agents/:id/manager",
     auth: cap("agent:manage", agentManagerOwner),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: [
       "agent_updated",
       "clear_logs",
@@ -668,6 +692,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/move",
     auth: cap("agent:manage", and(agentParam("id"), bodyRoom("targetRoomId"))),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_updated"],
   }),
   defineRoute<TopicReq, NoContent>({
@@ -676,6 +701,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/agents/:id/topic",
     auth: cap("agent:manage", agentParam("id")),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_updated"],
   }),
   // DELETE regenerates the topic from the conversation (the LogView refresh
@@ -687,6 +713,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/agents/:id/topic",
     auth: cap("agent:manage", agentParam("id")),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_updated"],
   }),
   defineRoute<SwapDesksReq, NoContent>({
@@ -695,6 +722,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/rooms/:roomId/swap-desks",
     auth: cap("agent:manage", roomParam("roomId")),
+    tokenArea: { area: "agentManagement", level: "write" },
     emits: ["agent_updated"], // ×2 at runtime; one registry id
   }),
 
@@ -722,6 +750,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       messageSend,
     ),
     plainText: { params: MESSAGE_PLAIN_TEXT_PARAMS },
+    tokenArea: { area: "agents", level: "write" },
     emits: ["log_entry", "interaction_added", "agent_updated"],
     preconditions: [
       "messageRecipientExists",
@@ -741,6 +770,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["agent:converse", "self:affordance"],
       and(notApp, conversationReset),
     ),
+    tokenArea: { area: "agents", level: "write" },
     emits: ["interaction_removed", "agent_updated", "log_entry", "clear_logs"],
   }),
   // `:id` is the SENDER here (the outbox being managed) - the deliberate
@@ -751,6 +781,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/scheduled-messages",
     auth: cap(["agent:converse", "agent:send-as-self"], scheduledMessagesOwner),
+    tokenArea: { area: "agents", level: "read" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -759,6 +790,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/agents/:id/scheduled-messages/:scheduledId",
     auth: cap(["agent:converse", "agent:send-as-self"], scheduledMessagesOwner),
+    tokenArea: { area: "agents", level: "write" },
     emits: [],
   }),
   defineRoute<EditMessageReq, MessageAck>({
@@ -767,6 +799,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/agents/:id/messages/:logEntryId",
     auth: cap("agent:converse", and(notApp, agentParam("id"))),
+    tokenArea: { area: "agents", level: "write" },
     emits: ["log_entry"],
   }),
   defineRoute<void, NoContent>({
@@ -777,6 +810,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // Every agent may take back a message it sent; cancelling anything else
     // needs queueCancelAny's reach, which the handler checks.
     auth: cap(["agent:converse", "agent:send-as-self"], queueCancelAccess),
+    tokenArea: { area: "agents", level: "write" },
     emits: [],
   }),
   // The receiver's waiting messages, as the chat's queue chips show them. Same
@@ -786,6 +820,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/queue",
     auth: cap("log:read", liveAgentReadAccess),
+    tokenArea: { area: "agents", level: "read" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -794,6 +829,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/send-now",
     auth: cap("agent:converse", and(notApp, agentParam("id"))),
+    tokenArea: { area: "agents", level: "write" },
     emits: ["log_entry"],
   }),
   // Clear the session and start a fresh conversation. Operators (users +
@@ -806,6 +842,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/new-conversation",
     auth: cap(["agent:converse", "self:affordance"], conversationReset),
+    tokenArea: { area: "agents", level: "write" },
     emits: ["clear_logs"],
   }),
   // Instant self-handoff: reset the session (like
@@ -827,6 +864,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["agent:converse", "self:affordance"],
       and(notApp, conversationReset),
     ),
+    tokenArea: { area: "agents", level: "write" },
     emits: ["clear_logs", "log_entry"],
   }),
   defineRoute<ResumeReq, NoContent>({
@@ -835,6 +873,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/resume",
     auth: cap("agent:converse", agentParam("id")),
+    tokenArea: { area: "agents", level: "write" },
     emits: ["log_entry"],
   }),
   defineRoute<
@@ -845,6 +884,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/sessions",
     auth: cap("log:read", liveAgentReadAccess),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute<void, TerminalReadRes>({
@@ -852,6 +892,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/terminal",
     auth: cap("log:read", liveAgentReadAccess),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
 
@@ -906,6 +947,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/secret-requests/:requestId/save",
     auth: cap("user:env", memberScope),
+    tokenArea: { area: "environment", level: "write" },
     emits: ["log_entry", "ask_removed"],
   }),
   defineRoute<void, SecretRequestAnswerRes>({
@@ -914,6 +956,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/secret-requests/:requestId/decline",
     auth: cap("user:env", memberScope),
+    tokenArea: { area: "environment", level: "write" },
     emits: ["log_entry", "ask_removed"],
   }),
   // Asks (internal-docs/asks-design.md): the agent manages its
@@ -955,6 +998,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/asks/history",
     auth: cap("log:read", logSearchAccess),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   // An agent's ask log (task 302e7ea4): each create, edit, simplify request
@@ -965,6 +1009,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/asks/events",
     auth: cap("log:read", logSearchAccess),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute<AskEditReq, AskAgentWire>({
@@ -989,6 +1034,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/asks",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "read" },
     emits: [],
   }),
   // Other members' open asks, for an office owner (askShownToOwnerAsOther);
@@ -998,6 +1044,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/asks/others",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "read" },
     emits: [],
   }),
   // Any agent's ask by its id, open or closed, for a caller with the reach of
@@ -1009,6 +1056,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/asks/:askId",
     auth: cap("log:read", operationalAuthenticated),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute<AskReplyReq, NoContent>({
@@ -1018,6 +1066,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/asks/:askId/reply",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     plainText: { params: ASK_REPLY_PLAIN_TEXT_PARAMS },
+    tokenArea: { area: "asks", level: "write" },
     emits: [
       "ask_removed",
       "others_ask_removed",
@@ -1032,6 +1081,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/asks/:askId/dismiss",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "write" },
     emits: [
       "ask_removed",
       "others_ask_removed",
@@ -1048,6 +1098,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/asks/:askId/simplify",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "write" },
     emits: [
       "ask_upserted",
       "others_ask_upserted",
@@ -1064,6 +1115,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/asks/:askId/simplify/undo",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "write" },
     emits: [
       "ask_upserted",
       "others_ask_upserted",
@@ -1079,6 +1131,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/asks/:askId/files/:filename",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "read" },
     emits: [],
   }),
   defineRoute<AskFileTaskReq, TaskItem>({
@@ -1087,6 +1140,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/asks/:askId/file-task",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "write" },
     emits: [
       "ask_removed",
       "others_ask_removed",
@@ -1124,6 +1178,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/context",
     auth: cap("log:read", logSearchAccess),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
 
@@ -1132,6 +1187,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/subscription",
     auth: cap("log:read", logSearchAccess),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
 
@@ -1148,6 +1204,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/logs",
     auth: cap("log:read", logSearchAccess),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
 
@@ -1168,6 +1225,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/file",
     auth: cap("editor:use", agentParam("id")),
+    tokenArea: { area: "files", level: "read" },
     emits: ["editor_external_change"], // pushed async to the watching session
   }),
   defineRoute<EditorSaveReq, { ok: true; mtime: number }>({
@@ -1176,6 +1234,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/agents/:id/file",
     auth: cap("editor:use", agentParam("id")),
+    tokenArea: { area: "files", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1184,6 +1243,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/agents/:id/file/watch",
     auth: cap("editor:use", agentParam("id")),
+    tokenArea: { area: "files", level: "write" },
     emits: [],
   }),
 
@@ -1193,6 +1253,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/uploads",
     auth: cap("file:upload", agentParam("id")),
+    tokenArea: { area: "agents", level: "write" },
     emits: [],
   }),
   defineRoute<void, unknown>({
@@ -1200,6 +1261,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/files/:filename",
     auth: cap("office:read", agentParam("id")),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
 
@@ -1211,6 +1273,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/upload/:id",
     auth: authn(and(authenticated, agentFilesUpload)),
+    tokenArea: { area: "agents", level: "write" },
     emits: [],
   }),
   defineRoute<void, unknown>({
@@ -1218,6 +1281,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/files/:id/:filename",
     auth: authn(and(authenticated, agentFilesRead)),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   // Older transcripts link images here.
@@ -1226,6 +1290,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/images/:id/:filename",
     auth: authn(and(authenticated, agentFilesRead)),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
 
@@ -1241,6 +1306,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/members-chat",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "read" },
     emits: [],
   }),
   defineRoute<MembersChatPostReq, MembersChatMessage>({
@@ -1252,6 +1318,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/members-chat",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "write" },
     emits: ["members_chat_message"],
   }),
   defineRoute<MembersChatPinReq, MembersChatMessage>({
@@ -1260,6 +1327,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/members-chat/:id/pin",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "write" },
     emits: ["members_chat_message"],
   }),
   defineRoute<MembersChatThumbsUpReq, MembersChatMessage>({
@@ -1268,6 +1336,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/members-chat/:id/thumbs-up",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "write" },
     emits: ["members_chat_message"],
   }),
   defineRoute<MembersChatEditReq, MembersChatMessage>({
@@ -1276,6 +1345,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/members-chat/:id",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "write" },
     emits: ["members_chat_message"],
   }),
   defineRoute<void, NoContent>({
@@ -1284,6 +1354,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/members-chat/:id",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "write" },
     emits: ["members_chat_deleted"],
   }),
   defineRoute<MembersChatReadReq, MembersChatReadRes>({
@@ -1292,6 +1363,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/members-chat/read",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "write" },
     emits: ["members_chat_read"],
   }),
   defineRoute<unknown, { attachments: Attachment[] }>({
@@ -1300,6 +1372,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/members-chat/uploads",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "write" },
     emits: [],
   }),
   defineRoute<void, unknown>({
@@ -1307,6 +1380,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/members-chat/files/:filename",
     auth: cap("chat:members", operationalAuthenticated),
+    tokenArea: { area: "membersChat", level: "read" },
     emits: [],
   }),
 
@@ -1318,6 +1392,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/floors",
     auth: cap("office:read", operationalAuthenticated),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   defineRoute<FloorAddReq, FloorAddRes>({
@@ -1326,6 +1401,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/floors",
     auth: cap("room:manage", operationalAuthenticated),
+    tokenArea: { area: "rooms", level: "write" },
     emits: ["floors_updated"],
   }),
   defineRoute<void, NoContent>({
@@ -1334,6 +1410,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/floors/:id",
     auth: cap("room:manage", operationalAuthenticated),
+    tokenArea: { area: "rooms", level: "write" },
     emits: ["floors_updated"],
   }),
 
@@ -1343,6 +1420,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/rooms",
     auth: cap("room:manage", operationalAuthenticated),
+    tokenArea: { area: "rooms", level: "write" },
     emits: ["room_created"],
   }),
   defineRoute<void, NoContent>({
@@ -1355,6 +1433,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // from every user's allowedRooms/notifRooms, fanning out the representative
     // public user events (user_updated per touched record + users_list). Declared
     // for ACL/projection honesty (presence is out-of-band, never route-declared).
+    tokenArea: { area: "rooms", level: "write" },
     emits: ["room_closed", "user_updated", "users_list"],
   }),
   // Partial update over the room's fields: the body carries `name`, `pet`,
@@ -1369,6 +1448,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/rooms/:roomId",
     auth: cap("room:manage", roomParam("roomId")),
+    tokenArea: { area: "rooms", level: "write" },
     emits: [
       "room_renamed",
       "room_pet_updated",
@@ -1383,6 +1463,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/rooms/:roomId/settings",
     auth: cap("room:manage", roomParam("roomId")),
+    tokenArea: { area: "rooms", level: "read" },
     emits: [],
   }),
   // A room's GitHub issue link (task 7fc83592): an office owner's reach, so
@@ -1392,6 +1473,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/rooms/:roomId/github-link",
     auth: cap("task:read", integrationOfficeOwner),
+    tokenArea: { area: "tasks", level: "read" },
     emits: [],
   }),
   defineRoute<GithubLinkInput, { link: GithubLinkWire }>({
@@ -1400,6 +1482,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/rooms/:roomId/github-link",
     auth: cap("task:write", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1408,6 +1491,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/rooms/:roomId/github-link",
     auth: cap("task:write", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // The room's instructions.
@@ -1416,6 +1500,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/rooms/:roomId/instructions",
     auth: cap("room:manage", roomParam("roomId")),
+    tokenArea: { area: "rooms", level: "read" },
     emits: [],
   }),
   defineRoute<InstructionsReq, InstructionsRes>({
@@ -1424,6 +1509,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/rooms/:roomId/instructions",
     auth: cap("room:manage", roomParam("roomId")),
+    tokenArea: { area: "rooms", level: "write" },
     emits: ["room_settings_updated"],
   }),
   // View preferences affect visibility only; they never grant or deny access.
@@ -1550,6 +1636,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/voice",
     auth: cap("voice:use", operationalAuthenticated),
+    tokenArea: { area: "voice", level: "read" },
     emits: [],
   }),
   defineRoute<unknown, VoiceTranscribeRes>({
@@ -1561,6 +1648,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/voice/transcribe",
     auth: cap("voice:use", operationalAuthenticated),
+    tokenArea: { area: "voice", level: "write" },
     emits: [],
   }),
   defineRoute<VoiceSpeakReq, unknown>({
@@ -1572,6 +1660,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/voice/speak",
     auth: cap("voice:use", operationalAuthenticated),
+    tokenArea: { area: "voice", level: "write" },
     emits: [],
   }),
 
@@ -1582,6 +1671,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username/env",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<UserEnvReplaceReq, NoContent>({
@@ -1590,6 +1680,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/users/:username/env",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // One variable at a time, for the member or an office owner for any member
@@ -1603,6 +1694,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/users/:username/env/:name",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1611,6 +1703,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/users/:username/env/:name",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // Names and notes without values: an office owner reads WHICH managed
@@ -1623,6 +1716,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username/env/names",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   // The office variables' names and notes, read-only, for members too (Nil,
@@ -1632,6 +1726,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/env/names",
     auth: cap("integration:manage", integrationOfficeReader),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<void, UserEnvRes>({
@@ -1639,6 +1734,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/env",
     auth: cap("user:env", officeEnvOwner),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<UserEnvReplaceReq, NoContent>({
@@ -1647,6 +1743,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/office/env",
     auth: cap("user:env", officeEnvOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // One office variable at a time, as userEnv.set and userEnv.remove: an
@@ -1658,6 +1755,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/office/env/:name",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1666,6 +1764,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/office/env/:name",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // Secrets (internal-docs/secrets-design.md, section 1). The same gates as
@@ -1677,6 +1776,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username/secrets",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<SecretCreateReq, SecretRes>({
@@ -1685,6 +1785,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/secrets",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<SecretRotateReq, SecretRes>({
@@ -1693,6 +1794,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/users/:username/secrets/:name/value",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // Show: the value, to the secret's own member only. An office owner manages
@@ -1706,6 +1808,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username/secrets/:name/value",
     auth: cap("secret:show", selfUserOrApi),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<SecretUpdateReq, SecretRes>({
@@ -1714,6 +1817,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/users/:username/secrets/:name",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1722,6 +1826,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/users/:username/secrets/:name",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // A new placeholder for a secret (the generation goes up).
@@ -1731,6 +1836,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/secrets/:name/reissue",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // The Test button (integrations A3): the server checks the secret against
@@ -1741,6 +1847,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/secrets/:name/test",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // Members read the office secrets too, as names, hosts and notes only
@@ -1750,6 +1857,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/secrets",
     auth: cap("integration:manage", integrationOfficeReader),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<SecretCreateReq, SecretRes>({
@@ -1761,6 +1869,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/office/secrets",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<SecretRotateReq, SecretRes>({
@@ -1769,6 +1878,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/office/secrets/:name/value",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, SecretValueRes>({
@@ -1776,6 +1886,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/secrets/:name/value",
     auth: cap("secret:show", officeEnvOwner),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<SecretUpdateReq, SecretRes>({
@@ -1784,6 +1895,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/office/secrets/:name",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1792,6 +1904,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/office/secrets/:name",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, SecretRes>({
@@ -1800,6 +1913,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/office/secrets/:name/reissue",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, ConnectionTestRes>({
@@ -1808,6 +1922,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/office/secrets/:name/test",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // Remote MCP servers (integrations loop, A2). The same gates as the
@@ -1819,6 +1934,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username/mcp-servers",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<McpServerCreateReq, McpServerRes | AgentMcpServerRes>({
@@ -1827,6 +1943,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/mcp-servers",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<McpServerUpdateReq, McpServerRes | AgentMcpServerRes>({
@@ -1835,6 +1952,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/users/:username/mcp-servers/:name",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1843,6 +1961,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/users/:username/mcp-servers/:name",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // The Test button (integrations A3): initialize, then tools/list.
@@ -1852,6 +1971,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/mcp-servers/:name/test",
     auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // The MCP authorization flow (integrations A2b): the authorization URL
@@ -1862,6 +1982,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/mcp-servers/:name/sign-in",
     auth: cap("user:env", selfOrEnvOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // Members read the office servers too, as names, hosts and notes only
@@ -1871,6 +1992,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/mcp-servers",
     auth: cap("integration:manage", integrationOfficeReader),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
   defineRoute<McpServerCreateReq, McpServerRes | AgentMcpServerRes>({
@@ -1882,6 +2004,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/office/mcp-servers",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<McpServerUpdateReq, McpServerRes | AgentMcpServerRes>({
@@ -1890,6 +2013,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/office/mcp-servers/:name",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, NoContent>({
@@ -1898,6 +2022,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/office/mcp-servers/:name",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, ConnectionTestRes>({
@@ -1906,6 +2031,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/office/mcp-servers/:name/test",
     auth: cap("integration:manage", integrationOfficeOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   defineRoute<void, McpServerSignInRes>({
@@ -1914,6 +2040,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/office/mcp-servers/:name/sign-in",
     auth: cap("user:env", officeEnvOwner),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // The authorization server sends the member's browser back here. A human
@@ -1924,6 +2051,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/mcp-oauth/callback",
     auth: cap("user:env", userScope),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
   // Where the member's pages go (a Discord webhook). Same self-only gate as
@@ -1934,6 +2062,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username/pager-settings",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "pager", level: "read" },
     emits: [],
   }),
   defineRoute<PagerSettingsReq, PagerSettingsRes>({
@@ -1944,6 +2073,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", selfUserOrApi),
     // A save re-arms the member's open pages; any delivery result it causes
     // emits from the store.
+    tokenArea: { area: "pager", level: "write" },
     emits: ["pager_upserted"],
   }),
   defineRoute<void, PagerTestRes>({
@@ -1952,6 +2082,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/pager-settings/test",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "pager", level: "write" },
     emits: [],
   }),
 
@@ -1963,6 +2094,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/users/:username/push-devices",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "pager", level: "read" },
     emits: [],
   }),
   defineRoute<PushDeviceReq, PushDevice>({
@@ -1971,6 +2103,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/push-devices",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "pager", level: "write" },
     emits: [],
   }),
   defineRoute<void, void>({
@@ -1979,6 +2112,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/users/:username/push-devices/:id",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "pager", level: "write" },
     emits: [],
   }),
   defineRoute<void, PushTestRes>({
@@ -1987,6 +2121,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/users/:username/push-devices/:id/test",
     auth: cap("user:env", selfUserOrApi),
+    tokenArea: { area: "pager", level: "write" },
     emits: [],
   }),
 
@@ -2025,6 +2160,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agent-connections",
     auth: authn(agentTokenSender),
+    tokenArea: { area: "agents", level: "read" },
     emits: [],
   }),
   defineRoute<ProviderLoginStartReq, ProviderLoginStartRes>({
@@ -2105,6 +2241,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/me/api-token-inbox/drain",
     auth: cap("api:drain-inbox", apiTokenInboxSelf),
+    tokenArea: "always",
     emits: [],
   }),
 
@@ -2121,6 +2258,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["user:admin", "user:create"],
       or(officeOwner, ownerProxyMemberCreate),
     ),
+    tokenArea: { area: "office", level: "write" },
     emits: ["users_list"],
   }),
   // The member's instructions. The PUT writes only the text, so a proxy agent
@@ -2133,6 +2271,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["user:self", "user:admin", "user:prompt"],
       or(selfOrOwner, proxyMemberPrompt),
     ),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   defineRoute<InstructionsReq, InstructionsRes>({
@@ -2144,6 +2283,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["user:self", "user:admin", "user:prompt"],
       or(selfOrOwner, proxyMemberPrompt),
     ),
+    tokenArea: { area: "office", level: "write" },
     emits: ["user_updated", "users_list"],
   }),
   // Humans only: { user: UserSelfWire | UserAdminWire } (same UserRecord
@@ -2284,6 +2424,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // no specific capability. The not-last-owner lockout runs inside the auth
     // mutex (server/auth.ts).
     auth: authn(authenticated),
+    tokenArea: { area: "office", level: "write" },
     emits: ["session_expired"],
   }),
   defineRoute<void, AccessSettings>({
@@ -2341,6 +2482,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/settings",
     auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   // The member usage cap's status lines, read from the providers. Apart from
@@ -2350,6 +2492,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/member-usage-status",
     auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   defineRoute<OfficeSettingsReq, NoContent>({
@@ -2358,6 +2501,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/office/settings",
     auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "write" },
     emits: ["office_settings_updated"],
   }),
   // The office instructions. Their version covers the text only.
@@ -2366,6 +2510,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/office/instructions",
     auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   defineRoute<InstructionsReq, InstructionsRes>({
@@ -2374,6 +2519,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/office/instructions",
     auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "write" },
     emits: ["office_settings_updated"],
   }),
   defineRoute<ValidateCwdReq, { ok: boolean; error?: string }>({
@@ -2385,6 +2531,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/validate/cwd",
     auth: cap("agent:manage", operationalAuthenticated),
+    tokenArea: { area: "agentManagement", level: "read" },
     emits: [],
   }),
   defineRoute<
@@ -2408,6 +2555,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // to officeOwner and wrongly denied a member validating their OWN env before
     // the precondition could run - do not reinstate it.)
     auth: cap("office:read", authenticated),
+    tokenArea: { area: "agentManagement", level: "read" },
     emits: [],
     preconditions: ["validateEnvBodySelfSubject"],
   }),
@@ -2426,6 +2574,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/backends/:agentType/models",
     auth: cap("agent:manage", operationalAuthenticated),
+    tokenArea: { area: "agentManagement", level: "read" },
     emits: [],
   }),
 
@@ -2434,6 +2583,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/tasks",
     auth: cap("task:read", operationalAuthenticated),
+    tokenArea: { area: "tasks", level: "read" },
     emits: [],
   }),
   defineRoute<void, TaskItem>({
@@ -2441,6 +2591,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/tasks/:id",
     auth: cap("task:read", operationalAuthenticated),
+    tokenArea: { area: "tasks", level: "read" },
     emits: [],
   }),
   // Task attribution comes from the caller token, never the request body.
@@ -2450,6 +2601,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/tasks",
     auth: cap("task:write", operationalAuthenticated),
+    tokenArea: { area: "tasks", level: "write" },
     emits: ["tasks"],
   }),
   defineRoute<TaskUpdateReq, TaskItem>({
@@ -2458,6 +2610,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/tasks/:id",
     auth: cap("task:write", operationalAuthenticated),
+    tokenArea: { area: "tasks", level: "write" },
     emits: ["tasks"],
   }),
   defineRoute<TaskClaimReq, TaskItem>({
@@ -2466,6 +2619,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/tasks/:id/claim",
     auth: cap("task:write", operationalAuthenticated),
+    tokenArea: { area: "tasks", level: "write" },
     emits: ["tasks"],
   }),
   defineRoute<void, TaskItem>({
@@ -2474,6 +2628,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/tasks/:id/done",
     auth: cap("task:write", operationalAuthenticated),
+    tokenArea: { area: "tasks", level: "write" },
     emits: ["tasks"],
   }),
   defineRoute<void, NoContent>({
@@ -2484,6 +2639,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // taskDelete, not `authenticated`: task:write is one coarse capability, and
     // a cron run holds it only for the create/complete affordance in its prompt.
     auth: cap("task:write", taskDelete),
+    tokenArea: { area: "tasks", level: "write" },
     emits: ["tasks"],
   }),
 
@@ -2505,6 +2661,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/pager",
     auth: cap("pager:read", operationalAuthenticated),
+    tokenArea: { area: "pager", level: "read" },
     emits: [],
   }),
   defineRoute<void, PagerEntry>({
@@ -2512,6 +2669,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/pager/:id",
     auth: cap("pager:read", operationalAuthenticated),
+    tokenArea: { area: "pager", level: "read" },
     emits: [],
   }),
   defineRoute<void, PagerEntry>({
@@ -2520,6 +2678,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/pager/:id/ack",
     auth: cap("pager:write", operationalAuthenticated),
+    tokenArea: { area: "pager", level: "write" },
     emits: ["pager_upserted"],
   }),
   defineRoute<void, PagerEntry>({
@@ -2528,6 +2687,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/pager/:id/resolve",
     auth: cap("pager:write", operationalAuthenticated),
+    tokenArea: { area: "pager", level: "write" },
     emits: ["pager_upserted"],
   }),
 
@@ -2538,6 +2698,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/auth/app",
     auth: authn(userScope),
+    tokenArea: { area: "apps", level: "write" },
     emits: [],
   }),
 
@@ -2552,6 +2713,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/apps",
     auth: cap("app:read", operationalAuthenticated),
+    tokenArea: { area: "apps", level: "read" },
     emits: [],
   }),
   defineRoute<void, AppWidgetStatus>({
@@ -2559,6 +2721,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/apps/:name/widget",
     auth: cap("app:read", memberScope),
+    tokenArea: { area: "apps", level: "read" },
     emits: [],
   }),
   // The manifest the app's short-link page links (crossorigin
@@ -2568,6 +2731,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/apps/:name/manifest",
     auth: cap("app:read", memberScope),
+    tokenArea: { area: "apps", level: "read" },
     emits: [],
   }),
   defineRoute<void, AppWire>({
@@ -2575,6 +2739,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/apps/:name",
     auth: cap("app:read", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "read" },
     emits: [],
   }),
   // The thumbnail is served to everyone who can see the app, as the list is:
@@ -2585,6 +2750,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/apps/:name/thumbnail",
     auth: cap("app:read", operationalAuthenticated),
+    tokenArea: { area: "apps", level: "read" },
     emits: [],
   }),
   // A raw PNG, JPEG or WebP body, or JSON {path} from an agent, so the
@@ -2595,6 +2761,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/apps/:name/thumbnail",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
     body: "binary",
   }),
@@ -2607,6 +2774,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // an agent token can carry a null userId. See the guard for why an ownerless
     // app is worse than a refusal.
     auth: cap("app:write", and(operationalAuthenticated, hasOwningUser)),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
   // The only mutable fields are command, cwd and description. Name and port are
@@ -2618,6 +2786,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/apps/:name",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
   defineRoute<void, NoContent>({
@@ -2626,6 +2795,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/apps/:name",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_deleted"],
   }),
   defineRoute<void, AppLogsRes>({
@@ -2633,6 +2803,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/apps/:name/logs",
     auth: cap("app:read", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   // The recovery verbs. app:write rather than app:read because they change what
@@ -2644,6 +2815,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/start",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
   defineRoute<void, AppWire>({
@@ -2652,6 +2824,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/stop",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
   defineRoute<void, AppWire>({
@@ -2660,6 +2833,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/restart",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
   defineRoute<void, AppWire>({
@@ -2668,6 +2842,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/reload",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
   // One shared flag per app; start and restart clear it.
@@ -2677,6 +2852,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/archive",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
   defineRoute<void, AppWire>({
@@ -2685,6 +2861,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/unarchive",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    tokenArea: { area: "apps", level: "write" },
     emits: ["app_upserted"],
   }),
 
@@ -2787,6 +2964,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/webhooks",
     auth: cap("webhook:read", operationalAuthenticated),
+    tokenArea: { area: "webhooks", level: "read" },
     emits: [],
   }),
   defineRoute<void, WebhookWire>({
@@ -2794,6 +2972,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/webhooks/:id",
     auth: cap("webhook:read", operationalAuthenticated),
+    tokenArea: { area: "webhooks", level: "read" },
     emits: [],
   }),
   defineRoute<WebhookCreateReq, WebhookCreateRes>({
@@ -2802,6 +2981,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/webhooks",
     auth: cap("webhook:write", and(operationalAuthenticated, hasOwningUser)),
+    tokenArea: { area: "webhooks", level: "write" },
     emits: ["webhook_upserted"],
     preconditions: ["webhookTargetAllowed"],
   }),
@@ -2811,6 +2991,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/webhooks/:id",
     auth: cap("webhook:write", webhookOwnerOrOfficeOwner("id")),
+    tokenArea: { area: "webhooks", level: "write" },
     emits: ["webhook_upserted"],
     preconditions: ["webhookTargetAllowed"],
   }),
@@ -2820,6 +3001,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/webhooks/:id",
     auth: cap("webhook:write", webhookOwnerOrOfficeOwner("id")),
+    tokenArea: { area: "webhooks", level: "write" },
     emits: ["webhook_deleted"],
   }),
   defineRoute<void, WebhookDeliveriesRes>({
@@ -2827,6 +3009,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/webhooks/:id/deliveries",
     auth: cap("webhook:read", operationalAuthenticated),
+    tokenArea: { area: "webhooks", level: "read" },
     emits: [],
   }),
   defineRoute<WebhookDryRunReq, WebhookDryRunRes>({
@@ -2838,6 +3021,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/webhooks/:id/dry-run",
     auth: cap("webhook:read", operationalAuthenticated),
+    tokenArea: { area: "webhooks", level: "read" },
     emits: [],
   }),
   defineRoute<void, WebhookSecretRes>({
@@ -2845,6 +3029,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/webhooks/:id/secret",
     auth: cap("webhook:write", and(userScope, webhookOwnerOrOfficeOwner("id"))),
+    tokenArea: { area: "webhooks", level: "write" },
     emits: [],
   }),
   defineRoute<void, WebhookSecretRes>({
@@ -2859,6 +3044,7 @@ export const API_ROUTES: readonly RouteDef[] = [
         webhookOwnerOrOfficeOwner("id"),
       ),
     ),
+    tokenArea: { area: "webhooks", level: "write" },
     emits: ["webhook_upserted"],
   }),
 
@@ -2871,6 +3057,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/memory",
     auth: cap("memory:read", operationalAuthenticated),
+    tokenArea: { area: "memory", level: "read" },
     emits: [],
   }),
   defineRoute<MemoryCreateReq, MemoryAppendRes>({
@@ -2879,6 +3066,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/memory",
     auth: cap("memory:write", operationalAuthenticated),
+    tokenArea: { area: "memory", level: "write" },
     emits: [],
   }),
   defineRoute<MemoryReplaceReq, MemoryWriteRes>({
@@ -2887,6 +3075,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/memory",
     auth: cap("memory:write", operationalAuthenticated),
+    tokenArea: { area: "memory", level: "write" },
     emits: [],
   }),
 
@@ -2900,6 +3089,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/skill-usage",
     auth: cap("office:read", operationalAuthenticated),
+    tokenArea: { area: "skills", level: "read" },
     emits: [],
   }),
 
@@ -2915,6 +3105,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/skills",
     auth: authn(operationalAuthenticated),
+    tokenArea: { area: "skills", level: "read" },
     emits: [],
   }),
   defineRoute<void, SkillFileRes>({
@@ -2922,6 +3113,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/skills/file",
     auth: authn(operationalAuthenticated),
+    tokenArea: { area: "skills", level: "read" },
     emits: [],
   }),
   defineRoute<SkillSaveReq, SkillSaveRes>({
@@ -2930,6 +3122,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/skills/file",
     auth: cap("editor:use", operationalAuthenticated),
+    tokenArea: { area: "skills", level: "write" },
     emits: ["slash_commands"],
   }),
   defineRoute<SkillDeleteReq, void>({
@@ -2938,6 +3131,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/skills/file",
     auth: cap("editor:use", operationalAuthenticated),
+    tokenArea: { area: "skills", level: "write" },
     emits: ["slash_commands"],
   }),
   defineRoute<SkillCreateReq, SkillFileRes>({
@@ -2949,6 +3143,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/skills",
     auth: cap("editor:use", operationalAuthenticated),
+    tokenArea: { area: "skills", level: "write" },
     emits: ["slash_commands"],
   }),
 
@@ -2957,6 +3152,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/cronjobs",
     auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
+    tokenArea: { area: "schedules", level: "read" },
     emits: [],
   }),
   defineRoute<void, CronjobListWire>({
@@ -2964,6 +3160,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/cronjobs/:id",
     auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
+    tokenArea: { area: "schedules", level: "read" },
     emits: [],
   }),
   defineRoute<void, CronjobSystemPromptRes>({
@@ -2971,6 +3168,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/cronjobs/:id/system-prompt",
     auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute<CronCreateReq, CronjobListWire>({
@@ -2982,6 +3180,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["cron:manage", "cron:own"],
       and(notApp, operationalAuthenticated),
     ),
+    tokenArea: { area: "schedules", level: "write" },
     emits: ["cronjob_added"],
   }),
   defineRoute<CronUpdateReq, CronjobListWire>({
@@ -2990,6 +3189,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/cronjobs/:id",
     auth: cap(["cron:manage", "cron:own"], cronjobOwnerOrOfficeOwner("id")),
+    tokenArea: { area: "schedules", level: "write" },
     emits: ["cronjob_updated"],
   }),
   defineRoute<void, NoContent>({
@@ -2998,6 +3198,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/cronjobs/:id",
     auth: cap(["cron:manage", "cron:own"], cronjobOwnerOrOfficeOwner("id")),
+    tokenArea: { area: "schedules", level: "write" },
     emits: ["cronjob_deleted"],
   }),
   defineRoute<void, { runId: string }>({
@@ -3012,6 +3213,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["cron:manage", "cron:own"],
       and(notApp, cronjobOwnerOrOfficeOwner("id")),
     ),
+    tokenArea: { area: "schedules", level: "write" },
     emits: ["cronjob_run_updated"],
   }),
   // The instructions every schedule run gets, off the :id namespace to avoid
@@ -3022,6 +3224,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/cron-instructions",
     auth: cap("cron:manage", officeOwner),
+    tokenArea: { area: "schedules", level: "read" },
     emits: [],
   }),
   defineRoute<InstructionsReq, InstructionsRes>({
@@ -3030,6 +3233,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/cron-instructions",
     auth: cap("cron:manage", officeOwner),
+    tokenArea: { area: "schedules", level: "write" },
     emits: ["cronjobs_prompt_updated"],
   }),
   defineRoute<void, { runs: CronjobRun[] }>({
@@ -3037,6 +3241,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/cronjobs/:id/runs",
     auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
+    tokenArea: { area: "schedules", level: "read" },
     emits: [],
   }),
   defineRoute<void, { jobs: { cronjobId: string; runs: CronjobRun[] }[] }>({
@@ -3044,6 +3249,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/cron-runs",
     auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
+    tokenArea: { area: "schedules", level: "read" },
     emits: [],
   }),
   defineRoute<void, { run: CronjobRun; entries: LogEntry[] }>({
@@ -3051,6 +3257,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/cronjobs/:id/runs/:runId",
     auth: cap(["cron:read", "cron:own"], operationalAuthenticated),
+    tokenArea: { area: "logs", level: "read" },
     emits: [],
   }),
   defineRoute<CronRunMessageReq, MessageAck>({
@@ -3062,6 +3269,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["cron:manage", "cron:own"],
       and(notApp, cronjobOwnerOrOfficeOwner("id")),
     ),
+    tokenArea: { area: "schedules", level: "write" },
     emits: ["cron_run_log_entry"],
   }),
   defineRoute<EditMessageReq, MessageAck>({
@@ -3073,6 +3281,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       ["cron:manage", "cron:own"],
       and(notApp, cronjobOwnerOrOfficeOwner("id")),
     ),
+    tokenArea: { area: "schedules", level: "write" },
     emits: ["cron_run_log_entry"],
   }),
   defineRoute<AffordanceReadFileReq, OkTrue>({
@@ -3097,6 +3306,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/backup/status",
     auth: cap("office:read", operationalAuthenticated),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   // How often, how many copies, which folder. Owner-only, like storage.prune.
@@ -3119,6 +3329,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/version",
     auth: authn(operationalAuthenticated),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
 
@@ -3132,6 +3343,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/storage/usage",
     auth: cap("office:read", operationalAuthenticated),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   // Structured counterpart to /isomux-usage. The handler derives the audience
@@ -3141,6 +3353,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/usage",
     auth: cap("office:read", operationalAuthenticated),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   // Manual prune. Owner-only and DRY RUN unless the body says apply:true; no

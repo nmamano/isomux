@@ -20,7 +20,7 @@ import {
   type RoutePrecondition,
 } from "../routes/table.ts";
 import { isEventId, type EventId } from "../events/registry.ts";
-import { authorize } from "../identity/dispatch.ts";
+import { authorize, passesRouteStageOne } from "../identity/dispatch.ts";
 import { runAuthorize } from "../routes/executor.ts";
 import {
   USER_CAPABILITIES,
@@ -35,6 +35,11 @@ import {
   type Identity,
 } from "../identity/index.ts";
 import type { GuardDeps } from "../identity/guards.ts";
+import {
+  API_TOKEN_AREAS,
+  API_TOKEN_PRESETS,
+  routeAllowedByLimits,
+} from "../../shared/api-token-limits.ts";
 import { providerAccountsHandlers } from "../routes/handlers/provider-accounts.ts";
 import {
   appIdentityFromToken,
@@ -2933,6 +2938,123 @@ describe("route table: voice routes reach", () => {
           cronRun: refused,
           app: refused,
         },
+      });
+    }
+  });
+});
+
+// Fine-grained API token limits (task 23339bea). The executor refuses a
+// limited token any route whose tokenArea its limits do not grant, and any
+// route without one; these pin the table side of that contract.
+describe("route table: API token areas", () => {
+  const apiIdentity: Identity = {
+    scope: "api",
+    userId: "u-owner",
+    role: "owner",
+    apiTokenId: "pat-1",
+    apiTokenName: "Laptop",
+    capabilities: API_CAPABILITIES,
+  };
+  const apiStageOne = API_ROUTES.filter((route) =>
+    passesRouteStageOne(route.auth, apiIdentity),
+  );
+  const byOpId = (opId: string) => {
+    const route = API_ROUTES.find((r) => r.opId === opId);
+    expect(route, opId).toBeDefined();
+    return route!;
+  };
+
+  it("every route an API token passes stage 1 on declares a known area", () => {
+    // Authenticated rows pass stage 1 for every identity, so they count too.
+    expect(apiStageOne.length).toBeGreaterThan(100);
+    const missing = apiStageOne
+      .filter((route) => route.tokenArea === undefined)
+      .map((route) => route.opId);
+    expect(missing).toEqual([]);
+    const unknown = API_ROUTES.filter(
+      (route) =>
+        typeof route.tokenArea === "object" &&
+        !(API_TOKEN_AREAS as readonly string[]).includes(route.tokenArea.area),
+    ).map((route) => route.opId);
+    expect(unknown).toEqual([]);
+  });
+
+  it("a route that changes state declares write", () => {
+    // A write marked read would let a Read only token change the office.
+    // Non-GET routes whose audit owner is "none" are reads or bookkeeping
+    // (a preview, a dry run, a drain) and may declare either level.
+    const wrong = API_ROUTES.filter(
+      (route) =>
+        !["GET", "HEAD"].includes(route.method) &&
+        route.audit?.owner !== "none" &&
+        route.tokenArea !== undefined &&
+        (route.tokenArea === "always" || route.tokenArea.level !== "write"),
+    ).map((route) => route.opId);
+    expect(wrong).toEqual([]);
+  });
+
+  it("only the token's own inbox and the agent reference bypass the limits", () => {
+    const always = API_ROUTES.filter((route) => route.tokenArea === "always")
+      .map((route) => route.opId)
+      .sort();
+    expect(always).toEqual(
+      [
+        "agentReference.get",
+        "agentReference.list",
+        "apiTokenInbox.drain",
+      ].sort(),
+    );
+  });
+
+  it("Read only reaches no route that shows a log, a file, a secret or an assembled prompt", () => {
+    // Agent and schedule logs, terminals, the audit log (prompt text), chat
+    // and editor files, app output, env values and secret values: each can
+    // show a secret. A system prompt assembles memory and every instructions
+    // layer, so it would read memory around the memory area.
+    const showsSecrets = [
+      "agents.logs",
+      "agents.listSessions",
+      "agents.terminal",
+      "agents.askHistory",
+      "agents.askEvents",
+      "terminalRecordings.list",
+      "terminalRecordings.get",
+      "audit.list",
+      "agents.openFile",
+      "agents.getFile",
+      "chatFiles.get",
+      "chatFiles.getImage",
+      "agents.readSystemPrompt",
+      "agents.previewSystemPrompt",
+      "cron.readSystemPrompt",
+      "cron.getRun",
+      "apps.logs",
+      "userEnv.get",
+      "officeEnv.get",
+      "secrets.reveal",
+      "officeSecrets.reveal",
+      "webhooks.readSecret",
+    ];
+    const reached = showsSecrets.filter((opId) =>
+      routeAllowedByLimits(API_TOKEN_PRESETS.readOnly, byOpId(opId).tokenArea),
+    );
+    expect(reached).toEqual([]);
+    // The preset itself is not empty: it does reach a plain read.
+    expect(
+      routeAllowedByLimits(
+        API_TOKEN_PRESETS.readOnly,
+        byOpId("agents.discovery").tokenArea,
+      ),
+    ).toBe(true);
+  });
+
+  it("a room's GitHub link is an environment write", () => {
+    // The link points an office secret at a repo the caller names, so the
+    // token would read private issues through the member's GitHub token.
+    for (const opId of ["githubSync.set", "githubSync.delete"]) {
+      expect({ opId, tokenArea: byOpId(opId).tokenArea }).toEqual({
+        opId,
+        tokenArea: { area: "environment", level: "write" },
       });
     }
   });

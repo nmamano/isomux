@@ -99,6 +99,52 @@ describe("personal API token persistence", () => {
     expect(existsSync(file)).toBe(true);
   });
 
+  it("keeps a token's limits across a reload, and drops a record whose limits are not valid", async () => {
+    // Task 23339bea: limits are fixed at mint. A token minted without them
+    // (every token from before limits existed) keeps full access.
+    const limited = await mintApiToken({
+      userId: "u1",
+      name: "Reader",
+      expiresInDays: null,
+      limits: { areas: { tasks: "read", agents: "write" } },
+    });
+    const full = await mintApiToken({
+      userId: "u1",
+      name: "Full",
+      expiresInDays: null,
+    });
+    expect(limited.apiToken.limits).toEqual({
+      areas: { tasks: "read", agents: "write" },
+    });
+    expect("limits" in full.apiToken).toBe(false);
+
+    _testResetApiTokens();
+    expect(resolveApiToken(limited.token)?.limits).toEqual({
+      areas: { tasks: "read", agents: "write" },
+    });
+    const fullResolved = resolveApiToken(full.token);
+    expect(fullResolved?.id).toBe(full.apiToken.id);
+    expect(fullResolved && "limits" in fullResolved).toBe(false);
+    expect(
+      listApiTokens("u1").find((t) => t.id === limited.apiToken.id)?.limits,
+    ).toEqual({ areas: { tasks: "read", agents: "write" } });
+
+    // A hand-edited limits value the mint would refuse: the record must not
+    // authenticate, least of all as full access.
+    const stored = JSON.parse(readFileSync(file, "utf-8"));
+    stored[limited.apiToken.id].limits = { areas: { tasks: "admin" } };
+    writeFileSync(file, JSON.stringify(stored));
+    _testResetApiTokens();
+    const error = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(resolveApiToken(limited.token)).toBeNull();
+      expect(listApiTokens("u1").map((t) => t.id)).toEqual([full.apiToken.id]);
+      expect(resolveApiToken(full.token)?.id).toBe(full.apiToken.id);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("coalesces approximate last-authenticated persistence to once per minute", async () => {
     const minted = await mintApiToken({
       userId: "u1",

@@ -16,6 +16,10 @@ import type {
   ApiTokenWire,
 } from "../../../shared/contract-shapes.ts";
 import { API_TOKEN_EXPIRY_DAYS } from "../../api-tokens.ts";
+import {
+  parseApiTokenLimits,
+  type ApiTokenLimits,
+} from "../../../shared/api-token-limits.ts";
 import { APP_MESSAGE_MAX_CHARS } from "../../app-message-limits.ts";
 
 export interface ApiTokenDeps {
@@ -24,6 +28,7 @@ export interface ApiTokenDeps {
     userId: string;
     name: string;
     expiresInDays: number | null;
+    limits?: ApiTokenLimits;
   }): Promise<ApiTokenCreateRes>;
   revoke(userId: string, id: string): Promise<boolean>;
   userIdForUsername(username: string): string | null;
@@ -90,11 +95,25 @@ export function apiTokenHandlers(
           "expiresInDays must be 30, 365, or null for a token that does not expire",
         );
       }
+      // Absent = full access. Fixed at mint.
+      let limits: ApiTokenLimits | undefined;
+      if (body.limits !== undefined) {
+        const parsed = parseApiTokenLimits(body.limits);
+        if (!parsed) {
+          return fail(
+            422,
+            "invalid_limits",
+            'limits must be {areas: {<area>: "read" | "write"}} with known areas',
+          );
+        }
+        limits = parsed;
+      }
       return created(
         await deps.mint({
           userId,
           name,
           expiresInDays: body.expiresInDays,
+          ...(limits ? { limits } : {}),
         }),
       );
     },

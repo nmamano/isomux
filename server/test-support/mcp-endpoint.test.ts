@@ -253,6 +253,62 @@ describe("/mcp authentication", () => {
   });
 });
 
+describe("/mcp limited tokens", () => {
+  // Task 23339bea: a tool is listed only when the token may call every route
+  // it uses. list_agents is the directory (agents read), read_conversation
+  // also reads logs, send_message writes agents, read_replies is the token's
+  // own inbox (always).
+  it("lists only the tools the token's limits let it call", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const { owner } = await ownerOffice(srv);
+    const cases: Array<[string, Record<string, string>, string[]]> = [
+      ["no areas", {}, ["read_replies"]],
+      ["agents read", { agents: "read" }, ["list_agents", "read_replies"]],
+      [
+        "agents and logs read",
+        { agents: "read", logs: "read" },
+        ["list_agents", "read_conversation", "read_replies"],
+      ],
+      [
+        "agents write",
+        { agents: "write" },
+        ["list_agents", "read_replies", "send_message"],
+      ],
+      ["unrelated areas", { tasks: "write", memory: "read" }, ["read_replies"]],
+    ];
+    for (const [label, areas, expected] of cases) {
+      const response = await srv.http("/api/me/api-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: label,
+          expiresInDays: 30,
+          limits: { areas },
+        }),
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(response.status).toBe(201);
+      const minted = (await response.json()) as ApiTokenCreateRes;
+      const client = await connect(srv, minted.token);
+      const { tools } = await client.listTools();
+      expect({ label, tools: tools.map((tool) => tool.name).sort() }).toEqual({
+        label,
+        tools: expected,
+      });
+    }
+    // A token without limits keeps all four.
+    const full = await mintToken(srv, owner.rawSessionId);
+    const { tools } = await (await connect(srv, full.token)).listTools();
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "list_agents",
+      "read_conversation",
+      "read_replies",
+      "send_message",
+    ]);
+  });
+});
+
 describe("/mcp tools", () => {
   it("sends as the token, reads the chat, and waits for the agent's reply", async () => {
     const srv = await startTestServer({
