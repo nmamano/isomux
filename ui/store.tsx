@@ -80,6 +80,7 @@ import {
   rebuildUserViews,
 } from "./user-merge.ts";
 import { resolveSelectedRoomId, applyRoomClose } from "./roomSelection.ts";
+import type { AskAgentWire } from "../shared/contract-shapes.ts";
 import { connect } from "./ws.ts";
 import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
@@ -270,6 +271,13 @@ export interface AppState {
   // again, as for the pager.
   asksRevision: number;
   asksFetchSeq: number;
+  // Other members' open asks, for an office owner (read-only on the Asks
+  // tab). useOthersAsksSync reads GET /api/asks/others on every
+  // hydrationEpoch; others_ask_upserted and others_ask_removed keep it live.
+  // Nothing but the Asks tab reads it: no count, dot or stack.
+  othersAsks: AskAgentWire[];
+  othersAsksRevision: number;
+  othersAsksFetchSeq: number;
   // The webhooks this viewer may see: its own, those in its rooms, or every
   // hook for an office owner. Fetched by the Webhooks tab (and by a webhook run's view, which
   // links to its hook) and kept fresh by the webhook_upserted /
@@ -527,6 +535,10 @@ type Action =
   | { type: "asks_loaded"; entries: AskMemberWire[]; revision: number }
   | { type: "ask_upserted"; entry: AskMemberWire }
   | { type: "ask_removed"; id: string }
+  // CLIENT-LOCAL: useOthersAsksSync's snapshot.
+  | { type: "others_asks_loaded"; entries: AskAgentWire[]; revision: number }
+  | { type: "others_ask_upserted"; entry: AskAgentWire }
+  | { type: "others_ask_removed"; id: string }
   // The ask's answer starts: clears its error. The chat stack, which sends at
   // once, dispatches only this one.
   | { type: "ask_answer_started"; id: string }
@@ -1505,6 +1517,29 @@ export function reducer(state: AppState, action: Action): AppState {
         askErrors: without(state.askErrors, action.id),
         asksRevision: state.asksRevision + 1,
       };
+    case "others_asks_loaded":
+      if (action.revision !== state.othersAsksRevision)
+        return { ...state, othersAsksFetchSeq: state.othersAsksFetchSeq + 1 };
+      return { ...state, othersAsks: action.entries };
+    case "others_ask_upserted": {
+      const idx = state.othersAsks.findIndex((e) => e.id === action.entry.id);
+      return {
+        ...state,
+        othersAsks:
+          idx === -1
+            ? [...state.othersAsks, action.entry]
+            : state.othersAsks.map((e) =>
+                e.id === action.entry.id ? action.entry : e,
+              ),
+        othersAsksRevision: state.othersAsksRevision + 1,
+      };
+    }
+    case "others_ask_removed":
+      return {
+        ...state,
+        othersAsks: state.othersAsks.filter((e) => e.id !== action.id),
+        othersAsksRevision: state.othersAsksRevision + 1,
+      };
     case "ask_answer_started":
       return { ...state, askErrors: without(state.askErrors, action.id) };
     case "ask_answered": {
@@ -1899,6 +1934,9 @@ export const initialState: AppState = {
   askErrors: new Map(),
   asksRevision: 0,
   asksFetchSeq: 0,
+  othersAsks: [],
+  othersAsksRevision: 0,
+  othersAsksFetchSeq: 0,
   webhooks: [],
   webhooksLoaded: false,
   webhooksRevision: 0,

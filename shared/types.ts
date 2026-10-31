@@ -1,4 +1,4 @@
-import type { ApiTokenLogEntry } from "./contract-shapes.ts";
+import type { ApiTokenLogEntry, AskAgentWire } from "./contract-shapes.ts";
 import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
 import type { SecretForm } from "./secret-hosts.ts";
@@ -2731,6 +2731,11 @@ export type ServerMessage =
   | { type: "ask_upserted"; entry: AskMemberWire }
   // An ask addressed to the recipient closed (reply, dismiss, delete).
   | { type: "ask_removed"; id: string }
+  // Another member's open ask, for an office owner only
+  // (askShownToOwnerAsOther); the UI reads GET /api/asks/others after each
+  // reconnect.
+  | { type: "others_ask_upserted"; entry: AskAgentWire }
+  | { type: "others_ask_removed"; id: string }
   // Webhooks: only the hook owner and office owners receive these.
   | { type: "webhook_upserted"; webhook: WebhookWire }
   | { type: "webhook_deleted"; id: string }

@@ -110,6 +110,8 @@ import {
 import {
   askMemberWire,
   askVisibleTo,
+  askShownToOwnerAsOther,
+  askAgentWire,
   AsksUnavailableError,
   createAskFilePersistence,
   createAskStore,
@@ -7399,7 +7401,10 @@ function pushPagerEntryToEachWs(entry: PagerEntry) {
 // Push ONE ask change to the sockets of the members askVisibleTo admits, the
 // rule GET /api/asks applies, and to no one else. A removal goes to the
 // member it named, or every owner for an office secret request, with no room
-// check, so a stack never keeps an entry that closed.
+// check, so a stack never keeps an entry that closed. Office owners hear
+// other members' asks as others_ask_* (askShownToOwnerAsOther, the rule of
+// GET /api/asks/others); the removal of one goes to every other owner, with
+// no room check either.
 function pushAskChange(change: AskChange) {
   const { entry } = change;
   const forOwners = entry.secret?.scope === "office";
@@ -7411,13 +7416,26 @@ function pushAskChange(change: AskChange) {
         : !!userId && userId === entry.memberUserId;
       if (addressed)
         officeSend(ws, JSON.stringify({ type: "ask_removed", id: entry.id }));
+      else if (!entry.secret && !!userId && askAudience.isOfficeOwner(userId))
+        officeSend(
+          ws,
+          JSON.stringify({ type: "others_ask_removed", id: entry.id }),
+        );
       continue;
     }
-    if (!askVisibleTo(entry, userId, askAudience)) continue;
-    officeSend(
-      ws,
-      JSON.stringify({ type: "ask_upserted", entry: askMemberWire(entry) }),
-    );
+    if (askVisibleTo(entry, userId, askAudience))
+      officeSend(
+        ws,
+        JSON.stringify({ type: "ask_upserted", entry: askMemberWire(entry) }),
+      );
+    else if (askShownToOwnerAsOther(entry, userId, askAudience))
+      officeSend(
+        ws,
+        JSON.stringify({
+          type: "others_ask_upserted",
+          entry: askAgentWire(entry, (id) => getUserById(id)?.name ?? null),
+        }),
+      );
   }
 }
 

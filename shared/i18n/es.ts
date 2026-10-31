@@ -1688,6 +1688,10 @@ Cosas que puedes hacer por él:
   "asks.roomReverse": "Orden inverso de las salas",
   "asks.filteredEmpty": "Ninguna petición abierta coincide con estos filtros.",
   "asks.showAll": "Mostrar todo",
+  "asks.member": "Miembro",
+  "asks.memberMine": "Yo",
+  "asks.memberAll": "Todos los miembros",
+  "asks.forMember": "Para {member}",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",
   "apiCall.tasks.listOpenGlobal":
     "Listar tareas abiertas (solo las globales de la oficina)",

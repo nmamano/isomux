@@ -40,6 +40,12 @@
 // the page is hidden or closes, with keepalive so the request outlives the
 // page. A send that fails brings the ask back everywhere, with the error
 // (askErrors, kept in the store so it outlives this card).
+//
+// With `readOnly` (another member's ask, shown to an office owner on the
+// Inbox), the card names the member it is for and lists the options, with
+// no reply field and no answer button; its commands and editor files are
+// text, as they are steps for that member. Its link, files, id and Discuss
+// in chat stay.
 
 import {
   useContext,
@@ -133,8 +139,10 @@ export function AskCard({
   onChatAgent,
   undoMs,
   promptLines,
+  readOnly,
 }: {
-  entry: AskMemberWire;
+  // `member`, the name of the member it is for, is drawn on a read-only card.
+  entry: AskMemberWire & { member?: string | null };
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
   // Set on the Inbox: Discuss in chat opens the in-place chat panel.
@@ -142,6 +150,8 @@ export function AskCard({
   undoMs?: number;
   // The prompt's lines before Show more.
   promptLines?: number;
+  // Another member's ask, shown to an office owner: no answer controls.
+  readOnly?: boolean;
 }) {
   return entry.secret ? (
     <SecretAskCard
@@ -159,6 +169,7 @@ export function AskCard({
       onChatAgent={onChatAgent}
       undoMs={undoMs}
       promptLines={promptLines}
+      readOnly={readOnly}
     />
   );
 }
@@ -184,10 +195,13 @@ function AskAffordances({
   entry,
   isMobile,
   onFocusAgent,
+  readOnly,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
+  // Editor files and commands as text only.
+  readOnly?: boolean;
 }) {
   const dispatch = useDispatch();
   const features = useFeatures();
@@ -219,7 +233,7 @@ function AskAffordances({
       )}
       {editFiles?.map((file, i) => (
         <div key={i} data-ask-edit-file={file.path}>
-          {features.editor ? (
+          {features.editor && !readOnly ? (
             <EditRequestCard payload={file} onOpen={openInEditor} />
           ) : (
             <PlainAffordance text={file.path} />
@@ -228,7 +242,7 @@ function AskAffordances({
       ))}
       {commands?.map((command, i) => (
         <div key={i} data-ask-command={command}>
-          {features.terminal ? (
+          {features.terminal && !readOnly ? (
             <TerminalCommandCard
               payload={{ command }}
               onCopy={copyToTerminal}
@@ -249,13 +263,15 @@ function ReplyAskCard({
   onChatAgent,
   undoMs,
   promptLines = PROMPT_LINES,
+  readOnly = false,
 }: {
-  entry: AskMemberWire;
+  entry: AskMemberWire & { member?: string | null };
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
   onChatAgent?: (agentId: string) => void;
   undoMs?: number;
   promptLines?: number;
+  readOnly?: boolean;
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
@@ -640,6 +656,21 @@ function ReplyAskCard({
               {t("asks.fromApp", { app: entry.app.name })}
             </div>
           )}
+          {readOnly && entry.member && (
+            <div
+              data-ask-for=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {rich("asks.forMember", {
+                member: <span {...noTranslate()}>{entry.member}</span>,
+              })}
+            </div>
+          )}
           <div
             ref={promptRef}
             data-ask-prompt=""
@@ -784,114 +815,142 @@ function ReplyAskCard({
         entry={entry}
         isMobile={isMobile}
         onFocusAgent={onFocusAgent}
+        readOnly={readOnly}
       />
       {entry.options && entry.options.length > 0 && (
         <div
           data-ask-options=""
           style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
         >
-          {entry.options.map((option, i) => (
-            <button
-              key={i}
-              type="button"
-              data-ask-option=""
-              {...(option === entry.recommended
+          {entry.options.map((option, i) => {
+            const recommended = option === entry.recommended;
+            const marks = {
+              "data-ask-option": "",
+              ...(recommended
                 ? {
                     "data-ask-option-recommended": "",
                     title: t("asks.recommended"),
                   }
-                : {})}
-              disabled={busy}
-              onClick={() => fillOption(option)}
-              style={{
-                maxWidth: "100%",
-                padding: buttonPad,
-                // Tight space on the star's left, as on its right.
-                ...(option === entry.recommended ? { paddingLeft: 10 } : {}),
-                borderRadius: 8,
-                border: "1px solid var(--accent-text)",
-                background:
-                  option === entry.recommended
-                    ? "var(--accent-bg)"
-                    : "transparent",
-                color: "var(--accent-text)",
-                fontFamily: "var(--font-ui)",
-                fontSize: isMobile ? 14 : 12,
-                fontWeight: 600,
-                lineHeight: 1.35,
-                textAlign: "left",
-                overflowWrap: "anywhere",
-                cursor: busy ? "default" : "pointer",
-                opacity: busy ? 0.6 : 1,
-              }}
-            >
-              {option === entry.recommended && (
-                <RecommendedStar size={isMobile ? 13 : 11} />
-              )}
-              {/* The agent's words; the recommended mark stays translatable. */}
-              <span {...noTranslate()}>{option}</span>
-            </button>
-          ))}
+                : {}),
+            };
+            const style: React.CSSProperties = {
+              maxWidth: "100%",
+              boxSizing: "border-box",
+              padding: buttonPad,
+              // Tight space on the star's left, as on its right.
+              ...(recommended ? { paddingLeft: 10 } : {}),
+              borderRadius: 8,
+              border: "1px solid var(--accent-text)",
+              background: recommended ? "var(--accent-bg)" : "transparent",
+              color: "var(--accent-text)",
+              fontFamily: "var(--font-ui)",
+              fontSize: isMobile ? 14 : 12,
+              fontWeight: 600,
+              lineHeight: 1.35,
+              textAlign: "left",
+              overflowWrap: "anywhere",
+            };
+            const label = (
+              <>
+                {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}
+                {/* The agent's words; the recommended mark stays translatable. */}
+                <span {...noTranslate()}>{option}</span>
+              </>
+            );
+            // Read-only: the option as a label, nothing to tap.
+            return readOnly ? (
+              <span key={i} {...marks} style={style}>
+                {label}
+              </span>
+            ) : (
+              <button
+                key={i}
+                type="button"
+                {...marks}
+                disabled={busy}
+                onClick={() => fillOption(option)}
+                style={{
+                  ...style,
+                  cursor: busy ? "default" : "pointer",
+                  opacity: busy ? 0.6 : 1,
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       )}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          answer("reply");
-        }}
-        style={{
-          display: "flex",
-          flexDirection: isMobile ? "column" : "row",
-          flexWrap: isMobile ? undefined : "wrap",
-          gap: 6,
-          marginTop: 7,
-          alignItems: isMobile ? "stretch" : "flex-end",
-        }}
-      >
-        <textarea
-          ref={inputRef}
-          value={reply}
-          rows={1}
-          disabled={busy}
-          data-ask-reply-input=""
-          onChange={(e) =>
-            dispatch({
-              type: "set_ask_draft",
-              askId: entry.id,
-              text: e.target.value,
-            })
-          }
-          onFocus={(e) => selectDefault(e.currentTarget)}
-          onPointerDown={(e) => {
-            clickFocuses.current = document.activeElement !== e.currentTarget;
+      {readOnly ? (
+        <div style={{ display: "flex", marginTop: 7 }}>
+          <AskAboutButton
+            entry={entry}
+            style={secondaryButton}
+            disabled={false}
+            onFocusAgent={onFocusAgent}
+            onChatAgent={onChatAgent}
+          />
+        </div>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            answer("reply");
           }}
-          onClick={(e) => {
-            if (clickFocuses.current) selectDefault(e.currentTarget);
-            clickFocuses.current = false;
-          }}
-          onKeyDown={onReplyKeyDown}
-          aria-label={t("asks.reply")}
           style={{
-            flex: isMobile ? undefined : "1 1 160px",
-            minWidth: 0,
-            maxWidth: isMobile ? undefined : 460,
-            boxSizing: "border-box",
-            padding: isMobile ? "8px 10px" : "5px 10px",
-            background: "var(--bg-input)",
-            border: "1px solid var(--border-light)",
-            borderRadius: 8,
-            color: "var(--text-primary)",
-            fontFamily: "var(--font-ui)",
-            // 16px keeps iOS Safari from zooming into the field.
-            fontSize: isMobile ? 16 : 12,
-            lineHeight: isMobile ? "20px" : "16px",
-            resize: "none",
-            overflowY: "auto",
-            outline: "none",
+            display: "flex",
+            flexDirection: isMobile ? "column" : "row",
+            flexWrap: isMobile ? undefined : "wrap",
+            gap: 6,
+            marginTop: 7,
+            alignItems: isMobile ? "stretch" : "flex-end",
           }}
-        />
-        {replyButtons}
-      </form>
+        >
+          <textarea
+            ref={inputRef}
+            value={reply}
+            rows={1}
+            disabled={busy}
+            data-ask-reply-input=""
+            onChange={(e) =>
+              dispatch({
+                type: "set_ask_draft",
+                askId: entry.id,
+                text: e.target.value,
+              })
+            }
+            onFocus={(e) => selectDefault(e.currentTarget)}
+            onPointerDown={(e) => {
+              clickFocuses.current = document.activeElement !== e.currentTarget;
+            }}
+            onClick={(e) => {
+              if (clickFocuses.current) selectDefault(e.currentTarget);
+              clickFocuses.current = false;
+            }}
+            onKeyDown={onReplyKeyDown}
+            aria-label={t("asks.reply")}
+            style={{
+              flex: isMobile ? undefined : "1 1 160px",
+              minWidth: 0,
+              maxWidth: isMobile ? undefined : 460,
+              boxSizing: "border-box",
+              padding: isMobile ? "8px 10px" : "5px 10px",
+              background: "var(--bg-input)",
+              border: "1px solid var(--border-light)",
+              borderRadius: 8,
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-ui)",
+              // 16px keeps iOS Safari from zooming into the field.
+              fontSize: isMobile ? 16 : 12,
+              lineHeight: isMobile ? "20px" : "16px",
+              resize: "none",
+              overflowY: "auto",
+              outline: "none",
+            }}
+          />
+          {replyButtons}
+        </form>
+      )}
       {failure && (
         <div
           role="alert"

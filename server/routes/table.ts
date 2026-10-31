@@ -926,7 +926,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/asks",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     plainText: { params: ASK_CREATE_PLAIN_TEXT_PARAMS },
-    emits: ["ask_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, AskAgentWire[]>({
     opId: "agents.listAsks",
@@ -963,7 +963,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     plainText: { params: ASK_EDIT_PLAIN_TEXT_PARAMS },
-    emits: ["ask_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, NoContent>({
     opId: "agents.deleteAsk",
@@ -971,12 +971,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
-    emits: ["ask_removed"],
+    emits: ["ask_removed", "others_ask_removed"],
   }),
   defineRoute<void, AskMemberWire[]>({
     opId: "asks.list",
     method: "GET",
     path: "/api/asks",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    emits: [],
+  }),
+  // Other members' open asks, for an office owner (askShownToOwnerAsOther);
+  // 403 for anyone else. Read-only: the answer routes stay the addressee's.
+  defineRoute<void, AskAgentWire[]>({
+    opId: "asks.listOthers",
+    method: "GET",
+    path: "/api/asks/others",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     emits: [],
   }),
@@ -998,7 +1007,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/asks/:askId/reply",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     plainText: { params: ASK_REPLY_PLAIN_TEXT_PARAMS },
-    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
+    emits: [
+      "ask_removed",
+      "others_ask_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
   }),
   defineRoute<AskDismissReq, NoContent>({
     opId: "asks.dismiss",
@@ -1006,7 +1021,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/asks/:askId/dismiss",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
-    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
+    emits: [
+      "ask_removed",
+      "others_ask_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
   }),
   // The member asks the agent to rewrite the ask in plain words; the ask
   // stays open.
@@ -1016,7 +1037,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/asks/:askId/simplify",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
-    emits: ["ask_upserted", "log_entry", "interaction_added", "agent_updated"],
+    emits: [
+      "ask_upserted",
+      "others_ask_upserted",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
   }),
   // A file an ask references in place (a video or audio file), for the
   // member the ask is for.
@@ -1035,6 +1062,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     emits: [
       "ask_removed",
+      "others_ask_removed",
       "log_entry",
       "interaction_added",
       "agent_updated",
@@ -2685,7 +2713,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/app/asks",
     auth: cap("app:ask", appScope),
     plainText: { params: ASK_CREATE_PLAIN_TEXT_PARAMS },
-    emits: ["ask_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, AskAgentWire[]>({
     opId: "asks.appList",
@@ -2708,7 +2736,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/app/asks/:askId",
     auth: cap("app:ask", appScope),
     plainText: { params: ASK_EDIT_PLAIN_TEXT_PARAMS },
-    emits: ["ask_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, NoContent>({
     opId: "asks.appDelete",
@@ -2716,7 +2744,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/app/asks/:askId",
     auth: cap("app:ask", appScope),
-    emits: ["ask_removed"],
+    emits: ["ask_removed", "others_ask_removed"],
   }),
 
   // Webhooks (internal-docs/webhooks-design.md section 7). Ownership is the

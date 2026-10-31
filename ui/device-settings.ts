@@ -164,6 +164,43 @@ export function setAsksSortDir(dir: AsksSortDir): void {
   } catch {}
 }
 
+// Whose asks the Inbox Asks tab lists for an office owner, remembered on
+// this device: their own, every member's, or one other member's.
+export type AsksMember =
+  | { kind: "mine" }
+  | { kind: "all" }
+  | { kind: "member"; name: string };
+
+// Stored as "all" or "member:<name>", so a member named "all" or "mine"
+// stays a member; nothing is mine, and so is a value this build does not
+// know.
+const KEY_ASKS_MEMBER = "isomux-asks-member";
+const MEMBER_PREFIX = "member:";
+
+export function getAsksMember(): AsksMember {
+  try {
+    const stored = localStorage.getItem(KEY_ASKS_MEMBER);
+    if (stored === "all") return { kind: "all" };
+    if (
+      stored?.startsWith(MEMBER_PREFIX) &&
+      stored.length > MEMBER_PREFIX.length
+    )
+      return { kind: "member", name: stored.slice(MEMBER_PREFIX.length) };
+  } catch {}
+  return { kind: "mine" };
+}
+
+export function setAsksMember(member: AsksMember): void {
+  try {
+    if (member.kind === "mine") localStorage.removeItem(KEY_ASKS_MEMBER);
+    else
+      localStorage.setItem(
+        KEY_ASKS_MEMBER,
+        member.kind === "all" ? "all" : MEMBER_PREFIX + member.name,
+      );
+  } catch {}
+}
+
 // The Inbox Asks tab's filters, remembered on this device: the rooms the
 // member unchecked and the checked priorities. They start as all.
 export interface AsksFilterSetting {

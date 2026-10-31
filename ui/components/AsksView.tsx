@@ -13,6 +13,12 @@
 // is sent. The filters, the sort and its direction are remembered per
 // browser, and the asks the tab shows are marked seen there for the Inbox
 // badge (task a930c9d6).
+// An office owner also has a member select, first in the row (task
+// a49856f7): their own asks, every member's, or one other member's. Other
+// members' asks are the store's othersAsks slice, drawn as read-only cards
+// that name the member; the filters and the sort apply to the whole set. The
+// choice is remembered per browser; the badge and the seen marks stay the
+// owner's own asks.
 // InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useState } from "react";
@@ -24,6 +30,9 @@ import { AskCard } from "../log-view/AskCard.tsx";
 import {
   ASKS_SORTS,
   getAsksFilter,
+  getAsksMember,
+  setAsksMember,
+  type AsksMember,
   getAsksSort,
   getAsksSortDir,
   markAsksSeen,
@@ -57,6 +66,19 @@ export interface AskFilter {
   hiddenRooms: ReadonlySet<string>;
   priorities: readonly PriorityFilterValue[];
 }
+
+const MINE: AsksMember = { kind: "mine" };
+
+// The member select's option values, in the setting's own encoding, so a
+// member named "all" or "mine" stays a member.
+const memberValue = (member: AsksMember) =>
+  member.kind === "member" ? `member:${member.name}` : member.kind;
+const parseMemberValue = (value: string): AsksMember =>
+  value === "all"
+    ? { kind: "all" }
+    : value.startsWith("member:")
+      ? { kind: "member", name: value.slice("member:".length) }
+      : { kind: "mine" };
 
 // More of each prompt than the chat's stack shows: a phone line holds about
 // 40 characters, and most asks fit in 20.
@@ -214,7 +236,19 @@ export function AsksView({
   // it the name opens the agent's chat.
   onChatAgent?: (agentId: string) => void;
 }) {
-  const { asks, answeredAsks, agents, rooms, isMobile } = useAppState();
+  const {
+    asks,
+    othersAsks,
+    answeredAsks,
+    agents,
+    rooms,
+    isMobile,
+    sessionContext,
+  } = useAppState();
+  // Read only while the member is an owner, so a demotion hides them at once.
+  const isOwner = sessionContext?.role === "owner";
+  const [member, setMember] = useState<AsksMember>(getAsksMember);
+  const whose = isOwner ? member : MINE;
   const { t } = useI18n();
   // The filters and the sort are remembered on this device. The Inbox badge
   // counts the asks not yet shown here, whatever the filters, so a filter
@@ -270,9 +304,34 @@ export function AsksView({
     () => ({ hiddenRooms, priorities }),
     [hiddenRooms, priorities],
   );
-  const open = useMemo(
+  const own = useMemo(
     () => asks.filter((e) => answeredAsks.get(e.id) !== "sending"),
     [asks, answeredAsks],
+  );
+  // Other members' asks whose agent the client has, as for the own asks.
+  const others = useMemo(
+    () => (isOwner ? visibleAsks(othersAsks, agents) : []),
+    [isOwner, othersAsks, agents],
+  );
+  const othersIds = useMemo(() => new Set(others.map((e) => e.id)), [others]);
+  // The other members with an open ask, by name whatever the case, and the
+  // chosen one while it has none.
+  const memberNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const e of others) if (e.member) names.add(e.member);
+    if (member.kind === "member") names.add(member.name);
+    return [...names].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [others, member]);
+  const open = useMemo<AskMemberWire[]>(
+    () =>
+      whose.kind === "mine"
+        ? own
+        : whose.kind === "all"
+          ? [...own, ...others]
+          : others.filter((e) => e.member === whose.name),
+    [whose, own, others],
   );
   const groups = useMemo(
     () => askGroups(open, agents, filterRooms, filter, sort, dir),
@@ -368,6 +427,27 @@ export function AsksView({
             margin: "0 auto",
           }}
         >
+          {isOwner && (
+            <select
+              data-asks-member=""
+              aria-label={t("asks.member")}
+              value={memberValue(member)}
+              onChange={(e) => {
+                const next = parseMemberValue(e.target.value);
+                setMember(next);
+                setAsksMember(next);
+              }}
+              style={selectStyle}
+            >
+              <option value="mine">{t("asks.memberMine")}</option>
+              <option value="all">{t("asks.memberAll")}</option>
+              {memberNames.map((name) => (
+                <option key={name} value={`member:${name}`} {...noTranslate()}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          )}
           <CheckboxFilter
             name="room"
             label={t("tasks.field.room")}
@@ -537,6 +617,7 @@ export function AsksView({
                 <AskCard
                   key={entry.id}
                   entry={entry}
+                  readOnly={othersIds.has(entry.id)}
                   isMobile={isMobile}
                   onFocusAgent={onFocusAgent}
                   onChatAgent={onChatAgent}

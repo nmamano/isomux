@@ -1277,40 +1277,67 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.createAsk": {
     caps: ["self:affordance"],
-    emits: ["ask_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   },
   "agents.listAsks": { caps: ["self:affordance"], emits: [] },
   "agents.getAsk": { caps: ["self:affordance"], emits: [] },
   "agents.askHistory": { caps: ["log:read"], emits: [] },
+  // An ask change also reaches office owners as another member's ask
+  // (task a49856f7); a secret request never does.
   "agents.editAsk": {
     caps: ["self:affordance"],
-    emits: ["ask_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   },
   "agents.deleteAsk": {
     caps: ["self:affordance"],
-    emits: ["ask_removed"],
+    emits: ["ask_removed", "others_ask_removed"],
   },
   "asks.list": {
     caps: ["agent:converse", "api:send-message"],
     emits: [],
   },
+  // Other members' open asks, for an office owner (task a49856f7): the
+  // handler refuses anyone else.
+  "asks.listOthers": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: [],
+  },
   "asks.reply": {
     caps: ["agent:converse", "api:send-message"],
-    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
+    emits: [
+      "ask_removed",
+      "others_ask_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
   },
   "asks.dismiss": {
     caps: ["agent:converse", "api:send-message"],
-    emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
+    emits: [
+      "ask_removed",
+      "others_ask_removed",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
   },
   // The ask stays open (task 30915188).
   "asks.simplify": {
     caps: ["agent:converse", "api:send-message"],
-    emits: ["ask_upserted", "log_entry", "interaction_added", "agent_updated"],
+    emits: [
+      "ask_upserted",
+      "others_ask_upserted",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
   },
   "asks.fileTask": {
     caps: ["agent:converse", "api:send-message"],
     emits: [
       "ask_removed",
+      "others_ask_removed",
       "log_entry",
       "interaction_added",
       "agent_updated",
@@ -1637,11 +1664,20 @@ const SPEC_ROUTE_CONTRACT: Record<
   "pager.appResolve": { caps: ["pager:raise"], emits: ["pager_upserted"] },
   // The app ask routes: an app opens and manages its own asks, in its target
   // agent's name. app:ask is held by APP scope alone, as app:message is.
-  "asks.appCreate": { caps: ["app:ask"], emits: ["ask_upserted"] },
+  "asks.appCreate": {
+    caps: ["app:ask"],
+    emits: ["ask_upserted", "others_ask_upserted"],
+  },
   "asks.appList": { caps: ["app:ask"], emits: [] },
   "asks.appGet": { caps: ["app:ask"], emits: [] },
-  "asks.appEdit": { caps: ["app:ask"], emits: ["ask_upserted"] },
-  "asks.appDelete": { caps: ["app:ask"], emits: ["ask_removed"] },
+  "asks.appEdit": {
+    caps: ["app:ask"],
+    emits: ["ask_upserted", "others_ask_upserted"],
+  },
+  "asks.appDelete": {
+    caps: ["app:ask"],
+    emits: ["ask_removed", "others_ask_removed"],
+  },
   // Webhooks. The secret routes are webhook:write AND a human session.
   "webhooks.list": { caps: ["webhook:read"], emits: [] },
   "webhooks.get": { caps: ["webhook:read"], emits: [] },
@@ -2240,6 +2276,7 @@ const API_REACHABLE_OPIDS = [
   "secretRequests.decline",
   "agents.askHistory",
   "asks.list",
+  "asks.listOthers",
   "asks.get",
   "asks.reply",
   "asks.dismiss",

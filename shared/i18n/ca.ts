@@ -1693,6 +1693,10 @@ Coses que pots fer per ell:
   "asks.roomReverse": "Ordre invers de les sales",
   "asks.filteredEmpty": "Cap petició oberta coincideix amb aquests filtres.",
   "asks.showAll": "Mostra-ho tot",
+  "asks.member": "Membre",
+  "asks.memberMine": "Jo",
+  "asks.memberAll": "Tots els membres",
+  "asks.forMember": "Per a {member}",
   "apiCall.tasks.listOpen": "Llistar tasques obertes",
   "apiCall.tasks.listOpenGlobal":
     "Llistar tasques obertes (només les globals de l'oficina)",

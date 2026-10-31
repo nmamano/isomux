@@ -32,6 +32,7 @@ import type {
   MembersChatMessage,
   TaskItem,
 } from "../shared/types.ts";
+import type { AskAgentWire } from "../shared/contract-shapes.ts";
 
 function entry(id: string, agentId: string, timestamp: number): LogEntry {
   return { id, agentId, timestamp, kind: "text", content: `content-${id}` };
@@ -1824,5 +1825,87 @@ describe("reducer: a prefix for the chat draft", () => {
       roomId: "r1",
     });
     expect(removed.pendingComposerFocus.has("a1")).toBe(false);
+  });
+});
+
+// Other members' open asks, for an office owner (task a49856f7): their own
+// slice, kept like the asks slice (a snapshot a delta overtook is refused and
+// read again), and never touching the member's own asks.
+describe("reducer: other members' asks", () => {
+  const other = (id: string, member = "pat"): AskAgentWire => ({
+    id,
+    agentId: "a1",
+    memberUserId: `u-${member}`,
+    member,
+    prompt: `${id}?`,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const own: AskEntry = {
+    id: "own",
+    agentId: "a1",
+    memberUserId: "u1",
+    prompt: "own?",
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const ids = (s: AppState) => s.othersAsks.map((e) => e.id);
+
+  it("loads a snapshot, upserts in place or appends, and removes, leaving the own slice alone", () => {
+    let s: AppState = { ...initialState, asks: [own] };
+    s = reducer(s, {
+      type: "others_asks_loaded",
+      entries: [other("o1"), other("o2")],
+      revision: s.othersAsksRevision,
+    });
+    expect(ids(s)).toEqual(["o1", "o2"]);
+    s = reducer(s, {
+      type: "others_ask_upserted",
+      entry: { ...other("o1"), prompt: "edited?" },
+    });
+    s = reducer(s, { type: "others_ask_upserted", entry: other("o3", "sam") });
+    expect(s.othersAsks.map((e) => [e.id, e.prompt])).toEqual([
+      ["o1", "edited?"],
+      ["o2", "o2?"],
+      ["o3", "o3?"],
+    ]);
+    s = reducer(s, { type: "others_ask_removed", id: "o2" });
+    expect(ids(s)).toEqual(["o1", "o3"]);
+    // An id the slice does not hold, and the own slice's removal, change
+    // nothing on the other side.
+    s = reducer(s, { type: "others_ask_removed", id: "own" });
+    expect(s.asks.map((e) => e.id)).toEqual(["own"]);
+    s = reducer(s, { type: "ask_removed", id: "o1" });
+    expect(ids(s)).toEqual(["o1", "o3"]);
+  });
+
+  it("refuses a snapshot a delta overtook and asks for another; the own slice's revision is not involved", () => {
+    const base: AppState = {
+      ...initialState,
+      othersAsks: [other("o1")],
+    };
+    const issued = base.othersAsksRevision;
+    const moved = reducer(base, {
+      type: "others_ask_upserted",
+      entry: other("o2"),
+    });
+    expect(moved.othersAsksRevision).not.toBe(issued);
+    expect(moved.asksRevision).toBe(base.asksRevision);
+    const stale = reducer(moved, {
+      type: "others_asks_loaded",
+      entries: [],
+      revision: issued,
+    });
+    expect(ids(stale)).toEqual(["o1", "o2"]);
+    expect(stale.othersAsksFetchSeq).toBe(moved.othersAsksFetchSeq + 1);
+    expect(stale.asksFetchSeq).toBe(moved.asksFetchSeq);
+    const removed = reducer(moved, { type: "others_ask_removed", id: "o1" });
+    expect(removed.othersAsksRevision).not.toBe(moved.othersAsksRevision);
+    const fresh = reducer(removed, {
+      type: "others_asks_loaded",
+      entries: [other("o9")],
+      revision: removed.othersAsksRevision,
+    });
+    expect(ids(fresh)).toEqual(["o9"]);
   });
 });

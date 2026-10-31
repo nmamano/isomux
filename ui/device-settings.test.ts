@@ -42,6 +42,8 @@ const {
   markAsksSeen,
   getAsksSortDir,
   setAsksSortDir,
+  getAsksMember,
+  setAsksMember,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 
@@ -307,5 +309,40 @@ describe("asks sort direction", () => {
     setAsksSortDir("desc");
     expect([...store.keys()]).toEqual(["isomux-asks-sort-dir"]);
     expect(getAsksSortDir()).toBe("desc");
+  });
+});
+
+// Whose asks an office owner's Asks tab lists (task a49856f7), remembered
+// per device: their own, every member's, or one member's. A username can be
+// any word, "all" and "mine" included.
+describe("asks member", () => {
+  beforeEach(() => store.clear());
+
+  it("starts as mine and round-trips each choice, a member named like a choice included", () => {
+    expect(getAsksMember()).toEqual({ kind: "mine" });
+    for (const member of [
+      { kind: "all" },
+      { kind: "member", name: "pat" },
+      { kind: "member", name: "all" },
+      { kind: "member", name: "mine" },
+      { kind: "member", name: "member:x" },
+      { kind: "mine" },
+    ] as const) {
+      setAsksMember(member);
+      expect(getAsksMember()).toEqual(member);
+    }
+  });
+
+  it("reads a value it does not know as mine", () => {
+    setAsksMember({ kind: "member", name: "pat" });
+    const keys = [...store.keys()];
+    expect(keys).toHaveLength(1);
+    for (const raw of ["side", "", "member:", "{}"]) {
+      store.set(keys[0], raw);
+      expect({ raw, read: getAsksMember() }).toEqual({
+        raw,
+        read: { kind: "mine" },
+      });
+    }
   });
 });

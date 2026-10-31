@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
 import { apiFetch } from "./api.ts";
 import type { AskMemberWire } from "../shared/types.ts";
+import type { AskAgentWire } from "../shared/contract-shapes.ts";
 
 /**
  * Keep the store's asks slice filled. Mounted once, by App. Keyed on
@@ -34,6 +35,40 @@ export function useAsksSync(): void {
   }, [dispatch, hydrationEpoch, asksFetchSeq]);
 }
 
+/**
+ * Keep the store's othersAsks slice filled for an office owner: other
+ * members' open asks, read-only on the Asks tab. Mounted once, by App; it
+ * reads nothing for a member who is not an owner. Keyed as useAsksSync, and
+ * on the role, so a member made owner reads them at once.
+ */
+export function useOthersAsksSync(): void {
+  const {
+    hydrationEpoch,
+    othersAsksFetchSeq,
+    othersAsksRevision,
+    sessionContext,
+  } = useAppState();
+  const dispatch = useDispatch();
+  const isOwner = sessionContext?.role === "owner";
+  const revision = othersAsksRevision;
+  useEffect(() => {
+    if (hydrationEpoch === 0 || !isOwner) return;
+    let cancelled = false;
+    apiFetch<AskAgentWire[]>("GET", "/api/asks/others").then(
+      (entries) => {
+        if (cancelled || !Array.isArray(entries)) return;
+        dispatch({ type: "others_asks_loaded", entries, revision });
+      },
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+    // revision is deliberately not a dependency: see usePagerSync.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch, hydrationEpoch, othersAsksFetchSeq, isOwner]);
+}
+
 /** One agent's open asks for this member, oldest first. */
 export function asksFor(
   entries: readonly AskMemberWire[],
@@ -60,10 +95,10 @@ export function askCounts(
  * a room the member hides never reaches the client, so its desk and chat
  * cannot show the ask either.
  */
-export function visibleAsks(
-  entries: readonly AskMemberWire[],
+export function visibleAsks<T extends AskMemberWire>(
+  entries: readonly T[],
   agents: readonly { id: string }[],
-): AskMemberWire[] {
+): T[] {
   const ids = new Set(agents.map((a) => a.id));
   return entries.filter((e) => ids.has(e.agentId));
 }

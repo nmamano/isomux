@@ -86,6 +86,9 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   pager_upserted: "recipient-scoped",
   ask_upserted: "recipient-scoped",
   ask_removed: "recipient-scoped",
+  // Other members' asks, to office owners only (task a49856f7).
+  others_ask_upserted: "recipient-scoped",
+  others_ask_removed: "recipient-scoped",
   webhook_upserted: "recipient-scoped",
   webhook_deleted: "recipient-scoped",
   // Cronjobs and their runs are per-recipient (maker, office owners, members

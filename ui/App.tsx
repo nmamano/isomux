@@ -37,7 +37,7 @@ import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
 import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
 import { inboxTabFor, useInboxCounts, type InboxTab } from "./inbox.ts";
-import { useAsksSync } from "./asks-sync.ts";
+import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
 import { UiBuildNotice } from "./components/UiBuildNotice.tsx";
@@ -217,6 +217,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
   usePagerSync();
   useAsksSync();
+  useOthersAsksSync();
 
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /
   // cronjobs) after a page reload, and restore unsent chat drafts. The

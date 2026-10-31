@@ -38,6 +38,7 @@ import {
   type StepAskRequest,
   type TaskPriority,
 } from "../shared/types.ts";
+import type { AskAgentWire } from "../shared/contract-shapes.ts";
 
 // Sanity bounds only.
 export const ASK_PROMPT_MAX = 4000;
@@ -267,8 +268,10 @@ export interface AskAudienceDeps {
 // Whether a member sees an ask and may answer it, decided live: the member
 // it names, or for an office secret request any office owner (or the one
 // owner the request names), and in both
-// cases only while the member can reach the agent's room. Every list, push
-// and answer check goes through here.
+// cases only while the member can reach the agent's room. Every answer check,
+// and every list and push of the member's own asks, goes through here; an
+// office owner's read-only view of other members' asks is
+// askShownToOwnerAsOther.
 export function askVisibleTo(
   entry: AskEntry,
   userId: string | null,
@@ -289,6 +292,20 @@ export function askVisibleTo(
     return false;
   const owner = entry.secret?.ownerUserId;
   return owner === undefined || owner === userId || deps.isOfficeOwner(userId);
+}
+
+// Whether an office owner sees an ask as another member's, read-only: an ask
+// askVisibleTo does not admit for them, not a secret request, whose agent is
+// in a room they can reach.
+export function askShownToOwnerAsOther(
+  entry: AskEntry,
+  userId: string | null,
+  deps: AskAudienceDeps,
+): boolean {
+  if (!userId || !deps.isOfficeOwner(userId) || entry.secret) return false;
+  if (askVisibleTo(entry, userId, deps)) return false;
+  const roomId = deps.agentRoomId(entry.agentId);
+  return roomId !== null && deps.canSeeRoom(userId, roomId);
 }
 
 // The prompt as the agent sent it, or the reason it is refused. `field` is
@@ -688,6 +705,20 @@ export function askMemberWire({
   ...entry
 }: AskEntry): AskMemberWire {
   return entry;
+}
+
+// The member wire with the member it is for, by name as they are now (their
+// id when the record is gone). An office secret request names its one owner
+// on the request, or no member when it is for every owner.
+export function askAgentWire(
+  entry: AskEntry,
+  memberName: (userId: string) => string | null,
+): AskAgentWire {
+  const userId = entry.memberUserId ?? entry.secret?.answerUserId;
+  return {
+    ...askMemberWire(entry),
+    member: userId === undefined ? null : (memberName(userId) ?? userId),
+  };
 }
 
 // The task a member files an ask as: the title is the prompt's first

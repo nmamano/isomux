@@ -7,7 +7,8 @@
 // (/api/asks...): only a member askVisibleTo admits (the member the ask is
 // for, or an owner for an office secret request), while that member can
 // still reach the agent's room; anyone else gets the same 404 as an unknown
-// id. A secret request is answered on its own routes (secret-requests.ts),
+// id. An office owner also reads other members' open asks
+// (askShownToOwnerAsOther): the list and a file, never an answer. A secret request is answered on its own routes (secret-requests.ts),
 // never with a reply, a dismiss or a filed task.
 //
 // A reply, a dismiss or a filed task is a member message to the agent through
@@ -64,8 +65,10 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
+  askAgentWire,
   askMemberWire,
   askTaskFields,
+  askShownToOwnerAsOther,
   askVisibleTo,
   AsksUnavailableError,
   ASK_AFFORDANCE_KEYS,
@@ -258,14 +261,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // cannot send the message twice.
   const delivering = new Set<string>();
 
-  const wire = (entry: AskEntry): AskAgentWire => ({
-    ...askMemberWire(entry),
-    // An office secret request names its one owner on the request, or no
-    // member when it is for every owner.
-    member: memberOf(entry.memberUserId ?? entry.secret?.answerUserId),
-  });
-  const memberOf = (userId: string | undefined) =>
-    userId === undefined ? null : (deps.memberName(userId) ?? userId);
+  const wire = (entry: AskEntry): AskAgentWire =>
+    askAgentWire(entry, (userId) => deps.memberName(userId));
   // A closed ask: who answered is named as they are now, null when gone.
   const closedWire = ({
     entry,
@@ -326,6 +323,17 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const addressedTo = (identity: Identity, id: string): AskEntry | null => {
     const entry = store.get(id);
     return entry && askVisibleTo(entry, identity.userId, audience)
+      ? entry
+      : null;
+  };
+
+  // An open entry the caller may read: their own (addressedTo), or another
+  // member's for an office owner (askShownToOwnerAsOther).
+  const readableBy = (identity: Identity, id: string): AskEntry | null => {
+    const entry = store.get(id);
+    return entry &&
+      (askVisibleTo(entry, identity.userId, audience) ||
+        askShownToOwnerAsOther(entry, identity.userId, audience))
       ? entry
       : null;
   };
@@ -1088,15 +1096,32 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       );
     }),
 
+    "asks.listOthers": guarded((ctx) => {
+      const userId = ctx.identity.userId;
+      if (!userId || !deps.isOfficeOwner(userId))
+        return fail(
+          403,
+          "forbidden",
+          "Only an office owner can list other members' asks.",
+        );
+      return ok(
+        store
+          .listAll()
+          .filter((entry) => askShownToOwnerAsOther(entry, userId, audience))
+          .map(wire),
+      );
+    }),
+
     "asks.reply": guarded(answer(false)),
     "asks.dismiss": guarded(answer(true)),
     "asks.fileTask": guarded(fileTask),
     "asks.simplify": guarded(simplify),
     // A file the ask references where it is. The path is probed again on
     // every request: the file can be gone or replaced since the ask was
-    // made. Served as agents.getFile serves a copy.
+    // made. Served as agents.getFile serves a copy. A read: an office owner
+    // gets the file of another member's ask too.
     "asks.getFile": guarded((ctx) => {
-      const entry = addressedTo(ctx.identity, ctx.params.askId);
+      const entry = readableBy(ctx.identity, ctx.params.askId);
       const ref = entry?.readFiles?.find(
         (f) => f.filename === ctx.params.filename && f.path !== undefined,
       );

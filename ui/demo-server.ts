@@ -13,6 +13,7 @@ import { translatorFor } from "../shared/i18n/translate.ts";
 import { displayLanguage } from "./preference-form.ts";
 import { demoAppFixtures } from "./demo-app.ts";
 import type {
+  AskAgentWire,
   CronCreateReq,
   CronUpdateReq,
   InstructionsReq,
@@ -1231,6 +1232,31 @@ function demoAskEntries(): AskMemberWire[] {
     },
   ];
   return demoAsks;
+}
+
+// Another member's open ask, for the owner's member select on the Asks tab
+// (task a49856f7): Dwight waits on Stephen.
+let demoOthersAsks: AskAgentWire[] | null = null;
+
+function demoOthersAskEntries(): AskAgentWire[] {
+  if (demoOthersAsks) return demoOthersAsks;
+  const stephen = users.get("stephen");
+  if (!stephen) return [];
+  const now = Date.now();
+  demoOthersAsks = [
+    {
+      id: "dea0ac07",
+      agentId: "demo-dwight",
+      memberUserId: stephen.id,
+      member: stephen.name,
+      prompt: "Can I run the fire drill during the all-hands rehearsal?",
+      createdAt: now - 50 * 60_000,
+      updatedAt: now - 50 * 60_000,
+      options: ["Yes", "Not this week"],
+      recommended: "Not this week",
+    },
+  ];
+  return demoOthersAsks;
 }
 
 // Pages, built on the first list so they can name the viewer and the demo's
@@ -2852,6 +2878,11 @@ export async function demoApi(
     // asks.list - the viewer's open asks.
     case "GET /api/asks":
       return [...demoAskEntries()];
+    // asks.listOthers - other members' open asks, for an owner only.
+    case "GET /api/asks/others":
+      return sessionContext?.role === "owner"
+        ? [...demoOthersAskEntries()]
+        : [];
     // apps.list - the Apps tab fetches on open and polls while it is open.
     case "GET /api/apps":
       return demoApps.map(demoAppWire);

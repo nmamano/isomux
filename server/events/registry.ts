@@ -55,6 +55,7 @@ import type {
 } from "../../shared/types.ts";
 import type {
   ApiTokenLogEntry,
+  AskAgentWire,
   UserPublicWire,
   UserAdminWire,
   UserSelfWire,
@@ -220,6 +221,9 @@ export interface EventPayloads {
   pager_upserted: { entry: PagerEntry };
   ask_upserted: { entry: AskMemberWire };
   ask_removed: { id: string };
+  // Another member's open ask, for an office owner (askShownToOwnerAsOther).
+  others_ask_upserted: { entry: AskAgentWire };
+  others_ask_removed: { id: string };
   // Webhooks: per-recipient, like cronjobs: the hook owner, office owners and
   // members of the hook's room. Never the secret. See
   // server/events/webhook-delta.ts.
@@ -475,6 +479,15 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   ask_removed: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  // Office owners hear other members' asks (askShownToOwnerAsOther).
+  others_ask_upserted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  others_ask_removed: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },

@@ -33,10 +33,9 @@ export const ranked = (
   ...(priority ? { priority } : {}),
 });
 
-export function mount(
-  asks: AskEntry[],
-  place: Partial<Pick<AppState, "rooms" | "agents">> = {},
-) {
+// `place` seeds any other slice: the rooms and agents, or for an office
+// owner the session and other members' asks.
+export function mount(asks: AskEntry[], place: Partial<AppState> = {}) {
   const seeded: AppState = {
     ...initialState,
     asks,
@@ -103,11 +102,11 @@ export const pageOrder = (view: View) =>
 
 export const control = (
   view: View,
-  attr: "data-asks-sort" | "data-asks-sort-dir",
+  attr: "data-asks-sort" | "data-asks-sort-dir" | "data-asks-member",
 ) => view.container.querySelector<HTMLSelectElement>(`select[${attr}]`)!;
 export const choose = (
   view: View,
-  attr: "data-asks-sort" | "data-asks-sort-dir",
+  attr: "data-asks-sort" | "data-asks-sort-dir" | "data-asks-member",
   value: string,
 ) =>
   act(() => void fireEvent.change(control(view, attr), { target: { value } }));
