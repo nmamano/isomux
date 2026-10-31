@@ -21,6 +21,8 @@ const { stateWithSelfUser } =
 const { setApiShim } = await import("../api.ts");
 const { _resetOutboxForTests } = await import("./outbox.ts");
 const { askExcerpt } = await import("./ask-about.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { t } = translatorFor("en");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type AppState = import("../store.tsx").AppState;
@@ -78,6 +80,25 @@ const SECRET_ASK: AskEntry = {
   },
 };
 
+// An ask with an image and a command: the bottom row comes after them.
+const FILES_ASK: AskEntry = {
+  id: "ask00003",
+  agentId: AGENT.id,
+  memberUserId: "u1",
+  prompt: "Ship this plot?",
+  createdAt: Date.now() - 20_000,
+  updatedAt: Date.now() - 20_000,
+  commands: ["ls /w"],
+  readFiles: [
+    {
+      filename: "ab12.png",
+      originalName: "plot.png",
+      mediaType: "image/png",
+      size: 7,
+    },
+  ],
+};
+
 // Every API call the page makes, in order.
 let calls: { method: string; path: string; body: unknown }[] = [];
 beforeEach(() => {
@@ -100,7 +121,7 @@ function mount(draft: string) {
     rooms: [
       { id: "r1", name: "Room", prompt: null, canCloseWhenEmpty: true },
     ] as AppState["rooms"],
-    asks: [REPLY_ASK, SECRET_ASK],
+    asks: [REPLY_ASK, SECRET_ASK, FILES_ASK],
     drafts: draft ? new Map([[AGENT.id, draft]]) : new Map(),
     hasReceivedInitialState: true,
     connected: true,
@@ -230,5 +251,70 @@ it("has the button on a secret request too, quoting its own question", async () 
   expectPrefixed(view.container, SECRET_ASK, "");
   expect(askCalls()).toEqual([]);
   expect(view.container.querySelector('[data-ask="ask00002"]')).not.toBeNull();
+  view.unmount();
+});
+
+// Task 9fca01c0: the button is a button in the card's bottom row, last, after
+// the prompt's images and commands, not a link under the prompt.
+const FOLLOWS = Node.DOCUMENT_POSITION_FOLLOWING;
+
+it("is the last button of the reply row, after the ask's files, styled like the buttons beside it", () => {
+  const { view } = mount("");
+  const card = view.container.querySelector('[data-ask="ask00003"]')!;
+  const image = card.querySelector("img");
+  const command = card.querySelector("[data-ask-command]");
+  const fileTask = card.querySelector<HTMLButtonElement>(
+    "button[data-ask-file-task]",
+  )!;
+  // The ask shows its files and the row exists.
+  expect(image).not.toBeNull();
+  expect(command).not.toBeNull();
+  expect(fileTask).not.toBeNull();
+  const about = aboutButton(view.container, "ask00003");
+  // Booleans, not toBe on two nodes: a red run would serialise both.
+  expect(about.parentElement === fileTask.parentElement).toBe(true);
+  expect(fileTask.nextElementSibling === about).toBe(true);
+  expect(about.nextElementSibling).toBeNull();
+  expect(image!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
+  expect(command!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
+  // Drawn as its neighbour is: a bordered button, not a bare link.
+  expect(fileTask.style.border).not.toBe("");
+  for (const key of [
+    "border",
+    "borderRadius",
+    "background",
+    "padding",
+    "fontSize",
+    "color",
+  ] as const) {
+    expect(`${key}: ${about.style[key]}`).toBe(
+      `${key}: ${fileTask.style[key]}`,
+    );
+  }
+  view.unmount();
+});
+
+it("on a secret request, is in the row with Decline, after it and after the form", () => {
+  const { view } = mount("");
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="ask00002"]',
+  )!;
+  const decline = [...card.querySelectorAll("button")].find(
+    (b) => b.textContent === t("cards.secretRequest.decline"),
+  );
+  const field = card.querySelector("input, textarea");
+  expect(decline).toBeDefined();
+  expect(field).not.toBeNull();
+  const about = aboutButton(view.container, "ask00002");
+  expect(about.parentElement === decline!.parentElement).toBe(true);
+  expect(decline!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
+  expect(field!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
+  // Drawn as Decline is.
+  expect(decline!.style.border).not.toBe("");
+  for (const key of ["border", "background", "padding", "fontSize"] as const) {
+    expect(`${key}: ${about.style[key]}`).toBe(
+      `${key}: ${decline!.style[key]}`,
+    );
+  }
   view.unmount();
 });

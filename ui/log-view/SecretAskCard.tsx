@@ -296,13 +296,6 @@ export function SecretAskCard({
           margin: "-4px 0 8px",
         }}
       >
-        <AskAboutButton
-          entry={entry}
-          isMobile={isMobile}
-          disabled={busy}
-          onFocusAgent={onFocusAgent}
-          onChatAgent={onChatAgent}
-        />
         <AskIdChip id={entry.id} isMobile={isMobile} />
       </div>
       {!known ? (
@@ -491,6 +484,13 @@ export function SecretAskCard({
         >
           {t("cards.secretRequest.decline")}
         </button>
+        <AskAboutButton
+          entry={entry}
+          style={dialogCancelBtn}
+          disabled={busy}
+          onFocusAgent={onFocusAgent}
+          onChatAgent={onChatAgent}
+        />
       </div>
     </div>
   );

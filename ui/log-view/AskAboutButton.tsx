@@ -1,4 +1,5 @@
-// The ask card's "Discuss in chat" button: it puts "About your ask
+// The ask card's "Discuss in chat" button, last in the card's bottom row and
+// styled by the card like its neighbours: it puts "About your ask
 // "<excerpt>": " in front of the agent's chat draft and has the composer take
 // focus with the caret after it (prefix_draft; LogView does the focus). The
 // member writes and sends a normal message, and the ask stays open. On the
@@ -8,18 +9,19 @@
 
 import { useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import type { CSSProperties } from "react";
 import type { AskMemberWire } from "../../shared/types.ts";
 import { askExcerpt } from "./ask-about.ts";
 
 export function AskAboutButton({
   entry,
-  isMobile,
+  style,
   disabled,
   onFocusAgent,
   onChatAgent,
 }: {
   entry: AskMemberWire;
-  isMobile: boolean;
+  style: CSSProperties;
   disabled: boolean;
   onFocusAgent?: (agentId: string) => void;
   onChatAgent?: (agentId: string) => void;
@@ -39,16 +41,7 @@ export function AskAboutButton({
         });
         (onChatAgent ?? onFocusAgent)?.(entry.agentId);
       }}
-      style={{
-        background: "none",
-        border: "none",
-        padding: 0,
-        color: "var(--accent-text)",
-        fontSize: isMobile ? 13 : 12,
-        fontWeight: 600,
-        cursor: disabled ? "default" : "pointer",
-        opacity: disabled ? 0.6 : 1,
-      }}
+      style={style}
     >
       {t("asks.discuss")}
     </button>

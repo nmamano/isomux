@@ -5,8 +5,8 @@
 // on both. The card goes when the server accepts the answer, without waiting
 // for ask_removed. An ask with a link to an office page or an agent's chat has a
 // button that opens it (ui/office-link.tsx); the ask stays open. Every ask
-// has a "Discuss in chat" button (AskAboutButton) that starts a chat message
-// about it, and the ask stays open too. An ask with options has a button for
+// has a "Discuss in chat" button (AskAboutButton), last in the bottom row, that
+// starts a chat message about it, and the ask stays open too. An ask with options has a button for
 // each; a tap puts it in the reply field, focused, for the member to edit and
 // send. The field starts with the option the agent recommends (marked on its
 // button), empty for options without one, and with the catalog's "done" for
@@ -517,10 +517,10 @@ function ReplyAskCard({
       </div>
     );
   }
-  // Reply, Dismiss and filing as a task: beside the field on a desktop, in a
-  // row under it on a phone.
+  // Reply, Dismiss, filing as a task and Discuss in chat: one group that wraps,
+  // beside the field on a desktop when it fits, else under it.
   const replyButtons = (
-    <>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       <button
         type="submit"
         disabled={busy || reply.trim() === ""}
@@ -558,7 +558,14 @@ function ReplyAskCard({
       >
         {t("asks.fileTask")}
       </button>
-    </>
+      <AskAboutButton
+        entry={entry}
+        style={secondaryButton}
+        disabled={busy}
+        onFocusAgent={onFocusAgent}
+        onChatAgent={onChatAgent}
+      />
+    </div>
   );
 
   return (
@@ -652,13 +659,6 @@ function ReplyAskCard({
                 {t("asks.openLink", { page: linkLabel })}
               </button>
             )}
-            <AskAboutButton
-              entry={entry}
-              isMobile={isMobile}
-              disabled={busy}
-              onFocusAgent={onFocusAgent}
-              onChatAgent={onChatAgent}
-            />
             <AskIdChip id={entry.id} isMobile={isMobile} />
           </div>
         </div>
@@ -751,6 +751,7 @@ function ReplyAskCard({
         style={{
           display: "flex",
           flexDirection: isMobile ? "column" : "row",
+          flexWrap: isMobile ? undefined : "wrap",
           gap: 6,
           marginTop: 7,
           alignItems: isMobile ? "stretch" : "flex-end",
@@ -780,7 +781,7 @@ function ReplyAskCard({
           onKeyDown={onReplyKeyDown}
           aria-label={t("asks.reply")}
           style={{
-            flex: isMobile ? undefined : 1,
+            flex: isMobile ? undefined : "1 1 160px",
             minWidth: 0,
             maxWidth: isMobile ? undefined : 460,
             boxSizing: "border-box",
@@ -798,13 +799,7 @@ function ReplyAskCard({
             outline: "none",
           }}
         />
-        {isMobile ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {replyButtons}
-          </div>
-        ) : (
-          replyButtons
-        )}
+        {replyButtons}
       </form>
       {error && (
         <div
