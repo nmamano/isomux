@@ -10,7 +10,7 @@ If you are not privileged and do not have full permissions (`bypassPermissions`,
 
 One spawn tree, the agents you spawn, the agents they spawn and so on, holds at most 50 live agents. The next spawn returns 429 `spawn_limit`.
 
-Kill an agent you spawned with `DELETE /api/agents/:id` as soon as you have its result, unless a member still works with it, so idle workers do not fill the room. Kill moves it to the killed list. Only a privileged agent kills other agents.
+You can keep a worker you spawned for later work. Kill an agent you spawned with `DELETE /api/agents/:id`. Kill moves it to the killed list. Only a privileged agent kills other agents.
 
 Safe example: `GET /agents`, to see that the name you pick is free.
 

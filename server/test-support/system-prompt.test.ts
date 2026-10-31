@@ -288,7 +288,8 @@ describe("system prompt schedule line", () => {
 
 // Task 018a9def (Nil, 2026-10-30): an agent with work to delegate spawns a
 // worker in its room's back room, which members can see, talk to and follow,
-// instead of using its engine's subagents, and kills it when the job is done.
+// instead of using its engine's subagents. Task bb6de486 (Nil, 2026-10-31):
+// it may keep the worker for later work, and nothing tells it to kill one.
 // A member's request for a new agent is not delegation: that agent is not sent
 // to the back room. The page seats the worker with no `desk`, which every room
 // gives a back room seat (task e2fb9fa0).
@@ -310,9 +311,11 @@ describe("spawning steer", () => {
         });
         // The back room replaces the engine's subagents, in the same sentence.
         expect(delegate[0]).toMatch(/\binstead of\b[^.]*\bsubagents\b/);
-        // The line that sends work to the back room also says to kill it.
-        const line = spawning.find((l) => l.includes(delegate[0]))!;
-        expect(sentences(line).some((s) => /\bkill\b/i.test(s))).toBe(true);
+        // The line that sends work to the back room lets the agent keep the
+        // worker, and does not tell it to kill one.
+        const line = sentences(spawning.find((l) => l.includes(delegate[0]))!);
+        expect(line.some((s) => /\bkeep\b/i.test(s))).toBe(true);
+        expect(line.filter((s) => /\bkill/i.test(s))).toEqual([]);
         // The member's new agent is still offered, and not as a worker.
         const memberAsks = said.filter((s) =>
           /\bmember asks\b[^.]*\bnew agent\b/.test(s),
@@ -323,7 +326,7 @@ describe("spawning steer", () => {
     }
   });
 
-  it("says how to seat a worker and when to kill it on the spawning page", () => {
+  it("says how to seat a worker, that it can be kept, and how to kill one on the spawning page", () => {
     const identity: Identity = {
       scope: "agent",
       agentId: "a1",
@@ -344,15 +347,23 @@ describe("spawning steer", () => {
     // The spawner ends its turn waiting on a reply, so it schedules a wake-up.
     expect(worker).toMatch(/\bschedule\b/);
 
-    const kill = sentences(page).filter((s) =>
-      s.includes("DELETE /api/agents/:id"),
-    );
-    // When: once its result is in, unless a member still works with it.
+    // A worker the agent spawned can be kept for later work.
     expect(
-      kill.some(
-        (s) => /\bresult\b/.test(s) && /\bunless\b[^.]*\bmember\b/.test(s),
-      ),
+      sentences(page).some((s) => /\bkeep\b/i.test(s) && /\bworker\b/.test(s)),
     ).toBe(true);
+    // How: the route stays documented, with no rule on when to kill (on its
+    // result, when done or idle).
+    const kill = sentences(page).filter(
+      (s) => /\bkill\b/i.test(s) && s.includes("DELETE /api/agents/:id"),
+    );
+    expect(kill.length).toBeGreaterThan(0);
+    expect(
+      sentences(page).filter(
+        (s) =>
+          /\bkill/i.test(s) &&
+          /\b(result|done|idle|as soon as|finish(es|ed)?)\b/i.test(s),
+      ),
+    ).toEqual([]);
     // Who: only a privileged agent kills agents it did not spawn.
     expect(
       sentences(page).some(
