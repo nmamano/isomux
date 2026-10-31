@@ -37,6 +37,12 @@ import {
 
 const PROBE_TIMEOUT_MS = 300;
 
+// A port nothing listens on, by construction: port 9 is below the ephemeral
+// range, so no port-0 listener in the suite can get it, and below 1024, so a
+// non-root test cannot bind it. A freed ephemeral port is not closed: another
+// listener can take it before the probe runs (task 81b05c6c).
+const CLOSED_ORIGIN = "http://127.0.0.1:9";
+
 let server: TestServer | null = null;
 const listeners: Server<unknown>[] = [];
 afterEach(async () => {
@@ -258,14 +264,21 @@ describe("floors.add", () => {
     }
   });
 
-  // Quarantined: its closed port can be reused by another listener under the full suite (task 81b05c6c).
-  it.skip("answers one 422 office_unreachable for every probe failure, and saves nothing", async () => {
+  it("answers one 422 office_unreachable for every probe failure, and saves nothing", async () => {
+    // The closed-port case is real only when a connect to it is refused. The
+    // probe reads every fetch error as null, so also require the refusal to
+    // come from the socket, not from a fetch that blocks the port up front.
+    const refused = await fetch(CLOSED_ORIGIN + OFFICE_CARD_PATH).then(
+      () => "answered",
+      (err: { code?: string }) => err.code,
+    );
+    expect({ closedPort: CLOSED_ORIGIN, refused }).toEqual({
+      closedPort: CLOSED_ORIGIN,
+      refused: "ECONNREFUSED",
+    });
     const { srv, member, add, list } = await office();
     const ws = await srv.connectWs(member.rawSessionId);
     const target = cardListener("Target");
-    const closed = listen(() => json({}));
-    const closedOrigin = closed.origin;
-    await listeners.pop()!.stop(true);
     const failures: [string, Listener | string][] = [
       [
         "an HTML page",
@@ -313,7 +326,7 @@ describe("floors.add", () => {
             ),
         ),
       ],
-      ["a closed port", closedOrigin],
+      ["a closed port", CLOSED_ORIGIN],
     ];
     for (const [label, l] of failures) {
       const origin = typeof l === "string" ? l : l.origin;
