@@ -323,10 +323,15 @@ describe("the agent's ask", () => {
     expect(code(t.requests.open("a1", { ...ASK, name: "ONE_MORE" }))).toBe(
       "too_many_requests",
     );
-    // The ask store's own bound counts the agent's plain asks too.
-    for (let i = 0; i < 50; i++)
+    // The ask store's own bound (500, task 7a1d93c4) counts the agent's
+    // plain asks too.
+    for (let i = 0; i < 499; i++)
       t.asks.create({ agentId: "a2", memberUserId: "u-alice", prompt: "Go?" });
-    expect(code(t.requests.open("a2", ASK))).toBe("too_many_requests");
+    expect(t.asks.listForAgent("a2")).toHaveLength(499);
+    expect(code(t.requests.open("a2", ASK))).toBe("ok");
+    expect(code(t.requests.open("a2", { ...ASK, name: "ONE_MORE" }))).toBe(
+      "too_many_requests",
+    );
   });
 
   it("answers request_failed when the asks store is unavailable", async () => {

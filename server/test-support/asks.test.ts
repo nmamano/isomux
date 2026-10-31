@@ -250,7 +250,7 @@ describe("the agent's own list", () => {
     expect((read.body as AskEntry).prompt).toBe("Mine only?");
   });
 
-  it("refuses an empty prompt, an unknown member and a full list", async () => {
+  it("refuses an empty prompt and an unknown member", async () => {
     const w = await world();
     const base = `/api/agents/${w.asker.id}/asks`;
     const empty = await call(w.srv, "POST", base, w.as(w.asker.id), {
@@ -265,11 +265,38 @@ describe("the agent's own list", () => {
       { text: "For whom?" },
     );
     expect(unknown.code).toBe("unknown_member");
-    for (let i = 0; i < 50; i++) await open(w, `Question ${i}?`);
-    const full = await call(w.srv, "POST", base, w.as(w.asker.id), {
-      text: "One more?",
+  });
+
+  // An agent that holds one ask per item waiting for its member, such as the
+  // Sign-off Scout, has a backlog of hundreds; the bound is only a sanity
+  // check (task 7a1d93c4). The backlog is seeded in asks.json and reloaded,
+  // so the test does not pay for hundreds of route calls.
+  it("holds a backlog of 500 open asks and refuses the next one", async () => {
+    const w = await world();
+    const first = await open(w, "Sign off item 0?");
+    const file = join(w.srv.stateRoot, "asks.json");
+    const stored = JSON.parse(readFileSync(file, "utf-8")) as AskEntry[];
+    expect(stored.map((e) => e.id)).toEqual([first.id]);
+    const backlog = Array.from({ length: 498 }, (_, i) => ({
+      ...stored[0],
+      id: `${first.id}-${i + 1}`,
+      prompt: `Sign off item ${i + 1}?`,
+    }));
+    writeFileSync(file, JSON.stringify([...stored, ...backlog]));
+    server = await w.srv.restart();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const as = { bearer: getAgentTokenRaw(w.asker.id)! };
+    const listed = await call(server, "GET", base, as);
+    expect((listed.body as AskEntry[]).length).toBe(499);
+
+    const last = await call(server, "POST", base, as, {
+      text: "Sign off item 499?",
     });
+    expect(last.status).toBe(201);
+    const full = await call(server, "POST", base, as, { text: "One more?" });
     expect([full.status, full.code]).toEqual([429, "too_many_asks"]);
+    const after = await call(server, "GET", base, as);
+    expect((after.body as AskEntry[]).length).toBe(500);
   });
 });
 
