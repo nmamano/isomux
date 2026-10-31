@@ -3,15 +3,16 @@
 // ask's priority, in the Tasks page's checkbox lists with a count per choice
 // (task 2bbc5021), and sorts them by agent (the longest wait first), room or
 // priority (task 995fc76a), or by age: one list, the longest wait first, with
-// the agent's name over each run of its asks (task 66532fa7). Each ask is the
-// AskCard the chat's
-// stack draws, so its answers work the same here, except that an answer waits
-// ASK_UNDO_MS for an Undo before it is sent. The agent's name, and a card's
+// the agent's name over each run of its asks (task 66532fa7). A second select
+// reverses the sort's main key (task 452cf482). Each ask is the AskCard the
+// chat's stack draws, so its answers work the same here, except that an answer
+// waits ASK_UNDO_MS for an Undo before it is sent. The agent's name, and a card's
 // "Discuss in chat", open the chat panel over the Inbox (AgentChatPanel).
 // The list is the store's asks slice (ui/asks-sync.ts), less the answers being
 // sent: an answer in its Undo time stays as its Undo line, and goes when it
-// is sent. The filters and the sort are remembered per browser, and the asks
-// the tab shows are marked seen there for the Inbox badge (task a930c9d6).
+// is sent. The filters, the sort and its direction are remembered per
+// browser, and the asks the tab shows are marked seen there for the Inbox
+// badge (task a930c9d6).
 // InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useState } from "react";
@@ -24,10 +25,13 @@ import {
   ASKS_SORTS,
   getAsksFilter,
   getAsksSort,
+  getAsksSortDir,
   markAsksSeen,
   setAsksFilter,
   setAsksSort,
+  setAsksSortDir,
   type AsksSort,
+  type AsksSortDir,
 } from "../device-settings.ts";
 import {
   comparePriority,
@@ -49,7 +53,7 @@ interface AskGroup {
 // The filters: the rooms whose agents' asks are hidden (unchecked rooms that
 // the list still offers, so an agent in any other room always shows), and the
 // checked priorities.
-interface AskFilter {
+export interface AskFilter {
   hiddenRooms: ReadonlySet<string>;
   priorities: readonly PriorityFilterValue[];
 }
@@ -96,6 +100,15 @@ const SORT_LABELS = {
   age: "asks.sortAge",
 } as const satisfies Record<AsksSort, string>;
 
+// The direction's labels name the order each sort gives: by age under "agent"
+// and "age", by level under "priority", the office's room order under "room".
+const DIR_LABELS = {
+  agent: { asc: "asks.oldestFirst", desc: "asks.newestFirst" },
+  room: { asc: "asks.roomOrder", desc: "asks.roomReverse" },
+  priority: { asc: "asks.p0First", desc: "asks.p4First" },
+  age: { asc: "asks.oldestFirst", desc: "asks.newestFirst" },
+} as const satisfies Record<AsksSort, Record<AsksSortDir, string>>;
+
 /**
  * The open asks that the filters let through, as runs of one agent's asks in
  * page order. Under "agent", "room" and "priority" each agent has one run, and
@@ -103,30 +116,56 @@ const SORT_LABELS = {
  * then by agent id: oldest first; or the room's place in `rooms`, then oldest;
  * or the priority, no priority last, then oldest. Under "age" all the asks are
  * one list, oldest first, then by ask id, and a run ends where the agent
- * changes, so an agent can head more than one run. Only agents in the agents
+ * changes, so an agent can head more than one run. "desc" reverses the main
+ * key only: the age under "agent" and "age" (the ask-id tie too), the room's
+ * place, or the priority level. Inside a room or a level the cards stay oldest
+ * first, and what the key does not place (a room not in `rooms`, no priority)
+ * stays last. Only agents in the agents
  * slice get a run, so an ask whose agent the client does not have stays out,
  * as `visibleAsks` leaves it out of the count.
  */
-function askGroups(
+export function askGroups(
   asks: readonly AskMemberWire[],
   agents: readonly AgentInfo[],
   rooms: readonly { id: string }[],
   filter: AskFilter,
   sort: AsksSort,
+  dir: AsksSortDir,
 ): AskGroup[] {
+  const flip = dir === "desc" ? -1 : 1;
   const roomPlace = (roomId: string) => {
     const at = rooms.findIndex((room) => room.id === roomId);
     return at < 0 ? rooms.length : at;
   };
+  // The main key, flipped for "desc", with an unplaced side (`unplacedA`,
+  // `unplacedB`) last either way.
+  const keyed = (diff: number, unplacedA: boolean, unplacedB: boolean) =>
+    unplacedA !== unplacedB ? (unplacedA ? 1 : -1) : flip * diff;
+  const mainKey = (
+    a: { entry: AskMemberWire; agent: AgentInfo },
+    b: { entry: AskMemberWire; agent: AgentInfo },
+  ) => {
+    if (sort === "room") {
+      const pa = roomPlace(a.agent.roomId);
+      const pb = roomPlace(b.agent.roomId);
+      return keyed(pa - pb, pa === rooms.length, pb === rooms.length);
+    }
+    if (sort === "priority")
+      return keyed(
+        comparePriority(a.entry.priority, b.entry.priority),
+        !a.entry.priority,
+        !b.entry.priority,
+      );
+    return 0;
+  };
+  // Under "agent" the age is the main key; under "room" and "priority" it
+  // orders the cards inside a room or a level, oldest first.
   const compare = (
     a: { entry: AskMemberWire; agent: AgentInfo },
     b: { entry: AskMemberWire; agent: AgentInfo },
   ) =>
-    (sort === "room"
-      ? roomPlace(a.agent.roomId) - roomPlace(b.agent.roomId)
-      : sort === "priority"
-        ? comparePriority(a.entry.priority, b.entry.priority)
-        : 0) || a.entry.createdAt - b.entry.createdAt;
+    mainKey(a, b) ||
+    (sort === "agent" ? flip : 1) * (a.entry.createdAt - b.entry.createdAt);
   const groups: AskGroup[] = [];
   for (const agent of agents) {
     if (!passesRoom(filter, agent)) continue;
@@ -142,8 +181,9 @@ function askGroups(
       )
       .sort(
         (a, b) =>
-          a.entry.createdAt - b.entry.createdAt ||
-          (a.entry.id < b.entry.id ? -1 : 1),
+          flip *
+          (a.entry.createdAt - b.entry.createdAt ||
+            (a.entry.id < b.entry.id ? -1 : 1)),
       );
     const runs: AskGroup[] = [];
     for (const { agent, entry } of flat) {
@@ -214,6 +254,7 @@ export function AsksView({
     null,
   );
   const [sort, setSort] = useState<AsksSort>(getAsksSort);
+  const [dir, setDir] = useState<AsksSortDir>(getAsksSortDir);
   const filterRooms = useMemo(() => ordinaryRooms(rooms), [rooms]);
   // An unchecked room that went away hides nothing and does not count.
   const hiddenRooms = useMemo(
@@ -234,8 +275,8 @@ export function AsksView({
     [asks, answeredAsks],
   );
   const groups = useMemo(
-    () => askGroups(open, agents, filterRooms, filter, sort),
-    [open, agents, filterRooms, filter, sort],
+    () => askGroups(open, agents, filterRooms, filter, sort, dir),
+    [open, agents, filterRooms, filter, sort, dir],
   );
   const counts = useMemo(
     () => filterCounts(open, agents, filter),
@@ -316,8 +357,8 @@ export function AsksView({
           borderBottom: "1px solid var(--border-subtle)",
         }}
       >
-        {/* On a phone the sort takes its own line: a third of the row clips
-            its label. */}
+        {/* On a phone the sort and its direction take their own line: a third
+            of the row clips a label. */}
         <div
           style={{
             display: "flex",
@@ -365,26 +406,51 @@ export function AsksView({
             onOpenChange={(o) => setOpenFilter(o ? "priority" : null)}
             buttonStyle={selectStyle}
           />
-          <select
-            data-asks-sort=""
-            aria-label={t("asks.sort")}
-            value={sort}
-            onChange={(e) => {
-              const next = e.target.value as AsksSort;
-              setSort(next);
-              setAsksSort(next);
-            }}
+          <div
             style={{
-              ...selectStyle,
+              display: "flex",
+              gap: 8,
               ...(isMobile ? { flexBasis: "100%" } : { marginLeft: "auto" }),
             }}
           >
-            {ASKS_SORTS.map((s) => (
-              <option key={s} value={s}>
-                {t(SORT_LABELS[s])}
-              </option>
-            ))}
-          </select>
+            <select
+              data-asks-sort=""
+              aria-label={t("asks.sort")}
+              value={sort}
+              onChange={(e) => {
+                const next = e.target.value as AsksSort;
+                setSort(next);
+                setAsksSort(next);
+                // A new sort starts in its own first direction.
+                setDir("asc");
+                setAsksSortDir("asc");
+              }}
+              style={{ ...selectStyle, ...(isMobile ? { flex: 1 } : {}) }}
+            >
+              {ASKS_SORTS.map((s) => (
+                <option key={s} value={s}>
+                  {t(SORT_LABELS[s])}
+                </option>
+              ))}
+            </select>
+            <select
+              data-asks-sort-dir=""
+              aria-label={t("asks.sortDir")}
+              value={dir}
+              onChange={(e) => {
+                const next = e.target.value as AsksSortDir;
+                setDir(next);
+                setAsksSortDir(next);
+              }}
+              style={{ ...selectStyle, ...(isMobile ? { flex: 1 } : {}) }}
+            >
+              {(["asc", "desc"] as const).map((d) => (
+                <option key={d} value={d}>
+                  {t(DIR_LABELS[sort][d])}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 

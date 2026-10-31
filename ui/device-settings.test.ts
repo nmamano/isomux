@@ -40,6 +40,8 @@ const {
   setAsksFilter,
   getAsksSeen,
   markAsksSeen,
+  getAsksSortDir,
+  setAsksSortDir,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 
@@ -278,5 +280,32 @@ describe("asks seen", () => {
     }
     store.set(key, JSON.stringify(["a", 3, null, "b"]));
     expect(seen()).toEqual(["a", "b"]);
+  });
+});
+
+// The Asks tab sort's direction (task 452cf482), remembered per device like
+// the sort itself. One shared direction, stored only when it is desc, and a
+// value this build does not know reads as asc.
+describe("asks sort direction", () => {
+  beforeEach(() => store.clear());
+
+  it("starts as asc, round-trips, and stores only a desc", () => {
+    expect(getAsksSortDir()).toBe("asc");
+    expect(store.size).toBe(0);
+    setAsksSortDir("desc");
+    expect(getAsksSortDir()).toBe("desc");
+    // The key is a protocol value.
+    expect([...store.entries()]).toEqual([["isomux-asks-sort-dir", "desc"]]);
+    setAsksSortDir("asc");
+    expect(getAsksSortDir()).toBe("asc");
+    expect(store.size).toBe(0);
+  });
+
+  it("reads a value it does not know as asc", () => {
+    store.set("isomux-asks-sort-dir", "side");
+    expect(getAsksSortDir()).toBe("asc");
+    setAsksSortDir("desc");
+    expect([...store.keys()]).toEqual(["isomux-asks-sort-dir"]);
+    expect(getAsksSortDir()).toBe("desc");
   });
 });

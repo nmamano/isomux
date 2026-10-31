@@ -4,6 +4,8 @@
 // waits ASK_UNDO_MS for an Undo on a line that scrolls into view, and is sent
 // at once when the page goes away.
 // The filter row sorts and filters the groups, and a card shows its priority.
+// The sort has a direction select beside it, remembered with the sort and
+// reset when the sort changes; those are the sort direction describe.
 // The agent's name opening its chat and an ask from an agent the client does
 // not have are in ui/App.inbox.dom.test.tsx; the card itself, which the chat's
 // stack sends at once, is in AsksStack.dom.test.tsx.
@@ -21,11 +23,10 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, render, fireEvent } = await import("@testing-library/react");
-const { useReducer, useState, createElement } = await import("react");
+const { createElement } = await import("react");
 const { AsksView, ASK_UNDO_MS } = await import("./AsksView.tsx");
 const { AsksStack } = await import("../log-view/AsksStack.tsx");
-const { StateCtx, DispatchCtx, initialState, reducer } =
-  await import("../store.tsx");
+const { StateCtx, DispatchCtx, initialState } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { getAsksSeen, setAsksFilter } = await import("../device-settings.ts");
 const {
@@ -36,19 +37,25 @@ const {
   openCheckboxFilter,
   setCheckboxFilter,
 } = await import("../test-support/checkbox-filters.ts");
-type AskEntry = import("../../shared/types.ts").AskEntry;
-type TaskPriority = import("../../shared/types.ts").TaskPriority;
+const {
+  ask,
+  ranked,
+  mount,
+  runsOf,
+  groupIds,
+  cardIds,
+  pageOrder,
+  control,
+  choose,
+  SORT_ROOMS,
+  SORT_AGENTS,
+  SORT_ASKS,
+  BY_AGENT,
+  BY_AGE,
+} = await import("../test-support/asks-view.ts");
 type AppState = typeof initialState;
 
 const NOW = Date.now();
-const ask = (id: string, agentId: string, ageMin: number): AskEntry => ({
-  id,
-  agentId,
-  memberUserId: "u1",
-  prompt: `Question ${id}?`,
-  createdAt: NOW - ageMin * 60_000,
-  updatedAt: NOW - ageMin * 60_000,
-});
 
 let posts: string[] = [];
 let bodies: unknown[] = [];
@@ -74,73 +81,6 @@ async function advance(ms: number) {
   });
   await act(async () => {});
 }
-
-function mount(
-  asks: AskEntry[],
-  place: Partial<Pick<AppState, "rooms" | "agents">> = {},
-) {
-  const seeded: AppState = {
-    ...initialState,
-    asks,
-    rooms: [
-      { id: "r1", name: "Room One" },
-      { id: "r2", name: "Room Two" },
-    ] as AppState["rooms"],
-    agents: [
-      { id: "a1", name: "Scout", roomId: "r1" },
-      { id: "a2", name: "Ranger", roomId: "r2" },
-    ] as AppState["agents"],
-    ...place,
-  };
-  const focused: string[] = [];
-  const latest: {
-    state: AppState;
-    dispatch: (action: Parameters<typeof reducer>[1]) => void;
-    // Replaces the rooms and agents slices, as a full_state would.
-    setPlace: (place: Pick<AppState, "rooms" | "agents">) => void;
-  } = { state: seeded, dispatch: () => {}, setPlace: () => {} };
-  function Harness() {
-    const [reduced, dispatch] = useReducer(reducer, seeded);
-    const [place, setPlace] = useState<Partial<AppState>>({});
-    const state = { ...reduced, ...place };
-    latest.state = state;
-    latest.dispatch = dispatch;
-    latest.setPlace = setPlace;
-    return createElement(
-      StateCtx.Provider,
-      { value: state },
-      createElement(
-        DispatchCtx.Provider,
-        { value: dispatch },
-        createElement(AsksView, {
-          onFocusAgent: (id: string) => focused.push(id),
-        }),
-      ),
-    );
-  }
-  const view = render(createElement(Harness));
-  return { view, focused, latest };
-}
-
-// The page in order: each group's agent and the cards under it up to the next
-// group, whether the group wraps its cards or only heads them.
-const runsOf = (view: ReturnType<typeof render>) => {
-  const runs: { agent: string; cards: string[] }[] = [];
-  for (const el of view.container.querySelectorAll<HTMLElement>(
-    "[data-asks-group], [data-ask]",
-  )) {
-    if (el.dataset.asksGroup !== undefined)
-      runs.push({ agent: el.dataset.asksGroup, cards: [] });
-    else runs[runs.length - 1].cards.push(el.dataset.ask!);
-  }
-  return runs;
-};
-const groupIds = (view: ReturnType<typeof render>) =>
-  runsOf(view).map((r) => r.agent);
-const cardIds = (view: ReturnType<typeof render>, agentId: string) =>
-  runsOf(view)
-    .filter((r) => r.agent === agentId)
-    .flatMap((r) => r.cards);
 
 it("groups by agent, longest wait first, cards oldest first, with the room", () => {
   const { view } = mount([
@@ -330,49 +270,8 @@ const pendingOf = (view: ReturnType<typeof render>, id: string) => {
 };
 const undoOf = (view: ReturnType<typeof render>, id: string) =>
   cardEl(view, id)!.querySelector<HTMLButtonElement>("[data-ask-undo]")!;
-// The filter row and the sorts (task 995fc76a). Room order is the rooms
-// slice's, which here differs from both id order and name order. Each group
-// reads as "agent:card,card" in page order.
-const SORT_ROOMS = [
-  { id: "r2", name: "Room Two" },
-  { id: "r1", name: "Room One" },
-] as AppState["rooms"];
-const SORT_AGENTS = [
-  { id: "a1", name: "Scout", roomId: "r1" },
-  { id: "a2", name: "Ranger", roomId: "r2" },
-  { id: "a3", name: "Pathfinder", roomId: "r1" },
-  { id: "a4", name: "Tracker", roomId: "r2" },
-] as AppState["agents"];
-const ranked = (
-  id: string,
-  agentId: string,
-  ageMin: number,
-  priority?: TaskPriority,
-): AskEntry => ({
-  ...ask(id, agentId, ageMin),
-  ...(priority ? { priority } : {}),
-});
-const SORT_ASKS = [
-  ranked("a1old", "a1", 100, "P2"),
-  ranked("a1top", "a1", 5, "P0"),
-  ranked("a2only", "a2", 60),
-  ranked("a3p1", "a3", 30, "P1"),
-  ranked("a4p1", "a4", 10, "P1"),
-  ranked("a4none", "a4", 200),
-];
-const BY_AGENT = ["a4:a4none,a4p1", "a1:a1old,a1top", "a2:a2only", "a3:a3p1"];
 const mountSorted = () =>
   mount(SORT_ASKS, { rooms: SORT_ROOMS, agents: SORT_AGENTS });
-const pageOrder = (view: ReturnType<typeof render>) =>
-  runsOf(view).map((r) => `${r.agent}:${r.cards.join(",")}`);
-const control = (view: ReturnType<typeof render>, attr: "data-asks-sort") =>
-  view.container.querySelector<HTMLSelectElement>(`select[${attr}]`)!;
-const choose = (
-  view: ReturnType<typeof render>,
-  attr: "data-asks-sort",
-  value: string,
-) =>
-  act(() => void fireEvent.change(control(view, attr), { target: { value } }));
 // The room and priority filters are the Tasks page's checkbox lists
 // (CheckboxFilter, task 2bbc5021): several choices at once, all checked at
 // open, each with a count.
@@ -627,15 +526,6 @@ describe("the filter row", () => {
 
   // Sort by age (task 66532fa7): one list, longest wait first, with a header
   // at each change of agent, so an agent can head more than one run.
-  const BY_AGE = [
-    "a4:a4none",
-    "a1:a1old",
-    "a2:a2only",
-    "a3:a3p1",
-    "a4:a4p1",
-    "a1:a1top",
-  ];
-
   it("sorts by age: one list, longest wait first, a header with the agent and room at each change of agent", async () => {
     const { view } = mountSorted();
     choose(view, "data-asks-sort", "age");

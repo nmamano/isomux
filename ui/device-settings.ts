@@ -143,6 +143,27 @@ export function setAsksSort(sort: AsksSort): void {
   } catch {}
 }
 
+// The direction of the Asks tab's sort, remembered on this device. It starts
+// as "asc", and a value this build does not know reads as "asc".
+export type AsksSortDir = "asc" | "desc";
+
+const KEY_ASKS_SORT_DIR = "isomux-asks-sort-dir";
+
+export function getAsksSortDir(): AsksSortDir {
+  try {
+    return localStorage.getItem(KEY_ASKS_SORT_DIR) === "desc" ? "desc" : "asc";
+  } catch {
+    return "asc";
+  }
+}
+
+export function setAsksSortDir(dir: AsksSortDir): void {
+  try {
+    if (dir === "asc") localStorage.removeItem(KEY_ASKS_SORT_DIR);
+    else localStorage.setItem(KEY_ASKS_SORT_DIR, dir);
+  } catch {}
+}
+
 // The Inbox Asks tab's filters, remembered on this device: the rooms the
 // member unchecked and the checked priorities. They start as all.
 export interface AsksFilterSetting {
