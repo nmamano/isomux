@@ -4,6 +4,7 @@
 
 import { useEffect, useRef } from "react";
 import { noTranslate } from "../no-translate.ts";
+import { FilterChevron } from "./ChevronSelect.tsx";
 import {
   FILTER_PRIORITIES,
   PRIORITY_ORDER,
@@ -123,18 +124,7 @@ export function CheckboxFilter<T extends string>({
         >
           {summary}
         </span>
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 10 6"
-          width="10"
-          height="6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          style={{ color: "var(--text-muted)", flexShrink: 0 }}
-        >
-          <path d="M1 1l4 4 4-4" />
-        </svg>
+        <FilterChevron />
       </button>
       {open && (
         <div

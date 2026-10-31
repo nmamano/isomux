@@ -18,6 +18,7 @@ import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { openingRoomFilter } from "../room-filter.ts";
 import { CheckboxFilter, prioritySummary, toggled } from "./CheckboxFilter.tsx";
+import { ChevronSelect } from "./ChevronSelect.tsx";
 import {
   comparePriority,
   PRIORITY_COLORS,
@@ -1424,8 +1425,16 @@ export function TaskView({
                 flexWrap: isMobile ? "wrap" : undefined,
               }}
             >
-              <select
+              <ChevronSelect
                 value={roomScope}
+                label={
+                  roomScope === "all"
+                    ? t("tasks.allRooms")
+                    : roomScope === "global"
+                      ? t("tasks.globalShort")
+                      : (rooms.find((r) => r.id === roomScope)?.name ?? "")
+                }
+                labelNoTranslate={roomScope !== "all" && roomScope !== "global"}
                 onChange={(e) => setRoomScope(e.target.value)}
                 title={t("tasks.scopeTitle")}
                 style={
@@ -1441,7 +1450,7 @@ export function TaskView({
                     {r.name}
                   </option>
                 ))}
-              </select>
+              </ChevronSelect>
               <CheckboxFilter
                 name="status"
                 label={t("tasks.field.status")}

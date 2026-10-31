@@ -48,6 +48,7 @@ import {
   type PriorityFilterValue,
 } from "../task-priority.ts";
 import { CheckboxFilter, prioritySummary, toggled } from "./CheckboxFilter.tsx";
+import { ChevronSelect } from "./ChevronSelect.tsx";
 import {
   ordinaryRooms,
   type AgentInfo,
@@ -389,7 +390,8 @@ export function AsksView({
     color: "var(--text-primary)",
     fontSize: 12,
     outline: "none",
-    flex: isMobile ? 1 : undefined,
+    // From its label's width, so a short label leaves room for a long one.
+    flex: isMobile ? "1 1 auto" : undefined,
     minWidth: 0,
   };
   const emptyStyle: React.CSSProperties = {
@@ -428,8 +430,18 @@ export function AsksView({
           }}
         >
           {isOwner && (
-            <select
+            <ChevronSelect
               data-asks-member=""
+              label={
+                member.kind === "member"
+                  ? member.name
+                  : t(
+                      member.kind === "all"
+                        ? "asks.memberAll"
+                        : "asks.memberMine",
+                    )
+              }
+              labelNoTranslate={member.kind === "member"}
               aria-label={t("asks.member")}
               value={memberValue(member)}
               onChange={(e) => {
@@ -446,7 +458,7 @@ export function AsksView({
                   {name}
                 </option>
               ))}
-            </select>
+            </ChevronSelect>
           )}
           <CheckboxFilter
             name="room"
@@ -493,8 +505,9 @@ export function AsksView({
               ...(isMobile ? { flexBasis: "100%" } : { marginLeft: "auto" }),
             }}
           >
-            <select
+            <ChevronSelect
               data-asks-sort=""
+              label={t(SORT_LABELS[sort])}
               aria-label={t("asks.sort")}
               value={sort}
               onChange={(e) => {
@@ -512,9 +525,10 @@ export function AsksView({
                   {t(SORT_LABELS[s])}
                 </option>
               ))}
-            </select>
-            <select
+            </ChevronSelect>
+            <ChevronSelect
               data-asks-sort-dir=""
+              label={t(DIR_LABELS[sort][dir])}
               aria-label={t("asks.sortDir")}
               value={dir}
               onChange={(e) => {
@@ -529,7 +543,7 @@ export function AsksView({
                   {t(DIR_LABELS[sort][d])}
                 </option>
               ))}
-            </select>
+            </ChevronSelect>
           </div>
         </div>
       </div>
