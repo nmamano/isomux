@@ -18,6 +18,7 @@ const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { OfficeLinkOpener } = await import("../office-link.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
+const { composerMaxHeight } = await import("../composer-height.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type OfficeLink = import("../../shared/office-links.ts").OfficeLink;
 
@@ -240,7 +241,9 @@ it("replies with the field's text and closes the card once the server took it", 
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="aaaa0001"]',
   )!;
-  const field = card.querySelector("input")!;
+  const field = card.querySelector<HTMLTextAreaElement>(
+    "[data-ask-reply-input]",
+  )!;
   // Prefilled, so one click answers.
   expect(field.value.length).toBeGreaterThan(0);
   const prefilled = field.value;
@@ -343,16 +346,18 @@ const optionButtons = (card: HTMLElement) => [
 ];
 // The reply field of one card.
 const field = (root: HTMLElement, id: string) =>
-  root.querySelector<HTMLInputElement>(`[data-ask="${id}"] form input`)!;
-const selection = (el: HTMLInputElement) => [
+  root.querySelector<HTMLTextAreaElement>(
+    `[data-ask="${id}"] form [data-ask-reply-input]`,
+  )!;
+const selection = (el: HTMLTextAreaElement) => [
   el.selectionStart,
   el.selectionEnd,
 ];
-// The focused element as "<card>/<tag>": a scalar, since a failed toBe on two
-// DOM nodes serialises both.
+// The focused element as "<card>/field" for a reply field, else "<card>/<tag>":
+// a scalar, since a failed toBe on two DOM nodes serialises both.
 const focused = () => {
   const el = document.activeElement;
-  return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.tagName}`;
+  return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.hasAttribute("data-ask-reply-input") ? "field" : el?.tagName}`;
 };
 
 it("draws a button per option above the reply field, and a tap fills the field for the member to edit and send", async () => {
@@ -381,7 +386,7 @@ it("draws a button per option above the reply field, and a tap fills the field f
     row.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   const input = field(view.container, "ffff0006");
-  expect(focused()).not.toBe("ffff0006/INPUT");
+  expect(focused()).not.toBe("ffff0006/field");
 
   // A tap sends nothing: the field holds the option, focused, with the caret
   // at the end, so typing adds to it.
@@ -390,7 +395,7 @@ it("draws a button per option above the reply field, and a tap fills the field f
   });
   expect(posts).toEqual([]);
   expect(input.value).toBe("Dwight");
-  expect(focused()).toBe("ffff0006/INPUT");
+  expect(focused()).toBe("ffff0006/field");
   expect(selection(input)).toEqual([6, 6]);
 
   // A tap on the option the field already holds focuses it again.
@@ -398,7 +403,7 @@ it("draws a button per option above the reply field, and a tap fills the field f
   await act(async () => {
     fireEvent.click(optionButtons(card)[1]);
   });
-  expect(focused()).toBe("ffff0006/INPUT");
+  expect(focused()).toBe("ffff0006/field");
   expect(selection(input)).toEqual([6, 6]);
 
   // Another tap replaces what the member typed.
@@ -458,10 +463,12 @@ it("starts the field with the recommended option, marks that option only, and on
   // The other option is an ordinary button.
   expect(optionButtons(card).map((b) => b.textContent)).toContain("Yes");
   // What the agent wrote (the question and each option) stays out of page
-  // translation; the mark, in the reader's language, does not.
+  // translation; the mark, in the reader's language, does not. The reply
+  // field holds "No" as its text too, so the option queries pass it over.
+  const optionText = { ignore: "script, style, textarea" };
   expect(translated(getByText(card, "Keep the verifier rule?"))).toBe(false);
-  expect(translated(getByText(card, "Yes"))).toBe(false);
-  expect(translated(getByText(card, "No"))).toBe(false);
+  expect(translated(getByText(card, "Yes", optionText))).toBe(false);
+  expect(translated(getByText(card, "No", optionText))).toBe(false);
   expect(translated(getByText(card, label))).toBe(true);
   // Untouched, so focus selects it for typing over.
   act(() => input.focus());
@@ -655,28 +662,238 @@ it("keeps a typed reply, per ask, when the member leaves the chat and comes back
   view.unmount();
 });
 
-it("selects the untouched default on focus and on click, and leaves the caret alone once edited", async () => {
+it("selects the untouched default on the tap that focuses it, and a tap on the focused field places the caret", async () => {
   const view = mount(false);
   await waitFor(() => expect(cards(view.container).length).toBe(2));
   const input = field(view.container, "aaaa0001");
   const length = input.value.length;
-  expect(length).toBeGreaterThan(0);
+  expect(length).toBeGreaterThan(2);
+  // A tap as a browser fires it: pointerdown, focus, then click after the
+  // mouseup that puts the caret where the tap landed.
+  const tap = (caret: number) => {
+    fireEvent.pointerDown(input);
+    act(() => input.focus());
+    input.setSelectionRange(caret, caret);
+    fireEvent.click(input);
+  };
+  expect(document.activeElement === input).toBe(false);
+  tap(1);
+  expect(selection(input)).toEqual([0, length]);
+  // A second tap, on the focused field, keeps the caret it placed.
+  expect(document.activeElement === input).toBe(true);
+  tap(2);
+  expect(selection(input)).toEqual([2, 2]);
+  // After the member leaves the field, the tap that comes back selects again.
+  act(() => input.blur());
+  expect(document.activeElement === input).toBe(false);
+  tap(1);
+  expect(selection(input)).toEqual([0, length]);
+  // Focus without a pointer (the keyboard) selects too.
+  act(() => input.blur());
   input.setSelectionRange(length, length);
   act(() => input.focus());
   expect(selection(input)).toEqual([0, length]);
-  // A browser's mouseup after the focus collapses the selection; the click
-  // selects again.
-  input.setSelectionRange(1, 1);
-  fireEvent.click(input);
-  expect(selection(input)).toEqual([0, length]);
 
+  // Once edited, focus and taps leave the caret alone.
   fireEvent.change(input, { target: { value: "done, mostly" } });
   act(() => input.blur());
-  input.setSelectionRange(4, 4);
-  act(() => input.focus());
-  fireEvent.click(input);
+  tap(4);
   expect(selection(input)).toEqual([4, 4]);
   view.unmount();
+});
+
+// The primary pointer for the cards mounted inside `run`: coarse is a touch
+// screen.
+async function withPointer(coarse: boolean, run: () => Promise<void>) {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    query === "(pointer: coarse)"
+      ? ({ matches: coarse, media: query } as MediaQueryList)
+      : original.call(window, query);
+  try {
+    expect(window.matchMedia("(pointer: coarse)").matches).toBe(coarse);
+    await run();
+  } finally {
+    window.matchMedia = original;
+  }
+}
+// fireEvent returns false when a handler prevented the default.
+const pressEnter = async (
+  el: HTMLElement,
+  init: Record<string, unknown> = {},
+) => {
+  let free = true;
+  await act(async () => {
+    free = fireEvent.keyDown(el, { key: "Enter", ...init });
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  return free;
+};
+
+it("sends the reply on Enter with a mouse, and not on a modified Enter, an IME's Enter or a blank field", async () => {
+  await withPointer(false, async () => {
+    const view = mount(false);
+    await waitFor(() => expect(cards(view.container).length).toBe(2));
+    const input = field(view.container, "aaaa0001");
+    fireEvent.change(input, { target: { value: "ship it" } });
+    // Shift+Enter is a new line, and an IME takes its own Enter: the browser
+    // keeps both.
+    for (const init of [{ shiftKey: true }, { isComposing: true }])
+      expect([init, await pressEnter(input, init)]).toEqual([init, true]);
+    for (const init of [{ altKey: true }, { ctrlKey: true }, { metaKey: true }])
+      await pressEnter(input, init);
+    expect(posts).toEqual([]);
+    // A blank field sends nothing, and Enter adds no line to it.
+    fireEvent.change(input, { target: { value: "  " } });
+    expect(await pressEnter(input)).toBe(false);
+    expect(posts).toEqual([]);
+
+    fireEvent.change(input, { target: { value: "ship it" } });
+    expect(await pressEnter(input)).toBe(false);
+    expect(posts).toEqual([
+      { path: "/api/asks/aaaa0001/reply", body: { text: "ship it" } },
+    ]);
+    view.unmount();
+  });
+});
+
+it("keeps Enter as a new line on a touch screen, where Reply sends", async () => {
+  await withPointer(true, async () => {
+    // A desktop-wide viewport: the pointer decides, not the width.
+    const view = mount(false);
+    await waitFor(() => expect(cards(view.container).length).toBe(2));
+    const card = view.container.querySelector<HTMLElement>(
+      '[data-ask="aaaa0001"]',
+    )!;
+    const input = field(view.container, "aaaa0001");
+    fireEvent.change(input, { target: { value: "ship it" } });
+    expect(await pressEnter(input)).toBe(true);
+    expect(posts).toEqual([]);
+    await act(async () => {
+      fireEvent.submit(card.querySelector("form")!);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(posts).toEqual([
+      { path: "/api/asks/aaaa0001/reply", body: { text: "ship it" } },
+    ]);
+    view.unmount();
+  });
+});
+
+it("puts Reply, Dismiss and file-as-task in one row under the field on a phone, and in the form's row on a desktop", async () => {
+  for (const isMobile of [true, false]) {
+    const view = mount(isMobile);
+    await waitFor(() =>
+      expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
+    );
+    if (isMobile)
+      fireEvent.click(
+        view.container.querySelector<HTMLElement>(
+          "[data-asks-stack=collapsed] button",
+        )!,
+      );
+    const card = view.container.querySelector<HTMLElement>(
+      '[data-ask="aaaa0001"]',
+    )!;
+    const form = card.querySelector("form")!;
+    const input = field(view.container, "aaaa0001");
+    const buttons = [
+      card.querySelector<HTMLElement>("button[type=submit]")!,
+      card.querySelector<HTMLElement>(
+        "form button[type=button]:not([data-ask-file-task])",
+      )!,
+      card.querySelector<HTMLElement>("[data-ask-file-task]")!,
+    ];
+    const row = buttons[0].parentElement!;
+    expect({
+      isMobile,
+      inForm: buttons.map((b) => form.contains(b)),
+      afterField: buttons.map(
+        (b) =>
+          (input.compareDocumentPosition(b) &
+            Node.DOCUMENT_POSITION_FOLLOWING) !==
+          0,
+      ),
+      column: form.style.flexDirection === "column",
+    }).toEqual({
+      isMobile,
+      inForm: [true, true, true],
+      afterField: [true, true, true],
+      column: isMobile,
+    });
+    // On a phone the buttons are one row of their own, the field above it.
+    if (isMobile)
+      expect({
+        oneRow: buttons.map((b) => b.parentElement === row),
+        rowHoldsField: row.contains(input),
+        rowIsColumn: row.style.flexDirection === "column",
+      }).toEqual({
+        oneRow: [true, true, true],
+        rowHoldsField: false,
+        rowIsColumn: false,
+      });
+    view.unmount();
+  }
+});
+
+it("grows the reply field with its text up to the composers' cap, from the first draw and after an option tap", async () => {
+  const proto = window.HTMLTextAreaElement.prototype;
+  let content = 30;
+  // The field's text height, and a 1px border above and below.
+  const metrics = {
+    scrollHeight: () => content,
+    offsetHeight: () => 42,
+    clientHeight: () => 40,
+  };
+  for (const [name, get] of Object.entries(metrics))
+    Object.defineProperty(proto, name, { get, configurable: true });
+  try {
+    for (const isMobile of [false, true]) {
+      content = 30;
+      const view = mount(isMobile, "a4");
+      await waitFor(() =>
+        expect(view.container.querySelector("[data-asks-stack]")).not.toBe(
+          null,
+        ),
+      );
+      if (isMobile)
+        fireEvent.click(
+          view.container.querySelector<HTMLElement>(
+            "[data-asks-stack=collapsed] button",
+          )!,
+        );
+      const input = field(view.container, "ffff0006");
+      expect([isMobile, input.tagName]).toEqual([isMobile, "TEXTAREA"]);
+      expect([isMobile, input.style.height]).toEqual([isMobile, "32px"]);
+      content = 90;
+      fireEvent.change(input, { target: { value: "a\nb\nc\nd" } });
+      expect([isMobile, input.style.height]).toEqual([isMobile, "92px"]);
+      content = 1000;
+      fireEvent.change(input, { target: { value: "long ".repeat(400) } });
+      expect([isMobile, input.style.height]).toEqual([
+        isMobile,
+        `${composerMaxHeight(isMobile)}px`,
+      ]);
+      // An option tap fills the field without a keystroke; it fits too.
+      content = 50;
+      act(() => {
+        fireEvent.click(
+          view.container.querySelector<HTMLElement>(
+            '[data-ask="ffff0006"] [data-ask-option]',
+          )!,
+        );
+      });
+      expect([isMobile, input.value, input.style.height]).toEqual([
+        isMobile,
+        "Jim",
+        "52px",
+      ]);
+      view.unmount();
+    }
+  } finally {
+    for (const name of Object.keys(metrics))
+      delete (proto as unknown as Record<string, unknown>)[name];
+  }
 });
 
 it("moves between the reply fields with Tab and Shift+Tab, and lets the browser go on at either end", async () => {
@@ -694,16 +911,16 @@ it("moves between the reply fields with Tab and Shift+Tab, and lets the browser 
   };
   act(() => first.focus());
   expect(press(first)).toBe(false);
-  expect(focused()).toBe("bbbb0002/INPUT");
+  expect(focused()).toBe("bbbb0002/field");
   // The field it lands on is untouched, so the default is selected.
   expect(selection(second)).toEqual([0, second.value.length]);
   // The last field: the browser's own order goes on to the buttons.
   expect(press(second)).toBe(true);
-  expect(focused()).toBe("bbbb0002/INPUT");
+  expect(focused()).toBe("bbbb0002/field");
   expect(press(second, { shiftKey: true })).toBe(false);
-  expect(focused()).toBe("aaaa0001/INPUT");
+  expect(focused()).toBe("aaaa0001/field");
   expect(press(first, { shiftKey: true })).toBe(true);
-  expect(focused()).toBe("aaaa0001/INPUT");
+  expect(focused()).toBe("aaaa0001/field");
   // A modifier or an open IME composition is not this move.
   for (const init of [
     { ctrlKey: true },
@@ -712,7 +929,7 @@ it("moves between the reply fields with Tab and Shift+Tab, and lets the browser 
     { isComposing: true },
   ]) {
     expect([init, press(first, init)]).toEqual([init, true]);
-    expect(focused()).toBe("aaaa0001/INPUT");
+    expect(focused()).toBe("aaaa0001/field");
   }
   view.unmount();
 });
@@ -727,7 +944,7 @@ it("skips a secret request's fields when it moves with Tab", async () => {
   act(() => {
     fireEvent.keyDown(first, { key: "Tab" });
   });
-  expect(focused()).toBe("iiii0009/INPUT");
+  expect(focused()).toBe("iiii0009/field");
   view.unmount();
 });
 

@@ -178,8 +178,8 @@ function expectPrefixed(container: HTMLElement, ask: AskEntry, rest: string) {
 it("puts the prefix in front of the typed draft, focuses after it, and calls no ask route", async () => {
   const { view, latest } = mount("and the tag?");
   // The member was in the reply field, not the composer.
-  const reply = view.container.querySelector<HTMLInputElement>(
-    '[data-ask="ask00001"] input[data-ask-reply-input]',
+  const reply = view.container.querySelector<HTMLTextAreaElement>(
+    '[data-ask="ask00001"] [data-ask-reply-input]',
   )!;
   reply.focus();
   expect(document.activeElement === reply).toBe(true);

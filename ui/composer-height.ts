@@ -16,5 +16,7 @@ export function fitComposer(
   isMobile: boolean | undefined,
 ): void {
   el.style.height = "auto";
-  el.style.height = `${Math.min(el.scrollHeight, composerMaxHeight(isMobile))}px`;
+  // scrollHeight leaves out the border; a border-box field needs it added.
+  const border = el.offsetHeight - el.clientHeight;
+  el.style.height = `${Math.min(el.scrollHeight + border, composerMaxHeight(isMobile))}px`;
 }

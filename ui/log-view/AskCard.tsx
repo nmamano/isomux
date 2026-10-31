@@ -17,8 +17,11 @@
 //
 // The reply draft lives in the store per ask (askDrafts), so it outlives the
 // card, and an untouched field follows an edit of the ask. While the field
-// holds the untouched default, focus and click select it, and Dismiss or
-// filing as a task sends nothing more; a typed note goes with either. Tab and Shift+Tab move
+// holds the untouched default, focus selects it (a tap on the focused field
+// places the caret), and Dismiss or filing as a task sends nothing more; a
+// typed note goes with either. The field grows with its text (fitComposer).
+// Enter sends with a mouse and Shift+Enter is a new line; on a touch screen
+// Enter is a new line and Reply sends. Tab and Shift+Tab move
 // between the reply fields inside the list that draws the cards
 // ([data-asks-list]); at either end the browser's order goes on.
 //
@@ -36,6 +39,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -61,6 +65,7 @@ import { EditRequestCard } from "./EditRequestCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
+import { fitComposer } from "../composer-height.ts";
 
 const PROMPT_LINES = 3;
 
@@ -83,13 +88,15 @@ interface HeldAnswer {
 
 // Tab and Shift+Tab to the next or previous reply field of the list. No move
 // past either end, so focus is never trapped.
-function tabToReplyField(e: KeyboardEvent<HTMLInputElement>) {
+function tabToReplyField(e: KeyboardEvent<HTMLTextAreaElement>) {
   if (e.key !== "Tab" || e.ctrlKey || e.altKey || e.metaKey) return;
   if (e.nativeEvent.isComposing) return;
   const list = e.currentTarget.closest("[data-asks-list]");
   if (!list) return;
   const fields = [
-    ...list.querySelectorAll<HTMLInputElement>("input[data-ask-reply-input]"),
+    ...list.querySelectorAll<HTMLTextAreaElement>(
+      "textarea[data-ask-reply-input]",
+    ),
   ].filter((f) => !f.disabled);
   const at = fields.indexOf(e.currentTarget);
   if (at === -1) return;
@@ -246,7 +253,18 @@ function ReplyAskCard({
   // One answer at a time: a second submit in the same frame still sees busy
   // false.
   const sending = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Set by a pointerdown on a field without focus: only the tap that focuses
+  // the field selects the default, so a later tap places the caret.
+  const clickFocuses = useRef(false);
+  // Use `pointer: coarse` instead of viewport `isMobile`, as the chat input
+  // does: Enter sends only with a mouse.
+  const isTouchPrimary = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      !!window.matchMedia?.("(pointer: coarse)").matches,
+    [],
+  );
   // Set by an option tap; the next commit focuses the field. No deps: a tap
   // on the option the field already holds leaves the draft the same.
   const pendingFocus = useRef(false);
@@ -282,6 +300,12 @@ function ReplyAskCard({
     dispatch({ type: "set_ask_draft", askId: entry.id, text: option });
   }
 
+  // The field grows with its text, an option tap, a restored draft and Undo
+  // too.
+  useLayoutEffect(() => {
+    if (inputRef.current) fitComposer(inputRef.current, isMobile);
+  }, [reply, isMobile, held]);
+
   // Show more only when the clamp cuts the prompt.
   useLayoutEffect(() => {
     const el = promptRef.current;
@@ -301,8 +325,19 @@ function ReplyAskCard({
   }
 
   // While the field holds the untouched default, typing replaces it.
-  function selectDefault(el: HTMLInputElement) {
+  function selectDefault(el: HTMLTextAreaElement) {
     if (untouched) el.setSelectionRange(0, el.value.length);
+  }
+
+  // Plain Enter sends with a mouse; a modifier, an IME or a touch screen
+  // keeps the browser's Enter.
+  function onReplyKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    tabToReplyField(e);
+    if (e.key !== "Enter" || isTouchPrimary || e.nativeEvent.isComposing)
+      return;
+    if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    e.preventDefault();
+    e.currentTarget.form?.requestSubmit();
   }
 
   // fetch() is reached in the same task as the call: a page event must start
@@ -414,19 +449,6 @@ function ReplyAskCard({
     cursor: busy ? "default" : "pointer",
     flexShrink: 0,
   } as const;
-  // Closes the ask and files it on the board; the reply field's note goes
-  // with it, as with Dismiss. A phone has no room for it in the reply row.
-  const fileTaskButton = (
-    <button
-      type="button"
-      data-ask-file-task=""
-      disabled={busy}
-      onClick={() => answer("file-task")}
-      style={secondaryButton}
-    >
-      {t("asks.fileTask")}
-    </button>
-  );
   const cardBox = {
     padding: isMobile ? "9px 10px 10px 11px" : "8px 10px 9px 11px",
     borderRadius: 8,
@@ -477,6 +499,50 @@ function ReplyAskCard({
       </div>
     );
   }
+  // Reply, Dismiss and filing as a task: beside the field on a desktop, in a
+  // row under it on a phone.
+  const replyButtons = (
+    <>
+      <button
+        type="submit"
+        disabled={busy || reply.trim() === ""}
+        style={{
+          padding: buttonPad,
+          borderRadius: 8,
+          border: "none",
+          background: "var(--accent-text)",
+          color: "var(--bg-base)",
+          fontSize: 12,
+          fontWeight: 600,
+          cursor: busy ? "default" : "pointer",
+          opacity: busy ? 0.6 : 1,
+          flexShrink: 0,
+        }}
+      >
+        {t("asks.reply")}
+      </button>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => answer("dismiss")}
+        style={secondaryButton}
+      >
+        {t("asks.dismiss")}
+      </button>
+      {/* Closes the ask and files it on the board; the reply field's note
+          goes with it, as with Dismiss. */}
+      <button
+        type="button"
+        data-ask-file-task=""
+        disabled={busy}
+        onClick={() => answer("file-task")}
+        style={secondaryButton}
+      >
+        {t("asks.fileTask")}
+      </button>
+    </>
+  );
+
   return (
     <div data-ask={entry.id} style={cardBox}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -662,11 +728,18 @@ function ReplyAskCard({
           e.preventDefault();
           answer("reply");
         }}
-        style={{ display: "flex", gap: 6, marginTop: 7, alignItems: "center" }}
+        style={{
+          display: "flex",
+          flexDirection: isMobile ? "column" : "row",
+          gap: 6,
+          marginTop: 7,
+          alignItems: isMobile ? "stretch" : "flex-end",
+        }}
       >
-        <input
+        <textarea
           ref={inputRef}
           value={reply}
+          rows={1}
           disabled={busy}
           data-ask-reply-input=""
           onChange={(e) =>
@@ -677,13 +750,20 @@ function ReplyAskCard({
             })
           }
           onFocus={(e) => selectDefault(e.currentTarget)}
-          onClick={(e) => selectDefault(e.currentTarget)}
-          onKeyDown={tabToReplyField}
+          onPointerDown={(e) => {
+            clickFocuses.current = document.activeElement !== e.currentTarget;
+          }}
+          onClick={(e) => {
+            if (clickFocuses.current) selectDefault(e.currentTarget);
+            clickFocuses.current = false;
+          }}
+          onKeyDown={onReplyKeyDown}
           aria-label={t("asks.reply")}
           style={{
-            flex: 1,
+            flex: isMobile ? undefined : 1,
             minWidth: 0,
             maxWidth: isMobile ? undefined : 460,
+            boxSizing: "border-box",
             padding: isMobile ? "8px 10px" : "5px 10px",
             background: "var(--bg-input)",
             border: "1px solid var(--border-light)",
@@ -692,44 +772,20 @@ function ReplyAskCard({
             fontFamily: "var(--font-ui)",
             // 16px keeps iOS Safari from zooming into the field.
             fontSize: isMobile ? 16 : 12,
+            lineHeight: isMobile ? "20px" : "16px",
+            resize: "none",
+            overflowY: "auto",
             outline: "none",
           }}
         />
-        <button
-          type="submit"
-          disabled={busy || reply.trim() === ""}
-          style={{
-            padding: buttonPad,
-            borderRadius: 8,
-            border: "none",
-            background: "var(--accent-text)",
-            color: "var(--bg-base)",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: busy ? "default" : "pointer",
-            opacity: busy ? 0.6 : 1,
-            flexShrink: 0,
-          }}
-        >
-          {t("asks.reply")}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => answer("dismiss")}
-          style={secondaryButton}
-        >
-          {t("asks.dismiss")}
-        </button>
-        {!isMobile && fileTaskButton}
+        {isMobile ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {replyButtons}
+          </div>
+        ) : (
+          replyButtons
+        )}
       </form>
-      {isMobile && (
-        <div
-          style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}
-        >
-          {fileTaskButton}
-        </div>
-      )}
       {error && (
         <div
           role="alert"

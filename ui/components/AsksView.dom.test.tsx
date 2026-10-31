@@ -199,13 +199,13 @@ it("drops a group with its last card, then shows the empty state", async () => {
 it("moves with Tab from one agent's reply field to the next agent's, in page order", () => {
   const { view } = mount([ask("later", "a1", 30), ask("first", "a2", 90)]);
   const field = (id: string) =>
-    view.container.querySelector<HTMLInputElement>(
-      `[data-ask="${id}"] form input`,
+    view.container.querySelector<HTMLTextAreaElement>(
+      `[data-ask="${id}"] form [data-ask-reply-input]`,
     )!;
   // A scalar: a failed toBe on two DOM nodes serialises both.
   const focused = () => {
     const el = document.activeElement;
-    return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.tagName}`;
+    return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.hasAttribute("data-ask-reply-input") ? "field" : el?.tagName}`;
   };
   // a2 waited longest, so its group is drawn first.
   act(() => field("first").focus());
@@ -214,12 +214,12 @@ it("moves with Tab from one agent's reply field to the next agent's, in page ord
     free = fireEvent.keyDown(field("first"), { key: "Tab" });
   });
   expect(free).toBe(false);
-  expect(focused()).toBe("later/INPUT");
+  expect(focused()).toBe("later/field");
   act(() => {
     free = fireEvent.keyDown(field("later"), { key: "Tab", shiftKey: true });
   });
   expect(free).toBe(false);
-  expect(focused()).toBe("first/INPUT");
+  expect(focused()).toBe("first/field");
 });
 
 it("hands an editor or command card to the ask's agent and opens that agent's chat", async () => {
@@ -255,8 +255,8 @@ it("hands an editor or command card to the ask's agent and opens that agent's ch
 const cardEl = (view: ReturnType<typeof render>, id: string) =>
   view.container.querySelector<HTMLElement>(`[data-ask="${id}"]`);
 const fieldOf = (view: ReturnType<typeof render>, id: string) =>
-  cardEl(view, id)!.querySelector<HTMLInputElement>(
-    "input[data-ask-reply-input]",
+  cardEl(view, id)!.querySelector<HTMLTextAreaElement>(
+    "[data-ask-reply-input]",
   )!;
 // The pending line's kind (marked on the card's box or inside it), or null
 // while the card is drawn.
@@ -828,16 +828,29 @@ it("goes from the Undo line to nothing when the answer is sent, with the POST st
   expect(posts).toHaveLength(1);
 });
 
-it("brings the card back on Undo, with the draft and focus in its field, and a new answer runs on its own timer", async () => {
+it("brings the card back on Undo, with the draft, its height and focus in its field, and a new answer runs on its own timer", async () => {
   jest.useFakeTimers();
   const half = Math.floor(ASK_UNDO_MS / 2);
+  // A draft three lines high: the field that Undo draws again fits it, with
+  // no keystroke to set the height.
+  const proto = window.HTMLTextAreaElement.prototype;
+  Object.defineProperty(proto, "scrollHeight", {
+    get: () => 70,
+    configurable: true,
+  });
   const { view } = mount([ask("undone", "a1", 5)]);
-  await answerAsk(view, "undone", "reply", "half a thought");
-  expect(pendingOf(view, "undone")).toBe("reply");
-  await advance(half);
-  await act(async () => fireEvent.click(undoOf(view, "undone")));
+  try {
+    await answerAsk(view, "undone", "reply", "half a thought");
+    expect(pendingOf(view, "undone")).toBe("reply");
+    expect(fieldOf(view, "undone")).toBeNull();
+    await advance(half);
+    await act(async () => fireEvent.click(undoOf(view, "undone")));
+  } finally {
+    delete (proto as unknown as Record<string, unknown>).scrollHeight;
+  }
   expect(pendingOf(view, "undone")).toBeNull();
   expect(fieldOf(view, "undone").value).toBe("half a thought");
+  expect(fieldOf(view, "undone").style.height).toBe("70px");
   expect(fieldOf(view, "undone").disabled).toBe(false);
   // A scalar: a failed toBe on two DOM nodes serialises both.
   const el = document.activeElement as HTMLElement | null;
