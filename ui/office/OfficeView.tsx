@@ -32,7 +32,7 @@ import {
   useFeatures,
   useRoomList,
 } from "../store.tsx";
-import { useInboxNavAction, type InboxTab } from "../inbox.ts";
+import { useInboxCounts, useInboxNavAction, type InboxTab } from "../inbox.ts";
 import { Floor, WallDoors, Walls, type WallInbox } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { ElevatorDialog } from "../components/ElevatorDialog.tsx";
@@ -276,6 +276,7 @@ export function OfficeView({
     [asks, answeredAsks],
   );
   const inboxAction = useInboxNavAction(onOpenInbox);
+  const inboxCounts = useInboxCounts();
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
   const [elevatorOpen, setElevatorOpen] = useState(false);
@@ -334,11 +335,12 @@ export function OfficeView({
   useEffect(() => cancelRoomTurn, []);
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
-  // A room's Inbox tray shows the bar entry. In embed the bar is hidden,
-  // so the tray shows the count but does not open the Inbox.
+  // A room's Inbox tray holds a letter per open ask and opens the Inbox as
+  // the bar entry does. In embed the bar is hidden, so the tray does not
+  // open the Inbox.
   const wallInbox: WallInbox | undefined = inboxAction
     ? {
-        count: inboxAction.badge ?? 0,
+        asks: inboxCounts.asks,
         title: inboxAction.title,
         onOpen: embed ? undefined : inboxAction.onClick,
       }

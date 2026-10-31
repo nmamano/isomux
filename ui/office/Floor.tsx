@@ -36,7 +36,6 @@ import {
 } from "./door-label.ts";
 import { noTranslate } from "../no-translate.ts";
 import { useI18n } from "../i18n.tsx";
-import { badgeText } from "../components/NavActions.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
 const NEON_COLORS = [
@@ -1514,6 +1513,8 @@ export function Walls({
       </g>
 
       <AppsWallScreen onOpenApps={onOpenApps} />
+      <InboxWallTray inbox={inbox} />
+
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
       <g
         data-no-pan
@@ -1611,7 +1612,6 @@ export function Walls({
         {/* Center dot */}
         <circle cx="0" cy="0" r="1.5" fill="var(--clock-hand)" />
       </g>
-      <InboxWallTray inbox={inbox} />
       {/* Neon sign - right wall, hand-drawn tube letters with ligaments */}
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
       {wallArt === "neon" && (
@@ -2164,26 +2164,25 @@ export function AppsWallScreen({ onOpenApps }: { onOpenApps?: () => void }) {
   );
 }
 
-/** The bar's Inbox entry as the office scene shows it: its open count, its
- *  tooltip and its click. Without `onOpen` (embed, previews) the tray is a
- *  drawing. */
-export type WallInbox = { count: number; title?: string; onOpen?: () => void };
+/** The Inbox as the office scene shows it: the member's open asks, and the
+ *  bar entry's tooltip and click. Without `onOpen` (embed, previews) the tray
+ *  is a drawing. */
+export type WallInbox = { asks: number; title?: string; onOpen?: () => void };
 
-/** The in-tray on a room's right wall, left of the clock: it opens the Inbox.
- *  Letters stand in it while items are open, one to three as the corkboard's
- *  cards, and a badge counts them as the bar does. */
+/** The in-tray on a room's left wall, under the corkboard at a height a
+ *  person reaches: it opens the Inbox. Letters stand in it while asks are
+ *  open, one to three as the corkboard's cards; with no open ask it is
+ *  empty. It is drawn as for the right wall and mirrored, as the scene is
+ *  symmetric. Lower on either wall, the desks' hit boxes cover it. */
 export function InboxWallTray({ inbox }: { inbox?: WallInbox }) {
   const { t } = useI18n();
-  const count = inbox?.count ?? 0;
   const onOpen = inbox?.onOpen;
-  const letters = Math.min(count, 3);
-  const badge = badgeText(count);
-  const badgeW = Math.max(13, 6 + badge.length * 5.5);
+  const letters = Math.min(inbox?.asks ?? 0, 3);
   return (
     <g
       data-no-pan
       data-inbox-tray
-      transform="translate(166, -122) skewY(27) scale(1.2)"
+      transform="translate(-101, 82) skewY(-27) scale(-1.2, 1.2)"
       onClick={onOpen}
       aria-label={onOpen ? t("nav.inbox") : undefined}
       style={onOpen ? { cursor: "pointer", pointerEvents: "auto" } : undefined}
@@ -2276,29 +2275,6 @@ export function InboxWallTray({ inbox }: { inbox?: WallInbox }) {
         strokeWidth="1"
         opacity="0.25"
       />
-      {count > 0 && (
-        <g data-inbox-badge transform="translate(15, -18)">
-          <rect
-            x={-badgeW / 2}
-            y="-6.5"
-            width={badgeW}
-            height="13"
-            rx="6.5"
-            fill="var(--red)"
-          />
-          <text
-            x="0"
-            y="3.2"
-            textAnchor="middle"
-            fontSize="9"
-            fontWeight="700"
-            fill="#fff"
-            style={{ userSelect: "none" }}
-          >
-            {badge}
-          </text>
-        </g>
-      )}
     </g>
   );
 }

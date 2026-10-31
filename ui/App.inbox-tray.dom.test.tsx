@@ -1,8 +1,9 @@
 // The Inbox tray on the office scene's wall (task b8d5e90f), through the real
-// App and store: in a room it shows the bar entry's badge and opens the tab the
-// bar entry opens; the lobby draws no tray (task 878da607); in the landing-page
-// embed, where the bar is hidden, it shows the count but does not open the
-// Inbox. The bar entry itself is in ui/App.inbox.dom.test.tsx, the setup in
+// App and store: in a room it holds one letter per open ask, up to three, and
+// draws no count (task a4b04ffd); a click opens the tab the bar entry opens;
+// the lobby draws no tray (task 878da607); in the landing-page embed, where
+// the bar is hidden, it shows the letters but does not open the Inbox. The bar
+// entry itself is in ui/App.inbox.dom.test.tsx, the setup in
 // ui/test-support/inbox-fixture.tsx.
 
 import { expect, it } from "bun:test";
@@ -31,10 +32,10 @@ function inRoom() {
 
 const tray = (view: View) =>
   view.container.querySelector<SVGGElement>("svg [data-inbox-tray]");
-const trayBadge = (view: View) =>
-  tray(view)?.querySelector("[data-inbox-badge]")?.textContent ?? null;
 const letters = (view: View) =>
   tray(view)?.querySelectorAll("[data-inbox-letter]").length ?? 0;
+// The tray draws no count: no text in the drawing (its tooltip is a <title>).
+const trayText = (view: View) => tray(view)!.querySelectorAll("text").length;
 const barBadge = (view: View) =>
   inboxButton(view)?.querySelector(".nav-action-badge")?.textContent ?? null;
 // The tray is drawn in room r1's walls, under room r1's title.
@@ -48,28 +49,29 @@ const inLobby = (view: View) =>
   view.container.querySelector('svg[data-turn="doors"]') !== null &&
   view.container.querySelector('svg[data-turn="walls"]') === null;
 
-it("in a room, shows the bar's count and opens the Asks tab while an ask is open", async () => {
-  // Two visible asks (the fixture's third is in a hidden room) and one page.
+it("in a room, holds a letter per visible ask, not per page, and opens the Asks tab", async () => {
+  // Two visible asks (the fixture's third is in a hidden room) and one page:
+  // the bar counts three, the tray holds two letters.
   setPages([page("p1", "u1")]);
   inRoom();
   const view = await boot();
   expect(inRoomWalls(view)).toBe(true);
   expect(barBadge(view)).toBe("3");
-  expect(trayBadge(view)).toBe(barBadge(view));
-  expect(letters(view)).toBe(3);
+  expect(letters(view)).toBe(2);
+  expect(trayText(view)).toBe(0);
   await act(async () => fireEvent.click(tray(view)!));
   expect(window.location.pathname).toBe("/inbox/asks");
 });
 
-it("in a room, shows the bar's count and opens the Pages tab when only pages are open", async () => {
+it("in a room, is empty while only pages are open, and opens the Pages tab", async () => {
   setAsks([]);
   setPages([page("p1", "u1")]);
   inRoom();
   const view = await boot();
   expect(inRoomWalls(view)).toBe(true);
   expect(barBadge(view)).toBe("1");
-  expect(trayBadge(view)).toBe(barBadge(view));
-  expect(letters(view)).toBe(1);
+  expect(letters(view)).toBe(0);
+  expect(trayText(view)).toBe(0);
   await act(async () => fireEvent.click(tray(view)!));
   expect(window.location.pathname).toBe("/inbox/pages");
 });
@@ -81,36 +83,39 @@ it("in the lobby, draws no tray while the bar counts open items", async () => {
   expect(view.container.querySelector("[data-inbox-tray]")).toBeNull();
 });
 
-it("with nothing open, shows no badge and no letters, and still opens the Inbox", async () => {
+it("with nothing open, is empty and still opens the Inbox", async () => {
   setAsks([]);
   inRoom();
   const view = await boot();
   expect(inRoomWalls(view)).toBe(true);
   expect(barBadge(view)).toBeNull();
-  expect(tray(view)!.querySelector("[data-inbox-badge]")).toBeNull();
   expect(letters(view)).toBe(0);
+  expect(trayText(view)).toBe(0);
   expect(tray(view)!.getAttribute("aria-label")).not.toBeNull();
   await act(async () => fireEvent.click(tray(view)!));
   expect(window.location.pathname).toBe("/inbox/asks");
 });
 
-it("caps the badge as the bar does, at three letters", async () => {
+it("holds at most three letters and no count, however many asks are open", async () => {
   setAsks(Array.from({ length: 120 }, (_, i) => ask(`q${i}`, "a1")));
   inRoom();
   const view = await boot();
   expect(barBadge(view)).toBe("99+");
-  expect(trayBadge(view)).toBe(barBadge(view));
   expect(letters(view)).toBe(3);
+  expect(trayText(view)).toBe(0);
 });
 
-it("in the embed, shows the count but does not open the Inbox", async () => {
+it("in the embed, holds the letters but does not open the Inbox", async () => {
+  // One visible ask and two pages: one letter.
+  setAsks([ask("q1", "a1")]);
+  setPages([page("p1", "u1"), page("p2", "u1")]);
   inRoom();
   const view = await boot("/", { ...PRODUCTION_FEATURES, embed: true });
   expect(inRoomWalls(view)).toBe(true);
-  // The embed hides the bar; the two visible asks still show on the tray.
+  // The embed hides the bar; the tray still holds the ask's letter.
   expect(inboxButton(view)).toBeUndefined();
-  expect(trayBadge(view)).toBe("2");
-  expect(letters(view)).toBe(2);
+  expect(letters(view)).toBe(1);
+  expect(trayText(view)).toBe(0);
   await act(async () => fireEvent.click(tray(view)!));
   expect(window.location.pathname).toBe("/");
   expect(tray(view)!.getAttribute("aria-label")).toBeNull();
