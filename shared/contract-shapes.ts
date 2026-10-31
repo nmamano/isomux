@@ -862,11 +862,15 @@ export type AskClosedWire = AskAgentWire & {
   // What happened before the close, oldest first (task 62aa552f).
   events: AskEventWire[];
 };
-// An ask event as a route sends it: the member who asked for a simplify by
-// username, null when gone.
+// An ask event as a route sends it: the member who asked for a simplify, or
+// withdrew it, by username, null when gone.
 export type AskEventWire =
-  | Exclude<AskEvent, { kind: "simplify_requested" }>
-  | { kind: "simplify_requested"; at: number; by: string | null };
+  | Exclude<AskEvent, { kind: "simplify_requested" | "simplify_withdrawn" }>
+  | {
+      kind: "simplify_requested" | "simplify_withdrawn";
+      at: number;
+      by: string | null;
+    };
 export interface AskHistoryRes {
   asks: AskClosedWire[];
   // The `before` of the next page; null when there is none.

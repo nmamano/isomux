@@ -1589,7 +1589,9 @@ export type AskEvent =
       before: { [K in AskEditableKey]?: AskEntry[K] | null };
     }
   // The member asked the agent to simplify the ask.
-  | { kind: "simplify_requested"; at: number; byUserId?: string };
+  | { kind: "simplify_requested"; at: number; byUserId?: string }
+  // The member withdrew the simplify request before the rewrite.
+  | { kind: "simplify_withdrawn"; at: number; byUserId?: string };
 
 // An entry of an agent's ask log (task 302e7ea4): every event of an ask, the
 // close included, as it happens.
@@ -1609,6 +1611,11 @@ export const ASK_FILED_TEXT = "Not now; filed as a task";
 export const ASK_SIMPLIFY_TEXT =
   "Rewrite this ask in plain words: what I must decide or do, and your pick, in at most two sentences, without internal names or ids. Edit it in place; do not open a new ask.";
 
+// The member message text that withdraws a simplify request. The chat shows
+// it translated from the entry's metadata; the agent reads these words.
+export const ASK_SIMPLIFY_UNDO_TEXT =
+  "Never mind: leave this ask as it is. Do not rewrite it.";
+
 // The ask a member message answers. Rides on the queued item and on the
 // user_message log entry's metadata (`ask`), where the chat draws the
 // link back to the agent's "Create ask" card.
@@ -1618,6 +1625,8 @@ export interface AskRef {
   dismissed?: boolean;
   // The member asked the agent to simplify the ask, which stays open.
   simplify?: boolean;
+  // The member withdrew that request; the ask stays open as it is.
+  simplifyUndone?: boolean;
   // The task the member filed the ask as, instead of an answer.
   taskId?: string;
   sessionId?: string;

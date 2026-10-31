@@ -444,6 +444,10 @@ export interface AskStore {
   // Marks the open entry as waiting for a simpler rewrite and records the
   // member who asked; null when the entry is gone.
   requestSimplify(id: string, byUserId?: string): AskEntry | null;
+  // Clears the simplify mark of the open entry and records the member who
+  // withdrew it. Null, with nothing written, when the entry is gone or has no
+  // mark (the agent's rewrite cleared it first).
+  cancelSimplify(id: string, byUserId?: string): AskEntry | null;
   // Closes the entry and records how (`close`).
   remove(id: string, close: AskCloseInput): AskEntry | null;
   // Every entry of a removed agent, each recorded as agent_removed. Returns
@@ -674,6 +678,24 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       });
       return { ...entry };
     },
+    cancelSimplify(id, byUserId) {
+      check();
+      const prev = entries.find((e) => e.id === id);
+      if (!prev || prev.simplifyRequestedAt === undefined) return null;
+      const at = now();
+      const entry: AskEntry = { ...prev, updatedAt: at };
+      delete entry.simplifyRequestedAt;
+      commit(
+        entries.map((e) => (e.id === id ? entry : e)),
+        [{ kind: "upserted", entry }],
+      );
+      recordEvent(entry, {
+        kind: "simplify_withdrawn",
+        at,
+        ...(byUserId !== undefined ? { byUserId } : {}),
+      });
+      return { ...entry };
+    },
     remove(id, close) {
       check();
       const prev = entries.find((e) => e.id === id);
@@ -788,6 +810,8 @@ export function askReplyNote(
   }
   if (ref.simplify)
     return `[Simplify ${whose} ask ${ref.id}${from}: ${quoted}] `;
+  if (ref.simplifyUndone)
+    return `[Simplify request withdrawn for ${whose} ask ${ref.id}${from}: ${quoted}] `;
   const verb = ref.dismissed ? "Dismissed" : "Reply to";
   return `[${verb} ${whose} ask ${ref.id}${from}: ${quoted}] `;
 }

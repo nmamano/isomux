@@ -1334,6 +1334,17 @@ const SPEC_ROUTE_CONTRACT: Record<
       "agent_updated",
     ],
   },
+  // The ask stays open (task fc2021b7).
+  "asks.simplifyUndo": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: [
+      "ask_upserted",
+      "others_ask_upserted",
+      "log_entry",
+      "interaction_added",
+      "agent_updated",
+    ],
+  },
   "asks.fileTask": {
     caps: ["agent:converse", "api:send-message"],
     emits: [
@@ -2283,6 +2294,7 @@ const API_REACHABLE_OPIDS = [
   "asks.reply",
   "asks.dismiss",
   "asks.simplify",
+  "asks.simplifyUndo",
   "asks.getFile",
   "asks.fileTask",
   "agents.contextUsage",

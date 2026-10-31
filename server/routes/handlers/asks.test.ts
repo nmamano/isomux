@@ -12,7 +12,11 @@ import type { RouteHandlerContext } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import { APP_CAPABILITIES, USER_CAPABILITIES } from "../../identity/index.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
-import { ASK_SIMPLIFY_TEXT, type TaskItem } from "../../../shared/types.ts";
+import {
+  ASK_SIMPLIFY_TEXT,
+  ASK_SIMPLIFY_UNDO_TEXT,
+  type TaskItem,
+} from "../../../shared/types.ts";
 
 const member: Identity = {
   scope: "user",
@@ -38,6 +42,8 @@ function rig(over: Partial<AsksDeps> = {}) {
   const deliveredTaskIds: Array<string | undefined> = [];
   // Each delivery's dismiss and simplify flags.
   const deliveredFlags: Array<{ dismissed: boolean; simplify: boolean }> = [];
+  // Each delivery's simplify-withdrawn flag.
+  const deliveredUndone: boolean[] = [];
   const board = new Map<string, TaskItem>();
   const filed: string[] = [];
   const deleted: string[] = [];
@@ -81,6 +87,7 @@ function rig(over: Partial<AsksDeps> = {}) {
         dismissed: opts.dismissed,
         simplify: opts.simplify === true,
       });
+      deliveredUndone.push(opts.simplifyUndone === true);
       return new Promise((resolve, reject) => held.push({ resolve, reject }));
     },
     agentName: () => "Asker",
@@ -137,6 +144,7 @@ function rig(over: Partial<AsksDeps> = {}) {
     delivered,
     deliveredTaskIds,
     deliveredFlags,
+    deliveredUndone,
     board,
     filed,
     deleted,
@@ -309,6 +317,129 @@ describe("a simplify request (task 30915188)", () => {
       console.error = error;
     }
     expect(delivered).toHaveLength(1);
+    expect(logged.map((args) => args.join(" ")).join("\n")).toContain(entry.id);
+  });
+});
+
+describe("a simplify request withdrawn (task fc2021b7)", () => {
+  it("is refused with nothing sent when no request waits; sends the fixed words once, flagged, and clears the mark only when the agent took them; the ask stays open", async () => {
+    const {
+      store,
+      entry,
+      handlers,
+      ctx,
+      held,
+      delivered,
+      deliveredFlags,
+      deliveredUndone,
+      outcome,
+    } = rig();
+    const none = outcome(handlers["asks.simplifyUndo"](ctx()));
+    await Promise.resolve();
+    expect(await none).toBe("409 simplify_not_pending");
+    // Takes no text, as a simplify request.
+    store.requestSimplify(entry.id, "u1");
+    const texted = outcome(handlers["asks.simplifyUndo"](ctx("Keep it")));
+    await Promise.resolve();
+    expect(await texted).toBe("400 invalid_text");
+    expect(delivered).toEqual([]);
+
+    const undo = outcome(handlers["asks.simplifyUndo"](ctx()));
+    await Promise.resolve();
+    expect(delivered).toEqual([ASK_SIMPLIFY_UNDO_TEXT]);
+    expect(deliveredFlags).toEqual([{ dismissed: false, simplify: false }]);
+    expect(deliveredUndone).toEqual([true]);
+    // Still marked while the delivery is held open, and nothing else goes.
+    expect(typeof store.get(entry.id)?.simplifyRequestedAt).toBe("number");
+    const busy = [
+      outcome(handlers["asks.simplifyUndo"](ctx())),
+      outcome(handlers["asks.reply"](ctx("Dwight"))),
+    ];
+    await Promise.resolve();
+    expect(delivered).toHaveLength(1);
+    expect(await Promise.all(busy)).toEqual(["409 ask_busy", "409 ask_busy"]);
+
+    held[0].resolve({ ok: true });
+    expect(await undo).toBe("noContent");
+    expect(store.get(entry.id)?.simplifyRequestedAt).toBeUndefined();
+    expect(store.get(entry.id)?.prompt).toBe("Who gives the toast?");
+    // Nothing waits any more: no second withdrawal, and a new simplify goes.
+    const again = outcome(handlers["asks.simplifyUndo"](ctx()));
+    await Promise.resolve();
+    expect(await again).toBe("409 simplify_not_pending");
+    expect(delivered).toHaveLength(1);
+    const simplify = outcome(handlers["asks.simplify"](ctx()));
+    await Promise.resolve();
+    expect(delivered).toEqual([ASK_SIMPLIFY_UNDO_TEXT, ASK_SIMPLIFY_TEXT]);
+    held[1].resolve({ ok: true });
+    expect(await simplify).toBe("noContent");
+  });
+
+  it("keeps the mark when the delivery is refused, and the member can withdraw again", async () => {
+    const { store, entry, handlers, ctx, held, delivered, outcome } = rig();
+    store.requestSimplify(entry.id, "u1");
+    const first = outcome(handlers["asks.simplifyUndo"](ctx()));
+    await Promise.resolve();
+    held[0].resolve({
+      ok: false,
+      status: 429,
+      code: "usage_cap",
+      message: "capped",
+    });
+    expect(await first).toBe("429 usage_cap");
+    expect(typeof store.get(entry.id)?.simplifyRequestedAt).toBe("number");
+
+    const retry = outcome(handlers["asks.simplifyUndo"](ctx()));
+    await Promise.resolve();
+    expect(delivered).toEqual([ASK_SIMPLIFY_UNDO_TEXT, ASK_SIMPLIFY_UNDO_TEXT]);
+    held[1].resolve({ ok: true });
+    expect(await retry).toBe("noContent");
+    expect(store.get(entry.id)?.simplifyRequestedAt).toBeUndefined();
+  });
+
+  it("answers 204 and keeps the rewrite when the agent rewrote the ask while the withdrawal was delivered", async () => {
+    const { store, entry, handlers, ctx, held, outcome } = rig();
+    store.requestSimplify(entry.id, "u1");
+    const undo = outcome(handlers["asks.simplifyUndo"](ctx()));
+    await Promise.resolve();
+    const rewritten = store.edit(entry.id, "Toast: Dwight or Jim?");
+    // A later clock, so a write after the rewrite would show in updatedAt.
+    await new Promise((r) => setTimeout(r, 5));
+    held[0].resolve({ ok: true });
+    expect(await undo).toBe("noContent");
+    expect(store.get(entry.id)).toEqual(rewritten);
+    expect(rewritten?.originalPrompt).toBe("Who gives the toast?");
+  });
+
+  it("answers 204 and brings back no ask the agent withdrew while the message was delivered", async () => {
+    const { store, entry, handlers, ctx, held, outcome } = rig();
+    store.requestSimplify(entry.id, "u1");
+    const undo = outcome(handlers["asks.simplifyUndo"](ctx()));
+    await Promise.resolve();
+    store.remove(entry.id, { outcome: "withdrawn" });
+    held[0].resolve({ ok: true });
+    expect(await undo).toBe("noContent");
+    expect(store.listAll()).toEqual([]);
+  });
+
+  it("answers 204 and logs it when the mark cannot be cleared after the agent took the message", async () => {
+    const { store, entry, handlers, ctx, held, delivered, outcome } = rig();
+    store.requestSimplify(entry.id, "u1");
+    const logged: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args);
+    store.cancelSimplify = () => {
+      throw new Error("disk full");
+    };
+    try {
+      const undo = outcome(handlers["asks.simplifyUndo"](ctx()));
+      await Promise.resolve();
+      held[0].resolve({ ok: true });
+      expect(await undo).toBe("noContent");
+    } finally {
+      console.error = error;
+    }
+    expect(delivered).toEqual([ASK_SIMPLIFY_UNDO_TEXT]);
     expect(logged.map((args) => args.join(" ")).join("\n")).toContain(entry.id);
   });
 });

@@ -7488,9 +7488,10 @@ function sendMemberMessage(
   });
 }
 
-// A reply, a dismiss, a filed task or a simplify request of an ask, delivered
-// the way a typed member message is (an API token through its own send
-// record, as on the message route). Resolves at the acceptance decision.
+// A reply, a dismiss, a filed task, or a simplify request or its withdrawal
+// of an ask, delivered the way a typed member message is (an API token
+// through its own send record, as on the message route). Resolves at the
+// acceptance decision.
 function deliverAskAnswer(
   identity: Identity,
   entry: AskEntry,
@@ -7498,6 +7499,7 @@ function deliverAskAnswer(
   opts: {
     dismissed: boolean;
     simplify?: boolean;
+    simplifyUndone?: boolean;
     taskId?: string;
     device: string | undefined;
   },
@@ -7508,6 +7510,7 @@ function deliverAskAnswer(
     prompt: entry.prompt,
     ...(opts.dismissed ? { dismissed: true } : {}),
     ...(opts.simplify ? { simplify: true } : {}),
+    ...(opts.simplifyUndone ? { simplifyUndone: true } : {}),
     ...(opts.taskId ? { taskId: opts.taskId } : {}),
     ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
     ...(entry.app ? { app: { name: entry.app.name } } : {}),

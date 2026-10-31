@@ -8,9 +8,10 @@
 // has a "Discuss in chat" button (AskAboutButton), last but one in the bottom
 // row, that starts a chat message about it, and the ask stays open too.
 // Simplify, last in that row, asks the agent to rewrite the ask in plain
-// words: the ask stays open, and until the agent edits the prompt the button
-// is disabled and a line under the prompt says a rewrite is coming; then the
-// card keeps the first prompt behind "Show original". An ask with options has a button for
+// words: the ask stays open, and until the agent edits the prompt a banner
+// that says a rewrite is coming takes the place of the options and the reply
+// area, with Undo, which withdraws the request; then the card keeps the first
+// prompt behind "Show original". An ask with options has a button for
 // each; a tap puts it in the reply field, focused, for the member to edit and
 // send. The field starts with the option the agent recommends (marked on its
 // button), empty for options without one, and with the catalog's "done" for
@@ -45,7 +46,8 @@
 // Inbox), the card names the member it is for and lists the options, with
 // no reply field and no answer button; its commands and editor files are
 // text, as they are steps for that member. Its link, files, id and Discuss
-// in chat stay.
+// in chat stay; while a rewrite is coming, the banner takes the place of the
+// options and Discuss, without Undo.
 
 import {
   useContext,
@@ -310,6 +312,7 @@ function ReplyAskCard({
   // A simplify request in flight, its refusal, and the original prompt shown.
   const [simplifying, setSimplifying] = useState(false);
   const [simplifyError, setSimplifyError] = useState<string | null>(null);
+  const [undoingSimplify, setUndoingSimplify] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   const promptRef = useRef<HTMLDivElement>(null);
   const openLink = useContext(OfficeLinkOpener);
@@ -449,6 +452,23 @@ function ReplyAskCard({
     }
   }
 
+  // Withdraws the simplify request. The banner stays until the pushed ask
+  // clears the mark.
+  async function undoSimplify() {
+    if (undoingSimplify) return;
+    setUndoingSimplify(true);
+    setSimplifyError(null);
+    const device = getDevice() || undefined;
+    const body: AskSimplifyReq = device ? { device } : {};
+    try {
+      await apiFetch("POST", `/api/asks/${entry.id}/simplify/undo`, body);
+    } catch (err) {
+      setSimplifyError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setUndoingSimplify(false);
+    }
+  }
+
   // Sends the held answer now, at most once. The Inbox drops the card as the
   // ask turns "sending", so the line goes straight to nothing.
   function flush(keepalive: boolean) {
@@ -519,8 +539,8 @@ function ReplyAskCard({
     fontWeight: 600,
     cursor: "pointer",
   } as const;
-  const simplifyOff =
-    busy || simplifying || entry.simplifyRequestedAt !== undefined;
+  const simplifyOff = busy || simplifying;
+  const rewriting = entry.simplifyRequestedAt !== undefined;
   // An answer's refusal, else a simplify request's.
   const failure = error ?? simplifyError;
   const cardBox = {
@@ -622,8 +642,6 @@ function ReplyAskCard({
         onFocusAgent={onFocusAgent}
         onChatAgent={onChatAgent}
       />
-      {/* Disabled while the agent rewrites the ask, so the row keeps its
-          width; the pending line is under the prompt. */}
       <button
         type="button"
         data-ask-simplify=""
@@ -745,17 +763,6 @@ function ReplyAskCard({
                 {t("asks.openLink", { page: linkLabel })}
               </button>
             )}
-            {entry.simplifyRequestedAt !== undefined && (
-              <span
-                data-ask-simplify-pending=""
-                style={{
-                  color: "var(--text-ghost)",
-                  fontSize: isMobile ? 13 : 12,
-                }}
-              >
-                {t("asks.simplifyPending")}
-              </span>
-            )}
             {entry.originalPrompt !== undefined && (
               <button
                 type="button"
@@ -817,7 +824,54 @@ function ReplyAskCard({
         onFocusAgent={onFocusAgent}
         readOnly={readOnly}
       />
-      {entry.options && entry.options.length > 0 && (
+      {/* Until the rewrite, the banner takes the place of the options and the
+          reply area: the member waits for the rewrite or withdraws it. */}
+      {rewriting && (
+        <div
+          data-ask-simplify-pending=""
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 10,
+            marginTop: 7,
+            padding: isMobile ? "8px 10px" : "6px 10px",
+            borderRadius: 8,
+            border: "1px solid var(--accent-text)",
+            background: "var(--accent-bg)",
+          }}
+        >
+          <span
+            style={{
+              flex: "1 1 auto",
+              minWidth: 0,
+              color: "var(--text-primary)",
+              fontSize,
+              fontWeight: 600,
+            }}
+          >
+            {t("asks.simplifyPending")}
+          </span>
+          {!readOnly && (
+            <button
+              type="button"
+              data-ask-simplify-undo=""
+              disabled={undoingSimplify}
+              onClick={() => void undoSimplify()}
+              style={{
+                ...secondaryButton,
+                color: "var(--accent-text)",
+                border: "1px solid var(--accent-text)",
+                fontWeight: 600,
+                cursor: undoingSimplify ? "default" : "pointer",
+              }}
+            >
+              {t("asks.undo")}
+            </button>
+          )}
+        </div>
+      )}
+      {!rewriting && entry.options && entry.options.length > 0 && (
         <div
           data-ask-options=""
           style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
@@ -881,7 +935,7 @@ function ReplyAskCard({
           })}
         </div>
       )}
-      {readOnly ? (
+      {rewriting ? null : readOnly ? (
         <div style={{ display: "flex", marginTop: 7 }}>
           <AskAboutButton
             entry={entry}

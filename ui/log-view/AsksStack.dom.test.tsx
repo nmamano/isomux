@@ -1284,7 +1284,22 @@ it("renders an open card prompt with code and keeps its links live", async () =>
 const inCard = (root: HTMLElement, id: string, selector: string) =>
   root.querySelector<HTMLElement>(`[data-ask="${id}"] ${selector}`);
 
-it("asks for a simpler ask with no text, keeps the card, and the pushed mark disables the button and draws the pending line", async () => {
+// While the agent rewrites the ask (task fc2021b7), nothing on the card can
+// answer it: a banner with Undo stands in for the reply area.
+const ANSWER_CONTROLS = [
+  "form",
+  "textarea",
+  "[data-ask-reply-input]",
+  "[data-ask-option]",
+  "[data-ask-simplify]",
+  "[data-ask-file-task]",
+  "[data-ask-about]",
+];
+const answerControls = (root: HTMLElement, id: string) =>
+  ANSWER_CONTROLS.filter((sel) => inCard(root, id, sel) !== null);
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+it("asks for a simpler ask with no text; the pushed mark puts the banner with Undo in place of the reply area; Undo posts the withdrawal once; the cleared mark brings the reply area back with the draft", async () => {
   const view = mount(false, "b1");
   await waitFor(() => expect(cards(view.container).length).toBe(3));
   expect(
@@ -1296,65 +1311,131 @@ it("asks for a simpler ask with no text, keeps the card, and the pushed mark dis
   });
   await act(async () => {
     fireEvent.click(inCard(view.container, "qqqq0017", "[data-ask-simplify]")!);
-    await new Promise((r) => setTimeout(r, 0));
+    await tick();
   });
   expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/simplify"]);
   expect("text" in posts[0].body).toBe(false);
   expect(cards(view.container)).toEqual(["qqqq0017", "rrrr0018", "ssss0019"]);
   expect(field(view.container, "qqqq0017").value).toBe("too long");
 
-  const base = ENTRIES.find((e) => e.id === "qqqq0017")!;
+  // With options, so the banner is seen to take their place too.
+  const base = {
+    ...ENTRIES.find((e) => e.id === "qqqq0017")!,
+    options: ["Now", "Later"],
+  };
   act(() =>
     seeded({
       type: "ask_upserted",
       entry: { ...base, simplifyRequestedAt: NOW, updatedAt: NOW },
     }),
   );
-  // The button keeps its place, disabled, so the row does not move.
+  const banner = inCard(
+    view.container,
+    "qqqq0017",
+    "[data-ask-simplify-pending]",
+  )!;
+  expect(banner).not.toBe(null);
+  expect(answerControls(view.container, "qqqq0017")).toEqual([]);
+  expect(
+    inCard(view.container, "qqqq0017", "[data-ask-prompt]")?.textContent,
+  ).toContain("Merge t-1 after the CI on f00d?");
+  const undo = banner.querySelector<HTMLButtonElement>(
+    "[data-ask-simplify-undo]",
+  )!;
+  expect(undo.disabled).toBe(false);
+
+  // Held open: in flight, the button is off and a second click sends nothing.
+  let release = () => {};
+  answer = () =>
+    new Promise((resolve) => {
+      release = () => resolve(undefined);
+    });
+  await act(async () => {
+    fireEvent.click(undo);
+    await tick();
+  });
+  expect(posts.map((p) => p.path)).toEqual([
+    "/api/asks/qqqq0017/simplify",
+    "/api/asks/qqqq0017/simplify/undo",
+  ]);
+  expect("text" in posts[1].body).toBe(false);
+  const inFlight = inCard(
+    view.container,
+    "qqqq0017",
+    "[data-ask-simplify-undo]",
+  ) as HTMLButtonElement;
+  expect(inFlight.disabled).toBe(true);
+  await act(async () => {
+    fireEvent.click(inFlight);
+    await tick();
+  });
+  expect(posts).toHaveLength(2);
+  await act(async () => {
+    release();
+    await tick();
+  });
+  // The server's push, not the answer, clears the mark.
+  expect(
+    inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
+  ).not.toBe(null);
+
+  act(() =>
+    seeded({
+      type: "ask_upserted",
+      entry: { ...base, updatedAt: NOW + 1 },
+    }),
+  );
+  expect(
+    inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
+  ).toBe(null);
+  expect(field(view.container, "qqqq0017").value).toBe("too long");
+  expect(
+    view.container.querySelectorAll('[data-ask="qqqq0017"] [data-ask-option]'),
+  ).toHaveLength(2);
   expect(
     inCard(view.container, "qqqq0017", "[data-ask-simplify]")?.hasAttribute(
       "disabled",
     ),
-  ).toBe(true);
-  expect(
-    inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
-  ).not.toBe(null);
+  ).toBe(false);
   view.unmount();
 });
 
-it("keeps the button disabled for an ask waiting for its rewrite, with the pending line beside Show original, and no button on a secret request", async () => {
+it("draws an ask still waiting for its rewrite with the banner in place of the reply area, the original prompt still on its toggle; a rewritten ask keeps its reply area; no Simplify on a secret request", async () => {
   const view = mount(false, "b1");
   await waitFor(() => expect(cards(view.container).length).toBe(3));
-  const button = inCard(view.container, "rrrr0018", "[data-ask-simplify]")!;
-  expect(button.hasAttribute("disabled")).toBe(true);
-  await act(async () => {
-    fireEvent.click(button);
-    await new Promise((r) => setTimeout(r, 0));
-  });
-  expect(posts).toEqual([]);
-  // The pending line sits in the row under the prompt, where the rewrite
-  // lands, not in the button row.
-  const pending = inCard(
+  const banner = inCard(
     view.container,
     "rrrr0018",
     "[data-ask-simplify-pending]",
   )!;
+  expect(banner).not.toBe(null);
+  expect(answerControls(view.container, "rrrr0018")).toEqual([]);
+  expect(
+    banner.querySelector<HTMLButtonElement>("[data-ask-simplify-undo]")
+      ?.disabled,
+  ).toBe(false);
+  // The link row under the prompt keeps the toggle, apart from the banner.
   const toggle = inCard(
     view.container,
     "rrrr0018",
     "[data-ask-show-original]",
   )!;
-  expect(pending.parentElement === toggle.parentElement).toBe(true);
-  expect(pending.parentElement?.contains(button)).toBe(false);
-  // The rewritten ask can be simplified again, and has no pending line.
+  expect(banner.contains(toggle)).toBe(false);
+  expect(toggle.parentElement?.contains(banner)).toBe(false);
+  fireEvent.click(toggle);
+  expect(
+    inCard(view.container, "rrrr0018", "[data-ask-original]")?.textContent,
+  ).toContain("Rotate k-7?");
+  // The rewritten ask can be answered and simplified again.
+  expect(
+    inCard(view.container, "ssss0019", "[data-ask-simplify-pending]"),
+  ).toBe(null);
+  expect(field(view.container, "ssss0019")).not.toBe(null);
   expect(
     inCard(view.container, "ssss0019", "[data-ask-simplify]")?.hasAttribute(
       "disabled",
     ),
   ).toBe(false);
-  expect(
-    inCard(view.container, "ssss0019", "[data-ask-simplify-pending]"),
-  ).toBe(null);
   view.unmount();
 
   const secrets = mount(false, "a5");
@@ -1366,6 +1447,42 @@ it("keeps the button disabled for an ask waiting for its rewrite, with the pendi
     null,
   );
   secrets.unmount();
+});
+
+it("keeps the banner and Undo live with the error when the server refuses the withdrawal, on a phone too", async () => {
+  answer = async () => {
+    throw new ApiError(409, "agent_stopped", "agent_stopped");
+  };
+  const view = mount(true, "b1");
+  await waitFor(() =>
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
+  );
+  fireEvent.click(
+    view.container.querySelector<HTMLElement>(
+      "[data-asks-stack=collapsed] button",
+    )!,
+  );
+  const click = async () =>
+    act(async () => {
+      fireEvent.click(
+        inCard(view.container, "rrrr0018", "[data-ask-simplify-undo]")!,
+      );
+      await tick();
+    });
+  await click();
+  expect(posts.map((p) => p.path)).toEqual([
+    "/api/asks/rrrr0018/simplify/undo",
+  ]);
+  expect(
+    inCard(view.container, "rrrr0018", "[role=alert]")?.textContent,
+  ).toContain("agent_stopped");
+  expect(
+    inCard(view.container, "rrrr0018", "[data-ask-simplify-pending]"),
+  ).not.toBe(null);
+  expect(answerControls(view.container, "rrrr0018")).toEqual([]);
+  await click();
+  expect(posts).toHaveLength(2);
+  view.unmount();
 });
 
 it("shows the original prompt on a toggle and hides it again, and draws no toggle without one", async () => {

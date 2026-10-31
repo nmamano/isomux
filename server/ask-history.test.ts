@@ -13,7 +13,7 @@ import {
   type AskHistory,
   type AskLogRecord,
 } from "./ask-history.ts";
-import { createAskStore, type AskPersistence } from "./asks.ts";
+import { createAskStore, type AskChange, type AskPersistence } from "./asks.ts";
 import type { AskEvent } from "../shared/types.ts";
 
 const dirs: string[] = [];
@@ -39,6 +39,8 @@ function open(path = dbPath()): { history: AskHistory; path: string } {
 function storeWith(history: AskHistory) {
   let clock = 100;
   const io = { failSave: false };
+  // Each committed change, as the office pushes it.
+  const changes: AskChange[] = [];
   const persistence: AskPersistence = {
     load: () => ({ kind: "missing" }),
     save: () => {
@@ -50,6 +52,7 @@ function storeWith(history: AskHistory) {
     persistence,
     history,
     now: () => clock,
+    onChange: (change) => void changes.push(change),
   });
   const ask = (agentId: string, memberUserId: string, prompt: string) => {
     const made = store.create({
@@ -66,6 +69,7 @@ function storeWith(history: AskHistory) {
   return {
     store,
     io,
+    changes,
     ask,
     at: (t: number) => {
       clock = t;
@@ -435,6 +439,66 @@ describe("a simplify request (task 30915188)", () => {
     const { store, ask } = storeWith(history);
     const a = ask("a1", "u1", "Ship it?");
     expect(store.edit(a.id, "Ship it now?")?.originalPrompt).toBeUndefined();
+  });
+
+  // Undo of a simplify request (task fc2021b7).
+  it("is withdrawn: the mark goes, pushed and kept as an event with the member; with no mark (rewritten first, or never asked) or a gone ask, null and nothing written", () => {
+    const { history } = open();
+    const { store, io, changes, ask, at } = storeWith(history);
+    const a = ask("a1", "u1", "Merge t-1 after the CI on f00d?");
+    at(110);
+    store.requestSimplify(a.id, "u1");
+    // A failed write throws and keeps the mark, with no event.
+    io.failSave = true;
+    at(115);
+    expect(() => store.cancelSimplify(a.id, "u1")).toThrow("disk full");
+    io.failSave = false;
+    expect(store.get(a.id)?.simplifyRequestedAt).toBe(110);
+
+    changes.length = 0;
+    at(120);
+    const withdrawn = store.cancelSimplify(a.id, "u1");
+    expect(withdrawn?.simplifyRequestedAt).toBeUndefined();
+    expect(withdrawn?.updatedAt).toBe(120);
+    expect(store.get(a.id)?.simplifyRequestedAt).toBeUndefined();
+    expect(store.get(a.id)?.prompt).toBe("Merge t-1 after the CI on f00d?");
+    expect(
+      changes.map((c) => [c.kind, c.entry.id, c.entry.simplifyRequestedAt]),
+    ).toEqual([["upserted", a.id, undefined]]);
+
+    // Nothing left to withdraw.
+    changes.length = 0;
+    at(125);
+    expect(store.cancelSimplify(a.id, "u1")).toBeNull();
+    expect(store.cancelSimplify("abcd9999", "u1")).toBeNull();
+    // The agent's rewrite cleared the mark first: the rewrite stands.
+    at(130);
+    store.requestSimplify(a.id);
+    at(140);
+    store.edit(a.id, "Merge the fix now?");
+    changes.length = 0;
+    at(150);
+    expect(store.cancelSimplify(a.id, "u1")).toBeNull();
+    expect(changes).toEqual([]);
+    expect(store.get(a.id)?.prompt).toBe("Merge the fix now?");
+    expect(store.get(a.id)?.originalPrompt).toBe(
+      "Merge t-1 after the CI on f00d?",
+    );
+    expect(store.get(a.id)?.updatedAt).toBe(140);
+
+    at(160);
+    store.remove(a.id, { outcome: "withdrawn" });
+    expect(history.get("a1", a.id)!.events.slice(1)).toEqual([
+      { kind: "simplify_requested", at: 110, byUserId: "u1" },
+      { kind: "simplify_withdrawn", at: 120, byUserId: "u1" },
+      { kind: "simplify_requested", at: 130 },
+      {
+        kind: "edited",
+        at: 140,
+        before: { prompt: "Merge t-1 after the CI on f00d?" },
+      },
+    ]);
+    expect(history.has("abcd9999")).toBe(false);
   });
 
   it("is kept only when it committed: a failed write throws, leaves the ask unmarked and records nothing", () => {

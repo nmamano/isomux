@@ -495,27 +495,33 @@ describe("the note before the member's words", () => {
     ).not.toBe(askReplyNote({ id: "abcd1234", prompt: "x" }));
   });
 
-  it("tells a simplify request from a reply, a dismiss and a filed task, for an app's ask too", () => {
+  // And its withdrawal (task fc2021b7).
+  it("tells a simplify request and its withdrawal from each other and from a reply, a dismiss and a filed task, for an app's ask too", () => {
     const ask = { id: "abcd1234", prompt: "Ship it?" };
-    const simplify = askReplyNote({ ...ask, simplify: true });
-    expect(simplify).toContain("abcd1234");
-    expect(simplify).toContain(JSON.stringify("Ship it?"));
-    for (const other of [
-      askReplyNote(ask),
-      askReplyNote({ ...ask, dismissed: true }),
-      askReplyNote({ ...ask, taskId: "feed0001" }),
-    ])
-      expect(simplify).not.toBe(other);
     const app = { name: "triage-bot" };
-    const appSimplify = askReplyNote({ ...ask, simplify: true, app });
-    expect(appSimplify).toContain("triage-bot");
-    expect(appSimplify).not.toBe(askReplyNote({ ...ask, app }));
-    expect(appSimplify).not.toBe(
-      askReplyNote({ ...ask, dismissed: true, app }),
-    );
-    expect(
-      askReplyNote({ ...ask, simplify: true, sessionId: "s-1" }, "s-2"),
-    ).toContain("s-1");
+    const notes = (flag: { simplify: true } | { simplifyUndone: true }) => {
+      const note = askReplyNote({ ...ask, ...flag });
+      expect(note).toContain("abcd1234");
+      expect(note).toContain(JSON.stringify("Ship it?"));
+      for (const other of [
+        askReplyNote(ask),
+        askReplyNote({ ...ask, dismissed: true }),
+        askReplyNote({ ...ask, taskId: "feed0001" }),
+      ])
+        expect(note).not.toBe(other);
+      const appNote = askReplyNote({ ...ask, ...flag, app });
+      expect(appNote).toContain("triage-bot");
+      expect(appNote).not.toBe(askReplyNote({ ...ask, app }));
+      expect(appNote).not.toBe(askReplyNote({ ...ask, dismissed: true, app }));
+      expect(
+        askReplyNote({ ...ask, ...flag, sessionId: "s-1" }, "s-2"),
+      ).toContain("s-1");
+      return [note, appNote];
+    };
+    const [simplify, appSimplify] = notes({ simplify: true });
+    const [undone, appUndone] = notes({ simplifyUndone: true });
+    expect(undone).not.toBe(simplify);
+    expect(appUndone).not.toBe(appSimplify);
   });
 
   it("names the task an ask was filed as, apart from a reply and a dismiss", () => {

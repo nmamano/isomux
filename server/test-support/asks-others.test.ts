@@ -254,19 +254,33 @@ describe("GET /api/asks/others", () => {
 });
 
 describe("another member's ask stays read-only for an owner", () => {
-  it("refuses an owner's reply, dismiss, file-task and simplify as for an unknown id, and the ask stays open", async () => {
+  it("refuses an owner's reply, dismiss, file-task, simplify and its withdrawal as for an unknown id, and the ask stays open and marked", async () => {
     const w = await world();
     const forPat = await open(w, "Pat's?", { member: w.pat.username });
     // Enabling: Nil lists it.
     expect(
       ((await others(w, w.owner)).body as AskAgentWire[]).map((e) => e.id),
     ).toEqual([forPat.id]);
+    // Pat's simplify request waits, so Nil's withdrawal would have one.
+    const asked = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${forPat.id}/simplify`,
+      session(w.pat),
+      {},
+    );
+    expect(asked.status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).length > 0,
+      "Pat's simplify delivered",
+    );
     const sentBefore = sentTexts(w.srv, w.asker.id).length;
     for (const [verb, json] of [
       ["reply", { text: "Nil answers" }],
       ["dismiss", {}],
       ["file-task", { text: "Nil files" }],
       ["simplify", {}],
+      ["simplify/undo", {}],
     ] as const) {
       const r = await call(
         w.srv,
@@ -277,7 +291,9 @@ describe("another member's ask stays read-only for an owner", () => {
       );
       expect(`${verb} ${r.status} ${r.code}`).toBe(`${verb} 404 not_found`);
     }
-    expect((await mine(w, w.pat)).map((e) => e.id)).toEqual([forPat.id]);
+    expect(
+      (await mine(w, w.pat)).map((e) => [e.id, typeof e.simplifyRequestedAt]),
+    ).toEqual([[forPat.id, "number"]]);
     expect(w.srv.agentManager.getTasks()).toEqual([]);
     // Nothing reached the agent.
     expect(sentTexts(w.srv, w.asker.id)).toHaveLength(sentBefore);

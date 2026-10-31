@@ -633,7 +633,7 @@ describe("the history's query", () => {
 });
 
 // GET /api/agents/:id/asks/events (task 302e7ea4): the agent's ask log, each
-// create, edit, simplify request and close of its asks as it happens, newest
+// create, edit, simplify request, its withdrawal and close of its asks as it happens, newest
 // first, with the history's reach.
 describe("the agent's ask log", () => {
   const log = (w: W, auth: Auth, query = "", agentId = w.asker.id) =>
@@ -670,16 +670,39 @@ describe("the agent's ask log", () => {
       { json: {} },
     );
     expect(simplify.status).toBe(204);
+    // Withdrawn (task fc2021b7).
+    const undo = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${a.id}/simplify/undo`,
+      w.ownerAuth,
+      { json: {} },
+    );
+    expect(undo.status).toBe(204);
 
     // Readable while the ask is open.
     const openLog = page(await log(w, self)).events;
     expect(openLog.map((e) => [e.askId, e.kind])).toEqual([
+      [a.id, "simplify_withdrawn"],
       [a.id, "simplify_requested"],
       [a.id, "edited"],
       [b.id, "created"],
       [a.id, "created"],
     ]);
-    expect(openLog[0]).toMatchObject({ by: w.owner.username });
+    expect(openLog.slice(0, 2).map(({ seq: _seq, ...e }) => e)).toEqual([
+      {
+        askId: a.id,
+        kind: "simplify_withdrawn",
+        at: expect.any(Number),
+        by: w.owner.username,
+      },
+      {
+        askId: a.id,
+        kind: "simplify_requested",
+        at: expect.any(Number),
+        by: w.owner.username,
+      },
+    ]);
     expect(kinds(await log(w, self, `?askId=${b.id}`))).toEqual([
       [b.id, "created"],
     ]);

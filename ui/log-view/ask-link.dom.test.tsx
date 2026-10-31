@@ -16,7 +16,7 @@ const { LogView } = await import("./LogView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { ASK_FILED_TEXT, ASK_SIMPLIFY_TEXT } =
+const { ASK_FILED_TEXT, ASK_SIMPLIFY_TEXT, ASK_SIMPLIFY_UNDO_TEXT } =
   await import("../../shared/types.ts");
 type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
@@ -193,30 +193,55 @@ it("shows an ask filed as a task in the viewer's language, naming the task", () 
   view.unmount();
 });
 
-it("shows a simplify request in the viewer's language, linked to its ask, not the words the agent reads", () => {
-  const simplify: LogEntry = {
-    id: "simplify",
+// And its withdrawal (task fc2021b7).
+it("shows a simplify request and its withdrawal in the viewer's language, each linked to its ask, not the words the agent reads", () => {
+  const sent = (
+    id: string,
+    timestamp: number,
+    content: string,
+    flag: { simplify: true } | { simplifyUndone: true },
+  ): LogEntry => ({
+    id,
     agentId: "a1",
-    timestamp: 8,
+    timestamp,
     kind: "user_message",
-    content: ASK_SIMPLIFY_TEXT,
+    content,
     metadata: {
       username: "Tester",
-      ask: { id: "abcd1234", prompt: "Go?", simplify: true },
+      ask: { id: "abcd1234", prompt: "Go?", ...flag },
     },
-  };
+  });
   const view = render(
-    onLanguage("ca", <Transcript entries={[...logs(true), simplify]} />),
+    onLanguage(
+      "ca",
+      <Transcript
+        entries={[
+          ...logs(true),
+          sent("simplify", 8, ASK_SIMPLIFY_TEXT, { simplify: true }),
+          sent("undone", 9, ASK_SIMPLIFY_UNDO_TEXT, { simplifyUndone: true }),
+        ]}
+      />,
+    ),
   );
-  const line = view.container.querySelector<HTMLElement>(
-    '[data-log-entry-id="simplify"]',
-  )!;
-  const label = ca.t("asks.simplifyRequested");
-  expect(label).not.toBe(en.t("asks.simplifyRequested"));
-  expect(line.textContent).toContain(label);
-  expect(line.textContent).not.toContain(ASK_SIMPLIFY_TEXT);
-  expect(line.textContent).not.toContain(DISMISSED);
-  expect(line.querySelector('[data-ask-link="abcd1234"]')).not.toBe(null);
+  const line = (id: string) =>
+    view.container.querySelector<HTMLElement>(`[data-log-entry-id="${id}"]`)!;
+  const requested = ca.t("asks.simplifyRequested");
+  const undone = ca.t("asks.simplifyUndone");
+  expect(requested).not.toBe(en.t("asks.simplifyRequested"));
+  expect(undone).not.toBe(en.t("asks.simplifyUndone"));
+  expect(undone).not.toBe(requested);
+  for (const [id, label, other] of [
+    ["simplify", requested, undone],
+    ["undone", undone, requested],
+  ]) {
+    const text = line(id).textContent;
+    expect({ id, shown: text.includes(label) }).toEqual({ id, shown: true });
+    expect({ id, other: text.includes(other) }).toEqual({ id, other: false });
+    expect(text).not.toContain(ASK_SIMPLIFY_TEXT);
+    expect(text).not.toContain(ASK_SIMPLIFY_UNDO_TEXT);
+    expect(text).not.toContain(DISMISSED);
+    expect(line(id).querySelector('[data-ask-link="abcd1234"]')).not.toBe(null);
+  }
   view.unmount();
 });
 

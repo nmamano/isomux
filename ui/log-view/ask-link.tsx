@@ -40,6 +40,7 @@ export function askRefOf(entry: LogEntry): AskRef | null {
     prompt: r.prompt,
     dismissed: r.dismissed === true,
     ...(r.simplify === true ? { simplify: true } : {}),
+    ...(r.simplifyUndone === true ? { simplifyUndone: true } : {}),
     ...(typeof r.taskId === "string" ? { taskId: r.taskId } : {}),
     ...(options ? { options } : {}),
     ...(typeof r.recommended === "string"
@@ -52,8 +53,9 @@ export function askRefOf(entry: LogEntry): AskRef | null {
  * The text a member message answering an ask shows: the content of a reply,
  * the translated "Dismissed" of a bare dismiss, and "Dismissed: <reason>"
  * when the member typed a reason; for an ask filed as a task, "Filed as task
- * <id>", with the member's note when they typed one; for a simplify request,
- * its translated label in place of the fixed words the agent reads.
+ * <id>", with the member's note when they typed one; for a simplify request
+ * and its withdrawal, the translated label in place of the fixed words the
+ * agent reads.
  */
 export function askAnswerText(
   t: Translator["t"],
@@ -65,6 +67,7 @@ export function askAnswerText(
       ? t("asks.filedAsTask", { task: ask.taskId })
       : t("asks.filedAsTaskNote", { task: ask.taskId, note: content });
   if (ask?.simplify) return t("asks.simplifyRequested");
+  if (ask?.simplifyUndone) return t("asks.simplifyUndone");
   if (!ask?.dismissed) return content;
   return content === ASK_DISMISSED_TEXT
     ? t("asks.dismissed")

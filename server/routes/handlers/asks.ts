@@ -43,6 +43,7 @@ import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
   ASK_SIMPLIFY_TEXT,
+  ASK_SIMPLIFY_UNDO_TEXT,
   isValidPriority,
   type AskCloseInput,
   type AskEntry,
@@ -148,6 +149,8 @@ export interface AsksDeps {
       dismissed: boolean;
       // A simplify request: the ask stays open.
       simplify?: boolean;
+      // The member withdrew a simplify request: the ask stays open.
+      simplifyUndone?: boolean;
       taskId?: string;
       device: string | undefined;
     },
@@ -272,7 +275,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const byName = (userId: string | undefined) =>
     userId === undefined ? null : deps.memberName(userId);
   const eventWire = (event: AskEvent): AskEventWire =>
-    event.kind === "simplify_requested"
+    event.kind === "simplify_requested" || event.kind === "simplify_withdrawn"
       ? { kind: event.kind, at: event.at, by: byName(event.byUserId) }
       : event;
   // A closed ask: who answered is named as they are now, null when gone.
@@ -685,6 +688,45 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       } catch (err) {
         console.error(
           `[asks] ${entry.id} was sent for a rewrite but could not be marked:`,
+          err,
+        );
+      }
+      return noContent();
+    } finally {
+      delivering.delete(entry.id);
+    }
+  };
+
+  // Withdraw a simplify request the agent has not acted on yet: the agent is
+  // told, and the mark goes once it has the message.
+  // The agent's rewrite can land while the message is on its way: then the
+  // store leaves the entry as the rewrite made it.
+  const simplifyUndo: RouteHandler = async (ctx) => {
+    const checked = answerable(ctx, "none");
+    if (!checked.ok) return checked.result;
+    const { entry, device } = checked;
+    if (entry.simplifyRequestedAt === undefined)
+      return fail(
+        409,
+        "simplify_not_pending",
+        "No rewrite of this ask is waiting.",
+      );
+    delivering.add(entry.id);
+    try {
+      const result = await deps.deliver(
+        ctx.identity,
+        entry,
+        ASK_SIMPLIFY_UNDO_TEXT,
+        { dismissed: false, simplifyUndone: true, device },
+      );
+      if (!result.ok) return fail(result.status, result.code, result.message);
+      // The agent has the message; a retry would send it twice, so a failed
+      // write is logged, as in simplify.
+      try {
+        store.cancelSimplify(entry.id, ctx.identity.userId ?? undefined);
+      } catch (err) {
+        console.error(
+          `[asks] ${entry.id} had its rewrite withdrawn but the mark could not be cleared:`,
           err,
         );
       }
@@ -1140,6 +1182,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.dismiss": guarded(answer(true)),
     "asks.fileTask": guarded(fileTask),
     "asks.simplify": guarded(simplify),
+    "asks.simplifyUndo": guarded(simplifyUndo),
     // A file the ask references where it is. The path is probed again on
     // every request: the file can be gone or replaced since the ask was
     // made. Served as agents.getFile serves a copy. A read: an office owner

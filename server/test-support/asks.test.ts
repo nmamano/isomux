@@ -25,6 +25,7 @@ import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
   ASK_SIMPLIFY_TEXT,
+  ASK_SIMPLIFY_UNDO_TEXT,
   type AskEntry,
   type AskMemberWire,
   type AgentInfo,
@@ -1563,7 +1564,22 @@ describe("the member's answer", () => {
       rawSessionId: other.rawSessionId,
     });
     expect(listed.body).toEqual([]);
-    for (const verb of ["reply", "dismiss", "file-task", "simplify"]) {
+    // A request waits, so a withdrawal by Pat would have one to withdraw.
+    const asked = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${created.id}/simplify`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: {} },
+    );
+    expect(asked.status).toBe(204);
+    for (const verb of [
+      "reply",
+      "dismiss",
+      "file-task",
+      "simplify",
+      "simplify/undo",
+    ]) {
       const r = await call(
         w.srv,
         "POST",
@@ -1578,6 +1594,9 @@ describe("the member's answer", () => {
       rawSessionId: w.owner.rawSessionId,
     });
     expect((mine.body as AskEntry[]).map((e) => e.id)).toEqual([created.id]);
+    expect(typeof (mine.body as AskEntry[])[0].simplifyRequestedAt).toBe(
+      "number",
+    );
   });
 
   it("names the opening session when the reply reaches a later one", async () => {
@@ -1842,6 +1861,127 @@ describe("a simplify request (task 30915188)", () => {
         by: w.owner.username,
       },
     ]);
+    expect(JSON.stringify(closed.events)).not.toContain(w.ownerId);
+  });
+});
+
+describe("a simplify request withdrawn (task fc2021b7)", () => {
+  const post = (
+    w: Awaited<ReturnType<typeof world>>,
+    id: string,
+    verb: "simplify" | "simplify/undo",
+  ) =>
+    call(
+      w.srv,
+      "POST",
+      `/api/asks/${id}/${verb}`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: {} },
+    );
+  const agentRead = (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    call(
+      w.srv,
+      "GET",
+      `/api/agents/${w.asker.id}/asks/${id}`,
+      w.as(w.asker.id),
+    );
+
+  it("tells the agent under a withdrawal note, clears the mark for the member and the agent, pushes it, keeps the ask open, and the history names who withdrew", async () => {
+    const w = await world();
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const created = await open(w, "Merge t-1 after the CI on f00d?");
+    const none = await post(w, created.id, "simplify/undo");
+    expect([none.status, none.code]).toEqual([409, "simplify_not_pending"]);
+    expect((await post(w, created.id, "simplify")).status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).length === 1,
+      "simplify delivered",
+    );
+
+    const r = await post(w, created.id, "simplify/undo");
+    expect(r.status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).length === 2,
+      "withdrawal delivered",
+    );
+    const note = askReplyNote({ ...created, simplifyUndone: true });
+    // Its own note: not the simplify request's, a reply's or a dismiss's.
+    for (const other of [
+      askReplyNote({ ...created, simplify: true }),
+      askReplyNote(created),
+      askReplyNote({ ...created, dismissed: true }),
+    ])
+      expect(note).not.toBe(other);
+    expect(sentTexts(w.srv, w.asker.id)[1]).toBe(
+      `[${w.owner.username}] ${note}${ASK_SIMPLIFY_UNDO_TEXT}`,
+    );
+    const logged = w.srv.agentManager
+      .getAgentLogs(w.asker.id)
+      .filter((e) => e.kind === "user_message");
+    expect(logged[1].content).toBe(ASK_SIMPLIFY_UNDO_TEXT);
+    expect(logged[1].metadata?.ask).toEqual({
+      id: created.id,
+      prompt: "Merge t-1 after the CI on f00d?",
+      simplifyUndone: true,
+    });
+
+    // Open and unmarked, for the agent and the member, and pushed.
+    const read = (await agentRead(w, created.id)).body as AskClosedWire;
+    expect(read.closed).toBeUndefined();
+    expect([
+      read.prompt,
+      read.simplifyRequestedAt,
+      read.originalPrompt,
+    ]).toEqual(["Merge t-1 after the CI on f00d?", undefined, undefined]);
+    const listed = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    const [mine] = listed.body as AskMemberWire[];
+    expect([mine.id, mine.simplifyRequestedAt]).toEqual([
+      created.id,
+      undefined,
+    ]);
+    const marks = () =>
+      ws.messages.flatMap((m) => {
+        const msg = m as { type?: string; entry?: AskEntry };
+        return msg.type === "ask_upserted" && msg.entry?.id === created.id
+          ? [typeof msg.entry.simplifyRequestedAt]
+          : [];
+      });
+    // The mark, then its clearing, are the last pushes of the ask.
+    await waitUntil(
+      () => marks().slice(-2).join() === "number,undefined",
+      "the cleared mark is pushed to the member",
+    );
+
+    // Nothing left to withdraw: no second message.
+    const again = await post(w, created.id, "simplify/undo");
+    expect([again.status, again.code]).toEqual([409, "simplify_not_pending"]);
+    await sleep(50);
+    expect(sentTexts(w.srv, w.asker.id)).toHaveLength(2);
+
+    const deleted = await call(
+      w.srv,
+      "DELETE",
+      `/api/agents/${w.asker.id}/asks/${created.id}`,
+      w.as(w.asker.id),
+    );
+    expect(deleted.status).toBe(204);
+    const closed = (await agentRead(w, created.id)).body as AskClosedWire;
+    expect(closed.events.filter((e) => e.kind.startsWith("simplify_"))).toEqual(
+      [
+        {
+          kind: "simplify_requested",
+          at: expect.any(Number),
+          by: w.owner.username,
+        },
+        {
+          kind: "simplify_withdrawn",
+          at: expect.any(Number),
+          by: w.owner.username,
+        },
+      ],
+    );
     expect(JSON.stringify(closed.events)).not.toContain(w.ownerId);
   });
 });
@@ -2176,6 +2316,7 @@ describe("a secret request is an ask", () => {
       ["dismiss", {}],
       ["file-task", { text: VALUE }],
       ["simplify", {}],
+      ["simplify/undo", {}],
     ] as const) {
       const r = await call(
         w.srv,

@@ -194,4 +194,33 @@ describe("another member's ask", () => {
     act(() => void fireEvent.click(about!));
     expect(focused).toEqual(["a1"]);
   });
+
+  // Waiting for its rewrite (task fc2021b7): only the ask's member can undo
+  // the request.
+  it("waiting for its rewrite, shows the banner without Undo, in place of the options and Discuss", () => {
+    const { view } = mount(OWN, {
+      sessionContext: session("owner"),
+      othersAsks: [
+        other("pat2", "a1", 15, "pat", {
+          options: ["Ship", "Wait"],
+          simplifyRequestedAt: Date.now(),
+        }),
+      ],
+    });
+    choose(view, "data-asks-member", "all");
+    const theirs = card(view, "pat2")!;
+    expect(theirs.querySelector("[data-ask-for]")?.textContent).toContain(
+      "pat",
+    );
+    expect(theirs.querySelector("[data-ask-simplify-pending]")).not.toBeNull();
+    for (const sel of [
+      "[data-ask-simplify-undo]",
+      "[data-ask-option]",
+      "[data-ask-about]",
+    ])
+      expect({ sel, found: theirs.querySelector(sel) !== null }).toEqual({
+        sel,
+        found: false,
+      });
+  });
 });
