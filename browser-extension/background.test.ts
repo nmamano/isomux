@@ -39,6 +39,11 @@ async function harness(
     extensionVersion?: string;
     officePackage?: string;
     leftover?: number[];
+    // The office takes agent tabs (task 73a9fb57): ready has agentTabs.
+    agentTabs?: boolean;
+    // chrome.storage.local apart from the connection, for example the agent
+    // tabs setting and the opened tab ids an earlier run kept.
+    local?: Map<string, unknown>;
   } = {},
 ) {
   const sockets: FakeSocket[] = [];
@@ -151,6 +156,23 @@ async function harness(
   };
   const badges: { text: string | null; tabId?: number }[] = [];
   const session = opts.session ?? new Map<string, unknown>();
+  const local = opts.local ?? new Map<string, unknown>();
+  // Tabs and windows the extension made. Made tabs show about:blank until a
+  // test changes their url; a removed one leaves both maps.
+  let nextTab = 100;
+  let nextWindow = 10;
+  const madeTabs = new Map<
+    number,
+    { id: number; windowId: number; url: string }
+  >();
+  const windows = new Map<number, { id: number; state?: string }>();
+  const tabUpdates: Array<{ tabId: number; options: Record<string, unknown> }> =
+    [];
+  const removedTabs: number[] = [];
+  const createdWindows: Array<Record<string, unknown>> = [];
+  let windowCreate: () => Promise<void> = async () => {};
+  let installed!: (details: { reason: string }) => void;
+  let startup!: () => void;
   const chrome = {
     action: {
       setBadgeText: async (value: { text: string | null; tabId?: number }) => {
@@ -160,7 +182,28 @@ async function harness(
       setBadgeBackgroundColor: async () => {},
       setTitle: async () => {},
     },
-    windows: { update: async () => {} },
+    windows: {
+      update: async () => {},
+      create: async (options: Record<string, unknown>) => {
+        createdWindows.push(options);
+        await windowCreate();
+        const id = ++nextWindow;
+        windows.set(id, {
+          id,
+          ...(typeof options.state === "string"
+            ? { state: options.state }
+            : {}),
+        });
+        const tab = { id: ++nextTab, windowId: id, url: "about:blank" };
+        madeTabs.set(tab.id, tab);
+        return { id, tabs: [{ ...tab }] };
+      },
+      get: async (id: number) => {
+        const window = windows.get(id);
+        if (!window) throw new Error(`No window with id: ${id}.`);
+        return { ...window };
+      },
+    },
     alarms: {
       create: async () => {},
       clear: async () => true,
@@ -168,12 +211,31 @@ async function harness(
     },
     storage: {
       local: {
-        set: async (value: { connection: Record<string, unknown> | null }) => {
-          config = value.connection;
-          changed({ connection: { newValue: config } }, "local");
+        set: async (value: Record<string, unknown>) => {
+          const changes: Record<string, { newValue: unknown }> = {};
+          for (const [key, item] of Object.entries(value)) {
+            if (key === "connection")
+              config = item as Record<string, unknown> | null;
+            else local.set(key, item);
+            changes[key] = { newValue: item };
+          }
+          changed(changes, "local");
         },
         setAccessLevel: () => Promise.resolve(),
-        get: async () => ({ connection: config }),
+        get: async (key: string) =>
+          key === "connection"
+            ? { connection: config }
+            : local.has(key)
+              ? { [key]: local.get(key) }
+              : {},
+        remove: async (keys: string | string[]) => {
+          const changes: Record<string, object> = {};
+          for (const key of [keys].flat()) {
+            local.delete(key);
+            changes[key] = {};
+          }
+          changed(changes, "local");
+        },
       },
       session: {
         get: async (key: string) => {
@@ -206,8 +268,16 @@ async function harness(
           runtimeMessage = fn;
         },
       },
-      onStartup: { addListener() {} },
-      onInstalled: { addListener() {} },
+      onStartup: {
+        addListener: (fn: typeof startup) => {
+          startup = fn;
+        },
+      },
+      onInstalled: {
+        addListener: (fn: typeof installed) => {
+          installed = fn;
+        },
+      },
     },
     webNavigation: {
       onCreatedNavigationTarget: {
@@ -222,9 +292,49 @@ async function harness(
           updated = fn;
         },
       },
-      update: async () => ({ windowId: 1 }),
+      update: async (tabId: number, options: Record<string, unknown>) => {
+        tabUpdates.push({ tabId, options });
+        return { windowId: madeTabs.get(tabId)?.windowId ?? 1 };
+      },
       query: async () => [selected],
-      get: () => getTab(),
+      get: (id: number) => {
+        const made = madeTabs.get(id);
+        return made
+          ? // Without the tabs permission, Chrome gives no url for a tab
+            // the extension made.
+            Promise.resolve({
+              id: made.id,
+              windowId: made.windowId,
+              active: false,
+            })
+          : made === undefined && removedTabs.includes(id)
+            ? Promise.reject(new Error(`No tab with id: ${id}.`))
+            : getTab();
+      },
+      create: async (options: { windowId?: number; url?: string }) => {
+        if (options.windowId !== undefined && !windows.has(options.windowId))
+          throw new Error(`No window with id: ${options.windowId}.`);
+        const tab = {
+          id: ++nextTab,
+          windowId: options.windowId ?? 1,
+          url: options.url ?? "about:blank",
+        };
+        madeTabs.set(tab.id, tab);
+        return { ...tab };
+      },
+      remove: async (ids: number | number[]) => {
+        for (const id of [ids].flat()) {
+          removedTabs.push(id);
+          const made = madeTabs.get(id);
+          madeTabs.delete(id);
+          // Chrome closes a window with its last tab.
+          if (
+            made &&
+            ![...madeTabs.values()].some((t) => t.windowId === made.windowId)
+          )
+            windows.delete(made.windowId);
+        }
+      },
     },
     debugger: {
       getTargets: async () => targets,
@@ -296,6 +406,15 @@ async function harness(
       focused.push({ tabId: target.tabId, params });
       return focus();
     }
+    const made = madeTabs.get(target.tabId);
+    if (method === "Target.getTargetInfo" && made)
+      return Promise.resolve({
+        targetInfo: {
+          targetId: `target-${target.tabId}`,
+          type: "page",
+          url: made.url,
+        },
+      });
     return method === "Target.getTargetInfo"
       ? targetInfo(target.tabId)
       : Promise.resolve({});
@@ -332,6 +451,7 @@ async function harness(
     ...(opts.offerResume ? { offerResume: true } : {}),
     ...(opts.officeScope ? { officeScope: true } : {}),
     ...(opts.officePackage ? { package: opts.officePackage } : {}),
+    ...(opts.agentTabs ? { agentTabs: true } : {}),
   });
   socket.receive({
     kind: "metadata",
@@ -543,7 +663,7 @@ async function harness(
       return () => resolve();
     },
     reconnect: async () => {
-      changed({}, "local");
+      changed({ connection: { newValue: config } }, "local");
       await settle();
       return sockets.at(-1)!;
     },
@@ -565,6 +685,54 @@ async function harness(
           active: true,
           windowId: 1,
         });
+    },
+    local,
+    madeTabs,
+    windows,
+    tabUpdates,
+    removedTabs,
+    createdWindows,
+    // Holds the next windows.create until the returned function runs.
+    delayWindow: () => {
+      let finish!: () => void;
+      windowCreate = () => {
+        windowCreate = async () => {};
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      };
+      return () => finish();
+    },
+    // The member closes a window: Chrome removes it and its tabs.
+    closeWindow: (id: number) => {
+      windows.delete(id);
+      for (const [tabId, tab] of madeTabs)
+        if (tab.windowId === id) {
+          madeTabs.delete(tabId);
+          removedTabs.push(tabId);
+        }
+    },
+    installed: (reason: string) => installed({ reason }),
+    startup: () => startup(),
+    // The office asks for a tab that the agent opens (an open command).
+    open: (
+      id: number,
+      openAssignment: string,
+      params: Fields = {
+        agentId: "a",
+        agentName: "Agent",
+        scope: { kind: "opened", agentId: "a", via: "all" },
+      },
+    ) => {
+      assignment = openAssignment;
+      socket.receive({
+        kind: "command",
+        assignment: openAssignment,
+        id,
+        generation: "generation-1",
+        method: "open",
+        params,
+      });
     },
     command: (
       id: number,
@@ -1629,7 +1797,13 @@ async function onOffer(h: Harness, expiresAt: number | null) {
   return assignment;
 }
 // The office goes away (its socket closes) and comes back as generation n.
-async function restart(h: Harness, n: number, offerResume = true) {
+// ready: more fields of the new office's ready, for example agentTabs.
+async function restart(
+  h: Harness,
+  n: number,
+  offerResume = true,
+  ready: Fields = {},
+) {
   h.sockets.at(-1)!.close();
   const backoff = Math.max(...h.timers.keys());
   await settle();
@@ -1646,6 +1820,7 @@ async function restart(h: Harness, n: number, offerResume = true) {
     generation: `generation-${n}`,
     debuggerRecovery: true,
     ...(offerResume ? { offerResume: true } : {}),
+    ...ready,
   });
   ws.receive({
     kind: "metadata",
@@ -2462,3 +2637,403 @@ for (const cause of [
     expect(detachCauses(h)).toEqual([[h.assignment(), cause]]);
   });
 }
+
+// Agent tabs (task 73a9fb57): with the member's setting on, the office's open
+// command makes a tab for an agent in one Agents window. The extension closes
+// that tab whenever its grant ends, except at a connection loss, where it
+// keeps the tab to resume.
+const OPENED = { kind: "opened", agentId: "a", via: "all" };
+const ON_ALL = () =>
+  new Map<string, unknown>([["agentTabs", { scope: "all" }]]);
+const ON_OFFICE = () =>
+  new Map<string, unknown>([["agentTabs", { scope: "office" }]]);
+async function agentTabs(local = ON_ALL(), extra: object = {}) {
+  return harness(false, true, {
+    offerResume: true,
+    officeScope: true,
+    agentTabs: true,
+    local,
+    ...extra,
+  });
+}
+const result = (ws: { sent: Fields[] }, id: number) =>
+  ws.sent.findLast((m) => m.kind === "result" && m.id === id);
+const agentTabsSent = (ws: { sent: Fields[] }) =>
+  ws.sent.filter((m) => m.kind === "agentTabs").map((m) => m.scope);
+// The tab of each listed grant, by grant id.
+const tabOf = async (h: Harness, id: string) =>
+  ((await h.ui({ action: "state" })).assignments as Fields[]).find(
+    (a) => a.id === id,
+  )?.tabId as number | undefined;
+// The office's open for agent "a" (or params), answered with offered.
+async function opened(
+  h: Harness,
+  id: number,
+  params?: Fields,
+  ws = h.socket,
+  generation = "generation-1",
+) {
+  const assignment = crypto.randomUUID();
+  h.open(id, assignment, params);
+  await settle();
+  await settle();
+  expect(result(ws, id)?.error).toBeUndefined();
+  ws.receive({
+    kind: "offered",
+    generation,
+    assignment,
+    scope: params?.scope ?? OPENED,
+    durationMinutes: 0,
+    expiresAt: null,
+  });
+  await settle();
+  const tabId = await tabOf(h, assignment);
+  expect(tabId).toBeNumber();
+  return { assignment, tabId: tabId! };
+}
+
+test("the popup shows agent tabs only on an office that takes them; the setting is kept, sent to the office, and does not reconnect", async () => {
+  const old = await harness(false, true, {
+    offerResume: true,
+    officeScope: true,
+  });
+  expect((await old.ui({ action: "state" })).agentTabs).toBeUndefined();
+  expect(agentTabsSent(old.socket)).toEqual([]);
+
+  const h = await agentTabs(new Map());
+  await settle();
+  expect((await h.ui({ action: "state" })).agentTabs).toEqual({ scope: null });
+  expect(agentTabsSent(h.socket)).toEqual([null]);
+  const sockets = h.sockets.length;
+  await h.ui({ action: "agentTabs", scope: "office" });
+  await settle();
+  expect(h.local.get("agentTabs")).toEqual({ scope: "office" });
+  expect((await h.ui({ action: "state" })).agentTabs).toEqual({
+    scope: "office",
+  });
+  await h.ui({ action: "agentTabs", scope: null });
+  await settle();
+  expect(h.local.has("agentTabs")).toBe(false);
+  expect(agentTabsSent(h.socket)).toEqual([null, "office", null]);
+  expect(h.sockets).toHaveLength(sockets);
+  expect(h.socket.readyState).toBe(1);
+
+  // A new worker with the stored setting sends it after ready.
+  const kept = await agentTabs(ON_OFFICE());
+  await settle();
+  expect(agentTabsSent(kept.socket)).toEqual(["office"]);
+});
+
+test("open makes an about:blank tab in one unfocused Agents window, kept from discard, and answers its target; the next open uses the same window", async () => {
+  const h = await agentTabs();
+  const first = await opened(h, 5);
+  expect(h.createdWindows).toHaveLength(1);
+  expect(h.createdWindows[0].focused).toBe(false);
+  expect(h.calls).toContain("attach");
+  expect(fields(result(h.socket, 5)!.result).targetInfo).toMatchObject({
+    type: "page",
+    url: "about:blank",
+  });
+  const second = await opened(h, 6);
+  expect(h.createdWindows).toHaveLength(1);
+  const [window] = [...h.windows.keys()];
+  // The Agents window holds the agents' tabs and nothing else.
+  expect(
+    [...h.madeTabs.values()].map((t) => [t.id, t.windowId]).sort(),
+  ).toEqual(
+    [
+      [first.tabId, window],
+      [second.tabId, window],
+    ].sort(),
+  );
+  for (const { tabId } of [first, second])
+    expect(
+      h.tabUpdates.some(
+        (u) => u.tabId === tabId && u.options.autoDiscardable === false,
+      ),
+    ).toBe(true);
+  // Each kept with its page target, so a later worker can tell the tab.
+  expect(h.local.get("openedTabs")).toEqual(
+    expect.arrayContaining([
+      { tabId: first.tabId, targetId: `target-${first.tabId}` },
+      { tabId: second.tabId, targetId: `target-${second.tabId}` },
+    ]),
+  );
+  // The popup lists each one as the agent's tab.
+  const rows = (await h.ui({ action: "state" })).assignments as Fields[];
+  expect(
+    rows.map((r) => [r.id, r.phase, (r.scope as Fields).kind]).sort(),
+  ).toEqual(
+    [
+      [first.assignment, "on", "opened"],
+      [second.assignment, "on", "opened"],
+    ].sort(),
+  );
+});
+
+test("an open for another member's agent shows that agent and its manager in the popup", async () => {
+  const h = await agentTabs(ON_OFFICE());
+  const { assignment } = await opened(h, 5, {
+    agentId: "visitor",
+    agentName: "Visitor",
+    managerName: "Bob",
+    scope: { kind: "opened", agentId: "visitor", via: "office" },
+  });
+  const row = ((await h.ui({ action: "state" })).assignments as Fields[]).find(
+    (a) => a.id === assignment,
+  );
+  expect(row).toMatchObject({
+    agent: { name: "Visitor" },
+    manager: { name: "Bob" },
+  });
+});
+
+test("open is refused with agent_tabs_off, and makes no tab, when the setting is off or does not reach the agent", async () => {
+  const cases: Array<[string, Map<string, unknown>, Fields]> = [
+    ["off", new Map(), OPENED],
+    ["Only my agents, via All agents", ON_ALL(), { ...OPENED, via: "office" }],
+  ];
+  for (const [name, local, scope] of cases) {
+    const h = await agentTabs(local);
+    h.open(5, crypto.randomUUID(), { agentId: "a", agentName: "Agent", scope });
+    await settle();
+    await settle();
+    expect({ name, answer: result(h.socket, 5) }).toMatchObject({
+      name,
+      answer: { error: expect.anything(), reason: "agent_tabs_off" },
+    });
+    expect({
+      name,
+      windows: h.createdWindows.length,
+      tabs: h.madeTabs.size,
+    }).toEqual({ name, windows: 0, tabs: 0 });
+    expect({ name, attached: h.calls.includes("attach") }).toEqual({
+      name,
+      attached: false,
+    });
+  }
+  // The enabling case: the same open with the setting on succeeds.
+  const h = await agentTabs();
+  await opened(h, 5);
+});
+
+test("two opens at once with no Agents window make one window", async () => {
+  const h = await agentTabs();
+  const finish = h.delayWindow();
+  const a = crypto.randomUUID();
+  const b = crypto.randomUUID();
+  h.open(5, a);
+  await settle();
+  h.open(6, b);
+  await settle();
+  finish();
+  for (let i = 0; i < 5; i++) await settle();
+  expect(result(h.socket, 5)?.error).toBeUndefined();
+  expect(result(h.socket, 6)?.error).toBeUndefined();
+  expect(h.createdWindows).toHaveLength(1);
+  expect(new Set([...h.madeTabs.values()].map((t) => t.windowId)).size).toBe(1);
+  expect(h.madeTabs.size).toBe(2);
+});
+
+test("after the member closes the Agents window, the next open makes a new one", async () => {
+  const h = await agentTabs();
+  const first = await opened(h, 5);
+  const [window] = [...h.windows.keys()];
+  h.closeWindow(window);
+  h.debuggerDetached("target_closed", first.tabId);
+  for (let i = 0; i < 5; i++) await settle();
+  const second = await opened(h, 6);
+  expect(h.createdWindows).toHaveLength(2);
+  expect(h.madeTabs.get(second.tabId)?.windowId).not.toBe(window);
+});
+
+test("Off closes every opened tab and leaves the member's offered tab; narrowing closes only the tabs opened via All agents", async () => {
+  const h = await agentTabs(ON_OFFICE());
+  const own = await onOffer(h, null);
+  const mine = await opened(h, 5);
+  const visitor = await opened(h, 6, {
+    agentId: "visitor",
+    agentName: "Visitor",
+    scope: { kind: "opened", agentId: "visitor", via: "office" },
+  });
+  await h.ui({ action: "agentTabs", scope: "all" });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).toEqual([visitor.tabId]);
+  await h.ui({ action: "agentTabs", scope: null });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs.sort()).toEqual([mine.tabId, visitor.tabId].sort());
+  expect(h.removedTabs).not.toContain(7);
+  expect(await listed(h)).toEqual([{ id: own, phase: "on" }]);
+  expect(h.local.get("openedTabs") ?? []).toEqual([]);
+});
+
+test("Off while an open waits for its attach leaves no tab", async () => {
+  const h = await agentTabs();
+  const release = h.delayPopup("attach");
+  h.open(5, crypto.randomUUID());
+  for (let i = 0; i < 3; i++) await settle();
+  // The enabling state: the tab exists and its attach waits.
+  expect(h.madeTabs.size).toBe(1);
+  await h.ui({ action: "agentTabs", scope: null });
+  await settle();
+  release();
+  for (let i = 0; i < 5; i++) await settle();
+  expect(result(h.socket, 5)?.error).toBeDefined();
+  expect(h.madeTabs.size).toBe(0);
+  expect(await listed(h)).toEqual([]);
+});
+
+test("an opened tab closes when the office ends it, also while its open waits, and at the popup's Close; the office ending the member's offer leaves its tab", async () => {
+  const h = await agentTabs();
+  const ended = await opened(h, 5);
+  h.command(20, "detach");
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).toEqual([ended.tabId]);
+
+  const closed = await opened(h, 6);
+  await h.ui({
+    action: "stop",
+    generation: "generation-1",
+    assignment: closed.assignment,
+  });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).toContain(closed.tabId);
+
+  // The office gives up on an open whose attach still waits.
+  const release = h.delayPopup("attach");
+  h.open(7, crypto.randomUUID());
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.madeTabs.size).toBe(1);
+  h.command(21, "detach");
+  await settle();
+  release();
+  for (let i = 0; i < 5; i++) await settle();
+  expect(h.madeTabs.size).toBe(0);
+
+  // The member's own offer: the office's detach ends control only.
+  await onOffer(h, null);
+  h.command(22, "detach");
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).not.toContain(7);
+});
+
+test("a connection loss keeps an opened tab, and it resumes after the agent tabs setting, with no deadline and no origin", async () => {
+  const h = await agentTabs();
+  const { assignment, tabId } = await opened(h, 5);
+  const ws = await restart(h, 2, true, { agentTabs: true });
+  expect(h.removedTabs).toEqual([]);
+  const order = ws.sent.map((m) => m.kind);
+  expect(order.indexOf("agentTabs")).toBeGreaterThanOrEqual(0);
+  expect(order.indexOf("agentTabs")).toBeLessThan(order.indexOf("offer"));
+  expect(offers(ws)).toEqual([
+    {
+      kind: "offer",
+      generation: "generation-2",
+      assignment,
+      scope: OPENED,
+      durationMinutes: 0,
+      expiresAt: null,
+    },
+  ]);
+  // The office refuses it: the tab closes.
+  ws.receive({
+    kind: "offered",
+    generation: "generation-2",
+    assignment,
+    error: true,
+  });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).toEqual([tabId]);
+});
+
+test("Close in the popup while the office is away closes the opened tab", async () => {
+  const h = await agentTabs();
+  const { assignment, tabId } = await opened(h, 5);
+  h.socket.close();
+  await settle();
+  expect(await listed(h)).toEqual([{ id: assignment, phase: "offering" }]);
+  await h.ui({ action: "stop", assignment });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).toEqual([tabId]);
+});
+
+test("an office without agent tabs gets no opened tab to resume, and the tab closes", async () => {
+  const h = await agentTabs();
+  const { tabId } = await opened(h, 5);
+  const ws = await restart(h, 2, true);
+  for (let i = 0; i < 3; i++) await settle();
+  expect(offers(ws)).toEqual([]);
+  expect(agentTabsSent(ws)).toEqual([]);
+  expect(h.removedTabs).toEqual([tabId]);
+});
+
+test("an extension update closes the opened tabs the last worker kept, only where the tab still has the kept page target; a Chrome start or a Chrome update closes nothing", async () => {
+  for (const [reason, closes] of [
+    ["update", true],
+    ["chrome_update", false],
+    ["startup", false],
+  ] as const) {
+    const local = ON_ALL();
+    local.set("openedTabs", [
+      { tabId: 41, targetId: "kept-41" },
+      { tabId: 42, targetId: "kept-42" },
+      { tabId: 43, targetId: "kept-43" },
+    ]);
+    const h = await agentTabs(local);
+    // Tab 41 is the agent's tab. Ids 42 and 43 are other tabs now: an
+    // update that Chrome applied at its start sees tab ids of a new run.
+    h.targets([
+      { id: "kept-41", tabId: 41, type: "page" },
+      { id: "member-page", tabId: 42, type: "page" },
+      { id: "owned", tabId: 7, type: "page" },
+    ]);
+    if (reason === "startup") h.startup();
+    else h.installed(reason);
+    for (let i = 0; i < 3; i++) await settle();
+    expect({ reason, removed: [...h.removedTabs].sort() }).toEqual({
+      reason,
+      removed: closes ? [41] : [],
+    });
+    expect({ reason, kept: h.local.get("openedTabs") ?? [] }).toEqual({
+      reason,
+      kept: [],
+    });
+    // The setting itself stays.
+    expect({ reason, setting: h.local.get("agentTabs") }).toEqual({
+      reason,
+      setting: { scope: "all" },
+    });
+  }
+});
+
+test("unpair, a terminal refusal and a new pairing turn agent tabs off", async () => {
+  const unpaired = await agentTabs();
+  const pending = unpaired.ui({ action: "unpair", generation: "generation-1" });
+  await settle();
+  unpaired.socket.receive({ kind: "unpaired", generation: "generation-1" });
+  await pending;
+  expect(unpaired.local.has("agentTabs")).toBe(false);
+
+  const refused = await agentTabs();
+  refused.socket.receive({ kind: "refused" });
+  await settle();
+  expect(refused.local.has("agentTabs")).toBe(false);
+
+  const paired = await agentTabs();
+  await paired.ui({
+    action: "pair",
+    office: "http://127.0.0.1",
+    code: "a".repeat(43),
+  });
+  await settle();
+  const socket = paired.sockets.at(-1)!;
+  socket.onopen?.();
+  socket.receive({ kind: "paired", version: 4, credential: "issued" });
+  await settle();
+  expect(paired.local.has("agentTabs")).toBe(false);
+
+  // The enabling case: a reconnect keeps it.
+  const kept = await agentTabs();
+  await kept.reconnect();
+  expect(kept.local.get("agentTabs")).toEqual({ scope: "all" });
+});

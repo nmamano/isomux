@@ -23,6 +23,8 @@ import {
   utf8Bytes,
   type BrowserAttachFailure,
   type BrowserDetachCause,
+  type AgentTabsScope,
+  validAgentTabsScope,
 } from "../shared/browser-extension-protocol";
 import { confirmPairedCode } from "./pairing-draft";
 
@@ -48,6 +50,12 @@ type OwnedTab = {
   resuming?: boolean;
   // An attach command got no answer within ATTACH_ANSWER_MS.
   unanswered?: boolean;
+  // A tab an agent opened, until the office answers the open.
+  opening?: boolean;
+  // A tab opened via All agents: the agent's manager.
+  manager?: { name: string };
+  // The opened tab was closed; it is not closed again.
+  tabClosed?: boolean;
 };
 type Connection = {
   ws: WebSocket;
@@ -61,6 +69,8 @@ type Connection = {
   offerResume?: boolean;
   // The office accepts "office" offers, from ready.
   officeScope?: boolean;
+  // The office takes agent tabs, from ready.
+  agentTabs?: boolean;
   // The office's extension package, from ready.
   officePackage?: string;
   metadata?: BrowserMetadata;
@@ -89,9 +99,13 @@ type ResumeOffer = {
   tabId: number;
   scope: BrowserGrantScope;
   agent?: { id: string; name: string };
+  manager?: { name: string };
   durationMinutes: BrowserGrantDuration;
   expiresAt: number | null;
-  offerOrigin: string;
+  // Absent only for a tab an agent opened, which has no pin.
+  offerOrigin?: string;
+  // A tab an agent opened: its page target, for the update cleanup.
+  targetId?: string;
 };
 const RESUME_KEY = "resumeOffers";
 const resumable = new Map<string, ResumeOffer>();
@@ -104,13 +118,18 @@ const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
       if (!Array.isArray(item) || typeof item[0] !== "string") continue;
       const r = fields(item[1]);
       const agent = r.agent === undefined ? undefined : fields(r.agent);
+      const manager = r.manager === undefined ? undefined : fields(r.manager);
       if (
         Number.isSafeInteger(r.tabId) &&
         validGrantScope(r.scope) &&
         validGrantExpiry(r.durationMinutes, r.expiresAt) &&
-        typeof r.offerOrigin === "string" &&
+        (r.scope.kind === "opened"
+          ? r.offerOrigin === undefined
+          : typeof r.offerOrigin === "string") &&
         (agent === undefined ||
-          (typeof agent.id === "string" && typeof agent.name === "string"))
+          (typeof agent.id === "string" && typeof agent.name === "string")) &&
+        (manager === undefined || typeof manager.name === "string") &&
+        (r.targetId === undefined || typeof r.targetId === "string")
       )
         resumable.set(item[0], {
           tabId: r.tabId as number,
@@ -118,9 +137,13 @@ const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
           ...(agent
             ? { agent: { id: agent.id as string, name: agent.name as string } }
             : {}),
+          ...(manager ? { manager: { name: manager.name as string } } : {}),
           durationMinutes: r.durationMinutes as BrowserGrantDuration,
           expiresAt: r.expiresAt,
-          offerOrigin: r.offerOrigin,
+          ...(typeof r.offerOrigin === "string"
+            ? { offerOrigin: r.offerOrigin }
+            : {}),
+          ...(typeof r.targetId === "string" ? { targetId: r.targetId } : {}),
         });
     }
   },
@@ -135,29 +158,199 @@ function saveResumable(): Promise<void> {
 }
 // Keeps an ON offer to send again after a connection loss.
 function remember(c: Connection, id: string, tab: OwnedTab): void {
+  const opened = tab.scope?.kind === "opened";
   if (
     !c.offerResume ||
     !tab.scope ||
     tab.durationMinutes === undefined ||
-    !tab.offerOrigin
+    (!opened && !tab.offerOrigin)
   )
     return;
   resumable.set(id, {
     tabId: tab.tabId,
     scope: tab.scope,
     ...(tab.agent ? { agent: tab.agent } : {}),
+    ...(tab.manager ? { manager: tab.manager } : {}),
     durationMinutes: tab.durationMinutes,
     expiresAt: tab.expiresAt ?? null,
-    offerOrigin: tab.offerOrigin,
+    ...(opened ? {} : { offerOrigin: tab.offerOrigin }),
+    ...(opened && tab.targetId ? { targetId: tab.targetId } : {}),
   });
   void saveResumable();
+  saveOpened();
+}
+// Drops an offer that waits to resume. A tab an agent opened closes with it.
+function forgetResumable(id: string): void {
+  const r = resumable.get(id);
+  if (!r || !resumable.delete(id)) return;
+  void saveResumable();
+  if (r.scope.kind === "opened")
+    void chrome.tabs.remove(r.tabId).catch(() => {});
+  saveOpened();
 }
 // Disconnect, pairing, unpairing and a refusal end every offer.
 async function clearResumable(): Promise<void> {
   await resumeLoaded;
   if (!resumable.size) return;
-  resumable.clear();
+  for (const id of [...resumable.keys()]) forgetResumable(id);
   await saveResumable();
+}
+
+// Agent tabs (task 73a9fb57): the member's setting for this browser, kept in
+// chrome.storage.local, so it survives a Chrome restart and an extension
+// update. Unpair, pairing and a refusal clear it.
+const AGENT_TABS_KEY = "agentTabs";
+let agentTabsSetting: AgentTabsScope | null = null;
+const settingLoaded = chrome.storage.local.get(AGENT_TABS_KEY).then(
+  (stored) => {
+    const value = stored[AGENT_TABS_KEY];
+    const scope =
+      value && typeof value === "object" ? (value as Fields).scope : undefined;
+    if (validAgentTabsScope(scope)) agentTabsSetting = scope;
+  },
+  () => {},
+);
+// The setting lets an agent open a tab via this scope.
+const covers = (via: AgentTabsScope) =>
+  agentTabsSetting === "office" ||
+  (agentTabsSetting === "all" && via === "all");
+async function setAgentTabs(scope: AgentTabsScope | null): Promise<void> {
+  await settingLoaded;
+  agentTabsSetting = scope;
+  if (scope === null) await chrome.storage.local.remove(AGENT_TABS_KEY);
+  else await chrome.storage.local.set({ [AGENT_TABS_KEY]: { scope } });
+  const c = current;
+  if (c?.generation && !c.closed && c.agentTabs)
+    send(c, { kind: "agentTabs", generation: c.generation, scope });
+  // Off, or a narrower scope, closes the tabs it no longer allows.
+  for (const [id, tab] of c?.tabs ?? [])
+    if (
+      tab.scope?.kind === "opened" &&
+      tab.phase !== "revoking" &&
+      !covers(tab.scope.via)
+    )
+      void revoke(c!, id, "off");
+  for (const [id, r] of [...resumable])
+    if (r.scope.kind === "opened" && !covers(r.scope.via) && !c?.tabs.has(id))
+      forgetResumable(id);
+}
+
+// The tabs agents opened, as {tabId, targetId}, in chrome.storage.local. At
+// an extension update the next worker closes each one whose tab still shows
+// that page target: Chrome can apply an update at its next start, where tab
+// ids start over, and target ids never repeat. A tab with no target yet, or
+// another one, stays for the member. A Chrome start only forgets them.
+const OPENED_KEY = "openedTabs";
+type OpenedEntry = { tabId: number; targetId?: string };
+const staleOpened: Promise<OpenedEntry[]> = chrome.storage.local
+  .get(OPENED_KEY)
+  .then(
+    (stored) => {
+      const entries = stored[OPENED_KEY];
+      return Array.isArray(entries)
+        ? entries.flatMap((entry: unknown) => {
+            const e =
+              entry && typeof entry === "object" ? (entry as Fields) : {};
+            return Number.isSafeInteger(e.tabId) &&
+              (e.targetId === undefined || typeof e.targetId === "string")
+              ? [
+                  {
+                    tabId: e.tabId as number,
+                    ...(typeof e.targetId === "string"
+                      ? { targetId: e.targetId }
+                      : {}),
+                  },
+                ]
+              : [];
+          })
+        : [];
+    },
+    () => [],
+  );
+let openedWrites: Promise<unknown> = Promise.resolve();
+function saveOpened(): void {
+  const entries = new Map<number, OpenedEntry>();
+  for (const tab of current?.tabs.values() ?? [])
+    if (tab.scope?.kind === "opened" && tab.tabId >= 0 && !tab.tabClosed)
+      entries.set(tab.tabId, {
+        tabId: tab.tabId,
+        ...(tab.targetId ? { targetId: tab.targetId } : {}),
+      });
+  for (const r of resumable.values())
+    if (r.scope.kind === "opened" && !entries.has(r.tabId))
+      entries.set(r.tabId, {
+        tabId: r.tabId,
+        ...(r.targetId ? { targetId: r.targetId } : {}),
+      });
+  openedWrites = openedWrites
+    .catch(() => {})
+    .then(() => staleOpened)
+    .then(() =>
+      entries.size
+        ? chrome.storage.local.set({ [OPENED_KEY]: [...entries.values()] })
+        : chrome.storage.local.remove(OPENED_KEY),
+    );
+}
+async function closeStaleOpened(update: boolean): Promise<void> {
+  const entries = await staleOpened;
+  if (update && entries.length) {
+    const targets = await chrome.debugger.getTargets().catch(() => []);
+    const ids = entries
+      .filter(
+        (e) =>
+          e.targetId !== undefined &&
+          targets.some(
+            (t) =>
+              t.type === "page" && t.tabId === e.tabId && t.id === e.targetId,
+          ),
+      )
+      .map((e) => e.tabId);
+    if (ids.length) await chrome.tabs.remove(ids).catch(() => {});
+  }
+  saveOpened();
+}
+// Closes a tab an agent opened, and the pages that its sites opened.
+async function closeOpened(tab: OwnedTab, popups: number[]): Promise<void> {
+  if (tab.scope?.kind !== "opened" || tab.tabClosed || tab.tabId < 0) return;
+  tab.tabClosed = true;
+  await chrome.tabs.remove([tab.tabId, ...popups]).catch(() => {});
+  saveOpened();
+}
+
+// One Agents window per browser, made at the first open without focus, so
+// agent tabs stay out of the member's windows. Its id is kept in session
+// storage; a window the member closed is made again. Opens wait for each
+// other here, so two at once make one window.
+const WINDOW_KEY = "agentsWindow";
+let windowWork: Promise<unknown> = Promise.resolve();
+function makeAgentTab(): Promise<number> {
+  const work = windowWork
+    .catch(() => {})
+    .then(async () => {
+      const stored = (await chrome.storage.session.get(WINDOW_KEY))[WINDOW_KEY];
+      if (Number.isSafeInteger(stored))
+        try {
+          await chrome.windows.get(stored as number);
+          const made = await chrome.tabs.create({
+            windowId: stored as number,
+            url: "about:blank",
+          });
+          if (Number.isSafeInteger(made.id)) return made.id!;
+        } catch {
+          // The member closed the window.
+        }
+      const window = await chrome.windows.create({
+        focused: false,
+        url: "about:blank",
+      });
+      const tabId = window.tabs?.[0]?.id;
+      if (!Number.isSafeInteger(window.id) || !Number.isSafeInteger(tabId))
+        throw new AttachError("tab_unavailable");
+      await chrome.storage.session.set({ [WINDOW_KEY]: window.id });
+      return tabId!;
+    });
+  windowWork = work;
+  return work;
 }
 function controlledTabs(): Set<number> {
   const result = new Set<number>();
@@ -271,6 +464,9 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
                 : "unpaired",
     member: online ? c.metadata?.member : undefined,
     ...(online && c.officeScope ? { officeScope: true } : {}),
+    ...(online && c.agentTabs
+      ? { agentTabs: { scope: agentTabsSetting } }
+      : {}),
     ...(online &&
     c.officePackage &&
     extensionOutdated(chrome.runtime.getManifest().version, c.officePackage)
@@ -284,6 +480,7 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
                   id,
                   scope: tab.scope,
                   agent: tab.agent,
+                  ...(tab.manager ? { manager: tab.manager } : {}),
                   tabId: tab.tabId,
                   phase: tab.phase ?? "offering",
                   durationMinutes: tab.durationMinutes!,
@@ -302,6 +499,7 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
           id,
           scope: r.scope,
           agent: r.agent,
+          ...(r.manager ? { manager: r.manager } : {}),
           tabId: r.tabId,
           phase: "offering" as const,
           durationMinutes: r.durationMinutes,
@@ -325,6 +523,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
     )
       throw new Error();
     await clearResumable();
+    await setAgentTabs(null);
     await chrome.storage.local.setAccessLevel({
       accessLevel: "TRUSTED_CONTEXTS",
     });
@@ -353,8 +552,11 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
     !current?.tabs.has(msg.assignment)
   ) {
     // Off while the office is away: the offer is not sent again.
-    resumable.delete(msg.assignment);
+    forgetResumable(msg.assignment);
     await saveResumable();
+  } else if (msg.action === "agentTabs") {
+    if (!validAgentTabsScope(msg.scope)) throw new Error();
+    await setAgentTabs(msg.scope);
   } else {
     const c = current;
     if (!c) throw new Error();
@@ -364,7 +566,8 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       const selected = await currentTab(msg.tabId);
       check(c);
       const scope = msg.scope;
-      if (!validGrantScope(scope)) throw new Error();
+      // Only the office's open makes a tab that an agent opened.
+      if (!validGrantScope(scope) || scope.kind === "opened") throw new Error();
       const agent =
         scope.kind === "agent"
           ? c.metadata?.agents.find((a) => a.id === scope.agentId)
@@ -409,6 +612,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       refreshBadges();
     } else if (msg.action === "unpair") {
       await clearResumable();
+      await setAgentTabs(null);
       const acknowledged = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => {
           c.terminal = true;
@@ -469,7 +673,7 @@ function requestOffer(
   c: Connection,
   id: string,
   tab: OwnedTab,
-  resume?: { expiresAt: number | null; offerOrigin: string },
+  resume?: { expiresAt: number | null; offerOrigin?: string },
 ): Promise<boolean> {
   c.tabs.set(id, tab);
   return new Promise<boolean>((resolve) => {
@@ -499,6 +703,8 @@ function resumeOffer(c: Connection, id: string, r: ResumeOffer): void {
     tabId: r.tabId,
     scope: r.scope,
     agent: r.agent,
+    ...(r.manager ? { manager: r.manager } : {}),
+    ...(r.targetId ? { targetId: r.targetId } : {}),
     durationMinutes: r.durationMinutes,
     expiresAt: r.expiresAt,
     offerOrigin: r.offerOrigin,
@@ -509,7 +715,7 @@ function resumeOffer(c: Connection, id: string, r: ResumeOffer): void {
   };
   void requestOffer(c, id, tab, {
     expiresAt: r.expiresAt,
-    offerOrigin: r.offerOrigin,
+    ...(r.offerOrigin === undefined ? {} : { offerOrigin: r.offerOrigin }),
   }).then((accepted) => {
     if (!accepted && !c.closed) void revoke(c, id, "offer_refused");
   });
@@ -538,7 +744,10 @@ async function revoke(
   refreshBadges();
   tab.releasing = (async () => {
     await tab.work?.catch(() => {});
+    const popups = [...tab.popups.values()].map((popup) => popup.tabId);
     await detach(tab);
+    // A tab an agent opened closes when its grant ends.
+    await closeOpened(tab, popups);
     if (c.tabs.get(id) === tab) c.tabs.delete(id);
     refreshBadges();
   })();
@@ -655,10 +864,14 @@ function close(c: Connection): void {
   c.ws.close();
   // A loss the member did not ask for keeps the ON offers, to send them again;
   // a terminal close ends them. A resume still in flight keeps its entry.
+  // A tab an agent opened stays only to resume: other ones close.
+  const kept = new Set<OwnedTab>();
   for (const [id, tab] of c.tabs)
     if (tab.phase === "on") {
-      if (!c.terminal) remember(c, id, tab);
-      else if (resumable.delete(id)) void saveResumable();
+      if (!c.terminal) {
+        remember(c, id, tab);
+        kept.add(tab);
+      } else if (resumable.delete(id)) void saveResumable();
     }
   const retiring = [...c.tabs.values()];
   for (const tab of retiring) tab.phase = "revoking";
@@ -668,7 +881,9 @@ function close(c: Connection): void {
       if (tab.releasing) await tab.releasing;
       else {
         await tab.work?.catch(() => {});
+        const popups = [...tab.popups.values()].map((popup) => popup.tabId);
         await detach(tab);
+        if (!kept.has(tab)) await closeOpened(tab, popups);
       }
     }),
   ]).then(() => {});
@@ -692,6 +907,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   check(c);
   if (typeof msg.assignment !== "string") throw new Error("Invalid assignment");
   const id = msg.assignment;
+  if (msg.method === "open") return openTab(c, id, fields(msg.params));
   if (msg.method === "attach") {
     const owned = c.tabs.get(id);
     if (!owned || owned.phase !== "offering" || owned.work || !c.offers.has(id))
@@ -699,46 +915,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     c.creating.add(id);
     owned.work = (async () => {
       try {
-        const tab = await chrome.tabs.get(owned.tabId);
-        check(c);
-        if (!/^https?:\/\//.test(tab.url ?? "") || !c.creating.has(id))
-          throw new AttachError("tab_unavailable");
-        await chrome.debugger.attach({ tabId: owned.tabId }, "1.3");
-        check(c);
-        if (!c.creating.has(id)) throw new AttachError("ended");
-        await answered({ tabId: owned.tabId }, "Page.enable");
-        check(c);
-        if (!c.creating.has(id)) throw new AttachError("ended");
-        await answered(
-          { tabId: owned.tabId },
-          "Page.setInterceptFileChooserDialog",
-          { enabled: true },
-        );
-        check(c);
-        if (!c.creating.has(id)) throw new AttachError("ended");
-        await answered(
-          { tabId: owned.tabId },
-          "Emulation.setFocusEmulationEnabled",
-          { enabled: true },
-        );
-        check(c);
-        if (!c.creating.has(id)) throw new AttachError("ended");
-        const result = fields(
-          await answered({ tabId: owned.tabId }, "Target.getTargetInfo"),
-        );
-        check(c);
-        if (!c.creating.has(id) || owned.phase !== "offering")
-          throw new AttachError("ended");
-        const target = fields(result.targetInfo);
-        if (
-          target.type !== "page" ||
-          typeof target.targetId !== "string" ||
-          typeof target.url !== "string" ||
-          !/^https?:\/\//.test(target.url)
-        )
-          throw new AttachError("tab_unavailable");
-        owned.targetId = target.targetId;
-        return result;
+        return await attachSteps(c, id, owned);
       } catch (error) {
         // A tab that shows a JavaScript dialog answers no command from a
         // debugger attached after the dialog opened.
@@ -823,6 +1000,124 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   return fields(result ?? {});
 }
 
+// The attach of an offered or opened tab, up to its target. A tab an agent
+// opened may still show about:blank; any other page must be http(s).
+async function attachSteps(
+  c: Connection,
+  id: string,
+  owned: OwnedTab,
+): Promise<Fields> {
+  const opened = owned.scope?.kind === "opened";
+  const pageAllowed = (url: string | undefined) =>
+    /^https?:\/\//.test(url ?? "") || (opened && url === "about:blank");
+  const tab = await chrome.tabs.get(owned.tabId);
+  check(c);
+  // Without the tabs permission, Chrome gives the URL only of a tab the
+  // member offered (activeTab). An opened tab's page is checked from its
+  // target after the attach.
+  if ((!opened && !pageAllowed(tab.url)) || !c.creating.has(id))
+    throw new AttachError("tab_unavailable");
+  await chrome.debugger.attach({ tabId: owned.tabId }, "1.3");
+  check(c);
+  if (!c.creating.has(id)) throw new AttachError("ended");
+  await answered({ tabId: owned.tabId }, "Page.enable");
+  check(c);
+  if (!c.creating.has(id)) throw new AttachError("ended");
+  await answered({ tabId: owned.tabId }, "Page.setInterceptFileChooserDialog", {
+    enabled: true,
+  });
+  check(c);
+  if (!c.creating.has(id)) throw new AttachError("ended");
+  await answered({ tabId: owned.tabId }, "Emulation.setFocusEmulationEnabled", {
+    enabled: true,
+  });
+  check(c);
+  if (!c.creating.has(id)) throw new AttachError("ended");
+  const result = fields(
+    await answered({ tabId: owned.tabId }, "Target.getTargetInfo"),
+  );
+  check(c);
+  if (!c.creating.has(id) || owned.phase !== "offering")
+    throw new AttachError("ended");
+  const target = fields(result.targetInfo);
+  if (
+    target.type !== "page" ||
+    typeof target.targetId !== "string" ||
+    typeof target.url !== "string" ||
+    !pageAllowed(target.url)
+  )
+    throw new AttachError("tab_unavailable");
+  owned.targetId = target.targetId;
+  return result;
+}
+
+// The office's open: a new about:blank tab in the Agents window for the
+// agent, attached as an offered tab is. The tab counts as offering from the
+// start, so Off, a narrower scope or the office's detach finds it; an open
+// that fails closes it.
+function openTab(c: Connection, id: string, params: Fields): Promise<Fields> {
+  const scope = params.scope;
+  if (
+    !validGrantScope(scope) ||
+    scope.kind !== "opened" ||
+    params.agentId !== scope.agentId ||
+    typeof params.agentName !== "string" ||
+    (params.managerName !== undefined && typeof params.managerName !== "string")
+  )
+    return Promise.reject(new Error("Invalid open"));
+  if (!c.agentTabs || !covers(scope.via))
+    return Promise.reject(new AttachError("agent_tabs_off"));
+  if (c.tabs.has(id)) return Promise.reject(new AttachError("ended"));
+  const tab: OwnedTab = {
+    tabId: -1,
+    scope,
+    agent: { id: scope.agentId, name: params.agentName },
+    ...(typeof params.managerName === "string"
+      ? { manager: { name: params.managerName } }
+      : {}),
+    durationMinutes: 0,
+    expiresAt: null,
+    phase: "offering",
+    opening: true,
+    children: new Set(),
+    popups: new Map(),
+  };
+  c.tabs.set(id, tab);
+  // The office's offered answer: a refusal ends the tab.
+  c.offers.set(id, (ok) => {
+    if (!ok && tab.phase === "offering" && !c.closed)
+      void revoke(c, id, "offer_refused");
+  });
+  c.creating.add(id);
+  tab.work = (async () => {
+    try {
+      tab.tabId = await makeAgentTab();
+      saveOpened();
+      check(c);
+      if (!c.creating.has(id) || tab.phase !== "offering")
+        throw new AttachError("ended");
+      await chrome.tabs.update(tab.tabId, { autoDiscardable: false });
+      check(c);
+      if (!c.creating.has(id)) throw new AttachError("ended");
+      const result = await attachSteps(c, id, tab);
+      saveOpened();
+      return result;
+    } catch (error) {
+      if (error instanceof TabUnansweredError) tab.unanswered = true;
+      if (tab.tabId >= 0) await detach(tab);
+      await closeOpened(tab, []);
+      if (c.tabs.get(id) === tab && tab.phase !== "revoking") {
+        c.tabs.delete(id);
+        c.offers.delete(id);
+      }
+      throw error;
+    } finally {
+      c.creating.delete(id);
+    }
+  })();
+  return tab.work;
+}
+
 async function configure(reset = true): Promise<void> {
   clearTimeout(reconnect);
   void chrome.alarms.clear("reconnect");
@@ -846,7 +1141,7 @@ async function configure(reset = true): Promise<void> {
       (typeof config.credential !== "string" && typeof config.code !== "string")
     )
       return;
-    await Promise.all([cleanup, resumeLoaded, leftovers]);
+    await Promise.all([cleanup, resumeLoaded, leftovers, settingLoaded]);
     if (serial !== configuration) return;
     const ws = new WebSocket(browserSocketURL(config.url));
     const c: Connection = {
@@ -860,6 +1155,7 @@ async function configure(reset = true): Promise<void> {
     const refuse = () => {
       c.terminal = true;
       void clearResumable();
+      void setAgentTabs(null);
       void chrome.alarms.clear("reconnect");
       void chrome.storage.local.set({
         connection: { ...config, blocked: true },
@@ -935,9 +1231,28 @@ async function configure(reset = true): Promise<void> {
           c.debuggerRecovery = msg.debuggerRecovery === true;
           c.offerResume = msg.offerResume === true;
           c.officeScope = msg.officeScope === true;
+          c.agentTabs = msg.agentTabs === true;
           if (validExtensionPackage(msg.package)) c.officePackage = msg.package;
+          // The setting goes first, so the office takes the opened tabs that
+          // resume.
+          if (c.agentTabs)
+            send(c, {
+              kind: "agentTabs",
+              generation: c.generation,
+              scope: agentTabsSetting,
+            });
           if (!c.offerResume) void clearResumable();
-          else for (const [id, r] of resumable) resumeOffer(c, id, r);
+          else
+            for (const [id, r] of [...resumable]) {
+              // An office without agent tabs would refuse the scope; a tab the
+              // setting no longer allows ends.
+              if (
+                r.scope.kind === "opened" &&
+                (!c.agentTabs || !covers(r.scope.via))
+              )
+                forgetResumable(id);
+              else resumeOffer(c, id, r);
+            }
           refreshBadges();
           retry = 0;
           void chrome.alarms.clear("reconnect");
@@ -1030,7 +1345,8 @@ async function configure(reset = true): Promise<void> {
             tab.expiresAt = msg.expiresAt;
             if (typeof msg.offerOrigin === "string")
               tab.offerOrigin = msg.offerOrigin;
-            if (tab.resuming) {
+            if (tab.resuming || tab.opening) {
+              tab.opening = false;
               tab.phase = "on";
               remember(c, msg.assignment, tab);
               refreshBadges();
@@ -1064,7 +1380,7 @@ async function configure(reset = true): Promise<void> {
               generation: c.generation,
               id: msg.id,
               error: "Browser command failed",
-              ...(msg.method === "attach"
+              ...(msg.method === "attach" || msg.method === "open"
                 ? { reason: attachFailure(error) }
                 : {}),
             }),
@@ -1399,7 +1715,9 @@ chrome.debugger.onDetach.addListener((source, reason) => {
   }
 });
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") return;
+  // Only the connection reconnects; the agent tabs setting and the opened
+  // tab ids do not.
+  if (area !== "local" || !("connection" in changes)) return;
   const connection = (
     changes as { connection?: { newValue?: { credential?: string } } }
   ).connection;
@@ -1431,9 +1749,11 @@ const leftovers = chrome.debugger.getTargets().then(
   () => {},
 );
 chrome.runtime.onStartup.addListener(() => {
+  void closeStaleOpened(false);
   void configure();
 });
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
+  void closeStaleOpened(details.reason === "update");
   void configure();
 });
 void configure();

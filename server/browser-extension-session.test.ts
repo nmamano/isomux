@@ -276,7 +276,10 @@ for (const phase of [
 // one sends for each step, through the real transport and bridge.
 const OFFICE = "https://office.test";
 const SITE = "https://site.test";
-async function gateSession(actionMs = 5000) {
+// opened: the tab is not offered; the member allows agent tabs and the
+// stand-in extension answers each open command with an about:blank tab
+// (task 73a9fb57).
+async function gateSession(actionMs = 5000, opened = false) {
   const dir = mkdtempSync(join(tmpdir(), "browser-office-gate-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
   const service = new BrowserExtensionService(store, {
@@ -335,7 +338,7 @@ async function gateSession(actionMs = 5000) {
       ...(sessionId ? { sessionId } : {}),
     });
   class Page extends EventEmitter {
-    current = `${SITE}/start`;
+    current = opened ? "about:blank" : `${SITE}/start`;
     gotos: string[] = [];
     // Playwright page methods the session called, in order.
     calls: string[] = [];
@@ -477,10 +480,31 @@ async function gateSession(actionMs = 5000) {
     () => true,
   );
   const offered = Promise.withResolvers<void>();
+  // Every command that reached the extension.
+  const commands: Record<string, unknown>[] = [];
   connection.current = service.bridge.connect(credential, {
     send(message) {
       if (message.kind === "offered") offered.resolve();
       if (message.kind !== "command") return;
+      commands.push(message);
+      if (message.method === "open") {
+        grant = String(message.assignment);
+        queueMicrotask(() =>
+          connection.current.receive({
+            kind: "result",
+            generation: connection.current.generation,
+            id: message.id,
+            result: {
+              targetInfo: {
+                targetId: "root",
+                type: "page",
+                url: "about:blank",
+              },
+            },
+          }),
+        );
+        return;
+      }
       const params = message.params as
         | { method?: string; params?: { url?: string }; sessionId?: string }
         | undefined;
@@ -522,18 +546,29 @@ async function gateSession(actionMs = 5000) {
     },
     close() {},
   });
-  grant = crypto.randomUUID();
-  connection.current.receive({
-    kind: "offer",
-    generation: connection.current.generation,
-    assignment: grant,
-    durationMinutes: 0,
-    scope: { kind: "agent", agentId: "agent" },
-  });
-  await offered.promise;
+  if (opened)
+    connection.current.receive({
+      kind: "agentTabs",
+      generation: connection.current.generation,
+      scope: "all",
+    });
+  else {
+    grant = crypto.randomUUID();
+    connection.current.receive({
+      kind: "offer",
+      generation: connection.current.generation,
+      assignment: grant,
+      durationMinutes: 0,
+      scope: { kind: "agent", agentId: "agent" },
+    });
+    await offered.promise;
+  }
   return {
     sessions,
+    service,
     page,
+    commands,
+    grant: () => grant,
     reached,
     navigate,
     navigated,
@@ -573,6 +608,67 @@ test("a goto to a known office is refused before any navigation", async () => {
     expect(result).toEqual(officeRefused);
     expect(h.page.gotos).toEqual([]);
     expect(h.reached).not.toContain("Page.navigate");
+  } finally {
+    h.stop();
+  }
+});
+
+// Agent tabs (task 73a9fb57): open makes a tab in the member's browser and
+// runs a goto on it, as one action.
+test("open makes a tab, navigates it, and names the tab, the browser and the member", async () => {
+  const h = await gateSession(5000, true);
+  try {
+    const result = await h.sessions.run("agent", {
+      action: "open",
+      url: `${SITE}/page`,
+    });
+    // Read before toMatchObject: bun 1.4.4 writes an asymmetric matcher
+    // into the object it compares.
+    const target = (result as { target?: unknown }).target;
+    if (typeof target !== "string") throw new Error("open gave no target");
+    expect(result).toMatchObject({
+      ok: true,
+      url: `${SITE}/page`,
+      browser: "Browser 1",
+    });
+    expect(result).toHaveProperty("member");
+    expect(h.page.gotos).toEqual([`${SITE}/page`]);
+    const opens = h.commands.filter((m) => m.method === "open");
+    expect(opens).toHaveLength(1);
+    expect(opens[0].assignment).toBe(h.grant());
+    const tabs = h.service.bridge.targets("member", "agent");
+    expect(tabs.map((t) => [t.target, t.scope.kind])).toEqual([
+      [target, "opened"],
+    ]);
+    // The next action without a target uses the opened tab.
+    expect(
+      await h.sessions.run("agent", { action: "screenshot" }),
+    ).toMatchObject({ ok: true });
+  } finally {
+    h.stop();
+  }
+});
+
+test("an open whose goto fails ends the new tab and returns the goto's error", async () => {
+  const h = await gateSession(5000, true);
+  try {
+    h.page.onGoto = async () => {
+      throw new Error("net::ERR_NAME_NOT_RESOLVED at https://site.test/page");
+    };
+    const result = await h.sessions.run("agent", {
+      action: "open",
+      url: `${SITE}/page`,
+    });
+    expect(result).toMatchObject({ ok: false, code: "action_failed" });
+    // The enabling step: the tab was made and the goto ran on it.
+    expect(h.commands.filter((m) => m.method === "open")).toHaveLength(1);
+    expect(h.page.gotos).toEqual([`${SITE}/page`]);
+    expect(
+      h.commands.some(
+        (m) => m.method === "detach" && m.assignment === h.grant(),
+      ),
+    ).toBe(true);
+    expect(h.service.bridge.targets("member", "agent")).toEqual([]);
   } finally {
     h.stop();
   }

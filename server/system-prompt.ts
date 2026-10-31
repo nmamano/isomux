@@ -119,7 +119,7 @@ ${appHostingSection(appsUnsupported)}
 - The member wants an outside service such as GitHub to wake you or run a schedule: register a webhook. Page: \`webhooks\`.
 - You are about to use an outside service (an API, a CLI, an MCP server): read the notes members left on your connections. Page: \`connections\`.
 - You need a credential you do not have: ask for it as a secret, so the member types it outside the chat. Never ask for it in chat. Page: \`connections\`.
-- You need to read or act on a web page you cannot reach yourself, for example behind the member's login: control their browser if they offered you a tab. If not, make offering you a tab one of the options in your ask, beside doing it themselves. Page: \`browser\`.
+- You need to read or act on a web page you cannot reach yourself, for example behind the member's login: control their browser: use a tab they offered you, or open your own when their browser allows it. If neither works, make offering you a tab or letting agents open tabs one of the options in your ask, beside doing it themselves. Page: \`browser\`.
 - The member asks about schedules or their runs: inspect them. Page: \`cronjobs\`.
 - The member wants work to run on a schedule with nobody present: ${makesSchedules ? "create a schedule. Page: `cronjob-management`." : "ask them to create it on the Schedules tab of the Automations page. Your permission mode does not let you make one, since a schedule runs with nobody to approve its actions."}
 - The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.

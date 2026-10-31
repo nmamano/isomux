@@ -59,6 +59,11 @@ const labels: Record<string, PlainMessageKey> = {
   "expiry-15": "browser.expiry15",
   "expiry-60": "browser.expiry60",
   "expiry-240": "browser.expiry240",
+  "agent-tabs-heading": "browser.agentTabs",
+  "agent-tabs-scope-label": "browser.agentTabsScope",
+  "agent-tabs-mine": "browser.myAgents",
+  "agent-tabs-office": "browser.allAgents",
+  "agent-tabs-allow-label": "browser.agentTabsAllow",
 };
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
@@ -68,6 +73,11 @@ let busy = false,
 const picker = element("agent") as HTMLSelectElement;
 const toggle = element("allow") as HTMLInputElement;
 const expiry = element("expiry") as HTMLSelectElement;
+const agentTabsScope = element("agent-tabs-scope") as HTMLSelectElement;
+const agentTabsAllow = element("agent-tabs-allow") as HTMLInputElement;
+const agentTabsList = element("agent-tabs-list");
+// The rows shown, so a poll that changes nothing keeps the buttons.
+let agentTabRows = "";
 async function command(action: string, extra: Record<string, unknown> = {}) {
   if (busy && action !== "state" && action !== "stop") return;
   if (action !== "state") busy = true;
@@ -152,7 +162,7 @@ function render(next: typeof state) {
           })
       : "";
   const selected = current
-    ? current.scope.kind === "agent"
+    ? current.scope.kind === "agent" || current.scope.kind === "opened"
       ? current.scope.agentId
       : current.scope.kind
     : previous
@@ -208,7 +218,7 @@ function render(next: typeof state) {
             : "browser.revoking",
         {
           name:
-            current.scope.kind === "agent"
+            current.scope.kind === "agent" || current.scope.kind === "opened"
               ? current.agent!.name
               : t(
                   current.scope.kind === "office"
@@ -222,6 +232,56 @@ function render(next: typeof state) {
       : conflict
         ? t("browser.tabConflict")
         : "";
+  renderAgentTabs();
+}
+// The member's agent tabs setting and the tabs agents opened, on an office
+// that takes them.
+function renderAgentTabs() {
+  const section = element("agent-tabs");
+  section.hidden = !state.agentTabs || state.state !== "connected";
+  if (section.hidden) return;
+  const scope = state.agentTabs!.scope;
+  const office = element("agent-tabs-office") as HTMLOptionElement;
+  office.hidden = !state.officeScope && scope !== "office";
+  if (scope) agentTabsScope.value = scope;
+  else if (office.hidden) agentTabsScope.value = "all";
+  agentTabsAllow.checked = scope !== null;
+  agentTabsAllow.disabled = busy;
+  agentTabsScope.disabled = busy;
+  const rows = state.assignments.filter((a) => a.scope.kind === "opened");
+  const signature = JSON.stringify(
+    rows.map((a) => [a.id, a.agent?.name, a.manager?.name]),
+  );
+  if (signature === agentTabRows) return;
+  agentTabRows = signature;
+  agentTabsList.replaceChildren(
+    ...rows.map((a) => {
+      const row = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = a.manager
+        ? t("browser.agentTabOf", {
+            agent: a.agent?.name ?? "",
+            member: a.manager.name,
+          })
+        : (a.agent?.name ?? "");
+      const show = document.createElement("button");
+      show.type = "button";
+      show.textContent = t("browser.focus");
+      show.addEventListener(
+        "click",
+        () => void command("focus", { assignment: a.id }),
+      );
+      const close = document.createElement("button");
+      close.type = "button";
+      close.textContent = t("browser.closeTab");
+      close.addEventListener(
+        "click",
+        () => void command("stop", { assignment: a.id }),
+      );
+      row.append(name, show, close);
+      return row;
+    }),
+  );
 }
 element("replace").addEventListener("click", () => {
   revealCode(false);
@@ -236,6 +296,14 @@ element("pair-form").addEventListener("submit", (event) => {
 for (const action of ["disconnect", "reconnect", "unpair"])
   element(action).addEventListener("click", () => void command(action));
 picker.addEventListener("change", () => render(state));
+const sendAgentTabs = () =>
+  void command("agentTabs", {
+    scope: agentTabsAllow.checked ? agentTabsScope.value : null,
+  });
+agentTabsAllow.addEventListener("change", sendAgentTabs);
+agentTabsScope.addEventListener("change", () => {
+  if (agentTabsAllow.checked) sendAgentTabs();
+});
 toggle.addEventListener("change", () => {
   const current = state.assignments.find((a) => a.current);
   if (current) void command("stop", { assignment: current.id });

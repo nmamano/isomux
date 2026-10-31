@@ -1,5 +1,5 @@
 ---
-description: Let agents use a tab in your desktop Chrome. Install and pair the Isomux Browser extension, offer a tab, unpair a browser and update the extension.
+description: Let agents use a tab in your desktop Chrome. Install and pair the Isomux Browser extension, offer a tab or let agents open their own, unpair a browser and update the extension.
 ---
 
 # Browser use
@@ -16,10 +16,14 @@ Chrome warns **Read your browsing history**. The extension uses this permission 
 
 Open an HTTP(S) tab, choose **Only my agents** (the default), **All agents** or one agent in the extension popup, and turn on **Agent control**. **All agents** also gives the tab to the agents of other members in the rooms you can access, and they act as you in it. An agent can have one tab of its own, and you can offer any number of tabs to Only my agents or All agents. Before you offer a tab, choose when control expires: **Never** (the default), **15 minutes**, **1 hour** or **4 hours**. Agent actions do not extend it. The **ON** badge marks offered tabs and the popups that their sites open. When you turn off control, the pages stay open.
 
+## Let agents open tabs
+
+In the extension popup, choose **Only my agents** or **All agents** under **Agent tabs** and turn on **Agents may open tabs**. Agents then open their own tabs in a separate Agents window when they need one, without asking you to offer a tab. The popup lists the open agent tabs, with **Show tab** and **Close tab**. Turn the switch off to close all of them.
+
 ## Unpair a browser
 
 The popup can disconnect or unpair. To revoke a browser that is offline, unpair it in Integrations → Browser Use. When you pair a Chrome again, it is a new browser: unpair its old entry there.
 
 ## Update
 
-Update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. A reload of the extension releases the offers, so offer the tabs again.
+Update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. A reload of the extension releases the offers and closes the agent tabs, so offer the tabs again.

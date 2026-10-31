@@ -7,6 +7,8 @@ export const MAX_TEXT_CHARS = 20_000;
 export const MAX_SNAPSHOT_CHARS = 20_000;
 const MAX_URL_LEN = 2048;
 const MAX_SELECTOR_LEN = 500;
+// A browser name is at most 40 characters; an id is shorter.
+const MAX_BROWSER_LEN = 40;
 const MAX_FILL_LEN = 10_000;
 const MIN_DIM = 320;
 const MAX_DIM = 2560;
@@ -15,6 +17,7 @@ const DEFAULT_HEIGHT = 800;
 
 const BROWSER_ACTIONS = [
   "tabs",
+  "open",
   "goto",
   "snapshot",
   "text",
@@ -37,11 +40,12 @@ type BrowserErrorCode =
   | "invalid_request"
   | "action_failed"
   | "action_timeout"
-  | "office_page_refused";
+  | "office_page_refused"
+  | "agent_tabs_off";
 
 export interface BrowserFailure {
   ok: false;
-  status: 400 | 403 | 500;
+  status: 400 | 403 | 409 | 500;
   code: BrowserErrorCode;
   error: string;
   /** Dialogs that the failed action opened, in order. */
@@ -66,6 +70,12 @@ interface BrowserSuccess {
   }[];
   /** `tabs` only: names of the manager's browsers with an out-of-date extension. */
   outdatedBrowsers?: string[];
+  /** `tabs` only: the connected browsers where this agent may open a tab. */
+  agentTabBrowsers?: { id: string; browser: string; member: string }[];
+  /** `open` only: the name of the browser that holds the new tab. */
+  browser?: string;
+  /** `open` only: the name of the member whose browser it is. */
+  member?: string;
   /** The page's URL after the action. */
   url: string;
   /** The page's title after the action. */
@@ -144,6 +154,8 @@ interface ParsedParams {
   action: BrowserAction;
   target?: string;
   url?: URL;
+  // open only: the id or name of the browser to open the tab in.
+  browser?: string;
   framePath?: number[];
   selector?: string;
   text?: string;
@@ -185,7 +197,8 @@ export function parseBrowserParams(
     if (
       typeof body.target !== "string" ||
       !/^[a-f0-9-]{36}$/.test(body.target) ||
-      action === "tabs"
+      action === "tabs" ||
+      action === "open"
     )
       return invalid(
         "target must be an offered target identifier on a page action",
@@ -230,10 +243,23 @@ export function parseBrowserParams(
     params.viewport = { width: w, height: h };
   }
 
-  if (action === "goto") {
+  if (body.browser !== undefined) {
+    if (
+      action !== "open" ||
+      typeof body.browser !== "string" ||
+      body.browser.length === 0 ||
+      body.browser.length > MAX_BROWSER_LEN
+    )
+      return invalid(
+        `browser must be a browser id or name of 1 to ${MAX_BROWSER_LEN} characters, on the open action`,
+      );
+    params.browser = body.browser;
+  }
+
+  if (action === "goto" || action === "open") {
     const raw = body.url;
     if (typeof raw !== "string" || raw.length === 0)
-      return invalid("url is required for the goto action");
+      return invalid(`url is required for the ${action} action`);
     if (raw.length > MAX_URL_LEN)
       return invalid(`url too long (max ${MAX_URL_LEN} chars)`);
     let url: URL;

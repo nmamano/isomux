@@ -62,7 +62,8 @@ button:focus-visible {
   border-left: 3px solid #93b4ff;
   padding-left: 9px;
 }
-#tab-control {
+#tab-control,
+#agent-tabs {
   margin: 14px 0;
   padding: 12px;
   background: #242b38;
@@ -70,6 +71,30 @@ button:focus-visible {
 }
 #tab-control p {
   margin: 0;
+}
+#agent-tabs-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 13px;
+}
+#agent-tabs-list:empty {
+  display: none;
+}
+#agent-tabs-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 0;
+}
+#agent-tabs-list li span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+#agent-tabs-list button {
+  margin: 0;
+  padding: 4px 8px;
 }
 #error {
   color: #ffb8b8;
@@ -110,7 +135,8 @@ h2 {
   min-height: 32px;
   gap: 12px;
 }
-#allow {
+#allow,
+#agent-tabs-allow {
   position: absolute;
   right: 0;
   width: 44px;
@@ -137,20 +163,25 @@ h2 {
   background: #fff;
   transition: transform 120ms;
 }
-#allow:checked + .switch-track {
+#allow:checked + .switch-track,
+#agent-tabs-allow:checked + .switch-track {
   background: #258353;
 }
-#allow:checked + .switch-track::after {
+#allow:checked + .switch-track::after,
+#agent-tabs-allow:checked + .switch-track::after {
   transform: translateX(18px);
 }
-#allow:focus-visible + .switch-track {
+#allow:focus-visible + .switch-track,
+#agent-tabs-allow:focus-visible + .switch-track {
   outline: 2px solid #99b8ff;
   outline-offset: 3px;
 }
-#allow:disabled {
+#allow:disabled,
+#agent-tabs-allow:disabled {
   cursor: default;
 }
-#allow:disabled + .switch-track {
+#allow:disabled + .switch-track,
+#agent-tabs-allow:disabled + .switch-track {
   opacity: 0.5;
 }
 #tab-state:empty,

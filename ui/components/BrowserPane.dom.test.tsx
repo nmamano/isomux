@@ -92,6 +92,7 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
         pairedAt: 0,
         online: true,
         outdated: false,
+        agentTabs: null,
       },
       {
         id: "desk",
@@ -99,6 +100,7 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
         pairedAt: null,
         online: false,
         outdated: false,
+        agentTabs: null,
       },
     ],
   };
@@ -197,6 +199,7 @@ test("an out-of-date browser gets an update notice with the download; up-to-date
         online: true,
         package: "0.4.5",
         outdated: false,
+        agentTabs: null,
       },
       {
         id: "desk",
@@ -205,6 +208,7 @@ test("an out-of-date browser gets an update notice with the download; up-to-date
         online: true,
         package: null,
         outdated: true,
+        agentTabs: null,
       },
     ],
   };
@@ -227,6 +231,7 @@ test("an out-of-date browser gets an update notice with the download; up-to-date
       ...b,
       package: "0.4.5",
       outdated: false,
+      agentTabs: null,
     })),
   };
   const current = render(<BrowserPane />);
@@ -260,6 +265,7 @@ test("on the iPhone Home Screen office, each extension download opens the share 
         online: true,
         package: null,
         outdated: true,
+        agentTabs: null,
       },
     ],
   }));

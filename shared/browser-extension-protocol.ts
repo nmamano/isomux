@@ -26,31 +26,46 @@ export function validGrantExpiry(
         expiresAt <= 8_640_000_000_000_000)
   );
 }
+// Who may open tabs in a browser whose member turned on agent tabs: "all" is
+// the agents the member manages, "office" every agent the member can reach.
+export type AgentTabsScope = "all" | "office";
+export function validAgentTabsScope(
+  value: unknown,
+): value is AgentTabsScope | null {
+  return value === null || value === "all" || value === "office";
+}
 // "all" is every agent the member manages (the name stays for stored and
-// resumed offers); "office" is every agent the member can reach.
+// resumed offers); "office" is every agent the member can reach. "opened" is
+// a tab that the agent opened itself; via is the agent tabs scope that let it.
 export type BrowserGrantScope =
   | { kind: "all" }
   | { kind: "office" }
-  | { kind: "agent"; agentId: string };
+  | { kind: "agent"; agentId: string }
+  | { kind: "opened"; agentId: string; via: AgentTabsScope };
+const validAgentId = (value: unknown): boolean =>
+  typeof value === "string" && value.length > 0 && value.length <= 200;
 export function validGrantScope(value: unknown): value is BrowserGrantScope {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const scope = value as Record<string, unknown>;
-  return scope.kind === "all" || scope.kind === "office"
-    ? Object.keys(scope).length === 1
-    : scope.kind === "agent" &&
-        typeof scope.agentId === "string" &&
-        scope.agentId.length > 0 &&
-        scope.agentId.length <= 200 &&
-        Object.keys(scope).length === 2;
+  if (scope.kind === "all" || scope.kind === "office")
+    return Object.keys(scope).length === 1;
+  if (scope.kind === "agent")
+    return validAgentId(scope.agentId) && Object.keys(scope).length === 2;
+  return (
+    scope.kind === "opened" &&
+    validAgentId(scope.agentId) &&
+    (scope.via === "all" || scope.via === "office") &&
+    Object.keys(scope).length === 3
+  );
 }
 export function sameGrantScope(
   a: BrowserGrantScope,
   b: BrowserGrantScope,
 ): boolean {
-  return (
-    a.kind === b.kind &&
-    (a.kind !== "agent" || (b.kind === "agent" && a.agentId === b.agentId))
-  );
+  if (a.kind === "agent") return b.kind === "agent" && a.agentId === b.agentId;
+  if (a.kind === "opened")
+    return b.kind === "opened" && a.agentId === b.agentId && a.via === b.via;
+  return a.kind === b.kind;
 }
 export type Fields = Record<string, unknown>;
 export interface BridgePeer {
@@ -194,6 +209,8 @@ export interface MemberBrowserStatus {
     // carried none (before 0.4.5). Absent until it connects.
     package?: string | null;
     outdated: boolean;
+    // Whether agents may open tabs in it, while it is online; else null.
+    agentTabs: AgentTabsScope | null;
   }[];
 }
 export interface ExtensionUIState {
@@ -212,11 +229,15 @@ export interface ExtensionUIState {
   agents: BrowserDisplay[];
   // The office accepts offers to every agent the member can reach.
   officeScope?: boolean;
+  // The office takes agent tabs: the member's setting for this browser.
+  agentTabs?: { scope: AgentTabsScope | null };
   currentTab?: { id: number; eligible: boolean };
   assignments: {
     id: string;
     scope: BrowserGrantScope;
     agent?: BrowserDisplay;
+    // A tab opened via All agents: the name of the agent's manager.
+    manager?: { name: string };
     tabId: number;
     current: boolean;
     phase: "offering" | "on" | "revoking";
@@ -275,6 +296,8 @@ export const BROWSER_ATTACH_FAILURES = [
   "unanswered",
   "ended",
   "attach_failed",
+  // An open the member's agent tabs setting does not allow.
+  "agent_tabs_off",
 ] as const;
 export type BrowserAttachFailure = (typeof BROWSER_ATTACH_FAILURES)[number];
 

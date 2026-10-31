@@ -21,6 +21,12 @@ declare const chrome: {
   };
   windows: {
     update(id: number, options: { focused: boolean }): Promise<unknown>;
+    create(options: {
+      focused?: boolean;
+      state?: "normal" | "minimized";
+      url?: string;
+    }): Promise<{ id?: number; tabs?: { id?: number }[] }>;
+    get(id: number): Promise<{ id?: number; state?: string }>;
   };
   runtime: {
     id: string;
@@ -38,12 +44,15 @@ declare const chrome: {
     };
 
     onStartup: { addListener(callback: () => void): void };
-    onInstalled: { addListener(callback: () => void): void };
+    onInstalled: {
+      addListener(callback: (details: { reason: string }) => void): void;
+    };
   };
   storage: {
     local: {
       set(value: Record<string, unknown>): Promise<void>;
       get(key: string): Promise<Record<string, unknown>>;
+      remove(keys: string | string[]): Promise<void>;
       setAccessLevel(options: {
         accessLevel: "TRUSTED_CONTEXTS";
       }): Promise<void>;
@@ -53,7 +62,9 @@ declare const chrome: {
       get(key: string): Promise<Record<string, unknown>>;
     };
     onChanged: {
-      addListener(callback: (_changes: unknown, area: string) => void): void;
+      addListener(
+        callback: (changes: Record<string, unknown>, area: string) => void,
+      ): void;
     };
   };
   webNavigation: {
@@ -83,8 +94,14 @@ declare const chrome: {
     }>;
     update(
       id: number,
-      options: { active: boolean },
+      options: { active?: boolean; autoDiscardable?: boolean },
     ): Promise<{ windowId: number }>;
+    create(options: {
+      windowId?: number;
+      url?: string;
+      active?: boolean;
+    }): Promise<{ id?: number; windowId?: number }>;
+    remove(ids: number | number[]): Promise<void>;
   };
   debugger: {
     getTargets(): Promise<{ id: string; tabId?: number; type: string }[]>;

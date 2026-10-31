@@ -19,6 +19,8 @@ import {
   BROWSER_ATTACH_FAILURES,
   BROWSER_DETACH_CAUSES,
   type BrowserAttachFailure,
+  type AgentTabsScope,
+  validAgentTabsScope,
 } from "../shared/browser-extension-protocol";
 export { EXTENSION_MAX_BYTES };
 import {
@@ -44,8 +46,31 @@ const offerHandle = (credentialHash: string, assignment: string): string => {
 };
 
 // What an extension sends back to resume an offer: the deadline and the pinned
-// origin that the office answered at the first offer.
-type Resume = { expiresAt: number | null; offerOrigin: string };
+// origin that the office answered at the first offer. A tab that an agent
+// opened has neither: it never expires and has no pin.
+type Resume = { expiresAt: number | null; offerOrigin?: string };
+
+// The offers an action without a target chooses from: the agent's own tabs
+// (its individual offer and the tabs it opened), else the shared offers of
+// its manager's browsers, else the shared offers of other members. The one
+// rule for the bridge and for each connection.
+function routingTier<T>(
+  offers: T[],
+  scope: (offer: T) => BrowserGrantScope,
+  fromManager: (offer: T) => boolean,
+): T[] {
+  const own = offers.filter((o) => {
+    const kind = scope(o).kind;
+    return kind === "agent" || kind === "opened";
+  });
+  if (own.length) return own;
+  const managers = offers.filter(fromManager);
+  return managers.length ? managers : offers;
+}
+
+// An opened tab starts on about:blank; any other page must be http(s).
+const openedPageAllowed = (url: string): boolean =>
+  url === "about:blank" || /^https?:\/\//.test(url);
 
 // How long a timed-out command or action may still fence its grant before
 // the office retires the grant's CDP client and drops its pending commands.
@@ -178,6 +203,8 @@ export class BrowserExtensionBridge {
     private readonly access: {
       memberForCredentialHash(hash: string): string | undefined;
       browserName?(hash: string): string;
+      // The browser's id in the store, for agentTabBrowsers.
+      browserId?(hash: string): string;
       mayUse(memberId: string, agentId: string): boolean;
       mayReach?(memberId: string, agentId: string): boolean;
       memberDisplay?(member: string): BrowserDisplay;
@@ -232,6 +259,8 @@ export class BrowserExtensionBridge {
         offerResume: true,
         // The office takes offers to every agent the member can reach.
         officeScope: true,
+        // Members can let agents open their own tabs (task 73a9fb57).
+        agentTabs: true,
         // The office's extension package, so an older extension can say so.
         package: manifest.version,
         generation: connection.generation,
@@ -292,11 +321,11 @@ export class BrowserExtensionBridge {
     offers: { connection: ExtensionConnection; tab: BrowserTab }[];
     chosen?: { connection: ExtensionConnection; tab: BrowserTab };
   } {
-    const offers = this.offers(manager, agent);
-    const own = offers.find((o) => o.tab.scope.kind === "agent");
-    if (own) return { offers: [own], chosen: own };
-    const managers = offers.filter((o) => o.connection.memberId === manager);
-    const tier = managers.length ? managers : offers;
+    const tier = routingTier(
+      this.offers(manager, agent),
+      (o) => o.tab.scope,
+      (o) => o.connection.memberId === manager,
+    );
     return { offers: tier, chosen: tier.length === 1 ? tier[0] : undefined };
   }
 
@@ -331,7 +360,119 @@ export class BrowserExtensionBridge {
   ambiguous(manager: string | undefined, agent: string): boolean {
     return this.choose(manager, agent).offers.length > 1;
   }
+
+  /** The connected browsers where the agent may open a tab: the manager's
+   * first, then other members' browsers with agent tabs for All agents. */
+  agentTabBrowsers(
+    manager: string | undefined,
+    agent: string,
+  ): AgentTabBrowser[] {
+    return this.openers(manager, agent).map(({ entry }) => entry);
+  }
+
+  private openers(
+    manager: string | undefined,
+    agent: string,
+  ): {
+    connection: ExtensionConnection;
+    via: AgentTabsScope;
+    entry: AgentTabBrowser;
+  }[] {
+    const live = [...this.live.values()];
+    return [
+      ...live.filter((c) => c.memberId === manager),
+      ...live.filter((c) => c.memberId !== manager),
+    ].flatMap((connection) => {
+      const via = connection.openVia(agent);
+      return via
+        ? [
+            {
+              connection,
+              via,
+              entry: {
+                id: this.access.browserId?.(connection.credentialHash) ?? "",
+                browser:
+                  this.access.browserName?.(connection.credentialHash) ?? "",
+                member:
+                  this.access.memberDisplay?.(connection.memberId).name ?? "",
+              },
+            },
+          ]
+        : [];
+    });
+  }
+
+  /** Opens a tab for the agent in a browser of its manager, or in browser
+   * (an id or a name from agentTabBrowsers). The tab shows about:blank; the
+   * caller navigates it. */
+  async open(
+    manager: string | undefined,
+    agent: string,
+    browser?: string,
+  ): Promise<OpenResult> {
+    const openers = this.openers(manager, agent);
+    const candidates =
+      browser === undefined
+        ? openers.filter((o) => o.connection.memberId === manager)
+        : openers.filter(
+            (o) => o.entry.id === browser || o.entry.browser === browser,
+          );
+    if (candidates.length > 1)
+      return {
+        ok: false,
+        code: "browser_target_required",
+        browsers: candidates.map((o) => o.entry),
+      };
+    const chosen = candidates[0];
+    if (!chosen) {
+      if (browser !== undefined) return { ok: false, code: "invalid_request" };
+      return {
+        ok: false,
+        code:
+          manager !== undefined && this.connections(manager).length
+            ? "agent_tabs_off"
+            : "browser_offline",
+      };
+    }
+    const opened = await chosen.connection.openTab(
+      agent,
+      chosen.via,
+      manager === undefined
+        ? undefined
+        : this.access.memberDisplay?.(manager).name,
+    );
+    return "target" in opened
+      ? {
+          ok: true,
+          connection: chosen.connection,
+          target: opened.target,
+          browser: chosen.entry.browser,
+          member: chosen.entry.member,
+        }
+      : { ok: false, code: opened.code };
+  }
 }
+
+export type AgentTabBrowser = { id: string; browser: string; member: string };
+export type OpenResult =
+  | {
+      ok: true;
+      connection: ExtensionConnection;
+      target: string;
+      browser: string;
+      member: string;
+    }
+  | {
+      ok: false;
+      code:
+        | "agent_tabs_off"
+        | "browser_offline"
+        | "browser_target_required"
+        | "invalid_request"
+        | "action_failed";
+      // The candidates, for browser_target_required.
+      browsers?: AgentTabBrowser[];
+    };
 
 function listen(
   map: Map<string, Set<() => void>>,
@@ -349,6 +490,7 @@ function listen(
 
 // Why a grant ended, in its grant_released line (task 694e958e).
 type ReleaseCause =
+  | "agent_tabs_changed"
   | "attach_timeout"
   | "bad_client_message"
   | "check_failed"
@@ -441,6 +583,68 @@ export class ExtensionConnection {
     });
   }
   private stopLearning: () => void;
+  private agentTabsScope: AgentTabsScope | null = null;
+
+  // The agent tabs scope that lets agent open a tab here, or undefined: "all"
+  // when the member manages the agent, "office" when they only reach it.
+  openVia(agent: string): AgentTabsScope | undefined {
+    if (!this.active || !this.ownerValid() || !this.agentTabsScope) return;
+    if (this.authorize(agent)) return "all";
+    if (this.agentTabsScope === "office" && this.reach(agent)) return "office";
+    return undefined;
+  }
+
+  // The setting covers a tab opened via this scope.
+  private covers(via: AgentTabsScope): boolean {
+    return (
+      this.agentTabsScope === "office" ||
+      (this.agentTabsScope === "all" && via === "all")
+    );
+  }
+
+  /** Opens an about:blank tab for agent in this browser. Resolves with its
+   * target, or with why it was not opened; a failed open leaves no grant. */
+  async openTab(
+    agent: string,
+    via: AgentTabsScope,
+    managerName?: string,
+  ): Promise<
+    { target: string } | { code: "agent_tabs_off" | "action_failed" }
+  > {
+    const scope: BrowserGrantScope = { kind: "opened", agentId: agent, via };
+    if (this.openVia(agent) !== via) return { code: "agent_tabs_off" };
+    const a = this.newAssignment(crypto.randomUUID(), scope, 0);
+    this.assignments.set(a.id, a);
+    const failure = await this.establish(a, "open", {
+      agentId: agent,
+      agentName: this.agentDisplay?.(agent).name ?? agent,
+      scope,
+      ...(via === "office" && managerName ? { managerName } : {}),
+    });
+    if (!failure) return { target: a.handle };
+    return {
+      code:
+        failure instanceof CommandFailedError &&
+        failure.attachReason === "agent_tabs_off"
+          ? "agent_tabs_off"
+          : "action_failed",
+    };
+  }
+
+  // The member changed the agent tabs setting: tabs it no longer covers end.
+  private setAgentTabs(scope: AgentTabsScope | null): void {
+    this.agentTabsScope = scope;
+    for (const a of [...this.assignments.values()])
+      if (a.scope.kind === "opened" && !this.authorized(a))
+        this.release(a, "agent_tabs_changed");
+    this.sendMetadata();
+  }
+
+  /** Who may open tabs in this browser, as the extension last said; null
+   * when agent tabs are off or the extension never said. */
+  get agentTabs(): AgentTabsScope | null {
+    return this.agentTabsScope;
+  }
 
   /** The origin of the page the member offered, pinned at the offer. */
   offerOrigin(grant: string): string | undefined {
@@ -891,8 +1095,10 @@ export class ExtensionConnection {
       this.ownerValid() &&
       (a.scope.kind === "office"
         ? this.reach(agent)
-        : this.authorize(agent) &&
-          (a.scope.kind === "all" || a.scope.agentId === agent))
+        : a.scope.kind === "opened"
+          ? a.scope.agentId === agent && this.authorized(a)
+          : this.authorize(agent) &&
+            (a.scope.kind === "all" || a.scope.agentId === agent))
     );
   }
 
@@ -941,11 +1147,17 @@ export class ExtensionConnection {
 
   offered(agentId: string, target?: string): string | undefined {
     const available = this.targets(agentId);
+    const tier = routingTier(
+      available,
+      (a) => a.scope,
+      () => true,
+    );
     const chosen =
       target !== undefined
         ? available.find((a) => a.target === target)
-        : (available.find((a) => a.scope.kind === "agent") ??
-          (available.length === 1 ? available[0] : undefined));
+        : tier.length === 1
+          ? tier[0]
+          : undefined;
     return chosen
       ? [...this.assignments.values()].find((a) => a.handle === chosen.target)
           ?.id
@@ -953,9 +1165,12 @@ export class ExtensionConnection {
   }
 
   ambiguous(agent: string): boolean {
-    const available = this.targets(agent);
     return (
-      !available.some((a) => a.scope.kind === "agent") && available.length > 1
+      routingTier(
+        this.targets(agent),
+        (a) => a.scope,
+        () => true,
+      ).length > 1
     );
   }
 
@@ -966,9 +1181,19 @@ export class ExtensionConnection {
   }
 
   private authorized(a: Assignment): boolean {
+    return this.scopeAuthorized(a.scope);
+  }
+
+  private scopeAuthorized(scope: BrowserGrantScope): boolean {
+    if (!this.ownerValid()) return false;
+    if (scope.kind === "agent") return this.authorize(scope.agentId);
+    if (scope.kind !== "opened") return true;
+    // An opened tab needs the setting that let it, and the agent in reach.
     return (
-      this.ownerValid() &&
-      (a.scope.kind !== "agent" || this.authorize(a.scope.agentId))
+      this.covers(scope.via) &&
+      (scope.via === "all"
+        ? this.authorize(scope.agentId)
+        : this.reach(scope.agentId))
     );
   }
 
@@ -994,28 +1219,25 @@ export class ExtensionConnection {
     return { expiresAt, offerOrigin };
   }
 
-  private async offer(
+  // An opened tab comes back only as a resume: no deadline and no pin.
+  private openedResume(
+    durationMinutes: BrowserGrantDuration,
+    msg: Fields,
+  ): Resume | null {
+    return "expiresAt" in msg &&
+      msg.expiresAt === null &&
+      !("offerOrigin" in msg) &&
+      durationMinutes === 0
+      ? { expiresAt: null }
+      : null;
+  }
+
+  private newAssignment(
     id: string,
     scope: BrowserGrantScope,
     durationMinutes: BrowserGrantDuration,
-    resume?: Resume | null,
-  ): Promise<void> {
-    if (
-      resume === null ||
-      !this.ownerValid() ||
-      (scope.kind === "agent" && !this.authorize(scope.agentId)) ||
-      this.assignments.has(id) ||
-      (scope.kind === "agent" && this.agentTaken(scope.agentId))
-    ) {
-      this.peer.send({
-        kind: "offered",
-        generation: this.generation,
-        assignment: id,
-        error: true,
-      });
-      return;
-    }
-    const a: Assignment = {
+  ): Assignment {
+    return {
       durationMinutes,
       expiresAt: null,
       id,
@@ -1039,11 +1261,52 @@ export class ExtensionConnection {
       world: { isolated: "none" },
       closed: false,
     };
+  }
+
+  private async offer(
+    id: string,
+    scope: BrowserGrantScope,
+    durationMinutes: BrowserGrantDuration,
+    resume?: Resume | null,
+  ): Promise<void> {
+    if (
+      resume === null ||
+      !this.ownerValid() ||
+      (scope.kind === "agent" && !this.authorize(scope.agentId)) ||
+      // An opened tab comes back only as a resume (openedResume), and only
+      // while the setting covers it.
+      (scope.kind === "opened" && !this.scopeAuthorized(scope)) ||
+      this.assignments.has(id) ||
+      (scope.kind === "agent" && this.agentTaken(scope.agentId))
+    ) {
+      this.peer.send({
+        kind: "offered",
+        generation: this.generation,
+        assignment: id,
+        error: true,
+      });
+      return;
+    }
+    const a = this.newAssignment(id, scope, durationMinutes);
     this.assignments.set(id, a);
+    await this.establish(a, "attach", {}, resume);
+  }
+
+  // Attaches a new grant through the extension's attach (a member's offer or
+  // its resume) or open (a tab an agent opens), then answers offered. A
+  // failure releases the grant and returns the error.
+  private async establish(
+    a: Assignment,
+    method: "attach" | "open",
+    params: Fields,
+    resume?: Resume,
+  ): Promise<CommandFailedError | Error | undefined> {
+    const { id, scope, durationMinutes } = a;
+    const opened = scope.kind === "opened";
     // Where the offer failed, for the log.
     let stage: "attach" | "target" | "start" = "attach";
     try {
-      const result = await this.request(a, "attach", {});
+      const result = await this.request(a, method, params);
       stage = "target";
       this.check(a);
       const target = fields(result.targetInfo);
@@ -1051,15 +1314,22 @@ export class ExtensionConnection {
         target.type !== "page" ||
         typeof target.targetId !== "string" ||
         typeof target.url !== "string" ||
-        !/^https?:\/\//.test(target.url) ||
+        !(opened
+          ? openedPageAllowed(target.url)
+          : /^https?:\/\//.test(target.url)) ||
         this.knownTarget(target.targetId)
       )
         throw new Error("Invalid offered target");
       a.target = target;
       stage = "start";
       // A resumed offer keeps its first pin: a tab that moved onto an office
-      // page while the office was away starts behind the gate.
-      a.offerOrigin = resume ? resume.offerOrigin : httpOrigin(target.url);
+      // page while the office was away starts behind the gate. An opened tab
+      // has no pin, so every office page is behind the gate.
+      a.offerOrigin = opened
+        ? undefined
+        : resume
+          ? resume.offerOrigin
+          : httpOrigin(target.url);
       a.pages.set(a.session, {
         url: target.url,
         gated: this.officeRefused(a, target.url),
@@ -1083,7 +1353,7 @@ export class ExtensionConnection {
         scope,
         durationMinutes,
         expiresAt: a.expiresAt,
-        offerOrigin: a.offerOrigin,
+        ...(a.offerOrigin === undefined ? {} : { offerOrigin: a.offerOrigin }),
       });
       console.info(
         "[browser-extension] " +
@@ -1093,9 +1363,11 @@ export class ExtensionConnection {
             assignment: id,
             controlSession: a.session,
             resumed: resume !== undefined,
+            ...(opened ? { opened: true } : {}),
           }),
       );
       this.sendMetadata();
+      return undefined;
     } catch (error) {
       this.release(a, "offer_failed", {
         stage,
@@ -1110,6 +1382,7 @@ export class ExtensionConnection {
           assignment: id,
           error: true,
         });
+      return error instanceof Error ? error : new Error("Open failed");
     }
   }
 
@@ -1134,7 +1407,7 @@ export class ExtensionConnection {
         .map((a) => ({
           id: a.id,
           scope: a.scope,
-          ...(a.scope.kind === "agent"
+          ...(a.scope.kind === "agent" || a.scope.kind === "opened"
             ? { agent: this.agentDisplay!(a.scope.agentId) }
             : {}),
           durationMinutes: a.durationMinutes,
@@ -1294,7 +1567,7 @@ export class ExtensionConnection {
       const timer = setTimeout(() => {
         const pending = this.pending.get(id);
         if (!pending) return;
-        if (method === "attach") {
+        if (method === "attach" || method === "open") {
           this.release(a, "attach_timeout");
           return;
         }
@@ -1463,14 +1736,26 @@ export class ExtensionConnection {
         // A refused resume is answered, never closed: a close would make the
         // extension reconnect and send the same resume again.
         const resume =
-          "expiresAt" in msg || "offerOrigin" in msg
-            ? this.resumeOf(msg.durationMinutes, msg.expiresAt, msg.offerOrigin)
-            : undefined;
+          msg.scope.kind === "opened"
+            ? this.openedResume(msg.durationMinutes, msg)
+            : "expiresAt" in msg || "offerOrigin" in msg
+              ? this.resumeOf(
+                  msg.durationMinutes,
+                  msg.expiresAt,
+                  msg.offerOrigin,
+                )
+              : undefined;
         void this.offer(msg.assignment, msg.scope, msg.durationMinutes, resume);
         return;
       }
       if (msg.kind === "agents") {
         this.revalidate();
+        return;
+      }
+      if (msg.kind === "agentTabs") {
+        if (!validAgentTabsScope(msg.scope))
+          throw new Error("Invalid agent tabs setting");
+        this.setAgentTabs(msg.scope);
         return;
       }
       if (msg.kind === "result" && typeof msg.id === "number") {

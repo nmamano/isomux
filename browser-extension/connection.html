@@ -79,6 +79,23 @@
         <p id="tab-state" role="status"></p>
         <p id="expiry-state"></p>
       </section>
+      <section id="agent-tabs" aria-labelledby="agent-tabs-heading" hidden>
+        <h2 id="agent-tabs-heading"></h2>
+        <label id="agent-tabs-scope-label" for="agent-tabs-scope"></label>
+        <select id="agent-tabs-scope">
+          <option id="agent-tabs-mine" value="all"></option>
+          <option id="agent-tabs-office" value="office"></option>
+        </select>
+        <label class="control-switch"
+          ><span id="agent-tabs-allow-label"></span
+          ><input
+            type="checkbox"
+            id="agent-tabs-allow"
+            class="switch"
+            role="switch" /><span class="switch-track" aria-hidden="true"></span
+        ></label>
+        <ul id="agent-tabs-list"></ul>
+      </section>
       <p id="retained"></p>
       <p id="error" role="alert"></p>
     </main>

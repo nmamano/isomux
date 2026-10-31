@@ -139,14 +139,22 @@ const errorClass = (error: unknown): string => {
 // this replaces the promise that offers come back.
 const outdatedNote = (names: string[]) =>
   `The extension in ${names.join(", ")} is out of date: ask your manager to update it in Integrations → Browser Use.`;
+const offlineError = (outdated: string[]) =>
+  "No paired Chrome browser is online. " +
+  (outdated.length
+    ? outdatedNote(outdated)
+    : "If the office just restarted, try again in a minute: offers come back with the same targets.");
 const offline = (outdated: string[]) =>
-  failure(
-    "browser_offline",
-    "No paired Chrome browser is online. " +
-      (outdated.length
-        ? outdatedNote(outdated)
-        : "If the office just restarted, try again in a minute: offers come back with the same targets."),
-  );
+  failure("browser_offline", offlineError(outdated));
+// Where an agent with no tab of its own can still open one.
+const OPEN_ELSEWHERE =
+  'Another member\'s browser lets you open a tab: pass its id as "browser" (see agentTabBrowsers in action "tabs").';
+const withOpenElsewhere = (error: string, elsewhere: boolean) =>
+  elsewhere ? `${error} ${OPEN_ELSEWHERE}` : error;
+const AGENT_TABS_OFF =
+  'Your manager\'s browser does not let agents open tabs. In your ask, give the member the choice: turn on "Agents may open tabs" in the extension popup, offer you a tab, or do the steps themselves.';
+const agentTabsOutdated = (names: string[]) =>
+  `${outdatedNote(names)} An updated extension can let agents open tabs.`;
 // playwright-core takes most of a second to load, so the office loads it at
 // the first browser session, not at boot.
 let playwright: Promise<typeof import("playwright-core")> | undefined;
@@ -268,10 +276,12 @@ export class ExtensionBrowserSessions {
     // browser offers the agent a tab. Other members' browsers can offer too.
     const member = this.owner(agent);
     const bridge = this.service.bridge;
+    if (params.action === "open") return this.open(member, agent, params);
     if (params.action === "tabs") {
       const tabs = bridge.targets(member, agent);
       const outdated = member ? this.service.outdatedBrowsers(member) : [];
-      if (!tabs.length) {
+      const openable = bridge.agentTabBrowsers(member, agent);
+      if (!tabs.length && !openable.length) {
         if (!member || !this.service.store.paired(member))
           return Promise.resolve(
             failure("browser_not_paired", "No Chrome browser is paired"),
@@ -286,6 +296,7 @@ export class ExtensionBrowserSessions {
         title: "",
         tabs,
         ...(outdated.length ? { outdatedBrowsers: outdated } : {}),
+        ...(openable.length ? { agentTabBrowsers: openable } : {}),
       });
     }
     if (!params.target && bridge.ambiguous(member, agent))
@@ -325,6 +336,96 @@ export class ExtensionBrowserSessions {
       .catch(() => {});
     return work;
   }
+  // A new tab in a browser that lets agents open tabs, then a goto on it. A
+  // goto that fails closes the tab again.
+  private async open(
+    member: string | undefined,
+    agent: string,
+    params: Extract<ReturnType<typeof parseBrowserParams>, { ok: true }>,
+  ): Promise<BrowserResult> {
+    const bridge = this.service.bridge;
+    const url = params.url!.href;
+    if (officePageRefused(url, undefined, bridge.offices.all()))
+      return officeRefused();
+    const opened = await bridge.open(member, agent, params.browser);
+    if (!opened.ok) {
+      // Without a browser named, open tries every browser of the manager
+      // that lets agents open tabs, so the ones left are other members'.
+      const elsewhere =
+        params.browser === undefined &&
+        bridge.agentTabBrowsers(member, agent).length > 0;
+      switch (opened.code) {
+        case "browser_offline":
+          if (!member || !this.service.store.paired(member))
+            return failure(
+              "browser_not_paired",
+              withOpenElsewhere("No Chrome browser is paired.", elsewhere),
+            );
+          return failure(
+            "browser_offline",
+            withOpenElsewhere(
+              offlineError(this.service.outdatedBrowsers(member)),
+              elsewhere,
+            ),
+          );
+        case "agent_tabs_off": {
+          const outdated = member
+            ? this.service.outdatedBrowsers(member, true)
+            : [];
+          const all = member ? bridge.connections(member).length : 0;
+          return {
+            ok: false,
+            status: 409,
+            code: "agent_tabs_off",
+            error: withOpenElsewhere(
+              outdated.length && outdated.length === all
+                ? agentTabsOutdated(outdated)
+                : AGENT_TABS_OFF,
+              elsewhere,
+            ),
+          };
+        }
+        case "browser_target_required":
+          return failure(
+            "browser_target_required",
+            `Several browsers let you open a tab: ${(opened.browsers ?? [])
+              .map((b) => `${b.browser} (id ${b.id}, ${b.member})`)
+              .join(
+                ", ",
+              )}. Pass the id of one as "browser". Use action "tabs" to list them in agentTabBrowsers.`,
+          );
+        case "invalid_request":
+          return {
+            ok: false,
+            status: 400,
+            code: "invalid_request",
+            error:
+              'No browser with that id or name lets you open a tab. Use action "tabs" to list them in agentTabBrowsers.',
+          };
+        default:
+          return failure(
+            "action_failed",
+            "The browser could not open a tab. Try again, or ask the member to offer you a tab.",
+          );
+      }
+    }
+    const goto = await this.run(agent, {
+      action: "goto",
+      url,
+      target: opened.target,
+    });
+    if (!goto.ok) {
+      await this.run(agent, { action: "close", target: opened.target });
+      return goto;
+    }
+    return {
+      ...goto,
+      target: opened.target,
+      browser: opened.browser,
+      member: opened.member,
+    };
+  }
+
   private async extensionAction(
     member: string | undefined,
     agent: string,

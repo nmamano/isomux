@@ -86,6 +86,7 @@ export class BrowserExtensionService {
         return member && access.memberExists(member) ? member : undefined;
       },
       browserName: (hash) => store.browserForHash(hash)?.browser.name ?? "",
+      browserId: (hash) => store.browserForHash(hash)?.browser.id ?? "",
       agents: (member) => access.agents?.(member) ?? [],
       mayUse: (member, agent) => access.mayUse(member, agent),
       mayReach: (member, agent) => !!access.mayReach?.(member, agent),
@@ -110,6 +111,7 @@ export class BrowserExtensionService {
         online: !!this.bridge.forCredentialHash(b.hash),
         ...(reported === undefined ? {} : { package: reported }),
         outdated: extensionOutdated(reported, manifest.version),
+        agentTabs: this.bridge.forCredentialHash(b.hash)?.agentTabs ?? null,
       };
     });
     return {
@@ -123,12 +125,15 @@ export class BrowserExtensionService {
       browsers,
     };
   }
-  // Names of the member's paired browsers whose extension is out of date.
-  outdatedBrowsers(member: string): string[] {
+  // Names of the member's paired browsers whose extension is out of date;
+  // with online, only the connected ones.
+  outdatedBrowsers(member: string, online = false): string[] {
     return this.store
       .browsers(member)
-      .filter((b) =>
-        extensionOutdated(this.packages.get(b.hash), manifest.version),
+      .filter(
+        (b) =>
+          extensionOutdated(this.packages.get(b.hash), manifest.version) &&
+          (!online || !!this.bridge.forCredentialHash(b.hash)),
       )
       .map((b) => b.name);
   }

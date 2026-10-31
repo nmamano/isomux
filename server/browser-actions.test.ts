@@ -57,6 +57,38 @@ describe("parseBrowserParams", () => {
     }
   });
 
+  it("open takes goto's url and an optional browser, which no other action takes", () => {
+    const url = "https://example.test/";
+    const accepted = parseBrowserParams({
+      action: "open",
+      url,
+      browser: "Laptop",
+    });
+    expect(accepted).toMatchObject({ ok: true, browser: "Laptop" });
+    expect(parseBrowserParams({ action: "open", url })).toMatchObject({
+      ok: true,
+      url: new URL(url),
+    });
+    for (const body of [
+      { action: "open" },
+      { action: "open", url: "about:blank" },
+      { action: "open", url: "file:///etc/passwd" },
+      { action: "open", url: "https://user:pw@example.test/" },
+      { action: "open", url, browser: "" },
+      { action: "open", url, browser: 7 },
+      { action: "open", url, browser: "b".repeat(41) },
+      { action: "goto", url, browser: "Laptop" },
+      { action: "tabs", browser: "Laptop" },
+    ])
+      expect({ body, ok: parseBrowserParams(body).ok }).toEqual({
+        body,
+        ok: false,
+      });
+    expect(
+      parseBrowserParams({ action: "open", url, browser: "b".repeat(40) }).ok,
+    ).toBe(true);
+  });
+
   it("rejects credentials embedded in the URL", () => {
     const r = parseBrowserParams({
       action: "goto",

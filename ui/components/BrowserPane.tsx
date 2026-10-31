@@ -245,6 +245,19 @@ export function BrowserPane() {
                         })}
                       </>
                     )}
+                    {b.agentTabs && (
+                      <span data-testid="browser-agent-tabs">
+                        {" "}
+                        ·{" "}
+                        {t("browser.agentTabsSetting", {
+                          scope: t(
+                            b.agentTabs === "office"
+                              ? "browser.allAgents"
+                              : "browser.myAgents",
+                          ),
+                        })}
+                      </span>
+                    )}
                   </span>
                   <button
                     data-testid="browser-revoke"
