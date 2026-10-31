@@ -1654,6 +1654,8 @@ Cosas que puedes hacer por él:
   "asks.openLink": "Abrir {page}",
   "asks.fromApp": "De la app {app}",
   "asks.discuss": "Comentar en el chat",
+  "asks.copyId": "Copiar el ID de la petición",
+  "asks.idCopied": "¡Copiado!",
   "asks.aboutPrefix": 'Sobre tu petición "{question}": ',
   "asks.dismissed": "Descartada",
   "asks.dismissedReason": "Descartada: {reason}",

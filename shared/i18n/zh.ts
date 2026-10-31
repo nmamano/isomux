@@ -1470,6 +1470,8 @@ App 的一些原则：
   "asks.openLink": "打开「{page}」",
   "asks.fromApp": "来自应用 {app}",
   "asks.discuss": "在聊天中讨论",
+  "asks.copyId": "复制请示 ID",
+  "asks.idCopied": "已复制！",
   "asks.aboutPrefix": "关于你的请示「{question}」：",
   "asks.dismissed": "已忽略",
   "asks.dismissedReason": "已忽略：{reason}",

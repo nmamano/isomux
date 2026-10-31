@@ -1312,6 +1312,9 @@ const SPEC_ROUTE_CONTRACT: Record<
       "tasks",
     ],
   },
+  // Any agent's ask by its id (task 03f5c534): the reach of its logs,
+  // checked in the handler against the ask's agent.
+  "asks.get": { caps: ["log:read"], emits: [] },
   // A file an open ask references where it is (task 37a660e8): read-only,
   // for the member who answers.
   "asks.getFile": {
@@ -2232,6 +2235,7 @@ const API_REACHABLE_OPIDS = [
   "secretRequests.decline",
   "agents.askHistory",
   "asks.list",
+  "asks.get",
   "asks.reply",
   "asks.dismiss",
   "asks.getFile",

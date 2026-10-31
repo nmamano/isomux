@@ -1659,6 +1659,8 @@ Coses que pots fer per ell:
   "asks.openLink": "Obre {page}",
   "asks.fromApp": "De l'app {app}",
   "asks.discuss": "Comenta-ho al xat",
+  "asks.copyId": "Copia l'ID de la petició",
+  "asks.idCopied": "Copiat!",
   "asks.aboutPrefix": 'Sobre la teva petició "{question}": ',
   "asks.dismissed": "Descartada",
   "asks.dismissedReason": "Descartada: {reason}",

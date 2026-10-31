@@ -44,6 +44,8 @@ export interface AskHistory {
   has(id: string): boolean;
   // The agent's closed ask with this id, or null.
   get(agentId: string, id: string): AskHistoryRecord | null;
+  // The closed ask with this id, whatever its agent, or null.
+  getById(id: string): AskHistoryRecord | null;
   // The agent's closed asks, newest close first.
   list(
     agentId: string,
@@ -119,6 +121,14 @@ export function createAskHistory(db: Database): AskHistory {
         .get(agentId, id) as Row | null;
       return row ? withEvents(agentId, [parse(row)])[0] : null;
     },
+    getById(id) {
+      const row = db
+        .query(
+          "SELECT seq,agent_id,record FROM ask_history WHERE id=? ORDER BY seq DESC LIMIT 1",
+        )
+        .get(id) as (Row & { agent_id: string }) | null;
+      return row ? withEvents(row.agent_id, [parse(row)])[0] : null;
+    },
     list(agentId, { memberUserId, before, limit }) {
       const where = ["agent_id=?"];
       const args: (string | number)[] = [agentId];
@@ -156,6 +166,7 @@ export function officeAskHistory(): AskHistory {
       current().recordEvent(agentId, askId, event),
     has: (id) => current().has(id),
     get: (agentId, id) => current().get(agentId, id),
+    getById: (id) => current().getById(id),
     list: (agentId, query) => current().list(agentId, query),
   };
 }

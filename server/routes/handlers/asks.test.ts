@@ -46,6 +46,7 @@ function rig(over: Partial<AsksDeps> = {}) {
       recordEvent: () => {},
       has: () => false,
       get: () => null,
+      getById: () => null,
       list: () => ({ items: [], nextBefore: null }),
     },
     agent: () => ({ roomId: "r1", managerUserId: "u1" }),
@@ -55,6 +56,7 @@ function rig(over: Partial<AsksDeps> = {}) {
     memberName: () => "pat",
     memberCanSeeRoom: () => true,
     isOfficeOwner: () => false,
+    canReadAgentLogs: () => false,
     // Step asks (task c71cb60f): unused here.
     steps: {
       check: () => {

@@ -36,6 +36,7 @@ import {
 } from "../components/dialog-styles.ts";
 import { MaskedInput } from "../components/MaskedInput.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
+import { AskIdChip } from "./AskIdChip.tsx";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
 
@@ -286,7 +287,15 @@ export function SecretAskCard({
       <p style={hintStyle} {...noTranslate()}>
         <InlineMarkdown content={secret.reason} code />
       </p>
-      <div style={{ margin: "-4px 0 8px" }}>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "baseline",
+          columnGap: 14,
+          margin: "-4px 0 8px",
+        }}
+      >
         <AskAboutButton
           entry={entry}
           isMobile={isMobile}
@@ -294,6 +303,7 @@ export function SecretAskCard({
           onFocusAgent={onFocusAgent}
           onChatAgent={onChatAgent}
         />
+        <AskIdChip id={entry.id} isMobile={isMobile} />
       </div>
       {!known ? (
         // A kind from a later release: only the decline is offered here.

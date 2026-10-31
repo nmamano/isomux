@@ -477,6 +477,102 @@ describe("who reads the history", () => {
   });
 });
 
+// GET /api/asks/:askId (task 03f5c534): any agent's ask by its id, for a
+// caller with the reach of that agent's logs. The body is the asking agent's
+// own read by id; no reach is the same 404 as an unknown id.
+describe("an ask by its id alone", () => {
+  const byId = (w: W, id: string, auth: Auth) =>
+    call(w.srv, "GET", `/api/asks/${id}`, auth);
+
+  // An agent and a member outside the asker's room.
+  async function outsiders(w: W) {
+    const elsewhere = w.srv.agentManager.createRoom("Elsewhere");
+    const quinn = await w.srv.seedMember("Quinn");
+    const quinnId = getUserByName(quinn.username)!.id;
+    expect(updateUserById(quinnId, { allowedRooms: [elsewhere] })).toBeTruthy();
+    const far = await w.spawn("Far", elsewhere, quinnId);
+    return [
+      ["member outside", { rawSessionId: quinn.rawSessionId }],
+      ["agent outside", w.as(far.id)],
+    ] as const;
+  }
+
+  it("reads an open ask for the agent, a peer and the member, and is the unknown id's 404 outside the room", async () => {
+    const w = await world();
+    const entry = await open(w, "Ship it?");
+    const own = await readOne(w, entry.id);
+    expect([own.status, (own.body as AskEntry).id]).toEqual([200, entry.id]);
+
+    for (const [who, auth] of [
+      ["self", w.as(w.asker.id)],
+      ["peer", w.as(w.other.id)],
+      ["owner", w.ownerAuth],
+    ] as const) {
+      const r = await byId(w, entry.id, auth);
+      expect([who, r.status, r.body]).toEqual([who, 200, own.body]);
+    }
+
+    const unknown = await byId(w, "0".repeat(8), w.as(w.other.id));
+    expect([unknown.status, unknown.code]).toEqual([404, "not_found"]);
+    for (const [who, auth] of await outsiders(w)) {
+      const r = await byId(w, entry.id, auth);
+      // The same answer as for an id that does not exist.
+      expect([who, r.status, r.body]).toEqual([who, 404, unknown.body]);
+    }
+  });
+
+  it("reads a closed ask with its events, as the agent reads it", async () => {
+    const w = await world();
+    const entry = await open(w, "Pull the spend?");
+    const base = `/api/agents/${w.asker.id}/asks/${entry.id}`;
+    const edited = await call(w.srv, "PATCH", base, w.as(w.asker.id), {
+      text: "Pull the spend per agent?",
+    });
+    expect(edited.status).toBe(200);
+    const removed = await call(w.srv, "DELETE", base, w.as(w.asker.id));
+    expect(removed.status).toBe(204);
+    const own = await readOne(w, entry.id);
+    expect(own.status).toBe(200);
+    const closed = own.body as AskClosedWire;
+    expect([closed.closed.outcome, closed.events.map((e) => e.kind)]).toEqual([
+      "withdrawn",
+      ["created", "edited"],
+    ]);
+
+    for (const [who, auth] of [
+      ["peer", w.as(w.other.id)],
+      ["owner", w.ownerAuth],
+    ] as const) {
+      const r = await byId(w, entry.id, auth);
+      expect([who, r.status, r.body]).toEqual([who, 200, own.body]);
+    }
+    const unknown = await byId(w, "0".repeat(8), w.as(w.other.id));
+    for (const [who, auth] of await outsiders(w)) {
+      const r = await byId(w, entry.id, auth);
+      expect([who, r.status, r.body]).toEqual([who, 404, unknown.body]);
+    }
+  });
+
+  it("reads a killed agent's ask for an agent of its manager", async () => {
+    const w = await world();
+    const entry = await open(w, "Still there?");
+    await w.srv.agentManager.kill(w.asker.id);
+    const r = await byId(w, entry.id, w.as(w.other.id));
+    expect(r.status).toBe(200);
+    const closed = r.body as AskClosedWire;
+    expect([closed.id, closed.agentId, closed.closed.outcome]).toEqual([
+      entry.id,
+      w.asker.id,
+      "agent_removed",
+    ]);
+    const unknown = await byId(w, "0".repeat(8), w.as(w.other.id));
+    for (const [who, auth] of await outsiders(w)) {
+      const out = await byId(w, entry.id, auth);
+      expect([who, out.status, out.body]).toEqual([who, 404, unknown.body]);
+    }
+  });
+});
+
 describe("the history's query", () => {
   it("filters by member, pages by its cursor, and refuses an unknown member or a bad cursor or limit", async () => {
     const w = await world();

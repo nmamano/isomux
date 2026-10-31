@@ -1630,6 +1630,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.openLink": "Open {page}",
   "asks.fromApp": "From app {app}",
   "asks.discuss": "Discuss in chat",
+  "asks.copyId": "Copy ask ID",
+  "asks.idCopied": "Copied!",
   "asks.aboutPrefix": 'About your ask "{question}": ',
   "asks.dismissed": "Dismissed",
   "asks.dismissedReason": "Dismissed: {reason}",

@@ -109,6 +109,9 @@ export interface AsksDeps {
   // Whether a member can reach a room.
   memberCanSeeRoom(userId: string, roomId: string): boolean;
   isOfficeOwner(userId: string): boolean;
+  // Whether the caller can read the agent's logs (logSearchAccess): the reach
+  // of asks.get, a read of any agent's ask by its id.
+  canReadAgentLogs(identity: Identity, agentId: string): boolean;
   // Step asks (task c71cb60f): the check of a create's `step`.
   steps: Pick<StepAsks, "check">;
   // An ask's chat affordances: the chat's checks, paths against the agent's
@@ -286,6 +289,21 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const own = (agentId: string, id: string): AskEntry | null => {
     const entry = store.get(id);
     return entry && entry.agentId === agentId ? entry : null;
+  };
+
+  // An ask by its id, open or else closed (task ff590b5e), as agents.getAsk
+  // and asks.get return it. With agentId, only that agent's.
+  const read = (
+    id: string,
+    agentId?: string,
+  ): AskAgentWire | AskClosedWire | null => {
+    const entry = agentId === undefined ? store.get(id) : own(agentId, id);
+    if (entry) return wire(entry);
+    const closed =
+      agentId === undefined
+        ? deps.history.getById(id)
+        : deps.history.get(agentId, id);
+    return closed ? closedWire(closed) : null;
   };
 
   // The caller's open entry while it can still reach the agent, or null.
@@ -838,12 +856,18 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       ok(store.listForAgent(ctx.params.id).map(wire)),
     ),
 
-    // Open, or else closed (task ff590b5e).
     "agents.getAsk": guarded((ctx) => {
-      const entry = own(ctx.params.id, ctx.params.askId);
-      if (entry) return ok(wire(entry));
-      const closed = deps.history.get(ctx.params.id, ctx.params.askId);
-      return closed ? ok(closedWire(closed)) : notFound();
+      const ask = read(ctx.params.askId, ctx.params.id);
+      return ask ? ok(ask) : notFound();
+    }),
+
+    // Any agent's ask by its id, open or closed, for a caller with the reach
+    // of that agent's logs.
+    "asks.get": guarded((ctx) => {
+      const ask = read(ctx.params.askId);
+      return ask && deps.canReadAgentLogs(ctx.identity, ask.agentId)
+        ? ok(ask)
+        : notFound();
     }),
 
     "agents.editAsk": guarded((ctx) =>

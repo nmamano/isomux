@@ -66,6 +66,7 @@ import { FileViewCard } from "./FileViewCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
+import { AskIdChip } from "./AskIdChip.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
 
@@ -621,6 +622,7 @@ function ReplyAskCard({
             style={{
               display: "flex",
               flexWrap: "wrap",
+              alignItems: "baseline",
               columnGap: 14,
               marginTop: 2,
             }}
@@ -657,6 +659,7 @@ function ReplyAskCard({
               onFocusAgent={onFocusAgent}
               onChatAgent={onChatAgent}
             />
+            <AskIdChip id={entry.id} isMobile={isMobile} />
           </div>
         </div>
         {entry.priority && (

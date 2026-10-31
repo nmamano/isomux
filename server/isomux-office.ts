@@ -233,6 +233,7 @@ import {
 } from "./identity/guard-deps.ts";
 import {
   cronjobOwnerOrOfficeOwner,
+  logSearchAccess,
   queueCancelAny,
   type GuardDeps,
 } from "./identity/guards.ts";
@@ -4051,6 +4052,12 @@ function buildExecutorDeps(
       memberName: (userId) => getUserById(userId)?.name ?? null,
       memberCanSeeRoom: askAudience.canSeeRoom,
       isOfficeOwner: askAudience.isOfficeOwner,
+      canReadAgentLogs: (identity, agentId) =>
+        logSearchAccess({
+          identity,
+          params: { id: agentId },
+          deps: buildLiveGuardDeps(),
+        }).ok,
       affordances: {
         checkCommand: checkTerminalCommand,
         probeEditFile: (agentId, rawPath) => {
