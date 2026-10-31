@@ -744,6 +744,50 @@ describe("options the member can tap", () => {
     ).toEqual([["Which one?", null]]);
   });
 
+  it("takes as many options as a triage needs, at full length, from one option= each", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    // Ten distinct options of the full 80 characters each.
+    const ten = Array.from({ length: 10 }, (_, i) => `${i} ${"x".repeat(78)}`);
+    const query = (options: string[]) =>
+      options.map((o) => `option=${encodeURIComponent(o)}`).join("&");
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?${query(ten)}&recommended=${encodeURIComponent(ten[9])}`,
+      w.as(w.asker.id),
+      { text: "Which one?" },
+    );
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    expect(stored(w, id)?.options).toEqual(ten);
+    expect(stored(w, id)?.recommended).toBe(ten[9]);
+    // One more is refused, on create and on edit, and the ask keeps its ten.
+    const eleven = [...ten, "one more"];
+    const post = await call(
+      w.srv,
+      "POST",
+      `${base}?${query(eleven)}`,
+      w.as(w.asker.id),
+      {
+        text: "Which?",
+      },
+    );
+    expect(`${post.status} ${post.code}`).toBe("422 invalid_options");
+    const patch = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}?${query(eleven)}`,
+      w.as(w.asker.id),
+      { text: "Which?" },
+    );
+    expect(`${patch.status} ${patch.code}`).toBe("422 invalid_options");
+    const listed = await call(w.srv, "GET", base, w.as(w.asker.id));
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.prompt, e.options ?? null]),
+    ).toEqual([["Which one?", ten]]);
+  });
+
   // The mark as the agent, the member's list and the file see it (the push
   // carries the stored entry).
   const mark = (e: unknown) => (e as AskEntry | undefined)?.recommended ?? null;

@@ -791,7 +791,7 @@ export interface AskCreateReq {
   member?: string;
   // One of OFFICE_LINK_PATHS (shared/office-links.ts).
   link?: string;
-  // 2 to 4 answers the member can tap (ASK_OPTIONS_MIN..MAX in server/asks.ts).
+  // 2 to 10 answers the member can tap (ASK_OPTIONS_MIN..MAX in server/asks.ts).
   options?: string[];
   // The option the agent recommends, by its text; one of `options`.
   recommended?: string;

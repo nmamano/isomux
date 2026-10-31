@@ -170,8 +170,8 @@ describe("the three shapes", () => {
     ],
     // Options too are bounded on write only.
     [
-      "five options",
-      { ...BASE, memberUserId: "u1", options: ["a", "b", "c", "d", "e"] },
+      "eleven options",
+      { ...BASE, memberUserId: "u1", options: "abcdefghijk".split("") },
       true,
     ],
     ["empty options", { ...BASE, memberUserId: "u1", options: [] }, false],
@@ -331,13 +331,13 @@ describe("an ask's options", () => {
       ok: true,
       options: ["Jim", "Dwight"],
     });
-    const atBounds = ["a", "b", "c", "d"].map((c) => c.repeat(80));
+    const atBounds = "abcdefghij".split("").map((c) => c.repeat(80));
     expect(checkOptions(atBounds)).toEqual({ ok: true, options: atBounds });
     // An 80-character option with spaces around it is in bounds.
     expect(checkOptions([` ${"a".repeat(80)} `, "b"]).ok).toBe(true);
     for (const bad of [
       ["one"],
-      ["a", "b", "c", "d", "e"],
+      "abcdefghijk".split(""),
       ["a", "   "],
       ["a", "b".repeat(81)],
       ["a", " a"],
