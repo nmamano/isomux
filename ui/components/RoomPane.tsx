@@ -10,6 +10,7 @@ import type {
 import {
   dialogInput,
   dialogCancelBtn,
+  filledDangerBtn,
   dialogSaveBtn,
   disabledLook,
 } from "./dialog-styles.ts";
@@ -631,8 +632,6 @@ const saveBtnStyle: React.CSSProperties = {
   fontFamily: "var(--font-ui)",
 };
 const deleteBtnStyle: React.CSSProperties = {
-  ...dialogCancelBtn,
-  borderColor: "rgba(255, 107, 107, 0.45)",
-  color: "var(--red-text)",
+  ...filledDangerBtn,
   fontFamily: "var(--font-ui)",
 };

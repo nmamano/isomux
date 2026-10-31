@@ -102,6 +102,11 @@ import {
   composerMaxHeight,
   fitComposer,
 } from "../composer-height.ts";
+import {
+  secondaryBorder,
+  secondaryFill,
+  tintedFill,
+} from "../components/dialog-styles.ts";
 
 // The terminal and editor libraries load when a panel first opens, not with
 // the office.
@@ -3278,8 +3283,8 @@ export function LogView({
                       height: 36,
                       marginTop: -9,
                       borderRadius: 6,
-                      border: "1px solid var(--border)",
-                      background: "transparent",
+                      border: secondaryBorder,
+                      background: secondaryFill,
                       color: "var(--text-muted)",
                       cursor: "pointer",
                       display: "flex",
@@ -3420,7 +3425,7 @@ export function LogView({
                       height: 36,
                       borderRadius: 8,
                       border: "1px solid var(--red)",
-                      background: "transparent",
+                      background: tintedFill("var(--red)"),
                       color: "var(--red-text)",
                       fontSize: 16,
                       cursor: "pointer",

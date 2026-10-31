@@ -9,6 +9,7 @@ import {
   useOutbox,
   type OutboxAttempt,
 } from "./outbox.ts";
+import { secondaryBorder, secondaryFill } from "../components/dialog-styles.ts";
 
 export function OutboxRows({
   agentId,
@@ -35,8 +36,8 @@ export function OutboxRows({
   const button = (danger?: boolean) => ({
     padding: "2px 10px",
     borderRadius: 4,
-    border: `1px solid ${danger ? "var(--border-medium)" : "var(--accent)"}`,
-    background: "none",
+    border: danger ? secondaryBorder : "1px solid var(--accent)",
+    background: danger ? secondaryFill : "var(--accent-bg)",
     color: danger ? "var(--text-muted)" : "var(--accent-text)",
     fontSize: 11,
     fontWeight: 600,

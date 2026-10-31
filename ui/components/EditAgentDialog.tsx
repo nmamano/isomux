@@ -54,12 +54,14 @@ import type {
 import { useAppState } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
 import {
-  dialogLabel,
+  dialogCancelBtn,
+  dialogChip,
   dialogHint,
   dialogInput,
-  dialogCancelBtn,
+  dialogLabel,
   dialogSaveBtn,
-  dialogChip,
+  secondaryBorder,
+  secondaryFill,
 } from "./dialog-styles.ts";
 import { SystemPromptButton } from "./SystemPromptButton.tsx";
 import { shortenCwd } from "../cwd-display.ts";
@@ -2424,8 +2426,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 style={{
                   padding: "6px 12px",
                   borderRadius: 6,
-                  border: "1px solid var(--border)",
-                  background: "transparent",
+                  border: secondaryBorder,
+                  background: secondaryFill,
                   color: "var(--text-primary)",
                   fontSize: 12,
                   fontWeight: 600,

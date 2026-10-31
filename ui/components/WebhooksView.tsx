@@ -13,7 +13,11 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { StatusShape } from "./StatusShape.tsx";
 import { CopyButton } from "./CopyButton.tsx";
-import { dialogInput } from "./dialog-styles.ts";
+import {
+  dialogInput,
+  secondaryBorder,
+  secondaryFill,
+} from "./dialog-styles.ts";
 import {
   ROOM_FILTER_ALL,
   roomFilterMatches,
@@ -1433,8 +1437,8 @@ const ruleLine: React.CSSProperties = {
 const smallBtn: React.CSSProperties = {
   padding: "4px 10px",
   borderRadius: 6,
-  border: "1px solid var(--border)",
-  background: "transparent",
+  border: secondaryBorder,
+  background: secondaryFill,
   color: "var(--text-dim)",
   fontSize: 11,
   cursor: "pointer",

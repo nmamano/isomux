@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../i18n.tsx";
+import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 
 export function useUnsavedChangesPrompt(
   dirty: boolean,
@@ -103,8 +104,8 @@ export function UnsavedChangesPrompt({
         style={{
           padding: "6px 12px",
           borderRadius: 6,
-          border: "1px solid var(--border)",
-          background: "transparent",
+          border: secondaryBorder,
+          background: secondaryFill,
           color: "var(--text-primary)",
           fontSize: 11,
           fontWeight: 600,

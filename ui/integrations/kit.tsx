@@ -4,7 +4,12 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
-import { disabledLook } from "../components/dialog-styles.ts";
+import {
+  disabledLook,
+  filledDangerBtn,
+  secondaryBorder,
+  secondaryFill,
+} from "../components/dialog-styles.ts";
 import { whose, type Target, type WhoseKey } from "./target.ts";
 
 export const mono: CSSProperties = {
@@ -113,13 +118,13 @@ export function Btn({
           }
         : kind === "danger"
           ? {
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--red-text)",
+              border: filledDangerBtn.border,
+              background: filledDangerBtn.background,
+              color: filledDangerBtn.color,
             }
           : {
-              border: "1px solid var(--border)",
-              background: "transparent",
+              border: secondaryBorder,
+              background: secondaryFill,
               color: "var(--text-dim)",
             };
   return (
@@ -524,8 +529,8 @@ export function HelpTip({ text }: { text: string }) {
           height: 16,
           marginLeft: 4,
           borderRadius: "50%",
-          border: "1px solid var(--border-medium, var(--border))",
-          background: "transparent",
+          border: secondaryBorder,
+          background: secondaryFill,
           color: "var(--text-muted)",
           fontSize: 10,
           lineHeight: "14px",

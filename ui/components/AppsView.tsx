@@ -42,7 +42,12 @@ import {
 } from "../app-install.ts";
 import { readSafariEnv } from "../safari-link.ts";
 import { BrowserInstall } from "./BrowserInstall.tsx";
-import { filledSecondaryBtn } from "./dialog-styles.ts";
+import {
+  filledSecondaryBtn,
+  secondaryBorder,
+  secondaryFill,
+  filledDangerBtn,
+} from "./dialog-styles.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -1748,8 +1753,8 @@ function btnStyle(danger: boolean, disabled: boolean): React.CSSProperties {
   return {
     padding: "4px 10px",
     borderRadius: 6,
-    border: `1px solid ${danger ? "var(--red)" : "var(--border)"}`,
-    background: "transparent",
+    border: danger ? filledDangerBtn.border : secondaryBorder,
+    background: danger ? filledDangerBtn.background : secondaryFill,
     color: disabled
       ? "var(--text-hint)"
       : danger

@@ -27,20 +27,8 @@ export const dialogInput: Readonly<CSSProperties> = Object.freeze({
   boxSizing: "border-box",
 });
 
-export const dialogCancelBtn: Readonly<CSSProperties> = Object.freeze({
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "transparent",
-  color: "var(--text-dim)",
-  fontSize: 12,
-  cursor: "pointer",
-});
-
 // The action on a card in the transcript (Show help, Show system prompt, Show
-// schedule prompt). dialogCancelBtn is wrong here: a transparent fill over the
-// card's own surface leaves nothing but a faint hairline, which is invisible in
-// several themes. An accent tint plus an accent border and label reads as the
+// schedule prompt). An accent tint plus an accent border and label reads as the
 // one thing to click without competing with dialogSaveBtn, and every value is
 // per-theme, so it holds in all six.
 export const cardActionBtn: Readonly<CSSProperties> = Object.freeze({
@@ -54,18 +42,38 @@ export const cardActionBtn: Readonly<CSSProperties> = Object.freeze({
   cursor: "pointer",
 });
 
-// A secondary action on a card. dialogCancelBtn's transparent fill and
-// hairline border are too faint there to read as a button, and every theme's
-// surface tokens are a few percent at most, so the fill and the border mix
-// the theme's own text colour in.
+// A secondary action (Cancel, Close, Dismiss). Every button has a fill: a
+// transparent one with a hairline border reads as plain text (Nil, 2026-10-31).
+// Every theme's surface tokens are a few percent at most, so the fill and the
+// border mix the theme's own text colour in. A button with its own colour
+// (danger, accent) tints its fill with that colour: tintedFill.
+export const secondaryFill =
+  "color-mix(in srgb, var(--text-primary) 9%, transparent)";
+export const secondaryEdge =
+  "color-mix(in srgb, var(--text-primary) 22%, transparent)";
+export const secondaryBorder = `1px solid ${secondaryEdge}`;
 export const filledSecondaryBtn: Readonly<CSSProperties> = Object.freeze({
   padding: "7px 16px",
   borderRadius: 8,
-  border: "1px solid color-mix(in srgb, var(--text-primary) 22%, transparent)",
-  background: "color-mix(in srgb, var(--text-primary) 9%, transparent)",
+  border: secondaryBorder,
+  background: secondaryFill,
   color: "var(--text-secondary)",
   fontSize: 12,
   cursor: "pointer",
+});
+
+export const dialogCancelBtn = filledSecondaryBtn;
+
+export function tintedFill(color: string): string {
+  return `color-mix(in srgb, ${color} 12%, transparent)`;
+}
+
+// A secondary action that destroys or reverts something (Delete, Reload).
+export const filledDangerBtn: Readonly<CSSProperties> = Object.freeze({
+  ...filledSecondaryBtn,
+  border: "1px solid var(--red)",
+  background: tintedFill("var(--red)"),
+  color: "var(--red-text)",
 });
 
 export const dialogSaveBtn: Readonly<CSSProperties> = Object.freeze({

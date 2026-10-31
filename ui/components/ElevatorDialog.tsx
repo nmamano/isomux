@@ -6,6 +6,7 @@ import { noTranslate } from "../no-translate.ts";
 import { normaliseFloorUrl, type Floor } from "../../shared/floors.ts";
 import type { FloorAddReq, FloorAddRes } from "../../shared/contract-shapes.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
+import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 
 // The lobby elevator: the floors (other offices this office links to), a way
 // to open one, remove one, and add another office by its address. The server
@@ -281,8 +282,8 @@ export function ElevatorDialog({
                     justifyContent: "center",
                     padding: 0,
                     borderRadius: 8,
-                    border: "1px solid var(--border)",
-                    background: "transparent",
+                    border: secondaryBorder,
+                    background: secondaryFill,
                     color: "var(--text-dim)",
                     cursor: "pointer",
                   }}
@@ -392,8 +393,8 @@ export function ElevatorDialog({
             style={{
               padding: "7px 16px",
               borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "transparent",
+              border: secondaryBorder,
+              background: secondaryFill,
               color: "var(--text-dim)",
               fontSize: 12,
               cursor: "pointer",

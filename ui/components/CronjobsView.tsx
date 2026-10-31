@@ -35,6 +35,7 @@ import {
 import { scheduleText } from "../../shared/i18n/schedule.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
+import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 
 // The two ways to start work, then the history of both (Nil, 2026-10-06).
 type Tab = "cronjobs" | "webhooks" | "runs";
@@ -420,8 +421,8 @@ export function CronjobsView({
               style={{
                 padding: "4px 10px",
                 borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: "transparent",
+                border: secondaryBorder,
+                background: secondaryFill,
                 color: "var(--text-dim)",
                 fontSize: 11,
                 cursor: "pointer",
@@ -853,8 +854,8 @@ function CronjobsTable({
                       style={{
                         padding: "3px 10px",
                         borderRadius: 4,
-                        border: "1px solid var(--border)",
-                        background: "transparent",
+                        border: secondaryBorder,
+                        background: secondaryFill,
                         color: "var(--text-dim)",
                         fontSize: 11,
                         cursor: "pointer",
@@ -1101,8 +1102,8 @@ function pagerBtn(disabled: boolean): React.CSSProperties {
   return {
     padding: "4px 10px",
     borderRadius: 6,
-    border: "1px solid var(--border)",
-    background: "transparent",
+    border: secondaryBorder,
+    background: secondaryFill,
     color: disabled ? "var(--text-ghost)" : "var(--text-dim)",
     fontSize: 11,
     cursor: disabled ? "default" : "pointer",

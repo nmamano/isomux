@@ -55,6 +55,11 @@ import {
   MEMBERS_CHAT_FILES_BASE,
   MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT,
 } from "./api.ts";
+import {
+  secondaryBorder,
+  secondaryFill,
+  tintedFill,
+} from "../components/dialog-styles.ts";
 
 // The char counter appears once a draft is this close to the cap.
 const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
@@ -159,11 +164,11 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
       }}
       title={armed ? t("membersChat.deleteAgain") : t("common.delete")}
       style={{
-        background: "transparent",
+        background: armed ? tintedFill("var(--red)") : secondaryFill,
         border: "none",
         cursor: "pointer",
         color: armed ? "var(--red-text)" : "var(--text-ghost)",
-        padding: 2,
+        padding: "2px 6px",
         borderRadius: 4,
         display: "flex",
         alignItems: "center",
@@ -640,8 +645,8 @@ export function MembersChatPanel({
               <button
                 onClick={loadOlder}
                 style={{
-                  background: "none",
-                  border: "1px solid var(--border)",
+                  background: secondaryFill,
+                  border: secondaryBorder,
                   borderRadius: 6,
                   color: "var(--text-muted)",
                   fontSize: 11,

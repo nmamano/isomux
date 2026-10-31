@@ -41,6 +41,7 @@ import {
 } from "./editor-state.ts";
 import { citationBlock, citedLines } from "./cite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
+import { tintedFill } from "../components/dialog-styles.ts";
 
 interface Tab {
   path: string;
@@ -1660,7 +1661,7 @@ function bannerBtn(color: string): React.CSSProperties {
     padding: "2px 10px",
     borderRadius: 4,
     border: `1px solid ${color}`,
-    background: "transparent",
+    background: tintedFill(color),
     color,
     fontSize: 11,
     fontFamily: "var(--font-ui)",

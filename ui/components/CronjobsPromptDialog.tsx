@@ -6,6 +6,7 @@ import type {
   InstructionsReq,
   InstructionsRes,
 } from "../../shared/contract-shapes.ts";
+import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 
 export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
@@ -198,8 +199,8 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
             style={{
               padding: "7px 16px",
               borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "transparent",
+              border: secondaryBorder,
+              background: secondaryFill,
               color: "var(--text-dim)",
               fontSize: 12,
               cursor: "pointer",

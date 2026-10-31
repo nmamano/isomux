@@ -60,6 +60,7 @@ import {
   parseReviewFindings,
   type ReviewFinding,
 } from "../../shared/review-findings.ts";
+import { secondaryBorder, secondaryFill } from "../components/dialog-styles.ts";
 
 function EditIcon() {
   return (
@@ -1700,8 +1701,8 @@ export function EditableUserMessage({
           style={{
             padding: "4px 14px",
             borderRadius: 6,
-            border: "1px solid var(--border-medium)",
-            background: "transparent",
+            border: secondaryBorder,
+            background: secondaryFill,
             color: "var(--text-muted)",
             fontSize: isMobile ? 14 : 12,
             fontFamily: "var(--font-ui)",

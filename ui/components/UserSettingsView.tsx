@@ -54,12 +54,15 @@ import {
   type SidebarRow as SharedSidebarRow,
 } from "./SidebarGroups.tsx";
 import {
-  dialogLabel,
-  dialogInput,
   dialogCancelBtn,
-  dialogSaveBtn,
   dialogHint,
+  dialogInput,
+  dialogLabel,
+  dialogSaveBtn,
   disabledLook,
+  secondaryBorder,
+  secondaryFill,
+  filledDangerBtn,
 } from "./dialog-styles.ts";
 import { DevicePane } from "./DevicePane.tsx";
 import { OfficePane } from "./OfficePane.tsx";
@@ -830,9 +833,9 @@ export function UserSettingsView({
                   style={{
                     padding: "8px 14px",
                     borderRadius: 6,
-                    border: "1px solid #ff6b6b",
-                    background: "transparent",
-                    color: "var(--red-text)",
+                    border: filledDangerBtn.border,
+                    background: filledDangerBtn.background,
+                    color: filledDangerBtn.color,
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: "pointer",
@@ -2101,8 +2104,8 @@ function UserEditPanel({
                 style={{
                   padding: "6px 12px",
                   borderRadius: 6,
-                  border: "1px solid var(--border)",
-                  background: "transparent",
+                  border: secondaryBorder,
+                  background: secondaryFill,
                   color: "var(--text-primary)",
                   fontSize: 11,
                   fontWeight: 600,

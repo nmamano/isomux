@@ -25,6 +25,7 @@ import {
   isBackSeat,
 } from "../../shared/desks.ts";
 import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
+import { secondaryEdge, secondaryFill } from "../components/dialog-styles.ts";
 
 // Per-tab mini ghosts sit on the tab like stickers (Nil, task 90f655b0):
 // centered on the pill's bottom edge, over the bottom of the room name and
@@ -770,8 +771,8 @@ export function RoomTabBar({
               style={{
                 padding: "4px 8px",
                 borderRadius: 6,
-                border: "1px dashed var(--border)",
-                background: "transparent",
+                border: `1px dashed ${secondaryEdge}`,
+                background: secondaryFill,
                 color: "var(--text-hint)",
                 fontSize: 12,
                 cursor: "pointer",

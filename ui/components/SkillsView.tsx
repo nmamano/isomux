@@ -39,6 +39,7 @@ import {
 } from "./UnsavedChangesPrompt.tsx";
 import {
   dialogCancelBtn,
+  filledDangerBtn,
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
@@ -961,11 +962,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
             {saveProblem === "stale" && (
               <button
                 onClick={() => void openEntry(entry)}
-                style={{
-                  ...dialogCancelBtn,
-                  color: "var(--red-text)",
-                  border: "1px solid var(--red)",
-                }}
+                style={filledDangerBtn}
               >
                 {t("skills.reload")}
               </button>

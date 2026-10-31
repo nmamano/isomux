@@ -8,11 +8,13 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import {
-  dialogLabel,
-  dialogInput,
   dialogCancelBtn,
+  dialogInput,
+  dialogLabel,
   dialogSaveBtn,
   disabledLook,
+  secondaryBorder,
+  secondaryFill,
 } from "./dialog-styles.ts";
 import type {
   WebhookCreateReq,
@@ -847,8 +849,8 @@ function iconBtn(disabled: boolean): React.CSSProperties {
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 6,
-    border: "1px solid var(--border)",
-    background: "transparent",
+    border: secondaryBorder,
+    background: secondaryFill,
     color: disabled ? "var(--text-ghost)" : "var(--text-dim)",
     cursor: disabled ? "default" : "pointer",
     padding: 0,

@@ -7,6 +7,7 @@ import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
 import { lazyComponent } from "../lazy-component.tsx";
+import { secondaryBorder, secondaryFill } from "../components/dialog-styles.ts";
 
 // diff2html loads with the first diff shown, not with the office.
 const DiffRenderer = lazyComponent(() =>
@@ -287,8 +288,8 @@ function DiffOverlay({
             onClick={onClose}
             title={t("cards.diff.closeHint")}
             style={{
-              background: "transparent",
-              border: "1px solid var(--border-medium)",
+              background: secondaryFill,
+              border: secondaryBorder,
               color: "var(--text-dim)",
               borderRadius: 6,
               padding: "4px 10px",
@@ -582,8 +583,8 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
             onClick={toggleAll}
             style={{
               padding: "3px 10px",
-              border: "1px solid var(--border-medium)",
-              background: "transparent",
+              border: secondaryBorder,
+              background: secondaryFill,
               color: "var(--text-dim)",
               borderRadius: 6,
               fontSize: 11,

@@ -17,7 +17,13 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type { AccessSettings } from "../../shared/contract-shapes.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogInput, dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
+import {
+  dialogInput,
+  dialogSaveBtn,
+  disabledLook,
+  secondaryBorder,
+  secondaryFill,
+} from "./dialog-styles.ts";
 import {
   MintedUrlBox,
   sectionHeader,
@@ -298,8 +304,8 @@ function ExternalAccessSection({
             style={{
               padding: "6px 12px",
               borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "transparent",
+              border: secondaryBorder,
+              background: secondaryFill,
               color: "var(--text-primary)",
               fontSize: 11,
               fontWeight: 600,

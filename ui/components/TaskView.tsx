@@ -13,7 +13,13 @@ import type {
   TaskCreateReq,
   TaskUpdateReq,
 } from "../../shared/contract-shapes.ts";
-import { dialogLabel, dialogInput } from "./dialog-styles.ts";
+import {
+  dialogInput,
+  dialogLabel,
+  secondaryBorder,
+  secondaryEdge,
+  secondaryFill,
+} from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { openingRoomFilter } from "../room-filter.ts";
@@ -656,8 +662,8 @@ function TaskDetailPanel({
                   style={{
                     padding: "3px 8px",
                     borderRadius: 6,
-                    border: "1px dashed var(--border)",
-                    background: "transparent",
+                    border: `1px dashed ${secondaryEdge}`,
+                    background: secondaryFill,
                     color: "var(--text-hint)",
                     fontSize: 10,
                     cursor: "pointer",
@@ -754,8 +760,8 @@ function TaskDetailPanel({
               style={{
                 padding: "6px 12px",
                 borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: "transparent",
+                border: secondaryBorder,
+                background: secondaryFill,
                 color: "var(--text-primary)",
                 fontSize: 11,
                 fontWeight: 600,

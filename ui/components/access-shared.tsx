@@ -18,7 +18,13 @@ import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { absoluteTime, timeSince, timeUntil } from "../../shared/i18n/time.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogLabel, dialogHint, dialogSaveBtn } from "./dialog-styles.ts";
+import {
+  dialogHint,
+  dialogLabel,
+  dialogSaveBtn,
+  secondaryBorder,
+  secondaryFill,
+} from "./dialog-styles.ts";
 import { noTranslate } from "../no-translate.ts";
 
 // Lazily seed the invites + active-sessions lists via GET. The
@@ -568,8 +574,8 @@ export const smallBtn: React.CSSProperties = {
   padding: "3px 8px",
   fontSize: 11,
   borderRadius: 4,
-  border: "1px solid var(--border)",
-  background: "transparent",
+  border: secondaryBorder,
+  background: secondaryFill,
   color: "var(--text-dim)",
   cursor: "pointer",
 };

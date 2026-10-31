@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AgentState } from "../../shared/types.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { useI18n } from "../i18n.tsx";
+import { tintedFill } from "../components/dialog-styles.ts";
 
 // Catalog keys, read at render: the header shows them in the reader's language
 // (internal-docs/i18n-loop.md, ruling 7).
@@ -119,7 +120,7 @@ export function ActivityIndicator({
             padding: "2px 10px",
             borderRadius: 4,
             border: `1px solid ${color}`,
-            background: "transparent",
+            background: tintedFill(color),
             color,
             fontSize: 11,
             cursor: "pointer",
