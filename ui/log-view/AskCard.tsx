@@ -29,7 +29,9 @@
 // into a line with what was chosen and Undo, which brings the card back with
 // the draft. While held and while sent, the ask is answered in the store
 // (answeredAsks), so the counts, the desk dots and the chat's ask stack leave
-// it out at once; once sent, the Inbox drops the line too. A held answer is
+// it out at once; once sent, the Inbox drops the line too. When the line
+// starts above the view (a tall card answered at its foot), the list scrolls
+// it to the top, so the next ask starts in view. A held answer is
 // sent at once when the card unmounts (the member leaves the Inbox) and when
 // the page is hidden or closes, with keepalive so the request outlives the
 // page. A send that fails brings the ask back everywhere, with the error
@@ -273,6 +275,7 @@ function ReplyAskCard({
   // draw the line.
   const heldRef = useRef<HeldAnswer | null>(null);
   const [held, setHeld] = useState<HeldAnswer | null>(null);
+  const heldLineRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
   const promptRef = useRef<HTMLDivElement>(null);
@@ -418,6 +421,13 @@ function ReplyAskCard({
     dispatch({ type: "ask_undone", id: entry.id });
   }
 
+  // Bring the Undo line into view when it replaces the card, so the next ask
+  // starts under it.
+  useLayoutEffect(() => {
+    if (!held) return;
+    heldLineRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [held]);
+
   // The page events and the unmount reach the latest flush.
   const flushRef = useRef(flush);
   useLayoutEffect(() => {
@@ -463,6 +473,7 @@ function ReplyAskCard({
       held.shown === null ? null : <span {...noTranslate()}>{held.shown}</span>;
     return (
       <div
+        ref={heldLineRef}
         data-ask={entry.id}
         data-ask-pending={held.kind}
         style={{ ...cardBox, display: "flex", alignItems: "center", gap: 10 }}

@@ -1019,6 +1019,49 @@ it("keeps the card with the error when the server refuses a file-task, and draws
   view.unmount();
 });
 
+// Only the Inbox holds an answer on a one-line Undo line and scrolls it into
+// view (ui/components/AsksView.dom.test.tsx): the chat's stack sends at once
+// and never scrolls.
+it("scrolls nothing when an answer closes a card in the chat's stack", async () => {
+  const original = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "scrollIntoView",
+  )!;
+  expect(typeof original.value).toBe("function");
+  const scrolled: string[] = [];
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push(this.closest<HTMLElement>("[data-ask]")?.dataset.ask ?? "");
+  };
+  try {
+    for (const selector of [
+      "form button[type=submit]",
+      "form button[type=button]",
+      "[data-ask-file-task]",
+    ]) {
+      posts = [];
+      const view = mount(false);
+      await waitFor(() => expect(cards(view.container).length).toBe(2));
+      await act(async () => {
+        fireEvent.click(
+          view.container.querySelector<HTMLButtonElement>(
+            `[data-ask="aaaa0001"] ${selector}`,
+          )!,
+        );
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      expect([selector, posts.length, cards(view.container)]).toEqual([
+        selector,
+        1,
+        ["bbbb0002"],
+      ]);
+      view.unmount();
+    }
+    expect(scrolled).toEqual([]);
+  } finally {
+    Object.defineProperty(Element.prototype, "scrollIntoView", original);
+  }
+});
+
 // What the store holds for agent a6 after a click.
 type Seen = { editor?: string; terminal?: string; panel?: string };
 let seen: Seen = {};

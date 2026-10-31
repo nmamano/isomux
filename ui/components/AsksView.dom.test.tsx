@@ -1,7 +1,8 @@
 // The Asks page (ui/components/AsksView.tsx) over a real reducer: groups by
 // agent with the longest wait first, a group goes with its last card, Tab
 // crosses groups, and a card's panel buttons open its agent's chat. An answer
-// waits ASK_UNDO_MS for an Undo, and is sent at once when the page goes away.
+// waits ASK_UNDO_MS for an Undo on a line that scrolls into view, and is sent
+// at once when the page goes away.
 // The filter row sorts and filters the groups, and a card shows its priority.
 // The agent's name opening its chat and an ask from an agent the client does
 // not have are in ui/App.inbox.dom.test.tsx; the card itself, which the chat's
@@ -908,6 +909,88 @@ it("sends every waiting answer at once when the Inbox goes away, and only once",
   await advance(ASK_UNDO_MS * 2);
   expect(posts).toHaveLength(2);
 });
+
+// Each scrollIntoView call while it is installed: the ask and the pending line
+// it was called on (null for any other element), and the options. happy-dom
+// has no layout, so the call is what a test can see of the scroll.
+type ScrollCall = {
+  ask: string | null;
+  pending: string | null;
+  block: string | null;
+  smooth: boolean;
+};
+let restoreScroll: (() => void) | null = null;
+afterEach(() => {
+  restoreScroll?.();
+  restoreScroll = null;
+});
+function watchScroll(): ScrollCall[] {
+  const calls: ScrollCall[] = [];
+  const original = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "scrollIntoView",
+  )!;
+  // The card's optional call must reach the spy, not skip a missing method.
+  expect(typeof original.value).toBe("function");
+  Element.prototype.scrollIntoView = function (
+    this: Element,
+    arg?: boolean | ScrollIntoViewOptions,
+  ) {
+    const options = typeof arg === "object" ? arg : {};
+    calls.push({
+      ask: this.closest<HTMLElement>("[data-ask]")?.dataset.ask ?? null,
+      pending: this.getAttribute("data-ask-pending"),
+      block: options.block ?? null,
+      smooth: options.behavior === "smooth",
+    });
+  };
+  restoreScroll = () => {
+    Object.defineProperty(Element.prototype, "scrollIntoView", original);
+  };
+  return calls;
+}
+
+// A tall card turns into the one-line Undo line, so the list moves up under
+// a scroller that keeps its place: the line scrolls into view, nearest edge
+// and at once, so the next ask starts under it (task bfae0ab8).
+for (const kind of ["reply", "dismiss", "file-task"] as const) {
+  it(`scrolls the Undo line of a ${kind} into view once, and not on Undo or when the line goes`, async () => {
+    jest.useFakeTimers();
+    const calls = watchScroll();
+    const { view, latest } = mount([
+      ask("tall", "a1", 30),
+      ask("next", "a1", 20),
+    ]);
+    expect(calls).toEqual([]);
+    const line = {
+      ask: "tall",
+      pending: kind,
+      block: "nearest",
+      smooth: false,
+    };
+    await answerAsk(view, "tall", kind, "noted");
+    expect(pendingOf(view, "tall")).toBe(kind);
+    expect(calls).toEqual([line]);
+    // The held card draws again on a store change, and does not scroll again.
+    await act(async () =>
+      latest.dispatch({ type: "set_ask_draft", askId: "next", text: "x" }),
+    );
+    expect(fieldOf(view, "next").value).toBe("x");
+    expect(calls).toEqual([line]);
+    // Undo brings the card back from where the line was: no scroll.
+    await act(async () => fireEvent.click(undoOf(view, "tall")));
+    expect(pendingOf(view, "tall")).toBeNull();
+    expect(calls).toEqual([line]);
+    // Answered again, then sent: the line goes and nothing scrolls.
+    await answerAsk(view, "tall", kind);
+    expect(calls).toEqual([line, line]);
+    await advance(ASK_UNDO_MS);
+    expect(posts).toEqual([`/api/asks/tall/${kind}`]);
+    expect(cardEl(view, "tall")).toBeNull();
+    expect(cardEl(view, "next")).not.toBeNull();
+    expect(calls).toEqual([line, line]);
+  });
+}
 
 it("shows the card again with the error and the draft when the held answer is refused", async () => {
   jest.useFakeTimers();
