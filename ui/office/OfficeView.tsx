@@ -334,7 +334,7 @@ export function OfficeView({
   useEffect(() => cancelRoomTurn, []);
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
-  // The scene's Inbox tray shows the bar entry. In embed the bar is hidden,
+  // A room's Inbox tray shows the bar entry. In embed the bar is hidden,
   // so the tray shows the count but does not open the Inbox.
   const wallInbox: WallInbox | undefined = inboxAction
     ? {
@@ -879,7 +879,6 @@ export function OfficeView({
                     onToggleTheme={cycleTheme}
                     onOpenApps={embed ? undefined : onOpenApps}
                     onOpenCronjobs={onOpenCronjobs}
-                    inbox={wallInbox}
                     onOpenElevator={
                       embed ? undefined : () => setElevatorOpen(true)
                     }

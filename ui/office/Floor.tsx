@@ -2169,9 +2169,9 @@ export function AppsWallScreen({ onOpenApps }: { onOpenApps?: () => void }) {
  *  drawing. */
 export type WallInbox = { count: number; title?: string; onOpen?: () => void };
 
-/** The in-tray on the right wall, left of the clock, in the rooms and the
- *  lobby: it opens the Inbox. Letters stand in it while items are open, one to
- *  three as the corkboard's cards, and a badge counts them as the bar does. */
+/** The in-tray on a room's right wall, left of the clock: it opens the Inbox.
+ *  Letters stand in it while items are open, one to three as the corkboard's
+ *  cards, and a badge counts them as the bar does. */
 export function InboxWallTray({ inbox }: { inbox?: WallInbox }) {
   const { t } = useI18n();
   const count = inbox?.count ?? 0;
@@ -2211,11 +2211,28 @@ export function InboxWallTray({ inbox }: { inbox?: WallInbox }) {
         stroke="var(--wall-decor-stroke)"
         strokeWidth="1"
       />
+      {/* The tray is a box out from the wall, (-1, 1) here: its shadow falls
+          right and down on the plate, its open top shows the inside and the
+          far rim, and its right end and front hide the letters' lower half. */}
+      <path
+        d="M-15 8 L11 8 L17 2 L17 15 L11 21 L-15 21 Z"
+        fill="#000"
+        opacity="0.16"
+      />
+      <path d="M-18 5 L8 5 L16 -3 L-10 -3 Z" fill="#4f3a26" />
+      <path d="M-18 5 L8 5 L12 1 L-14 1 Z" fill="#2e2012" />
+      <path
+        d="M-18 5 L-10 -3 L16 -3"
+        fill="none"
+        stroke="#a07d58"
+        strokeWidth="0.8"
+        strokeLinejoin="round"
+      />
       {[0, 1, 2].slice(0, letters).map((i) => (
         <g
           key={i}
           data-inbox-letter
-          transform={`translate(${-6 + i * 5}, ${-11 + i * 3}) rotate(${-6 + i * 6})`}
+          transform={`translate(${-6 + i * 5}, ${-6 + i * 2}) rotate(${-6 + i * 6})`}
         >
           <rect
             x="-9"
@@ -2235,20 +2252,26 @@ export function InboxWallTray({ inbox }: { inbox?: WallInbox }) {
           />
         </g>
       ))}
-      {/* The tray front, a wooden lip over the letters. */}
+      <path
+        d="M8 5 L16 -3 L16 10 L8 18 Z"
+        fill="#5e4630"
+        stroke="#4a3620"
+        strokeWidth="0.8"
+        strokeLinejoin="round"
+      />
       <rect
-        x="-15"
-        y="1"
-        width="29"
-        height="16"
-        rx="1.5"
+        x="-18"
+        y="5"
+        width="26"
+        height="13"
+        rx="1"
         fill="#7a5f42"
         stroke="#4a3620"
         strokeWidth="0.8"
       />
-      <path d="M-14 2.5 L13 2.5" stroke="#a07d58" strokeWidth="1" />
+      <path d="M-17 6.5 L7 6.5" stroke="#a07d58" strokeWidth="1" />
       <path
-        d="M-14 15.5 L13 15.5"
+        d="M-17 16.5 L7 16.5"
         stroke="#000"
         strokeWidth="1"
         opacity="0.25"
