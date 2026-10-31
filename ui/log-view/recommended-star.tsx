@@ -27,7 +27,7 @@ export function RecommendedStar({
       style={{
         display: "inline-block",
         verticalAlign: "-0.1em",
-        marginRight: 4,
+        marginRight: 2,
         flexShrink: 0,
       }}
     >
