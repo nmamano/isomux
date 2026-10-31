@@ -11,10 +11,11 @@ const { setApiShim } = await import("../api.ts");
 const {
   checkedFilterValues,
   filterButton,
-  openTaskFilter,
-  setTaskFilter,
-  toggleTaskFilter,
-} = await import("../test-support/task-filters.ts");
+  filterCounts,
+  openCheckboxFilter,
+  setCheckboxFilter,
+  toggleCheckboxFilter,
+} = await import("../test-support/checkbox-filters.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 type TaskPriority = import("../../shared/types.ts").TaskPriority;
 type TaskStatus = import("../../shared/types.ts").TaskStatus;
@@ -107,7 +108,7 @@ it("defaults to Open and In progress, and every priority but P4", async () => {
 
 it("shows a task when its status AND its priority are checked, and dims a closed one", async () => {
   const { c, shown, looksClosed } = renderView();
-  await toggleTaskFilter(c, "status", "done");
+  await toggleCheckboxFilter(c, "status", "done");
   expect(shown()).toEqual(
     [
       "p0-open",
@@ -119,7 +120,7 @@ it("shows a task when its status AND its priority are checked, and dims a closed
       "none-done",
     ].sort(),
   );
-  await toggleTaskFilter(c, "priority", "P4");
+  await toggleCheckboxFilter(c, "priority", "P4");
   expect(shown()).toEqual(
     tasks
       .filter(notObsolete)
@@ -135,20 +136,20 @@ it("shows a task when its status AND its priority are checked, and dims a closed
     P4: ["p4-done", "p4-open", "p4-progress"],
   };
   for (const [p, expected] of Object.entries(byPriority)) {
-    await setTaskFilter(c, "priority", [p]);
+    await setCheckboxFilter(c, "priority", [p]);
     expect(shown()).toEqual(expected);
   }
-  await setTaskFilter(c, "priority", ["none"]);
+  await setCheckboxFilter(c, "priority", ["none"]);
   expect(shown()).toEqual(["none-done", "none-open"]);
 
-  await setTaskFilter(c, "status", ["done"]);
+  await setCheckboxFilter(c, "status", ["done"]);
   expect(shown()).toEqual(["none-done"]);
-  await setTaskFilter(c, "priority", ["P3", "P4"]);
+  await setCheckboxFilter(c, "priority", ["P3", "P4"]);
   expect(shown()).toEqual(["p3-done", "p4-done"]);
   expect(looksClosed("p4-done")).toBe(true);
-  await setTaskFilter(c, "status", ["in_progress"]);
+  await setCheckboxFilter(c, "status", ["in_progress"]);
   expect(shown()).toEqual(["p4-progress"]);
-  await toggleTaskFilter(c, "status", "obsolete");
+  await toggleCheckboxFilter(c, "status", "obsolete");
   expect(shown()).toEqual(["p4-obsolete", "p4-progress"]);
   expect(looksClosed("p4-obsolete")).toBe(true);
   expect(looksClosed("p4-progress")).toBe(false);
@@ -156,11 +157,11 @@ it("shows a task when its status AND its priority are checked, and dims a closed
 
 it("shows nothing when a filter has nothing checked", async () => {
   const { c, shown } = renderView();
-  await setTaskFilter(c, "status", []);
+  await setCheckboxFilter(c, "status", []);
   expect(shown()).toEqual([]);
-  await setTaskFilter(c, "status", ["open"]);
+  await setCheckboxFilter(c, "status", ["open"]);
   expect(shown().length > 0).toBe(true);
-  await setTaskFilter(c, "priority", []);
+  await setCheckboxFilter(c, "priority", []);
   expect(shown()).toEqual([]);
 });
 
@@ -170,21 +171,21 @@ it("summarizes the checked priorities as ranges", async () => {
   const defaults = summary();
   expect(defaults).toContain("P0-P3");
   expect(defaults).not.toContain("P4");
-  await setTaskFilter(c, "priority", ["P0", "P1", "P3"]);
+  await setCheckboxFilter(c, "priority", ["P0", "P1", "P3"]);
   expect(summary()).toContain("P0-P1");
   expect(summary()).toContain("P3");
   expect(summary()).not.toContain("P2");
-  await setTaskFilter(c, "priority", ["P0", "P1", "P2", "P3", "none"]);
+  await setCheckboxFilter(c, "priority", ["P0", "P1", "P2", "P3", "none"]);
   expect(summary()).toBe(defaults);
 });
 
 it("closes the list on Escape or an outside tap, and keeps the board open", async () => {
   const { c, closed } = renderView();
   const button = filterButton(c, "status");
-  await openTaskFilter(c, "status");
+  await openCheckboxFilter(c, "status");
   expect(button.getAttribute("aria-expanded")).toBe("true");
   const box = c.querySelector<HTMLInputElement>(
-    '[data-task-filter] input[value="open"]',
+    '[data-checkbox-filter="status"] input[value="open"]',
   )!;
   box.focus();
   await act(async () => fireEvent.keyDown(box, { key: "Escape" }));
@@ -192,33 +193,16 @@ it("closes the list on Escape or an outside tap, and keeps the board open", asyn
   expect(document.activeElement).toBe(button);
   expect(closed()).toBe(0);
 
-  await openTaskFilter(c, "status");
+  await openCheckboxFilter(c, "status");
   await act(async () => fireEvent.pointerDown(document.body));
   expect(button.getAttribute("aria-expanded")).toBe("false");
   expect(closed()).toBe(0);
 
   // Opening one list closes the other.
-  await openTaskFilter(c, "status");
-  await openTaskFilter(c, "priority");
+  await openCheckboxFilter(c, "status");
+  await openCheckboxFilter(c, "priority");
   expect(button.getAttribute("aria-expanded")).toBe("false");
 });
-
-// Each checkbox's count, read from its row: the tasks it would show, given the
-// other checkbox filter.
-async function filterCounts(
-  c: HTMLElement,
-  which: "status" | "priority",
-): Promise<Record<string, number>> {
-  await openTaskFilter(c, which);
-  const counts: Record<string, number> = {};
-  for (const box of c.querySelectorAll<HTMLInputElement>(
-    '[data-task-filter] input[type="checkbox"]',
-  ))
-    counts[box.value] = Number(
-      box.closest("label")!.lastElementChild!.textContent,
-    );
-  return counts;
-}
 
 it("counts each checkbox's tasks under the other filter", async () => {
   const { c } = renderView();
@@ -236,7 +220,7 @@ it("counts each checkbox's tasks under the other filter", async () => {
     P4: 2,
     none: 1,
   });
-  await toggleTaskFilter(c, "status", "done");
+  await toggleCheckboxFilter(c, "status", "done");
   expect(await filterCounts(c, "priority")).toEqual({
     P0: 1,
     P1: 1,
@@ -245,7 +229,7 @@ it("counts each checkbox's tasks under the other filter", async () => {
     P4: 3,
     none: 2,
   });
-  await toggleTaskFilter(c, "priority", "P4");
+  await toggleCheckboxFilter(c, "priority", "P4");
   expect(await filterCounts(c, "status")).toEqual({
     open: 5,
     in_progress: 2,

@@ -1666,7 +1666,6 @@ Cosas que puedes hacer por él:
   "asks.badge.other": "{count} peticiones",
   "asks.answerFailed": "No enviado: {error}",
   "asks.empty": "No hay peticiones abiertas.",
-  "asks.priorityFilter": "Filtrar por prioridad",
   "asks.sort": "Ordenar",
   "asks.sortAgent": "Por agente",
   "asks.sortRoom": "Por sala",

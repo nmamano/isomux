@@ -1,6 +1,7 @@
 // The Inbox's Asks tab: the member's open asks from every agent they can see,
 // grouped by agent. A filter row filters them by the agent's room and by the
-// ask's priority, and sorts them by agent (the longest wait first), room or
+// ask's priority, in the Tasks page's checkbox lists with a count per choice
+// (task 2bbc5021), and sorts them by agent (the longest wait first), room or
 // priority (task 995fc76a), or by age: one list, the longest wait first, with
 // the agent's name over each run of its asks (task 66532fa7). Each ask is the
 // AskCard the chat's
@@ -11,7 +12,7 @@
 // sent: an answer in its Undo time stays as its Undo line, and goes when it
 // is sent. InboxView draws the header and the tabs around it.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
@@ -23,18 +24,18 @@ import {
   setAsksSort,
   type AsksSort,
 } from "../device-settings.ts";
-import {
-  effectiveRoomFilter,
-  ROOM_FILTER_ALL,
-  roomFilterMatches,
-  type RoomFilter,
-} from "../room-filter.ts";
 import { comparePriority } from "../task-priority.ts";
+import {
+  CheckboxFilter,
+  FILTER_PRIORITIES,
+  prioritySummary,
+  toggled,
+  type PriorityFilterValue,
+} from "./CheckboxFilter.tsx";
 import {
   ordinaryRooms,
   type AgentInfo,
   type AskMemberWire,
-  type TaskPriority,
 } from "../../shared/types.ts";
 
 interface AskGroup {
@@ -42,16 +43,44 @@ interface AskGroup {
   entries: AskMemberWire[];
 }
 
-type PriorityFilter = "all" | TaskPriority | "none";
-const PRIORITY_FILTERS: readonly PriorityFilter[] = [
-  "all",
-  "P0",
-  "P1",
-  "P2",
-  "P3",
-  "P4",
-  "none",
-];
+// The filters: the rooms whose agents' asks are hidden (unchecked rooms that
+// the list still offers, so an agent in any other room always shows), and the
+// checked priorities.
+interface AskFilter {
+  hiddenRooms: ReadonlySet<string>;
+  priorities: readonly PriorityFilterValue[];
+}
+
+const passesRoom = (filter: AskFilter, agent: AgentInfo) =>
+  !filter.hiddenRooms.has(agent.roomId);
+const passesPriority = (filter: AskFilter, entry: AskMemberWire) =>
+  filter.priorities.includes(entry.priority ?? "none");
+
+/**
+ * Each filter choice's count, as on the Tasks page: the open asks it would
+ * show given the other filter. Only asks of agents in the agents slice count,
+ * as only they get a run.
+ */
+function filterCounts(
+  asks: readonly AskMemberWire[],
+  agents: readonly AgentInfo[],
+  filter: AskFilter,
+): { rooms: Map<string, number>; priorities: Map<string, number> } {
+  const agentById = new Map(agents.map((agent) => [agent.id, agent]));
+  const rooms = new Map<string, number>();
+  const priorities = new Map<string, number>();
+  for (const entry of asks) {
+    const agent = agentById.get(entry.agentId);
+    if (!agent) continue;
+    if (passesPriority(filter, entry))
+      rooms.set(agent.roomId, (rooms.get(agent.roomId) ?? 0) + 1);
+    if (passesRoom(filter, agent)) {
+      const level = entry.priority ?? "none";
+      priorities.set(level, (priorities.get(level) ?? 0) + 1);
+    }
+  }
+  return { rooms, priorities };
+}
 
 const SORT_LABELS = {
   agent: "asks.sortAgent",
@@ -75,7 +104,7 @@ function askGroups(
   asks: readonly AskMemberWire[],
   agents: readonly AgentInfo[],
   rooms: readonly { id: string }[],
-  filter: { room: RoomFilter; priority: PriorityFilter },
+  filter: AskFilter,
   sort: AsksSort,
 ): AskGroup[] {
   const roomPlace = (roomId: string) => {
@@ -93,13 +122,9 @@ function askGroups(
         : 0) || a.entry.createdAt - b.entry.createdAt;
   const groups: AskGroup[] = [];
   for (const agent of agents) {
-    if (!roomFilterMatches(filter.room, agent.roomId)) continue;
+    if (!passesRoom(filter, agent)) continue;
     const entries = asksFor(asks, agent.id)
-      .filter(
-        (e) =>
-          filter.priority === "all" ||
-          (e.priority ?? "none") === filter.priority,
-      )
+      .filter((e) => passesPriority(filter, e))
       .sort((a, b) => compare({ entry: a, agent }, { entry: b, agent }));
     if (entries.length > 0) groups.push({ agent, entries });
   }
@@ -147,26 +172,65 @@ export function AsksView({
   // The filters open on all every time, unlike the Pager's room filter: the
   // Inbox badge counts every open ask, so the tab it opens shows them all.
   // The sort is remembered on this device.
-  const [roomChoice, setRoomFilter] = useState<RoomFilter>(ROOM_FILTER_ALL);
-  const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
+  // The rooms keep their unchecked ids, so a room that appears shows checked.
+  const [uncheckedRooms, setUncheckedRooms] = useState<string[]>([]);
+  const [priorities, setPriorities] = useState<PriorityFilterValue[]>([
+    ...FILTER_PRIORITIES,
+  ]);
+  const [openFilter, setOpenFilter] = useState<"room" | "priority" | null>(
+    null,
+  );
   const [sort, setSort] = useState<AsksSort>(getAsksSort);
   const filterRooms = useMemo(() => ordinaryRooms(rooms), [rooms]);
-  const roomFilter = effectiveRoomFilter(roomChoice, filterRooms);
+  // An unchecked room that went away hides nothing and does not count.
+  const hiddenRooms = useMemo(
+    () =>
+      new Set(
+        filterRooms
+          .filter((room) => uncheckedRooms.includes(room.id))
+          .map((room) => room.id),
+      ),
+    [filterRooms, uncheckedRooms],
+  );
+  const filter = useMemo<AskFilter>(
+    () => ({ hiddenRooms, priorities }),
+    [hiddenRooms, priorities],
+  );
   const open = useMemo(
     () => asks.filter((e) => answeredAsks.get(e.id) !== "sending"),
     [asks, answeredAsks],
   );
   const groups = useMemo(
-    () =>
-      askGroups(
-        open,
-        agents,
-        filterRooms,
-        { room: roomFilter, priority: priorityFilter },
-        sort,
-      ),
-    [open, agents, filterRooms, roomFilter, priorityFilter, sort],
+    () => askGroups(open, agents, filterRooms, filter, sort),
+    [open, agents, filterRooms, filter, sort],
   );
+  const counts = useMemo(
+    () => filterCounts(open, agents, filter),
+    [open, agents, filter],
+  );
+  const showAll = () => {
+    setUncheckedRooms([]);
+    setPriorities([...FILTER_PRIORITIES]);
+  };
+  // Escape with a list open closes the list, focus back on its button, and
+  // does not reach App's window listener that closes the Inbox. A capture
+  // listener on window, as focus can be on the page (Safari does not focus a
+  // clicked button).
+  useEffect(() => {
+    if (!openFilter) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      document
+        .querySelector<HTMLButtonElement>(
+          `[data-checkbox-filter="${openFilter}"] button`,
+        )
+        ?.focus();
+      setOpenFilter(null);
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [openFilter]);
   // Whether any ask would show with both filters on all, so an empty list
   // can tell "no open asks" from "the filters hide them".
   const anyOpen = useMemo(
@@ -177,6 +241,13 @@ export function AsksView({
     () => new Map(rooms.map((r) => [r.id, r.name])),
     [rooms],
   );
+  const checkedRooms = filterRooms.filter((room) => !hiddenRooms.has(room.id));
+  const roomSummary =
+    hiddenRooms.size === 0
+      ? t("roomFilter.all")
+      : checkedRooms.length === 0
+        ? t("tasks.filterNone")
+        : checkedRooms.map((room) => room.name).join(", ");
   const selectStyle: React.CSSProperties = {
     padding: "6px 8px",
     borderRadius: 6,
@@ -215,39 +286,44 @@ export function AsksView({
         <div
           style={{ display: "flex", gap: 8, maxWidth: 760, margin: "0 auto" }}
         >
-          <select
-            data-asks-room-filter=""
-            aria-label={t("roomFilter.title")}
-            value={roomFilter}
-            onChange={(e) => setRoomFilter(e.target.value)}
-            style={selectStyle}
-          >
-            <option value={ROOM_FILTER_ALL}>{t("roomFilter.all")}</option>
-            {filterRooms.map((r) => (
-              <option key={r.id} {...noTranslate()} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <select
-            data-asks-priority-filter=""
-            aria-label={t("asks.priorityFilter")}
-            value={priorityFilter}
-            onChange={(e) =>
-              setPriorityFilter(e.target.value as PriorityFilter)
+          <CheckboxFilter
+            name="room"
+            label={t("tasks.field.room")}
+            summary={roomSummary}
+            summaryNoTranslate={hiddenRooms.size > 0 && checkedRooms.length > 0}
+            options={filterRooms.map((room) => ({
+              value: room.id,
+              label: room.name,
+              count: counts.rooms.get(room.id) ?? 0,
+              noTranslate: true,
+            }))}
+            checked={checkedRooms.map((room) => room.id)}
+            onToggle={(id) =>
+              setUncheckedRooms((prev) =>
+                hiddenRooms.has(id)
+                  ? prev.filter((v) => v !== id)
+                  : [...prev, id],
+              )
             }
-            style={selectStyle}
-          >
-            {PRIORITY_FILTERS.map((p) => (
-              <option key={p} value={p}>
-                {p === "all"
-                  ? t("tasks.filterAllPriorities")
-                  : p === "none"
-                    ? t("tasks.filterPriorityNone")
-                    : p}
-              </option>
-            ))}
-          </select>
+            open={openFilter === "room"}
+            onOpenChange={(o) => setOpenFilter(o ? "room" : null)}
+            buttonStyle={selectStyle}
+          />
+          <CheckboxFilter
+            name="priority"
+            label={t("tasks.field.priority")}
+            summary={prioritySummary(priorities, t)}
+            options={FILTER_PRIORITIES.map((p) => ({
+              value: p,
+              label: p === "none" ? t("tasks.filterPriorityNone") : p,
+              count: counts.priorities.get(p) ?? 0,
+            }))}
+            checked={priorities}
+            onToggle={(p) => setPriorities((prev) => toggled(prev, p))}
+            open={openFilter === "priority"}
+            onOpenChange={(o) => setOpenFilter(o ? "priority" : null)}
+            buttonStyle={selectStyle}
+          />
           <select
             data-asks-sort=""
             aria-label={t("asks.sort")}
@@ -287,10 +363,7 @@ export function AsksView({
               <button
                 type="button"
                 data-asks-show-all=""
-                onClick={() => {
-                  setRoomFilter(ROOM_FILTER_ALL);
-                  setPriorityFilter("all");
-                }}
+                onClick={showAll}
                 style={{
                   marginTop: 10,
                   padding: "6px 12px",

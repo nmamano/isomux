@@ -1671,7 +1671,6 @@ Coses que pots fer per ell:
   "asks.badge.other": "{count} peticions",
   "asks.answerFailed": "No enviat: {error}",
   "asks.empty": "No hi ha peticions obertes.",
-  "asks.priorityFilter": "Filtra per prioritat",
   "asks.sort": "Ordena",
   "asks.sortAgent": "Per agent",
   "asks.sortRoom": "Per sala",

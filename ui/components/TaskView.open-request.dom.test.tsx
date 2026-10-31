@@ -8,7 +8,8 @@ const { useState } = await import("react");
 const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
-const { checkedFilterValues } = await import("../test-support/task-filters.ts");
+const { checkedFilterValues } =
+  await import("../test-support/checkbox-filters.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 

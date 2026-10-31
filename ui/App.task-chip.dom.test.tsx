@@ -8,7 +8,8 @@ const { createElement } = await import("react");
 const { App } = await import("./App.tsx");
 const { StateCtx, initialState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
-const { checkedFilterValues } = await import("./test-support/task-filters.ts");
+const { checkedFilterValues } =
+  await import("./test-support/checkbox-filters.ts");
 type AgentInfo = import("../shared/types.ts").AgentInfo;
 type TaskItem = import("../shared/types.ts").TaskItem;
 
