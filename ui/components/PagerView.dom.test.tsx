@@ -125,10 +125,7 @@ describe("the pager list", () => {
 describe("acting on a page", () => {
   it("acks an open page and then resolves it, through the row's own buttons", async () => {
     const { view } = await mount([page("p1")]);
-    // Actions live in the expanded row; the toggle is a real button.
-    expect(toggle(view, "p1").getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(toggle(view, "p1"));
-    expect(toggle(view, "p1").getAttribute("aria-expanded")).toBe("true");
+    // Actions live in the expanded row, and a page starts expanded.
     const ack = view.getByRole("button", { name: en["pager.action.ack"] });
     await act(async () => fireEvent.click(ack));
     expect(shim.calls).toContain("POST /api/pager/p1/ack");
@@ -149,7 +146,6 @@ describe("acting on a page", () => {
   it("shows a refused action on the row and keeps the page", async () => {
     shim.failActions = true;
     const { view } = await mount([page("p1")]);
-    fireEvent.click(toggle(view, "p1"));
     await act(async () =>
       fireEvent.click(
         view.getByRole("button", { name: en["pager.action.ack"] }),
@@ -168,7 +164,7 @@ describe("acting on a page", () => {
     fireEvent.click(link);
     expect(focused).toEqual(["a1"]);
     // Following the link does not toggle the row.
-    expect(toggle(view, "p1").getAttribute("aria-expanded")).toBe("false");
+    expect(toggle(view, "p1").getAttribute("aria-expanded")).toBe("true");
   });
 });
 

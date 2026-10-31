@@ -38,7 +38,8 @@ describe("the Discord link", () => {
       page("p1", { state: "resolved" }),
     ]);
     expect(toggleOf(view, "p1")?.getAttribute("aria-expanded")).toBe("true");
-    expect(toggleOf(view, "p2")?.getAttribute("aria-expanded")).toBe("false");
+    // The link does not collapse the other pages.
+    expect(toggleOf(view, "p2")?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("ends in the unavailable notice for a page the snapshot does not hold and the server refuses", async () => {

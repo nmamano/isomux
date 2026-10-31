@@ -18,6 +18,8 @@ export const shim = {
   apps: [] as AppListWire[],
   failActions: false,
   current: [] as PagerEntry[],
+  // The pages GET /api/pager/<id> finds; any other id is refused.
+  byId: [] as PagerEntry[],
   // When set, each GET /api/apps waits here until the test settles it.
   heldApps: null as ((list: AppListWire[]) => void)[] | null,
   // The member's own pager settings read: an answer, "fail", or "hold" (it
@@ -65,6 +67,12 @@ export function setupPagerViewTests() {
         })),
       };
     }
+    const one = /^\/api\/pager\/([^/?]+)$/.exec(path);
+    if (one && method === "GET") {
+      const entry = shim.byId.find((e) => e.id === one[1]);
+      if (!entry) throw new Error("not found");
+      return entry;
+    }
     const m = /^\/api\/pager\/([^/]+)\/(ack|resolve)$/.exec(path);
     if (m && method === "POST") {
       if (shim.failActions) throw new Error("refused");
@@ -81,6 +89,7 @@ export function setupPagerViewTests() {
     shim.calls.length = 0;
     shim.apps = [];
     shim.failActions = false;
+    shim.byId = [];
     shim.heldApps = null;
     shim.pagerSettings = { webhookUrlMasked: null };
     shim.pushDevices = 0;

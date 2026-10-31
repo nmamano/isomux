@@ -159,12 +159,38 @@ export function PagerView({
   }
   const roomFilter =
     chosenRoomFilter ?? openingRoomFilter(currentRoomId, lobbyOpen, rooms);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Every page shows expanded; the member collapses one at a time.
+  const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   // The deep link named a page this member cannot see, or one that is gone.
   const [unavailable, setUnavailable] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
-  const scrollToRef = useRef<string | null>(null);
+  // The page a deep link scrolls to. `n` tells a repeat link to the same
+  // page from the first one.
+  const [scrollTarget, setScrollTarget] = useState<{
+    id: string;
+    n: number;
+  } | null>(null);
+  // A deep link expands its page and scrolls to it; the other pages keep
+  // their state.
+  function reveal(id: string) {
+    setCollapsedIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setScrollTarget((prev) => ({ id, n: (prev?.n ?? 0) + 1 }));
+  }
+  function toggleCollapsed(id: string) {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }
   // Whether this member's pages leave the office (Discord or a device with
   // notifications on): null until the reads answer, so a load or a failed
   // read never claims both are absent.
@@ -240,9 +266,8 @@ export function PagerView({
     setUnavailable(false);
     setStateFilter("all");
     setRoomFilter("all");
-    setExpandedId(entry.id);
+    reveal(entry.id);
     /* eslint-enable react-hooks/set-state-in-effect */
-    scrollToRef.current = entry.id;
     // Kept while the view shows it, like a page read by id.
     dispatch({ type: "pager_pin", id: entry.id });
   }, [selectRequest, pagerLoaded, pager, onSelectRequestHandled, dispatch]);
@@ -269,8 +294,7 @@ export function PagerView({
       setUnavailable(false);
       setStateFilter("all");
       setRoomFilter("all");
-      setExpandedId(entry.id);
-      scrollToRef.current = entry.id;
+      reveal(entry.id);
     };
     apiFetch<PagerEntry>(
       "GET",
@@ -326,15 +350,14 @@ export function PagerView({
     }
   }
 
+  // Every page is expanded, so the linked one goes to the top of the list.
   useEffect(() => {
-    const id = scrollToRef.current;
-    if (!id || expandedId !== id) return;
-    scrollToRef.current = null;
+    if (scrollTarget === null) return;
     const row = [
       ...document.querySelectorAll<HTMLElement>("[data-pager-id]"),
-    ].find((el) => el.dataset.pagerId === id);
-    row?.scrollIntoView?.({ block: "nearest" });
-  }, [expandedId]);
+    ].find((el) => el.dataset.pagerId === scrollTarget.id);
+    row?.scrollIntoView?.({ block: "start" });
+  }, [scrollTarget]);
 
   const roomNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -667,7 +690,7 @@ export function PagerView({
             }}
           >
             {shown.map((entry) => {
-              const expanded = expandedId === entry.id;
+              const expanded = !collapsedIds.has(entry.id);
               const busy = busyId === entry.id;
               const detailsId = `pager-details-${entry.id}`;
               return (
@@ -693,7 +716,7 @@ export function PagerView({
                       className="pager-row-toggle"
                       aria-expanded={expanded}
                       aria-controls={detailsId}
-                      onClick={() => setExpandedId(expanded ? null : entry.id)}
+                      onClick={() => toggleCollapsed(entry.id)}
                       style={{
                         flex: 1,
                         minWidth: 0,
