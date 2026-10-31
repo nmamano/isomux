@@ -4068,11 +4068,19 @@ function buildExecutorDeps(
       untrustedFileHeaders,
       deliver: deliverAskAnswer,
       agentName: (agentId) => agentManager.getAgent(agentId)?.name ?? null,
-      createTask: ({ title, description, createdBy, username, roomId }) =>
+      createTask: ({
+        title,
+        description,
+        createdBy,
+        username,
+        roomId,
+        priority,
+      }) =>
         agentManager.addTask(title, createdBy, {
           description,
           username,
           roomId,
+          priority,
         }),
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,

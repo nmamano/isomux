@@ -1486,6 +1486,9 @@ export interface AskEntry {
   // The option the agent recommends, by its text: the card marks it and the
   // reply field starts with it. Only with options.
   recommended?: string;
+  // How urgent the agent says the ask is, on the board's scale, so the member
+  // can sort and filter the Inbox by it. Never on a secret request.
+  priority?: TaskPriority;
   // Chat affordances on the card (server/agent-reference/asks.md): commands
   // for the member's terminal panel, files for the editor card, and files to
   // show: a copy in the agent's files dir made when the ask was made or

@@ -2,10 +2,19 @@
 // agent with the longest wait first, a group goes with its last card, Tab
 // crosses groups, and a card's panel buttons open its agent's chat. An answer
 // waits ASK_UNDO_MS for an Undo, and is sent at once when the page goes away.
+// The filter row sorts and filters the groups, and a card shows its priority.
 // The agent's name opening its chat and an ask from an agent the client does
 // not have are in ui/App.inbox.dom.test.tsx; the card itself, which the chat's
 // stack sends at once, is in AsksStack.dom.test.tsx.
-import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -17,6 +26,7 @@ const { StateCtx, DispatchCtx, initialState, reducer } =
   await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
+type TaskPriority = import("../../shared/types.ts").TaskPriority;
 type AppState = typeof initialState;
 
 const NOW = Date.now();
@@ -54,7 +64,10 @@ async function advance(ms: number) {
   await act(async () => {});
 }
 
-function mount(asks: AskEntry[]) {
+function mount(
+  asks: AskEntry[],
+  place: Partial<Pick<AppState, "rooms" | "agents">> = {},
+) {
   const seeded: AppState = {
     ...initialState,
     asks,
@@ -66,6 +79,7 @@ function mount(asks: AskEntry[]) {
       { id: "a1", name: "Scout", roomId: "r1" },
       { id: "a2", name: "Ranger", roomId: "r2" },
     ] as AppState["agents"],
+    ...place,
   };
   const focused: string[] = [];
   const latest: { state: AppState } = { state: seeded };
@@ -152,6 +166,8 @@ it("drops a group with its last card, then shows the empty state", async () => {
   expect(posts).toEqual(["/api/asks/onlyA/reply", "/api/asks/onlyB/dismiss"]);
   expect(groupIds(view)).toEqual([]);
   expect(view.container.querySelector("[data-asks-empty]")).not.toBeNull();
+  // No ask is open, so no filter hides one.
+  expect(view.container.querySelector("[data-asks-filtered-empty]")).toBeNull();
 });
 
 it("moves with Tab from one agent's reply field to the next agent's, in page order", () => {
@@ -227,6 +243,202 @@ const pendingOf = (view: ReturnType<typeof render>, id: string) => {
 };
 const undoOf = (view: ReturnType<typeof render>, id: string) =>
   cardEl(view, id)!.querySelector<HTMLButtonElement>("[data-ask-undo]")!;
+// The filter row and the sorts (task 995fc76a). Room order is the rooms
+// slice's, which here differs from both id order and name order. Each group
+// reads as "agent:card,card" in page order.
+const SORT_ROOMS = [
+  { id: "r2", name: "Room Two" },
+  { id: "r1", name: "Room One" },
+] as AppState["rooms"];
+const SORT_AGENTS = [
+  { id: "a1", name: "Scout", roomId: "r1" },
+  { id: "a2", name: "Ranger", roomId: "r2" },
+  { id: "a3", name: "Pathfinder", roomId: "r1" },
+  { id: "a4", name: "Tracker", roomId: "r2" },
+] as AppState["agents"];
+const ranked = (
+  id: string,
+  agentId: string,
+  ageMin: number,
+  priority?: TaskPriority,
+): AskEntry => ({
+  ...ask(id, agentId, ageMin),
+  ...(priority ? { priority } : {}),
+});
+const SORT_ASKS = [
+  ranked("a1old", "a1", 100, "P2"),
+  ranked("a1top", "a1", 5, "P0"),
+  ranked("a2only", "a2", 60),
+  ranked("a3p1", "a3", 30, "P1"),
+  ranked("a4p1", "a4", 10, "P1"),
+  ranked("a4none", "a4", 200),
+];
+const BY_AGENT = ["a4:a4none,a4p1", "a1:a1old,a1top", "a2:a2only", "a3:a3p1"];
+const mountSorted = () =>
+  mount(SORT_ASKS, { rooms: SORT_ROOMS, agents: SORT_AGENTS });
+const pageOrder = (view: ReturnType<typeof render>) =>
+  [...view.container.querySelectorAll<HTMLElement>("[data-asks-group]")].map(
+    (g) =>
+      `${g.dataset.asksGroup}:${[
+        ...g.querySelectorAll<HTMLElement>("[data-ask]"),
+      ]
+        .map((c) => c.dataset.ask)
+        .join(",")}`,
+  );
+type Control =
+  | "data-asks-room-filter"
+  | "data-asks-priority-filter"
+  | "data-asks-sort";
+const control = (view: ReturnType<typeof render>, attr: Control) =>
+  view.container.querySelector<HTMLSelectElement>(`select[${attr}]`)!;
+const choose = (
+  view: ReturnType<typeof render>,
+  attr: Control,
+  value: string,
+) =>
+  act(() => void fireEvent.change(control(view, attr), { target: { value } }));
+
+describe("the filter row", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("opens on all rooms, all priorities and the agent sort, and offers each room and level", () => {
+    const { view } = mountSorted();
+    const values = (attr: Control) =>
+      [...control(view, attr).options].map((o) => o.value);
+    expect(control(view, "data-asks-room-filter").value).toBe("all");
+    expect(values("data-asks-room-filter")).toEqual(["all", "r2", "r1"]);
+    expect(control(view, "data-asks-priority-filter").value).toBe("all");
+    expect(values("data-asks-priority-filter")).toEqual([
+      "all",
+      "P0",
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "none",
+    ]);
+    expect(control(view, "data-asks-sort").value).toBe("agent");
+    expect([...values("data-asks-sort")].sort()).toEqual([
+      "agent",
+      "priority",
+      "room",
+    ]);
+    expect(pageOrder(view)).toEqual(BY_AGENT);
+  });
+
+  it("sorts by room in the office's room order, then by the oldest ask; cards stay oldest first", () => {
+    const { view } = mountSorted();
+    choose(view, "data-asks-sort", "room");
+    expect(pageOrder(view)).toEqual([
+      "a4:a4none,a4p1",
+      "a2:a2only",
+      "a1:a1old,a1top",
+      "a3:a3p1",
+    ]);
+  });
+
+  it("sorts by priority: cards by level then age, no priority last, and groups by their first card", () => {
+    const { view } = mountSorted();
+    choose(view, "data-asks-sort", "priority");
+    // a3 and a4 both lead with a P1: a3's has waited longer, though a4's
+    // group holds the oldest ask on the page.
+    expect(pageOrder(view)).toEqual([
+      "a1:a1top,a1old",
+      "a3:a3p1",
+      "a4:a4p1,a4none",
+      "a2:a2only",
+    ]);
+  });
+
+  it("filters by the agent's room and by exact priority, and groups by the cards it shows", () => {
+    const { view } = mountSorted();
+    choose(view, "data-asks-room-filter", "r1");
+    expect(pageOrder(view)).toEqual(["a1:a1old,a1top", "a3:a3p1"]);
+    choose(view, "data-asks-room-filter", "all");
+    choose(view, "data-asks-priority-filter", "P1");
+    // a4's oldest ask is hidden, so its P1 card places the group.
+    expect(pageOrder(view)).toEqual(["a3:a3p1", "a4:a4p1"]);
+    choose(view, "data-asks-priority-filter", "none");
+    expect(pageOrder(view)).toEqual(["a4:a4none", "a2:a2only"]);
+    choose(view, "data-asks-priority-filter", "P1");
+    choose(view, "data-asks-room-filter", "r2");
+    expect(pageOrder(view)).toEqual(["a4:a4p1"]);
+  });
+
+  it("says when the filters hide every ask, and Show all clears both filters", async () => {
+    const { view } = mountSorted();
+    choose(view, "data-asks-room-filter", "r1");
+    choose(view, "data-asks-priority-filter", "none");
+    expect(pageOrder(view)).toEqual([]);
+    const filtered = view.container.querySelector("[data-asks-filtered-empty]");
+    expect(filtered).not.toBeNull();
+    // Not the "no open asks" state: asks are open, only hidden.
+    expect(view.container.querySelector("[data-asks-empty]")).toBeNull();
+    await act(async () =>
+      fireEvent.click(
+        view.container.querySelector<HTMLButtonElement>(
+          "[data-asks-show-all]",
+        )!,
+      ),
+    );
+    expect(control(view, "data-asks-room-filter").value).toBe("all");
+    expect(control(view, "data-asks-priority-filter").value).toBe("all");
+    expect(pageOrder(view)).toEqual(BY_AGENT);
+    expect(
+      view.container.querySelector("[data-asks-filtered-empty]"),
+    ).toBeNull();
+  });
+
+  it("remembers the sort on this device, but opens the filters on all again", () => {
+    const first = mountSorted();
+    choose(first.view, "data-asks-sort", "priority");
+    choose(first.view, "data-asks-room-filter", "r2");
+    choose(first.view, "data-asks-priority-filter", "P1");
+    first.view.unmount();
+    const second = mountSorted();
+    expect(control(second.view, "data-asks-sort").value).toBe("priority");
+    expect(control(second.view, "data-asks-room-filter").value).toBe("all");
+    expect(control(second.view, "data-asks-priority-filter").value).toBe("all");
+    expect(pageOrder(second.view)).toEqual([
+      "a1:a1top,a1old",
+      "a3:a3p1",
+      "a4:a4p1,a4none",
+      "a2:a2only",
+    ]);
+  });
+
+  it("falls back to the agent sort when the stored sort is not one it knows", () => {
+    const first = mountSorted();
+    choose(first.view, "data-asks-sort", "room");
+    first.view.unmount();
+    // The stored choice, whatever its key and form: overwrite it.
+    const keys = Array.from(
+      { length: localStorage.length },
+      (_, i) => localStorage.key(i)!,
+    ).filter((k) => (localStorage.getItem(k) ?? "").includes("room"));
+    expect(keys).toHaveLength(1);
+    localStorage.setItem(keys[0], "bogus");
+    const second = mountSorted();
+    expect(control(second.view, "data-asks-sort").value).toBe("agent");
+    expect(pageOrder(second.view)).toEqual(BY_AGENT);
+  });
+});
+
+it("marks an ask's priority on its card, and nothing on an ask without one", () => {
+  const { view } = mount([
+    ranked("urgent", "a1", 5, "P0"),
+    ask("plain", "a2", 9),
+  ]);
+  const chip = cardEl(view, "urgent")!.querySelector<HTMLElement>(
+    "[data-ask-priority]",
+  );
+  expect(chip?.dataset.askPriority).toBe("P0");
+  expect(chip?.textContent).toBe("P0");
+  expect(
+    cardEl(view, "plain")!.querySelector("[data-ask-priority]"),
+  ).toBeNull();
+});
+
 type Kind = "reply" | "dismiss" | "file-task";
 // Types the text in the card's field and clicks the answer of that kind.
 async function answerAsk(

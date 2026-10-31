@@ -796,6 +796,8 @@ export interface AskCreateReq {
   options?: string[];
   // The option the agent recommends, by its text; one of `options`.
   recommended?: string;
+  // One of P0-P4, the board's scale (TaskPriority).
+  priority?: string;
   // Chat affordances, at most ASK_AFFORDANCES_MAX in total: single-line
   // commands, and paths resolved against the agent's cwd.
   commands?: string[];
@@ -814,6 +816,8 @@ export interface AskEditReq {
   // Goes with options: sent options without it clear the mark. With kept
   // options, one of them; "" removes the mark.
   recommended?: string;
+  // Absent keeps the ask's priority; null or "" removes it.
+  priority?: string | null;
   // For each: absent keeps the ask's list; [] removes it.
   commands?: string[];
   editFiles?: string[];

@@ -1666,6 +1666,13 @@ Cosas que puedes hacer por él:
   "asks.badge.other": "{count} peticiones",
   "asks.answerFailed": "No enviado: {error}",
   "asks.empty": "No hay peticiones abiertas.",
+  "asks.priorityFilter": "Filtrar por prioridad",
+  "asks.sort": "Ordenar",
+  "asks.sortAgent": "Por agente",
+  "asks.sortRoom": "Por sala",
+  "asks.sortPriority": "Por prioridad",
+  "asks.filteredEmpty": "Ninguna petición abierta coincide con estos filtros.",
+  "asks.showAll": "Mostrar todo",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",
   "apiCall.tasks.listOpenGlobal":
     "Listar tareas abiertas (solo las globales de la oficina)",

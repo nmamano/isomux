@@ -40,10 +40,12 @@ import { actsForAgent, type Identity } from "../../identity/index.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
+  isValidPriority,
   type AskCloseInput,
   type AskEntry,
   type AskReadFile,
   type TaskItem,
+  type TaskPriority,
 } from "../../../shared/types.ts";
 import {
   MAX_READ_FILE_BYTES,
@@ -147,6 +149,7 @@ export interface AsksDeps {
     createdBy: string;
     username: string | undefined;
     roomId: string;
+    priority?: TaskPriority;
   }): TaskItem;
   deleteTask(id: string): boolean;
   // Who the caller is on the board, as tasks.create records it.
@@ -316,6 +319,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   };
   const invalidOptions = (message: string) =>
     fail(422, "invalid_options", message);
+  const invalidPriority = () =>
+    fail(422, "invalid_priority", "priority must be one of P0, P1, P2, P3, P4");
   const secretRequest = (message: string) =>
     fail(409, "secret_request", message);
   const tooManyAsks = () =>
@@ -567,6 +572,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         createdBy,
         username,
         roomId: agent.roomId,
+        ...(entry.priority ? { priority: entry.priority } : {}),
       });
       let result: UserSendAcceptance;
       try {
@@ -629,6 +635,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (!checkedMark.ok) return invalidOptions(checkedMark.message);
       recommended = checkedMark.recommended;
     }
+    if (body.priority !== undefined && !isValidPriority(body.priority))
+      return invalidPriority();
     const lists = affordanceLists(body, null);
     if (!lists.ok) return lists.result;
     const asker = resolve(body);
@@ -689,6 +697,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       ...(step ? { link: step.link, step: step.step } : {}),
       ...(options ? { options } : {}),
       ...(recommended !== undefined ? { recommended } : {}),
+      ...(body.priority !== undefined ? { priority: body.priority } : {}),
       // On a create every sent list is non-empty, so none is null.
       affordances: resolved.affordances as AskAffordances,
       // An app's ask has no opening session: the agent did not ask it.
@@ -721,6 +730,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       const checkedOptions = checkOptions(body.options);
       if (!checkedOptions.ok) return invalidOptions(checkedOptions.message);
       options = checkedOptions.options;
+    }
+    // Absent keeps the priority; null and "" remove it.
+    let priority: TaskPriority | null | undefined;
+    if (body.priority === null || body.priority === "") priority = null;
+    else if (body.priority !== undefined) {
+      if (!isValidPriority(body.priority)) return invalidPriority();
+      priority = body.priority;
     }
     const prev = find();
     if (!prev) return notFound();
@@ -765,6 +781,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       options,
       resolved.affordances,
       recommended,
+      priority,
     );
     return entry ? ok(wire(entry)) : notFound();
   };

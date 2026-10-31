@@ -60,6 +60,7 @@ import { FileViewCard } from "./FileViewCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
+import { PRIORITY_COLORS } from "../task-priority.ts";
 
 const PROMPT_LINES = 3;
 
@@ -575,6 +576,20 @@ function ReplyAskCard({
             />
           </div>
         </div>
+        {entry.priority && (
+          <span
+            data-ask-priority={entry.priority}
+            style={{
+              color: PRIORITY_COLORS[entry.priority],
+              fontSize: isMobile ? 11 : 10,
+              fontWeight: 700,
+              lineHeight: `${fontSize * 1.5}px`,
+              flexShrink: 0,
+            }}
+          >
+            {entry.priority}
+          </span>
+        )}
         <span
           style={{
             color: "var(--text-ghost)",

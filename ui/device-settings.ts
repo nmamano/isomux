@@ -112,6 +112,28 @@ export function setAppFilter(filter: AppFilter, on: boolean): void {
   } catch {}
 }
 
+// The Inbox Asks tab's sort, remembered on this device. It starts as "agent",
+// and a value this build does not know reads as "agent".
+export type AsksSort = "agent" | "room" | "priority";
+export const ASKS_SORTS: readonly AsksSort[] = ["agent", "room", "priority"];
+const KEY_ASKS_SORT = "isomux-asks-sort";
+
+export function getAsksSort(): AsksSort {
+  try {
+    const stored = localStorage.getItem(KEY_ASKS_SORT);
+    return ASKS_SORTS.find((sort) => sort === stored) ?? "agent";
+  } catch {
+    return "agent";
+  }
+}
+
+export function setAsksSort(sort: AsksSort): void {
+  try {
+    if (sort === "agent") localStorage.removeItem(KEY_ASKS_SORT);
+    else localStorage.setItem(KEY_ASKS_SORT, sort);
+  } catch {}
+}
+
 // Whether the member closed the office's "Install as app" notice
 // (OfficeInstallNotice) or installed from it on this device. It shows until
 // then.

@@ -17,6 +17,11 @@ import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { openingRoomFilter } from "../room-filter.ts";
+import {
+  comparePriority,
+  PRIORITY_COLORS,
+  PRIORITY_ORDER,
+} from "../task-priority.ts";
 import { isClosedTask } from "../../shared/task-board.ts";
 import {
   ExpandableTextarea,
@@ -54,13 +59,6 @@ const STATUS_ORDER: Record<TaskStatus, number> = {
   done: 2,
   obsolete: 3,
 };
-const PRIORITY_ORDER: Record<string, number> = {
-  P0: 0,
-  P1: 1,
-  P2: 2,
-  P3: 3,
-  P4: 4,
-};
 
 // Cap the assignee suggestion chips. The office can hold many agents, and the
 // `agents` array arrives in Map insertion order (oldest-first, and unreliable
@@ -92,15 +90,6 @@ const STATUS_LABELS: Record<
   in_progress: "tasks.status.inProgress",
   done: "tasks.status.done",
   obsolete: "tasks.status.obsolete",
-};
-
-const PRIORITY_COLORS: Record<TaskPriority, string> = {
-  P0: "var(--red-text)",
-  P1: "var(--orange-text)",
-  P2: "var(--accent-text)",
-  P3: "var(--text-muted)",
-  // P4 is the old backlog, and keeps its color.
-  P4: "var(--purple-text)",
 };
 
 // Not a component, so the language and the translator arrive as arguments
@@ -161,7 +150,7 @@ function prioritySummary(
   }
   if (checked.length === 0) return t("tasks.filterNone");
   const levels = FILTER_PRIORITIES.filter(
-    (p) => p !== "none" && checked.includes(p),
+    (p): p is TaskPriority => p !== "none" && checked.includes(p),
   );
   const parts: string[] = [];
   for (let i = 0; i < levels.length; ) {
@@ -1300,12 +1289,9 @@ export function TaskView({
         case "status":
           cmp = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
           break;
-        case "priority": {
-          const pa = a.priority ? PRIORITY_ORDER[a.priority] : 99;
-          const pb = b.priority ? PRIORITY_ORDER[b.priority] : 99;
-          cmp = pa - pb;
+        case "priority":
+          cmp = comparePriority(a.priority, b.priority);
           break;
-        }
         case "title":
           cmp = a.title.localeCompare(b.title);
           break;

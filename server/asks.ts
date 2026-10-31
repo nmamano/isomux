@@ -23,6 +23,7 @@ import { errMessage } from "../shared/errors.ts";
 import type { AskHistory } from "./ask-history.ts";
 import {
   generateAskId,
+  isValidPriority,
   type AskCloseInput,
   type AskEntry,
   type AskMemberWire,
@@ -31,6 +32,7 @@ import {
   type FilePayload,
   type SecretAskRequest,
   type StepAskRequest,
+  type TaskPriority,
 } from "../shared/types.ts";
 
 // Sanity bounds only.
@@ -223,6 +225,7 @@ function isAskEntry(v: unknown): v is AskEntry {
     )
   )
     return false;
+  if (r.priority !== undefined && !isValidPriority(r.priority)) return false;
   // Chat affordances: the shape only, as for options.
   if (
     (r.commands !== undefined &&
@@ -390,13 +393,15 @@ export interface AskStore {
     link?: string;
     options?: string[];
     recommended?: string;
+    priority?: TaskPriority;
     affordances?: AskAffordances;
     sessionId?: string;
     step?: StepAskRequest;
     app?: { name: string; createdAt: number };
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
-  // link, options, recommended and each affordance list: undefined keeps the
-  // ask's value, null removes it. Removing the options removes the mark.
+  // link, options, recommended, each affordance list and priority: undefined
+  // keeps the ask's value, null removes it. Removing the options removes the
+  // mark.
   edit(
     id: string,
     prompt: string,
@@ -404,6 +409,7 @@ export interface AskStore {
     options?: string[] | null,
     affordances?: AskAffordanceEdit,
     recommended?: string | null,
+    priority?: TaskPriority | null,
   ): AskEntry | null;
   // Closes the entry and records how (`close`).
   remove(id: string, close: AskCloseInput): AskEntry | null;
@@ -507,6 +513,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       link,
       options,
       recommended,
+      priority,
       affordances,
       sessionId,
       step,
@@ -528,6 +535,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(link !== undefined ? { link } : {}),
         ...(options !== undefined ? { options } : {}),
         ...(recommended !== undefined ? { recommended } : {}),
+        ...(priority !== undefined ? { priority } : {}),
         ...affordances,
         ...(sessionId ? { sessionId } : {}),
         ...(step ? { step } : {}),
@@ -537,7 +545,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       commit([...entries, entry], [{ kind: "upserted", entry }]);
       return { ok: true, entry: { ...entry } };
     },
-    edit(id, prompt, link, options, affordances = {}, recommended) {
+    edit(id, prompt, link, options, affordances = {}, recommended, priority) {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
@@ -548,6 +556,8 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       else if (options !== undefined) entry.options = options;
       if (recommended === null || options === null) delete entry.recommended;
       else if (recommended !== undefined) entry.recommended = recommended;
+      if (priority === null) delete entry.priority;
+      else if (priority !== undefined) entry.priority = priority;
       const { commands, editFiles, readFiles } = affordances;
       if (commands === null) delete entry.commands;
       else if (commands !== undefined) entry.commands = commands;

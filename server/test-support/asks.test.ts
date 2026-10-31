@@ -945,6 +945,183 @@ describe("options the member can tap", () => {
   });
 });
 
+// An ask's optional priority (task 995fc76a): the board's P0-P4 scale, so a
+// member can sort and filter the Inbox by it. Absent on an ask that has none.
+describe("a priority", () => {
+  const stored = (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    (
+      JSON.parse(
+        readFileSync(join(w.srv.stateRoot, "asks.json"), "utf-8"),
+      ) as AskEntry[]
+    ).find((e) => e.id === id);
+  const priorityOf = (entry: unknown) =>
+    entry && typeof entry === "object" && "priority" in entry
+      ? (entry as AskEntry).priority
+      : "absent";
+
+  it("takes a priority on create and edit, keeps it when an edit omits it, removes it, and keeps it across a restart", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?priority=P1`,
+      w.as(w.asker.id),
+      { text: "Ship the beta?\n" },
+    );
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    expect(priorityOf(made.body)).toBe("P1");
+    expect(priorityOf(stored(w, id))).toBe("P1");
+
+    // An edit without a priority keeps it.
+    const kept = await call(w.srv, "PATCH", `${base}/${id}`, w.as(w.asker.id), {
+      text: "Ship the beta today?",
+    });
+    expect(kept.status).toBe(200);
+    expect(priorityOf(kept.body)).toBe("P1");
+
+    // Each removal form, each after a value that replaced the last one. The
+    // key goes from the answer and the file, never as null or "".
+    const removals: Array<[string, { json?: unknown; text?: string }]> = [
+      ["?priority=", { text: "Ship it?" }],
+      ["", { json: { text: "Ship it?", priority: null } }],
+      ["", { json: { text: "Ship it?", priority: "" } }],
+    ];
+    for (const [i, [query, body]] of removals.entries()) {
+      const level = `P${i * 2}`;
+      const set = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${id}`,
+        w.as(w.asker.id),
+        { json: { text: "Ship it?", priority: level } },
+      );
+      expect(`${i} ${set.status} ${priorityOf(set.body)}`).toBe(
+        `${i} 200 ${level}`,
+      );
+      expect(priorityOf(stored(w, id))).toBe(level);
+      const cleared = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${id}${query}`,
+        w.as(w.asker.id),
+        body,
+      );
+      expect(`${i} ${cleared.status} ${priorityOf(cleared.body)}`).toBe(
+        `${i} 200 absent`,
+      );
+      expect(stored(w, id)).toBeDefined();
+      expect(priorityOf(stored(w, id))).toBe("absent");
+    }
+
+    // A JSON create carries one, and the agent's read and the member's list
+    // show it.
+    const json = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Rename the repo?", priority: "P4" },
+    });
+    expect(json.status).toBe(201);
+    const jsonId = (json.body as AskEntry).id;
+    const read = await call(
+      w.srv,
+      "GET",
+      `${base}/${jsonId}`,
+      w.as(w.asker.id),
+    );
+    expect(priorityOf(read.body)).toBe("P4");
+    const owner = { rawSessionId: w.owner.rawSessionId };
+    const listed = await call(w.srv, "GET", "/api/asks", owner);
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.prompt, priorityOf(e)]),
+    ).toEqual([
+      ["Ship it?", "absent"],
+      ["Rename the repo?", "P4"],
+    ]);
+
+    server = await w.srv.restart();
+    const after = await call(server, "GET", "/api/asks", owner);
+    expect(
+      (after.body as AskEntry[]).map((e) => [e.prompt, priorityOf(e)]),
+    ).toEqual([
+      ["Ship it?", "absent"],
+      ["Rename the repo?", "P4"],
+    ]);
+  });
+
+  it("refuses a priority that is not P0 to P4, on create and on edit, and changes nothing", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?priority=P2`,
+      w.as(w.asker.id),
+      { text: "Keep me?" },
+    );
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    // The query form, also empty on a create (an edit reads it as removal).
+    for (const level of ["P5", "p1", "P", "high"]) {
+      const post = await call(
+        w.srv,
+        "POST",
+        `${base}?priority=${encodeURIComponent(level)}`,
+        w.as(w.asker.id),
+        { text: "Which?" },
+      );
+      expect(`${level} ${post.status} ${post.code}`).toBe(
+        `${level} 422 invalid_priority`,
+      );
+      const patch = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${id}?priority=${encodeURIComponent(level)}`,
+        w.as(w.asker.id),
+        { text: "Changed?" },
+      );
+      expect(`${level} ${patch.status} ${patch.code}`).toBe(
+        `${level} 422 invalid_priority`,
+      );
+    }
+    const emptyPost = await call(
+      w.srv,
+      "POST",
+      `${base}?priority=`,
+      w.as(w.asker.id),
+      { text: "Which?" },
+    );
+    expect(`${emptyPost.status} ${emptyPost.code}`).toBe(
+      "422 invalid_priority",
+    );
+    // The JSON form: not a level, or not a string; null and "" on a create.
+    for (const level of [1, true, ["P1"], "P9", null, ""]) {
+      const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
+        json: { text: "Which?", priority: level },
+      });
+      expect(`${JSON.stringify(level)} ${post.status} ${post.code}`).toBe(
+        `${JSON.stringify(level)} 422 invalid_priority`,
+      );
+    }
+    for (const level of [1, true, ["P1"], "P9"]) {
+      const patch = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${id}`,
+        w.as(w.asker.id),
+        { json: { text: "Changed?", priority: level } },
+      );
+      expect(`${JSON.stringify(level)} ${patch.status} ${patch.code}`).toBe(
+        `${JSON.stringify(level)} 422 invalid_priority`,
+      );
+    }
+    const listed = await call(w.srv, "GET", base, w.as(w.asker.id));
+    expect(
+      (listed.body as AskEntry[]).map((e) => [e.prompt, priorityOf(e)]),
+    ).toEqual([["Keep me?", "P2"]]);
+    expect(priorityOf(stored(w, id))).toBe("P2");
+  });
+});
+
 describe("the member's answer", () => {
   it("reaches the agent as the member's message, linked to the ask, and closes it", async () => {
     const w = await world();
@@ -1544,6 +1721,25 @@ describe("an ask filed as a task", () => {
       prompt: "Rotate the staging keys?",
       taskId: task.id,
     });
+  });
+
+  it("gives the task the ask's priority", async () => {
+    const w = await world();
+    const made = await call(
+      w.srv,
+      "POST",
+      `/api/agents/${w.asker.id}/asks?priority=P1`,
+      w.as(w.asker.id),
+      { text: "Move the backups?" },
+    );
+    expect(made.status).toBe(201);
+    const r = await fileTask(w, (made.body as AskEntry).id);
+    expect(r.status).toBe(201);
+    const task = r.body as TaskItem;
+    expect(task.priority).toBe("P1");
+    expect(
+      w.srv.agentManager.getTasks().map((t) => [t.id, t.priority]),
+    ).toEqual([[task.id, "P1"]]);
   });
 
   it("sends the member's typed note to the agent and puts it on the task; a blank one is bare", async () => {

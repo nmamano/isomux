@@ -1671,6 +1671,13 @@ Coses que pots fer per ell:
   "asks.badge.other": "{count} peticions",
   "asks.answerFailed": "No enviat: {error}",
   "asks.empty": "No hi ha peticions obertes.",
+  "asks.priorityFilter": "Filtra per prioritat",
+  "asks.sort": "Ordena",
+  "asks.sortAgent": "Per agent",
+  "asks.sortRoom": "Per sala",
+  "asks.sortPriority": "Per prioritat",
+  "asks.filteredEmpty": "Cap petició oberta coincideix amb aquests filtres.",
+  "asks.showAll": "Mostra-ho tot",
   "apiCall.tasks.listOpen": "Llistar tasques obertes",
   "apiCall.tasks.listOpenGlobal":
     "Llistar tasques obertes (només les globals de l'oficina)",
