@@ -13,6 +13,7 @@ const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const {
   ask,
   boot,
+  chatFromInbox,
   go,
   inboxButton,
   officeLink,
@@ -49,13 +50,7 @@ it("opens an ask's office page over the Asks tab, and Back returns to the Asks t
 it("opens an ask's office page over the chat, and Back returns to the chat", async () => {
   const view = await boot();
   await act(async () => fireEvent.click(inboxButton(view)!));
-  await act(async () =>
-    fireEvent.click(
-      view.container.querySelector<HTMLButtonElement>(
-        '[data-asks-agent="a1"]',
-      )!,
-    ),
-  );
+  await chatFromInbox(view, "a1");
   expect(view.container.querySelector("[data-asks-stack]")).not.toBeNull();
   expect(officeLink(view, "q2")).not.toBeNull();
   await act(async () => fireEvent.click(officeLink(view, "q2")!));

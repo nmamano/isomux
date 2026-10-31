@@ -113,11 +113,14 @@ export function AskCard({
   entry,
   isMobile,
   onFocusAgent,
+  onChatAgent,
   undoMs,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
+  // Set on the Inbox: Discuss in chat opens the in-place chat panel.
+  onChatAgent?: (agentId: string) => void;
   undoMs?: number;
 }) {
   return entry.secret ? (
@@ -126,12 +129,14 @@ export function AskCard({
       secret={entry.secret}
       isMobile={isMobile}
       onFocusAgent={onFocusAgent}
+      onChatAgent={onChatAgent}
     />
   ) : (
     <ReplyAskCard
       entry={entry}
       isMobile={isMobile}
       onFocusAgent={onFocusAgent}
+      onChatAgent={onChatAgent}
       undoMs={undoMs}
     />
   );
@@ -220,11 +225,13 @@ function ReplyAskCard({
   entry,
   isMobile,
   onFocusAgent,
+  onChatAgent,
   undoMs,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
+  onChatAgent?: (agentId: string) => void;
   undoMs?: number;
 }) {
   const { t, rich, language } = useI18n();
@@ -564,6 +571,7 @@ function ReplyAskCard({
               isMobile={isMobile}
               disabled={busy}
               onFocusAgent={onFocusAgent}
+              onChatAgent={onChatAgent}
             />
           </div>
         </div>

@@ -35,6 +35,7 @@ import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
 import { usePagerSync } from "./pager-sync.ts";
 import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
+import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
 import type { InboxTab } from "./inbox.ts";
 import { useAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
@@ -689,6 +690,17 @@ export function App({ routing = true }: { routing?: boolean }) {
   const pageBelow = pageUnder(pageFlags);
   const page = pageForFlags(pageFlags);
 
+  // The chat panel over the Inbox (AgentChatPanel): its agent, or null. It
+  // closes when the member leaves the Inbox or its agent goes, so it does not
+  // come back with either.
+  const [inboxChat, setInboxChat] = useState<string | null>(null);
+  if (
+    inboxChat !== null &&
+    ((page !== "pager" && page !== "asks") ||
+      !agents.some((a) => a.id === inboxChat))
+  )
+    setInboxChat(null);
+
   // Pages close top first, back to what they were opened over (tasks 586b63a5
   // and d6c09d1c): the page under the top one when two are stacked, else the
   // chat. Gate on the resolved agent, not the id, so a chat whose agent
@@ -1093,7 +1105,15 @@ export function App({ routing = true }: { routing?: boolean }) {
               onOpenPagerSettings={() => openIntegrations({ tab: "pager" })}
             />
           ) : (
-            <AsksView onFocusAgent={openAgentChat} />
+            <AsksView onFocusAgent={openAgentChat} onChatAgent={setInboxChat} />
+          )}
+          {inboxChat && (
+            <AgentChatPanel
+              agentId={inboxChat}
+              onSelectAgent={setInboxChat}
+              onClose={() => setInboxChat(null)}
+              onOpenFullChat={openAgentChat}
+            />
           )}
         </InboxView>
       ) : focusedAgent ? (

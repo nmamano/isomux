@@ -2,7 +2,9 @@
 // "<excerpt>": " in front of the agent's chat draft and has the composer take
 // focus with the caret after it (prefix_draft; LogView does the focus). The
 // member writes and sends a normal message, and the ask stays open. On the
-// Inbox, onFocusAgent also opens the agent's chat.
+// Inbox, onChatAgent opens the chat panel over it on the agent (task
+// e3c25581), which takes the focus request; without it onFocusAgent opens the
+// agent's chat.
 
 import { useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -14,11 +16,13 @@ export function AskAboutButton({
   isMobile,
   disabled,
   onFocusAgent,
+  onChatAgent,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   disabled: boolean;
   onFocusAgent?: (agentId: string) => void;
+  onChatAgent?: (agentId: string) => void;
 }) {
   const { t } = useI18n();
   const dispatch = useDispatch();
@@ -33,7 +37,7 @@ export function AskAboutButton({
           agentId: entry.agentId,
           prefix: t("asks.aboutPrefix", { question: askExcerpt(entry.prompt) }),
         });
-        onFocusAgent?.(entry.agentId);
+        (onChatAgent ?? onFocusAgent)?.(entry.agentId);
       }}
       style={{
         background: "none",

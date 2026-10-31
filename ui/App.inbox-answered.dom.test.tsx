@@ -12,8 +12,14 @@ setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
 const { ApiError } = await import("./api.ts");
-const { boot, inboxButton, setAnswerPost, setUpInboxTests, tabCount } =
-  await import("./test-support/inbox-fixture.tsx");
+const {
+  boot,
+  chatFromInbox,
+  inboxButton,
+  setAnswerPost,
+  setUpInboxTests,
+  tabCount,
+} = await import("./test-support/inbox-fixture.tsx");
 type View = import("./test-support/inbox-fixture.tsx").View;
 
 setUpInboxTests();
@@ -114,10 +120,8 @@ it("keeps an answered ask off the agent's chat stack while it is sent, brings it
   const view = await boot();
   await act(async () => fireEvent.click(inboxButton(view)!));
   await reply(view, "q1");
-  // The agent's name opens its chat; leaving the Inbox sends the answer.
-  await act(async () =>
-    fireEvent.click(view.container.querySelector('[data-asks-agent="a1"]')!),
-  );
+  // Into the agent's chat; leaving the Inbox sends the answer.
+  await chatFromInbox(view, "a1");
   expect(posts).toEqual(["/api/asks/q1/reply"]);
   expect(stackIds(view)).toEqual(["q2"]);
 

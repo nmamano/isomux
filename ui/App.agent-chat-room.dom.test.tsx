@@ -63,6 +63,15 @@ async function openInbox(view: View) {
   expect(inboxOpen(view)).toBe(true);
 }
 
+// The Inbox's chat panel (task e3c25581) opens the agent's full chat.
+async function openFullChat(view: View) {
+  const button = view.container.querySelector<HTMLButtonElement>(
+    "[data-agent-chat-panel] button[data-agent-chat-full]",
+  );
+  expect(button).not.toBeNull();
+  await act(async () => fireEvent.click(button!));
+}
+
 // Out of the chat named `name`, the office shows `room`, at the front or on
 // its back screen.
 async function leaveChat(view: View, name: string, room: string, back = false) {
@@ -74,7 +83,7 @@ async function leaveChat(view: View, name: string, room: string, back = false) {
   expect(backScreen(view)).toBe(back);
 }
 
-it("leaves a chat opened by Discuss in chat on the Inbox for the agent's room", async () => {
+it("leaves a chat opened from the Inbox's chat panel, after Discuss in chat, for the agent's room", async () => {
   setAsks([ask("q1", "a2")]);
   const view = await boot();
   await enterFirstRoom(view);
@@ -84,6 +93,7 @@ it("leaves a chat opened by Discuss in chat on the Inbox for the agent's room", 
   );
   expect(discuss).not.toBeNull();
   await act(async () => fireEvent.click(discuss!));
+  await openFullChat(view);
   await leaveChat(view, "Faraway", "r2");
   view.unmount();
 });
@@ -94,12 +104,13 @@ it("leaves a back agent's chat opened from the Inbox for its room's back screen"
   await enterFirstRoom(view);
   expect(backScreen(view)).toBe(false);
   await openInbox(view);
-  // The ask's agent name opens the chat too.
+  // The ask's agent name opens the panel too.
   const name = view.container.querySelector<HTMLButtonElement>(
     '[data-asks-agent="a3"]',
   );
   expect(name).not.toBeNull();
   await act(async () => fireEvent.click(name!));
+  await openFullChat(view);
   await leaveChat(view, "Backbencher", "r2", true);
   view.unmount();
 });

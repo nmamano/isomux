@@ -66,8 +66,46 @@ import {
   type AppWidgetBoot,
 } from "./app-widget-state.ts";
 
-// The generic button and link rules style the widget's own controls. They
-// skip the chat log, so the transcript looks as it does in the office.
+// The chat panel (WidgetChat in its section), on the app page and over the
+// Office's Inbox (AgentChatPanel, task e3c25581): each injects these rules. The
+// button and link rules style the panel's own controls. They skip the chat
+// log, so the transcript looks as it does in the office.
+export const CHAT_PANEL_CSS = `
+.app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; color:var(--text-primary); font-family:var(--font-ui); text-align:left; }
+.app-widget-panel-phone { left:8px; right:8px; width:auto; max-width:none; height:min(80dvh,calc(100dvh - max(20px,env(safe-area-inset-bottom)) - 84px)); }
+.app-widget-panel button:where(:not(.app-widget-log *)),.app-widget-panel a:where(:not(.app-widget-log *)),.app-widget-panel select { font:inherit; }
+.app-widget-panel button:where(:not(.app-widget-log *)) { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
+.app-widget-panel button:where(:not(.app-widget-log *)):disabled { cursor:default; opacity:.55; }
+.app-widget-steps { padding:9px 14px; font-size:13px; border-bottom:1px solid var(--border); }
+.app-widget-steps p { margin:0; display:flex; align-items:center; gap:8px; }
+.app-widget-steps svg { flex-shrink:0; color:var(--accent-text); }
+.app-widget-header-links { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+.app-widget-panel .app-widget-direct { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); white-space:nowrap; }
+.app-widget-panel button.app-widget-direct { padding:0; border:0; border-radius:0; background:none; text-decoration:underline; }
+.app-widget-direct:hover { color:var(--text-primary); }
+.app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
+.app-widget-header h1 { flex:1; min-width:0; font-size:16px; margin:0; }
+.app-widget-header h1 a { color:var(--accent-text); text-decoration:none; }
+.app-widget-header h1 a:hover { text-decoration:underline; }
+.app-widget-notice { padding:9px 14px; font-size:12px; color:var(--text-secondary); }
+.app-widget-log { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; padding:0 12px; }
+.app-widget-compose { padding:12px; border-top:1px solid var(--border); }
+.app-widget-compose textarea { display:block; resize:vertical; min-height:70px; max-height:150px; width:100%; font:inherit; font-size:16px; border:1px solid var(--border); border-radius:8px; padding:10px; color:var(--text-primary); background:var(--bg-base); }
+.app-widget-actions { display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; margin-top:8px; }
+.app-widget-attach { flex:1 1 100%; display:flex; gap:10px; align-items:center; min-width:0; }
+.app-widget-send { margin-left:auto; display:flex; gap:10px; align-items:center; }
+.app-widget-images:empty { display:none; }
+.app-widget-images { display:flex; gap:8px; overflow:auto; max-height:160px; margin-bottom:8px; }
+.app-widget-image { flex:0 0 112px; margin:0; font-size:12px; overflow-wrap:anywhere; }
+.app-widget-image img { width:104px; height:80px; object-fit:contain; display:block; }
+.app-widget-panel .app-widget-image button { font-size:12px; padding:3px 8px; }
+.app-widget-hint { flex:1; min-width:0; font-size:12px; color:var(--text-secondary); margin:0; }
+.app-widget-queue { display:inline-block; margin-bottom:8px; padding:3px 10px; border:1px solid var(--accent); border-radius:999px; color:var(--accent-text); font-size:13px; font-weight:600; }
+.app-widget-status { font-size:12px; color:var(--text-secondary); }
+`;
+
+// The app page around the panel: the frame, the dock and the install popover.
+// The generic button and link rules style the page's own controls.
 // server/agent-reference/apps.md tells apps where .app-widget-dock sits and
 // its size: update it when they change.
 const WIDGET_CSS = `
@@ -88,36 +126,10 @@ const WIDGET_CSS = `
 .app-widget a.app-widget-launcher { border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
 .app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:300px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; align-items:flex-start; gap:10px; }
 .app-widget-install > :first-child { flex:1; }
-.app-widget-install p,.app-widget-steps p { margin:0; display:flex; align-items:center; gap:8px; }
-.app-widget-install p svg,.app-widget-steps svg { flex-shrink:0; color:var(--accent-text); }
+.app-widget-install p { margin:0; display:flex; align-items:center; gap:8px; }
+.app-widget-install p svg { flex-shrink:0; color:var(--accent-text); }
 .app-widget .app-widget-install-close { display:flex; padding:4px; border:0; background:none; color:var(--text-secondary); }
 .app-widget-install-close:hover { color:var(--text-primary); }
-.app-widget-steps { padding:9px 14px; font-size:13px; border-bottom:1px solid var(--border); }
-.app-widget-header-links { display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
-.app-widget .app-widget-direct { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--text-secondary); white-space:nowrap; }
-.app-widget button.app-widget-direct { padding:0; border:0; border-radius:0; background:none; text-decoration:underline; }
-.app-widget-direct:hover { color:var(--text-primary); }
-.app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; }
-.app-widget-panel-phone { left:8px; right:8px; width:auto; max-width:none; height:min(80dvh,calc(100dvh - max(20px,env(safe-area-inset-bottom)) - 84px)); }
-.app-widget-header { padding:14px; display:flex; align-items:center; gap:12px; border-bottom:1px solid var(--border); }
-.app-widget-header h1 { flex:1; font-size:16px; margin:0; }
-.app-widget-header h1 a { color:var(--accent-text); text-decoration:none; }
-.app-widget-header h1 a:hover { text-decoration:underline; }
-.app-widget-notice { padding:9px 14px; font-size:12px; color:var(--text-secondary); }
-.app-widget-log { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; padding:0 12px; }
-.app-widget-compose { padding:12px; border-top:1px solid var(--border); }
-.app-widget-compose textarea { display:block; resize:vertical; min-height:70px; max-height:150px; width:100%; font:inherit; font-size:16px; border:1px solid var(--border); border-radius:8px; padding:10px; color:var(--text-primary); background:var(--bg-base); }
-.app-widget-actions { display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; margin-top:8px; }
-.app-widget-attach { flex:1 1 100%; display:flex; gap:10px; align-items:center; min-width:0; }
-.app-widget-send { margin-left:auto; display:flex; gap:10px; align-items:center; }
-.app-widget-images:empty { display:none; }
-.app-widget-images { display:flex; gap:8px; overflow:auto; max-height:160px; margin-bottom:8px; }
-.app-widget-image { flex:0 0 112px; margin:0; font-size:12px; overflow-wrap:anywhere; }
-.app-widget-image img { width:104px; height:80px; object-fit:contain; display:block; }
-.app-widget-image button { font-size:12px; padding:3px 8px; }
-.app-widget-hint { flex:1; min-width:0; font-size:12px; color:var(--text-secondary); margin:0; }
-.app-widget-queue { display:inline-block; margin-bottom:8px; padding:3px 10px; border:1px solid var(--accent); border-radius:999px; color:var(--accent-text); font-size:13px; font-weight:600; }
-.app-widget-status { font-size:12px; color:var(--text-secondary); }
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
 `;
 
@@ -168,13 +180,19 @@ function BackIcon() {
 // WebKit can report an offsetTop the shrunk window cannot hold: the box once
 // fell to zero height there and the chat seemed to close. The visible area is
 // held inside the window, and the page scroll iOS adds is undone, as LogView
-// does.
-function usePhonePanelBox(
+// does. With no dock (the office's Inbox panel) the box ends 8px above the
+// visible bottom. `inset` is the box's bottom edge as a distance from the
+// window's bottom, for a panel placed by its bottom (AgentChatPanel).
+export function usePhonePanelBox(
   active: boolean,
   open: boolean,
-  dock: RefObject<HTMLDivElement | null>,
-): { top: number; height: number } | null {
-  const [box, setBox] = useState<{ top: number; height: number } | null>(null);
+  dock: RefObject<HTMLDivElement | null> | null,
+): { top: number; height: number; inset: number } | null {
+  const [box, setBox] = useState<{
+    top: number;
+    height: number;
+    inset: number;
+  } | null>(null);
   // Before paint, so the panel never shows at the old box.
   useLayoutEffect(() => {
     const vv = window.visualViewport;
@@ -186,16 +204,22 @@ function usePhonePanelBox(
       const height = Math.min(vv.height, layout);
       const visibleTop = Math.min(Math.max(0, vv.offsetTop), layout - height);
       const visibleBottom = visibleTop + height;
-      const dockBottom = dock.current
+      const dockBottom = dock?.current
         ? parseFloat(getComputedStyle(dock.current).bottom)
         : NaN;
       const dockEdge = layout - (dockBottom >= 20 ? dockBottom : 20);
       const dockClear = layout - dockEdge + 76;
       const dockShown =
-        layout - dockClear >= visibleTop && dockEdge <= visibleBottom + 1;
+        dock !== null &&
+        layout - dockClear >= visibleTop &&
+        dockEdge <= visibleBottom + 1;
       const bottom = dockShown ? layout - dockClear : visibleBottom - 8;
       const top = Math.max(visibleTop + 8, bottom - 0.8 * layout);
-      setBox({ top, height: Math.max(0, bottom - top) });
+      setBox({
+        top,
+        height: Math.max(0, bottom - top),
+        inset: layout - bottom,
+      });
     };
     update();
     vv.addEventListener("resize", update);
@@ -677,7 +701,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => event.preventDefault()}
     >
-      <style>{CSS + WIDGET_CSS}</style>
+      <style>{CSS + CHAT_PANEL_CSS + WIDGET_CSS}</style>
       {frameUrl && (
         <iframe
           key={frameKey}
@@ -936,8 +960,15 @@ export function WidgetChat({
   onRecheck,
   stateChangedAt,
   currentView,
+  title,
+  headerActions,
+  textDraft,
+  focusRequest,
+  onFocusRequestHandled,
 }: {
-  boot: AppWidgetBoot;
+  // The app the chat is over. Without one (the Inbox's AgentChatPanel) a
+  // message is an ordinary member message and the draft is not kept here.
+  boot?: AppWidgetBoot;
   agent: AgentInfo;
   logs: LogEntry[];
   connected: boolean;
@@ -947,27 +978,56 @@ export function WidgetChat({
   // "Install as app", beside the direct link, and the steps it opens.
   installEntry?: ReactNode;
   installSteps?: ReactNode;
-  onRecheck: () => void;
+  onRecheck?: () => void;
   stateChangedAt?: number;
   // What the member sees in the frame, sent with each message.
   currentView?: () => AppView;
+  // The header's title in place of "Chat with <agent link>", and controls
+  // at its end.
+  title?: ReactNode;
+  headerActions?: ReactNode;
+  // The text draft held outside the widget (the agent's office chat draft):
+  // the widget shows it, reports each change, and clears it on a send.
+  textDraft?: { text: string; onChange: (text: string) => void };
+  // A caret to focus the composer at, once (an ask's "Discuss in chat").
+  focusRequest?: number;
+  onFocusRequestHandled?: () => void;
 }) {
   const { t, rich } = useI18n();
   const transcript = useChatTranscript(
     logs,
     agent.state === "thinking" || agent.state === "tool_executing",
   );
-  const key = widgetDraftKey(boot, agent.id);
+  const key = boot
+    ? widgetDraftKey(boot, agent.id)
+    : `agent-chat:draft:${agent.id}`;
   const freshDraft = () => ({
     key,
-    ...readDraft(key),
+    ...(boot
+      ? readDraft(key)
+      : {
+          text: textDraft?.text ?? "",
+          clientMessageId: crypto.randomUUID(),
+          images: [],
+        }),
     sending: false,
     failed: false,
   });
   const [draft, setDraft] = useState(freshDraft);
   // A target can change through readiness alone, without a parent remount.
   if (draft.key !== key) setDraft(freshDraft());
-  const { text, sending, failed } = draft;
+  // A change to the outside draft from elsewhere (an ask's "Discuss in chat")
+  // is new text: it gets a new message id, as a keystroke does, so a retry id
+  // never carries it. update() keeps the two equal, so a keystroke rotates once.
+  else if (textDraft && textDraft.text !== draft.text)
+    setDraft({
+      ...draft,
+      text: textDraft.text,
+      clientMessageId: crypto.randomUUID(),
+      failed: false,
+    });
+  const { sending, failed } = draft;
+  const text = textDraft ? textDraft.text : draft.text;
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -982,13 +1042,24 @@ export function WidgetChat({
   useEffect(() => {
     if (open && !isMobile) textarea.current?.focus();
   }, [open, isMobile]);
+  // As LogView does for "Discuss in chat": the focus runs inside the click, so
+  // a phone opens the keyboard, and the request is spent in every case.
+  useLayoutEffect(() => {
+    if (focusRequest === undefined) return;
+    onFocusRequestHandled?.();
+    const ta = textarea.current;
+    if (!ta) return;
+    ta.focus({ preventScroll: true });
+    const caret = Math.min(focusRequest, ta.value.length);
+    ta.setSelectionRange(caret, caret);
+  }, [focusRequest, onFocusRequestHandled]);
   useEffect(() => {
     if (open && !wasOpen.current) follow.current = true;
     wasOpen.current = open;
     if (open && follow.current) scrollToEnd();
   }, [logs, open]);
   useEffect(() => {
-    if (draft.key !== key) return;
+    if (!boot || draft.key !== key) return;
     try {
       sessionStorage.setItem(
         key,
@@ -1001,8 +1072,9 @@ export function WidgetChat({
     } catch {
       /* Keep the live draft. */
     }
-  }, [draft, key]);
+  }, [boot, draft, key]);
   const update = (value: string) => {
+    textDraft?.onChange(value);
     setDraft((current) => ({
       ...current,
       text: value,
@@ -1091,9 +1163,12 @@ export function WidgetChat({
       await apiFetch("POST", `/api/agents/${agent.id}/messages`, {
         text,
         clientMessageId: draft.clientMessageId,
-        appContext: currentView ? { ...boot, view: currentView() } : boot,
+        ...(boot && {
+          appContext: currentView ? { ...boot, view: currentView() } : boot,
+        }),
         attachments: draft.images.map((image) => image.attachment!),
       });
+      textDraft?.onChange("");
       const next = {
         key,
         text: "",
@@ -1111,7 +1186,7 @@ export function WidgetChat({
           ? { ...current, sending: false, failed: true }
           : current,
       );
-      onRecheck();
+      onRecheck?.();
     }
   };
   const queued = chatVisibleQueue(agent.queue).length;
@@ -1154,18 +1229,19 @@ export function WidgetChat({
           <LiveCharacter agent={agent} height={44} />
         </span>
         <h1>
-          {rich("appWidget.title", {
-            // The agent's chat in the office, on the same origin as this page.
-            agentName: (
-              <a
-                href={`${AGENT_LINK_PREFIX}${agent.id}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {agent.name}
-              </a>
-            ),
-          })}
+          {title ??
+            rich("appWidget.title", {
+              // The agent's chat in the office, on the same origin as this page.
+              agentName: (
+                <a
+                  href={`${AGENT_LINK_PREFIX}${agent.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {agent.name}
+                </a>
+              ),
+            })}
         </h1>
         {(directHref || installEntry) && (
           <div className="app-widget-header-links">
@@ -1183,6 +1259,7 @@ export function WidgetChat({
             {installEntry}
           </div>
         )}
+        {headerActions}
       </header>
       {installSteps}
       <p className="app-widget-notice">{t("appWidget.notice")}</p>

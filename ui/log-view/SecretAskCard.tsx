@@ -65,11 +65,13 @@ export function SecretAskCard({
   secret,
   isMobile,
   onFocusAgent,
+  onChatAgent,
 }: {
   entry: AskMemberWire;
   secret: SecretAskRequest;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
+  onChatAgent?: (agentId: string) => void;
 }) {
   const { t, language } = useI18n();
   const dispatch = useDispatch();
@@ -290,6 +292,7 @@ export function SecretAskCard({
           isMobile={isMobile}
           disabled={busy}
           onFocusAgent={onFocusAgent}
+          onChatAgent={onChatAgent}
         />
       </div>
       {!known ? (

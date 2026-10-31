@@ -3673,6 +3673,7 @@ Coses que pots fer per ell:
     "Per compartir una captura de pantalla: fes-ne una i després enganxa-la o adjunta-la aquí.",
   "appWidget.attach": "Adjunta una imatge",
   "appWidget.direct": "Obre sense el xat",
+  "appWidget.openFullChat": "Obre el xat complet",
   "appWidget.backToOffice": "Torna a l'oficina",
   "appWidget.unavailable": "El xat no està disponible.",
   "appWidget.install": "Instal·la com a app",

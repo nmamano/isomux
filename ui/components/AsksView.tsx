@@ -1,7 +1,8 @@
 // The Inbox's Asks tab: the member's open asks from every agent they can see,
 // grouped by agent, the longest wait first. Each ask is the AskCard the chat's
 // stack draws, so its answers work the same here, except that an answer waits
-// ASK_UNDO_MS for an Undo before it is sent; the agent's name opens its chat.
+// ASK_UNDO_MS for an Undo before it is sent. The agent's name, and a card's
+// "Discuss in chat", open the chat panel over the Inbox (AgentChatPanel).
 // The list is the store's asks slice (ui/asks-sync.ts), less the answers being
 // sent: an answer in its Undo time stays as its Undo line, and goes when it
 // is sent. InboxView draws the header and the tabs around it.
@@ -45,8 +46,12 @@ export const ASK_UNDO_MS = 5000;
 
 export function AsksView({
   onFocusAgent,
+  onChatAgent,
 }: {
   onFocusAgent: (agentId: string) => void;
+  // Opens the chat panel over the Inbox on an agent (AgentChatPanel); without
+  // it the name opens the agent's chat.
+  onChatAgent?: (agentId: string) => void;
 }) {
   const { asks, answeredAsks, agents, rooms, isMobile } = useAppState();
   const { t } = useI18n();
@@ -114,7 +119,7 @@ export function AsksView({
                     type="button"
                     {...noTranslate()}
                     data-asks-agent={agent.id}
-                    onClick={() => onFocusAgent(agent.id)}
+                    onClick={() => (onChatAgent ?? onFocusAgent)(agent.id)}
                     style={{
                       background: "none",
                       border: "none",
@@ -144,6 +149,7 @@ export function AsksView({
                     entry={entry}
                     isMobile={isMobile}
                     onFocusAgent={onFocusAgent}
+                    onChatAgent={onChatAgent}
                     undoMs={ASK_UNDO_MS}
                   />
                 ))}

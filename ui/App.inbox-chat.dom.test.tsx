@@ -16,6 +16,7 @@ const {
   ask,
   askCards,
   boot,
+  chatFromInbox,
   inboxButton,
   page,
   selectedTab,
@@ -43,13 +44,7 @@ function expectScoutChat(view: View) {
 async function openChat(view: View, agentId: string) {
   await act(async () => fireEvent.click(inboxButton(view)!));
   await act(async () => fireEvent.click(tab(view, "asks")!));
-  await act(async () =>
-    fireEvent.click(
-      view.container.querySelector<HTMLButtonElement>(
-        `[data-asks-agent="${agentId}"]`,
-      )!,
-    ),
-  );
+  await chatFromInbox(view, agentId);
 }
 
 const badge = (view: View) =>
@@ -102,13 +97,7 @@ it("counts in a chat the asks of the other agents, and opens Asks for them", asy
   expect(askCards(view)).toBe(3);
 
   // In Ranger's chat it counts Scout's two asks.
-  await act(async () =>
-    fireEvent.click(
-      view.container.querySelector<HTMLButtonElement>(
-        '[data-asks-agent="a2"]',
-      )!,
-    ),
-  );
+  await chatFromInbox(view, "a2");
   expect(document.title).toContain("Ranger");
   expect(badge(view)).toBe("2");
 });

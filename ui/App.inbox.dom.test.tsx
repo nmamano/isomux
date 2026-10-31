@@ -16,6 +16,7 @@ const { act, fireEvent } = await import("@testing-library/react");
 const {
   askCards,
   boot,
+  chatFromInbox,
   inboxButton,
   page,
   pageRows,
@@ -56,7 +57,7 @@ it("counts open pages plus open asks, and opens on Asks, the first tab, while an
   expect(panel.getAttribute("aria-labelledby")).toBe(tab(view, "asks")!.id);
 });
 
-it("opens on Asks with no open page, and an agent's name there opens its chat", async () => {
+it("opens on Asks with no open page, and an agent's chat from there", async () => {
   // Someone else's page is listed on Pages but does not pick the tab.
   setPages([page("p2", "u2")]);
   const view = await boot();
@@ -67,10 +68,7 @@ it("opens on Asks with no open page, and an agent's name there opens its chat", 
   expect(selectedTab(view)).toBe("asks");
   expect(tabCount(view, "pager")).toBeNull();
   expect(askCards(view)).toBe(2);
-  const name = view.container.querySelector<HTMLButtonElement>(
-    '[data-asks-agent="a1"]',
-  )!;
-  await act(async () => fireEvent.click(name));
+  await chatFromInbox(view, "a1");
   // The page closed and the chat is open: the chat's own stack shows
   // Scout's asks, and the page's groups are gone.
   expect(window.location.pathname).toBe("/");

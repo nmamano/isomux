@@ -5,8 +5,8 @@
 // boots ran past the 5 s DOM cap under load. Import it with `await import(...)`
 // after setUpDomTestFile(), like every DOM module.
 
-import { afterAll, afterEach, beforeEach, spyOn } from "bun:test";
-const { act, render } = await import("@testing-library/react");
+import { afterAll, afterEach, beforeEach, expect, spyOn } from "bun:test";
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { App } = await import("../App.tsx");
 const { SceneDecorationContext } =
@@ -42,7 +42,12 @@ const agent = {
 } as unknown as AgentInfo;
 
 // A second agent in the same room, only in the tests that ask for it.
-const ranger: AgentInfo = { ...agent, id: "a2", name: "Ranger", desk: 1 };
+export const ranger: AgentInfo = {
+  ...agent,
+  id: "a2",
+  name: "Ranger",
+  desk: 1,
+};
 
 export const ask = (id: string, agentId: string, link?: string): AskEntry => ({
   id,
@@ -95,15 +100,31 @@ let answerPost: (path: string) => Promise<unknown> = async () => ({});
 export function setAnswerPost(next: (path: string) => Promise<unknown>) {
   answerPost = next;
 }
+// The messages the member sent to an agent (POST /api/agents/<id>/messages),
+// emptied for each test.
+export const sentMessages: { path: string; body: Record<string, unknown> }[] =
+  [];
+// The answer to such a send; an ack at once unless a test sets its own.
+let messagePost: () => Promise<unknown> = async () => ({
+  messageId: "m",
+  queued: false,
+});
+export function setMessagePost(next: () => Promise<unknown>) {
+  messagePost = next;
+}
 // App's pushes, spied afresh for each test.
 let pushState: ReturnType<typeof spyOn<History, "pushState">> | null = null;
 export const pushCount = () => pushState?.mock.calls.length ?? 0;
 
 export function setUpInboxTests() {
-  setApiShim(async (method, path) => {
+  setApiShim(async (method, path, body) => {
     if (path === "/api/asks") return asks;
     if (method === "POST" && path.startsWith("/api/asks/"))
       return answerPost(path);
+    if (method === "POST" && /^\/api\/agents\/[^/]+\/messages$/.test(path)) {
+      sentMessages.push({ path, body: body as Record<string, unknown> });
+      return messagePost();
+    }
     if (path.startsWith("/api/members-chat"))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
     if (path.startsWith("/api/pager")) return pages;
@@ -130,6 +151,8 @@ export function setUpInboxTests() {
     asks = ASKS;
     agents = [agent];
     answerPost = async () => ({});
+    sentMessages.length = 0;
+    messagePost = async () => ({ messageId: "m", queued: false });
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");
     pushState = spyOn(window.history, "pushState");
@@ -214,6 +237,36 @@ export async function go(move: "back" | "forward"): Promise<void> {
     window.history[move]();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+// The Inbox's chat panel (task e3c25581), its agent select, its composer and
+// its way to the agent's full chat.
+export const chatPanel = (view: View) =>
+  view.container.querySelector<HTMLElement>("[data-agent-chat-panel]");
+export const chatSelect = (view: View) =>
+  chatPanel(view)?.querySelector<HTMLSelectElement>(
+    "select[data-agent-chat-select]",
+  ) ?? null;
+export const chatComposer = (view: View) =>
+  chatPanel(view)?.querySelector("textarea") ?? null;
+export async function openFullChat(view: View): Promise<void> {
+  const button =
+    chatPanel(view)?.querySelector<HTMLButtonElement>(
+      "button[data-agent-chat-full]",
+    ) ?? null;
+  expect(button).not.toBeNull();
+  await act(async () => fireEvent.click(button!));
+}
+
+// Into an agent's full chat from the Asks tab: its name opens the panel, and
+// the panel's "Open full chat" the chat.
+export async function chatFromInbox(view: View, agentId: string) {
+  const name = view.container.querySelector<HTMLButtonElement>(
+    `[data-asks-agent="${agentId}"]`,
+  );
+  expect(name).not.toBeNull();
+  await act(async () => fireEvent.click(name!));
+  await openFullChat(view);
 }
 
 export const officeLink = (view: View, ask: string) =>

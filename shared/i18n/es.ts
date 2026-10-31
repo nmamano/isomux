@@ -3666,6 +3666,7 @@ Cosas que puedes hacer por él:
     "Para compartir una captura de pantalla: haz una y luego pégala o adjúntala aquí.",
   "appWidget.attach": "Adjuntar imagen",
   "appWidget.direct": "Abrir sin el chat",
+  "appWidget.openFullChat": "Abrir el chat completo",
   "appWidget.backToOffice": "Volver a la oficina",
   "appWidget.unavailable": "El chat no está disponible.",
   "appWidget.install": "Instalar como app",
