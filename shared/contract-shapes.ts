@@ -835,6 +835,9 @@ export interface AskDismissReq {
   text?: string;
   device?: string;
 }
+export interface AskSimplifyReq {
+  device?: string;
+}
 export interface AskFileTaskReq {
   // What the member typed, sent to the agent and added to the task. Blank or
   // absent: the agent reads "Not now; filed as a task".
@@ -856,8 +859,13 @@ export type AskClosedWire = AskAgentWire & {
     app?: string;
   };
   // What happened before the close, oldest first (task 62aa552f).
-  events: AskEvent[];
+  events: AskEventWire[];
 };
+// An ask event as a route sends it: the member who asked for a simplify by
+// username, null when gone.
+export type AskEventWire =
+  | Exclude<AskEvent, { kind: "simplify_requested" }>
+  | { kind: "simplify_requested"; at: number; by: string | null };
 export interface AskHistoryRes {
   asks: AskClosedWire[];
   // The `before` of the next page; null when there is none.

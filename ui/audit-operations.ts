@@ -6,6 +6,7 @@ export const AUDIT_OPERATIONS = [
   "asks.dismiss",
   "asks.fileTask",
   "asks.reply",
+  "asks.simplify",
   "admin.ownerLogin",
   "agents.abort",
   "agents.browser",

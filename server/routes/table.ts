@@ -187,6 +187,7 @@ import type {
   AskEditReq,
   AskReplyReq,
   AskDismissReq,
+  AskSimplifyReq,
   AskFileTaskReq,
   AskAgentWire,
   AskClosedWire,
@@ -1006,6 +1007,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/asks/:askId/dismiss",
     auth: cap(["agent:converse", "api:send-message"], memberScope),
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
+  }),
+  // The member asks the agent to rewrite the ask in plain words; the ask
+  // stays open.
+  defineRoute<AskSimplifyReq, NoContent>({
+    opId: "asks.simplify",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/asks/:askId/simplify",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    emits: ["ask_upserted", "log_entry", "interaction_added", "agent_updated"],
   }),
   // A file an ask references in place (a video or audio file), for the
   // member the ask is for.

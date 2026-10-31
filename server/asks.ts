@@ -238,6 +238,12 @@ function isAskEntry(v: unknown): v is AskEntry {
     (r.readFiles !== undefined && !isListOf(r.readFiles, isAskReadFile))
   )
     return false;
+  if (
+    (r.simplifyRequestedAt !== undefined &&
+      typeof r.simplifyRequestedAt !== "number") ||
+    (r.originalPrompt !== undefined && typeof r.originalPrompt !== "string")
+  )
+    return false;
   if (r.secret === undefined) return hasMember;
   if (
     r.link !== undefined ||
@@ -418,6 +424,9 @@ export interface AskStore {
     // Who edited, for the edit's event: an app by name; absent = the agent.
     actor?: { app: string },
   ): AskEntry | null;
+  // Marks the open entry as waiting for a simpler rewrite and records the
+  // member who asked; null when the entry is gone.
+  requestSimplify(id: string, byUserId?: string): AskEntry | null;
   // Closes the entry and records how (`close`).
   remove(id: string, close: AskCloseInput): AskEntry | null;
   // Every entry of a removed agent, each recorded as agent_removed. Returns
@@ -587,6 +596,12 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       const prev = entries.find((e) => e.id === id);
       if (!prev) return null;
       const entry: AskEntry = { ...prev, prompt, updatedAt: now() };
+      // The rewrite a simplify request asked for: the card keeps the prompt
+      // as it was before the first one.
+      if (prev.simplifyRequestedAt !== undefined && prompt !== prev.prompt) {
+        delete entry.simplifyRequestedAt;
+        entry.originalPrompt ??= prev.prompt;
+      }
       if (link === null) delete entry.link;
       else if (link !== undefined) entry.link = link;
       if (options === null) delete entry.options;
@@ -619,6 +634,27 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
           ...(actor ? { app: actor.app } : {}),
           before,
         });
+      return { ...entry };
+    },
+    requestSimplify(id, byUserId) {
+      check();
+      const prev = entries.find((e) => e.id === id);
+      if (!prev) return null;
+      const at = now();
+      const entry: AskEntry = {
+        ...prev,
+        simplifyRequestedAt: at,
+        updatedAt: at,
+      };
+      commit(
+        entries.map((e) => (e.id === id ? entry : e)),
+        [{ kind: "upserted", entry }],
+      );
+      recordEvent(entry, {
+        kind: "simplify_requested",
+        at,
+        ...(byUserId !== undefined ? { byUserId } : {}),
+      });
       return { ...entry };
     },
     remove(id, close) {
@@ -703,7 +739,8 @@ export function askTaskFields(
 // later session (after a clear, a handoff or /wrap-session) that never saw the
 // question, so the note quotes the whole prompt and, when the session that
 // opened the ask is not the current one, names it for a log search. An ask an
-// app opened names the app, so the agent knows it did not ask it.
+// app opened names the app, so the agent knows it did not ask it. A simplify
+// request keeps the ask open: the agent rewrites it in place.
 export function askReplyNote(
   ref: AskRef,
   currentSessionId: string | null = null,
@@ -718,6 +755,8 @@ export function askReplyNote(
     const subject = ref.app ? `App ${ref.app.name}'s` : "Your";
     return `[${subject} ask ${ref.id}${from} is now task ${ref.taskId}: ${quoted}] `;
   }
+  if (ref.simplify)
+    return `[Simplify ${whose} ask ${ref.id}${from}: ${quoted}] `;
   const verb = ref.dismissed ? "Dismissed" : "Reply to";
   return `[${verb} ${whose} ask ${ref.id}${from}: ${quoted}] `;
 }

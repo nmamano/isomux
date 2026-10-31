@@ -5,8 +5,12 @@
 // on both. The card goes when the server accepts the answer, without waiting
 // for ask_removed. An ask with a link to an office page or an agent's chat has a
 // button that opens it (ui/office-link.tsx); the ask stays open. Every ask
-// has a "Discuss in chat" button (AskAboutButton), last in the bottom row, that
-// starts a chat message about it, and the ask stays open too. An ask with options has a button for
+// has a "Discuss in chat" button (AskAboutButton), last but one in the bottom
+// row, that starts a chat message about it, and the ask stays open too.
+// Simplify, last in that row, asks the agent to rewrite the ask in plain
+// words: the ask stays open, and until the agent edits the prompt the button
+// is disabled and a line under the prompt says a rewrite is coming; then the
+// card keeps the first prompt behind "Show original". An ask with options has a button for
 // each; a tap puts it in the reply field, focused, for the member to edit and
 // send. The field starts with the option the agent recommends (marked on its
 // button), empty for options without one, and with the catalog's "done" for
@@ -56,6 +60,7 @@ import type {
   AskDismissReq,
   AskFileTaskReq,
   AskReplyReq,
+  AskSimplifyReq,
 } from "../../shared/contract-shapes.ts";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
@@ -286,6 +291,10 @@ function ReplyAskCard({
   const heldLineRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
+  // A simplify request in flight, its refusal, and the original prompt shown.
+  const [simplifying, setSimplifying] = useState(false);
+  const [simplifyError, setSimplifyError] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   const promptRef = useRef<HTMLDivElement>(null);
   const openLink = useContext(OfficeLinkOpener);
   // A link this UI does not know is not drawn, nor one to an agent the store
@@ -407,6 +416,23 @@ function ReplyAskCard({
     dispatch({ type: "ask_answered", id: entry.id, phase: "undo" });
   }
 
+  // Asks the agent for a simpler ask. The card stays: the pushed ask brings
+  // the pending line, and later the rewrite.
+  async function simplify() {
+    if (simplifying) return;
+    setSimplifying(true);
+    setSimplifyError(null);
+    const device = getDevice() || undefined;
+    const body: AskSimplifyReq = device ? { device } : {};
+    try {
+      await apiFetch("POST", `/api/asks/${entry.id}/simplify`, body);
+    } catch (err) {
+      setSimplifyError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setSimplifying(false);
+    }
+  }
+
   // Sends the held answer now, at most once. The Inbox drops the card as the
   // ask turns "sending", so the line goes straight to nothing.
   function flush(keepalive: boolean) {
@@ -467,6 +493,20 @@ function ReplyAskCard({
     cursor: busy ? "default" : "pointer",
     flexShrink: 0,
   } as const;
+  // Show original, a link under the prompt as the office link is.
+  const linkButton = {
+    background: "none",
+    border: "none",
+    padding: 0,
+    color: "var(--accent-text)",
+    fontSize: isMobile ? 13 : 12,
+    fontWeight: 600,
+    cursor: "pointer",
+  } as const;
+  const simplifyOff =
+    busy || simplifying || entry.simplifyRequestedAt !== undefined;
+  // An answer's refusal, else a simplify request's.
+  const failure = error ?? simplifyError;
   const cardBox = {
     padding: isMobile ? "9px 10px 10px 11px" : "8px 10px 9px 11px",
     borderRadius: 8,
@@ -518,8 +558,8 @@ function ReplyAskCard({
       </div>
     );
   }
-  // Reply, Dismiss, filing as a task and Discuss in chat: one group that wraps,
-  // beside the field on a desktop when it fits, else under it.
+  // Reply, Dismiss, filing as a task, Discuss in chat and Simplify: one group
+  // that wraps, beside the field on a desktop when it fits, else under it.
   const replyButtons = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       <button
@@ -566,6 +606,20 @@ function ReplyAskCard({
         onFocusAgent={onFocusAgent}
         onChatAgent={onChatAgent}
       />
+      {/* Disabled while the agent rewrites the ask, so the row keeps its
+          width; the pending line is under the prompt. */}
+      <button
+        type="button"
+        data-ask-simplify=""
+        disabled={simplifyOff}
+        onClick={() => void simplify()}
+        style={{
+          ...secondaryButton,
+          cursor: simplifyOff ? "default" : "pointer",
+        }}
+      >
+        {t("asks.simplify")}
+      </button>
     </div>
   );
 
@@ -660,8 +714,46 @@ function ReplyAskCard({
                 {t("asks.openLink", { page: linkLabel })}
               </button>
             )}
+            {entry.simplifyRequestedAt !== undefined && (
+              <span
+                data-ask-simplify-pending=""
+                style={{
+                  color: "var(--text-ghost)",
+                  fontSize: isMobile ? 13 : 12,
+                }}
+              >
+                {t("asks.simplifyPending")}
+              </span>
+            )}
+            {entry.originalPrompt !== undefined && (
+              <button
+                type="button"
+                data-ask-show-original=""
+                onClick={() => setShowOriginal((v) => !v)}
+                style={linkButton}
+              >
+                {showOriginal ? t("asks.hideOriginal") : t("asks.showOriginal")}
+              </button>
+            )}
             <AskIdChip id={entry.id} isMobile={isMobile} />
           </div>
+          {showOriginal && entry.originalPrompt !== undefined && (
+            <div
+              data-ask-original=""
+              {...noTranslate()}
+              style={{
+                marginTop: 4,
+                paddingLeft: 8,
+                borderLeft: "2px solid var(--border-light)",
+                color: "var(--text-dim)",
+                fontSize,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              <InlineMarkdown content={entry.originalPrompt} code />
+            </div>
+          )}
         </div>
         {entry.priority && (
           <span
@@ -798,7 +890,7 @@ function ReplyAskCard({
         />
         {replyButtons}
       </form>
-      {error && (
+      {failure && (
         <div
           role="alert"
           style={{
@@ -807,7 +899,7 @@ function ReplyAskCard({
             fontSize: isMobile ? 12 : 11,
           }}
         >
-          {t("asks.answerFailed", { error })}
+          {t("asks.answerFailed", { error: failure })}
         </div>
       )}
     </div>

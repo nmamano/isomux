@@ -283,7 +283,11 @@ describe("an ask's events", () => {
     // Each ask's prompts as it read before each change.
     const prompts = (events: AskEvent[]) =>
       events.map((e) =>
-        e.kind === "created" ? e.ask.prompt : e.before.prompt,
+        e.kind === "created"
+          ? e.ask.prompt
+          : e.kind === "edited"
+            ? e.before.prompt
+            : undefined,
       );
     const page = history.list("a1", { limit: 50 }).items;
     expect(page.map((r) => [r.entry.id, prompts(r.events)])).toEqual([
@@ -337,6 +341,111 @@ describe("an ask's events", () => {
     });
     expect(history.has("abcd1234")).toBe(true);
     expect(history.has("abcd9999")).toBe(false);
+  });
+});
+
+describe("a simplify request (task 30915188)", () => {
+  it("marks the open ask and is kept as an event with the member who asked; a gone ask is null and records nothing", () => {
+    const { history } = open();
+    const { store, ask, at } = storeWith(history);
+    const a = ask("a1", "u1", "Ship it?");
+    at(110);
+    const marked = store.requestSimplify(a.id, "u1");
+    expect(marked?.simplifyRequestedAt).toBe(110);
+    expect(store.get(a.id)?.simplifyRequestedAt).toBe(110);
+    // Asking changes no field the agent wrote.
+    expect(store.get(a.id)?.prompt).toBe("Ship it?");
+    expect(store.get(a.id)?.originalPrompt).toBeUndefined();
+    expect(store.requestSimplify("abcd9999", "u1")).toBeNull();
+    at(120);
+    store.remove(a.id, { outcome: "dismissed", byUserId: "u1" });
+    expect(history.get("a1", a.id)!.events.slice(1)).toEqual([
+      { kind: "simplify_requested", at: 110, byUserId: "u1" },
+    ]);
+    expect(history.has("abcd9999")).toBe(false);
+  });
+
+  it("keeps the request through an edit that keeps the prompt, and the rewrite clears it and keeps the first prompt across two rounds", () => {
+    const { history } = open();
+    const { store, ask, at } = storeWith(history);
+    const a = ask("a1", "u1", "Merge t-1 after the CI on f00d?");
+    at(110);
+    store.requestSimplify(a.id, "u1");
+    // Same prompt, new options: still waiting for the rewrite.
+    at(120);
+    store.edit(
+      a.id,
+      "Merge t-1 after the CI on f00d?",
+      undefined,
+      ["Go"],
+      {},
+      null,
+    );
+    expect(store.get(a.id)?.simplifyRequestedAt).toBe(110);
+    expect(store.get(a.id)?.originalPrompt).toBeUndefined();
+    // The rewrite.
+    at(130);
+    const first = store.edit(a.id, "Merge the fix now?");
+    expect(first?.simplifyRequestedAt).toBeUndefined();
+    expect(first?.originalPrompt).toBe("Merge t-1 after the CI on f00d?");
+    expect(store.get(a.id)?.simplifyRequestedAt).toBeUndefined();
+    // A later edit with no request pending keeps the original as it is.
+    at(140);
+    store.edit(a.id, "Merge the fix today?");
+    expect(store.get(a.id)?.originalPrompt).toBe(
+      "Merge t-1 after the CI on f00d?",
+    );
+    // A second round: the card still shows the prompt before the first.
+    at(150);
+    store.requestSimplify(a.id);
+    at(160);
+    const second = store.edit(a.id, "Merge it?");
+    expect(second?.simplifyRequestedAt).toBeUndefined();
+    expect(second?.originalPrompt).toBe("Merge t-1 after the CI on f00d?");
+    at(170);
+    store.remove(a.id, { outcome: "withdrawn" });
+
+    // The events hold what the agent wrote and each request; the server's
+    // fields are never an edited value. A request without a member has no
+    // byUserId.
+    expect(history.get("a1", a.id)!.events.slice(1)).toEqual([
+      { kind: "simplify_requested", at: 110, byUserId: "u1" },
+      {
+        kind: "edited",
+        at: 120,
+        before: { options: ["Yes", "No"], recommended: "Yes" },
+      },
+      {
+        kind: "edited",
+        at: 130,
+        before: { prompt: "Merge t-1 after the CI on f00d?" },
+      },
+      { kind: "edited", at: 140, before: { prompt: "Merge the fix now?" } },
+      { kind: "simplify_requested", at: 150 },
+      { kind: "edited", at: 160, before: { prompt: "Merge the fix today?" } },
+    ]);
+  });
+
+  it("keeps no original for a rewrite nobody asked for", () => {
+    const { history } = open();
+    const { store, ask } = storeWith(history);
+    const a = ask("a1", "u1", "Ship it?");
+    expect(store.edit(a.id, "Ship it now?")?.originalPrompt).toBeUndefined();
+  });
+
+  it("is kept only when it committed: a failed write throws, leaves the ask unmarked and records nothing", () => {
+    const { history } = open();
+    const { store, io, ask, at } = storeWith(history);
+    const a = ask("a1", "u1", "Save fails?");
+    io.failSave = true;
+    at(110);
+    expect(() => store.requestSimplify(a.id, "u1")).toThrow();
+    io.failSave = false;
+    expect(store.get(a.id)?.simplifyRequestedAt).toBeUndefined();
+    store.remove(a.id, { outcome: "withdrawn" });
+    expect(history.get("a1", a.id)!.events.map((e) => e.kind)).toEqual([
+      "created",
+    ]);
   });
 });
 

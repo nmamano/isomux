@@ -40,6 +40,7 @@ import { actsForAgent, type Identity } from "../../identity/index.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
+  ASK_SIMPLIFY_TEXT,
   isValidPriority,
   type AskCloseInput,
   type AskEntry,
@@ -59,6 +60,7 @@ import type { AskReadFileCopy } from "../../agent-manager.ts";
 import type {
   AskAgentWire,
   AskClosedWire,
+  AskEventWire,
 } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
@@ -138,6 +140,8 @@ export interface AsksDeps {
     text: string,
     opts: {
       dismissed: boolean;
+      // A simplify request: the ask stays open.
+      simplify?: boolean;
       taskId?: string;
       device: string | undefined;
     },
@@ -275,7 +279,19 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         ...rest,
         by: byUserId === undefined ? null : deps.memberName(byUserId),
       },
-      events,
+      events: events.map(
+        (event): AskEventWire =>
+          event.kind === "simplify_requested"
+            ? {
+                kind: event.kind,
+                at: event.at,
+                by:
+                  event.byUserId === undefined
+                    ? null
+                    : deps.memberName(event.byUserId),
+              }
+            : event,
+      ),
     };
   };
 
@@ -487,10 +503,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // The checks every answer shares: the body's device and text, the open
   // ask the caller may answer, not a secret request, not already being
   // answered. A reply needs text; a dismiss or a filed task may carry the
-  // member's note, and a blank one counts as none.
+  // member's note, and a blank one counts as none; a simplify request takes
+  // none.
   const answerable = (
     ctx: Parameters<RouteHandler>[0],
-    textRequired: boolean,
+    textRule: "required" | "note" | "none",
   ):
     | { ok: true; entry: AskEntry; text?: string; device?: string }
     | { ok: false; result: HandlerResult } => {
@@ -507,7 +524,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         ),
       );
     let text: string | undefined;
-    if (textRequired) {
+    if (textRule === "none") {
+      if (body.text !== undefined)
+        return refuse(fail(400, "invalid_text", "simplify takes no text"));
+    } else if (textRule === "required") {
       if (typeof body.text !== "string" || body.text.trim().length === 0)
         return refuse(fail(400, "invalid_text", "text is required"));
       text = body.text;
@@ -550,7 +570,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const answer =
     (dismissed: boolean): RouteHandler =>
     async (ctx) => {
-      const checked = answerable(ctx, !dismissed);
+      const checked = answerable(ctx, dismissed ? "note" : "required");
       if (!checked.ok) return checked.result;
       const { entry, device } = checked;
       const text = checked.text ?? ASK_DISMISSED_TEXT;
@@ -576,7 +596,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // it; a refused or failed message takes it back and leaves the ask open,
   // so a retry files one task, not two.
   const fileTask: RouteHandler = async (ctx) => {
-    const checked = answerable(ctx, false);
+    const checked = answerable(ctx, "note");
     if (!checked.ok) return checked.result;
     const { entry, text: note, device } = checked;
     const agent = deps.agent(entry.agentId);
@@ -619,6 +639,45 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         ...answeredBy(ctx.identity, note),
       });
       return created(task);
+    } finally {
+      delivering.delete(entry.id);
+    }
+  };
+
+  // Ask the agent to rewrite the ask in plain words; the ask stays open and
+  // is marked once the agent has the message, so the card shows the rewrite
+  // is coming. A refused message leaves it unmarked. One request at a time:
+  // the agent's edit of the prompt clears the mark.
+  const simplify: RouteHandler = async (ctx) => {
+    const checked = answerable(ctx, "none");
+    if (!checked.ok) return checked.result;
+    const { entry, device } = checked;
+    if (entry.simplifyRequestedAt !== undefined)
+      return fail(
+        409,
+        "simplify_pending",
+        "The agent has not rewritten this ask yet.",
+      );
+    delivering.add(entry.id);
+    try {
+      const result = await deps.deliver(
+        ctx.identity,
+        entry,
+        ASK_SIMPLIFY_TEXT,
+        { dismissed: false, simplify: true, device },
+      );
+      if (!result.ok) return fail(result.status, result.code, result.message);
+      // The agent has the message; a retry would send it twice, so a failed
+      // write is logged, as in close. An ask withdrawn meanwhile stays gone.
+      try {
+        store.requestSimplify(entry.id, ctx.identity.userId ?? undefined);
+      } catch (err) {
+        console.error(
+          `[asks] ${entry.id} was sent for a rewrite but could not be marked:`,
+          err,
+        );
+      }
+      return noContent();
     } finally {
       delivering.delete(entry.id);
     }
@@ -1032,6 +1091,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.reply": guarded(answer(false)),
     "asks.dismiss": guarded(answer(true)),
     "asks.fileTask": guarded(fileTask),
+    "asks.simplify": guarded(simplify),
     // A file the ask references where it is. The path is probed again on
     // every request: the file can be gone or replaced since the ask was
     // made. Served as agents.getFile serves a copy.

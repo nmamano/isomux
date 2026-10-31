@@ -24,6 +24,7 @@ import { askReplyNote } from "../asks.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
+  ASK_SIMPLIFY_TEXT,
   type AskEntry,
   type AskMemberWire,
   type AgentInfo,
@@ -1529,6 +1530,18 @@ describe("the member's answer", () => {
       { json: { text: "yes" } },
     );
     expect([reply.status, reply.code]).toEqual([typed.status, typed.code]);
+    // A simplify request too, and the ask is not marked.
+    const simplify = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${created.id}/simplify`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: {} },
+    );
+    expect([simplify.status, simplify.code]).toEqual([
+      typed.status,
+      typed.code,
+    ]);
     const still = await call(
       w.srv,
       "GET",
@@ -1536,6 +1549,7 @@ describe("the member's answer", () => {
       w.as(w.asker.id),
     );
     expect(still.status).toBe(200);
+    expect((still.body as AskAgentWire).simplifyRequestedAt).toBeUndefined();
   });
 
   it("is only for the member it names: anyone else gets 404 and sees nothing", async () => {
@@ -1549,7 +1563,7 @@ describe("the member's answer", () => {
       rawSessionId: other.rawSessionId,
     });
     expect(listed.body).toEqual([]);
-    for (const verb of ["reply", "dismiss", "file-task"]) {
+    for (const verb of ["reply", "dismiss", "file-task", "simplify"]) {
       const r = await call(
         w.srv,
         "POST",
@@ -1673,6 +1687,162 @@ describe("the member's answer", () => {
     await waitUntil(() => pushes().length === 2, "push on edit");
     expect(pushes()[1].entry.prompt).toBe("Which session edited me?");
     expect("sessionId" in pushes()[1].entry).toBe(false);
+  });
+});
+
+describe("a simplify request (task 30915188)", () => {
+  const simplify = (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    call(
+      w.srv,
+      "POST",
+      `/api/asks/${id}/simplify`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: {} },
+    );
+  const agentRead = (w: Awaited<ReturnType<typeof world>>, id: string) =>
+    call(
+      w.srv,
+      "GET",
+      `/api/agents/${w.asker.id}/asks/${id}`,
+      w.as(w.asker.id),
+    );
+  const rewrite = (
+    w: Awaited<ReturnType<typeof world>>,
+    id: string,
+    json: Record<string, unknown>,
+  ) =>
+    call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${id}`,
+      w.as(w.asker.id),
+      { json },
+    );
+
+  it("sends the agent the fixed words under a simplify note, keeps the ask open and marked for the member and the agent, and pushes the change", async () => {
+    const w = await world();
+    const ws = await w.srv.connectWs(w.owner.rawSessionId);
+    const created = await open(w, "Merge t-1 after the CI on f00d?");
+    const r = await simplify(w, created.id);
+    expect(r.status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(created.id)),
+      "simplify delivered",
+    );
+    expect(sentTexts(w.srv, w.asker.id)).toEqual([
+      `[${w.owner.username}] ${askReplyNote({ ...created, simplify: true })}${ASK_SIMPLIFY_TEXT}`,
+    ]);
+    const logged = w.srv.agentManager
+      .getAgentLogs(w.asker.id)
+      .find((e) => e.kind === "user_message")!;
+    expect(logged.content).toBe(ASK_SIMPLIFY_TEXT);
+    expect(logged.metadata?.ask).toEqual({
+      id: created.id,
+      prompt: "Merge t-1 after the CI on f00d?",
+      simplify: true,
+    });
+
+    // Still open: the agent and the member read the request.
+    const read = await agentRead(w, created.id);
+    expect(read.status).toBe(200);
+    expect((read.body as AskClosedWire).closed).toBeUndefined();
+    expect(typeof (read.body as AskAgentWire).simplifyRequestedAt).toBe(
+      "number",
+    );
+    const listed = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    const [mine] = listed.body as AskMemberWire[];
+    expect([mine.id, typeof mine.simplifyRequestedAt]).toEqual([
+      created.id,
+      "number",
+    ]);
+    await waitUntil(
+      () =>
+        ws.messages.some((m) => {
+          const msg = m as { type?: string; entry?: AskEntry };
+          return (
+            msg.type === "ask_upserted" &&
+            msg.entry?.id === created.id &&
+            typeof msg.entry.simplifyRequestedAt === "number"
+          );
+        }),
+      "the mark is pushed to the member",
+    );
+
+    // Waiting for the rewrite: a second request sends nothing.
+    const again = await simplify(w, created.id);
+    expect([again.status, again.code]).toEqual([409, "simplify_pending"]);
+    await sleep(50);
+    expect(sentTexts(w.srv, w.asker.id)).toHaveLength(1);
+  });
+
+  it("is cleared by the agent's rewrite in place, which keeps the first prompt across two rounds; the agent cannot set either field; the history names who asked", async () => {
+    const w = await world();
+    const first = "Merge t-1 after the CI on f00d?";
+    const created = await open(w, first);
+    expect((await simplify(w, created.id)).status).toBe(204);
+
+    // Same prompt, and the server's fields in the body: ignored, still
+    // waiting.
+    const same = await rewrite(w, created.id, {
+      text: first,
+      simplifyRequestedAt: null,
+      originalPrompt: "Spoofed?",
+    });
+    expect(same.status).toBe(200);
+    const stillPending = (await agentRead(w, created.id)).body as AskAgentWire;
+    expect(typeof stillPending.simplifyRequestedAt).toBe("number");
+    expect(stillPending.originalPrompt).toBeUndefined();
+
+    const rewritten = await rewrite(w, created.id, {
+      text: "Merge the fix now?",
+    });
+    expect(rewritten.status).toBe(200);
+    const after = (await agentRead(w, created.id)).body as AskAgentWire;
+    expect([
+      after.prompt,
+      after.originalPrompt,
+      after.simplifyRequestedAt,
+    ]).toEqual(["Merge the fix now?", first, undefined]);
+    // The member sees the original on the card.
+    const listed = await call(w.srv, "GET", "/api/asks", {
+      rawSessionId: w.owner.rawSessionId,
+    });
+    expect((listed.body as AskMemberWire[])[0].originalPrompt).toBe(first);
+
+    expect((await simplify(w, created.id)).status).toBe(204);
+    expect((await rewrite(w, created.id, { text: "Merge it?" })).status).toBe(
+      200,
+    );
+    expect(
+      ((await agentRead(w, created.id)).body as AskAgentWire).originalPrompt,
+    ).toBe(first);
+
+    const deleted = await call(
+      w.srv,
+      "DELETE",
+      `/api/agents/${w.asker.id}/asks/${created.id}`,
+      w.as(w.asker.id),
+    );
+    expect(deleted.status).toBe(204);
+    const closed = (await agentRead(w, created.id)).body as AskClosedWire;
+    const requests = closed.events.filter(
+      (e) => e.kind === "simplify_requested",
+    );
+    expect(requests).toEqual([
+      {
+        kind: "simplify_requested",
+        at: expect.any(Number),
+        by: w.owner.username,
+      },
+      {
+        kind: "simplify_requested",
+        at: expect.any(Number),
+        by: w.owner.username,
+      },
+    ]);
+    expect(JSON.stringify(closed.events)).not.toContain(w.ownerId);
   });
 });
 
@@ -2005,6 +2175,7 @@ describe("a secret request is an ask", () => {
       ["reply", { text: VALUE }],
       ["dismiss", {}],
       ["file-task", { text: VALUE }],
+      ["simplify", {}],
     ] as const) {
       const r = await call(
         w.srv,
@@ -2020,6 +2191,9 @@ describe("a secret request is an ask", () => {
     }
     // Filing it would put the request on the board without its form.
     expect(w.srv.agentManager.getTasks()).toEqual([]);
+    expect(
+      sentTexts(w.srv, w.asker.id).some((t) => t.includes(ASK_SIMPLIFY_TEXT)),
+    ).toBe(false);
     const edit = await call(
       w.srv,
       "PATCH",
@@ -3200,6 +3374,41 @@ describe("an ask an app opens", () => {
     const note = await sentFor(filed.id);
     expect(note).toContain(APP);
     expect(note).toContain(task.id);
+  });
+
+  it("sends a simplify request naming the app, which reads the mark, and the app's rewrite clears it and keeps the original", async () => {
+    const w = await world();
+    const app = await register(w, APP, w.as(w.asker.id));
+    const entry = await opened(w, app.token, "Drop the flaky test in t-9?");
+    const r = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${entry.id}/simplify`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: {} },
+    );
+    expect(r.status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).some((t) => t.includes(entry.id)),
+      "simplify delivered",
+    );
+    expect(sentTexts(w.srv, w.asker.id)).toEqual([
+      `[${w.owner.username}] ${askReplyNote({ id: entry.id, prompt: entry.prompt, simplify: true, app: { name: APP } })}${ASK_SIMPLIFY_TEXT}`,
+    ]);
+    const read = await asApp(w, app.token, "GET", `/${entry.id}`);
+    expect(typeof (read.body as AskAgentWire).simplifyRequestedAt).toBe(
+      "number",
+    );
+    const edited = await asApp(w, app.token, "PATCH", `/${entry.id}`, {
+      text: "Drop the flaky test?",
+    });
+    expect(edited.status).toBe(200);
+    const after = (await asApp(w, app.token, "GET", `/${entry.id}`))
+      .body as AskAgentWire;
+    expect([after.simplifyRequestedAt, after.originalPrompt]).toEqual([
+      undefined,
+      "Drop the flaky test in t-9?",
+    ]);
   });
 
   it("keeps the app on the ask across a restart, and the app still reaches it", async () => {

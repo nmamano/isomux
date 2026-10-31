@@ -12,7 +12,7 @@ import type { RouteHandlerContext } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import { APP_CAPABILITIES, USER_CAPABILITIES } from "../../identity/index.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
-import type { TaskItem } from "../../../shared/types.ts";
+import { ASK_SIMPLIFY_TEXT, type TaskItem } from "../../../shared/types.ts";
 
 const member: Identity = {
   scope: "user",
@@ -36,6 +36,8 @@ function rig(over: Partial<AsksDeps> = {}) {
   const delivered: string[] = [];
   // The task id each delivery named, and the board as the handler left it.
   const deliveredTaskIds: Array<string | undefined> = [];
+  // Each delivery's dismiss and simplify flags.
+  const deliveredFlags: Array<{ dismissed: boolean; simplify: boolean }> = [];
   const board = new Map<string, TaskItem>();
   const filed: string[] = [];
   const deleted: string[] = [];
@@ -74,6 +76,10 @@ function rig(over: Partial<AsksDeps> = {}) {
     deliver: (_identity, _entry, text, opts) => {
       delivered.push(text);
       deliveredTaskIds.push(opts.taskId);
+      deliveredFlags.push({
+        dismissed: opts.dismissed,
+        simplify: opts.simplify === true,
+      });
       return new Promise((resolve, reject) => held.push({ resolve, reject }));
     },
     agentName: () => "Asker",
@@ -129,6 +135,7 @@ function rig(over: Partial<AsksDeps> = {}) {
     held,
     delivered,
     deliveredTaskIds,
+    deliveredFlags,
     board,
     filed,
     deleted,
@@ -175,6 +182,133 @@ describe("an answer in flight", () => {
     expect(delivered).toEqual(["Dwight", "Jim"]);
     held[1].resolve({ ok: true });
     expect(await retry).toBe("noContent");
+  });
+});
+
+describe("a simplify request (task 30915188)", () => {
+  it("sends the fixed words once, flagged as a simplify; marks the ask only when the agent took it, and refuses a second while one waits", async () => {
+    const {
+      store,
+      entry,
+      handlers,
+      ctx,
+      held,
+      delivered,
+      deliveredFlags,
+      outcome,
+    } = rig();
+    const first = outcome(handlers["asks.simplify"](ctx()));
+    await Promise.resolve();
+    expect(delivered).toEqual([ASK_SIMPLIFY_TEXT]);
+    expect(deliveredFlags).toEqual([{ dismissed: false, simplify: true }]);
+    // Not marked while the delivery is held open.
+    expect(store.get(entry.id)?.simplifyRequestedAt).toBeUndefined();
+    const busy = [
+      outcome(handlers["asks.simplify"](ctx())),
+      outcome(handlers["asks.reply"](ctx("Dwight"))),
+      outcome(handlers["asks.dismiss"](ctx())),
+      outcome(handlers["asks.fileTask"](ctx())),
+    ];
+    await Promise.resolve();
+    // Checked before awaiting them: a second delivery would wait forever on
+    // the held promise.
+    expect(delivered).toHaveLength(1);
+    expect(await Promise.all(busy)).toEqual([
+      "409 ask_busy",
+      "409 ask_busy",
+      "409 ask_busy",
+      "409 ask_busy",
+    ]);
+
+    held[0].resolve({ ok: true });
+    expect(await first).toBe("noContent");
+    expect(typeof store.get(entry.id)?.simplifyRequestedAt).toBe("number");
+    // Open, and waiting for the rewrite: no second message.
+    const pending = outcome(handlers["asks.simplify"](ctx()));
+    await Promise.resolve();
+    expect(delivered).toHaveLength(1);
+    expect(await pending).toBe("409 simplify_pending");
+    // The member can still answer it.
+    const reply = outcome(handlers["asks.reply"](ctx("Dwight")));
+    await Promise.resolve();
+    held[1].resolve({ ok: true });
+    expect(await reply).toBe("noContent");
+    expect(store.get(entry.id)).toBeNull();
+  });
+
+  it("is refused while a reply is being delivered", async () => {
+    const { handlers, ctx, held, delivered, outcome } = rig();
+    const reply = outcome(handlers["asks.reply"](ctx("Dwight")));
+    await Promise.resolve();
+    const simplify = outcome(handlers["asks.simplify"](ctx()));
+    await Promise.resolve();
+    expect(delivered).toEqual(["Dwight"]);
+    expect(await simplify).toBe("409 ask_busy");
+    held[0].resolve({ ok: true });
+    expect(await reply).toBe("noContent");
+  });
+
+  it("leaves the ask unmarked when the delivery is refused, and the member can ask again", async () => {
+    const { store, entry, handlers, ctx, held, delivered, outcome } = rig();
+    const first = outcome(handlers["asks.simplify"](ctx()));
+    await Promise.resolve();
+    held[0].resolve({
+      ok: false,
+      status: 429,
+      code: "usage_cap",
+      message: "capped",
+    });
+    expect(await first).toBe("429 usage_cap");
+    expect(store.get(entry.id)?.simplifyRequestedAt).toBeUndefined();
+
+    const retry = outcome(handlers["asks.simplify"](ctx()));
+    await Promise.resolve();
+    expect(delivered).toEqual([ASK_SIMPLIFY_TEXT, ASK_SIMPLIFY_TEXT]);
+    held[1].resolve({ ok: true });
+    expect(await retry).toBe("noContent");
+    expect(typeof store.get(entry.id)?.simplifyRequestedAt).toBe("number");
+  });
+
+  it("takes no text, not even a blank one, and sends nothing", async () => {
+    const { store, entry, handlers, ctx, delivered, outcome } = rig();
+    for (const text of ["Say it shorter", "", " "]) {
+      const refused = outcome(handlers["asks.simplify"](ctx(text)));
+      await Promise.resolve();
+      expect([text, delivered]).toEqual([text, []]);
+      expect(await refused).toBe("400 invalid_text");
+    }
+    expect(store.get(entry.id)?.simplifyRequestedAt).toBeUndefined();
+  });
+
+  it("answers 204 and brings back no ask the agent withdrew while the message was delivered", async () => {
+    const { store, entry, handlers, ctx, held, outcome } = rig();
+    const first = outcome(handlers["asks.simplify"](ctx()));
+    await Promise.resolve();
+    store.remove(entry.id, { outcome: "withdrawn" });
+    held[0].resolve({ ok: true });
+    expect(await first).toBe("noContent");
+    expect(store.get(entry.id)).toBeNull();
+    expect(store.listAll()).toEqual([]);
+  });
+
+  it("answers 204 and logs it when the mark cannot be written after the agent took the message", async () => {
+    const { store, entry, handlers, ctx, held, delivered, outcome } = rig();
+    const logged: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void logged.push(args);
+    store.requestSimplify = () => {
+      throw new Error("disk full");
+    };
+    try {
+      const first = outcome(handlers["asks.simplify"](ctx()));
+      await Promise.resolve();
+      held[0].resolve({ ok: true });
+      expect(await first).toBe("noContent");
+    } finally {
+      console.error = error;
+    }
+    expect(delivered).toHaveLength(1);
+    expect(logged.map((args) => args.join(" ")).join("\n")).toContain(entry.id);
   });
 });
 

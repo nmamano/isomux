@@ -1302,6 +1302,11 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["agent:converse", "api:send-message"],
     emits: ["ask_removed", "log_entry", "interaction_added", "agent_updated"],
   },
+  // The ask stays open (task 30915188).
+  "asks.simplify": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: ["ask_upserted", "log_entry", "interaction_added", "agent_updated"],
+  },
   "asks.fileTask": {
     caps: ["agent:converse", "api:send-message"],
     emits: [
@@ -2238,6 +2243,7 @@ const API_REACHABLE_OPIDS = [
   "asks.get",
   "asks.reply",
   "asks.dismiss",
+  "asks.simplify",
   "asks.getFile",
   "asks.fileTask",
   "agents.contextUsage",

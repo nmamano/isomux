@@ -254,11 +254,12 @@ it("has the button on a secret request too, quoting its own question", async () 
   view.unmount();
 });
 
-// Task 9fca01c0: the button is a button in the card's bottom row, last, after
-// the prompt's images and commands, not a link under the prompt.
+// Task 9fca01c0: the button is a button in the card's bottom row, after the
+// prompt's images and commands, not a link under the prompt. Simplify (task
+// 30915188) follows it, last: both keep the ask open.
 const FOLLOWS = Node.DOCUMENT_POSITION_FOLLOWING;
 
-it("is the last button of the reply row, after the ask's files, styled like the buttons beside it", () => {
+it("follows file-as-task in the reply row, after the ask's files, with Simplify last, styled like the buttons beside it", () => {
   const { view } = mount("");
   const card = view.container.querySelector('[data-ask="ask00003"]')!;
   const image = card.querySelector("img");
@@ -274,7 +275,12 @@ it("is the last button of the reply row, after the ask's files, styled like the 
   // Booleans, not toBe on two nodes: a red run would serialise both.
   expect(about.parentElement === fileTask.parentElement).toBe(true);
   expect(fileTask.nextElementSibling === about).toBe(true);
-  expect(about.nextElementSibling).toBeNull();
+  const simplify = card.querySelector<HTMLButtonElement>(
+    "button[data-ask-simplify]",
+  );
+  expect(simplify).not.toBeNull();
+  expect(about.nextElementSibling === simplify).toBe(true);
+  expect(simplify!.nextElementSibling).toBeNull();
   expect(image!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
   expect(command!.compareDocumentPosition(about) & FOLLOWS).toBe(FOLLOWS);
   // Drawn as its neighbour is: a bordered button, not a bare link.
@@ -288,6 +294,9 @@ it("is the last button of the reply row, after the ask's files, styled like the 
     "color",
   ] as const) {
     expect(`${key}: ${about.style[key]}`).toBe(
+      `${key}: ${fileTask.style[key]}`,
+    );
+    expect(`${key}: ${simplify!.style[key]}`).toBe(
       `${key}: ${fileTask.style[key]}`,
     );
   }

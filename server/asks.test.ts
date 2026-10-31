@@ -141,6 +141,27 @@ describe("the three shapes", () => {
       true,
     ],
     ["plain with no member", BASE, false],
+    // A simplify request and the prompt before its rewrite (task 30915188).
+    [
+      "simplify request and original prompt",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        simplifyRequestedAt: 5,
+        originalPrompt: "Old?",
+      },
+      true,
+    ],
+    [
+      "simplify request time that is not a number",
+      { ...BASE, memberUserId: "u1", simplifyRequestedAt: "5" },
+      false,
+    ],
+    [
+      "original prompt that is not a string",
+      { ...BASE, memberUserId: "u1", originalPrompt: 5 },
+      false,
+    ],
     [
       "personal secret with no member",
       { ...BASE, secret: { ...SECRET, scope: "personal" } },
@@ -472,6 +493,29 @@ describe("the note before the member's words", () => {
     expect(
       askReplyNote({ id: "abcd1234", prompt: "x", dismissed: true }),
     ).not.toBe(askReplyNote({ id: "abcd1234", prompt: "x" }));
+  });
+
+  it("tells a simplify request from a reply, a dismiss and a filed task, for an app's ask too", () => {
+    const ask = { id: "abcd1234", prompt: "Ship it?" };
+    const simplify = askReplyNote({ ...ask, simplify: true });
+    expect(simplify).toContain("abcd1234");
+    expect(simplify).toContain(JSON.stringify("Ship it?"));
+    for (const other of [
+      askReplyNote(ask),
+      askReplyNote({ ...ask, dismissed: true }),
+      askReplyNote({ ...ask, taskId: "feed0001" }),
+    ])
+      expect(simplify).not.toBe(other);
+    const app = { name: "triage-bot" };
+    const appSimplify = askReplyNote({ ...ask, simplify: true, app });
+    expect(appSimplify).toContain("triage-bot");
+    expect(appSimplify).not.toBe(askReplyNote({ ...ask, app }));
+    expect(appSimplify).not.toBe(
+      askReplyNote({ ...ask, dismissed: true, app }),
+    );
+    expect(
+      askReplyNote({ ...ask, simplify: true, sessionId: "s-1" }, "s-2"),
+    ).toContain("s-1");
   });
 
   it("names the task an ask was filed as, apart from a reply and a dismiss", () => {

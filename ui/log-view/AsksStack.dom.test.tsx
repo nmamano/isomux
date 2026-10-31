@@ -121,6 +121,19 @@ const ENTRIES: AskEntry[] = [
     app: { name: "triage-bot", createdAt: NOW - 86_400_000 },
   },
   entry("pppp0016", "a9", "Its own question?", 5),
+  // Agent b1's asks and a simplify request (task 30915188): none, one
+  // waiting for the rewrite, and one rewritten.
+  entry("qqqq0017", "b1", "Merge t-1 after the CI on f00d?", 9),
+  // A second round: rewritten once, and asked again.
+  {
+    ...entry("rrrr0018", "b1", "Rotate the key?", 8),
+    simplifyRequestedAt: NOW,
+    originalPrompt: "Rotate k-7?",
+  },
+  {
+    ...entry("ssss0019", "b1", "Merge the fix now?", 7),
+    originalPrompt: "Merge `t-1` after the CI on f00d?",
+  },
 ];
 // The one agent the store knows: the target of a7's first link.
 const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
@@ -1252,5 +1265,160 @@ it("renders an open card prompt with code and keeps its links live", async () =>
     "https://example.com",
   );
   expect(prompt.textContent).not.toContain("`");
+  view.unmount();
+});
+
+// A simplify request (task 30915188): the member asks the agent to rewrite
+// the ask, which stays open.
+const inCard = (root: HTMLElement, id: string, selector: string) =>
+  root.querySelector<HTMLElement>(`[data-ask="${id}"] ${selector}`);
+
+it("asks for a simpler ask with no text, keeps the card, and the pushed mark disables the button and draws the pending line", async () => {
+  const view = mount(false, "b1");
+  await waitFor(() => expect(cards(view.container).length).toBe(3));
+  expect(
+    inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
+  ).toBe(null);
+  // What the member typed is not a note: it stays in the field.
+  fireEvent.change(field(view.container, "qqqq0017"), {
+    target: { value: "too long" },
+  });
+  await act(async () => {
+    fireEvent.click(inCard(view.container, "qqqq0017", "[data-ask-simplify]")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/simplify"]);
+  expect("text" in posts[0].body).toBe(false);
+  expect(cards(view.container)).toEqual(["qqqq0017", "rrrr0018", "ssss0019"]);
+  expect(field(view.container, "qqqq0017").value).toBe("too long");
+
+  const base = ENTRIES.find((e) => e.id === "qqqq0017")!;
+  act(() =>
+    seeded({
+      type: "ask_upserted",
+      entry: { ...base, simplifyRequestedAt: NOW, updatedAt: NOW },
+    }),
+  );
+  // The button keeps its place, disabled, so the row does not move.
+  expect(
+    inCard(view.container, "qqqq0017", "[data-ask-simplify]")?.hasAttribute(
+      "disabled",
+    ),
+  ).toBe(true);
+  expect(
+    inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
+  ).not.toBe(null);
+  view.unmount();
+});
+
+it("keeps the button disabled for an ask waiting for its rewrite, with the pending line beside Show original, and no button on a secret request", async () => {
+  const view = mount(false, "b1");
+  await waitFor(() => expect(cards(view.container).length).toBe(3));
+  const button = inCard(view.container, "rrrr0018", "[data-ask-simplify]")!;
+  expect(button.hasAttribute("disabled")).toBe(true);
+  await act(async () => {
+    fireEvent.click(button);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts).toEqual([]);
+  // The pending line sits in the row under the prompt, where the rewrite
+  // lands, not in the button row.
+  const pending = inCard(
+    view.container,
+    "rrrr0018",
+    "[data-ask-simplify-pending]",
+  )!;
+  const toggle = inCard(
+    view.container,
+    "rrrr0018",
+    "[data-ask-show-original]",
+  )!;
+  expect(pending.parentElement === toggle.parentElement).toBe(true);
+  expect(pending.parentElement?.contains(button)).toBe(false);
+  // The rewritten ask can be simplified again, and has no pending line.
+  expect(
+    inCard(view.container, "ssss0019", "[data-ask-simplify]")?.hasAttribute(
+      "disabled",
+    ),
+  ).toBe(false);
+  expect(
+    inCard(view.container, "ssss0019", "[data-ask-simplify-pending]"),
+  ).toBe(null);
+  view.unmount();
+
+  const secrets = mount(false, "a5");
+  await waitFor(() => expect(cards(secrets.container).length).toBe(3));
+  expect(inCard(secrets.container, "gggg0007", "[data-ask-simplify]")).not.toBe(
+    null,
+  );
+  expect(inCard(secrets.container, "hhhh0008", "[data-ask-simplify]")).toBe(
+    null,
+  );
+  secrets.unmount();
+});
+
+it("shows the original prompt on a toggle and hides it again, and draws no toggle without one", async () => {
+  const view = mount(false, "b1");
+  await waitFor(() => expect(cards(view.container).length).toBe(3));
+  expect(inCard(view.container, "qqqq0017", "[data-ask-show-original]")).toBe(
+    null,
+  );
+  expect(inCard(view.container, "ssss0019", "[data-ask-original]")).toBe(null);
+  const toggle = inCard(
+    view.container,
+    "ssss0019",
+    "[data-ask-show-original]",
+  )!;
+  const closedLabel = toggle.textContent;
+  fireEvent.click(toggle);
+  const original = inCard(view.container, "ssss0019", "[data-ask-original]")!;
+  // Drawn as the prompt is: markdown, not the raw backticks.
+  expect(original.querySelector("code")?.textContent).toBe("t-1");
+  expect(original.textContent).toContain("after the CI on f00d?");
+  expect(original.textContent).not.toContain("`");
+  expect(
+    inCard(view.container, "ssss0019", "[data-ask-prompt]")?.textContent,
+  ).toContain("Merge the fix now?");
+  expect(
+    inCard(view.container, "ssss0019", "[data-ask-show-original]")?.textContent,
+  ).not.toBe(closedLabel);
+  fireEvent.click(
+    inCard(view.container, "ssss0019", "[data-ask-show-original]")!,
+  );
+  expect(inCard(view.container, "ssss0019", "[data-ask-original]")).toBe(null);
+  view.unmount();
+});
+
+it("keeps the button live with the error when the server refuses a simplify, and draws it on a phone too", async () => {
+  answer = async () => {
+    throw new ApiError(409, "agent_stopped", "agent_stopped");
+  };
+  const view = mount(true, "b1");
+  await waitFor(() =>
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
+  );
+  fireEvent.click(
+    view.container.querySelector<HTMLElement>(
+      "[data-asks-stack=collapsed] button",
+    )!,
+  );
+  const click = async () =>
+    act(async () => {
+      fireEvent.click(
+        inCard(view.container, "qqqq0017", "[data-ask-simplify]")!,
+      );
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  await click();
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/simplify"]);
+  expect(cards(view.container)).toEqual(["qqqq0017", "rrrr0018", "ssss0019"]);
+  expect(
+    inCard(view.container, "qqqq0017", "[role=alert]")?.textContent,
+  ).toContain("agent_stopped");
+  expect(
+    inCard(view.container, "qqqq0017", "[data-ask-simplify-pending]"),
+  ).toBe(null);
+  await click();
+  expect(posts).toHaveLength(2);
   view.unmount();
 });

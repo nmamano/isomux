@@ -84,6 +84,7 @@ import type {
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
+  ASK_SIMPLIFY_TEXT,
   LOBBY_ROOM_ID,
   DEFAULT_AGENT_CAPABILITIES,
   NEW_AGENT_PERMISSION_MODE,
@@ -3947,6 +3948,28 @@ export async function demoApi(
   // agents.listSessions (GET .../sessions) - the demo has no sessions.
   if (method === "GET" && /^\/api\/agents\/[^/]+\/sessions$/.test(pathname)) {
     return { sessions: [], currentSessionId: null };
+  }
+  // asks.simplify - mark the ask as waiting for its rewrite and send the
+  // fixed words to its agent, as the server does. The ask stays open.
+  const simplifyMatch = pathname.match(/^\/api\/asks\/([^/]+)\/simplify$/);
+  if (simplifyMatch && method === "POST") {
+    const entries = demoAskEntries();
+    const entry = entries.find(
+      (e) => e.id === decodeURIComponent(simplifyMatch[1]),
+    );
+    if (!entry) throw new ApiError(404, "not_found", "No such open ask.");
+    const now = Date.now();
+    const marked = { ...entry, simplifyRequestedAt: now, updatedAt: now };
+    demoAsks = entries.map((e) => (e.id === entry.id ? marked : e));
+    shimEmit({ type: "ask_upserted", entry: marked });
+    shimEmit({
+      type: "log_entry",
+      entry: makeLogEntry(entry.agentId, "user_message", ASK_SIMPLIFY_TEXT, {
+        ask: { id: entry.id, prompt: entry.prompt, simplify: true },
+      }),
+    });
+    demoChatReply(entry.agentId);
+    return undefined;
   }
   // asks.reply / asks.dismiss / asks.fileTask - close the ask and send
   // the answer to its agent as a member message, as the server does. A filed

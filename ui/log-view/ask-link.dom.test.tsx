@@ -16,7 +16,8 @@ const { LogView } = await import("./LogView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { ASK_FILED_TEXT } = await import("../../shared/types.ts");
+const { ASK_FILED_TEXT, ASK_SIMPLIFY_TEXT } =
+  await import("../../shared/types.ts");
 type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
@@ -189,6 +190,33 @@ it("shows an ask filed as a task in the viewer's language, naming the task", () 
   // Neither reads as a dismiss.
   expect(text("filed")).not.toContain(DISMISSED);
   expect(text("filed-note")).not.toContain(DISMISSED);
+  view.unmount();
+});
+
+it("shows a simplify request in the viewer's language, linked to its ask, not the words the agent reads", () => {
+  const simplify: LogEntry = {
+    id: "simplify",
+    agentId: "a1",
+    timestamp: 8,
+    kind: "user_message",
+    content: ASK_SIMPLIFY_TEXT,
+    metadata: {
+      username: "Tester",
+      ask: { id: "abcd1234", prompt: "Go?", simplify: true },
+    },
+  };
+  const view = render(
+    onLanguage("ca", <Transcript entries={[...logs(true), simplify]} />),
+  );
+  const line = view.container.querySelector<HTMLElement>(
+    '[data-log-entry-id="simplify"]',
+  )!;
+  const label = ca.t("asks.simplifyRequested");
+  expect(label).not.toBe(en.t("asks.simplifyRequested"));
+  expect(line.textContent).toContain(label);
+  expect(line.textContent).not.toContain(ASK_SIMPLIFY_TEXT);
+  expect(line.textContent).not.toContain(DISMISSED);
+  expect(line.querySelector('[data-ask-link="abcd1234"]')).not.toBe(null);
   view.unmount();
 });
 

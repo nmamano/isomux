@@ -1508,6 +1508,12 @@ export interface AskEntry {
   // later app with the same name never reaches it. agentId is that app's
   // message target when it opened the ask.
   app?: { name: string; createdAt: number };
+  // When the member asked the agent to simplify the ask (POST
+  // /api/asks/:askId/simplify); cleared by the edit that changes the prompt.
+  simplifyRequestedAt?: number;
+  // The prompt before the first rewrite a simplify request got, for the
+  // card's "Show original". Set by the server, never by an edit.
+  originalPrompt?: string;
 }
 
 // A file an ask shows. A copy is an Attachment in the agent's files dir. A
@@ -1581,7 +1587,9 @@ export type AskEvent =
       at: number;
       app?: string;
       before: { [K in AskEditableKey]?: AskEntry[K] | null };
-    };
+    }
+  // The member asked the agent to simplify the ask.
+  | { kind: "simplify_requested"; at: number; byUserId?: string };
 
 // The member message text of a bare dismiss. The chat shows it translated
 // from the entry's metadata; the agent reads these words.
@@ -1592,6 +1600,11 @@ export const ASK_DISMISSED_TEXT = "Dismissed";
 // these words, and the reply note names the task.
 export const ASK_FILED_TEXT = "Not now; filed as a task";
 
+// The member message text of a simplify request. The chat shows it
+// translated from the entry's metadata; the agent reads these words.
+export const ASK_SIMPLIFY_TEXT =
+  "Rewrite this ask in plain words: what I must decide or do, and your pick, in at most two sentences, without internal names or ids. Edit it in place; do not open a new ask.";
+
 // The ask a member message answers. Rides on the queued item and on the
 // user_message log entry's metadata (`ask`), where the chat draws the
 // link back to the agent's "Create ask" card.
@@ -1599,6 +1612,8 @@ export interface AskRef {
   id: string;
   prompt: string;
   dismissed?: boolean;
+  // The member asked the agent to simplify the ask, which stays open.
+  simplify?: boolean;
   // The task the member filed the ask as, instead of an answer.
   taskId?: string;
   sessionId?: string;
