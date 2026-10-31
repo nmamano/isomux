@@ -1,10 +1,18 @@
 // The Asks page's member select for an office owner (task a49856f7): whose
-// open asks the page lists, and the read-only card of another member's ask.
-// The choice's storage has its own owner ("asks member" in
-// ui/device-settings.test.ts) and the slice its own ("reducer: other
-// members' asks" in ui/store.test.ts). A separate file because each DOM file
-// has a wall-time budget.
-import { describe, it, expect, beforeEach } from "bun:test";
+// open asks the page lists, and the card of another member's ask, which the
+// owner answers as their own (task d555a32e). The choice's storage has its
+// own owner ("asks member" in ui/device-settings.test.ts) and the slice its
+// own ("reducer: other members' asks" in ui/store.test.ts). A separate file
+// because each DOM file has a wall-time budget.
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -12,6 +20,9 @@ setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
 const { ask, mount, control, choose, pageOrder } =
   await import("../test-support/asks-view.ts");
+const { ASK_UNDO_MS } = await import("./AsksView.tsx");
+const { setApiShim, ApiError } = await import("../api.ts");
+const { filterButton } = await import("../test-support/checkbox-filters.ts");
 
 type AppState = import("../test-support/asks-view.ts").AppState;
 type AskAgentWire = import("../../shared/contract-shapes.ts").AskAgentWire;
@@ -39,8 +50,8 @@ const other = (
   ...extra,
 });
 
-// Nil's own ask carries a command too, so the own card shows what a
-// read-only card must not.
+// Nil's own ask carries a command too: the own card is the twin another
+// member's card must match.
 const OWN = [{ ...ask("mine1", "a1", 30), commands: ["ls -la"] }];
 const OTHERS = [
   other("pat1", "a1", 20, "pat", {
@@ -64,6 +75,34 @@ const shownIds = (view: View) =>
   [...view.container.querySelectorAll<HTMLElement>("[data-ask]")].map(
     (el) => el.dataset.ask,
   );
+// Whether `a` comes before `b` in the page.
+const precedes = (a: Element, b: Element) =>
+  (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+let posts: string[] = [];
+let bodies: unknown[] = [];
+let answer: () => Promise<unknown> = async () => undefined;
+beforeEach(() => {
+  posts = [];
+  bodies = [];
+  answer = async () => undefined;
+  setApiShim(async (method, path, body) => {
+    if (method !== "POST") return undefined;
+    posts.push(path);
+    bodies.push(body);
+    return answer();
+  });
+});
+afterEach(() => jest.useRealTimers());
+afterAll(() => setApiShim(null));
+
+// Moves the fake clock, then lets the shim's promise and its dispatch land.
+async function advance(ms: number) {
+  await act(async () => {
+    jest.advanceTimersByTime(ms);
+  });
+  await act(async () => {});
+}
 
 describe("the member select", () => {
   beforeEach(() => localStorage.clear());
@@ -77,13 +116,21 @@ describe("the member select", () => {
   it("lists the owner's own asks first, every member's, or one member's, and the choice survives a remount", () => {
     const first = mount(OWN, seed("owner"));
     const { view } = first;
-    // The select is first in the filter row, before the sort.
-    const selects = [...view.container.querySelectorAll("select")];
+    // The select comes after the room and priority filters, so those keep
+    // their place for members and owners, and before the sort.
     const member = control(view, "data-asks-member");
     expect(member).not.toBeNull();
-    expect(selects.indexOf(member)).toBeLessThan(
-      selects.indexOf(control(view, "data-asks-sort")),
-    );
+    const row = [
+      filterButton(view.container, "room"),
+      filterButton(view.container, "priority"),
+      member,
+      control(view, "data-asks-sort"),
+    ];
+    expect(row.slice(1).map((el, i) => precedes(row[i], el))).toEqual([
+      true,
+      true,
+      true,
+    ]);
     // A labeled control, whatever the words.
     expect(member.getAttribute("aria-label") ?? "").not.toBe("");
     // Mine, all, then each other member with an open ask, by name whatever
@@ -128,76 +175,119 @@ describe("the member select", () => {
   });
 });
 
+// The pending line's kind, or null while the card is drawn.
+const pendingOf = (view: View, id: string) => {
+  const el = card(view, id);
+  const marked = el?.matches("[data-ask-pending]")
+    ? el
+    : el?.querySelector<HTMLElement>("[data-ask-pending]");
+  return marked?.dataset.askPending ?? null;
+};
+const fieldOf = (view: View, id: string) =>
+  card(view, id)?.querySelector<HTMLTextAreaElement>("[data-ask-reply-input]");
+// Types the reply in the card's field and sends it.
+async function reply(view: View, id: string, text: string) {
+  fireEvent.change(fieldOf(view, id)!, { target: { value: text } });
+  const send = card(view, id)!.querySelector<HTMLButtonElement>(
+    'button[type="submit"]',
+  )!;
+  await act(async () => fireEvent.click(send));
+}
+
+// Nil's note at sign-off (task d555a32e): an owner answers another member's
+// ask as their own, from the Inbox.
 describe("another member's ask", () => {
   beforeEach(() => localStorage.clear());
 
-  it("is read-only: the prompt, the member, the options and the command as text, with Discuss in chat and the id, and no answer control", () => {
+  it("is a full card that names the member: options, the reply field, file as task, Simplify and the command as buttons, as on the owner's own card", async () => {
     const { view, focused } = mount(OWN, seed("owner"));
     choose(view, "data-asks-member", "all");
     const mine = card(view, "mine1")!;
     const theirs = card(view, "pat1")!;
-    // Enabling: Nil's own card keeps every control, and its command is a
-    // button that sends it to the terminal.
-    expect(mine.querySelector("[data-ask-reply-input]")).not.toBeNull();
-    expect(mine.querySelector("[data-ask-command] button")).not.toBeNull();
-    expect(mine.querySelector("[data-ask-for]")).toBeNull();
-
-    expect(theirs.querySelector("[data-ask-prompt]")?.textContent).toContain(
-      "Question pat1?",
-    );
-    // Who the ask is for, whatever the words around the name.
+    // Who the ask is for, whatever the words around the name; never on the
+    // owner's own card.
     expect(theirs.querySelector("[data-ask-for]")?.textContent).toContain(
       "pat",
     );
+    expect(mine.querySelector("[data-ask-for]")).toBeNull();
+    expect(theirs.querySelector("[data-ask-prompt]")?.textContent).toContain(
+      "Question pat1?",
+    );
     for (const sel of [
       "[data-ask-reply-input]",
+      'button[type="submit"]',
       "[data-ask-file-task]",
       "[data-ask-simplify]",
-      "[data-ask-undo]",
-      "textarea",
-      "input",
+      "[data-ask-command] button",
+      "[data-ask-about]",
     ])
-      expect({ sel, found: theirs.querySelector(sel) !== null }).toEqual({
+      expect({
         sel,
-        found: false,
-      });
-    // The options are listed, the recommended one marked, and none can be
-    // tapped.
-    const options = [...theirs.querySelectorAll("[data-ask-option]")];
+        mine: mine.querySelector(sel) !== null,
+        theirs: theirs.querySelector(sel) !== null,
+      }).toEqual({ sel, mine: true, theirs: true });
+    // The options are buttons, the recommended one marked.
     expect(
-      options.map((o) => o.textContent?.includes("Ship") ?? false),
-    ).toEqual([true, false]);
-    expect(
-      theirs.querySelectorAll("[data-ask-option-recommended]"),
-    ).toHaveLength(1);
-    // The command is text: no button sends it to Nil's terminal.
-    const command = theirs.querySelector("[data-ask-command]");
-    expect(command?.textContent).toContain("git push");
-    expect(command?.querySelector("button")).toBeNull();
-    // Every button left is Discuss in chat, a link or the id chip: no Reply
-    // and no Dismiss, whatever their words.
-    const buttons = [
-      ...theirs.querySelectorAll<HTMLButtonElement>("button"),
-    ].filter((b) => !b.disabled);
-    expect(
-      buttons
-        .filter(
-          (b) =>
-            !b.closest(
-              "[data-ask-about], [data-ask-office-link], [data-ask-id]",
-            ),
-        )
-        .map((b) => b.outerHTML),
-    ).toEqual([]);
-    const about = theirs.querySelector<HTMLButtonElement>("[data-ask-about]");
-    expect(about).not.toBeNull();
-    act(() => void fireEvent.click(about!));
+      [...theirs.querySelectorAll("[data-ask-option]")].map(
+        (o) => `${o.tagName}:${o.hasAttribute("data-ask-option-recommended")}`,
+      ),
+    ).toEqual(["BUTTON:true", "BUTTON:false"]);
+    act(() => void fireEvent.click(theirs.querySelector("[data-ask-about]")!));
     expect(focused).toEqual(["a1"]);
+    // Simplify asks the agent on the ask's own route.
+    await act(async () =>
+      fireEvent.click(theirs.querySelector("[data-ask-simplify]")!),
+    );
+    expect(posts).toEqual(["/api/asks/pat1/simplify"]);
   });
 
-  // Waiting for its rewrite (task fc2021b7): only the ask's member can undo
-  // the request.
-  it("waiting for its rewrite, shows the banner without Undo, in place of the options and Discuss", () => {
+  it("holds a reply for ASK_UNDO_MS, sends it on the ask's route, and the card stays gone in flight and once the POST lands, before any push", async () => {
+    jest.useFakeTimers();
+    let settle!: () => void;
+    answer = () =>
+      new Promise<undefined>((resolve) => {
+        settle = () => resolve(undefined);
+      });
+    const { view, latest } = mount(OWN, seed("owner"));
+    choose(view, "data-asks-member", "all");
+    await reply(view, "pat1", "Ship it");
+    expect(pendingOf(view, "pat1")).toBe("reply");
+    await advance(ASK_UNDO_MS - 1);
+    expect(posts).toEqual([]);
+    await advance(1);
+    expect(posts).toEqual(["/api/asks/pat1/reply"]);
+    expect(bodies).toEqual([{ text: "Ship it" }]);
+    // In flight: the ask is still in the slice, and the page shows nothing
+    // of it.
+    expect(latest.state.othersAsks.map((e) => e.id)).toContain("pat1");
+    expect(card(view, "pat1")).toBeNull();
+    // The POST lands; the others_ask_removed push has not come.
+    await act(async () => settle());
+    await act(async () => {});
+    expect(card(view, "pat1")).toBeNull();
+    expect(new Set(shownIds(view))).toEqual(new Set(["mine1", "abe1"]));
+    await advance(ASK_UNDO_MS * 2);
+    expect(posts).toHaveLength(1);
+  });
+
+  it("shows the card again with the error and the draft when the answer is refused", async () => {
+    jest.useFakeTimers();
+    answer = async () => {
+      throw new ApiError(409, "ask_busy", "ask_busy");
+    };
+    const { view } = mount(OWN, seed("owner"));
+    choose(view, "data-asks-member", "all");
+    await reply(view, "pat1", "go");
+    await advance(ASK_UNDO_MS);
+    expect(posts).toEqual(["/api/asks/pat1/reply"]);
+    expect(pendingOf(view, "pat1")).toBeNull();
+    expect(
+      card(view, "pat1")!.querySelector("[role=alert]")?.textContent,
+    ).toContain("ask_busy");
+    expect(fieldOf(view, "pat1")?.value).toBe("go");
+  });
+
+  it("waiting for its rewrite, shows the banner with Undo, which withdraws the request on the ask's route", async () => {
     const { view } = mount(OWN, {
       sessionContext: session("owner"),
       othersAsks: [
@@ -213,14 +303,12 @@ describe("another member's ask", () => {
       "pat",
     );
     expect(theirs.querySelector("[data-ask-simplify-pending]")).not.toBeNull();
-    for (const sel of [
+    expect(theirs.querySelector("[data-ask-option]")).toBeNull();
+    const undo = theirs.querySelector<HTMLButtonElement>(
       "[data-ask-simplify-undo]",
-      "[data-ask-option]",
-      "[data-ask-about]",
-    ])
-      expect({ sel, found: theirs.querySelector(sel) !== null }).toEqual({
-        sel,
-        found: false,
-      });
+    );
+    expect(undo).not.toBeNull();
+    await act(async () => fireEvent.click(undo!));
+    expect(posts).toEqual(["/api/asks/pat2/simplify/undo"]);
   });
 });

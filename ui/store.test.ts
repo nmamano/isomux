@@ -1871,11 +1871,9 @@ describe("reducer: other members' asks", () => {
     ]);
     s = reducer(s, { type: "others_ask_removed", id: "o2" });
     expect(ids(s)).toEqual(["o1", "o3"]);
-    // An id the slice does not hold, and the own slice's removal, change
-    // nothing on the other side.
+    // An id the slice does not hold changes nothing on the other side.
     s = reducer(s, { type: "others_ask_removed", id: "own" });
     expect(s.asks.map((e) => e.id)).toEqual(["own"]);
-    s = reducer(s, { type: "ask_removed", id: "o1" });
     expect(ids(s)).toEqual(["o1", "o3"]);
   });
 
@@ -1907,5 +1905,103 @@ describe("reducer: other members' asks", () => {
       revision: removed.othersAsksRevision,
     });
     expect(ids(fresh)).toEqual(["o9"]);
+  });
+
+  // An owner answers another member's ask on the Inbox (task d555a32e): the
+  // answer, its error and the draft are kept as for an own ask.
+  it("marks an answer to another member's ask and its failure, and drops the mark, the error and the draft with the ask", () => {
+    let s: AppState = {
+      ...initialState,
+      asks: [own],
+      othersAsks: [other("o1"), other("o2")],
+    };
+    s = reducer(s, { type: "ask_answered", id: "o1", phase: "undo" });
+    expect([...s.answeredAsks]).toEqual([["o1", "undo"]]);
+    s = reducer(s, { type: "ask_answered", id: "o1", phase: "sending" });
+    s = reducer(s, { type: "ask_answer_failed", id: "o1", error: "offline" });
+    expect([...s.answeredAsks]).toEqual([]);
+    expect([...s.askErrors]).toEqual([["o1", "offline"]]);
+    s = reducer(s, { type: "set_ask_draft", askId: "o2", text: "later" });
+    s = reducer(s, { type: "ask_answered", id: "o2", phase: "undo" });
+    // The close of another member's ask, as the push brings it.
+    s = reducer(s, { type: "others_ask_removed", id: "o2" });
+    s = reducer(s, { type: "others_ask_removed", id: "o1" });
+    expect({
+      drafts: [...s.askDrafts],
+      answered: [...s.answeredAsks],
+      errors: [...s.askErrors],
+    }).toEqual({ drafts: [], answered: [], errors: [] });
+  });
+
+  it("keeps a mark through a fresh list of either slice while its ask is open in the other, and drops it once its own slice no longer holds it", () => {
+    const base: AppState = {
+      ...initialState,
+      asks: [own],
+      othersAsks: [other("o1")],
+      askDrafts: new Map([
+        ["own", "mine"],
+        ["o1", "theirs"],
+      ]),
+      answeredAsks: new Map([
+        ["own", "undo"],
+        ["o1", "undo"],
+      ]),
+      askErrors: new Map([
+        ["own", "offline"],
+        ["o1", "offline"],
+      ]),
+    };
+    const marks = (s: AppState) =>
+      [s.askDrafts, s.answeredAsks, s.askErrors].map((m) => [...m.keys()]);
+    const ownFresh = reducer(base, {
+      type: "asks_loaded",
+      entries: [own],
+      revision: base.asksRevision,
+    });
+    expect(marks(ownFresh)).toEqual([
+      ["own", "o1"],
+      ["own", "o1"],
+      ["own", "o1"],
+    ]);
+    const othersFresh = reducer(base, {
+      type: "others_asks_loaded",
+      entries: [other("o1")],
+      revision: base.othersAsksRevision,
+    });
+    expect(marks(othersFresh)).toEqual(marks(base));
+    const othersClosed = reducer(base, {
+      type: "others_asks_loaded",
+      entries: [],
+      revision: base.othersAsksRevision,
+    });
+    expect(marks(othersClosed)).toEqual([["own"], ["own"], ["own"]]);
+    const ownClosed = reducer(base, {
+      type: "asks_loaded",
+      entries: [],
+      revision: base.asksRevision,
+    });
+    expect(marks(ownClosed)).toEqual([["o1"], ["o1"], ["o1"]]);
+  });
+
+  // The answering card dispatches ask_removed once the POST lands, before
+  // the others_ask_removed push may come.
+  it("drops another member's ask on ask_removed, and a snapshot issued before cannot bring it back", () => {
+    const base: AppState = {
+      ...initialState,
+      asks: [own],
+      othersAsks: [other("o1"), other("o2")],
+      answeredAsks: new Map([["o1", "sending"]]),
+    };
+    const issued = base.othersAsksRevision;
+    const closed = reducer(base, { type: "ask_removed", id: "o1" });
+    expect(ids(closed)).toEqual(["o2"]);
+    expect([...closed.answeredAsks]).toEqual([]);
+    expect(closed.asks.map((e) => e.id)).toEqual(["own"]);
+    const stale = reducer(closed, {
+      type: "others_asks_loaded",
+      entries: [other("o1"), other("o2")],
+      revision: issued,
+    });
+    expect(ids(stale)).toEqual(["o2"]);
   });
 });

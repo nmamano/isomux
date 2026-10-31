@@ -271,10 +271,11 @@ export interface AppState {
   // again, as for the pager.
   asksRevision: number;
   asksFetchSeq: number;
-  // Other members' open asks, for an office owner (read-only on the Asks
-  // tab). useOthersAsksSync reads GET /api/asks/others on every
+  // Other members' open asks, for an office owner to read and answer on the
+  // Asks tab. useOthersAsksSync reads GET /api/asks/others on every
   // hydrationEpoch; others_ask_upserted and others_ask_removed keep it live.
-  // Nothing but the Asks tab reads it: no count, dot or stack.
+  // Nothing but the Asks tab reads it: no count, dot or stack. Their drafts,
+  // marks and errors share askDrafts, answeredAsks and askErrors.
   othersAsks: AskAgentWire[];
   othersAsksRevision: number;
   othersAsksFetchSeq: number;
@@ -619,11 +620,23 @@ function without<V>(byAsk: Map<string, V>, askId: string): Map<string, V> {
   return next;
 }
 
+// Whether an ask is open in either slice: the member's own asks or, for an
+// office owner, other members' asks.
+function isOpenAsk(state: AppState, id: string): boolean {
+  return (
+    state.asks.some((e) => e.id === id) ||
+    state.othersAsks.some((e) => e.id === id)
+  );
+}
+
+// The entries of an ask map whose ask is still open in either slice: the
+// member's own asks or, for an office owner, other members' asks.
 function keepOpenAsks<V>(
   byAsk: Map<string, V>,
-  open: readonly AskMemberWire[],
+  own: readonly AskMemberWire[],
+  others: readonly AskMemberWire[],
 ): Map<string, V> {
-  const ids = new Set(open.map((e) => e.id));
+  const ids = new Set([...own, ...others].map((e) => e.id));
   if ([...byAsk.keys()].every((id) => ids.has(id))) return byAsk;
   return new Map([...byAsk].filter(([id]) => ids.has(id)));
 }
@@ -1491,9 +1504,21 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         asks: action.entries,
-        askDrafts: keepOpenAsks(state.askDrafts, action.entries),
-        answeredAsks: keepOpenAsks(state.answeredAsks, action.entries),
-        askErrors: keepOpenAsks(state.askErrors, action.entries),
+        askDrafts: keepOpenAsks(
+          state.askDrafts,
+          action.entries,
+          state.othersAsks,
+        ),
+        answeredAsks: keepOpenAsks(
+          state.answeredAsks,
+          action.entries,
+          state.othersAsks,
+        ),
+        askErrors: keepOpenAsks(
+          state.askErrors,
+          action.entries,
+          state.othersAsks,
+        ),
       };
     case "ask_upserted": {
       const idx = state.asks.findIndex((e) => e.id === action.entry.id);
@@ -1508,7 +1533,12 @@ export function reducer(state: AppState, action: Action): AppState {
         asksRevision: state.asksRevision + 1,
       };
     }
-    case "ask_removed":
+    // AskCard dispatches it too once an answer is sent, for another member's
+    // ask as well: ids are unique across both slices, so it drops the id from
+    // either, before the push, and a snapshot of the other slice issued before
+    // it is refused.
+    case "ask_removed": {
+      const wasOthers = state.othersAsks.some((e) => e.id === action.id);
       return {
         ...state,
         asks: state.asks.filter((e) => e.id !== action.id),
@@ -1516,11 +1546,28 @@ export function reducer(state: AppState, action: Action): AppState {
         answeredAsks: without(state.answeredAsks, action.id),
         askErrors: without(state.askErrors, action.id),
         asksRevision: state.asksRevision + 1,
+        ...(wasOthers
+          ? {
+              othersAsks: state.othersAsks.filter((e) => e.id !== action.id),
+              othersAsksRevision: state.othersAsksRevision + 1,
+            }
+          : {}),
       };
+    }
     case "others_asks_loaded":
       if (action.revision !== state.othersAsksRevision)
         return { ...state, othersAsksFetchSeq: state.othersAsksFetchSeq + 1 };
-      return { ...state, othersAsks: action.entries };
+      return {
+        ...state,
+        othersAsks: action.entries,
+        askDrafts: keepOpenAsks(state.askDrafts, state.asks, action.entries),
+        answeredAsks: keepOpenAsks(
+          state.answeredAsks,
+          state.asks,
+          action.entries,
+        ),
+        askErrors: keepOpenAsks(state.askErrors, state.asks, action.entries),
+      };
     case "others_ask_upserted": {
       const idx = state.othersAsks.findIndex((e) => e.id === action.entry.id);
       return {
@@ -1538,12 +1585,15 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         othersAsks: state.othersAsks.filter((e) => e.id !== action.id),
+        askDrafts: without(state.askDrafts, action.id),
+        answeredAsks: without(state.answeredAsks, action.id),
+        askErrors: without(state.askErrors, action.id),
         othersAsksRevision: state.othersAsksRevision + 1,
       };
     case "ask_answer_started":
       return { ...state, askErrors: without(state.askErrors, action.id) };
     case "ask_answered": {
-      if (!state.asks.some((e) => e.id === action.id)) return state;
+      if (!isOpenAsk(state, action.id)) return state;
       const answeredAsks = new Map(state.answeredAsks);
       answeredAsks.set(action.id, action.phase);
       return {
@@ -1555,7 +1605,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "ask_undone":
       return { ...state, answeredAsks: without(state.answeredAsks, action.id) };
     case "ask_answer_failed": {
-      if (!state.asks.some((e) => e.id === action.id)) return state;
+      if (!isOpenAsk(state, action.id)) return state;
       const askErrors = new Map(state.askErrors);
       askErrors.set(action.id, action.error);
       return {

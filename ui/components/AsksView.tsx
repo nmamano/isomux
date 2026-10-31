@@ -13,12 +13,12 @@
 // is sent. The filters, the sort and its direction are remembered per
 // browser, and the asks the tab shows are marked seen there for the Inbox
 // badge (task a930c9d6).
-// An office owner also has a member select, first in the row (task
-// a49856f7): their own asks, every member's, or one other member's. Other
-// members' asks are the store's othersAsks slice, drawn as read-only cards
-// that name the member; the filters and the sort apply to the whole set. The
-// choice is remembered per browser; the badge and the seen marks stay the
-// owner's own asks.
+// An office owner also has a member select, after the room and priority
+// filters (task a49856f7): their own asks, every member's, or one other
+// member's. Other members' asks are the store's othersAsks slice, drawn as
+// cards that name the member, which the owner answers as their own; the
+// filters and the sort apply to the whole set. The choice is remembered per
+// browser; the badge and the seen marks stay the owner's own asks.
 // InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useState } from "react";
@@ -309,12 +309,17 @@ export function AsksView({
     () => asks.filter((e) => answeredAsks.get(e.id) !== "sending"),
     [asks, answeredAsks],
   );
-  // Other members' asks whose agent the client has, as for the own asks.
+  // Other members' asks whose agent the client has, less the answers being
+  // sent, as for the own asks.
   const others = useMemo(
-    () => (isOwner ? visibleAsks(othersAsks, agents) : []),
-    [isOwner, othersAsks, agents],
+    () =>
+      isOwner
+        ? visibleAsks(othersAsks, agents).filter(
+            (e) => answeredAsks.get(e.id) !== "sending",
+          )
+        : [],
+    [isOwner, othersAsks, agents, answeredAsks],
   );
-  const othersIds = useMemo(() => new Set(others.map((e) => e.id)), [others]);
   // The other members with an open ask, by name whatever the case, and the
   // chosen one while it has none.
   const memberNames = useMemo(() => {
@@ -429,37 +434,6 @@ export function AsksView({
             margin: "0 auto",
           }}
         >
-          {isOwner && (
-            <ChevronSelect
-              data-asks-member=""
-              label={
-                member.kind === "member"
-                  ? member.name
-                  : t(
-                      member.kind === "all"
-                        ? "asks.memberAll"
-                        : "asks.memberMine",
-                    )
-              }
-              labelNoTranslate={member.kind === "member"}
-              aria-label={t("asks.member")}
-              value={memberValue(member)}
-              onChange={(e) => {
-                const next = parseMemberValue(e.target.value);
-                setMember(next);
-                setAsksMember(next);
-              }}
-              style={selectStyle}
-            >
-              <option value="mine">{t("asks.memberMine")}</option>
-              <option value="all">{t("asks.memberAll")}</option>
-              {memberNames.map((name) => (
-                <option key={name} value={`member:${name}`} {...noTranslate()}>
-                  {name}
-                </option>
-              ))}
-            </ChevronSelect>
-          )}
           <CheckboxFilter
             name="room"
             label={t("tasks.field.room")}
@@ -498,6 +472,37 @@ export function AsksView({
             onOpenChange={(o) => setOpenFilter(o ? "priority" : null)}
             buttonStyle={selectStyle}
           />
+          {isOwner && (
+            <ChevronSelect
+              data-asks-member=""
+              label={
+                member.kind === "member"
+                  ? member.name
+                  : t(
+                      member.kind === "all"
+                        ? "asks.memberAll"
+                        : "asks.memberMine",
+                    )
+              }
+              labelNoTranslate={member.kind === "member"}
+              aria-label={t("asks.member")}
+              value={memberValue(member)}
+              onChange={(e) => {
+                const next = parseMemberValue(e.target.value);
+                setMember(next);
+                setAsksMember(next);
+              }}
+              style={selectStyle}
+            >
+              <option value="mine">{t("asks.memberMine")}</option>
+              <option value="all">{t("asks.memberAll")}</option>
+              {memberNames.map((name) => (
+                <option key={name} value={`member:${name}`} {...noTranslate()}>
+                  {name}
+                </option>
+              ))}
+            </ChevronSelect>
+          )}
           <div
             style={{
               display: "flex",
@@ -631,7 +636,6 @@ export function AsksView({
                 <AskCard
                   key={entry.id}
                   entry={entry}
-                  readOnly={othersIds.has(entry.id)}
                   isMobile={isMobile}
                   onFocusAgent={onFocusAgent}
                   onChatAgent={onChatAgent}

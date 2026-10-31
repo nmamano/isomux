@@ -7,9 +7,9 @@
 // (/api/asks...): only a member askVisibleTo admits (the member the ask is
 // for, or an owner for an office secret request), while that member can
 // still reach the agent's room; anyone else gets the same 404 as an unknown
-// id. An office owner also reads other members' open asks
-// (askShownToOwnerAsOther): the list and a file, never an answer. A secret request is answered on its own routes (secret-requests.ts),
-// never with a reply, a dismiss or a filed task.
+// id. An office owner also reads and answers other members' open asks
+// (askShownToOwnerAsOther). A secret request is answered on its own routes
+// (secret-requests.ts), never with a reply, a dismiss or a filed task.
 //
 // A reply, a dismiss or a filed task is a member message to the agent through
 // the path a typed message takes, so it wakes or resumes the agent the same
@@ -325,16 +325,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     return closed ? closedWire(closed) : null;
   };
 
-  // The caller's open entry while it can still reach the agent, or null.
-  const addressedTo = (identity: Identity, id: string): AskEntry | null => {
-    const entry = store.get(id);
-    return entry && askVisibleTo(entry, identity.userId, audience)
-      ? entry
-      : null;
-  };
-
-  // An open entry the caller may read: their own (addressedTo), or another
-  // member's for an office owner (askShownToOwnerAsOther).
+  // An open entry the caller may read and answer: their own while they can
+  // still reach the agent (askVisibleTo), or another member's for an office
+  // owner (askShownToOwnerAsOther).
   const readableBy = (identity: Identity, id: string): AskEntry | null => {
     const entry = store.get(id);
     return entry &&
@@ -550,7 +543,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         return refuse(fail(400, "invalid_text", "text must be a string"));
       if (body.text.trim().length > 0) text = body.text;
     }
-    const entry = addressedTo(ctx.identity, ctx.params.askId);
+    const entry = readableBy(ctx.identity, ctx.params.askId);
     if (!entry) return refuse(notFound());
     // A secret request is answered with its masked form only: a reply would
     // carry what the member typed into the chat and to the agent.
@@ -1185,8 +1178,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.simplifyUndo": guarded(simplifyUndo),
     // A file the ask references where it is. The path is probed again on
     // every request: the file can be gone or replaced since the ask was
-    // made. Served as agents.getFile serves a copy. A read: an office owner
-    // gets the file of another member's ask too.
+    // made. Served as agents.getFile serves a copy. An office owner gets the
+    // file of another member's ask too.
     "asks.getFile": guarded((ctx) => {
       const entry = readableBy(ctx.identity, ctx.params.askId);
       const ref = entry?.readFiles?.find(

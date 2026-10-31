@@ -1260,6 +1260,42 @@ function demoOthersAskEntries(): AskAgentWire[] {
   return demoOthersAsks;
 }
 
+// An open ask the viewer answers: their own, or another member's, which the
+// viewer answers as an office owner. `other` is set on another member's ask.
+function demoFindAsk(
+  id: string,
+): { entry: AskMemberWire; other: AskAgentWire | null } | null {
+  const own = demoAskEntries().find((e) => e.id === id);
+  if (own) return { entry: own, other: null };
+  const other = demoOthersAskEntries().find((e) => e.id === id);
+  return other ? { entry: other, other } : null;
+}
+
+// Put a changed ask back in its list and push it, as the server does.
+function demoUpdateAsk(other: AskAgentWire | null, next: AskMemberWire) {
+  if (other) {
+    const entry: AskAgentWire = { ...next, member: other.member };
+    demoOthersAsks = demoOthersAskEntries().map((e) =>
+      e.id === entry.id ? entry : e,
+    );
+    shimEmit({ type: "others_ask_upserted", entry });
+    return;
+  }
+  demoAsks = demoAskEntries().map((e) => (e.id === next.id ? next : e));
+  shimEmit({ type: "ask_upserted", entry: next });
+}
+
+// Close an ask and push its removal, as the server does.
+function demoRemoveAsk(id: string, other: boolean) {
+  if (other) {
+    demoOthersAsks = demoOthersAskEntries().filter((e) => e.id !== id);
+    shimEmit({ type: "others_ask_removed", id });
+    return;
+  }
+  demoAsks = demoAskEntries().filter((e) => e.id !== id);
+  shimEmit({ type: "ask_removed", id });
+}
+
 // Pages, built on the first list so they can name the viewer and the demo's
 // agents: one open page from an agent and one acked page from an app, so the
 // office bar shows a badge and the Pages tab shows both kinds of source.
@@ -3985,15 +4021,15 @@ export async function demoApi(
   // fixed words to its agent, as the server does. The ask stays open.
   const simplifyMatch = pathname.match(/^\/api\/asks\/([^/]+)\/simplify$/);
   if (simplifyMatch && method === "POST") {
-    const entries = demoAskEntries();
-    const entry = entries.find(
-      (e) => e.id === decodeURIComponent(simplifyMatch[1]),
-    );
-    if (!entry) throw new ApiError(404, "not_found", "No such open ask.");
+    const found = demoFindAsk(decodeURIComponent(simplifyMatch[1]));
+    if (!found) throw new ApiError(404, "not_found", "No such open ask.");
+    const { entry } = found;
     const now = Date.now();
-    const marked = { ...entry, simplifyRequestedAt: now, updatedAt: now };
-    demoAsks = entries.map((e) => (e.id === entry.id ? marked : e));
-    shimEmit({ type: "ask_upserted", entry: marked });
+    demoUpdateAsk(found.other, {
+      ...entry,
+      simplifyRequestedAt: now,
+      updatedAt: now,
+    });
     shimEmit({
       type: "log_entry",
       entry: makeLogEntry(entry.agentId, "user_message", ASK_SIMPLIFY_TEXT, {
@@ -4007,11 +4043,9 @@ export async function demoApi(
   // agent, as the server does.
   const undoMatch = pathname.match(/^\/api\/asks\/([^/]+)\/simplify\/undo$/);
   if (undoMatch && method === "POST") {
-    const entries = demoAskEntries();
-    const entry = entries.find(
-      (e) => e.id === decodeURIComponent(undoMatch[1]),
-    );
-    if (!entry) throw new ApiError(404, "not_found", "No such open ask.");
+    const found = demoFindAsk(decodeURIComponent(undoMatch[1]));
+    if (!found) throw new ApiError(404, "not_found", "No such open ask.");
+    const { entry } = found;
     if (entry.simplifyRequestedAt === undefined)
       throw new ApiError(
         409,
@@ -4019,9 +4053,7 @@ export async function demoApi(
         "No rewrite of this ask is waiting.",
       );
     const { simplifyRequestedAt: _, ...rest } = entry;
-    const cleared = { ...rest, updatedAt: Date.now() };
-    demoAsks = entries.map((e) => (e.id === entry.id ? cleared : e));
-    shimEmit({ type: "ask_upserted", entry: cleared });
+    demoUpdateAsk(found.other, { ...rest, updatedAt: Date.now() });
     shimEmit({
       type: "log_entry",
       entry: makeLogEntry(
@@ -4040,9 +4072,9 @@ export async function demoApi(
     /^\/api\/asks\/([^/]+)\/(reply|dismiss|file-task)$/,
   );
   if (askMatch && method === "POST") {
-    const entries = demoAskEntries();
-    const entry = entries.find((e) => e.id === decodeURIComponent(askMatch[1]));
-    if (!entry) throw new ApiError(404, "not_found", "No such open ask.");
+    const found = demoFindAsk(decodeURIComponent(askMatch[1]));
+    if (!found) throw new ApiError(404, "not_found", "No such open ask.");
+    const { entry } = found;
     const dismissed = askMatch[2] === "dismiss";
     const filing = askMatch[2] === "file-task";
     const sent = (body as { text?: unknown } | undefined)?.text;
@@ -4070,8 +4102,7 @@ export async function demoApi(
       );
       task = state.tasks.at(-1);
     }
-    demoAsks = entries.filter((e) => e.id !== entry.id);
-    shimEmit({ type: "ask_removed", id: entry.id });
+    demoRemoveAsk(entry.id, found.other !== null);
     shimEmit({
       type: "log_entry",
       entry: makeLogEntry(entry.agentId, "user_message", text, {

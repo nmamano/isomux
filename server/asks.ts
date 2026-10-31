@@ -268,10 +268,9 @@ export interface AskAudienceDeps {
 // Whether a member sees an ask and may answer it, decided live: the member
 // it names, or for an office secret request any office owner (or the one
 // owner the request names), and in both
-// cases only while the member can reach the agent's room. Every answer check,
-// and every list and push of the member's own asks, goes through here; an
-// office owner's read-only view of other members' asks is
-// askShownToOwnerAsOther.
+// cases only while the member can reach the agent's room. Every list and push
+// of the member's own asks, and every answer check, goes through here; an
+// office owner's view of other members' asks is askShownToOwnerAsOther.
 export function askVisibleTo(
   entry: AskEntry,
   userId: string | null,
@@ -294,8 +293,8 @@ export function askVisibleTo(
   return owner === undefined || owner === userId || deps.isOfficeOwner(userId);
 }
 
-// Whether an office owner sees an ask as another member's, read-only: an ask
-// askVisibleTo does not admit for them, not a secret request, whose agent is
+// Whether an office owner sees and may answer an ask as another member's: an
+// ask askVisibleTo does not admit for them, not a secret request, whose agent is
 // in a room they can reach.
 export function askShownToOwnerAsOther(
   entry: AskEntry,

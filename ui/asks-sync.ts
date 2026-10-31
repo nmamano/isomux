@@ -37,8 +37,8 @@ export function useAsksSync(): void {
 
 /**
  * Keep the store's othersAsks slice filled for an office owner: other
- * members' open asks, read-only on the Asks tab. Mounted once, by App; it
- * reads nothing for a member who is not an owner. Keyed as useAsksSync, and
+ * members' open asks, which the owner answers on the Asks tab. Mounted once,
+ * by App; it reads nothing for a member who is not an owner. Keyed as useAsksSync, and
  * on the role, so a member made owner reads them at once.
  */
 export function useOthersAsksSync(): void {

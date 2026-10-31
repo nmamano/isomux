@@ -992,7 +992,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
   // Other members' open asks, for an office owner (askShownToOwnerAsOther);
-  // 403 for anyone else. Read-only: the answer routes stay the addressee's.
+  // 403 for anyone else. The answer routes admit the owner too.
   defineRoute<void, AskAgentWire[]>({
     opId: "asks.listOthers",
     method: "GET",

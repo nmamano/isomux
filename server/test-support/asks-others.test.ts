@@ -1,7 +1,9 @@
 // Other members' open asks for an office owner (task a49856f7,
-// internal-docs/asks-design.md): GET /api/asks/others lists them read-only,
-// the others_ask_* events keep them live, and every answer route stays the
-// addressee's. FakeBackend only, on the real server.
+// internal-docs/asks-design.md): GET /api/asks/others lists them, the
+// others_ask_* events keep them live, and the owner answers them on the
+// addressee's routes, as themself (task d555a32e). A member who is not an
+// owner still gets 404 there ("is only for the member it names" in
+// asks.test.ts). FakeBackend only, on the real server.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { writeFileSync } from "fs";
@@ -10,8 +12,18 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, setUserRoleById, updateUserById } from "../users.ts";
-import type { AskEntry, AgentInfo } from "../../shared/types.ts";
-import type { AskAgentWire } from "../../shared/contract-shapes.ts";
+import { askReplyNote } from "../asks.ts";
+import {
+  ASK_DISMISSED_TEXT,
+  ASK_SIMPLIFY_TEXT,
+  ASK_SIMPLIFY_UNDO_TEXT,
+  type AskEntry,
+  type AgentInfo,
+} from "../../shared/types.ts";
+import type {
+  AskAgentWire,
+  AskClosedWire,
+} from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
 
@@ -253,52 +265,134 @@ describe("GET /api/asks/others", () => {
   });
 });
 
-describe("another member's ask stays read-only for an owner", () => {
-  it("refuses an owner's reply, dismiss, file-task, simplify and its withdrawal as for an unknown id, and the ask stays open and marked", async () => {
+describe("an owner answers another member's ask", () => {
+  it("replies, dismisses and files a task as the owner: the agent reads the owner's name, the ask closes for the member, and the record names the owner", async () => {
+    const w = await world();
+    const replied = await open(w, "Ship it?", { member: w.pat.username });
+    const dismissed = await open(w, "Rename it?", { member: w.pat.username });
+    const filed = await open(w, "Refactor it?", { member: w.pat.username });
+    const all = [replied.id, dismissed.id, filed.id].sort();
+    // Enabling: the three are Pat's, and Nil lists them as another member's.
+    expect((await mine(w, w.pat)).map((e) => e.id).sort()).toEqual(all);
+    expect(
+      ((await others(w, w.owner)).body as AskAgentWire[])
+        .map((e) => e.id)
+        .sort(),
+    ).toEqual(all);
+
+    const answers = [
+      [replied.id, "reply", { text: "Nil says yes" }, 204],
+      [dismissed.id, "dismiss", {}, 204],
+      [filed.id, "file-task", { text: "After the launch." }, 201],
+    ] as const;
+    for (const [id, verb, json, status] of answers) {
+      const r = await call(
+        w.srv,
+        "POST",
+        `/api/asks/${id}/${verb}`,
+        session(w.owner),
+        json,
+      );
+      expect(`${verb} ${r.status}`).toBe(`${verb} ${status}`);
+    }
+    const [task] = w.srv.agentManager.getTasks();
+    expect(task?.roomId).toBe(w.room.id);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).length === 3,
+      "the three answers delivered",
+    );
+    // Under Nil's name, not Pat's.
+    const by = `[${w.owner.username}] `;
+    expect(sentTexts(w.srv, w.asker.id)).toEqual([
+      `${by}${askReplyNote(replied)}Nil says yes`,
+      `${by}${askReplyNote({ ...dismissed, dismissed: true })}${ASK_DISMISSED_TEXT}`,
+      `${by}${askReplyNote({ ...filed, taskId: task.id })}After the launch.`,
+    ]);
+    expect(await mine(w, w.pat)).toEqual([]);
+    expect((await others(w, w.owner)).body).toEqual([]);
+    for (const [id, outcome] of [
+      [replied.id, "replied"],
+      [dismissed.id, "dismissed"],
+      [filed.id, "filed"],
+    ]) {
+      const r = await call(
+        w.srv,
+        "GET",
+        `/api/agents/${w.asker.id}/asks/${id}`,
+        w.as(w.asker.id),
+      );
+      const closed = (r.body as AskClosedWire).closed;
+      expect([id, closed?.outcome, closed?.by]).toEqual([
+        id,
+        outcome,
+        w.owner.username,
+      ]);
+    }
+  });
+
+  it("asks for a simpler wording and withdraws that request as the owner, and the ask stays open for the member", async () => {
     const w = await world();
     const forPat = await open(w, "Pat's?", { member: w.pat.username });
-    // Enabling: Nil lists it.
-    expect(
-      ((await others(w, w.owner)).body as AskAgentWire[]).map((e) => e.id),
-    ).toEqual([forPat.id]);
-    // Pat's simplify request waits, so Nil's withdrawal would have one.
-    const asked = await call(
-      w.srv,
-      "POST",
-      `/api/asks/${forPat.id}/simplify`,
-      session(w.pat),
-      {},
-    );
-    expect(asked.status).toBe(204);
+    const post = (verb: string) =>
+      call(
+        w.srv,
+        "POST",
+        `/api/asks/${forPat.id}/${verb}`,
+        session(w.owner),
+        {},
+      );
+    const mark = async () =>
+      (await mine(w, w.pat)).map((e) => [e.id, typeof e.simplifyRequestedAt]);
+
+    expect((await post("simplify")).status).toBe(204);
     await waitUntil(
-      () => sentTexts(w.srv, w.asker.id).length > 0,
-      "Pat's simplify delivered",
+      () => sentTexts(w.srv, w.asker.id).length === 1,
+      "simplify delivered",
     );
-    const sentBefore = sentTexts(w.srv, w.asker.id).length;
+    expect(await mark()).toEqual([[forPat.id, "number"]]);
+    expect((await post("simplify/undo")).status).toBe(204);
+    await waitUntil(
+      () => sentTexts(w.srv, w.asker.id).length === 2,
+      "withdrawal delivered",
+    );
+    expect(await mark()).toEqual([[forPat.id, "undefined"]]);
+    const by = `[${w.owner.username}] `;
+    expect(sentTexts(w.srv, w.asker.id)).toEqual([
+      `${by}${askReplyNote({ ...forPat, simplify: true })}${ASK_SIMPLIFY_TEXT}`,
+      `${by}${askReplyNote({ ...forPat, simplifyUndone: true })}${ASK_SIMPLIFY_UNDO_TEXT}`,
+    ]);
+  });
+
+  it("still refuses an owner another member's personal secret request, as for an unknown id", async () => {
+    const w = await world();
+    const requestId = await secretRequest(w, w.pats.id);
+    const entry = (await mine(w, w.pat)).find(
+      (e) => e.secret?.requestId === requestId,
+    );
+    // Enabling: Pat has it open, so a refusal is not for an unknown id.
+    expect(entry).toBeDefined();
     for (const [verb, json] of [
-      ["reply", { text: "Nil answers" }],
+      ["reply", { text: "s3cret" }],
       ["dismiss", {}],
-      ["file-task", { text: "Nil files" }],
+      ["file-task", {}],
       ["simplify", {}],
-      ["simplify/undo", {}],
     ] as const) {
       const r = await call(
         w.srv,
         "POST",
-        `/api/asks/${forPat.id}/${verb}`,
+        `/api/asks/${entry!.id}/${verb}`,
         session(w.owner),
         json,
       );
       expect(`${verb} ${r.status} ${r.code}`).toBe(`${verb} 404 not_found`);
     }
-    expect(
-      (await mine(w, w.pat)).map((e) => [e.id, typeof e.simplifyRequestedAt]),
-    ).toEqual([[forPat.id, "number"]]);
     expect(w.srv.agentManager.getTasks()).toEqual([]);
-    // Nothing reached the agent.
-    expect(sentTexts(w.srv, w.asker.id)).toHaveLength(sentBefore);
+    expect(sentTexts(w.srv, w.pats.id)).toEqual([]);
+    expect((await mine(w, w.pat)).map((e) => e.id)).toEqual([entry!.id]);
   });
+});
 
+describe("another member's ask: files", () => {
   it("serves an owner a file another member's ask references in place, and still not a member it is not for", async () => {
     const w = await world();
     const cwd = agentOf(w.srv, w.asker.id).cwd;

@@ -42,12 +42,8 @@
 // page. A send that fails brings the ask back everywhere, with the error
 // (askErrors, kept in the store so it outlives this card).
 //
-// With `readOnly` (another member's ask, shown to an office owner on the
-// Inbox), the card names the member it is for and lists the options, with
-// no reply field and no answer button; its commands and editor files are
-// text, as they are steps for that member. Its link, files, id and Discuss
-// in chat stay; while a rewrite is coming, the banner takes the place of the
-// options and Discuss, without Undo.
+// Another member's ask, shown to an office owner on the Inbox, names the
+// member it is for; the owner answers it as their own.
 
 import {
   useContext,
@@ -142,9 +138,8 @@ export function AskCard({
   onChatAgent,
   undoMs,
   promptLines,
-  readOnly,
 }: {
-  // `member`, the name of the member it is for, is drawn on a read-only card.
+  // `member`, set on another member's ask only, is the member it is for.
   entry: AskMemberWire & { member?: string | null };
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
@@ -153,8 +148,6 @@ export function AskCard({
   undoMs?: number;
   // The prompt's lines before Show more.
   promptLines?: number;
-  // Another member's ask, shown to an office owner: no answer controls.
-  readOnly?: boolean;
 }) {
   return entry.secret ? (
     <SecretAskCard
@@ -172,7 +165,6 @@ export function AskCard({
       onChatAgent={onChatAgent}
       undoMs={undoMs}
       promptLines={promptLines}
-      readOnly={readOnly}
     />
   );
 }
@@ -198,13 +190,10 @@ function AskAffordances({
   entry,
   isMobile,
   onFocusAgent,
-  readOnly,
 }: {
   entry: AskMemberWire;
   isMobile: boolean;
   onFocusAgent?: (agentId: string) => void;
-  // Editor files and commands as text only.
-  readOnly?: boolean;
 }) {
   const dispatch = useDispatch();
   const features = useFeatures();
@@ -236,7 +225,7 @@ function AskAffordances({
       )}
       {editFiles?.map((file, i) => (
         <div key={i} data-ask-edit-file={file.path}>
-          {features.editor && !readOnly ? (
+          {features.editor ? (
             <EditRequestCard payload={file} onOpen={openInEditor} />
           ) : (
             <PlainAffordance text={file.path} />
@@ -245,7 +234,7 @@ function AskAffordances({
       ))}
       {commands?.map((command, i) => (
         <div key={i} data-ask-command={command}>
-          {features.terminal && !readOnly ? (
+          {features.terminal ? (
             <TerminalCommandCard
               payload={{ command }}
               onCopy={copyToTerminal}
@@ -266,7 +255,6 @@ function ReplyAskCard({
   onChatAgent,
   undoMs,
   promptLines = PROMPT_LINES,
-  readOnly = false,
 }: {
   entry: AskMemberWire & { member?: string | null };
   isMobile: boolean;
@@ -274,7 +262,6 @@ function ReplyAskCard({
   onChatAgent?: (agentId: string) => void;
   undoMs?: number;
   promptLines?: number;
-  readOnly?: boolean;
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
@@ -676,7 +663,7 @@ function ReplyAskCard({
               {t("asks.fromApp", { app: entry.app.name })}
             </div>
           )}
-          {readOnly && entry.member && (
+          {entry.member && (
             <div
               data-ask-for=""
               style={{
@@ -847,7 +834,6 @@ function ReplyAskCard({
         entry={entry}
         isMobile={isMobile}
         onFocusAgent={onFocusAgent}
-        readOnly={readOnly}
       />
       {/* Until the rewrite, the banner takes the place of the options and the
           reply area: the member waits for the rewrite or withdraws it. */}
@@ -877,23 +863,21 @@ function ReplyAskCard({
           >
             {t("asks.simplifyPending")}
           </span>
-          {!readOnly && (
-            <button
-              type="button"
-              data-ask-simplify-undo=""
-              disabled={undoingSimplify}
-              onClick={() => void undoSimplify()}
-              style={{
-                ...secondaryButton,
-                color: "var(--accent-text)",
-                border: "1px solid var(--accent-text)",
-                fontWeight: 600,
-                cursor: undoingSimplify ? "default" : "pointer",
-              }}
-            >
-              {t("asks.undo")}
-            </button>
-          )}
+          <button
+            type="button"
+            data-ask-simplify-undo=""
+            disabled={undoingSimplify}
+            onClick={() => void undoSimplify()}
+            style={{
+              ...secondaryButton,
+              color: "var(--accent-text)",
+              border: "1px solid var(--accent-text)",
+              fontWeight: 600,
+              cursor: undoingSimplify ? "default" : "pointer",
+            }}
+          >
+            {t("asks.undo")}
+          </button>
         </div>
       )}
       {!rewriting && entry.options && entry.options.length > 0 && (
@@ -937,12 +921,7 @@ function ReplyAskCard({
                 <span {...noTranslate()}>{option}</span>
               </>
             );
-            // Read-only: the option as a label, nothing to tap.
-            return readOnly ? (
-              <span key={i} {...marks} style={style}>
-                {label}
-              </span>
-            ) : (
+            return (
               <button
                 key={i}
                 type="button"
@@ -961,17 +940,7 @@ function ReplyAskCard({
           })}
         </div>
       )}
-      {rewriting ? null : readOnly ? (
-        <div style={{ display: "flex", marginTop: 7 }}>
-          <AskAboutButton
-            entry={entry}
-            style={secondaryButton}
-            disabled={false}
-            onFocusAgent={onFocusAgent}
-            onChatAgent={onChatAgent}
-          />
-        </div>
-      ) : (
+      {rewriting ? null : (
         <form
           onSubmit={(e) => {
             e.preventDefault();
