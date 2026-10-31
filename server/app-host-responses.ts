@@ -70,6 +70,11 @@ export const APP_UNREACHABLE_BODY = "this app did not respond\n";
 // 6b): the pools are separate, the sentence is the same one.
 export const APP_BUSY_BODY = "this app is busy; try again\n";
 
+// The office could not compute the app's proxy secret (app-proxy-secret.ts),
+// so it sends the app nothing: a request without it would look forged.
+export const APP_NOT_RELAYED_BODY =
+  "the office could not pass this request to the app; try again\n";
+
 // The two WebSocket refusals. Everything else the upgrade path can
 // refuse with is a body above, reused: no session -> AUTH_REQUIRED_BODY, app not
 // running -> APP_STOPPED_BODY, cap reached -> APP_BUSY_BODY, an upstream that

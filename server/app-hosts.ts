@@ -198,6 +198,9 @@ export interface AppHostDeps {
   canAccess: (app: AppRecord, userId: string) => boolean;
   // The member's display name, or null when the user record is gone.
   memberName: (userId: string) => string | null;
+  // The app's proxy secret (app-proxy-secret.ts). Throws when it cannot be
+  // computed.
+  proxySecretFor: (app: AppRecord) => string;
 }
 
 // The office's request entry point calls this FIRST, before the URL is parsed
@@ -351,6 +354,7 @@ function dispatchAppHostRequest(
       apps,
       supervisor: deps.supervisor ?? productionSupervisor,
       peer: deps.peer,
+      proxySecret: () => deps.proxySecretFor(app),
       registry,
       canAccess: deps.canAccess,
       memberName: deps.memberName,
@@ -391,5 +395,6 @@ function dispatchAppHostRequest(
     supervisor: deps.supervisor ?? productionSupervisor,
     peer: deps.peer,
     member: gate.member,
+    proxySecret: () => deps.proxySecretFor(app),
   });
 }

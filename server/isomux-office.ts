@@ -467,6 +467,10 @@ import {
 } from "./secret-store.ts";
 import { scrubPatterns } from "./secret-proxy/scrub.ts";
 import { appSecretsDir, createAppSecrets } from "./app-secrets.ts";
+import {
+  appProxySecretsOf,
+  productionAppProxySecret,
+} from "./app-proxy-secret.ts";
 import { OAUTH_SECRET_NAME } from "../shared/mcp-servers.ts";
 import { createSecretsRuntime } from "./secret-proxy/runtime.ts";
 import { setSecretValuesForRedaction } from "./log-redaction.ts";
@@ -772,6 +776,7 @@ const appSecrets = createAppSecrets({
     },
   },
   dir: appSecretsDir(STATE_ROOT),
+  proxySecret: productionAppProxySecret,
   oauthOwned: (scope) => {
     try {
       return oauthRegistrations.oauthOwnedSecrets(scope);
@@ -4149,6 +4154,7 @@ function buildExecutorDeps(
           host: new URL(appPublicUrl(app.hostLabel, appHostDomain())!).host,
           apps: appRegistry.list(),
           supervisor: appSupervisor,
+          proxySecret: () => productionAppProxySecret(app),
         }),
       revision: appFilesRevision,
       serving: (app) => {
@@ -4232,6 +4238,7 @@ function buildExecutorDeps(
           return false;
         }
       },
+      syncAppSecrets: () => appSecrets.syncNow(),
       revokeToken: (name) => appTokens.revoke(name),
       retireRegistration: (app) => retireAppRegistration(app),
       invalidateRegistration: (app) =>
@@ -4293,7 +4300,12 @@ function buildExecutorDeps(
       states: (names) => appSupervisor.states(names),
       provablyNotRunning: (name) => appSupervisor.provablyNotRunning(name),
       logs: (name, lines) => appSupervisor.logs(name, lines),
-      secretScrubPatterns: () => scrubPatterns(vaultValues()),
+      // An app that logs its request headers logs its proxy secret too.
+      secretScrubPatterns: () =>
+        scrubPatterns([
+          ...vaultValues(),
+          ...appProxySecretsOf(appRegistry.list(), productionAppProxySecret),
+        ]),
       forgetSecrets: (record) => {
         secretStore.dropApp({ name: record.name, createdAt: record.createdAt });
         appSecrets.syncNow();
@@ -8685,6 +8697,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         supervisor: appSupervisor,
         canAccess: canUserAccessApp,
         memberName: (userId) => getUserById(userId)?.name ?? null,
+        proxySecretFor: productionAppProxySecret,
         // A thunk, not a value: reading the peer is only worth doing for a
         // request that is actually being relayed, and this runs in front of
         // every request the office serves.
@@ -9108,6 +9121,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                   host: new URL(publicUrl!).host,
                   apps: appRegistry.list(),
                   supervisor: appSupervisor,
+                  proxySecret: () => productionAppProxySecret(app),
                 }),
               });
             }

@@ -55,11 +55,11 @@
 // never touches.
 
 import { spawnSync } from "child_process";
-import { createHash } from "crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { STATE_ROOT } from "./config.ts";
+import { unitNameFor, unitPrefixFor } from "./office-units.ts";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { appHostDomain, appPublicUrl } from "./app-domain.ts";
@@ -224,38 +224,8 @@ export function createSystemdHost(): SupervisorHost {
   };
 }
 
-// The unit-name prefix for an office on `stateRoot`.
-//
-// The production office (default state root) gets the bare `isomux-app-`
-// namespace, which is the locked production naming. Every other state root gets
-// a namespace of its own, derived from the root's path, for the reason in the
-// header: two offices on one box must not be able to name each other's units.
-// The digest is what makes it derived rather than configured - there is no knob
-// to set wrong, and an isolated instance cannot opt back into production.
-//
-// THE DOT IS THE WHOLE ISOLATION ARGUMENT. An app name cannot contain `.` (the
-// grammar is `[a-z0-9-]`, because the name has to survive as a DNS label), so
-// no production app - however it is named, and whoever names it - can render to
-// a unit name in this namespace. Without it the separation would rest on a
-// digest being hard to guess, which is not a property anyone should have to
-// rely on: the state root is not a secret, so a name that collides is something
-// an app author could construct on purpose. A forbidden character makes the two
-// namespaces disjoint by construction instead. systemd accepts a `.` inside a
-// unit name (verified with systemd-analyze; it splits the type suffix off the
-// LAST dot), and the result still matches the `isomux-app-test-*` glob the
-// standing rail asks test units to be findable under.
-//
-// The full digest, not a prefix of it, for the same reason: truncating to eight
-// hex characters would squeeze every state root on the box into a 32-bit space
-// for no saving that matters.
-export function unitPrefixFor(stateRoot: string, isDefault: boolean): string {
-  if (isDefault) return "isomux-app-";
-  const digest = createHash("sha256").update(stateRoot).digest("hex");
-  return `isomux-app-test-.${digest}-`;
-}
-
-export const unitNameFor = (prefix: string, appName: string): string =>
-  `${prefix}${appName}.service`;
+// The unit names live in office-units.ts, so the safety policy can use them.
+export { unitNameFor, unitPrefixFor } from "./office-units.ts";
 
 // Interpolating a value into a unit file, and systemd's rules are NOT uniform
 // across directives - which is the sort of thing only a real systemd finds out.

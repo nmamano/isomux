@@ -15,6 +15,7 @@ import {
   NAVIGATION_HEADERS,
   OFFICE_HOST,
   anOfficeWithAnApp,
+  proxySecretOf,
   raw,
   type RawResponse,
 } from "./app-host-test-kit.ts";
@@ -37,11 +38,18 @@ afterEach(async () => {
 
 const APP_TITLE = "Private app title";
 
+// What the office's metadata read sent the app.
+interface SeenRead {
+  cookie: string | null;
+  authorization: string | null;
+  proxySecret: string | null;
+}
+
 // The app itself, on the port the registry allocated, recording what the
 // office's metadata read sent it.
 function startApp(
   port: number,
-  seen: { cookie: string | null; authorization: string | null }[],
+  seen: SeenRead[],
 ): ReturnType<typeof Bun.serve> {
   return Bun.serve({
     hostname: "127.0.0.1",
@@ -50,6 +58,7 @@ function startApp(
       seen.push({
         cookie: req.headers.get("cookie"),
         authorization: req.headers.get("authorization"),
+        proxySecret: req.headers.get("x-isomux-proxy-secret"),
       });
       return new Response(
         `<title>${APP_TITLE}</title><link rel="icon" href="https://hello.office.example/icon.png">`,
@@ -219,7 +228,7 @@ it("serves the wrapper only to a member who can see the app, and reads the app o
   const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
     server = s;
   });
-  const seen: { cookie: string | null; authorization: string | null }[] = [];
+  const seen: SeenRead[] = [];
   upstream = startApp(appRegistry.get("hello")!.port, seen);
   const expectHidden = async (rawSession?: string) => {
     for (const suffix of ["", "/", "/blog/post-1?x=1"]) {
@@ -240,8 +249,11 @@ it("serves the wrapper only to a member who can see the app, and reads the app o
   expect(
     await elements(wrapper.body, 'meta[name="isomux-app-widget"]', ["name"]),
   ).toHaveLength(1);
-  // The read is a fresh request: the member's office cookie stays home.
-  expect(seen).toEqual([{ cookie: null, authorization: null }]);
+  // The read is a fresh request: the member's office cookie stays home. It
+  // carries the app's proxy secret, as every relayed request does.
+  expect(seen).toEqual([
+    { cookie: null, authorization: null, proxySecret: proxySecretOf("hello") },
+  ]);
 
   // A page of the app has its own widget address (task 469e8886): the same
   // wrapper, booted for this app, with no redirect.

@@ -63,7 +63,9 @@ async function call(
 const errorOf = (res: Res) =>
   (res.body as { error?: Record<string, unknown> }).error ?? {};
 
-// The app's secrets file as the app gets it, or null when there is none.
+// The vault values in the app's secrets file as the app gets it, or null when
+// there is no file. Every live app's file also holds its proxy secret (task
+// 4b3adf60): checked present here and left out of the result.
 function appEnv(name: string): Record<string, string> | null {
   const path = appSecretsPath(appSecretsDir(STATE_ROOT), name);
   if (!existsSync(path)) return null;
@@ -71,7 +73,14 @@ function appEnv(name: string): Record<string, string> | null {
     encoding: "utf8",
   });
   expect(result.status).toBe(0);
-  return JSON.parse(result.stdout) as Record<string, string>;
+  const { ISOMUX_APP_PROXY_SECRET: proxySecret, ...vault } = JSON.parse(
+    result.stdout,
+  ) as Record<string, string>;
+  expect({ name, proxySecret: typeof proxySecret }).toEqual({
+    name,
+    proxySecret: "string",
+  });
+  return vault;
 }
 
 const secret = (over: Record<string, unknown> = {}) => ({
@@ -159,7 +168,7 @@ describe("a member gives a secret to their own app", () => {
     ).toEqual(["bot"]);
     expect(created.text).not.toContain(VALUE);
     expect(appEnv("bot")).toEqual({ BOT_TOKEN: VALUE });
-    expect(appEnv("helper")).toBeNull();
+    expect(appEnv("helper")).toEqual({});
     expect(restarts(o)).toEqual(["restart:bot"]);
     expect(await reloadRequestedAt()).toBeGreaterThan(before);
 
@@ -181,7 +190,7 @@ describe("a member gives a secret to their own app", () => {
       (await call(o.srv, "DELETE", `${o.memberBase}/BOT_TOKEN`, { session }))
         .status,
     ).toBe(204);
-    expect(appEnv("bot")).toBeNull();
+    expect(appEnv("bot")).toEqual({});
     expect(restarts(o)).toEqual(["restart:bot"]);
   });
 
@@ -234,7 +243,7 @@ describe("a member gives a secret to their own app", () => {
       }),
     ]);
     expect(await listed(o, o.memberBase, session)).toEqual({ BOT_TOKEN: [] });
-    expect(appEnv("web")).toBeNull();
+    expect(appEnv("web")).toEqual({});
   });
 });
 
@@ -290,7 +299,7 @@ describe("an agent never gives a secret to an app", () => {
       ]);
     }
     expect(await listed(o, o.memberBase, session)).toEqual({});
-    expect(appEnv("bot")).toBeNull();
+    expect(appEnv("bot")).toEqual({});
 
     expect(
       (
@@ -311,10 +320,10 @@ describe("an agent never gives a secret to an app", () => {
       403,
       "secret_app_add_refused",
     ]);
-    expect(appEnv("helper")).toBeNull();
+    expect(appEnv("helper")).toEqual({});
     expect((await patch(["bot"])).status).toBe(200);
     expect((await patch([])).status).toBe(200);
-    expect(appEnv("bot")).toBeNull();
+    expect(appEnv("bot")).toEqual({});
     // Gone is gone: putting it back is an add.
     expect((await patch(["bot"])).status).toBe(403);
     expect(await listed(o, o.memberBase, session)).toEqual({ BOT_TOKEN: [] });
@@ -393,7 +402,7 @@ describe("a secret request for an app", () => {
 });
 
 describe("app delete", () => {
-  it("removes the app's file and grants; a new app with the name gets nothing", async () => {
+  it("removes the app's file and grants; a new app with the name gets no vault value", async () => {
     const o = await office();
     const session = o.member.rawSessionId;
     expect(
@@ -411,7 +420,7 @@ describe("app delete", () => {
       body: { name: "bot", command: "true", cwd: o.srv.stateRoot },
     });
     expect(again.status).toBe(201);
-    expect(appEnv("bot")).toBeNull();
+    expect(appEnv("bot")).toEqual({});
     expect(await listed(o, o.memberBase, session)).toEqual({ BOT_TOKEN: [] });
   });
 });

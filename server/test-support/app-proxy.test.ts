@@ -23,6 +23,7 @@ import {
 } from "zlib";
 import {
   relayToApp,
+  type AppMember,
   _testRelayInFlight,
   _testResetRelay,
   APP_RELAY_MAX_CONCURRENT_PER_APP,
@@ -232,6 +233,8 @@ function relay(
     stallMs?: number;
     maxPerApp?: number;
     maxTotal?: number;
+    proxySecret?: () => string;
+    member?: AppMember | null;
   },
 ): Promise<Response> {
   const fake = createFakeAppSupervisor();
@@ -259,6 +262,8 @@ function relay(
     stallMs: opts.stallMs,
     maxPerApp: opts.maxPerApp,
     maxTotal: opts.maxTotal,
+    member: opts.member,
+    proxySecret: opts.proxySecret ?? (() => `proxy-secret-${opts.app.name}`),
   });
 }
 
@@ -505,6 +510,68 @@ describe("relay: what the app is not handed", () => {
         forwarded: undefined,
       })),
     );
+  });
+});
+
+// The app's proxy secret (task 4b3adf60): the relay sends the one the context
+// gives for this app on every request, and sends nothing when it has none to
+// give. The whole chain (the value equals the app's environment, one app's
+// value never reaches another) is in app-member-headers.test.ts.
+describe("relay: the proxy secret", () => {
+  it("sets the app's secret on every request, member or not, over a client's copy", async () => {
+    up = startUpstream();
+    const app = appRecord(up.port);
+    for (const member of [null, { id: "u-member", name: "Morgan" }]) {
+      const res = await relay(
+        get("/plain", {
+          headers: {
+            "X-Isomux-Proxy-Secret": "client-copy",
+            "x-isomux-proxy-secret-2": "client-copy",
+          },
+        }),
+        { app, member, proxySecret: () => "fake-proxy-secret-hello" },
+      );
+      expect(res.status).toBe(200);
+    }
+    expect(
+      up.seen.map(({ headers }) =>
+        Object.fromEntries(
+          Object.entries(headers).filter(([name]) =>
+            name.startsWith("x-isomux-proxy"),
+          ),
+        ),
+      ),
+    ).toEqual([
+      { "x-isomux-proxy-secret": "fake-proxy-secret-hello" },
+      { "x-isomux-proxy-secret": "fake-proxy-secret-hello" },
+    ]);
+  });
+
+  it("answers 502 without a connection when the secret cannot be computed", async () => {
+    let count = 0;
+    const server: NetServer = createServer((socket) => {
+      count++;
+      socket.destroy();
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    try {
+      const app = appRecord((server.address() as { port: number }).port);
+      const res = await relay(get("/plain"), {
+        app,
+        proxySecret: () => {
+          throw new Error("fake key unreadable");
+        },
+      });
+      expect(res.status).toBe(502);
+      expect(await res.text()).not.toContain("fake key unreadable");
+      // The app never saw a request without its secret.
+      expect(count).toBe(0);
+      expect(_testRelayInFlight()).toEqual(NO_PERMITS);
+    } finally {
+      server.close();
+    }
   });
 });
 

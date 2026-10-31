@@ -26,6 +26,7 @@
 // (the WebSocket relay handles them).
 
 import type { AppRecord } from "../shared/types.ts";
+import { APP_PROXY_SECRET_HEADER } from "./app-proxy-secret.ts";
 import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
 import type { AppRuntime, AppSupervisor } from "./app-supervisor.ts";
 import { APP_COOKIE_NAME } from "./app-auth.ts";
@@ -36,6 +37,7 @@ import {
   APP_BUSY_BODY,
   APP_STOPPED_BODY,
   APP_UNREACHABLE_BODY,
+  APP_NOT_RELAYED_BODY,
   neutral,
 } from "./app-host-responses.ts";
 
@@ -236,11 +238,15 @@ export interface AppMember {
 // admitted, as X-Isomux-Member-Id and X-Isomux-Member-Name. The name is
 // percent-encoded because a display name may be non-ASCII and a header value
 // may not.
+//
+// `proxySecret` is the app's own proxy secret (app-proxy-secret.ts), set on
+// every relayed request as X-Isomux-Proxy-Secret, with a member or without.
 export function buildUpstreamHeaders(
   req: Request,
   appHost: string,
   peerAddress: string | null | undefined,
   member: AppMember | null,
+  proxySecret: string,
 ): Headers {
   const drop = connectionNominated(req.headers);
   const out = new Headers();
@@ -263,6 +269,7 @@ export function buildUpstreamHeaders(
   out.set("X-Forwarded-Proto", "https");
   const forwardedFor = forwardedForValue(peerAddress ?? null);
   if (forwardedFor !== null) out.set("X-Forwarded-For", forwardedFor);
+  out.set(APP_PROXY_SECRET_HEADER, proxySecret);
   if (member !== null) {
     out.set("X-Isomux-Member-Id", member.id);
     out.set("X-Isomux-Member-Name", encodeURIComponent(member.name));
@@ -317,6 +324,9 @@ export interface RelayContext {
   peer?: () => string | null | undefined;
   // The member the gate admitted. Absent or null: no member headers.
   member?: AppMember | null;
+  // The app's proxy secret (app-proxy-secret.ts). Throws when it cannot be
+  // computed; the relay then answers 502 rather than relay without it.
+  proxySecret: () => string;
   // Test seams, so a stall can be provoked in milliseconds instead of five
   // minutes and a cap in two requests instead of five hundred.
   stallMs?: number;
@@ -365,6 +375,23 @@ export function proveAppRunning(ctx: {
   return { ok: true };
 }
 
+// The app's proxy secret, or the 502 that refuses the request without it. The
+// two relays ask in the same position: after proving the app runs, before a
+// permit or a socket.
+export function readProxySecret(ctx: {
+  app: AppRecord;
+  proxySecret: () => string;
+}): { ok: true; secret: string } | { ok: false; response: Response } {
+  try {
+    return { ok: true, secret: ctx.proxySecret() };
+  } catch {
+    console.error(
+      `[apps] "${ctx.app.name}": the proxy secret could not be computed; the request was not relayed`,
+    );
+    return { ok: false, response: neutral(502, APP_NOT_RELAYED_BODY) };
+  }
+}
+
 export async function relayToApp(
   req: Request,
   ctx: RelayContext,
@@ -379,6 +406,11 @@ export async function relayToApp(
   if (!running.ok) {
     stopWatchingRetirement();
     return running.response;
+  }
+  const proxySecret = readProxySecret(ctx);
+  if (!proxySecret.ok) {
+    stopWatchingRetirement();
+    return proxySecret.response;
   }
 
   const permit = acquirePermit(permitKey(ctx.app), {
@@ -434,6 +466,7 @@ export async function relayToApp(
         ctx.host,
         peerAddress(ctx),
         ctx.member ?? null,
+        proxySecret.secret,
       );
       // A framed page may get the app-view script, which needs plain bytes.
       if (framedDocumentRequest(req))

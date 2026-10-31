@@ -39,6 +39,7 @@ import type { AgentInfo, AppListWire, AppRecord } from "../../shared/types.ts";
 import { appsHandlers, type AppsDeps } from "../routes/handlers/apps.ts";
 import type { RouteHandlerContext } from "../routes/executor.ts";
 import { removeStateDir } from "./temp-state.ts";
+import { proxySecretOf } from "./app-host-test-kit.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -1529,6 +1530,82 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
 // file, persisted as a hash that outlives the process, and it must reach NO
 // route in the office. The supervisor is the harness fake, so `tokenFiles`
 // stands in for <launcherDir>/<name>.env.
+
+// Task 4b3adf60: the app's proxy secret reaches its environment at its first
+// start, and never reaches a reader of its logs.
+describe("routes/apps REST: the proxy secret", () => {
+  async function agentBearer(srv: TestServer): Promise<string> {
+    await srv.seedOwner("Morgan");
+    const ownerId = getUserByName("Morgan")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    return mintAgentToken(bot.id, ownerId);
+  }
+
+  it("is in the app's secrets file before the app starts, and is new for a new registration", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const bearer = await agentBearer(srv);
+    // What the secrets file held at each install: a process's environment is
+    // fixed at exec.
+    const atInstall: (string | null)[] = [];
+    const fake = srv.appSupervisor;
+    const install = fake.install.bind(fake);
+    fake.install = (...args: Parameters<typeof install>) => {
+      try {
+        atInstall.push(proxySecretOf(args[0].name));
+      } catch {
+        atInstall.push(null);
+      }
+      return install(...args);
+    };
+
+    const first = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer,
+      body: body(srv, "hello"),
+    });
+    expect(first.status).toBe(201);
+    const deleted = await api(srv, "/api/apps/hello", {
+      method: "DELETE",
+      bearer,
+    });
+    expect(deleted.status).toBe(204);
+    const second = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer,
+      body: body(srv, "hello"),
+    });
+    expect(second.status).toBe(201);
+
+    expect(atInstall.length).toBe(2);
+    expect(atInstall.every((secret) => typeof secret === "string")).toBe(true);
+    expect(atInstall[1]).not.toBe(atInstall[0]);
+  });
+
+  it("is masked in the app's logs", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const bearer = await agentBearer(srv);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer,
+      body: body(srv, "hello"),
+    });
+    const secret = proxySecretOf("hello");
+    srv.appSupervisor.logLines = [
+      "listening on 21000",
+      `request headers: x-isomux-proxy-secret=${secret}`,
+    ];
+
+    const r = await api(srv, "/api/apps/hello/logs", { bearer });
+    expect(r.status).toBe(200);
+    const lines = (r.body as { lines: string[] }).lines;
+    // The other line passes as it is: the mask is for the secret alone.
+    expect(lines[0]).toBe("listening on 21000");
+    expect(lines.length).toBe(2);
+    expect(lines[1]).not.toContain(secret);
+  });
+});
 
 describe("routes/apps REST: app tokens", () => {
   // The office's own store, over the harness STATE_ROOT the server booted on.

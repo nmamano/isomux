@@ -6,6 +6,11 @@
 // pre-fill these or any later relay header. A screenshot capture has no member
 // and gets none.
 //
+// Every relayed request also carries X-Isomux-Proxy-Secret (task 4b3adf60):
+// the value the app reads as ISOMUX_APP_PROXY_SECRET from its secrets file, so
+// the app can tell the office's request from a direct call to its port. Each
+// app has its own.
+//
 // Every case goes through the whole chain - Host classification, the gate, the
 // relay - because the member is resolved at the gate and written by the relay,
 // and only the chain proves the two are joined.
@@ -23,6 +28,7 @@ import {
   withAppCookie,
   wsConnect,
   cookieValue,
+  proxySecretOf,
 } from "./app-host-test-kit.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
@@ -50,6 +56,7 @@ const FORGED = {
   "X-Isomux-Member-Name": "Nil",
   "x-isomux-member-role": "owner",
   "X-ISOMUX-Signature": "forged",
+  "X-Isomux-Proxy-Secret": "forged-proxy-secret",
 };
 
 // Every header the app saw on each request, names lowercased by the runtime.
@@ -65,9 +72,9 @@ function isomuxHeaders(
 
 // An app that records every request's headers and upgrades a WebSocket when
 // asked for one, on the port the registry allocated.
-function startApp(seen: Seen): ReturnType<typeof Bun.serve> {
-  const record = appRegistry.get(APP);
-  if (!record) throw new Error(`no registered app ${APP}`);
+function startApp(seen: Seen, name = APP): ReturnType<typeof Bun.serve> {
+  const record = appRegistry.get(name);
+  if (!record) throw new Error(`no registered app ${name}`);
   return Bun.serve({
     port: record.port,
     hostname: "127.0.0.1",
@@ -86,6 +93,7 @@ function startApp(seen: Seen): ReturnType<typeof Bun.serve> {
 async function office(): Promise<{
   srv: TestServer;
   label: string;
+  token: string;
   rawSessionId: string;
   memberId: string;
 }> {
@@ -101,18 +109,32 @@ async function office(): Promise<{
   // The condition every case below depends on: the stored name is the
   // non-ASCII one, not a normalized copy.
   expect(record.name).toBe(MEMBER_NAME);
-  return { srv, label, rawSessionId: member.rawSessionId, memberId: record.id };
+  return {
+    srv,
+    label,
+    token,
+    rawSessionId: member.rawSessionId,
+    memberId: record.id,
+  };
 }
 
-function expectMember(headers: Record<string, string>, memberId: string): void {
-  // Exactly the two member headers: every forged X-Isomux- header is gone.
+function expectMember(
+  headers: Record<string, string>,
+  memberId: string,
+  name = APP,
+): void {
+  // Exactly the two member headers and the proxy secret: every forged
+  // X-Isomux- header is gone.
   expect(Object.keys(isomuxHeaders(headers)).sort()).toEqual([
     "x-isomux-member-id",
     "x-isomux-member-name",
+    "x-isomux-proxy-secret",
   ]);
   expect(headers["x-isomux-member-id"]).toBe(memberId);
   const encoded = headers["x-isomux-member-name"];
   expect(decodeURIComponent(encoded)).toBe(MEMBER_NAME);
+  // The app's own secret, as its environment holds it.
+  expect(headers["x-isomux-proxy-secret"]).toBe(proxySecretOf(name));
 }
 
 describe("app relay: member identity", () => {
@@ -187,6 +209,50 @@ describe("app relay: member identity", () => {
     // The capture reached the app both times: the absence below is the relay's
     // doing, not a refusal.
     expect([plain.status, forged.status]).toEqual([200, 200]);
-    expect(seen.map(isomuxHeaders)).toEqual([{}, {}]);
+    // No member, but still the proxy secret: the app can tell an anonymous
+    // request of the office from a direct call.
+    const anonymous = { "x-isomux-proxy-secret": proxySecretOf(APP) };
+    expect(seen.map(isomuxHeaders)).toEqual([anonymous, anonymous]);
+  });
+
+  it("gives each app its own proxy secret, over HTTP and WebSocket", async () => {
+    const { srv, label, token, rawSessionId, memberId } = await office();
+    const OTHER = "other";
+    const otherLabel = await registerApp(srv, token, OTHER);
+    const seen: Seen = [];
+    const seenOther: Seen = [];
+    app = startApp(seen);
+    const otherApp = startApp(seenOther, OTHER);
+    try {
+      // The two apps must hold different secrets, or "app A's secret never
+      // reaches app B" below proves nothing.
+      expect(proxySecretOf(OTHER)).not.toBe(proxySecretOf(APP));
+
+      for (const [l, name] of [
+        [label, APP],
+        [otherLabel, OTHER],
+      ] as const) {
+        const cookie = await signIn(srv, l, rawSessionId);
+        const res = await raw(srv.port, {
+          host: appHost(l),
+          path: "/page",
+          headers: { ...NAVIGATION_HEADERS, ...withAppCookie(cookie) },
+        });
+        expect({ name, status: res.status }).toEqual({ name, status: 200 });
+        const ws = await wsConnect(srv.port, {
+          host: appHost(l),
+          path: "/socket",
+          cookie,
+        });
+        expect({ name, ok: ws.ok }).toEqual({ name, ok: true });
+        if (ws.ok) ws.client.drop();
+      }
+      expect(seen.length).toBe(2);
+      expect(seenOther.length).toBe(2);
+      for (const headers of seen) expectMember(headers, memberId, APP);
+      for (const headers of seenOther) expectMember(headers, memberId, OTHER);
+    } finally {
+      void otherApp.stop(true);
+    }
   });
 });

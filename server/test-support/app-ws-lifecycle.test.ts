@@ -205,6 +205,7 @@ async function open(
     supervisor: srv.appSupervisor,
     canAccess: () => true,
     memberName: () => "Member",
+    proxySecret: () => `proxy-secret-${app.name}`,
     upgrade: (_req, data) => {
       captured = data.relay;
       return true;
@@ -446,6 +447,7 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
       supervisor: srv.appSupervisor,
       canAccess: () => true,
       memberName: () => "Member",
+      proxySecret: () => `proxy-secret-${app.name}`,
       maxPerApp: 1,
       upgrade: (_r, data) => {
         relay = data.relay;
@@ -489,6 +491,7 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
         supervisor: srv.appSupervisor,
         canAccess: () => true,
         memberName: () => "Member",
+        proxySecret: () => `proxy-secret-${app.name}`,
         upgrade: () => {
           if (mode === "throw") throw new Error("runtime seam blew up");
           return false;
@@ -687,6 +690,7 @@ describe("app-ws relay: the window before the socket opens", () => {
       supervisor: srv.appSupervisor,
       canAccess: () => true,
       memberName: () => "Member",
+      proxySecret: () => `proxy-secret-${app.name}`,
       upgrade: (_r, data) => {
         captured = data.relay;
         return true;
@@ -831,5 +835,56 @@ describe("app-ws relay: the pure rules", () => {
         ok: false,
       });
     }
+  });
+});
+
+// Task 4b3adf60: an app never gets a socket without its proxy secret. The
+// header itself, and that it is the app's own, are pinned through the real
+// chain in app-member-headers.test.ts.
+describe("app-ws relay: the proxy secret", () => {
+  it("refuses the upgrade without reaching the app when the secret cannot be computed", async () => {
+    const rig = await anOfficeWithAnApp((srv) => {
+      server = srv;
+    });
+    const record = appRegistry.get("hello");
+    if (!record) throw new Error("no registered app hello");
+    let reached = 0;
+    const app = Bun.serve({
+      port: record.port,
+      hostname: "127.0.0.1",
+      fetch(req, s) {
+        reached++;
+        if (s.upgrade(req)) return;
+        return new Response("no");
+      },
+      websocket: { message() {} },
+    });
+    stoppers.push(() => void app.stop(true));
+    const cookie = await signIn(rig.srv, rig.label, rig.rawSessionId);
+
+    // The enabling case: the same socket opens with a secret to send.
+    const opened = await open(rig.srv, "hello", cookie);
+    expect(opened.ok).toBe(true);
+    await until(() => reached === 1);
+    if (opened.ok) opened.opened.relay.browserClosed(1000, "done");
+    await until(() => _testWsSocketsOpen().total === 0);
+    const reachedWithSecret = reached;
+
+    const refused = await open(rig.srv, "hello", cookie, {
+      proxySecret: () => {
+        throw new Error("fake key unreadable");
+      },
+    });
+    // ok: the relay handed the socket to the runtime.
+    if (refused.ok) refused.opened.relay.browserClosed(1000, "done");
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.response.status).toBeGreaterThanOrEqual(500);
+      expect(await refused.response.text()).not.toContain(
+        "fake key unreadable",
+      );
+    }
+    expect(reached).toBe(reachedWithSecret);
+    expect(_testWsSocketsOpen()).toEqual({ total: 0, perApp: 0 });
   });
 });

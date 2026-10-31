@@ -1,6 +1,7 @@
 // The directories that hold member and office credentials as plain text: the
 // secret store, the managed variable files and the MCP server registrations,
-// whose URLs can carry a token. Routes that read or write a
+// whose URLs can carry a token. Also the app token files beside the app
+// launchers (apps/units/<app>.env), which hold each app's office token. Routes that read or write a
 // file by path (the editor, read-file, validate.env) and the agents' safety
 // hooks refuse them.
 //
@@ -19,6 +20,10 @@ const STORE_DIRS = [
   "office-env",
   "mcp-servers",
 ] as const;
+
+// The app token files: the .env files directly in this directory. The
+// launcher scripts beside them are not credentials.
+const APP_TOKEN_DIR = join("apps", "units");
 
 // The error text of a route that refuses such a path.
 export const CREDENTIAL_PATH_MESSAGE =
@@ -55,8 +60,11 @@ export function isCredentialStorePath(path: string): boolean {
   const stateRoot = resolve(STATE_ROOT);
   const roots = [stateRoot, realOrNearest(stateRoot)];
   return [literal, real].some((candidate) =>
-    roots.some((root) =>
-      STORE_DIRS.some((dir) => isAtOrBelow(candidate, join(root, dir))),
+    roots.some(
+      (root) =>
+        STORE_DIRS.some((dir) => isAtOrBelow(candidate, join(root, dir))) ||
+        (dirname(candidate) === join(root, APP_TOKEN_DIR) &&
+          candidate.endsWith(".env")),
     ),
   );
 }

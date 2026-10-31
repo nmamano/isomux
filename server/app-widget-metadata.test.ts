@@ -35,6 +35,7 @@ function context(
       states: () =>
         new Map([["sample", { state: running ? "running" : "stopped" }]]),
     } as unknown as RelayContext["supervisor"],
+    proxySecret: () => "proxy-secret-sample",
   };
 }
 const html = (body: string) =>

@@ -212,6 +212,10 @@ export interface AppsDeps {
   // app that can never authenticate and cannot be repaired), so a failure to
   // write the file revokes the hash again rather than leaving one behind.
   provisionToken(app: AppRecord): boolean;
+  // Write the app's secrets file (its proxy secret and the vault secrets it
+  // holds) before the install, so the unit's first start reads it. Never
+  // throws; the new app is not running yet, so nothing restarts.
+  syncAppSecrets?(app: AppRecord): void;
   // Drop an app's token when the app is deleted. Throws if the hash could not
   // be removed, which fails the delete before the name is freed - a credential
   // outliving the thing it names is worth a retry.
@@ -605,6 +609,9 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // without a token is a working app with one capability missing, and
         // failing the registration over it would be the wrong trade.
         deps.provisionToken(record);
+        // The secrets file too, for the same reason: it holds the app's
+        // proxy secret. Never throws.
+        deps.syncAppSecrets?.(record);
         // THE RECORD IS COMMITTED, SO THE ANSWER IS 201 - whatever the
         // supervisor then does. A 500 here would describe a resource that
         // really was created, and the natural response to a 500 is a retry,

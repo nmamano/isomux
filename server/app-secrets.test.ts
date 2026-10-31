@@ -3,6 +3,9 @@
 // store is real, in a temp root; the supervisor is the fake. The file format
 // is checked against the container supervisor's parser here and against real
 // systemd in app-supervisor.live.test.ts.
+//
+// Every live app's file also holds its proxy secret (task 4b3adf60), from the
+// proxySecret dep; here a fake that names the registration.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
@@ -87,6 +90,12 @@ function app(
     createdAt,
   };
 }
+// The fake proxy secret of a registration, and what its file holds besides
+// the vault values.
+const proxyOf = (a: AppRecord) => `fake-proxy-${a.name}-${a.createdAt}`;
+const fileOf = (a: AppRecord, vault: Record<string, string> = {}) =>
+  renderSecretsEnv({ ...vault, ISOMUX_APP_PROXY_SECRET: proxyOf(a) });
+
 const grantOf = (a: AppRecord): AppGrant => ({
   name: a.name,
   createdAt: a.createdAt,
@@ -129,6 +138,7 @@ function setup(over: Partial<AppSecretsDeps> = {}) {
     apps: () => apps,
     supervisor,
     dir,
+    proxySecret: proxyOf,
     log: (line) => logs.push(line),
     ...over,
   });
@@ -197,11 +207,11 @@ describe("what an app's file holds", () => {
     add(t.store, ALICE, "ALICE_TO_OWNERLESS", "fake-alice-0002", [ownerless]);
     await t.appSecrets.sync();
     expect(t.file("bot")).toBe(
-      renderSecretsEnv({ ALICE_KEY: HOSTILE, OFFICE_KEY: "fake-office-0001" }),
+      fileOf(bot, { ALICE_KEY: HOSTILE, OFFICE_KEY: "fake-office-0001" }),
     );
     // An app with no owner: office secrets only.
     expect(t.file("ownerless")).toBe(
-      renderSecretsEnv({ OFFICE_KEY: "fake-office-0001" }),
+      fileOf(ownerless, { OFFICE_KEY: "fake-office-0001" }),
     );
   });
 
@@ -223,7 +233,7 @@ describe("what an app's file holds", () => {
     );
     await t.appSecrets.sync();
     expect(t.file("bot")).toBe(
-      renderSecretsEnv({ OTHER: "fake-member-other-0001" }),
+      fileOf(bot, { OTHER: "fake-member-other-0001" }),
     );
     const logged = t.logs.join("\n");
     expect(logged).toContain("SAME");
@@ -233,21 +243,23 @@ describe("what an app's file holds", () => {
 });
 
 describe("sync", () => {
-  it("writes each granted app's file 0600 in a 0700 directory, and removes every other file there", async () => {
+  it("writes every live app's file 0600 in a 0700 directory, and removes every other file there", async () => {
     const t = setup();
     const bot = t.install(app("bot", 1));
-    t.install(app("idle", 2));
+    // No vault secret: its file holds only its proxy secret.
+    const idle = t.install(app("idle", 2));
     add(t.store, ALICE, "ALICE_KEY", HOSTILE, [bot]);
     mkdirSync(t.dir, { recursive: true });
-    // A deleted app's file, and the file of a live app that holds nothing.
+    // A deleted app's file, and a stale file of a live app.
     writeFileSync(appSecretsPath(t.dir, "gone"), 'GONE="fake-gone-0001"\n');
     writeFileSync(appSecretsPath(t.dir, "idle"), 'IDLE="fake-idle-0001"\n');
     await t.appSecrets.sync();
-    expect(t.file("bot")).toBe(renderSecretsEnv({ ALICE_KEY: HOSTILE }));
-    expect(statSync(appSecretsPath(t.dir, "bot")).mode & 0o777).toBe(0o600);
+    expect(t.file("bot")).toBe(fileOf(bot, { ALICE_KEY: HOSTILE }));
+    expect(t.file("idle")).toBe(fileOf(idle));
+    for (const name of ["bot", "idle"])
+      expect(statSync(appSecretsPath(t.dir, name)).mode & 0o777).toBe(0o600);
     expect(statSync(t.dir).mode & 0o777).toBe(0o700);
     expect(t.file("gone")).toBeNull();
-    expect(t.file("idle")).toBeNull();
   });
 
   it("restarts a running or starting app whose file changed, and no other app", async () => {
@@ -274,7 +286,7 @@ describe("sync", () => {
     expect(t.restarts()).toEqual(["restart:running", "restart:starting"]);
     // The stopped app reads the file at its next start.
     expect(t.file("stopped")).toBe(
-      renderSecretsEnv({ NEW_KEY: "fake-new-0001" }),
+      fileOf(stopped, { NEW_KEY: "fake-new-0001" }),
     );
 
     // Same bytes: no restart. A note is not in the file. (A rotation and a
@@ -333,10 +345,63 @@ describe("sync", () => {
     add(t.store, ALICE, "KEY", HOSTILE, [broken, fine]);
     await t.appSecrets.sync();
     expect(fake.calls).toContain("restart:fine");
-    expect(t.file("fine")).toBe(renderSecretsEnv({ KEY: HOSTILE }));
+    expect(t.file("fine")).toBe(fileOf(fine, { KEY: HOSTILE }));
     const logged = t.logs.join("\n");
     expect(logged).toContain("broken");
     expect(logged).not.toContain(HOSTILE);
     expect(logged).not.toContain("boom");
+  });
+});
+
+describe("the proxy secret", () => {
+  it("restarts each running app once, on the first sync that gives it the secret", async () => {
+    const t = setup();
+    // An app with no vault secret had no file before the proxy secret.
+    const running = t.install(app("running", 1));
+    await t.appSecrets.sync({ boot: true });
+    expect(t.file("running")).toBe(fileOf(running));
+    expect(t.restarts()).toEqual(["restart:running"]);
+    t.supervisor.calls.length = 0;
+    await t.appSecrets.sync({ boot: true });
+    expect(t.restarts()).toEqual([]);
+  });
+
+  it("changes with a new registration of the name, and restarts the app", async () => {
+    const t = setup();
+    const first = t.install(app("bot", 1));
+    await t.appSecrets.sync();
+    expect(t.file("bot")).toBe(fileOf(first));
+    t.supervisor.calls.length = 0;
+    // Delete and register again: same name, new creation time.
+    t.apps.splice(0);
+    const second = t.install(app("bot", 2));
+    await t.appSecrets.sync();
+    expect(t.file("bot")).toBe(fileOf(second));
+    expect(t.restarts()).toEqual(["restart:bot"]);
+  });
+
+  it("keeps an app's file and does not restart it when its secret cannot be computed; the other apps go on", async () => {
+    const t = setup({
+      proxySecret: (a) => {
+        if (a.name === "broken") throw new Error(`boom ${HOSTILE}`);
+        return proxyOf(a);
+      },
+    });
+    const broken = t.install(app("broken", 1));
+    const fine = t.install(app("fine", 2));
+    mkdirSync(t.dir, { recursive: true });
+    const before = renderSecretsEnv({
+      ISOMUX_APP_PROXY_SECRET: "fake-earlier-proxy-0001",
+    });
+    writeFileSync(appSecretsPath(t.dir, "broken"), before);
+    add(t.store, ALICE, "KEY", "fake-key-0001", [broken, fine]);
+    await t.appSecrets.sync();
+    expect(t.file("broken")).toBe(before);
+    expect(t.file("fine")).toBe(fileOf(fine, { KEY: "fake-key-0001" }));
+    expect(t.restarts()).toEqual(["restart:fine"]);
+    const logged = t.logs.join("\n");
+    expect(logged).toContain("broken");
+    expect(logged).not.toContain("boom");
+    expect(logged).not.toContain("fake-key-0001");
   });
 });

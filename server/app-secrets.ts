@@ -4,10 +4,12 @@
 // an EnvironmentFile (the container supervisor reads the same file). Agents
 // never get these values: a secret with no hosts gives them no placeholder.
 //
+// Each file also holds the app's proxy secret (app-proxy-secret.ts), so
+// every live app has one.
+//
 // This module is the one writer of STATE_ROOT/secrets/apps/. Each sync
-// writes the file of every live app that holds a secret and removes every
-// other file there, so a sync that races an app delete leaves no value
-// behind. The file is a copy: the store is the truth, and each change and
+// writes the file of every live app and removes every other file there, so
+// a sync that races an app delete leaves no value behind. The file is a copy: the store is the truth, and each change and
 // each boot writes it again.
 
 import {
@@ -22,6 +24,7 @@ import { join } from "path";
 
 import { OAUTH_SECRET_NAME } from "../shared/mcp-servers.ts";
 import type { AppRecord } from "../shared/types.ts";
+import { APP_PROXY_SECRET_ENV } from "./app-proxy-secret.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import {
@@ -65,6 +68,9 @@ export interface AppSecretsDeps {
   // The secrets that OAuth MCP registrations own in a scope, or null when
   // the registrations cannot be read. An app never gets them.
   oauthOwned?: (scope: SecretScope) => readonly string[] | null;
+  // The app's proxy secret (app-proxy-secret.ts), written to its file as
+  // ISOMUX_APP_PROXY_SECRET. Throws when it cannot be computed.
+  proxySecret: (app: AppRecord) => string;
   // A fixed line that names apps and secrets, never a value or an error.
   log?: (line: string) => void;
 }
@@ -158,10 +164,24 @@ export function createAppSecrets(deps: AppSecretsDeps) {
             `[app-secrets] the unit of the app "${app.name}" could not be updated`,
           );
         }
-      let text: string | null;
+      let proxySecret: string;
       try {
-        const env = envFor(app);
-        text = Object.keys(env).length > 0 ? renderSecretsEnv(env) : null;
+        proxySecret = deps.proxySecret(app);
+      } catch {
+        // Its current file stays, and the app keeps running with it.
+        wanted.add(`${app.name}.env`);
+        log(
+          `[app-secrets] the proxy secret of the app "${app.name}" could not be computed`,
+        );
+        continue;
+      }
+      let text: string;
+      try {
+        // The proxy secret last: it wins over any other value of its name.
+        text = renderSecretsEnv({
+          ...envFor(app),
+          [APP_PROXY_SECRET_ENV]: proxySecret,
+        });
       } catch {
         log(
           `[app-secrets] the secrets of the app "${app.name}" could not be read`,
@@ -171,13 +191,6 @@ export function createAppSecrets(deps: AppSecretsDeps) {
       const path = appSecretsPath(deps.dir, app.name);
       try {
         const current = existsSync(path) ? readFileSync(path, "utf8") : null;
-        if (text === null) {
-          if (current !== null) {
-            rmSync(path, { force: true });
-            changed.push(app.name);
-          }
-          continue;
-        }
         wanted.add(`${app.name}.env`);
         if (current === text) continue;
         mkdirSync(deps.dir, { recursive: true, mode: DIR_MODE });

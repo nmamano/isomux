@@ -1,8 +1,9 @@
-// The credential directories (secrets/, user-env/, office-env/, mcp-servers/)
-// and the paths that read or write a file by path: the editor, read-file (agent and
-// scheduled run), validate.env, the safety hooks and the browser upload. Each
-// refuses them, through a symlink or ".." too, and none returns a value.
-// Accident protection, not a boundary: see server/credential-store-paths.ts.
+// The credential directories (secrets/, user-env/, office-env/, mcp-servers/),
+// the app token files (apps/units/*.env, task 4b3adf60), and the paths that
+// read or write a file by path: the editor, read-file (agent and scheduled
+// run), validate.env, the safety hooks and the browser upload. Each refuses
+// them, through a symlink or ".." too, and none returns a value. Accident
+// protection, not a boundary: see server/credential-store-paths.ts.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import {
@@ -19,6 +20,7 @@ import { join } from "path";
 
 import { STATE_ROOT } from "../config.ts";
 import { isCredentialStorePath } from "../credential-store-paths.ts";
+import { appProxyKeyPath } from "../app-proxy-secret.ts";
 import { evaluateProposedAction } from "../safety-policy.ts";
 import { BrowserUploadError, readBrowserUpload } from "../browser-upload.ts";
 import { createCronjobManager } from "../cronjob-manager.ts";
@@ -45,7 +47,16 @@ function seedStore(root: string) {
   const officeEnvTemp = join(root, "office-env", ".office.1.a.tmp");
   // A registered MCP server URL can carry a token in its path.
   const mcpServers = join(root, "mcp-servers", "users", "u-test.json");
-  for (const path of [store, user, userEnv, officeEnvTemp, mcpServers])
+  // An app's office token, as its unit reads it.
+  const appToken = join(root, "apps", "units", "hello.env");
+  for (const path of [
+    store,
+    user,
+    userEnv,
+    officeEnvTemp,
+    mcpServers,
+    appToken,
+  ])
     mkdirSync(join(path, ".."), { recursive: true });
   // A one-line JSON store holds no "=": a dotenv parser would quote it.
   writeFileSync(store, `{"secrets":[{"value":"${FAKE}"}]}`);
@@ -56,6 +67,11 @@ function seedStore(root: string) {
     mcpServers,
     `{"servers":[{"url":"https://x.example.com/${FAKE}"}]}`,
   );
+  // A bare second line, as in the user-env file: validate.env quotes the
+  // line it fails on, unless the file is a credential file.
+  writeFileSync(appToken, `ISOMUX_APP_TOKEN=${FAKE}\n${FAKE}\n`);
+  // The app's launcher, beside it: not a credential.
+  writeFileSync(join(root, "apps", "units", "hello.sh"), "exec true\n");
   const linkDir = join(root, "linked");
   mkdirSync(linkDir, { recursive: true });
   const link = join(linkDir, "store-link.json");
@@ -68,6 +84,7 @@ function seedStore(root: string) {
     userEnv,
     officeEnvTemp,
     mcpServers,
+    appToken,
     link,
     viaDirLink: join(dirLink, "office.json"),
     dotDot: join(root, "linked", "..", "secrets", "office.json"),
@@ -84,6 +101,18 @@ describe("isCredentialStorePath", () => {
       true,
     );
     expect(isCredentialStorePath(join(STATE_ROOT, "pager.json"))).toBe(false);
+    // The proxy key that every app secret derives from.
+    expect(isCredentialStorePath(appProxyKeyPath(STATE_ROOT))).toBe(true);
+    // Beside the app token files: the launchers and the directory itself.
+    for (const path of [
+      join(STATE_ROOT, "apps", "units", "hello.sh"),
+      join(STATE_ROOT, "apps", "units"),
+      join(STATE_ROOT, "apps", "app-tokens.json"),
+    ])
+      expect({ path, credential: isCredentialStorePath(path) }).toEqual({
+        path,
+        credential: false,
+      });
     expect(isCredentialStorePath(join(STATE_ROOT, "secrets-old"))).toBe(false);
     expect(isCredentialStorePath("secrets/office.json")).toBe(false);
   });
@@ -165,17 +194,17 @@ describe("the safety hooks and the browser upload", () => {
       { kind: "shell" as const, command: `cat ${tmpLink}` },
     ])
       expect(denied(action)).toBe("deny");
-    // Other state files keep today's rule.
-    expect(
-      evaluateProposedAction(
-        {
-          kind: "read-files",
-          toolName: "Read",
-          input: { file_path: join(STATE_ROOT, "pager.json") },
-        },
-        { cwd: "/tmp" },
-      ).decision,
-    ).toBe("allow");
+    // Other state files keep today's rule, the app launchers too.
+    for (const file of [
+      join(STATE_ROOT, "pager.json"),
+      join(STATE_ROOT, "apps", "units", "hello.sh"),
+    ])
+      expect(
+        evaluateProposedAction(
+          { kind: "read-files", toolName: "Read", input: { file_path: file } },
+          { cwd: "/tmp" },
+        ).decision,
+      ).toBe("allow");
   });
 });
 

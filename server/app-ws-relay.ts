@@ -38,7 +38,11 @@ import {
   appRegistrationGeneration,
 } from "./app-registry.ts";
 import type { AppRegistry } from "./app-registry.ts";
-import { buildUpstreamHeaders, proveAppRunning } from "./app-proxy.ts";
+import {
+  buildUpstreamHeaders,
+  proveAppRunning,
+  readProxySecret,
+} from "./app-proxy.ts";
 import {
   originAllowed,
   readAppCookie,
@@ -237,6 +241,9 @@ export interface AppWsRelayContext {
   apps: readonly AppRecord[];
   supervisor: AppSupervisor;
   peer?: () => string | null | undefined;
+  // The app's proxy secret (app-proxy-secret.ts). Throws when it cannot be
+  // computed; the upgrade is then refused.
+  proxySecret: () => string;
   // Hands the request to the runtime, with the headers that must ride the 101.
   // A thunk rather than the Bun server itself, so this module cannot reach
   // anything else on it and a test can watch the call without a listener.
@@ -802,6 +809,12 @@ export async function relayWsToApp(
     stopWatchingRetirement();
     return running.response;
   }
+  // The app never gets a socket without its proxy secret.
+  const proxySecret = readProxySecret(ctx);
+  if (!proxySecret.ok) {
+    stopWatchingRetirement();
+    return proxySecret.response;
+  }
 
   // 5. A permit from the WebSocket pool, taken in this synchronous turn.
   const permit = acquireSocketPermit(permitKey(ctx.app), {
@@ -830,6 +843,7 @@ export async function relayWsToApp(
     ctx.host,
     peerAddress(ctx),
     { id: authenticated.userId, name: memberName },
+    proxySecret.secret,
   )) {
     headers[name] = value;
   }

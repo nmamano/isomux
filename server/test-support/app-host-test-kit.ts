@@ -20,6 +20,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { assertTestStatePath } from "./temp-state.ts";
 import { STATE_ROOT } from "../config.ts";
 import { appRegistry } from "../app-registry.ts";
+import { appSecretsDir, appSecretsPath } from "../app-secrets.ts";
 import { APP_COOKIE_NAME } from "../app-auth.ts";
 import {
   FrameDecoder,
@@ -448,6 +449,21 @@ export async function deleteApp(
 
 export function appHost(label: string): string {
   return `${label}.${OFFICE_HOST}`;
+}
+
+// The proxy secret the app reads from its environment: the
+// ISOMUX_APP_PROXY_SECRET line of the secrets file its unit loads
+// (server/app-secrets.ts). Throws when the file or the line is missing, so a
+// test that compares a relayed header with it cannot pass on two absences.
+export function proxySecretOf(name: string): string {
+  const text = readFileSync(
+    appSecretsPath(appSecretsDir(STATE_ROOT), name),
+    "utf8",
+  );
+  const line = /^ISOMUX_APP_PROXY_SECRET="([^"]*)"$/m.exec(text);
+  if (!line || line[1].length === 0)
+    throw new Error(`no proxy secret in the secrets file of ${name}`);
+  return line[1];
 }
 
 // An office with one registered app and a signed-in member. A MEMBER rather

@@ -15,7 +15,7 @@
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
 
-import { lstatSync } from "fs";
+import { lstatSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, isAbsolute, join, normalize, resolve } from "path";
 import {
@@ -27,6 +27,12 @@ import {
   realOrNearest,
 } from "./credential-store-paths.ts";
 import { STATE_ROOT } from "./config.ts";
+import {
+  isProtectedUnitEntry,
+  officeUnitFromCgroup,
+  unitPrefixFor,
+} from "./office-units.ts";
+import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
 
 // The write-protection root follows the active state root, so a test that
 // redirects ISOMUX_HOME protects its temp dir rather than the real one.
@@ -89,6 +95,9 @@ export type PolicyContext = {
   codexHome?: string | null;
   shellHome?: string | null;
   shellTmpDir?: string | null;
+  // The office's own systemd user unit (office-units.ts). Undefined: read
+  // from /proc/self/cgroup once. A test seam.
+  officeUnit?: string | null;
 };
 
 const ALLOW: PolicyDecision = Object.freeze({ decision: "allow" });
@@ -3012,13 +3021,173 @@ function isAtOrBelowStateRoot(filePath: string): boolean {
   return isAtOrBelow(filePath, ISOMUX_DIR);
 }
 
+// The systemd user units the office owns (office-units.ts): an app reads its
+// proxy secret and its vault secrets from its environment, so a unit file or
+// a drop-in that applies to one, or a change to the user manager's
+// environment, would hand them to an agent at the next start. Accident
+// protection at the safety-hook level, not a boundary.
+type OfficeUnits = { appPrefix: string; officeUnit: string | null };
+
+const APP_UNIT_PREFIX = unitPrefixFor(AGENT_ROOT, AGENT_ROOT_IS_DEFAULT);
+
+let cgroupOfficeUnit: string | null | undefined;
+
+function officeUnits(context: PolicyContext): OfficeUnits {
+  let officeUnit = context.officeUnit;
+  if (officeUnit === undefined) {
+    if (cgroupOfficeUnit === undefined) {
+      try {
+        cgroupOfficeUnit = officeUnitFromCgroup(
+          readFileSync("/proc/self/cgroup", "utf8"),
+        );
+      } catch {
+        cgroupOfficeUnit = null;
+      }
+    }
+    officeUnit = cgroupOfficeUnit;
+  }
+  return { appPrefix: APP_UNIT_PREFIX, officeUnit };
+}
+
+// Every directory systemd reads user units and drop-ins from has one of these
+// names under a directory named systemd, so a name match covers them all,
+// XDG_CONFIG_DIRS and XDG_DATA_DIRS too, without the user manager's
+// environment.
+const UNIT_DIR_NAMES = new Set([
+  "user",
+  "user.control",
+  "transient",
+  "generator",
+  "generator.early",
+  "generator.late",
+]);
+
+type ProtectedSystemdWrite = "unit" | "environment";
+
+// What a write to `path` would change that the hooks protect: a unit or
+// drop-in of an office unit, the user manager's environment (systemd's
+// user.conf and user.conf.d, read at daemon-reexec, or an environment.d
+// file, read at each daemon-reload), or nothing. Checked as written and
+// after symlinks.
+function protectedSystemdWrite(
+  path: string,
+  units: OfficeUnits,
+): ProtectedSystemdWrite | null {
+  for (const candidate of new Set([path, realOrNearest(path)])) {
+    const parts = candidate.split("/");
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i] === "environment.d") return "environment";
+      if (parts[i - 1] !== "systemd") continue;
+      if (parts[i] === "user.conf" || parts[i] === "user.conf.d")
+        return "environment";
+      const entry = parts[i + 1];
+      if (
+        UNIT_DIR_NAMES.has(parts[i]) &&
+        entry !== undefined &&
+        isProtectedUnitEntry(entry, units)
+      )
+        return "unit";
+    }
+  }
+  return null;
+}
+
+const UNIT_WRITE_REASON =
+  "Writing a systemd unit or drop-in for the Isomux office or its apps is not allowed: " +
+  "it changes how they start, and apps keep secrets in their environment.";
+const MANAGER_ENVIRONMENT_REASON =
+  "Changing the environment of the systemd user manager (`user.conf`, `user.conf.d`, " +
+  "`environment.d`, `systemctl set-environment`) is not allowed: it reaches every Isomux app " +
+  "at its next start, and apps keep secrets in their environment.";
+
+function protectedSystemdReason(kind: ProtectedSystemdWrite): string {
+  return kind === "unit" ? UNIT_WRITE_REASON : MANAGER_ENVIRONMENT_REASON;
+}
+
+// systemctl options that take the next word as their value (systemd 255
+// `systemctl --help`), so the value is not taken for the verb. With `=` they
+// take nothing more.
+const SYSTEMCTL_VALUE_OPTIONS = new Set([
+  "-H",
+  "--host",
+  "-M",
+  "--machine",
+  "-t",
+  "--type",
+  "-p",
+  "--property",
+  "-P",
+  "-s",
+  "--signal",
+  "-n",
+  "--lines",
+  "-o",
+  "--output",
+  "--state",
+  "--kill-whom",
+  "--kill-value",
+  "--root",
+  "--image",
+  "--image-policy",
+  "--job-mode",
+  "--what",
+  "--timestamp",
+  "--preset-mode",
+  "--drop-in",
+  "--message",
+  "--boot-loader-entry",
+  "--boot-loader-menu",
+  "--reboot-argument",
+  "--when",
+  "--check-inhibitors",
+]);
+
+const UNIT_TYPE_SUFFIX =
+  /\.(?:service|socket|target|timer|path|mount|automount|swap|slice|scope|device)$/;
+
+// A systemctl call that changes the user manager's environment (every unit it
+// starts later) or a unit the office owns, or null.
+function systemctlReason(command: string, units: OfficeUnits): string | null {
+  for (const cmd of collectCommands(command)) {
+    if (cmd.name !== "systemctl") continue;
+    const operands: ShellWord[] = [];
+    for (let i = 0; i < cmd.args.length; i++) {
+      const word = cmd.args[i];
+      if (word.redirect) continue;
+      if (word.text.startsWith("-") && word.text.length > 1) {
+        if (SYSTEMCTL_VALUE_OPTIONS.has(word.text)) i++;
+        continue;
+      }
+      operands.push(word);
+    }
+    const [verb, ...rest] = operands;
+    if (verb === undefined) continue;
+    if (verb.text === "set-environment" || verb.text === "import-environment")
+      return MANAGER_ENVIRONMENT_REASON;
+    if (verb.text !== "edit" && verb.text !== "set-property") continue;
+    // edit takes units; set-property one unit, then its assignments.
+    const names = verb.text === "edit" ? rest : rest.slice(0, 1);
+    for (const name of names) {
+      if (name.dynamic || /[$`*?[\]{}]/.test(name.text))
+        return UNIT_WRITE_REASON;
+      // systemctl adds .service to a name without a unit type.
+      const unit = UNIT_TYPE_SUFFIX.test(name.text)
+        ? name.text
+        : `${name.text}.service`;
+      if (isProtectedUnitEntry(unit, units)) return UNIT_WRITE_REASON;
+    }
+  }
+  return null;
+}
+
 /**
  * The shell an action runs in. home is where its ~ starts, tmpDir its TMPDIR
- * when the context gives one.
+ * when the context gives one. units names the systemd units the office owns.
  */
 type AgentShell = {
   home: string;
   tmpDir: string | null;
+  units: OfficeUnits;
 };
 
 function agentShell(context: PolicyContext): AgentShell {
@@ -3029,6 +3198,7 @@ function agentShell(context: PolicyContext): AgentShell {
   return {
     home: folder(context.shellHome) ?? homedir(),
     tmpDir: folder(context.shellTmpDir),
+    units: officeUnits(context),
   };
 }
 
@@ -3134,7 +3304,17 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
     return [...redirects, ...files, ...(deletes ? starts : [])];
   }
   if (COPY_COMMANDS.includes(command.name))
-    return [...redirects, ...copyOperands({ ...command, args }).destinations];
+    return [
+      ...redirects,
+      ...copyOperands({ ...command, args }).destinations,
+      ...namesInDirectory({ ...command, args }),
+    ];
+  if (command.name === "mv" || command.name === "ln")
+    return [
+      ...redirects,
+      ...args.filter((word) => !word.text.startsWith("-")),
+      ...namesInDirectory({ ...command, args }),
+    ];
   // A program parses its options after the shell removed the quotes, so a
   // quoted flag (`sed '-i'`) is still a flag.
   if (command.name === "sed") {
@@ -3163,6 +3343,27 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
   }
   if (!WRITE_COMMANDS.includes(command.name)) return redirects;
   return [...redirects, ...args.filter((word) => !word.text.startsWith("-"))];
+}
+
+// The paths a copy, move or link makes when its destination is a directory:
+// each literal source's name below it. A name can be what makes a write
+// protected (a systemd unit, protectedSystemdWrite). A source that is not
+// literal adds nothing, as its name is unknown.
+function namesInDirectory(command: EffectiveCommand): ShellWord[] {
+  const { sources, destinations } = copyOperands(command);
+  const out: ShellWord[] = [];
+  for (const destination of destinations)
+    for (const source of sources) {
+      if (source.redirect || source.dynamic || /[$`*?[\]{}]/.test(source.text))
+        continue;
+      const name = basename(source.text);
+      if (!name || name === "." || name === "..") continue;
+      out.push({
+        ...destination,
+        text: `${destination.text.replace(/\/+$/, "")}/${name}`,
+      });
+    }
+  return out;
 }
 
 /** Output operands of truncate, excluding option values that are only read. */
@@ -3648,6 +3849,12 @@ function shellWriteFlow(
         decision = denyStateRoot();
         return true;
       }
+      const systemd =
+        resolved === null ? null : protectedSystemdWrite(resolved, shell.units);
+      if (systemd !== null) {
+        decision = denyMessage(protectedSystemdReason(systemd), command);
+        return true;
+      }
     }
     return false;
   };
@@ -3975,6 +4182,9 @@ function checkBashSafety(
   const protectedWrite = shellWriteDecision(command, cwd, shell);
   if (protectedWrite) return protectedWrite;
 
+  const systemctl = systemctlReason(command, shell.units);
+  if (systemctl) return denyMessage(systemctl, command);
+
   // Check process kills. This one gets the raw command: it does its own
   // quote handling (quoted payloads hide a command word, quoted prose does not
   // reach command position), which blanket quote stripping would defeat.
@@ -4209,6 +4419,7 @@ function checkWritePaths(
   toolName: string,
   filePaths: string[],
   cwd: unknown,
+  units: OfficeUnits,
 ): PolicyDecision {
   for (const filePath of filePaths) {
     const resolved = resolvePath(filePath, cwd);
@@ -4228,6 +4439,14 @@ function checkWritePaths(
           `permission and have them run the command manually.`,
       );
     }
+    const systemd = protectedSystemdWrite(resolved, units);
+    if (systemd !== null)
+      return deny(
+        `BLOCKED by isomux safety hooks\n\n` +
+          `Reason: ${protectedSystemdReason(systemd)}\n\n` +
+          `${toolName} target: ${filePath}\n\n` +
+          `If this change is truly needed, ask the member to make it.`,
+      );
   }
 
   return allow();
@@ -4237,22 +4456,24 @@ function checkWriteEditSafety(
   toolName: string,
   toolInput: unknown,
   cwd: unknown,
+  units: OfficeUnits,
 ): PolicyDecision {
   const filePaths = collectToolPaths(toolName, toolInput);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths, cwd);
+  return checkWritePaths(toolName, filePaths, cwd, units);
 }
 
 function checkPatchSafety(
   toolName: string,
   patch: unknown,
   cwd: unknown,
+  units: OfficeUnits,
 ): PolicyDecision {
   const filePaths = extractApplyPatchPaths(patch);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths, cwd);
+  return checkWritePaths(toolName, filePaths, cwd, units);
 }
 
 function checkSensitiveFileRead(
@@ -4314,12 +4535,18 @@ export function evaluateProposedAction(
         context.codexHome,
       );
     case "write-files":
-      return checkWriteEditSafety(action.toolName, action.input, context.cwd);
+      return checkWriteEditSafety(
+        action.toolName,
+        action.input,
+        context.cwd,
+        shell.units,
+      );
     case "read-and-write-files": {
       const writeDecision = checkWriteEditSafety(
         action.toolName,
         action.input,
         context.cwd,
+        shell.units,
       );
       return writeDecision.decision === "deny"
         ? writeDecision
@@ -4331,7 +4558,12 @@ export function evaluateProposedAction(
           );
     }
     case "patch-files":
-      return checkPatchSafety(action.toolName, action.patch, context.cwd);
+      return checkPatchSafety(
+        action.toolName,
+        action.patch,
+        context.cwd,
+        shell.units,
+      );
     case "uncovered-tool":
       return allow();
   }
