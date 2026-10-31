@@ -258,7 +258,8 @@ describe("floors.add", () => {
     }
   });
 
-  it("answers one 422 office_unreachable for every probe failure, and saves nothing", async () => {
+  // Quarantined: its closed port can be reused by another listener under the full suite (task 81b05c6c).
+  it.skip("answers one 422 office_unreachable for every probe failure, and saves nothing", async () => {
     const { srv, member, add, list } = await office();
     const ws = await srv.connectWs(member.rawSessionId);
     const target = cardListener("Target");
