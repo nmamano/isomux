@@ -21,7 +21,9 @@ import { join, relative } from "node:path";
 // Bun's rule (1.3.11): a name with one of these suffixes and a JS or TS
 // extension, outside node_modules and dot directories. Bun follows symbolic
 // links and runs a file that two paths reach once. It fails on a broken link,
-// so a broken link stays in the list and its process fails too.
+// so a broken link stays in the list and its process fails too. The walk stops
+// at a link back to a directory it is in; bun's own scan of such a loop is not
+// stable (task ec7fb691).
 const TEST_FILE =
   /(\.test|_test|\.spec|_spec)\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
 

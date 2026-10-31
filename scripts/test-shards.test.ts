@@ -52,9 +52,9 @@ function tree(
   return root;
 }
 
-// Quarantined (task ec7fb691): the nested bun test sometimes follows the
-// sub/loop symlink too deep and exits 1.
-it.skip("finds the same files as bun test", async () => {
+// No symlink loop here: bun's own scan of one is not stable (task ec7fb691).
+// The next case tests the walk's loop handling.
+it("finds the same files as bun test", async () => {
   const outside = tree(["o.test.ts", "o.ts"]);
   const root = tree(
     [
@@ -78,12 +78,11 @@ it.skip("finds the same files as bun test", async () => {
     ],
     {
       // A test name on a file that has none, two names for one file, a
-      // directory reached twice, a loop, and a tree outside the root.
+      // directory reached twice, and a tree outside the root.
       "sub/link.test.ts": "actual.ts",
       "sub/dup.test.ts": "../a.test.ts",
       "sub/p.test.json": "actual.ts",
       again: "sub",
-      "sub/loop": ".",
       outside,
       "outside-file.test.ts": join(outside, "o.ts"),
     },
@@ -113,6 +112,16 @@ it.skip("finds the same files as bun test", async () => {
   expect(found.map((file) => realpathSync(join(root, file))).sort()).toEqual(
     fromBun,
   );
+});
+
+it("stops at a link back to a directory it is in", () => {
+  // One loop per tree: a walk that follows two loops branches at every level.
+  // A walk that follows the loop also lists a longer path to x.test.ts
+  // (sub/loop/..., sub/deep/up/sub/...), which sorts first and wins the dedupe.
+  const self = tree(["sub/x.test.ts"], { "sub/loop": "." });
+  expect(testFiles(self)).toEqual(["sub/x.test.ts"]);
+  const ancestor = tree(["sub/x.test.ts"], { "sub/deep/up": "../.." });
+  expect(testFiles(ancestor)).toEqual(["sub/x.test.ts"]);
 });
 
 async function runner(root: string) {
