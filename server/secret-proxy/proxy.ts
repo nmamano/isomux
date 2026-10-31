@@ -13,6 +13,10 @@
 //   every request, or 421. The request is written again to the same host on
 //   443, verified against the system roots. Redirects go back to the client.
 //   Every response from the host is scrubbed of every secret value.
+// - A client without the proxy password: 407, unless it runs as the office's
+//   own OS user (Linux only). Then it gets what a client with the password
+//   gets, except that a listed host is a plain tunnel for a browser and a 407
+//   for any other client.
 //
 // The proxy writes no log line with a header, a value or a placeholder: its
 // only output is `ProxyEvents`, and `log` takes fixed codes.
@@ -52,6 +56,7 @@ import {
   serializeHead,
   type HeaderList,
 } from "./http1.ts";
+import { peerUid } from "./peer-uid.ts";
 import { scrubPatterns, scrubText, StreamScrubber } from "./scrub.ts";
 import { createLeafIssuer, type LeafIssuer } from "./x509.ts";
 
@@ -87,6 +92,8 @@ export interface ProxyOptions {
   standIns?: Record<string, number>;
   // Roots that replace the snapshot's system roots for upstream checks.
   upstreamRoots?: string;
+  // The OS user of a client (peer-uid.ts, peerUid).
+  peerUid?: (socket: Socket) => Promise<number | null>;
 }
 
 export interface ProxyUse {
@@ -757,6 +764,12 @@ function authorized(headers: HeaderList, token: string): boolean {
   return timingSafeEqual(digest(decoded.slice(colon + 1)), digest(token));
 }
 
+// One User-Agent header, as browsers send it.
+function browser(headers: HeaderList): boolean {
+  const values = headerValues(headers, "user-agent");
+  return values.length === 1 && values[0].startsWith("Mozilla/");
+}
+
 export interface SecretProxy {
   update(snapshot: ProxySnapshot): void;
   listen(port: number): Promise<number>;
@@ -790,16 +803,30 @@ export function createSecretProxy(
     }
     if (!head) return void socket.end();
     // Before anything else: another OS user on the box reaches this port too,
-    // and must get neither a tunnel nor the company proxy's login. No log
-    // line: git sends its first CONNECT without the password on purpose.
-    if (!authorized(head.headers, state.snapshot.clientToken))
-      return void socket.end(
+    // and must get neither a tunnel nor the company proxy's login. A client
+    // without the password (a wrong one counts as none) is served only when
+    // it runs as the office's own OS user, which only Linux can tell. Headless
+    // Chrome needs that: it drops the password from HTTPS_PROXY. No log line
+    // on the 407: git sends its first CONNECT without the password on purpose.
+    const challenge = () =>
+      void socket.end(
         errorResponse(
           407,
           "the secret proxy needs the password in HTTPS_PROXY",
           [["Proxy-Authenticate", 'Basic realm="isomux"']],
         ),
       );
+    const withPassword = authorized(head.headers, state.snapshot.clientToken);
+    if (!withPassword) {
+      let uid: number | null;
+      try {
+        uid = await (options.peerUid ?? peerUid)(socket);
+      } catch {
+        uid = null;
+      }
+      if (uid === null || uid !== process.getuid?.()) return challenge();
+      if (socket.destroyed) return;
+    }
     const start = /^([^ ]+) ([^ ]+) HTTP\/1\.[01]$/.exec(head.startLine);
     if (!start) return refuse(400, "invalid request line");
     if (start[1] !== "CONNECT")
@@ -808,8 +835,17 @@ export function createSecretProxy(
     if (!authority) return refuse(400, "invalid CONNECT target");
     const { host, port } = authority;
     const current = state;
+    let secretHost = terminates(current, host, port);
+    // Without the password, only a browser gets a plain tunnel to a secret's
+    // host: browser engines ignore SSL_CERT_FILE and would refuse the office
+    // CA. Any other client gets the 407, so git sends the password and gets
+    // the swap.
+    if (secretHost && !withPassword) {
+      if (!browser(head.headers)) return challenge();
+      secretHost = false;
+    }
 
-    if (!terminates(current, host, port)) {
+    if (!secretHost) {
       let upstream: { socket: Socket; early: Buffer };
       try {
         upstream = await openTcp(current, host, port);

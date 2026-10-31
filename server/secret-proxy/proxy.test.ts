@@ -77,6 +77,8 @@ const SECRETS: ProxySecret[] = [
   },
 ];
 const ALL_VALUES = [VALUE_A, VALUE_B, VALUE_N];
+const OWN_UID = process.getuid?.() ?? 1000;
+const OTHER_UID = OWN_UID + 1;
 // The most body bytes that may leave the upstream while the client reads
 // nothing: loopback socket buffers on each hop held 10-14 MiB (measured
 // 2026-10-13); without back pressure all 128 MiB leave.
@@ -840,7 +842,8 @@ describe("only a client with the office's proxy password is served", () => {
         },
       }),
       { use: () => {}, log: (code) => chainedLogs.push(code) },
-      { upstreamRoots: https.ca.certPem },
+      // Every client here is another OS user, which needs the password.
+      { upstreamRoots: https.ca.certPem, peerUid: async () => OTHER_UID },
     );
     chainedPort = await chained.listen(0);
   });
@@ -1000,6 +1003,222 @@ describe("only a client with the office's proxy password is served", () => {
   });
 });
 
+// Headless Chrome drops the password from HTTPS_PROXY and ignores
+// SSL_CERT_FILE; git sends the password only after a 407. So a client of the
+// office's own OS user needs no password, and a browser at a secret's host
+// gets a plain tunnel (internal-docs/secrets-design.md, section 2.2).
+describe("a client of the office's own OS user", () => {
+  const CHROME =
+    "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36";
+  const GIT = "User-Agent: git/2.43.0";
+  let own: SecretProxy;
+  let ownPort = 0;
+  const ownUses: ProxyUse[] = [];
+  let lookup: (socket: Socket) => Promise<number | null>;
+  let lookups = 0;
+
+  beforeAll(async () => {
+    own = createSecretProxy(
+      snapshot(),
+      { use: (u) => ownUses.push(u) },
+      {
+        standIns: {
+          "api.stub.test:443": https.port,
+          "tunnel.stub.test:443": echo.port,
+        },
+        upstreamRoots: https.ca.certPem,
+        peerUid: (socket) => {
+          lookups += 1;
+          return lookup(socket);
+        },
+      },
+    );
+    ownPort = await own.listen(0);
+  });
+
+  afterAll(() => own.close());
+
+  beforeEach(() => {
+    ownUses.length = 0;
+    lookups = 0;
+    lookup = async () => OWN_UID;
+  });
+
+  async function expect407(
+    outcome: Awaited<ReturnType<typeof connectThrough>>,
+  ) {
+    if (!("refused" in outcome)) {
+      outcome.socket.destroy();
+      throw new Error("the proxy opened a tunnel");
+    }
+    expect(outcome.refused.status).toBe(407);
+    const challenge = outcome.refused.headers.find(
+      ([name]) => name.toLowerCase() === "proxy-authenticate",
+    )?.[1];
+    expect(challenge?.toLowerCase().startsWith("basic")).toBe(true);
+  }
+
+  async function expectEcho(authority: string, auth: string[]) {
+    const tunnel = await connectThrough(ownPort, authority, auth);
+    if ("refused" in tunnel)
+      throw new Error(`refused ${tunnel.refused.status}`);
+    tunnel.socket.write("ping");
+    expect((await tunnel.reader.read(16))?.toString()).toBe("ping");
+    tunnel.socket.destroy();
+  }
+
+  // Raw request bytes on a fresh connection; the first response line.
+  async function rawStatus(bytes: string) {
+    const socket = await new Promise<Socket>((resolve) => {
+      const s = netConnect(ownPort, "127.0.0.1", () => resolve(s));
+    });
+    const reader = new ByteReader(socket);
+    socket.write(bytes);
+    const head = (await reader.read(4096))?.toString() ?? "";
+    socket.destroy();
+    return head.split("\r\n")[0];
+  }
+
+  test("without the password, a host no secret lists is a tunnel", async () => {
+    await expectEcho("tunnel.stub.test:443", []);
+    await expectEcho("tunnel.stub.test:443", [GIT]);
+    expect(lookups).toBe(2);
+  });
+
+  test("another OS user, or one the lookup cannot name, gets 407 and nothing opens", async () => {
+    for (const answer of [OTHER_UID, null]) {
+      lookup = async () => answer;
+      await expect407(
+        await connectThrough(ownPort, "tunnel.stub.test:443", [CHROME]),
+      );
+    }
+    expect(echo.received).toEqual([]);
+  });
+
+  test("a lookup that fails gets 407, and the proxy goes on serving", async () => {
+    lookup = async () => {
+      throw new Error("lookup failed");
+    };
+    await expect407(await connectThrough(ownPort, "tunnel.stub.test:443", []));
+    expect(echo.received).toEqual([]);
+    lookup = async () => OWN_UID;
+    await expectEcho("tunnel.stub.test:443", []);
+  });
+
+  test("another OS user gets 407 before the request is read: no 405, no 400", async () => {
+    lookup = async () => OTHER_UID;
+    expect(
+      await rawStatus(
+        "GET http://api.stub.test/ HTTP/1.1\r\nHost: api.stub.test\r\n\r\n",
+      ),
+    ).toStartWith("HTTP/1.1 407");
+    expect(await rawStatus("NOT A REQUEST LINE\r\n\r\n")).toStartWith(
+      "HTTP/1.1 407",
+    );
+    // The office's own user gets what an agent with the password gets.
+    lookup = async () => OWN_UID;
+    expect(
+      await rawStatus(
+        "GET http://api.stub.test/ HTTP/1.1\r\nHost: api.stub.test\r\n\r\n",
+      ),
+    ).toStartWith("HTTP/1.1 405");
+  });
+
+  test("a browser at a secret's host gets a plain tunnel: its own TLS to the host, no swap, no use", async () => {
+    // The client trusts only the host's own CA: the office leaf would fail.
+    const socket = await tlsThrough(
+      ownPort,
+      "api.stub.test",
+      https.ca,
+      "api.stub.test",
+      [CHROME],
+    );
+    const response = await exchange(
+      socket,
+      new ByteReader(socket),
+      get("/headers", [`Authorization: Bearer ${PH_A}`]),
+    );
+    socket.destroy();
+    expect(response?.status).toBe(200);
+    expect(https.seen).toHaveLength(1);
+    expect(header("authorization")).toBe(`Bearer ${PH_A}`);
+    expect(ownUses).toEqual([]);
+  });
+
+  const notBrowsers: [string, string[]][] = [
+    ["git", [GIT]],
+    ["no User-Agent", []],
+    ["two User-Agent headers", [CHROME, CHROME]],
+    [
+      "a User-Agent that has Mozilla/ later on",
+      ["User-Agent: curl/8.5.0 Mozilla/5.0"],
+    ],
+  ];
+  for (const [name, auth] of notBrowsers)
+    test(`without the password, ${name} at a secret's host gets 407, so git sends the password`, async () => {
+      await expect407(await connectThrough(ownPort, "api.stub.test:443", auth));
+      expect(https.seen).toEqual([]);
+    });
+
+  test("a wrong password counts as none", async () => {
+    const wrong = proxyBasic("fake-wrong-token");
+    await expect407(
+      await connectThrough(ownPort, "api.stub.test:443", [wrong, GIT]),
+    );
+    await expectEcho("tunnel.stub.test:443", [wrong]);
+  });
+
+  test("with the password, a browser at a secret's host gets the swap as before, and no lookup runs", async () => {
+    const socket = await tlsThrough(
+      ownPort,
+      "api.stub.test",
+      officeCa,
+      "api.stub.test",
+      [proxyBasic(TEST_CLIENT_TOKEN), CHROME],
+    );
+    const response = await exchange(
+      socket,
+      new ByteReader(socket),
+      get("/headers", [`Authorization: Bearer ${PH_A}`]),
+    );
+    socket.destroy();
+    expect(response?.status).toBe(200);
+    expect(header("authorization")).toBe(`Bearer ${VALUE_A}`);
+    expect(ownUses.map((u) => u.name)).toEqual(["GH_TOKEN"]);
+    await expectEcho("tunnel.stub.test:443", [proxyBasic(TEST_CLIENT_TOKEN)]);
+    expect(lookups).toBe(0);
+  });
+
+  test("a client that leaves during the lookup gets no upstream", async () => {
+    const asked = Promise.withResolvers<void>();
+    const answered = Promise.withResolvers<void>();
+    lookup = async (socket) => {
+      asked.resolve();
+      if (!socket.destroyed)
+        await new Promise((resolve) => socket.once("close", resolve));
+      answered.resolve();
+      return OWN_UID;
+    };
+    const client = netConnect(ownPort, "127.0.0.1", () =>
+      client.write(
+        "CONNECT tunnel.stub.test:443 HTTP/1.1\r\nHost: tunnel.stub.test:443\r\n\r\n",
+      ),
+    );
+    client.on("error", () => {});
+    await Promise.race([
+      asked.promise,
+      Bun.sleep(1000).then(() => {
+        throw new Error("the proxy did not look up the client's uid");
+      }),
+    ]);
+    client.destroy();
+    await answered.promise;
+    // An upstream opens within a few milliseconds when one is opened.
+    await Bun.sleep(150);
+    expect(echo.received).toEqual([]);
+  });
+});
+
 describe("updates", () => {
   test("a new snapshot applies on the next request", async () => {
     proxy.update(
@@ -1032,3 +1251,31 @@ test("the proxy's log codes never carry a value or a placeholder", () => {
   for (const placeholder of [PH_A, PH_B, PH_N, TEST_CLIENT_TOKEN])
     expect(all).not.toContain(placeholder);
 });
+
+describe.skipIf(process.platform !== "linux")(
+  "the real lookup on Linux",
+  () => {
+    test("a loopback client of this OS user gets a tunnel without the password", async () => {
+      const real = createSecretProxy(
+        snapshot(),
+        { use: () => {} },
+        { standIns: { "tunnel.stub.test:443": echo.port } },
+      );
+      const realPort = await real.listen(0);
+      try {
+        const tunnel = await connectThrough(
+          realPort,
+          "tunnel.stub.test:443",
+          [],
+        );
+        if ("refused" in tunnel)
+          throw new Error(`refused ${tunnel.refused.status}`);
+        tunnel.socket.write("ping");
+        expect((await tunnel.reader.read(16))?.toString()).toBe("ping");
+        tunnel.socket.destroy();
+      } finally {
+        await real.close();
+      }
+    });
+  },
+);

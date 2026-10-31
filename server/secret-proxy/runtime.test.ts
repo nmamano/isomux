@@ -529,11 +529,13 @@ describe("restarts", () => {
 
 // Task 91296ea8: every OS user on the box can reach the proxy's loopback
 // port; only the office's agents have the password in their HTTPS_PROXY.
+// Task bf6d7b4f: on Linux the office's own OS user needs no password
+// (another OS user still does: proxy.test.ts).
 describe("the proxy password", () => {
   const passwordOf = (userId: string) =>
     new URL(buildEnvForUserId(userId)!.HTTPS_PROXY!).password;
 
-  test("a CONNECT without it gets 407 and never reaches the company proxy; one with an agent's HTTPS_PROXY chains", async () => {
+  test("a CONNECT without it chains on Linux (this test runs as the office's OS user) and gets 407 elsewhere; one with an agent's HTTPS_PROXY chains", async () => {
     const target = "unlisted.example-stub.test:22";
     const echo = await startEchoStub();
     const company = await startCompanyProxy({ [target]: echo.port });
@@ -552,13 +554,25 @@ describe("the proxy password", () => {
       const port = Number(agentProxy.port);
       expect(port).toBe(runtime.proxyPort!);
 
-      const stranger = await connectThrough(port, target, []);
-      if (!("refused" in stranger)) {
-        stranger.socket.destroy();
-        throw new Error("the proxy opened a tunnel without the password");
+      const companyAuth = `Basic ${Buffer.from("dummyuser:dummypass").toString("base64")}`;
+      const own = await connectThrough(port, target, []);
+      if (process.platform === "linux") {
+        if ("refused" in own) throw new Error(`refused ${own.refused.status}`);
+        own.socket.write("ping");
+        expect((await own.reader.read(16))?.toString()).toBe("ping");
+        own.socket.destroy();
+        expect(company.connects).toEqual([target]);
+        expect(company.authorizations).toEqual([companyAuth]);
+        company.connects.length = 0;
+        company.authorizations.length = 0;
+      } else {
+        if (!("refused" in own)) {
+          own.socket.destroy();
+          throw new Error("the proxy opened a tunnel without the password");
+        }
+        expect(own.refused.status).toBe(407);
+        expect(company.connects).toEqual([]);
       }
-      expect(stranger.refused.status).toBe(407);
-      expect(company.connects).toEqual([]);
 
       const agent = await connectThrough(port, target, [
         proxyBasic(
@@ -572,9 +586,7 @@ describe("the proxy password", () => {
       expect((await agent.reader.read(16))?.toString()).toBe("ping");
       agent.socket.destroy();
       expect(company.connects).toEqual([target]);
-      expect(company.authorizations).toEqual([
-        `Basic ${Buffer.from("dummyuser:dummypass").toString("base64")}`,
-      ]);
+      expect(company.authorizations).toEqual([companyAuth]);
     } finally {
       await company.close();
       await echo.close();
