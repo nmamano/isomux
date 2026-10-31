@@ -1591,6 +1591,10 @@ export type AskEvent =
   // The member asked the agent to simplify the ask.
   | { kind: "simplify_requested"; at: number; byUserId?: string };
 
+// An entry of an agent's ask log (task 302e7ea4): every event of an ask, the
+// close included, as it happens.
+export type AskLogEvent = AskEvent | ({ kind: "closed" } & AskClosure);
+
 // The member message text of a bare dismiss. The chat shows it translated
 // from the entry's metadata; the agent reads these words.
 export const ASK_DISMISSED_TEXT = "Dismissed";

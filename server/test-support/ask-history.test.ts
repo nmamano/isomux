@@ -13,6 +13,7 @@ import { getUserByName, updateUserById } from "../users.ts";
 import type { AskEntry, TaskItem } from "../../shared/types.ts";
 import type {
   AskClosedWire,
+  AskEventsRes,
   AskHistoryRes,
 } from "../../shared/contract-shapes.ts";
 
@@ -627,6 +628,160 @@ describe("the history's query", () => {
     ]) {
       const r = await history(w, self, q);
       expect([q, r.status]).toEqual([q, 400]);
+    }
+  });
+});
+
+// GET /api/agents/:id/asks/events (task 302e7ea4): the agent's ask log, each
+// create, edit, simplify request and close of its asks as it happens, newest
+// first, with the history's reach.
+describe("the agent's ask log", () => {
+  const log = (w: W, auth: Auth, query = "", agentId = w.asker.id) =>
+    call(w.srv, "GET", `/api/agents/${agentId}/asks/events${query}`, auth);
+  // A log page; one that is not a 200 fails here, by status. Its seqs fall.
+  const page = (r: Res) => {
+    expect([r.status, r.code]).toEqual([200, undefined]);
+    const body = r.body as AskEventsRes;
+    for (let i = 1; i < body.events.length; i++)
+      expect(body.events[i].seq).toBeLessThan(body.events[i - 1].seq);
+    return body;
+  };
+  const kinds = (r: Res) => page(r).events.map((e) => [e.askId, e.kind]);
+
+  it("follows an open ask through its edit and simplify request to its close, in the closed ask's wire, and keeps each entry's seq", async () => {
+    const w = await world();
+    const self = w.as(w.asker.id);
+    expect(page(await log(w, self))).toEqual({ events: [], nextBefore: null });
+    const a = await open(w, "Pull the spend?");
+    const b = await open(w, "Rename the room?");
+    const edited = await call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${a.id}`,
+      self,
+      { text: "Pull the spend per agent?" },
+    );
+    expect(edited.status).toBe(200);
+    const simplify = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${a.id}/simplify`,
+      w.ownerAuth,
+      { json: {} },
+    );
+    expect(simplify.status).toBe(204);
+
+    // Readable while the ask is open.
+    const openLog = page(await log(w, self)).events;
+    expect(openLog.map((e) => [e.askId, e.kind])).toEqual([
+      [a.id, "simplify_requested"],
+      [a.id, "edited"],
+      [b.id, "created"],
+      [a.id, "created"],
+    ]);
+    expect(openLog[0]).toMatchObject({ by: w.owner.username });
+    expect(kinds(await log(w, self, `?askId=${b.id}`))).toEqual([
+      [b.id, "created"],
+    ]);
+
+    const reply = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${a.id}/reply`,
+      w.ownerAuth,
+      { json: { text: "yes, per agent" } },
+    );
+    expect(reply.status).toBe(204);
+    const closedAsk = (await readOne(w, a.id)).body as AskClosedWire;
+    const [close, ...rest] = page(await log(w, self, `?askId=${a.id}`)).events;
+    expect(close).toEqual({
+      seq: expect.any(Number),
+      askId: a.id,
+      kind: "closed",
+      at: closedAsk.closed.at,
+      outcome: "replied",
+      by: w.owner.username,
+      answer: "yes, per agent",
+    });
+    // The entries before the close are the ones read while the ask was open,
+    // seqs included, so a reader can stop at the last seq it saw; and they
+    // are the closed ask's events, newest first.
+    expect(rest).toEqual(openLog.filter((e) => e.askId === a.id));
+    expect(rest.map(({ seq: _seq, askId: _askId, ...e }) => e)).toEqual(
+      [...closedAsk.events].reverse(),
+    );
+  });
+
+  it("is read by the agent, a peer and the member, not outside the room; a killed agent's owner reads its closes; another agent's ask is an empty page", async () => {
+    const w = await world();
+    const entry = await open(w, "Visible?");
+    const elsewhere = w.srv.agentManager.createRoom("Elsewhere");
+    const quinn = await w.srv.seedMember("Quinn");
+    const quinnId = getUserByName(quinn.username)!.id;
+    expect(updateUserById(quinnId, { allowedRooms: [elsewhere] })).toBeTruthy();
+    const far = await w.spawn("Far", elsewhere, quinnId);
+
+    for (const [who, auth] of [
+      ["self", w.as(w.asker.id)],
+      ["peer", w.as(w.other.id)],
+      ["owner", w.ownerAuth],
+    ] as const)
+      expect([who, kinds(await log(w, auth))]).toEqual([
+        who,
+        [[entry.id, "created"]],
+      ]);
+    for (const [who, auth] of [
+      ["member outside", { rawSessionId: quinn.rawSessionId }],
+      ["agent outside", w.as(far.id)],
+    ] as const) {
+      const r = await log(w, auth);
+      expect([who, r.status]).toEqual([who, 403]);
+      expect(JSON.stringify(r.body)).not.toContain(entry.id);
+    }
+
+    const other = w.as(w.other.id);
+    for (const askId of [entry.id, "0123abcd"])
+      expect([
+        askId,
+        page(await log(w, other, `?askId=${askId}`, w.other.id)),
+      ]).toEqual([askId, { events: [], nextBefore: null }]);
+
+    await w.srv.agentManager.kill(w.asker.id);
+    const events = page(await log(w, w.ownerAuth)).events;
+    expect(events.map((e) => [e.askId, e.kind])).toEqual([
+      [entry.id, "closed"],
+      [entry.id, "created"],
+    ]);
+    expect(events[0]).toMatchObject({ outcome: "agent_removed", by: null });
+  });
+
+  it("pages by its cursor and refuses another key, or a bad cursor or limit", async () => {
+    const w = await world();
+    const self = w.as(w.asker.id);
+    for (const prompt of ["One?", "Two?", "Three?", "Four?"])
+      await open(w, prompt);
+    const all = page(await log(w, self)).events;
+    expect(all).toHaveLength(4);
+
+    const first = page(await log(w, self, "?limit=3"));
+    expect(first.events).toEqual(all.slice(0, 3));
+    expect(first.nextBefore).toBe(all[2].seq);
+    expect(
+      page(await log(w, self, `?limit=3&before=${first.nextBefore}`)),
+    ).toEqual({ events: all.slice(3), nextBefore: null });
+    expect(page(await log(w, self, "?limit=200")).events).toEqual(all);
+
+    for (const q of [
+      "?limit=0",
+      "?limit=201",
+      "?limit=abc",
+      "?limit=2.5",
+      "?before=abc",
+      `?member=${w.owner.username}`,
+      "?ask=0123abcd",
+    ]) {
+      const r = await log(w, self, q);
+      expect([q, r.status, r.code]).toEqual([q, 400, "invalid_query"]);
     }
   });
 });

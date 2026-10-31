@@ -25,6 +25,7 @@ import {
   ASK_HISTORY_LIMIT_MAX,
   type AskHistory,
   type AskHistoryRecord,
+  type AskLogRecord,
 } from "../../ask-history.ts";
 import {
   ok,
@@ -45,6 +46,7 @@ import {
   isValidPriority,
   type AskCloseInput,
   type AskEntry,
+  type AskEvent,
   type AskReadFile,
   type TaskItem,
   type TaskPriority,
@@ -62,6 +64,7 @@ import type {
   AskAgentWire,
   AskClosedWire,
   AskEventWire,
+  AskLogEventWire,
 } from "../../../shared/contract-shapes.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
@@ -220,18 +223,20 @@ function pathRefused(
   }
 }
 
-// The history route's query, or null when it is refused: only member, before
-// and limit, the numbers as whole numbers, limit 1 to ASK_HISTORY_LIMIT_MAX.
-function parseHistoryQuery(
+// The query of the history route (filter `member`) or the log route (filter
+// `askId`), or null when it is refused: only that filter, before and limit,
+// the numbers as whole numbers, limit 1 to ASK_HISTORY_LIMIT_MAX.
+function parsePageQuery(
   query: URLSearchParams,
-): { member?: string; before?: number; limit: number } | null {
-  const out: { member?: string; before?: number; limit: number } = {
+  filterKey: "member" | "askId",
+): { filter?: string; before?: number; limit: number } | null {
+  const out: { filter?: string; before?: number; limit: number } = {
     limit: ASK_HISTORY_LIMIT_DEFAULT,
   };
   for (const key of query.keys())
-    if (key !== "member" && key !== "before" && key !== "limit") return null;
-  const member = query.get("member");
-  if (member !== null) out.member = member;
+    if (key !== filterKey && key !== "before" && key !== "limit") return null;
+  const filter = query.get(filterKey);
+  if (filter !== null) out.filter = filter;
   for (const key of ["before", "limit"] as const) {
     const value = query.get(key);
     if (value === null) continue;
@@ -263,6 +268,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
 
   const wire = (entry: AskEntry): AskAgentWire =>
     askAgentWire(entry, (userId) => deps.memberName(userId));
+  // A member named as they are now, null when there is none or they are gone.
+  const byName = (userId: string | undefined) =>
+    userId === undefined ? null : deps.memberName(userId);
+  const eventWire = (event: AskEvent): AskEventWire =>
+    event.kind === "simplify_requested"
+      ? { kind: event.kind, at: event.at, by: byName(event.byUserId) }
+      : event;
   // A closed ask: who answered is named as they are now, null when gone.
   const closedWire = ({
     entry,
@@ -272,24 +284,15 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const { byUserId, ...rest } = closure;
     return {
       ...wire(entry),
-      closed: {
-        ...rest,
-        by: byUserId === undefined ? null : deps.memberName(byUserId),
-      },
-      events: events.map(
-        (event): AskEventWire =>
-          event.kind === "simplify_requested"
-            ? {
-                kind: event.kind,
-                at: event.at,
-                by:
-                  event.byUserId === undefined
-                    ? null
-                    : deps.memberName(event.byUserId),
-              }
-            : event,
-      ),
+      closed: { ...rest, by: byName(byUserId) },
+      events: events.map(eventWire),
     };
+  };
+  // An entry of the agent's ask log, its members named as closedWire does.
+  const logWire = ({ seq, askId, event }: AskLogRecord): AskLogEventWire => {
+    if (event.kind !== "closed") return { seq, askId, ...eventWire(event) };
+    const { byUserId, ...rest } = event;
+    return { seq, askId, ...rest, by: byName(byUserId) };
   };
 
   const audience: AskAudienceDeps = {
@@ -953,7 +956,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // The agent's closed asks, for any caller with the reach of its logs
     // (task ff590b5e). The agent may be killed: no live agent is required.
     "agents.askHistory": guarded((ctx) => {
-      const query = parseHistoryQuery(ctx.query);
+      const query = parsePageQuery(ctx.query, "member");
       if (!query)
         return fail(
           400,
@@ -961,13 +964,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           `the query takes member, before (a nextBefore) and limit (1 to ${ASK_HISTORY_LIMIT_MAX})`,
         );
       let memberUserId: string | undefined;
-      if (query.member !== undefined) {
-        const member = deps.memberByName(query.member);
+      if (query.filter !== undefined) {
+        const member = deps.memberByName(query.filter);
         if (!member)
           return fail(
             422,
             "unknown_member",
-            `No member named ${query.member}.`,
+            `No member named ${query.filter}.`,
           );
         memberUserId = member.id;
       }
@@ -978,6 +981,27 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       });
       return ok({
         asks: page.items.map(closedWire),
+        nextBefore: page.nextBefore,
+      });
+    }),
+
+    // The agent's ask log (task 302e7ea4), with the history's reach: every
+    // event of its asks, open or closed, newest first.
+    "agents.askEvents": guarded((ctx) => {
+      const query = parsePageQuery(ctx.query, "askId");
+      if (!query)
+        return fail(
+          400,
+          "invalid_query",
+          `the query takes askId, before (a nextBefore) and limit (1 to ${ASK_HISTORY_LIMIT_MAX})`,
+        );
+      const page = deps.history.listEvents(ctx.params.id, {
+        limit: query.limit,
+        ...(query.filter !== undefined ? { askId: query.filter } : {}),
+        ...(query.before !== undefined ? { before: query.before } : {}),
+      });
+      return ok({
+        events: page.items.map(logWire),
         nextBefore: page.nextBefore,
       });
     }),

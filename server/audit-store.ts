@@ -64,6 +64,7 @@ export function openOfficeDatabase(path: string): Database {
         seq INTEGER PRIMARY KEY AUTOINCREMENT, ask_id TEXT NOT NULL,
         agent_id TEXT NOT NULL, record TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS ask_events_ask ON ask_events(ask_id, seq);
+      CREATE INDEX IF NOT EXISTS ask_events_agent ON ask_events(agent_id, seq);
       PRAGMA user_version=1;`);
     })();
     return db;

@@ -192,6 +192,7 @@ import type {
   AskAgentWire,
   AskClosedWire,
   AskHistoryRes,
+  AskEventsRes,
   SecretRequestRes,
   SecretRequestSaveReq,
   SecretRequestAnswerRes,
@@ -953,6 +954,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.askHistory",
     method: "GET",
     path: "/api/agents/:id/asks/history",
+    auth: cap("log:read", logSearchAccess),
+    emits: [],
+  }),
+  // An agent's ask log (task 302e7ea4): each create, edit, simplify request
+  // and close of its asks, open or closed, as they happen. The history's
+  // reach, for the same reason: every event is in the agent's log.
+  defineRoute<void, AskEventsRes>({
+    opId: "agents.askEvents",
+    method: "GET",
+    path: "/api/agents/:id/asks/events",
     auth: cap("log:read", logSearchAccess),
     emits: [],
   }),

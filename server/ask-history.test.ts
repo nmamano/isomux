@@ -8,7 +8,11 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { openOfficeDatabase } from "./audit-store.ts";
-import { createAskHistory, type AskHistory } from "./ask-history.ts";
+import {
+  createAskHistory,
+  type AskHistory,
+  type AskLogRecord,
+} from "./ask-history.ts";
 import { createAskStore, type AskPersistence } from "./asks.ts";
 import type { AskEvent } from "../shared/types.ts";
 
@@ -482,6 +486,149 @@ describe("the agent's list", () => {
     });
     expect(u2Page.items.map((r) => r.entry.id)).toEqual([ids[1]]);
     expect(u2Page.nextBefore).toBeNull();
+  });
+});
+
+// Task 302e7ea4: the agent's ask log, each event of its asks as it happens,
+// the close included.
+describe("the agent's ask log", () => {
+  // A page as [ask id, event] pairs, after checking that its seqs fall.
+  const pairs = (items: AskLogRecord[]) => {
+    for (let i = 1; i < items.length; i++)
+      expect(items[i].seq).toBeLessThan(items[i - 1].seq);
+    return items.map((r) => [r.askId, r.event]);
+  };
+  const created = (prompt: string) => ({
+    kind: "created" as const,
+    at: 100,
+    ask: { prompt, options: ["Yes", "No"], recommended: "Yes" },
+  });
+
+  it("has every event of the agent's asks, open or closed, newest first, the close included, while a closed ask's events stop before its close", () => {
+    const { history } = open();
+    const { store, ask, at } = storeWith(history);
+    const a = ask("a1", "u1", "Ship it?");
+    const b = ask("a1", "u2", "Rename it?");
+    const c = ask("a2", "u1", "Other agent's?");
+    at(110);
+    store.edit(a.id, "Ship it today?");
+    at(120);
+    store.requestSimplify(a.id, "u1");
+    at(130);
+    store.remove(a.id, { outcome: "replied", byUserId: "u1", answer: "Yes" });
+    at(140);
+    store.edit(b.id, "Rename the room?");
+    at(150);
+    store.removeAgent("a2");
+
+    const all = history.listEvents("a1", { limit: 50 });
+    expect(pairs(all.items)).toEqual([
+      [b.id, { kind: "edited", at: 140, before: { prompt: "Rename it?" } }],
+      [
+        a.id,
+        {
+          kind: "closed",
+          at: 130,
+          outcome: "replied",
+          byUserId: "u1",
+          answer: "Yes",
+        },
+      ],
+      [a.id, { kind: "simplify_requested", at: 120, byUserId: "u1" }],
+      [a.id, { kind: "edited", at: 110, before: { prompt: "Ship it?" } }],
+      [b.id, created("Rename it?")],
+      [a.id, created("Ship it?")],
+    ]);
+    expect(all.nextBefore).toBeNull();
+    // The close of a removed agent's ask is in its log too.
+    expect(pairs(history.listEvents("a2", { limit: 50 }).items)).toEqual([
+      [c.id, { kind: "closed", at: 150, outcome: "agent_removed" }],
+      [c.id, created("Other agent's?")],
+    ]);
+    // A closed ask's events are what happened before its close.
+    const before: string[] = ["created", "edited", "simplify_requested"];
+    expect(history.get("a1", a.id)!.events.map((e): string => e.kind)).toEqual(
+      before,
+    );
+    expect(history.getById(a.id)!.events.map((e): string => e.kind)).toEqual(
+      before,
+    );
+    expect(
+      history
+        .list("a1", { limit: 50 })
+        .items[0].events.map((e): string => e.kind),
+    ).toEqual(before);
+
+    // One ask's events: a filter, so another agent's ask or an unknown id is
+    // an empty page.
+    expect(
+      pairs(history.listEvents("a1", { askId: b.id, limit: 50 }).items),
+    ).toEqual([
+      [b.id, { kind: "edited", at: 140, before: { prompt: "Rename it?" } }],
+      [b.id, created("Rename it?")],
+    ]);
+    for (const askId of [c.id, "abcd9999"])
+      expect([askId, history.listEvents("a1", { askId, limit: 50 })]).toEqual([
+        askId,
+        { items: [], nextBefore: null },
+      ]);
+  });
+
+  it("pages by its cursor, also for one ask", () => {
+    const { history } = open();
+    const { store, ask, at } = storeWith(history);
+    const a = ask("a1", "u1", "Q0?");
+    ask("a1", "u1", "Other?");
+    for (let i = 1; i <= 3; i++) {
+      at(100 + i);
+      store.edit(a.id, `Q${i}?`);
+    }
+    // a's create, the other's create, a's three edits.
+    const all = history.listEvents("a1", { limit: 50 }).items;
+    expect(all).toHaveLength(5);
+
+    const first = history.listEvents("a1", { limit: 2 });
+    expect(first.items).toEqual(all.slice(0, 2));
+    expect(first.nextBefore).toBe(all[1].seq);
+    // Exactly `limit` left: the last page says there is no next one.
+    const second = history.listEvents("a1", {
+      limit: 3,
+      before: first.nextBefore!,
+    });
+    expect(second).toEqual({ items: all.slice(2), nextBefore: null });
+
+    const mine = all.filter((r) => r.askId === a.id);
+    const one = history.listEvents("a1", { askId: a.id, limit: 2 });
+    expect(one).toEqual({ items: mine.slice(0, 2), nextBefore: mine[1].seq });
+    expect(
+      history.listEvents("a1", {
+        askId: a.id,
+        limit: 2,
+        before: one.nextBefore!,
+      }),
+    ).toEqual({ items: mine.slice(2), nextBefore: null });
+  });
+
+  it("gets a close only with its history row: a failed write of either throws and leaves neither", () => {
+    for (const table of ["ask_history", "ask_events"]) {
+      const db = openOfficeDatabase(dbPath());
+      dbs.push(db);
+      const history = createAskHistory(db);
+      const { ask } = storeWith(history);
+      const a = ask("a1", "u1", "Fails?");
+      db.exec(
+        `CREATE TRIGGER refuse BEFORE INSERT ON ${table} BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+      );
+      expect(() =>
+        history.record(a, { outcome: "withdrawn", at: 200 }),
+      ).toThrow();
+      db.exec("DROP TRIGGER refuse");
+      expect([table, history.get("a1", a.id)]).toEqual([table, null]);
+      expect([
+        table,
+        history.listEvents("a1", { limit: 50 }).items.map((r) => r.event.kind),
+      ]).toEqual([table, ["created"]]);
+    }
   });
 });
 

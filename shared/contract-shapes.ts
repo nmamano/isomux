@@ -35,6 +35,7 @@ import type {
   PagerDeliveryFailure,
   AskMemberWire,
   AskEvent,
+  AskClosure,
   AskOutcome,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
@@ -868,6 +869,19 @@ export type AskEventWire =
   | { kind: "simplify_requested"; at: number; by: string | null };
 export interface AskHistoryRes {
   asks: AskClosedWire[];
+  // The `before` of the next page; null when there is none.
+  nextBefore: number | null;
+}
+// An entry of an agent's ask log (task 302e7ea4), newest first: the event
+// as a route sends it, with its ask and its place in the log. A closed
+// event's `by` is the answering member's username, null when there is none
+// or it is gone.
+export type AskLogEventWire = { seq: number; askId: string } & (
+  | AskEventWire
+  | ({ kind: "closed"; by: string | null } & Omit<AskClosure, "byUserId">)
+);
+export interface AskEventsRes {
+  events: AskLogEventWire[];
   // The `before` of the next page; null when there is none.
   nextBefore: number | null;
 }

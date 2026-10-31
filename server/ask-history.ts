@@ -5,7 +5,9 @@
 //
 // What happened before the close (task 62aa552f), the create and each edit,
 // is in the ask_events table, recorded by the store after each change, while
-// the ask is open. A record carries its ask's events.
+// the ask is open. A record carries its ask's events. The close is also an
+// event there, written with the history row in one transaction, so the
+// agent's ask log (task 302e7ea4) has every step of its asks.
 //
 // A row's `seq` orders the closes and is the list's page cursor. An ask id
 // names one ask: the store does not reuse an id that is in the history,
@@ -15,7 +17,12 @@
 
 import type { Database } from "bun:sqlite";
 import { officeAuditStore } from "./audit-store.ts";
-import type { AskClosure, AskEntry, AskEvent } from "../shared/types.ts";
+import type {
+  AskClosure,
+  AskEntry,
+  AskEvent,
+  AskLogEvent,
+} from "../shared/types.ts";
 
 export const ASK_HISTORY_LIMIT_DEFAULT = 50;
 export const ASK_HISTORY_LIMIT_MAX = 200;
@@ -36,8 +43,24 @@ export interface AskHistoryQuery {
   limit: number;
 }
 
+export interface AskEventsQuery {
+  // Only this ask's events.
+  askId?: string;
+  // Only rows older than this seq.
+  before?: number;
+  limit: number;
+}
+
+// An entry of the agent's ask log: the event, its ask and its seq.
+export interface AskLogRecord {
+  seq: number;
+  askId: string;
+  event: AskLogEvent;
+}
+
 export interface AskHistory {
-  // Durable write. MUST THROW on failure.
+  // Durable write of the history row and the closed event, both or
+  // neither. MUST THROW on failure.
   record(entry: AskEntry, closure: AskClosure): void;
   // An event of an ask, open or closed. Durable write. MUST THROW on failure.
   recordEvent(agentId: string, askId: string, event: AskEvent): void;
@@ -51,6 +74,12 @@ export interface AskHistory {
     agentId: string,
     query: AskHistoryQuery,
   ): { items: AskHistoryRecord[]; nextBefore: number | null };
+  // The agent's ask log, open and closed asks, the close included, newest
+  // first (task 302e7ea4).
+  listEvents(
+    agentId: string,
+    query: AskEventsQuery,
+  ): { items: AskLogRecord[]; nextBefore: number | null };
 }
 
 interface Row {
@@ -80,30 +109,40 @@ export function createAskHistory(db: Database): AskHistory {
       .all(agentId, ...ids) as { ask_id: string; record: string }[];
     const byAsk = new Map<string, AskEvent[]>();
     for (const row of rows) {
+      const event = JSON.parse(row.record) as AskLogEvent;
+      // The record's closure is the close.
+      if (event.kind === "closed") continue;
       const events = byAsk.get(row.ask_id) ?? [];
-      events.push(JSON.parse(row.record) as AskEvent);
+      events.push(event);
       byAsk.set(row.ask_id, events);
     }
     return records.map((r) => ({ ...r, events: byAsk.get(r.entry.id) ?? [] }));
   }
 
+  function insertEvent(agentId: string, askId: string, event: AskLogEvent) {
+    db.query(
+      "INSERT INTO ask_events(ask_id,agent_id,record) VALUES (?,?,?)",
+    ).run(askId, agentId, JSON.stringify(event));
+  }
+
+  const record = db.transaction((entry: AskEntry, closure: AskClosure) => {
+    db.query(
+      "INSERT INTO ask_history(id,agent_id,member_user_id,closed_at,record) VALUES (?,?,?,?,?)",
+    ).run(
+      entry.id,
+      entry.agentId,
+      entry.memberUserId ?? null,
+      closure.at,
+      JSON.stringify({ entry, closure }),
+    );
+    insertEvent(entry.agentId, entry.id, { kind: "closed", ...closure });
+  });
+
   return {
     record(entry, closure) {
-      db.query(
-        "INSERT INTO ask_history(id,agent_id,member_user_id,closed_at,record) VALUES (?,?,?,?,?)",
-      ).run(
-        entry.id,
-        entry.agentId,
-        entry.memberUserId ?? null,
-        closure.at,
-        JSON.stringify({ entry, closure }),
-      );
+      record(entry, closure);
     },
-    recordEvent(agentId, askId, event) {
-      db.query(
-        "INSERT INTO ask_events(ask_id,agent_id,record) VALUES (?,?,?)",
-      ).run(askId, agentId, JSON.stringify(event));
-    },
+    recordEvent: insertEvent,
     has(id) {
       return db
         .query(
@@ -153,6 +192,34 @@ export function createAskHistory(db: Database): AskHistory {
         nextBefore: rows.length > limit ? items[items.length - 1].seq : null,
       };
     },
+    listEvents(agentId, { askId, before, limit }) {
+      const where = ["agent_id=?"];
+      const args: (string | number)[] = [agentId];
+      if (askId !== undefined) {
+        where.push("ask_id=?");
+        args.push(askId);
+      }
+      if (before !== undefined) {
+        where.push("seq<?");
+        args.push(before);
+      }
+      // One more than the page, to know whether a next page exists.
+      args.push(limit + 1);
+      const rows = db
+        .query(
+          `SELECT seq,ask_id,record FROM ask_events WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`,
+        )
+        .all(...args) as { seq: number; ask_id: string; record: string }[];
+      const items = rows.slice(0, limit).map((row) => ({
+        seq: row.seq,
+        askId: row.ask_id,
+        event: JSON.parse(row.record) as AskLogEvent,
+      }));
+      return {
+        items,
+        nextBefore: rows.length > limit ? items[items.length - 1].seq : null,
+      };
+    },
   };
 }
 
@@ -168,5 +235,6 @@ export function officeAskHistory(): AskHistory {
     get: (agentId, id) => current().get(agentId, id),
     getById: (id) => current().getById(id),
     list: (agentId, query) => current().list(agentId, query),
+    listEvents: (agentId, query) => current().listEvents(agentId, query),
   };
 }
