@@ -404,6 +404,15 @@ remote_main() {
     local dir=$1 id=${1##*/}
     clear_dir "isomux-ci-$id.scope" "$dir" "/tmp/icr-${id##*-}"
   }
+  # The load and the stall totals at both ends of a red run tell a box that
+  # stalled from a commit that failed.
+  load_now() {
+    local p
+    say "$(date -u +%T) loadavg $(cat /proc/loadavg 2>&1)"
+    for p in cpu io memory; do
+      sed "s/^/$p /" "/proc/pressure/$p" 2>/dev/null || say "$p pressure: not available"
+    done
+  }
 
   mkdir -p "$root/runs" "$root/cache" "$tools" || setup_failed "cannot create $root"
   exec 9>"$root/lock"
@@ -447,6 +456,8 @@ remote_main() {
   # process of the run, detached CI stages included. The started file marks
   # that the setup inside the scope passed and `bun run ci` began.
   say "  running bun run ci"
+  local load_start
+  load_start=$(load_now)
   : >"$run/ci.log"
   (cd "$run/src" && exec systemd-run --user --scope --collect --quiet --unit="isomux-ci-$id" -- \
     "${sandbox[@]}" bash -c '
@@ -465,6 +476,13 @@ remote_main() {
   if [[ ! -e $run/started ]]; then
     cat "$run/pg-setup.log" 2>/dev/null
     setup_failed "Postgres did not start"
+  fi
+  if ((ci_status != 0)); then
+    say "  load at the start and the end of the run:"
+    say "$load_start"
+    load_now
+    say "  end of pg.log:"
+    tail -n 50 "$run/pg.log" 2>/dev/null
   fi
   [[ $ci_status -eq 124 ]] && say "✗ bun run ci passed the $RUN_LIMIT limit"
   [[ $ci_status -eq 0 ]] && exit 0

@@ -787,6 +787,10 @@ async function remote(opts: {
   fail?: string[];
   /** Replaces the script's GATE_WAIT (seconds). */
   gateWait?: number;
+  /** pg_ctl writes this many lines to its -l log; by default it writes none. */
+  pgLogLines?: number;
+  /** `bun run ci` sleeps this long (a sleep(1) argument) before it exits. */
+  ciSleep?: string;
 }): Promise<Remote> {
   const dir = mkdtempSync(join(tmpdir(), "isomux-ci-remote-half-"));
   dirs.push(dir);
@@ -835,7 +839,7 @@ async function remote(opts: {
     `[[ $1 == --version ]] && { echo ${bunVersion}; exit 0; }
 echo "$* $(pwd)" >> "${dir}/bun.log"
 date +%s%N >> "${dir}/bun-times"
-[[ $* == "run ci" ]] && { echo "ci output"; exit ${opts.ci ?? 0}; }
+[[ $* == "run ci" ]] && { ${opts.ciSleep ? `sleep ${opts.ciSleep}; ` : ""}echo "ci output"; exit ${opts.ci ?? 0}; }
 # With block-tsc, tsc waits for unblock (at most 20 s).
 if [[ $* == *"tsc --noEmit"* && -e "${dir}/block-tsc" ]]; then
   for _ in $(seq 200); do [[ -e "${dir}/unblock" ]] && break; sleep 0.1; done
@@ -845,7 +849,10 @@ exit 0`,
   );
   stub(join(pgBin, "initdb"), "exit 0");
   stub(join(pgBin, "postgres"), "cat >/dev/null; exit 0");
-  stub(join(pgBin, "pg_ctl"), `exit ${opts.pg ?? 0}`);
+  stub(
+    join(pgBin, "pg_ctl"),
+    `${opts.pgLogLines ? `while (($#)); do [[ $1 == -l ]] && seq -f "pg log line %g" ${opts.pgLogLines} | tee "${dir}/pg-log-written" >"$2"; shift; done\n` : ""}exit ${opts.pg ?? 0}`,
+  );
   // systemd: the scope runs its command in place; is-active answers for the
   // scope this test leaves running, or for none.
   stub(
@@ -1046,6 +1053,42 @@ describe("ci-remote, the remote half", () => {
       expect(existsSync(`/tmp/icr-${id.split("-")[1]}`)).toBe(true);
       expect(res.stderr).toContain(run);
       expect(res.status, res.out).toBe(verdict);
+    },
+    30_000,
+  );
+
+  // A red run on a loaded remote must say whether the box stalled: the load
+  // and pressure before and after the run, and the end of the Postgres log,
+  // which the run's cleanup deletes.
+  it.each([0, 1, 124])(
+    "prints load, pressure and the end of pg.log only for a red run (ci exit %d)",
+    async (code) => {
+      const r = await remote({ ci: code, pgLogLines: 1000, ciSleep: "1.2" });
+      const res = r.run(runId());
+      expect(res.status, res.out).toBe(code === 0 ? 0 : 1);
+      // Each line of /proc/loadavg: "0.52 0.58 0.59 1/467 12345".
+      const loadavg = res.out.match(/\d+\.\d+ \d+\.\d+ \d+\.\d+ \d+\/\d+ \d+/g);
+      const pgLines = res.out.match(/^pg log line \d+$/gm) ?? [];
+      // Postgres wrote its log in every case, green included.
+      expect(read(join(r.dir, "pg-log-written"))).toContain("pg log line 1000");
+      if (code === 0) {
+        expect({ loadavg, pgLines }).toEqual({ loadavg: null, pgLines: [] });
+        return;
+      }
+      expect(loadavg?.length, res.out).toBe(2);
+      // The end of the log, bounded: never the whole file.
+      expect(pgLines).toContain("pg log line 1000");
+      expect(pgLines).not.toContain("pg log line 1");
+      // The start snapshot is taken before bun run ci, the end one after it:
+      const stamps = res.out.match(/\b\d\d:\d\d:\d\d\b/g) ?? [];
+      expect(stamps.length, res.out).toBe(2);
+      // ciSleep puts more than a second between them, and the end stamp of
+      // a run that crosses midnight wraps.
+      expect(stamps[0]! < stamps[1]! || stamps[1]! < "00:00:02").toBe(true);
+      // Whole pressure lines (total= included) in both snapshots, when the
+      // kernel has them; this box's kernel decides which branch runs.
+      const io = res.out.match(/\bio\b.*\bavg10=.*\btotal=\d+/g) ?? [];
+      expect(io.length, res.out).toBe(existsSync("/proc/pressure/io") ? 4 : 0);
     },
     30_000,
   );
