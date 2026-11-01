@@ -25,8 +25,21 @@ declare const chrome: {
       focused?: boolean;
       state?: "normal" | "minimized";
       url?: string;
+      left?: number;
+      top?: number;
+      width?: number;
+      height?: number;
     }): Promise<{ id?: number; tabs?: { id?: number }[] }>;
     get(id: number): Promise<{ id?: number; state?: string }>;
+    getLastFocused(options: { windowTypes: "normal"[] }): Promise<{
+      id?: number;
+      focused?: boolean;
+      state?: string;
+      left?: number;
+      top?: number;
+      width?: number;
+      height?: number;
+    }>;
   };
   runtime: {
     id: string;

@@ -178,6 +178,22 @@ async function harness(
   const removedTabs: number[] = [];
   const createdWindows: Array<Record<string, unknown>> = [];
   let windowCreate: () => Promise<void> = async () => {};
+  // The member's last focused normal window (null: Chrome has none), and the
+  // window calls in order; "made" is a create that Chrome finished.
+  // refuseBounds: Chrome refuses a create with bounds, as it does for bounds
+  // mostly off screen. refuseUpdate: Chrome refuses a window update.
+  let lastFocused: Record<string, unknown> | null = {
+    id: 1,
+    focused: true,
+    state: "normal",
+    left: 0,
+    top: 0,
+    width: 1200,
+    height: 900,
+  };
+  const windowCalls: Array<{ call: string; arg?: unknown }> = [];
+  let refuseBounds = false;
+  let refuseUpdate = false;
   let installed!: (details: { reason: string }) => void;
   let startup!: () => void;
   const chrome = {
@@ -190,10 +206,22 @@ async function harness(
       setTitle: async () => {},
     },
     windows: {
-      update: async () => {},
+      update: async (id: number, options: Record<string, unknown>) => {
+        windowCalls.push({ call: "update", arg: { id, ...options } });
+        if (refuseUpdate) throw new Error(`No window with id: ${id}.`);
+      },
       create: async (options: Record<string, unknown>) => {
+        windowCalls.push({ call: "create", arg: options });
         createdWindows.push(options);
         await windowCreate();
+        if (
+          refuseBounds &&
+          ["left", "top", "width", "height"].some((key) => key in options)
+        )
+          throw new Error(
+            "Invalid value for bounds. Bounds must be at least 50% within visible screen space.",
+          );
+        windowCalls.push({ call: "made" });
         const id = ++nextWindow;
         windows.set(id, {
           id,
@@ -209,6 +237,11 @@ async function harness(
         const window = windows.get(id);
         if (!window) throw new Error(`No window with id: ${id}.`);
         return { ...window };
+      },
+      getLastFocused: async (options: unknown) => {
+        windowCalls.push({ call: "getLastFocused", arg: options });
+        if (!lastFocused) throw new Error("No last-focused window");
+        return { ...lastFocused };
       },
     },
     alarms: {
@@ -694,6 +727,16 @@ async function harness(
     tabUpdates,
     removedTabs,
     createdWindows,
+    windowCalls,
+    lastFocused: (window: Record<string, unknown> | null) => {
+      lastFocused = window;
+    },
+    refuseBounds: () => {
+      refuseBounds = true;
+    },
+    refuseUpdate: () => {
+      refuseUpdate = true;
+    },
     // Holds the next windows.create until the returned function runs.
     delayWindow: () => {
       let finish!: () => void;
@@ -2871,6 +2914,210 @@ test("after the member closes the Agents window, the next open makes a new one",
   const second = await opened(h, 6);
   expect(h.createdWindows).toHaveLength(2);
   expect(h.madeTabs.get(second.tabId)?.windowId).not.toBe(window);
+});
+
+// The member's window that a new Agents window takes its size from.
+const MEMBER_WINDOW = {
+  id: 3,
+  focused: true,
+  state: "normal",
+  left: 30,
+  top: 40,
+  width: 1500,
+  height: 900,
+};
+const boundsOf = (options: Record<string, unknown>) =>
+  Object.fromEntries(
+    (["left", "top", "width", "height"] as const)
+      .filter((key) => key in options)
+      .map((key) => [key, options[key]]),
+  );
+const windowUpdates = (h: Harness) =>
+  h.windowCalls.filter((c) => c.call === "update").map((c) => c.arg);
+
+test("a new Agents window takes the bounds of the member's last focused normal window, also a maximized one, and opens unfocused as a normal window; an open into it reads no window", async () => {
+  const cases: Array<[string, typeof MEMBER_WINDOW]> = [
+    ["normal", MEMBER_WINDOW],
+    [
+      "maximized",
+      {
+        ...MEMBER_WINDOW,
+        state: "maximized",
+        left: -8,
+        top: -8,
+        width: 1936,
+        height: 1056,
+      },
+    ],
+  ];
+  for (const [name, window] of cases) {
+    const h = await agentTabs();
+    h.lastFocused(window);
+    await opened(h, 5);
+    expect({
+      name,
+      asked: h.windowCalls
+        .filter((c) => c.call === "getLastFocused")
+        .map((c) => c.arg),
+    }).toEqual({
+      name,
+      asked: [expect.objectContaining({ windowTypes: ["normal"] })],
+    });
+    expect({ name, created: h.createdWindows.length }).toEqual({
+      name,
+      created: 1,
+    });
+    const made = h.createdWindows[0];
+    expect({
+      name,
+      bounds: boundsOf(made),
+      focused: made.focused,
+      state: made.state ?? "normal",
+    }).toEqual({
+      name,
+      bounds: {
+        left: window.left,
+        top: window.top,
+        width: window.width,
+        height: window.height,
+      },
+      focused: false,
+      state: "normal",
+    });
+    // The next open uses that window and reads, sizes and focuses none.
+    const before = h.windowCalls.length;
+    await opened(h, 6);
+    expect({ name, calls: h.windowCalls.slice(before) }).toEqual({
+      name,
+      calls: [],
+    });
+    h.socket.close();
+  }
+});
+
+test("without a usable last focused window, a new Agents window gets a usable default size and no position", async () => {
+  const cases: Array<[string, Record<string, unknown> | null]> = [
+    ["none", null],
+    // Windows reports a minimized window at -32000 with the size of its
+    // taskbar button.
+    [
+      "minimized",
+      {
+        ...MEMBER_WINDOW,
+        focused: false,
+        state: "minimized",
+        left: -32000,
+        top: -32000,
+        width: 160,
+        height: 28,
+      },
+    ],
+    ["fullscreen", { ...MEMBER_WINDOW, state: "fullscreen" }],
+    ["no size", { id: 3, focused: true, state: "normal", left: 30, top: 40 }],
+  ];
+  for (const [name, window] of cases) {
+    const h = await agentTabs();
+    h.lastFocused(window);
+    await opened(h, 5);
+    expect({ name, created: h.createdWindows.length }).toEqual({
+      name,
+      created: 1,
+    });
+    const made = h.createdWindows[0];
+    const { width, height } = made as { width?: number; height?: number };
+    expect({
+      name,
+      position: [made.left, made.top],
+      usable:
+        Number.isInteger(width) &&
+        width! >= 800 &&
+        Number.isInteger(height) &&
+        height! >= 600,
+      focused: made.focused,
+      state: made.state ?? "normal",
+    }).toEqual({
+      name,
+      position: [undefined, undefined],
+      usable: true,
+      focused: false,
+      state: "normal",
+    });
+    h.socket.close();
+  }
+});
+
+test("the member's window is focused again after a new Agents window is made when it had focus; an unfocused one or none is left alone, and a refused focus does not fail the open", async () => {
+  const focused = await agentTabs();
+  focused.lastFocused(MEMBER_WINDOW);
+  await opened(focused, 5);
+  expect(
+    focused.windowCalls.map((c) => (c.call === "update" ? c : c.call)),
+  ).toEqual([
+    "getLastFocused",
+    "create",
+    "made",
+    { call: "update", arg: { id: MEMBER_WINDOW.id, focused: true } },
+  ]);
+  focused.socket.close();
+  // Chrome was not the focused app, or had no normal window.
+  for (const [name, window] of [
+    ["unfocused", { ...MEMBER_WINDOW, focused: false }],
+    ["none", null],
+  ] as const) {
+    const h = await agentTabs();
+    h.lastFocused(window);
+    await opened(h, 5);
+    expect({ name, created: h.createdWindows.length }).toEqual({
+      name,
+      created: 1,
+    });
+    expect({ name, updates: windowUpdates(h) }).toEqual({ name, updates: [] });
+    h.socket.close();
+  }
+  const refused = await agentTabs();
+  refused.lastFocused(MEMBER_WINDOW);
+  refused.refuseUpdate();
+  const { tabId } = await opened(refused, 5);
+  expect(windowUpdates(refused)).toHaveLength(1);
+  expect(stillOpen(refused, tabId)).toBe(true);
+  expect(refused.calls).toContain("attach");
+});
+
+test("when Chrome refuses the bounds, the Agents window is made once more without them and the open answers; the member's window is focused again and the next open uses that window", async () => {
+  for (const [name, window] of [
+    ["member window", MEMBER_WINDOW],
+    ["default size", null],
+  ] as const) {
+    const h = await agentTabs();
+    h.lastFocused(window);
+    h.refuseBounds();
+    const first = await opened(h, 5);
+    expect({ name, created: h.createdWindows.length }).toEqual({
+      name,
+      created: 2,
+    });
+    const [sized, plain] = h.createdWindows;
+    expect({
+      name,
+      sized: Object.keys(boundsOf(sized)).length > 0,
+      plain: boundsOf(plain),
+      focused: plain.focused,
+    }).toEqual({ name, sized: true, plain: {}, focused: false });
+    expect({ name, updates: windowUpdates(h) }).toEqual({
+      name,
+      updates: window ? [{ id: window.id, focused: true }] : [],
+    });
+    const second = await opened(h, 6);
+    expect({ name, created: h.createdWindows.length }).toEqual({
+      name,
+      created: 2,
+    });
+    expect({
+      name,
+      same: h.madeTabs.get(second.tabId)?.windowId,
+    }).toEqual({ name, same: h.madeTabs.get(first.tabId)?.windowId });
+    h.socket.close();
+  }
 });
 
 test("Open their own tabs off ends the agents' access to their tabs and leaves the tabs open as plain tabs; the member's offered tab stays offered", async () => {

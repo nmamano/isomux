@@ -316,6 +316,28 @@ async function endOpened(tab: OwnedTab, popups: number[]): Promise<void> {
 // other here, so two at once make one window.
 const WINDOW_KEY = "agentsWindow";
 let windowWork: Promise<unknown> = Promise.resolve();
+// The new window takes the bounds of the member's last focused window, since
+// Chrome can pick a strip. Chrome refuses a maximized window without focus,
+// so a maximized one gives its bounds too; other states get a default size.
+async function makeAgentsWindow() {
+  const member = await chrome.windows
+    .getLastFocused({ windowTypes: ["normal"] })
+    .catch(() => undefined);
+  const { left, top, width, height } = member ?? {};
+  const bounds =
+    (member?.state === "normal" || member?.state === "maximized") &&
+    [left, top, width, height].every(Number.isSafeInteger)
+      ? { left, top, width, height }
+      : { width: 1280, height: 800 };
+  const window = await chrome.windows
+    .create({ focused: false, url: "about:blank", ...bounds })
+    // Bounds mostly off screen (a monitor that is gone) are refused.
+    .catch(() => chrome.windows.create({ focused: false, url: "about:blank" }));
+  // A window shown without focus can sit over the member's window.
+  if (member?.focused === true && Number.isSafeInteger(member.id))
+    await chrome.windows.update(member.id!, { focused: true }).catch(() => {});
+  return window;
+}
 function makeAgentTab(): Promise<number> {
   const work = windowWork
     .catch(() => {})
@@ -332,10 +354,7 @@ function makeAgentTab(): Promise<number> {
         } catch {
           // The member closed the window.
         }
-      const window = await chrome.windows.create({
-        focused: false,
-        url: "about:blank",
-      });
+      const window = await makeAgentsWindow();
       const tabId = window.tabs?.[0]?.id;
       if (!Number.isSafeInteger(window.id) || !Number.isSafeInteger(tabId))
         throw new AttachError("tab_unavailable");
