@@ -10,6 +10,8 @@ interface AuditContext {
   promptContent?: string;
   // Ids the write knows and its answer does not carry (noteAuditTarget).
   targets?: string[];
+  // The member a /api/users/:username route acted on (noteAuditMember).
+  member?: { userId: string; item?: string };
 }
 const context = new AsyncLocalStorage<AuditContext>();
 // A write to the office, room, agent or member prompt keeps the text after the
@@ -33,6 +35,19 @@ export function noteAuditTarget(id: string): void {
 export function notedAuditTargets(): string[] {
   const value = context.getStore();
   return value?.active ? (value.targets ?? []) : [];
+}
+// The member whose integration a write changed, and the item's name (a
+// variable, secret or MCP server). The member's id is a target too, so the
+// member's "changed for you" list finds the row after a rename (task 7a3b4114).
+export function noteAuditMember(userId: string, item?: string): void {
+  const value = context.getStore();
+  if (!value?.active) return;
+  value.member = item === undefined ? { userId } : { userId, item };
+  (value.targets ??= []).push(userId);
+}
+export function notedAuditMember(): AuditContext["member"] {
+  const value = context.getStore();
+  return value?.active ? value.member : undefined;
 }
 export function requireAuditContext(): AuditContext {
   const value = context.getStore();

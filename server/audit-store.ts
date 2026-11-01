@@ -155,7 +155,40 @@ export function createAuditStore(db: Database) {
       nextBefore: more ? items[items.length - 1].sequence : null,
     };
   }
-  return { db, insert, append: db.transaction(insert), list };
+  // The rows of the listed operations that changed a member's integrations
+  // and were made by someone else: not the member, nor their agents, tokens,
+  // cronjobs or apps (task 7a3b4114). Filtered here, not on a capped page:
+  // other rows target the member's id too, and must not crowd these out.
+  function memberChanges(query: {
+    userId: string;
+    operations: readonly string[];
+    since: number;
+    limit: number;
+  }): AuditEntry[] {
+    if (query.operations.length === 0) return [];
+    const rows = db
+      .query(
+        `SELECT sequence,record FROM audit
+         WHERE sequence IN (SELECT sequence FROM audit_targets WHERE target=?)
+           AND operation IN (${query.operations.map(() => "?").join(",")})
+           AND time>=?
+           AND NOT (actor_kind='member' AND actor_id=?)
+           AND (owner_id IS NULL OR owner_id<>?)
+         ORDER BY sequence DESC LIMIT ?`,
+      )
+      .all(
+        query.userId,
+        ...query.operations,
+        query.since,
+        query.userId,
+        query.userId,
+        query.limit,
+      ) as { sequence: number; record: string }[];
+    return rows.map(
+      (r) => ({ ...JSON.parse(r.record), sequence: r.sequence }) as AuditEntry,
+    );
+  }
+  return { db, insert, append: db.transaction(insert), list, memberChanges };
 }
 export type AuditStore = ReturnType<typeof createAuditStore>;
 let singleton: { path: string; inode: number; store: AuditStore } | undefined;

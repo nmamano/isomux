@@ -367,6 +367,7 @@ import { pagerHandlers } from "./routes/handlers/pager.ts";
 import { askHandlers } from "./routes/handlers/asks.ts";
 import { officeAskHistory } from "./ask-history.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
+import { integrationChangesHandlers } from "./routes/handlers/integration-changes.ts";
 import { voiceHandlers } from "./routes/handlers/voice.ts";
 import { voiceKeyForUserId } from "./voice-key.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
@@ -4232,8 +4233,17 @@ function buildExecutorDeps(
   );
 
   register(
+    integrationChangesHandlers({
+      memberChanges: (query) => officeAuditStore().memberChanges(query),
+      userName: (userId) => getUserById(userId)?.name ?? null,
+    }),
+  );
+
+  register(
     pagerSettingsHandlers({
       settings: pagerSettings,
+      userIdForUsername: (username) =>
+        buildLiveGuardDeps().userIdForUsername(username),
       rescheduleMember: (userId) => {
         pagerDelivery.rescheduleMember(userId);
         webPushDelivery.rescheduleMember(userId);
@@ -6975,6 +6985,16 @@ function buildExecutorDeps(
     preferencesHandlers({
       applyPreferences: (userId, change) =>
         applyPreferencesChange(userId, change),
+      userIdForUsername: (username) =>
+        buildLiveGuardDeps().userIdForUsername(username),
+      userById: (userId) => getUserById(userId) ?? null,
+      keyStatus: (userId) => {
+        const found = voiceKeyForUserId(userId);
+        return {
+          keySource: found?.source ?? null,
+          keyName: found?.name ?? null,
+        };
+      },
     }),
   );
   register(

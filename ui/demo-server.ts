@@ -29,6 +29,8 @@ import type {
   EditAgentReq,
   SendMessageReq,
   PreferencesReq,
+  MemberVoiceReq,
+  MemberVoiceRes,
   PagerSettingsReq,
   PagerSettingsRes,
   TuckedRoomsReq,
@@ -56,6 +58,7 @@ import type {
   WebhookDryRunReq,
   WebhookUpdateReq,
 } from "../shared/contract-shapes.ts";
+import { DEFAULT_VOICE_NAME } from "../shared/voice.ts";
 import type {
   AgentBackendType,
   AgentCapabilities,
@@ -295,11 +298,18 @@ function seedMembersChat(now: number): void {
   };
 }
 const demoManagedEnv: Record<string, Record<string, string>> = {};
-const demoPagerSettings: PagerSettingsRes = {
-  webhookUrlMasked: null,
-  discordUserId: null,
-  repeatMinutes: 5,
-};
+// Each member's pager settings, by lower-case name: an owner sets another
+// member's too (task 7a3b4114).
+const demoPagerSettingsByName = new Map<string, PagerSettingsRes>();
+function demoPagerSettingsOf(username: string): PagerSettingsRes {
+  const key = username.toLowerCase();
+  let found = demoPagerSettingsByName.get(key);
+  if (!found) {
+    found = { webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 };
+    demoPagerSettingsByName.set(key, found);
+  }
+  return found;
+}
 let demoManagedOfficeEnv: Record<string, string> = {};
 // The variables' usage notes (integrations A4), by "office" or a user id.
 const demoEnvNotes: Record<string, Record<string, string>> = {};
@@ -3184,6 +3194,9 @@ export async function demoApi(
     // The Voice tab: the demo has no OpenAI key.
     case "GET /api/voice":
       return { keySource: null, keyName: null };
+    // "Changed for you": nobody changes the visitor's settings in the demo.
+    case "GET /api/me/integration-changes":
+      return { items: [] };
     // The integrations list: names only, office variables for owners only,
     // as the server builds it. Every demo sign-in is signed out, so there are
     // no sign-in or connector rows.
@@ -3568,10 +3581,13 @@ export async function demoApi(
   // and the test send always "arrives": the demo has no Discord to reach.
   // Only the mask is kept, as the server returns nothing more.
   const pagerSettingsMatch = pathname.match(
-    /^\/api\/users\/[^/]+\/pager-settings(\/test)?$/,
+    /^\/api\/users\/([^/]+)\/pager-settings(\/test)?$/,
   );
   if (pagerSettingsMatch) {
-    if (pagerSettingsMatch[1]) {
+    const demoPagerSettings = demoPagerSettingsOf(
+      decodeURIComponent(pagerSettingsMatch[1]),
+    );
+    if (pagerSettingsMatch[2]) {
       if (method !== "POST") throw new ApiError(405, "method_not_allowed", "");
       return demoPagerSettings.webhookUrlMasked
         ? { delivered: true }
@@ -3592,6 +3608,29 @@ export async function demoApi(
       }
     }
     return { ...demoPagerSettings };
+  }
+  // memberVoice.* - a member's voice choices, which an owner sets too (task
+  // 7a3b4114). They round-trip on the user record, as prefs.update does.
+  const memberVoiceMatch = pathname.match(/^\/api\/users\/([^/]+)\/voice$/);
+  if (memberVoiceMatch) {
+    const key = decodeURIComponent(memberVoiceMatch[1]).toLowerCase();
+    const existing = users.get(key);
+    if (!existing) throw new ApiError(404, "not_found", "");
+    if (method === "PATCH") {
+      const b = (body ?? {}) as MemberVoiceReq;
+      const updated: UserRecord = { ...existing, ...b };
+      users.set(key, updated);
+      shimEmit({ type: "user_updated", user: updated });
+      return undefined;
+    }
+    const res: MemberVoiceRes = {
+      voiceInput: existing.voiceInput ?? "browser",
+      voiceOutput: existing.voiceOutput ?? "browser",
+      voiceName: existing.voiceName ?? DEFAULT_VOICE_NAME,
+      keySource: null,
+      keyName: null,
+    };
+    return res;
   }
   const viewer = {
     userId: sessionContext?.userId ?? null,

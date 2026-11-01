@@ -2,11 +2,12 @@
 // member's pages go. Design: internal-docs/pager-design.md, "Delivery:
 // Discord".
 //
-// Self-only, the same gate as userEnv.*: the route table passes the caller's
-// cookie session or that member's own API token (cap user:env +
-// selfUserOrApi), and the handlers act on the caller's userId. No agent scope
-// holds user:env, so no agent reads or changes these settings. The webhook URL
-// is a credential: no response carries more than its masked form.
+// The secrets gate (task 7a3b4114): the route table passes the member or an
+// office owner, by cookie, API token or privileged agent
+// (integration:manage + integrationSelfOrOwner), and the handlers act on the
+// path's member, never the caller. The webhook URL is a credential: no
+// response carries more than its masked form, as no secrets response carries
+// a value.
 //
 // LEAF over the executor, the settings store and the delivery service.
 
@@ -18,19 +19,15 @@ import {
   toPagerSettingsRes,
   type PagerSettingsStore,
 } from "../../pager-settings.ts";
+import { memberSubject } from "./member-subject.ts";
+import type { GuardDeps } from "../../identity/guards.ts";
 
 export interface PagerSettingsDeps {
   settings: PagerSettingsStore;
+  userIdForUsername: GuardDeps["userIdForUsername"];
   // Re-arm the member's open pages after a change.
   rescheduleMember(userId: string): void;
   sendTest(userId: string): Promise<PagerTestRes>;
-}
-
-function subjectUserId(ctx: Parameters<RouteHandler>[0]): string | null {
-  return (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&
-    ctx.identity.userId
-    ? ctx.identity.userId
-    : null;
 }
 
 // Every failure is answered here, never rethrown: the executor logs a thrown
@@ -53,16 +50,19 @@ function guarded(handler: RouteHandler): RouteHandler {
 export function pagerSettingsHandlers(
   deps: PagerSettingsDeps,
 ): Record<string, RouteHandler> {
+  const subject = memberSubject(deps.userIdForUsername);
+  const subjectUserId = (ctx: Parameters<RouteHandler>[0]) =>
+    subject(ctx)?.userId ?? null;
   const handlers: Record<string, RouteHandler> = {
     "pagerSettings.get": (ctx) => {
       const userId = subjectUserId(ctx);
-      if (!userId) return fail(403, "forbidden");
+      if (!userId) return fail(404, "not_found");
       return ok(toPagerSettingsRes(deps.settings.get(userId)));
     },
 
     "pagerSettings.update": (ctx) => {
       const userId = subjectUserId(ctx);
-      if (!userId) return fail(403, "forbidden");
+      if (!userId) return fail(404, "not_found");
       const parsed = parsePagerSettingsPatch(ctx.body ?? {});
       if (!parsed.ok) return fail(422, "invalid_request", parsed.message);
       const next = deps.settings.update(userId, parsed.patch);
@@ -72,7 +72,7 @@ export function pagerSettingsHandlers(
 
     "pagerSettings.test": async (ctx) => {
       const userId = subjectUserId(ctx);
-      if (!userId) return fail(403, "forbidden");
+      if (!userId) return fail(404, "not_found");
       return ok(await deps.sendTest(userId));
     },
   };

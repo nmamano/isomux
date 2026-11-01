@@ -411,6 +411,13 @@ export const selfUserOrApi: Guard = ({ identity, params, deps }) => {
     : FORBIDDEN;
 };
 
+// A human acting for themself: the cookie session or their own API token,
+// never an agent.
+export const userOrApi: Guard = ({ identity }) =>
+  (identity.scope === "user" || identity.scope === "api") && identity.userId
+    ? ALLOW
+    : FORBIDDEN;
+
 // A member's own integrations (variables, secrets, MCP servers): the member,
 // or an office owner for any member, by cookie or by their own API token
 // (Nil, 2026-10-13). No agent scope passes either branch. The handler resolves
@@ -421,10 +428,7 @@ export const selfOrEnvOwner: Guard = (ctx) =>
 // The office integrations, read-only: any human of either role, by cookie or
 // by their own API token. The handler gives a member names, hosts and notes
 // only (Nil, 2026-10-13).
-export const officeEnvReader: Guard = ({ identity }) =>
-  (identity.scope === "user" || identity.scope === "api") && identity.userId
-    ? ALLOW
-    : FORBIDDEN;
+export const officeEnvReader: Guard = userOrApi;
 
 // The integration:manage routes: changes, lists, names and Test, never a
 // value. They admit an agent too, with its manager's reach (Nil, 2026-10-14).

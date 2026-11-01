@@ -45,6 +45,7 @@ import {
   selfOrOwner,
   proxyMemberPrompt,
   selfUserOrApi,
+  userOrApi,
   selfOrEnvOwner,
   officeOwner,
   officeSettingsOwner,
@@ -199,6 +200,9 @@ import type {
   SecretRequestSaveReq,
   SecretRequestAnswerRes,
   PagerSettingsReq,
+  MemberVoiceReq,
+  MemberVoiceRes,
+  IntegrationChangesRes,
   PagerSettingsRes,
   PagerTestRes,
   PushDevice,
@@ -1643,12 +1647,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // Settings that follow a member across devices (reply language). Sibling of
-  // the view.* surface rather than a field on
-  // users.update, because users.update is selfOrOwner and personal preferences
-  // are deliberately NOT something an owner sets for a member (see
-  // routes/handlers/users.ts). user:self keeps agents out: it is
-  // absent from AGENT_CAPABILITIES and PRIVILEGED_AGENT_CAPABILITIES.
+  // Settings that follow a member across devices (reply language, voice).
+  // Sibling of the view.* surface rather than a field on users.update,
+  // because users.update is selfOrOwner and the language is deliberately NOT
+  // something an owner sets for a member (see routes/handlers/users.ts); the
+  // voice part also has memberVoice.update, which an owner reaches. user:self
+  // keeps agents out: it is absent from AGENT_CAPABILITIES and
+  // PRIVILEGED_AGENT_CAPABILITIES.
   defineRoute<PreferencesReq, NoContent>({
     opId: "prefs.update",
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
@@ -1697,6 +1702,29 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("voice:use", operationalAuthenticated),
     tokenArea: { area: "voice", level: "write" },
     emits: [],
+  }),
+
+  // A member's voice choices on their path (task 7a3b4114): the secrets gate,
+  // so the member or an office owner (their API token, their privileged
+  // agent) reads and sets them. The key line is the SUBJECT's, never a value.
+  defineRoute<void, MemberVoiceRes>({
+    opId: "memberVoice.get",
+    method: "GET",
+    path: "/api/users/:username/voice",
+    auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "voice", level: "read" },
+    emits: [],
+  }),
+  defineRoute<MemberVoiceReq, NoContent>({
+    opId: "memberVoice.update",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PATCH",
+    path: "/api/users/:username/voice",
+    auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "voice", level: "write" },
+    // The same scoped pair as prefs.update: the subject's tabs get their
+    // record, owners the admin copy.
+    emits: ["user_admin_updated", "user_self_updated"],
   }),
 
   // Managed per-user environment. Cleartext values stay self-only, but a
@@ -2089,14 +2117,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
-  // Where the member's pages go (a Discord webhook). Same self-only gate as
-  // userEnv: the URL is a credential, so no agent scope reaches it, and the
-  // responses carry only its masked form.
+  // Where the member's pages go (a Discord webhook). The secrets gate (task
+  // 7a3b4114): the member or an office owner, by cookie, API token or
+  // privileged agent. The URL is a credential: the responses carry only its
+  // masked form, as the secrets routes carry no value.
   defineRoute<void, PagerSettingsRes>({
     opId: "pagerSettings.get",
     method: "GET",
     path: "/api/users/:username/pager-settings",
-    auth: cap("user:env", selfUserOrApi),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     tokenArea: { area: "pager", level: "read" },
     emits: [],
   }),
@@ -2105,7 +2134,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "PATCH",
     path: "/api/users/:username/pager-settings",
-    auth: cap("user:env", selfUserOrApi),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     // A save re-arms the member's open pages; any delivery result it causes
     // emits from the store.
     tokenArea: { area: "pager", level: "write" },
@@ -2116,7 +2145,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
     path: "/api/users/:username/pager-settings/test",
-    auth: cap("user:env", selfUserOrApi),
+    auth: cap("integration:manage", integrationSelfOrOwner),
     tokenArea: { area: "pager", level: "write" },
     emits: [],
   }),
@@ -2157,6 +2186,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/users/:username/push-devices/:id/test",
     auth: cap("user:env", selfUserOrApi),
     tokenArea: { area: "pager", level: "write" },
+    emits: [],
+  }),
+
+  // "Changed for you" (task 7a3b4114): the Integrations changes someone else
+  // made for the caller, from the audit log. The caller's own cookie or API
+  // token; no agent, so an owner's agent cannot read a member's list.
+  defineRoute<void, IntegrationChangesRes>({
+    opId: "integrationChanges.list",
+    method: "GET",
+    path: "/api/me/integration-changes",
+    auth: cap("user:env", userOrApi),
+    tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
 

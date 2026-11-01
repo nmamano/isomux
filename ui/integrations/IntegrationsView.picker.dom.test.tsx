@@ -73,7 +73,14 @@ describe("the member picker", () => {
   it("keeps the member across tabs, and a new page starts on You", async () => {
     const view = await open();
     await pick(view, "Stephen");
-    for (const id of ["mcp", "secrets", "variables", "providers"]) {
+    for (const id of [
+      "mcp",
+      "secrets",
+      "variables",
+      "providers",
+      "voice",
+      "pager",
+    ]) {
       await tab(view, id);
       const theirs = personal(view);
       expect(theirs.getAttribute("data-integrations-member"), id).toBe(

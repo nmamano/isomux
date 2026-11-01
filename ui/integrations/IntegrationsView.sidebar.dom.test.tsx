@@ -12,7 +12,7 @@ const { act, fireEvent } = await import("@testing-library/react");
 const { setApiShim } = await import("../api.ts");
 const { IntegrationsFake } =
   await import("../test-support/integrations-fake.ts");
-const { OWNER, card, click, open, pick, selectedTab, tab } =
+const { OWNER, click, open, selectedTab, tab } =
   await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
@@ -59,33 +59,6 @@ describe("the sidebar", () => {
       ).length,
     ).toBe(1);
     expect(window.localStorage.getItem(TAB_KEY)).toBe("mcp");
-  });
-
-  it("shows the viewer's own pager settings on Pager, whoever the picker names", async () => {
-    const view = await open();
-    await pick(view, "Stephen");
-    expect(
-      card(view, "personal").getAttribute("data-integrations-member"),
-    ).toBe("Stephen");
-    // The pick itself loads Stephen's items on this tab; Pager adds none.
-    const stephen = () =>
-      fake.requests("GET", /\/api\/users\/Stephen\//).length;
-    const picked = stephen();
-    expect(picked).toBeGreaterThan(0);
-    await tab(view, "pager");
-    expect(selectedTab(view)).toBe("pager");
-    expect(window.localStorage.getItem(TAB_KEY)).toBe("pager");
-    expect(
-      view.container.querySelector('[data-testid="pager-settings"]'),
-    ).not.toBeNull();
-    expect(cards(view)).toBe(0);
-    expect(
-      view.container.querySelector("[data-integrations-picker]"),
-    ).toBeNull();
-    expect(
-      fake.requests("GET", "/api/users/Ricky/pager-settings").length,
-    ).toBeGreaterThan(0);
-    expect(stephen()).toBe(picked);
   });
 
   it("shows the viewer's own API tokens on API tokens", async () => {

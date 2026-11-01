@@ -2264,11 +2264,12 @@ export interface UserRecord {
   // user record regardless of role (member is the superset; UserRole
   // "owner" is the admin-privilege flag).
   memberPrompt: string | null;
-  // Personal preferences. SELF-only: written through
-  // PUT /api/me/preferences, never through the selfOrOwner users.update
-  // route, so an owner cannot set a member's personal settings. They ride
-  // the same private channels as the rest of this record (self + admin),
-  // never the public wire.
+  // Personal preferences, written through PATCH /api/me/preferences, never
+  // through the selfOrOwner users.update route. The language is SELF-only;
+  // the voice fields also have PATCH /api/users/:username/voice, which an
+  // owner reaches for a member (task 7a3b4114). They ride the same private
+  // channels as the rest of this record (self + admin), never the public
+  // wire.
   //
   // `language`: one of shared/languages.ts SUPPORTED_LANGUAGES, or null when
   // the user has never picked one. Drives the reply-language clause in the

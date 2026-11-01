@@ -39,6 +39,7 @@ import { McpSection, SignInNotice } from "./McpSection.tsx";
 import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
 import { VoiceSection } from "./VoiceSection.tsx";
+import { ChangedForYou, useIntegrationChanges } from "./ChangedForYou.tsx";
 import { GithubSection } from "./GithubSection.tsx";
 import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
 import { takeSignIn, type SignInNote } from "./sign-in-return.ts";
@@ -71,8 +72,11 @@ export type IntegrationsRequest = {
 };
 
 export type { IntegrationsTab };
-// The tabs that are the viewer's own, shown only with a session.
+// The tabs shown only with a session.
 const SELF_TABS: readonly IntegrationsTab[] = ["pager", "api-tokens"];
+// The tabs with a personal card and no office card: a member's own setting,
+// which an owner can also set for a member (task 7a3b4114).
+const MEMBER_TABS: readonly IntegrationsTab[] = ["voice", "pager"];
 // The tabs that carry the office and personal cards.
 const CARD_TABS: readonly IntegrationsTab[] = [
   "providers",
@@ -344,16 +348,52 @@ function IntegrationsPage({
             onGone={memberGone}
           />
         );
-      // The Voice, Browser Use, GitHub issues, Pager and API tokens tabs have no cards (see
-      // the page below).
       case "voice":
+        return (
+          <VoiceSection
+            key={key}
+            target={target}
+            onGone={memberGone}
+            onVariables={() => setTab("variables")}
+          />
+        );
+      case "pager":
+        // The pager is per signed-in member: its card waits for the session.
+        return sessionContext ? (
+          <PagerSettingsPane
+            key={key}
+            username={target.kind === "office" ? self : target.username}
+            member={target.kind === "member" ? target.username : undefined}
+          />
+        ) : null;
+      // The Browser Use, GitHub issues and API tokens tabs have no cards (see
+      // the page below).
       case "browser":
       case "github":
-      case "pager":
       case "api-tokens":
         return null;
     }
   }
+
+  // The viewer's own card lists what others changed for them on this tab.
+  const changes = useIntegrationChanges(!!sessionContext);
+  const personalCard = (
+    <PersonalCard
+      cardRef={personalRef}
+      target={personal}
+      role={role}
+      others={others.map((user) => user.name)}
+      onPick={pick}
+      gone={goneMember}
+      onClickCapture={actOn(personal)}
+      agentScope={!MEMBER_TABS.includes(tab)}
+    >
+      {personal.kind === "self" && <ChangedForYou tab={tab} items={changes} />}
+      <StepFocus.Provider value={focusFor(personal)}>
+        {section(personal)}
+      </StepFocus.Provider>
+    </PersonalCard>
+  );
 
   // Escape on a phone's tab goes back to the list, like Settings. Capture and
   // stopPropagation, so App's own Escape never closes the page instead.
@@ -556,8 +596,8 @@ function IntegrationsPage({
                 </p>
               )}
 
-              {tab === "voice" ? (
-                <VoiceSection onVariables={() => setTab("variables")} />
+              {MEMBER_TABS.includes(tab) ? (
+                personalCard
               ) : tab === "browser" ? (
                 // Only a session has its own Chrome to pair.
                 sessionContext && (
@@ -575,10 +615,6 @@ function IntegrationsPage({
                     ? { focusRoomId: focus.roomId }
                     : {})}
                 />
-              ) : tab === "pager" ? (
-                sessionContext && (
-                  <PagerSettingsPane username={sessionContext.username} />
-                )
               ) : tab === "api-tokens" ? (
                 sessionContext && <ApiTokensPane />
               ) : CARD_TABS.includes(tab) ? (
@@ -616,19 +652,7 @@ function IntegrationsPage({
                     </StepFocus.Provider>
                   </section>
 
-                  <PersonalCard
-                    cardRef={personalRef}
-                    target={personal}
-                    role={role}
-                    others={others.map((user) => user.name)}
-                    onPick={pick}
-                    gone={goneMember}
-                    onClickCapture={actOn(personal)}
-                  >
-                    <StepFocus.Provider value={focusFor(personal)}>
-                      {section(personal)}
-                    </StepFocus.Provider>
-                  </PersonalCard>
+                  {personalCard}
 
                   {tab === "providers" && (
                     <ProvidersFooter onVariables={() => setTab("variables")} />
@@ -725,6 +749,7 @@ function PersonalCard({
   onPick,
   gone,
   onClickCapture,
+  agentScope,
   children,
 }: {
   cardRef: React.RefObject<HTMLElement | null>;
@@ -735,6 +760,9 @@ function PersonalCard({
   // A member who left while picked.
   gone: string | null;
   onClickCapture: (e: MouseEvent) => void;
+  // The line on which agents use these items; the member's own settings
+  // (Voice, Pager) have none.
+  agentScope: boolean;
   children: ReactNode;
 }) {
   const { t, rich } = useI18n();
@@ -798,11 +826,13 @@ function PersonalCard({
           </>
         }
         sub={
-          other
-            ? rich("integrations.personalWhoMember", {
-                member: <Data>{target.username}</Data>,
-              })
-            : t("integrations.personalWhoSelf")
+          !agentScope
+            ? undefined
+            : other
+              ? rich("integrations.personalWhoMember", {
+                  member: <Data>{target.username}</Data>,
+                })
+              : t("integrations.personalWhoSelf")
         }
         action={
           other ? (

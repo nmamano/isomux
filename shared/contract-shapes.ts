@@ -13,7 +13,12 @@ import type { RoomPet } from "./pets.ts";
 import type { RoomSkin } from "./room-skins.ts";
 import type { RoomDecor, RoomDecorPatch } from "./room-decor.ts";
 import type { SecretForm } from "./secret-hosts.ts";
-import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
+import type {
+  VoiceInput,
+  VoiceName,
+  VoiceOutput,
+  VoiceStatusRes,
+} from "./voice.ts";
 import type {
   UserRecord,
   AgentInfo,
@@ -725,7 +730,8 @@ export interface TuckedRoomsReq {
 
 // prefs.update (PATCH /api/me/preferences). SELF-only personal
 // preferences, deliberately NOT on the selfOrOwner users.update route: the
-// split keeps an owner out of a member's personal settings. A Partial
+// split keeps an owner out of a member's language. The voice part also has a
+// member route an owner reaches (memberVoice.update, task 7a3b4114). A Partial
 // so a caller can clear or set the value; `language: null` is meaningful.
 export type PreferencesReq = Partial<{
   language: SupportedLanguageCode | null;
@@ -743,6 +749,48 @@ export const PREFERENCE_KEYS = [
   "voiceOutput",
   "voiceName",
 ] as const;
+
+// memberVoice.update (PATCH /api/users/:username/voice): the voice part of
+// the preferences, which an owner may set for a member (task 7a3b4114).
+export const VOICE_PREFERENCE_KEYS = [
+  "voiceInput",
+  "voiceOutput",
+  "voiceName",
+] as const;
+export type MemberVoiceReq = Pick<
+  PreferencesReq,
+  (typeof VOICE_PREFERENCE_KEYS)[number]
+>;
+
+// memberVoice.get: the member's saved choices with the defaults filled, and
+// where THAT member's OpenAI key comes from (never a value).
+export interface MemberVoiceRes extends VoiceStatusRes {
+  voiceInput: VoiceInput;
+  voiceOutput: VoiceOutput;
+  voiceName: VoiceName;
+}
+
+// integrationChanges.list (GET /api/me/integration-changes): the Integrations
+// changes someone else made for the caller in the last 30 days, newest first.
+// `by` is the human who made it (an agent's or token's manager); null when
+// that member is gone. `name` is the variable, secret or MCP server name; voice
+// and pager have none. Never a value.
+export type IntegrationChangeKind =
+  | "variable"
+  | "secret"
+  | "mcp"
+  | "voice"
+  | "pager";
+export interface IntegrationChange {
+  time: number;
+  by: string | null;
+  kind: IntegrationChangeKind;
+  action: "set" | "removed";
+  name?: string;
+}
+export interface IntegrationChangesRes {
+  items: IntegrationChange[];
+}
 
 export interface ApiTokenWire {
   id: string;

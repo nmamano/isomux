@@ -531,8 +531,9 @@ describe("route table: managed env values are self-only", () => {
     );
   };
   it("admits the owning user and API identity, and a privileged agent on the integration routes only", () => {
-    // The pager settings hold the Discord webhook URL, a credential that never
-    // reaches an agent: same gate as the managed env.
+    // The pager settings and the voice choice take the secrets gate (task
+    // 7a3b4114): a privileged agent reaches them, the masked URL is all it
+    // reads. Push devices stay self-only: they are the member's own devices.
     for (const opId of [
       "userEnv.get",
       "userEnv.replace",
@@ -555,6 +556,8 @@ describe("route table: managed env values are self-only", () => {
       "pagerSettings.get",
       "pagerSettings.update",
       "pagerSettings.test",
+      "memberVoice.get",
+      "memberVoice.update",
       "pushDevices.list",
       "pushDevices.add",
       "pushDevices.remove",
@@ -649,14 +652,17 @@ describe("route table: managed env values are self-only", () => {
     "mcpServers.delete",
     "mcpServers.test",
     "mcpServers.signIn",
+    // Nil, 2026-11-01 (task 7a3b4114): every Integrations setting.
+    "pagerSettings.get",
+    "pagerSettings.update",
+    "pagerSettings.test",
+    "memberVoice.get",
+    "memberVoice.update",
   ];
   const SELF_ONLY = [
     "userEnv.get",
     "userEnv.replace",
     "secrets.reveal",
-    "pagerSettings.get",
-    "pagerSettings.update",
-    "pagerSettings.test",
     "pushDevices.list",
     "pushDevices.add",
     "pushDevices.remove",
@@ -709,6 +715,23 @@ describe("route table: managed env values are self-only", () => {
       identities.agent,
       identities.privilegedAgent,
     ])
+      expect(runAuthorize(route.auth, who, {}, undefined, ownerDeps).ok).toBe(
+        false,
+      );
+  });
+
+  // "Changed for you" (task 7a3b4114): the member's own list, read by their
+  // cookie or their own API token; no agent, ordinary or privileged.
+  it("opens integrationChanges.list to a human and their API token only", () => {
+    const route = API_ROUTES.find((r) => r.opId === "integrationChanges.list")!;
+    const ownerDeps: GuardDeps = { ...deps, isOfficeOwnerUserId: () => true };
+    for (const who of [
+      identities.user,
+      { ...identities.user, role: "owner" } as Identity,
+      identities.api,
+    ])
+      expect(runAuthorize(route.auth, who, {}, undefined, deps).ok).toBe(true);
+    for (const who of [identities.agent, identities.privilegedAgent])
       expect(runAuthorize(route.auth, who, {}, undefined, ownerDeps).ok).toBe(
         false,
       );
@@ -1493,6 +1516,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   "voice.status": { caps: ["voice:use"], emits: [] },
   "voice.transcribe": { caps: ["voice:use"], emits: [] },
   "voice.speak": { caps: ["voice:use"], emits: [] },
+  // A member's voice choice, set by the member or an owner (task 7a3b4114).
+  "memberVoice.get": { caps: ["integration:manage"], emits: [] },
+  "memberVoice.update": {
+    caps: ["integration:manage"],
+    emits: ["user_admin_updated", "user_self_updated"],
+  },
   "userEnv.get": { caps: ["user:env"], emits: [] },
   "userEnv.replace": { caps: ["user:env"], emits: [] },
   "userEnv.names": { caps: ["integration:manage"], emits: [] },
@@ -1532,9 +1561,14 @@ const SPEC_ROUTE_CONTRACT: Record<
   "officeMcpServers.delete": { caps: ["integration:manage"], emits: [] },
   "officeMcpServers.test": { caps: ["integration:manage"], emits: [] },
   "officeMcpServers.signIn": { caps: ["user:env"], emits: [] },
-  "pagerSettings.get": { caps: ["user:env"], emits: [] },
-  "pagerSettings.update": { caps: ["user:env"], emits: ["pager_upserted"] },
-  "pagerSettings.test": { caps: ["user:env"], emits: [] },
+  "pagerSettings.get": { caps: ["integration:manage"], emits: [] },
+  "pagerSettings.update": {
+    caps: ["integration:manage"],
+    emits: ["pager_upserted"],
+  },
+  "pagerSettings.test": { caps: ["integration:manage"], emits: [] },
+  // The member's own "changed for you" list: a human or their own token.
+  "integrationChanges.list": { caps: ["user:env"], emits: [] },
   "pushDevices.list": { caps: ["user:env"], emits: [] },
   "pushDevices.add": { caps: ["user:env"], emits: [] },
   "pushDevices.remove": { caps: ["user:env"], emits: [] },
@@ -2349,6 +2383,8 @@ const API_REACHABLE_OPIDS = [
   "voice.status",
   "voice.transcribe",
   "voice.speak",
+  "memberVoice.get",
+  "memberVoice.update",
   "userEnv.get",
   "userEnv.replace",
   "userEnv.set",
@@ -2394,6 +2430,7 @@ const API_REACHABLE_OPIDS = [
   "pushDevices.add",
   "pushDevices.remove",
   "pushDevices.test",
+  "integrationChanges.list",
   "apiTokenInbox.drain",
   "users.readInstructions",
   "users.setInstructions",

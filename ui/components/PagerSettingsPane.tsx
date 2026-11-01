@@ -47,7 +47,16 @@ const NEVER = "never";
 // a masked URL (server/pager-settings.ts maskWebhookUrl).
 const HELD_WEBHOOK = "https://discord.com/api/webhooks/…0000";
 
-export function PagerSettingsPane({ username }: { username: string }) {
+// `member`: the member's name when an owner sets another member's pager
+// (task 7a3b4114). The copy then names them, and this device's
+// notifications stay off the card: the member's devices are theirs.
+export function PagerSettingsPane({
+  username,
+  member,
+}: {
+  username: string;
+  member?: string;
+}) {
   const { t, tn } = useI18n();
   const path = `/api/users/${encodeURIComponent(username)}/pager-settings`;
   const [saved, setSaved] = useState<PagerSettingsRes | null>(null);
@@ -241,10 +250,18 @@ export function PagerSettingsPane({ username }: { username: string }) {
   return (
     <div style={{ marginTop: 24 }} data-testid="pager-settings">
       <h4 style={sectionHeader}>{t("settings.sidebar.pager")}</h4>
-      <p style={{ ...hint, marginTop: 4 }}>{t("pager.settings.intro")}</p>
+      <p style={{ ...hint, marginTop: 4 }}>
+        {member
+          ? t("pager.settings.introTheirs", { member })
+          : t("pager.settings.intro")}
+      </p>
 
-      <h5 style={subHeader}>{t("pager.settings.thisDevice")}</h5>
-      <PushDevicesBlock username={username} />
+      {!member && (
+        <>
+          <h5 style={subHeader}>{t("pager.settings.thisDevice")}</h5>
+          <PushDevicesBlock username={username} />
+        </>
+      )}
 
       <h5 style={subHeader}>{t("pager.settings.discord")}</h5>
       {loadFailed ? (
@@ -283,7 +300,11 @@ export function PagerSettingsPane({ username }: { username: string }) {
             <label style={fieldLabel} htmlFor="pager-user-id">
               {t("pager.settings.userId")}
               <HelpTip
-                text={`${t("pager.settings.userIdHint")} ${t("pager.settings.phoneHint")}`}
+                text={
+                  member
+                    ? t("pager.settings.userIdHintTheirs", { member })
+                    : `${t("pager.settings.userIdHint")} ${t("pager.settings.phoneHint")}`
+                }
               />
             </label>
             <input

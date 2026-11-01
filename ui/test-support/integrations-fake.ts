@@ -16,6 +16,7 @@ import type {
   SecretWire,
 } from "../../shared/contract-shapes.ts";
 import type { ProviderAccountWire } from "../../shared/types.ts";
+import { DEFAULT_VOICE_NAME } from "../../shared/voice.ts";
 
 export type Call = { method: ApiMethod; path: string; body: unknown };
 
@@ -96,6 +97,13 @@ export class IntegrationsFake {
   };
   // GET /api/me/api-tokens: the viewer's own tokens.
   apiTokens: ApiTokenWire[] = [];
+  // GET /api/users/<name>/voice, by lower-case member name; a member with no
+  // entry reads the defaults and no key. PATCH merges into it.
+  voices = new Map<string, Record<string, unknown>>();
+  // GET /api/users/<name>/pager-settings, by lower-case member name.
+  pagers = new Map<string, Record<string, unknown>>();
+  // GET /api/me/integration-changes: the viewer's own "changed for you" list.
+  changes: Record<string, unknown>[] = [];
   private holds = new Map<string, Promise<void>>();
 
   constructor(
@@ -194,8 +202,36 @@ export class IntegrationsFake {
     // The Pager and API tokens tabs: the viewer's own, read-only here.
     if (path === "/api/me/api-tokens" && method === "GET")
       return { apiTokens: this.apiTokens };
-    if (/^\/api\/users\/[^/]+\/pager-settings$/.test(path) && method === "GET")
-      return { webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 };
+    if (path === "/api/me/integration-changes" && method === "GET")
+      return { items: this.changes };
+    // A member's voice and pager settings: the member, or an owner.
+    const setting = path.match(
+      /^\/api\/users\/([^/]+)\/(voice|pager-settings)$/,
+    );
+    if (setting) {
+      const who = decodeURIComponent(setting[1]).toLowerCase();
+      if (!this.members.some((m) => m.toLowerCase() === who)) this.notFound();
+      if (!owner && who !== username.toLowerCase()) this.forbidden();
+      const voice = setting[2] === "voice";
+      const store = voice ? this.voices : this.pagers;
+      const current = {
+        ...(voice
+          ? {
+              voiceInput: "browser",
+              voiceOutput: "browser",
+              voiceName: DEFAULT_VOICE_NAME,
+              keySource: null,
+              keyName: null,
+            }
+          : { webhookUrlMasked: null, discordUserId: null, repeatMinutes: 5 }),
+        ...store.get(who),
+      };
+      if (method === "GET") return current;
+      if (method === "PATCH") {
+        store.set(who, { ...current, ...body });
+        return voice ? undefined : store.get(who);
+      }
+    }
     if (/^\/api\/users\/[^/]+\/push-devices$/.test(path) && method === "GET")
       return { publicKey: "", devices: [] };
 

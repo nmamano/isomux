@@ -1128,6 +1128,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.voice.openai": "OpenAI",
   "integrations.voice.where":
     "With OpenAI, the office server sends your recordings and the replies you read aloud to OpenAI.",
+  "integrations.voice.whereTheirs":
+    "With OpenAI, the office server sends {member}'s recordings and the replies they read aloud to OpenAI.",
   "integrations.voice.key.member": "OpenAI uses {name} from your variables.",
   "integrations.voice.key.office":
     "OpenAI uses {name} from the office variables.",
@@ -1136,7 +1138,19 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.voice.key.secret":
     "{name} is saved as a secret. OpenAI needs it as a variable.",
   "integrations.voice.key.none": "Add OPENAI_VOICE_API_KEY to use OpenAI.",
+  "integrations.voice.key.theirs":
+    "OpenAI uses {name} from {member}'s variables.",
+  "integrations.voice.key.noneTheirs":
+    "Add OPENAI_VOICE_API_KEY to {member}'s variables to use OpenAI.",
   "integrations.voice.saveFailed": "The change was not saved.",
+  "integrations.changes.title": "Changed for you",
+  "integrations.changes.set": "{by} set {name}",
+  "integrations.changes.removed": "{by} removed {name}",
+  "integrations.changes.changed": "{by} changed these settings",
+  "integrations.changes.setUnknown": "A former member set {name}",
+  "integrations.changes.removedUnknown": "A former member removed {name}",
+  "integrations.changes.changedUnknown":
+    "A former member changed these settings",
   "integrations.secretsHonesty":
     "Isomux blocks agents from reading saved secrets, but this office has no hard wall between agents and its files or apps.",
   "integrations.secrets.modelKeys":
@@ -3541,6 +3555,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.sidebar.pager": "Pager",
   "pager.settings.intro":
     "Agents page you when they need you. Pages show in your Inbox and reach the places below.",
+  "pager.settings.introTheirs":
+    "Pages for {member} show in their Inbox and reach the places below.",
   "pager.settings.thisDevice": "This device",
   "pager.settings.discord": "Discord",
   "pager.settings.webhook": "Webhook URL",
@@ -3551,6 +3567,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "pager.settings.userId": "User ID",
   "pager.settings.userIdHint":
     "Pages mention you, so Discord notifies you. In Discord: User Settings → Advanced → Developer Mode, then right-click your name (long-press on a phone) → Copy User ID.",
+  "pager.settings.userIdHintTheirs":
+    "Pages mention {member}, so Discord notifies them. In Discord: User Settings → Advanced → Developer Mode, then right-click {member}'s name (long-press on a phone) → Copy User ID.",
   "pager.settings.repeat": "Repeat an open page",
   "pager.settings.repeatNever": "Never",
   "pager.settings.repeatEvery": "Every {count} min",
@@ -3624,6 +3642,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.voice.status": "Read voice key status",
   "apiCall.voice.transcribe": "Transcribe a recording",
   "apiCall.voice.speak": "Read text aloud",
+  "apiCall.memberVoice.read": "Read voice settings",
+  "apiCall.memberVoice.save": "Save voice settings",
   "push.test": "Test notification from Isomux.",
   "push.turnEnd.title": "{agent} finished",
   "push.settings.switch": "Notifications",

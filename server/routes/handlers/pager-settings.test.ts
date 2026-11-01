@@ -52,6 +52,7 @@ describe("pager settings handlers: failures", () => {
     };
     const handlers = pagerSettingsHandlers({
       settings: { get: boom, update: boom, setHoldUntil: boom },
+      userIdForUsername: () => "u1",
       rescheduleMember: () => {},
       sendTest: () => Promise.reject(new Error(`fetch ${URL_}`)),
     });

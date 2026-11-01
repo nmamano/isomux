@@ -102,6 +102,7 @@ export const AUDIT_OPERATIONS = [
   "membersChat.post",
   "membersChat.thumbsUp",
   "membersChat.upload",
+  "memberVoice.update",
   "memory.append",
   "memory.replace",
   "office.setAccess",

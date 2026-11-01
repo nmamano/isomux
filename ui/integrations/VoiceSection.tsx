@@ -1,12 +1,18 @@
 // The Voice tab of Integrations (task 4481e64b): what the member's mic and
 // read aloud use, saved on each change, and which variable holds the OpenAI
-// key. The status names the variable and its source, never a value.
+// key. The status names the variable and its source, never a value. On
+// another member's card (an owner, task 7a3b4114) it reads and saves that
+// member's choices on their route.
 
 import { useEffect, useState, type ReactNode } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
-import type { PreferencesReq } from "../../shared/contract-shapes.ts";
+import type {
+  MemberVoiceReq,
+  MemberVoiceRes,
+  PreferencesReq,
+} from "../../shared/contract-shapes.ts";
 import type { EnvVariableSource } from "../../shared/types.ts";
 import {
   DEFAULT_VOICE_NAME,
@@ -17,7 +23,8 @@ import {
   type VoiceOutput,
   type VoiceStatusRes,
 } from "../../shared/voice.ts";
-import { card, errorText, hintText, input } from "./kit.tsx";
+import { errorText, hintText, input } from "./kit.tsx";
+import { basePath, isGone, type Target } from "./target.ts";
 
 type UsableKey =
   | "integrations.voice.key.member"
@@ -37,16 +44,29 @@ type Prefs = {
 };
 
 // onVariables switches the page to the Variables tab; without it the link
-// opens that tab's address.
+// opens that tab's address. `target` is whose choices: the viewer's own (the
+// default) or, for an owner, another member's; onGone runs when that member
+// is no longer in the office.
 export function VoiceSection({
   onVariables,
-}: { onVariables?: () => void } = {}) {
+  target,
+  onGone,
+}: {
+  onVariables?: () => void;
+  target?: Target;
+  onGone?: () => void;
+} = {}) {
   const { t } = useI18n();
   const self = useSelfUser();
+  const member = target?.kind === "member" ? target : null;
+  const path = member ? `${basePath(member)}/voice` : null;
+  // Another member's choices and key line, read from their route.
+  const [theirs, setTheirs] = useState<MemberVoiceRes | null>(null);
+  const record = member ? theirs : self;
   const saved: Prefs = {
-    voiceInput: self?.voiceInput ?? "browser",
-    voiceOutput: self?.voiceOutput ?? "browser",
-    voiceName: self?.voiceName ?? DEFAULT_VOICE_NAME,
+    voiceInput: record?.voiceInput ?? "browser",
+    voiceOutput: record?.voiceOutput ?? "browser",
+    voiceName: record?.voiceName ?? DEFAULT_VOICE_NAME,
   };
   // A change shows at once; the self record catches up over the socket.
   const [pending, setPending] = useState<Partial<Prefs>>({});
@@ -70,24 +90,45 @@ export function VoiceSection({
 
   useEffect(() => {
     let live = true;
-    apiFetch<VoiceStatusRes>("GET", "/api/voice")
-      .then((res) => {
-        if (live) setStatus(res);
-      })
-      .catch(() => {});
+    if (path) {
+      apiFetch<MemberVoiceRes>("GET", path)
+        .then((res) => {
+          if (!live) return;
+          setTheirs(res);
+          setStatus({ keySource: res.keySource, keyName: res.keyName });
+        })
+        .catch((caught) => {
+          if (live && member && isGone(caught, member)) onGone?.();
+        });
+    } else {
+      apiFetch<VoiceStatusRes>("GET", "/api/voice")
+        .then((res) => {
+          if (live) setStatus(res);
+        })
+        .catch(() => {});
+    }
     return () => {
       live = false;
     };
-  }, []);
+    // The member's route is the whole input; onGone and member follow it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
 
   function save(change: Partial<Prefs>) {
     setPending((prev) => ({ ...prev, ...change }));
     setSaveFailed(false);
-    apiFetch(
-      "PATCH",
-      "/api/me/preferences",
-      change satisfies PreferencesReq,
-    ).catch(() => {
+    const write = path
+      ? apiFetch("PATCH", path, change satisfies MemberVoiceReq).then(() => {
+          // No socket event carries another member's record to this card:
+          // the saved choice is what this card just sent.
+          setTheirs((prev) => (prev ? { ...prev, ...change } : prev));
+        })
+      : apiFetch(
+          "PATCH",
+          "/api/me/preferences",
+          change satisfies PreferencesReq,
+        );
+    write.catch((caught) => {
       setPending((prev) => {
         const next = { ...prev };
         for (const key of Object.keys(change) as (keyof Prefs)[]) {
@@ -95,21 +136,31 @@ export function VoiceSection({
         }
         return next;
       });
-      setSaveFailed(true);
+      if (member && isGone(caught, member)) onGone?.();
+      else setSaveFailed(true);
     });
   }
 
   const source = status?.keySource ?? null;
   const name = status?.keyName ?? VOICE_KEY_NAME;
   const usable = source ? USABLE[source] : undefined;
-  const keyLine = usable
-    ? t(usable, { name })
-    : source
-      ? t("integrations.voice.key.secret", { name })
-      : t("integrations.voice.key.none");
+  const keyLine =
+    member && source === "member_variable"
+      ? t("integrations.voice.key.theirs", { name, member: member.username })
+      : usable
+        ? t(usable, { name })
+        : source
+          ? t("integrations.voice.key.secret", { name })
+          : member
+            ? t("integrations.voice.key.noneTheirs", {
+                member: member.username,
+              })
+            : t("integrations.voice.key.none");
+  // Another member's choices show once read, so nothing is set on a guess.
+  const loading = !!member && !theirs;
 
   return (
-    <section data-integrations-card="voice" style={card}>
+    <section data-integrations-card="voice" inert={loading} aria-busy={loading}>
       <Row label={t("integrations.voice.mic")}>
         <Radios
           name="voiceInput"
@@ -164,7 +215,9 @@ export function VoiceSection({
         </a>
       </p>
       <p style={{ ...hintText, margin: "6px 0 0" }}>
-        {t("integrations.voice.where")}
+        {member
+          ? t("integrations.voice.whereTheirs", { member: member.username })
+          : t("integrations.voice.where")}
       </p>
     </section>
   );

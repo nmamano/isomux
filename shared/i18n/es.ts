@@ -1143,6 +1143,8 @@ Cosas que puedes hacer por él:
   "integrations.voice.openai": "OpenAI",
   "integrations.voice.where":
     "Con OpenAI, el servidor de la oficina envía a OpenAI tus grabaciones y las respuestas que lees en voz alta.",
+  "integrations.voice.whereTheirs":
+    "Con OpenAI, el servidor de la oficina envía a OpenAI las grabaciones de {member} y las respuestas que lee en voz alta.",
   "integrations.voice.key.member": "OpenAI usa {name} de tus variables.",
   "integrations.voice.key.office":
     "OpenAI usa {name} de las variables de la oficina.",
@@ -1152,6 +1154,18 @@ Cosas que puedes hacer por él:
     "{name} está guardada como secreto. OpenAI la necesita como variable.",
   "integrations.voice.key.none": "Añade OPENAI_VOICE_API_KEY para usar OpenAI.",
   "integrations.voice.saveFailed": "El cambio no se guardó.",
+  "integrations.voice.key.theirs":
+    "OpenAI usa {name} de las variables de {member}.",
+  "integrations.voice.key.noneTheirs":
+    "Añade OPENAI_VOICE_API_KEY a las variables de {member} para usar OpenAI.",
+  "integrations.changes.title": "Cambiado para ti",
+  "integrations.changes.set": "{by} guardó {name}",
+  "integrations.changes.removed": "{by} eliminó {name}",
+  "integrations.changes.changed": "{by} cambió estos ajustes",
+  "integrations.changes.setUnknown": "Un antiguo miembro guardó {name}",
+  "integrations.changes.removedUnknown": "Un antiguo miembro eliminó {name}",
+  "integrations.changes.changedUnknown":
+    "Un antiguo miembro cambió estos ajustes",
   "integrations.secretsHonesty":
     "Isomux impide que los agentes lean los secretos guardados, pero esta oficina no tiene un muro firme entre los agentes y sus archivos o apps.",
   "integrations.secrets.modelKeys":
@@ -3586,6 +3600,8 @@ Cosas que puedes hacer por él:
   "settings.sidebar.pager": "Avisos",
   "pager.settings.intro":
     "Los agentes te envían un aviso cuando te necesitan. Los avisos aparecen en tu bandeja de entrada y llegan a los sitios de abajo.",
+  "pager.settings.introTheirs":
+    "Los avisos para {member} aparecen en su bandeja de entrada y llegan a los sitios de abajo.",
   "pager.settings.thisDevice": "Este dispositivo",
   "pager.settings.discord": "Discord",
   "pager.settings.webhook": "URL del webhook",
@@ -3596,6 +3612,8 @@ Cosas que puedes hacer por él:
   "pager.settings.userId": "ID de usuario",
   "pager.settings.userIdHint":
     "Los avisos te mencionan para que Discord te notifique. En Discord: Ajustes de usuario → Avanzado → Modo desarrollador, y luego haz clic derecho en tu nombre (mantén pulsado en el móvil) → Copiar ID de usuario.",
+  "pager.settings.userIdHintTheirs":
+    "Los avisos mencionan a {member} para que Discord le notifique. En Discord: Ajustes de usuario → Avanzado → Modo desarrollador, y luego haz clic derecho en el nombre de {member} (mantén pulsado en el móvil) → Copiar ID de usuario.",
   "pager.settings.repeat": "Repetir un aviso abierto",
   "pager.settings.repeatNever": "Nunca",
   "pager.settings.repeatEvery": "Cada {count} min",
@@ -3666,6 +3684,8 @@ Cosas que puedes hacer por él:
   "apiCall.voice.status": "Leer el estado de la clave de voz",
   "apiCall.voice.transcribe": "Transcribir una grabación",
   "apiCall.voice.speak": "Leer un texto en voz alta",
+  "apiCall.memberVoice.read": "Leer los ajustes de voz",
+  "apiCall.memberVoice.save": "Guardar los ajustes de voz",
   "push.test": "Notificación de prueba de Isomux.",
   "push.turnEnd.title": "{agent} ha terminado",
   "push.settings.switch": "Notificaciones",

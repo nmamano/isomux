@@ -316,8 +316,14 @@ describe("an office owner", () => {
             true,
           ]);
         }
+        // The member's id too: their "changed for you" list finds the row
+        // by it, after a rename as well (task 7a3b4114).
         const set = rows.find((r) => r.operation === "userEnv.set")!;
-        expect(set.targets).toEqual([o.member.username, "O_VAR"]);
+        expect(set.targets).toEqual([
+          o.member.username,
+          "O_VAR",
+          getUserByName(o.member.username)!.id,
+        ]);
         expect(set.fields).toEqual(["value"]);
         expect(text).not.toContain(FAKE);
         for (const t of texts) expect(t).not.toContain(FAKE);
@@ -764,7 +770,11 @@ describe("an office owner", () => {
       const set = rows.find(
         (r) => r.operation === "userEnv.set" && r.targets.includes("NEW_VAR"),
       )!;
-      expect(set.targets).toEqual([o.member.username, "NEW_VAR"]);
+      expect(set.targets).toEqual([
+        o.member.username,
+        "NEW_VAR",
+        getUserByName(o.member.username)!.id,
+      ]);
     });
   });
 });
@@ -843,6 +853,12 @@ describe("privileged agents", () => {
           "officeMcpServers.update",
           "officeMcpServers.delete",
           "officeMcpServers.test",
+          // Every Integrations setting of a member (task 7a3b4114).
+          "memberVoice.get",
+          "memberVoice.update",
+          "pagerSettings.get",
+          "pagerSettings.update",
+          "pagerSettings.test",
         ].sort(),
       );
     });

@@ -2,8 +2,10 @@
 // the real route table and server.
 //
 // Pins: the member and their own API token read and change their settings;
-// no agent token does (the guard, identity by identity, is walked in
-// routes-table.test.ts); only Discord webhook URLs save;
+// an office owner, the owner's API token and privileged agent change any
+// member's, and a member's privileged agent its member's (task 7a3b4114, the
+// secrets gate); no ordinary agent token does (the guard, identity by
+// identity, is walked in routes-table.test.ts); only Discord webhook URLs save;
 // the URL leaves the server only in its masked form (responses, socket
 // events, the agent's env); a raised page reaches the webhook with the
 // mention and a link to the page; ack stops it.
@@ -172,7 +174,7 @@ describe("pager settings REST: access", () => {
     expect(r.status).toBe(200);
   });
 
-  it("no agent token reaches the settings, not even the manager's own", async () => {
+  it("no ordinary agent token reaches the settings, not even the manager's own", async () => {
     const { srv, botToken, settingsPath, sent } = await office();
     for (const [method, path, body] of [
       ["GET", settingsPath, undefined],
@@ -198,6 +200,136 @@ describe("pager settings REST: access", () => {
         body: { webhookUrl },
       });
       expect(r.status).toBe(422);
+    }
+  });
+});
+
+describe("pager settings REST: an owner sets a member's", () => {
+  // Nil, 2026-11-01: an owner sets every Integrations setting of another
+  // member. The URL stays masked in every answer, the owner's own settings
+  // stay as they were, and Test sends to the member's webhook.
+  it("an owner by cookie, API token or privileged agent saves the member's settings, not their own", async () => {
+    const { srv, morgan, mia, sent } = await office();
+    const morganId = getUserByName("Morgan")!.id;
+    const minted = await srv.http("/api/me/api-tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Laptop", expiresInDays: 30 }),
+      rawSessionId: morgan.rawSessionId,
+    });
+    const { token: ownerApi } = (await minted.json()) as ApiTokenCreateRes;
+    const privileged = mintAgentToken("pager-privileged", morganId, true);
+    const miaPath = `/api/users/${mia.username}/pager-settings`;
+
+    const saved = await api(srv, miaPath, {
+      method: "PATCH",
+      rawSessionId: morgan.rawSessionId,
+      body: { webhookUrl: URL_, discordUserId: DISCORD_ID },
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.text).not.toContain(TOKEN);
+    const byToken = await api(srv, miaPath, {
+      method: "PATCH",
+      bearer: ownerApi,
+      body: { repeatMinutes: 15 },
+    });
+    expect(byToken.status).toBe(200);
+    const byAgent = await api(srv, miaPath, {
+      method: "PATCH",
+      bearer: privileged,
+      body: { repeatMinutes: 30 },
+    });
+    expect(byAgent.status).toBe(200);
+    expect(byAgent.text).not.toContain(TOKEN);
+
+    // The member reads what was set for them.
+    const theirs = await api(srv, miaPath, { rawSessionId: mia.rawSessionId });
+    expect(theirs.body).toMatchObject({
+      discordUserId: DISCORD_ID,
+      repeatMinutes: 30,
+    });
+    expect((theirs.body as PagerSettingsRes).webhookUrlMasked).not.toBeNull();
+    for (const bearer of [ownerApi, privileged]) {
+      const read = await api(srv, miaPath, { bearer });
+      expect(read.status).toBe(200);
+      expect(read.body).toEqual(theirs.body);
+      expect(read.text).not.toContain(TOKEN);
+    }
+    // The owner's own settings are untouched.
+    const own = await api(srv, `/api/users/${morgan.username}/pager-settings`, {
+      rawSessionId: morgan.rawSessionId,
+    });
+    expect(own.body).toEqual({
+      webhookUrlMasked: null,
+      discordUserId: null,
+      repeatMinutes: 5,
+    });
+
+    // Test sends to the member's webhook with the member's mention.
+    const tested = await api(srv, `${miaPath}/test`, {
+      method: "POST",
+      bearer: privileged,
+    });
+    expect(tested.body).toEqual({ delivered: true });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].url).toBe(URL_);
+    expect(sent[0].body.allowed_mentions).toEqual({
+      parse: [],
+      users: [DISCORD_ID],
+    });
+  });
+
+  it("a member's privileged agent reaches its member's settings", async () => {
+    const { srv, mia } = await office();
+    const miaAgent = mintAgentToken(
+      "pager-mia-privileged",
+      getUserByName(mia.username)!.id,
+      true,
+    );
+    const r = await api(srv, `/api/users/${mia.username}/pager-settings`, {
+      method: "PATCH",
+      bearer: miaAgent,
+      body: { discordUserId: DISCORD_ID },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ discordUserId: DISCORD_ID });
+  });
+
+  it("refuses another member and their privileged agent, and answers 404 for nobody", async () => {
+    const { srv, morgan, mia, sent } = await office();
+    const olly = await srv.seedMember("Olly");
+    const ollyAgent = mintAgentToken(
+      "pager-olly-privileged",
+      getUserByName(olly.username)!.id,
+      true,
+    );
+    const miaPath = `/api/users/${mia.username}/pager-settings`;
+    for (const auth of [
+      { rawSessionId: olly.rawSessionId },
+      { bearer: ollyAgent },
+    ]) {
+      for (const [method, path, body] of [
+        ["GET", miaPath, undefined],
+        ["PATCH", miaPath, { webhookUrl: URL_ }],
+        ["POST", `${miaPath}/test`, {}],
+      ] as const) {
+        const r = await api(srv, path, { ...auth, method, body });
+        expect({ method, status: r.status }).toEqual({ method, status: 403 });
+      }
+    }
+    const theirs = await api(srv, miaPath, { rawSessionId: mia.rawSessionId });
+    expect(theirs.body).toMatchObject({ webhookUrlMasked: null });
+    expect(sent).toHaveLength(0);
+    for (const [method, body] of [
+      ["GET", undefined],
+      ["PATCH", { discordUserId: DISCORD_ID }],
+    ] as const) {
+      const r = await api(srv, "/api/users/nobody-here/pager-settings", {
+        method,
+        body,
+        rawSessionId: morgan.rawSessionId,
+      });
+      expect({ method, status: r.status }).toEqual({ method, status: 404 });
     }
   });
 });

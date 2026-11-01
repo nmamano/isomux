@@ -1,6 +1,7 @@
 import {
   notedAuditTargets,
   notedPromptContent,
+  notedAuditMember,
   withAuditContext,
 } from "../audit-context.ts";
 import type { ExecutorAudit } from "./audit.ts";
@@ -437,6 +438,7 @@ export async function executeRoute(
           // (notePromptContent). Multipart/binary have no field names.
           if (!isGet && route.audit?.owner === "executor") {
             const promptContent = notedPromptContent();
+            const member = notedAuditMember();
             try {
               deps.audit.write({
                 actor: actor!,
@@ -456,6 +458,7 @@ export async function executeRoute(
                     ? Object.keys(body)
                     : [],
                 ...(promptContent !== undefined ? { promptContent } : {}),
+                ...(member ? { member } : {}),
               });
             } catch (error) {
               console.error("[audit] could not record completed write", error);

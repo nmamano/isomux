@@ -43,6 +43,9 @@ export interface AuditEntry {
   secretUse?: { host: string; method: string; path: string };
   // terminal.open and terminal.join of a recorded terminal: the recording.
   terminalRecording?: { id: string };
+  // A write to a member's integrations (/api/users/:username/...): whose, and
+  // the variable, secret or MCP server name. Never a value.
+  member?: { userId: string; item?: string };
 }
 export interface AuditFilter {
   actorKind?: AuditActorKind;

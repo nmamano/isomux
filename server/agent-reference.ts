@@ -216,6 +216,11 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "officeMcpServers.update": "connections",
   "officeMcpServers.delete": "connections",
   "officeMcpServers.test": "connections",
+  "memberVoice.get": "connections",
+  "memberVoice.update": "connections",
+  "pagerSettings.get": "connections",
+  "pagerSettings.update": "connections",
+  "pagerSettings.test": "connections",
 } as const;
 
 export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<

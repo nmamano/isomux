@@ -1143,6 +1143,8 @@ Coses que pots fer per ell:
   "integrations.voice.openai": "OpenAI",
   "integrations.voice.where":
     "Amb OpenAI, el servidor de l'oficina envia a OpenAI les teves gravacions i les respostes que llegeixes en veu alta.",
+  "integrations.voice.whereTheirs":
+    "Amb OpenAI, el servidor de l'oficina envia a OpenAI les gravacions de {member} i les respostes que llegeix en veu alta.",
   "integrations.voice.key.member":
     "OpenAI fa servir {name} de les teves variables.",
   "integrations.voice.key.office":
@@ -1154,6 +1156,18 @@ Coses que pots fer per ell:
   "integrations.voice.key.none":
     "Afegeix OPENAI_VOICE_API_KEY per fer servir OpenAI.",
   "integrations.voice.saveFailed": "El canvi no s'ha desat.",
+  "integrations.voice.key.theirs":
+    "OpenAI fa servir {name} de les variables de {member}.",
+  "integrations.voice.key.noneTheirs":
+    "Afegeix OPENAI_VOICE_API_KEY a les variables de {member} per fer servir OpenAI.",
+  "integrations.changes.title": "Canviat per a tu",
+  "integrations.changes.set": "{by} ha desat {name}",
+  "integrations.changes.removed": "{by} ha eliminat {name}",
+  "integrations.changes.changed": "{by} ha canviat aquesta configuració",
+  "integrations.changes.setUnknown": "Un antic membre ha desat {name}",
+  "integrations.changes.removedUnknown": "Un antic membre ha eliminat {name}",
+  "integrations.changes.changedUnknown":
+    "Un antic membre ha canviat aquesta configuració",
   "integrations.secretsHonesty":
     "Isomux impedeix que els agents llegeixin els secrets desats, però aquesta oficina no té cap mur ferm entre els agents i els seus fitxers o apps.",
   "integrations.secrets.modelKeys":
@@ -3591,6 +3605,8 @@ Coses que pots fer per ell:
   "settings.sidebar.pager": "Avisos",
   "pager.settings.intro":
     "Els agents t'envien un avís quan et necessiten. Els avisos apareixen a la teva safata d'entrada i arriben als llocs de sota.",
+  "pager.settings.introTheirs":
+    "Els avisos per a {member} apareixen a la seva safata d'entrada i arriben als llocs de sota.",
   "pager.settings.thisDevice": "Aquest dispositiu",
   "pager.settings.discord": "Discord",
   "pager.settings.webhook": "URL del webhook",
@@ -3601,6 +3617,8 @@ Coses que pots fer per ell:
   "pager.settings.userId": "ID d'usuari",
   "pager.settings.userIdHint":
     "Els avisos et mencionen perquè Discord et notifiqui. A Discord: Configuració d'usuari → Avançat → Mode de desenvolupador, i després fes clic dret al teu nom (mantén premut al mòbil) → Copia l'ID d'usuari.",
+  "pager.settings.userIdHintTheirs":
+    "Els avisos mencionen {member} perquè Discord li ho notifiqui. A Discord: Configuració d'usuari → Avançat → Mode de desenvolupador, i després fes clic dret al nom de {member} (mantén premut al mòbil) → Copia l'ID d'usuari.",
   "pager.settings.repeat": "Repeteix un avís obert",
   "pager.settings.repeatNever": "Mai",
   "pager.settings.repeatEvery": "Cada {count} min",
@@ -3671,6 +3689,8 @@ Coses que pots fer per ell:
   "apiCall.voice.status": "Llegir l'estat de la clau de veu",
   "apiCall.voice.transcribe": "Transcriure una gravació",
   "apiCall.voice.speak": "Llegir un text en veu alta",
+  "apiCall.memberVoice.read": "Llegir els ajustos de veu",
+  "apiCall.memberVoice.save": "Desar els ajustos de veu",
   "push.test": "Notificació de prova d'Isomux.",
   "push.turnEnd.title": "{agent} ha acabat",
   "push.settings.switch": "Notificacions",

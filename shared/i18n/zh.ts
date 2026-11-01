@@ -1029,6 +1029,8 @@ App 的一些原则：
   "integrations.voice.openai": "OpenAI",
   "integrations.voice.where":
     "选择 OpenAI 时，办公室服务器会把你的录音和你朗读的回复发送给 OpenAI。",
+  "integrations.voice.whereTheirs":
+    "选择 OpenAI 时，办公室服务器会把 {member} 的录音和 {member} 朗读的回复发送给 OpenAI。",
   "integrations.voice.key.member": "OpenAI 使用你的变量中的 {name}。",
   "integrations.voice.key.office": "OpenAI 使用办公室变量中的 {name}。",
   "integrations.voice.key.server": "OpenAI 使用服务器环境中的 {name}。",
@@ -1037,6 +1039,16 @@ App 的一些原则：
   "integrations.voice.key.none":
     "添加 OPENAI_VOICE_API_KEY 后才能使用 OpenAI。",
   "integrations.voice.saveFailed": "更改未保存。",
+  "integrations.voice.key.theirs": "OpenAI 使用 {member} 的变量中的 {name}。",
+  "integrations.voice.key.noneTheirs":
+    "在 {member} 的变量中添加 OPENAI_VOICE_API_KEY 后才能使用 OpenAI。",
+  "integrations.changes.title": "为你做的更改",
+  "integrations.changes.set": "{by} 设置了 {name}",
+  "integrations.changes.removed": "{by} 移除了 {name}",
+  "integrations.changes.changed": "{by} 更改了这些设置",
+  "integrations.changes.setUnknown": "一位已离开的成员设置了 {name}",
+  "integrations.changes.removedUnknown": "一位已离开的成员移除了 {name}",
+  "integrations.changes.changedUnknown": "一位已离开的成员更改了这些设置",
   "integrations.secretsHonesty":
     "Isomux 会阻止智能体读取已保存的密钥，但本办公室在智能体与其文件或 App 之间没有严格隔离。",
   "integrations.secrets.modelKeys":
@@ -3217,6 +3229,8 @@ App 的一些原则：
   "settings.sidebar.pager": "呼叫",
   "pager.settings.intro":
     "智能体需要你时会呼叫你。呼叫显示在你的收件箱中，并发送到下面的位置。",
+  "pager.settings.introTheirs":
+    "给 {member} 的呼叫显示在 {member} 的收件箱中，并发送到下面的位置。",
   "pager.settings.thisDevice": "此设备",
   "pager.settings.discord": "Discord",
   "pager.settings.webhook": "Webhook URL",
@@ -3227,6 +3241,8 @@ App 的一些原则：
   "pager.settings.userId": "用户 ID",
   "pager.settings.userIdHint":
     "呼叫会提及你，让 Discord 通知你。在 Discord 中：用户设置 → 高级 → 开发者模式，然后右键点击你的名字（手机上长按）→ 复制用户 ID。",
+  "pager.settings.userIdHintTheirs":
+    "呼叫会提及 {member}，让 Discord 通知 {member}。在 Discord 中：用户设置 → 高级 → 开发者模式，然后右键点击 {member} 的名字（手机上长按）→ 复制用户 ID。",
   "pager.settings.repeat": "重复发送未处理的呼叫",
   "pager.settings.repeatNever": "从不",
   "pager.settings.repeatEvery": "每 {count} 分钟",
@@ -3294,6 +3310,8 @@ App 的一些原则：
   "apiCall.voice.status": "读取语音密钥状态",
   "apiCall.voice.transcribe": "转写录音",
   "apiCall.voice.speak": "朗读文本",
+  "apiCall.memberVoice.read": "读取语音设置",
+  "apiCall.memberVoice.save": "保存语音设置",
   "push.test": "来自 Isomux 的测试通知。",
   "push.turnEnd.title": "{agent} 已完成",
   "push.settings.switch": "通知",
