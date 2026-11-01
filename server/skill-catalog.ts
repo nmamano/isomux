@@ -23,7 +23,7 @@ import {
   writeFileSync,
 } from "fs";
 import { rm } from "fs/promises";
-import { basename, dirname, join, resolve } from "path";
+import { basename, dirname, isAbsolute, join, resolve } from "path";
 import type {
   SkillCatalogEntry,
   SkillCatalogRes,
@@ -246,12 +246,24 @@ export function buildSkillCatalog(
 
 // The catalog entry for a path, if any engine lists it. Reads and writes are
 // limited to these files: the routes are a skills surface, not a file surface.
+// Unless `exact`, an absolute path that reaches a listed file through links
+// (an agent's member skill folder) finds that entry; a listed path wins.
 export function findCatalogEntry(
   catalog: SkillCatalogRes,
   path: string,
+  opts: { exact?: boolean } = {},
 ): SkillCatalogEntry | null {
   for (const { skills } of catalog.engines)
     for (const entry of skills) if (entry.path === path) return entry;
+  if (opts.exact || !isAbsolute(path)) return null;
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch {
+    return null;
+  }
+  for (const { skills } of catalog.engines)
+    for (const entry of skills) if (realKey(entry.path) === real) return entry;
   return null;
 }
 

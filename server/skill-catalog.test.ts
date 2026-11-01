@@ -308,7 +308,7 @@ describe("skill catalog", () => {
     ).toEqual([]);
   });
 
-  it("finds entries by exact path only", () => {
+  it("finds entries by their listed path, never by their folder or another file", () => {
     const user = tmp("user");
     const path = skill(user, "mine");
     const catalog = buildSkillCatalog(
@@ -549,5 +549,175 @@ describe("skills page validation on disk", () => {
     expect(await save(repaired)).toMatchObject({ kind: "json" });
     expect(readFileSync(path, "utf8")).toBe(repaired);
     expect(refreshes).toBe(1);
+  });
+});
+
+// Task b82408a7: an agent sees its skills through the member skill folder,
+// whose skill folders link to the listed ones. A path that leads to a listed
+// file through links reads and saves that entry; delete keeps the listed path.
+describe("a path through links", () => {
+  function linked() {
+    const user = tmp("user");
+    const listed = skill(user, "mine");
+    const member = tmp("member");
+    mkdirSync(join(member, "skills"), { recursive: true });
+    symlinkSync(join(user, "skills", "mine"), join(member, "skills", "mine"));
+    const catalog = buildSkillCatalog(
+      [context({ userRoots: [user] })],
+      {},
+      "/new",
+      "/home",
+    );
+    return {
+      user,
+      listed,
+      member,
+      catalog,
+      alias: join(member, "skills", "mine", "SKILL.md"),
+    };
+  }
+
+  it("finds the listed entry through a folder link and through a file link", () => {
+    const { listed, member, catalog, alias } = linked();
+    expect(findCatalogEntry(catalog, alias)?.path).toBe(listed);
+    const fileLink = join(member, "file-link.md");
+    symlinkSync(listed, fileLink);
+    expect(findCatalogEntry(catalog, fileLink)?.path).toBe(listed);
+  });
+
+  it("finds nothing for a link to an unlisted file, a missing file, a dangling link or a relative path", () => {
+    const { user, listed, member, catalog } = linked();
+    writeFileSync(join(user, "skills", "mine", "notes.md"), "notes\n");
+    expect(
+      findCatalogEntry(catalog, join(member, "skills", "mine", "notes.md")),
+    ).toBeNull();
+    const outside = join(tmp("outside"), "file.md");
+    writeFileSync(outside, "outside\n");
+    symlinkSync(outside, join(member, "outside.md"));
+    expect(findCatalogEntry(catalog, join(member, "outside.md"))).toBeNull();
+    expect(
+      findCatalogEntry(catalog, join(member, "skills", "mine", "GONE.md")),
+    ).toBeNull();
+    symlinkSync(join(user, "gone.md"), join(member, "dangling.md"));
+    expect(findCatalogEntry(catalog, join(member, "dangling.md"))).toBeNull();
+    // Relative to the server's working folder, which the caller does not name.
+    const rel = relative(process.cwd(), listed);
+    expect(rel.startsWith("/")).toBe(false);
+    expect(findCatalogEntry(catalog, rel)).toBeNull();
+  });
+
+  it("prefers the entry whose listed path matches exactly over an earlier one with the same file", () => {
+    const user = tmp("user");
+    skill(user, "first");
+    symlinkSync(join(user, "skills", "first"), join(user, "skills", "second"));
+    const catalog = buildSkillCatalog(
+      [context({ userRoots: [user] })],
+      {},
+      "/new",
+      "/home",
+    );
+    const listed = catalog.engines[0].skills.filter(
+      (s) => s.name === "first" || s.name === "second",
+    );
+    expect(listed.map((s) => s.name).sort()).toEqual(["first", "second"]);
+    // The later entry in catalog order: a realpath match would find the
+    // earlier one, which has the same file.
+    const later = listed[1];
+    expect(findCatalogEntry(catalog, later.path)?.name).toBe(later.name);
+  });
+
+  function handlersFor(catalog: ReturnType<typeof buildSkillCatalog>) {
+    const deletes: string[] = [];
+    const handlers = skillsHandlers({
+      catalogFor: () => catalog,
+      readFile: readSkillFile,
+      saveFile: saveSkillFile,
+      deleteFile: async (entry) => {
+        deletes.push(entry.path);
+        return { kind: "ok" };
+      },
+      createSkill,
+      refreshMenus: () => {},
+    });
+    const call = (
+      route: "skills.readFile" | "skills.saveFile" | "skills.deleteFile",
+      query: string,
+      body?: unknown,
+    ) =>
+      handlers[route]({
+        identity: {
+          scope: "user",
+          userId: "u",
+          role: "member",
+          capabilities: USER_CAPABILITIES,
+        },
+        params: {},
+        query: new URLSearchParams(query),
+        req: new Request("http://localhost/"),
+        rawBody: "",
+        body,
+      });
+    return { call, deletes };
+  }
+
+  const edited = "---\nname: mine\ndescription: edited\n---\nEdited body\n";
+
+  it("reads through a link and names the listed path, on the listed path's revision line", async () => {
+    const { listed, catalog, alias } = linked();
+    const { call } = handlersFor(catalog);
+    const read = await call(
+      "skills.readFile",
+      `path=${encodeURIComponent(alias)}`,
+    );
+    expect(read).toMatchObject({
+      kind: "json",
+      body: { path: listed, editable: true },
+    });
+    if (read.kind !== "json") throw new Error("read failed");
+    const { rev } = read.body as { rev: number };
+    // The revision from the link read saves on the listed path.
+    expect(
+      await call("skills.saveFile", "", {
+        path: listed,
+        content: edited,
+        expectedRev: rev,
+      }),
+    ).toMatchObject({ kind: "json", body: { path: listed } });
+    expect(readFileSync(listed, "utf8")).toBe(edited);
+  });
+
+  it("saves through a link to the listed path, on the listed path's revision line", async () => {
+    const { listed, catalog, alias } = linked();
+    const { call } = handlersFor(catalog);
+    const read = await call(
+      "skills.readFile",
+      `path=${encodeURIComponent(listed)}`,
+    );
+    if (read.kind !== "json") throw new Error("read failed");
+    const { rev } = read.body as { rev: number };
+    expect(
+      await call("skills.saveFile", "", {
+        path: alias,
+        content: edited,
+        expectedRev: rev,
+      }),
+    ).toMatchObject({ kind: "json", body: { path: listed } });
+    expect(readFileSync(listed, "utf8")).toBe(edited);
+  });
+
+  it("deletes only by the listed path", async () => {
+    const { listed, catalog, alias } = linked();
+    const { call, deletes } = handlersFor(catalog);
+    expect(
+      await call("skills.readFile", `path=${encodeURIComponent(alias)}`),
+    ).toMatchObject({ kind: "json" });
+    expect(
+      await call("skills.deleteFile", "", { path: alias, expectedRev: 1 }),
+    ).toMatchObject({ kind: "error", status: 404, code: "skill_not_found" });
+    expect(deletes).toEqual([]);
+    expect(
+      await call("skills.deleteFile", "", { path: listed, expectedRev: 1 }),
+    ).toMatchObject({ kind: "noContent" });
+    expect(deletes).toEqual([listed]);
   });
 });

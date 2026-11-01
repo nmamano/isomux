@@ -2,7 +2,8 @@
 // The catalog is per caller: user skills follow the caller's user (an agent or
 // API token resolves to its owning user), and project skills come only from
 // agents in rooms the caller can access. Read, save and delete accept only a path that
-// the caller's catalog lists, so these routes never reach other files. Save, delete and
+// the caller's catalog lists (read and save also one that reaches a listed file
+// through links), so these routes never reach other files. Save, delete and
 // create are gated in the route table by editor:use, the capability behind the
 // editor panel's save.
 //
@@ -87,7 +88,7 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
       const entry = findCatalogEntry(deps.catalogFor(ctx.identity), path);
       if (!entry)
         return fail(404, "skill_not_found", "No skill has that path.");
-      return readResult(deps.readFile(path), entry.editable);
+      return readResult(deps.readFile(entry.path), entry.editable);
     },
 
     "skills.saveFile": (ctx) => {
@@ -113,7 +114,7 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
         entry.kind === "skill" ? skillFileProblem(b.content) : null;
       if (problem)
         return fail(422, "invalid_skill", translatorFor("en").t(problem));
-      const r = deps.saveFile(b.path, b.content, b.expectedRev);
+      const r = deps.saveFile(entry.path, b.content, b.expectedRev);
       if (r.kind === "ok") {
         deps.refreshMenus();
         return ok({ path: r.path, rev: r.rev, mtime: r.mtime });
@@ -142,7 +143,11 @@ export function skillsHandlers(deps: SkillsDeps): Record<string, RouteHandler> {
           "invalid_request",
           "expectedRev must be a finite number",
         );
-      const entry = findCatalogEntry(deps.catalogFor(ctx.identity), b.path);
+      // Exact path only: a path through links does not say which link to
+      // remove when two listed names share one real file.
+      const entry = findCatalogEntry(deps.catalogFor(ctx.identity), b.path, {
+        exact: true,
+      });
       if (!entry)
         return fail(404, "skill_not_found", "No skill has that path.");
       if (!entry.editable)
