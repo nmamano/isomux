@@ -441,6 +441,27 @@ import type { RefusedFreeModelReplacer } from "./welcome-opencode-model.ts";
 // inject a FakeBackend resolver, a capturing event sink, and a fresh
 // OfficeState + persisted-agent snapshot for isolation.
 
+// A spawn below standard: the new agent's stop and pack, and the checks that
+// may refuse it (the engine, the folder rules). spawn runs the checks with no
+// await before the agent joins the office, so two spawns cannot both pass.
+export interface SpawnAccess {
+  grant: AgentAccessGrant;
+  // The refusal for an agent named `name` at `resolvedCwd`, else null.
+  refusal(name: string, resolvedCwd: string): SpawnAccessRefusal | null;
+}
+
+export interface SpawnAccessRefusal {
+  refused: "engine_below_standard" | "folder_not_allowed";
+  message: string;
+}
+
+// Thrown by spawn when SpawnAccess.refusal refuses: no agent was made.
+export class SpawnAccessRefusedError extends Error {
+  constructor(readonly refusal: SpawnAccessRefusal) {
+    super(refusal.message);
+  }
+}
+
 export interface ManagerDeps {
   // Backend resolver (production: getBackend). The ~16 body call sites flow
   // through this, making FakeBackend injectable into the orchestrator.
@@ -8215,6 +8236,9 @@ export function createAgentManager(deps: ManagerDeps) {
     userId?: string | null,
     // The spawning agent and the root of its spawn tree, when an agent spawns.
     spawnTree?: { spawnedByAgentId: string; spawnRootAgentId: string },
+    // The new agent's stop below standard and its checks. Absent: standard,
+    // with no check here.
+    access?: SpawnAccess,
   ): Promise<AgentInfo | null> {
     // Spawn is always allowed even if the backend CLI is missing - the failure
     // surfaces as a chat-visible error on first message (codex client's
@@ -8255,6 +8279,10 @@ export function createAgentManager(deps: ManagerDeps) {
     // below once both maps are in sync. try/finally guards against an
     // unexpected throw in officeState.spawn leaving the flag stuck false
     // (which would silently break ALL future persistAll triggers).
+    // The checks and the join with no await between, so two spawns started
+    // together see each other.
+    const refusal = access?.refusal(name.trim(), resolvedCwd);
+    if (refusal) throw new SpawnAccessRefusedError(refusal);
     officeStatePersistenceEnabled = false;
     let spawned;
     try {
@@ -8283,6 +8311,12 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!spawned) return null;
     const { agent: info, events } = spawned;
     const id = info.id;
+    // Before the first token: it carries the pack. Standard keeps the record
+    // as it was before the slider.
+    if (access && access.grant.access !== "standard") {
+      info.access = access.grant.access;
+      if (access.grant.pack) info.pack = access.grant.pack;
+    }
 
     const sessionManager = new SessionManager<ManagedAgent>(
       id,

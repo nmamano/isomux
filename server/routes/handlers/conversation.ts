@@ -676,7 +676,7 @@ export function conversationHandlers(
         return fail(
           422,
           "engine_below_standard",
-          "Only a Claude agent can be below Standard for now.",
+          "This engine cannot run an agent below Standard yet.",
         );
       return noContent();
     },

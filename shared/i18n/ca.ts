@@ -1575,6 +1575,29 @@ Coses que pots fer per ell:
     "Permet a aquest agent actuar per tu a tota l’oficina: editar, moure i eliminar altres agents i dirigir les seves converses, gestionar sales, programacions i integracions, i publicar al xat de membres. Si ets propietari de l’oficina, també pot afegir membres i canviar la configuració de l’oficina. Actua com a si mateix, amb el teu accés.",
   "dialogs.agent.privilegedRestart":
     "En desar es reinicia la sessió de l'agent.",
+  "dialogs.agent.access": "Accés",
+  "dialogs.agent.access.chat": "Xat",
+  "dialogs.agent.access.office": "Oficina",
+  "dialogs.agent.access.folder": "Carpeta",
+  "dialogs.agent.access.web": "Web",
+  "dialogs.agent.access.standard": "Estàndard",
+  "dialogs.agent.access.privileged": "Privilegiat",
+  "dialogs.agent.access.chatHint": "Sense eines. Només respon al seu xat.",
+  "dialogs.agent.access.officeHint":
+    "Sense terminal ni fitxers. Fa servir l'oficina només com permet el seu paquet de permisos.",
+  "dialogs.agent.access.folderHint":
+    "Oficina, més fitxers només a la seva pròpia carpeta.",
+  "dialogs.agent.access.webHint":
+    "Carpeta, més cerca i descàrrega web. Una pàgina web li pot demanar que enviï el que llegeix, així que dona-li un paquet reduït.",
+  "dialogs.agent.access.standardHint":
+    "Un terminal i totes les eines del seu motor.",
+  "dialogs.agent.access.boundaryNote":
+    "Amb un terminal, un agent pot llegir els tokens d'oficina d'altres agents. Només Xat, Oficina, Carpeta i Web limiten el que pot abastar.",
+  "dialogs.agent.access.engineCannot":
+    "Encara no disponible per a aquest motor",
+  "dialogs.agent.pack.asksOnly": "Només preguntes",
+  "dialogs.agent.pack.tasksAndAsks": "Tasques i preguntes",
+  "dialogs.agent.pack.showsSecrets": "pot mostrar secrets",
   "dialogs.agent.autoHandoff": "Traspàs automàtic",
   "dialogs.agent.autoHandoffHint":
     "Quan el context s'omple, l'agent escriu un resum i continua en una sessió nova. El xat es buida.",
@@ -2732,6 +2755,9 @@ Coses que pots fer per ell:
   "tasks.github.notSyncing":
     "Ja no s'actualitza: la sala no està enllaçada amb aquest repositori.",
   "tasks.globalChipTitle": "Tasca global de l'oficina",
+  "tasks.limitedChip": "Limitat",
+  "tasks.limitedChipTitle":
+    "Un agent per sota d'Estàndard ha creat aquesta tasca. El seu text pot venir de desconeguts.",
   "tasks.createdFor": "{who} · per a {target}",
   "tasks.killedName": "{name} (aturat)",
   "office.newAgent": "Agent nou",

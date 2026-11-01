@@ -310,6 +310,13 @@ ${emitThemesCss()}
   .outfit-colors { display: flex; flex-wrap: wrap; gap: 4px; }
   .outfit-colors button { display: grid; place-items: center; width: 36px; height: 36px; padding: 3px; border: 2px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
   .outfit-colors button span { display: block; width: 24px; height: 24px; border-radius: 4px; }
+  .agent-access-stops { display: flex; margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--bg-input); }
+  .agent-access-stop { position: relative; flex: 1 1 0; display: flex; align-items: center; justify-content: center; min-height: 34px; padding: 6px 4px; font-size: 12px; color: var(--text-secondary); cursor: pointer; text-align: center; }
+  .agent-access-stop + .agent-access-stop { border-left: 1px solid var(--border); }
+  .agent-access-stop input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+  .agent-access-stop[data-selected] { background: var(--accent); color: var(--bg-surface); font-weight: 700; }
+  .agent-access-stop[data-disabled] { color: var(--text-hint); cursor: not-allowed; }
+  .agent-access-stop:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
   .agent-privileged-control,
   .agent-auto-handoff-control {
     display: flex;

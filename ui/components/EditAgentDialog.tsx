@@ -47,7 +47,7 @@ import type {
   MoveAgentReq,
   SpawnReq,
   EditAgentReq,
-  SetPrivilegedReq,
+  SetAgentAccessReq,
   SetManagerReq,
   ReviveReq,
 } from "../../shared/contract-shapes.ts";
@@ -64,6 +64,18 @@ import {
   secondaryFill,
 } from "./dialog-styles.ts";
 import { SystemPromptButton } from "./SystemPromptButton.tsx";
+import { AccessSlider } from "./AccessSlider.tsx";
+import {
+  AGENT_PACK_PRESETS,
+  agentAccessOf,
+  belowStandard,
+  engineRunsAccess,
+  sameAccessGrant,
+  stopHasPack,
+  type AgentAccess,
+  type AgentAccessGrant,
+} from "../../shared/agent-access.ts";
+import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { noTranslate } from "../no-translate.ts";
 import {
@@ -197,6 +209,8 @@ export interface AgentFormSnapshot {
   permissionMode: AgentInfo["permissionMode"];
   codexSandbox: CodexSandboxMode;
   privileged: boolean;
+  // The access slider stop and, at a stop with a pack, the pack (JSON).
+  access?: string;
   autoHandoff: boolean;
   // The threshold field as typed, in thousands of tokens.
   autoHandoffTokens: string;
@@ -226,6 +240,7 @@ export function agentFormDirty(
     "permissionMode",
     "codexSandbox",
     "privileged",
+    "access",
     "autoHandoff",
     "limitResume",
   ] as const;
@@ -396,10 +411,28 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [permissionMode, setPermissionMode] = useState<
     AgentInfo["permissionMode"]
   >(initialPermissionMode);
-  // Privileged operator access. Conferred ONLY via the dedicated, user-gated
-  // PUT /api/agents/:id/privileged route (never the spawn/edit PATCH), so an
-  // agent can't self-confer. At spawn we two-step: create, then toggle.
-  const [privileged, setPrivileged] = useState(agent?.privileged ?? false);
+  // The access slider stop. Set through the user-gated PUT
+  // /api/agents/:id/access (never the edit PATCH), so an agent can't raise
+  // itself. A spawn below Standard sends it in the POST; Privileged at spawn
+  // is create, then PUT /access.
+  const savedAccess: AgentAccess = agent ? agentAccessOf(agent) : "standard";
+  const [access, setAccess] = useState<AgentAccess>(savedAccess);
+  // The pack is state of its own: it stays while the member moves the
+  // slider, and is sent only at a stop with a pack. A pack the agent kept at
+  // a stop without one is stale, so it starts from the narrowest preset.
+  const [pack, setPack] = useState<ApiTokenLimits>(() =>
+    agent?.pack && stopHasPack(savedAccess)
+      ? agent.pack
+      : { ...AGENT_PACK_PRESETS.asksOnly },
+  );
+  const privileged = access === "privileged";
+  const grant: AgentAccessGrant = stopHasPack(access)
+    ? { access, pack }
+    : { access };
+  const accessChanged = !sameAccessGrant(
+    { access: savedAccess, ...(agent?.pack ? { pack: agent.pack } : {}) },
+    grant,
+  );
   // Manager transfer (PUT /api/agents/:id/manager): an office owner only, in
   // edit mode, mirroring the server gate. "" is an agent with no manager.
   const canChangeManager = !isSpawn && sessionContext?.role === "owner";
@@ -498,6 +531,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     permissionMode,
     codexSandbox,
     privileged,
+    access: JSON.stringify(grant),
     autoHandoff,
     autoHandoffTokens,
     limitResume,
@@ -986,6 +1020,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         effort,
         agentType: targetEngine,
         ...(isCodex ? { codexSandbox } : {}),
+        // Below Standard in the spawn itself, so a refusal leaves no agent.
+        ...(belowStandard(access) ? grant : {}),
       } satisfies SpawnReq)
         .then(async (res) => {
           // Spawn takes neither switch: set what is off the default with an
@@ -1001,9 +1037,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           if (Object.keys(spawnEdits).length > 0)
             await apiFetch("PATCH", `/api/agents/${res.agent.id}`, spawnEdits);
           if (privileged)
-            await apiFetch("PUT", `/api/agents/${res.agent.id}/privileged`, {
-              privileged: true,
-            } satisfies SetPrivilegedReq);
+            await apiFetch("PUT", `/api/agents/${res.agent.id}/access`, {
+              access: "privileged",
+            } satisfies SetAgentAccessReq);
         })
         .then(() => onClose())
         .catch(showError)
@@ -1086,11 +1122,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.autoHandoffTokens !== undefined ||
         changes.limitResume !== undefined
       );
-      // Privilege is its OWN user-gated route (PUT /privileged), never part of
-      // the PATCH - it re-mints the token and restarts the session like a model
-      // change. Toggled independently of the other field edits.
-      const privilegedChanged = privileged !== (agent!.privileged ?? false);
-      if (!hasChanges && !managerChanged && !privilegedChanged && !mem.dirty) {
+      // Access is its OWN user-gated route (PUT /access), never part of the
+      // PATCH - it re-mints the token and restarts the session like a model
+      // change.
+      if (!hasChanges && !managerChanged && !accessChanged && !mem.dirty) {
         onClose();
         return;
       }
@@ -1101,21 +1136,26 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // overlapping swaps on one agent would race replaceSession. Ordering them
       // keeps each swap clean (both re-read the freshly re-minted token).
       const ops: Array<() => Promise<unknown>> = [];
+      const putAccess = () =>
+        apiFetch(
+          "PUT",
+          `/api/agents/${agent!.id}/access`,
+          grant satisfies SetAgentAccessReq,
+        );
+      // Up to Standard or above, the access goes first: a switch to an engine
+      // that cannot run below Standard needs it. Below Standard it goes after
+      // the PATCH, so the folder rules check the new folder.
+      const accessFirst = accessChanged && !belowStandard(access);
+      if (accessFirst) ops.push(putAccess);
       if (hasChanges)
         ops.push(() => apiFetch("PATCH", `/api/agents/${agent!.id}`, changes));
-      // A transfer keeps the privilege flag, so a privilege change in the same
-      // save comes after it.
+      if (accessChanged && !accessFirst) ops.push(putAccess);
+      // A transfer comes last: after it, only an owner may change the access.
       if (managerChanged)
         ops.push(() =>
           apiFetch("PUT", `/api/agents/${agent!.id}/manager`, {
             userId: managerUserId,
           } satisfies SetManagerReq),
-        );
-      if (privilegedChanged)
-        ops.push(() =>
-          apiFetch("PUT", `/api/agents/${agent!.id}/privileged`, {
-            privileged,
-          } satisfies SetPrivilegedReq),
         );
       const runSeq = () =>
         ops.reduce<Promise<unknown>>((p, op) => p.then(op), Promise.resolve());
@@ -1131,7 +1171,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.agentType ||
         changes.instructions !== undefined ||
         managerChanged ||
-        privilegedChanged ||
+        accessChanged ||
         mem.dirty
       ) {
         // A session-swap (cwd/engine/privilege) or a destructive memory REPLACE
@@ -1836,12 +1876,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       const selected = targetEngine === option.agentType;
                       const unavailable =
                         unavailableEngines[option.agentType] !== undefined;
+                      const cannotRunStop = !engineRunsAccess(
+                        option.agentType,
+                        access,
+                      );
                       return (
                         <button
                           key={option.agentType}
                           type="button"
                           aria-pressed={selected}
-                          disabled={unavailable}
+                          disabled={unavailable || cannotRunStop}
                           onClick={() => setTargetEngine(option.agentType)}
                           style={{
                             background: selected
@@ -1851,10 +1895,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                             borderRadius: 8,
                             padding: "12px 14px",
                             textAlign: "left",
-                            cursor: unavailable ? "not-allowed" : "pointer",
-                            color: unavailable
-                              ? "var(--text-hint)"
-                              : "var(--text-primary)",
+                            cursor:
+                              unavailable || cannotRunStop
+                                ? "not-allowed"
+                                : "pointer",
+                            color:
+                              unavailable || cannotRunStop
+                                ? "var(--text-hint)"
+                                : "var(--text-primary)",
                             boxShadow: selected
                               ? `0 0 0 1px ${option.accent}`
                               : "none",
@@ -1912,7 +1960,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           key={option.agentType}
                           value={option.agentType}
                           disabled={
-                            unavailable && option.agentType !== agentType
+                            (unavailable && option.agentType !== agentType) ||
+                            !engineRunsAccess(option.agentType, access)
                           }
                         >
                           {unavailable
@@ -2070,6 +2119,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   agentType: targetEngine,
                   instructions: customInstructions,
                   privileged,
+                  access,
                   ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
                   permissionMode,
                   ...(targetEngine === "codex" ? { codexSandbox } : {}),
@@ -2241,40 +2291,24 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   </p>
                 </div>
 
-                {/* Privileged operator access. Grants this agent its manager's
-              operator powers (the Privileged Operator Capabilities in
-              server/system-prompt.ts). It still acts as itself. Conferred
-              via the dedicated user-gated route, so toggling a running agent
-              re-mints its token and restarts its session, like a model change.
-              Shown only to a user who may actually set it (owner, or the agent's
-              manager - see canTogglePrivilege). */}
+                {/* The access slider: Chat, Office, Folder, Web, Standard,
+              Privileged. Set through the dedicated user-gated route, so a
+              change on a running agent re-mints its token and restarts its
+              session, like a model change. Shown only to a user who may set
+              it (owner, or the agent's manager - see canTogglePrivilege). */}
                 {canTogglePrivilege && (
-                  <div className="agent-privileged-field">
-                    <label
-                      htmlFor="agent-privileged"
-                      style={{ ...labelStyle, marginTop: 14 }}
-                    >
-                      {t("dialogs.agent.privileged")}
-                    </label>
-                    <label
-                      className="agent-privileged-control"
-                      htmlFor="agent-privileged"
-                    >
-                      <input
-                        id="agent-privileged"
-                        type="checkbox"
-                        checked={privileged}
-                        onChange={(e) => setPrivileged(e.target.checked)}
-                        style={{ cursor: "pointer", margin: 0 }}
-                      />
-                      <span style={dialogHint}>
-                        {t("dialogs.agent.privilegedHint")}
-                        {!isSpawn &&
-                          privileged !== (agent!.privileged ?? false) &&
-                          ` ${t("dialogs.agent.privilegedRestart")}`}
-                      </span>
-                    </label>
-                  </div>
+                  <AccessSlider
+                    access={access}
+                    onAccess={setAccess}
+                    pack={pack}
+                    onPack={setPack}
+                    agentType={targetEngine}
+                    note={
+                      !isSpawn && accessChanged
+                        ? t("dialogs.agent.privilegedRestart")
+                        : undefined
+                    }
+                  />
                 )}
               </div>
             </section>

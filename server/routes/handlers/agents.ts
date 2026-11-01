@@ -146,6 +146,7 @@ export type SpawnResult =
         | typeof SPAWN_EXCEEDS_AGENT
         | typeof SPAWN_LIMIT
         | typeof FOLDER_NOT_ALLOWED
+        | "engine_below_standard"
         | "spawn_failed";
       message: string;
     };
@@ -244,6 +245,8 @@ export interface AgentsDeps {
     effort?: AgentInfo["effort"];
     agentType?: AgentInfo["agentType"];
     codexSandbox?: AgentInfo["codexSandbox"];
+    // The new agent's stop below standard, with its pack. Absent: standard.
+    grant?: AgentAccessGrant;
     username: string | undefined;
     userId: string | null;
     // When an agent spawns: the new agent's spawn tree, checked against
@@ -547,6 +550,22 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (typeof b.roomId !== "string" || b.roomId.length === 0) {
         return fail(422, "invalid_request", "roomId is required");
       }
+      // A stop below standard at spawn, with its pack. Privileged keeps its
+      // own user-only route.
+      let grant: AgentAccessGrant | undefined;
+      if (b.access !== undefined || b.pack !== undefined) {
+        const parsed = parseAgentAccessGrant({
+          access: b.access,
+          ...(b.pack !== undefined ? { pack: b.pack } : {}),
+        });
+        if (!parsed || parsed.access === "privileged")
+          return fail(
+            400,
+            "invalid_request",
+            "access must be chat, office, folder, web or standard, with a pack (token limits with areas) only at office, folder and web",
+          );
+        grant = parsed;
+      }
       // No desk puts the agent in the back room: an agent that spawns
       // workers without a desk choice keeps the front for the agents people
       // talk to. The lobby takes its one front desk.
@@ -619,6 +638,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         effort: b.effort,
         agentType: b.agentType,
         codexSandbox,
+        ...(grant ? { grant } : {}),
         username,
         userId: ctx.identity.userId,
         ...(spawner
@@ -643,7 +663,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
                 : r.reason === "room_not_found"
                   ? 404
                   : r.reason === "invalid_model_family" ||
-                      r.reason === FOLDER_NOT_ALLOWED
+                      r.reason === FOLDER_NOT_ALLOWED ||
+                      r.reason === "engine_below_standard"
                     ? 422
                     : 409;
       return fail(status, r.reason, r.message);

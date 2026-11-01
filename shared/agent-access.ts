@@ -5,6 +5,7 @@
 
 import {
   parseApiTokenLimits,
+  type ApiTokenArea,
   type ApiTokenLimits,
 } from "./api-token-limits.ts";
 
@@ -142,3 +143,66 @@ export const INLINE_IMAGE_TYPES: ReadonlySet<string> = new Set([
   "image/gif",
   "image/webp",
 ]);
+
+// The areas an agent's pack can grant: the ones with an office MCP tool for
+// an agent token. A pack the dialog builds names only these.
+export const AGENT_PACK_AREAS = ["agents", "logs", "tasks", "asks"] as const;
+
+export type AgentPackArea = (typeof AGENT_PACK_AREAS)[number];
+
+// The pack presets of the agent dialog, narrowest first.
+export const AGENT_PACK_PRESETS: {
+  asksOnly: ApiTokenLimits;
+  tasksAndAsks: ApiTokenLimits;
+  talkToAgents: ApiTokenLimits;
+} = {
+  asksOnly: { areas: { asks: "write" } },
+  tasksAndAsks: { areas: { tasks: "write", asks: "write" } },
+  talkToAgents: { areas: { agents: "write", tasks: "write", asks: "write" } },
+};
+
+export type AgentPackPreset = keyof typeof AGENT_PACK_PRESETS;
+
+// The preset whose areas `pack` has exactly, else "custom". Rooms do not
+// count.
+export function agentPackPresetOf(
+  pack: ApiTokenLimits,
+): AgentPackPreset | "custom" {
+  for (const key of Object.keys(AGENT_PACK_PRESETS) as AgentPackPreset[])
+    if (sameAreas(pack.areas, AGENT_PACK_PRESETS[key].areas)) return key;
+  return "custom";
+}
+
+function sameAreas(
+  a: ApiTokenLimits["areas"],
+  b: ApiTokenLimits["areas"],
+): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => a[key as ApiTokenArea] === b[key as ApiTokenArea])
+  );
+}
+
+function sameRooms(a: string[] | undefined, b: string[] | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  const set = new Set(a);
+  return set.size === new Set(b).size && b.every((id) => set.has(id));
+}
+
+// Whether two grants are the same in content: the stop, and at a stop with a
+// pack the same areas and the same set of rooms, whatever their order.
+export function sameAccessGrant(
+  a: AgentAccessGrant,
+  b: AgentAccessGrant,
+): boolean {
+  if (a.access !== b.access) return false;
+  if (!stopHasPack(a.access)) return true;
+  if (!a.pack || !b.pack) return a.pack === b.pack;
+  return (
+    sameAreas(a.pack.areas, b.pack.areas) &&
+    sameRooms(a.pack.rooms, b.pack.rooms) &&
+    a.pack.repliesOnly === b.pack.repliesOnly
+  );
+}

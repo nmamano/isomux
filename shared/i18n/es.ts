@@ -1570,6 +1570,29 @@ Cosas que puedes hacer por él:
     "Permite a este agente actuar por ti en toda la oficina: editar, mover y eliminar otros agentes y dirigir sus conversaciones, gestionar salas, programaciones e integraciones, y publicar en el chat de miembros. Si eres propietario de la oficina, también puede añadir miembros y cambiar la configuración de la oficina. Actúa como sí mismo, con tu acceso.",
   "dialogs.agent.privilegedRestart":
     "Al guardar se reinicia la sesión del agente.",
+  "dialogs.agent.access": "Acceso",
+  "dialogs.agent.access.chat": "Chat",
+  "dialogs.agent.access.office": "Oficina",
+  "dialogs.agent.access.folder": "Carpeta",
+  "dialogs.agent.access.web": "Web",
+  "dialogs.agent.access.standard": "Estándar",
+  "dialogs.agent.access.privileged": "Privilegiado",
+  "dialogs.agent.access.chatHint":
+    "Sin herramientas. Solo responde en su chat.",
+  "dialogs.agent.access.officeHint":
+    "Sin terminal ni archivos. Usa la oficina solo como permite su paquete de permisos.",
+  "dialogs.agent.access.folderHint":
+    "Oficina, más archivos solo en su propia carpeta.",
+  "dialogs.agent.access.webHint":
+    "Carpeta, más búsqueda y descarga web. Una página web puede pedirle que envíe lo que lee, así que dale un paquete reducido.",
+  "dialogs.agent.access.standardHint":
+    "Una terminal y todas las herramientas de su motor.",
+  "dialogs.agent.access.boundaryNote":
+    "Con una terminal, un agente puede leer los tokens de oficina de otros agentes. Solo Chat, Oficina, Carpeta y Web limitan lo que puede alcanzar.",
+  "dialogs.agent.access.engineCannot": "Aún no disponible para este motor",
+  "dialogs.agent.pack.asksOnly": "Solo preguntas",
+  "dialogs.agent.pack.tasksAndAsks": "Tareas y preguntas",
+  "dialogs.agent.pack.showsSecrets": "puede mostrar secretos",
   "dialogs.agent.autoHandoff": "Traspaso automático",
   "dialogs.agent.autoHandoffHint":
     "Cuando el contexto se llena, el agente escribe un resumen y continúa en una sesión nueva. El chat se vacía.",
@@ -2726,6 +2749,9 @@ Cosas que puedes hacer por él:
   "tasks.github.notSyncing":
     "Ya no se actualiza: la sala no está enlazada con este repositorio.",
   "tasks.globalChipTitle": "Tarea global de la oficina",
+  "tasks.limitedChip": "Limitado",
+  "tasks.limitedChipTitle":
+    "Un agente por debajo de Estándar creó esta tarea. Su texto puede venir de desconocidos.",
   "tasks.createdFor": "{who} · para {target}",
   "tasks.killedName": "{name} (detenido)",
   "office.newAgent": "Agente nuevo",

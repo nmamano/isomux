@@ -22,6 +22,7 @@ import {
 } from "../../shared/agent-access.ts";
 import { AGENT_SENDER_LIMITED } from "../../shared/identity.ts";
 import type { AgentInfo, TaskItem } from "../../shared/types.ts";
+import { SpawnAccessRefusedError, type SpawnAccess } from "../agent-manager.ts";
 
 let server: TestServer | null = null;
 const clients: Client[] = [];
@@ -1111,5 +1112,199 @@ describe("the prompt of an agent below Standard", () => {
     expect(await preview({ access: "standard" })).toContain(
       "ISOMUX_AGENT_TOKEN",
     );
+  });
+});
+
+describe("a spawn below Standard", () => {
+  const ASKS_ONLY = { areas: { asks: "write" } } as const;
+
+  it("is refused before the agent exists", async () => {
+    const o = await office();
+    const before = o.srv.agentManager.getAllAgents().length;
+    const cases: Array<[string, Record<string, unknown>, number, string?]> = [
+      [
+        "the home folder at folder",
+        { cwd: "~", access: "folder", pack: TASKS_READ },
+        422,
+        FOLDER_NOT_ALLOWED,
+      ],
+      [
+        "the office state at web",
+        { cwd: o.srv.stateRoot, access: "web", pack: TASKS_READ },
+        422,
+        FOLDER_NOT_ALLOWED,
+      ],
+      [
+        "codex at office",
+        {
+          cwd: freshFolder(),
+          agentType: "codex",
+          modelFamily: "gpt-5.5",
+          access: "office",
+          pack: ASKS_ONLY,
+        },
+        422,
+        "engine_below_standard",
+      ],
+      [
+        "codex at chat",
+        {
+          cwd: freshFolder(),
+          agentType: "codex",
+          modelFamily: "gpt-5.5",
+          access: "chat",
+        },
+        422,
+        "engine_below_standard",
+      ],
+      // Privileged keeps its own user-only route.
+      ["privileged", { cwd: freshFolder(), access: "privileged" }, 400],
+      ["office without a pack", { cwd: freshFolder(), access: "office" }, 400],
+      [
+        "a pack at chat",
+        { cwd: freshFolder(), access: "chat", pack: ASKS_ONLY },
+        400,
+      ],
+      ["a pack with no stop", { cwd: freshFolder(), pack: ASKS_ONLY }, 400],
+      ["an unknown stop", { cwd: freshFolder(), access: "admin" }, 400],
+    ];
+    for (const [label, fields, status, code] of cases) {
+      const res = await asMember(o, "POST", "/api/agents", {
+        name: label,
+        roomId: o.room,
+        agentType: "claude",
+        ...fields,
+      });
+      expect({ label, ...outcome(res) }).toMatchObject({
+        label,
+        status,
+        ...(code ? { code } : {}),
+      });
+      expect({
+        label,
+        made: o.srv.agentManager.getAllAgents().some((a) => a.name === label),
+      }).toEqual({ label, made: false });
+    }
+    expect(o.srv.agentManager.getAllAgents().length).toBe(before);
+    // Nothing was left in the office either: each name is still free.
+    for (const [label] of cases) {
+      const res = await asMember(o, "POST", "/api/agents", {
+        name: label,
+        cwd: freshFolder(),
+        roomId: o.room,
+        agentType: "claude",
+      });
+      expect({ label, status: res.status }).toEqual({ label, status: 201 });
+    }
+  });
+
+  it("starts the agent at its stop: the first token carries the pack, and the first session the stop", async () => {
+    const o = await office();
+    const res = await asMember(o, "POST", "/api/agents", {
+      name: "Inbox",
+      cwd: freshFolder(),
+      roomId: o.room,
+      agentType: "claude",
+      access: "office",
+      pack: ASKS_ONLY,
+    });
+    expect(res.status).toBe(201);
+    const inbox = (res.body as { agent: AgentInfo }).agent;
+    expect(sliderOf(agentOf(o.srv, inbox.id))).toEqual({
+      access: "office",
+      pack: ASKS_ONLY,
+      privileged: false,
+    });
+    const { tools } = await (await connect(o, tokenOf(inbox.id))).listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "delete_ask",
+      "edit_ask",
+      "list_my_asks",
+      "open_ask",
+    ]);
+
+    const filed = await asMember(o, "POST", "/api/agents", {
+      name: "Filer",
+      cwd: freshFolder(),
+      roomId: o.room,
+      agentType: "claude",
+      access: "folder",
+      pack: TASKS_READ,
+    });
+    expect(filed.status).toBe(201);
+    const filer = (filed.body as { agent: AgentInfo }).agent;
+    void o.srv.agentManager.sendMessage(filer.id, "hello", o.username);
+    await waitUntil(
+      () => o.srv.fakeBackend.sessionForAgent(filer.id) !== undefined,
+      "the first session of the folder agent",
+    );
+    expect(o.srv.fakeBackend.sessionForAgent(filer.id)!.opts.access).toBe(
+      "folder",
+    );
+
+    // Standard by name is the default.
+    const plain = await asMember(o, "POST", "/api/agents", {
+      name: "Plain",
+      cwd: freshFolder(),
+      roomId: o.room,
+      agentType: "claude",
+      access: "standard",
+    });
+    expect(plain.status).toBe(201);
+    const plainId = (plain.body as { agent: AgentInfo }).agent.id;
+    expect(await mcpStatus(o, tokenOf(plainId))).toBe(403);
+  });
+
+  // spawn checks the new agent and adds it to the office with no await in
+  // between: two spawns started together see each other.
+  it("checks and joins in one step, so two spawns into one folder cannot both pass", async () => {
+    const o = await office();
+    const dir = freshFolder();
+    let checks = 0;
+    let sawItself = false;
+    const access = (): SpawnAccess => ({
+      grant: { access: "folder", pack: TASKS_READ },
+      refusal: (name, cwd) => {
+        checks++;
+        const agents = o.srv.agentManager.getAllAgents();
+        if (agents.some((a) => a.name === name)) sawItself = true;
+        return agents.some((a) => a.cwd === cwd)
+          ? { refused: "folder_not_allowed", message: `${name} overlaps` }
+          : null;
+      },
+    });
+    const start = (name: string) =>
+      o.srv.agentManager.spawn(
+        name,
+        dir,
+        "default",
+        undefined,
+        undefined,
+        o.room,
+        undefined,
+        undefined,
+        undefined,
+        o.username,
+        "claude",
+        undefined,
+        o.userId,
+        undefined,
+        access(),
+      );
+    const results = await Promise.allSettled([start("First"), start("Second")]);
+    expect(checks).toBe(2);
+    expect(sawItself).toBe(false);
+    expect(
+      results.map((r) =>
+        r.status === "fulfilled"
+          ? `made ${r.value?.name}`
+          : r.reason instanceof SpawnAccessRefusedError
+            ? `refused ${r.reason.refusal.refused}`
+            : `threw ${String(r.reason)}`,
+      ),
+    ).toEqual(["made First", "refused folder_not_allowed"]);
+    expect(
+      o.srv.agentManager.getAllAgents().filter((a) => a.cwd === dir).length,
+    ).toBe(1);
   });
 });

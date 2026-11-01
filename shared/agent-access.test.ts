@@ -5,12 +5,16 @@
 import { describe, expect, it } from "bun:test";
 import {
   AGENT_ACCESS_STOPS,
+  AGENT_PACK_PRESETS,
   agentAccessOf,
+  agentPackPresetOf,
   belowStandard,
   claudeToolsForStop,
   parseAgentAccessGrant,
   parseAgentPack,
+  sameAccessGrant,
   type AgentAccess,
+  type AgentAccessGrant,
 } from "./agent-access.ts";
 
 const ORDER: AgentAccess[] = [
@@ -135,5 +139,95 @@ describe("claudeToolsForStop", () => {
       standard: null,
       privileged: null,
     });
+  });
+});
+
+// A false "same" drops a member's change at save; a false "different" rotates
+// the token and restarts the session for nothing.
+describe("the dialog's pack rules", () => {
+  it("two grants are the same only in content, whatever the order", () => {
+    const pack = (areas: object, rooms?: string[]) =>
+      ({ areas, ...(rooms ? { rooms } : {}) }) as AgentAccessGrant["pack"];
+    const base: AgentAccessGrant = {
+      access: "office",
+      pack: pack({ tasks: "read", asks: "write" }, ["r1", "r2"]),
+    };
+    const cases: Array<[string, AgentAccessGrant, boolean]> = [
+      [
+        "areas and rooms in another order",
+        {
+          access: "office",
+          pack: pack({ asks: "write", tasks: "read" }, ["r2", "r1"]),
+        },
+        true,
+      ],
+      ["another stop", { ...base, access: "folder" }, false],
+      [
+        "another level",
+        {
+          access: "office",
+          pack: pack({ tasks: "write", asks: "write" }, ["r1", "r2"]),
+        },
+        false,
+      ],
+      [
+        "one more area",
+        {
+          access: "office",
+          pack: pack({ tasks: "read", asks: "write", logs: "read" }, [
+            "r1",
+            "r2",
+          ]),
+        },
+        false,
+      ],
+      [
+        "fewer rooms",
+        {
+          access: "office",
+          pack: pack({ tasks: "read", asks: "write" }, ["r1"]),
+        },
+        false,
+      ],
+      [
+        "every room",
+        { access: "office", pack: pack({ tasks: "read", asks: "write" }) },
+        false,
+      ],
+    ];
+    for (const [label, other, same] of cases)
+      expect({ label, same: sameAccessGrant(base, other) }).toEqual({
+        label,
+        same,
+      });
+    // No rooms (every room) and an empty list (no room) differ.
+    expect(
+      sameAccessGrant(
+        { access: "web", pack: pack({ asks: "write" }) },
+        { access: "web", pack: pack({ asks: "write" }, []) },
+      ),
+    ).toBe(false);
+    // A stop without a pack ignores a stale one.
+    expect(
+      sameAccessGrant(
+        { access: "standard", pack: pack({ agents: "write" }) },
+        { access: "standard" },
+      ),
+    ).toBe(true);
+  });
+
+  it("a pack shows a preset only with exactly its areas", () => {
+    for (const [key, preset] of Object.entries(AGENT_PACK_PRESETS)) {
+      // Widened to string, so the expected side may be any key.
+      const shown: string = agentPackPresetOf({ ...preset, rooms: ["r1"] });
+      expect({ key, shown }).toEqual({ key, shown: key });
+    }
+    expect(agentPackPresetOf({ areas: { asks: "write", tasks: "read" } })).toBe(
+      "custom",
+    );
+    expect(agentPackPresetOf({ areas: { asks: "write", logs: "read" } })).toBe(
+      "custom",
+    );
+    expect(agentPackPresetOf({ areas: {} })).toBe("custom");
   });
 });

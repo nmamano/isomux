@@ -13,6 +13,7 @@ import {
 } from "./dialog-styles.ts";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
+import { RoomPicker } from "./RoomPicker.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import {
@@ -359,58 +360,14 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             <span style={hint}>{t("settings.apiTokens.repliesOnlyHint")}</span>
           </label>
         )}
-        <label style={{ display: "block", fontSize: 12, marginTop: 8 }}>
-          {t("settings.apiTokens.rooms")}
-          <select
-            data-testid="api-token-rooms"
-            value={roomScope}
-            onChange={(event) =>
-              setRoomScope(event.target.value as "all" | "some")
-            }
-            style={{
-              ...dialogInput,
-              display: "block",
-              width: "100%",
-              marginTop: 5,
-            }}
-          >
-            <option value="all">{t("settings.apiTokens.rooms.all")}</option>
-            <option value="some">{t("settings.apiTokens.rooms.some")}</option>
-          </select>
-        </label>
-        {roomScope === "some" && (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 6,
-              marginTop: 10,
-              fontSize: 12,
-            }}
-          >
-            {memberRooms.map((room) => (
-              <label
-                key={room.id}
-                style={{ display: "flex", alignItems: "center", gap: 6 }}
-              >
-                <input
-                  type="checkbox"
-                  data-room={room.id}
-                  checked={pickedRooms.includes(room.id)}
-                  onChange={(event) => {
-                    const checked = event.target.checked;
-                    setPickedRooms((current) =>
-                      checked
-                        ? [...current, room.id]
-                        : current.filter((id) => id !== room.id),
-                    );
-                  }}
-                />
-                {room.name}
-              </label>
-            ))}
-          </div>
-        )}
+        <RoomPicker
+          scope={roomScope}
+          onScope={setRoomScope}
+          picked={pickedRooms}
+          onPicked={setPickedRooms}
+          rooms={memberRooms}
+          testId="api-token-rooms"
+        />
         <button
           data-testid="api-token-create"
           onClick={create}

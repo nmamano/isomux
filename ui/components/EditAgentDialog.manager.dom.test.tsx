@@ -1,6 +1,6 @@
 // The Manager field of the agent edit dialog (task 6a9deaba): an office owner
 // picks any member, a member sees the manager read-only. Saving a new manager
-// is its own PUT, after the PATCH and before the privilege PUT, and a member
+// is its own PUT, after the PATCH and the access PUT, and a member
 // without access to the agent's room gets a hint, never a block.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -164,7 +164,9 @@ describe("edit dialog manager field", () => {
     }
   });
 
-  it("orders a combined save: the PATCH, then the manager, then privilege", async () => {
+  // The PUT /access runs before the transfer: after it, only an owner may
+  // still move the agent. To Privileged it also runs before the PATCH.
+  it("orders a combined save: privilege, then the PATCH, then the manager", async () => {
     const calls = shim();
     const view = renderAs("owner");
     try {
@@ -175,13 +177,15 @@ describe("edit dialog manager field", () => {
         target: { value: "peer" },
       });
       fireEvent.click(
-        view.container.querySelector<HTMLInputElement>("#agent-privileged")!,
+        view.container.querySelector<HTMLInputElement>(
+          'input[data-access-stop="privileged"]',
+        )!,
       );
       await save(view.container);
       expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+        "PUT /api/agents/a1/access",
         "PATCH /api/agents/a1",
         "PUT /api/agents/a1/manager",
-        "PUT /api/agents/a1/privileged",
       ]);
     } finally {
       view.unmount();

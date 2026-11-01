@@ -156,6 +156,8 @@ describe("agent form prompt preview", () => {
             agentType: mode === "spawn-codex" ? "codex" : "claude",
             instructions: "Draft instructions",
             privileged: false,
+            // The form's slider stop.
+            access: "standard",
             ...(mode === "edit" ? { memory: "" } : {}),
             // The form's mode, and a Codex form's sandbox: they decide the
             // schedule line (task 11e311db). A new Claude agent's default

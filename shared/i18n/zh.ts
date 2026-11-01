@@ -1404,6 +1404,26 @@ App 的一些原则：
   "dialogs.agent.privilegedHint":
     "让此智能体在整个办公室代你操作：编辑、移动和移除其他智能体并操作它们的对话，管理房间、定时任务和集成，并在成员聊天中发言。如果你是办公室所有者，它还可以添加成员并更改办公室设置。它以自己的身份操作，使用你的权限。",
   "dialogs.agent.privilegedRestart": "保存会重启智能体的会话。",
+  "dialogs.agent.access": "权限",
+  "dialogs.agent.access.chat": "聊天",
+  "dialogs.agent.access.office": "办公室",
+  "dialogs.agent.access.folder": "文件夹",
+  "dialogs.agent.access.web": "网络",
+  "dialogs.agent.access.standard": "标准",
+  "dialogs.agent.access.privileged": "特权",
+  "dialogs.agent.access.chatHint": "没有工具。只在自己的聊天中回答。",
+  "dialogs.agent.access.officeHint":
+    "没有终端，也没有文件。只能按权限包的允许使用办公室。",
+  "dialogs.agent.access.folderHint": "办公室，外加只在自己文件夹中的文件。",
+  "dialogs.agent.access.webHint":
+    "文件夹，外加网页搜索和抓取。网页可能让它把读到的内容发出去，所以请给它较窄的权限包。",
+  "dialogs.agent.access.standardHint": "终端以及其引擎的全部工具。",
+  "dialogs.agent.access.boundaryNote":
+    "有终端的智能体可以读取其他智能体的办公室令牌。只有聊天、办公室、文件夹和网络会限制它能访问的范围。",
+  "dialogs.agent.access.engineCannot": "此引擎暂不可用",
+  "dialogs.agent.pack.asksOnly": "仅询问",
+  "dialogs.agent.pack.tasksAndAsks": "任务和询问",
+  "dialogs.agent.pack.showsSecrets": "可能显示密钥",
   "dialogs.agent.autoHandoff": "自动交接",
   "dialogs.agent.autoHandoffHint":
     "上下文快满时，智能体会写一份简报并在新会话中继续。聊天记录会清空。",
@@ -2466,6 +2486,9 @@ App 的一些原则：
   "tasks.github.syncing": "从 GitHub 保持更新。",
   "tasks.github.notSyncing": "不再更新：该房间未链接到此仓库。",
   "tasks.globalChipTitle": "办公室全局任务",
+  "tasks.limitedChip": "受限",
+  "tasks.limitedChipTitle":
+    "一个标准以下的智能体创建了此任务。其内容可能来自陌生人。",
   "tasks.createdFor": "{who} · 为 {target}",
   "tasks.killedName": "{name}（已终止）",
   "office.newAgent": "新智能体",

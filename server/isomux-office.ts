@@ -33,6 +33,7 @@ import {
   INLINE_IMAGE_TYPES,
   stopHasFolder,
   stopHasPack,
+  type AgentAccess,
 } from "../shared/agent-access.ts";
 import {
   confinedFolderRefusal,
@@ -107,7 +108,11 @@ import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
 import { codexSandboxProbe } from "./backends/codex/sandbox-probe.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
-import type { AgentManager } from "./agent-manager.ts";
+import {
+  SpawnAccessRefusedError,
+  type AgentManager,
+  type SpawnAccessRefusal,
+} from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
 import {
   createProductionCronjobManager,
@@ -3295,6 +3300,27 @@ function folderRuleState(): FolderRuleState {
   };
 }
 
+// The refusal for a new agent `name` of engine `agentType` at `access` in
+// `cwd`: the engine, then the folder rules at folder and web, else the
+// overlap with the folder of an agent that keeps its files there.
+function spawnAccessRefusal(
+  name: string,
+  agentType: string,
+  access: AgentAccess,
+  cwd: string,
+): SpawnAccessRefusal | null {
+  if (!engineRunsAccess(agentType, access))
+    return {
+      refused: "engine_below_standard",
+      message: "This engine cannot run an agent below Standard yet.",
+    };
+  const state = folderRuleState();
+  const message = stopHasFolder(access)
+    ? confinedFolderRefusal({ id: "", name }, cwd, state)
+    : folderOverlapRefusal(cwd, null, state);
+  return message ? { refused: FOLDER_NOT_ALLOWED, message } : null;
+}
+
 // The refusal for `agent` to move to `cwd`: the folder rules when it keeps
 // its files in its folder, else the overlap with such an agent's folder.
 function cwdFolderRefusal(agent: AgentInfo, cwd: string): string | null {
@@ -6147,6 +6173,16 @@ function buildExecutorDeps(
               spawnedByAgentId: input.spawner.spawnedByAgentId,
               spawnRootAgentId: input.spawner.spawnRootAgentId,
             },
+            {
+              grant: input.grant ?? { access: "standard" },
+              refusal: (name, resolvedCwd) =>
+                spawnAccessRefusal(
+                  name,
+                  input.agentType ?? "claude",
+                  input.grant?.access ?? "standard",
+                  resolvedCwd,
+                ),
+            },
           );
           if (spawned) {
             notePromptContent(spawned.customInstructions);
@@ -6193,6 +6229,12 @@ function buildExecutorDeps(
                 message: "The target room has no free desks.",
               };
         } catch (err) {
+          if (err instanceof SpawnAccessRefusedError)
+            return {
+              ok: false,
+              reason: err.refusal.refused,
+              message: err.refusal.message,
+            };
           return {
             ok: false,
             reason: "spawn_failed",
@@ -6264,7 +6306,7 @@ function buildExecutorDeps(
             return {
               ok: false,
               reason: "engine_below_standard",
-              message: "Only a Claude agent can be below Standard for now.",
+              message: "This engine cannot run an agent below Standard yet.",
             };
           }
         }
@@ -6383,7 +6425,7 @@ function buildExecutorDeps(
         return r === "engine_below_standard"
           ? {
               refused: "engine_below_standard" as const,
-              message: "Only a Claude agent can be below Standard for now.",
+              message: "This engine cannot run an agent below Standard yet.",
             }
           : r;
       },

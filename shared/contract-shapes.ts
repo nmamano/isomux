@@ -87,6 +87,10 @@ export interface SpawnReq {
   effort?: AgentInfo["effort"];
   agentType?: AgentInfo["agentType"];
   codexSandbox?: AgentInfo["codexSandbox"];
+  // A stop below standard (or standard, the default) for the new agent, with
+  // its pack at office, folder and web. Privileged keeps its own route.
+  access?: AgentAccess;
+  pack?: AgentAccessGrant["pack"];
 }
 
 // Read-only form preview. Identity comes from the existing agent or the caller.

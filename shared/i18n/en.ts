@@ -1545,6 +1545,27 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.privilegedHint":
     "Lets this agent act for you across the office: edit, move and remove other agents and drive their conversations, manage rooms, schedules and integrations, and post in members chat. If you are an office owner, it can also add members and change office settings. It acts as itself, with your access.",
   "dialogs.agent.privilegedRestart": "Saving restarts the agent's session.",
+  "dialogs.agent.access": "Access",
+  "dialogs.agent.access.chat": "Chat",
+  "dialogs.agent.access.office": "Office",
+  "dialogs.agent.access.folder": "Folder",
+  "dialogs.agent.access.web": "Web",
+  "dialogs.agent.access.standard": "Standard",
+  "dialogs.agent.access.privileged": "Privileged",
+  "dialogs.agent.access.chatHint": "No tools. It only answers in its chat.",
+  "dialogs.agent.access.officeHint":
+    "No shell and no files. It uses the office only as its permission pack allows.",
+  "dialogs.agent.access.folderHint":
+    "Office, plus files in its own folder only.",
+  "dialogs.agent.access.webHint":
+    "Folder, plus web search and fetch. A web page can tell it to send out what it reads, so give it a narrow pack.",
+  "dialogs.agent.access.standardHint": "A shell and every tool of its engine.",
+  "dialogs.agent.access.boundaryNote":
+    "With a shell, an agent can read the office tokens of other agents. Only Chat, Office, Folder and Web limit what it can reach.",
+  "dialogs.agent.access.engineCannot": "Not available for this engine yet",
+  "dialogs.agent.pack.asksOnly": "Asks only",
+  "dialogs.agent.pack.tasksAndAsks": "Tasks and asks",
+  "dialogs.agent.pack.showsSecrets": "can show secrets",
   "dialogs.agent.autoHandoff": "Automatic handoff",
   "dialogs.agent.autoHandoffHint":
     "When the context gets full, the agent writes a brief and continues in a fresh session. The chat clears.",
@@ -2666,6 +2687,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "tasks.github.notSyncing":
     "No longer updates: the room is not linked to this repo.",
   "tasks.globalChipTitle": "Office-global task",
+  "tasks.limitedChip": "Limited",
+  "tasks.limitedChipTitle":
+    "An agent below Standard filed this task. Its text can come from strangers.",
   "tasks.createdFor": "{who} · for {target}",
   "tasks.killedName": "{name} (killed)",
   "office.newAgent": "New Agent",

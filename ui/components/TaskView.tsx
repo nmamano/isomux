@@ -576,6 +576,11 @@ function TaskDetailPanel({
           </div>
         </div>
 
+        {mode === "edit" && task?.limited && (
+          <div>
+            <LimitedTaskChip task={task} />
+          </div>
+        )}
         {mode === "edit" && task?.external && <TaskGithubBlock task={task} />}
 
         <div style={{ display: "flex", gap: 10 }}>
@@ -1736,6 +1741,7 @@ export function TaskView({
                         {task.external && (
                           <TaskGithubChip external={task.external} />
                         )}
+                        <LimitedTaskChip task={task} />
                         {task.title}
                         {task.description && (
                           <span
@@ -1858,5 +1864,31 @@ export function TaskView({
           />
         ) : null)}
     </div>
+  );
+}
+
+// The mark of a task an agent below Standard filed (data-limited-task): its
+// text can come from strangers.
+export function LimitedTaskChip({ task }: { task: Pick<TaskItem, "limited"> }) {
+  const { t } = useI18n();
+  if (!task.limited) return null;
+  return (
+    <span
+      data-limited-task=""
+      title={t("tasks.limitedChipTitle")}
+      style={{
+        fontSize: 10,
+        fontWeight: 700,
+        fontFamily: "var(--font-ui)",
+        color: "var(--text-dim)",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 4,
+        padding: "1px 5px",
+        marginRight: 6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {t("tasks.limitedChip")}
+    </span>
   );
 }
