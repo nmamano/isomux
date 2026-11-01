@@ -8,7 +8,8 @@
 //     is resolved. A mismatched Origin -> 403 "bad origin"; a safe GET skips
 //     the check. A MISSING Origin (agent curl) is allowed: auth-wall.test.ts.
 //   - 401 shape: JSON { error:"unauthenticated" } when the client wants JSON,
-//     the login HTML page when it wants text/html.
+//     the login HTML page when it wants text/html. Its heading names the
+//     office when the office has a name.
 //   - Bearer precedence: a valid bearer wins over a cookie; a garbage bearer is
 //     ignored rather than becoming a new rejection.
 //
@@ -155,6 +156,49 @@ describe("routes/auth: 401 shape by Accept", () => {
       expect(res.headers.get("content-type")).toContain("text/html");
     }
   });
+});
+
+// The 401 login page names the office in its heading, as the tab title does,
+// so a member who opens another office (lobby elevator) sees which office
+// they sign in to (task 408649ee). An office with no name keeps the generic
+// heading.
+describe("routes/auth: login page heading names the office", () => {
+  const loginPage = async (srv: TestServer) => {
+    const res = await srv.http("/agents", { headers: { Accept: "text/html" } });
+    expect(res.status).toBe(401);
+    const html = await res.text();
+    const h1s = [...html.matchAll(/<h1>([\s\S]*?)<\/h1>/g)].map((m) =>
+      m[1].trim(),
+    );
+    expect(h1s.length).toBe(1);
+    return { h1: h1s[0] };
+  };
+  const decode = (s: string) =>
+    s
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, "&");
+
+  for (const withOwner of [true, false]) {
+    it(`${withOwner ? "claimed" : "unclaimed"} office: the h1 holds the escaped name; no name keeps the generic heading`, async () => {
+      const srv = await startTestServer();
+      server = srv;
+      if (withOwner) await srv.seedOwner("Morgan");
+
+      const generic = await loginPage(srv);
+      expect(srv.agentManager.getOfficeSettings().name).toBeNull();
+      expect(generic.h1.length).toBeGreaterThan(0);
+
+      const name = `Harbor <b>HQ</b> & "Co" 'x'`;
+      srv.agentManager.setOfficeSettings(null, null, name);
+      const named = await loginPage(srv);
+      expect(named.h1).not.toContain("<");
+      expect(decode(named.h1)).toBe(name);
+      expect(named.h1).not.toBe(generic.h1);
+    });
+  }
 });
 
 describe("auth-middleware: resolveIdentityForRequest precedence (Phase 2.1)", () => {

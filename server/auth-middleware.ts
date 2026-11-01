@@ -936,16 +936,17 @@ const EMPTY_PNG = Buffer.from(
 
 function renderLoginPage(i18n: Translator, officeName: string | null): string {
   const { t } = i18n;
-  // The visible page body remains generic - the backdrop is a baked
-  // screenshot of the office UI served from /auth/login-bg.png (the same
-  // asset isomux.com uses on its marketing page) so it reveals nothing
-  // about this specific deployment. Once an owner exists, the office name is
-  // surfaced only via the browser-tab title for consistency with the SPA shell.
+  // The backdrop is a baked screenshot of the office UI served from
+  // /auth/login-bg.png (the same asset isomux.com uses on its marketing page),
+  // so it reveals nothing about this deployment. The heading names the office
+  // when it has a name, so a member sees which office they sign in to; the
+  // tab title already shows that name.
   const hasOfficeOwner = hasOwner();
+  const heading = officeName ? escapeHtml(officeName) : "Isomux";
   const body = `
     <div class="login-bg" aria-hidden="true"></div>
     <main class="card">
-      <h1>Isomux</h1>
+      <h1>${heading}</h1>
       ${
         hasOfficeOwner
           ? `<p>${t("preAuth.login.openInvite")}</p>
