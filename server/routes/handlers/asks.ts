@@ -850,8 +850,17 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // The editing app, for the edit's event; absent when the agent edits.
     actor?: { app: string },
   ): HandlerResult => {
-    const checked = checkPromptField(body);
-    if (!checked.ok) return fail(400, "invalid_text", checked.message);
+    // An absent or empty prompt keeps it: an empty text/plain body is "".
+    const sent = body.text !== undefined ? body.text : body.prompt;
+    let prompt: string | undefined;
+    if (
+      (body.text !== undefined && body.prompt !== undefined) ||
+      (sent !== undefined && sent !== "")
+    ) {
+      const checked = checkPromptField(body);
+      if (!checked.ok) return fail(400, "invalid_text", checked.message);
+      prompt = checked.prompt;
+    }
     // Absent keeps the link and "" removes it.
     if (body.link !== undefined && body.link !== "" && !askLinkFor(body.link))
       return invalidLink();
@@ -909,7 +918,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     if (!resolved.ok) return resolved.result;
     const entry = store.edit(
       askId,
-      checked.prompt,
+      prompt ?? prev.prompt,
       body.link === "" ? null : (body.link as string | undefined),
       options,
       resolved.affordances,

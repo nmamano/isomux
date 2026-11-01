@@ -358,24 +358,41 @@ describe("the fields of a JSON body", () => {
     expect(await prompts(w)).toEqual(["Keep me?"]);
   });
 
-  it("refuses an empty prompt as it refuses an empty text", async () => {
+  // An empty prompt on an edit keeps the prompt (task 5ed624d3): it is what
+  // an empty text/plain body sends. A blank one is still refused.
+  it("refuses an empty prompt as it refuses an empty text on create, and refuses a blank one on edit", async () => {
     const w = await world();
     const base = `/api/agents/${w.asker.id}/asks`;
-    const empty = await call(w.srv, "POST", base, w.as(w.asker.id), {
-      json: { prompt: "  " },
-    });
-    expect([empty.status, empty.code]).toEqual([400, "invalid_text"]);
+    for (const json of [{ prompt: "" }, { prompt: "  " }, { text: "" }, {}]) {
+      const r = await call(w.srv, "POST", base, w.as(w.asker.id), { json });
+      expect({ json, status: r.status, code: r.code }).toEqual({
+        json,
+        status: 400,
+        code: "invalid_text",
+      });
+    }
     expect(await prompts(w)).toEqual([]);
 
     const created = await open(w, "Keep me?");
-    const edit = await call(
-      w.srv,
-      "PATCH",
-      `${base}/${created.id}`,
-      w.as(w.asker.id),
-      { json: { prompt: "" } },
-    );
-    expect([edit.status, edit.code]).toEqual([400, "invalid_text"]);
+    for (const json of [
+      { prompt: "  " },
+      { text: "\n" },
+      { text: "", prompt: "New?" },
+      { text: "New?", prompt: "" },
+    ]) {
+      const r = await call(
+        w.srv,
+        "PATCH",
+        `${base}/${created.id}`,
+        w.as(w.asker.id),
+        { json },
+      );
+      expect({ json, status: r.status, code: r.code }).toEqual({
+        json,
+        status: 400,
+        code: "invalid_text",
+      });
+    }
     expect(await prompts(w)).toEqual(["Keep me?"]);
   });
 
@@ -403,6 +420,128 @@ describe("the fields of a JSON body", () => {
     });
     expect(created.status).toBe(201);
     expect((created.body as AskEntry).memberUserId).toBe(patId);
+  });
+});
+
+// An edit changes only the fields it sends (task 5ed624d3): with no prompt,
+// or the empty one an empty text/plain body gives, it keeps the prompt.
+describe("an edit that sends no prompt", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+
+  it("keeps the prompt and its simplify mark, changes only the fields it sends, as JSON and as text/plain, and records no prompt change", async () => {
+    const w = await world();
+    const cwd = agentOf(w.srv, w.asker.id).cwd;
+    writeFileSync(join(cwd, "before-after.png"), PNG);
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const made = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Ship it?", options: ["Yes", "No"], recommended: "Yes" },
+    });
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    const simplified = await call(
+      w.srv,
+      "POST",
+      `/api/asks/${id}/simplify`,
+      { rawSessionId: w.owner.rawSessionId },
+      { json: {} },
+    );
+    expect(simplified.status).toBe(204);
+    const patch = (query: string, body: { json?: unknown; text?: string }) =>
+      call(w.srv, "PATCH", `${base}/${id}${query}`, w.as(w.asker.id), body);
+    const shape = (e: AskEntry) => ({
+      prompt: e.prompt,
+      options: e.options ?? null,
+      recommended: e.recommended ?? null,
+      priority: e.priority ?? null,
+      readFiles: e.readFiles?.map((f) => f.originalName) ?? null,
+      simplifyPending: typeof e.simplifyRequestedAt === "number",
+      originalPrompt: e.originalPrompt ?? null,
+    });
+    const kept = {
+      prompt: "Ship it?",
+      options: ["Yes", "No"],
+      simplifyPending: true,
+      originalPrompt: null,
+    };
+
+    const steps: [string, { json?: unknown; text?: string }, object][] = [
+      ["", { json: { recommended: "No" } }, { recommended: "No" }],
+      ["", { json: { priority: "P1" } }, { recommended: "No", priority: "P1" }],
+      [
+        "",
+        { json: { readFiles: [join(cwd, "before-after.png")] } },
+        {
+          recommended: "No",
+          priority: "P1",
+          readFiles: ["before-after.png"],
+        },
+      ],
+      // The text/plain form: an empty body and one field in the query.
+      [
+        "?recommended=Yes",
+        { text: "" },
+        {
+          recommended: "Yes",
+          priority: "P1",
+          readFiles: ["before-after.png"],
+        },
+      ],
+      [
+        "",
+        { json: { prompt: "" } },
+        {
+          recommended: "Yes",
+          priority: "P1",
+          readFiles: ["before-after.png"],
+        },
+      ],
+      // Nothing sent: nothing changes.
+      [
+        "",
+        { json: {} },
+        {
+          recommended: "Yes",
+          priority: "P1",
+          readFiles: ["before-after.png"],
+        },
+      ],
+    ];
+    for (const [query, body, fields] of steps) {
+      const r = await patch(query, body);
+      const read = await call(w.srv, "GET", `${base}/${id}`, w.as(w.asker.id));
+      expect({
+        body,
+        status: r.status,
+        ask: shape(read.body as AskEntry),
+      }).toEqual({
+        body,
+        status: 200,
+        ask: {
+          ...kept,
+          recommended: null,
+          priority: null,
+          readFiles: null,
+          ...fields,
+        },
+      });
+    }
+
+    const deleted = await call(
+      w.srv,
+      "DELETE",
+      `${base}/${id}`,
+      w.as(w.asker.id),
+    );
+    expect(deleted.status).toBe(204);
+    const closed = (await call(w.srv, "GET", `${base}/${id}`, w.as(w.asker.id)))
+      .body as AskClosedWire;
+    // One edited event per field change, none for the kept prompt or the
+    // edits that changed nothing.
+    expect(
+      closed.events
+        .filter((e) => e.kind === "edited")
+        .map((e) => Object.keys((e as { before: object }).before)),
+    ).toEqual([["recommended"], ["priority"], ["readFiles"], ["recommended"]]);
   });
 });
 
@@ -2343,6 +2482,16 @@ describe("a secret request is an ask", () => {
       { text: "Another reason" },
     );
     expect(`${edit.status} ${edit.code}`).toBe("409 secret_request");
+    // An edit with no prompt is refused as a secret request too, not as a
+    // missing prompt.
+    const bare = await call(
+      w.srv,
+      "PATCH",
+      `/api/agents/${w.asker.id}/asks/${entry.id}`,
+      w.as(w.asker.id),
+      { json: {} },
+    );
+    expect(`${bare.status} ${bare.code}`).toBe("409 secret_request");
     expect(sentTexts(w.srv, w.asker.id).some((t) => t.includes(VALUE))).toBe(
       false,
     );
@@ -3150,6 +3299,19 @@ describe("an ask an app opens", () => {
       APP,
       "withdrawn",
     ]);
+  });
+
+  it("edits one field alone and keeps the prompt (task 5ed624d3)", async () => {
+    const w = await world();
+    const app = await register(w, APP, w.as(w.asker.id));
+    const entry = await opened(w, app.token, "Ship the release?");
+    const edited = await asApp(w, app.token, "PATCH", `/${entry.id}`, {
+      json: { priority: "P2" },
+    });
+    expect(edited.status).toBe(200);
+    const read = (await asApp(w, app.token, "GET", `/${entry.id}`))
+      .body as AskEntry;
+    expect([read.prompt, read.priority]).toEqual(["Ship the release?", "P2"]);
   });
 
   // Task 62aa552f: the history keeps every change before the close, with who

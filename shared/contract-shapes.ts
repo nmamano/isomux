@@ -812,8 +812,8 @@ export interface AskCreateReq {
   readFiles?: string[];
 }
 export interface AskEditReq {
-  // Exactly one of text and prompt; prompt is an alias, since the ask names
-  // the field prompt.
+  // At most one of text and prompt; prompt is an alias, since the ask names
+  // the field prompt. Absent or "" keeps the ask's prompt.
   text?: string;
   prompt?: string;
   // Absent keeps the ask's link; "" removes it.
