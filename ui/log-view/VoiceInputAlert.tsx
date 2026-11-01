@@ -1,6 +1,8 @@
-// The OpenAI mic's error line (task 4481e64b): what went wrong, the Variables
-// link when the key is the problem, and Retry and Discard while a clip is
-// kept.
+// The OpenAI mic's lines above the composer (task 4481e64b). The status line
+// shows while it records or transcribes: this path writes no words until the
+// end, so the button alone was the only sign (task 69a9b325). The error line
+// says what went wrong, links to Variables when the key is the problem, and
+// offers Retry and Discard while a clip is kept.
 
 import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
@@ -9,7 +11,10 @@ import type { RecordedDictation } from "../hooks/useRecordedDictation.ts";
 import { VoiceVariablesLink } from "../components/VoiceVariablesLink.tsx";
 
 const MESSAGE: Record<
-  Exclude<NonNullable<RecordedDictation["error"]>["kind"], "limitReached">,
+  Exclude<
+    NonNullable<RecordedDictation["error"]>["kind"],
+    "limitReached" | "keySecret"
+  >,
   PlainMessageKey
 > = {
   keyMissing: "voice.mic.keyMissing",
@@ -38,10 +43,63 @@ export function VoiceInputAlert({
   isMobile: boolean;
 }) {
   const i18n = useI18n();
+  const { state } = dictation;
+  const busy = state === "recording" || state === "transcribing";
+  return (
+    <>
+      {busy && (
+        <div
+          role="status"
+          style={{
+            marginBottom: 8,
+            color: "var(--text-muted)",
+            fontSize: isMobile ? 12 : 11,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          {state === "recording" && (
+            // A CSS circle: iOS Safari draws a dot glyph in the emoji font and
+            // ignores its color.
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: "var(--red)",
+                flexShrink: 0,
+              }}
+            />
+          )}
+          <span>
+            {i18n.t(
+              state === "recording"
+                ? "voice.mic.recording"
+                : "voice.mic.transcribing",
+            )}
+          </span>
+        </div>
+      )}
+      <ErrorLine dictation={dictation} isMobile={isMobile} />
+    </>
+  );
+}
+
+function ErrorLine({
+  dictation,
+  isMobile,
+}: {
+  dictation: RecordedDictation;
+  isMobile: boolean;
+}) {
+  const i18n = useI18n();
   const { error, hasClip } = dictation;
   if (!error) return null;
   const kind = error.kind;
-  const keyProblem = kind === "keyMissing" || kind === "keyRejected";
+  const keyProblem =
+    kind === "keyMissing" || kind === "keySecret" || kind === "keyRejected";
   const failedUpload = dictation.state === "failed";
   // Retry cannot fix a clip OpenAI refused or one over the limit.
   const canRetry =
@@ -63,7 +121,9 @@ export function VoiceInputAlert({
           ? i18n.t("voice.mic.limitReached", {
               minutes: VOICE_MAX_RECORDING_MS / 60_000,
             })
-          : i18n.t(MESSAGE[kind])}
+          : kind === "keySecret"
+            ? i18n.t("integrations.voice.key.secret", { name: error.name })
+            : i18n.t(MESSAGE[kind])}
         {failedUpload && hasClip ? ` ${i18n.t("voice.mic.kept")}` : ""}
       </span>
       {keyProblem && <VoiceVariablesLink />}

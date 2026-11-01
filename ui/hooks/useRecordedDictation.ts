@@ -2,6 +2,13 @@
 // clip on stop, hand the text to the composer. A failed upload keeps the clip
 // until the member retries or discards it, or leaves the page. The recorder
 // stops itself at VOICE_MAX_RECORDING_MS and says so at once.
+//
+// Each press also asks GET /api/voice whether the member has a key OpenAI can
+// use, in parallel with the mic, so recording starts no later (task
+// 69a9b325). Without one, the press ends at once with no clip, instead of
+// after the member has talked. The answer is never cached: a key added in
+// Variables counts at the next press. A failed check lets the recording run,
+// and the upload reports as before.
 
 import {
   useCallback,
@@ -10,7 +17,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { VOICE_MAX_RECORDING_MS } from "../../shared/voice.ts";
+import {
+  VOICE_KEY_NAME,
+  VOICE_MAX_RECORDING_MS,
+  voiceKeySourceUsable,
+  type VoiceKeyName,
+  type VoiceStatusRes,
+} from "../../shared/voice.ts";
+import { apiFetch } from "../api.ts";
 import { audioExtensionFor, pickRecorderMimeType } from "../voice-input.ts";
 import { voiceFailureOf, type VoiceFailureKind } from "../voice-errors.ts";
 
@@ -20,10 +34,11 @@ export type RecordedDictationState =
   | "transcribing"
   | "failed";
 
-// What went wrong, for the error line. keyMissing and keyRejected link to the
-// Variables tab; rejected means Retry cannot help.
+// What went wrong, for the error line. keyMissing, keySecret and keyRejected
+// link to the Variables tab; rejected means Retry cannot help.
 export type RecordedDictationError =
   | { kind: VoiceFailureKind }
+  | { kind: "keySecret"; name: VoiceKeyName }
   | { kind: "micDenied" }
   | { kind: "limitReached" };
 
@@ -65,6 +80,11 @@ export function useRecordedDictation(opts: {
   const startingRef = useRef(false);
   const stopSoonRef = useRef(false);
   const mountedRef = useRef(true);
+  // The press whose key check can still end it: set at the press, cleared
+  // when its clip goes to upload. blockedRef is the press the check ended.
+  const attemptRef = useRef(0);
+  const liveAttemptRef = useRef<number | null>(null);
+  const blockedRef = useRef<number | null>(null);
 
   const move = useCallback((next: RecordedDictationState) => {
     stateRef.current = next;
@@ -120,6 +140,37 @@ export function useRecordedDictation(opts: {
     optsRef.current.onTranscript(text);
   }, [move]);
 
+  const checkKey = useCallback(
+    async (attempt: number) => {
+      let status: VoiceStatusRes | undefined;
+      try {
+        status = await apiFetch<VoiceStatusRes | undefined>(
+          "GET",
+          "/api/voice",
+        );
+      } catch {
+        return;
+      }
+      // A page that is not JSON (a sign-in proxy) gives no status: fail open.
+      if (!status || voiceKeySourceUsable(status.keySource)) return;
+      if (!mountedRef.current || liveAttemptRef.current !== attempt) return;
+      liveAttemptRef.current = null;
+      blockedRef.current = attempt;
+      // Clearing the ref first makes the stop listener drop the clip.
+      const recorder = recorderRef.current;
+      recorderRef.current = null;
+      recorder?.stop();
+      releaseMic();
+      setError(
+        status.keySource
+          ? { kind: "keySecret", name: status.keyName ?? VOICE_KEY_NAME }
+          : { kind: "keyMissing" },
+      );
+      move("idle");
+    },
+    [move, releaseMic],
+  );
+
   const start = useCallback(() => {
     if (
       startingRef.current ||
@@ -140,11 +191,14 @@ export function useRecordedDictation(opts: {
     }
     startingRef.current = true;
     stopSoonRef.current = false;
+    const attempt = ++attemptRef.current;
+    liveAttemptRef.current = attempt;
+    void checkKey(attempt);
     navigator.mediaDevices
       .getUserMedia({ audio: true })
       .then((stream) => {
         startingRef.current = false;
-        if (!mountedRef.current) {
+        if (!mountedRef.current || blockedRef.current === attempt) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
@@ -159,6 +213,7 @@ export function useRecordedDictation(opts: {
           if (stopped || recorderRef.current !== recorder) return;
           stopped = true;
           recorderRef.current = null;
+          liveAttemptRef.current = null;
           releaseMic();
           const type = recorder.mimeType || mimeType;
           clipRef.current = {
@@ -180,9 +235,11 @@ export function useRecordedDictation(opts: {
       })
       .catch(() => {
         startingRef.current = false;
-        if (mountedRef.current) setError({ kind: "micDenied" });
+        // A missing key wins: a mic grant cannot help without one.
+        if (mountedRef.current && blockedRef.current !== attempt)
+          setError({ kind: "micDenied" });
       });
-  }, [move, releaseMic, upload]);
+  }, [checkKey, move, releaseMic, upload]);
 
   const stop = useCallback(() => {
     if (startingRef.current) {

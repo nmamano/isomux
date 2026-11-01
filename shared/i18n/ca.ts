@@ -2210,6 +2210,7 @@ Coses que pots fer per ell:
   "voice.mic.limitReached": "La gravació s'ha aturat als {minutes} minuts.",
   "voice.mic.kept": "La gravació es conserva en aquesta pàgina.",
   "voice.mic.transcribing": "S'està transcrivint",
+  "voice.mic.recording": "S'està gravant",
   "voice.speak.keyMissing":
     "Afegeix OPENAI_VOICE_API_KEY per llegir en veu alta amb OpenAI.",
   "voice.speak.rejected": "OpenAI no ha pogut llegir aquesta resposta.",

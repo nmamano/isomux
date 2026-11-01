@@ -11,6 +11,7 @@ import {
   FALLBACK_VOICE_KEY_NAME,
   VOICE_KEY_NAME,
   type VoiceKeyName,
+  voiceKeySourceUsable,
 } from "../shared/voice.ts";
 import { getAgentHost } from "./agent-host.ts";
 import { buildEnvForUserId, envSourceForUserId } from "./env-loader.ts";
@@ -30,8 +31,7 @@ export function voiceKeyForUserId(
     const value = env[name];
     if (!value) continue;
     const source = envSourceForUserId(userId, name) ?? "server";
-    const secret = source === "member_secret" || source === "office_secret";
-    return { name, source, key: secret ? null : value };
+    return { name, source, key: voiceKeySourceUsable(source) ? value : null };
   }
   return null;
 }

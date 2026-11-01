@@ -2204,6 +2204,7 @@ Cosas que puedes hacer por él:
   "voice.mic.limitReached": "La grabación se detuvo a los {minutes} minutos.",
   "voice.mic.kept": "La grabación se guarda en esta página.",
   "voice.mic.transcribing": "Transcribiendo",
+  "voice.mic.recording": "Grabando",
   "voice.speak.keyMissing":
     "Añade OPENAI_VOICE_API_KEY para leer en voz alta con OpenAI.",
   "voice.speak.rejected": "OpenAI no pudo leer esta respuesta.",

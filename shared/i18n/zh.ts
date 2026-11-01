@@ -1975,6 +1975,7 @@ App 的一些原则：
   "voice.mic.limitReached": "录音在 {minutes} 分钟时停止。",
   "voice.mic.kept": "录音保留在此页面上。",
   "voice.mic.transcribing": "正在转写",
+  "voice.mic.recording": "正在录音",
   "voice.speak.keyMissing": "添加 OPENAI_VOICE_API_KEY 后才能用 OpenAI 朗读。",
   "voice.speak.rejected": "OpenAI 无法朗读这条回复。",
   "voice.speak.failed": "朗读失败。",

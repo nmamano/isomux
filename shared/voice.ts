@@ -44,6 +44,16 @@ export type VoiceKeyName =
   | typeof VOICE_KEY_NAME
   | typeof FALLBACK_VOICE_KEY_NAME;
 
+// Whether a key from this source can reach OpenAI: a secret's value stays
+// with the secret proxy, so the voice routes cannot send it.
+export function voiceKeySourceUsable(
+  source: EnvVariableSource | null,
+): boolean {
+  return (
+    source !== null && source !== "member_secret" && source !== "office_secret"
+  );
+}
+
 // GET /api/voice (voice.status). Which variable holds the caller's key and
 // where it comes from, both null when none is set. A secret source is
 // reported as such: the voice routes cannot use a secret's value.

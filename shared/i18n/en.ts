@@ -2153,6 +2153,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "voice.mic.limitReached": "Recording stopped at {minutes} minutes.",
   "voice.mic.kept": "The recording is kept on this page.",
   "voice.mic.transcribing": "Transcribing",
+  "voice.mic.recording": "Recording",
   "voice.speak.keyMissing":
     "Add OPENAI_VOICE_API_KEY to read aloud with OpenAI.",
   "voice.speak.rejected": "OpenAI could not read this reply.",
