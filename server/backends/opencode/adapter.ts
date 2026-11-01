@@ -36,6 +36,7 @@ import {
   OpenCodeTransport,
   splitModel,
   type OpenCodeContextBreakdown,
+  type OpenCodePromptPart,
   type OpenCodeSafeErrorSink,
 } from "./transport.ts";
 import {
@@ -47,11 +48,32 @@ import {
   awaitOpenCodeServerSettings,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
-import { inspectOpenCodeStoredSession } from "./storage.ts";
+import { inspectOpenCodeProfileSession } from "./storage.ts";
 import {
   findOpenCodeSessionProfile,
   moveOpenCodeSession,
+  moveOpenCodeSessionAcross,
 } from "./session-transfer.ts";
+import {
+  belowStandard,
+  stopHasFolder,
+  stopHasPack,
+  type AgentAccess,
+} from "../../../shared/agent-access.ts";
+import {
+  OPENCODE_EMPTY_CWD_ROOT,
+  OPENCODE_LIMITED_ONE_SHOT_DIR,
+  openCodeBelowStandardRefusal,
+  openCodeEmptyCwd,
+  openCodeLaunchEnvFor,
+  openCodeProfileKey,
+  openCodeStopAgent,
+  openCodeStopRules,
+} from "./access.ts";
+import { makeEmptyFolder } from "../empty-folder-host.ts";
+import { openCodeProfilePaths } from "./profile-paths.ts";
+import type { AgentMcpServer } from "../../mcp-servers.ts";
+import type { OpenCodeLimitedSession } from "./transport.ts";
 import { getAgentHost } from "../../agent-host.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 
@@ -62,8 +84,11 @@ import { AGENT_ROOT } from "../../split/roots.ts";
 // from writing; in split mode the policy does not cover it.
 export const OPENCODE_ONE_SHOT_DIR = join(AGENT_ROOT, "opencode", "one-shot");
 import {
+  copyAttachmentsInto,
   formatAttachmentLines,
+  inlineImages,
   resolveAttachmentNotices,
+  type AttachmentDelivery,
 } from "../../attachment-prompt.ts";
 
 function authGuidance(): LogMessage {
@@ -130,6 +155,15 @@ function permissionAgent(
 
 export interface OpenCodeBackendOptions {
   supervisor?: OpenCodeSupervisor;
+  // The supervisor of a profile key, with the env, revision and MCP servers
+  // a session start gives it (openCodeSupervisorForEnvironment). Wins over
+  // `supervisor`. A test seam: the key says which server a session runs on.
+  supervisorForEnvironment?: (
+    environmentKey: string,
+    env: Record<string, string | undefined> | undefined,
+    environmentRevision: string | undefined,
+    mcpServers: AgentMcpServer[] | undefined,
+  ) => OpenCodeSupervisor;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: OpenCodeSafeErrorSink;
   bindingAgentSink?: (sessionId: string, agent: string | undefined) => void;
@@ -151,12 +185,25 @@ function productionModel(model: string): string {
   return model;
 }
 
+// Where and how a session runs, from its stop (task e77304b1). Below
+// standard: the stop's agent and rules, the empty folder at chat and office,
+// the session's own MCP servers, and how attachments reach it. prepare runs
+// before the session is created or resumed.
+interface OpenCodeSessionSetup {
+  cwd: string;
+  agent: string | undefined;
+  limited?: OpenCodeLimitedSession;
+  prepare?: () => Promise<void>;
+  delivery?: AttachmentDelivery;
+}
+
 class OpenCodeServerSession implements BackendSession {
   private readonly events: NormalizedEvent[] = [];
   private wake: (() => void) | null = null;
   private ended = false;
   private readonly transport: OpenCodeTransport;
   private readonly agentId: string;
+  private readonly delivery: AttachmentDelivery | undefined;
   private latestContextBreakdown: OpenCodeContextBreakdown | null = null;
 
   constructor(
@@ -167,18 +214,25 @@ class OpenCodeServerSession implements BackendSession {
     contractShapeSink?: (shape: string) => void,
     safeErrorSink?: OpenCodeSafeErrorSink,
     private readonly onSessionId?: (sessionId: string) => void,
+    setup: OpenCodeSessionSetup = {
+      cwd: opts.cwd,
+      agent: permissionAgent(opts),
+    },
   ) {
     this.agentId = opts.agentId;
+    this.delivery = setup.delivery;
     this.transport = new OpenCodeTransport({
-      cwd: opts.cwd,
+      cwd: setup.cwd,
       model,
       effort: opts.effort,
       systemPrompt: opts.systemPrompt,
       agentToken: opts.env?.ISOMUX_AGENT_TOKEN,
       agentId: opts.agentId,
-      agent: permissionAgent(opts),
+      agent: setup.agent,
       supervisor,
       sessionId,
+      limited: setup.limited,
+      prepare: setup.prepare,
       // 1010dd4b: this conversation's shell commands get the member's env
       // as it was when the conversation started, as for Claude and Codex.
       toolEnvironment: supervisor.toolEnvironment(opts.env),
@@ -250,7 +304,9 @@ class OpenCodeServerSession implements BackendSession {
 
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
     await this.transport.send(
-      buildOpenCodePromptParts(text, attachments, this.agentId),
+      this.delivery
+        ? limitedPromptParts(text, attachments, this.agentId, this.delivery)
+        : buildOpenCodePromptParts(text, attachments, this.agentId),
       this.push,
     );
   }
@@ -279,6 +335,61 @@ class OpenCodeServerSession implements BackendSession {
   async deleteStoredSession(): Promise<void> {
     await this.transport.deleteSession();
   }
+}
+
+// A file of a prompt below standard: an inline image at chat and office, as
+// a data: URI. The prompt never carries another scheme: 2.1.4 reads a
+// file: URI from the server's disk.
+export interface OpenCodePromptFile {
+  uri: string;
+  mime: string;
+  name: string;
+}
+
+// The files and notices a prompt below standard carries for `attachments`
+// under `delivery`: inline-images, the images as data: URIs (every other
+// file is left out); copy, no file, and the notices name the copies in the
+// folder.
+export function openCodePromptAttachments(
+  agentId: string,
+  attachments: AttachmentSpec[],
+  delivery: AttachmentDelivery,
+): { files: OpenCodePromptFile[]; text: string | null } {
+  if (delivery.kind === "copy") {
+    const lines = formatAttachmentLines(
+      copyAttachmentsInto(agentId, attachments, delivery.folder),
+    );
+    return { files: [], text: lines.length > 0 ? lines.join("\n") : null };
+  }
+  const files: OpenCodePromptFile[] = [];
+  for (const spec of attachments)
+    for (const image of inlineImages(agentId, [spec]))
+      files.push({
+        uri: `data:${image.mediaType};base64,${image.data}`,
+        mime: image.mediaType,
+        name: spec.originalName,
+      });
+  return { files, text: null };
+}
+
+// The prompt parts of a session below standard: the text, the notices of
+// the copies at folder and web, the inline images at chat and office.
+function limitedPromptParts(
+  text: string,
+  attachments: AttachmentSpec[] | undefined,
+  agentId: string,
+  delivery: AttachmentDelivery,
+): OpenCodePromptPart[] {
+  const { files, text: notes } = openCodePromptAttachments(
+    agentId,
+    attachments ?? [],
+    delivery,
+  );
+  return [
+    { type: "text", text },
+    ...(notes ? [{ type: "text" as const, text: notes }] : []),
+    ...files.map((file) => ({ type: "file" as const, ...file })),
+  ];
 }
 
 export function buildOpenCodePromptParts(
@@ -321,20 +432,105 @@ export function createOpenCodeBackend(
     bindings.set(sessionId, binding);
     options.bindingAgentSink?.(sessionId, binding.agent);
   };
+  // The server of the session's stop: the member's own at standard, the
+  // member's limited server below it (project config off, no MCP server in
+  // the server's list: the office server carries one agent's token and goes
+  // into that agent's folder only). Never one for the other.
   const supervisorFor = (
     opts: SessionEnvironmentOptions,
   ): OpenCodeSupervisor => {
+    const below = opts.access !== undefined && belowStandard(opts.access);
+    const env = below
+      ? openCodeLaunchEnvFor(opts.env ?? {}, opts.access)
+      : opts.env;
+    const mcpServers = below ? [] : opts.mcpServers;
+    if (options.supervisorForEnvironment) {
+      if (!opts.environmentKey)
+        throw new Error("OpenCode session environment identity is required.");
+      return options.supervisorForEnvironment(
+        openCodeProfileKey(opts.environmentKey, opts.access),
+        env,
+        opts.environmentRevision,
+        mcpServers,
+      );
+    }
     if (options.supervisor) return options.supervisor;
     if (!opts.environmentKey) {
       throw new Error("OpenCode session environment identity is required.");
     }
     return openCodeSupervisorForEnvironment(
-      opts.environmentKey,
-      opts.env,
+      openCodeProfileKey(opts.environmentKey, opts.access),
+      env,
       opts.environmentRevision,
-      opts.mcpServers,
+      mcpServers,
       opts.skillPaths,
     );
+  };
+  // The stop on the other side of the standard line.
+  const otherSide = (access: AgentAccess | undefined): AgentAccess =>
+    access !== undefined && belowStandard(access) ? "standard" : "chat";
+  const sessionState = (
+    sessionId: string,
+    environmentKey: string,
+    access: AgentAccess | undefined,
+  ): StoredSessionState =>
+    inspectOpenCodeProfileSession(
+      openCodeProfilePaths(openCodeProfileKey(environmentKey, access))
+        .profileDir,
+      sessionId,
+    );
+  // A session is stored on the side of the stop it last ran at. At a start
+  // or resume on this side, a copy on the other side is the latest: it moves
+  // here first, and a failed move refuses the start.
+  const moveHere = async (
+    sessionId: string,
+    opts: SessionEnvironmentOptions,
+  ): Promise<void> => {
+    if (!opts.environmentKey) return;
+    const other = otherSide(opts.access);
+    if (sessionState(sessionId, opts.environmentKey, other) === "missing")
+      return;
+    await moveOpenCodeSessionAcross({
+      sessionId,
+      from: supervisorFor({ ...opts, access: other, mcpServers: undefined }),
+      to: supervisorFor(opts),
+    });
+  };
+  // Where and how a session at the stop of `opts` runs.
+  const setupFor = (
+    opts: CreateSessionOptions,
+    sessionId?: string,
+  ): OpenCodeSessionSetup => {
+    const access = opts.access;
+    if (access === undefined || !belowStandard(access))
+      return {
+        cwd: opts.cwd,
+        agent: permissionAgent(opts),
+        ...(sessionId ? { prepare: () => moveHere(sessionId, opts) } : {}),
+      };
+    const folder = stopHasFolder(access);
+    return {
+      // Chat and office have no file tools: a folder Isomux makes, empty.
+      cwd: folder ? opts.cwd : join(OPENCODE_EMPTY_CWD_ROOT, opts.agentId),
+      // Plan and bypass agents never run below standard.
+      agent: openCodeStopAgent(access) ?? undefined,
+      limited: {
+        rules: openCodeStopRules(
+          access,
+          stopHasPack(access) ? (opts.officeTools ?? []) : [],
+        ),
+        mcpServers: stopHasPack(access) ? (opts.mcpServers ?? []) : [],
+      },
+      prepare: async () => {
+        const refusal = openCodeBelowStandardRefusal(access);
+        if (refusal) throw new Error(refusal);
+        if (!folder) await openCodeEmptyCwd(opts.agentId);
+        if (sessionId) await moveHere(sessionId, opts);
+      },
+      delivery: folder
+        ? { kind: "copy", folder: opts.cwd }
+        : { kind: "inline-images" },
+    };
   };
   const transportForSession = (sessionId: string): OpenCodeTransport => {
     const binding = bindings.get(sessionId);
@@ -371,19 +567,55 @@ export function createOpenCodeBackend(
       );
     }
     const agent = permissionAgent(access);
+    // A history read or fork goes to the side that holds the session.
+    const onOtherSide =
+      access.environmentKey !== undefined &&
+      sessionState(sessionId, access.environmentKey, access.access) ===
+        "missing" &&
+      sessionState(
+        sessionId,
+        access.environmentKey,
+        otherSide(access.access),
+      ) !== "missing";
     const binding = {
       cwd,
-      supervisor: supervisorFor(access),
+      supervisor: supervisorFor(
+        onOtherSide
+          ? {
+              ...access,
+              access: otherSide(access.access),
+              mcpServers: undefined,
+            }
+          : access,
+      ),
       model: productionModel(access.modelFamily),
       ...(agent ? { agent } : {}),
     };
     setBinding(sessionId, binding);
     return binding;
   };
+  const storedState = (
+    sessionId: string,
+    opts: SessionEnvironmentOptions,
+  ): StoredSessionState => {
+    if (!opts.environmentKey)
+      throw new Error("OpenCode session environment identity is required.");
+    const own = sessionState(sessionId, opts.environmentKey, opts.access);
+    if (own === "durable") return own;
+    return sessionState(
+      sessionId,
+      opts.environmentKey,
+      otherSide(opts.access),
+    ) === "durable"
+      ? "durable"
+      : own;
+  };
   return {
     capabilities: CAPABILITIES,
     getModelOptions: () => [],
     getPermissionModes: () => PERMISSION_MODES,
+    // A saved setting reaches both of the member's servers: the limited one
+    // with its own env (project config off) and no MCP server in its list.
     updateSavedSettings: (opts) => {
       if (options.supervisor) return;
       updateOpenCodeSupervisorSettings(
@@ -392,20 +624,38 @@ export function createOpenCodeBackend(
         opts.environmentRevision,
         opts.mcpServers,
       );
+      updateOpenCodeSupervisorSettings(
+        openCodeProfileKey(opts.environmentKey, "chat"),
+        openCodeLaunchEnvFor(opts.env ?? {}, "chat"),
+        opts.environmentRevision,
+        [],
+      );
     },
     awaitCurrentServer: async (opts) => {
       if (options.supervisor) return;
-      await awaitOpenCodeServerSettings(
-        opts.environmentKey,
-        opts.env,
-        opts.environmentRevision,
-        opts.mcpServers,
-      );
+      await Promise.all([
+        awaitOpenCodeServerSettings(
+          opts.environmentKey,
+          opts.env,
+          opts.environmentRevision,
+          opts.mcpServers,
+        ),
+        awaitOpenCodeServerSettings(
+          openCodeProfileKey(opts.environmentKey, "chat"),
+          openCodeLaunchEnvFor(opts.env ?? {}, "chat"),
+          opts.environmentRevision,
+          [],
+        ),
+      ]);
     },
-    reloadPlugins: (opts) =>
-      options.supervisor
-        ? options.supervisor.requestReload()
-        : reloadOpenCodeServer(opts.environmentKey),
+    reloadPlugins: async (opts) => {
+      if (options.supervisor) return options.supervisor.requestReload();
+      const results = await Promise.all([
+        reloadOpenCodeServer(opts.environmentKey),
+        reloadOpenCodeServer(openCodeProfileKey(opts.environmentKey, "chat")),
+      ]);
+      return results.includes("pending") ? "pending" : "reloaded";
+    },
     async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
       const supervisor = supervisorFor(opts);
       const models = await discoverOpenCodeModels(supervisor, opts.cwd);
@@ -416,7 +666,8 @@ export function createOpenCodeBackend(
     createSession(opts: CreateSessionOptions): BackendSession {
       const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
-      const agent = permissionAgent(opts);
+      const setup = setupFor(opts);
+      const { cwd, agent } = setup;
       return new OpenCodeServerSession(
         opts,
         model,
@@ -424,8 +675,8 @@ export function createOpenCodeBackend(
         undefined,
         options.contractShapeSink,
         safeErrorSink,
-        (sessionId) =>
-          setBinding(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
+        (sessionId) => setBinding(sessionId, { cwd, supervisor, model, agent }),
+        setup,
       );
     },
     resumeSession(
@@ -434,8 +685,9 @@ export function createOpenCodeBackend(
     ): BackendSession {
       const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
-      const agent = permissionAgent(opts);
-      setBinding(sessionId, { cwd: opts.cwd, supervisor, model, agent });
+      const setup = setupFor(opts, sessionId);
+      const { cwd, agent } = setup;
+      setBinding(sessionId, { cwd, supervisor, model, agent });
       return new OpenCodeServerSession(
         opts,
         model,
@@ -444,16 +696,14 @@ export function createOpenCodeBackend(
         options.contractShapeSink,
         safeErrorSink,
         (resolvedSessionId) =>
-          setBinding(resolvedSessionId, {
-            cwd: opts.cwd,
-            supervisor,
-            model,
-            agent,
-          }),
+          setBinding(resolvedSessionId, { cwd, supervisor, model, agent }),
+        setup,
       );
     },
+    // A session on either side of the standard line resumes: the start moves
+    // it to the side of the agent's stop.
     inspectStoredSession(sessionId, opts): StoredSessionState {
-      return inspectOpenCodeStoredSession(sessionId, opts.environmentKey);
+      return storedState(sessionId, opts);
     },
     async recoverStoredSession(sessionId, opts): Promise<boolean> {
       if (!opts.environmentKey) return false;
@@ -472,10 +722,7 @@ export function createOpenCodeBackend(
       );
     },
     checkSessionResumable(sessionId, opts): LogMessage | null {
-      const state = inspectOpenCodeStoredSession(
-        sessionId,
-        opts.environmentKey,
-      );
+      const state = storedState(sessionId, opts);
       if (state === "durable") return null;
       return msg(
         state === "empty"
@@ -522,12 +769,19 @@ export function createOpenCodeBackend(
           "OpenCode one-shot prompt environment identity is required.",
         );
       }
+      // Below standard the prompt holds the agent's conversation, strangers'
+      // text included: the chat agent, with no tool and no MCP server, on
+      // the limited server, in an empty folder.
+      const below = opts.access !== undefined && belowStandard(opts.access);
+      if (below) {
+        const refusal = openCodeBelowStandardRefusal(opts.access!);
+        if (refusal) throw new Error(refusal);
+      }
       const supervisor = supervisorFor(opts);
-      await getAgentHost().fs.mkdir(OPENCODE_ONE_SHOT_DIR, 0o777);
-      const models = await discoverOpenCodeModels(
-        supervisor,
-        OPENCODE_ONE_SHOT_DIR,
-      );
+      const dir = below ? OPENCODE_LIMITED_ONE_SHOT_DIR : OPENCODE_ONE_SHOT_DIR;
+      if (below) await makeEmptyFolder(dir);
+      else await getAgentHost().fs.mkdir(dir, 0o777);
+      const models = await discoverOpenCodeModels(supervisor, dir);
       // Topic text must use the same selection as a live session. Never pick
       // a default or another discovered model when that selection is missing.
       const selected = models.find((model) => model.id === opts.modelFamily);
@@ -535,10 +789,20 @@ export function createOpenCodeBackend(
         throw new Error("OpenCode one-shot selected model is unavailable.");
       }
       const model = productionModel(selected.id);
+      const setup: OpenCodeSessionSetup | undefined = below
+        ? {
+            cwd: dir,
+            agent: openCodeStopAgent("chat") ?? undefined,
+            limited: { rules: openCodeStopRules("chat", []), mcpServers: [] },
+            prepare: async () => {
+              await makeEmptyFolder(dir);
+            },
+          }
+        : undefined;
       const session = new OpenCodeServerSession(
         {
           agentId: "isomux-opencode-one-shot",
-          cwd: OPENCODE_ONE_SHOT_DIR,
+          cwd: dir,
           systemPrompt: opts.systemPrompt ?? "",
           modelFamily: model,
           effort: "high",
@@ -552,6 +816,8 @@ export function createOpenCodeBackend(
         undefined,
         options.contractShapeSink,
         safeErrorSink,
+        undefined,
+        setup,
       );
       const timeoutError = new Error("OpenCode one-shot prompt timed out.");
       let timeout: ReturnType<typeof setTimeout> | undefined;

@@ -15,6 +15,8 @@ import {
   openCodeAgentRules,
   openCodeDefaultConfig,
 } from "./supervisor.ts";
+import { OPENCODE_STOP_AGENTS, openCodeStopAgentRules } from "./stop-rules.ts";
+import type { AgentAccess } from "../../../shared/agent-access.ts";
 
 describe("openCodeUserConfigDir", () => {
   it("uses the member's absolute OPENCODE_CONFIG_DIR", () => {
@@ -124,11 +126,22 @@ describe("Isomux's OpenCode 2 config (C1)", () => {
     expect(config.update).toBe("disable");
     expect(config.default_agent).toBe("build");
     expect(config.permissions).toEqual(openCodeAgentRules("build"));
-    expect(Object.keys(config.agents).sort()).toEqual([...AGENTS].sort());
+    // The stop agents below Standard (merge C2): a session is created as
+    // one, so the server must know it.
+    const stops = Object.entries(OPENCODE_STOP_AGENTS);
+    expect(Object.keys(config.agents).sort()).toEqual(
+      [...AGENTS, ...stops.map(([, agent]) => agent)].sort(),
+    );
     for (const agent of AGENTS)
       expect(config.agents[agent].permissions, agent).toEqual(
         openCodeAgentRules(agent),
       );
+    for (const [stop, agent] of stops) {
+      expect(config.agents[agent].permissions, agent).toEqual(
+        openCodeStopAgentRules(stop as AgentAccess),
+      );
+      expect(config.agents[agent].mode, agent).toBe("primary");
+    }
     for (const agent of [
       OPENCODE_INTERACTIVE_BYPASS_AGENT,
       OPENCODE_CRON_AGENT,

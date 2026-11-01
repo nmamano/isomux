@@ -801,6 +801,9 @@ export interface FakeLeaseOptions {
   launchVariables?: string[];
   // The supervisor's current Isomux MCP servers.
   mcpServers?: () => AgentMcpServer[];
+  // The server's OPENCODE_CONFIG_DIR (task e77304b1): the only config layer
+  // besides Isomux's a limited server may load. Default: none.
+  configDir?: string | null;
   serverStopped?: () => boolean;
   recoveryBlocked?: boolean;
   onBeginTurn?: () => void;
@@ -844,6 +847,7 @@ export function fakeSupervisor(options: FakeLeaseOptions = {}) {
         get mcpServers() {
           return options.mcpServers?.() ?? [];
         },
+        configDir: options.configDir ?? null,
         hasLaunchVariable: (name: string) =>
           (options.launchVariables ?? []).includes(name),
         settle: () => {},

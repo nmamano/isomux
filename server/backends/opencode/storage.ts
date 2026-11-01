@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { inAgentSpace } from "../../agent-host.ts";
 import type { StoredSessionState } from "../types.ts";
-import { openCodeDatabasePath, openCodeProfilePaths } from "./profile-paths.ts";
+import { openCodeDatabasePath } from "./profile-paths.ts";
 
 // The session_v2 and session_message tables of @opencode/cli 2.1.4 (a fresh
 // 2.1.4 profile, 2026-10-25). 2.1.4 keeps a version 1 database's session and
@@ -129,19 +129,6 @@ const SCHEMAS = {
 // A profile reads its version 1 database until its first 2.1.4 start has
 // made opencode-v2.db and imported every session into it (start-server.ts
 // then writes opencode-v2.db.ready), and then only that file.
-export function inspectOpenCodeStoredSession(
-  sessionId: string,
-  environmentKey: string | undefined,
-): StoredSessionState {
-  if (!environmentKey)
-    throw new Error("OpenCode session environment identity is required.");
-  return inspectOpenCodeProfileSession(
-    openCodeProfilePaths(environmentKey).profileDir,
-    sessionId,
-  );
-}
-
-// The same rule for a profile named by its directory.
 export function inspectOpenCodeProfileSession(
   profileDir: string,
   sessionId: string,

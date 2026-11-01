@@ -326,10 +326,10 @@ describe("agents.setAccess", () => {
   });
 
   // Codex runs chat and office with gpt-5.5 only (task e77304b1); OpenCode
-  // runs no stop below Standard yet. The rule is engineRunsAccess with the
+  // runs every stop (merge C2). The rule is engineRunsAccess with the
   // RESOLVED model: an engine switch that names no model gets the engine's
   // default, which is not proven.
-  it("only Claude, and Codex at chat and office with gpt-5.5, go below Standard", async () => {
+  it("Claude and OpenCode go below Standard, and Codex at chat and office with gpt-5.5", async () => {
     const o = await office();
     const OFFICE = { access: "office", pack: TASKS_READ };
     const cases: [
@@ -339,7 +339,16 @@ describe("agents.setAccess", () => {
       Record<string, unknown>,
       number,
     ][] = [
-      ["opencode at office", "opencode", undefined, OFFICE, 422],
+      // OpenCode runs every stop, whatever the model (merge C2).
+      ["opencode at office", "opencode", undefined, OFFICE, 200],
+      ["opencode at chat", "opencode", undefined, { access: "chat" }, 200],
+      [
+        "opencode at folder",
+        "opencode",
+        undefined,
+        { access: "folder", pack: TASKS_READ },
+        200,
+      ],
       ["codex on its default model at office", "codex", undefined, OFFICE, 422],
       [
         "codex on gpt-5.6-sol at chat",
@@ -394,7 +403,6 @@ describe("agents.setAccess", () => {
         .status,
     ).toBe(200);
     const refused: [string, string, Record<string, unknown>][] = [
-      ["opencode", "PATCH", { agentType: "opencode" }],
       // No model named: Codex's default, not proven.
       ["codex", "PATCH", { agentType: "codex" }],
       [
@@ -1368,6 +1376,47 @@ describe("a spawn below Standard", () => {
     expect(plain.status).toBe(201);
     const plainId = (plain.body as { agent: AgentInfo }).agent.id;
     expect(await mcpStatus(o, tokenOf(plainId))).toBe(403);
+  });
+
+  // OpenCode allows the office tools by exact name (merge C2, P5): the
+  // session gets the names the agent's token lists at /mcp, and a new pack
+  // gives the next session the new list.
+  it("gives an OpenCode session the office tools its token lists, and none at chat", async () => {
+    const o = await office();
+    const agent = await spawn(o, "Oc", "opencode");
+    const sessionsBefore = () =>
+      o.srv.fakeBackend.sessions.filter((s) => s.opts.agentId === agent.id)
+        .length;
+    for (const [grant, label] of [
+      [{ access: "office", pack: ASKS_ONLY }, "asks only"],
+      [{ access: "office", pack: TASKS_READ }, "tasks read"],
+      [{ access: "chat" }, "chat"],
+    ] as const) {
+      // Before the grant: with a session, the grant builds the next one.
+      const before = sessionsBefore();
+      expect((await setAccess(o, agent.id, grant)).status).toBe(200);
+      void o.srv.agentManager.sendMessage(agent.id, "hello", o.username);
+      await waitUntil(
+        () => sessionsBefore() > before,
+        `a session after ${label}`,
+      );
+      const tools = [
+        ...(o.srv.fakeBackend.sessionForAgent(agent.id)!.opts.officeTools ??
+          []),
+      ].sort();
+      const listed =
+        grant.access === "chat"
+          ? []
+          : (await (await connect(o, tokenOf(agent.id))).listTools()).tools
+              .map((t) => t.name)
+              .sort();
+      expect({ label, tools }).toEqual({ label, tools: listed });
+      if (grant.access === "office")
+        expect({ label, some: listed.length > 0 }).toEqual({
+          label,
+          some: true,
+        });
+    }
   });
 
   // spawn checks the new agent and adds it to the office with no await in

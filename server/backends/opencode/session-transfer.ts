@@ -164,6 +164,115 @@ export async function moveOpenCodeSession(input: {
   }
 }
 
+// What a move across the standard line needs from each side's server.
+export interface OpenCodeSessionSides {
+  // The message ids of the session on `side`, oldest first; null when the
+  // side does not hold it.
+  messageIds(
+    side: OpenCodeSupervisor,
+    sessionId: string,
+  ): Promise<string[] | null>;
+  deleteSession(side: OpenCodeSupervisor, sessionId: string): Promise<void>;
+}
+
+// One request to a side's server, with a lease for its length.
+async function sideRequest(
+  side: OpenCodeSupervisor,
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const lease = await side.acquire();
+  try {
+    return await fetch(new URL(path, lease.baseUrl), {
+      ...init,
+      headers: { authorization: lease.authHeader },
+      signal: AbortSignal.timeout(STEP_LIMIT_MS),
+    });
+  } finally {
+    lease.settle();
+    lease.release();
+  }
+}
+
+const serverSides: OpenCodeSessionSides = {
+  async messageIds(side, sessionId) {
+    const path = `/api/session/${encodeURIComponent(sessionId)}/message`;
+    const ids: string[] = [];
+    // T7: 2.1.4 refuses a cursor together with an order.
+    let query = "?limit=200&order=asc";
+    for (;;) {
+      const response = await sideRequest(side, `${path}${query}`);
+      if (response.status === 404) return null;
+      if (!response.ok)
+        throw new Error(`the message list answered ${response.status}`);
+      const body = (await response.json()) as {
+        data?: unknown;
+        cursor?: { next?: unknown };
+      };
+      if (!Array.isArray(body.data))
+        throw new Error("OpenCode returned an invalid message list.");
+      for (const item of body.data as unknown[]) {
+        const id = (item as { id?: unknown } | null)?.id;
+        if (typeof id !== "string")
+          throw new Error("OpenCode returned a message without an id.");
+        ids.push(id);
+      }
+      const next = body.cursor?.next;
+      if (typeof next !== "string" || !next || body.data.length === 0)
+        return ids;
+      query = `?cursor=${encodeURIComponent(next)}&limit=200`;
+    }
+  },
+  async deleteSession(side, sessionId) {
+    const response = await sideRequest(
+      side,
+      `/api/session/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    );
+    if (!response.ok && response.status !== 404)
+      throw new Error(`the session delete answered ${response.status}`);
+  },
+};
+
+// Moves the session to `to` when `from` holds it, at a start or resume on
+// `to` (task e77304b1). `from` is the other side of the standard line, the
+// side the agent ran on last: a start on a side succeeds only when the other
+// side holds no copy. Any copy `to` holds is a leftover, deleted first; then
+// export from `from`, import into `to`, check that `to` lists the same
+// message ids, and delete the session in `from`. 2.1.4 answers an import of
+// a session the target holds with exit 0 and keeps its copy (probe 1c), so
+// only the id check shows a failed import. "absent": `from` does not hold
+// it. Throws when any step fails; the caller refuses the start.
+export async function moveOpenCodeSessionAcross(input: {
+  sessionId: string;
+  from: OpenCodeSupervisor;
+  to: OpenCodeSupervisor;
+  sides?: OpenCodeSessionSides;
+}): Promise<"moved" | "absent"> {
+  const { sessionId, from, to } = input;
+  const sides = input.sides ?? serverSides;
+  const cli = cliOverride ?? openCodeCli;
+  const source = await sides.messageIds(from, sessionId);
+  if (source === null) return "absent";
+  if ((await sides.messageIds(to, sessionId)) !== null)
+    await sides.deleteSession(to, sessionId);
+  const exported = await withinStepLimit(
+    cli.exportSession(from.profileDir, sessionId),
+    "the export",
+  );
+  await withinStepLimit(cli.importSession(to, exported), "the import");
+  const copied = await sides.messageIds(to, sessionId);
+  if (JSON.stringify(copied) !== JSON.stringify(source))
+    throw new Error(
+      `the copy of session ${sessionId} does not match its source`,
+    );
+  await sides.deleteSession(from, sessionId);
+  console.log(
+    `[opencode] moved session ${sessionId} from ${from.profileDir} to ${to.profileDir}`,
+  );
+  return "moved";
+}
+
 // The other profile dir (not `exceptKey`'s) that stores the session durable,
 // or null.
 export function findOpenCodeSessionProfile(

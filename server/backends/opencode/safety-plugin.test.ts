@@ -1,4 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +16,7 @@ import { OPENCODE_V2_DATABASE } from "./config-layers.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import safetyPlugin, { openCodeToolAction } from "./safety-plugin.ts";
 import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
+import { openCodeStopRules } from "./access.ts";
 
 // The context of the @opencode/plugin 2.1.4 promise API that the plugin
 // uses: each hook() resolves to a registration (promise/adapter.ts:248).
@@ -490,6 +498,417 @@ describe("the bundled safety plugin", () => {
       });
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Task e77304b1 (merge C2): a session of a stop agent below Standard. The
+// plugin reads the session's own rules (ctx.session.get) and refuses any
+// tool they do not allow by exact name (P5: a member plugin's tool can pick
+// any permission name), and at folder and web keeps file paths inside the
+// folder with the rules Claude's hook uses.
+describe("the safety plugin below Standard", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+  // folder/: the agent's folder, with a file, a sub folder, a link to a
+  // folder outside and a link to a file outside. outside/: a secret.
+  function layout() {
+    const root = mkdtempSync(join(tmpdir(), "opencode-belt-"));
+    dirs.push(root);
+    const folder = join(root, "folder");
+    const outside = join(root, "outside");
+    mkdirSync(join(folder, "sub"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(folder, "notes.md"), "notes\n");
+    writeFileSync(join(outside, "secret.txt"), "secret\n");
+    symlinkSync(outside, join(folder, "linked-dir"));
+    symlinkSync(join(outside, "secret.txt"), join(folder, "linked-file"));
+    return { folder, outside };
+  }
+
+  type Get = (input: { sessionID: string }) => Promise<unknown>;
+  async function stopHooks(directory: string, get: Get) {
+    const { ctx, hooks } = fakeContext(directory);
+    await safetyPlugin.setup({ ...ctx, session: { get } } as never);
+    return hooks;
+  }
+  const rulesOf =
+    (rules: unknown): Get =>
+    async ({ sessionID }) => ({ id: sessionID, permissions: rules });
+
+  async function decide(
+    hooks: Map<string, Callback>,
+    agent: string,
+    tool: string,
+    input: unknown,
+  ): Promise<"allow" | "deny"> {
+    const callback = hooks.get("tool.execute.before");
+    if (!callback) throw new Error("no execute.before hook");
+    return Promise.resolve()
+      .then(() =>
+        callback({
+          tool,
+          sessionID: "ses_below",
+          agent,
+          messageID: "msg_1",
+          id: "call_1",
+          input,
+        }),
+      )
+      .then(
+        () => "allow" as const,
+        () => "deny" as const,
+      );
+  }
+
+  const OFFICE_TOOLS = ["open_ask"];
+  const patch = (...lines: string[]) => ({
+    patchText: ["*** Begin Patch", ...lines, "*** End Patch"].join("\n"),
+  });
+
+  it("refuses every tool the session's rules do not allow by exact name, at each stop", async () => {
+    const { folder } = layout();
+    const listed: Record<string, [string, unknown][]> = {
+      chat: [],
+      office: [["isomux_open_ask", { question: "x" }]],
+      folder: [
+        ["isomux_open_ask", { question: "x" }],
+        ["read", { path: join(folder, "notes.md") }],
+      ],
+      web: [
+        ["isomux_open_ask", { question: "x" }],
+        ["read", { path: join(folder, "notes.md") }],
+        ["webfetch", { url: "https://example.com" }],
+      ],
+    };
+    const unlisted: [string, unknown][] = [
+      ["shell", { command: "ls" }],
+      ["execute", { code: "1" }],
+      ["subagent", { prompt: "x" }],
+      ["skill", { name: "x" }],
+      ["question", { questions: [] }],
+      ["todowrite", { todos: [] }],
+      ["isomux_fake", {}],
+      ["isomux_send_message", { text: "x" }],
+      ["isomux_evil_open_ask", {}],
+      ["plug_free", {}],
+      ["planted_tool", {}],
+    ];
+    for (const stop of ["chat", "office", "folder", "web"] as const) {
+      const hooks = await stopHooks(
+        folder,
+        rulesOf(openCodeStopRules(stop, OFFICE_TOOLS)),
+      );
+      const agent = `isomux-${stop}`;
+      for (const [tool, input] of listed[stop])
+        expect({
+          stop,
+          tool,
+          decision: await decide(hooks, agent, tool, input),
+        }).toEqual({
+          stop,
+          tool,
+          decision: "allow",
+        });
+      const off: [string, unknown][] = [
+        ...unlisted,
+        ...(stop === "web"
+          ? []
+          : ([["webfetch", { url: "https://example.com" }]] as [
+              string,
+              unknown,
+            ][])),
+        ...(stop === "chat" || stop === "office"
+          ? ([
+              ["read", { path: join(folder, "notes.md") }],
+              ["isomux_open_ask", {}],
+            ].filter(
+              ([tool]) => stop === "chat" || tool !== "isomux_open_ask",
+            ) as [string, unknown][])
+          : []),
+      ];
+      for (const [tool, input] of off)
+        expect({
+          stop,
+          tool,
+          decision: await decide(hooks, agent, tool, input),
+        }).toEqual({
+          stop,
+          tool,
+          decision: "deny",
+        });
+    }
+  });
+
+  // A Standard session keeps its tools: the belt is for the stop agents.
+  it("leaves a session of another agent to the ordinary checks", async () => {
+    const { folder } = layout();
+    const hooks = await stopHooks(
+      folder,
+      rulesOf([{ action: "*", resource: "*", effect: "deny" }]),
+    );
+    for (const agent of ["build", "isomux-cron", "isomux-interactive-bypass"])
+      expect({
+        agent,
+        decision: await decide(hooks, agent, "plug_free", {}),
+      }).toEqual({
+        agent,
+        decision: "allow",
+      });
+  });
+
+  // R2: a belt that cannot read the rules and lets the call run fails open.
+  it("refuses every call of a stop agent whose rules it cannot read", async () => {
+    const { folder } = layout();
+    const gets: [string, Get][] = [
+      [
+        "a failed read",
+        async () => {
+          throw new Error("session.get 500");
+        },
+      ],
+      ["no session", async () => undefined],
+      ["rules not a list", rulesOf({ read: "allow" })],
+    ];
+    for (const [label, get] of gets) {
+      const hooks = await stopHooks(folder, get);
+      expect({
+        label,
+        decision: await decide(hooks, "isomux-folder", "read", {
+          path: join(folder, "notes.md"),
+        }),
+      }).toEqual({ label, decision: "deny" });
+    }
+  });
+
+  it("keeps every file tool inside the folder at folder and web", async () => {
+    const { folder, outside } = layout();
+    const cases: [string, string, unknown, "allow" | "deny"][] = [
+      [
+        "read a file inside",
+        "read",
+        { path: join(folder, "notes.md") },
+        "allow",
+      ],
+      ["read by a relative path", "read", { path: "notes.md" }, "allow"],
+      ["read a folder inside", "read", { path: join(folder, "sub") }, "allow"],
+      [
+        "read a file outside",
+        "read",
+        { path: join(outside, "secret.txt") },
+        "deny",
+      ],
+      ["read a folder outside", "read", { path: outside }, "deny"],
+      ["read up and out", "read", { path: "../outside/secret.txt" }, "deny"],
+      [
+        "read through a linked file",
+        "read",
+        { path: join(folder, "linked-file") },
+        "deny",
+      ],
+      [
+        "read through a linked folder",
+        "read",
+        { path: join(folder, "linked-dir", "secret.txt") },
+        "deny",
+      ],
+      ["read under home", "read", { path: "~/secret.txt" }, "deny"],
+      ["grep the folder", "grep", { pattern: "x" }, "allow"],
+      [
+        "grep with a file pattern",
+        "grep",
+        { pattern: "x", include: "*.md" },
+        "allow",
+      ],
+      ["grep outside", "grep", { pattern: "x", path: outside }, "deny"],
+      [
+        "grep a linked folder",
+        "grep",
+        { pattern: "x", path: join(folder, "linked-dir") },
+        "deny",
+      ],
+      // Grep's file pattern takes Glob's rule: no "..", no root or home.
+      [
+        "grep up and out by its file pattern",
+        "grep",
+        { pattern: "x", include: "../outside/*" },
+        "deny",
+      ],
+      [
+        "grep a root through a brace",
+        "grep",
+        { pattern: "x", include: "{/etc,sub}/*" },
+        "deny",
+      ],
+      [
+        "grep an absolute file pattern outside",
+        "grep",
+        { pattern: "x", include: `${outside}/*` },
+        "deny",
+      ],
+      ["glob the folder", "glob", { pattern: "**/*.md" }, "allow"],
+      ["glob outside by path", "glob", { pattern: "*", path: outside }, "deny"],
+      ["glob up and out", "glob", { pattern: "../outside/*" }, "deny"],
+      [
+        "glob an absolute pattern outside",
+        "glob",
+        { pattern: `${outside}/*` },
+        "deny",
+      ],
+      [
+        "glob up and out through a brace",
+        "glob",
+        { pattern: "{..,sub}/outside/*" },
+        "deny",
+      ],
+      ["glob home", "glob", { pattern: "~/*" }, "deny"],
+      [
+        "write a new file inside",
+        "write",
+        { path: join(folder, "sub", "new.md"), content: "x" },
+        "allow",
+      ],
+      [
+        "edit a file inside",
+        "edit",
+        { path: join(folder, "notes.md"), oldString: "notes", newString: "n" },
+        "allow",
+      ],
+      [
+        "write outside",
+        "write",
+        { path: join(outside, "x.md"), content: "x" },
+        "deny",
+      ],
+      [
+        "write up and out",
+        "write",
+        { path: "../outside/x.md", content: "x" },
+        "deny",
+      ],
+      [
+        "write through a linked folder",
+        "write",
+        { path: join(folder, "linked-dir", "x.md"), content: "x" },
+        "deny",
+      ],
+      [
+        "edit through a linked file",
+        "edit",
+        { path: join(folder, "linked-file"), oldString: "s", newString: "t" },
+        "deny",
+      ],
+      ["write under home", "write", { path: "~/x.md", content: "x" }, "deny"],
+      [
+        "patch: add inside",
+        "patch",
+        patch("*** Add File: sub/new.md", "+x"),
+        "allow",
+      ],
+      [
+        "patch: update inside",
+        "patch",
+        patch("*** Update File: notes.md", "@@", "-notes", "+n"),
+        "allow",
+      ],
+      [
+        "patch: add outside",
+        "patch",
+        patch(`*** Add File: ${join(outside, "x.md")}`, "+x"),
+        "deny",
+      ],
+      [
+        "patch: add up and out",
+        "patch",
+        patch("*** Add File: ../outside/x.md", "+x"),
+        "deny",
+      ],
+      [
+        "patch: delete outside",
+        "patch",
+        patch(`*** Delete File: ${join(outside, "secret.txt")}`),
+        "deny",
+      ],
+      [
+        "patch: update through a link",
+        "patch",
+        patch("*** Update File: linked-file", "@@", "-secret", "+x"),
+        "deny",
+      ],
+      [
+        "patch: move out of the folder",
+        "patch",
+        patch(
+          "*** Update File: notes.md",
+          `*** Move to: ${join(outside, "moved.md")}`,
+          "@@",
+          "-notes",
+          "+n",
+        ),
+        "deny",
+      ],
+      [
+        "patch: a second file outside",
+        "patch",
+        patch(
+          "*** Add File: sub/ok.md",
+          "+x",
+          `*** Add File: ${join(outside, "x.md")}`,
+          "+x",
+        ),
+        "deny",
+      ],
+    ];
+    for (const name of [
+      ".opencode/plugin/p.ts",
+      "sub/.opencode/x.json",
+      "opencode.json",
+      "sub/opencode.json",
+      "AGENTS.md",
+      ".git/config",
+      ".claude/settings.json",
+      ".codex/config.toml",
+      ".mcp.json",
+      ".envrc",
+    ]) {
+      cases.push([
+        `write ${name}`,
+        "write",
+        { path: join(folder, name), content: "x" },
+        "deny",
+      ]);
+      cases.push([
+        `patch ${name}`,
+        "patch",
+        patch(`*** Add File: ${name}`, "+x"),
+        "deny",
+      ]);
+      cases.push([
+        `patch: move onto ${name}`,
+        "patch",
+        patch(
+          "*** Update File: notes.md",
+          `*** Move to: ${name}`,
+          "@@",
+          "-notes",
+          "+n",
+        ),
+        "deny",
+      ]);
+    }
+    for (const stop of ["folder", "web"] as const) {
+      const hooks = await stopHooks(
+        folder,
+        rulesOf(openCodeStopRules(stop, OFFICE_TOOLS)),
+      );
+      for (const [label, tool, input, want] of cases)
+        expect({
+          stop,
+          label,
+          decision: await decide(hooks, `isomux-${stop}`, tool, input),
+        }).toEqual({ stop, label, decision: want });
     }
   });
 });

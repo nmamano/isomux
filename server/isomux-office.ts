@@ -106,7 +106,7 @@ import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
 import { codexSandboxProbe } from "./backends/codex/sandbox-probe.ts";
-import { engineRunsAccessHere } from "./backends/codex/access.ts";
+import { engineRunsAccessHere } from "./backends/access-here.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
 import {
   SpawnAccessRefusedError,

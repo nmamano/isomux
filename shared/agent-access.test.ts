@@ -145,9 +145,10 @@ describe("claudeToolsForStop", () => {
 
 // The UI and every server gate (setAccess, PATCH, spawn) read this rule. A
 // Codex stop below Standard is proven for one model at chat and office only
-// (server/backends/codex/access.ts); OpenCode has none yet.
+// (server/backends/codex/access.ts); OpenCode runs all four with any model
+// (server/backends/opencode/access.ts).
 describe("engineRunsAccess", () => {
-  it("runs a stop below Standard on Claude, and on Codex only at chat and office with a proven model", () => {
+  it("runs a stop below Standard on Claude and OpenCode, and on Codex only at chat and office with a proven model", () => {
     const cases: [string, string | null, Record<AgentAccess, boolean>][] = [
       [
         "claude",
@@ -188,9 +189,25 @@ describe("engineRunsAccess", () => {
           privileged: true,
         },
       ]),
-      // The proven model on another engine proves nothing.
-      [
+      // OpenCode's tools are the same for every model (task e77304b1,
+      // merge C2): every stop, whatever the model.
+      ...(
+        ["gpt-5.5", "opencode/big-pickle", "anthropic/claude-x", null] as const
+      ).map((model): [string, string | null, Record<AgentAccess, boolean>] => [
         "opencode",
+        model,
+        {
+          chat: true,
+          office: true,
+          folder: true,
+          web: true,
+          standard: true,
+          privileged: true,
+        },
+      ]),
+      // An engine Isomux does not know runs no stop below Standard.
+      [
+        "other",
         "gpt-5.5",
         {
           chat: false,

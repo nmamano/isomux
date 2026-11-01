@@ -26,13 +26,19 @@ export function openCodeProfilePaths(
   const profileDir = join(AGENT_ROOT, "opencode", "profiles", key);
   return {
     profileDir,
-    configPath: join(profileDir, "opencode.json"),
+    configPath: openCodeConfigFilePath(profileDir),
     home: openCodeProfileHome(profileDir),
     configHome: join(profileDir, "config"),
     dataHome: join(profileDir, "data"),
     stateHome: join(profileDir, "state"),
     cacheHome: join(profileDir, "cache"),
   };
+}
+
+// The config file the supervisor writes in a profile and passes as
+// OPENCODE_CONFIG. Its server lists it as a config layer with this path.
+export function openCodeConfigFilePath(profileDir: string): string {
+  return join(profileDir, "opencode.json");
 }
 
 // OpenCode appends its log here (XDG_DATA_HOME/opencode/log; 1.18.35 and

@@ -38,7 +38,7 @@ export const ENTRY_NAMES = new Set([
   "diagnose",
   "codex-hook-config",
   "codex-trust-hash",
-  "codex-empty-cwd",
+  "empty-folder",
   "opencode-inspect",
   "session-move",
 ]);

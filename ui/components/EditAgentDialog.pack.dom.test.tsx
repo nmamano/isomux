@@ -29,13 +29,13 @@ const {
 
 describe("the engine and the stops", () => {
   // engineRunsAccess with the dialog's model: Codex runs chat and office on
-  // gpt-5.5 only, OpenCode no stop below Standard.
+  // gpt-5.5 only, OpenCode every stop.
   it("each engine and model has exactly the stops it can run", async () => {
     const cases: [AgentInfo["agentType"], string, AgentAccess[]][] = [
       ["claude", "opus", []],
       ["codex", "gpt-5.5", ["folder", "web"]],
       ["codex", "gpt-5.6-sol", BELOW],
-      ["opencode", "opencode/big-pickle", BELOW],
+      ["opencode", "opencode/big-pickle", []],
     ];
     for (const [agentType, modelFamily, off] of cases) {
       shim();
@@ -79,13 +79,13 @@ describe("the engine and the stops", () => {
       expect(engines()).toMatchObject({
         claude: false,
         codex: false,
-        opencode: true,
+        opencode: false,
       });
       await pick(view.container, "folder");
       expect(engines()).toMatchObject({
         claude: false,
         codex: true,
-        opencode: true,
+        opencode: false,
       });
     } finally {
       cleanup(view);

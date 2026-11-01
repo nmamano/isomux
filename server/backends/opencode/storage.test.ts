@@ -13,7 +13,7 @@ import { mkdirSync } from "node:fs";
 import { openCodeDatabasePath, openCodeProfilePaths } from "./profile-paths.ts";
 import {
   inspectOpenCodeDatabase,
-  inspectOpenCodeStoredSession,
+  inspectOpenCodeProfileSession,
 } from "./storage.ts";
 
 const roots: string[] = [];
@@ -253,36 +253,44 @@ describe("OpenCode stored sessions across the version 2 cut-over", () => {
   }
 
   it("reads the version 1 database of a profile that 2.1.4 has not started on yet", () => {
-    const { key, profileDir } = profile();
+    const { profileDir } = profile();
     versionOne(profileDir, { durable: 2, empty: 0 });
-    expect(inspectOpenCodeStoredSession("durable", key)).toBe("durable");
-    expect(inspectOpenCodeStoredSession("empty", key)).toBe("empty");
-    expect(inspectOpenCodeStoredSession("absent", key)).toBe("missing");
+    expect(inspectOpenCodeProfileSession(profileDir, "durable")).toBe(
+      "durable",
+    );
+    expect(inspectOpenCodeProfileSession(profileDir, "empty")).toBe("empty");
+    expect(inspectOpenCodeProfileSession(profileDir, "absent")).toBe("missing");
   });
 
   // The import runs in the server after its start: until it completes,
   // opencode-v2.db lacks sessions that opencode.db holds.
   it("reads the version 1 database while the version 2 one is not ready", () => {
-    const { key, profileDir } = profile();
+    const { profileDir } = profile();
     versionOne(profileDir, { "only-in-v1": 1 });
     versionTwo(profileDir, {});
-    expect(inspectOpenCodeStoredSession("only-in-v1", key)).toBe("durable");
+    expect(inspectOpenCodeProfileSession(profileDir, "only-in-v1")).toBe(
+      "durable",
+    );
   });
 
   it("reads only the version 2 database once it is ready", () => {
-    const { key, profileDir } = profile();
+    const { profileDir } = profile();
     // The version 1 file stays for a rollback; 2.1.4 never writes it.
     versionOne(profileDir, { "only-in-v1": 1, both: 0 });
     versionTwo(profileDir, { both: 1, "only-in-v2": 0 });
     writeFileSync(`${openCodeDatabasePath(profileDir, "v2")}.ready`, "");
-    expect(inspectOpenCodeStoredSession("only-in-v1", key)).toBe("missing");
-    expect(inspectOpenCodeStoredSession("both", key)).toBe("durable");
-    expect(inspectOpenCodeStoredSession("only-in-v2", key)).toBe("empty");
+    expect(inspectOpenCodeProfileSession(profileDir, "only-in-v1")).toBe(
+      "missing",
+    );
+    expect(inspectOpenCodeProfileSession(profileDir, "both")).toBe("durable");
+    expect(inspectOpenCodeProfileSession(profileDir, "only-in-v2")).toBe(
+      "empty",
+    );
   });
 
   // Task 3cb130ad: OpenCode 1's own migrations appended columns too.
   it("reads a version 1 database whose columns a migration appended", () => {
-    const { key, profileDir } = profile();
+    const { profileDir } = profile();
     const database = new Database(openCodeDatabasePath(profileDir, "v1"));
     const created = V1_SESSION_COLUMNS.replace("time_compacting INTEGER,", "");
     expect(created).not.toContain("time_compacting");
@@ -297,11 +305,13 @@ describe("OpenCode stored sessions across the version 2 cut-over", () => {
       .run("m-1", "migrated");
     database.close();
     // MUTANT: the version 1 tables keep the index-by-index compare.
-    expect(inspectOpenCodeStoredSession("migrated", key)).toBe("durable");
+    expect(inspectOpenCodeProfileSession(profileDir, "migrated")).toBe(
+      "durable",
+    );
   });
 
   it("answers missing for a profile with no database", () => {
-    const { key } = profile();
-    expect(inspectOpenCodeStoredSession("any", key)).toBe("missing");
+    const { profileDir } = profile();
+    expect(inspectOpenCodeProfileSession(profileDir, "any")).toBe("missing");
   });
 });

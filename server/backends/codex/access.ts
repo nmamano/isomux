@@ -14,9 +14,8 @@ import {
   stopHasFolder,
   type AgentAccess,
 } from "../../../shared/agent-access.ts";
-import { inAgentSpace } from "../../agent-host.ts";
-import { AGENT_ROOT } from "../../split/roots.ts";
-import { ensureEmptyFolder } from "./empty-folder.ts";
+import { CODEX_EMPTY_CWD_ROOT } from "../empty-folder.ts";
+import { makeEmptyFolder } from "../empty-folder-host.ts";
 import { getCodexPinnedVersion } from "./native-bin.ts";
 
 // The Codex version the probe ran on. getCodexPinnedVersion() must equal it.
@@ -73,18 +72,6 @@ export function codexRunsBelowStandard(access: AgentAccess): boolean {
   return (
     !stopHasFolder(access) &&
     getCodexPinnedVersion() === CODEX_BELOW_STANDARD_PROVEN_VERSION
-  );
-}
-
-// engineRunsAccess on this server: Codex also needs the proven version.
-export function engineRunsAccessHere(
-  agentType: string,
-  access: AgentAccess,
-  model: string | null,
-): boolean {
-  return (
-    engineRunsAccess(agentType, access, model) &&
-    (agentType !== "codex" || codexRunsBelowStandard(access))
   );
 }
 
@@ -194,17 +181,12 @@ export async function codexBelowStandardDiscovery(
 }
 
 // The parent of the empty folders, in agent space (split mode).
-export const CODEX_EMPTY_CWD_ROOT = join(AGENT_ROOT, "codex", "no-folder");
+export { CODEX_EMPTY_CWD_ROOT };
 
 // The empty folder a thread below standard runs in,
 // CODEX_EMPTY_CWD_ROOT/<agentId>: made for the agent by the server in agent
 // space, mode 0700, outside the agent's own data. Throws when it holds
 // anything.
 export async function codexEmptyCwd(agentId: string): Promise<string> {
-  const dir = join(CODEX_EMPTY_CWD_ROOT, agentId);
-  const made = await inAgentSpace("codex-empty-cwd", { dir }, () =>
-    ensureEmptyFolder(dir),
-  );
-  if (made !== dir) throw new Error(`could not make the empty folder ${dir}`);
-  return dir;
+  return makeEmptyFolder(join(CODEX_EMPTY_CWD_ROOT, agentId));
 }

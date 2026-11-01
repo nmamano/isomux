@@ -88,6 +88,9 @@ export interface CreateSessionOptions {
   // engine to the stop (tools, setting sources, MCP servers, the folder hook,
   // attachments). Absent: standard.
   access?: AgentAccess;
+  // OpenCode below standard: the office MCP server's tool names for this
+  // agent, which the session rules allow by exact name.
+  officeTools?: string[];
 }
 
 export interface SessionEnvironmentOptions {
@@ -100,6 +103,10 @@ export interface SessionEnvironmentOptions {
   // OpenCode: the skill folders of the shared server's config. Undefined
   // keeps the list the server has.
   skillPaths?: string[];
+  // OpenCode: the agent's stop. Below standard the session runs on the
+  // member's limited server and profile (backends/opencode/access.ts).
+  // Absent: standard.
+  access?: AgentAccess;
 }
 
 export interface SessionAccessOptions extends SessionEnvironmentOptions {

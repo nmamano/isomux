@@ -22,6 +22,11 @@ import {
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { openCodeMcpServerConfig } from "./config-layers.ts";
+import {
+  openCodeConfigLayersRefusal,
+  openCodeMcpCollisionRefusal,
+} from "./access.ts";
+import { OPENCODE_OFFICE_MCP_SERVER, type OpenCodeRule } from "./stop-rules.ts";
 import { MCP_SERVER_PREFIX } from "../../../shared/mcp-servers.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
 import {
@@ -30,7 +35,11 @@ import {
   type OpenCodeAuthorityBroker,
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
-import { openCodeLogPath, openCodeSafetyPluginDir } from "./profile-paths.ts";
+import {
+  openCodeConfigFilePath,
+  openCodeLogPath,
+  openCodeSafetyPluginDir,
+} from "./profile-paths.ts";
 import { OpenCodeUnsupportedHostError } from "./runtime.ts";
 import { OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS } from "./server-health.ts";
 import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
@@ -355,6 +364,20 @@ export interface OpenCodeTransportOptions {
   completedStepSink?: (breakdown: OpenCodeContextBreakdown) => void;
   eventStreamDeadlineMs?: number;
   deadlineScheduler?: OpenCodeDeadlineScheduler;
+  // A session below standard (task e77304b1, backends/opencode/access.ts).
+  limited?: OpenCodeLimitedSession;
+  // Runs before the session is created or resumed: the empty folder, a move
+  // across the standard line. A throw fails the turn with its message.
+  prepare?: () => Promise<void>;
+}
+
+// What a session below standard runs with: its full rule list, at create and
+// at every agent switch, and its own MCP servers (the office one, with this
+// agent's token), which go into its own folder only. The checks before each
+// prompt refuse project config and a server named like the office one.
+export interface OpenCodeLimitedSession {
+  rules: OpenCodeRule[];
+  mcpServers: AgentMcpServer[];
 }
 
 export interface OpenCodeContextBreakdown {
@@ -366,10 +389,10 @@ export interface OpenCodeContextBreakdown {
   cacheCreationInputTokens: number;
 }
 
-export interface OpenCodePromptPart {
-  type: "text";
-  text: string;
-}
+// A text part, or a file below standard: an inline image as a data: URI.
+export type OpenCodePromptPart =
+  | { type: "text"; text: string }
+  | { type: "file"; uri: string; mime: string; name: string };
 
 type EventSink = (event: NormalizedEvent) => void;
 
@@ -563,6 +586,8 @@ export class OpenCodeTransport {
   private resumeProgressCheck: (() => void) | null = null;
   private closed = false;
   private authorityBinding: OpenCodeAuthorityBinding | null = null;
+  private readonly limited: OpenCodeLimitedSession | undefined;
+  private readonly prepare: (() => Promise<void>) | undefined;
 
   constructor(options: OpenCodeTransportOptions) {
     this.supervisor = options.supervisor ?? openCodeSupervisor;
@@ -594,6 +619,13 @@ export class OpenCodeTransport {
     this.eventStreamDeadlineMs =
       options.eventStreamDeadlineMs ?? OPENCODE_EVENT_STREAM_DEADLINE_MS;
     this.deadlineScheduler = options.deadlineScheduler ?? realDeadlineScheduler;
+    this.limited = options.limited;
+    this.prepare = options.prepare;
+  }
+
+  // The rules a session of `agent` gets at create and at a switch.
+  private sessionRules(agent: string): OpenCodeRule[] {
+    return this.limited ? this.limited.rules : openCodeAgentRules(agent);
   }
 
   async getModelContextLimit(): Promise<number | null> {
@@ -722,6 +754,19 @@ export class OpenCodeTransport {
     withinTurn: boolean,
     onStep?: (step: OpenCodeTurnStep) => void,
   ): Promise<{ sessionId: string; settle: () => void }> {
+    if (this.prepare) {
+      onStep?.("access");
+      try {
+        await this.prepare();
+      } catch (error) {
+        throw new OpenCodeTurnFailure(
+          error instanceof Error && error.message
+            ? error.message
+            : "Isomux could not prepare this agent's OpenCode session.",
+          { cause: error },
+        );
+      }
+    }
     const lease = await this.supervisor.acquire();
     // close() ran during the acquire and had no lease to release.
     if (this.closed) {
@@ -754,7 +799,7 @@ export class OpenCodeTransport {
             title: "Isomux OpenCode session",
             location: { directory: this.cwd },
             agent,
-            permissions: openCodeAgentRules(agent),
+            permissions: this.sessionRules(agent),
           }),
         };
         const body = allowSession(
@@ -920,7 +965,16 @@ export class OpenCodeTransport {
     }
     // A skill's office calls carry the turn handle placeholder too
     // (command-handlers.ts executeSkill).
-    let turnText = parts.map((part) => part.text).join("\n\n");
+    let turnText = parts
+      .flatMap((part) => (part.type === "text" ? [part.text] : []))
+      .join("\n\n");
+    // Files go out only as data: URIs: 2.1.4 reads a file: URI from the
+    // server's own disk (probe pf, 2026-11-01).
+    const files = parts.flatMap((part) =>
+      part.type === "file" && part.uri.startsWith("data:")
+        ? [{ uri: part.uri, mime: part.mime, name: part.name }]
+        : [],
+    );
     if (turnText.includes(OPENCODE_TURN_HANDLE_PLACEHOLDER)) {
       if (!this.authorityBinding) {
         fail(
@@ -1026,6 +1080,11 @@ export class OpenCodeTransport {
       step = "safety_plugin";
       await this.requireSafetyPlugin(controller.signal, emit);
       if (settled) return;
+      if (this.limited) {
+        step = "access";
+        await this.requireLimitedFolder(controller.signal, emit);
+        if (settled) return;
+      }
       // After beginTurn and recovery, which can each replace the server.
       const { variant, notice } = await this.resolveEffort();
       if (settled) return;
@@ -1048,7 +1107,7 @@ export class OpenCodeTransport {
         await this.request(`/api/session/${session}`, {
           method: "PATCH",
           signal: controller.signal,
-          body: JSON.stringify({ permissions: openCodeAgentRules(agent) }),
+          body: JSON.stringify({ permissions: this.sessionRules(agent) }),
         });
         if (settled) return;
         step = "agent";
@@ -1103,8 +1162,9 @@ export class OpenCodeTransport {
       const response = await this.request(`/api/session/${session}/prompt`, {
         method: "POST",
         signal: controller.signal,
-        // The 2.1.4 prompt takes text only.
-        body: JSON.stringify({ text: turnText }),
+        body: JSON.stringify(
+          files.length > 0 ? { text: turnText, files } : { text: turnText },
+        ),
       });
       const input = stringField(
         asRecord(asRecord(await response.json()).data),
@@ -2542,7 +2602,11 @@ export class OpenCodeTransport {
     signal: AbortSignal,
     notice: EventSink,
   ): Promise<void> {
-    const servers = this.lease!.mcpServers;
+    // Below standard the session's own servers: the office one carries this
+    // agent's token, so it never goes in the server's list every folder gets.
+    const servers = this.limited
+      ? this.limited.mcpServers
+      : this.lease!.mcpServers;
     const body: unknown = await this.withinDeadline(
       (bounded) =>
         this.request(folderPath("/api/mcp", this.cwd), {
@@ -2566,7 +2630,12 @@ export class OpenCodeTransport {
       const name = stringField(row, "name");
       if (!name) continue;
       listed.add(name);
-      if (!name.startsWith(MCP_SERVER_PREFIX) || wanted.has(name)) continue;
+      // Isomux's: the member's connections (prefix), and below standard the
+      // office server a run at another stop left in this folder.
+      const isomuxs =
+        name.startsWith(MCP_SERVER_PREFIX) ||
+        (this.limited !== undefined && name === OPENCODE_OFFICE_MCP_SERVER);
+      if (!isomuxs || wanted.has(name)) continue;
       sent.delete(key(name));
       try {
         await this.request(path(name), { method: "DELETE", signal });
@@ -2624,6 +2693,38 @@ export class OpenCodeTransport {
     if (!loaded)
       throw new OpenCodeTurnFailure(OPENCODE_SETTINGS_MISSING_FAILURE);
     kept.folders.add(this.cwd);
+  }
+
+  // Below standard, before every prompt (task e77304b1): the folder loads
+  // no config layer but Isomux's and the member's config dir (the limited
+  // server runs with project config off; this fails closed if a later
+  // OpenCode ignores that), and no MCP server but ours is named like the
+  // office one. Config layers name a server before /api/mcp lists it.
+  private async requireLimitedFolder(
+    signal: AbortSignal,
+    notice: EventSink,
+  ): Promise<void> {
+    const read = (path: string): Promise<unknown> =>
+      this.withinDeadline(
+        (bounded) =>
+          this.request(folderPath(path, this.cwd), { signal: bounded }).then(
+            (r) => r.json(),
+          ),
+        { signal, notice },
+      );
+    const config = await read("/api/config");
+    const refusal =
+      openCodeConfigLayersRefusal(
+        config,
+        this.lease!.configDir,
+        openCodeConfigFilePath(this.lease!.profileDir),
+      ) ??
+      openCodeMcpCollisionRefusal(
+        config,
+        await read("/api/mcp"),
+        (this.limited?.mcpServers ?? []).map((server) => server.name),
+      );
+    if (refusal) throw new OpenCodeTurnFailure(refusal);
   }
 
   // S2: OpenCode 2.1.4 loads plugins fail-open, lazily per folder, and a
@@ -3191,6 +3292,7 @@ export type OpenCodeTurnStep =
   | "mcp"
   | "config"
   | "safety_plugin"
+  | "access"
   | "permissions"
   | "agent"
   | "instructions"

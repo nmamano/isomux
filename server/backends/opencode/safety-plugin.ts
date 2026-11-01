@@ -11,10 +11,13 @@
 // fail-open, so the transport runs no prompt in a folder whose plugin list
 // does not show this plugin active (S2).
 import { isAbsolute, resolve } from "node:path";
+import { stopHasFolder } from "../../../shared/agent-access.ts";
 import {
   evaluateProposedAction,
+  type FolderConfinement,
   type ProposedAction,
 } from "../../safety-policy.ts";
+import { openCodeAgentStop, openCodeAllowedTools } from "./stop-rules.ts";
 import {
   OPENCODE_SAFETY_PLUGIN_ID,
   OPENCODE_SERVER_ONLY_VARIABLES,
@@ -112,6 +115,8 @@ export function restoreOpenCodeShellVariables(
 interface ToolEvent {
   tool: string;
   input: unknown;
+  sessionID?: string;
+  agent?: string;
 }
 
 interface ShellEvent {
@@ -125,10 +130,14 @@ interface Registration {
 // The parts of the @opencode/plugin 2.1.4 promise context this plugin uses.
 interface PluginContext {
   location: { directory: string };
+  // The session, with the rule list Isomux sent (probe, 2026-11-01).
+  session?: {
+    get(input: { sessionID: string }): Promise<unknown>;
+  };
   tool: {
     hook(
       name: "execute.before",
-      callback: (event: ToolEvent) => void,
+      callback: (event: ToolEvent) => void | Promise<void>,
     ): Promise<Registration>;
   };
   shell: {
@@ -137,6 +146,60 @@ interface PluginContext {
       callback: (event: ShellEvent) => void,
     ): Promise<Registration>;
   };
+}
+
+// A tool call of a stop agent below standard: the policy with the folder
+// confinement, whose tool list is the session's exact allows (P5: a member
+// plugin's tool can name any permission, so a wildcard allow lets it in). A
+// session it cannot read refuses the call. A tool with no policy entry (an
+// office tool, webfetch) is checked against the list only; glob is checked
+// as a read of its root and pattern.
+async function confinedCall(
+  ctx: PluginContext,
+  directory: string,
+  stop: NonNullable<ReturnType<typeof openCodeAgentStop>>,
+  event: ToolEvent,
+): Promise<void> {
+  const session = event.sessionID
+    ? await ctx.session?.get({ sessionID: event.sessionID })
+    : undefined;
+  const rules = (session as { permissions?: unknown } | null | undefined)
+    ?.permissions;
+  if (!Array.isArray(rules))
+    throw new Error(
+      "Isomux could not read this session's tools, so the call did not run.",
+    );
+  const confine: FolderConfinement = {
+    access: stop,
+    folder: stopHasFolder(stop) ? directory : null,
+    tools: openCodeAllowedTools(rules),
+  };
+  const call =
+    event.tool === "glob"
+      ? {
+          action: {
+            kind: "read-files" as const,
+            toolName: "Glob",
+            input: record(event.input),
+          },
+          cwd: directory,
+        }
+      : (openCodeToolAction(event.tool, event.input, directory) ?? {
+          action: {
+            kind: "uncovered-tool" as const,
+            toolName: event.tool,
+            input: event.input,
+          },
+          cwd: directory,
+        });
+  const decision = evaluateProposedAction(call.action, {
+    cwd: call.cwd,
+    codexHome: process.env.CODEX_HOME,
+    shellHome: SHELL?.user.HOME,
+    shellTmpDir: SHELL?.user.TMPDIR,
+    confine,
+  });
+  if (decision.decision === "deny") throw new Error(decision.reason);
 }
 
 export default {
@@ -148,7 +211,11 @@ export default {
     await Promise.all([
       // No catch: a mapping or policy error throws too, and OpenCode fails
       // the call. A hook that caught and allowed would fail open.
-      ctx.tool.hook("execute.before", (event) => {
+      ctx.tool.hook("execute.before", (event): void | Promise<void> => {
+        // A stop agent below standard (task e77304b1): the session's own
+        // rules name its tools; anything else is refused.
+        const stop = event.agent ? openCodeAgentStop(event.agent) : null;
+        if (stop) return confinedCall(ctx, directory, stop, event);
         const call = openCodeToolAction(event.tool, event.input, directory);
         if (!call) return;
         const decision = evaluateProposedAction(call.action, {

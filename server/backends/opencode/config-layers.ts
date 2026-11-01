@@ -109,6 +109,11 @@ export function openCodeServerEnvironment(
     OPENCODE_CONFIG_DIR: existsSync(userConfigDir) ? userConfigDir : undefined,
     // Read by the 2.1.4 updater; serve itself makes no update request (S10).
     OPENCODE_DISABLE_AUTOUPDATE: "1",
+    // The limited server's (task e77304b1, access.ts): project config off.
+    // Only "1" passes; a value that turns project config on is dropped with
+    // every other OPENCODE_ variable.
+    OPENCODE_DISABLE_PROJECT_CONFIG:
+      env.OPENCODE_DISABLE_PROJECT_CONFIG === "1" ? "1" : undefined,
     OPENCODE_SERVER_PASSWORD: server.password,
   };
   return Object.fromEntries(

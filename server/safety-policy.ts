@@ -124,6 +124,9 @@ export type PolicyContext = {
 export interface FolderConfinement {
   access: AgentAccess;
   folder: string | null;
+  // OpenCode: the exact tool names the session allows (the session rules,
+  // openCodeAllowedTools). Absent: Claude's list for the stop.
+  tools?: readonly string[];
 }
 
 // Names that configure an engine, a repository or a shell when they sit in a
@@ -151,9 +154,13 @@ export function checkConfinedAction(
   confine: FolderConfinement,
 ): PolicyDecision {
   const toolName = action.kind === "shell" ? "Bash" : action.toolName;
-  const listed = toolName.startsWith(OFFICE_MCP_TOOL_PREFIX)
-    ? stopHasPack(confine.access)
-    : (claudeToolsForStop(confine.access) ?? []).includes(toolName);
+  // OpenCode's names are lower case; its adapter keeps Claude's case for
+  // the policy's tool entries (Grep, Glob).
+  const listed = confine.tools
+    ? confine.tools.includes(toolName.toLowerCase())
+    : toolName.startsWith(OFFICE_MCP_TOOL_PREFIX)
+      ? stopHasPack(confine.access)
+      : (claudeToolsForStop(confine.access) ?? []).includes(toolName);
   if (!listed)
     return deny(
       `${toolName} is not available to this agent. Use the tools you have.`,
@@ -162,8 +169,11 @@ export function checkConfinedAction(
     case "uncovered-tool":
       return allow();
     case "shell":
-    case "patch-files":
       return deny(`${toolName} is not available to this agent.`);
+    case "patch-files":
+      return confine.tools
+        ? confinedPatch(toolName, action.patch, confine.folder)
+        : deny(`${toolName} is not available to this agent.`);
     case "read-files":
       return confinedRead(action.toolName, action.input, confine.folder);
     case "write-files":
@@ -229,8 +239,14 @@ function confinedRead(
     const value = stringField(input, key);
     if (value) paths.push(value);
   }
+  // Glob's pattern, and Grep's file pattern, which OpenCode's grep names
+  // include and its adapter passes as glob.
   const pattern =
-    toolName === "Glob" ? stringField(input, "pattern") : undefined;
+    toolName === "Glob"
+      ? stringField(input, "pattern")
+      : toolName === "Grep"
+        ? stringField(input, "glob")
+        : undefined;
   if (pattern) {
     // Glob expands braces, so "{..,sub}" goes up and "{/etc,sub}" is an
     // absolute path: any ".." and any brace alternative that starts at a
@@ -254,7 +270,9 @@ function confinedWrite(
 ): PolicyDecision {
   if (folder === null) return outsideFolder(toolName);
   const path =
-    stringField(input, "file_path") ?? stringField(input, "notebook_path");
+    stringField(input, "file_path") ??
+    stringField(input, "notebook_path") ??
+    stringField(input, "path");
   if (!path || path.startsWith("~")) return outsideFolder(toolName);
   const given = resolve(folder);
   const realFolder = realPathOrAncestor(given);
@@ -284,6 +302,23 @@ function confinedWrite(
       return deny(
         `${toolName} may not write through a symlink in your folder.`,
       );
+  }
+  return allow();
+}
+
+// A patch (OpenCode's patch, Codex's apply_patch envelope): every file it
+// names, the target of a move included, under the folder write rule. A patch
+// whose files cannot be read is denied.
+function confinedPatch(
+  toolName: string,
+  patch: unknown,
+  folder: string | null,
+): PolicyDecision {
+  const paths = extractApplyPatchPaths(patch);
+  if (!paths || paths.length === 0) return outsideFolder(toolName);
+  for (const path of paths) {
+    const decision = confinedWrite(toolName, { file_path: path }, folder);
+    if (decision.decision === "deny") return decision;
   }
   return allow();
 }

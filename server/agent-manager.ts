@@ -323,7 +323,7 @@ import {
   ISOMUX_CODEX_HOME,
   isCodexAuthenticated,
 } from "./backends/codex/native-bin.ts";
-import { engineRunsAccessHere } from "./backends/codex/access.ts";
+import { engineRunsAccessHere } from "./backends/access-here.ts";
 import type {
   ApprovalDecision,
   Backend,
@@ -385,7 +385,9 @@ import {
   revokeAgentToken,
   getAgentTokenRaw,
   getAgentTokenIdentity,
+  resolveToken,
 } from "./identity/tokens.ts";
+import { officeMcpToolNames } from "./mcp-endpoint.ts";
 import { getUserById, getUserByName, listUsers } from "./users.ts";
 import { managerOf } from "./agent-system-prompt.ts";
 import type { SecretScope } from "./secret-store.ts";
@@ -3423,6 +3425,15 @@ export function createAgentManager(deps: ManagerDeps) {
         headers: { Authorization: `Bearer ${token}` },
       },
     ];
+  }
+
+  // The office MCP server's tool names for the agent's token: an OpenCode
+  // agent below standard allows exactly these (task e77304b1). None at chat.
+  function officeToolsFor(agentId: string, access: AgentAccess): string[] {
+    const token = getAgentTokenRaw(agentId);
+    if (!stopHasPack(access) || !token) return [];
+    const identity = resolveToken(token);
+    return identity ? officeMcpToolNames(identity) : [];
   }
 
   function agentMcpServers(userId: string | null | undefined) {
@@ -8180,6 +8191,9 @@ export function createAgentManager(deps: ManagerDeps) {
       mcpServers: belowStandard(access)
         ? officeMcpServerFor(managed.info.id, access)
         : agentMcpServers(managed.info.userId),
+      ...(belowStandard(access)
+        ? { officeTools: officeToolsFor(managed.info.id, access) }
+        : {}),
       ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
       ...(skillFolder ? { skillFolder } : {}),
       ...(access !== "standard" ? { access } : {}),

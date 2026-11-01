@@ -17,8 +17,16 @@ import { openCodeProfilePaths } from "./profile-paths.ts";
 import {
   findOpenCodeSessionProfile,
   moveOpenCodeSession,
+  moveOpenCodeSessionAcross,
+  setOpenCodeSessionCliForTests,
+  type OpenCodeSessionSides,
 } from "./session-transfer.ts";
-import { openCodeSupervisorForEnvironment } from "./supervisor.ts";
+import {
+  openCodeSupervisorForEnvironment,
+  type OpenCodeSupervisor,
+} from "./supervisor.ts";
+import { openCodeProfileKey } from "./access.ts";
+import type { AgentAccess } from "../../../shared/agent-access.ts";
 
 afterEach(cleanUpProfileFixtures);
 
@@ -143,5 +151,201 @@ describe("OpenCode recoverStoredSession", () => {
     expect(
       await backend.recoverStoredSession!("ses_b", opts("owner-key")),
     ).toBe(false);
+  });
+});
+
+// Task e77304b1 (merge C2): a session crosses the Standard line between the
+// member's server and the member's limited server. One copy exists at a
+// time: 2.1.4 answers an import of a session the target already holds with
+// "Session already exists" and exit 0, keeping its stale copy (probe 1c).
+describe("moveOpenCodeSessionAcross", () => {
+  type Side = OpenCodeSupervisor;
+  const side = (profileDir: string) => ({ profileDir }) as unknown as Side;
+
+  function world(start: { from?: string[]; to?: string[] }) {
+    const from = side("/profiles/from");
+    const to = side("/profiles/to");
+    const held = new Map<Side, string[]>();
+    if (start.from) held.set(from, start.from);
+    if (start.to) held.set(to, start.to);
+    const steps: string[] = [];
+    const name = (s: Side) => (s === from ? "from" : "to");
+    const sides: OpenCodeSessionSides = {
+      messageIds: async (s, sessionId) => {
+        expect(sessionId).toBe("ses_x");
+        return held.get(s) ? [...held.get(s)!] : null;
+      },
+      deleteSession: async (s) => {
+        steps.push(`delete ${name(s)}`);
+        held.delete(s);
+      },
+    };
+    const byDir = (dir: string) => (dir === "/profiles/from" ? from : to);
+    const cli = fakeCli({
+      exportSession: async (profileDir, sessionId) => {
+        steps.push(`export ${name(byDir(profileDir))}`);
+        return JSON.stringify({
+          id: sessionId,
+          ids: held.get(byDir(profileDir)),
+        });
+      },
+      importSession: async (target, exported) => {
+        steps.push(`import ${name(target)}`);
+        // As 2.1.4: a session the target holds stays as it is.
+        if (held.has(target)) return;
+        held.set(target, (JSON.parse(exported) as { ids: string[] }).ids);
+      },
+    });
+    return { from, to, held, steps, sides, cli };
+  }
+
+  const move = (w: ReturnType<typeof world>) =>
+    moveOpenCodeSessionAcross({
+      sessionId: "ses_x",
+      from: w.from,
+      to: w.to,
+      sides: w.sides,
+    });
+
+  it("leaves things alone when the other side does not hold the session", async () => {
+    const w = world({ to: ["m1"] });
+    expect(await move(w)).toBe("absent");
+    expect(w.steps).toEqual([]);
+    expect(w.held.get(w.to)).toEqual(["m1"]);
+  });
+
+  it("moves the session, checks the copy, then deletes the source", async () => {
+    const w = world({ from: ["m1", "m2"] });
+    expect(await move(w)).toBe("moved");
+    expect(w.steps).toEqual(["export from", "import to", "delete from"]);
+    expect(w.held.get(w.to)).toEqual(["m1", "m2"]);
+    expect(w.held.has(w.from)).toBe(false);
+  });
+
+  // Down, up, down again: the copy left on the target is stale.
+  it("deletes a leftover copy on the target before the import", async () => {
+    const w = world({ from: ["m1", "m2", "m3"], to: ["m1"] });
+    expect(await move(w)).toBe("moved");
+    expect(w.steps).toEqual([
+      "delete to",
+      "export from",
+      "import to",
+      "delete from",
+    ]);
+    expect(w.held.get(w.to)).toEqual(["m1", "m2", "m3"]);
+    expect(w.held.has(w.from)).toBe(false);
+  });
+
+  // Each failure throws, so the start is refused, and the source keeps the
+  // latest history: it is never deleted before the copy is checked.
+  it("throws and keeps the source when a step fails or the copy differs", async () => {
+    const cases: [string, (w: ReturnType<typeof world>) => void][] = [
+      [
+        "the import fails",
+        (w) => {
+          w.cli.importSession = async () => {
+            throw new Error("import exited 1");
+          };
+          setOpenCodeSessionCliForTests(w.cli);
+        },
+      ],
+      [
+        "the import drops a message",
+        (w) => {
+          const held = w.held;
+          w.cli.importSession = async (target) => {
+            held.set(target, ["m1"]);
+          };
+          setOpenCodeSessionCliForTests(w.cli);
+        },
+      ],
+      [
+        "the export fails",
+        (w) => {
+          w.cli.exportSession = async () => {
+            throw new Error("export exited 1");
+          };
+          setOpenCodeSessionCliForTests(w.cli);
+        },
+      ],
+      [
+        "the leftover cannot be deleted",
+        (w) => {
+          w.held.set(w.to, ["m1"]);
+          w.sides.deleteSession = async () => {
+            throw new Error("delete 500");
+          };
+        },
+      ],
+    ];
+    for (const [label, arrange] of cases) {
+      const w = world({ from: ["m1", "m2"] });
+      arrange(w);
+      const error = await move(w).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect({ label, threw: error instanceof Error }).toEqual({
+        label,
+        threw: true,
+      });
+      expect({ label, source: w.held.get(w.from) }).toEqual({
+        label,
+        source: ["m1", "m2"],
+      });
+    }
+  });
+
+  it("throws when the source copy cannot be deleted after the move", async () => {
+    const w = world({ from: ["m1", "m2"] });
+    w.sides.deleteSession = async (s) => {
+      if (s === w.from) throw new Error("delete 500");
+    };
+    const error = await move(w).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+  });
+});
+
+// The agent manager asks whether a session can resume with the agent's
+// stop: a session on the other side of the Standard line counts, and the
+// start moves it. Without this, an access change drops the session.
+describe("OpenCode stored sessions across the Standard line", () => {
+  const opts = (access: AgentAccess | undefined) => ({
+    cwd: "/work/repo",
+    env: {},
+    environmentKey: "member-key",
+    environmentRevision: "rev",
+    mcpServers: [],
+    ...(access ? { access } : {}),
+  });
+
+  it("finds a session on either side, and not one neither side holds", () => {
+    const backend = createOpenCodeBackend();
+    profile(openCodeProfileKey("member-key", "standard"), {
+      ses_std: "durable",
+    });
+    profile(openCodeProfileKey("member-key", "office"), { ses_low: "durable" });
+    for (const access of [
+      undefined,
+      "standard",
+      "chat",
+      "office",
+      "folder",
+      "web",
+    ] as const)
+      for (const id of ["ses_std", "ses_low"]) {
+        expect({
+          access,
+          id,
+          state: backend.inspectStoredSession(id, opts(access)),
+          resumable: backend.checkSessionResumable(id, opts(access)),
+        }).toEqual({ access, id, state: "durable", resumable: null });
+      }
+    expect(
+      backend.checkSessionResumable("ses_none", opts("office")),
+    ).not.toBeNull();
   });
 });

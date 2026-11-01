@@ -79,16 +79,41 @@ export async function handleMcpRequest(
   }
 }
 
+// The names of the tools the office MCP server lists for `identity`. An
+// OpenCode agent below standard allows exactly these, by name (task
+// e77304b1): its rules cannot use a wildcard.
+export function officeMcpToolNames(identity: Identity): string[] {
+  const names: string[] = [];
+  buildServer(
+    identity,
+    {
+      dispatch: () => Promise.reject(new Error("no dispatch for a tool list")),
+      waitForTokenLogEntry: () => Promise.resolve(),
+    },
+    AbortSignal.abort(),
+    (name) => names.push(name),
+  );
+  return names;
+}
+
 function buildServer(
   identity: Identity,
   deps: McpEndpointDeps,
   requestSignal: AbortSignal,
+  onTool?: (name: string) => void,
 ): McpServer {
   const server = new McpServer({ name: "isomux", version: "1.0.0" });
   // The SDK answers tools/list only once a tool was registered, and a pack can
   // grant none: a placeholder registered and removed at once makes the list
   // an empty one instead of "method not found".
   server.registerTool("placeholder", {}, () => json(null)).remove();
+  if (onTool) {
+    const register = server.registerTool.bind(server);
+    server.registerTool = ((name: string, ...rest: unknown[]) => {
+      onTool(name);
+      return (register as (...args: unknown[]) => unknown)(name, ...rest);
+    }) as typeof server.registerTool;
+  }
   const call = (method: McpMethod, path: string, body?: unknown) =>
     deps.dispatch(identity, method, path, body);
   const asAgent = identity.scope === "agent" && !!identity.agentId;

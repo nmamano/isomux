@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createHash, randomBytes } from "node:crypto";
@@ -6,10 +7,22 @@ import { ADMIN_SOCKET_PATH, STATE_ROOT } from "../../config.ts";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { runAtServerStop } from "../../server-stop.ts";
 import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
-import { openCodeProfilePaths } from "./profile-paths.ts";
+import {
+  openCodeConfigFilePath,
+  openCodeProfilePaths,
+} from "./profile-paths.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
-import { openCodeToolEnvironment } from "./config-layers.ts";
+import {
+  openCodeToolEnvironment,
+  openCodeUserConfigDir,
+} from "./config-layers.ts";
 import { openCodeAuthHeader } from "./server-startup.ts";
+import type { AgentAccess } from "../../../shared/agent-access.ts";
+import {
+  OPENCODE_STOP_AGENTS,
+  openCodeStopAgentRules,
+  type OpenCodeRule,
+} from "./stop-rules.ts";
 import {
   processIdentityMatches,
   processIsRunning,
@@ -36,11 +49,7 @@ interface ServerRecord {
 export const OPENCODE_CRON_AGENT = "isomux-cron";
 export const OPENCODE_INTERACTIVE_BYPASS_AGENT = "isomux-interactive-bypass";
 
-type OpenCodeRule = {
-  action: string;
-  resource: string;
-  effect: "allow" | "ask" | "deny";
-};
+export type { OpenCodeRule };
 const rule = (
   action: string,
   effect: OpenCodeRule["effect"],
@@ -94,6 +103,18 @@ export function openCodeDefaultConfig(): Record<string, unknown> {
         mode: "primary",
         permissions: openCodeAgentRules(OPENCODE_CRON_AGENT),
       },
+      // The stops below standard (task e77304b1). The session's rules add
+      // the office tools by exact name.
+      ...Object.fromEntries(
+        Object.entries(OPENCODE_STOP_AGENTS).map(([stop, agent]) => [
+          agent,
+          {
+            description: `Isomux agent at the ${stop} access level`,
+            mode: "primary",
+            permissions: openCodeStopAgentRules(stop as AgentAccess),
+          },
+        ]),
+      ),
     },
   };
 }
@@ -136,6 +157,8 @@ export interface OpenCodeLease {
   // The supervisor's current Isomux MCP servers, read at each turn: a change
   // needs no new server (the transport adds them at run time).
   readonly mcpServers: AgentMcpServer[];
+  // The member's config dir the server loads (OPENCODE_CONFIG_DIR), or null.
+  readonly configDir: string | null;
   // Ends the hold acquire() takes. Until then, or until beginTurn counts the
   // turn, or release(), a pending replacement does not stop this server.
   settle(): void;
@@ -280,6 +303,11 @@ export class OpenCodeSupervisor {
     const currentRecord = () => this.record ?? initialRecord;
     const replacementPending = () => this.recordStale();
     const currentMcpServers = () => this.currentMcpServers;
+    // As openCodeServerEnvironment sets it from the launch env.
+    const configDir = (): string | null => {
+      const dir = openCodeUserConfigDir(this.launchEnv);
+      return existsSync(dir) ? dir : null;
+    };
     return {
       get baseUrl() {
         return `http://127.0.0.1:${currentRecord().port}`;
@@ -302,6 +330,9 @@ export class OpenCodeSupervisor {
         this.recordLaunchVariables.get(currentRecord())?.has(name) === true,
       get mcpServers() {
         return currentMcpServers();
+      },
+      get configDir() {
+        return configDir();
       },
       settle: () => {
         entry?.();
@@ -569,7 +600,7 @@ export class OpenCodeSupervisor {
     const binary = this.binary;
     const host = getAgentHost();
     await host.fs.mkdir(this.profileDir, 0o777);
-    const configPath = join(this.profileDir, "opencode.json");
+    const configPath = openCodeConfigFilePath(this.profileDir);
     await host.fs.writeText(configPath, `${JSON.stringify(this.config)}\n`, {
       mode: 0o600,
     });
