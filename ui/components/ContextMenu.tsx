@@ -313,6 +313,8 @@ export function MenuItem({
   disabled,
   dimmed,
   onClick,
+  role,
+  dataNavMenuItem,
 }: {
   label: React.ReactNode;
   danger?: boolean;
@@ -320,9 +322,14 @@ export function MenuItem({
   disabled?: boolean;
   dimmed?: boolean;
   onClick: () => void;
+  role?: "menuitem";
+  // The item's id in a chat bar menu (NavActions).
+  dataNavMenuItem?: string;
 }) {
   return (
     <button
+      role={role}
+      data-nav-menu-item={dataNavMenuItem}
       aria-disabled={disabled || undefined}
       onClick={disabled ? undefined : onClick}
       onMouseEnter={(e) => {

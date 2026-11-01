@@ -7,6 +7,7 @@
 import { describe, it, expect } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
 import {
+  chatCopyText,
   describeMessageSender,
   senderIsHuman,
   serializeEntries,
@@ -38,6 +39,65 @@ describe("serializeEntries", () => {
         "It costs $5, see `echo \\$HOME`" +
         "\n\n**Bash**\n" +
         String.raw`echo \$HOME`,
+    );
+  });
+});
+
+describe("chatCopyText", () => {
+  // Two turns, the second started by another agent. Each kind the chat bar's
+  // Copy can meet: thinking, tool calls and results, an error, and a send the
+  // server records but the chat does not show.
+  const log: LogEntry[] = [
+    entry("user_message", String.raw`First ask, \$5`),
+    entry("thinking", "THINKING-1"),
+    { ...entry("tool_call", "Bash"), metadata: { input: "echo one" } },
+    entry("tool_result", "RESULT-1"),
+    entry("text", String.raw`First reply, \$5`),
+    {
+      ...entry("user_message", "Second ask"),
+      metadata: { sender_agent_name: "Peer", sender_agent_room: "Room" },
+    },
+    { ...entry("tool_call", "Read"), metadata: { input: { path: "/x" } } },
+    entry("tool_result", "RESULT-2"),
+    entry("agent_outbound", "OUTBOUND-2"),
+    entry("error", "ERROR-2"),
+    entry("text", "Second reply"),
+  ];
+  const second = log.findIndex((e) => e.content === "Second ask");
+
+  it("Everything is what the button copied before the menu", () => {
+    expect(chatCopyText(EN, log, "everything")).toBe(serializeEntries(EN, log));
+  });
+
+  it("Messages only keeps each message and reply, in order, and nothing else", () => {
+    expect(chatCopyText(EN, log, "messages")).toBe(
+      [
+        String.raw`First ask, \$5`,
+        "First reply, $5",
+        "Second ask",
+        "Second reply",
+      ].join("\n\n"),
+    );
+  });
+
+  it("Last exchange starts at the last incoming message, whoever sent it", () => {
+    // The last message is from an agent, not a member: a member-only rule
+    // would reach back to the first turn.
+    expect(chatCopyText(EN, log, "lastExchange")).toBe(
+      serializeEntries(EN, log.slice(second)),
+    );
+  });
+
+  it("Last exchange is the message alone while the agent has not answered", () => {
+    const waiting = [...log, entry("user_message", "Third ask")];
+    expect(chatCopyText(EN, waiting, "lastExchange")).toBe("Third ask");
+  });
+
+  it("Last exchange is the whole log when no message started it", () => {
+    const noMessage = log.filter((e) => e.kind !== "user_message");
+    expect(noMessage.length).toBeGreaterThan(0);
+    expect(chatCopyText(EN, noMessage, "lastExchange")).toBe(
+      serializeEntries(EN, noMessage),
     );
   });
 });

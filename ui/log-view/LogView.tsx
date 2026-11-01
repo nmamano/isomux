@@ -51,7 +51,11 @@ import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
-import { SenderDevice, serializeEntries } from "./LogEntryCard.tsx";
+import {
+  SenderDevice,
+  chatCopyText,
+  type ChatCopyScope,
+} from "./LogEntryCard.tsx";
 import {
   PINNED_BAR_HEIGHT,
   pinnedHumanMessageId,
@@ -1333,11 +1337,6 @@ export function LogView({
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  const getConversationText = useCallback(
-    () => serializeEntries(i18n, logs),
-    [i18n, logs],
-  );
-
   const handleCancelEdit = useCallback(() => setEditingLogEntryId(null), []);
   const handleSubmitEdit = useCallback(
     (id: string, newText: string) => {
@@ -1358,24 +1357,27 @@ export function LogView({
     [agent.id, device],
   );
 
-  const handleCopy = useCallback(async () => {
-    const text = getConversationText();
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    if (copyTimer.current) clearTimeout(copyTimer.current);
-    copyTimer.current = setTimeout(() => setCopied(false), 1500);
-  }, [getConversationText]);
+  const handleCopy = useCallback(
+    async (scope: ChatCopyScope) => {
+      const text = chatCopyText(i18n, logs, scope);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1500);
+    },
+    [i18n, logs],
+  );
 
   // Returns whether the command was handed to the outbox, so a caller that
   // clears the composer does so only then.
@@ -1419,7 +1421,23 @@ export function LogView({
             icon: copied ? CheckIcon : CopyIcon,
             label: i18n.t(copied ? "common.copied" : "common.copy"),
             title: i18n.t("logView.nav.copyTitle"),
-            onClick: handleCopy,
+            menu: [
+              {
+                id: "messages",
+                label: i18n.t("logView.nav.copyMessages"),
+                onClick: () => void handleCopy("messages"),
+              },
+              {
+                id: "everything",
+                label: i18n.t("logView.nav.copyEverything"),
+                onClick: () => void handleCopy("everything"),
+              },
+              {
+                id: "lastExchange",
+                label: i18n.t("logView.nav.copyLastExchange"),
+                onClick: () => void handleCopy("lastExchange"),
+              },
+            ],
             active: copied,
           },
         ]

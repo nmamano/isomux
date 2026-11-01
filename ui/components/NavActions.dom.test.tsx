@@ -147,3 +147,198 @@ describe("NavActions", () => {
     expect(quiet.container.querySelector(".nav-action-badge-dot")).toBeNull();
   });
 });
+
+// An action with a menu (the chat bar's Copy: Messages only, Everything, Last
+// exchange) runs nothing when pressed: it offers its choices, and a choice
+// runs once and closes them. The overflow menu on a phone offers the same
+// choices as rows under the action.
+describe("NavActions with a menu", () => {
+  function withMenu(opts: { disabled?: boolean } = {}) {
+    const ran: string[] = [];
+    const acts = [
+      { id: "tasks", icon: null, label: "Tasks", onClick: () => {} },
+      {
+        id: "copy",
+        icon: null,
+        label: "Copy",
+        disabled: opts.disabled,
+        menu: ["messages", "everything", "lastExchange"].map((id) => ({
+          id,
+          label: `Item ${id}`,
+          onClick: () => ran.push(id),
+        })),
+      },
+    ];
+    return { ran, acts };
+  }
+
+  // What a real press sends, so a close-on-press-outside listener that also
+  // catches the trigger or the menu shows here.
+  function press(el: Element) {
+    fireEvent.pointerDown(el);
+    fireEvent.mouseDown(el);
+    fireEvent.pointerUp(el);
+    fireEvent.mouseUp(el);
+    fireEvent.click(el);
+  }
+
+  const menu = () => document.querySelector('[data-nav-menu="copy"]');
+  const items = () =>
+    Array.from(document.querySelectorAll("[data-nav-menu-item]"));
+  const itemIds = () =>
+    items().map((el) => el.getAttribute("data-nav-menu-item"));
+  const item = (id: string) =>
+    document.querySelector(`[data-nav-menu-item="${id}"]`)!;
+
+  describe("desktop", () => {
+    function mount(opts?: { disabled?: boolean }) {
+      const m = withMenu(opts);
+      const view = render(
+        <div>
+          <div data-testid="log" />
+          <div data-testid="bar">
+            <NavActions actions={m.acts} viewport="desktop" />
+          </div>
+          <div data-testid="outside" />
+        </div>,
+      );
+      const trigger = view.container.querySelector(
+        'button[aria-haspopup="menu"]',
+      )!;
+      expect(trigger).not.toBeNull();
+      return { ...m, view, trigger };
+    }
+
+    it("opens the choices without running one, and a choice runs once and closes them", () => {
+      const { ran, view, trigger } = mount();
+      expect(menu()).toBeNull();
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+      press(trigger);
+      expect(menu()).not.toBeNull();
+      expect(menu()!.getAttribute("role")).toBe("menu");
+      // In a portal, so the chat bar cannot clip it.
+      expect(view.container.contains(menu())).toBe(false);
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(itemIds()).toEqual(["messages", "everything", "lastExchange"]);
+      expect(
+        items().every((el) => el.getAttribute("role") === "menuitem"),
+      ).toBe(true);
+      expect(ran).toEqual([]);
+
+      press(item("everything"));
+      expect(ran).toEqual(["everything"]);
+      expect(menu()).toBeNull();
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    });
+
+    it("closes on a second press of the button, a press outside, and Escape", () => {
+      const { ran, view, trigger } = mount();
+
+      press(trigger);
+      press(trigger);
+      expect(menu()).toBeNull();
+
+      press(trigger);
+      press(view.getByTestId("outside"));
+      expect(menu()).toBeNull();
+
+      press(trigger);
+      expect(menu()).not.toBeNull();
+      fireEvent.keyDown(item("messages"), { key: "Escape" });
+      expect(menu()).toBeNull();
+      // Focus goes back to the button, not to the page.
+      expect(document.activeElement === trigger).toBe(true);
+
+      expect(ran).toEqual([]);
+    });
+
+    // The chat log follows its bottom with scroll events of its own; only a
+    // scroll that moves the button detaches the menu from it.
+    it("stays open through a scroll that does not move the button", () => {
+      const { view, trigger } = mount();
+      press(trigger);
+      fireEvent.scroll(view.getByTestId("log"));
+      expect(menu()).not.toBeNull();
+
+      fireEvent.scroll(view.getByTestId("bar"));
+      expect(menu()).toBeNull();
+
+      press(trigger);
+      expect(menu()).not.toBeNull();
+      fireEvent(window, new Event("resize"));
+      expect(menu()).toBeNull();
+    });
+
+    it("does not open while disabled", () => {
+      const { ran, trigger } = mount({ disabled: true });
+      expect(trigger.hasAttribute("disabled")).toBe(true);
+      press(trigger);
+      expect(menu()).toBeNull();
+      expect(ran).toEqual([]);
+    });
+  });
+
+  describe("mobile", () => {
+    function mount(opts?: { disabled?: boolean }) {
+      const m = withMenu(opts);
+      const view = render(<NavActions actions={m.acts} viewport="mobile" />);
+      const overflow = view.getByRole("button");
+      const openOverflow = () => {
+        press(overflow);
+        expect(view.queryByText("Tasks")).not.toBeNull();
+      };
+      const row = () =>
+        view.getByText("Copy").closest("button") as HTMLButtonElement;
+      return { ...m, view, overflow, openOverflow, row };
+    }
+
+    it("opens the choices under the row without closing the overflow, and a choice runs once and closes it", () => {
+      const { ran, view, openOverflow, row } = mount();
+      openOverflow();
+      expect(row().getAttribute("aria-expanded")).toBe("false");
+      expect(items().length).toBe(0);
+
+      press(row());
+      // The overflow stays open with its other rows.
+      expect(view.queryByText("Tasks")).not.toBeNull();
+      expect(row().getAttribute("aria-expanded")).toBe("true");
+      expect(menu()).not.toBeNull();
+      expect(itemIds()).toEqual(["messages", "everything", "lastExchange"]);
+      expect(
+        items().every((el) => el.getAttribute("role") === "menuitem"),
+      ).toBe(true);
+      expect(ran).toEqual([]);
+
+      press(item("lastExchange"));
+      expect(ran).toEqual(["lastExchange"]);
+      expect(view.queryByText("Tasks")).toBeNull();
+
+      // Collapsed again the next time the overflow opens.
+      openOverflow();
+      expect(row().getAttribute("aria-expanded")).toBe("false");
+      expect(items().length).toBe(0);
+    });
+
+    it("collapses the choices on a second tap of the row", () => {
+      const { ran, view, openOverflow, row } = mount();
+      openOverflow();
+      press(row());
+      expect(items().length).toBe(3);
+      press(row());
+      expect(items().length).toBe(0);
+      expect(row().getAttribute("aria-expanded")).toBe("false");
+      expect(view.queryByText("Tasks")).not.toBeNull();
+      expect(ran).toEqual([]);
+    });
+
+    it("does not expand while disabled", () => {
+      const { ran, openOverflow, row } = mount({ disabled: true });
+      openOverflow();
+      expect(row().hasAttribute("disabled")).toBe(true);
+      press(row());
+      expect(items().length).toBe(0);
+      expect(ran).toEqual([]);
+    });
+  });
+});

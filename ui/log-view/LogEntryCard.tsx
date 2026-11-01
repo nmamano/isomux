@@ -234,6 +234,29 @@ export function serializeEntries(
   return parts.join("\n\n");
 }
 
+// What the chat bar's Copy puts on the clipboard: the member and agent
+// messages, everything serializeEntries copies, or the last exchange.
+export type ChatCopyScope = "messages" | "everything" | "lastExchange";
+
+export function chatCopyText(
+  i18n: Translator,
+  entries: LogEntry[],
+  scope: ChatCopyScope,
+): string {
+  if (scope === "messages")
+    return serializeEntries(
+      i18n,
+      entries.filter((e) => e.kind === "user_message" || e.kind === "text"),
+    );
+  if (scope === "lastExchange") {
+    // A turn starts at any incoming message, whoever sent it: an agent that
+    // other agents drive has its last member message hours back.
+    const start = entries.findLastIndex((e) => e.kind === "user_message");
+    return serializeEntries(i18n, entries.slice(Math.max(start, 0)));
+  }
+  return serializeEntries(i18n, entries);
+}
+
 function formatDuration(ms: number): string {
   const totalSec = ms / 1000;
   if (totalSec < 60) return `${totalSec.toFixed(1)}s`;
