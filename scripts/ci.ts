@@ -36,7 +36,7 @@ const stages: Array<{ name: StageName; command: string[] }> = [
     name: "tsc",
     command: [
       "env",
-      "NODE_OPTIONS=--max-old-space-size=2048",
+      "NODE_OPTIONS=--max-old-space-size=4096",
       "bun",
       "x",
       "tsc",

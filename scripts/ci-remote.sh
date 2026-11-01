@@ -569,7 +569,7 @@ remote_gate_main() {
       shift
       status=0
       echo "→ tsc"
-      NODE_OPTIONS=--max-old-space-size=2048 bun x tsc --noEmit || status=1
+      NODE_OPTIONS=--max-old-space-size=4096 bun x tsc --noEmit || status=1
       if (($# > 0)); then
         echo "→ build:ui"
         if bun run build:ui >"$TMPDIR/build-ui.log" 2>&1; then
