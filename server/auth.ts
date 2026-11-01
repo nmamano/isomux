@@ -1680,7 +1680,7 @@ export function setLoopbackOriginPort(port: number | null): void {
 }
 // The effective loopback port: the actual bound port when startServer set it
 // (tests use an ephemeral port), else process.env.PORT, else 4000.
-function loopbackPort(): string {
+export function loopbackPort(): string {
   return String(boundLoopbackPort ?? process.env.PORT ?? "4000");
 }
 function loopbackOrigin(): string {

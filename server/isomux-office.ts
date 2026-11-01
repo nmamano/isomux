@@ -26,6 +26,21 @@ import {
 } from "./terminal-recorder.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import {
+  agentAccessOf,
+  belowStandard,
+  engineRunsAccess,
+  FOLDER_NOT_ALLOWED,
+  INLINE_IMAGE_TYPES,
+  stopHasFolder,
+  stopHasPack,
+} from "../shared/agent-access.ts";
+import {
+  confinedFolderRefusal,
+  folderOverlapRefusal,
+  providerHomesOf,
+  type FolderRuleState,
+} from "./agent-folder-rules.ts";
+import {
   createGithubLinkStore,
   createGithubSync,
   type GithubLinkStore,
@@ -179,7 +194,7 @@ import {
   trustedProxy,
   type RequestSource,
 } from "./proxy-trust.ts";
-import { validateCwd } from "./cwd-utils.ts";
+import { resolveCwd, validateCwd } from "./cwd-utils.ts";
 import {
   modelFamilyMismatchError,
   resolveAgentEngineSettings,
@@ -3266,6 +3281,29 @@ function runBoardRoomId(identity: Identity): string | null {
 // The live agent whose settings limit a schedule it made: an ordinary agent.
 // Null when it is gone or privileged (cron:manage wins), so the job is then
 // limited only as any member's job is (task c4233bfd).
+// What the folder rules check against (agent-folder-rules.ts).
+function folderRuleState(): FolderRuleState {
+  return {
+    stateRoot: STATE_ROOT,
+    home: homedir(),
+    providerHomes: providerHomesOf(),
+    agents: agentManager.getAllAgents(),
+    schedules: cronjobManager
+      .listCronjobs()
+      .map((job) => ({ name: job.name, cwd: job.cwd })),
+    apps: appRegistry.list().map((app) => ({ name: app.name, cwd: app.cwd })),
+  };
+}
+
+// The refusal for `agent` to move to `cwd`: the folder rules when it keeps
+// its files in its folder, else the overlap with such an agent's folder.
+function cwdFolderRefusal(agent: AgentInfo, cwd: string): string | null {
+  const state = folderRuleState();
+  return stopHasFolder(agentAccessOf(agent))
+    ? confinedFolderRefusal(agent, cwd, state)
+    : folderOverlapRefusal(cwd, agent.id, state);
+}
+
 function ordinaryScheduleMaker(agentId: string): AgentInfo | null {
   const agent = agentManager.getAgent(agentId);
   return agent && !agent.privileged ? agent : null;
@@ -3283,6 +3321,7 @@ function ownScheduleLimitsFor(
     agentType: agent.agentType,
     permissionMode: agent.permissionMode,
     ...(agent.codexSandbox ? { codexSandbox: agent.codexSandbox } : {}),
+    ...(agent.access ? { access: agent.access } : {}),
     cwd: agent.cwd,
     roomId: agent.roomId,
   };
@@ -3985,6 +4024,7 @@ function buildExecutorDeps(
         title,
         createdBy,
         createdByAgentId,
+        limited,
         username,
         description,
         priority,
@@ -3998,6 +4038,7 @@ function buildExecutorDeps(
           username,
           roomId,
           createdByAgentId,
+          limited,
         }),
       updateTask: (id, changes) => agentManager.updateTask(id, changes),
       deleteTask: (id) => agentManager.deleteTask(id),
@@ -4230,6 +4271,8 @@ function buildExecutorDeps(
       list: () => appRegistry.list(),
       get: (name) => appRegistry.get(name),
       register: (input) => appRegistry.register(input),
+      folderRefusal: (cwd) =>
+        folderOverlapRefusal(cwd, null, folderRuleState()),
       remove: (name) => appRegistry.remove(name),
       update: (name, patch) => appRegistry.update(name, patch),
       resolveMessageTarget: (ownerUserId, agentId, identity) => {
@@ -4625,6 +4668,8 @@ function buildExecutorDeps(
           return errMessage(err, "Invalid directory");
         }
       },
+      folderRefusal: (cwd) =>
+        folderOverlapRefusal(resolveCwd(cwd), null, folderRuleState()),
       modelFamilyError: modelFamilyMismatchError,
       saveRecentCwd,
     }),
@@ -5973,6 +6018,7 @@ function buildExecutorDeps(
             agentType: input.agentType,
             customInstructions: input.instructions,
             privileged: input.privileged,
+            ...(input.access ? { access: input.access } : {}),
             permissionMode:
               input.permissionMode ??
               (sameEngine
@@ -6039,6 +6085,13 @@ function buildExecutorDeps(
             message: errMessage(err, "Invalid directory"),
           };
         }
+        const overlap = folderOverlapRefusal(
+          resolveCwd(input.cwd),
+          null,
+          folderRuleState(),
+        );
+        if (overlap)
+          return { ok: false, reason: FOLDER_NOT_ALLOWED, message: overlap };
         // Strict front-door check: a modelFamily that cannot belong to the
         // agentType is an explicit 422, never silently coerced to the backend
         // default (agentManager.spawn's validateModelFamily coercion stays as
@@ -6187,6 +6240,34 @@ function buildExecutorDeps(
             };
           }
         }
+        // A folder change keeps the folder rules (agent-folder-rules.ts).
+        if (changes.cwd) {
+          const current = agentManager.getAgent(agentId);
+          const refusal = current
+            ? cwdFolderRefusal(current, resolveCwd(changes.cwd))
+            : null;
+          if (refusal)
+            return {
+              ok: false,
+              reason: FOLDER_NOT_ALLOWED,
+              message: refusal,
+            };
+        }
+        // An agent below Standard stays on an engine that confines its stop.
+        if (changes.agentType !== undefined) {
+          const current = agentManager.getAgent(agentId);
+          if (
+            current &&
+            changes.agentType !== current.agentType &&
+            !engineRunsAccess(changes.agentType, agentAccessOf(current))
+          ) {
+            return {
+              ok: false,
+              reason: "engine_below_standard",
+              message: "Only a Claude agent can be below Standard for now.",
+            };
+          }
+        }
         // Validation next, side effects (saveRecentCwd) only after ALL checks
         // pass - a rejected edit must not mutate the recent-cwd list. Check
         // order matches the spawn dep: cwd, then modelFamily.
@@ -6288,6 +6369,24 @@ function buildExecutorDeps(
       },
       setPrivileged: (agentId, privileged) =>
         agentManager.setPrivileged(agentId, privileged),
+      setAccess: async (agentId, grant) => {
+        const agent = agentManager.getAgent(agentId);
+        if (agent && stopHasFolder(grant.access)) {
+          const refusal = confinedFolderRefusal(
+            agent,
+            agent.cwd,
+            folderRuleState(),
+          );
+          if (refusal) return { refused: FOLDER_NOT_ALLOWED, message: refusal };
+        }
+        const r = await agentManager.setAccess(agentId, grant);
+        return r === "engine_below_standard"
+          ? {
+              refused: "engine_below_standard" as const,
+              message: "Only a Claude agent can be below Standard for now.",
+            }
+          : r;
+      },
       setManager: (agentId, userId, changedBy) =>
         transferAgentManager(agentId, userId, changedBy),
     }),
@@ -6522,7 +6621,24 @@ function buildExecutorDeps(
       // point. sendNow resolves as soon as it has decided whether it can flush -
       // the delivery itself still streams over WS.
       sendNow: (agentId, cause) => agentManager.sendNow(agentId, cause),
+      attachmentRefusal: (agentId, attachments) => {
+        const agent = agentManager.getAgent(agentId);
+        if (!agent) return null;
+        const access = agentAccessOf(agent);
+        if (!belowStandard(access) || stopHasFolder(access)) return null;
+        return attachments.every((a) => INLINE_IMAGE_TYPES.has(a.mediaType))
+          ? null
+          : `${agent.name} has no file tools: only images can go to it.`;
+      },
       newConversation: (agentId, agentType) => {
+        const current = agentManager.getAgent(agentId);
+        if (
+          current &&
+          agentType &&
+          agentType !== current.agentType &&
+          !engineRunsAccess(agentType, agentAccessOf(current))
+        )
+          return "engine_below_standard";
         // The WS case awaited this purely for handler sequencing; the clear_logs
         // + turn events stream over WS regardless, so void-discard for an
         // immediate ack. .catch swallows (the WS path had no error surface).
@@ -9028,9 +9144,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           }
         }
 
-        // The MCP endpoint takes a personal API token only. As on /ws, the
-        // cookie is never read and Origin is not checked: a bearer is not an
-        // ambient credential, and Claude's servers may send their own Origin.
+        // The MCP endpoint takes a personal API token, or the token of an
+        // agent at the office, folder or web stop (its one way into the
+        // office). As on /ws, the cookie is never read and Origin is not
+        // checked: a bearer is not an ambient credential, and Claude's servers
+        // may send their own Origin.
         if (url.pathname === "/mcp") {
           const identity = resolveIdentityForRequest(req, null, source().onBox);
           if (!identity) {
@@ -9042,7 +9160,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             res.headers.set("WWW-Authenticate", "Bearer");
             return res;
           }
-          if (identity.scope !== "api" || !identity.apiTokenId)
+          const apiToken = identity.scope === "api" && !!identity.apiTokenId;
+          const packedAgent =
+            identity.scope === "agent" &&
+            !!identity.agentId &&
+            identity.agentAccess !== undefined &&
+            stopHasPack(identity.agentAccess);
+          if (!apiToken && !packedAgent)
             return errorResponse(403, "forbidden", "forbidden");
           try {
             return await handleMcpRequest(req, identity, mcpEndpointDeps);

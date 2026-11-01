@@ -11,7 +11,12 @@ import {
   recordClaudeConnectorsFromSession,
   recordClaudeEngineServers,
 } from "./claude-connectors.ts";
-import { createMcpServerSources, mcpServersForUserId } from "./mcp-servers.ts";
+import {
+  createMcpServerSources,
+  mcpServersForUserId,
+  type AgentMcpServer,
+} from "./mcp-servers.ts";
+import { loopbackPort } from "./auth.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import type { RoomDecorPatch } from "../shared/room-decor.ts";
@@ -341,6 +346,16 @@ import type {
   LogInFlightTurn,
   ManifestInFlightTurn,
 } from "../shared/contract-shapes.ts";
+import {
+  agentAccessOf,
+  belowStandard,
+  engineRunsAccess,
+  stopHasPack,
+  stopIncludes,
+  type AgentAccess,
+  type AgentAccessGrant,
+} from "../shared/agent-access.ts";
+import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import { OfficeState } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import {
@@ -516,6 +531,30 @@ export function detectAuthErrorForEnvironment(
     return false;
   }
   return detect(text);
+}
+
+// The access slider fields of an agent record, written only when set, so a
+// record from before the slider round-trips unchanged.
+function accessFields(src: { access?: AgentAccess; pack?: ApiTokenLimits }): {
+  access?: AgentAccess;
+  pack?: ApiTokenLimits;
+} {
+  return {
+    ...(src.access ? { access: src.access } : {}),
+    ...(src.pack ? { pack: src.pack } : {}),
+  };
+}
+
+// The stop and pack an agent's token is minted with.
+function accessGrantOf(src: {
+  access?: AgentAccess;
+  privileged?: boolean;
+  pack?: ApiTokenLimits;
+}): AgentAccessGrant {
+  const access = agentAccessOf(src);
+  return src.pack && stopHasPack(access)
+    ? { access, pack: src.pack }
+    : { access };
 }
 
 function backendSessionHasFixedCwd(agentType: AgentInfo["agentType"]): boolean {
@@ -1317,6 +1356,15 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   const agents = new Map<string, ManagedAgent>();
+  // The agent token each backend session was built with. The token rotates on
+  // every access, privilege or manager change, and the session's tools and
+  // env are fixed when it is built, so a session built on an older token is
+  // built for an older stop.
+  const sessionTokens = new WeakMap<BackendSession, string | null>();
+  // The running access change of each agent (setAccess, setPrivileged): the
+  // changes run one at a time, so the member's last choice is the one that
+  // stays.
+  const accessChanges = new Map<string, Promise<unknown>>();
   // Member-send attempt ids already accepted (see server/user-send-dedupe.ts).
   const userSendDedupe = createUserSendDedupe();
   // Shared by every SessionManager instance (server/session-manager.ts): the
@@ -1328,6 +1376,8 @@ export function createAgentManager(deps: ManagerDeps) {
     emit,
     isStillManaged: (managed) => agents.get(managed.info.id) === managed,
     createSession,
+    builtOnCurrentToken: (managed, session) =>
+      sessionTokens.get(session) === getAgentTokenRaw(managed.info.id),
     processNormalizedEvent,
     addLogEntry,
     reconcilePendingFixedCwdReset: (managed) => {
@@ -1456,6 +1506,7 @@ export function createAgentManager(deps: ManagerDeps) {
       username?: string;
       roomId?: string;
       createdByAgentId?: string;
+      limited?: true;
       external?: TaskItem["external"];
     },
   ): TaskItem {
@@ -2564,6 +2615,7 @@ export function createAgentManager(deps: ManagerDeps) {
       manager: a.info.manager,
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
+      ...accessFields(a.info),
       ...spawnTreeFields(a.info),
       ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
@@ -2633,6 +2685,7 @@ export function createAgentManager(deps: ManagerDeps) {
         userId: a.info.userId,
         manager: a.info.manager,
         privileged: a.info.privileged ?? false,
+        ...accessFields(a.info),
         ...spawnTreeFields(a.info),
         ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
         ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
@@ -2911,6 +2964,7 @@ export function createAgentManager(deps: ManagerDeps) {
       userId,
       manager: p.manager ?? null,
       privileged: p.privileged ?? false,
+      ...accessFields(p),
       ...spawnTreeFields(p),
       ...(p.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(p.autoHandoffTokens),
@@ -3047,7 +3101,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // restore and revive both funnel here, so "rotated on revive" is automatic;
     // revoked when the agent leaves the map (kill, or the revive rollback). The
     // persisted privileged flag stamps the token's capability set.
-    mintAgentToken(p.id, tokenUserIdFor(info), p.privileged ?? false);
+    mintAgentToken(p.id, tokenUserIdFor(info), accessGrantOf(p));
     if (p.lastSessionId && droppedState)
       noteUnresumableSession(p.id, agentType, p.lastSessionId, droppedState);
 
@@ -3332,6 +3386,24 @@ export function createAgentManager(deps: ManagerDeps) {
   // The remote MCP servers a member's agents get (server/mcp-servers.ts).
   // Never throws: a problem leaves servers out.
   const mcpSources = createMcpServerSources();
+  // The one MCP server of an agent below standard: the office's own /mcp,
+  // with the agent's token (none at chat). The member's and the office's
+  // connections are off.
+  function officeMcpServerFor(
+    agentId: string,
+    access: AgentAccess,
+  ): AgentMcpServer[] {
+    const token = getAgentTokenRaw(agentId);
+    if (!stopHasPack(access) || !token) return [];
+    return [
+      {
+        name: "isomux",
+        url: `http://127.0.0.1:${loopbackPort()}/mcp`,
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    ];
+  }
+
   function agentMcpServers(userId: string | null | undefined) {
     return mcpServersForUserId(mcpSources, userId);
   }
@@ -6223,18 +6295,122 @@ export function createAgentManager(deps: ManagerDeps) {
   // toggling to the current value is a no-op (no re-mint, no interruption).
   // Returns the updated AgentInfo, or null if the agent isn't live (killed/
   // unknown - the route guard already rejects those, this is defensive).
-  async function setPrivileged(
+  //
+  // Below Standard the switch does not apply ("below_standard"): the access
+  // slider (setAccess) is the one way down to those stops and back up.
+  function setPrivileged(
     agentId: string,
     privileged: boolean,
-  ): Promise<AgentInfo | null> {
+  ): Promise<AgentInfo | null | "below_standard"> {
+    return oneAccessChangeAtATime(agentId, () =>
+      applyPrivileged(agentId, privileged),
+    );
+  }
+
+  async function applyPrivileged(
+    agentId: string,
+    privileged: boolean,
+  ): Promise<AgentInfo | null | "below_standard"> {
     const managed = agents.get(agentId);
     if (!managed) return null;
+    if (belowStandard(agentAccessOf(managed.info))) return "below_standard";
     if ((managed.info.privileged ?? false) === privileged) return managed.info;
-    for (const event of officeState.updateAgent(agentId, { privileged }))
+    const access = privileged ? "privileged" : "standard";
+    for (const event of officeState.updateAgent(agentId, {
+      privileged,
+      access,
+    }))
       emit(event);
     // Re-mint REVOKES the old token, so a live agent MUST be swapped below or its
     // in-flight token dies mid-turn.
-    mintAgentToken(agentId, tokenUserIdFor(managed.info), privileged);
+    mintAgentToken(agentId, tokenUserIdFor(managed.info), { access });
+    if (managed.sessionManager.session !== null) {
+      const sessionId = pickAutoResumeSessionId(managed);
+      await managed.sessionManager.replaceWith(managed, sessionId);
+    }
+    return managed.info;
+  }
+
+  // Move an agent to a stop on the access slider. Authorization is the
+  // agents.setAccess route's job. A move down aborts the running turn, then
+  // re-mints the token and rebuilds the session; a move up re-mints and
+  // rebuilds. Null for a killed or unknown agent; a string is a refusal code.
+  //
+  // The tools, the MCP servers and the setting sources are fixed when a
+  // session starts, so both directions rebuild the session (replaceWith ->
+  // createSession reads the new stop). A move down first ends the running
+  // turn, so no turn goes on with the tools of the higher stop. The resumed
+  // conversation keeps what the agent read at the higher stop. Idempotent: the
+  // current stop and pack are a no-op. Refusal: "engine_below_standard" for an
+  // engine without the stop's confinement yet.
+  function setAccess(
+    agentId: string,
+    grant: AgentAccessGrant,
+  ): Promise<AgentInfo | null | "engine_below_standard"> {
+    return oneAccessChangeAtATime(agentId, () => applyAccess(agentId, grant));
+  }
+
+  // Runs `change` after the agent's running access change, if any.
+  function oneAccessChangeAtATime<T>(
+    agentId: string,
+    change: () => Promise<T>,
+  ): Promise<T> {
+    const run = (accessChanges.get(agentId) ?? Promise.resolve()).then(
+      change,
+      change,
+    );
+    const settled = run.catch(() => {});
+    accessChanges.set(agentId, settled);
+    void settled.then(() => {
+      if (accessChanges.get(agentId) === settled) accessChanges.delete(agentId);
+    });
+    return run;
+  }
+
+  async function applyAccess(
+    agentId: string,
+    grant: AgentAccessGrant,
+  ): Promise<AgentInfo | null | "engine_below_standard"> {
+    const managed = agents.get(agentId);
+    if (!managed) return null;
+    if (!engineRunsAccess(managed.info.agentType, grant.access))
+      return "engine_below_standard";
+    const current = accessGrantOf(managed.info);
+    if (
+      current.access === grant.access &&
+      JSON.stringify(current.pack) === JSON.stringify(grant.pack)
+    )
+      return managed.info;
+    // A move down, or a new pack at the same stop, ends the running turn
+    // before the token rotates.
+    const down =
+      !stopIncludes(grant.access, current.access) ||
+      (current.access === grant.access && grant.pack !== undefined);
+    // An engine that can stop the turn in place stops it here; for the
+    // others (Claude) the swap below closes the session, which ends the turn.
+    // abort() is not used: its slow path builds a session of its own, on the
+    // old stop.
+    const session = managed.sessionManager.session;
+    if (
+      down &&
+      managed.sessionManager.pendingTurn !== null &&
+      session?.canAbortInPlace()
+    ) {
+      await session.abort().catch(() => {});
+      // A kill during the abort revoked the token: do not mint a new one.
+      if (agents.get(agentId) !== managed) return null;
+    }
+    // No await from here to the swap: the fields and the token change
+    // together. A swap already draining builds its replacement again at
+    // install, since the token it was built on is gone
+    // (SessionManagerDeps.builtOnCurrentToken).
+    for (const event of officeState.updateAgent(agentId, {
+      access: grant.access,
+      pack: grant.pack,
+      privileged: grant.access === "privileged",
+    }))
+      emit(event);
+    mintAgentToken(agentId, tokenUserIdFor(managed.info), grant);
     if (managed.sessionManager.session !== null) {
       const sessionId = pickAutoResumeSessionId(managed);
       await managed.sessionManager.replaceWith(managed, sessionId);
@@ -6278,7 +6454,7 @@ export function createAgentManager(deps: ManagerDeps) {
     mintAgentToken(
       agentId,
       tokenUserIdFor(managed.info),
-      managed.info.privileged ?? false,
+      accessGrantOf(managed.info),
     );
     // Another member's provider accounts and variables.
     resetSubscriptionUsage(managed);
@@ -7906,9 +8082,10 @@ export function createAgentManager(deps: ManagerDeps) {
     // session options.
     const env = buildSessionEnv(managed, resumeSessionId ?? null);
     // The member skill folder for Claude and Codex (OpenCode gets its own
-    // through openCodeSkillInput).
+    // through openCodeSkillInput). An agent below standard loads no skills.
+    const access = agentAccessOf(managed.info);
     const skillFolder =
-      managed.info.agentType === "opencode"
+      managed.info.agentType === "opencode" || belowStandard(access)
         ? null
         : memberSkillFolderFor(managed.info, env);
     managed.launchedSkillFolder = skillFolder ?? undefined;
@@ -7946,7 +8123,7 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.info.customInstructions,
       manager.name,
       manager.record?.memberPrompt ?? null,
-      managed.info.privileged ?? false,
+      agentAccessOf(managed.info),
       memoryStore.renderForPromptMulti(memoryRefs),
       managed.info.agentType,
       manager.record?.language ?? null,
@@ -7972,9 +8149,12 @@ export function createAgentManager(deps: ManagerDeps) {
       env,
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       environmentRevision: sessionEnvironmentRevision(managed),
-      mcpServers: agentMcpServers(managed.info.userId),
+      mcpServers: belowStandard(access)
+        ? officeMcpServerFor(managed.info.id, access)
+        : agentMcpServers(managed.info.userId),
       ...openCodeSkillInput(managed.info.agentType, managed.info.userId),
       ...(skillFolder ? { skillFolder } : {}),
+      ...(access !== "standard" ? { access } : {}),
     };
     const backend = getBackend(managed.info.agentType);
     // Plan mode is session state the engine may not keep (a resumed Claude
@@ -8009,6 +8189,7 @@ export function createAgentManager(deps: ManagerDeps) {
     bound = resumeSessionId
       ? backend.resumeSession(resumeSessionId, sessionOpts)
       : backend.createSession(sessionOpts);
+    sessionTokens.set(bound, getAgentTokenRaw(agentId));
     return bound;
   }
 
@@ -8200,7 +8381,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // Mint the agent's bearer token before the first createSession (deferred to
     // the first message now) reads it via buildSessionEnv. Revoked in kill()
     // when the agent leaves the map.
-    mintAgentToken(id, tokenUserIdFor(info), info.privileged ?? false);
+    mintAgentToken(id, tokenUserIdFor(info), accessGrantOf(info));
 
     // Lazy spawn: a brand-new agent holds NO subprocess until it's actually used.
     // Instead of eagerly installing a session (~165MB resident for a blank
@@ -8414,6 +8595,7 @@ export function createAgentManager(deps: ManagerDeps) {
     receiverAgentId: string,
   ): AgentSenderTrust | undefined {
     const sender = getAgentTokenIdentity(senderAgentId);
+    if (sender && belowStandard(sender.access)) return "limited";
     const receiverUserId = agents.get(receiverAgentId)?.info.userId;
     if (!sender?.userId || sender.userId !== receiverUserId) return undefined;
     return sender.privileged ? "same-manager-privileged" : "same-manager";
@@ -11514,6 +11696,7 @@ export function createAgentManager(deps: ManagerDeps) {
           // kill-time entry is authoritative - updateAgentHistory skips killed
           // agents, and revive reads entry.privileged).
           privileged: managed.info.privileged ?? false,
+          ...accessFields(managed.info),
           ...spawnTreeFields(managed.info),
           ...(managed.info.autoHandoff === false ? { autoHandoff: false } : {}),
           ...persistedAutoHandoffTokens(managed.info.autoHandoffTokens),
@@ -11758,6 +11941,7 @@ export function createAgentManager(deps: ManagerDeps) {
       userId: entry.userId,
       manager: entry.manager,
       privileged: entry.privileged ?? false,
+      ...accessFields(entry),
       ...spawnTreeFields(entry),
       ...(entry.autoHandoff === false ? { autoHandoff: false } : {}),
       ...persistedAutoHandoffTokens(entry.autoHandoffTokens),
@@ -11858,7 +12042,13 @@ export function createAgentManager(deps: ManagerDeps) {
       // defaults rather than coercing the current values, and recompute
       // capabilities so UI affordances follow. The fresh session is stamped with
       // this config at its system_init.
-      if (targetAgentType && targetAgentType !== managed.info.agentType) {
+      // An engine without the confinement of the agent's stop is never
+      // switched to (the routes refuse it first).
+      if (
+        targetAgentType &&
+        targetAgentType !== managed.info.agentType &&
+        engineRunsAccess(targetAgentType, agentAccessOf(managed.info))
+      ) {
         // A different engine means a different provider account, so the
         // allowance reading goes now - synchronously with the identity change,
         // which also orphans any read already in flight against the old one.
@@ -13931,6 +14121,7 @@ export function createAgentManager(deps: ManagerDeps) {
     getAgentDisplay,
     editAgent,
     setPrivileged,
+    setAccess,
     setManager,
     reassignKilledAgents,
     swapDesks,

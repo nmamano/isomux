@@ -1,6 +1,16 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdirSync, writeFileSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
+import { claudeToolsForStop } from "../../shared/agent-access.ts";
 import { STATE_ROOT } from "../config.ts";
 import { expectRejection } from "../test-support/expect-rejection.ts";
 import {
@@ -2086,6 +2096,517 @@ describe("Claude usage-limit stop", () => {
       ).toEqual([]);
     } finally {
       s.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The access slider (task e77304b1): a session below Standard
+// ---------------------------------------------------------------------------
+
+describe("createClaudeBackend - a session below Standard", () => {
+  const STOPS_BELOW = ["chat", "office", "folder", "web"] as const;
+  const isomuxServer = {
+    name: "isomux",
+    url: "http://127.0.0.1:4000/mcp",
+    headers: { Authorization: "Bearer agent-token" },
+  };
+  const base = {
+    agentId: "access-agent",
+    cwd: "/tmp",
+    systemPrompt: "prompt",
+    modelFamily: "haiku",
+    effort: "high",
+    permissionMode: "bypassPermissions",
+    skillFolder: "/state/member-skills/0a0b0c0d/claude/1234abcd",
+  };
+
+  it("has the stop's exact built-in tools, no setting source, strict MCP and no skill folder, on create and resume", () => {
+    for (const access of STOPS_BELOW) {
+      const fake = new FakeSdkClient();
+      const backend = createClaudeBackend(fake);
+      const mcpServers = access === "chat" ? [] : [isomuxServer];
+      backend.createSession({ ...base, access, mcpServers });
+      backend.resumeSession("s-1", { ...base, access, mcpServers });
+      for (const call of [fake.createCalls[0], fake.resumeCalls[0]]) {
+        const opts = sessionOptsToV1(call.opts);
+        expect({
+          access,
+          tools: [
+            ...((opts.tools as string[] | undefined) ?? ["unset"]),
+          ].sort(),
+          settingSources: opts.settingSources,
+          strictMcpConfig: opts.strictMcpConfig,
+          additionalDirectories: opts.additionalDirectories ?? [],
+          mcp: Object.keys(call.mcp?.servers ?? {}),
+        }).toEqual({
+          access,
+          tools: [...claudeToolsForStop(access)!].sort(),
+          settingSources: [],
+          strictMcpConfig: true,
+          additionalDirectories: [],
+          mcp: access === "chat" ? [] : ["isomux"],
+        });
+      }
+    }
+    // Standard is the engine default: no tool list, the skill folder kept.
+    for (const access of ["standard", "privileged", undefined] as const) {
+      const fake = new FakeSdkClient();
+      createClaudeBackend(fake).createSession({ ...base, access });
+      const opts = sessionOptsToV1(fake.createCalls[0].opts);
+      expect({
+        access,
+        tools: opts.tools,
+        dirs: opts.additionalDirectories,
+      }).toEqual({ access, tools: undefined, dirs: [base.skillFolder] });
+    }
+  });
+});
+
+describe("ClaudeSession send - attachments below Standard", () => {
+  const AGENT = "access-attach-agent";
+  const FILES_DIR = join(STATE_ROOT, "logs", AGENT, "files");
+  const folders: string[] = [];
+  afterAll(() => {
+    removeStateDir(join(STATE_ROOT, "logs", AGENT));
+    for (const dir of folders) rmSync(dir, { recursive: true, force: true });
+  });
+  const att = (filename: string, mediaType: string) => ({
+    filename,
+    originalName: filename,
+    mediaType,
+    size: 2,
+  });
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  function fixtures() {
+    mkdirSync(FILES_DIR, { recursive: true });
+    writeFileSync(join(FILES_DIR, "shot.png"), PNG);
+    writeFileSync(join(FILES_DIR, "notes.md"), "NOTES BODY\n");
+  }
+  function folder(): string {
+    const dir = mkdtempSync(join(tmpdir(), "access-attach-"));
+    folders.push(dir);
+    return dir;
+  }
+  function sessionAt(
+    access: "chat" | "office" | "folder" | "web",
+    cwd: string,
+  ) {
+    const fake = new FakeSdkClient();
+    const session = createClaudeBackend(fake).createSession({
+      agentId: AGENT,
+      cwd,
+      systemPrompt: "prompt",
+      modelFamily: "haiku",
+      effort: "high",
+      permissionMode: "bypassPermissions",
+      access,
+      mcpServers: [],
+    });
+    return { session, conv: fake.conversations.at(-1)! };
+  }
+  type Block = {
+    type: string;
+    text?: string;
+    source?: { type: string; media_type: string; data: string };
+  };
+  const blocksOf = (sent: string | SDKUserMessage): Block[] =>
+    typeof sent === "string"
+      ? [{ type: "text", text: sent }]
+      : (sent.message.content as Block[]);
+
+  it("at chat and office an image goes inline, and no server path or other file reaches the model", async () => {
+    fixtures();
+    for (const access of ["chat", "office"] as const) {
+      const { session, conv } = sessionAt(access, folder());
+      await session.send("look", [
+        att("shot.png", "image/png"),
+        att("notes.md", "text/markdown"),
+      ]);
+      const blocks = blocksOf(conv.sends[0]);
+      const images = blocks.filter((b) => b.type === "image");
+      expect({ access, images: images.map((b) => b.source) }).toEqual({
+        access,
+        images: [
+          {
+            type: "base64",
+            media_type: "image/png",
+            data: PNG.toString("base64"),
+          },
+        ],
+      });
+      const text = JSON.stringify(blocks);
+      expect(text).not.toContain(FILES_DIR);
+      expect(text).not.toContain("notes.md");
+      expect(text).not.toContain("NOTES BODY");
+      session.close();
+    }
+  });
+
+  it("at folder and web each file is copied into the folder's attachments directory, and the notice points at the copy", async () => {
+    fixtures();
+    for (const access of ["folder", "web"] as const) {
+      const cwd = folder();
+      const { session, conv } = sessionAt(access, cwd);
+      await session.send("see", [
+        att("shot.png", "image/png"),
+        att("notes.md", "text/markdown"),
+      ]);
+      const copyDir = join(cwd, "attachments");
+      expect(readFileSync(join(copyDir, "notes.md"), "utf8")).toBe(
+        "NOTES BODY\n",
+      );
+      expect(readFileSync(join(copyDir, "shot.png"))).toEqual(PNG);
+      const text = JSON.stringify(blocksOf(conv.sends[0]));
+      expect(text).toContain(join(copyDir, "notes.md"));
+      expect(text).toContain(join(copyDir, "shot.png"));
+      expect(text).not.toContain(FILES_DIR);
+      session.close();
+    }
+  });
+
+  it("never writes through a symlinked attachments directory", async () => {
+    fixtures();
+    const cwd = folder();
+    const outside = folder();
+    symlinkSync(outside, join(cwd, "attachments"));
+    const { session, conv } = sessionAt("folder", cwd);
+    await session
+      .send("see", [att("notes.md", "text/markdown")])
+      .catch(() => {});
+    expect(readdirSync(outside)).toEqual([]);
+    const text = JSON.stringify(conv.sends.map(blocksOf));
+    expect(text).not.toContain(join(cwd, "attachments", "notes.md"));
+    expect(text).not.toContain(FILES_DIR);
+    session.close();
+  });
+});
+
+// The PreToolUse hooks of a session below Standard, as Claude runs them: every
+// hook whose matcher takes the tool, and a deny from any of them wins. The
+// hook is the second layer under the `tools` list, so it must hold alone.
+describe("createClaudeBackend - the hooks of a session below Standard", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+  // folder/: the agent's folder, with a file, a sub folder, a link to a
+  // folder outside and a link to a file outside. outside/: a secret.
+  function layout() {
+    const root = mkdtempSync(join(tmpdir(), "access-hooks-"));
+    dirs.push(root);
+    const folder = join(root, "folder");
+    const outside = join(root, "outside");
+    mkdirSync(join(folder, "sub"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(folder, "notes.md"), "notes\n");
+    writeFileSync(join(outside, "secret.txt"), "secret\n");
+    symlinkSync(outside, join(folder, "linked-dir"));
+    symlinkSync(join(outside, "secret.txt"), join(folder, "linked-file"));
+    return { folder, outside };
+  }
+
+  async function decide(
+    access: "chat" | "office" | "folder" | "web",
+    folder: string,
+    toolName: string,
+    toolInput: Record<string, unknown>,
+  ): Promise<"allow" | "deny"> {
+    const fake = new FakeSdkClient();
+    createClaudeBackend(fake).createSession({
+      agentId: "access-hooks-agent",
+      cwd: folder,
+      systemPrompt: "prompt",
+      modelFamily: "haiku",
+      effort: "high",
+      permissionMode: "bypassPermissions",
+      access,
+      mcpServers: [],
+    });
+    const matchers = fake.createCalls[0].opts.hooks?.PreToolUse ?? [];
+    const taking = matchers.filter(
+      (m) =>
+        m.matcher === undefined ||
+        new RegExp(`^(?:${m.matcher})$`).test(toolName),
+    );
+    let decision: "allow" | "deny" = "allow";
+    for (const matcher of taking) {
+      for (const hook of matcher.hooks) {
+        const output = await hook(
+          {
+            hook_event_name: "PreToolUse",
+            tool_name: toolName,
+            tool_input: toolInput,
+            cwd: folder,
+          } as Parameters<typeof hook>[0],
+          undefined,
+          { signal: new AbortController().signal },
+        );
+        if (
+          (output as { hookSpecificOutput?: { permissionDecision?: string } })
+            .hookSpecificOutput?.permissionDecision === "deny"
+        )
+          decision = "deny";
+      }
+    }
+    return decision;
+  }
+
+  it("keeps reads and writes inside the folder at folder and web", async () => {
+    const { folder, outside } = layout();
+    const cases: Array<
+      [string, string, Record<string, unknown>, "allow" | "deny"]
+    > = [
+      [
+        "read a file inside",
+        "Read",
+        { file_path: join(folder, "notes.md") },
+        "allow",
+      ],
+      ["read by a relative path", "Read", { file_path: "notes.md" }, "allow"],
+      [
+        "read a file outside",
+        "Read",
+        { file_path: join(outside, "secret.txt") },
+        "deny",
+      ],
+      [
+        "read up and out",
+        "Read",
+        { file_path: join(folder, "..", "outside", "secret.txt") },
+        "deny",
+      ],
+      [
+        "read through a linked file",
+        "Read",
+        { file_path: join(folder, "linked-file") },
+        "deny",
+      ],
+      [
+        "read through a linked folder",
+        "Read",
+        { file_path: join(folder, "linked-dir", "secret.txt") },
+        "deny",
+      ],
+      ["grep the folder", "Grep", { pattern: "x" }, "allow"],
+      ["grep outside", "Grep", { pattern: "x", path: outside }, "deny"],
+      [
+        "grep a linked folder",
+        "Grep",
+        { pattern: "x", path: join(folder, "linked-dir") },
+        "deny",
+      ],
+      ["glob the folder", "Glob", { pattern: "**/*.md" }, "allow"],
+      ["glob outside by path", "Glob", { pattern: "*", path: outside }, "deny"],
+      ["glob up and out", "Glob", { pattern: "../outside/*" }, "deny"],
+      [
+        "glob an absolute pattern outside",
+        "Glob",
+        { pattern: `${outside}/*` },
+        "deny",
+      ],
+      [
+        "glob up and out through a brace",
+        "Glob",
+        { pattern: "{..,sub}/outside/*" },
+        "deny",
+      ],
+      [
+        "glob an absolute brace",
+        "Glob",
+        { pattern: `{${outside},sub}/*` },
+        "deny",
+      ],
+      [
+        "glob an absolute second alternative",
+        "Glob",
+        { pattern: `{sub,${outside}}/*` },
+        "deny",
+      ],
+      [
+        "glob a brace inside the folder",
+        "Glob",
+        { pattern: "{sub,docs}/*.md" },
+        "allow",
+      ],
+      // The tools expand a leading ~ to the home folder.
+      ["read under home", "Read", { file_path: "~/secret.txt" }, "deny"],
+      ["grep home", "Grep", { pattern: "x", path: "~" }, "deny"],
+      ["glob home by pattern", "Glob", { pattern: "~/*" }, "deny"],
+      ["glob home in a brace", "Glob", { pattern: "{~,sub}/*" }, "deny"],
+      [
+        "write under home",
+        "Write",
+        { file_path: "~/x.md", content: "x" },
+        "deny",
+      ],
+      [
+        "write a new file inside",
+        "Write",
+        { file_path: join(folder, "sub", "new.md"), content: "x" },
+        "allow",
+      ],
+      [
+        "edit a file inside",
+        "Edit",
+        {
+          file_path: join(folder, "notes.md"),
+          old_string: "notes",
+          new_string: "n",
+        },
+        "allow",
+      ],
+      [
+        "write outside",
+        "Write",
+        { file_path: join(outside, "x.md"), content: "x" },
+        "deny",
+      ],
+      [
+        "write up and out",
+        "Write",
+        { file_path: "../outside/x.md", content: "x" },
+        "deny",
+      ],
+      [
+        "write through a linked folder",
+        "Write",
+        { file_path: join(folder, "linked-dir", "x.md"), content: "x" },
+        "deny",
+      ],
+      [
+        "write onto a linked file",
+        "Write",
+        { file_path: join(folder, "linked-file"), content: "x" },
+        "deny",
+      ],
+      [
+        "edit through a linked file",
+        "Edit",
+        {
+          file_path: join(folder, "linked-file"),
+          old_string: "s",
+          new_string: "t",
+        },
+        "deny",
+      ],
+    ];
+    for (const name of [
+      ".claude/settings.json",
+      "sub/.claude/settings.local.json",
+      ".codex/config.toml",
+      ".opencode/x.json",
+      "sub/.git/config",
+      ".vscode/settings.json",
+      ".mcp.json",
+      "sub/opencode.json",
+      "CLAUDE.md",
+      "sub/CLAUDE.local.md",
+      "AGENTS.md",
+      "sub/.envrc",
+    ])
+      cases.push([
+        `write ${name}`,
+        "Write",
+        { file_path: join(folder, name), content: "x" },
+        "deny",
+      ]);
+    for (const access of ["folder", "web"] as const) {
+      for (const [label, tool, input, expected] of cases) {
+        expect({
+          access,
+          label,
+          decision: await decide(access, folder, tool, input),
+        }).toEqual({
+          access,
+          label,
+          decision: expected,
+        });
+      }
+    }
+  });
+
+  it("denies every file read and write at chat and office", async () => {
+    const { folder } = layout();
+    for (const access of ["chat", "office"] as const) {
+      for (const [tool, input] of [
+        ["Read", { file_path: join(folder, "notes.md") }],
+        ["Grep", { pattern: "x" }],
+        ["Glob", { pattern: "*" }],
+        ["Write", { file_path: join(folder, "new.md"), content: "x" }],
+        [
+          "Edit",
+          {
+            file_path: join(folder, "notes.md"),
+            old_string: "n",
+            new_string: "m",
+          },
+        ],
+      ] as const) {
+        expect({
+          access,
+          tool,
+          decision: await decide(access, folder, tool, input),
+        }).toEqual({
+          access,
+          tool,
+          decision: "deny",
+        });
+      }
+    }
+  });
+
+  it("denies every tool off the stop's list, and only web has the web tools", async () => {
+    const { folder } = layout();
+    const offEverywhere = [
+      ["Bash", { command: "ls" }],
+      ["TodoWrite", { todos: [] }],
+      [
+        "Task",
+        { prompt: "x", description: "x", subagent_type: "general-purpose" },
+      ],
+      ["Agent", { prompt: "x", description: "x" }],
+      [
+        "NotebookEdit",
+        { notebook_path: join(folder, "n.ipynb"), new_source: "x" },
+      ],
+      ["NotebookRead", { notebook_path: join(folder, "n.ipynb") }],
+      ["KillShell", { shell_id: "1" }],
+      ["Skill", { skill: "x" }],
+      ["mcp__other__send", {}],
+      ["mcp__isomux-office__x", {}],
+    ] as const;
+    for (const access of ["chat", "office", "folder", "web"] as const) {
+      for (const [tool, input] of offEverywhere) {
+        expect({
+          access,
+          tool,
+          decision: await decide(access, folder, tool, input),
+        }).toEqual({
+          access,
+          tool,
+          decision: "deny",
+        });
+      }
+      for (const tool of ["WebFetch", "WebSearch"]) {
+        const input =
+          tool === "WebFetch"
+            ? { url: "https://example.com", prompt: "x" }
+            : { query: "x" };
+        expect({
+          access,
+          tool,
+          decision: await decide(access, folder, tool, input),
+        }).toEqual({
+          access,
+          tool,
+          decision: access === "web" ? "allow" : "deny",
+        });
+      }
+      // The office tools are on every stop that has the office server.
+      expect(await decide(access, folder, "mcp__isomux__list_tasks", {})).toBe(
+        access === "chat" ? "deny" : "allow",
+      );
     }
   });
 });

@@ -118,6 +118,7 @@ import type {
   AgentSystemPromptPreviewReq,
   EditAgentReq,
   SetPrivilegedReq,
+  SetAgentAccessReq,
   SetManagerReq,
   ReviveReq,
   MoveAgentReq,
@@ -659,6 +660,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     emits: ["agent_updated"],
   }),
+  // The access slider (shared/agent-access.ts): the same double gate as
+  // agents.setPrivileged, which stays as the Standard/Privileged switch. This
+  // route is the one way to a stop below Standard and back up from one.
+  defineRoute<SetAgentAccessReq, AgentEnvelope>({
+    opId: "agents.setAccess",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "PUT",
+    path: "/api/agents/:id/access",
+    auth: cap(
+      "agent:privilege",
+      and(userScope, or(officeOwner, agentManagerMatch("id"))),
+    ),
+    emits: ["agent_updated"],
+  }),
   // Manager transfer (task 6a9deaba). An office owner's reach (Nil,
   // 2026-10-26): an owner by cookie session, a privileged agent whose manager
   // is an office owner (or its app), or an owner's API token. A transfer makes
@@ -902,6 +917,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/read-file",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "files", level: "write" },
     emits: ["log_entry"],
   }),
   defineRoute<AffordanceDiffReq, OkTrue>({
@@ -910,6 +926,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/diff",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "files", level: "write" },
     emits: ["log_entry"],
   }),
   defineRoute<AffordanceEditFileReq, OkTrue>({
@@ -918,6 +935,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/edit-file",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "files", level: "write" },
     emits: ["log_entry"],
   }),
   defineRoute<AffordanceTerminalCmdReq, OkTrue>({
@@ -926,6 +944,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/terminal-command",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "files", level: "write" },
     emits: ["log_entry"],
   }),
   // Secret requests (secrets loop, B4): the agent asks for itself, and the
@@ -939,6 +958,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/secret-requests",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "environment", level: "write" },
     emits: ["ask_upserted"],
   }),
   defineRoute<SecretRequestSaveReq, SecretRequestAnswerRes>({
@@ -970,6 +990,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/asks",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     plainText: { params: ASK_CREATE_PLAIN_TEXT_PARAMS },
+    tokenArea: { area: "asks", level: "write" },
     emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, AskAgentWire[]>({
@@ -977,6 +998,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/asks",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "asks", level: "write" },
     emits: [],
   }),
   defineRoute<void, AskAgentWire>({
@@ -984,6 +1006,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "asks", level: "write" },
     emits: [],
   }),
   // An agent's closed asks (task ff590b5e), with the reach of its logs: every
@@ -1019,6 +1042,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     plainText: { params: ASK_EDIT_PLAIN_TEXT_PARAMS },
+    tokenArea: { area: "asks", level: "write" },
     emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, NoContent>({
@@ -1027,6 +1051,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/agents/:id/asks/:askId",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "asks", level: "write" },
     emits: ["ask_removed", "others_ask_removed"],
   }),
   defineRoute<void, AskMemberWire[]>({
@@ -1156,6 +1181,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/preview-url",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "files", level: "write" },
     emits: ["log_entry"],
   }),
   // Drive a page in the manager's desktop Chrome (internal-docs/
@@ -1168,6 +1194,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/browser",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "files", level: "write" },
     emits: ["log_entry"],
   }),
   // Context-window fullness check (internal-docs/
@@ -2237,6 +2264,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/api-token-inboxes/:tokenId/messages",
     auth: cap("agent:send-to-api-token", agentTokenSender),
     plainText: { params: INBOX_PLAIN_TEXT_PARAMS },
+    tokenArea: { area: "agents", level: "write" },
     emits: ["log_entry"],
     preconditions: ["apiTokenInboxTargetAvailable"],
   }),
@@ -2662,6 +2690,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/pager",
     auth: cap("pager:raise", and(notApp, operationalAuthenticated)),
+    tokenArea: { area: "pager", level: "write" },
     emits: ["pager_upserted"],
   }),
   defineRoute<void, PagerEntry[]>({
@@ -2904,6 +2933,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/app/pager",
     auth: cap("pager:raise", appScope),
+    tokenArea: { area: "pager", level: "write" },
     emits: ["pager_upserted"],
   }),
   defineRoute<{ id?: string; key?: string }, PagerEntry>({
@@ -2912,6 +2942,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/app/pager/resolve",
     auth: cap("pager:raise", appScope),
+    tokenArea: { area: "pager", level: "write" },
     emits: ["pager_upserted"],
   }),
   // The app opens asks in the name of its message target agent
@@ -3298,6 +3329,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/cronjobs/:id/runs/:runId/read-file",
     auth: cap("self:affordance", runParamMustEqualTokenRun),
+    tokenArea: { area: "files", level: "write" },
     emits: ["cron_run_log_entry"],
   }),
   defineRoute<AffordanceDiffReq, OkTrue>({
@@ -3306,6 +3338,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/cronjobs/:id/runs/:runId/diff",
     auth: cap("self:affordance", runParamMustEqualTokenRun),
+    tokenArea: { area: "files", level: "write" },
     emits: ["cron_run_log_entry"],
   }),
 

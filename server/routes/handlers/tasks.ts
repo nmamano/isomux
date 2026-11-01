@@ -28,6 +28,7 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
+import { belowStandard } from "../../../shared/agent-access.ts";
 import type { TaskDetailExternal, TaskItem } from "../../../shared/types.ts";
 import { taskVisibleTo, type TaskViewer } from "../../task-visibility.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
@@ -65,6 +66,7 @@ export interface TasksDeps {
     title: string;
     createdBy: string;
     createdByAgentId?: string;
+    limited?: true;
     username?: string;
     description?: string;
     priority?: TaskItem["priority"];
@@ -103,6 +105,25 @@ export interface TasksDeps {
 function taskVisible(task: TaskItem, viewer: TaskViewer): boolean {
   return taskVisibleTo(task.roomId, viewer);
 }
+
+// An agent below Standard (no shell, may read text from strangers): its tasks
+// are marked, and it changes only the tasks it created.
+function limitedAgent(identity: Identity): boolean {
+  return (
+    identity.scope === "agent" &&
+    identity.agentAccess !== undefined &&
+    belowStandard(identity.agentAccess)
+  );
+}
+
+// Whether `identity` may change `task`: everyone the board lets see it, except
+// an agent below Standard on a task it did not create.
+function mayChange(task: TaskItem, identity: Identity): boolean {
+  return !limitedAgent(identity) || task.createdByAgentId === identity.agentId;
+}
+
+const NOT_YOUR_TASK =
+  "An agent below Standard changes only the tasks it created.";
 
 // "backlog" was a status until task 77460aea folded it into priority P4.
 // Callers that still send it get told where it went.
@@ -267,6 +288,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         // From the token, like createdBy; never from the body.
         createdByAgentId:
           ctx.identity.scope === "agent" ? ctx.identity.agentId : undefined,
+        ...(limitedAgent(ctx.identity) ? { limited: true as const } : {}),
         username,
         description:
           typeof body.description === "string" ? body.description : undefined,
@@ -327,6 +349,8 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       // task the caller can't see is the same 404 as an unknown id).
       const current = visibleTask(ctx.params.id, ctx.identity);
       if (!current) return fail(404, "not_found");
+      if (!mayChange(current, ctx.identity))
+        return fail(403, "forbidden", NOT_YOUR_TASK);
       // The check and the write below run in one synchronous step, so no
       // other write can land between them.
       if (body.version !== current.version) {
@@ -378,6 +402,8 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       const body = (ctx.body ?? {}) as TaskClaimReq;
       const current = visibleTask(ctx.params.id, ctx.identity);
       if (!current) return fail(404, "not_found");
+      if (!mayChange(current, ctx.identity))
+        return fail(403, "forbidden", NOT_YOUR_TASK);
       // A claim takes an unheld task, or one the named assignee already holds.
       // Taking a task from its holder is an explicit PATCH of assignee, which
       // carries the version (task 4243ecc0).
@@ -416,15 +442,19 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
     },
 
     "tasks.done": (ctx) => {
-      if (!visibleTask(ctx.params.id, ctx.identity))
-        return fail(404, "not_found");
+      const current = visibleTask(ctx.params.id, ctx.identity);
+      if (!current) return fail(404, "not_found");
+      if (!mayChange(current, ctx.identity))
+        return fail(403, "forbidden", NOT_YOUR_TASK);
       const task = deps.updateTask(ctx.params.id, { status: "done" });
       return task ? ok(task) : fail(404, "not_found");
     },
 
     "tasks.delete": (ctx) => {
-      if (!visibleTask(ctx.params.id, ctx.identity))
-        return fail(404, "not_found");
+      const current = visibleTask(ctx.params.id, ctx.identity);
+      if (!current) return fail(404, "not_found");
+      if (!mayChange(current, ctx.identity))
+        return fail(403, "forbidden", NOT_YOUR_TASK);
       return deps.deleteTask(ctx.params.id)
         ? noContent()
         : fail(404, "not_found");

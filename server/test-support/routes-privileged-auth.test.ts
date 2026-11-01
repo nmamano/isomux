@@ -423,91 +423,67 @@ describe("no-impersonation: sendMessage takes the AGENT branch", () => {
   });
 });
 
-describe("agents.setPrivileged: double-gated + (i-b) manager-or-owner conferral", () => {
-  // Default fake: the target agent (a-1) is managed by `member`.
-  it("blocked for BOTH a privileged and a normal agent (stage-1 cap absent + userScope)", () => {
-    expect(
-      can("agents.setPrivileged", privilegedAgent, AGENT_PARAMS, {
-        privileged: true,
-      }),
-    ).toBe(false);
-    expect(
-      can("agents.setPrivileged", normalAgent, AGENT_PARAMS, {
-        privileged: true,
-      }),
-    ).toBe(false);
+// agents.setAccess (task e77304b1) is the slider over the same privilege, so
+// it has the same double gate.
+for (const opId of ["agents.setPrivileged", "agents.setAccess"]) {
+  describe(`${opId}: double-gated + (i-b) manager-or-owner conferral`, () => {
+    // Default fake: the target agent (a-1) is managed by `member`.
+    it("blocked for BOTH a privileged and a normal agent (stage-1 cap absent + userScope)", () => {
+      expect(
+        can(opId, privilegedAgent, AGENT_PARAMS, {
+          privileged: true,
+        }),
+      ).toBe(false);
+      expect(
+        can(opId, normalAgent, AGENT_PARAMS, {
+          privileged: true,
+        }),
+      ).toBe(false);
+    });
+    it("REGRESSION: a privileged agent whose userId COINCIDES with the target's manager is STILL blocked", () => {
+      // managerMatch alone would pass (userId === manager), but `userScope` is the
+      // OUTER gate, so no agent passes stage 2 on a userId coincidence. This is why
+      // the guard is and(userScope, or(officeOwner, managerMatch)), not a bare or.
+      const agentMatchingManager: Identity = {
+        ...privilegedAgent,
+        userId: member.userId,
+      };
+      const d = deps({ agentManagerUserId: () => member.userId });
+      expect(
+        can(opId, agentMatchingManager, AGENT_PARAMS, { privileged: true }, d),
+      ).toBe(false);
+    });
+    it("office owner toggles ANY agent (officeOwner branch)", () => {
+      // Even one managed by someone else.
+      const managedByOther = deps({
+        agentManagerUserId: () => "u-someone-else",
+      });
+      expect(
+        can(opId, owner, AGENT_PARAMS, { privileged: true }, managedByOther),
+      ).toBe(true);
+    });
+    it("a member toggles ONLY agents they manage - the cross-user case is BLOCKED", () => {
+      // member manages a-1 -> allowed (manager-match)
+      expect(can(opId, member, AGENT_PARAMS, { privileged: true })).toBe(true);
+      // a-1 managed by a DIFFERENT member -> member cannot elevate another's agent
+      const managedByOther = deps({
+        agentManagerUserId: () => "u-other-member",
+      });
+      expect(
+        can(opId, member, AGENT_PARAMS, { privileged: true }, managedByOther),
+      ).toBe(false);
+    });
+    it("unknown/unowned target: manager-match denies a member (non-leak); owner passes the guard (404 is the handler's)", () => {
+      const unowned = deps({ agentManagerUserId: () => null });
+      expect(
+        can(opId, member, AGENT_PARAMS, { privileged: true }, unowned),
+      ).toBe(false);
+      expect(
+        can(opId, owner, AGENT_PARAMS, { privileged: true }, unowned),
+      ).toBe(true);
+    });
   });
-  it("REGRESSION: a privileged agent whose userId COINCIDES with the target's manager is STILL blocked", () => {
-    // managerMatch alone would pass (userId === manager), but `userScope` is the
-    // OUTER gate, so no agent passes stage 2 on a userId coincidence. This is why
-    // the guard is and(userScope, or(officeOwner, managerMatch)), not a bare or.
-    const agentMatchingManager: Identity = {
-      ...privilegedAgent,
-      userId: member.userId,
-    };
-    const d = deps({ agentManagerUserId: () => member.userId });
-    expect(
-      can(
-        "agents.setPrivileged",
-        agentMatchingManager,
-        AGENT_PARAMS,
-        { privileged: true },
-        d,
-      ),
-    ).toBe(false);
-  });
-  it("office owner toggles ANY agent (officeOwner branch)", () => {
-    // Even one managed by someone else.
-    const managedByOther = deps({ agentManagerUserId: () => "u-someone-else" });
-    expect(
-      can(
-        "agents.setPrivileged",
-        owner,
-        AGENT_PARAMS,
-        { privileged: true },
-        managedByOther,
-      ),
-    ).toBe(true);
-  });
-  it("a member toggles ONLY agents they manage - the cross-user case is BLOCKED", () => {
-    // member manages a-1 -> allowed (manager-match)
-    expect(
-      can("agents.setPrivileged", member, AGENT_PARAMS, { privileged: true }),
-    ).toBe(true);
-    // a-1 managed by a DIFFERENT member -> member cannot elevate another's agent
-    const managedByOther = deps({ agentManagerUserId: () => "u-other-member" });
-    expect(
-      can(
-        "agents.setPrivileged",
-        member,
-        AGENT_PARAMS,
-        { privileged: true },
-        managedByOther,
-      ),
-    ).toBe(false);
-  });
-  it("unknown/unowned target: manager-match denies a member (non-leak); owner passes the guard (404 is the handler's)", () => {
-    const unowned = deps({ agentManagerUserId: () => null });
-    expect(
-      can(
-        "agents.setPrivileged",
-        member,
-        AGENT_PARAMS,
-        { privileged: true },
-        unowned,
-      ),
-    ).toBe(false);
-    expect(
-      can(
-        "agents.setPrivileged",
-        owner,
-        AGENT_PARAMS,
-        { privileged: true },
-        unowned,
-      ),
-    ).toBe(true);
-  });
-});
+}
 
 // agents.setManager: an office owner's reach (Nil, 2026-10-26, task
 // 704542d9). The owner by cookie, the owner's privileged agent and its app

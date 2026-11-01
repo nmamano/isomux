@@ -19,6 +19,12 @@
 
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
 import { agentCapabilities, RUN_CAPABILITIES, type Identity } from "./index.ts";
+import {
+  belowStandard,
+  type AgentAccess,
+  type AgentAccessGrant,
+} from "../../shared/agent-access.ts";
+import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
 
 const TOKEN_BYTES = 32; // 256 bits of entropy, matching auth.ts session/invite tokens
 
@@ -35,6 +41,10 @@ interface StoredToken {
   // time so changing the setting requires a re-mint (rotation), never a
   // per-request recompute.
   privileged: boolean;
+  // AGENT scope only: the access slider stop and its pack, bound at mint time
+  // like privileged. Absent on cron-run tokens.
+  access?: AgentAccess;
+  pack?: ApiTokenLimits;
 }
 
 // Primary store keyed by a stable store-key (agent:<id> / run:<job>:<run>) so
@@ -85,13 +95,18 @@ function remove(key: string): void {
 // set the token resolves to - toggling the setting re-mints (revoking the old
 // token), so a live agent MUST be session-swapped onto the new token or its
 // in-flight one goes dead. Returns the raw secret to inject into the agent's
-// session env.
+// session env. `grant` is the agent's access slider stop with its pack; a
+// boolean is the privileged flag (true = privileged, false = standard).
 export function mintAgentToken(
   agentId: string,
   userId: string | null,
-  privileged = false,
+  grant: AgentAccessGrant | boolean = false,
 ): string {
   revokeAgentToken(agentId); // rotation: drop any prior token for this agent
+  const { access, pack } =
+    typeof grant === "boolean"
+      ? { access: grant ? ("privileged" as const) : ("standard" as const) }
+      : grant;
   const { raw, hash } = newToken();
   store(agentKey(agentId), {
     scope: "agent",
@@ -99,7 +114,9 @@ export function mintAgentToken(
     raw,
     userId,
     agentId,
-    privileged,
+    privileged: access === "privileged",
+    access,
+    ...(pack ? { pack } : {}),
   });
   return raw;
 }
@@ -110,14 +127,29 @@ export function getAgentTokenRaw(agentId: string): string | null {
   return byKey.get(agentKey(agentId))?.raw ?? null;
 }
 
-// The manager and privileged flag an agent's live token carries, or null if
-// none is live. Labels the agent's messages to another agent: the label comes
-// from the token, never from the message text.
-export function getAgentTokenIdentity(
-  agentId: string,
-): { userId: string | null; privileged: boolean } | null {
+// The manager, privileged flag and access stop an agent's live token
+// carries, or null if none is live. Labels the agent's messages to another
+// agent: the label comes from the token, never from the message text.
+export function getAgentTokenIdentity(agentId: string): {
+  userId: string | null;
+  privileged: boolean;
+  access: AgentAccess;
+} | null {
   const token = byKey.get(agentKey(agentId));
-  return token ? { userId: token.userId, privileged: token.privileged } : null;
+  return token
+    ? {
+        userId: token.userId,
+        privileged: token.privileged,
+        access: token.access ?? "standard",
+      }
+    : null;
+}
+
+// The token limits of an agent below standard: its pack, or no area at all at
+// chat. Undefined at standard and privileged (no limits).
+function agentTokenLimits(token: StoredToken): ApiTokenLimits | undefined {
+  if (!token.access || !belowStandard(token.access)) return undefined;
+  return token.pack ?? { areas: {} };
 }
 
 export function revokeAgentToken(agentId: string): void {
@@ -181,6 +213,12 @@ export function resolveToken(raw: string): Identity | null {
       token.scope === "agent"
         ? agentCapabilities(token.privileged)
         : RUN_CAPABILITIES,
+    ...(token.scope === "agent" && token.access
+      ? { agentAccess: token.access }
+      : {}),
+    ...(agentTokenLimits(token)
+      ? { apiTokenLimits: agentTokenLimits(token) }
+      : {}),
   };
 }
 

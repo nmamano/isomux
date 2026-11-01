@@ -13,6 +13,7 @@ import {
 } from "../mcp-servers.ts";
 import { resetClaudeEngineServersForTests } from "../claude-connectors.ts";
 import { getUserByName } from "../users.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { removeStateDir } from "./temp-state.ts";
@@ -202,4 +203,68 @@ it("lists the servers set in Claude from the member's own sessions, by name and 
   expect(forAnn.text).not.toContain("fake-engine-header");
   // Another member's sessions are not theirs.
   expect((await list(morgan.rawSessionId)).body.engineMcpServers).toEqual([]);
+});
+
+// Task e77304b1: an agent below Standard reaches the office only through the
+// office's own /mcp with its token. The member's and the office's
+// connections are off, and so is the member skill folder.
+it("gives an agent below Standard only the office /mcp with its own token, and nothing at Chat", async () => {
+  const fake = new FakeBackend();
+  server = await startTestServer({ fakeBackend: fake });
+  const srv = server;
+  await srv.seedOwner("Morgan");
+  await srv.seedMember("Ann");
+  const annId = getUserByName("Ann")!.id;
+  const sources = createMcpServerSources();
+  sources.secrets.create(
+    { kind: "user", userId: annId },
+    {
+      name: "ANN_TOKEN",
+      value: MEMBER_VALUE,
+      hosts: ["ann.example.com"],
+      form: { kind: "authorization" },
+    },
+  );
+  sources.servers.create(
+    { kind: "user", userId: annId },
+    { name: "ann", url: "https://ann.example.com/mcp", secret: "ANN_TOKEN" },
+  );
+  const office = await spawnFor(srv, "Office agent", "Ann");
+  const chat = await spawnFor(srv, "Chat agent", "Ann");
+  expect(
+    await srv.agentManager.setAccess(office.id, {
+      access: "office",
+      pack: { areas: { tasks: "read" } },
+    }),
+  ).toMatchObject({ access: "office" });
+  expect(
+    await srv.agentManager.setAccess(chat.id, { access: "chat" }),
+  ).toMatchObject({ access: "chat" });
+
+  const officeSession = await sessionAfterMessage(srv, fake, office.id, "Ann");
+  expect(officeSession.opts.access).toBe("office");
+  expect(officeSession.opts.skillFolder).toBeUndefined();
+  const servers = officeSession.opts.mcpServers ?? [];
+  expect(
+    servers.map((s) => ({
+      name: s.name,
+      host: new URL(s.url).hostname,
+      path: new URL(s.url).pathname,
+      headers: s.headers,
+    })),
+  ).toEqual([
+    {
+      name: "isomux",
+      host: "127.0.0.1",
+      path: "/mcp",
+      headers: { Authorization: `Bearer ${getAgentTokenRaw(office.id)}` },
+    },
+  ]);
+  // The URL reaches this server's /mcp.
+  expect(new URL(servers[0].url).port).toBe(new URL(srv.baseUrl).port);
+
+  const chatSession = await sessionAfterMessage(srv, fake, chat.id, "Ann");
+  expect(chatSession.opts.access).toBe("chat");
+  expect(chatSession.opts.mcpServers ?? []).toEqual([]);
+  expect(chatSession.opts.skillFolder).toBeUndefined();
 });

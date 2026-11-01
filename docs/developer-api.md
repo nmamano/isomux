@@ -17,7 +17,7 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 A signed-in member can create a named personal API token in **Integrations → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
-A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access, or grant the privileged-agent flag. An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link, can change the office instructions, name and member usage cap (see Instructions and Office settings), and can give an agent another manager with `PUT /api/agents/:id/manager` and `{userId}`. These exclusions are defense in depth: a token can spawn an agent that runs commands.
+A token has the issuing member's operational reach: agents and their conversations, rooms, tasks, the pager, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot manage API tokens or other durable identity access, revoke browser sessions, change user access, or change an agent's access (`PUT /api/agents/:id/access` and `PUT /api/agents/:id/privileged`). An office owner's token can create a member with `POST /api/users`, but not mint the member's sign-in link, can change the office instructions, name and member usage cap (see Instructions and Office settings), and can give an agent another manager with `PUT /api/agents/:id/manager` and `{userId}`. These exclusions are defense in depth: a token can spawn an agent that runs commands.
 
 ### Limit a token
 
@@ -155,7 +155,9 @@ url = "https://office.example.com/mcp"
 bearer_token_env_var = "ISOMUX_TOKEN"
 ```
 
-The server has four tools: `list_agents` and `read_conversation` read, `send_message` sends as the member, and `read_replies` reads the token's conversation after a sequence and waits up to 25 seconds for a new entry. `send_message` refuses a text that starts with `/` (`command_not_allowed`), and a message to an agent that waits for a member's answer (`awaits_member_answer`): a page the model read must not approve a command. The member answers prompts in the office. What the model reads, such as agent chats, goes to Anthropic or OpenAI.
+The server lists the tools the token's limits allow: `list_agents` and `read_conversation` read, `send_message` sends as the member, and `read_replies` reads the token's conversation after a sequence and waits up to 25 seconds for a new entry. `list_tasks` and `get_task` read the task board, and `create_task`, `update_task`, `claim_task` and `complete_task` change it. `send_message` refuses a text that starts with `/` (`command_not_allowed`), and a message to an agent that waits for a member's answer (`awaits_member_answer`): a page the model read must not approve a command. The member answers prompts in the office. What the model reads, such as agent chats, goes to Anthropic or OpenAI.
+
+An agent at the `office`, `folder` or `web` access stop (see Agents) reaches the office only through `/mcp`, with its own token. Its pack decides the tools. `send_message` sends as the agent and the reply comes to its chat, so it has no `read_replies`. It also has `open_ask`, `list_my_asks`, `edit_ask` and `delete_ask` for its own asks. Other agent tokens get 403.
 
 ## Errors
 
@@ -180,6 +182,8 @@ App hosting needs Linux with systemd. On any other host, such as a macOS local o
 ### Agents
 
 `POST /api/agents` and `PATCH /api/agents/:id` keep `modelFamily` and `model` consistent. With only `model`, Isomux derives `modelFamily`: Claude uses its exact family map, while Codex and OpenCode store the model ID as the family. With both fields, they must agree. Claude accepts its known families. Codex refuses Claude-shaped names but accepts other slugs because its model list depends on the connected account. OpenCode accepts a well-formed `provider/model` ID because its connected model list is available only at runtime.
+
+`PUT /api/agents/:id/access` moves an agent on the access slider. The body is `{access}`, one of `chat`, `office`, `folder`, `web`, `standard` and `privileged`. At `office`, `folder` and `web` it also takes `pack`: token limits (see Limit a token) with `areas` and without `repliesOnly`. Below `standard` the agent has no shell, and its token carries the pack as its limits (`chat` opens no area). Only a Claude agent can be below `standard` for now (422 `engine_below_standard`, also for a switch to another engine). A move rotates the agent's token and restarts its session; a move down stops its turn first. Only the agent's manager or an office owner can call it, signed in. Below `standard`, `PUT /api/agents/:id/privileged` returns 409 `below_standard`.
 
 `GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`.
 

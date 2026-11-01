@@ -1196,6 +1196,11 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["agent:privilege"],
     emits: ["agent_updated"],
   },
+  // The access slider (task e77304b1): the same double gate.
+  "agents.setAccess": {
+    caps: ["agent:privilege"],
+    emits: ["agent_updated"],
+  },
   // A transfer clears the chat and moves the apps, schedules and webhooks
   // the agent made (task 6a9deaba).
   "agents.setManager": {
@@ -3083,6 +3088,44 @@ describe("route table: API token areas", () => {
         opId: route.opId,
         tokenArea: { area: "agents", level: "write", reply: true },
         agentParam: true,
+      });
+    }
+  });
+
+  it("every route an agent passes stage 1 on declares a known area, so a pack limits it", () => {
+    // Task e77304b1: an agent below Standard carries its pack as token limits,
+    // and the executor refuses a route without an area. An agent route with
+    // none is closed to every pack, so a pack could not grant it.
+    const agentIdentity: Identity = {
+      scope: "agent",
+      userId: "u-owner",
+      agentId: "a-1",
+      role: "member",
+      capabilities: AGENT_CAPABILITIES,
+    };
+    const agentStageOne = API_ROUTES.filter((route) =>
+      passesRouteStageOne(route.auth, agentIdentity),
+    );
+    expect(agentStageOne.length).toBeGreaterThan(100);
+    const missing = agentStageOne
+      .filter((route) => route.tokenArea === undefined)
+      .map((route) => route.opId);
+    expect(missing).toEqual([]);
+  });
+
+  it("an agent's own asks are the asks area, at write", () => {
+    // The asks write grant is what lets a pack open, list, edit and delete
+    // the agent's own asks; answering stays member-only (memberScope).
+    for (const opId of [
+      "agents.createAsk",
+      "agents.listAsks",
+      "agents.getAsk",
+      "agents.editAsk",
+      "agents.deleteAsk",
+    ]) {
+      expect({ opId, tokenArea: byOpId(opId).tokenArea }).toEqual({
+        opId,
+        tokenArea: { area: "asks", level: "write" },
       });
     }
   });

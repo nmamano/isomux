@@ -3398,6 +3398,8 @@ Coses que pots fer per ell:
     "Aquesta programació només s'executa mentre {agent}, l'agent que l'ha creada, és en No preguntar mai amb accés total (sense sandbox), perquè una programació s'executa sense ningú present. Dona aquest accés a {agent}, o elimina la programació i torna-la a crear tu.",
   "systemEntries.scheduleRun.limit.modeCodexSandbox":
     "Aquesta programació només s'executa mentre {agent}, l'agent que l'ha creada, és en No preguntar mai amb un sandbox almenys tan ampli com el de la programació, perquè una programació s'executa sense ningú present. Dona aquest accés a {agent}, o elimina la programació i torna-la a crear tu.",
+  "systemEntries.scheduleRun.limit.access":
+    "Aquesta programació no s'executa mentre {agent}, l'agent que l'ha creada, sigui per sota d'Estàndard. Torna a posar {agent} a Estàndard, o elimina la programació i torna-la a crear tu.",
   "systemEntries.scheduleRun.limit.folder":
     "Aquesta programació s'executa fora de la carpeta de treball de {agent}, l'agent que l'ha creada. Canvia la carpeta de la programació o de l'agent.",
   "systemEntries.claudeAuth.connected":

@@ -9,6 +9,8 @@ import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
 import type { Floor } from "./floors.ts";
+import type { AgentAccess } from "./agent-access.ts";
+import type { ApiTokenLimits } from "./api-token-limits.ts";
 import { keyFrom } from "./i18n/translate.ts";
 import type { MessageKey, Translator } from "./i18n/translate.ts";
 import type { LogMessage, LogPart } from "./i18n/log-message.ts";
@@ -890,8 +892,19 @@ export interface AgentInfo {
   // impersonates the user. Bound to the token (re-minted on toggle), mirrored
   // here for the UI toggle state. Settable only by a user via the dedicated
   // agents.setPrivileged route; never by an agent. Absent/false on normal
-  // agents.
+  // agents. Derived from access since the access slider: true exactly at
+  // the privileged stop.
   privileged?: boolean;
+  // The agent's stop on the access slider (shared/agent-access.ts). Absent on
+  // agents from before the slider: read it with agentAccessOf. Settable only
+  // by a user via agents.setAccess (or agents.setPrivileged); never by an
+  // agent.
+  access?: AgentAccess;
+  // The permission pack at the office, folder and web stops: the limits on the
+  // agent's token. Read it only where stopHasPack(access): a move to a stop
+  // without a pack sends pack: undefined in agent_updated, which JSON drops,
+  // so a browser can keep the old value.
+  pack?: ApiTokenLimits;
   // Automatic handoff: when the context crosses the trigger after a completed
   // turn, the server has the agent write a brief and hands off to a fresh
   // session (internal-docs/auto-handoff-design.md). Absent reads as true; the
@@ -1248,6 +1261,9 @@ export interface TaskItem {
   // The creating agent's id, stamped by the server from an agent token. Absent
   // for members, cron runs, apps and older rows.
   createdByAgentId?: string;
+  // Set by the server when an agent below Standard created the task, which
+  // may carry text from strangers. No route sets or clears it from a body.
+  limited?: true;
   username?: string; // Human member this record is on behalf of
   createdAt: number;
   // Room this task belongs to. ABSENT/empty === office-global (visible to

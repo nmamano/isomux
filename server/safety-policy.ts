@@ -15,9 +15,23 @@
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
 
-import { lstatSync, readFileSync } from "fs";
+import {
+  claudeToolsForStop,
+  stopHasPack,
+  type AgentAccess,
+} from "../shared/agent-access.ts";
+import { lstatSync, readFileSync, realpathSync } from "fs";
 import { homedir } from "os";
-import { basename, dirname, isAbsolute, join, normalize, resolve } from "path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  normalize,
+  relative,
+  resolve,
+  sep,
+} from "path";
 import {
   codexLoginFile,
   isBackendCredentialPath,
@@ -98,7 +112,181 @@ export type PolicyContext = {
   // The office's own systemd user unit (office-units.ts). Undefined: read
   // from /proc/self/cgroup once. A test seam.
   officeUnit?: string | null;
+  // An agent below standard: its file tools stay inside its folder.
+  confine?: FolderConfinement;
 };
+
+// The folder an agent below standard may use. folder: the agent's folder at
+// the folder and web stops; null at chat and office, which have no file
+// tools. Reads resolve symlinks and stay inside the folder; writes refuse any
+// symlink on the way and the engine and repository config at any depth; no
+// shell.
+export interface FolderConfinement {
+  access: AgentAccess;
+  folder: string | null;
+}
+
+// Names that configure an engine, a repository or a shell when they sit in a
+// folder: a write never reaches them, at any depth.
+const CONFINED_WRITE_DENY: ReadonlySet<string> = new Set([
+  ".claude",
+  ".codex",
+  ".opencode",
+  ".git",
+  ".vscode",
+  ".mcp.json",
+  "opencode.json",
+  "CLAUDE.md",
+  "CLAUDE.local.md",
+  "AGENTS.md",
+  ".envrc",
+]);
+
+const OFFICE_MCP_TOOL_PREFIX = "mcp__isomux__";
+
+// The decision for `action` under `confine`, before the ordinary checks. A
+// tool off the stop's list is denied, whatever else lets it through.
+export function checkConfinedAction(
+  action: ProposedAction,
+  confine: FolderConfinement,
+): PolicyDecision {
+  const toolName = action.kind === "shell" ? "Bash" : action.toolName;
+  const listed = toolName.startsWith(OFFICE_MCP_TOOL_PREFIX)
+    ? stopHasPack(confine.access)
+    : (claudeToolsForStop(confine.access) ?? []).includes(toolName);
+  if (!listed)
+    return deny(
+      `${toolName} is not available to this agent. Use the tools you have.`,
+    );
+  switch (action.kind) {
+    case "uncovered-tool":
+      return allow();
+    case "shell":
+    case "patch-files":
+      return deny(`${toolName} is not available to this agent.`);
+    case "read-files":
+      return confinedRead(action.toolName, action.input, confine.folder);
+    case "write-files":
+    case "read-and-write-files":
+      return confinedWrite(action.toolName, action.input, confine.folder);
+  }
+}
+
+function outsideFolder(toolName: string): PolicyDecision {
+  return deny(`${toolName} reaches only files inside your folder.`);
+}
+
+// The real path of `path`, or of its nearest existing ancestor with the rest
+// appended, so a missing file is judged by the folder it would be in.
+function realPathOrAncestor(path: string): string {
+  let current = path;
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(current), ...rest.reverse());
+    } catch {
+      const parent = dirname(current);
+      if (parent === current) return path;
+      rest.push(basename(current));
+      current = parent;
+    }
+  }
+}
+
+function within(child: string, parent: string): boolean {
+  return (
+    child === parent ||
+    child.startsWith(parent.endsWith(sep) ? parent : parent + sep)
+  );
+}
+
+function stringField(input: unknown, key: string): string | undefined {
+  const value = (input as Record<string, unknown> | null)?.[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+// The fixed directory before the first glob character of an absolute
+// pattern.
+function globPrefix(pattern: string): string {
+  const parts = pattern.split("/");
+  const fixed: string[] = [];
+  for (const part of parts) {
+    if (/[*?[\]{}]/.test(part)) break;
+    fixed.push(part);
+  }
+  return fixed.join("/") || "/";
+}
+
+function confinedRead(
+  toolName: string,
+  input: unknown,
+  folder: string | null,
+): PolicyDecision {
+  if (folder === null) return outsideFolder(toolName);
+  const realFolder = realPathOrAncestor(resolve(folder));
+  const paths: string[] = [];
+  for (const key of ["file_path", "notebook_path", "path"]) {
+    const value = stringField(input, key);
+    if (value) paths.push(value);
+  }
+  const pattern =
+    toolName === "Glob" ? stringField(input, "pattern") : undefined;
+  if (pattern) {
+    // Glob expands braces, so "{..,sub}" goes up and "{/etc,sub}" is an
+    // absolute path: any ".." and any brace alternative that starts at a
+    // root or at home is denied.
+    if (pattern.includes("..") || /(^~)|([{,]\s*[/\\~])/.test(pattern))
+      return outsideFolder(toolName);
+    if (isAbsolute(pattern)) paths.push(globPrefix(pattern));
+  }
+  for (const path of paths) {
+    if (path.startsWith("~")) return outsideFolder(toolName);
+    if (!within(realPathOrAncestor(resolve(folder, path)), realFolder))
+      return outsideFolder(toolName);
+  }
+  return allow();
+}
+
+function confinedWrite(
+  toolName: string,
+  input: unknown,
+  folder: string | null,
+): PolicyDecision {
+  if (folder === null) return outsideFolder(toolName);
+  const path =
+    stringField(input, "file_path") ?? stringField(input, "notebook_path");
+  if (!path || path.startsWith("~")) return outsideFolder(toolName);
+  const given = resolve(folder);
+  const realFolder = realPathOrAncestor(given);
+  const target = resolve(folder, path);
+  const rel = within(target, given)
+    ? relative(given, target)
+    : within(target, realFolder)
+      ? relative(realFolder, target)
+      : null;
+  if (rel === null || rel === "") return outsideFolder(toolName);
+  const parts = rel.split(sep);
+  if (parts.some((part) => CONFINED_WRITE_DENY.has(part)))
+    return deny(
+      `${toolName} may not write engine or repository settings (${parts.find((part) => CONFINED_WRITE_DENY.has(part))}).`,
+    );
+  // No symlink on the way: each existing component is a real file or folder.
+  let current = realFolder;
+  for (const part of parts) {
+    current = join(current, part);
+    let stat;
+    try {
+      stat = lstatSync(current);
+    } catch {
+      break;
+    }
+    if (stat.isSymbolicLink())
+      return deny(
+        `${toolName} may not write through a symlink in your folder.`,
+      );
+  }
+  return allow();
+}
 
 const ALLOW: PolicyDecision = Object.freeze({ decision: "allow" });
 
@@ -2995,6 +3183,9 @@ const TOOL_PATH_SPECS: Record<string, ToolPathSpec> = {
   // Both are optional - a Grep with neither is a search of the working
   // directory, which this name-based rule has nothing to say about.
   Grep: { keys: ["path", "glob"], targetOptional: true },
+  // Glob lists file names and reads no contents, so only its root counts.
+  // Hooked only below Standard (safety-hooks.ts).
+  Glob: { keys: ["path"], targetOptional: true },
 };
 
 /** Key names that carry a filesystem path, for tools not in the table above */
@@ -4588,6 +4779,10 @@ export function evaluateProposedAction(
   action: ProposedAction,
   context: PolicyContext = {},
 ): PolicyDecision {
+  if (context.confine) {
+    const confined = checkConfinedAction(action, context.confine);
+    if (confined.decision === "deny") return confined;
+  }
   const shell = agentShell(context);
   switch (action.kind) {
     case "shell":

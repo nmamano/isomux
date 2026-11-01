@@ -13,6 +13,7 @@ import {
   type Cronjob,
 } from "../shared/types.ts";
 import { resolveCwd } from "./cwd-utils.ts";
+import { belowStandard } from "../shared/agent-access.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 
 export type ScheduleLimitJob = Pick<
@@ -22,7 +23,7 @@ export type ScheduleLimitJob = Pick<
 
 export type ScheduleLimitAgent = Pick<
   AgentInfo,
-  "agentType" | "permissionMode" | "codexSandbox" | "cwd"
+  "agentType" | "permissionMode" | "codexSandbox" | "cwd" | "access"
 >;
 
 // The API error code of a refusal.
@@ -67,9 +68,11 @@ function jobReach(job: ScheduleLimitJob): Reach {
 // Whether the agent may make any schedule: a privileged agent always, an
 // ordinary one when its mode runs without approvals. Decides the schedule
 // line of the system prompt.
+// An agent below Standard makes none: it has no tool for it.
 export function agentMakesSchedules(
-  agent: AgentMode & { privileged?: boolean },
+  agent: AgentMode & Pick<AgentInfo, "privileged" | "access">,
 ): boolean {
+  if (agent.access && belowStandard(agent.access)) return false;
   return agent.privileged === true || agentReach(agent) > 0;
 }
 
@@ -78,7 +81,10 @@ export function scheduleLimitBreach(
   job: ScheduleLimitJob,
   agent: ScheduleLimitAgent,
   realpath: (path: string) => string = realpathSync,
-): "mode" | "folder" | null {
+): "access" | "mode" | "folder" | null {
+  // A job runs as its own run, with a shell: an agent below Standard reaches
+  // less than any job.
+  if (agent.access && belowStandard(agent.access)) return "access";
   if (jobReach(job) > agentReach(agent)) return "mode";
   return folderInside(job.cwd, agent.cwd, realpath) ? null : "folder";
 }
@@ -112,6 +118,8 @@ export function scheduleExceedsAgent(
   realpath: (path: string) => string = realpathSync,
 ): string | null {
   const breach = scheduleLimitBreach(job, agent, realpath);
+  if (breach === "access")
+    return "An agent below Standard cannot make or run a schedule.";
   if (breach === "mode")
     return job.agentType === "codex"
       ? "A schedule runs with nobody present, so a Codex schedule has no approvals in its sandbox. Only an agent with that access can make one or run one it made: Codex in never with the same sandbox or a wider one, or bypassPermissions. Ask the member to create it on the Schedules tab of the Automations page, or to give you that mode."
@@ -123,11 +131,13 @@ export function scheduleExceedsAgent(
 
 // The reason a run start was refused, for the member who reads the run.
 export function scheduleRunRefusal(
-  breach: "mode" | "folder",
+  breach: "access" | "mode" | "folder",
   maker: Pick<AgentInfo, "name" | "agentType">,
   job: ScheduleLimitJob,
 ): LogMessage {
   const agent = maker.name;
+  if (breach === "access")
+    return msg("systemEntries.scheduleRun.limit.access", { agent });
   if (breach === "folder")
     return msg("systemEntries.scheduleRun.limit.folder", { agent });
   // One key per remedy, so no translated mode name goes into a sentence.

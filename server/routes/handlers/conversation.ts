@@ -26,6 +26,7 @@
 // LEAF over the injected ConversationDeps (the EMIT/CALL-IN-DEP closures own every
 // agent-manager touch; these handlers parse, branch on scope, and map outcomes).
 
+import { ATTACHMENT_NOT_ALLOWED } from "../../../shared/agent-access.ts";
 import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type {
@@ -202,7 +203,14 @@ export interface ConversationDeps {
     agentId: string,
     cause: "agent_steer" | "member_send_now",
   ): SendNowResult;
-  newConversation(agentId: string, agentType?: AgentBackendType): void;
+  // "engine_below_standard": the switch would put an agent below Standard on
+  // an engine that cannot confine its stop yet; nothing happens.
+  newConversation(
+    agentId: string,
+    agentType?: AgentBackendType,
+  ): "engine_below_standard" | void;
+  // Why the receiver's access stop cannot take `attachments`, else null.
+  attachmentRefusal?(agentId: string, attachments: Attachment[]): string | null;
   // Self-handoff: reset the agent's session then deliver `text`
   // into the fresh session as a self-handoff brief. The manager guards to one
   // in-flight handoff per agent (a concurrent second is rejected). AWAITED (not
@@ -330,6 +338,12 @@ export function conversationHandlers(
           "invalid_request",
           "device, clientMessageId, and deliverAt must be strings; attachments must be an array of {filename, originalName, mediaType} strings plus a nonnegative integer size; sendNow and steer must be booleans",
         );
+      }
+      // An attachment the receiver's access stop cannot take, from any
+      // sender.
+      if (b.attachments && b.attachments.length > 0) {
+        const refusal = deps.attachmentRefusal?.(ctx.params.id, b.attachments);
+        if (refusal) return fail(422, ATTACHMENT_NOT_ALLOWED, refusal);
       }
       let appLabel: string | undefined;
       if (b.appContext !== undefined) {
@@ -655,7 +669,15 @@ export function conversationHandlers(
         b.agentType === "opencode"
           ? b.agentType
           : undefined;
-      deps.newConversation(ctx.params.id, agentType);
+      if (
+        deps.newConversation(ctx.params.id, agentType) ===
+        "engine_below_standard"
+      )
+        return fail(
+          422,
+          "engine_below_standard",
+          "Only a Claude agent can be below Standard for now.",
+        );
       return noContent();
     },
 

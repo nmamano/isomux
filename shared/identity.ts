@@ -38,7 +38,13 @@ export function formatIdentity({
 // JSON-escaped, so neither can close its quote or start a new line.
 export const AGENT_SENDER_SAME_MANAGER = "same manager";
 export const AGENT_SENDER_PRIVILEGED = "privileged";
-export type AgentSenderTrust = "same-manager" | "same-manager-privileged";
+// A sender below Standard reads text from strangers, so it carries no trust,
+// whoever its manager is.
+export const AGENT_SENDER_LIMITED = "limited";
+export type AgentSenderTrust =
+  | "same-manager"
+  | "same-manager-privileged"
+  | "limited";
 
 function quoteLabelValue(value: string): string {
   // JSON.stringify leaves the Unicode line and paragraph separators raw, and a
@@ -60,7 +66,9 @@ export function formatAgentSenderPrefix(
       ? `, ${AGENT_SENDER_SAME_MANAGER}, ${AGENT_SENDER_PRIVILEGED}`
       : trust === "same-manager"
         ? `, ${AGENT_SENDER_SAME_MANAGER}`
-        : "";
+        : trust === "limited"
+          ? `, ${AGENT_SENDER_LIMITED}`
+          : "";
   return `${quoteLabelValue(agentName)} (agent id: ${agentId}${marker}) from Room ${quoteLabelValue(roomName)}`;
 }
 

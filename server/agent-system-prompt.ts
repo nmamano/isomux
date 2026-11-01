@@ -5,6 +5,7 @@ import type {
   UserRecord,
 } from "../shared/types.ts";
 import { memoryStore } from "./memory-store.ts";
+import { agentAccessOf } from "../shared/agent-access.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { getUserById, getUserByName } from "./users.ts";
@@ -33,6 +34,7 @@ export function buildAgentSystemPrompt(
     | "userId"
     | "customInstructions"
     | "privileged"
+    | "access"
     | "agentType"
     | "permissionMode"
     | "codexSandbox"
@@ -52,7 +54,7 @@ export function buildAgentSystemPrompt(
     agent.customInstructions,
     manager.name,
     manager.record?.memberPrompt ?? null,
-    agent.privileged ?? false,
+    agentAccessOf(agent),
     [
       memoryStore.renderForPromptMulti([
         { scope: "office", scopeId: null, label: "Office-wide" },

@@ -82,6 +82,11 @@ export interface SdkSessionOptions {
   // its "project" setting source, which the session leaves on (settingSources
   // unset).
   additionalDirectories?: string[];
+  // Below standard only (buildSdkOpts): the exact built-in tools, no setting
+  // source, and no MCP server but the ones the session registers.
+  tools?: string[];
+  settingSources?: Options["settingSources"];
+  strictMcpConfig?: boolean;
 }
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 
@@ -99,8 +104,17 @@ import { saveFile } from "../persistence.ts";
 import {
   resolveAttachmentNotices,
   formatAttachmentLines,
+  copyAttachmentsInto,
+  inlineImages,
+  type AttachmentDelivery,
 } from "../attachment-prompt.ts";
 import { createSafetyHooks } from "../safety-hooks.ts";
+import type { FolderConfinement } from "../safety-policy.ts";
+import {
+  belowStandard,
+  claudeToolsForStop,
+  stopHasFolder,
+} from "../../shared/agent-access.ts";
 import {
   CLAUDE_NATIVE_BIN,
   claudeProjectDir,
@@ -1012,6 +1026,8 @@ export class ClaudeSession implements BackendSession {
     mcpServers?: AgentMcpServer[],
     planMode?: boolean,
     private readonly translateOptions: TranslateOptions = {},
+    // Below standard: how attachments reach the agent (attachment-prompt.ts).
+    private readonly attachmentDelivery?: AttachmentDelivery,
   ) {
     this.bypassPermissions = sdkOpts.permissionMode === "bypassPermissions";
     this.baseMode = sdkOpts.permissionMode ?? "default";
@@ -1238,7 +1254,12 @@ export class ClaudeSession implements BackendSession {
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
     if (this.planModeReady) await this.planModeReady;
     if (attachments && attachments.length > 0) {
-      const message = buildClaudeUserMessage(this.agentId, text, attachments);
+      const message = buildClaudeUserMessage(
+        this.agentId,
+        text,
+        attachments,
+        this.attachmentDelivery,
+      );
       await this.conversation.send(message);
     } else {
       await this.conversation.send(text);
@@ -1964,10 +1985,15 @@ function trimInsertionOrdered(
 // opens files on demand (Read renders images and PDFs). This wrapper only
 // puts the shared lines into the SDK's ContentBlockParam shape.
 
+//
+// Below standard (`delivery`) an agent cannot open a file in the office
+// state: at chat and office an image goes inline and every other file is left
+// out; at folder and web the notices name copies in the agent's folder.
 function buildClaudeUserMessage(
   agentId: string,
   text: string,
   attachments: AttachmentSpec[],
+  delivery?: AttachmentDelivery,
 ): SDKUserMessage {
   const content: ContentBlockParam[] = [];
 
@@ -1975,9 +2001,29 @@ function buildClaudeUserMessage(
     content.push({ type: "text", text });
   }
 
-  const lines = formatAttachmentLines(
-    resolveAttachmentNotices(agentId, attachments),
-  );
+  if (delivery?.kind === "inline-images") {
+    for (const image of inlineImages(agentId, attachments))
+      content.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: image.mediaType as
+            | "image/png"
+            | "image/jpeg"
+            | "image/gif"
+            | "image/webp",
+          data: image.data,
+        },
+      });
+  }
+  const lines =
+    delivery?.kind === "inline-images"
+      ? []
+      : formatAttachmentLines(
+          delivery?.kind === "copy"
+            ? copyAttachmentsInto(agentId, attachments, delivery.folder)
+            : resolveAttachmentNotices(agentId, attachments),
+        );
   if (lines.length > 0) {
     content.push({ type: "text", text: lines.join("\n") });
   }
@@ -2108,9 +2154,47 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // spawned; it spawns a new one.
     disallowedTools: ["AskUserQuestion", "SendMessage", "ListAgents"],
   };
-  if (opts.skillFolder) sdkOpts.additionalDirectories = [opts.skillFolder];
+  const confined = confinedToolsFor(opts);
+  if (confined) {
+    // Below standard (task e77304b1): the stop's exact built-in tools, no
+    // settings, CLAUDE.md, skills or plugins from disk, and only the MCP
+    // servers the office passes (the office /mcp). The hook keeps every tool
+    // call to the stop and the files to the folder.
+    sdkOpts.tools = confined.tools;
+    sdkOpts.settingSources = [];
+    sdkOpts.strictMcpConfig = true;
+    sdkOpts.hooks = {
+      ...sdkOpts.hooks,
+      ...createSafetyHooks(env.CODEX_HOME, confined.confine),
+    };
+  } else if (opts.skillFolder) {
+    sdkOpts.additionalDirectories = [opts.skillFolder];
+  }
   if (opts.env || isClaudeCloudSelected(env)) sdkOpts.env = env;
   return sdkOpts;
+}
+
+// The tools and the folder confinement of a session below standard, else
+// null.
+function confinedToolsFor(
+  opts: CreateSessionOptions,
+): { tools: string[]; confine: FolderConfinement } | null {
+  const access = opts.access;
+  if (!access || !belowStandard(access)) return null;
+  return {
+    tools: claudeToolsForStop(access) ?? [],
+    confine: { access, folder: stopHasFolder(access) ? opts.cwd : null },
+  };
+}
+
+function attachmentDeliveryFor(
+  opts: CreateSessionOptions,
+): AttachmentDelivery | undefined {
+  const access = opts.access;
+  if (!access || !belowStandard(access)) return undefined;
+  return stopHasFolder(access)
+    ? { kind: "copy", folder: opts.cwd }
+    : { kind: "inline-images" };
 }
 
 export function createClaudeBackend(
@@ -2155,6 +2239,7 @@ export function createClaudeBackend(
         opts.mcpServers,
         opts.planMode,
         claudeTranslateOptions(opts),
+        attachmentDeliveryFor(opts),
       );
     },
 
@@ -2170,6 +2255,7 @@ export function createClaudeBackend(
         opts.mcpServers,
         opts.planMode,
         claudeTranslateOptions(opts),
+        attachmentDeliveryFor(opts),
       );
     },
 

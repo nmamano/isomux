@@ -1,3 +1,4 @@
+import type { AgentAccess } from "../../shared/agent-access.ts";
 import type { LogMessage, LogText } from "../../shared/i18n/log-message.ts";
 import type { AgentMcpServer } from "../mcp-servers.ts";
 import type { FallbackFamily } from "../provider-fallback.ts";
@@ -83,6 +84,10 @@ export interface CreateSessionOptions {
   // false leaves it, undefined keeps what a resumed session already has.
   // Only backends that declare `planMode` read it.
   planMode?: boolean;
+  // The agent's access slider stop. Below standard the backend confines the
+  // engine to the stop (tools, setting sources, MCP servers, the folder hook,
+  // attachments). Absent: standard.
+  access?: AgentAccess;
 }
 
 export interface SessionEnvironmentOptions {

@@ -21,7 +21,21 @@
 // text block so the turn is never content-free (Codex rejects empty input;
 // Claude's behavior on an empty content array is undefined).
 
+import {
+  closeSync,
+  constants,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+  type Stats,
+} from "fs";
+import { basename, join } from "path";
 import { getFilePath } from "./persistence.ts";
+import { INLINE_IMAGE_TYPES } from "../shared/agent-access.ts";
 import { formatSize } from "../shared/format-human.ts";
 import type { AttachmentSpec } from "./backends/types.ts";
 
@@ -129,4 +143,113 @@ function quoteOneLine(s: string): string {
 function oneLine(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/[\u0000-\u001f\u007f\u2028\u2029()"\\]/g, "_");
+}
+
+// How attachments reach an agent below standard (task e77304b1), which has no
+// way to open a file in the office state. inline-images: the chat and office
+// stops have no file tools, so an image goes into the message itself and any
+// other file is left out. copy: the folder and web stops copy each file into
+// <folder>/attachments/ and the notice names the copy.
+export type AttachmentDelivery =
+  | { kind: "inline-images" }
+  | { kind: "copy"; folder: string };
+
+// The Claude API refuses a larger inline image.
+const INLINE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+export interface InlineImage {
+  mediaType: string;
+  data: string; // base64
+}
+
+// The images among `specs`, read for inline delivery. Every other file, and
+// a file that is gone or too large, is left out.
+export function inlineImages(
+  agentId: string,
+  specs: AttachmentSpec[],
+): InlineImage[] {
+  const images: InlineImage[] = [];
+  for (const spec of specs) {
+    if (!INLINE_IMAGE_TYPES.has(spec.mediaType)) continue;
+    const path = getFilePath(agentId, spec.filename);
+    if (!path) continue;
+    try {
+      const bytes = readFileSync(path);
+      if (bytes.length > INLINE_IMAGE_MAX_BYTES) continue;
+      images.push({
+        mediaType: spec.mediaType,
+        data: bytes.toString("base64"),
+      });
+    } catch {}
+  }
+  return images;
+}
+
+// Copies each attachment into <folder>/attachments/ and returns the notices
+// for the copies. The copy follows the folder write rule: the attachments
+// directory must be a real directory (created when absent), the file is
+// created without following a symlink, and a file that cannot be copied that
+// way is left out.
+export function copyAttachmentsInto(
+  agentId: string,
+  specs: AttachmentSpec[],
+  folder: string,
+): AttachmentNotice[] {
+  const dir = join(folder, "attachments");
+  let realDir: string;
+  try {
+    const realFolder = realpathSync(folder);
+    realDir = join(realFolder, "attachments");
+    let stat = lstatSyncOrNull(realDir);
+    if (!stat) {
+      mkdirSync(realDir, { mode: 0o700 });
+      stat = lstatSync(realDir);
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return [];
+  } catch {
+    return [];
+  }
+  const notices: AttachmentNotice[] = [];
+  for (const spec of specs) {
+    if (spec.filename !== basename(spec.filename) || spec.filename === "..")
+      continue;
+    const source = getFilePath(agentId, spec.filename);
+    if (!source) continue;
+    const target = join(realDir, spec.filename);
+    try {
+      const existing = lstatSyncOrNull(target);
+      if (existing && !existing.isFile()) continue;
+      if (existing) unlinkSync(target);
+      const fd = openSync(
+        target,
+        constants.O_WRONLY |
+          constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        writeFileSync(fd, readFileSync(source));
+      } finally {
+        closeSync(fd);
+      }
+    } catch {
+      continue;
+    }
+    notices.push({
+      originalName: spec.originalName,
+      mediaType: spec.mediaType,
+      size: spec.size,
+      path: join(dir, spec.filename),
+    });
+  }
+  return notices;
+}
+
+function lstatSyncOrNull(path: string): Stats | null {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
 }

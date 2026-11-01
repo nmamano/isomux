@@ -103,6 +103,11 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // throw here must reach the caller before anything is closed (see
   // replaceWith).
   createSession: (host: H, resumeSessionId?: string) => BackendSession;
+  // Whether `session` was built on the agent's current token. A token change
+  // (access, privilege, manager) during a swap's drain makes the replacement
+  // built before it stale: it has the old stop's tools and a revoked token.
+  // Absent: every session counts as current.
+  builtOnCurrentToken?: (host: H, session: BackendSession) => boolean;
   // The per-event work: state derivation, log entries, usage refresh, and the
   // turn_completed / error-event settle of pendingTurn (through this object).
   processNormalizedEvent: (agentId: string, ev: NormalizedEvent) => void;
@@ -620,6 +625,8 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     newSession: BackendSession,
     // Passed through to closeAndDrainSession - see its swapReason note.
     swapReason?: SwapReason,
+    // Builds the replacement again, for one gone stale during the drain.
+    rebuild?: () => BackendSession,
   ): Promise<void> {
     // /resume, /model, /effort, edit-fork, abort's slow path,
     // setPrivileged, and the queue watchdog's forced recovery all funnel
@@ -655,8 +662,11 @@ export class SessionManager<H extends SessionHost = SessionHost> {
           newSession.close();
         } catch {}
       } else if (this.session === null) {
-        this.installSession(host, newSession);
-        installedByUs = true;
+        const replacement = this.currentReplacement(host, newSession, rebuild);
+        if (replacement) {
+          this.installSession(host, replacement);
+          installedByUs = true;
+        }
       } else {
         try {
           newSession.close();
@@ -700,6 +710,31 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       });
     }
   }
+  // The replacement to install after the drain: `built`, or a new one when the
+  // token changed during the drain (builtOnCurrentToken). Null when the
+  // rebuild throws: the agent stays without a session, and its next message
+  // starts one on the current token.
+  private currentReplacement(
+    host: H,
+    built: BackendSession,
+    rebuild?: () => BackendSession,
+  ): BackendSession | null {
+    if (!rebuild || (this.deps.builtOnCurrentToken?.(host, built) ?? true))
+      return built;
+    try {
+      built.close();
+    } catch {}
+    try {
+      return rebuild();
+    } catch (err) {
+      this.deps.logger.error(
+        `Agent ${this.agentId}: could not rebuild the swap's replacement on the current token:`,
+        errMessage(err),
+      );
+      return null;
+    }
+  }
+
   // Every replacement caller's entry point: build the replacement first, then
   // run replaceSession. Deliberately NOT async - the create runs synchronously,
   // and a throw from it (invalid cwd, failed resume preflight, broken env)
@@ -715,10 +750,8 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     resumeSessionId?: string | null,
     swapReason?: SwapReason,
   ): Promise<void> {
-    const newSession = this.deps.createSession(
-      host,
-      resumeSessionId ?? undefined,
-    );
-    return this.replaceSession(host, newSession, swapReason);
+    const build = () =>
+      this.deps.createSession(host, resumeSessionId ?? undefined);
+    return this.replaceSession(host, build(), swapReason, build);
   }
 }

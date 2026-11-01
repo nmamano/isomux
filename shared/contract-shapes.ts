@@ -41,6 +41,7 @@ import type {
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
+import type { AgentAccess, AgentAccessGrant } from "./agent-access.ts";
 
 // UserPublicWire's canonical home is shared/types.ts (next to UserRecord +
 // ServerMessage, which references it). Re-exported here so the route-table /
@@ -96,6 +97,9 @@ export interface AgentSystemPromptPreviewReq {
   agentType: AgentInfo["agentType"];
   instructions: string;
   privileged: boolean;
+  // The form's access slider stop. Absent: privileged decides (true:
+  // privileged, false: standard).
+  access?: AgentAccess;
   memory?: string;
   // The form's mode, for the schedule line. Absent: the agent's, else the
   // new-agent default.
@@ -162,6 +166,10 @@ export interface ReviveReq {
 export interface SetPrivilegedReq {
   privileged: boolean;
 }
+
+// Body for agents.setAccess (PUT /api/agents/:id/access): a stop on the
+// access slider, with its pack at office, folder and web.
+export type SetAgentAccessReq = AgentAccessGrant;
 
 // Body for agents.setManager (PUT /api/agents/:id/manager). Its own route:
 // it needs an office owner's reach, which PATCH /api/agents/:id does not.

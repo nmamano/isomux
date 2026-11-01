@@ -68,6 +68,7 @@ import type { AgentEvent } from "../internal-types.ts";
 import type { ContextUsage } from "../backends/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
 
 type Manager = ReturnType<typeof createAgentManager>;
 
@@ -358,6 +359,97 @@ describe("session lifecycle: replaceSession closes, drains, then installs", () =
     const sessions = sessionsFor(lane.fake, agent.id);
     expect(sessions.length).toBe(2);
     expect(sessions[1].sent).toEqual([]);
+  });
+});
+
+// The access slider (task e77304b1): the tools and the token of a session
+// are fixed when it is built, so the session that ends up live must be built
+// after the last access change.
+describe("session lifecycle: access change during a swap drain", () => {
+  it("a move down while another swap drains still ends on a session built for the new stop", async () => {
+    const lane = makeLane(parkingBackend({ hangOnClose: true }));
+    const agent = await spawnLazy(lane.mgr, "claude");
+    const old = await wakeToIdle(lane, agent.id);
+
+    // A settings swap (not an access change, so not queued behind one) parks
+    // on the old consumer's drain; its replacement was built for Standard.
+    expect(agentOf(lane.mgr, agent.id).effort).not.toBe("low");
+    const swap = lane.mgr.editAgent(agent.id, { effort: "low" });
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping === true,
+      "swap draining",
+    );
+    expect(sessionsFor(lane.fake, agent.id)).toHaveLength(2);
+
+    // The member moves the agent below Standard inside that window.
+    const moved = await lane.mgr.setAccess(agent.id, {
+      access: "office",
+      pack: { areas: { tasks: "read" } },
+    });
+    expect(moved).toMatchObject({ access: "office" });
+
+    old.endStream();
+    await swap;
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+      "swaps settled",
+    );
+    // The live session (the last one built, not closed) carries the token the
+    // office stop minted, not the one the drained swap was built with.
+    const live = sessionsFor(lane.fake, agent.id).filter((s) => !s.closed);
+    expect(live).toHaveLength(1);
+    expect(live[0].opts.env?.ISOMUX_AGENT_TOKEN).toBe(
+      getAgentTokenRaw(agent.id)!,
+    );
+  });
+
+  it("a move down mid-turn on an engine that cannot abort in place still moves, and ends the turn's session", async () => {
+    const lane = makeLane(parkingBackend());
+    const agent = await spawnLazy(lane.mgr, "claude");
+    const running = await parkHumanTurn(lane, agent.id, "long job");
+    // As ClaudeSession: no in-place abort, and abort() rejects.
+    expect(running.canAbortInPlace()).toBe(false);
+    running.abort = () => Promise.reject(new Error("no in-place abort"));
+
+    const moved = await lane.mgr.setAccess(agent.id, {
+      access: "office",
+      pack: { areas: { tasks: "read" } },
+    });
+    expect(moved).toMatchObject({ access: "office" });
+    expect(running.closed).toBe(true);
+    const sessions = sessionsFor(lane.fake, agent.id);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[1].opts.env?.ISOMUX_AGENT_TOKEN).toBe(
+      getAgentTokenRaw(agent.id)!,
+    );
+  });
+
+  it("a kill while a move down waits on the abort leaves no live token", async () => {
+    const lane = makeLane(parkingBackend());
+    const agent = await spawnLazy(lane.mgr, "claude");
+    const running = await parkHumanTurn(lane, agent.id, "long job");
+    // An engine that stops a turn in place (not Claude), and takes its time.
+    running.canAbortInPlace = () => true;
+    let releaseAbort!: () => void;
+    running.abort = () =>
+      new Promise<void>((resolve) => {
+        running.abortCount++;
+        releaseAbort = resolve;
+      });
+    openGates.push(() => releaseAbort?.());
+
+    const move = lane.mgr.setAccess(agent.id, {
+      access: "office",
+      pack: { areas: { tasks: "read" } },
+    });
+    await waitUntil(() => running.abortCount > 0, "abort in flight");
+    await lane.mgr.kill(agent.id);
+    expect(getAgentTokenRaw(agent.id)).toBeNull();
+
+    releaseAbort();
+    await move;
+    expect(lane.mgr.getAllAgents().some((a) => a.id === agent.id)).toBe(false);
+    expect(getAgentTokenRaw(agent.id)).toBeNull();
   });
 });
 

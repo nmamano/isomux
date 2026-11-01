@@ -827,6 +827,7 @@ export class OfficeState {
       username?: string;
       roomId?: string;
       createdByAgentId?: string;
+      limited?: true;
       external?: TaskExternal;
     },
   ): OfficeEvent[] {
@@ -850,6 +851,7 @@ export class OfficeState {
       ...(opts?.createdByAgentId
         ? { createdByAgentId: opts.createdByAgentId }
         : {}),
+      ...(opts?.limited ? { limited: true as const } : {}),
       username: opts?.username,
       createdAt: Date.now(),
       ...(roomId ? { roomId } : {}),

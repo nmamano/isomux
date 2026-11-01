@@ -34,6 +34,7 @@ export const AUDIT_OPERATIONS = [
   "agents.saveFile",
   "agents.sendMessage",
   "agents.sendNow",
+  "agents.setAccess",
   "agents.setManager",
   "agents.setInstructions",
   "agents.setPrivileged",

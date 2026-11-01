@@ -3048,6 +3048,8 @@ App 的一些原则：
     "只有当创建此定时任务的智能体 {agent} 处于“从不询问”模式并拥有完全访问（无 sandbox）时，此定时任务才会运行，因为定时任务在无人在场时运行。请给 {agent} 该权限，或删除此定时任务后自行重新创建。",
   "systemEntries.scheduleRun.limit.modeCodexSandbox":
     "只有当创建此定时任务的智能体 {agent} 处于“从不询问”模式，且其 sandbox 至少与此定时任务同样宽时，此定时任务才会运行，因为定时任务在无人在场时运行。请给 {agent} 该权限，或删除此定时任务后自行重新创建。",
+  "systemEntries.scheduleRun.limit.access":
+    "创建此定时任务的智能体 {agent} 低于标准级别，因此它不会运行。请将 {agent} 调回标准级别，或删除此定时任务后自行重新创建。",
   "systemEntries.scheduleRun.limit.folder":
     "此定时任务在智能体 {agent}（创建它的智能体）的工作文件夹之外运行。请修改定时任务或智能体的文件夹。",
   "systemEntries.claudeAuth.connected":

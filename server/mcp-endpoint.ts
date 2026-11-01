@@ -1,8 +1,10 @@
 // The office's MCP server at /mcp (streamable HTTP, stateless). A member adds
 // it to Claude, Claude Code or Codex with a personal API token as the bearer.
-// Each tool call is one office route, run through the REST executor as the
-// token's identity, so the route's authorization, preconditions, audit row
-// and room projection apply unchanged.
+// An agent below Standard (office, folder and web stops) reaches the office
+// only here, with its own token and its pack as the limits. Each tool call is
+// one office route, run through the REST executor as the token's identity, so
+// the route's authorization, preconditions, audit row and room projection
+// apply unchanged.
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
@@ -14,6 +16,8 @@ import { routeAllowedByLimits } from "../shared/api-token-limits.ts";
 import { matchRoute } from "./routes/match.ts";
 import { API_ROUTES } from "./routes/table.ts";
 
+export type McpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
 export interface McpDispatchResult {
   status: number;
   body: unknown;
@@ -24,7 +28,7 @@ export interface McpEndpointDeps {
   // `via: "mcp"` in the handler context.
   dispatch(
     identity: Identity,
-    method: "GET" | "POST",
+    method: McpMethod,
     path: string,
     body?: unknown,
   ): Promise<McpDispatchResult>;
@@ -42,7 +46,8 @@ const DEFAULT_CONVERSATION_LIMIT = 20;
 const MAX_CONVERSATION_LIMIT = 100;
 
 // One JSON-RPC exchange of the MCP streamable HTTP transport. The caller has
-// already resolved `identity` to a personal API token.
+// already resolved `identity` to a personal API token or to the token of an
+// agent at the office, folder or web stop.
 export async function handleMcpRequest(
   req: Request,
   identity: Identity,
@@ -80,11 +85,16 @@ function buildServer(
   requestSignal: AbortSignal,
 ): McpServer {
   const server = new McpServer({ name: "isomux", version: "1.0.0" });
-  const call = (method: "GET" | "POST", path: string, body?: unknown) =>
+  // The SDK answers tools/list only once a tool was registered, and a pack can
+  // grant none: a placeholder registered and removed at once makes the list
+  // an empty one instead of "method not found".
+  server.registerTool("placeholder", {}, () => json(null)).remove();
+  const call = (method: McpMethod, path: string, body?: unknown) =>
     deps.dispatch(identity, method, path, body);
+  const asAgent = identity.scope === "agent" && !!identity.agentId;
   // A tool is listed only when the token's limits let it call every route the
   // tool uses.
-  const mayCall = (...routes: Array<["GET" | "POST", string]>) =>
+  const mayCall = (...routes: Array<[McpMethod, string]>) =>
     routes.every(([method, path]) => {
       const match = matchRoute(API_ROUTES, method, path);
       return (
@@ -174,8 +184,9 @@ function buildServer(
     server.registerTool(
       "send_message",
       {
-        description:
-          "Send a message to an agent as the member. Returns the sequence of the message in this token's log; pass it to read_replies as `after`. The agent's reply can take minutes.",
+        description: asAgent
+          ? "Send a message to an agent as yourself. Its reply comes to your chat and can take minutes."
+          : "Send a message to an agent as the member. Returns the sequence of the message in this token's log; pass it to read_replies as `after`. The agent's reply can take minutes.",
         inputSchema: {
           agentId: z.string().min(1),
           text: z.string().min(1),
@@ -198,19 +209,37 @@ function buildServer(
         if (res.status !== 200) return routeError(res);
         const sent = res.body as {
           messageId: string;
-          sentAt: number;
-          sequence: number;
+          sentAt?: number;
+          sequence?: number;
         };
-        return json({
-          messageId: sent.messageId,
-          sentAt: sent.sentAt,
-          sequence: sent.sequence,
-        });
+        return json(
+          asAgent
+            ? { messageId: sent.messageId }
+            : {
+                messageId: sent.messageId,
+                sentAt: sent.sentAt,
+                sequence: sent.sequence,
+              },
+        );
       },
     );
   }
 
-  if (mayCall(["POST", "/api/me/api-token-inbox/drain"])) {
+  registerTaskTools(server, call, mayCall);
+  if (asAgent)
+    registerAskTools(
+      server,
+      call,
+      mayCall,
+      `/api/agents/${encodeURIComponent(identity.agentId ?? "")}/asks`,
+    );
+
+  // The token's own inbox: an API token's only. An agent's replies come to
+  // its chat.
+  if (
+    identity.scope === "api" &&
+    mayCall(["POST", "/api/me/api-token-inbox/drain"])
+  ) {
     server.registerTool(
       "read_replies",
       {
@@ -263,6 +292,197 @@ function buildServer(
   }
 
   return server;
+}
+
+type Call = (
+  method: McpMethod,
+  path: string,
+  body?: unknown,
+) => Promise<McpDispatchResult>;
+type MayCall = (...routes: Array<[McpMethod, string]>) => boolean;
+
+const TASK_PRIORITY = z.enum(["P0", "P1", "P2", "P3", "P4"]);
+const TASK_STATUS = z.enum(["open", "in_progress", "done", "obsolete"]);
+
+// The task board tools, by the tasks area.
+function registerTaskTools(server: McpServer, call: Call, mayCall: MayCall) {
+  const taskPath = (id: string) => `/api/tasks/${encodeURIComponent(id)}`;
+  const reply = (res: McpDispatchResult) =>
+    res.status >= 200 && res.status < 300 ? json(res.body) : routeError(res);
+
+  if (mayCall(["GET", "/api/tasks"])) {
+    server.registerTool(
+      "list_tasks",
+      {
+        description:
+          "List the tasks on the board you can see. Without a status: the open and in-progress tasks, P4 left out. assignee and title (text in the title) narrow the list.",
+        inputSchema: {
+          status: z.enum([...TASK_STATUS.options, "all"]).optional(),
+          assignee: z.string().min(1).optional(),
+          title: z.string().min(1).optional(),
+        },
+        annotations: { readOnlyHint: true },
+      },
+      async ({ status, assignee, title }) => {
+        const query = new URLSearchParams();
+        if (status) query.set("status", status);
+        if (assignee) query.set("assignee", assignee);
+        if (title) query.set("title", title);
+        const qs = query.size > 0 ? `?${query}` : "";
+        return reply(await call("GET", `/api/tasks${qs}`));
+      },
+    );
+  }
+  if (mayCall(["GET", "/api/tasks/_"])) {
+    server.registerTool(
+      "get_task",
+      {
+        description: "Read one task by its id.",
+        inputSchema: { id: z.string().min(1) },
+        annotations: { readOnlyHint: true },
+      },
+      async ({ id }) => reply(await call("GET", taskPath(id))),
+    );
+  }
+  if (mayCall(["POST", "/api/tasks"])) {
+    server.registerTool(
+      "create_task",
+      {
+        description: "File a new task on the board.",
+        inputSchema: {
+          title: z.string().min(1),
+          description: z.string().optional(),
+          priority: TASK_PRIORITY.optional(),
+          assignee: z.string().min(1).optional(),
+        },
+      },
+      async (args) => reply(await call("POST", "/api/tasks", args)),
+    );
+  }
+  if (mayCall(["PATCH", "/api/tasks/_"])) {
+    server.registerTool(
+      "update_task",
+      {
+        description:
+          "Change a task. version is the task's version from your latest read; a stale one fails with the current task. priority null clears it; assignee null clears it.",
+        inputSchema: {
+          id: z.string().min(1),
+          version: z.string().min(1),
+          title: z.string().min(1).optional(),
+          description: z.string().optional(),
+          priority: TASK_PRIORITY.nullable().optional(),
+          status: TASK_STATUS.optional(),
+          assignee: z.string().min(1).nullable().optional(),
+        },
+      },
+      async ({ id, ...body }) => reply(await call("PATCH", taskPath(id), body)),
+    );
+  }
+  if (mayCall(["POST", "/api/tasks/_/claim"])) {
+    server.registerTool(
+      "claim_task",
+      {
+        description:
+          "Claim a task: it moves to in_progress with the assignee you name (no assignee keeps the current one).",
+        inputSchema: {
+          id: z.string().min(1),
+          assignee: z.string().min(1).optional(),
+        },
+      },
+      async ({ id, assignee }) =>
+        reply(
+          await call(
+            "POST",
+            `${taskPath(id)}/claim`,
+            assignee ? { assignee } : {},
+          ),
+        ),
+    );
+  }
+  if (mayCall(["POST", "/api/tasks/_/done"])) {
+    server.registerTool(
+      "complete_task",
+      {
+        description: "Mark a task done.",
+        inputSchema: { id: z.string().min(1) },
+      },
+      async ({ id }) => reply(await call("POST", `${taskPath(id)}/done`)),
+    );
+  }
+}
+
+// An agent's own asks, by the asks area at write. Answering an ask stays the
+// member's.
+function registerAskTools(
+  server: McpServer,
+  call: Call,
+  mayCall: MayCall,
+  asksPath: string,
+) {
+  const askPath = (askId: string) => `${asksPath}/${encodeURIComponent(askId)}`;
+  const reply = (res: McpDispatchResult) =>
+    res.status >= 200 && res.status < 300 ? json(res.body) : routeError(res);
+  const ASK_OPTIONS = z.array(z.string().min(1)).min(1).max(10);
+
+  if (mayCall(["POST", asksPath])) {
+    server.registerTool(
+      "open_ask",
+      {
+        description:
+          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat.",
+        inputSchema: {
+          prompt: z.string().min(1),
+          options: ASK_OPTIONS.optional(),
+          recommended: z.string().min(1).optional(),
+          priority: TASK_PRIORITY.optional(),
+        },
+      },
+      async (args) => reply(await call("POST", asksPath, args)),
+    );
+  }
+  if (mayCall(["GET", asksPath])) {
+    server.registerTool(
+      "list_my_asks",
+      {
+        description: "List your open asks.",
+        annotations: { readOnlyHint: true },
+      },
+      async () => reply(await call("GET", asksPath)),
+    );
+  }
+  if (mayCall(["PATCH", askPath("_")])) {
+    server.registerTool(
+      "edit_ask",
+      {
+        description:
+          "Change one of your open asks. An absent field keeps its value; options [] removes them; priority null removes it.",
+        inputSchema: {
+          askId: z.string().min(1),
+          prompt: z.string().min(1).optional(),
+          options: z.array(z.string().min(1)).max(10).optional(),
+          recommended: z.string().optional(),
+          priority: TASK_PRIORITY.nullable().optional(),
+        },
+      },
+      async ({ askId, ...body }) =>
+        reply(await call("PATCH", askPath(askId), body)),
+    );
+  }
+  if (mayCall(["DELETE", askPath("_")])) {
+    server.registerTool(
+      "delete_ask",
+      {
+        description: "Delete one of your open asks.",
+        inputSchema: { askId: z.string().min(1) },
+      },
+      async ({ askId }) => {
+        const res = await call("DELETE", askPath(askId));
+        return res.status >= 200 && res.status < 300
+          ? json({ deleted: askId })
+          : routeError(res);
+      },
+    );
+  }
 }
 
 interface AgentRow {

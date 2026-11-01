@@ -50,6 +50,7 @@ import {
   type HandlerErrorStatus,
 } from "../executor.ts";
 import { AppRegistryError } from "../../app-registry.ts";
+import { FOLDER_NOT_ALLOWED } from "../../../shared/agent-access.ts";
 import {
   APP_LOG_LINES_DEFAULT,
   AppSupervisorError,
@@ -179,6 +180,9 @@ export interface AppsDeps {
   validateCwd(
     cwd: string,
   ): { ok: true; resolved: string } | { ok: false; error: string };
+  // Why an app may not work in this resolved folder (it overlaps the folder
+  // of an agent below Standard), or null.
+  folderRefusal?(cwd: string): string | null;
   projectForList(
     identity: Identity,
     record: AppRecord,
@@ -589,6 +593,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       // it does for an agent's own cwd, and so the stored path is absolute.
       const cwd = deps.validateCwd(body.cwd);
       if (!cwd.ok) return fail(400, "invalid_cwd", cwd.error);
+      const folderErr = deps.folderRefusal?.(cwd.resolved);
+      if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
 
       const { createdBy, username } = deps.attributionFor(ctx.identity);
       try {
@@ -819,6 +825,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           // routes and what is stored is absolute.
           const resolved = deps.validateCwd(body.cwd);
           if (!resolved.ok) return fail(400, "invalid_cwd", resolved.error);
+          const folderErr = deps.folderRefusal?.(resolved.resolved);
+          if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
           cwd = resolved.resolved;
         }
 

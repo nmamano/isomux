@@ -3392,6 +3392,8 @@ Cosas que puedes hacer por él:
     "Esta programación solo se ejecuta mientras {agent}, el agente que la creó, está en No preguntar nunca con acceso total (sin sandbox), porque una programación se ejecuta sin nadie presente. Da ese acceso a {agent}, o elimina la programación y vuelve a crearla tú.",
   "systemEntries.scheduleRun.limit.modeCodexSandbox":
     "Esta programación solo se ejecuta mientras {agent}, el agente que la creó, está en No preguntar nunca con un sandbox al menos tan amplio como el de la programación, porque una programación se ejecuta sin nadie presente. Da ese acceso a {agent}, o elimina la programación y vuelve a crearla tú.",
+  "systemEntries.scheduleRun.limit.access":
+    "Esta programación no se ejecuta mientras {agent}, el agente que la creó, esté por debajo de Estándar. Vuelve a poner {agent} en Estándar, o elimina la programación y créala de nuevo tú.",
   "systemEntries.scheduleRun.limit.folder":
     "Esta programación se ejecuta fuera de la carpeta de trabajo de {agent}, el agente que la creó. Cambia la carpeta de la programación o del agente.",
   "systemEntries.claudeAuth.connected":

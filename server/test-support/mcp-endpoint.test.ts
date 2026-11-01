@@ -239,7 +239,8 @@ describe("/mcp authentication", () => {
       Origin: "https://claude.ai",
     });
 
-    // The four tools; clients auto-approve the ones marked read-only.
+    // Clients auto-approve the tools marked read-only. The asks tools are an
+    // agent's own asks (task e77304b1): an API token has none.
     const { tools } = await client.listTools();
     const readOnly = Object.fromEntries(
       tools.map((tool) => [tool.name, tool.annotations?.readOnlyHint === true]),
@@ -249,6 +250,12 @@ describe("/mcp authentication", () => {
       read_conversation: true,
       send_message: false,
       read_replies: false,
+      list_tasks: true,
+      get_task: true,
+      create_task: false,
+      update_task: false,
+      claim_task: false,
+      complete_task: false,
     });
   });
 });
@@ -275,7 +282,26 @@ describe("/mcp limited tokens", () => {
         { agents: "write" },
         ["list_agents", "read_replies", "send_message"],
       ],
-      ["unrelated areas", { tasks: "write", memory: "read" }, ["read_replies"]],
+      ["unrelated areas", { memory: "read", asks: "write" }, ["read_replies"]],
+      // Task e77304b1: the task tools follow the tasks area.
+      [
+        "tasks read",
+        { tasks: "read" },
+        ["get_task", "list_tasks", "read_replies"],
+      ],
+      [
+        "tasks write",
+        { tasks: "write" },
+        [
+          "claim_task",
+          "complete_task",
+          "create_task",
+          "get_task",
+          "list_tasks",
+          "read_replies",
+          "update_task",
+        ],
+      ],
     ];
     for (const [label, areas, expected] of cases) {
       const response = await srv.http("/api/me/api-tokens", {
@@ -297,14 +323,20 @@ describe("/mcp limited tokens", () => {
         tools: expected,
       });
     }
-    // A token without limits keeps all four.
+    // A token without limits keeps them all.
     const full = await mintToken(srv, owner.rawSessionId);
     const { tools } = await (await connect(srv, full.token)).listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "claim_task",
+      "complete_task",
+      "create_task",
+      "get_task",
       "list_agents",
+      "list_tasks",
       "read_conversation",
       "read_replies",
       "send_message",
+      "update_task",
     ]);
   });
 });

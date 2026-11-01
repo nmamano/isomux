@@ -1590,6 +1590,33 @@ describe("schedules an ordinary agent makes", () => {
     return (parts![0] as LogMessage).key;
   }
 
+  // Task e77304b1: an agent below Standard has no tool to make or run a
+  // schedule, and its old schedules do not run past its stop: each run start
+  // refuses them until the member moves the agent back up.
+  it("a schedule an agent made does not run while the agent is below Standard, and runs again back at Standard", async () => {
+    const { srv, asAlice, bot, home } = await office();
+    const job = await create(srv, bot.as, createBody(home));
+    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
+      STARTED_RUN,
+    );
+    const moveTo = (body: unknown) =>
+      api(srv, `/api/agents/${bot.info.id}/access`, asAlice, {
+        method: "PUT",
+        body,
+      });
+    expect(
+      (await moveTo({ access: "office", pack: { areas: { tasks: "read" } } }))
+        .status,
+    ).toBe(200);
+    const refused = await memberRun(srv, asAlice, job.id);
+    expect(refusedAtStart(refused)).toEqual(REFUSED_RUN);
+    expect(wordedRefusalKey(refused, "Bot")).toBeDefined();
+    expect((await moveTo({ access: "standard" })).status).toBe(200);
+    expect(refusedAtStart(await memberRun(srv, asAlice, job.id))).toEqual(
+      STARTED_RUN,
+    );
+  });
+
   it("an ordinary agent creates, reads, edits, runs and deletes its own schedule", async () => {
     const { srv, roomA, aliceId, bot, home } = await office();
     const job = await create(srv, bot.as, createBody(home));

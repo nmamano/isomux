@@ -1,4 +1,10 @@
 import type { AgentSystemPromptPreviewReq } from "../../../shared/contract-shapes.ts";
+import {
+  AGENT_ACCESS_STOPS,
+  FOLDER_NOT_ALLOWED,
+  parseAgentAccessGrant,
+  type AgentAccessGrant,
+} from "../../../shared/agent-access.ts";
 // Agent-lifecycle resource handlers. The agent
 // spawn/kill/revive/abort/edit + move/swap-desks/topic mutation surface on the
 // unified REST surface (every op caps `agent:manage`; spawn and kill also take
@@ -121,6 +127,11 @@ import type {
 // compound logic (validateCwd / saveRecentCwd / spawn null-disambiguation) and
 // return a `reason` the handler maps to a status + stable error code. spawn/edit
 // codes drive the EditAgentDialog field routing (name_taken -> name field).
+export interface AccessRefusal {
+  refused: "engine_below_standard" | typeof FOLDER_NOT_ALLOWED;
+  message: string;
+}
+
 export type SpawnResult =
   | { ok: true; agent: AgentInfo }
   | {
@@ -134,6 +145,7 @@ export type SpawnResult =
         | "invalid_model_family"
         | typeof SPAWN_EXCEEDS_AGENT
         | typeof SPAWN_LIMIT
+        | typeof FOLDER_NOT_ALLOWED
         | "spawn_failed";
       message: string;
     };
@@ -145,6 +157,8 @@ export type EditResult =
         | "invalid_cwd"
         | "agent_not_found"
         | "invalid_model_family"
+        | "engine_below_standard"
+        | typeof FOLDER_NOT_ALLOWED
         | "edit_failed";
       message: string;
     }
@@ -265,11 +279,20 @@ export interface AgentsDeps {
   // agent-manager.setPrivileged). Authorization (a USER with room access, never
   // an agent) is the route guard's job; this just applies the mutation. Returns
   // the updated agent, or null for a killed/unknown agent (the guard already
-  // rejects those -> defensive 404).
+  // rejects those -> defensive 404). "below_standard": the agent is at a stop
+  // below Standard, where only agents.setAccess moves it.
   setPrivileged(
     agentId: string,
     privileged: boolean,
-  ): Promise<AgentInfo | null>;
+  ): Promise<AgentInfo | null | "below_standard">;
+  // Moves the agent to a stop on the access slider (agent-manager.setAccess).
+  // Authorization is the route guard's job. Null for a killed or unknown
+  // agent; a refusal (422) when its engine cannot run the stop yet or its
+  // folder breaks the folder rules.
+  setAccess(
+    agentId: string,
+    grant: AgentAccessGrant,
+  ): Promise<AgentInfo | null | AccessRefusal>;
   // Gives the agent a new manager (task 6a9deaba): the agent's fields and
   // token, a fresh conversation, and the apps, schedules and webhooks it made.
   // Authorization (an office owner by cookie session) is the route guard's
@@ -409,6 +432,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         !b.name.trim() ||
         typeof b.instructions !== "string" ||
         typeof b.privileged !== "boolean" ||
+        (b.access !== undefined &&
+          !(AGENT_ACCESS_STOPS as readonly unknown[]).includes(b.access)) ||
         !["claude", "codex", "opencode"].includes(b.agentType ?? "") ||
         (b.agentId !== undefined && typeof b.agentId !== "string") ||
         (b.memory !== undefined && typeof b.memory !== "string") ||
@@ -617,7 +642,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
                 ? 500
                 : r.reason === "room_not_found"
                   ? 404
-                  : r.reason === "invalid_model_family"
+                  : r.reason === "invalid_model_family" ||
+                      r.reason === FOLDER_NOT_ALLOWED
                     ? 422
                     : 409;
       return fail(status, r.reason, r.message);
@@ -715,7 +741,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
             ? 400
             : r.reason === "agent_not_found"
               ? 404
-              : r.reason === "invalid_model_family"
+              : r.reason === "invalid_model_family" ||
+                  r.reason === "engine_below_standard" ||
+                  r.reason === FOLDER_NOT_ALLOWED
                 ? 422
                 : 400;
         return fail(status, r.reason, r.message);
@@ -751,6 +779,28 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       }
       const agent = await deps.setPrivileged(ctx.params.id, b.privileged);
       if (!agent) return fail(404, "agent_not_found", "Agent not found");
+      if (agent === "below_standard")
+        return fail(
+          409,
+          "below_standard",
+          "This agent is below Standard. Move it with PUT /api/agents/:id/access.",
+        );
+      return ok({ agent });
+    },
+
+    "agents.setAccess": async (ctx) => {
+      // Double-gated like agents.setPrivileged. The body is a stop, with a
+      // pack exactly at office, folder and web.
+      const grant = parseAgentAccessGrant(ctx.body);
+      if (!grant)
+        return fail(
+          422,
+          "invalid_request",
+          "access must be a stop (chat, office, folder, web, standard, privileged), with a pack (token limits with areas) only at office, folder and web",
+        );
+      const agent = await deps.setAccess(ctx.params.id, grant);
+      if (!agent) return fail(404, "agent_not_found", "Agent not found");
+      if ("refused" in agent) return fail(422, agent.refused, agent.message);
       return ok({ agent });
     },
   };

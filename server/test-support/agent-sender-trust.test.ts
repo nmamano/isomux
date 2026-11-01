@@ -279,6 +279,32 @@ describe("the label marker comes from the tokens at delivery", () => {
     expect(labels(text).map((l) => l.marker)).toEqual([SAME_PRIVILEGED]);
   });
 
+  // Task e77304b1: an agent below Standard reads text from strangers and
+  // carries no trust, whoever its manager is. "limited" is the marker.
+  it('a sender below Standard gets "limited" and never "same manager"', async () => {
+    const fake = fakeBackend();
+    const mgr = makeManager(fake);
+    const recv = await spawnAs(mgr, "Receiver", "user-1");
+    const same = await spawnAs(mgr, "Triage", "user-1");
+    const other = await spawnAs(mgr, "Other triage", "user-2");
+    for (const id of [same.id, other.id]) {
+      expect(
+        await mgr.setAccess(id, {
+          access: "office",
+          pack: { areas: { agents: "write" } },
+        }),
+      ).toMatchObject({ id, access: "office" });
+    }
+    const text = await deliver(mgr, fake, recv.id, [
+      { sender: senderOf(mgr, same.id), text: "from my triage" },
+      { sender: senderOf(mgr, other.id), text: "from theirs" },
+    ]);
+    expect(labels(text).map((l) => [l.id, l.marker])).toEqual([
+      [same.id, ", limited"],
+      [other.id, ", limited"],
+    ]);
+  });
+
   it("a privilege revoked after the send and before the delivery is gone from the label", async () => {
     const fake = fakeBackend();
     const mgr = makeManager(fake);

@@ -20,6 +20,7 @@
 // LEAF over the executor, shared types and the schedule limits
 // (cron-agent-limits.ts). Only the injected CronDeps surface.
 
+import { FOLDER_NOT_ALLOWED } from "../../../shared/agent-access.ts";
 import {
   ok,
   created,
@@ -149,6 +150,9 @@ export interface CronDeps {
     username: string | undefined;
   };
   validateCwd(cwd: string): string | null;
+  // The overlap of `cwd` with the folder of an agent at the folder or web
+  // stop (server/agent-folder-rules.ts), else null.
+  folderRefusal?(cwd: string): string | null;
   saveRecentCwd(cwd: string): void;
   modelFamilyError(
     agentType: Cronjob["agentType"],
@@ -301,6 +305,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       }
       const cwdErr = deps.validateCwd(body.cwd);
       if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
+      const folderErr = deps.folderRefusal?.(body.cwd);
+      if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
       const familyErr = deps.modelFamilyError(
         body.agentType ?? "claude",
         body.modelFamily,
@@ -363,6 +369,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       if (body.cwd !== undefined) {
         const cwdErr = deps.validateCwd(body.cwd);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
+        const folderErr = deps.folderRefusal?.(body.cwd);
+        if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
       }
       if (body.modelFamily !== undefined || body.agentType !== undefined) {
         const existing = deps
