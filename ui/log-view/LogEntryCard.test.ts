@@ -13,6 +13,7 @@ import {
   serializeEntries,
 } from "./LogEntryCard.tsx";
 import { translatorFor } from "../../shared/i18n/translate.ts";
+import { formatApiTokenDevice } from "../../shared/identity.ts";
 
 const EN = translatorFor("en");
 
@@ -99,6 +100,49 @@ describe("chatCopyText", () => {
     expect(chatCopyText(EN, noMessage, "lastExchange")).toBe(
       serializeEntries(EN, noMessage),
     );
+  });
+
+  // Task 30cd9913. Each send that is not the viewer typing carries the
+  // viewer's name too, so the name alone cannot tell them apart.
+  const sent = (content: string, metadata?: LogEntry["metadata"]) => ({
+    ...entry("user_message", content),
+    metadata,
+  });
+  const mixed: LogEntry[] = [
+    sent(String.raw`Mine A, \$5`, { username: "Nil" }),
+    { ...entry("tool_call", "Bash"), metadata: { input: "echo one" } },
+    entry("tool_result", "RESULT-1"),
+    entry("text", "Reply A"),
+    sent("Other member", { username: "Ana" }),
+    sent("Agent send", {
+      username: "Nil",
+      sender_agent_name: "Peer",
+      sender_agent_room: "Room",
+    }),
+    sent("Token send", {
+      username: "Nil",
+      device: formatApiTokenDevice("ci", "pat-1"),
+    }),
+    sent("No name"),
+    sent("Mine B", { username: "nil", device: "Phone" }),
+    entry("text", "Reply B"),
+  ];
+
+  it("My messages keeps what the viewer typed, in order, and nothing else", () => {
+    // The name matches whatever its case or surrounding spaces.
+    for (const self of ["Nil", " NIL "])
+      expect(chatCopyText(EN, mixed, "myMessages", self)).toBe(
+        [String.raw`Mine A, \$5`, "Mine B"].join("\n\n"),
+      );
+  });
+
+  it("My messages keeps every message a member typed when the viewer has no name", () => {
+    for (const self of [null, undefined, "", "  "])
+      expect(chatCopyText(EN, mixed, "myMessages", self)).toBe(
+        [String.raw`Mine A, \$5`, "Other member", "No name", "Mine B"].join(
+          "\n\n",
+        ),
+      );
   });
 });
 

@@ -235,14 +235,37 @@ export function serializeEntries(
 }
 
 // What the chat bar's Copy puts on the clipboard: the member and agent
-// messages, everything serializeEntries copies, or the last exchange.
-export type ChatCopyScope = "messages" | "everything" | "lastExchange";
+// messages, the viewer's own messages, everything serializeEntries copies, or
+// the last exchange. `self` is the viewer's name; only myMessages reads it.
+export type ChatCopyScope =
+  | "messages"
+  | "myMessages"
+  | "everything"
+  | "lastExchange";
 
 export function chatCopyText(
   i18n: Translator,
   entries: LogEntry[],
   scope: ChatCopyScope,
+  self?: string | null,
 ): string {
+  if (scope === "myMessages") {
+    // A viewer with no name (an office without sign-in) gets every message a
+    // member sent.
+    const me = self?.trim().toLowerCase();
+    return serializeEntries(
+      i18n,
+      entries.filter(
+        (e) =>
+          e.kind === "user_message" &&
+          senderIsHuman(e.metadata) &&
+          (!me ||
+            (e.metadata?.username as string | undefined)
+              ?.trim()
+              .toLowerCase() === me),
+      ),
+    );
+  }
   if (scope === "messages")
     return serializeEntries(
       i18n,

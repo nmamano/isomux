@@ -85,7 +85,7 @@ import { lazyComponent } from "../lazy-component.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
-import { getDevice } from "../device-settings.ts";
+import { getDevice, getUsername } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { SkillsPopover, type CommandEntry } from "./SkillsPopover.tsx";
@@ -1359,7 +1359,12 @@ export function LogView({
 
   const handleCopy = useCallback(
     async (scope: ChatCopyScope) => {
-      const text = chatCopyText(i18n, logs, scope);
+      const text = chatCopyText(
+        i18n,
+        logs,
+        scope,
+        sessionContext?.username ?? getUsername(),
+      );
       try {
         await navigator.clipboard.writeText(text);
       } catch {
@@ -1376,7 +1381,7 @@ export function LogView({
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(false), 1500);
     },
-    [i18n, logs],
+    [i18n, logs, sessionContext?.username],
   );
 
   // Returns whether the command was handed to the outbox, so a caller that
@@ -1426,6 +1431,11 @@ export function LogView({
                 id: "messages",
                 label: i18n.t("logView.nav.copyMessages"),
                 onClick: () => void handleCopy("messages"),
+              },
+              {
+                id: "myMessages",
+                label: i18n.t("logView.nav.copyMyMessages"),
+                onClick: () => void handleCopy("myMessages"),
               },
               {
                 id: "everything",

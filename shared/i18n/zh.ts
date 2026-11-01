@@ -1894,6 +1894,7 @@ App 的一些原则：
   "logView.nav.agentTitle": "智能体设置",
   "logView.nav.copyTitle": "复制聊天",
   "logView.nav.copyMessages": "仅消息",
+  "logView.nav.copyMyMessages": "仅我的消息",
   "logView.nav.copyEverything": "全部",
   "logView.nav.copyLastExchange": "最近一轮对话",
   "logView.nav.avatarTitle": "查看头像",

@@ -1,5 +1,5 @@
-// The chat bar's Copy offers what to copy (task c630195a): each choice puts
-// its own text on the clipboard. What each text holds is pinned in
+// The chat bar's Copy offers what to copy (tasks c630195a, 30cd9913): each
+// choice puts its own text on the clipboard. What each text holds is pinned in
 // LogEntryCard.test.ts; this file pins that each choice reaches it.
 
 import { afterAll, afterEach, beforeEach, expect, it } from "bun:test";
@@ -17,6 +17,8 @@ const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
 type LogEntry = import("../../shared/types.ts").LogEntry;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
+type AppState = import("../store.tsx").AppState;
+const EN = translatorFor("en");
 const agent = {
   id: "a1",
   name: "Worker",
@@ -51,6 +53,7 @@ const clipboardDescriptor = Object.getOwnPropertyDescriptor(
 let copied: string[] = [];
 beforeEach(() => {
   copied = [];
+  localStorage.setItem("isomux-username", "Other");
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {
@@ -61,6 +64,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  localStorage.removeItem("isomux-username");
   if (clipboardDescriptor)
     Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
   else Reflect.deleteProperty(navigator, "clipboard");
@@ -75,20 +79,28 @@ function entry(
   return { id, agentId: agent.id, timestamp: 1, kind, content, metadata };
 }
 
+// The viewer is Tester (the fixture's session); the browser's saved name is
+// Other, so a view that read the wrong one copies the wrong message.
 const logs: LogEntry[] = [
-  entry("u1", "user_message", "First ask."),
+  entry("u1", "user_message", "First ask.", { username: "Tester" }),
   entry("c1", "tool_call", "Bash", { toolId: "t1", input: "echo one" }),
   entry("r1", "tool_result", "one", { toolUseId: "t1" }),
   entry("x1", "text", "First reply."),
-  entry("u2", "user_message", "Second ask."),
+  entry("u2", "user_message", "Second ask.", { username: "Other" }),
   entry("c2", "tool_call", "Bash", { toolId: "t2", input: "echo two" }),
   entry("r2", "tool_result", "two", { toolUseId: "t2" }),
   entry("x2", "text", "Second reply."),
 ];
 
-it("each Copy choice puts its own text on the clipboard", async () => {
-  const EN = translatorFor("en");
-  const scopes = ["messages", "everything", "lastExchange"] as const;
+const scopes = [
+  "messages",
+  "myMessages",
+  "everything",
+  "lastExchange",
+] as const;
+
+// Clicks each Copy choice in menu order and returns what each one copied.
+async function copyEach(over: Partial<AppState>): Promise<string[]> {
   const view = render(
     onLanguage(
       null,
@@ -101,6 +113,7 @@ it("each Copy choice puts its own text on the clipboard", async () => {
         hasReceivedInitialState: true,
         connected: true,
         isMobile: false,
+        ...over,
       },
     ),
   );
@@ -109,11 +122,6 @@ it("each Copy choice puts its own text on the clipboard", async () => {
   );
   // Copy is the bar's one action with a menu.
   expect(triggers.length).toBe(1);
-
-  const expected = scopes.map((s) => chatCopyText(EN, logs, s));
-  // The fixture tells the three apart, so a swapped choice shows.
-  expect(new Set(expected).size).toBe(3);
-
   for (const scope of scopes) {
     fireEvent.click(triggers[0]);
     const item = document.querySelector(
@@ -124,5 +132,21 @@ it("each Copy choice puts its own text on the clipboard", async () => {
       fireEvent.click(item!);
     });
   }
-  expect(copied).toEqual(expected);
+  view.unmount();
+  return copied;
+}
+
+it("each Copy choice puts its own text on the clipboard", async () => {
+  const expected = scopes.map((s) => chatCopyText(EN, logs, s, "Tester"));
+  // The fixture tells the four apart, so a swapped choice shows.
+  expect(new Set(expected).size).toBe(4);
+  expect(chatCopyText(EN, logs, "myMessages", "Other")).not.toBe(expected[1]);
+  expect(await copyEach({})).toEqual(expected);
+});
+
+it("My messages falls back to the browser's saved name with no session", async () => {
+  const mine = chatCopyText(EN, logs, "myMessages", "Other");
+  expect(mine).not.toBe(chatCopyText(EN, logs, "myMessages", "Tester"));
+  expect(mine).not.toBe(chatCopyText(EN, logs, "myMessages", null));
+  expect((await copyEach({ sessionContext: null }))[1]).toBe(mine);
 });

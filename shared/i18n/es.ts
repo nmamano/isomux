@@ -2118,6 +2118,7 @@ Cosas que puedes hacer por él:
   "logView.nav.agentTitle": "Ajustes del agente",
   "logView.nav.copyTitle": "Copiar el chat",
   "logView.nav.copyMessages": "Solo mensajes",
+  "logView.nav.copyMyMessages": "Solo mis mensajes",
   "logView.nav.copyEverything": "Todo",
   "logView.nav.copyLastExchange": "Último intercambio",
   "logView.nav.avatarTitle": "Ver el avatar",

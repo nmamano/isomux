@@ -2070,6 +2070,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "logView.nav.agentTitle": "Agent settings",
   "logView.nav.copyTitle": "Copy the chat",
   "logView.nav.copyMessages": "Messages only",
+  "logView.nav.copyMyMessages": "My messages only",
   "logView.nav.copyEverything": "Everything",
   "logView.nav.copyLastExchange": "Last exchange",
   "logView.nav.avatarTitle": "View avatar",

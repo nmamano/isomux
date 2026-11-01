@@ -2124,6 +2124,7 @@ Coses que pots fer per ell:
   "logView.nav.agentTitle": "Configuració de l'agent",
   "logView.nav.copyTitle": "Copia el xat",
   "logView.nav.copyMessages": "Només missatges",
+  "logView.nav.copyMyMessages": "Només els meus missatges",
   "logView.nav.copyEverything": "Tot",
   "logView.nav.copyLastExchange": "Últim intercanvi",
   "logView.nav.avatarTitle": "Mostra l'avatar",
