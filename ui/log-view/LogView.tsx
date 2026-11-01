@@ -53,9 +53,18 @@ import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import {
   SenderDevice,
+  chatCopyEntries,
   chatCopyText,
   type ChatCopyScope,
 } from "./LogEntryCard.tsx";
+import {
+  buildChatHtml,
+  chatExportFileName,
+  collectExportCss,
+  downloadHtml,
+  fetchImageAsDataUrl,
+  snapshotChatEntries,
+} from "./chat-export.ts";
 import type { ChatCopyFormat } from "./plain-copy.ts";
 import {
   PINNED_BAR_HEIGHT,
@@ -204,6 +213,7 @@ function PickModelButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       data-pick-model
+      data-chat-export="omit"
       onClick={onClick}
       style={{
         margin: "4px 0 8px",
@@ -1363,7 +1373,7 @@ export function LogView({
     [agent.id, device],
   );
 
-  // Markdown or Plain text, remembered per browser.
+  // Markdown, Plain text or HTML file, remembered per browser.
   const [copyFormat, setCopyFormat] = useState(getChatCopyFormat);
   const pickCopyFormat = useCallback((format: ChatCopyFormat) => {
     setCopyFormat(format);
@@ -1372,6 +1382,35 @@ export function LogView({
 
   const handleCopy = useCallback(
     async (scope: ChatCopyScope) => {
+      if (copyFormat === "html") {
+        const root = scrollRef.current;
+        if (!root) return;
+        const self = sessionContext?.username ?? getUsername();
+        const ids = new Set(
+          chatCopyEntries(logs, scope, self).map((entry) => entry.id),
+        );
+        // Before any await: the snapshot renders the export view and back
+        // in this task.
+        const entries = snapshotChatEntries(
+          root,
+          ids,
+          transcript.setExportView,
+        );
+        const at = Date.now();
+        const html = await buildChatHtml({
+          entries,
+          title: agent.name,
+          exportedAt: at,
+          language: i18n.language,
+          theme: document.documentElement.getAttribute("data-theme") ?? "",
+          themeMode:
+            document.documentElement.getAttribute("data-theme-mode") ?? "",
+          css: collectExportCss(document),
+          fetchImage: fetchImageAsDataUrl,
+        });
+        downloadHtml(chatExportFileName(agent.name, at), html);
+        return;
+      }
       const text = chatCopyText(i18n, logs, scope, {
         self: sessionContext?.username ?? getUsername(),
         agentName: agent.name,
@@ -1393,7 +1432,14 @@ export function LogView({
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(false), 1500);
     },
-    [i18n, logs, sessionContext?.username, agent.name, copyFormat],
+    [
+      i18n,
+      logs,
+      sessionContext?.username,
+      agent.name,
+      copyFormat,
+      transcript.setExportView,
+    ],
   );
 
   // Returns whether the command was handed to the outbox, so a caller that
@@ -1470,6 +1516,12 @@ export function LogView({
                 label: i18n.t("logView.nav.copyPlainText"),
                 checked: copyFormat === "plain",
                 onClick: () => pickCopyFormat("plain"),
+              },
+              {
+                id: "html",
+                label: i18n.t("logView.nav.copyHtml"),
+                checked: copyFormat === "html",
+                onClick: () => pickCopyFormat("html"),
               },
             ],
             active: copied,
@@ -2802,19 +2854,22 @@ export function LogView({
                       entry.metadata?.providerLogin === "claude") &&
                       agent.userId !== null &&
                       sessionContext?.userId === agent.userId && (
-                        <ProviderSignInCard
-                          provider={entry.metadata.providerLogin}
-                          accounts={providerAccounts}
-                          showTitle={false}
-                          apiKeyNote
-                          canChangeOffice={sessionContext?.role === "owner"}
-                          onStartNewConversation={async () => {
-                            await apiFetch(
-                              "POST",
-                              `/api/agents/${agent.id}/new-conversation`,
-                            );
-                          }}
-                        />
+                        // Sign-in controls: not in the chat's HTML file.
+                        <div data-chat-export="omit">
+                          <ProviderSignInCard
+                            provider={entry.metadata.providerLogin}
+                            accounts={providerAccounts}
+                            showTitle={false}
+                            apiKeyNote
+                            canChangeOffice={sessionContext?.role === "owner"}
+                            onStartNewConversation={async () => {
+                              await apiFetch(
+                                "POST",
+                                `/api/agents/${agent.id}/new-conversation`,
+                              );
+                            }}
+                          />
+                        </div>
                       )}
                   </>
                 )}

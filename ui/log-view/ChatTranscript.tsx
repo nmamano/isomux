@@ -144,9 +144,15 @@ export function useChatTranscript(logs: LogEntry[], isBusy: boolean) {
     return entryMap;
   }, [logs, groupedChildIds]);
 
+  // On only while the HTML export takes its snapshot (chat-export.ts):
+  // every message expanded, and a message in edit shown as sent.
+  const [exportView, setExportView] = useState(false);
+
   return {
     expandedMessages,
     toggleMessage,
+    exportView,
+    setExportView,
     groupedChildIds,
     rawToolGroupByFirstId,
     detachedSteps,
@@ -202,6 +208,9 @@ export function ChatTranscript({
             const rawToolGroup = view.rawToolGroupByFirstId.get(entry.id);
             const isUserMsg =
               entry.kind === "user_message" && senderIsHuman(entry.metadata);
+            // Only a message reads the export view: every other card keeps
+            // its props, so the snapshot does not render it again.
+            const exporting = view.exportView && entry.kind === "user_message";
             return (
               <div
                 key={entry.id}
@@ -220,7 +229,10 @@ export function ChatTranscript({
                 ) : (
                   <LogEntryCard
                     entry={entry}
-                    messageExpanded={view.expandedMessages.has(entry.id)}
+                    messageExpanded={
+                      exporting || view.expandedMessages.has(entry.id)
+                    }
+                    exportView={exporting || undefined}
                     onToggleMessage={view.toggleMessage}
                     isLastInTurn={td?.isLastInTurn}
                     turnEntries={td?.turnEntries}

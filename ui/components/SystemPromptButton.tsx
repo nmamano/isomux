@@ -66,6 +66,8 @@ export function SystemPromptButton({
     <>
       <button
         type="button"
+        // Not in the chat's HTML file (chat-export.ts).
+        data-chat-export="omit"
         onClick={() => void showPrompt()}
         style={cardActionBtn}
       >

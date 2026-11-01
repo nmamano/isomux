@@ -120,8 +120,8 @@ function closingRun(text: string, from: number, length: number): number {
 }
 
 // How the chat bar's Copy writes an agent's reply: as written, or with the
-// Markdown taken out.
-export type ChatCopyFormat = "markdown" | "plain";
+// Markdown taken out. "html" saves the chat as a file (chat-export.ts).
+export type ChatCopyFormat = "markdown" | "plain" | "html";
 
 // An agent reply as the reader sees it, without the Markdown: marks, fences
 // and link brackets go; every word, the code, list markers and raw HTML stay.

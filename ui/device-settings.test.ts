@@ -359,12 +359,15 @@ describe("chat copy format", () => {
     expect(getChatCopyFormat()).toBe("plain");
     // The key is a protocol value.
     expect(store.get("isomux-chat-copy-format")).toBe("plain");
+    setChatCopyFormat("html");
+    expect(getChatCopyFormat()).toBe("html");
+    expect(store.get("isomux-chat-copy-format")).toBe("html");
     setChatCopyFormat("markdown");
     expect(getChatCopyFormat()).toBe("markdown");
   });
 
   it("reads a value it does not know as Markdown", () => {
-    store.set("isomux-chat-copy-format", "html");
+    store.set("isomux-chat-copy-format", "rtf");
     expect(getChatCopyFormat()).toBe("markdown");
   });
 

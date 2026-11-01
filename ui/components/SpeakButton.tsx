@@ -229,7 +229,12 @@ function BrowserSpeakButton({
   // a tooltip for a DISABLED button, which is the one case where the
   // explanation actually matters.
   return (
-    <span title={label} style={{ display: "inline-flex", flexShrink: 0 }}>
+    <span
+      title={label}
+      // Not in the chat's HTML file (chat-export.ts).
+      data-chat-export="omit"
+      style={{ display: "inline-flex", flexShrink: 0 }}
+    >
       <button
         onClick={(e) => {
           handleClick();
@@ -263,6 +268,7 @@ function OpenAISpeakButton({
   const error = speech.error;
   return (
     <span
+      data-chat-export="omit"
       style={{ display: "inline-flex", flexShrink: 0, position: "relative" }}
     >
       <span title={label} style={{ display: "inline-flex", flexShrink: 0 }}>

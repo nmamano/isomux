@@ -56,10 +56,11 @@ export function setMembersChatWidth(width: number): void {
 }
 const KEY_CHAT_COPY_FORMAT = "isomux-chat-copy-format";
 
-// The chat bar's Copy format. Markdown unless this browser picked Plain text.
+// The chat bar's Copy format. Markdown unless this browser picked another.
 export function getChatCopyFormat(): ChatCopyFormat {
   try {
-    if (localStorage.getItem(KEY_CHAT_COPY_FORMAT) === "plain") return "plain";
+    const stored = localStorage.getItem(KEY_CHAT_COPY_FORMAT);
+    if (stored === "plain" || stored === "html") return stored;
   } catch {}
   return "markdown";
 }

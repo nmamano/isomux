@@ -143,6 +143,8 @@ export function CopyButton({
     <button
       onClick={() => void onClick()}
       className="copy-btn"
+      // Not in the chat's HTML file (chat-export.ts).
+      data-chat-export="omit"
       title={copied ? t("common.copiedNotice") : t("common.copy")}
       style={{
         width: size,

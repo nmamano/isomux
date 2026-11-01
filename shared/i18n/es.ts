@@ -2131,6 +2131,7 @@ Cosas que puedes hacer por él:
   "logView.nav.copyLastExchange": "Último intercambio",
   "logView.nav.copyMarkdown": "Markdown",
   "logView.nav.copyPlainText": "Texto sin formato",
+  "logView.nav.copyHtml": "Archivo HTML (descarga)",
   "logView.nav.avatarTitle": "Ver el avatar",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Abrir el editor de archivos (Ctrl+E)",

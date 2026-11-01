@@ -267,7 +267,7 @@ export function chatCopyText(
   );
 }
 
-function chatCopyEntries(
+export function chatCopyEntries(
   entries: LogEntry[],
   scope: ChatCopyScope,
   self: string | null | undefined,
@@ -698,9 +698,13 @@ export const LogEntryCard = memo(function LogEntryCard({
   onOpenTask,
   messageExpanded,
   onToggleMessage,
+  exportView,
 }: {
   entry: LogEntry;
   messageExpanded?: boolean;
+  // The HTML export's snapshot (chat-export.ts): a message in edit also
+  // renders as sent, beside its editor.
+  exportView?: boolean;
   onToggleMessage?: (entryId: string) => void;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
@@ -736,45 +740,29 @@ export const LogEntryCard = memo(function LogEntryCard({
       // viewer's language (the agent reads the English word).
       const ask = askRefOf(entry);
       const content = askAnswerText(t, ask, entry.content);
-      if (isEditing) {
-        return (
-          <EditableUserMessage
-            content={entry.content}
-            entryId={entry.id}
-            isMobile={isMobile}
-            username={senderLabel}
-            device={senderDevice}
-            onCancel={onCancelEdit}
-            onSubmit={onSubmitEdit}
-          />
-        );
-      }
       // A message from another agent: one compact row. From a member: their
       // avatar before the name.
       const senderAgentName = entry.metadata?.sender_agent_name as
         | string
         | undefined;
-      if (senderAgentName) {
-        return (
-          <PeerMessage
-            content={content}
-            agentId={entry.metadata?.sender_agent_id as string | undefined}
-            agentName={senderAgentName}
-            room={entry.metadata?.sender_agent_room as string | undefined}
-            isMobile={isMobile}
-            expanded={!!messageExpanded}
-            onToggle={
-              onToggleMessage ? () => onToggleMessage(entry.id) : undefined
-            }
-            attachments={entry.attachments}
-            logAgentId={entry.agentId}
-            tasks={tasks}
-            onOpenTask={onOpenTask}
-            timestamp={entry.timestamp}
-          />
-        );
-      }
-      return (
+      const sent = senderAgentName ? (
+        <PeerMessage
+          content={content}
+          agentId={entry.metadata?.sender_agent_id as string | undefined}
+          agentName={senderAgentName}
+          room={entry.metadata?.sender_agent_room as string | undefined}
+          isMobile={isMobile}
+          expanded={!!messageExpanded}
+          onToggle={
+            onToggleMessage ? () => onToggleMessage(entry.id) : undefined
+          }
+          attachments={entry.attachments}
+          logAgentId={entry.agentId}
+          tasks={tasks}
+          onOpenTask={onOpenTask}
+          timestamp={entry.timestamp}
+        />
+      ) : (
         <UserMessage
           avatar={
             fromHuman ? (
@@ -812,6 +800,22 @@ export const LogEntryCard = memo(function LogEntryCard({
           onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined}
           timestamp={entry.timestamp}
         />
+      );
+      if (!isEditing) return sent;
+      // The editor stays mounted in the export view, so the draft is kept.
+      return (
+        <>
+          <EditableUserMessage
+            content={entry.content}
+            entryId={entry.id}
+            isMobile={isMobile}
+            username={senderLabel}
+            device={senderDevice}
+            onCancel={onCancelEdit}
+            onSubmit={onSubmitEdit}
+          />
+          {exportView && sent}
+        </>
       );
     }
     // The chat filters both out (chat-entries.ts); this is only a backstop.
@@ -1360,6 +1364,7 @@ export function UserMessage({
       {canEdit && onEdit && (
         <button
           data-edit-message=""
+          data-chat-export="omit"
           onClick={onEdit}
           title={editTitle ?? t("cards.userMessage.editAndBranch")}
           style={{
@@ -1487,6 +1492,7 @@ export function UserMessage({
       {collapsible && overflows && (
         <button
           type="button"
+          data-chat-export="omit"
           aria-expanded={expanded}
           aria-controls={bodyId}
           onClick={onToggle}
@@ -1647,6 +1653,7 @@ function PeerMessage({
           {canToggle && (
             <button
               type="button"
+              data-chat-export="omit"
               aria-expanded={expanded}
               aria-controls={bodyId}
               title={t(
@@ -1754,6 +1761,7 @@ export function EditableUserMessage({
 
   return (
     <div
+      data-chat-export="omit"
       style={{
         margin: "12px 0",
         padding: "10px 14px",

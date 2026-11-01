@@ -62,6 +62,8 @@ export function DownloadButton({
     <a
       href={downloadHref(src, name)}
       download={name}
+      // Not in the chat's HTML file (chat-export.ts).
+      data-chat-export="omit"
       aria-label={label}
       title={label}
       // Inside the lightbox a click would bubble to the backdrop and close it.
