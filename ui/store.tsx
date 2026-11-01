@@ -84,6 +84,8 @@ import type { AskAgentWire } from "../shared/contract-shapes.ts";
 import { connect } from "./ws.ts";
 import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
+import { anyRoomSounds } from "../shared/notif-rooms.ts";
+import { createNotificationSound } from "./notification-sound.ts";
 import {
   getUsername,
   readLegacyUserPrefs,
@@ -2029,37 +2031,12 @@ export const StateCtx = createContext<AppState>(initialState);
 // Exported for the same reason: a test can observe what a view dispatches.
 export const DispatchCtx = createContext<Dispatch<Action>>(() => {});
 
-// Notification sound - AudioContext initialized on first user interaction
-let audioCtx: AudioContext | null = null;
-
-function ensureAudioContext() {
-  if (!audioCtx) {
-    audioCtx = new AudioContext();
-  }
-  return audioCtx;
-}
-
-if (typeof document !== "undefined") {
-  document.addEventListener("click", () => ensureAudioContext(), {
-    once: true,
-  });
-}
-
-function playNotificationSound() {
-  try {
-    const ctx = ensureAudioContext();
-    if (ctx.state === "suspended") void ctx.resume();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.setValueAtTime(800, ctx.currentTime);
-    osc.frequency.setValueAtTime(600, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.15, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.3);
-  } catch {}
+// The member's notification rooms, from the user record of this session.
+function myNotifRooms(users: Map<string, UserView>): readonly string[] {
+  const username = getUsername();
+  return (
+    (username ? users.get(username.toLowerCase()) : undefined)?.notifRooms ?? []
+  );
 }
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -2153,22 +2130,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // Sound notification when tab is hidden and any agent finishes work, gated
   // by the user's per-room notification preference (server-stored).
+  const [sound] = useState(createNotificationSound);
+  // A click primes the sound only once a room can sound: on iOS an
+  // AudioContext pauses audio from other apps.
+  const soundOn = useRef(false);
+  useEffect(() => {
+    soundOn.current = anyRoomSounds(myNotifRooms(state.users));
+  }, [state.users]);
+  useEffect(() => {
+    const onClick = () => {
+      if (soundOn.current) sound.prime();
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [sound]);
   const prevSoundTriggerSeq = useRef(0);
   useEffect(() => {
     if (
       state.soundTrigger.seq > prevSoundTriggerSeq.current &&
-      document.hidden
-    ) {
-      const username = getUsername();
-      const me = username ? state.users.get(username.toLowerCase()) : undefined;
-      const notifRooms = me?.notifRooms ?? [];
+      document.hidden &&
       // The lobby never sounds (shared/notif-rooms.ts).
-      if (shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)) {
-        playNotificationSound();
-      }
+      shouldNotifyRoom(state.soundTrigger.roomId, myNotifRooms(state.users))
+    ) {
+      sound.play();
     }
     prevSoundTriggerSeq.current = state.soundTrigger.seq;
-  }, [state.soundTrigger, state.users]);
+  }, [state.soundTrigger, state.users, sound]);
 
   return (
     <StateCtx.Provider value={state}>
