@@ -58,5 +58,20 @@ export function browserExtensionHandlers(
       service.disconnect(member, true, hash);
       return noContent();
     },
+    // A missing id and another member's id get the same 404, as above.
+    "browser.reload": (ctx) => {
+      const result = service.reload(ctx.identity.userId!, ctx.params.id);
+      if (result === "browser_not_found")
+        return fail(404, "browser_not_found", "No such paired browser");
+      if (result === "browser_offline")
+        return fail(409, "browser_offline", "The browser is not connected");
+      if (result === "not_reloadable")
+        return fail(
+          409,
+          "not_reloadable",
+          "The browser has no newer extension files in place",
+        );
+      return noContent();
+    },
   };
 }

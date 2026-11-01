@@ -353,6 +353,114 @@ test("the popup shows an update notice with the office's download exactly while 
   window.dispatchEvent(new Event("pagehide"));
 });
 
+// Task 2f43d351: the popup reads manifest.json on disk. When the member put
+// newer files in place, it offers a Reload instead of the download.
+async function updatePopup(opts: {
+  update?: { latest: string };
+  disk: string;
+}) {
+  document.body.innerHTML = popupHTML;
+  let disk = opts.disk;
+  let reloads = 0;
+  await popupScript.runInNewContext({
+    document,
+    window,
+    navigator: { language: "en" },
+    Date,
+    fetch: async (url: string) => {
+      if (url !== "chrome-extension://fixture-id/manifest.json")
+        throw new Error("Unexpected fetch " + url);
+      if (disk === "fail") throw new TypeError("Failed to fetch");
+      return new Response(JSON.stringify({ version: disk }));
+    },
+    chrome: {
+      storage: { session: noDraft },
+      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+      runtime: {
+        id: "fixture-id",
+        getURL: (path: string) => "chrome-extension://fixture-id/" + path,
+        getManifest: () => ({ version: "0.6.0" }),
+        reload: () => {
+          reloads++;
+        },
+        sendMessage: async () => ({
+          state: "connected",
+          generation: "g",
+          office: "https://office.example.com",
+          currentTab: { id: 7, eligible: true },
+          agents: [{ id: "a", name: "Agent" }],
+          assignments: [],
+          ...(opts.update ? { update: opts.update } : {}),
+        }),
+      },
+    },
+    setInterval: () => 1,
+    clearInterval() {},
+  });
+  const settle = async () => {
+    for (let i = 0; i < 10; i++)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  await settle();
+  // Precondition: the popup rendered the connected state.
+  expect(document.getElementById("status")!.dataset.state).toBe("connected");
+  const notice = document.getElementById("update")!;
+  const visible = (el: Element | null | undefined) =>
+    !!el && el.isConnected && !el.closest("[hidden]");
+  const reloadButton = () =>
+    [...notice.querySelectorAll("button")].find(visible);
+  return {
+    notice,
+    settle,
+    visible,
+    reloadButton,
+    download: () => visible(document.getElementById("update-download")),
+    setDisk: (version: string) => {
+      disk = version;
+    },
+    reloads: () => reloads,
+  };
+}
+
+test("while no newer files are in place, the popup links the office's download and offers no Reload", async () => {
+  for (const disk of ["0.6.0", "0.5.9", "fail"]) {
+    const p = await updatePopup({ update: { latest: "0.7.0" }, disk });
+    expect({ disk, download: p.download() }).toEqual({ disk, download: true });
+    expect({ disk, reload: !!p.reloadButton() }).toEqual({
+      disk,
+      reload: false,
+    });
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("with newer files in place, the popup offers Reload instead of the download, also when the office is not newer", async () => {
+  for (const update of [{ latest: "0.7.0" }, undefined]) {
+    const p = await updatePopup({ update, disk: "0.7.0" });
+    const button = p.reloadButton();
+    expect({ update, reload: !!button }).toEqual({ update, reload: true });
+    expect(p.visible(p.notice)).toBe(true);
+    expect(p.download()).toBe(false);
+    expect(p.reloads()).toBe(0);
+    button!.click();
+    await p.settle();
+    expect(p.reloads()).toBe(1);
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("Reload in the popup checks the disk again and does nothing when the newer files are gone", async () => {
+  const p = await updatePopup({ update: { latest: "0.7.0" }, disk: "0.7.0" });
+  const button = p.reloadButton();
+  // Precondition: the popup saw the newer files.
+  expect(!!button).toBe(true);
+  p.setDisk("0.6.0");
+  button!.click();
+  await p.settle();
+  expect(p.reloads()).toBe(0);
+  window.dispatchEvent(new Event("pagehide"));
+});
+
 test("a failed offer names the dialog cause only when the tab did not answer", async () => {
   const { t } = translatorFor("en");
   for (const reason of ["unanswered", undefined]) {

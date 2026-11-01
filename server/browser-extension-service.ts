@@ -129,6 +129,7 @@ export class BrowserExtensionService {
         online: !!this.bridge.forCredentialHash(b.hash),
         ...(reported === undefined ? {} : { package: reported }),
         outdated: extensionOutdated(reported, manifest.version),
+        reloadable: this.reloadable(b.hash),
         ...this.agentTabs(b.hash),
       };
     });
@@ -142,6 +143,27 @@ export class BrowserExtensionService {
       online: browsers.some((b) => b.online),
       browsers,
     };
+  }
+  // Online, with newer files on disk than the package of its hello.
+  private reloadable(hash: string): boolean {
+    const files = this.bridge.forCredentialHash(hash)?.files;
+    const running = this.packages.get(hash);
+    return !!files && !!running && extensionOutdated(running, files);
+  }
+  // Asks the member's browser to load the newer files on disk.
+  reload(
+    member: string,
+    browser: string,
+  ): "reloaded" | "browser_not_found" | "browser_offline" | "not_reloadable" {
+    const hash = this.store
+      .browsers(member)
+      .find((b) => b.id === browser)?.hash;
+    if (hash === undefined) return "browser_not_found";
+    const connection = this.bridge.forCredentialHash(hash);
+    if (!connection) return "browser_offline";
+    if (!this.reloadable(hash)) return "not_reloadable";
+    connection.reload();
+    return "reloaded";
   }
   // Names of the member's paired browsers whose extension is out of date;
   // with online, only the connected ones.

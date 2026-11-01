@@ -119,7 +119,13 @@ export const en = {
   "browser.download": "Download extension {version}",
   "browser.outdated": "The extension in {names} is out of date.",
   "browser.updateSteps":
-    "Extract the ZIP, copy its files into the folder you loaded, then select Reload on Isomux Browser in chrome://extensions. Reload alone keeps the old files.",
+    "Extract the ZIP and copy its files into the folder you loaded. Then select Reload here or in the extension popup.",
+  "browser.updateStepsPopup":
+    "Extract the ZIP and copy its files into the folder you loaded. A Reload button then shows here.",
+  "browser.filesReady": "New extension files are in place.",
+  "browser.reload": "Reload",
+  "browser.reloadBrowser": "Reload {name}",
+  "browser.reloadNote": "A reload ends agent control of your tabs.",
   "browser.updateReady": "An update is ready.",
   "browser.install":
     "Extract the ZIP. In desktop Chrome, open chrome://extensions, enable Developer mode, select Load unpacked and choose the extracted folder. Pin Isomux Browser in the toolbar.",

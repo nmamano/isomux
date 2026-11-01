@@ -183,6 +183,7 @@ test("legacy headless choices migrate to Chrome and preserve pairing and profile
           pairedAt: null,
           online: false,
           outdated: false,
+          reloadable: false,
           agentTabs: null,
         },
       ]);

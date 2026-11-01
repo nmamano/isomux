@@ -9,6 +9,7 @@ import {
   readPairingDraft,
   savePairingDraft,
 } from "./pairing-draft";
+import { newerFiles } from "./disk-files";
 const language = navigator.language.split("-")[0];
 const { t } = translatorFor(
   language === "es" || language === "ca" || language === "zh" ? language : "en",
@@ -53,7 +54,10 @@ const labels: Record<string, PlainMessageKey> = {
   retained: "browser.retained",
   "offline-help": "browser.offlineHelp",
   "update-ready": "browser.updateReady",
-  "update-steps": "browser.updateSteps",
+  "update-steps": "browser.updateStepsPopup",
+  "update-files-ready": "browser.filesReady",
+  "update-reload": "browser.reload",
+  "update-reload-note": "browser.reloadNote",
   "agents-label": "browser.agents",
   "agents-mine": "browser.myAgents",
   "agents-members": "browser.pickedAgents",
@@ -65,6 +69,22 @@ const labels: Record<string, PlainMessageKey> = {
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
 let state: ExtensionUIState & { generation?: string };
+// The version of newer extension files on disk. The popup reads them itself,
+// so its Reload also works while an older background runs.
+let files: string | undefined;
+async function readFiles() {
+  files = await newerFiles();
+  if (state) render(state);
+}
+element("update-reload").addEventListener("click", () => {
+  void newerFiles().then((next) => {
+    if (next) chrome.runtime.reload();
+    else {
+      files = undefined;
+      if (state) render(state);
+    }
+  });
+});
 let busy = false,
   showPair = false;
 const picker = element("agents") as HTMLSelectElement;
@@ -145,8 +165,10 @@ function render(next: typeof state) {
   element("unpair").hidden = state.state !== "connected";
   element("offline-help").hidden =
     state.state === "connected" || state.state === "unpaired";
-  element("update").hidden = !state.update;
-  if (state.update) {
+  element("update").hidden = !state.update && !files;
+  element("update-office").hidden = !!files;
+  element("update-files").hidden = !files;
+  if (state.update && !files) {
     const link = element("update-download") as HTMLAnchorElement;
     link.href = `${state.office}/api/me/browser/extension.zip`;
     link.textContent = t("browser.download", { version: state.update.latest });
@@ -294,7 +316,11 @@ toggle.addEventListener("change", () => {
   toggle.disabled = true;
 });
 void command("state");
-const poll = setInterval(() => void command("state"), 1000);
+void readFiles();
+const poll = setInterval(() => {
+  void command("state");
+  void readFiles();
+}, 1000);
 window.addEventListener("pagehide", () => {
   revealCode(false);
   clearInterval(poll);

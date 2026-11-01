@@ -23,6 +23,7 @@ import {
   type BrowserAccess,
   validBrowserAccess,
   validAgentTabsScope,
+  validExtensionPackage,
 } from "../shared/browser-extension-protocol";
 export { EXTENSION_MAX_BYTES };
 import {
@@ -274,6 +275,8 @@ export class BrowserExtensionBridge {
         agentTabs: true,
         // The extension sends {kind:"access"} and offers "shared" tabs.
         access: true,
+        // The extension sends {kind:"files"} and takes {kind:"reload"}.
+        reload: true,
         // The office's extension package, so an older extension can say so.
         package: manifest.version,
         generation: connection.generation,
@@ -557,6 +560,8 @@ function envelope(msg: Fields): Fields {
 
 export class ExtensionConnection {
   readonly generation = crypto.randomUUID();
+  // The version of the extension files on disk, from the last files report.
+  files?: string;
   private active = true;
   private sequence = 0;
   private pending = new Map<number, Pending>();
@@ -688,6 +693,11 @@ export class ExtensionConnection {
     const { agents, openTabs } = this.browserAccess;
     if (!openTabs) return null;
     return agents === "mine" ? "all" : agents;
+  }
+
+  /** Asks the extension to reload, so Chrome loads the files on disk. */
+  reload(): void {
+    this.peer.send({ kind: "reload", generation: this.generation });
   }
 
   /** The origin of the page the member offered, pinned at the offer. */
@@ -1838,6 +1848,12 @@ export class ExtensionConnection {
         if (!validBrowserAccess(msg.access))
           throw new Error("Invalid access setting");
         this.setAccess(msg.access);
+        return;
+      }
+      if (msg.kind === "files") {
+        if (!validExtensionPackage(msg.package))
+          throw new Error("Invalid files package");
+        this.files = msg.package;
         return;
       }
       if (msg.kind === "result" && typeof msg.id === "number") {

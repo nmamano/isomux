@@ -61,6 +61,7 @@ export const AUDIT_OPERATIONS = [
   "auth.claim",
   "auth.logout",
   "browser.pair",
+  "browser.reload",
   "browser.revoke",
   "browser.revokeOne",
   "browserExtension.pair",

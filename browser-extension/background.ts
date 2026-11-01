@@ -1,4 +1,5 @@
 import { translatorFor } from "../shared/i18n/translate";
+import { newerFiles } from "./disk-files";
 import {
   BROWSER_EXTENSION_PROTOCOL,
   ATTACH_ANSWER_MS,
@@ -80,6 +81,12 @@ type Connection = {
   access?: boolean;
   // The office's extension package, from ready.
   officePackage?: string;
+  // The office takes files reports and sends reload, from ready.
+  reload?: boolean;
+  // The newer files version this connection last reported, and a disk read
+  // in flight.
+  filesSent?: string;
+  filesReading?: boolean;
   metadata?: BrowserMetadata;
   offers: Map<string, (ok: boolean) => void>;
   unpairResult?: (ok: boolean) => void;
@@ -761,6 +768,23 @@ async function revoke(
 // No frame goes over EXTENSION_MAX_BYTES: the office's socket closes on a
 // frame over its limit, which ends every offer (task 694e958e). An answer over
 // it fails with its size. An event goes out cut, or ends only its own grant.
+// While the office has a newer package, reports newer files on disk once per
+// version, so the member can reload the extension from the office.
+async function reportFiles(c: Connection): Promise<void> {
+  if (
+    !c.reload ||
+    !c.officePackage ||
+    !extensionOutdated(chrome.runtime.getManifest().version, c.officePackage) ||
+    c.filesReading
+  )
+    return;
+  c.filesReading = true;
+  const files = await newerFiles();
+  c.filesReading = false;
+  if (!files || files === c.filesSent) return;
+  c.filesSent = files;
+  send(c, { kind: "files", generation: c.generation, package: files });
+}
 function send(c: Connection, message: Fields): void {
   if (c.closed || current !== c || c.ws.readyState !== WebSocket.OPEN) return;
   let json = JSON.stringify(message);
@@ -1219,6 +1243,7 @@ async function configure(reset = true): Promise<void> {
           clearTimeout(c.watchdog);
           c.watchdog = setTimeout(() => close(c), 45_000);
           send(c, { kind: "pong", generation: c.generation });
+          void reportFiles(c);
           return;
         }
 
@@ -1235,6 +1260,7 @@ async function configure(reset = true): Promise<void> {
           c.agentTabs = msg.agentTabs === true;
           c.access = msg.access === true;
           if (validExtensionPackage(msg.package)) c.officePackage = msg.package;
+          c.reload = msg.reload === true;
           // The setting goes first, so the office takes the opened tabs that
           // resume.
           sendAccess(c);
@@ -1254,6 +1280,7 @@ async function configure(reset = true): Promise<void> {
           retry = 0;
           void chrome.alarms.clear("reconnect");
           c.watchdog = setTimeout(() => close(c), 45_000);
+          void reportFiles(c);
           return;
         }
         if (msg.generation !== c.generation || !c.generation) return;
@@ -1355,6 +1382,13 @@ async function configure(reset = true): Promise<void> {
           tab.resuming = false;
           c.offers.get(msg.assignment)?.(!msg.error);
           c.offers.delete(msg.assignment);
+          return;
+        }
+        // The member's Reload in the office. Agent control of every tab ends.
+        if (msg.kind === "reload") {
+          void newerFiles().then((files) => {
+            if (files) chrome.runtime.reload();
+          });
           return;
         }
         if (msg.kind === "unpaired" && c.unpairResult) {

@@ -246,6 +246,9 @@ export interface MemberBrowserStatus {
     // carried none (before 0.4.5). Absent until it connects.
     package?: string | null;
     outdated: boolean;
+    // Online, with newer extension files on disk than the version it runs:
+    // POST .../browsers/:id/reload loads them.
+    reloadable: boolean;
     // Whose agents may open tabs in it, while it is online; else null. "all"
     // is the member's own agents, "members" also those of the picked members.
     agentTabs: "all" | "members" | "office" | null;

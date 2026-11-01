@@ -524,3 +524,133 @@ test("extension ZIP download is self-authenticated and metadata is the current m
   });
   expect(foreign.headers.get("access-control-allow-origin")).toBeNull();
 });
+
+// Task 2f43d351: an extension that reports newer files on disk can be
+// reloaded from the office, by its member only.
+test("a member reloads a browser whose extension has newer files in place", async () => {
+  server = await startTestServer();
+  const owner = await server.seedOwner();
+  const other = await server.seedMember("Other");
+  const pairAndConnect = async (pkg: string, credential?: unknown) => {
+    const hello = credential
+      ? { kind: "hello", version: 4, credential, package: pkg }
+      : {
+          kind: "hello",
+          version: 4,
+          package: pkg,
+          code: (
+            await (
+              await memberRequest(
+                server!,
+                owner,
+                "POST",
+                "/api/me/browser/pair",
+                {},
+              )
+            ).json()
+          ).code,
+        };
+    const socket = await extensionSocket(server!, hello);
+    const ready = await socket.wait("ready");
+    const paired = credential ? undefined : await socket.wait("paired");
+    return {
+      socket,
+      generation: ready.generation as string,
+      ready,
+      credential: credential ?? paired!.credential,
+    };
+  };
+  const browsers = async () =>
+    (
+      (await (
+        await memberRequest(server!, owner, "GET", "/api/me/browser")
+      ).json()) as {
+        browsers: { id: string; online: boolean; reloadable: boolean }[];
+      }
+    ).browsers;
+  const until = async (check: () => Promise<boolean>) => {
+    for (let i = 0; i < 200 && !(await check()); i++) await Bun.sleep(5);
+    expect(await check()).toBe(true);
+  };
+  const reload = (who: typeof owner, id: string) =>
+    memberRequest(
+      server!,
+      who,
+      "POST",
+      `/api/me/browser/browsers/${id}/reload`,
+    );
+  const files = (
+    c: { socket: { ws: WebSocket }; generation: string },
+    pkg: unknown,
+  ) =>
+    c.socket.ws.send(
+      JSON.stringify({ kind: "files", generation: c.generation, package: pkg }),
+    );
+
+  const laptop = await pairAndConnect("0.0.1");
+  expect(laptop.ready.reload).toBe(true);
+  const desk = await pairAndConnect("0.0.1");
+  const [laptopId, deskId] = (await browsers()).map((b) => b.id);
+  // No files reported yet.
+  expect((await browsers()).map((b) => b.reloadable)).toEqual([false, false]);
+  const refused = await reload(owner, laptopId);
+  expect(refused.status).toBe(409);
+  expect((await refused.json()).error.code).toBe("not_reloadable");
+
+  files(laptop, "0.0.2");
+  await until(async () => (await browsers())[0].reloadable);
+  expect((await browsers())[1].reloadable).toBe(false);
+  // A later report that is not newer than the running package.
+  files(laptop, "0.0.1");
+  await until(async () => !(await browsers())[0].reloadable);
+  files(laptop, "0.0.2");
+  await until(async () => (await browsers())[0].reloadable);
+
+  // Another member, an unknown id and an agent cannot reload it.
+  const foreign = await reload(other, laptopId);
+  const missing = await reload(owner, "unknown");
+  expect([foreign.status, missing.status]).toEqual([404, 404]);
+  expect(await foreign.json()).toEqual(await missing.json());
+  const token = getAgentTokenRaw(
+    (await ownedAgent(server, owner, "browser agent")).id,
+  )!;
+  expect(
+    (
+      await server.http(`/api/me/browser/browsers/${laptopId}/reload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).status,
+  ).toBe(403);
+  expect(laptop.socket.messages.some((m) => m.kind === "reload")).toBe(false);
+
+  expect((await reload(owner, laptopId)).status).toBe(204);
+  expect(await laptop.socket.wait("reload")).toEqual({
+    kind: "reload",
+    generation: laptop.generation,
+  });
+  expect(desk.socket.messages.some((m) => m.kind === "reload")).toBe(false);
+  const deskRefused = await reload(owner, deskId);
+  expect(deskRefused.status).toBe(409);
+  expect((await deskRefused.json()).error.code).toBe("not_reloadable");
+
+  // Offline: the files report goes with the connection.
+  laptop.socket.ws.close();
+  await until(async () => !(await browsers())[0].online);
+  expect((await browsers())[0].reloadable).toBe(false);
+  const offline = await reload(owner, laptopId);
+  expect(offline.status).toBe(409);
+  expect((await offline.json()).error.code).toBe("browser_offline");
+
+  // The reloaded extension connects with the new package and no files report.
+  const back = await pairAndConnect("0.0.2", laptop.credential);
+  await until(async () => (await browsers())[0].online);
+  expect((await browsers())[0].reloadable).toBe(false);
+  expect((await reload(owner, laptopId)).status).toBe(409);
+  back.socket.ws.close();
+
+  // A files report with an invalid package ends the connection.
+  files(desk, "not a version");
+  await until(async () => desk.socket.closed());
+  await until(async () => !(await browsers())[1].online);
+});

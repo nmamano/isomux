@@ -26,4 +26,4 @@ The popup can disconnect or unpair. To revoke a browser that is offline, unpair 
 
 ## Update
 
-Update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. A reload of the extension ends agent control of every tab, so offer the tabs again.
+Update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. When the new files are in the extension folder, select **Reload** there or in the extension popup. A reload of the extension ends agent control of every tab, so offer the tabs again.

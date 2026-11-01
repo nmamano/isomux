@@ -109,7 +109,14 @@ export const ca: Catalog = {
   "browser.download": "Descarrega l’extensió {version}",
   "browser.outdated": "L’extensió de {names} no està actualitzada.",
   "browser.updateSteps":
-    "Extreu el ZIP, copia’n els fitxers a la carpeta que vas carregar i selecciona Torna a carregar a Isomux Browser a chrome://extensions. Només tornar a carregar manté els fitxers antics.",
+    "Extreu el ZIP i copia’n els fitxers a la carpeta que vas carregar. Després selecciona Torna a carregar aquí o a l’extensió.",
+  "browser.updateStepsPopup":
+    "Extreu el ZIP i copia’n els fitxers a la carpeta que vas carregar. Aquí apareixerà un botó Torna a carregar.",
+  "browser.filesReady": "Els fitxers nous de l’extensió ja hi són.",
+  "browser.reload": "Torna a carregar",
+  "browser.reloadBrowser": "Torna a carregar {name}",
+  "browser.reloadNote":
+    "Tornar a carregar acaba el control dels agents sobre les teves pestanyes.",
   "browser.updateReady": "Hi ha una actualització disponible.",
   "browser.install":
     "Extreu el ZIP. A Chrome d’escriptori, obre chrome://extensions, activa el mode de desenvolupador, selecciona Carrega una extensió desempaquetada i tria la carpeta extreta. Fixa Isomux Browser a la barra d’eines.",

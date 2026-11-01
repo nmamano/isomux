@@ -1607,6 +1607,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:self", authenticated),
     emits: [],
   }),
+  defineRoute({
+    opId: "browser.reload",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "POST",
+    path: "/api/me/browser/browsers/:id/reload",
+    auth: cap("user:self", authenticated),
+    emits: [],
+  }),
 
   // Settings that follow a member across devices (reply language). Sibling of
   // the view.* surface rather than a field on

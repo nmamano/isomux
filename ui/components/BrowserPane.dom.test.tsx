@@ -92,6 +92,7 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
         pairedAt: 0,
         online: true,
         outdated: false,
+        reloadable: false,
         agentTabs: null,
       },
       {
@@ -100,6 +101,7 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
         pairedAt: null,
         online: false,
         outdated: false,
+        reloadable: false,
         agentTabs: null,
       },
     ],
@@ -199,6 +201,7 @@ test("an out-of-date browser gets an update notice with the download; up-to-date
         online: true,
         package: "0.4.5",
         outdated: false,
+        reloadable: false,
         agentTabs: null,
       },
       {
@@ -208,6 +211,7 @@ test("an out-of-date browser gets an update notice with the download; up-to-date
         online: true,
         package: null,
         outdated: true,
+        reloadable: false,
         agentTabs: null,
       },
     ],
@@ -265,6 +269,7 @@ test("on the iPhone Home Screen office, each extension download opens the share 
         online: true,
         package: null,
         outdated: true,
+        reloadable: false,
         agentTabs: null,
       },
     ],
@@ -310,4 +315,94 @@ test("on the iPhone Home Screen office, each extension download opens the share 
     sheet.undo();
     undoDevice();
   }
+});
+
+// Task 2f43d351: a browser whose extension has newer files in place gets a
+// Reload in the update notice, which asks the office to reload it.
+test("each reloadable browser gets a Reload that posts its own reload route", async () => {
+  type Status =
+    import("../../shared/browser-extension-protocol").MemberBrowserStatus;
+  const browser = (id: string, name: string, reloadable: boolean) => ({
+    id,
+    name,
+    pairedAt: 0,
+    online: true,
+    package: "0.6.0",
+    outdated: true,
+    reloadable,
+    agentTabs: null,
+  });
+  let status: Status = {
+    paired: true,
+    online: true,
+    member: { id: "self", name: "Fixture member" },
+    version: "0.7.0",
+    browsers: [
+      browser("laptop", "Work laptop", true),
+      browser("desk", "Desk", false),
+    ],
+  };
+  const writes: unknown[] = [];
+  setApiShim(async (method, path) => {
+    if (method === "GET") return status;
+    writes.push([method, path]);
+  });
+  const view = render(<BrowserPane />);
+  await act(async () => {});
+  const notice = view.getByTestId("browser-update");
+  // Precondition: both browsers are named as out of date.
+  expect(notice.textContent).toContain("Desk");
+  // Desk still needs the new files: the download stays.
+  expect(
+    notice.querySelector('a[href="/api/me/browser/extension.zip"]'),
+  ).not.toBeNull();
+  const buttons = view.queryAllByTestId("browser-reload");
+  expect(buttons).toHaveLength(1);
+  expect(notice.contains(buttons[0])).toBe(true);
+  expect(writes).toEqual([]);
+  await act(async () => fireEvent.click(buttons[0]));
+  expect(writes).toEqual([["POST", "/api/me/browser/browsers/laptop/reload"]]);
+  view.unmount();
+  // With two, each button names its browser.
+  status = {
+    ...status,
+    browsers: [
+      browser("laptop", "Work laptop", true),
+      browser("desk", "Desk", true),
+    ],
+  };
+  const both = render(<BrowserPane />);
+  await act(async () => {});
+  const two = both.getAllByTestId("browser-reload");
+  // Every out-of-date browser has its files in place: no download.
+  expect(
+    both
+      .getByTestId("browser-update")
+      .querySelector('a[href="/api/me/browser/extension.zip"]'),
+  ).toBeNull();
+  expect(
+    two.map((b) => [
+      b.textContent.includes("Work laptop"),
+      b.textContent.includes("Desk"),
+    ]),
+  ).toEqual([
+    [true, false],
+    [false, true],
+  ]);
+  await act(async () => fireEvent.click(two[1]));
+  expect(writes.at(-1)).toEqual([
+    "POST",
+    "/api/me/browser/browsers/desk/reload",
+  ]);
+  both.unmount();
+  // None reloadable: no Reload.
+  status = {
+    ...status,
+    browsers: [browser("laptop", "Work laptop", false)],
+  };
+  const none = render(<BrowserPane />);
+  await act(async () => {});
+  expect(none.getByTestId("browser-update")).toBeTruthy();
+  expect(none.queryAllByTestId("browser-reload")).toHaveLength(0);
+  none.unmount();
 });

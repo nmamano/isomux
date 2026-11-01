@@ -45,6 +45,7 @@ declare const chrome: {
     id: string;
     getURL(path: string): string;
     getManifest(): { version: string };
+    reload(): void;
     sendMessage(message: unknown): Promise<unknown>;
     onMessage: {
       addListener(

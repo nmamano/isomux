@@ -51,8 +51,17 @@ async function harness(
     // chrome.storage.local apart from the connection, for example the agent
     // tabs setting and the opened tab ids an earlier run kept.
     local?: Map<string, unknown>;
+    // The office takes files reports and sends reload (task 2f43d351).
+    reload?: boolean;
+    // The version in manifest.json on disk (default: the running one).
+    // "fail": the read rejects; "bad": the file is not JSON.
+    disk?: string;
   } = {},
 ) {
+  let disk = opts.disk;
+  // Reads of manifest.json on disk, and chrome.runtime.reload calls.
+  let diskReads = 0;
+  let reloads = 0;
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
   let debuggerDetached!: (source: { tabId: number }, reason: string) => void;
@@ -310,6 +319,9 @@ async function harness(
       getManifest: () => ({
         version: opts.extensionVersion ?? manifest.version,
       }),
+      reload: () => {
+        reloads++;
+      },
       onMessage: {
         addListener: (fn: typeof runtimeMessage) => {
           runtimeMessage = fn;
@@ -482,6 +494,16 @@ async function harness(
       return timerId;
     },
     clearTimeout: (id: number) => timers.delete(id),
+    fetch: async (url: string) => {
+      if (url !== "chrome-extension://fixture-id/manifest.json")
+        throw new Error("Unexpected fetch " + url);
+      diskReads++;
+      const version = disk ?? opts.extensionVersion ?? manifest.version;
+      if (version === "fail") throw new TypeError("Failed to fetch");
+      return new Response(
+        version === "bad" ? "{" : JSON.stringify({ ...manifest, version }),
+      );
+    },
   });
   for (let i = 0; i < 100 && !sockets.length; i++) await settle();
   // A test's calls start at its first connection: the worker's start-up
@@ -500,6 +522,7 @@ async function harness(
     ...(opts.officePackage ? { package: opts.officePackage } : {}),
     ...(opts.agentTabs ? { agentTabs: true } : {}),
     ...(opts.access ? { access: true } : {}),
+    ...(opts.reload ? { reload: true } : {}),
   });
   socket.receive({
     kind: "metadata",
@@ -639,6 +662,11 @@ async function harness(
       };
     },
     timers,
+    setDisk: (version: string | undefined) => {
+      disk = version;
+    },
+    diskReads: () => diskReads,
+    reloads: () => reloads,
     // Runs every pending timer set for `ms`; returns how many ran.
     fire: (ms: number) => {
       const due = [...timers].filter(([id]) => delays.get(id) === ms);
@@ -2258,6 +2286,160 @@ test("the hello reports the extension's package; a newer office package offers a
     expect(state.state).toBe("connected");
     expect(state.update).toBeUndefined();
   }
+});
+
+// Task 2f43d351: while the office has a newer package, the extension reports
+// newer files on disk, so the member can reload it from the office.
+const filesSent = (socket: { sent: Fields[] }) =>
+  socket.sent.filter((m) => m.kind === "files");
+const ping = async (
+  socket: { receive(m: Fields): void },
+  generation: string,
+) => {
+  socket.receive({ kind: "ping", generation });
+  for (let i = 0; i < 10; i++) await settle();
+};
+test("the extension reports newer files on disk once per version and connection", async () => {
+  const h = await harness(true, true, {
+    extensionVersion: "0.6.0",
+    officePackage: "0.7.0",
+    reload: true,
+    disk: "0.6.0",
+  });
+  await ping(h.socket, "generation-1");
+  // Precondition: the disk was read; it has no newer files yet.
+  expect(h.diskReads()).toBeGreaterThan(0);
+  expect(filesSent(h.socket)).toEqual([]);
+  h.setDisk("0.7.0");
+  await ping(h.socket, "generation-1");
+  await ping(h.socket, "generation-1");
+  expect(filesSent(h.socket)).toEqual([
+    { kind: "files", generation: "generation-1", package: "0.7.0" },
+  ]);
+  h.setDisk("0.7.1");
+  await ping(h.socket, "generation-1");
+  expect(filesSent(h.socket).map((m) => m.package)).toEqual(["0.7.0", "0.7.1"]);
+  expect(h.reloads()).toBe(0);
+  // A new connection reports them again, from ready.
+  const next = await h.reconnect();
+  next.onopen?.();
+  next.receive({
+    kind: "ready",
+    version: 4,
+    generation: "generation-2",
+    debuggerRecovery: true,
+    package: "0.7.0",
+    reload: true,
+  });
+  for (let i = 0; i < 10; i++) await settle();
+  expect(filesSent(next)).toEqual([
+    { kind: "files", generation: "generation-2", package: "0.7.1" },
+  ]);
+});
+
+test("the extension reports no files when the office does not want them or the disk has none newer", async () => {
+  const cases: Array<{
+    name: string;
+    officePackage: string;
+    reload: boolean;
+    disk: string;
+    reads: boolean;
+  }> = [
+    // An office without the reload flag would refuse the message.
+    {
+      name: "no reload flag",
+      officePackage: "0.7.0",
+      reload: false,
+      disk: "0.7.0",
+      reads: false,
+    },
+    // Up to date with the office: no read every ping.
+    {
+      name: "office not newer",
+      officePackage: "0.6.0",
+      reload: true,
+      disk: "0.7.0",
+      reads: false,
+    },
+    {
+      name: "read fails",
+      officePackage: "0.7.0",
+      reload: true,
+      disk: "fail",
+      reads: true,
+    },
+    {
+      name: "not JSON",
+      officePackage: "0.7.0",
+      reload: true,
+      disk: "bad",
+      reads: true,
+    },
+    // Five parts: Chrome refuses it, though it compares newer.
+    {
+      name: "invalid version",
+      officePackage: "0.7.0",
+      reload: true,
+      disk: "1.0.0.0.0",
+      reads: true,
+    },
+    {
+      name: "older on disk",
+      officePackage: "0.7.0",
+      reload: true,
+      disk: "0.5.9",
+      reads: true,
+    },
+  ];
+  for (const c of cases) {
+    const h = await harness(true, true, {
+      extensionVersion: "0.6.0",
+      officePackage: c.officePackage,
+      reload: c.reload,
+      disk: c.disk,
+    });
+    await ping(h.socket, "generation-1");
+    await ping(h.socket, "generation-1");
+    expect({ name: c.name, read: h.diskReads() > 0 }).toEqual({
+      name: c.name,
+      read: c.reads,
+    });
+    expect({ name: c.name, files: filesSent(h.socket) }).toEqual({
+      name: c.name,
+      files: [],
+    });
+    // The connection stays.
+    expect((await h.ui({ action: "state" })).state).toBe("connected");
+    expect(h.sockets.length).toBe(1);
+  }
+});
+
+test("a reload from the office reloads the extension only while newer files are on disk", async () => {
+  const h = await harness(true, true, {
+    extensionVersion: "0.6.0",
+    officePackage: "0.7.0",
+    reload: true,
+    disk: "0.7.0",
+  });
+  await ping(h.socket, "generation-1");
+  // Precondition: the newer files were reported.
+  expect(filesSent(h.socket)).toHaveLength(1);
+  const reload = async (generation: string) => {
+    h.socket.receive({ kind: "reload", generation });
+    for (let i = 0; i < 10; i++) await settle();
+  };
+  // The member put the running version back before the click arrived.
+  h.setDisk("0.6.0");
+  await reload("generation-1");
+  expect(h.reloads()).toBe(0);
+  h.setDisk("fail");
+  await reload("generation-1");
+  expect(h.reloads()).toBe(0);
+  h.setDisk("0.7.0");
+  await reload("generation-0");
+  expect(h.reloads()).toBe(0);
+  await reload("generation-1");
+  expect(h.reloads()).toBe(1);
 });
 
 // A tab that shows a JavaScript dialog answers no command from a debugger

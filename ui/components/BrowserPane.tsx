@@ -116,12 +116,34 @@ export function BrowserPane() {
       if (mounted.current) setBusy(false);
     }
   }
+  // Asks the browser to load the newer extension files; the poll shows it
+  // reconnect with the new version.
+  async function reload(id: string) {
+    setBusy(true);
+    setError(false);
+    try {
+      await apiFetch(
+        "POST",
+        `/api/me/browser/browsers/${encodeURIComponent(id)}/reload`,
+      );
+      if (mounted.current) await refresh();
+    } catch {
+      if (mounted.current) setError(true);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  }
   const [revealed, setRevealed] = useState(false);
   const [officeCopied, setOfficeCopied] = useState(false);
   const [extensionsCopied, setExtensionsCopied] = useState(false);
   const [name, setName] = useState(defaultName);
   const expired = !!pair && now >= pair.expiresAt;
   const outdated = status?.browsers.filter((b) => b.outdated) ?? [];
+  const reloadable = status?.browsers.filter((b) => b.reloadable) ?? [];
+  // Every out-of-date browser has the new files in place: only Reload is left.
+  const filesInPlace =
+    reloadable.length > 0 &&
+    outdated.every((b) => reloadable.some((r) => r.id === b.id));
   return (
     // The Integrations Browser Use tab shows the title and intro above this.
     <section
@@ -143,17 +165,48 @@ export function BrowserPane() {
                   names: outdated.map((b) => b.name).join(", "),
                 })}
               </p>
-              <a
-                style={{ ...primaryLink, marginTop: 8 }}
-                href={EXTENSION_ZIP}
-                download={EXTENSION_ZIP_NAME}
-                onClick={downloadExtension}
-              >
-                {t("browser.download", { version: status.version })}
-              </a>
-              <p style={{ ...hint, marginBottom: 0 }}>
-                {t("browser.updateSteps")}
-              </p>
+              {!filesInPlace && (
+                <>
+                  <a
+                    style={{ ...primaryLink, marginTop: 8 }}
+                    href={EXTENSION_ZIP}
+                    download={EXTENSION_ZIP_NAME}
+                    onClick={downloadExtension}
+                  >
+                    {t("browser.download", { version: status.version })}
+                  </a>
+                  <p style={{ ...hint, marginBottom: 0 }}>
+                    {t("browser.updateSteps")}
+                  </p>
+                </>
+              )}
+              {reloadable.length > 0 && (
+                <>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      marginTop: 8,
+                    }}
+                  >
+                    {reloadable.map((b) => (
+                      <button
+                        key={b.id}
+                        data-testid="browser-reload"
+                        style={secondary(busy)}
+                        disabled={busy}
+                        onClick={() => void reload(b.id)}
+                      >
+                        {t("browser.reloadBrowser", { name: b.name })}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ ...hint, marginBottom: 0 }}>
+                    {t("browser.reloadNote")}
+                  </p>
+                </>
+              )}
             </div>
           )}
           <div style={{ ...cardStyle, marginTop: 16 }}>

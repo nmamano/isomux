@@ -6,7 +6,7 @@ Desktop Chrome is the interactive browser. Server screenshot previews remain sep
 
 ## Member flow and state
 
-The normal route table declares these self-scoped routes. All five require
+The normal route table declares these self-scoped routes. All six require
 `cap("user:self", authenticated)`, as personal preferences do. An agent token
 cannot use them. Other identities need that actual capability; owning another
 member's office does not select that member's browser.
@@ -18,6 +18,7 @@ member's office does not select that member's browser.
 | POST | `/api/me/browser/pair` | Create a pairing code for one more browser; optional `name` |
 | DELETE | `/api/me/browser` | Revoke every browser and end control |
 | DELETE | `/api/me/browser/browsers/:id` | Revoke one browser and end its control |
+| POST | `/api/me/browser/browsers/:id/reload` | Ask one browser to load its newer extension files |
 
 The server creates a 32-byte random base64url code, valid for five minutes and
 one redemption. A new code replaces the member's pending code. Code hashes live
@@ -102,6 +103,24 @@ not seen since the office started is not out of date.
 - The popup compares its own manifest version with `ready.package` and shows
   the same notice, with a link to the office's ZIP. An extension before 0.4.5
   has no such notice.
+- The popup reads `manifest.json` from disk with fetch: Chrome serves an
+  unpacked extension's files from disk at each read, but runs the manifest it
+  loaded. When the file on disk has a newer version, the popup shows Reload
+  (`chrome.runtime.reload()`) instead of the download. The popup page itself
+  comes from disk, so this works while an older background runs. A failed
+  read counts as no newer files.
+- The office's `ready` carries `reload: true`. While the office's package is
+  newer, the background reads the disk at `ready` and at each ping, and sends
+  `{kind: "files", generation, package}` once per newer version and
+  connection. The connection keeps the last report, so it ends with the
+  connection; a `files` with an invalid package ends the connection.
+  `GET /api/me/browser` gives each browser `reloadable`: online, with a
+  report newer than its hello package. `POST
+  /api/me/browser/browsers/:id/reload` answers 404 `browser_not_found` (also
+  for another member's browser), 409 `browser_offline`, 409 `not_reloadable`,
+  or 204 after it sends `{kind: "reload", generation}`. The extension reads
+  the disk again and reloads only when the files are still newer. A reload is
+  only ever the member's click: it ends agent control of every tab.
 - The agent `tabs` answer adds `outdatedBrowsers`. The no-offer
   `browser_control_ended` answers add a sentence that names them, and
   `browser_offline` replaces its promise that offers come back with that

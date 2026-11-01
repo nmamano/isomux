@@ -101,7 +101,13 @@ export const zh: Catalog = {
   "browser.download": "下载扩展 {version}",
   "browser.outdated": "{names} 中的扩展已过期。",
   "browser.updateSteps":
-    "解压 ZIP 文件，将其中的文件复制到你加载的文件夹中，然后在 chrome://extensions 中点击 Isomux Browser 的“重新加载”。仅重新加载会保留旧文件。",
+    "解压 ZIP 文件，将其中的文件复制到你加载的文件夹中。然后在此处或扩展弹窗中点击“重新加载”。",
+  "browser.updateStepsPopup":
+    "解压 ZIP 文件，将其中的文件复制到你加载的文件夹中。此处随后会出现“重新加载”按钮。",
+  "browser.filesReady": "新的扩展文件已就位。",
+  "browser.reload": "重新加载",
+  "browser.reloadBrowser": "重新加载 {name}",
+  "browser.reloadNote": "重新加载会结束代理对你标签页的控制。",
   "browser.updateReady": "有可用更新。",
   "browser.install":
     "解压 ZIP。在桌面 Chrome 中打开 chrome://extensions，启用开发者模式，选择“加载已解压的扩展程序”，然后选择解压后的文件夹。将 Isomux Browser 固定到工具栏。",
