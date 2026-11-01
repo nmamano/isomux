@@ -21,7 +21,7 @@ const {
   save,
   settle,
   shim,
-  stopRadio,
+  stopChecked,
   viewer,
 } = await import("../test-support/access-slider-fixture.tsx");
 type AgentAccess = import("../../shared/agent-access.ts").AgentAccess;
@@ -47,7 +47,7 @@ describe("the access slider saves", () => {
         expect({
           from,
           to,
-          checked: stopRadio(view.container, from).checked,
+          checked: stopChecked(view.container, from),
         }).toEqual({
           from,
           to,

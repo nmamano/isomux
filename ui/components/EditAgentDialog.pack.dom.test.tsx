@@ -23,7 +23,8 @@ const {
   save,
   settle,
   shim,
-  stopRadio,
+  stopChecked,
+  stopDisabled,
 } = await import("../test-support/access-slider-fixture.tsx");
 
 describe("the engine and the stops", () => {
@@ -45,7 +46,7 @@ describe("the engine and the stops", () => {
       try {
         await settle();
         const disabled = Object.fromEntries(
-          STOPS.map((stop) => [stop, stopRadio(view.container, stop).disabled]),
+          STOPS.map((stop) => [stop, stopDisabled(view.container, stop)]),
         );
         expect({ agentType, modelFamily, disabled }).toEqual({
           agentType,
@@ -105,11 +106,11 @@ describe("the engine and the stops", () => {
       const disabledModels = () =>
         [...models().options].filter((o) => o.disabled).map((o) => o.value);
       expect(disabledModels()).toEqual([]);
-      expect(stopRadio(view.container, "office").disabled).toBe(true);
+      expect(stopDisabled(view.container, "office")).toBe(true);
       await change(models(), "gpt-5.5");
-      expect(stopRadio(view.container, "office").disabled).toBe(false);
+      expect(stopDisabled(view.container, "office")).toBe(false);
       await pick(view.container, "office");
-      expect(stopRadio(view.container, "office").checked).toBe(true);
+      expect(stopChecked(view.container, "office")).toBe(true);
       expect(
         [...models().options].filter((o) => !o.disabled).map((o) => o.value),
       ).toEqual(["gpt-5.5"]);

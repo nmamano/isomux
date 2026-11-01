@@ -16,7 +16,8 @@ const {
   save,
   settle,
   shim,
-  stopRadio,
+  stopChecked,
+  stopDisabled,
 } = await import("../test-support/access-slider-fixture.tsx");
 type AgentAccess = import("../../shared/agent-access.ts").AgentAccess;
 
@@ -62,7 +63,7 @@ describe("a new agent", () => {
     const view = renderSpawn();
     try {
       await settle();
-      expect(stopRadio(view.container, "office").disabled).toBe(false);
+      expect(stopDisabled(view.container, "office")).toBe(false);
       const codex = codexCard(view.container);
       expect(codex.disabled).toBe(false);
       await pick(view.container, "office");
@@ -78,7 +79,7 @@ describe("a new agent", () => {
       for (const stop of BELOW)
         expect({
           stop,
-          disabled: stopRadio(view.container, stop).disabled,
+          disabled: stopDisabled(view.container, stop),
         }).toEqual({
           stop,
           disabled: true,
@@ -98,10 +99,10 @@ describe("a new agent", () => {
         fireEvent.click(codexCard(view.container));
       });
       await settle();
-      expect(stopRadio(view.container, "office").checked).toBe(true);
+      expect(stopChecked(view.container, "office")).toBe(true);
       expect(
         Object.fromEntries(
-          BELOW.map((stop) => [stop, stopRadio(view.container, stop).disabled]),
+          BELOW.map((stop) => [stop, stopDisabled(view.container, stop)]),
         ),
       ).toEqual({ chat: false, office: false, folder: true, web: true });
       await save(view.container);

@@ -22,12 +22,13 @@ import { useI18n } from "../i18n.tsx";
 import { useMemberRooms } from "./ApiTokensPane.tsx";
 import { dialogHint, dialogInput, dialogLabel } from "./dialog-styles.ts";
 import { RoomPicker } from "./RoomPicker.tsx";
+import { StepSlider } from "./StepSlider.tsx";
 
 // The agent's access slider and, at office, folder and web, its pack
-// picker. Each stop is a radio (data-access-stop); a stop the engine and
-// model cannot run yet is disabled. The pack is state of its own: it stays while the
-// member moves the slider, and the dialog sends it only at a stop with a
-// pack.
+// picker. The slider is the room view level's step bar; a stop the engine
+// and model cannot run yet is disabled. The pack is state of its own: it
+// stays while the member moves the slider, and the dialog sends it only at a
+// stop with a pack.
 export interface AccessSliderProps {
   access: AgentAccess;
   onAccess: (access: AgentAccess) => void;
@@ -104,33 +105,19 @@ export function AccessSlider({
       <span style={{ ...dialogLabel, marginTop: 14 }}>
         {t("dialogs.agent.access")}
       </span>
-      <div
-        className="agent-access-stops"
-        role="radiogroup"
-        aria-label={t("dialogs.agent.access")}
-      >
-        {AGENT_ACCESS_STOPS.map((stop) => {
-          const runs = engineRunsAccess(agentType, stop, model || null);
-          return (
-            <label
-              key={stop}
-              className="agent-access-stop"
-              title={runs ? undefined : t("dialogs.agent.access.engineCannot")}
-              data-selected={stop === access || undefined}
-              data-disabled={!runs || undefined}
-            >
-              <input
-                type="radio"
-                name="agent-access"
-                data-access-stop={stop}
-                checked={stop === access}
-                disabled={!runs}
-                onChange={() => onAccess(stop)}
-              />
-              <span>{t(STOP_LABEL[stop])}</span>
-            </label>
-          );
-        })}
+      <div style={{ display: "flex", marginTop: 6 }}>
+        <StepSlider
+          steps={AGENT_ACCESS_STOPS}
+          value={access}
+          onChange={onAccess}
+          stepLabel={(stop) => t(STOP_LABEL[stop])}
+          ariaLabel={t("dialogs.agent.access")}
+          attr="data-access-stop"
+          stepDisabled={(stop) =>
+            !engineRunsAccess(agentType, stop, model || null)
+          }
+          stepTitle={() => t("dialogs.agent.access.engineCannot")}
+        />
       </div>
       <p style={{ ...dialogHint, margin: "6px 0 0", lineHeight: 1.4 }}>
         {t(STOP_HINT[access])}

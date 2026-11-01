@@ -130,12 +130,26 @@ export function renderSpawn() {
   );
 }
 
+// A stop is a step of the slider (StepSlider): a button with role radio.
+// The group carries data-access-stop too, so the role is in the selector.
 export function stopRadio(container: HTMLElement, stop: AgentAccess) {
-  const radio = container.querySelector<HTMLInputElement>(
-    `input[data-access-stop="${stop}"]`,
+  const radio = container.querySelector<HTMLButtonElement>(
+    `button[role="radio"][data-access-stop="${stop}"]`,
   );
   if (!radio) throw new Error(`no ${stop} stop`);
   return radio;
+}
+
+export function stopChecked(container: HTMLElement, stop: AgentAccess) {
+  return stopRadio(container, stop).getAttribute("aria-checked") === "true";
+}
+
+// A stop the engine cannot run is aria-disabled, not disabled, so its
+// tooltip still shows on hover.
+export function stopDisabled(container: HTMLElement, stop: AgentAccess) {
+  const radio = stopRadio(container, stop);
+  if (radio.disabled) throw new Error(`${stop} stop is natively disabled`);
+  return radio.getAttribute("aria-disabled") === "true";
 }
 
 export async function pick(container: HTMLElement, stop: AgentAccess) {

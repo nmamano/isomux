@@ -177,8 +177,8 @@ describe("edit dialog manager field", () => {
         target: { value: "peer" },
       });
       fireEvent.click(
-        view.container.querySelector<HTMLInputElement>(
-          'input[data-access-stop="privileged"]',
+        view.container.querySelector<HTMLButtonElement>(
+          'button[role="radio"][data-access-stop="privileged"]',
         )!,
       );
       await save(view.container);
