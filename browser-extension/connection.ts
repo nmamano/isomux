@@ -78,7 +78,7 @@ let memberRows = "";
 // The rows shown, so a poll that changes nothing keeps the buttons.
 let agentTabRows = "";
 async function command(action: string, extra: Record<string, unknown> = {}) {
-  if (busy && action !== "state" && action !== "stop") return;
+  if (busy && !["state", "stop", "close"].includes(action)) return;
   if (action !== "state") busy = true;
   if (action !== "state") element("error").textContent = "";
   // Why the background refused, when it names a cause the member can fix.
@@ -262,7 +262,7 @@ function renderAgentTabs() {
       close.textContent = t("browser.closeTab");
       close.addEventListener(
         "click",
-        () => void command("stop", { assignment: a.id }),
+        () => void command("close", { assignment: a.id }),
       );
       row.append(name, show, close);
       return row;

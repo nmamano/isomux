@@ -18,7 +18,7 @@ Open an HTTP(S) tab and turn on **Use this tab** in the extension popup. **Agent
 
 ## Let agents open tabs
 
-In the extension popup, turn on **Open their own tabs**. The agents that **Agents** chooses then open their own tabs in a separate Agents window when they need one, without asking you to offer a tab. The popup lists the open agent tabs, with **Show tab** and **Close tab**. Turn the switch off to close all of them.
+In the extension popup, turn on **Open their own tabs**. The agents that **Agents** chooses then open their own tabs in a separate Agents window when they need one, without asking you to offer a tab. The popup lists the open agent tabs, with **Show tab** and **Close tab**. When you turn the switch off, agents lose control of their tabs, and the tabs stay open.
 
 ## Unpair a browser
 
@@ -26,4 +26,4 @@ The popup can disconnect or unpair. To revoke a browser that is offline, unpair 
 
 ## Update
 
-Update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. A reload of the extension releases the offers and closes the agent tabs, so offer the tabs again.
+Update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. A reload of the extension ends agent control of every tab, so offer the tabs again.

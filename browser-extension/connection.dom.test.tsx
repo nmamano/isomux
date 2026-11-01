@@ -672,14 +672,61 @@ test("the tabs agents opened are listed under Open their own tabs, with Show and
     await settleDom();
     close.click();
     await settleDom();
+    // Close tab closes the tab (task 9361ce1b); Off ("stop") only ends
+    // control and leaves it open.
     expect(
       p.messages
-        .filter((m) => m.action === "focus" || m.action === "stop")
+        .filter((m) => ["focus", "stop", "close"].includes(String(m.action)))
         .map((m) => [m.action, m.assignment]),
     ).toEqual([
       ["focus", "t2"],
-      ["stop", "t2"],
+      ["close", "t2"],
     ]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("Close tab goes through while another popup command still waits", async () => {
+  const opened = (id: string) => ({
+    scope: { kind: "opened", agentId: "a", via: "all" },
+    id,
+    agent: { id: "a", name: "Helper" },
+    tabId: 9,
+    current: false,
+    phase: "on",
+    durationMinutes: 0,
+    expiresAt: null,
+  });
+  let answerFocus!: (value: unknown) => void;
+  const p = await openPopup(
+    {
+      ...connected,
+      access: { agents: "mine", members: [], openTabs: true },
+      assignments: [opened("t1"), opened("t2")],
+    },
+    (message) =>
+      message.action === "focus"
+        ? new Promise((resolve) => {
+            answerFocus = resolve;
+          })
+        : undefined,
+  );
+  try {
+    const rows = [
+      ...document.getElementById("agent-tabs-list")!.querySelectorAll("li"),
+    ];
+    const [show] = [...rows[0].querySelectorAll("button")];
+    const [, close] = [...rows[1].querySelectorAll("button")];
+    show.click();
+    await settleDom();
+    // The enabling state: Show tab was sent and has no answer yet.
+    expect(p.sent("focus").map((m) => m.assignment)).toEqual(["t1"]);
+    close.click();
+    await settleDom();
+    expect(p.sent("close").map((m) => m.assignment)).toEqual(["t2"]);
+    answerFocus(undefined);
+    await settleDom();
   } finally {
     window.dispatchEvent(new Event("pagehide"));
   }

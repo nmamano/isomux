@@ -2448,7 +2448,8 @@ export class ExtensionConnection {
           id: ++this.sequence,
           assignment: a.id,
           method: "detach",
-          params: {},
+          // Only the agent's own close closes a tab it opened.
+          params: { close: cause === "revoked" },
         });
       } catch {}
     }

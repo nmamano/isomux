@@ -180,6 +180,13 @@ const detached = (b: Browser, grant: string) =>
     (m) =>
       m.kind === "command" && m.method === "detach" && m.assignment === grant,
   );
+// The params of the office's detach of a grant: close says whether the
+// extension closes a tab an agent opened (task 9361ce1b).
+const detachParams = (b: Browser, grant: string) =>
+  b.peer.messages.find(
+    (m) =>
+      m.kind === "command" && m.method === "detach" && m.assignment === grant,
+  )?.params;
 // The grant behind a handle the agent sees.
 const grantOf = (
   b: Browser,
@@ -645,6 +652,11 @@ test("turning the setting off ends every opened tab; narrowing it ends the tabs 
 
     ann.setting(null);
     expect(detached(ann, mineGrant)).toBe(true);
+    // The member's setting ends the access only: the tabs stay open.
+    expect([bobsGrant, mineGrant].map((g) => detachParams(ann, g))).toEqual([
+      { close: false },
+      { close: false },
+    ]);
     expect(detached(ann, own.assignment)).toBe(false);
     expect(
       h.bridge.targets("ann", "ann-agent").map((t) => t.scope.kind),
@@ -666,6 +678,7 @@ test("an opened tab ends when its agent leaves the setting's audience, though an
     h.manager["ann-agent"] = "bob";
     ann.connection.revalidate();
     expect(detached(ann, mineGrant)).toBe(true);
+    expect(detachParams(ann, mineGrant)).toEqual({ close: false });
     h.manager["ann-agent"] = "ann";
 
     ann.setting("office");
@@ -1381,7 +1394,7 @@ test("open to an office page is refused before a tab is made", async () => {
   }
 });
 
-test("close on an opened tab ends it", async () => {
+test("the agent's close on an opened tab ends it and closes the tab", async () => {
   const h = sessionOffice();
   try {
     const ann = h.connect("ann", "Laptop");
@@ -1395,13 +1408,13 @@ test("close on an opened tab ends it", async () => {
       closed: true,
     });
     expect(
-      ann.messages.some(
+      ann.messages.find(
         (m) =>
           m.kind === "command" &&
           m.method === "detach" &&
           m.assignment === grant,
-      ),
-    ).toBe(true);
+      )?.params,
+    ).toEqual({ close: true });
     expect(h.service.bridge.targets("ann", "ann-agent")).toEqual([]);
   } finally {
     h.stop();

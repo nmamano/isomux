@@ -2499,9 +2499,10 @@ for (const cause of [
 }
 
 // Agent tabs (task 73a9fb57): with the member's setting on, the office's open
-// command makes a tab for an agent in one Agents window. The extension closes
-// that tab whenever its grant ends, except at a connection loss, where it
-// keeps the tab to resume.
+// command makes a tab for an agent in one Agents window. Task 9361ce1b: when
+// its grant ends, the tab stays open as the member's plain tab. Only the
+// popup's Close tab, the agent's own close (an office detach with close) and
+// a failed open close it.
 const OPENED = { kind: "opened", agentId: "a", via: "all" };
 // The member's access setting (task 7355640c), as the extension stores it.
 const MINE_OFF = { agents: "mine", members: [], openTabs: false };
@@ -2543,6 +2544,15 @@ const tabOf = async (h: Harness, id: string) =>
   ((await h.ui({ action: "state" })).assignments as Fields[]).find(
     (a) => a.id === id,
   )?.tabId as number | undefined;
+// The last autoDiscardable the extension set on a tab: an open sets false, so
+// Chrome does not discard the agent's tab; a kept tab gets true back.
+const discardable = (h: Harness, tabId: number) =>
+  h.tabUpdates
+    .filter((u) => u.tabId === tabId && "autoDiscardable" in u.options)
+    .at(-1)?.options.autoDiscardable;
+// The tab is still open, and the extension did not close it.
+const stillOpen = (h: Harness, tabId: number) =>
+  h.madeTabs.has(tabId) && !h.removedTabs.includes(tabId);
 // The office's open for agent "a" (or params), answered with offered.
 async function opened(
   h: Harness,
@@ -2771,13 +2781,6 @@ test("open makes an about:blank tab in one unfocused Agents window, kept from di
         (u) => u.tabId === tabId && u.options.autoDiscardable === false,
       ),
     ).toBe(true);
-  // Each kept with its page target, so a later worker can tell the tab.
-  expect(h.local.get("openedTabs")).toEqual(
-    expect.arrayContaining([
-      { tabId: first.tabId, targetId: `target-${first.tabId}` },
-      { tabId: second.tabId, targetId: `target-${second.tabId}` },
-    ]),
-  );
   // The popup lists each one as the agent's tab.
   const rows = (await h.ui({ action: "state" })).assignments as Fields[];
   expect(
@@ -2870,7 +2873,7 @@ test("after the member closes the Agents window, the next open makes a new one",
   expect(h.madeTabs.get(second.tabId)?.windowId).not.toBe(window);
 });
 
-test("Open their own tabs off closes every opened tab and leaves the member's offered tab", async () => {
+test("Open their own tabs off ends the agents' access to their tabs and leaves the tabs open as plain tabs; the member's offered tab stays offered", async () => {
   const h = await agentTabs(ON_OFFICE());
   const own = await onOffer(h);
   const mine = await opened(h, 5);
@@ -2879,15 +2882,47 @@ test("Open their own tabs off closes every opened tab and leaves the member's of
     agentName: "Visitor",
     scope: { kind: "opened", agentId: "visitor", via: "office" },
   });
+  // The enabling state: the open kept both tabs from discard.
+  expect([mine, visitor].map((t) => discardable(h, t.tabId))).toEqual([
+    false,
+    false,
+  ]);
   await h.ui({ action: "access", access: { ...OFFICE_ON, openTabs: false } });
   for (let i = 0; i < 3; i++) await settle();
-  expect(h.removedTabs.sort()).toEqual([mine.tabId, visitor.tabId].sort());
-  expect(h.removedTabs).not.toContain(7);
+  expect(detachCauses(h).sort()).toEqual(
+    [
+      [mine.assignment, "off"],
+      [visitor.assignment, "off"],
+    ].sort(),
+  );
+  expect(h.removedTabs).toEqual([]);
+  expect([mine, visitor].map((t) => stillOpen(h, t.tabId))).toEqual([
+    true,
+    true,
+  ]);
+  expect([mine, visitor].map((t) => discardable(h, t.tabId))).toEqual([
+    true,
+    true,
+  ]);
   expect(await listed(h)).toEqual([{ id: own, phase: "on" }]);
-  expect(h.local.get("openedTabs") ?? []).toEqual([]);
 });
 
-test("on an older office, narrowing to My agents closes only the tabs opened via All agents", async () => {
+test("Open their own tabs off while the office is away forgets the opened tab's resume and leaves the tab open", async () => {
+  const h = await agentTabs();
+  const { assignment, tabId } = await opened(h, 5);
+  h.socket.close();
+  await settle();
+  // The enabling state: the tab waits to resume, still kept from discard.
+  expect(await listed(h)).toEqual([{ id: assignment, phase: "offering" }]);
+  expect(discardable(h, tabId)).toBe(false);
+  await h.ui({ action: "access", access: MINE_OFF });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(await listed(h)).toEqual([]);
+  expect(stillOpen(h, tabId)).toBe(true);
+  expect(discardable(h, tabId)).toBe(true);
+});
+
+test("on an older office, narrowing to My agents ends only the tabs opened via All agents, and leaves them open", async () => {
   const h = await olderOffice(ON_OFFICE());
   const mine = await opened(h, 5);
   const visitor = await opened(h, 6, {
@@ -2897,7 +2932,9 @@ test("on an older office, narrowing to My agents closes only the tabs opened via
   });
   await h.ui({ action: "access", access: MINE_ON });
   for (let i = 0; i < 3; i++) await settle();
-  expect(h.removedTabs).toEqual([visitor.tabId]);
+  expect(detachCauses(h)).toEqual([[visitor.assignment, "off"]]);
+  expect(h.removedTabs).toEqual([]);
+  expect(stillOpen(h, visitor.tabId)).toBe(true);
   expect(await listed(h)).toEqual([{ id: mine.assignment, phase: "on" }]);
 });
 
@@ -2917,38 +2954,150 @@ test("Off while an open waits for its attach leaves no tab", async () => {
   expect(await listed(h)).toEqual([]);
 });
 
-test("an opened tab closes when the office ends it, also while its open waits, and at the popup's Close; the office ending the member's offer leaves its tab", async () => {
+test("the office's detach ends an opened tab's access and leaves the tab open when it says close:false; with close, or from an older office with no params, it closes the tab; the member's offer is never closed", async () => {
   const h = await agentTabs();
-  const ended = await opened(h, 5);
-  h.command(20, "detach");
+  const kept = await opened(h, 5);
+  h.command(20, "detach", { close: false });
   for (let i = 0; i < 3; i++) await settle();
-  expect(h.removedTabs).toEqual([ended.tabId]);
+  expect(detachCauses(h)).toEqual([[kept.assignment, "office"]]);
+  expect(await listed(h)).toEqual([]);
+  expect(h.removedTabs).toEqual([]);
+  expect(stillOpen(h, kept.tabId)).toBe(true);
+  expect(discardable(h, kept.tabId)).toBe(true);
 
+  // The agent's own close.
   const closed = await opened(h, 6);
-  await h.ui({
-    action: "stop",
-    generation: "generation-1",
-    assignment: closed.assignment,
-  });
+  h.command(21, "detach", { close: true });
   for (let i = 0; i < 3; i++) await settle();
-  expect(h.removedTabs).toContain(closed.tabId);
+  expect(h.removedTabs).toEqual([closed.tabId]);
 
-  // The office gives up on an open whose attach still waits.
+  // An office from before close: every detach closes, as it did.
+  const older = await opened(h, 7);
+  h.command(22, "detach");
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).toEqual([closed.tabId, older.tabId]);
+
+  // The member's own offer: the office's detach ends control only.
+  await onOffer(h);
+  h.command(23, "detach", { close: true });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(h.removedTabs).not.toContain(7);
+});
+
+test("a tab whose open has not finished closes when the office ends it, also with close:false", async () => {
+  const h = await agentTabs();
   const release = h.delayPopup("attach");
   h.open(7, crypto.randomUUID());
   for (let i = 0; i < 3; i++) await settle();
+  // The enabling state: the tab exists and its attach waits.
   expect(h.madeTabs.size).toBe(1);
-  h.command(21, "detach");
+  h.command(21, "detach", { close: false });
   await settle();
   release();
   for (let i = 0; i < 5; i++) await settle();
   expect(h.madeTabs.size).toBe(0);
+  expect(await listed(h)).toEqual([]);
 
-  // The member's own offer: the office's detach ends control only.
-  await onOffer(h);
-  h.command(22, "detach");
+  // The attach answered, but the office has not accepted the open yet: its
+  // detach, or its refusal, closes the tab.
+  for (const end of ["detach", "refusal"] as const) {
+    const g = await agentTabs();
+    const id = crypto.randomUUID();
+    g.open(8, id);
+    for (let i = 0; i < 3; i++) await settle();
+    // The enabling state: the open answered, and the tab waits for offered.
+    expect({ end, answered: !!result(g.socket, 8) }).toEqual({
+      end,
+      answered: true,
+    });
+    expect({ end, rows: await listed(g) }).toEqual({
+      end,
+      rows: [{ id, phase: "offering" }],
+    });
+    if (end === "detach") g.command(20, "detach", { close: false });
+    else
+      g.socket.receive({
+        kind: "offered",
+        generation: "generation-1",
+        assignment: id,
+        error: true,
+      });
+    for (let i = 0; i < 5; i++) await settle();
+    expect({ end, tabs: g.madeTabs.size }).toEqual({ end, tabs: 0 });
+  }
+});
+
+test("the popup's Off ends the agent's access and leaves its opened tab open; Close tab closes the tab and the pages its sites opened", async () => {
+  const h = await agentTabs();
+  const off = await opened(h, 5);
+  const stopped = await h.ui({
+    action: "stop",
+    generation: "generation-1",
+    assignment: off.assignment,
+  });
   for (let i = 0; i < 3; i++) await settle();
-  expect(h.removedTabs).not.toContain(7);
+  expect(stopped.error).toBeUndefined();
+  expect(detachCauses(h)).toEqual([[off.assignment, "off"]]);
+  expect(await listed(h)).toEqual([]);
+  expect(h.removedTabs).toEqual([]);
+  expect(stillOpen(h, off.tabId)).toBe(true);
+  expect(discardable(h, off.tabId)).toBe(true);
+
+  const closed = await opened(h, 6);
+  // A page that the tab's site opened, which the agent controls with it.
+  h.navigation(closed.tabId, 300);
+  for (let i = 0; i < 3; i++) await settle();
+  const answer = await h.ui({
+    action: "close",
+    generation: "generation-1",
+    assignment: closed.assignment,
+  });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(answer.error).toBeUndefined();
+  expect(detachCauses(h).map(([id]) => id)).toContain(closed.assignment);
+  // The enabling state: the popup page was the agent's, so its debugger
+  // session ended with the tab.
+  expect(h.detachedTabs).toContain(300);
+  expect([...h.removedTabs].sort()).toEqual([closed.tabId, 300].sort());
+  expect(await listed(h)).toEqual([]);
+});
+
+test("a close that comes while an Off still detaches the tab closes it: the popup's Close tab, or the agent's own close", async () => {
+  const h = await agentTabs();
+  for (const via of ["popup", "agent"] as const) {
+    const tab = await opened(h, via === "popup" ? 5 : 6);
+    const held = h.delayDetach(tab.tabId);
+    const stopped = h.ui({
+      action: "stop",
+      generation: "generation-1",
+      assignment: tab.assignment,
+    });
+    for (let i = 0; i < 3; i++) await settle();
+    // The enabling state: the Off waits on the detach, and the popup still
+    // lists the tab.
+    expect({ via, reached: held.reached() }).toEqual({ via, reached: true });
+    expect({ via, rows: await listed(h) }).toEqual({
+      via,
+      rows: [{ id: tab.assignment, phase: "revoking" }],
+    });
+    const closing =
+      via === "popup"
+        ? h.ui({
+            action: "close",
+            generation: "generation-1",
+            assignment: tab.assignment,
+          })
+        : h.command(30, "detach", { close: true });
+    await settle();
+    held.finish();
+    await stopped;
+    await closing;
+    for (let i = 0; i < 3; i++) await settle();
+    expect({ via, closed: h.removedTabs.includes(tab.tabId) }).toEqual({
+      via,
+      closed: true,
+    });
+  }
 });
 
 test("a connection loss keeps an opened tab, and it resumes after the access setting, with no deadline and no origin", async () => {
@@ -2956,6 +3105,8 @@ test("a connection loss keeps an opened tab, and it resumes after the access set
   const { assignment, tabId } = await opened(h, 5);
   const ws = await restart(h, 2, true, { agentTabs: true, access: true });
   expect(h.removedTabs).toEqual([]);
+  // It waits to resume: still kept from discard.
+  expect(discardable(h, tabId)).toBe(false);
   const order = ws.sent.map((m) => m.kind);
   expect(order.indexOf("access")).toBeGreaterThanOrEqual(0);
   expect(order.indexOf("access")).toBeLessThan(order.indexOf("offer"));
@@ -2969,7 +3120,7 @@ test("a connection loss keeps an opened tab, and it resumes after the access set
       expiresAt: null,
     },
   ]);
-  // The office refuses it: the tab closes.
+  // The office refuses it: the tab stays open as the member's.
   ws.receive({
     kind: "offered",
     generation: "generation-2",
@@ -2977,10 +3128,13 @@ test("a connection loss keeps an opened tab, and it resumes after the access set
     error: true,
   });
   for (let i = 0; i < 3; i++) await settle();
-  expect(h.removedTabs).toEqual([tabId]);
+  expect(await listed(h)).toEqual([]);
+  expect(h.removedTabs).toEqual([]);
+  expect(stillOpen(h, tabId)).toBe(true);
+  expect(discardable(h, tabId)).toBe(true);
 });
 
-test("Close in the popup while the office is away closes the opened tab", async () => {
+test("Off in the popup while the office is away forgets the opened tab's resume and leaves the tab open", async () => {
   const h = await agentTabs();
   const { assignment, tabId } = await opened(h, 5);
   h.socket.close();
@@ -2988,49 +3142,58 @@ test("Close in the popup while the office is away closes the opened tab", async 
   expect(await listed(h)).toEqual([{ id: assignment, phase: "offering" }]);
   await h.ui({ action: "stop", assignment });
   for (let i = 0; i < 3; i++) await settle();
-  expect(h.removedTabs).toEqual([tabId]);
+  expect(await listed(h)).toEqual([]);
+  expect(h.removedTabs).toEqual([]);
+  expect(stillOpen(h, tabId)).toBe(true);
+  expect(discardable(h, tabId)).toBe(true);
 });
 
-test("an office without agent tabs gets no opened tab to resume, and the tab closes", async () => {
+test("an office without agent tabs gets no opened tab to resume, and the tab stays open", async () => {
   const h = await agentTabs();
   const { tabId } = await opened(h, 5);
   const ws = await restart(h, 2, true);
   for (let i = 0; i < 3; i++) await settle();
   expect(offers(ws)).toEqual([]);
   expect([...agentTabsSent(ws), ...accessSent(ws)]).toEqual([]);
-  expect(h.removedTabs).toEqual([tabId]);
+  expect(h.removedTabs).toEqual([]);
+  expect(stillOpen(h, tabId)).toBe(true);
+  expect(discardable(h, tabId)).toBe(true);
 });
 
-test("an extension update closes the opened tabs the last worker kept, only where the tab still has the kept page target; a Chrome start or a Chrome update closes nothing", async () => {
-  for (const [reason, closes] of [
-    ["update", true],
-    ["chrome_update", false],
-    ["startup", false],
-  ] as const) {
+for (const end of ["Disconnect", "Disconnect while away", "a refusal"] as const)
+  test(`${end} ends an opened tab's access and leaves the tab open`, async () => {
+    const h = await agentTabs();
+    const { tabId } = await opened(h, 5);
+    if (end === "Disconnect while away") {
+      h.socket.close();
+      await settle();
+    }
+    if (end === "a refusal") h.socket.receive({ kind: "refused" });
+    else await h.ui({ action: "disconnect" });
+    for (let i = 0; i < 3; i++) await settle();
+    expect(await listed(h)).toEqual([]);
+    expect(h.removedTabs).toEqual([]);
+    expect(stillOpen(h, tabId)).toBe(true);
+    expect(discardable(h, tabId)).toBe(true);
+  });
+
+test("no extension update, Chrome update or Chrome start closes a tab; the opened tab list an earlier version kept is dropped", async () => {
+  for (const reason of ["update", "chrome_update", "startup"] as const) {
     const local = ON_ALL();
-    local.set("openedTabs", [
-      { tabId: 41, targetId: "kept-41" },
-      { tabId: 42, targetId: "kept-42" },
-      { tabId: 43, targetId: "kept-43" },
-    ]);
+    local.set("openedTabs", [{ tabId: 41, targetId: "kept-41" }]);
     const h = await agentTabs(local);
-    // Tab 41 is the agent's tab. Ids 42 and 43 are other tabs now: an
-    // update that Chrome applied at its start sees tab ids of a new run.
+    // Tab 41 still shows the page target an earlier version kept.
     h.targets([
       { id: "kept-41", tabId: 41, type: "page" },
-      { id: "member-page", tabId: 42, type: "page" },
       { id: "owned", tabId: 7, type: "page" },
     ]);
     if (reason === "startup") h.startup();
     else h.installed(reason);
     for (let i = 0; i < 3; i++) await settle();
-    expect({ reason, removed: [...h.removedTabs].sort() }).toEqual({
+    expect({ reason, removed: h.removedTabs }).toEqual({ reason, removed: [] });
+    expect({ reason, kept: h.local.has("openedTabs") }).toEqual({
       reason,
-      removed: closes ? [41] : [],
-    });
-    expect({ reason, kept: h.local.get("openedTabs") ?? [] }).toEqual({
-      reason,
-      kept: [],
+      kept: false,
     });
     // The setting itself stays.
     expect({ reason, setting: h.local.get("access") }).toEqual({

@@ -649,7 +649,7 @@ test("open makes a tab, navigates it, and names the tab, the browser and the mem
   }
 });
 
-test("an open whose goto fails ends the new tab and returns the goto's error", async () => {
+test("an open whose goto fails closes the new tab and returns the goto's error", async () => {
   const h = await gateSession(5000, true);
   try {
     h.page.onGoto = async () => {
@@ -664,10 +664,10 @@ test("an open whose goto fails ends the new tab and returns the goto's error", a
     expect(h.commands.filter((m) => m.method === "open")).toHaveLength(1);
     expect(h.page.gotos).toEqual([`${SITE}/page`]);
     expect(
-      h.commands.some(
+      h.commands.find(
         (m) => m.method === "detach" && m.assignment === h.grant(),
-      ),
-    ).toBe(true);
+      )?.params,
+    ).toEqual({ close: true });
     expect(h.service.bridge.targets("member", "agent")).toEqual([]);
   } finally {
     h.stop();
