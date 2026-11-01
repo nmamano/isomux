@@ -56,6 +56,7 @@ import {
   chatCopyText,
   type ChatCopyScope,
 } from "./LogEntryCard.tsx";
+import type { ChatCopyFormat } from "./plain-copy.ts";
 import {
   PINNED_BAR_HEIGHT,
   pinnedHumanMessageId,
@@ -85,7 +86,12 @@ import { lazyComponent } from "../lazy-component.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
-import { getDevice, getUsername } from "../device-settings.ts";
+import {
+  getChatCopyFormat,
+  getDevice,
+  getUsername,
+  setChatCopyFormat,
+} from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { SkillsPopover, type CommandEntry } from "./SkillsPopover.tsx";
@@ -1357,14 +1363,20 @@ export function LogView({
     [agent.id, device],
   );
 
+  // Markdown or Plain text, remembered per browser.
+  const [copyFormat, setCopyFormat] = useState(getChatCopyFormat);
+  const pickCopyFormat = useCallback((format: ChatCopyFormat) => {
+    setCopyFormat(format);
+    setChatCopyFormat(format);
+  }, []);
+
   const handleCopy = useCallback(
     async (scope: ChatCopyScope) => {
-      const text = chatCopyText(
-        i18n,
-        logs,
-        scope,
-        sessionContext?.username ?? getUsername(),
-      );
+      const text = chatCopyText(i18n, logs, scope, {
+        self: sessionContext?.username ?? getUsername(),
+        agentName: agent.name,
+        format: copyFormat,
+      });
       try {
         await navigator.clipboard.writeText(text);
       } catch {
@@ -1381,7 +1393,7 @@ export function LogView({
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(false), 1500);
     },
-    [i18n, logs, sessionContext?.username],
+    [i18n, logs, sessionContext?.username, agent.name, copyFormat],
   );
 
   // Returns whether the command was handed to the outbox, so a caller that
@@ -1446,6 +1458,18 @@ export function LogView({
                 id: "lastExchange",
                 label: i18n.t("logView.nav.copyLastExchange"),
                 onClick: () => void handleCopy("lastExchange"),
+              },
+              {
+                id: "markdown",
+                label: i18n.t("logView.nav.copyMarkdown"),
+                checked: copyFormat === "markdown",
+                onClick: () => pickCopyFormat("markdown"),
+              },
+              {
+                id: "plain",
+                label: i18n.t("logView.nav.copyPlainText"),
+                checked: copyFormat === "plain",
+                onClick: () => pickCopyFormat("plain"),
               },
             ],
             active: copied,

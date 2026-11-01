@@ -8,6 +8,7 @@
 // is genuinely about THIS browser.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
+import type { ChatCopyFormat } from "./log-view/plain-copy.ts";
 import {
   FILTER_PRIORITIES,
   type PriorityFilterValue,
@@ -53,6 +54,22 @@ export function setMembersChatWidth(width: number): void {
     localStorage.setItem(KEY_MEMBERS_CHAT_WIDTH, String(width));
   } catch {}
 }
+const KEY_CHAT_COPY_FORMAT = "isomux-chat-copy-format";
+
+// The chat bar's Copy format. Markdown unless this browser picked Plain text.
+export function getChatCopyFormat(): ChatCopyFormat {
+  try {
+    if (localStorage.getItem(KEY_CHAT_COPY_FORMAT) === "plain") return "plain";
+  } catch {}
+  return "markdown";
+}
+
+export function setChatCopyFormat(format: ChatCopyFormat): void {
+  try {
+    localStorage.setItem(KEY_CHAT_COPY_FORMAT, format);
+  } catch {}
+}
+
 const LEGACY_KEY_DEFAULT_ROOM = "isomux-default-room";
 const LEGACY_KEY_NOTIF_ROOMS = "isomux-notif-rooms";
 

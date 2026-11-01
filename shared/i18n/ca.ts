@@ -2127,6 +2127,8 @@ Coses que pots fer per ell:
   "logView.nav.copyMyMessages": "Només els meus missatges",
   "logView.nav.copyEverything": "Tot",
   "logView.nav.copyLastExchange": "Últim intercanvi",
+  "logView.nav.copyMarkdown": "Markdown",
+  "logView.nav.copyPlainText": "Text sense format",
   "logView.nav.avatarTitle": "Mostra l'avatar",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Obre l'editor de fitxers (Ctrl+E)",

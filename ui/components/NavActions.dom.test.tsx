@@ -153,8 +153,16 @@ describe("NavActions", () => {
 // runs once and closes them. The overflow menu on a phone offers the same
 // choices as rows under the action.
 describe("NavActions with a menu", () => {
-  function withMenu(opts: { disabled?: boolean } = {}) {
+  // `radio` adds two radio rows after the plain ones (the Copy format, task
+  // 28bd5993).
+  function withMenu(opts: { disabled?: boolean; radio?: boolean } = {}) {
     const ran: string[] = [];
+    const row = (id: string, checked?: boolean) => ({
+      id,
+      label: `Item ${id}`,
+      onClick: () => ran.push(id),
+      ...(checked === undefined ? {} : { checked }),
+    });
     const acts = [
       { id: "tasks", icon: null, label: "Tasks", onClick: () => {} },
       {
@@ -162,11 +170,10 @@ describe("NavActions with a menu", () => {
         icon: null,
         label: "Copy",
         disabled: opts.disabled,
-        menu: ["messages", "everything", "lastExchange"].map((id) => ({
-          id,
-          label: `Item ${id}`,
-          onClick: () => ran.push(id),
-        })),
+        menu: [
+          ...["messages", "everything", "lastExchange"].map((id) => row(id)),
+          ...(opts.radio ? [row("markdown", true), row("plain", false)] : []),
+        ],
       },
     ];
     return { ran, acts };
@@ -189,9 +196,43 @@ describe("NavActions with a menu", () => {
     items().map((el) => el.getAttribute("data-nav-menu-item"));
   const item = (id: string) =>
     document.querySelector(`[data-nav-menu-item="${id}"]`)!;
+  const separators = () =>
+    Array.from(menu()?.querySelectorAll('[role="separator"]') ?? []);
+
+  // The radio rows follow the plain ones past one divider, and only they
+  // say which one is picked.
+  function expectRadioRows() {
+    expect(itemIds()).toEqual([
+      "messages",
+      "everything",
+      "lastExchange",
+      "markdown",
+      "plain",
+    ]);
+    expect(items().map((el) => el.getAttribute("role"))).toEqual([
+      "menuitem",
+      "menuitem",
+      "menuitem",
+      "menuitemradio",
+      "menuitemradio",
+    ]);
+    expect(items().map((el) => el.getAttribute("aria-checked"))).toEqual([
+      null,
+      null,
+      null,
+      "true",
+      "false",
+    ]);
+    const seps = separators();
+    expect(seps).toHaveLength(1);
+    const follows = (a: Element, b: Element) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    expect(follows(item("lastExchange"), seps[0])).toBe(true);
+    expect(follows(seps[0], item("markdown"))).toBe(true);
+  }
 
   describe("desktop", () => {
-    function mount(opts?: { disabled?: boolean }) {
+    function mount(opts?: { disabled?: boolean; radio?: boolean }) {
       const m = withMenu(opts);
       const view = render(
         <div>
@@ -224,6 +265,7 @@ describe("NavActions with a menu", () => {
       expect(
         items().every((el) => el.getAttribute("role") === "menuitem"),
       ).toBe(true);
+      expect(separators()).toHaveLength(0);
       expect(ran).toEqual([]);
 
       press(item("everything"));
@@ -270,6 +312,21 @@ describe("NavActions with a menu", () => {
       expect(menu()).toBeNull();
     });
 
+    it("a radio row runs and keeps the menu open; a plain row then closes it", () => {
+      const { ran, trigger } = mount({ radio: true });
+      press(trigger);
+      expectRadioRows();
+
+      press(item("plain"));
+      expect(ran).toEqual(["plain"]);
+      expect(menu()).not.toBeNull();
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+      press(item("messages"));
+      expect(ran).toEqual(["plain", "messages"]);
+      expect(menu()).toBeNull();
+    });
+
     it("does not open while disabled", () => {
       const { ran, trigger } = mount({ disabled: true });
       expect(trigger.hasAttribute("disabled")).toBe(true);
@@ -280,7 +337,7 @@ describe("NavActions with a menu", () => {
   });
 
   describe("mobile", () => {
-    function mount(opts?: { disabled?: boolean }) {
+    function mount(opts?: { disabled?: boolean; radio?: boolean }) {
       const m = withMenu(opts);
       const view = render(<NavActions actions={m.acts} viewport="mobile" />);
       const overflow = view.getByRole("button");
@@ -318,6 +375,23 @@ describe("NavActions with a menu", () => {
       openOverflow();
       expect(row().getAttribute("aria-expanded")).toBe("false");
       expect(items().length).toBe(0);
+    });
+
+    it("a radio row runs and keeps the overflow and the choices open; a plain row then closes it", () => {
+      const { ran, view, openOverflow, row } = mount({ radio: true });
+      openOverflow();
+      press(row());
+      expectRadioRows();
+
+      press(item("plain"));
+      expect(ran).toEqual(["plain"]);
+      expect(view.queryByText("Tasks")).not.toBeNull();
+      expect(row().getAttribute("aria-expanded")).toBe("true");
+      expect(items()).toHaveLength(5);
+
+      press(item("lastExchange"));
+      expect(ran).toEqual(["plain", "lastExchange"]);
+      expect(view.queryByText("Tasks")).toBeNull();
     });
 
     it("collapses the choices on a second tap of the row", () => {

@@ -2073,6 +2073,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "logView.nav.copyMyMessages": "My messages only",
   "logView.nav.copyEverything": "Everything",
   "logView.nav.copyLastExchange": "Last exchange",
+  "logView.nav.copyMarkdown": "Markdown",
+  "logView.nav.copyPlainText": "Plain text",
   "logView.nav.avatarTitle": "View avatar",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Open file editor (Ctrl+E)",

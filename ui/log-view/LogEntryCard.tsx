@@ -55,7 +55,11 @@ import {
   logEntryText,
 } from "../../shared/i18n/log-message.ts";
 import { AskLink, askAnswerText, askRefOf } from "./ask-link.tsx";
-import { unescapeDollars } from "./plain-copy.ts";
+import {
+  markdownToPlainText,
+  unescapeDollars,
+  type ChatCopyFormat,
+} from "./plain-copy.ts";
 import {
   parseReviewFindings,
   type ReviewFinding,
@@ -225,10 +229,7 @@ export function serializeEntries(
     } else if (e.kind === "text") {
       parts.push(unescapeDollars(e.content));
     } else if (e.kind === "tool_call") {
-      const input = e.metadata?.input;
-      const inputStr =
-        typeof input === "string" ? input : JSON.stringify(input, null, 2);
-      parts.push(`**${e.content}**\n${inputStr}`);
+      parts.push(`**${e.content}**\n${toolInputText(e.metadata?.input)}`);
     }
   }
   return parts.join("\n\n");
@@ -237,6 +238,7 @@ export function serializeEntries(
 // What the chat bar's Copy puts on the clipboard: the member and agent
 // messages, the viewer's own messages, everything serializeEntries copies, or
 // the last exchange. `self` is the viewer's name; only myMessages reads it.
+// labelSpeakers names who said what and applies `format`.
 export type ChatCopyScope =
   | "messages"
   | "myMessages"
@@ -247,37 +249,104 @@ export function chatCopyText(
   i18n: Translator,
   entries: LogEntry[],
   scope: ChatCopyScope,
-  self?: string | null,
+  {
+    self,
+    agentName,
+    format,
+  }: {
+    self?: string | null;
+    agentName: string;
+    format: ChatCopyFormat;
+  },
 ): string {
+  return labelSpeakers(
+    i18n,
+    chatCopyEntries(entries, scope, self),
+    agentName,
+    format,
+  );
+}
+
+function chatCopyEntries(
+  entries: LogEntry[],
+  scope: ChatCopyScope,
+  self: string | null | undefined,
+): LogEntry[] {
   if (scope === "myMessages") {
     // A viewer with no name (an office without sign-in) gets every message a
     // member sent.
     const me = self?.trim().toLowerCase();
-    return serializeEntries(
-      i18n,
-      entries.filter(
-        (e) =>
-          e.kind === "user_message" &&
-          senderIsHuman(e.metadata) &&
-          (!me ||
-            (e.metadata?.username as string | undefined)
-              ?.trim()
-              .toLowerCase() === me),
-      ),
+    return entries.filter(
+      (e) =>
+        e.kind === "user_message" &&
+        senderIsHuman(e.metadata) &&
+        (!me ||
+          (e.metadata?.username as string | undefined)?.trim().toLowerCase() ===
+            me),
     );
   }
   if (scope === "messages")
-    return serializeEntries(
-      i18n,
-      entries.filter((e) => e.kind === "user_message" || e.kind === "text"),
+    return entries.filter(
+      (e) => e.kind === "user_message" || e.kind === "text",
     );
   if (scope === "lastExchange") {
     // A turn starts at any incoming message, whoever sent it: an agent that
     // other agents drive has its last member message hours back.
     const start = entries.findLastIndex((e) => e.kind === "user_message");
-    return serializeEntries(i18n, entries.slice(Math.max(start, 0)));
+    return entries.slice(Math.max(start, 0));
   }
-  return serializeEntries(i18n, entries);
+  return entries;
+}
+
+// serializeEntries' blocks, each run of one speaker opened by its name: the
+// name the chat header shows for a message, `agentName` for the agent's own
+// entries. In Markdown the name is bold and a blank line follows, so the
+// content's own Markdown (a list, a table) still starts a block. A member's
+// message stays as typed in both formats: the chat does not render it.
+function labelSpeakers(
+  i18n: Translator,
+  entries: LogEntry[],
+  agentName: string,
+  format: ChatCopyFormat,
+): string {
+  const parts: string[] = [];
+  let speaker: string | undefined;
+  for (const e of entries) {
+    let block: string;
+    let who: string;
+    if (e.kind === "user_message") {
+      block = e.content;
+      who =
+        describeMessageSender(i18n, e.metadata).label ?? i18n.t("common.you");
+    } else if (e.kind === "text") {
+      block =
+        format === "plain"
+          ? markdownToPlainText(e.content)
+          : unescapeDollars(e.content);
+      who = agentName;
+    } else if (e.kind === "tool_call") {
+      const name = format === "plain" ? e.content : `**${e.content}**`;
+      block = `${name}\n${toolInputText(e.metadata?.input)}`;
+      who = agentName;
+    } else continue;
+    if (who !== speaker) {
+      speaker = who;
+      if (format === "plain") block = `${who}:\n${block}`;
+      else parts.push(`**${escapeMarkdown(who)}:**`);
+    }
+    parts.push(block);
+  }
+  return parts.join("\n\n");
+}
+
+function toolInputText(input: unknown): string {
+  return typeof input === "string" ? input : JSON.stringify(input, null, 2);
+}
+
+// A backslash before each ASCII punctuation mark, so a name such as "my_bot*"
+// stays literal inside the bold.
+function escapeMarkdown(text: string): string {
+  return text.replace(/[!-/:-@[-`{-~]/g, "\\$&");
 }
 
 function formatDuration(ms: number): string {

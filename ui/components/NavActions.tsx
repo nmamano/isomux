@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useState,
   useRef,
   useEffect,
@@ -9,7 +10,14 @@ import { Portal } from "./Portal.tsx";
 import { MenuItem } from "./ContextMenu.tsx";
 import { useI18n } from "../i18n.tsx";
 
-export type NavMenuItem = { id: string; label: string; onClick: () => void };
+// A row with `checked` set is a radio choice: it keeps the menu open and
+// shows whether it is the one picked (Copy: Markdown or Plain text).
+export type NavMenuItem = {
+  id: string;
+  label: string;
+  onClick: () => void;
+  checked?: boolean;
+};
 
 type NavActionBase = {
   id: string;
@@ -31,6 +39,42 @@ export type NavAction = NavActionBase &
     | { onClick: () => void; menu?: never }
     | { menu: NavMenuItem[]; onClick?: never }
   );
+
+// A divider where the rows change kind: the radio rows (a setting) stand
+// apart from the rows that act.
+function startsGroup(menu: NavMenuItem[], i: number): boolean {
+  return (
+    i > 0 &&
+    (menu[i].checked === undefined) !== (menu[i - 1].checked === undefined)
+  );
+}
+
+// The picked radio row's mark, an SVG so it takes the text color everywhere.
+const RadioCheck = (
+  <svg
+    width="12"
+    height="12"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    style={{ display: "block", flexShrink: 0 }}
+  >
+    <path d="M3 8.5l3.5 3.5L13 4.5" />
+  </svg>
+);
+
+function MenuRowLabel({ item }: { item: NavMenuItem }) {
+  return (
+    <>
+      <span style={{ flex: 1 }}>{item.label}</span>
+      {item.checked && RadioCheck}
+    </>
+  );
+}
 
 function Badge({ count }: { count: number }) {
   return (
@@ -215,17 +259,33 @@ function DesktopMenuAction({
               animation: "hudIn 0.12s ease-out",
             }}
           >
-            {menu.map((item) => (
-              <MenuItem
-                key={item.id}
-                role="menuitem"
-                dataNavMenuItem={item.id}
-                label={item.label}
-                onClick={() => {
-                  setAt(null);
-                  item.onClick();
-                }}
-              />
+            {menu.map((item, i) => (
+              <Fragment key={item.id}>
+                {startsGroup(menu, i) && (
+                  <div
+                    role="separator"
+                    style={{
+                      height: 1,
+                      margin: "4px 6px",
+                      background: "var(--border-light)",
+                    }}
+                  />
+                )}
+                <MenuItem
+                  role={
+                    item.checked === undefined ? "menuitem" : "menuitemradio"
+                  }
+                  ariaChecked={item.checked}
+                  dataNavMenuItem={item.id}
+                  label={<MenuRowLabel item={item} />}
+                  onClick={() => {
+                    // A radio row changes a setting; the menu stays for the
+                    // row that acts.
+                    if (item.checked === undefined) setAt(null);
+                    item.onClick();
+                  }}
+                />
+              </Fragment>
             ))}
           </div>
         </Portal>
@@ -384,30 +444,48 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                   </button>
                   {menu && isExpanded && (
                     <div role="group" data-nav-menu={a.id}>
-                      {menu.map((item) => (
-                        <button
-                          key={item.id}
-                          role="menuitem"
-                          data-nav-menu-item={item.id}
-                          onClick={() => {
-                            setOpen(false);
-                            item.onClick();
-                          }}
-                          style={{
-                            display: "block",
-                            width: "100%",
-                            // Under the parent's label, past its icon column.
-                            padding: "10px 16px 10px 48px",
-                            background: "transparent",
-                            border: "none",
-                            color: "var(--text-primary)",
-                            fontSize: 14,
-                            cursor: "pointer",
-                            textAlign: "left",
-                          }}
-                        >
-                          {item.label}
-                        </button>
+                      {menu.map((item, i) => (
+                        <Fragment key={item.id}>
+                          {startsGroup(menu, i) && (
+                            <div
+                              role="separator"
+                              style={{
+                                height: 1,
+                                margin: "4px 16px 4px 48px",
+                                background: "var(--border-light)",
+                              }}
+                            />
+                          )}
+                          <button
+                            role={
+                              item.checked === undefined
+                                ? "menuitem"
+                                : "menuitemradio"
+                            }
+                            aria-checked={item.checked}
+                            data-nav-menu-item={item.id}
+                            onClick={() => {
+                              if (item.checked === undefined) setOpen(false);
+                              item.onClick();
+                            }}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              width: "100%",
+                              // Under the parent's label, past its icon column.
+                              padding: "10px 16px 10px 48px",
+                              background: "transparent",
+                              border: "none",
+                              color: "var(--text-primary)",
+                              fontSize: 14,
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            <MenuRowLabel item={item} />
+                          </button>
+                        </Fragment>
                       ))}
                     </div>
                   )}

@@ -44,6 +44,8 @@ const {
   setAsksSortDir,
   getAsksMember,
   setAsksMember,
+  getChatCopyFormat,
+  setChatCopyFormat,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 
@@ -343,6 +345,45 @@ describe("asks member", () => {
         raw,
         read: { kind: "mine" },
       });
+    }
+  });
+});
+
+// The chat bar's Copy format (task 28bd5993), remembered per browser.
+describe("chat copy format", () => {
+  beforeEach(() => store.clear());
+
+  it("starts as Markdown and round-trips each choice", () => {
+    expect(getChatCopyFormat()).toBe("markdown");
+    setChatCopyFormat("plain");
+    expect(getChatCopyFormat()).toBe("plain");
+    // The key is a protocol value.
+    expect(store.get("isomux-chat-copy-format")).toBe("plain");
+    setChatCopyFormat("markdown");
+    expect(getChatCopyFormat()).toBe("markdown");
+  });
+
+  it("reads a value it does not know as Markdown", () => {
+    store.set("isomux-chat-copy-format", "html");
+    expect(getChatCopyFormat()).toBe("markdown");
+  });
+
+  it("reads Markdown when storage throws, and a save does not throw", () => {
+    const get = spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    const set = spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    try {
+      expect(getChatCopyFormat()).toBe("markdown");
+      // Called directly: a throw fails the test.
+      setChatCopyFormat("plain");
+      expect(set).toHaveBeenCalledTimes(1);
+      expect(get).toHaveBeenCalledTimes(1);
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
     }
   });
 });

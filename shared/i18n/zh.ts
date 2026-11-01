@@ -1897,6 +1897,8 @@ App 的一些原则：
   "logView.nav.copyMyMessages": "仅我的消息",
   "logView.nav.copyEverything": "全部",
   "logView.nav.copyLastExchange": "最近一轮对话",
+  "logView.nav.copyMarkdown": "Markdown",
+  "logView.nav.copyPlainText": "纯文本",
   "logView.nav.avatarTitle": "查看头像",
   "logView.nav.editor": "编辑器",
   "logView.nav.editorTitle": "打开文件编辑器 (Ctrl+E)",
