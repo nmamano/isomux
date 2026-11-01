@@ -341,8 +341,7 @@ Cosas que puedes hacer por él:
   "lobby.elevator.error.self": "Es esta misma oficina.",
   "lobby.elevator.error.unreachable":
     "Esta oficina no llega a ninguna oficina de Isomux en esa dirección.",
-  "lobby.elevator.error.outdated":
-    "Esa oficina usa una versión antigua de Isomux. Actualízala primero.",
+  "lobby.elevator.error.outdated": "Hay que actualizarla primero.",
   "lobby.elevator.error.exists": "Esa oficina ya es una planta.",
   "lobby.elevator.error.full":
     "El ascensor está lleno. Quita una planta primero.",

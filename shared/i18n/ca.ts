@@ -341,8 +341,7 @@ Coses que pots fer per ell:
   "lobby.elevator.error.self": "És aquesta mateixa oficina.",
   "lobby.elevator.error.unreachable":
     "Aquesta oficina no arriba a cap oficina d'Isomux en aquesta adreça.",
-  "lobby.elevator.error.outdated":
-    "Aquesta oficina fa servir una versió antiga d'Isomux. Actualitza-la primer.",
+  "lobby.elevator.error.outdated": "Cal actualitzar-la primer.",
   "lobby.elevator.error.exists": "Aquesta oficina ja és una planta.",
   "lobby.elevator.error.full": "L'ascensor és ple. Treu primer una planta.",
   "membersChat.authorApi": "{name} · token d'API",
