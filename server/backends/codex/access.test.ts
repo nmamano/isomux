@@ -21,8 +21,10 @@ import {
   codexBelowStandardThreadConfig,
   codexConfigMcpServerNames,
   codexEmptyCwd,
+  codexProjectLayerRefusal,
   codexRunsBelowStandard,
   codexSkillPaths,
+  codexStopThreadConfig,
 } from "./access.ts";
 import { getCodexPinnedVersion } from "./native-bin.ts";
 import { STATE_ROOT } from "../../config.ts";
@@ -227,10 +229,115 @@ describe("codexSkillPaths", () => {
 describe("the Codex version gate", () => {
   // A Codex bump turns this red: the stops below Standard need a new probe
   // (codex-access.live.test.ts) before the proven version moves with it.
-  it("the proven version is the pinned one, so this server runs chat and office", () => {
+  it("the proven version is the pinned one, so this server runs every stop below Standard", () => {
     expect(CODEX_BELOW_STANDARD_PROVEN_VERSION).toBe(getCodexPinnedVersion());
-    expect(codexRunsBelowStandard("chat")).toBe(true);
-    expect(codexRunsBelowStandard("office")).toBe(true);
+    for (const access of ["chat", "office", "folder", "web"] as const)
+      expect({ access, runs: codexRunsBelowStandard(access) }).toEqual({
+        access,
+        runs: true,
+      });
+  });
+});
+
+// Folder and web (task 25015e41): the thread runs in the agent's folder,
+// workspace-write. Each sandbox key is set, so a member config.toml that
+// widens it loses: no network, no writable root but the folder, no temp
+// folder. Web adds Codex's hosted web search, which the sandbox does not
+// govern.
+describe("codexStopThreadConfig", () => {
+  const SANDBOX = {
+    network_access: false,
+    writable_roots: [],
+    exclude_tmpdir_env_var: true,
+    exclude_slash_tmp: true,
+  };
+  const at = (access: "chat" | "office" | "folder" | "web") =>
+    effectiveCodexConfig({
+      ...CODEX_BELOW_STANDARD_CONFIG,
+      ...codexStopThreadConfig(access),
+    });
+
+  it("folder: the base, the closed workspace-write keys, no web search", () => {
+    expect(at("folder")).toEqual({
+      ...BASE,
+      sandbox_workspace_write: SANDBOX,
+    });
+  });
+
+  it("web: the same with Codex's live web search", () => {
+    expect(at("web")).toEqual({
+      ...BASE,
+      web_search: "live",
+      sandbox_workspace_write: SANDBOX,
+    });
+  });
+
+  it("chat and office: the base alone", () => {
+    expect(at("chat")).toEqual(BASE);
+    expect(at("office")).toEqual(BASE);
+  });
+});
+
+// A project layer is a .codex folder between the agent's folder and its
+// repository root that Codex loads (a trusted project): its settings and
+// hooks would reach a thread that loads no settings from disk. Codex lists
+// an untrusted one with the reason it is off.
+describe("codexProjectLayerRefusal", () => {
+  const USER = {
+    name: { type: "user", file: "/home/m/.codex/config.toml", profile: null },
+    version: "1",
+    config: {},
+    disabledReason: null,
+  };
+  const SESSION = {
+    name: { type: "sessionFlags" },
+    version: "1",
+    config: {},
+    disabledReason: null,
+  };
+  const project = (disabledReason: string | null) => ({
+    name: { type: "project", dotCodexFolder: "/srv/repo/.codex" },
+    version: "1",
+    config: { mcp_servers: { x: { command: "/bin/true" } } },
+    disabledReason,
+  });
+  const read = (layers: unknown) => ({ config: {}, origins: {}, layers });
+
+  it("passes a folder with no project layer, or with one Codex does not load", () => {
+    expect(codexProjectLayerRefusal(read([USER, SESSION]))).toBeNull();
+    expect(codexProjectLayerRefusal(read([]))).toBeNull();
+    expect(
+      codexProjectLayerRefusal(read([USER, project("untrusted project")])),
+    ).toBeNull();
+  });
+
+  // Codex 0.164 leaves the key out of a layer it loads.
+  it("refuses a project layer Codex loads", () => {
+    const { disabledReason: _, ...loaded } = project(null);
+    for (const layer of [project(null), loaded]) {
+      const refusal = codexProjectLayerRefusal(read([USER, layer]));
+      expect({ layer, refused: typeof refusal === "string" }).toEqual({
+        layer,
+        refused: true,
+      });
+    }
+  });
+
+  it("refuses an answer it cannot read", () => {
+    for (const result of [
+      null,
+      "x",
+      { config: {} },
+      read(null),
+      read("x"),
+      read([USER, 7]),
+      read([USER, { name: "project", disabledReason: null }]),
+      read([{ ...project(null), disabledReason: 3 }]),
+    ])
+      expect({
+        result,
+        refused: typeof codexProjectLayerRefusal(result) === "string",
+      }).toEqual({ result, refused: true });
   });
 });
 

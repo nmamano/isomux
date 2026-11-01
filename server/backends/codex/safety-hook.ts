@@ -6,6 +6,7 @@ import {
   type PolicyDecision,
   type ProposedAction,
 } from "../../safety-policy.ts";
+import { readCodexConfine, type CodexConfine } from "./confine-env.ts";
 
 declare const ISOMUX_SAFETY_HOOK_SOURCE_SHA256: string | undefined;
 
@@ -99,9 +100,12 @@ function policyDecisionToCodexOutput(
 
 // codexHome defaults to the hook's own environment: Codex runs the hook with
 // the app-server's env, so CODEX_HOME there is the agent's.
+// `confine`: the folder confinement of a session at the folder or web stop
+// (confine-env.ts), null otherwise.
 export function evaluateCodexHookEnvelope(
   value: unknown,
   codexHome: string | undefined = process.env.CODEX_HOME,
+  confine: CodexConfine | null = null,
 ): CodexHookOutput {
   const input = parseEnvelope(value);
   const cwdValid =
@@ -112,16 +116,43 @@ export function evaluateCodexHookEnvelope(
     evaluateProposedAction(codexEnvelopeToAction(input), {
       cwd: input.cwd,
       codexHome,
+      ...(confine ? { confine } : {}),
     }),
     cwdValid ? undefined : MISSING_CWD_WARNING,
   );
 }
 
-export function handleCodexHookInput(input: string): CodexHookOutput {
+export const CONFINED_CHECK_FAILED =
+  "Isomux could not check this tool call, so it did not run.";
+
+// Under a confinement (CODEX_CONFINE_ENV set in `env`), any error denies the
+// call. Without one, an error lets the call run with a warning.
+export function handleCodexHookInput(
+  input: string,
+  env: Record<string, string | undefined> = process.env,
+): CodexHookOutput {
+  let confine: CodexConfine | null;
   try {
-    return evaluateCodexHookEnvelope(JSON.parse(input));
+    confine = readCodexConfine(env);
   } catch {
-    return { systemMessage: SAFETY_WARNING };
+    return policyDecisionToCodexOutput({
+      decision: "deny",
+      reason: CONFINED_CHECK_FAILED,
+    });
+  }
+  try {
+    return evaluateCodexHookEnvelope(
+      JSON.parse(input),
+      env.CODEX_HOME,
+      confine,
+    );
+  } catch {
+    return confine
+      ? policyDecisionToCodexOutput({
+          decision: "deny",
+          reason: CONFINED_CHECK_FAILED,
+        })
+      : { systemMessage: SAFETY_WARNING };
   }
 }
 

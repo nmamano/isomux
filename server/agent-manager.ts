@@ -351,6 +351,7 @@ import type {
 import {
   agentAccessOf,
   belowStandard,
+  stopHasFolder,
   stopHasPack,
   stopIncludes,
   type AgentAccess,
@@ -389,6 +390,10 @@ import {
   resolveToken,
 } from "./identity/tokens.ts";
 import { officeMcpToolNames } from "./mcp-endpoint.ts";
+import {
+  FOLDER_FILES_MCP_PATH,
+  FOLDER_FILES_MCP_SERVER,
+} from "./folder-files.ts";
 import { getUserById, getUserByName, listUsers } from "./users.ts";
 import { managerOf } from "./agent-system-prompt.ts";
 import type { SecretScope } from "./secret-store.ts";
@@ -3423,6 +3428,25 @@ export function createAgentManager(deps: ManagerDeps) {
       {
         name: "isomux",
         url: `http://127.0.0.1:${loopbackPort()}/mcp`,
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    ];
+  }
+
+  // The file tools of a Codex agent at folder or web: Isomux's isomux_files
+  // server (folder-mcp-endpoint.ts) on the agent's token. Codex has no file
+  // reading tool without its shell; Claude and OpenCode have their own.
+  function folderFilesServerFor(
+    agentId: string,
+    agentType: string,
+    access: AgentAccess,
+  ): AgentMcpServer[] {
+    const token = getAgentTokenRaw(agentId);
+    if (agentType !== "codex" || !stopHasFolder(access) || !token) return [];
+    return [
+      {
+        name: FOLDER_FILES_MCP_SERVER,
+        url: `http://127.0.0.1:${loopbackPort()}${FOLDER_FILES_MCP_PATH}`,
         headers: { Authorization: `Bearer ${token}` },
       },
     ];
@@ -8203,7 +8227,14 @@ export function createAgentManager(deps: ManagerDeps) {
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       environmentRevision: sessionEnvironmentRevision(managed),
       mcpServers: belowStandard(access)
-        ? officeMcpServerFor(managed.info.id, access)
+        ? [
+            ...officeMcpServerFor(managed.info.id, access),
+            ...folderFilesServerFor(
+              managed.info.id,
+              managed.info.agentType,
+              access,
+            ),
+          ]
         : agentMcpServers(managed.info.userId),
       ...(belowStandard(access)
         ? { officeTools: officeToolsFor(managed.info.id, access) }

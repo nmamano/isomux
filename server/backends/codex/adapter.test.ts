@@ -25,6 +25,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "fs";
@@ -77,6 +78,10 @@ import { SAFETY_WARNING } from "./safety-hook.ts";
 import { removeStateDir } from "../../test-support/temp-state.ts";
 import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
 import { CODEX_EMPTY_CWD_ROOT } from "./access.ts";
+import {
+  FOLDER_FILES_MCP_PATH,
+  FOLDER_FILES_MCP_SERVER,
+} from "../../folder-mcp-endpoint.ts";
 import type { AgentAccess } from "../../../shared/agent-access.ts";
 
 const FIXTURE_THREAD_ID = "thread-fixture-1";
@@ -1158,6 +1163,9 @@ describe("Codex below Standard", () => {
                   isomux: {
                     url: OFFICE_MCP.url,
                     http_headers: OFFICE_MCP.headers,
+                    // Codex refuses a tool that is not read-only under
+                    // approval never: the pack limits the office tools.
+                    default_tools_approval_mode: "approve",
                   },
                 }
               : {}),
@@ -1282,8 +1290,6 @@ describe("Codex below Standard", () => {
     // The routes refuse these first; the session refuses them too, so an
     // agent restored at such a stop never starts a thread.
     ["the model is not proven", () => {}, { modelFamily: "gpt-5.6-sol" }, []],
-    ["the stop is folder", () => {}, { access: "folder" }, []],
-    ["the stop is web", () => {}, { access: "web" }, []],
   ];
   for (const resume of [false, true]) {
     for (const [label, arrange, overrides, reached] of refusals) {
@@ -1324,6 +1330,301 @@ describe("Codex below Standard", () => {
       });
     }
   }
+
+  // Folder and web (task 25015e41): the thread runs in the agent's folder,
+  // workspace-write with no network and no writable root but the folder,
+  // discovery from that folder, and Isomux's isomux_files server for the
+  // file tools beside the office one. Web adds Codex's hosted web search.
+  describe("at folder and web", () => {
+    const FILES_MCP = {
+      name: FOLDER_FILES_MCP_SERVER,
+      url: `http://127.0.0.1:4000${FOLDER_FILES_MCP_PATH}`,
+      headers: { Authorization: "Bearer fake-office-agent-token-0000" },
+    };
+    const SANDBOX = {
+      network_access: false,
+      writable_roots: [],
+      exclude_tmpdir_env_var: true,
+      exclude_slash_tmp: true,
+    };
+    const folders: string[] = [];
+    afterAll(() => {
+      for (const dir of folders) rmSync(dir, { recursive: true, force: true });
+    });
+    function agentFolder(): string {
+      const dir = realpathSync(mkdtempSync(join(tmpdir(), "codex-folder-")));
+      folders.push(dir);
+      return dir;
+    }
+    function memberAt(fake: FakeCodexTransport, layers: unknown[] = []): void {
+      plantedMember(fake);
+      fake.configReadResult = {
+        ...(fake.configReadResult as Record<string, unknown>),
+        layers,
+      };
+    }
+    function at(
+      access: "folder" | "web",
+      overrides: Partial<CodexSessionInitOpts> = {},
+      fake = new FakeCodexTransport(),
+    ) {
+      const folder = agentFolder();
+      const ctx = below(
+        access,
+        {
+          cwd: folder,
+          mcpServers: [OFFICE_MCP, FILES_MCP],
+          ...overrides,
+        },
+        fake,
+      );
+      return { ...ctx, folder };
+    }
+
+    for (const access of ["folder", "web"] as const) {
+      for (const resume of [false, true]) {
+        const method = resume ? "thread/resume" : "thread/start";
+        it(`${access}, ${method}: discovery in the agent's folder, then a workspace-write thread there with every source off`, async () => {
+          const fake = new FakeCodexTransport();
+          memberAt(fake);
+          const ctx = at(
+            access,
+            resume ? { resumeThreadId: FIXTURE_THREAD_ID } : {},
+            fake,
+          );
+          const init = expectKind(
+            await nextEvent(ctx.it, "system_init"),
+            "system_init",
+          );
+          expect(init.sessionId).toBe(FIXTURE_THREAD_ID);
+          expect(fake.requests.map((r) => r.method)).toEqual([
+            "config/read",
+            "skills/list",
+            method,
+          ]);
+          expect(fake.requests[0].params).toMatchObject({
+            cwd: ctx.folder,
+            includeLayers: true,
+          });
+          expect(fake.requests[1].params).toEqual({
+            cwds: [ctx.folder],
+            forceReload: true,
+          });
+          const params = fake.requests[2].params as Record<string, unknown>;
+          expect({
+            cwd: params.cwd,
+            sandbox: params.sandbox,
+            approvalPolicy: params.approvalPolicy,
+          }).toEqual({
+            cwd: ctx.folder,
+            sandbox: "workspace-write",
+            approvalPolicy: "never",
+          });
+          expect(
+            effectiveCodexConfig(params.config as Record<string, unknown>),
+          ).toEqual({
+            ...BASE,
+            web_search: access === "web" ? "live" : "disabled",
+            sandbox_workspace_write: SANDBOX,
+            mcp_servers: {
+              planted: { enabled: false },
+              "a.b": { enabled: false },
+              isomux: {
+                url: OFFICE_MCP.url,
+                http_headers: OFFICE_MCP.headers,
+                default_tools_approval_mode: "approve",
+              },
+              // Listed, not behind Codex's tool search.
+              [FOLDER_FILES_MCP_SERVER]: {
+                url: FILES_MCP.url,
+                http_headers: FILES_MCP.headers,
+                default_tools_approval_mode: "approve",
+                omit_tools_from: ["deferred"],
+              },
+            },
+            skills: {
+              include_instructions: false,
+              config: [
+                { path: USER_SKILL, enabled: false },
+                { path: SYSTEM_SKILL, enabled: false },
+              ],
+            },
+          });
+        });
+      }
+    }
+
+    // A member server named like Isomux's is off like any other, and
+    // Isomux's entry is the one the thread gets.
+    it("a member server named isomux_files does not replace Isomux's", async () => {
+      const fake = new FakeCodexTransport();
+      fake.configReadResult = {
+        config: {
+          mcp_servers: {
+            [FOLDER_FILES_MCP_SERVER]: { command: "/bin/true", enabled: true },
+          },
+        },
+        origins: {},
+        layers: [],
+      };
+      const ctx = at("folder", {}, fake);
+      await nextEvent(ctx.it, "system_init");
+      const thread = fake.requests.find((r) => r.method === "thread/start");
+      const config = effectiveCodexConfig(
+        (thread?.params as Record<string, unknown>).config as Record<
+          string,
+          unknown
+        >,
+      );
+      expect(
+        (config.mcp_servers as Record<string, unknown>)[
+          FOLDER_FILES_MCP_SERVER
+        ],
+      ).toEqual({
+        url: FILES_MCP.url,
+        http_headers: FILES_MCP.headers,
+        default_tools_approval_mode: "approve",
+        omit_tools_from: ["deferred"],
+      });
+    });
+
+    it("every turn runs without the read-only policy, the thread's closed workspace-write stands", async () => {
+      const fake = new FakeCodexTransport();
+      memberAt(fake);
+      const ctx = at("web", {}, fake);
+      await nextEvent(ctx.it, "system_init");
+      await ctx.session.send("hi");
+      const turn = fake.requests.find((r) => r.method === "turn/start");
+      const policy = (turn?.params as Record<string, unknown>).sandboxPolicy;
+      expect([
+        undefined,
+        JSON.stringify({
+          type: "workspaceWrite",
+          writableRoots: [],
+          networkAccess: false,
+          excludeTmpdirEnvVar: true,
+          excludeSlashTmp: true,
+        }),
+      ]).toContain(policy === undefined ? undefined : JSON.stringify(policy));
+    });
+
+    // In a container where bwrap is denied, Standard falls back to full
+    // access. At folder the thread stays workspace-write: Codex then fails
+    // the patch rather than write unsandboxed.
+    it("a denied sandbox probe keeps the thread workspace-write", async () => {
+      const saved = process.env.ISOMUX_APP_SUPERVISOR;
+      resetCodexSandboxProbeForTests();
+      process.env.ISOMUX_APP_SUPERVISOR = "container";
+      try {
+        await codexSandboxProbe(async () => ({ result: "denied", detail: "" }));
+        const fake = new FakeCodexTransport();
+        memberAt(fake);
+        const ctx = at("folder", { sandbox: "workspace-write" }, fake);
+        await nextEvent(ctx.it, "system_init");
+        const thread = fake.requests.find((r) => r.method === "thread/start");
+        expect(thread?.params).toMatchObject({ sandbox: "workspace-write" });
+      } finally {
+        resetCodexSandboxProbeForTests();
+        if (saved === undefined) delete process.env.ISOMUX_APP_SUPERVISOR;
+        else process.env.ISOMUX_APP_SUPERVISOR = saved;
+      }
+    });
+
+    // A .codex folder Codex loads between the agent's folder and its
+    // repository root (a trusted project) would bring its settings and
+    // hooks; an untrusted one loads nothing.
+    // Codex 0.164 leaves disabledReason out of a layer it loads.
+    const PROJECT = (disabledReason?: string) => ({
+      name: { type: "project", dotCodexFolder: "/srv/repo/.codex" },
+      version: "1",
+      config: {},
+      ...(disabledReason === undefined ? {} : { disabledReason }),
+    });
+    for (const resume of [false, true]) {
+      it(`refuses the ${resume ? "resume" : "start"} when the folder has a project layer Codex loads`, async () => {
+        const fake = new FakeCodexTransport();
+        memberAt(fake, [PROJECT()]);
+        const ctx = at(
+          "folder",
+          resume ? { resumeThreadId: FIXTURE_THREAD_ID } : {},
+          fake,
+        );
+        const init = expectKind(
+          await nextEvent(ctx.it, "system_init"),
+          "system_init",
+        );
+        expect(init.sessionId).toBe("");
+        expect(fake.requests.map((r) => r.method)).toEqual(["config/read"]);
+        const err = await ctx.session.send("hi").then(
+          () => null,
+          (e: unknown) => e,
+        );
+        expect(err).toBeInstanceOf(Error);
+      });
+    }
+
+    it("starts when the folder's project layer is one Codex does not load", async () => {
+      const fake = new FakeCodexTransport();
+      memberAt(fake, [PROJECT("untrusted")]);
+      const ctx = at("folder", {}, fake);
+      const init = expectKind(
+        await nextEvent(ctx.it, "system_init"),
+        "system_init",
+      );
+      expect(init.sessionId).toBe(FIXTURE_THREAD_ID);
+    });
+
+    // At folder the model has file tools, as Claude and OpenCode do there:
+    // every attachment is copied into the folder's attachments folder and
+    // named by its path there. read_file reads text only, so an image goes
+    // inline too.
+    it("attachments are copied into the folder and named; an image also goes inline", async () => {
+      const id = agentId();
+      const files = join(STATE_ROOT, "logs", id, "files");
+      try {
+        mkdirSync(files, { recursive: true });
+        writeFileSync(join(files, "shot.png"), Buffer.from([0x89, 0x50]));
+        writeFileSync(join(files, "notes.md"), "NOTES 25015e41\n");
+        const fake = new FakeCodexTransport();
+        memberAt(fake);
+        const ctx = at("folder", { agentId: id }, fake);
+        await nextEvent(ctx.it, "system_init");
+        await ctx.session.send("look", [
+          {
+            filename: "shot.png",
+            originalName: "shot.png",
+            mediaType: "image/png",
+            size: 2,
+          },
+          {
+            filename: "notes.md",
+            originalName: "notes.md",
+            mediaType: "text/markdown",
+            size: 15,
+          },
+        ]);
+        const copies = join(ctx.folder, "attachments");
+        expect(readFileSync(join(copies, "notes.md"), "utf8")).toBe(
+          "NOTES 25015e41\n",
+        );
+        expect(existsSync(join(copies, "shot.png"))).toBe(true);
+        const turn = fake.requests.find((r) => r.method === "turn/start");
+        const input = (turn?.params as { input: Record<string, unknown>[] })
+          .input;
+        const text = input
+          .filter((i) => i.type === "text")
+          .map((i) => i.text)
+          .join("\n");
+        expect(text).toContain(join(copies, "notes.md"));
+        expect(text).toContain(join(copies, "shot.png"));
+        // No text names the office's own logs.
+        expect(text).not.toContain(join(STATE_ROOT, "logs"));
+        expect(input.filter((i) => i.type === "localImage")).toHaveLength(1);
+      } finally {
+        removeStateDir(join(STATE_ROOT, "logs", id));
+      }
+    });
+  });
 
   // Chat and office have no file tools: an image goes inline, any other file
   // is dropped (the routes refuse one first), and no path reaches the model.
@@ -1452,7 +1753,8 @@ describe("Codex one-shot prompt", () => {
     expect(f.closed).toBe(true);
   });
 
-  for (const access of ["office", "chat"] as const) {
+  // Folder and web too (task 25015e41): a one-shot needs no file tool.
+  for (const access of ["office", "chat", "folder", "web"] as const) {
     it(`at ${access}: an empty folder, discovery, every source off, no MCP server, no network`, async () => {
       const f = useFake();
       f.configReadResult = {
@@ -1548,7 +1850,7 @@ describe("Codex one-shot prompt", () => {
       opts("chat"),
     ],
     ["the model is not proven", () => {}, opts("office", "gpt-5.6-sol")],
-    ["the stop is folder", () => {}, opts("folder")],
+    ["the model is not proven at web", () => {}, opts("web", "gpt-5.6-sol")],
   ];
   for (const [label, arrange, options] of refusals) {
     it(`below Standard, rejects with no thread when ${label}`, async () => {

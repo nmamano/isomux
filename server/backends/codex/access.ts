@@ -1,9 +1,13 @@
-// Codex at the access stops below standard: chat and office only. The thread
+// Codex at the access stops below standard. At chat and office the thread
 // gets no file, shell, web or agent tools, a read-only sandbox without
 // network, an empty folder the server makes, and no MCP server, skill or
-// project doc of the member's except the office MCP server at office.
-// Measured on codex 0.164.0 with gpt-5.5 (task e77304b1); another version
-// or model runs these stops only after a new probe
+// project doc of the member's except the office MCP server at office. At
+// folder and web (task 25015e41) it runs in the agent's folder,
+// workspace-write without network, with Isomux's file tools
+// (server/folder-files.ts) and the safety hook confined to the folder
+// (confine-env.ts); web adds Codex's hosted web search. Measured on codex
+// 0.164.0 with gpt-5.5 (tasks e77304b1, 25015e41); another version or model
+// runs these stops only after a new probe
 // (server/backends/codex-access.live.test.ts).
 
 import { join } from "path";
@@ -50,11 +54,12 @@ const FEATURES_OFF = [
   "standalone_web_search",
 ];
 
-// The thread config keys Isomux sets at chat and office. Each one is set
+// The thread config keys Isomux sets below standard. Each one is set
 // explicitly, so a member config.toml that turns a feature on loses key by
 // key. skills.include_instructions hides the skill list on every turn, a
-// skill added after the start included. No sandbox network key: the thread
-// is read-only.
+// skill added after the start included. No sandbox key: at chat and office
+// the thread is read-only, and codexStopThreadConfig adds the
+// workspace-write keys at folder and web.
 export const CODEX_BELOW_STANDARD_CONFIG: Readonly<Record<string, unknown>> = {
   ...Object.fromEntries(FEATURES_OFF.map((key) => [`features.${key}`, false])),
   web_search: "disabled",
@@ -69,10 +74,7 @@ export const CODEX_BELOW_STANDARD_CONFIG: Readonly<Record<string, unknown>> = {
 // engineRunsAccess.
 export function codexRunsBelowStandard(access: AgentAccess): boolean {
   if (!belowStandard(access)) return true;
-  return (
-    !stopHasFolder(access) &&
-    getCodexPinnedVersion() === CODEX_BELOW_STANDARD_PROVEN_VERSION
-  );
+  return getCodexPinnedVersion() === CODEX_BELOW_STANDARD_PROVEN_VERSION;
 }
 
 // Why Codex with `model` may not run `access` on this server, else null.
@@ -81,9 +83,60 @@ export function codexBelowStandardRefusal(
   model: string,
 ): string | null {
   if (!engineRunsAccess("codex", access, model))
-    return `Codex runs an agent below Standard only at Chat or Office, with ${CODEX_BELOW_STANDARD_MODELS.join(" or ")}. Change the model or the access level.`;
+    return `Codex runs an agent below Standard only with ${CODEX_BELOW_STANDARD_MODELS.join(" or ")}. Change the model or the access level.`;
   if (!codexRunsBelowStandard(access))
     return "This Codex version cannot run an agent below Standard yet. Move the agent to Standard, or use Claude.";
+  return null;
+}
+
+// The thread config keys of the stop on top of CODEX_BELOW_STANDARD_CONFIG.
+// At folder and web the thread runs in the agent's folder, workspace-write:
+// the sandbox keys are set so a member or project config.toml loses, and
+// web adds Codex's hosted web search. Chat and office: none.
+export function codexStopThreadConfig(
+  access: AgentAccess,
+): Record<string, unknown> {
+  if (!belowStandard(access) || !stopHasFolder(access)) return {};
+  return {
+    "sandbox_workspace_write.network_access": false,
+    "sandbox_workspace_write.writable_roots": [],
+    "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+    "sandbox_workspace_write.exclude_slash_tmp": true,
+    ...(access === "web" ? { web_search: "live" } : {}),
+  };
+}
+
+// Why a thread at the folder or web stop may not start in its folder, else
+// null: the config/read result (with layers) from the folder holds a project
+// layer Codex loads (no disabledReason: 0.164 leaves the key out), a .codex
+// folder it would take settings and hooks from. Codex lists an untrusted one
+// with the reason it is off. A shape this code cannot read is a refusal.
+export function codexProjectLayerRefusal(configRead: unknown): string | null {
+  const unreadable =
+    "Isomux could not check this agent's Codex settings, so the agent did not start. Try again, or move the agent to Standard.";
+  if (!isPlainObject(configRead) || !Array.isArray(configRead.layers))
+    return unreadable;
+  for (const layer of configRead.layers as unknown[]) {
+    if (
+      !isPlainObject(layer) ||
+      !isPlainObject(layer.name) ||
+      typeof layer.name.type !== "string" ||
+      (layer.disabledReason !== undefined &&
+        layer.disabledReason !== null &&
+        typeof layer.disabledReason !== "string")
+    )
+      return unreadable;
+    if (
+      layer.name.type === "project" &&
+      (layer.disabledReason === undefined || layer.disabledReason === null)
+    ) {
+      const folder =
+        typeof layer.name.dotCodexFolder === "string"
+          ? layer.name.dotCodexFolder
+          : "a .codex folder";
+      return `Codex would load settings from ${folder}, so the agent did not start. Remove that folder, or move the agent to Standard.`;
+    }
+  }
   return null;
 }
 
@@ -117,7 +170,7 @@ export function codexSkillPaths(result: unknown, cwd: string): string[] | null {
   return paths;
 }
 
-// The thread config at chat and office: CODEX_BELOW_STANDARD_CONFIG, every
+// The thread config below standard: CODEX_BELOW_STANDARD_CONFIG, every
 // MCP server in `mcpServerNames` off except the ones in `keep`, and every
 // skill in `skillPaths` off (a skill named in a message loads otherwise).
 // The servers go as one nested table: Codex splits a dotted key at every
@@ -148,24 +201,34 @@ interface CodexRequester {
 
 // Asks the app-server for the member's MCP servers and skills as Codex sees
 // them from `cwd`, and returns the thread config that turns them off (the
-// servers in `keep` stay). Throws when either answer cannot be read.
+// servers in `keep` stay), with the keys of `access` (codexStopThreadConfig).
+// Throws when either answer cannot be read, and at folder and web when the
+// folder has a project layer Codex loads.
 export async function codexBelowStandardDiscovery(
   client: CodexRequester,
   cwd: string,
   keep: string[],
+  access: AgentAccess = "office",
 ): Promise<Record<string, unknown>> {
+  const inFolder = stopHasFolder(access);
   const fail = (detail: string) =>
     new Error(
       `Isomux could not check this agent's Codex MCP servers and skills (${detail}), so the agent did not start. Try again, or move the agent to Standard.`,
     );
-  let names: string[] | null;
+  let configRead: unknown;
   try {
-    names = codexConfigMcpServerNames(
-      await client.request("config/read", { cwd, includeLayers: false }),
-    );
+    configRead = await client.request("config/read", {
+      cwd,
+      includeLayers: inFolder,
+    });
   } catch (err) {
     throw fail(`config/read: ${(err as Error).message}`);
   }
+  if (inFolder) {
+    const refusal = codexProjectLayerRefusal(configRead);
+    if (refusal) throw new Error(refusal);
+  }
+  const names = codexConfigMcpServerNames(configRead);
   if (!names) throw fail("config/read gave an unknown answer");
   let paths: string[] | null;
   try {
@@ -177,13 +240,16 @@ export async function codexBelowStandardDiscovery(
     throw fail(`skills/list: ${(err as Error).message}`);
   }
   if (!paths) throw fail("skills/list gave an unknown answer");
-  return codexBelowStandardThreadConfig(names, paths, keep);
+  return {
+    ...codexBelowStandardThreadConfig(names, paths, keep),
+    ...codexStopThreadConfig(access),
+  };
 }
 
 // The parent of the empty folders, in agent space (split mode).
 export { CODEX_EMPTY_CWD_ROOT };
 
-// The empty folder a thread below standard runs in,
+// The empty folder a thread at chat or office runs in,
 // CODEX_EMPTY_CWD_ROOT/<agentId>: made for the agent by the server in agent
 // space, mode 0700, outside the agent's own data. Throws when it holds
 // anything.

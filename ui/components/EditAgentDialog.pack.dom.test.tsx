@@ -28,12 +28,12 @@ const {
 } = await import("../test-support/access-slider-fixture.tsx");
 
 describe("the engine and the stops", () => {
-  // engineRunsAccess with the dialog's model: Codex runs chat and office on
+  // engineRunsAccess with the dialog's model: Codex runs every stop on
   // gpt-5.5 only, OpenCode every stop.
   it("each engine and model has exactly the stops it can run", async () => {
     const cases: [AgentInfo["agentType"], string, AgentAccess[]][] = [
       ["claude", "opus", []],
-      ["codex", "gpt-5.5", ["folder", "web"]],
+      ["codex", "gpt-5.5", []],
       ["codex", "gpt-5.6-sol", BELOW],
       ["opencode", "opencode/big-pickle", []],
     ];
@@ -74,19 +74,14 @@ describe("the engine and the stops", () => {
           [...select.options].map((o) => [o.value, o.disabled]),
         );
       expect(engines()).toMatchObject({ claude: false, codex: false });
-      // Codex runs office on one model.
-      await pick(view.container, "office");
-      expect(engines()).toMatchObject({
-        claude: false,
-        codex: false,
-        opencode: false,
-      });
-      await pick(view.container, "folder");
-      expect(engines()).toMatchObject({
-        claude: false,
-        codex: true,
-        opencode: false,
-      });
+      // Codex runs every stop on one model.
+      for (const stop of ["office", "folder", "web"] as const) {
+        await pick(view.container, stop);
+        expect({ stop, engines: engines() }).toMatchObject({
+          stop,
+          engines: { claude: false, codex: false, opencode: false },
+        });
+      }
     } finally {
       cleanup(view);
     }

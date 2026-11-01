@@ -108,8 +108,9 @@ export interface AgentHost {
   readonly fs: AgentFs;
   isomuxDiff(req: IsomuxDiffRequest): Promise<IsomuxDiffRunResult>;
   // A fixed entry (server/agent-runner/entries) as the agent user; its result
-  // is agent-space data. Only the runner host has entries.
-  runEntry(name: string, input: unknown): Promise<unknown>;
+  // is agent-space data. Only the runner host has entries. `timeoutMs`
+  // replaces the default limit, after which the entry is killed.
+  runEntry(name: string, input: unknown, timeoutMs?: number): Promise<unknown>;
 }
 
 function spawnLocalChild(

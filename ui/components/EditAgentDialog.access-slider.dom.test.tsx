@@ -3,7 +3,8 @@
 // and the stops the engine and model cannot run, which stay in the row but
 // cannot be picked by click or key. What a save sends is in
 // EditAgentDialog.access.dom.test.tsx; which stops each engine runs is in
-// EditAgentDialog.pack.dom.test.tsx.
+// EditAgentDialog.pack.dom.test.tsx; how the keys skip a disabled stop in
+// the middle of the row is in StepSlider.dom.test.tsx.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
@@ -13,6 +14,7 @@ setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
 const { AGENT_PACK_PRESETS } = await import("../../shared/agent-access.ts");
 const {
+  BELOW,
   STOPS,
   agentAt,
   cleanup,
@@ -100,13 +102,13 @@ describe("the access slider", () => {
   });
 
   it("a click on a stop the engine cannot run picks nothing; only those stops have a tooltip", async () => {
-    // Codex on gpt-5.5 runs chat and office, not folder and web.
+    // Codex on gpt-5.6-sol runs no stop below Standard.
     const calls = shim();
-    const view = renderEdit(codexAt("standard", "gpt-5.5"));
+    const view = renderEdit(codexAt("standard", "gpt-5.6-sol"));
     try {
       await settle();
-      expect(slider(view.container).titled).toEqual(["folder", "web"]);
-      for (const stop of ["folder", "web"] as const) {
+      expect<string[]>(slider(view.container).titled).toEqual(BELOW);
+      for (const stop of BELOW) {
         await act(async () => {
           fireEvent.click(stopRadio(view.container, stop));
         });
@@ -117,53 +119,14 @@ describe("the access slider", () => {
       }
       // A stop it can run still picks on click.
       await act(async () => {
-        fireEvent.click(stopRadio(view.container, "office"));
+        fireEvent.click(stopRadio(view.container, "privileged"));
       });
-      expect(slider(view.container).checked).toEqual(["office"]);
+      expect(slider(view.container).checked).toEqual(["privileged"]);
       await act(async () => {
         fireEvent.click(stopRadio(view.container, "standard"));
       });
       await save(view.container);
       expect(calls).toEqual([]);
-    } finally {
-      cleanup(view);
-    }
-  });
-
-  it("arrows, Home and End skip the stops the engine cannot run, and focus follows the checked stop", async () => {
-    shim();
-    const view = renderEdit(codexAt("office", "gpt-5.5"));
-    try {
-      await settle();
-      stopRadio(view.container, "office").focus();
-      const seen: Array<[string, string[], string]> = [];
-      for (const k of [
-        "ArrowRight",
-        "ArrowLeft",
-        "ArrowDown",
-        "ArrowLeft",
-        "End",
-        "ArrowDown",
-        "Home",
-        "ArrowUp",
-        "ArrowUp",
-      ]) {
-        await key(k);
-        seen.push([k, slider(view.container).checked, focused()]);
-      }
-      expect(seen).toEqual([
-        // Over folder and web to standard, and back.
-        ["ArrowRight", ["standard"], "standard"],
-        ["ArrowLeft", ["office"], "office"],
-        ["ArrowDown", ["chat"], "chat"],
-        // Already at the first stop.
-        ["ArrowLeft", ["chat"], "chat"],
-        ["End", ["privileged"], "privileged"],
-        ["ArrowDown", ["standard"], "standard"],
-        ["Home", ["chat"], "chat"],
-        ["ArrowUp", ["office"], "office"],
-        ["ArrowUp", ["standard"], "standard"],
-      ]);
     } finally {
       cleanup(view);
     }

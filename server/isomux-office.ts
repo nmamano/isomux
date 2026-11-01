@@ -364,6 +364,12 @@ import {
 } from "./process-isolation-state.ts";
 import { matchRoute } from "./routes/match.ts";
 import { handleMcpRequest, type McpEndpointDeps } from "./mcp-endpoint.ts";
+import {
+  FOLDER_FILES_MCP_PATH,
+  handleFolderMcpRequest,
+  type FolderMcpDeps,
+} from "./folder-mcp-endpoint.ts";
+import { runFolderFiles } from "./folder-files-host.ts";
 import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
 import {
   executeRoute,
@@ -2039,6 +2045,21 @@ const mcpEndpointDeps: McpEndpointDeps = {
       if (signal.aborted) done();
       else signal.addEventListener("abort", done);
     }),
+};
+// The /mcp/files endpoint's seams: the agent record at the time of each
+// request, and the child process that runs a call.
+const folderMcpDeps: FolderMcpDeps = {
+  agentNow: (agentId) => {
+    const agent = agentManager.getAgent(agentId);
+    return agent
+      ? {
+          agentType: agent.agentType,
+          access: agentAccessOf(agent),
+          folder: agent.cwd,
+        }
+      : null;
+  },
+  run: runFolderFiles,
 };
 // The OAuth MCP flow of this boot (integrations A2b) and its refresh timer.
 let mcpOAuth: McpOAuth | null = null;
@@ -9251,6 +9272,21 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               // The address then opens no app; the office stays one link away.
               console.error("[apps] could not resolve short link:", err);
             }
+          }
+        }
+
+        // Isomux's file tools for a Codex agent at the folder or web stop:
+        // its own token only, judged by the endpoint from the agent record.
+        if (url.pathname === FOLDER_FILES_MCP_PATH) {
+          try {
+            return await handleFolderMcpRequest(
+              req,
+              resolveIdentityForRequest(req, null, source().onBox),
+              folderMcpDeps,
+            );
+          } catch (err) {
+            console.error(`[${FOLDER_FILES_MCP_PATH}] uncaught error:`, err);
+            return errorResponse(500, "internal", "internal");
           }
         }
 

@@ -1,5 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { STATE_ROOT } from "../../config.ts";
@@ -13,6 +23,13 @@ import {
   MISSING_CWD_WARNING,
   SAFETY_WARNING,
 } from "./safety-hook.ts";
+import {
+  CODEX_CONFINE_ENV,
+  codexConfinedTools,
+  codexConfineEnvValue,
+  codexHookMcpToolName,
+} from "./confine-env.ts";
+import { FOLDER_FILES_MCP_SERVER } from "../../folder-mcp-endpoint.ts";
 
 type Envelope = {
   hook_event_name: "PreToolUse";
@@ -384,5 +401,195 @@ describe("standalone Codex safety hook", () => {
         envelope("future_tool", { command: "rm -rf /", path: STATE_ROOT }),
       ),
     ).toEqual({});
+  });
+});
+
+// Codex at the folder and web stops (task 25015e41): the session puts its
+// confinement in the app-server's environment, and the hook keeps every
+// write inside the folder, off the engine and repository config, and off any
+// symlink; it allows only the stop's tools; and under a confinement any
+// input it cannot read denies.
+describe("the Codex hook under a folder confinement", () => {
+  const OFFICE_TOOLS = ["list_tasks", "get_task"];
+  const confineRoot = realpathSync(
+    mkdtempSync(join(tmpdir(), "isomux-codex-confine-")),
+  );
+  const folder = join(confineRoot, "agent");
+  const outside = join(confineRoot, "outside");
+  mkdirSync(join(folder, "sub"), { recursive: true });
+  mkdirSync(outside);
+  writeFileSync(join(folder, "notes.txt"), "old\n");
+  symlinkSync(outside, join(folder, "dir-out"));
+  afterAll(() => rmSync(confineRoot, { recursive: true, force: true }));
+
+  const env = (access: "folder" | "web" = "folder") => ({
+    [CODEX_CONFINE_ENV]: codexConfineEnvValue({
+      access,
+      folder,
+      tools: codexConfinedTools(OFFICE_TOOLS),
+    }),
+  });
+  const at = (toolName: string, toolInput: Record<string, unknown>) =>
+    JSON.stringify({ ...envelope(toolName, toolInput), cwd: folder });
+  const patch = (...lines: string[]) =>
+    at("apply_patch", {
+      command: ["*** Begin Patch", ...lines, "*** End Patch"].join("\n"),
+    });
+  const decision = (output: unknown) =>
+    (output as { hookSpecificOutput?: { permissionDecision?: string } })
+      .hookSpecificOutput?.permissionDecision === "deny"
+      ? "deny"
+      : "allow";
+
+  it("allows a patch inside the folder, and denies one that leaves it or touches config", () => {
+    const rows: [string, string, "allow" | "deny"][] = [
+      ["add, relative", patch("*** Add File: new.txt", "+x"), "allow"],
+      [
+        "add, absolute",
+        patch(`*** Add File: ${join(folder, "sub", "new.txt")}`, "+x"),
+        "allow",
+      ],
+      [
+        "update",
+        patch("*** Update File: notes.txt", "@@", "-old", "+new"),
+        "allow",
+      ],
+      [
+        "move inside",
+        patch("*** Update File: notes.txt", "*** Move to: sub/moved.txt"),
+        "allow",
+      ],
+      [
+        "add outside, absolute",
+        patch(`*** Add File: ${join(outside, "x.txt")}`, "+x"),
+        "deny",
+      ],
+      ["add outside, relative", patch("*** Add File: ../x.txt", "+x"), "deny"],
+      ["add in /tmp", patch("*** Add File: /tmp/x-25015e41.txt", "+x"), "deny"],
+      [
+        "add through a symlink",
+        patch("*** Add File: dir-out/x.txt", "+x"),
+        "deny",
+      ],
+      [
+        "delete outside",
+        patch(`*** Delete File: ${join(outside, "y")}`),
+        "deny",
+      ],
+      ["AGENTS.md", patch("*** Add File: AGENTS.md", "+x"), "deny"],
+      ["nested AGENTS.md", patch("*** Add File: sub/AGENTS.md", "+x"), "deny"],
+      ["delete AGENTS.md", patch("*** Delete File: AGENTS.md"), "deny"],
+      [".codex", patch("*** Add File: .codex/config.toml", "+x"), "deny"],
+      [".git", patch("*** Add File: .git/hooks/pre-commit", "+x"), "deny"],
+      [".envrc", patch("*** Add File: .envrc", "+x"), "deny"],
+      [".vscode", patch("*** Add File: .vscode/tasks.json", "+x"), "deny"],
+      [
+        "move out",
+        patch("*** Update File: notes.txt", "*** Move to: ../moved.txt"),
+        "deny",
+      ],
+      [
+        "move onto AGENTS.md",
+        patch("*** Update File: notes.txt", "*** Move to: AGENTS.md"),
+        "deny",
+      ],
+      [
+        "move in from outside",
+        patch(
+          `*** Update File: ${join(outside, "z.txt")}`,
+          "*** Move to: z.txt",
+        ),
+        "deny",
+      ],
+    ];
+    for (const access of ["folder", "web"] as const)
+      for (const [name, input, expected] of rows)
+        expect({
+          access,
+          name,
+          decision: decision(handleCodexHookInput(input, env(access))),
+        }).toEqual({ access, name, decision: expected });
+  });
+
+  it("allows the stop's tools and denies every other one, the shell first", () => {
+    const allowed = [
+      "request_user_input",
+      codexHookMcpToolName(FOLDER_FILES_MCP_SERVER, "read_file"),
+      codexHookMcpToolName(FOLDER_FILES_MCP_SERVER, "list_dir"),
+      codexHookMcpToolName(FOLDER_FILES_MCP_SERVER, "grep_files"),
+      codexHookMcpToolName("isomux", "list_tasks"),
+    ];
+    for (const tool of allowed)
+      expect({
+        tool,
+        decision: decision(handleCodexHookInput(at(tool, {}), env())),
+      }).toEqual({ tool, decision: "allow" });
+    const denied: [string, Record<string, unknown>][] = [
+      ["Bash", { command: "ls" }],
+      ["exec_command", { cmd: "ls" }],
+      [codexHookMcpToolName("isomux", "create_task"), {}],
+      [codexHookMcpToolName("planted", "read_file"), {}],
+      ["view_image", { path: join(folder, "notes.txt") }],
+    ];
+    for (const [tool, input] of denied)
+      expect({
+        tool,
+        decision: decision(handleCodexHookInput(at(tool, input), env())),
+      }).toEqual({ tool, decision: "deny" });
+  });
+
+  it("denies what it cannot read under a confinement, and keeps the old allow without one", () => {
+    for (const input of ["not json", "{}", JSON.stringify({ tool_name: 7 })])
+      expect({
+        input,
+        decision: decision(handleCodexHookInput(input, env())),
+      }).toEqual({ input, decision: "deny" });
+    // A confinement it cannot read denies even an allowed tool.
+    for (const value of ["", "{", "{}", JSON.stringify({ folder })]) {
+      const output = handleCodexHookInput(at("request_user_input", {}), {
+        [CODEX_CONFINE_ENV]: value,
+      });
+      expect({ value, decision: decision(output) }).toEqual({
+        value,
+        decision: "deny",
+      });
+    }
+    // The control: no confinement, the same AGENTS.md patch and the shell
+    // pass, and malformed input warns.
+    expect(
+      handleCodexHookInput(patch("*** Add File: AGENTS.md", "+x"), {}),
+    ).toEqual({});
+    expect(
+      decision(handleCodexHookInput(at("Bash", { command: "ls" }), {})),
+    ).toBe("allow");
+    expect(handleCodexHookInput("not json", {})).toEqual({
+      systemMessage: SAFETY_WARNING,
+    });
+  });
+
+  it("the built hook reads the confinement from its environment", async () => {
+    const input = patch("*** Add File: AGENTS.md", "+x");
+    const run = async (extra: Record<string, string>) => {
+      const child = Bun.spawn([executablePath], {
+        env: { ...process.env, ISOMUX_HOME: STATE_ROOT, ...extra },
+        stdin: new Blob([input]),
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stdout] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+      ]);
+      expect(exitCode).toBe(0);
+      return decision(JSON.parse(stdout));
+    };
+    const saved = process.env[CODEX_CONFINE_ENV];
+    delete process.env[CODEX_CONFINE_ENV];
+    try {
+      expect(await run({})).toBe("allow");
+      expect(await run(env())).toBe("deny");
+    } finally {
+      if (saved !== undefined) process.env[CODEX_CONFINE_ENV] = saved;
+    }
   });
 });

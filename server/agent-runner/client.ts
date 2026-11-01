@@ -525,6 +525,7 @@ export function runRunnerEntry(
   socketPath: string,
   name: string,
   input: unknown,
+  timeoutMs: number = ENTRY_TIMEOUT_MS,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -564,7 +565,7 @@ export function runRunnerEntry(
     const timer = setTimeout(() => {
       error = "timed out";
       stream.close();
-    }, ENTRY_TIMEOUT_MS);
+    }, timeoutMs);
   });
 }
 
@@ -677,7 +678,7 @@ export class RunnerAgentHost implements AgentHost {
     return result as IsomuxDiffRunResult;
   }
 
-  runEntry(name: string, input: unknown): Promise<unknown> {
-    return runRunnerEntry(this.socketPath, name, input);
+  runEntry(name: string, input: unknown, timeoutMs?: number): Promise<unknown> {
+    return runRunnerEntry(this.socketPath, name, input, timeoutMs);
   }
 }

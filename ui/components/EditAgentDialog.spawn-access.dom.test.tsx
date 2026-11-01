@@ -1,6 +1,6 @@
 // A new agent on the access slider (task e77304b1, merge B): a stop below
 // Standard goes in the spawn itself, Privileged is one PUT /access after it,
-// and a Codex agent cannot take a stop below Standard.
+// and a Codex agent takes one only on its proven model.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -57,8 +57,8 @@ describe("a new agent", () => {
     }
   });
 
-  // Codex runs chat and office on gpt-5.5 only (engineRunsAccess).
-  it("a new Codex agent on its default model has the stops below Standard disabled; folder and web disable the Codex card", async () => {
+  // Codex runs every stop below Standard on gpt-5.5 only (engineRunsAccess).
+  it("a new Codex agent on its default model has the stops below Standard disabled; the Codex card stays open at every stop", async () => {
     shim();
     const view = renderSpawn();
     try {
@@ -66,10 +66,13 @@ describe("a new agent", () => {
       expect(stopDisabled(view.container, "office")).toBe(false);
       const codex = codexCard(view.container);
       expect(codex.disabled).toBe(false);
-      await pick(view.container, "office");
-      expect(codex.disabled).toBe(false);
-      await pick(view.container, "folder");
-      expect(codex.disabled).toBe(true);
+      for (const stop of ["office", "folder", "web"] as const) {
+        await pick(view.container, stop);
+        expect({ stop, disabled: codex.disabled }).toEqual({
+          stop,
+          disabled: false,
+        });
+      }
       await pick(view.container, "standard");
       expect(codex.disabled).toBe(false);
       await act(async () => {
@@ -89,7 +92,7 @@ describe("a new agent", () => {
     }
   });
 
-  it("Codex picked at office lands on the proven model and keeps chat and office", async () => {
+  it("Codex picked at office lands on the proven model and keeps every stop below Standard", async () => {
     const calls = shim();
     const view = renderSpawn();
     try {
@@ -104,7 +107,7 @@ describe("a new agent", () => {
         Object.fromEntries(
           BELOW.map((stop) => [stop, stopDisabled(view.container, stop)]),
         ),
-      ).toEqual({ chat: false, office: false, folder: true, web: true });
+      ).toEqual({ chat: false, office: false, folder: false, web: false });
       await save(view.container);
       const spawn = calls.find(
         (c) => c.method === "POST" && c.path === "/api/agents",

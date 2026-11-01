@@ -4,7 +4,7 @@
 // Real code up to the spawn; both calls fail after the start - what matters
 // is where the app-server ran.
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -15,6 +15,11 @@ import {
 import { ISOMUX_CODEX_HOME } from "./native-bin.ts";
 import { codexBackend } from "./adapter.ts";
 import { prepareCodexSafetyHookArtifact } from "./safety-hook-install.ts";
+import {
+  CODEX_CONFINE_ENV,
+  codexConfinedTools,
+  readCodexConfine,
+} from "./confine-env.ts";
 
 const THREAD = "019a0000-0000-7000-8000-000000000000";
 
@@ -60,5 +65,64 @@ describe("Codex session access", () => {
       // The safety preflight ran against the same CODEX_HOME.
       expect(existsSync(join(userHome, "hooks.json"))).toBe(true);
       expect(ISOMUX_CODEX_HOME).not.toBe(userHome);
+    }, 30_000);
+});
+
+// Folder and web (task 25015e41): the app-server runs in the agent's folder,
+// and its environment carries the confinement its safety hook reads. No
+// other stop carries one.
+describe("the Codex app-server at each stop", () => {
+  const cases = ["folder", "web", "office", "standard"] as const;
+  for (const access of cases)
+    it(`${access}: the app-server's folder and confinement`, async () => {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), "codex-stop-")));
+      const cwd = join(root, "work");
+      mkdirSync(cwd);
+      const spawns: SpawnChildOptions[] = [];
+      setAgentHost({
+        ...localAgentHost,
+        spawnChild: (_argv, options = {}) => {
+          spawns.push(options);
+          return localAgentHost.spawnChild(["/bin/true"], options);
+        },
+      });
+      const officeTools = ["list_tasks"];
+      const session = codexBackend.createSession({
+        agentId: `codex-stop-${process.pid}-${access}`,
+        cwd,
+        systemPrompt: "",
+        modelFamily: "gpt-5.5",
+        effort: "",
+        permissionMode: "default",
+        env: { ...process.env, CODEX_HOME: join(root, "codex-home") },
+        ...(access === "standard" ? {} : { access, officeTools }),
+      });
+      try {
+        // The spawn comes before the first event; a refused session sends
+        // its first event with no spawn.
+        let ended = false;
+        const events = session.stream()[Symbol.asyncIterator]();
+        void events.next().finally(() => {
+          ended = true;
+        });
+        const deadline = Date.now() + 20_000;
+        while (spawns.length === 0 && !ended && Date.now() < deadline)
+          await Bun.sleep(20);
+      } finally {
+        session.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+      expect(spawns.length).toBeGreaterThan(0);
+      const env = spawns[0].env ?? {};
+      if (access === "folder" || access === "web") {
+        expect(spawns[0].cwd).toBe(cwd);
+        expect(readCodexConfine(env)).toEqual({
+          access,
+          folder: cwd,
+          tools: codexConfinedTools(officeTools),
+        });
+      } else {
+        expect(env[CODEX_CONFINE_ENV]).toBeUndefined();
+      }
     }, 30_000);
 });

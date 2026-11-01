@@ -5,7 +5,7 @@
 // its token shows what the executor enforces under every tool.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -23,6 +23,10 @@ import {
 import { AGENT_SENDER_LIMITED } from "../../shared/identity.ts";
 import type { AgentInfo, TaskItem } from "../../shared/types.ts";
 import { SpawnAccessRefusedError, type SpawnAccess } from "../agent-manager.ts";
+import {
+  FOLDER_FILES_MCP_PATH,
+  FOLDER_FILES_MCP_SERVER,
+} from "../folder-mcp-endpoint.ts";
 
 let server: TestServer | null = null;
 const clients: Client[] = [];
@@ -329,7 +333,7 @@ describe("agents.setAccess", () => {
   // runs every stop (merge C2). The rule is engineRunsAccess with the
   // RESOLVED model: an engine switch that names no model gets the engine's
   // default, which is not proven.
-  it("Claude and OpenCode go below Standard, and Codex at chat and office with gpt-5.5", async () => {
+  it("Claude and OpenCode go below Standard, and Codex at every stop with gpt-5.5", async () => {
     const o = await office();
     const OFFICE = { access: "office", pack: TASKS_READ };
     const cases: [
@@ -362,12 +366,26 @@ describe("agents.setAccess", () => {
         "codex",
         "gpt-5.5",
         { access: "folder", pack: TASKS_READ },
+        200,
+      ],
+      [
+        "codex on gpt-5.6-sol at folder",
+        "codex",
+        "gpt-5.6-sol",
+        { access: "folder", pack: TASKS_READ },
         422,
       ],
       [
         "codex on gpt-5.5 at web",
         "codex",
         "gpt-5.5",
+        { access: "web", pack: TASKS_READ },
+        200,
+      ],
+      [
+        "codex on gpt-5.6-sol at web",
+        "codex",
+        "gpt-5.6-sol",
         { access: "web", pack: TASKS_READ },
         422,
       ],
@@ -1249,11 +1267,11 @@ describe("a spawn below Standard", () => {
         "engine_below_standard",
       ],
       [
-        "codex on gpt-5.5 at folder",
+        "codex on gpt-5.6-sol at folder",
         {
           cwd: freshFolder(),
           agentType: "codex",
-          modelFamily: "gpt-5.5",
+          modelFamily: "gpt-5.6-sol",
           access: "folder",
           pack: ASKS_ONLY,
         },
@@ -1471,4 +1489,148 @@ describe("a spawn below Standard", () => {
       o.srv.agentManager.getAllAgents().filter((a) => a.cwd === dir).length,
     ).toBe(1);
   });
+});
+
+// Codex at folder and web (task 25015e41): Codex has no file reading tool
+// without its shell, so the session gets Isomux's isomux_files MCP server on
+// the agent's own token, beside the office one. /mcp/files takes only that
+// token, and only while the agent is at folder or web.
+describe("the isomux_files server of a Codex agent", () => {
+  async function connectFiles(o: Office, token: string): Promise<Client> {
+    const client = new Client({ name: "files-test", version: "0.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(
+        new URL(`${o.srv.baseUrl}${FOLDER_FILES_MCP_PATH}`),
+        { requestInit: { headers: { Authorization: `Bearer ${token}` } } },
+      ),
+    );
+    clients.push(client);
+    return client;
+  }
+  async function filesStatus(o: Office, token: string | null) {
+    const res = await fetch(`${o.srv.baseUrl}${FOLDER_FILES_MCP_PATH}`, {
+      method: "POST",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "raw", version: "0" },
+        },
+      }),
+    });
+    await res.body?.cancel();
+    return res.status;
+  }
+
+  it("the session at folder and web gets it on the agent's token; office and Standard do not", async () => {
+    const o = await office();
+    // The fake server makes a session on a message: each grant is followed
+    // by one, and the newest session is the stop's.
+    const grant = async (agentId: string, body: Record<string, unknown>) => {
+      const count = () =>
+        o.srv.fakeBackend.sessions.filter((s) => s.opts.agentId === agentId)
+          .length;
+      const before = count();
+      expect({
+        body,
+        status: (await setAccess(o, agentId, body)).status,
+      }).toEqual({ body, status: 200 });
+      void o.srv.agentManager.sendMessage(agentId, "hello", o.username);
+      await waitUntil(
+        () => count() > before,
+        `a session after ${JSON.stringify(body)}`,
+      );
+      return Object.fromEntries(
+        (
+          o.srv.fakeBackend.sessions
+            .filter((s) => s.opts.agentId === agentId)
+            .at(-1)!.opts.mcpServers ?? []
+        ).map((m) => [m.name, m]),
+      );
+    };
+    const agent = await spawn(o, "Reader", "codex", o.room, "gpt-5.5");
+    for (const access of ["folder", "web"] as const) {
+      const servers = await grant(agent.id, { access, pack: TASKS_READ });
+      const files = servers[FOLDER_FILES_MCP_SERVER];
+      expect({ access, names: Object.keys(servers).sort() }).toEqual({
+        access,
+        names: ["isomux", FOLDER_FILES_MCP_SERVER].sort(),
+      });
+      expect(new URL(files.url).pathname).toBe(FOLDER_FILES_MCP_PATH);
+      expect(files.headers).toEqual({
+        Authorization: `Bearer ${tokenOf(agent.id)}`,
+      });
+    }
+    expect(
+      Object.keys(
+        await grant(agent.id, { access: "office", pack: TASKS_READ }),
+      ),
+    ).toEqual(["isomux"]);
+    expect(
+      (await grant(agent.id, { access: "standard" }))[FOLDER_FILES_MCP_SERVER],
+    ).toBeUndefined();
+
+    // Claude and OpenCode have their own file tools.
+    for (const engine of ["claude", "opencode"] as const) {
+      const other = await spawn(o, `Other ${engine}`, engine);
+      const servers = await grant(other.id, {
+        access: "folder",
+        pack: TASKS_READ,
+      });
+      expect({ engine, files: FOLDER_FILES_MCP_SERVER in servers }).toEqual({
+        engine,
+        files: false,
+      });
+    }
+  });
+
+  it("takes the Codex agent's token at folder and web only, and reads its folder", async () => {
+    const o = await office();
+    const agent = await spawn(o, "Reader", "codex", o.room, "gpt-5.5");
+    const claude = await spawn(o, "Claude reader");
+    expect(await filesStatus(o, null)).toBe(401);
+    expect(await filesStatus(o, tokenOf(agent.id))).toBe(403);
+    expect(
+      (await setAccess(o, claude.id, { access: "folder", pack: TASKS_READ }))
+        .status,
+    ).toBe(200);
+    expect(await filesStatus(o, tokenOf(claude.id))).toBe(403);
+    expect(
+      (await setAccess(o, agent.id, { access: "office", pack: TASKS_READ }))
+        .status,
+    ).toBe(200);
+    expect(await filesStatus(o, tokenOf(agent.id))).toBe(403);
+
+    expect(
+      (await setAccess(o, agent.id, { access: "folder", pack: TASKS_READ }))
+        .status,
+    ).toBe(200);
+    const folder = agentOf(o.srv, agent.id).cwd;
+    writeFileSync(join(folder, "readme.txt"), "files-25015e41\n");
+    const client = await connectFiles(o, tokenOf(agent.id));
+    expect((await client.listTools()).tools.map((t) => t.name).sort()).toEqual([
+      "grep_files",
+      "list_dir",
+      "read_file",
+    ]);
+    const read = (await client.callTool({
+      name: "read_file",
+      arguments: { file_path: "readme.txt" },
+    })) as ToolResult;
+    expect(read.isError ?? false).toBe(false);
+    expect(JSON.stringify(read.content)).toContain("files-25015e41");
+    const outside = (await client.callTool({
+      name: "read_file",
+      arguments: { file_path: "/etc/hostname" },
+    })) as ToolResult;
+    expect(outside.isError).toBe(true);
+  }, 30_000);
 });

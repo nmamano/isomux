@@ -30,6 +30,7 @@
 import {
   belowStandard,
   INLINE_IMAGE_TYPES,
+  stopHasFolder,
   type AgentAccess,
 } from "../../../shared/agent-access.ts";
 import { readFileSync, statSync } from "fs";
@@ -40,10 +41,18 @@ import {
   codexBelowStandardRefusal,
   codexEmptyCwd,
 } from "./access.ts";
+import {
+  CODEX_CONFINE_ENV,
+  codexConfinedTools,
+  codexConfineEnvValue,
+} from "./confine-env.ts";
+import { getAgentHost } from "../../agent-host.ts";
+import { FOLDER_FILES_MCP_SERVER } from "../../folder-files.ts";
 import { filterMissingToolOutputRepeats } from "../../../shared/codex-diagnostics.ts";
 
 import { saveFile } from "../../persistence.ts";
 import {
+  copyAttachmentsInto,
   resolveAttachmentNotices,
   formatAttachmentLines,
 } from "../../attachment-prompt.ts";
@@ -315,15 +324,33 @@ function codexMcpServerConfig(
 // Isomux's own servers as entries of the mcp_servers table, by name.
 function codexMcpServerEntries(
   mcpServers: AgentMcpServer[] | undefined,
+  belowStandard = false,
 ): Record<string, unknown> {
   const entries: Record<string, unknown> = {};
   for (const server of mcpServers ?? []) {
     entries[server.name] = {
       url: server.url,
       http_headers: { ...server.headers },
+      ...(belowStandard ? isomuxServerKeys(server.name) : {}),
     };
   }
   return entries;
+}
+
+// Below standard every server is Isomux's own (the office one, and the files
+// one at folder and web). Codex 0.164 asks for approval before an MCP tool
+// that is not marked read-only, and with no approvals it refuses the call:
+// "approve" runs them, as the agent's pack already limits what the office
+// tools do. The file tools are kept off Codex's tool search, which gpt-5.5
+// has and which would hide every MCP tool behind it: the model would not see
+// that it can read (core/src/tools/spec_plan.rs, omit_tools_from).
+function isomuxServerKeys(name: string): Record<string, unknown> {
+  return {
+    default_tools_approval_mode: "approve",
+    ...(name === FOLDER_FILES_MCP_SERVER
+      ? { omit_tools_from: ["deferred"] }
+      : {}),
+  };
 }
 
 // Capability flags for the Codex backend. Match the spec's parity table.
@@ -1058,6 +1085,10 @@ export interface CodexSessionInitOpts {
   planMode?: boolean;
   // The agent's access slider stop (SessionOpts.access). Absent: standard.
   access?: AgentAccess;
+  // The office MCP server's tool names for the agent's token
+  // (SessionOpts.officeTools): at folder and web the safety hook allows them
+  // by name (confine-env.ts).
+  officeTools?: string[];
   // Test seam (T2 adapter contract): inject a fake transport to drive the real
   // translation with curated provider events. Undefined in production, where
   // the constructor builds a real JsonRpcLiteClient.
@@ -1294,9 +1325,13 @@ export class CodexSession implements BackendSession {
   // hook/completed does not include the command, so both fields are required
   // to distinguish Isomux's run from a user hook in the same file.
   private safetyHookIdentity: CodexSafetyHookIdentity | null = null;
-  // At chat or office (access.ts): the thread runs in an empty folder with
-  // every tool source off, read-only without network or approvals.
+  // Below standard (access.ts): every tool source off, no network or
+  // approvals. At chat and office the thread runs in an empty folder,
+  // read-only.
   private readonly belowStandard: boolean;
+  // At folder and web: the thread runs in the agent's folder,
+  // workspace-write, and the safety hook is confined to it.
+  private readonly inFolder: boolean;
   // Below standard: the empty folder and the thread config from discovery,
   // set by bootstrap before the thread starts or resumes.
   private belowStandardThread: {
@@ -1313,11 +1348,22 @@ export class CodexSession implements BackendSession {
     // Below standard the app-server runs in the thread's empty folder too
     // (bootstrap makes it before the client starts).
     this.belowStandard = !!opts.access && belowStandard(opts.access);
+    this.inFolder = this.belowStandard && stopHasFolder(opts.access!);
     const clientOpts: JsonRpcLiteClientOptions = {
-      cwd: this.belowStandard
-        ? join(CODEX_EMPTY_CWD_ROOT, opts.agentId)
-        : opts.cwd,
-      env: opts.env,
+      cwd:
+        this.belowStandard && !this.inFolder
+          ? join(CODEX_EMPTY_CWD_ROOT, opts.agentId)
+          : opts.cwd,
+      env: this.inFolder
+        ? {
+            ...(opts.env ?? getAgentHost().baseEnv()),
+            [CODEX_CONFINE_ENV]: codexConfineEnvValue({
+              access: opts.access!,
+              folder: opts.cwd,
+              tools: codexConfinedTools(opts.officeTools ?? []),
+            }),
+          }
+        : opts.env,
     };
     this.client = opts.client ?? new JsonRpcLiteClient(clientOpts);
     this.client.onStderr((chunk) => this.handleStderr(chunk));
@@ -1332,14 +1378,18 @@ export class CodexSession implements BackendSession {
   private async bootstrap(): Promise<void> {
     let safety: CodexSafetyPreflightResult | null = null;
     try {
-      let emptyCwd: string | null = null;
+      // The folder the thread runs in below standard: the agent's own at
+      // folder and web, an empty one at chat and office.
+      let threadCwd: string | null = null;
       if (this.belowStandard) {
         const refusal = codexBelowStandardRefusal(
           this.opts.access!,
           this.opts.modelFamily,
         );
         if (refusal) throw new Error(refusal);
-        emptyCwd = await codexEmptyCwd(this.opts.agentId);
+        threadCwd = this.inFolder
+          ? this.opts.cwd
+          : await codexEmptyCwd(this.opts.agentId);
       }
       safety = await this.client.start(
         this.opts.isolation === "session" ? { isolate: true } : {},
@@ -1361,24 +1411,31 @@ export class CodexSession implements BackendSession {
         },
       };
       await this.client.initialize(initParams);
-      if (emptyCwd) {
+      if (threadCwd) {
         // Discovery at every start and resume, from the folder the thread
-        // gets. Isomux's own servers (the office one at office) stay on.
+        // gets. Isomux's own servers (the office one at office, and the
+        // files one at folder and web) stay on.
         this.belowStandardThread = {
-          cwd: emptyCwd,
+          cwd: threadCwd,
           config: await codexBelowStandardDiscovery(
             this.client,
-            emptyCwd,
+            threadCwd,
             (this.opts.mcpServers ?? []).map((server) => server.name),
+            this.opts.access,
           ),
         };
       }
       await this.setSkillRoots();
 
-      // Below standard the thread is read-only whatever the agent's stored
-      // sandbox and the container's probe say.
+      // Below standard the thread is read-only, or workspace-write in the
+      // agent's folder at folder and web, whatever the agent's stored sandbox
+      // and the container's probe say: where the sandbox cannot run, Codex
+      // fails the patch rather than write unsandboxed.
       const sandboxChoice = this.belowStandard
-        ? { sandbox: "read-only", fellBack: false }
+        ? {
+            sandbox: this.inFolder ? "workspace-write" : "read-only",
+            fellBack: false,
+          }
         : await effectiveCodexSandbox(
             this.opts.sandbox ?? CODEX_DEFAULT_SANDBOX,
           );
@@ -1586,7 +1643,7 @@ export class CodexSession implements BackendSession {
     const { mcp_servers: disabled, ...rest } = thread.config;
     const servers = {
       ...(disabled as Record<string, unknown> | undefined),
-      ...codexMcpServerEntries(this.opts.mcpServers),
+      ...codexMcpServerEntries(this.opts.mcpServers, true),
     };
     return Object.keys(servers).length > 0
       ? { ...rest, mcp_servers: servers }
@@ -1658,6 +1715,7 @@ export class CodexSession implements BackendSession {
       attachments,
       this.opts.agentId,
       this.belowStandard,
+      this.inFolder ? this.opts.cwd : null,
     );
     this.capacityRetryCount = 0;
     this.capacityErrorThisAttempt = null;
@@ -3780,15 +3838,31 @@ function extractApprovalInput(
 // (server/attachment-prompt.ts), identical across backends; the agent opens
 // files on demand (view_image for images, shell tools otherwise). This
 // wrapper only puts the shared lines into Codex UserInput text items.
+// `folder`: at folder and web, each file is copied into the agent's folder
+// (copyAttachmentsInto) and the lines name the copies; an image also goes as
+// an image item, since read_file reads text and view_image is off.
 function buildCodexUserInput(
   text: string,
   attachments: AttachmentSpec[] | undefined,
   agentId: string,
   belowStandard = false,
+  folder: string | null = null,
 ): Array<Record<string, unknown>> {
   const inputs: Array<Record<string, unknown>> = [];
   if (text) {
     inputs.push({ type: "text", text, text_elements: [] });
+  }
+  if (belowStandard && folder !== null) {
+    const copies = copyAttachmentsInto(agentId, attachments ?? [], folder);
+    const lines = formatAttachmentLines(copies);
+    if (lines.length > 0)
+      inputs.push({ type: "text", text: lines.join("\n"), text_elements: [] });
+    for (const copy of copies)
+      if (INLINE_IMAGE_TYPES.has(copy.mediaType))
+        inputs.push({ type: "localImage", path: copy.path });
+    if (inputs.length === 0)
+      inputs.push({ type: "text", text: "", text_elements: [] });
+    return inputs;
   }
   const notices = resolveAttachmentNotices(agentId, attachments ?? []);
   if (belowStandard) {
@@ -3963,6 +4037,7 @@ export const codexBackend: Backend = {
       planMode: opts.planMode,
       access: opts.access,
       isolation: opts.isolation,
+      officeTools: opts.officeTools,
     });
   },
 
@@ -3982,6 +4057,7 @@ export const codexBackend: Backend = {
       planMode: opts.planMode,
       access: opts.access,
       isolation: opts.isolation,
+      officeTools: opts.officeTools,
     });
   },
 

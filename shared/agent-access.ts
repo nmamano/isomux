@@ -116,14 +116,15 @@ export function claudeToolsForStop(access: AgentAccess): string[] | null {
 
 // The engines that run every stop below standard with any model: Claude,
 // and OpenCode, whose tools do not depend on the model
-// (server/backends/opencode/access.ts). Codex is below; the others need
-// their own confinement, with a live proof, before they get them.
+// (server/backends/opencode/access.ts). Codex is below, with its proven
+// models only; the others need their own confinement, with a live proof,
+// before they get them.
 const ENGINES_BELOW_STANDARD: ReadonlySet<string> = new Set([
   "claude",
   "opencode",
 ]);
 
-// The Codex models proven at chat and office (server/backends/codex/access.ts).
+// The Codex models proven below standard (server/backends/codex/access.ts).
 // The others keep tools no thread config turns off.
 export const CODEX_BELOW_STANDARD_MODELS: readonly string[] = ["gpt-5.5"];
 
@@ -139,7 +140,6 @@ export function engineRunsAccess(
     return true;
   return (
     agentType === "codex" &&
-    !stopHasFolder(access) &&
     model !== null &&
     CODEX_BELOW_STANDARD_MODELS.includes(model)
   );

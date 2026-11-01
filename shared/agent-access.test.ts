@@ -144,11 +144,11 @@ describe("claudeToolsForStop", () => {
 });
 
 // The UI and every server gate (setAccess, PATCH, spawn) read this rule. A
-// Codex stop below Standard is proven for one model at chat and office only
-// (server/backends/codex/access.ts); OpenCode runs all four with any model
-// (server/backends/opencode/access.ts).
+// Codex stop below Standard is proven for one model, at every stop
+// (server/backends/codex/access.ts; folder and web since task 25015e41);
+// OpenCode runs all four with any model (server/backends/opencode/access.ts).
 describe("engineRunsAccess", () => {
-  it("runs a stop below Standard on Claude and OpenCode, and on Codex only at chat and office with a proven model", () => {
+  it("runs a stop below Standard on Claude and OpenCode, and on Codex only with a proven model", () => {
     const cases: [string, string | null, Record<AgentAccess, boolean>][] = [
       [
         "claude",
@@ -168,8 +168,8 @@ describe("engineRunsAccess", () => {
         {
           chat: true,
           office: true,
-          folder: false,
-          web: false,
+          folder: true,
+          web: true,
           standard: true,
           privileged: true,
         },

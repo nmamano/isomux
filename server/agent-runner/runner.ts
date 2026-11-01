@@ -46,6 +46,7 @@ export const ENTRY_NAMES = new Set([
   "codex-hook-config",
   "codex-trust-hash",
   "empty-folder",
+  "folder-files",
   "opencode-inspect",
   "session-move",
 ]);
