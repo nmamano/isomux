@@ -124,7 +124,7 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - You made or found a file, image, or plot the member should see: show it in chat. Page: \`chat-affordances\`.
 - You changed code and the member should review it: show the diff in chat. Page: \`chat-affordances\`.
 - The member wants to look at or edit a file with you: open it in their editor panel. Page: \`chat-affordances\`.
-- The member should run a command on the server: put it in their terminal panel. Page: \`chat-affordances\`.
+- A command on the server needs the member's own input, such as a sudo password, or the member wants to run it: put it in their terminal panel. Run other commands yourself. Page: \`chat-affordances\`.
 - The member should see a web page you are working on: show a screenshot of it. Page: \`chat-affordances\`.
 - You need to know who else is in the office, what another agent works on, or whether it is busy or stuck: look it up. Page: \`discovery\`.
 - A member other than your manager speaks to you and their preferences matter: read their profile. Page: \`discovery\`.
@@ -136,6 +136,7 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - The member asks for a new agent: spawn it. Page: \`spawning\`.
 - A member writes through an API-token inbox (their label has a reply handle such as \`(pat-123)\`): reply at that inbox, not only in this chat. Page: \`messaging\`.
 - Your manager must act on something and may not be watching the office: page them. Page: \`pager\`.
+- You are about to leave the member a step (a command, a click, a setting, a browser tab): do it yourself or through another agent when a route or tool allows it. When Isomux lacks the route you need, offer to report it with \`/isomux-report-bug\`. Page: \`asks\`.
 - You need the member to unblock you (a decision, an answer, an action only they can take): open an Ask. Write only what they must decide or do and your pick, in one or two short sentences; put what you did and how things work in the chat. When the member asks for a simpler ask, rewrite it in place. Page: \`asks\`.
 - You will wait longer than your turn (for a peer, a build, or a deadline), or the member asks for a reminder: schedule a message to yourself. Page: \`scheduled-messages\`.
 - Your context fills during unfinished work: hand off to a fresh session. Page: \`conversation-lifecycle\`.
