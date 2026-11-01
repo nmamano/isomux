@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { createContext, useMemo, type ReactNode } from "react";
 import { Lexer, defaults } from "marked";
 import type { TaskItem } from "../../shared/types.ts";
 import { noTranslate } from "../no-translate.ts";
@@ -6,6 +6,10 @@ import { noTranslate } from "../no-translate.ts";
 export type TaskMap = ReadonlyMap<string, TaskItem>;
 
 export const TASK_ID_PATTERN = /\b[0-9a-f]{8}\b/g;
+
+// Opens a task on the board. App provides it; with no opener, ids stay plain
+// text (ask prompts, AskPrompt).
+export const TaskOpener = createContext<((id: string) => void) | null>(null);
 
 export function taskChipLabel(task: TaskItem): string {
   const words = task.title.trim().split(/\s+/).filter(Boolean);

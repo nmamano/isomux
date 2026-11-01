@@ -1,5 +1,7 @@
-import { useMemo } from "react";
+import { useContext, useMemo } from "react";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
+import { useAppState } from "../store.tsx";
+import { TaskOpener, type TaskMap } from "./task-links.tsx";
 import { splitPromptDiffs, type DiffLine } from "./ask-prompt-diff.ts";
 
 // The chat diff card's colors (diff2html's variables, re-routed in dark mode
@@ -62,12 +64,24 @@ function DiffRow({ line }: { line: DiffLine }) {
 }
 
 // An ask prompt: inline markdown, with each ```diff block drawn as a red and
-// green diff.
+// green diff. The ids of the tasks the member sees are chips, as in the chat.
 export function AskPrompt({ content }: { content: string }) {
   const segments = useMemo(() => splitPromptDiffs(content), [content]);
+  const { tasks } = useAppState();
+  const taskMap: TaskMap = useMemo(
+    () => new Map(tasks.map((task) => [task.id, task])),
+    [tasks],
+  );
+  const openTask = useContext(TaskOpener) ?? undefined;
   return segments.map((segment, i) =>
     segment.kind === "text" ? (
-      <InlineMarkdown key={i} content={segment.text} code />
+      <InlineMarkdown
+        key={i}
+        content={segment.text}
+        code
+        tasks={taskMap}
+        onOpenTask={openTask}
+      />
     ) : (
       <div
         key={i}
