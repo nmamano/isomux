@@ -3338,7 +3338,11 @@ export async function demoApi(
     // accessible set is exactly the live rooms list.
     case "GET /api/me/rooms":
       return {
-        rooms: state.getState().rooms.map((r) => ({ id: r.id, name: r.name })),
+        // Ordinary rooms only, as the server: never the lobby.
+        rooms: ordinaryRooms(state.getState().rooms).map((r) => ({
+          id: r.id,
+          name: r.name,
+        })),
       };
     // agents.spawn - build a demo agent, broadcast agent_added + a system log,
     // RETURN { agent } (the dialog awaits the HTTP result; the old

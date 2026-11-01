@@ -12,7 +12,11 @@ import type {
   MembersChatMessage,
 } from "../shared/types.ts";
 import type { AppWire, PresenceInfo, ServerMessage } from "../shared/types.ts";
-import { cronjobRunStreamId, ordinaryRooms } from "../shared/types.ts";
+import {
+  cronjobRunStreamId,
+  LOBBY_ROOM_ID,
+  ordinaryRooms,
+} from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
 import { MEMORY_CAPS } from "../shared/memory-caps.ts";
@@ -506,5 +510,28 @@ it("cycles Stephen's ghost through every room agent and never the lobby", () => 
     expect(stop.currentRoomId).toBe(roomOf.get(stop.focusedAgentId ?? "")!);
   expect([...new Set(stops.map((s) => s.focusedAgentId))].sort()).toEqual(
     roomAgents.map((a) => a.id).sort(),
+  );
+});
+
+// Task 7f66ff40: the server lists only ordinary rooms on GET /api/me/rooms
+// (view.listRooms), so the demo's room pickers must not offer the lobby.
+it("lists the ordinary rooms on GET /api/me/rooms, never the lobby", async () => {
+  const seen: ServerMessage[] = [];
+  const listen = (data: string) => seen.push(JSON.parse(data));
+  addRawListener(listen);
+  try {
+    sendInitialState();
+  } finally {
+    removeRawListener(listen);
+  }
+  const full = seen.find((m) => m.type === "full_state");
+  if (full?.type !== "full_state") throw new Error("no full_state sent");
+  // The condition this test needs: the demo state holds the lobby.
+  expect(full.rooms.some((r) => r.id === LOBBY_ROOM_ID)).toBe(true);
+  const { rooms } = (await demoApi("GET", "/api/me/rooms")) as {
+    rooms: { id: string; name: string }[];
+  };
+  expect(rooms).toEqual(
+    ordinaryRooms(full.rooms).map((r) => ({ id: r.id, name: r.name })),
   );
 });
