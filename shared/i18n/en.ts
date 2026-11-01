@@ -350,7 +350,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "lobby.elevator.error.self": "That is this office.",
   "lobby.elevator.error.unreachable":
     "This office can't reach an Isomux office at that address.",
-  "lobby.elevator.error.outdated": "Needs to be updated first.",
+  "lobby.elevator.error.outdated":
+    "That office runs an older version of Isomux. Needs to be updated first.",
   "lobby.elevator.error.exists": "That office is already a floor.",
   "lobby.elevator.error.full": "The elevator is full. Remove a floor first.",
   "membersChat.authorApi": "{name} · API token",
