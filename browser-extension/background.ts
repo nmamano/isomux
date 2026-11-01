@@ -331,15 +331,19 @@ async function makeAgentsWindow() {
     .getLastFocused({ windowTypes: ["normal"] })
     .catch(() => undefined);
   const { left, top, width, height } = member ?? {};
-  const bounds =
+  const placed =
     (member?.state === "normal" || member?.state === "maximized") &&
-    [left, top, width, height].every(Number.isSafeInteger)
-      ? { left, top, width, height }
-      : { width: 1280, height: 800 };
-  const window = await chrome.windows
-    .create({ focused: false, url: "about:blank", ...bounds })
-    // Bounds mostly off screen (a monitor that is gone) are refused.
-    .catch(() => chrome.windows.create({ focused: false, url: "about:blank" }));
+    [left, top, width, height].every(Number.isSafeInteger);
+  const size = placed ? { width, height } : { width: 1280, height: 800 };
+  // Bounds mostly off screen (a monitor that is gone) are refused: the size
+  // alone lets Chrome place the window. A size larger than the screen is
+  // refused too, and the last try has no bounds, which can be the strip.
+  const tries = placed ? [{ left, top, ...size }, size, {}] : [size, {}];
+  const create = (bounds: (typeof tries)[number]) =>
+    chrome.windows.create({ focused: false, url: "about:blank", ...bounds });
+  let made = create(tries[0]);
+  for (const bounds of tries.slice(1)) made = made.catch(() => create(bounds));
+  const window = await made;
   // A window shown without focus can sit over the member's window.
   if (member?.focused === true && Number.isSafeInteger(member.id))
     await chrome.windows.update(member.id!, { focused: true }).catch(() => {});

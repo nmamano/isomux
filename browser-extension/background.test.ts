@@ -190,7 +190,8 @@ async function harness(
   // The member's last focused normal window (null: Chrome has none), and the
   // window calls in order; "made" is a create that Chrome finished.
   // refuseBounds: Chrome refuses a create with bounds, as it does for bounds
-  // mostly off screen. refuseUpdate: Chrome refuses a window update.
+  // mostly off screen; "placed" refuses only bounds with a position, "all"
+  // also a size alone. refuseUpdate: Chrome refuses a window update.
   let lastFocused: Record<string, unknown> | null = {
     id: 1,
     focused: true,
@@ -201,7 +202,7 @@ async function harness(
     height: 900,
   };
   const windowCalls: Array<{ call: string; arg?: unknown }> = [];
-  let refuseBounds = false;
+  let refuseBounds: "placed" | "all" | null = null;
   let refuseUpdate = false;
   let installed!: (details: { reason: string }) => void;
   let startup!: () => void;
@@ -225,7 +226,10 @@ async function harness(
         await windowCreate();
         if (
           refuseBounds &&
-          ["left", "top", "width", "height"].some((key) => key in options)
+          (refuseBounds === "all"
+            ? ["left", "top", "width", "height"]
+            : ["left", "top"]
+          ).some((key) => key in options)
         )
           throw new Error(
             "Invalid value for bounds. Bounds must be at least 50% within visible screen space.",
@@ -759,8 +763,8 @@ async function harness(
     lastFocused: (window: Record<string, unknown> | null) => {
       lastFocused = window;
     },
-    refuseBounds: () => {
-      refuseBounds = true;
+    refuseBounds: (which: "placed" | "all") => {
+      refuseBounds = which;
     },
     refuseUpdate: () => {
       refuseUpdate = true;
@@ -3265,26 +3269,41 @@ test("the member's window is focused again after a new Agents window is made whe
   expect(refused.calls).toContain("attach");
 });
 
-test("when Chrome refuses the bounds, the Agents window is made once more without them and the open answers; the member's window is focused again and the next open uses that window", async () => {
-  for (const [name, window] of [
-    ["member window", MEMBER_WINDOW],
-    ["default size", null],
+// Each create as "placed" (a position), "sized" (a size alone) or "plain".
+const createKinds = (h: Harness) =>
+  h.createdWindows.map((options) =>
+    "left" in options || "top" in options
+      ? "placed"
+      : "width" in options || "height" in options
+        ? "sized"
+        : "plain",
+  );
+
+test("when Chrome refuses the bounds, the Agents window is made again with the size alone, then without bounds, and the open answers; the member's window is focused again and the next open uses that window", async () => {
+  // Chrome refuses a position mostly off screen (a monitor that is gone), and
+  // can also refuse a size larger than the screen. A plain create on Windows
+  // can give a strip, so the size alone comes first. The default size has no
+  // position, so it is not tried twice.
+  for (const [name, window, refuse, kinds] of [
+    ["position refused", MEMBER_WINDOW, "placed", ["placed", "sized"]],
+    ["size refused", MEMBER_WINDOW, "all", ["placed", "sized", "plain"]],
+    ["default size refused", null, "all", ["sized", "plain"]],
   ] as const) {
     const h = await agentTabs();
     h.lastFocused(window);
-    h.refuseBounds();
+    h.refuseBounds(refuse);
     const first = await opened(h, 5);
-    expect({ name, created: h.createdWindows.length }).toEqual({
-      name,
-      created: 2,
-    });
-    const [sized, plain] = h.createdWindows;
     expect({
       name,
-      sized: Object.keys(boundsOf(sized)).length > 0,
-      plain: boundsOf(plain),
-      focused: plain.focused,
-    }).toEqual({ name, sized: true, plain: {}, focused: false });
+      kinds: createKinds(h),
+      focused: h.createdWindows.map((options) => options.focused),
+    }).toEqual({ name, kinds: [...kinds], focused: kinds.map(() => false) });
+    // The size alone after a refused position is the member's size.
+    if (window)
+      expect({ name, sized: boundsOf(h.createdWindows[1]) }).toEqual({
+        name,
+        sized: { width: window.width, height: window.height },
+      });
     expect({ name, updates: windowUpdates(h) }).toEqual({
       name,
       updates: window ? [{ id: window.id, focused: true }] : [],
@@ -3292,7 +3311,7 @@ test("when Chrome refuses the bounds, the Agents window is made once more withou
     const second = await opened(h, 6);
     expect({ name, created: h.createdWindows.length }).toEqual({
       name,
-      created: 2,
+      created: kinds.length,
     });
     expect({
       name,
