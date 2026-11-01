@@ -48,7 +48,7 @@ import type { AskAgentWire } from "../shared/contract-shapes.ts";
 // Sanity bounds only.
 export const ASK_PROMPT_MAX = 4000;
 export const ASK_MAX_OPEN_PER_AGENT = 500;
-export const ASK_OPTIONS_MIN = 2;
+export const ASK_OPTIONS_MIN = 1;
 export const ASK_OPTIONS_MAX = 10;
 export const ASK_OPTION_MAX_CHARS = 80;
 // Commands, editor files and read files together.

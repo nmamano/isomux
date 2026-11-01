@@ -885,7 +885,7 @@ describe("options the member can tap", () => {
     const created = await open(w, "Which one?");
     // The rules' own table is checkOptions' in server/asks.test.ts; these
     // prove both routes run it, and that null on an edit is not a removal.
-    const bad: unknown[] = [["Only one"], ["Same", " Same"], "A, B", null];
+    const bad: unknown[] = [["Same", " Same"], "A, B", null];
     for (const options of bad) {
       const label = JSON.stringify(options);
       const post = await call(w.srv, "POST", base, w.as(w.asker.id), {
@@ -920,6 +920,44 @@ describe("options the member can tap", () => {
     expect(
       (listed.body as AskEntry[]).map((e) => [e.prompt, e.options ?? null]),
     ).toEqual([["Which one?", null]]);
+  });
+
+  // A step the member must do, then tell the agent (task d05f2968).
+  it("takes a single option on create and on edit, as text/plain and as JSON, with it recommended", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const plain = await call(
+      w.srv,
+      "POST",
+      `${base}?option=Done&recommended=Done`,
+      w.as(w.asker.id),
+      { text: "Reload the extension?" },
+    );
+    expect(plain.status).toBe(201);
+    const plainId = (plain.body as AskEntry).id;
+    expect([
+      stored(w, plainId)?.options,
+      stored(w, plainId)?.recommended,
+    ]).toEqual([["Done"], "Done"]);
+    const json = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Click Allow?", options: [" Done "] },
+    });
+    expect(json.status).toBe(201);
+    expect(stored(w, (json.body as AskEntry).id)?.options).toEqual(["Done"]);
+    // An ask with two options goes down to one on edit.
+    const two = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Run it?", options: ["Ran it", "Skip"] },
+    });
+    const twoId = (two.body as AskEntry).id;
+    const patch = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${twoId}`,
+      w.as(w.asker.id),
+      { json: { options: ["Ran it"] } },
+    );
+    expect(patch.status).toBe(200);
+    expect(stored(w, twoId)?.options).toEqual(["Ran it"]);
   });
 
   it("takes as many options as a triage needs, at full length, from one option= each", async () => {

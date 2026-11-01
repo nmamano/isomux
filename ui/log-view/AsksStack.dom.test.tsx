@@ -145,6 +145,11 @@ const ENTRIES: AskEntry[] = [
     ),
     originalPrompt: "Old ask:\n```diff\n- Save now\n+ Save later\n```",
   },
+  // Agent b3's ask is a step the member does, with one option (task d05f2968).
+  {
+    ...entry("uuuu0021", "b3", "Reload the extension?", 2),
+    options: ["Done"],
+  },
 ];
 // The one agent the store knows: the target of a7's first link.
 const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
@@ -449,6 +454,35 @@ it("draws a button per option above the reply field, and a tap fills the field f
   ]);
   // Every option waits while the answer is in flight.
   expect(optionButtons(card).map((b) => b.disabled)).toEqual([true, true]);
+  await act(async () => {
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(cards(view.container)).toEqual([]);
+  view.unmount();
+});
+
+it("sends a one-option ask's option as the reply on a tap, and closes the card once the server took it", async () => {
+  let release: () => void = () => {};
+  answer = () => new Promise((resolve) => (release = () => resolve(undefined)));
+  const view = mount(false, "b3");
+  await waitFor(() => expect(cards(view.container)).toEqual(["uuuu0021"]));
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="uuuu0021"]',
+  )!;
+  expect(optionButtons(card).map((b) => b.textContent)).toEqual(["Done"]);
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[0]);
+  });
+  expect(posts).toEqual([
+    { path: "/api/asks/uuuu0021/reply", body: { text: "Done" } },
+  ]);
+  // A second tap while the answer is in flight sends nothing more.
+  expect(optionButtons(card)[0].disabled).toBe(true);
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[0]);
+  });
+  expect(posts).toHaveLength(1);
   await act(async () => {
     release();
     await new Promise((r) => setTimeout(r, 0));

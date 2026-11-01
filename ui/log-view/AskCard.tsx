@@ -13,9 +13,10 @@
 // area, with Undo, which withdraws the request; then the card keeps the first
 // prompt behind "Show original". An ask with options has a button for
 // each; a tap puts it in the reply field, focused, for the member to edit and
-// send. The field starts with the option the agent recommends (marked on its
-// button), empty for options without one, and with the catalog's "done" for
-// an ask without options. An ask's files, editor files and commands are the
+// send, except that the only option of a one-option ask is sent at once, with
+// a typed note after it (sendOption). The field starts with the option the
+// agent recommends (marked on its button), empty for options without one, and
+// with the catalog's "done" for an ask without options. An ask's files, editor files and commands are the
 // chat's own cards, in that order; their buttons open this agent's panel
 // through the store, as in chat (on the Inbox they also open the agent's
 // chat), and answer nothing.
@@ -327,6 +328,13 @@ function ReplyAskCard({
     dispatch({ type: "set_ask_draft", askId: entry.id, text: option });
   }
 
+  // The only option of a one-option ask ("do this, then tell me") is the
+  // reply: a tap sends it, with a typed note after it.
+  function sendOption(option: string) {
+    const note = dismissReason()?.trim();
+    answer("reply", note && note !== option ? `${option}\n\n${note}` : option);
+  }
+
   // The field grows with its text, an option tap, a restored draft and Undo
   // too.
   useLayoutEffect(() => {
@@ -393,16 +401,17 @@ function ReplyAskCard({
     }
   }
 
-  function answer(kind: AnswerKind) {
+  // `text` is a reply other than the field's, as from a one-option tap.
+  function answer(kind: AnswerKind, text: string = reply) {
     if (sending.current) return;
-    if (kind === "reply" && reply.trim() === "") return;
+    if (kind === "reply" && text.trim() === "") return;
     sending.current = true;
     dispatch({ type: "ask_answer_started", id: entry.id });
     const device = getDevice() || undefined;
     const reason = kind === "reply" ? null : dismissReason();
     const body: AnswerBody =
       kind === "reply"
-        ? { text: reply, ...(device ? { device } : {}) }
+        ? { text, ...(device ? { device } : {}) }
         : {
             ...(reason !== null ? { text: reason } : {}),
             ...(device ? { device } : {}),
@@ -414,7 +423,7 @@ function ReplyAskCard({
     }
     const pending: HeldAnswer = {
       kind,
-      shown: kind === "reply" ? reply : reason,
+      shown: kind === "reply" ? text : reason,
       body,
       timer: setTimeout(() => flushRef.current(false), undoMs),
     };
@@ -927,7 +936,11 @@ function ReplyAskCard({
                 type="button"
                 {...marks}
                 disabled={busy}
-                onClick={() => fillOption(option)}
+                onClick={() =>
+                  entry.options!.length === 1
+                    ? sendOption(option)
+                    : fillOption(option)
+                }
                 style={{
                   ...style,
                   cursor: busy ? "default" : "pointer",

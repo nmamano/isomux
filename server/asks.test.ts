@@ -409,12 +409,14 @@ describe("an ask's options", () => {
       ok: true,
       options: ["Jim", "Dwight"],
     });
+    // One option is the "do this, then tell me" ask: its button sends it.
+    expect(checkOptions([" Done "])).toEqual({ ok: true, options: ["Done"] });
     const atBounds = "abcdefghij".split("").map((c) => c.repeat(80));
     expect(checkOptions(atBounds)).toEqual({ ok: true, options: atBounds });
     // An 80-character option with spaces around it is in bounds.
     expect(checkOptions([` ${"a".repeat(80)} `, "b"]).ok).toBe(true);
     for (const bad of [
-      ["one"],
+      [],
       "abcdefghijk".split(""),
       ["a", "   "],
       ["a", "b".repeat(81)],
