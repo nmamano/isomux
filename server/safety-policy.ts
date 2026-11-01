@@ -2203,6 +2203,31 @@ type ShellSyntax =
 /** A resolved command: the program being run, and the words after it. */
 type EffectiveCommand = { name: string; args: ShellWord[] };
 
+/**
+ * Results shared by the checks of one checkBashSafety call. Each check parses
+ * and resolves the line itself, so without this one call parses it about 25
+ * times. The memoized functions read only their string and flags: a function
+ * that starts to read another input (cwd, shell, home, env) adds it to the
+ * key or leaves the memo. Callers must not change a cached result.
+ */
+type EvaluationMemo = {
+  /** Indexed by keepInputTargets + 2 * keepOutputTargets. */
+  parses: Map<string, ShellWord[][]>[];
+  lines: Map<string, string[]>;
+  /** Indexed by keepInputTargets. */
+  commands: Map<string, EffectiveCommand[]>[];
+};
+let memo: EvaluationMemo | null = null;
+
+function memoized<T>(map: Map<string, T>, key: string, compute: () => T): T {
+  let value = map.get(key);
+  if (value === undefined) {
+    value = compute();
+    map.set(key, value);
+  }
+  return value;
+}
+
 /** Index of the `)` matching the `(` at `open`, or the end of the string. */
 function matchParen(cmd: string, open: number): number {
   let depth = 0;
@@ -2306,6 +2331,22 @@ function parseCommands(
   cmd: string,
   keepInputTargets = false,
   keepOutputTargets = false,
+  syntax?: ShellSyntax[],
+): ShellWord[][] {
+  // A syntax call fills the caller's array, so it always parses.
+  if (!memo || syntax)
+    return parseUncached(cmd, keepInputTargets, keepOutputTargets, syntax);
+  return memoized(
+    memo.parses[Number(keepInputTargets) + 2 * Number(keepOutputTargets)],
+    cmd,
+    () => parseUncached(cmd, keepInputTargets, keepOutputTargets),
+  );
+}
+
+function parseUncached(
+  cmd: string,
+  keepInputTargets: boolean,
+  keepOutputTargets: boolean,
   syntax?: ShellSyntax[],
 ): ShellWord[][] {
   const commands: ShellWord[][] = [];
@@ -2850,9 +2891,14 @@ function candidatesWithRedirects(words: ShellWord[]): EffectiveCommand[] {
 function commandLines(
   command: string,
   depth = 0,
-  budget: FindBudget = findBudget(),
+  budget?: FindBudget,
 ): string[] {
+  if (memo && depth === 0 && !budget)
+    return memoized(memo.lines, command, () =>
+      commandLines(command, 0, findBudget()),
+    );
   if (depth > 4) return [];
+  budget ??= findBudget();
   const payloads = parseCommands(stripHeredocBodies(command))
     .flatMap(commandCandidates)
     .flatMap((candidate) => withFindRuns(candidate, budget))
@@ -2867,8 +2913,13 @@ function commandLines(
 function collectCommands(
   command: string,
   keepInputTargets = false,
-  budget: FindBudget = findBudget(),
+  budget?: FindBudget,
 ): EffectiveCommand[] {
+  if (memo && !budget)
+    return memoized(memo.commands[Number(keepInputTargets)], command, () =>
+      collectCommands(command, keepInputTargets, findBudget()),
+    );
+  budget ??= findBudget();
   return commandLines(command).flatMap((line) =>
     parseCommands(stripHeredocBodies(line), keepInputTargets)
       .flatMap(keepInputTargets ? candidatesWithRedirects : commandCandidates)
@@ -4168,6 +4219,25 @@ function shellWriteFlow(
 }
 
 function checkBashSafety(
+  commandValue: unknown,
+  cwd: unknown,
+  codexHome: string | null | undefined,
+  shell: AgentShell,
+): PolicyDecision {
+  const outer = memo;
+  memo = {
+    parses: [0, 1, 2, 3].map(() => new Map<string, ShellWord[][]>()),
+    lines: new Map(),
+    commands: [0, 1].map(() => new Map<string, EffectiveCommand[]>()),
+  };
+  try {
+    return checkBashCommand(commandValue, cwd, codexHome, shell);
+  } finally {
+    memo = outer;
+  }
+}
+
+function checkBashCommand(
   commandValue: unknown,
   cwd: unknown,
   codexHome: string | null | undefined,
