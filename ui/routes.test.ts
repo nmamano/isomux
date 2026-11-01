@@ -12,11 +12,12 @@ import {
   pageForLocation,
   mcpSignInForSearch,
   integrationsTabForPath,
+  askIdForPath,
   type Page,
   type PageFlags,
   type PageShortcutInput,
 } from "./routes.ts";
-import { INTEGRATIONS_TABS } from "../shared/office-links.ts";
+import { INTEGRATIONS_TABS, askLinkFor } from "../shared/office-links.ts";
 
 // Each page and its canonical path. The cronjobs page is "Automations" on
 // screen, and its path says so. The pager and asks pages are the Inbox's two
@@ -139,6 +140,74 @@ describe("the pager link", () => {
       expect(pageForLocation("/", search)).toBeNull();
     }
     expect(pagerIdForSearch(`?pager=${"a".repeat(65)}`)).toBeNull();
+  });
+});
+
+// One ask's address, /inbox/asks/<askId> (task 84aadfab): it opens the Asks
+// tab with that ask pinned. The id is lowercase hex, 8 to 64 characters, the
+// same check as an ask's link (shared/office-links.ts).
+describe("the ask address", () => {
+  const id8 = "a6b624d3";
+  const id64 = "0123456789abcdef".repeat(4);
+
+  it("opens the Asks tab on the ask it names", () => {
+    for (const [path, id] of [
+      [`/inbox/asks/${id8}`, id8],
+      [`/inbox/asks/${id8}/`, id8],
+      [`/inbox/asks/${id64}`, id64],
+    ] as const) {
+      expect([path, pageForPath(path)]).toEqual([path, "asks"]);
+      expect([path, askIdForPath(path)]).toEqual([path, id]);
+      expect([path, pageForLocation(path, "")]).toEqual([path, "asks"]);
+    }
+  });
+
+  it("names no ask on the list's own paths or another page", () => {
+    for (const path of ["/inbox/asks", "/inbox/asks/", "/inbox", "/asks", "/"])
+      expect([path, askIdForPath(path)]).toEqual([path, null]);
+    for (const page of PAGES)
+      expect([page, askIdForPath(PATHS[page])]).toEqual([page, null]);
+  });
+
+  it("refuses an id that is not lowercase hex of 8 to 64, or more segments", () => {
+    for (const path of [
+      "/inbox/asks/a6b624d",
+      `/inbox/asks/${id64}0`,
+      "/inbox/asks/A6B624D3",
+      "/inbox/asks/a6b624dg",
+      "/inbox/asks/a6b624d3/x",
+      "/inbox/asks//a6b624d3",
+      "/inbox/Asks/a6b624d3",
+      "/inbox/pages/a6b624d3",
+      "/asks/a6b624d3",
+      "inbox/asks/a6b624d3",
+      "/inbox/asks/constructor",
+    ]) {
+      expect([path, askIdForPath(path)]).toEqual([path, null]);
+      expect([path, pageForPath(path)]).toEqual([path, null]);
+    }
+  });
+
+  // One check for both (C2): a link the server accepts is an address the
+  // boot opens, and the other way round.
+  it("accepts exactly the ids an ask's link accepts", () => {
+    for (const segment of [
+      id8,
+      id64,
+      `${id64}0`,
+      "a6b624d",
+      "A6B624D3",
+      "a6b624dg",
+      "a6b624d3/x",
+      "",
+      "1234567890",
+    ]) {
+      const link = askLinkFor(`/inbox/asks/${segment}`);
+      expect([segment, askIdForPath(`/inbox/asks/${segment}`)]).toEqual([
+        segment,
+        link && "page" in link ? (link.askId ?? null) : null,
+      ]);
+    }
   });
 });
 

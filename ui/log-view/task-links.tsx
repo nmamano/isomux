@@ -2,6 +2,7 @@ import { createContext, useMemo, type ReactNode } from "react";
 import { Lexer, defaults } from "marked";
 import type { TaskItem } from "../../shared/types.ts";
 import { noTranslate } from "../no-translate.ts";
+import { AskIdText } from "./ask-refs.tsx";
 
 export type TaskMap = ReadonlyMap<string, TaskItem>;
 
@@ -35,6 +36,7 @@ export function TaskChip({
       type="button"
       {...noTranslate("task-id-chip")}
       title={task.title}
+      data-chip-id={task.id}
       aria-label={taskChipLabel(task)}
       data-task-id={task.id}
       data-task-label={taskChipSuffix(task)}
@@ -57,10 +59,14 @@ export function renderTaskText(
     const index = match.index;
     const id = match[0];
     const task = tasks.get(id);
-    if (!task) continue;
     if (index > cursor) nodes.push(text.slice(cursor, index));
+    // An id that is no task may be an ask (AskIdText, ask-refs.tsx).
     nodes.push(
-      <TaskChip key={`${keyPrefix}-${index}`} task={task} onOpen={onOpen} />,
+      task ? (
+        <TaskChip key={`${keyPrefix}-${index}`} task={task} onOpen={onOpen} />
+      ) : (
+        <AskIdText key={`${keyPrefix}-${index}`} id={id} />
+      ),
     );
     cursor = index + id.length;
   }

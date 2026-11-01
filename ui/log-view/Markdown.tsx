@@ -1,6 +1,7 @@
 import {
   useMemo,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -32,6 +33,7 @@ import {
 } from "./svg-sanitize.ts";
 import { decodeEntities, safeUrl, sanitizeHtml } from "./html-sanitize.ts";
 import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
+import { AskRefs, askChipSuffix, askChipTitle } from "./ask-refs.tsx";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -112,7 +114,8 @@ marked.use({
 
 // Task ids become neutral placeholders at parse time. The tokenizer cannot
 // see the reader's ACL-filtered task map, so the layout effect below upgrades
-// only ids that resolve. Marked keeps this tokenizer out of code blocks and
+// only ids that resolve, to a task chip or else to an ask chip (task
+// 84aadfab). Marked keeps this tokenizer out of code blocks and
 // code spans; the inLink guard keeps link text unchanged too.
 marked.use({
   extensions: [
@@ -130,7 +133,7 @@ marked.use({
       },
       renderer(token) {
         const id = token.id as string;
-        return `<span data-task-id="${id}">${id}</span>`;
+        return `<span data-chip-id="${id}" data-task-id="${id}">${id}</span>`;
       },
     },
   ],
@@ -460,6 +463,7 @@ export function Markdown({
   onOpenTask?: (id: string) => void;
 }) {
   const i18n = useI18n();
+  const askRefs = useContext(AskRefs);
   // i18n in the deps, not just content: the translator keeps one identity per
   // language, so this re-renders the html when the reader switches language
   // and never serves a copy button labelled in the old one.
@@ -474,6 +478,15 @@ export function Markdown({
         e.preventDefault();
         e.stopPropagation();
         onOpenTask(taskChip.dataset.taskId);
+        return;
+      }
+      const askChip = (e.target as HTMLElement).closest<HTMLElement>(
+        ".task-id-chip[data-ask-chip]",
+      );
+      if (askChip?.dataset.askChip && askRefs) {
+        e.preventDefault();
+        e.stopPropagation();
+        askRefs.open(askChip.dataset.askChip);
         return;
       }
       const btn = (e.target as HTMLElement).closest(".code-copy-btn");
@@ -505,7 +518,7 @@ export function Markdown({
         (btn as HTMLElement).style.background = "";
       }, 1500);
     },
-    [onOpenTask],
+    [onOpenTask, askRefs],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -538,16 +551,25 @@ export function Markdown({
   useLayoutEffect(() => {
     const root = containerRef.current;
     if (!root) return;
+    // Every state of an id carries data-chip-id: the placeholder span, the
+    // task chip and the ask chip. Each run revisits them all, so a chip
+    // follows the id when it becomes a task's, or stops being an ask's.
+    const unknown: string[] = [];
     for (const current of root.querySelectorAll<HTMLElement>(
-      "[data-task-id]",
+      "[data-chip-id]",
     )) {
-      const id = current.dataset.taskId;
-      const task = id ? tasks.get(id) : undefined;
-      if (!task || !onOpenTask) {
+      const id = current.dataset.chipId ?? "";
+      // A task wins: its id is never tried as an ask.
+      const known = tasks.get(id);
+      const task = onOpenTask ? known : undefined;
+      const ask = known ? undefined : askRefs?.resolve(id);
+      if (!task && !ask) {
+        if (!known && askRefs && ask === undefined) unknown.push(id);
         if (current.tagName === "SPAN") continue;
         const plain = document.createElement("span");
-        plain.dataset.taskId = id ?? "";
-        plain.textContent = id ?? current.textContent;
+        plain.dataset.chipId = id;
+        plain.dataset.taskId = id;
+        plain.textContent = id;
         current.replaceWith(plain);
         continue;
       }
@@ -555,17 +577,29 @@ export function Markdown({
         current.tagName === "BUTTON"
           ? (current as HTMLButtonElement)
           : document.createElement("button");
+      delete chip.dataset.taskId;
+      delete chip.dataset.askChip;
       chip.type = "button";
       chip.className = "task-id-chip notranslate";
       chip.translate = false;
-      chip.dataset.taskId = id;
-      chip.title = task.title;
-      chip.setAttribute("aria-label", taskChipLabel(task));
-      chip.textContent = task.id;
-      chip.dataset.taskLabel = taskChipSuffix(task);
+      chip.dataset.chipId = id;
+      chip.textContent = id;
+      if (task) {
+        chip.dataset.taskId = id;
+        chip.title = task.title;
+        chip.setAttribute("aria-label", taskChipLabel(task));
+        chip.dataset.taskLabel = taskChipSuffix(task);
+      } else if (ask) {
+        const suffix = askChipSuffix(i18n.t, ask);
+        chip.dataset.askChip = id;
+        chip.title = askChipTitle(ask);
+        chip.setAttribute("aria-label", `${id}${suffix}`);
+        chip.dataset.taskLabel = suffix;
+      }
       if (chip !== current) current.replaceWith(chip);
     }
-  }, [html, tasks, onOpenTask]);
+    if (unknown.length > 0) askRefs?.request(unknown);
+  }, [html, tasks, onOpenTask, askRefs, i18n]);
 
   // After every html change, find any unprocessed mermaid blocks and hand
   // them to the lazy-loaded mermaid library one at a time. We use

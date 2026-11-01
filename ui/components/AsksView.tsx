@@ -19,6 +19,10 @@
 // cards that name the member, which the owner answers as their own; the
 // filters and the sort apply to the whole set. The choice is remembered per
 // browser; the badge and the seen marks stay the owner's own asks.
+// An ask chip in chat text or the /inbox/asks/<askId> address pins one ask
+// above the list, outside the filters (PinnedAsk, task 84aadfab). Its close,
+// or a new pin, moves an answer still in its Undo time between two cards: the
+// card that unmounts sends it at once, as leaving the Inbox does.
 // InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useState } from "react";
@@ -27,6 +31,7 @@ import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { asksFor, visibleAsks } from "../asks-sync.ts";
 import { AskCard } from "../log-view/AskCard.tsx";
+import { PinnedAsk } from "./PinnedAsk.tsx";
 import {
   ASKS_SORTS,
   getAsksFilter,
@@ -231,8 +236,14 @@ export const ASK_UNDO_MS = 5000;
 export function AsksView({
   onFocusAgent,
   onChatAgent,
+  focusAskId,
+  onClearFocus,
 }: {
   onFocusAgent: (agentId: string) => void;
+  // The ask pinned above the list (an ask chip or /inbox/asks/<id>), and
+  // the pin's close.
+  focusAskId?: string | null;
+  onClearFocus?: () => void;
   // Opens the chat panel over the Inbox on an agent (AgentChatPanel); without
   // it the name opens the agent's chat.
   onChatAgent?: (agentId: string) => void;
@@ -339,9 +350,28 @@ export function AsksView({
           : others.filter((e) => e.member === whose.name),
     [whose, own, others],
   );
+  // The pinned ask (PinnedAsk): its card, when the member answers it, is
+  // drawn there and left out of the list, so one ask never has two cards.
+  const pinnedEntry = useMemo(
+    () =>
+      focusAskId
+        ? [...own, ...(isOwner ? othersAsks : [])].find(
+            (e) => e.id === focusAskId && answeredAsks.get(e.id) !== "sending",
+          )
+        : undefined,
+    [focusAskId, own, isOwner, othersAsks, answeredAsks],
+  );
+  const pinnedInStore =
+    !!focusAskId &&
+    (asks.some((e) => e.id === focusAskId) ||
+      othersAsks.some((e) => e.id === focusAskId));
+  const listed = useMemo(
+    () => (pinnedEntry ? open.filter((e) => e.id !== pinnedEntry.id) : open),
+    [open, pinnedEntry],
+  );
   const groups = useMemo(
-    () => askGroups(open, agents, filterRooms, filter, sort, dir),
-    [open, agents, filterRooms, filter, sort, dir],
+    () => askGroups(listed, agents, filterRooms, filter, sort, dir),
+    [listed, agents, filterRooms, filter, sort, dir],
   );
   const counts = useMemo(
     () => filterCounts(open, agents, filter),
@@ -373,8 +403,8 @@ export function AsksView({
   // Whether any ask would show with both filters on all, so an empty list
   // can tell "no open asks" from "the filters hide them".
   const anyOpen = useMemo(
-    () => agents.some((agent) => open.some((e) => e.agentId === agent.id)),
-    [open, agents],
+    () => agents.some((agent) => listed.some((e) => e.agentId === agent.id)),
+    [listed, agents],
   );
   const roomNameById = useMemo(
     () => new Map(rooms.map((r) => [r.id, r.name])),
@@ -561,11 +591,30 @@ export function AsksView({
           padding: isMobile ? "10px 12px" : "16px 20px",
         }}
       >
+        {focusAskId && (
+          <div style={{ maxWidth: 760, margin: "0 auto" }}>
+            <PinnedAsk
+              key={focusAskId}
+              id={focusAskId}
+              entry={pinnedEntry}
+              inStore={pinnedInStore}
+              isMobile={isMobile}
+              undoMs={ASK_UNDO_MS}
+              promptLines={INBOX_PROMPT_LINES}
+              onFocusAgent={onFocusAgent}
+              onChatAgent={onChatAgent}
+              onClose={() => onClearFocus?.()}
+            />
+          </div>
+        )}
         <div data-asks-list="" style={{ maxWidth: 760, margin: "0 auto" }}>
           {groups.length === 0 && !anyOpen ? (
-            <div data-asks-empty="" style={emptyStyle}>
-              {t("asks.empty")}
-            </div>
+            // The pinned card is the one open ask: no "No open asks" under it.
+            pinnedEntry ? null : (
+              <div data-asks-empty="" style={emptyStyle}>
+                {t("asks.empty")}
+              </div>
+            )
           ) : groups.length === 0 ? (
             <div data-asks-filtered-empty="" style={emptyStyle}>
               <div>{t("asks.filteredEmpty")}</div>

@@ -11,6 +11,8 @@
 // bar shows "/" (task 680747d8).
 
 import {
+  ASK_LINK_PREFIX,
+  askIdForSegment,
   askLinkFor,
   officeLinkFor,
   pathForPage,
@@ -71,8 +73,10 @@ export function pageForPath(pathname: string): Page | null {
     // an old link keeps working, never produced.
     case "/cronjobs":
       return "cronjobs";
-    // The Integrations tab paths (/integrations/mcp), from the one tab list.
+    // One ask (/inbox/asks/<askId>, task 84aadfab) and the Integrations tab
+    // paths (/integrations/mcp), from the one tab list.
     default:
+      if (askIdForPath(pathname) !== null) return "asks";
       return integrationsTabForPath(pathname) === null ? null : "integrations";
   }
 }
@@ -108,6 +112,18 @@ export function pagerIdForSearch(search: string): string | null {
 export function agentIdForPath(pathname: string): string | null {
   const link = askLinkFor(pathname.replace(/\/+$/, ""));
   return link && "agentId" in link ? link.agentId : null;
+}
+
+/**
+ * The ask an address names, `/inbox/asks/<askId>` (task 84aadfab), or null.
+ * Accepted, never produced: the Asks tab pins the ask and the address bar
+ * shows /inbox/asks. A trailing slash is forgiven.
+ */
+export function askIdForPath(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, "");
+  return path.startsWith(ASK_LINK_PREFIX)
+    ? askIdForSegment(path.slice(ASK_LINK_PREFIX.length))
+    : null;
 }
 
 /** The page the URL opens at boot: the pager link first, then the path. */

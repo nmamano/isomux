@@ -13,7 +13,7 @@ const { SceneDecorationContext } =
   await import("../office/scene-decoration.tsx");
 const { FeaturesProvider, StoreProvider } = await import("../store.tsx");
 const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
-const { setApiShim } = await import("../api.ts");
+const { ApiError, setApiShim } = await import("../api.ts");
 const { connect, setShim, shimEmit } = await import("../ws.ts");
 const { en } = await import("../../shared/i18n/en.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
@@ -132,6 +132,16 @@ let messagePost: () => Promise<unknown> = async () => ({
 export function setMessagePost(next: () => Promise<unknown>) {
   messagePost = next;
 }
+// GET /api/asks/<id> (task 84aadfab): each read's id in order, and its
+// answer, a 404 unless a test sets its own.
+export const askReads: string[] = [];
+const askNotFound = async (): Promise<unknown> => {
+  throw new ApiError(404, "not_found", "No such ask.");
+};
+let askRead: (id: string) => Promise<unknown> = askNotFound;
+export function setAskRead(next: (id: string) => Promise<unknown>) {
+  askRead = next;
+}
 // App's pushes, spied afresh for each test.
 let pushState: ReturnType<typeof spyOn<History, "pushState">> | null = null;
 export const pushCount = () => pushState?.mock.calls.length ?? 0;
@@ -139,6 +149,11 @@ export const pushCount = () => pushState?.mock.calls.length ?? 0;
 export function setUpInboxTests() {
   setApiShim(async (method, path, body) => {
     if (path === "/api/asks") return asks;
+    const read = /^\/api\/asks\/([0-9a-f]{8,64})$/.exec(path);
+    if (method === "GET" && read) {
+      askReads.push(read[1]);
+      return askRead(read[1]);
+    }
     if (method === "POST" && path.startsWith("/api/asks/"))
       return answerPost(path);
     if (method === "POST" && /^\/api\/agents\/[^/]+\/messages$/.test(path)) {
@@ -171,6 +186,8 @@ export function setUpInboxTests() {
     asks = ASKS;
     agents = [agent];
     answerPost = async () => ({});
+    askReads.length = 0;
+    askRead = askNotFound;
     sentMessages.length = 0;
     messagePost = async () => ({ messageId: "m", queued: false });
     window.localStorage.clear();

@@ -31,6 +31,7 @@ import {
   type AgentInfo,
   type TaskItem,
 } from "../../shared/types.ts";
+import { ASK_LINK_PREFIX } from "../../shared/office-links.ts";
 import type {
   AskAgentWire,
   AskClosedWire,
@@ -658,6 +659,49 @@ describe("a link to an office page", () => {
     expect(
       (listed.body as AskEntry[]).map((e) => [e.prompt, e.link ?? null]),
     ).toEqual([["Sign in to Linear?", null]]);
+  });
+
+  // One ask as the link (task 84aadfab): /inbox/asks/<askId>, on create and
+  // on edit. The ask need not exist, as for an agent; the form is
+  // askLinkFor's (shared/office-links.test.ts). The refusal names the form,
+  // so an agent can correct its call.
+  it("accepts a link to one ask, and the refusal names that form", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const other = await open(w, "Which plan?");
+    const post = await call(
+      w.srv,
+      "POST",
+      `${base}?link=${encodeURIComponent(`${ASK_LINK_PREFIX}${other.id}`)}`,
+      w.as(w.asker.id),
+      { text: "See the other ask?" },
+    );
+    expect(post.status).toBe(201);
+    const id = (post.body as AskEntry).id;
+    expect(stored(w, id)?.link).toBe(`${ASK_LINK_PREFIX}${other.id}`);
+    const patch = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${id}`,
+      w.as(w.asker.id),
+      { json: { link: `${ASK_LINK_PREFIX}0123456789abcdef` } },
+    );
+    expect(patch.status).toBe(200);
+    expect(stored(w, id)?.link).toBe(`${ASK_LINK_PREFIX}0123456789abcdef`);
+
+    const refused = await call(
+      w.srv,
+      "POST",
+      `${base}?link=${encodeURIComponent(`${ASK_LINK_PREFIX}nope`)}`,
+      w.as(w.asker.id),
+      { text: "Where?" },
+    );
+    expect(refused.status).toBe(422);
+    expect(refused.code).toBe("invalid_link");
+    const message =
+      (refused.body as { error?: { message?: string } }).error?.message ?? "";
+    expect(message).toContain(ASK_LINK_PREFIX);
+    expect(stored(w, id)?.link).toBe(`${ASK_LINK_PREFIX}0123456789abcdef`);
   });
 });
 

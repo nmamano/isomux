@@ -4,8 +4,9 @@
 // against OFFICE_LINK_PATHS and the UI opens the page officeLinkFor names, so
 // a new page or tab is a link target with no second list.
 //
-// A link is an office page name in path form, or an agent's chat as
-// /agents/<agentId> (task 9aaec0eb). The Integrations tab forms
+// A link is an office page name in path form, an agent's chat as
+// /agents/<agentId> (task 9aaec0eb), or one ask as /inbox/asks/<askId>
+// (task 84aadfab). The Integrations tab forms
 // (/integrations/mcp) are also URL routes that the address bar accepts but
 // never shows (ui/routes.ts, task df206fe3). The agent form is accepted the
 // same way: it opens that chat and the address bar shows "/" (agentIdForPath,
@@ -53,6 +54,8 @@ export function pathForPage(page: Page | null): string {
 export interface PageLink {
   page: Page;
   tab?: IntegrationsTab;
+  // The ask an /inbox/asks/<askId> link opens in the Asks tab (task 84aadfab).
+  askId?: string;
   // A step ask's step, which the Integrations tab marks (task c71cb60f).
   focus?: StepAskRequest;
 }
@@ -84,12 +87,26 @@ export function officeLinkFor(path: unknown): PageLink | null {
 /** The agent-chat form of an ask's link: `/agents/<agentId>`. */
 export const AGENT_LINK_PREFIX = "/agents/";
 
+/** The one-ask form of an ask's link and of the address: `/inbox/asks/<askId>`. */
+export const ASK_LINK_PREFIX = "/inbox/asks/";
+
+/** The ask id a path segment holds: lowercase hex, 8 to 64 characters, or
+ *  null. The one check of the address (ui/routes.ts askIdForPath) and of an
+ *  ask's link. */
+export function askIdForSegment(segment: string): string | null {
+  return /^[0-9a-f]{8,64}$/.test(segment) ? segment : null;
+}
+
 /** The page or agent an ask's link names, or null. The agent form takes one
  *  non-empty segment; whether the agent exists is the caller's check. */
 export function askLinkFor(path: unknown): OfficeLink | null {
   if (typeof path === "string" && path.startsWith(AGENT_LINK_PREFIX)) {
     const agentId = path.slice(AGENT_LINK_PREFIX.length);
     return agentId && !agentId.includes("/") ? { agentId } : null;
+  }
+  if (typeof path === "string" && path.startsWith(ASK_LINK_PREFIX)) {
+    const askId = askIdForSegment(path.slice(ASK_LINK_PREFIX.length));
+    return askId ? { page: "asks", askId } : null;
   }
   return officeLinkFor(path);
 }

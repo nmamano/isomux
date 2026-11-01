@@ -90,6 +90,7 @@ import {
 import {
   AGENT_LINK_PREFIX,
   OFFICE_LINK_PATHS,
+  ASK_LINK_PREFIX,
   askLinkFor,
 } from "../../../shared/office-links.ts";
 
@@ -352,7 +353,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     fail(
       422,
       "invalid_link",
-      `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}, or ${AGENT_LINK_PREFIX}<agentId> for an agent the member can reach`,
+      `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}, ${ASK_LINK_PREFIX}<askId> for one ask, or ${AGENT_LINK_PREFIX}<agentId> for an agent the member can reach`,
     );
   // A link to an agent's chat names an agent the member can reach; a page
   // link needs no check past its form.

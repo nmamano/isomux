@@ -760,7 +760,9 @@ function ReplyAskCard({
                     cursor: "pointer",
                   }}
                 >
-                  {t("asks.openLink", { page: linkLabel })}
+                  {"askId" in link && link.askId
+                    ? t("asks.openAsk", { id: link.askId })
+                    : t("asks.openLink", { page: linkLabel })}
                 </button>
               )}
               {entry.originalPrompt !== undefined && (
