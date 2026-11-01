@@ -1,9 +1,11 @@
 // The pack picker of the agent dialog's access slider (task e77304b1, merge
-// B): presets, areas and rooms, where it shows, the engines a stop allows,
-// and the boundary note. What a save sends is in
+// B): presets, areas and rooms, where it shows, the engines and Codex models
+// a stop allows (merge C1), and the boundary note. What a save sends is in
 // EditAgentDialog.access.dom.test.tsx.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import type { AgentAccess } from "../../shared/agent-access.ts";
+import type { AgentInfo } from "../../shared/types.ts";
 
 setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
@@ -25,23 +27,31 @@ const {
 } = await import("../test-support/access-slider-fixture.tsx");
 
 describe("the engine and the stops", () => {
-  it("an engine that cannot run below Standard has those stops disabled", async () => {
-    // OpenCode follows the same rule (engineRunsAccess) as Codex.
-    for (const agentType of ["claude", "codex"] as const) {
+  // engineRunsAccess with the dialog's model: Codex runs chat and office on
+  // gpt-5.5 only, OpenCode no stop below Standard.
+  it("each engine and model has exactly the stops it can run", async () => {
+    const cases: [AgentInfo["agentType"], string, AgentAccess[]][] = [
+      ["claude", "opus", []],
+      ["codex", "gpt-5.5", ["folder", "web"]],
+      ["codex", "gpt-5.6-sol", BELOW],
+      ["opencode", "opencode/big-pickle", BELOW],
+    ];
+    for (const [agentType, modelFamily, off] of cases) {
       shim();
-      const view = renderEdit(agentAt("standard", undefined, agentType));
+      const view = renderEdit({
+        ...agentAt("standard", undefined, agentType),
+        modelFamily,
+      });
       try {
         await settle();
         const disabled = Object.fromEntries(
           STOPS.map((stop) => [stop, stopRadio(view.container, stop).disabled]),
         );
-        expect({ agentType, disabled }).toEqual({
+        expect({ agentType, modelFamily, disabled }).toEqual({
           agentType,
+          modelFamily,
           disabled: Object.fromEntries(
-            STOPS.map((stop) => [
-              stop,
-              agentType !== "claude" && BELOW.includes(stop),
-            ]),
+            STOPS.map((stop) => [stop, off.includes(stop)]),
           ),
         });
       } finally {
@@ -63,7 +73,14 @@ describe("the engine and the stops", () => {
           [...select.options].map((o) => [o.value, o.disabled]),
         );
       expect(engines()).toMatchObject({ claude: false, codex: false });
+      // Codex runs office on one model.
       await pick(view.container, "office");
+      expect(engines()).toMatchObject({
+        claude: false,
+        codex: false,
+        opencode: true,
+      });
+      await pick(view.container, "folder");
       expect(engines()).toMatchObject({
         claude: false,
         codex: true,
@@ -73,7 +90,61 @@ describe("the engine and the stops", () => {
       cleanup(view);
     }
   });
+
+  // The model picker of a Codex agent: below Standard only a proven model
+  // can be picked, and the stops follow the model picked, not the saved one.
+  it("below Standard, a Codex model that is not proven is disabled; the stops follow the picked model", async () => {
+    shim();
+    const view = renderEdit({
+      ...agentAt("standard", undefined, "codex"),
+      modelFamily: "gpt-5.6-sol",
+    });
+    try {
+      await settle();
+      const models = modelSelect(view.container);
+      const disabledModels = () =>
+        [...models().options].filter((o) => o.disabled).map((o) => o.value);
+      expect(disabledModels()).toEqual([]);
+      expect(stopRadio(view.container, "office").disabled).toBe(true);
+      await change(models(), "gpt-5.5");
+      expect(stopRadio(view.container, "office").disabled).toBe(false);
+      await pick(view.container, "office");
+      expect(stopRadio(view.container, "office").checked).toBe(true);
+      expect(
+        [...models().options].filter((o) => !o.disabled).map((o) => o.value),
+      ).toEqual(["gpt-5.5"]);
+    } finally {
+      cleanup(view);
+    }
+  });
+
+  it("a switch to Codex at office lands on the proven model", async () => {
+    shim();
+    const view = renderEdit(agentAt("office", AGENT_PACK_PRESETS.asksOnly));
+    try {
+      await settle();
+      const engine = view.container.querySelector<HTMLSelectElement>(
+        ".agent-engine-control select",
+      )!;
+      await change(engine, "codex");
+      await settle();
+      expect(modelSelect(view.container)().value).toBe("gpt-5.5");
+    } finally {
+      cleanup(view);
+    }
+  });
 });
+
+// The model select: the one that offers a Codex model.
+function modelSelect(container: HTMLElement): () => HTMLSelectElement {
+  return () => {
+    const select = [...container.querySelectorAll("select")].find((s) =>
+      [...s.options].some((o) => o.value === "gpt-5.5"),
+    );
+    if (!select) throw new Error("no Codex model select");
+    return select;
+  };
+}
 
 describe("the pack picker", () => {
   it("sets each preset's exact areas, and sends them", async () => {

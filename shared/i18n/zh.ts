@@ -1420,7 +1420,7 @@ App 的一些原则：
   "dialogs.agent.access.standardHint": "终端以及其引擎的全部工具。",
   "dialogs.agent.access.boundaryNote":
     "有终端的智能体可以读取其他智能体的办公室令牌。只有聊天、办公室、文件夹和网络会限制它能访问的范围。",
-  "dialogs.agent.access.engineCannot": "此引擎暂不可用",
+  "dialogs.agent.access.engineCannot": "此引擎或模型暂不可用",
   "dialogs.agent.pack.asksOnly": "仅询问",
   "dialogs.agent.pack.tasksAndAsks": "任务和询问",
   "dialogs.agent.pack.showsSecrets": "可能显示密钥",

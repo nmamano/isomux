@@ -1562,7 +1562,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.access.standardHint": "A shell and every tool of its engine.",
   "dialogs.agent.access.boundaryNote":
     "With a shell, an agent can read the office tokens of other agents. Only Chat, Office, Folder and Web limit what it can reach.",
-  "dialogs.agent.access.engineCannot": "Not available for this engine yet",
+  "dialogs.agent.access.engineCannot":
+    "Not available for this engine or model yet",
   "dialogs.agent.pack.asksOnly": "Asks only",
   "dialogs.agent.pack.tasksAndAsks": "Tasks and asks",
   "dialogs.agent.pack.showsSecrets": "can show secrets",

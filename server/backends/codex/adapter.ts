@@ -27,8 +27,19 @@
 //      --experimental, so missing this flag would silently strip experimental
 //      fields on the wire.
 
+import {
+  belowStandard,
+  INLINE_IMAGE_TYPES,
+  type AgentAccess,
+} from "../../../shared/agent-access.ts";
 import { readFileSync, statSync } from "fs";
-import { basename } from "path";
+import { basename, join } from "path";
+import {
+  CODEX_EMPTY_CWD_ROOT,
+  codexBelowStandardDiscovery,
+  codexBelowStandardRefusal,
+  codexEmptyCwd,
+} from "./access.ts";
 import { filterMissingToolOutputRepeats } from "../../../shared/codex-diagnostics.ts";
 
 import { saveFile } from "../../persistence.ts";
@@ -262,12 +273,14 @@ const CODEX_THREAD_CONFIG_OVERRIDES: Readonly<Record<string, boolean>> = {
 // The turn-level sandbox policy for a thread's sandbox mode, else null. Codex
 // 0.164 has no config key for read-only network access, only this turn/start
 // field. Codex keeps it for later turns, but thread/resume resets the thread
-// to the plain mode, so every turn/start sends it.
+// to the plain mode, so every turn/start sends it. Below standard the thread
+// has no network.
 export function codexTurnSandboxPolicy(
   sandbox: string,
-): { type: "readOnly"; networkAccess: true } | null {
+  belowStandard = false,
+): { type: "readOnly"; networkAccess: boolean } | null {
   return sandbox === "read-only"
-    ? { type: "readOnly", networkAccess: true }
+    ? { type: "readOnly", networkAccess: !belowStandard }
     : null;
 }
 
@@ -280,14 +293,36 @@ export function codexTurnSandboxPolicy(
 export function codexThreadConfig(
   mcpServers: AgentMcpServer[] | undefined,
 ): Record<string, unknown> {
-  const config: Record<string, unknown> = { ...CODEX_THREAD_CONFIG_OVERRIDES };
+  return {
+    ...CODEX_THREAD_CONFIG_OVERRIDES,
+    ...codexMcpServerConfig(mcpServers),
+  };
+}
+
+// The `mcp_servers.<name>` keys of Isomux's own servers.
+function codexMcpServerConfig(
+  mcpServers: AgentMcpServer[] | undefined,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(codexMcpServerEntries(mcpServers)).map(([name, entry]) => [
+      `mcp_servers.${name}`,
+      entry,
+    ]),
+  );
+}
+
+// Isomux's own servers as entries of the mcp_servers table, by name.
+function codexMcpServerEntries(
+  mcpServers: AgentMcpServer[] | undefined,
+): Record<string, unknown> {
+  const entries: Record<string, unknown> = {};
   for (const server of mcpServers ?? []) {
-    config[`mcp_servers.${server.name}`] = {
+    entries[server.name] = {
       url: server.url,
       http_headers: { ...server.headers },
     };
   }
-  return config;
+  return entries;
 }
 
 // Capability flags for the Codex backend. Match the spec's parity table.
@@ -975,6 +1010,28 @@ export interface CodexTransport {
   close(): Promise<void>;
 }
 
+// The empty folder (access.ts) of every one-shot below standard.
+const CODEX_ONE_SHOT_FOLDER = "one-shot";
+
+// Builds the one-shot prompt's app-server client. Tests swap it for a fake
+// transport (setCodexOneShotClientFactoryForTests).
+type CodexOneShotClientFactory = (opts: {
+  cwd?: string;
+  env?: { [key: string]: string | undefined };
+}) => CodexTransport;
+
+const defaultCodexOneShotClientFactory: CodexOneShotClientFactory = (opts) =>
+  new JsonRpcLiteClient(opts);
+
+let codexOneShotClientFactory = defaultCodexOneShotClientFactory;
+
+// null restores the real client.
+export function setCodexOneShotClientFactoryForTests(
+  factory: CodexOneShotClientFactory | null,
+): void {
+  codexOneShotClientFactory = factory ?? defaultCodexOneShotClientFactory;
+}
+
 export interface CodexSessionInitOpts {
   agentId: string;
   cwd: string;
@@ -993,6 +1050,8 @@ export interface CodexSessionInitOpts {
   // Codex's native plan collaboration mode: true sets it, false clears it,
   // undefined keeps what a resumed thread has.
   planMode?: boolean;
+  // The agent's access slider stop (SessionOpts.access). Absent: standard.
+  access?: AgentAccess;
   // Test seam (T2 adapter contract): inject a fake transport to drive the real
   // translation with curated provider events. Undefined in production, where
   // the constructor builds a real JsonRpcLiteClient.
@@ -1229,6 +1288,15 @@ export class CodexSession implements BackendSession {
   // hook/completed does not include the command, so both fields are required
   // to distinguish Isomux's run from a user hook in the same file.
   private safetyHookIdentity: CodexSafetyHookIdentity | null = null;
+  // At chat or office (access.ts): the thread runs in an empty folder with
+  // every tool source off, read-only without network or approvals.
+  private readonly belowStandard: boolean;
+  // Below standard: the empty folder and the thread config from discovery,
+  // set by bootstrap before the thread starts or resumes.
+  private belowStandardThread: {
+    cwd: string;
+    config: Record<string, unknown>;
+  } | null = null;
 
   constructor(private readonly opts: CodexSessionInitOpts) {
     // JsonRpcLiteClient.start() applies the isomux CODEX_HOME default so
@@ -1236,8 +1304,13 @@ export class CodexSession implements BackendSession {
     // fork + read) spawns under the same effective env. A managed personal
     // CODEX_HOME (see internal-docs/isolation-design.md) is honored
     // verbatim by withIsomuxCodexHome.
+    // Below standard the app-server runs in the thread's empty folder too
+    // (bootstrap makes it before the client starts).
+    this.belowStandard = !!opts.access && belowStandard(opts.access);
     const clientOpts: JsonRpcLiteClientOptions = {
-      cwd: opts.cwd,
+      cwd: this.belowStandard
+        ? join(CODEX_EMPTY_CWD_ROOT, opts.agentId)
+        : opts.cwd,
       env: opts.env,
     };
     this.client = opts.client ?? new JsonRpcLiteClient(clientOpts);
@@ -1253,6 +1326,15 @@ export class CodexSession implements BackendSession {
   private async bootstrap(): Promise<void> {
     let safety: CodexSafetyPreflightResult | null = null;
     try {
+      let emptyCwd: string | null = null;
+      if (this.belowStandard) {
+        const refusal = codexBelowStandardRefusal(
+          this.opts.access!,
+          this.opts.modelFamily,
+        );
+        if (refusal) throw new Error(refusal);
+        emptyCwd = await codexEmptyCwd(this.opts.agentId);
+      }
       safety = await this.client.start();
       this.safetyHookIdentity = safety.hookIdentity;
       const initParams: InitializeParams = {
@@ -1271,11 +1353,27 @@ export class CodexSession implements BackendSession {
         },
       };
       await this.client.initialize(initParams);
+      if (emptyCwd) {
+        // Discovery at every start and resume, from the folder the thread
+        // gets. Isomux's own servers (the office one at office) stay on.
+        this.belowStandardThread = {
+          cwd: emptyCwd,
+          config: await codexBelowStandardDiscovery(
+            this.client,
+            emptyCwd,
+            (this.opts.mcpServers ?? []).map((server) => server.name),
+          ),
+        };
+      }
       await this.setSkillRoots();
 
-      const sandboxChoice = await effectiveCodexSandbox(
-        this.opts.sandbox ?? CODEX_DEFAULT_SANDBOX,
-      );
+      // Below standard the thread is read-only whatever the agent's stored
+      // sandbox and the container's probe say.
+      const sandboxChoice = this.belowStandard
+        ? { sandbox: "read-only", fellBack: false }
+        : await effectiveCodexSandbox(
+            this.opts.sandbox ?? CODEX_DEFAULT_SANDBOX,
+          );
       this.effectiveSandbox = sandboxChoice.sandbox;
       // The thread stores its collaboration mode, so a resumed thread can
       // already be in plan mode.
@@ -1296,12 +1394,19 @@ export class CodexSession implements BackendSession {
         }>("thread/resume", {
           threadId: this.opts.resumeThreadId,
           excludeTurns: true,
-          approvalPolicy: this.opts.permissionMode,
+          approvalPolicy: this.approvalPolicy(),
           sandbox: sandboxChoice.sandbox,
           model: this.opts.modelFamily,
           developerInstructions: this.opts.systemPrompt,
           persistExtendedHistory: false,
-          config: codexThreadConfig(this.opts.mcpServers),
+          config: this.belowStandardThread
+            ? this.belowStandardConfig(this.belowStandardThread)
+            : codexThreadConfig(this.opts.mcpServers),
+          // A thread started at standard in the agent's folder moves to the
+          // empty folder when the agent moves down.
+          ...(this.belowStandardThread
+            ? { cwd: this.belowStandardThread.cwd }
+            : {}),
         });
         this.threadId = resumeResp.thread.id;
         if (resumeResp.modelProvider)
@@ -1424,7 +1529,7 @@ export class CodexSession implements BackendSession {
   private skillRootsRefusalLogged = false;
   private async setSkillRoots(): Promise<void> {
     const folder = this.opts.skillFolder;
-    if (!folder) return;
+    if (!folder || this.belowStandard) return;
     try {
       await this.client.request("skills/extraRoots/set", {
         extraRoots: [folder],
@@ -1456,22 +1561,48 @@ export class CodexSession implements BackendSession {
     this.enqueue({ kind: "plan_mode", on });
   }
 
+  // Below standard nothing asks for approval: the thread has no tool that
+  // would.
+  private approvalPolicy(): string {
+    return this.belowStandard ? "never" : this.opts.permissionMode;
+  }
+
+  // Below standard: the discovery's disables (memories pins included) plus
+  // Isomux's own servers, without the standard sandbox network key. Isomux's
+  // servers go into the same nested mcp_servers table as the disables: Codex
+  // applies a key and a dotted key under it in no fixed order, so a
+  // `mcp_servers.<name>` key next to the table could be lost.
+  private belowStandardConfig(thread: {
+    config: Record<string, unknown>;
+  }): Record<string, unknown> {
+    const { mcp_servers: disabled, ...rest } = thread.config;
+    const servers = {
+      ...(disabled as Record<string, unknown> | undefined),
+      ...codexMcpServerEntries(this.opts.mcpServers),
+    };
+    return Object.keys(servers).length > 0
+      ? { ...rest, mcp_servers: servers }
+      : rest;
+  }
+
   private buildThreadStartParams(sandbox: string): Record<string, unknown> {
     // sandbox is a SandboxMode enum string; approvalPolicy is the
     // AskForApproval enum string. We deliberately keep this as a plain
     // Record so the codegen union strictness doesn't fight us - the wire
     // schema is what we're targeting.
     const params: Record<string, unknown> = {
-      cwd: this.opts.cwd,
+      cwd: this.belowStandardThread?.cwd ?? this.opts.cwd,
       developerInstructions: this.opts.systemPrompt,
       model: this.opts.modelFamily,
       sandbox,
-      approvalPolicy: this.opts.permissionMode,
+      approvalPolicy: this.approvalPolicy(),
       experimentalRawEvents: false,
       // persistExtendedHistory is deprecated in 0.130 and ignored by the
       // server, but the wire schema still requires the field.
       persistExtendedHistory: false,
-      config: codexThreadConfig(this.opts.mcpServers),
+      config: this.belowStandardThread
+        ? this.belowStandardConfig(this.belowStandardThread)
+        : codexThreadConfig(this.opts.mcpServers),
     };
     if (this.opts.effort) {
       // ReasoningEffort enum string. Best-effort pass-through; codex
@@ -1514,7 +1645,12 @@ export class CodexSession implements BackendSession {
       );
     }
 
-    const input = buildCodexUserInput(text, attachments, this.opts.agentId);
+    const input = buildCodexUserInput(
+      text,
+      attachments,
+      this.opts.agentId,
+      this.belowStandard,
+    );
     this.capacityRetryCount = 0;
     this.capacityErrorThisAttempt = null;
     this.refusalThisAttempt = null;
@@ -1709,7 +1845,10 @@ export class CodexSession implements BackendSession {
 
   // The params of every turn/start: a user turn and a capacity retry.
   private turnStartParams(input: unknown[]): Record<string, unknown> {
-    const sandboxPolicy = codexTurnSandboxPolicy(this.effectiveSandbox);
+    const sandboxPolicy = codexTurnSandboxPolicy(
+      this.effectiveSandbox,
+      this.belowStandard,
+    );
     return {
       threadId: this.threadId,
       input,
@@ -3637,16 +3776,29 @@ function buildCodexUserInput(
   text: string,
   attachments: AttachmentSpec[] | undefined,
   agentId: string,
+  belowStandard = false,
 ): Array<Record<string, unknown>> {
   const inputs: Array<Record<string, unknown>> = [];
   if (text) {
     inputs.push({ type: "text", text, text_elements: [] });
   }
-  const lines = formatAttachmentLines(
-    resolveAttachmentNotices(agentId, attachments ?? []),
-  );
-  if (lines.length > 0) {
-    inputs.push({ type: "text", text: lines.join("\n"), text_elements: [] });
+  const notices = resolveAttachmentNotices(agentId, attachments ?? []);
+  if (belowStandard) {
+    // Chat and office have no file tools: an image goes as an image item
+    // (Codex reads the file itself), any other file is left out, and no
+    // path reaches the model.
+    for (const notice of notices)
+      if (INLINE_IMAGE_TYPES.has(notice.mediaType))
+        inputs.push({ type: "localImage", path: notice.path });
+  } else {
+    const lines = formatAttachmentLines(notices);
+    if (lines.length > 0) {
+      inputs.push({
+        type: "text",
+        text: lines.join("\n"),
+        text_elements: [],
+      });
+    }
   }
   // Keep an ordinary blank send as an explicit user turn. Capacity retries do
   // not use this builder: Codex accepts input: [] as a history continuation.
@@ -3801,6 +3953,7 @@ export const codexBackend: Backend = {
       mcpServers: opts.mcpServers,
       skillFolder: opts.skillFolder,
       planMode: opts.planMode,
+      access: opts.access,
     });
   },
 
@@ -3818,6 +3971,7 @@ export const codexBackend: Backend = {
       mcpServers: opts.mcpServers,
       skillFolder: opts.skillFolder,
       planMode: opts.planMode,
+      access: opts.access,
     });
   },
 
@@ -3958,7 +4112,18 @@ export const codexBackend: Backend = {
     // Per the spec: thread/start ephemeral:true → turn/start → consume one
     // agentMessage → thread/archive. Costs one turn but mirrors Claude's
     // one-shot prompt flow.
-    const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
+    // Below standard the prompt holds the agent's conversation, strangers'
+    // text included: the one-shot runs confined like the agent's session,
+    // with no MCP server at all, and is refused when it cannot be.
+    const below = !!opts.access && belowStandard(opts.access);
+    let cwd = opts.cwd;
+    if (below) {
+      const refusal = codexBelowStandardRefusal(opts.access!, opts.modelFamily);
+      if (refusal) throw new Error(refusal);
+      // One folder for every one-shot: nothing writes to it.
+      cwd = await codexEmptyCwd(CODEX_ONE_SHOT_FOLDER);
+    }
+    const client = codexOneShotClientFactory({ cwd, env: opts.env });
     try {
       await client.start();
       await client.initialize({
@@ -3976,10 +4141,13 @@ export const codexBackend: Backend = {
           optOutNotificationMethods: null,
         },
       });
+      const config = below
+        ? await codexBelowStandardDiscovery(client, cwd!, [])
+        : null;
       const startResp = await client.request<{ thread: { id: string } }>(
         "thread/start",
         {
-          cwd: opts.cwd,
+          cwd,
           model: opts.modelFamily,
           sandbox: "read-only",
           approvalPolicy: "never",
@@ -3989,8 +4157,8 @@ export const codexBackend: Backend = {
           // This path issues its own thread/start instead of going through
           // buildThreadStartParams, so the pin has to be repeated here.
           // ephemeral:true governs thread persistence, not the memories
-          // feature.
-          config: { ...CODEX_THREAD_CONFIG_OVERRIDES },
+          // feature. CODEX_BELOW_STANDARD_CONFIG carries the pin too.
+          config: config ?? { ...CODEX_THREAD_CONFIG_OVERRIDES },
         },
       );
       const threadId = startResp.thread.id;
@@ -4043,9 +4211,13 @@ export const codexBackend: Backend = {
           }
         });
       });
+      const sandboxPolicy = below
+        ? codexTurnSandboxPolicy("read-only", true)
+        : null;
       await client.request("turn/start", {
         threadId,
         input: [{ type: "text", text: prompt, text_elements: [] }],
+        ...(sandboxPolicy ? { sandboxPolicy } : {}),
       });
       await done;
       // Best-effort archive; ignore errors.

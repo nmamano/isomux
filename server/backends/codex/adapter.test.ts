@@ -20,8 +20,10 @@ import {
 } from "../../test-support/mcp-placeholder-fixture.ts";
 import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -44,6 +46,7 @@ import {
   CodexSession,
   codexBackend,
   mergeRateLimitSnapshots,
+  setCodexOneShotClientFactoryForTests,
   normalizeCodexSubscriptionUsage,
   readThreadTurns,
   forkThreadBeforeItem,
@@ -59,7 +62,11 @@ import type {
 } from "./client.ts";
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
-import type { BackendSession, NormalizedEvent } from "../types.ts";
+import type {
+  BackendSession,
+  NormalizedEvent,
+  OneShotOptions,
+} from "../types.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { CodexSafetyPreflightResult } from "./safety-hook-install.ts";
 import {
@@ -68,6 +75,9 @@ import {
 } from "./sandbox-probe.ts";
 import { SAFETY_WARNING } from "./safety-hook.ts";
 import { removeStateDir } from "../../test-support/temp-state.ts";
+import { effectiveCodexConfig } from "../../test-support/codex-config.ts";
+import { CODEX_EMPTY_CWD_ROOT } from "./access.ts";
+import type { AgentAccess } from "../../../shared/agent-access.ts";
 
 const FIXTURE_THREAD_ID = "thread-fixture-1";
 
@@ -117,6 +127,19 @@ class FakeCodexTransport implements CodexTransport {
     code: number;
     message: string;
   }[] = [];
+  // Discovery below Standard (task e77304b1). config/read answers this, or
+  // rejects with it when it is an Error; skills/list answers the function of
+  // its params, or rejects. The defaults are a member with nothing installed.
+  configReadResult: unknown = {
+    config: { mcp_servers: {} },
+    origins: {},
+    layers: null,
+  };
+  skillsListResult: ((params: { cwds?: string[] }) => unknown) | Error = (
+    params,
+  ) => ({
+    data: (params.cwds ?? []).map((cwd) => ({ cwd, skills: [], errors: [] })),
+  });
   startResult: CodexSafetyPreflightResult = {
     warning: null,
     hookIdentity: null,
@@ -161,6 +184,16 @@ class FakeCodexTransport implements CodexTransport {
           : {}),
       } as T);
     }
+    if (method === "config/read")
+      return this.configReadResult instanceof Error
+        ? Promise.reject(this.configReadResult)
+        : Promise.resolve(this.configReadResult as T);
+    if (method === "skills/list")
+      return this.skillsListResult instanceof Error
+        ? Promise.reject(this.skillsListResult)
+        : Promise.resolve(
+            this.skillsListResult((params ?? {}) as { cwds?: string[] }) as T,
+          );
     if (method === "thread/inject_items" && this.injectItemsError)
       return Promise.reject(this.injectItemsError);
     if (method === "thread/settings/update" && this.settingsUpdateError)
@@ -625,13 +658,12 @@ describe("CodexSession bootstrap", () => {
     );
   });
 
-  // The backend-level oneShotPrompt opens its own JsonRpcLiteClient and
-  // issues a THIRD thread/start with inline params, so it never passes
-  // through buildThreadStartParams and has no transport seam to fake. A
-  // source-level check is what covers it: every thread/start and
-  // thread/resume in the adapter must carry the pin. This is the guard for a
-  // launch path added later that forgets it - the miss that this test exists
-  // for happened once already.
+  // The backend-level oneShotPrompt issues a THIRD thread/start with inline
+  // params, so it never passes through buildThreadStartParams (its own test
+  // drives it through the one-shot client factory). This source-level check
+  // is the guard for a launch path added later that forgets the pin: every
+  // thread/start and thread/resume in the adapter must carry it. The miss
+  // that this test exists for happened once already.
   it("every thread/start and thread/resume in the adapter carries the memories pin", () => {
     const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
     // buildThreadStartParams is the indirect carrier: one call site passes
@@ -955,20 +987,580 @@ describe("CodexSession sandbox in a container", () => {
       (turnStart!.params as { sandboxPolicy?: unknown }).sandboxPolicy ?? null,
     ).toBeNull();
   });
+});
 
-  // The topic labeller opens its own JsonRpcLiteClient (no transport seam),
-  // so this is source-level, like the memories pin above. It runs no
-  // commands, so it never consults the probe (Isomux PM, 2026-10-08).
-  it("the topic labeller stays read-only with approval never, whatever the probe says", () => {
-    const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
-    const start = src.indexOf("async oneShotPrompt(");
-    expect(start).toBeGreaterThan(-1);
-    const body = src.slice(start, src.indexOf("\n  },\n", start));
-    expect(body).toContain('sandbox: "read-only",');
-    expect(body).toContain('approvalPolicy: "never",');
-    expect(body).not.toContain("effectiveCodexSandbox");
-    expect(body).not.toContain("codexSandboxProbe");
+// ---------------------------------------------------------------------------
+// Codex below Standard (task e77304b1): chat and office only, gpt-5.5 only.
+// At every start and resume the session finds the member's MCP servers and
+// skills in an empty folder the server makes, turns each one off in the
+// thread config, and runs read-only without network or approvals, whatever
+// the agent's stored sandbox and permission mode say. Anything it cannot
+// read refuses the start. The live proof of the tools the model then sees is
+// server/backends/codex-access.live.test.ts.
+// ---------------------------------------------------------------------------
+describe("Codex below Standard", () => {
+  const READ_ONLY_NO_NETWORK = { type: "readOnly", networkAccess: false };
+  const OFFICE_MCP = {
+    name: "isomux",
+    url: "http://127.0.0.1:4000/mcp",
+    headers: { Authorization: "Bearer fake-office-agent-token-0000" },
+  };
+  const USER_SKILL = "/home/m/.codex/skills/planted/SKILL.md";
+  const SYSTEM_SKILL = "/home/m/.codex/skills/.system/imagegen/SKILL.md";
+  const BASE = {
+    features: Object.fromEntries(
+      [
+        "shell_tool",
+        "unified_exec",
+        "view_image",
+        "goals",
+        "multi_agent",
+        "multi_agent_v2",
+        "sleep_tool",
+        "apps",
+        "plugins",
+        "remote_plugin",
+        "browser_use",
+        "browser_use_external",
+        "computer_use",
+        "in_app_browser",
+        "image_generation",
+        "tool_suggest",
+        "skill_search",
+        "skill_mcp_dependency_install",
+        "memories",
+        "request_permissions_tool",
+        "code_mode",
+        "code_mode_only",
+        "standalone_web_search",
+      ].map((key) => [key, false]),
+    ),
+    web_search: "disabled",
+    project_doc_max_bytes: 0,
+    memories: { use_memories: false, generate_memories: false },
+  };
+
+  const made: string[] = [];
+  let seq = 0;
+  afterAll(() => {
+    for (const dir of made) rmSync(dir, { recursive: true, force: true });
   });
+  function agentId(): string {
+    const id = `codex-below-${process.pid}-${seq++}`;
+    made.push(join(CODEX_EMPTY_CWD_ROOT, id));
+    return id;
+  }
+
+  // A member with a planted MCP server, a dotted server name, a user skill
+  // and a system skill, as Codex reports them for the empty folder.
+  function plantedMember(fake: FakeCodexTransport): void {
+    fake.configReadResult = {
+      config: {
+        mcp_servers: {
+          planted: { command: "/bin/true", args: [], enabled: true },
+          "a.b": { url: "https://example.com/mcp", enabled: true },
+        },
+      },
+      origins: {},
+      layers: null,
+    };
+    fake.skillsListResult = (params) => ({
+      data: (params.cwds ?? []).map((cwd) => ({
+        cwd,
+        skills: [USER_SKILL, SYSTEM_SKILL].map((path) => ({
+          name: path.split("/").at(-2),
+          description: "d",
+          path,
+          scope: "user",
+          enabled: true,
+          pluginId: null,
+        })),
+        errors: [],
+      })),
+    });
+  }
+
+  function below(
+    access: AgentAccess,
+    overrides: Partial<CodexSessionInitOpts> = {},
+    fake = new FakeCodexTransport(),
+  ) {
+    const id = overrides.agentId ?? agentId();
+    return {
+      id,
+      cwd: join(CODEX_EMPTY_CWD_ROOT, id),
+      ...start(fake, {
+        agentId: id,
+        // The agent's own folder and stored settings: none of them may reach
+        // the thread below Standard.
+        cwd: "/srv/member-repo",
+        modelFamily: "gpt-5.5",
+        sandbox: "danger-full-access",
+        permissionMode: "on-request",
+        skillFolder: "/state/member-skills/0a0b0c0d/codex/1234abcd/skills",
+        access,
+        ...(access === "office" ? { mcpServers: [OFFICE_MCP] } : {}),
+        ...overrides,
+      }),
+    };
+  }
+
+  for (const access of ["office", "chat"] as const) {
+    for (const resume of [false, true]) {
+      const method = resume ? "thread/resume" : "thread/start";
+      it(`${access}, ${method}: discovery in the empty folder, then a read-only thread with every source off`, async () => {
+        const fake = new FakeCodexTransport();
+        plantedMember(fake);
+        const ctx = below(
+          access,
+          resume ? { resumeThreadId: FIXTURE_THREAD_ID } : {},
+          fake,
+        );
+        const init = expectKind(
+          await nextEvent(ctx.it, "system_init"),
+          "system_init",
+        );
+        expect(init.sessionId).toBe(FIXTURE_THREAD_ID);
+        // No skill extra root: the member skill folder stays out.
+        expect(fake.requests.map((r) => r.method)).toEqual([
+          "config/read",
+          "skills/list",
+          method,
+        ]);
+        expect(fake.requests[0].params).toMatchObject({ cwd: ctx.cwd });
+        expect(fake.requests[1].params).toEqual({
+          cwds: [ctx.cwd],
+          forceReload: true,
+        });
+        const params = fake.requests[2].params as Record<string, unknown>;
+        expect({
+          cwd: params.cwd,
+          sandbox: params.sandbox,
+          approvalPolicy: params.approvalPolicy,
+        }).toEqual({
+          cwd: ctx.cwd,
+          sandbox: "read-only",
+          approvalPolicy: "never",
+        });
+        expect(
+          effectiveCodexConfig(params.config as Record<string, unknown>),
+        ).toEqual({
+          ...BASE,
+          mcp_servers: {
+            planted: { enabled: false },
+            "a.b": { enabled: false },
+            // At chat Isomux registers no server at all.
+            ...(access === "office"
+              ? {
+                  isomux: {
+                    url: OFFICE_MCP.url,
+                    http_headers: OFFICE_MCP.headers,
+                  },
+                }
+              : {}),
+          },
+          skills: {
+            include_instructions: false,
+            config: [
+              { path: USER_SKILL, enabled: false },
+              { path: SYSTEM_SKILL, enabled: false },
+            ],
+          },
+        });
+      });
+    }
+  }
+
+  it("every turn/start runs read-only without network, the capacity retry's too", async () => {
+    const clock = retryClock();
+    const ctx = below("office", {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await nextEvent(ctx.it, "system_init");
+    await ctx.session.send("first");
+    ctx.fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-1",
+    });
+    ctx.fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-1", status: "failed" },
+    });
+    expectKind(
+      await nextEvent(ctx.it, "capacity retry"),
+      "provider_capacity_retry",
+    );
+    await clock.runNext();
+    const starts = ctx.fake.requests
+      .filter((r) => r.method === "turn/start")
+      .map((r) => r.params as Record<string, unknown>);
+    expect(starts).toHaveLength(2);
+    expect(starts[1].input).toEqual([]);
+    for (const params of starts)
+      expect(params.sandboxPolicy).toEqual(READ_ONLY_NO_NETWORK);
+  });
+
+  // In a container where bwrap is denied, a Standard agent falls back to full
+  // access. Below Standard the thread stays read-only: Codex refuses a write
+  // outside the writable roots before it reaches the sandbox.
+  it("a denied sandbox probe keeps the thread read-only", async () => {
+    const saved = process.env.ISOMUX_APP_SUPERVISOR;
+    resetCodexSandboxProbeForTests();
+    process.env.ISOMUX_APP_SUPERVISOR = "container";
+    try {
+      await codexSandboxProbe(async () => ({ result: "denied", detail: "" }));
+      const ctx = below("chat", { sandbox: "read-only" });
+      await nextEvent(ctx.it, "system_init");
+      const thread = ctx.fake.requests.find((r) => r.method === "thread/start");
+      expect(thread?.params).toMatchObject({ sandbox: "read-only" });
+      await ctx.session.send("hi");
+      const turn = ctx.fake.requests.find((r) => r.method === "turn/start");
+      expect((turn?.params as Record<string, unknown>).sandboxPolicy).toEqual(
+        READ_ONLY_NO_NETWORK,
+      );
+    } finally {
+      resetCodexSandboxProbeForTests();
+      if (saved === undefined) delete process.env.ISOMUX_APP_SUPERVISOR;
+      else process.env.ISOMUX_APP_SUPERVISOR = saved;
+    }
+  });
+
+  // Each refusal ends at the bootstrap-failure path: system_init with no
+  // thread, and the first send rejects. `reached` is how far the session got.
+  const refusals: [
+    string,
+    (fake: FakeCodexTransport, cwd: string) => void,
+    Partial<CodexSessionInitOpts>,
+    string[],
+  ][] = [
+    [
+      "config/read fails",
+      (fake) => {
+        fake.configReadResult = new Error("Method not found");
+      },
+      {},
+      ["config/read"],
+    ],
+    [
+      "config/read has no server table",
+      (fake) => {
+        fake.configReadResult = { config: {}, origins: {}, layers: null };
+      },
+      {},
+      ["config/read"],
+    ],
+    [
+      "skills/list fails",
+      (fake) => {
+        fake.skillsListResult = new Error("Method not found");
+      },
+      {},
+      ["config/read", "skills/list"],
+    ],
+    [
+      "skills/list has no entry for the folder",
+      (fake) => {
+        fake.skillsListResult = () => ({ data: [] });
+      },
+      {},
+      ["config/read", "skills/list"],
+    ],
+    [
+      "the folder is not empty",
+      (_fake, cwd) => {
+        mkdirSync(cwd, { recursive: true, mode: 0o700 });
+        writeFileSync(join(cwd, "AGENTS.md"), "planted");
+      },
+      {},
+      [],
+    ],
+    // The routes refuse these first; the session refuses them too, so an
+    // agent restored at such a stop never starts a thread.
+    ["the model is not proven", () => {}, { modelFamily: "gpt-5.6-sol" }, []],
+    ["the stop is folder", () => {}, { access: "folder" }, []],
+    ["the stop is web", () => {}, { access: "web" }, []],
+  ];
+  for (const resume of [false, true]) {
+    for (const [label, arrange, overrides, reached] of refusals) {
+      it(`refuses the ${resume ? "resume" : "start"} when ${label}`, async () => {
+        const fake = new FakeCodexTransport();
+        plantedMember(fake);
+        const id = agentId();
+        arrange(fake, join(CODEX_EMPTY_CWD_ROOT, id));
+        const ctx = below(
+          "office",
+          {
+            agentId: id,
+            ...overrides,
+            ...(resume ? { resumeThreadId: FIXTURE_THREAD_ID } : {}),
+          },
+          fake,
+        );
+        const init = expectKind(
+          await nextEvent(ctx.it, "system_init"),
+          "system_init",
+        );
+        expect({ label, sessionId: init.sessionId }).toEqual({
+          label,
+          sessionId: "",
+        });
+        expect({ label, methods: fake.requests.map((r) => r.method) }).toEqual({
+          label,
+          methods: reached,
+        });
+        const err = await ctx.session.send("hi").then(
+          () => null,
+          (e: unknown) => e,
+        );
+        expect(err).toBeInstanceOf(Error);
+        expect(fake.requests.some((r) => r.method === "turn/start")).toBe(
+          false,
+        );
+      });
+    }
+  }
+
+  // Chat and office have no file tools: an image goes inline, any other file
+  // is dropped (the routes refuse one first), and no path reaches the model.
+  describe("attachments", () => {
+    const FILES = (id: string) => join(STATE_ROOT, "logs", id, "files");
+    const logs: string[] = [];
+    afterAll(() => {
+      for (const dir of logs) removeStateDir(dir);
+    });
+
+    it("an image goes as localImage, a text file is dropped, and no path text is sent", async () => {
+      const id = agentId();
+      logs.push(join(STATE_ROOT, "logs", id));
+      mkdirSync(FILES(id), { recursive: true });
+      writeFileSync(join(FILES(id), "shot.png"), Buffer.from([0x89, 0x50]));
+      writeFileSync(join(FILES(id), "notes.md"), "SECRET CONTENTS\n");
+      const ctx = below("chat", { agentId: id });
+      await nextEvent(ctx.it, "system_init");
+      await ctx.session.send("look", [
+        {
+          filename: "shot.png",
+          originalName: "shot.png",
+          mediaType: "image/png",
+          size: 2,
+        },
+        {
+          filename: "notes.md",
+          originalName: "notes.md",
+          mediaType: "text/markdown",
+          size: 16,
+        },
+      ]);
+      const turn = ctx.fake.requests.find((r) => r.method === "turn/start");
+      expect((turn?.params as { input: unknown[] }).input).toEqual([
+        { type: "text", text: "look", text_elements: [] },
+        { type: "localImage", path: join(FILES(id), "shot.png") },
+      ]);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The one-shot prompt (topic and summary) runs its own app-server and thread.
+// Below Standard it runs like the agent's session: an empty folder,
+// discovery and the disables, read-only without network, and no MCP server
+// at all, the office one included (task e77304b1).
+// ---------------------------------------------------------------------------
+describe("Codex one-shot prompt", () => {
+  // Answers each turn/start with one agent message and a completed turn, and
+  // records whether the thread's folder was empty when the thread started.
+  class OneShotFake extends FakeCodexTransport {
+    folderEmptyAtStart: boolean | null = null;
+    override request<T = unknown>(
+      method: string,
+      params?: unknown,
+    ): Promise<T> {
+      if (method === "thread/start") {
+        const cwd = (params as { cwd?: string }).cwd ?? "";
+        this.folderEmptyAtStart =
+          existsSync(cwd) && readdirSync(cwd).length === 0;
+      }
+      const res = super.request<T>(method, params);
+      if (method === "turn/start") {
+        const threadId = (params as { threadId: string }).threadId;
+        setTimeout(() => {
+          this.fireNotification("item/completed", {
+            threadId,
+            item: { type: "agentMessage", text: "A topic" },
+          });
+          this.fireNotification("turn/completed", {
+            threadId,
+            turn: { id: "turn-1", status: "completed" },
+          });
+        }, 0);
+      }
+      return res;
+    }
+  }
+
+  const made: { cwd?: string; env?: unknown }[] = [];
+  let fake = new OneShotFake();
+  function useFake(next = new OneShotFake()): OneShotFake {
+    fake = next;
+    made.length = 0;
+    setCodexOneShotClientFactoryForTests((opts) => {
+      made.push(opts);
+      return fake;
+    });
+    return fake;
+  }
+  afterEach(() => setCodexOneShotClientFactoryForTests(null));
+  const removeAfter: string[] = [];
+  afterAll(() => {
+    for (const dir of removeAfter)
+      rmSync(dir, { recursive: true, force: true });
+  });
+
+  const AGENT_CWD = "/srv/member-repo";
+  const opts = (access?: AgentAccess, model = "gpt-5.5"): OneShotOptions => ({
+    cwd: AGENT_CWD,
+    modelFamily: model,
+    systemPrompt: "Name the topic.",
+    ...(access ? { access } : {}),
+  });
+
+  // Replaces a source-level check from before the client factory existed.
+  it("at Standard: the agent's folder, read-only with approval never, the memories pin", async () => {
+    const f = useFake();
+    expect(await codexBackend.oneShotPrompt("hi", opts())).toBe("A topic");
+    expect(made.map((m) => m.cwd)).toEqual([AGENT_CWD]);
+    expect(f.requests.map((r) => r.method)).toEqual([
+      "thread/start",
+      "turn/start",
+      "thread/archive",
+    ]);
+    expect(f.requests[0].params).toMatchObject({
+      cwd: AGENT_CWD,
+      sandbox: "read-only",
+      approvalPolicy: "never",
+      ephemeral: true,
+      config: {
+        "memories.use_memories": false,
+        "memories.generate_memories": false,
+      },
+    });
+    expect(f.closed).toBe(true);
+  });
+
+  for (const access of ["office", "chat"] as const) {
+    it(`at ${access}: an empty folder, discovery, every source off, no MCP server, no network`, async () => {
+      const f = useFake();
+      f.configReadResult = {
+        config: {
+          mcp_servers: { planted: { command: "/bin/true", enabled: true } },
+        },
+        origins: {},
+        layers: null,
+      };
+      f.skillsListResult = (params) => ({
+        data: (params.cwds ?? []).map((cwd) => ({
+          cwd,
+          skills: [
+            {
+              name: "planted",
+              description: "d",
+              path: "/home/m/.codex/skills/planted/SKILL.md",
+              scope: "user",
+              enabled: true,
+              pluginId: null,
+            },
+          ],
+          errors: [],
+        })),
+      });
+      expect(await codexBackend.oneShotPrompt("hi", opts(access))).toBe(
+        "A topic",
+      );
+      expect(f.requests.map((r) => r.method)).toEqual([
+        "config/read",
+        "skills/list",
+        "thread/start",
+        "turn/start",
+        "thread/archive",
+      ]);
+      const thread = f.requests[2].params as Record<string, unknown>;
+      const cwd = thread.cwd as string;
+      removeAfter.push(cwd);
+      // The app-server process and the thread both run in the empty folder.
+      expect(cwd.startsWith(`${CODEX_EMPTY_CWD_ROOT}/`)).toBe(true);
+      expect(made.map((m) => m.cwd)).toEqual([cwd]);
+      expect(f.folderEmptyAtStart).toBe(true);
+      expect(f.requests[0].params).toMatchObject({ cwd });
+      expect(f.requests[1].params).toEqual({ cwds: [cwd], forceReload: true });
+      expect({
+        sandbox: thread.sandbox,
+        approvalPolicy: thread.approvalPolicy,
+        ephemeral: thread.ephemeral,
+      }).toEqual({
+        sandbox: "read-only",
+        approvalPolicy: "never",
+        ephemeral: true,
+      });
+      const config = effectiveCodexConfig(
+        thread.config as Record<string, unknown>,
+      );
+      expect(config).toMatchObject({
+        web_search: "disabled",
+        project_doc_max_bytes: 0,
+        mcp_servers: { planted: { enabled: false } },
+        skills: {
+          include_instructions: false,
+          config: [
+            { path: "/home/m/.codex/skills/planted/SKILL.md", enabled: false },
+          ],
+        },
+      });
+      // No server is added, the office one included.
+      expect(Object.keys(config.mcp_servers as object)).toEqual(["planted"]);
+      expect(
+        Object.values(config.features as object).every((v) => v === false),
+      ).toBe(true);
+      expect(Object.keys(config.features as object)).toHaveLength(23);
+      expect(
+        (f.requests[3].params as Record<string, unknown>).sandboxPolicy,
+      ).toEqual({ type: "readOnly", networkAccess: false });
+    });
+  }
+
+  const refusals: [string, (f: OneShotFake) => void, OneShotOptions][] = [
+    [
+      "config/read fails",
+      (f) => {
+        f.configReadResult = new Error("Method not found");
+      },
+      opts("office"),
+    ],
+    [
+      "skills/list cannot be read",
+      (f) => {
+        f.skillsListResult = () => ({ data: "x" });
+      },
+      opts("chat"),
+    ],
+    ["the model is not proven", () => {}, opts("office", "gpt-5.6-sol")],
+    ["the stop is folder", () => {}, opts("folder")],
+  ];
+  for (const [label, arrange, options] of refusals) {
+    it(`below Standard, rejects with no thread when ${label}`, async () => {
+      const f = useFake();
+      arrange(f);
+      const err = await codexBackend.oneShotPrompt("hi", options).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect(f.requests.some((r) => r.method === "thread/start")).toBe(false);
+      for (const m of made)
+        if (m.cwd && m.cwd !== AGENT_CWD) removeAfter.push(m.cwd);
+    });
+  }
 });
 
 describe("Codex paged thread history", () => {

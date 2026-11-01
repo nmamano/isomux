@@ -68,6 +68,7 @@ async function spawn(
   name: string,
   agentType: AgentInfo["agentType"] = "claude",
   roomId = o.room,
+  modelFamily?: string,
 ): Promise<AgentInfo> {
   const agent = await o.srv.agentManager.spawn(
     name,
@@ -77,7 +78,7 @@ async function spawn(
     undefined,
     roomId,
     undefined,
-    undefined,
+    modelFamily,
     undefined,
     o.username,
     agentType,
@@ -324,49 +325,135 @@ describe("agents.setAccess", () => {
     });
   });
 
-  it("only a Claude agent goes below Standard for now, and an agent below Standard cannot change engine", async () => {
+  // Codex runs chat and office with gpt-5.5 only (task e77304b1); OpenCode
+  // runs no stop below Standard yet. The rule is engineRunsAccess with the
+  // RESOLVED model: an engine switch that names no model gets the engine's
+  // default, which is not proven.
+  it("only Claude, and Codex at chat and office with gpt-5.5, go below Standard", async () => {
     const o = await office();
-    for (const agentType of ["codex", "opencode"] as const) {
-      const agent = await spawn(o, `On ${agentType}`, agentType);
+    const OFFICE = { access: "office", pack: TASKS_READ };
+    const cases: [
+      string,
+      AgentInfo["agentType"],
+      string | undefined,
+      Record<string, unknown>,
+      number,
+    ][] = [
+      ["opencode at office", "opencode", undefined, OFFICE, 422],
+      ["codex on its default model at office", "codex", undefined, OFFICE, 422],
+      [
+        "codex on gpt-5.6-sol at chat",
+        "codex",
+        "gpt-5.6-sol",
+        { access: "chat" },
+        422,
+      ],
+      [
+        "codex on gpt-5.5 at folder",
+        "codex",
+        "gpt-5.5",
+        { access: "folder", pack: TASKS_READ },
+        422,
+      ],
+      [
+        "codex on gpt-5.5 at web",
+        "codex",
+        "gpt-5.5",
+        { access: "web", pack: TASKS_READ },
+        422,
+      ],
+      ["codex on gpt-5.5 at office", "codex", "gpt-5.5", OFFICE, 200],
+      ["codex on gpt-5.5 at chat", "codex", "gpt-5.5", { access: "chat" }, 200],
+    ];
+    for (const [label, agentType, model, grant, status] of cases) {
+      const agent = await spawn(o, label, agentType, o.room, model);
       const before = tokenOf(agent.id);
-      const res = await setAccess(o, agent.id, {
-        access: "office",
-        pack: TASKS_READ,
+      const res = await setAccess(o, agent.id, grant);
+      expect({ label, ...outcome(res) }).toMatchObject({
+        label,
+        status,
+        ...(status === 422 ? { code: "engine_below_standard" } : {}),
       });
-      expect({ agentType, status: res.status }).toEqual({
-        agentType,
-        status: 422,
+      const after = agentOf(o.srv, agent.id);
+      expect({ label, access: after.access ?? "standard" } as {
+        label: string;
+        access: unknown;
+      }).toEqual({
+        label,
+        access: status === 200 ? grant.access : "standard",
       });
-      expect(sliderOf(agentOf(o.srv, agent.id)).access ?? "standard").toBe(
-        "standard",
-      );
-      expect(tokenOf(agent.id)).toBe(before);
+      if (status === 422) expect(tokenOf(agent.id)).toBe(before);
     }
+  });
 
+  it("an agent below Standard changes engine or model only to one that runs its stop", async () => {
+    const o = await office();
     const claude = await spawn(o, "On claude");
     expect(
       (await setAccess(o, claude.id, { access: "office", pack: TASKS_READ }))
         .status,
     ).toBe(200);
-    for (const agentType of ["codex", "opencode"]) {
-      const res = await asMember(o, "PATCH", `/api/agents/${claude.id}`, {
-        agentType,
-      });
-      expect({ agentType, status: res.status }).toEqual({
-        agentType,
+    const refused: [string, string, Record<string, unknown>][] = [
+      ["opencode", "PATCH", { agentType: "opencode" }],
+      // No model named: Codex's default, not proven.
+      ["codex", "PATCH", { agentType: "codex" }],
+      [
+        "codex on gpt-5.6-sol",
+        "PATCH",
+        { agentType: "codex", modelFamily: "gpt-5.6-sol" },
+      ],
+      ["codex at a new conversation", "POST", { agentType: "codex" }],
+    ];
+    for (const [label, method, body] of refused) {
+      const path =
+        method === "PATCH"
+          ? `/api/agents/${claude.id}`
+          : `/api/agents/${claude.id}/new-conversation`;
+      const res = await asMember(o, method, path, body);
+      expect({ label, ...outcome(res) }).toMatchObject({
+        label,
         status: 422,
+        code: "engine_below_standard",
       });
-      expect(agentOf(o.srv, claude.id).agentType).toBe("claude");
+      expect({ label, agentType: agentOf(o.srv, claude.id).agentType }).toEqual(
+        { label, agentType: "claude" },
+      );
     }
-    // Back at Standard, the same switch goes through.
+
+    const switched = await asMember(o, "PATCH", `/api/agents/${claude.id}`, {
+      agentType: "codex",
+      modelFamily: "gpt-5.5",
+    });
+    expect(switched.status).toBe(200);
+    expect({
+      agentType: agentOf(o.srv, claude.id).agentType,
+      modelFamily: agentOf(o.srv, claude.id).modelFamily,
+      access: agentOf(o.srv, claude.id).access,
+    }).toEqual({
+      agentType: "codex",
+      modelFamily: "gpt-5.5",
+      access: "office",
+    });
+
+    // On Codex at office, another model is refused and the model stays.
+    const model = await asMember(o, "PATCH", `/api/agents/${claude.id}`, {
+      modelFamily: "gpt-5.6-sol",
+    });
+    expect(outcome(model)).toMatchObject({
+      status: 422,
+      code: "engine_below_standard",
+    });
+    expect(agentOf(o.srv, claude.id).modelFamily).toBe("gpt-5.5");
+
+    // Back at Standard, the same switches go through.
     expect((await setAccess(o, claude.id, { access: "standard" })).status).toBe(
       200,
     );
-    const switched = await asMember(o, "PATCH", `/api/agents/${claude.id}`, {
-      agentType: "codex",
+    const free = await asMember(o, "PATCH", `/api/agents/${claude.id}`, {
+      modelFamily: "gpt-5.6-sol",
     });
-    expect(switched.status).toBe(200);
-    expect(agentOf(o.srv, claude.id).agentType).toBe("codex");
+    expect(free.status).toBe(200);
+    expect(agentOf(o.srv, claude.id).modelFamily).toBe("gpt-5.6-sol");
   });
 
   it("a move down ends the running turn and rebuilds the session on the new token; a move up rebuilds it too", async () => {
@@ -1135,28 +1222,37 @@ describe("a spawn below Standard", () => {
         FOLDER_NOT_ALLOWED,
       ],
       [
-        "codex at office",
+        "codex on gpt-5.6-sol at office",
         {
           cwd: freshFolder(),
           agentType: "codex",
-          modelFamily: "gpt-5.5",
+          modelFamily: "gpt-5.6-sol",
           access: "office",
           pack: ASKS_ONLY,
         },
         422,
         "engine_below_standard",
       ],
+      // No model named: Codex's default, not proven.
       [
-        "codex at chat",
+        "codex with no model at chat",
+        { cwd: freshFolder(), agentType: "codex", access: "chat" },
+        422,
+        "engine_below_standard",
+      ],
+      [
+        "codex on gpt-5.5 at folder",
         {
           cwd: freshFolder(),
           agentType: "codex",
           modelFamily: "gpt-5.5",
-          access: "chat",
+          access: "folder",
+          pack: ASKS_ONLY,
         },
         422,
         "engine_below_standard",
       ],
+
       // Privileged keeps its own user-only route.
       ["privileged", { cwd: freshFolder(), access: "privileged" }, 400],
       ["office without a pack", { cwd: freshFolder(), access: "office" }, 400],
@@ -1241,6 +1337,25 @@ describe("a spawn below Standard", () => {
     expect(o.srv.fakeBackend.sessionForAgent(filer.id)!.opts.access).toBe(
       "folder",
     );
+
+    // Codex on gpt-5.5 starts at office, and its first session gets the stop.
+    const codexRes = await asMember(o, "POST", "/api/agents", {
+      name: "Codex inbox",
+      cwd: freshFolder(),
+      roomId: o.room,
+      agentType: "codex",
+      modelFamily: "gpt-5.5",
+      access: "office",
+      pack: ASKS_ONLY,
+    });
+    expect(codexRes.status).toBe(201);
+    const codexAgent = (codexRes.body as { agent: AgentInfo }).agent;
+    expect(sliderOf(agentOf(o.srv, codexAgent.id))).toEqual({
+      access: "office",
+      pack: ASKS_ONLY,
+      privileged: false,
+    });
+    expect(agentOf(o.srv, codexAgent.id).modelFamily).toBe("gpt-5.5");
 
     // Standard by name is the default.
     const plain = await asMember(o, "POST", "/api/agents", {

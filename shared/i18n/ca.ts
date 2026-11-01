@@ -1594,7 +1594,7 @@ Coses que pots fer per ell:
   "dialogs.agent.access.boundaryNote":
     "Amb un terminal, un agent pot llegir els tokens d'oficina d'altres agents. Només Xat, Oficina, Carpeta i Web limiten el que pot abastar.",
   "dialogs.agent.access.engineCannot":
-    "Encara no disponible per a aquest motor",
+    "Encara no disponible per a aquest motor o model",
   "dialogs.agent.pack.asksOnly": "Només preguntes",
   "dialogs.agent.pack.tasksAndAsks": "Tasques i preguntes",
   "dialogs.agent.pack.showsSecrets": "pot mostrar secrets",

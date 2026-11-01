@@ -56,25 +56,25 @@ describe("a new agent", () => {
     }
   });
 
-  it("a new Codex agent has the stops below Standard disabled, and a stop below Standard the Codex card", async () => {
+  // Codex runs chat and office on gpt-5.5 only (engineRunsAccess).
+  it("a new Codex agent on its default model has the stops below Standard disabled; folder and web disable the Codex card", async () => {
     shim();
     const view = renderSpawn();
     try {
       await settle();
       expect(stopRadio(view.container, "office").disabled).toBe(false);
-      const codex = [
-        ...view.container.querySelectorAll<HTMLButtonElement>(
-          ".spawn-engine-options button",
-        ),
-      ].find((b) => b.textContent?.startsWith("Codex"))!;
+      const codex = codexCard(view.container);
       expect(codex.disabled).toBe(false);
       await pick(view.container, "office");
+      expect(codex.disabled).toBe(false);
+      await pick(view.container, "folder");
       expect(codex.disabled).toBe(true);
       await pick(view.container, "standard");
       expect(codex.disabled).toBe(false);
       await act(async () => {
         fireEvent.click(codex);
       });
+      await settle();
       for (const stop of BELOW)
         expect({
           stop,
@@ -87,4 +87,44 @@ describe("a new agent", () => {
       cleanup(view);
     }
   });
+
+  it("Codex picked at office lands on the proven model and keeps chat and office", async () => {
+    const calls = shim();
+    const view = renderSpawn();
+    try {
+      await settle();
+      await pick(view.container, "office");
+      await act(async () => {
+        fireEvent.click(codexCard(view.container));
+      });
+      await settle();
+      expect(stopRadio(view.container, "office").checked).toBe(true);
+      expect(
+        Object.fromEntries(
+          BELOW.map((stop) => [stop, stopRadio(view.container, stop).disabled]),
+        ),
+      ).toEqual({ chat: false, office: false, folder: true, web: true });
+      await save(view.container);
+      const spawn = calls.find(
+        (c) => c.method === "POST" && c.path === "/api/agents",
+      );
+      expect(spawn?.body).toMatchObject({
+        agentType: "codex",
+        modelFamily: "gpt-5.5",
+        access: "office",
+      });
+    } finally {
+      cleanup(view);
+    }
+  });
 });
+
+function codexCard(container: HTMLElement): HTMLButtonElement {
+  const card = [
+    ...container.querySelectorAll<HTMLButtonElement>(
+      ".spawn-engine-options button",
+    ),
+  ].find((b) => b.textContent?.startsWith("Codex"));
+  if (!card) throw new Error("no Codex card");
+  return card;
+}

@@ -28,7 +28,6 @@ import type { AuditActor } from "../shared/audit.ts";
 import {
   agentAccessOf,
   belowStandard,
-  engineRunsAccess,
   FOLDER_NOT_ALLOWED,
   INLINE_IMAGE_TYPES,
   stopHasFolder,
@@ -107,6 +106,7 @@ import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
 import { codexSandboxProbe } from "./backends/codex/sandbox-probe.ts";
+import { engineRunsAccessHere } from "./backends/codex/access.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
 import {
   SpawnAccessRefusedError,
@@ -3300,19 +3300,26 @@ function folderRuleState(): FolderRuleState {
   };
 }
 
-// The refusal for a new agent `name` of engine `agentType` at `access` in
-// `cwd`: the engine, then the folder rules at folder and web, else the
-// overlap with the folder of an agent that keeps its files there.
+// The refusal of an engine or model that does not confine a stop below
+// Standard (engineRunsAccessHere).
+const ENGINE_BELOW_STANDARD_MESSAGE =
+  "This engine or model cannot run an agent at this access level yet.";
+
+// The refusal for a new agent `name` of engine `agentType` with `model` at
+// `access` in `cwd`: the engine and model, then the folder rules at folder
+// and web, else the overlap with the folder of an agent that keeps its files
+// there.
 function spawnAccessRefusal(
   name: string,
   agentType: string,
+  model: string | null,
   access: AgentAccess,
   cwd: string,
 ): SpawnAccessRefusal | null {
-  if (!engineRunsAccess(agentType, access))
+  if (!engineRunsAccessHere(agentType, access, model))
     return {
       refused: "engine_below_standard",
-      message: "This engine cannot run an agent below Standard yet.",
+      message: ENGINE_BELOW_STANDARD_MESSAGE,
     };
   const state = folderRuleState();
   const message = stopHasFolder(access)
@@ -6179,6 +6186,7 @@ function buildExecutorDeps(
                 spawnAccessRefusal(
                   name,
                   input.agentType ?? "claude",
+                  modelFamily || null,
                   input.grant?.access ?? "standard",
                   resolvedCwd,
                 ),
@@ -6295,21 +6303,6 @@ function buildExecutorDeps(
               message: refusal,
             };
         }
-        // An agent below Standard stays on an engine that confines its stop.
-        if (changes.agentType !== undefined) {
-          const current = agentManager.getAgent(agentId);
-          if (
-            current &&
-            changes.agentType !== current.agentType &&
-            !engineRunsAccess(changes.agentType, agentAccessOf(current))
-          ) {
-            return {
-              ok: false,
-              reason: "engine_below_standard",
-              message: "This engine cannot run an agent below Standard yet.",
-            };
-          }
-        }
         // Validation next, side effects (saveRecentCwd) only after ALL checks
         // pass - a rejected edit must not mutate the recent-cwd list. Check
         // order matches the spawn dep: cwd, then modelFamily.
@@ -6369,6 +6362,31 @@ function buildExecutorDeps(
               changes.cwd ?? current.cwd,
             );
         }
+        // An agent below Standard stays on an engine and model that confine
+        // its stop. A Codex switch with no model was judged on the login
+        // default just resolved.
+        {
+          const current = agentManager.getAgent(agentId);
+          const engine = changes.agentType ?? current?.agentType;
+          const switched = !!current && engine !== current.agentType;
+          if (
+            current &&
+            engine &&
+            (switched || resolvedModelFamily !== undefined) &&
+            !engineRunsAccessHere(
+              engine,
+              agentAccessOf(current),
+              (resolvedModelFamily ??
+                (switched ? null : current.modelFamily)) ||
+                null,
+            )
+          )
+            return {
+              ok: false,
+              reason: "engine_below_standard",
+              message: ENGINE_BELOW_STANDARD_MESSAGE,
+            };
+        }
         if (changes.cwd) saveRecentCwd(changes.cwd);
         try {
           // AgentEdit.customInstructions is string|null|undefined (the
@@ -6425,7 +6443,7 @@ function buildExecutorDeps(
         return r === "engine_below_standard"
           ? {
               refused: "engine_below_standard" as const,
-              message: "This engine cannot run an agent below Standard yet.",
+              message: ENGINE_BELOW_STANDARD_MESSAGE,
             }
           : r;
       },
@@ -6678,7 +6696,8 @@ function buildExecutorDeps(
           current &&
           agentType &&
           agentType !== current.agentType &&
-          !engineRunsAccess(agentType, agentAccessOf(current))
+          // No model goes with this switch: the engine's default.
+          !engineRunsAccessHere(agentType, agentAccessOf(current), null)
         )
           return "engine_below_standard";
         // The WS case awaited this purely for handler sequencing; the clear_logs

@@ -24,8 +24,8 @@ import { dialogHint, dialogInput, dialogLabel } from "./dialog-styles.ts";
 import { RoomPicker } from "./RoomPicker.tsx";
 
 // The agent's access slider and, at office, folder and web, its pack
-// picker. Each stop is a radio (data-access-stop); a stop the engine cannot
-// run yet is disabled. The pack is state of its own: it stays while the
+// picker. Each stop is a radio (data-access-stop); a stop the engine and
+// model cannot run yet is disabled. The pack is state of its own: it stays while the
 // member moves the slider, and the dialog sends it only at a stop with a
 // pack.
 export interface AccessSliderProps {
@@ -33,8 +33,10 @@ export interface AccessSliderProps {
   onAccess: (access: AgentAccess) => void;
   pack: ApiTokenLimits;
   onPack: (pack: ApiTokenLimits) => void;
-  // The engine the dialog will save.
+  // The engine and model the dialog will save. A stop the two cannot run
+  // is disabled (engineRunsAccess); "" is no model yet.
   agentType: AgentInfo["agentType"];
+  model: string;
   // A line under the stop hint, for example that saving restarts the
   // session.
   note?: ReactNode;
@@ -93,6 +95,7 @@ export function AccessSlider({
   pack,
   onPack,
   agentType,
+  model,
   note,
 }: AccessSliderProps) {
   const { t } = useI18n();
@@ -107,7 +110,7 @@ export function AccessSlider({
         aria-label={t("dialogs.agent.access")}
       >
         {AGENT_ACCESS_STOPS.map((stop) => {
-          const runs = engineRunsAccess(agentType, stop);
+          const runs = engineRunsAccess(agentType, stop, model || null);
           return (
             <label
               key={stop}

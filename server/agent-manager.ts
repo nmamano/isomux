@@ -323,6 +323,7 @@ import {
   ISOMUX_CODEX_HOME,
   isCodexAuthenticated,
 } from "./backends/codex/native-bin.ts";
+import { engineRunsAccessHere } from "./backends/codex/access.ts";
 import type {
   ApprovalDecision,
   Backend,
@@ -349,7 +350,6 @@ import type {
 import {
   agentAccessOf,
   belowStandard,
-  engineRunsAccess,
   stopHasPack,
   stopIncludes,
   type AgentAccess,
@@ -4712,6 +4712,7 @@ export function createAgentManager(deps: ManagerDeps) {
       modelFamily: oneShotModel(managed),
       systemPrompt,
       env: buildEnvForUserId(managed.info.userId),
+      access: agentAccessOf(managed.info),
       ...(managed.info.agentType === "opencode"
         ? {
             env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),
@@ -6394,7 +6395,13 @@ export function createAgentManager(deps: ManagerDeps) {
   ): Promise<AgentInfo | null | "engine_below_standard"> {
     const managed = agents.get(agentId);
     if (!managed) return null;
-    if (!engineRunsAccess(managed.info.agentType, grant.access))
+    if (
+      !engineRunsAccessHere(
+        managed.info.agentType,
+        grant.access,
+        managed.info.modelFamily || null,
+      )
+    )
       return "engine_below_standard";
     const current = accessGrantOf(managed.info);
     if (
@@ -12078,23 +12085,30 @@ export function createAgentManager(deps: ManagerDeps) {
       // this config at its system_init.
       // An engine without the confinement of the agent's stop is never
       // switched to (the routes refuse it first).
+      // Validate any provided override against the TARGET engine (undefined ->
+      // that engine's default). Never coerce a source-engine value: e.g.
+      // validateModelFamily(codex, "opus") would pass "opus" straight through.
+      const resolved =
+        targetAgentType && targetAgentType !== managed.info.agentType
+          ? resolveAgentEngineSettings(
+              targetAgentType,
+              engineOverrides ?? {},
+              limitedClaudeFamiliesForUserId(managed.info.userId),
+            )
+          : null;
       if (
         targetAgentType &&
-        targetAgentType !== managed.info.agentType &&
-        engineRunsAccess(targetAgentType, agentAccessOf(managed.info))
+        resolved &&
+        engineRunsAccessHere(
+          targetAgentType,
+          agentAccessOf(managed.info),
+          resolved.modelFamily || null,
+        )
       ) {
         // A different engine means a different provider account, so the
         // allowance reading goes now - synchronously with the identity change,
         // which also orphans any read already in flight against the old one.
         resetSubscriptionUsage(managed);
-        // Validate any provided override against the TARGET engine (undefined ->
-        // that engine's default). Never coerce a source-engine value: e.g.
-        // validateModelFamily(codex, "opus") would pass "opus" straight through.
-        const resolved = resolveAgentEngineSettings(
-          targetAgentType,
-          engineOverrides ?? {},
-          limitedClaudeFamiliesForUserId(managed.info.userId),
-        );
         for (const event of officeState.updateAgent(agentId, {
           agentType: targetAgentType,
           ...resolved,

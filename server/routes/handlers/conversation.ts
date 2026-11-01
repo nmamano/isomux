@@ -676,7 +676,7 @@ export function conversationHandlers(
         return fail(
           422,
           "engine_below_standard",
-          "This engine cannot run an agent below Standard yet.",
+          "This engine or model cannot run an agent at this access level yet.",
         );
       return noContent();
     },

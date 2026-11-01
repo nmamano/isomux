@@ -1589,7 +1589,8 @@ Cosas que puedes hacer por él:
     "Una terminal y todas las herramientas de su motor.",
   "dialogs.agent.access.boundaryNote":
     "Con una terminal, un agente puede leer los tokens de oficina de otros agentes. Solo Chat, Oficina, Carpeta y Web limitan lo que puede alcanzar.",
-  "dialogs.agent.access.engineCannot": "Aún no disponible para este motor",
+  "dialogs.agent.access.engineCannot":
+    "Aún no disponible para este motor o modelo",
   "dialogs.agent.pack.asksOnly": "Solo preguntas",
   "dialogs.agent.pack.tasksAndAsks": "Tareas y preguntas",
   "dialogs.agent.pack.showsSecrets": "puede mostrar secretos",

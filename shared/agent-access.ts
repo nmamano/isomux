@@ -118,12 +118,39 @@ export function claudeToolsForStop(access: AgentAccess): string[] | null {
 // confinement, with a live proof, before they get them.
 const ENGINES_BELOW_STANDARD: ReadonlySet<string> = new Set(["claude"]);
 
-// Whether engine `agentType` may run an agent at `access`.
+// The Codex models proven at chat and office (server/backends/codex/access.ts).
+// The others keep tools no thread config turns off.
+export const CODEX_BELOW_STANDARD_MODELS: readonly string[] = ["gpt-5.5"];
+
+// Whether engine `agentType` with `model` may run an agent at `access`.
+// `model` is the resolved model: null (not known yet) runs no Codex stop
+// below standard.
 export function engineRunsAccess(
   agentType: string,
   access: AgentAccess,
+  model: string | null,
 ): boolean {
-  return !belowStandard(access) || ENGINES_BELOW_STANDARD.has(agentType);
+  if (!belowStandard(access) || ENGINES_BELOW_STANDARD.has(agentType))
+    return true;
+  return (
+    agentType === "codex" &&
+    !stopHasFolder(access) &&
+    model !== null &&
+    CODEX_BELOW_STANDARD_MODELS.includes(model)
+  );
+}
+
+// Whether engine `agentType` runs `access` with some model: the engine
+// choice of the agent dialog, where the model follows the engine.
+export function engineRunsAccessOnSomeModel(
+  agentType: string,
+  access: AgentAccess,
+): boolean {
+  return engineRunsAccess(
+    agentType,
+    access,
+    agentType === "codex" ? CODEX_BELOW_STANDARD_MODELS[0] : null,
+  );
 }
 
 // The refusal codes of the stops below standard.

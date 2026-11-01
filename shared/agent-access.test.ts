@@ -10,6 +10,7 @@ import {
   agentPackPresetOf,
   belowStandard,
   claudeToolsForStop,
+  engineRunsAccess,
   parseAgentAccessGrant,
   parseAgentPack,
   sameAccessGrant,
@@ -139,6 +140,78 @@ describe("claudeToolsForStop", () => {
       standard: null,
       privileged: null,
     });
+  });
+});
+
+// The UI and every server gate (setAccess, PATCH, spawn) read this rule. A
+// Codex stop below Standard is proven for one model at chat and office only
+// (server/backends/codex/access.ts); OpenCode has none yet.
+describe("engineRunsAccess", () => {
+  it("runs a stop below Standard on Claude, and on Codex only at chat and office with a proven model", () => {
+    const cases: [string, string | null, Record<AgentAccess, boolean>][] = [
+      [
+        "claude",
+        "opus",
+        {
+          chat: true,
+          office: true,
+          folder: true,
+          web: true,
+          standard: true,
+          privileged: true,
+        },
+      ],
+      [
+        "codex",
+        "gpt-5.5",
+        {
+          chat: true,
+          office: true,
+          folder: false,
+          web: false,
+          standard: true,
+          privileged: true,
+        },
+      ],
+      // Another Codex model, or none resolved yet: no stop below Standard.
+      ...(
+        ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-6.1-sol", "", null] as const
+      ).map((model): [string, string | null, Record<AgentAccess, boolean>] => [
+        "codex",
+        model,
+        {
+          chat: false,
+          office: false,
+          folder: false,
+          web: false,
+          standard: true,
+          privileged: true,
+        },
+      ]),
+      // The proven model on another engine proves nothing.
+      [
+        "opencode",
+        "gpt-5.5",
+        {
+          chat: false,
+          office: false,
+          folder: false,
+          web: false,
+          standard: true,
+          privileged: true,
+        },
+      ],
+    ];
+    for (const [agentType, model, want] of cases) {
+      const got = Object.fromEntries(
+        ORDER.map((stop) => [stop, engineRunsAccess(agentType, stop, model)]),
+      );
+      expect({ agentType, model, got }).toEqual({
+        agentType,
+        model,
+        got: want,
+      });
+    }
   });
 });
 

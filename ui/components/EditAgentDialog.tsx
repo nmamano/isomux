@@ -69,7 +69,8 @@ import {
   AGENT_PACK_PRESETS,
   agentAccessOf,
   belowStandard,
-  engineRunsAccess,
+  CODEX_BELOW_STANDARD_MODELS,
+  engineRunsAccessOnSomeModel,
   sameAccessGrant,
   stopHasPack,
   type AgentAccess,
@@ -417,6 +418,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // is create, then PUT /access.
   const savedAccess: AgentAccess = agent ? agentAccessOf(agent) : "standard";
   const [access, setAccess] = useState<AgentAccess>(savedAccess);
+  // Below Standard a Codex model that is not proven cannot be picked
+  // (engineRunsAccess).
+  const codexModelBlocked = (model: string) =>
+    isCodex &&
+    belowStandard(access) &&
+    !CODEX_BELOW_STANDARD_MODELS.includes(model);
   // The pack is state of its own: it stays while the member moves the
   // slider, and is sent only at a stop with a pack. A pack the agent kept at
   // a stop without one is stale, so it starts from the narrowest preset.
@@ -824,7 +831,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           (isSpawn || targetEngine !== agentType) &&
           !templateAppliedRef.current
         ) {
-          const def = defaultBackendModel(r.models, isCodex);
+          // Below Standard a new Codex agent lands on a proven model.
+          const def =
+            isCodex && belowStandard(access)
+              ? (r.models.find(
+                  (m) => m.id === CODEX_BELOW_STANDARD_MODELS[0],
+                ) ?? null)
+              : defaultBackendModel(r.models, isCodex);
           if (def) {
             setModelFamily(def.id);
             // A machine-chosen default, not an edit - move the unsaved-changes
@@ -906,7 +919,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     } else if (targetEngine === "codex") {
       const codexDefault = codexNewEngineDefaults();
       seed = {
-        modelFamily: CODEX_MODELS[0].value,
+        // Below Standard only a proven model runs the stop.
+        modelFamily: belowStandard(access)
+          ? CODEX_BELOW_STANDARD_MODELS[0]
+          : CODEX_MODELS[0].value,
         effort: DEFAULT_EFFORT,
         ...codexDefault,
       };
@@ -1317,20 +1333,32 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         </>
                       ) : (
                         pickerModels.available.map((m) => (
-                          <option key={m.id} value={m.id}>
+                          <option
+                            key={m.id}
+                            value={m.id}
+                            disabled={codexModelBlocked(m.id)}
+                          >
                             {m.label}
                           </option>
                         ))
                       )
                     ) : isCodex ? (
                       CODEX_MODELS.map((m) => (
-                        <option key={m.value} value={m.value}>
+                        <option
+                          key={m.value}
+                          value={m.value}
+                          disabled={codexModelBlocked(m.value)}
+                        >
                           {m.label}
                         </option>
                       ))
                     ) : null}
                     {storedNotInList && (
-                      <option key={modelFamily} value={modelFamily}>
+                      <option
+                        key={modelFamily}
+                        value={modelFamily}
+                        disabled={codexModelBlocked(modelFamily)}
+                      >
                         {t("common.model.currentOption")}
                       </option>
                     )}
@@ -1876,7 +1904,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       const selected = targetEngine === option.agentType;
                       const unavailable =
                         unavailableEngines[option.agentType] !== undefined;
-                      const cannotRunStop = !engineRunsAccess(
+                      const cannotRunStop = !engineRunsAccessOnSomeModel(
                         option.agentType,
                         access,
                       );
@@ -1961,7 +1989,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           value={option.agentType}
                           disabled={
                             (unavailable && option.agentType !== agentType) ||
-                            !engineRunsAccess(option.agentType, access)
+                            !engineRunsAccessOnSomeModel(
+                              option.agentType,
+                              access,
+                            )
                           }
                         >
                           {unavailable
@@ -2303,6 +2334,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     pack={pack}
                     onPack={setPack}
                     agentType={targetEngine}
+                    model={modelFamily}
                     note={
                       !isSpawn && accessChanged
                         ? t("dialogs.agent.privilegedRestart")

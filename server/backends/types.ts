@@ -586,6 +586,9 @@ export interface OneShotOptions {
   environmentRevision?: string;
   // OpenCode: see SessionEnvironmentOptions.
   skillPaths?: string[];
+  // The stop of the agent the one-shot runs for. Below standard the backend
+  // confines the one-shot like the agent's session. Absent: standard.
+  access?: AgentAccess;
 }
 
 export interface ListModelsOptions {
