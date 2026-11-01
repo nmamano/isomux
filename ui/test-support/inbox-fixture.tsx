@@ -50,6 +50,21 @@ export const ranger: AgentInfo = {
   desk: 1,
 };
 
+// Two agents in the same room's back room (desks 8+), only in the tests that
+// ask for them.
+export const builder: AgentInfo = {
+  ...agent,
+  id: "a8",
+  name: "Builder",
+  desk: 8,
+};
+export const checker: AgentInfo = {
+  ...agent,
+  id: "a9",
+  name: "Checker",
+  desk: 9,
+};
+
 export const ask = (id: string, agentId: string, link?: string): AskEntry => ({
   id,
   agentId,
@@ -84,10 +99,14 @@ export const page = (id: string, targetUserId: string): PagerEntry => ({
 let pages: PagerEntry[] = [];
 // The asks GET /api/asks returns; ASKS unless a test sets its own.
 let asks: AskEntry[] = ASKS;
-// The agents full_state carries: Scout, and Ranger after addRanger().
+// The agents full_state carries: Scout, Ranger after addRanger(), and the
+// back room's Builder and Checker after addBackRoom().
 let agents: AgentInfo[] = [agent];
 export function addRanger() {
   agents = [agent, ranger];
+}
+export function addBackRoom() {
+  agents = [checker, agent, builder, ranger];
 }
 export function setPages(next: PagerEntry[]) {
   pages = next;

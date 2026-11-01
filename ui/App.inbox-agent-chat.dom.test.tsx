@@ -1,10 +1,11 @@
 // The Inbox's chat panel (task e3c25581), through the real App and store: an
 // ask's agent name opens a chat with that agent over the Inbox, a select moves
-// it to any agent the member sees, and "Open full chat" goes to the agent's
-// chat. Its text draft is the agent's chat draft, and a send is an ordinary
-// member message. "Discuss in chat" is in ui/App.inbox-ask-about.dom.test.tsx,
-// the panel's chat itself (WidgetChat) in ui/AppWidgetPage.dom.test.tsx, and
-// the setup in ui/test-support/inbox-fixture.tsx.
+// it to any front-desk agent the member sees, and "Open full chat" goes to the
+// agent's chat. Its text draft is the agent's chat draft, and a send is an
+// ordinary member message. "Discuss in chat" is in
+// ui/App.inbox-ask-about.dom.test.tsx, the panel's chat itself (WidgetChat) in
+// ui/AppWidgetPage.dom.test.tsx, and the setup in
+// ui/test-support/inbox-fixture.tsx.
 
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -15,6 +16,7 @@ const { act, fireEvent } = await import("@testing-library/react");
 const { shimEmit } = await import("./ws.ts");
 const { saveDraft } = await import("./view-persistence.ts");
 const {
+  addBackRoom,
   addRanger,
   ask,
   boot,
@@ -115,8 +117,8 @@ it("moves the panel to the agent picked in the select: its transcript, its draft
   expect(panelText()).toContain("Scout was here");
   expect(panelText()).not.toContain("Ranger was here");
 
-  // Every agent the member sees is a choice, Ranger too, though no ask of
-  // its is open.
+  // Every front-desk agent the member sees is a choice, Ranger too, though
+  // no ask of its is open.
   const select = chatSelect(view)!;
   const choices = [...select.querySelectorAll("option")].map((o) => o.value);
   expect(choices.sort()).toEqual(["a1", "a2"]);
@@ -180,4 +182,42 @@ it("closes the panel when its agent leaves, keeps it closed when the agent comes
   });
   expect(view.container.querySelector('[data-asks-agent="a2"]')).not.toBeNull();
   expect(chatPanel(view)).toBeNull();
+});
+
+it("offers no back-room agent in the select but its own: an ask's back-room agent opens the panel and is its choice until the member moves to another agent", async () => {
+  addBackRoom();
+  setAsks([ask("q1", "a1"), ask("q8", "a8")]);
+  const view = await boot();
+  await act(async () => fireEvent.click(inboxButton(view)!));
+  // The choices in order, each with its room's group.
+  const choices = () =>
+    [...chatSelect(view)!.querySelectorAll("option")].map(
+      (o) => `${o.closest("optgroup")?.label}/${o.value}`,
+    );
+
+  // From Scout's ask: the front desks only, by desk.
+  await clickName(view, "a1");
+  expect(chatSelect(view)?.value).toBe("a1");
+  expect(choices()).toEqual(["First room/a1", "First room/a2"]);
+
+  // From Builder's ask: Builder is the panel's agent and a choice, after the
+  // front desks; Checker, another back-room agent, is not.
+  await act(async () =>
+    fireEvent.keyDown(chatComposer(view)!, { key: "Escape" }),
+  );
+  await clickName(view, "a8");
+  expect(chatPanel(view)).not.toBeNull();
+  expect(chatSelect(view)?.value).toBe("a8");
+  expect(choices()).toEqual([
+    "First room/a1",
+    "First room/a2",
+    "First room/a8",
+  ]);
+
+  // Moved to Ranger, the panel no longer offers Builder.
+  await act(async () =>
+    fireEvent.change(chatSelect(view)!, { target: { value: "a2" } }),
+  );
+  expect(chatSelect(view)?.value).toBe("a2");
+  expect(choices()).toEqual(["First room/a1", "First room/a2"]);
 });

@@ -1,7 +1,7 @@
 // The Inbox's in-place agent chat (task e3c25581): the app page's chat panel
 // (WidgetChat, ui/AppWidgetPage.tsx) over the Inbox, on the agent an ask came
-// from. A select in its header moves it to any other agent the member sees,
-// and "Open full chat" goes to the agent's chat. Its text draft is the agent's
+// from. A select in its header moves it to any front-desk agent the member
+// sees, and "Open full chat" goes to the agent's chat. Its text draft is the agent's
 // chat draft (store drafts), so the full chat opens on what was typed here; a
 // message is an ordinary member message. App closes the panel when the member
 // leaves the Inbox or its agent goes.
@@ -9,6 +9,7 @@
 import { useCallback, useMemo } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { isBackSeat } from "../../shared/desks.ts";
 import { noTranslate } from "../no-translate.ts";
 import { chatVisibleEntries } from "../log-view/chat-entries.ts";
 import {
@@ -50,19 +51,24 @@ export function AgentChatPanel({
   const agentLogs = state.logs.get(agentId);
   const logs = useMemo(() => chatVisibleEntries(agentLogs ?? []), [agentLogs]);
   const phoneBox = usePhonePanelBox(state.isMobile, true, null);
-  // The choices: each room in office order, its agents by desk, so the back
-  // room's agents follow the front's.
+  // The choices: each room in office order, its front-desk agents by desk.
+  // A back-room agent is a choice only while the panel is on it (its ask
+  // opened the panel), after its room's front desks.
   const groups = useMemo(
     () =>
       state.rooms
         .map((room) => ({
           room,
           agents: state.agents
-            .filter((item) => item.roomId === room.id)
+            .filter(
+              (item) =>
+                item.roomId === room.id &&
+                (!isBackSeat(item.desk) || item.id === agentId),
+            )
             .sort((a, b) => a.desk - b.desk),
         }))
         .filter((group) => group.agents.length > 0),
-    [state.rooms, state.agents],
+    [state.rooms, state.agents, agentId],
   );
   const onDraft = useCallback(
     (text: string) => dispatch({ type: "set_draft", agentId, text }),
