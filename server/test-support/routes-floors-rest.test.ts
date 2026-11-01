@@ -6,9 +6,11 @@
 //     carries no CORS header, and is limited per forwarded client on a budget
 //     of its own (the box is exempt).
 //   - floors.add probes the card ON THE SERVER, at the normalised origin, with
-//     no credentials. The name comes from the card, never from the body. Every
-//     probe failure is the same 422 office_unreachable, and nothing is saved.
-//     The probe follows no redirect, and its timeout covers the body too.
+//     no credentials. The name comes from the card, never from the body. An
+//     office from before office cards (its auth wall answers the card path)
+//     gets 422 office_outdated; every other probe failure is the same 422
+//     office_unreachable. Neither saves anything. The probe follows no
+//     redirect, and its timeout covers the body too.
 //   - The duplicate check runs after the probe resolves, so two concurrent
 //     adds of one origin save one floor.
 //   - The cap, remove, the floors_updated event, full_state, and persistence
@@ -344,6 +346,107 @@ describe("floors.add", () => {
     expect(await list()).toEqual([]);
     // No event for a refused add: the first floors_updated is the next good one.
     const ok = await add(target.origin);
+    expect(ok.status).toBe(201);
+    const event = await ws.waitFor("floors_updated");
+    expect(floorsOf(event)).toEqual([floorOf(ok.body)]);
+    expect(
+      ws.messages.filter(
+        (m) => (m as { type?: string }).type === "floors_updated",
+      ).length,
+    ).toBe(1);
+    ws.close();
+  });
+
+  // An office on a release before office cards (v2026.10.29 and older) has no
+  // card route: the probe meets its auth wall, which answers a JSON caller
+  // exactly this (server/auth-middleware.ts unauthorized(), the same bytes at
+  // every tag from v2026.7.23 to v2026.10.29).
+  it("answers 422 office_outdated for an office from before office cards, and saves nothing", async () => {
+    const { srv, member, add, list } = await office();
+    const ws = await srv.connectWs(member.rawSessionId);
+    const wall = (
+      body: string,
+      status = 401,
+      contentType = "application/json",
+    ): Response =>
+      new Response(body, {
+        status,
+        headers: { "Content-Type": contentType },
+      });
+    const WALL_BODY = JSON.stringify({ error: "unauthenticated" });
+
+    const older = listen(() => wall(WALL_BODY));
+    const res = await add(older.origin);
+    expect({ status: res.status, code: errCode(res.body) }).toEqual({
+      status: 422,
+      code: "office_outdated",
+    });
+    expect(older.hits.map((h) => h.path)).toEqual([OFFICE_CARD_PATH]);
+
+    // Each near miss changes one property of that answer, and is not an
+    // Isomux office as far as the probe can tell.
+    const nearMisses: [string, Listener][] = [
+      [
+        "the wall's sign-in page (HTML)",
+        listen(() => wall("<html></html>", 401, "text/html")),
+      ],
+      [
+        "the same body as text/plain",
+        listen(() => wall(WALL_BODY, 401, "text/plain")),
+      ],
+      ["the same body with a 403", listen(() => wall(WALL_BODY, 403))],
+      ["the same body with a 200", listen(() => wall(WALL_BODY, 200))],
+      [
+        "another error value",
+        listen(() => wall(JSON.stringify({ error: "forbidden" }))),
+      ],
+      [
+        "an extra key",
+        listen(() =>
+          wall(JSON.stringify({ error: "unauthenticated", detail: "x" })),
+        ),
+      ],
+      [
+        "the error as a bare string",
+        listen(() => wall(JSON.stringify("unauthenticated"))),
+      ],
+      ["a body that is not JSON", listen(() => wall("unauthenticated"))],
+      [
+        // Whitespace keeps it the same JSON value: only the cap refuses it.
+        "the same body over the body cap",
+        listen(() => wall(" ".repeat(8192) + WALL_BODY)),
+      ],
+      [
+        "the wall's headers and then a body that never ends",
+        listen(
+          () =>
+            new Response(
+              new ReadableStream({
+                start(c) {
+                  c.enqueue(new TextEncoder().encode('{"error":'));
+                },
+              }),
+              {
+                status: 401,
+                headers: { "Content-Type": "application/json" },
+              },
+            ),
+        ),
+      ],
+    ];
+    for (const [label, l] of nearMisses) {
+      const miss = await add(l.origin);
+      expect({ label, status: miss.status, code: errCode(miss.body) }).toEqual({
+        label,
+        status: 422,
+        code: "office_unreachable",
+      });
+      expect({ label, hits: l.hits.length }).toEqual({ label, hits: 1 });
+    }
+
+    expect(await list()).toEqual([]);
+    // No event for a refused add: the first floors_updated is the next good one.
+    const ok = await add(cardListener("Target").origin);
     expect(ok.status).toBe(201);
     const event = await ws.waitFor("floors_updated");
     expect(floorsOf(event)).toEqual([floorOf(ok.body)]);

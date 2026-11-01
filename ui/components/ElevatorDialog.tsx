@@ -23,6 +23,7 @@ export interface ElevatorDialogProps {
 
 const ERROR_KEYS: Record<string, PlainMessageKey> = {
   office_unreachable: "lobby.elevator.error.unreachable",
+  office_outdated: "lobby.elevator.error.outdated",
   floor_exists: "lobby.elevator.error.exists",
   too_many_floors: "lobby.elevator.error.full",
   invalid_request: "lobby.elevator.error.invalid",

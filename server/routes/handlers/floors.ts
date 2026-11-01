@@ -6,8 +6,9 @@
 // takes the name from it, never from the body. The duplicate and cap checks
 // run after the probe resolves, in the store's synchronous add.
 //
-// Error codes: 400 invalid_request (bad url), 422 office_unreachable (any
-// probe failure, no detail), 409 floor_exists, 409 too_many_floors,
+// Error codes: 400 invalid_request (bad url), 422 office_outdated (an Isomux
+// office from before the card), 422 office_unreachable (any other probe
+// failure, no detail), 409 floor_exists, 409 too_many_floors,
 // 404 floor_not_found.
 //
 // LEAF over the executor + shared types: the store, the probe and the emit
@@ -32,7 +33,7 @@ export interface FloorsDeps {
   list: FloorsStore["list"];
   add: FloorsStore["add"];
   remove: FloorsStore["remove"];
-  probe(origin: string): Promise<OfficeCard | null>;
+  probe(origin: string): Promise<OfficeCard | "outdated" | null>;
   emitFloors(floors: Floor[]): void;
 }
 
@@ -47,6 +48,12 @@ export function floorsHandlers(deps: FloorsDeps): Record<string, RouteHandler> {
       if (!url)
         return fail(400, "invalid_request", "url must be an http(s) address");
       const card = await deps.probe(url);
+      if (card === "outdated")
+        return fail(
+          422,
+          "office_outdated",
+          "the address answers as an Isomux office that must update first",
+        );
       if (!card)
         return fail(
           422,

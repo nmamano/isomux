@@ -3,8 +3,9 @@
 //
 // The card is answered before the auth wall: it reads and sets no cookie, and
 // its body is the office name the sign-in page title already shows. The probe
-// sends no credentials, follows no redirect and reads a few KB at most; every
-// failure is the same null, so a member learns one bit about one fixed path.
+// sends no credentials, follows no redirect and reads a few KB at most. It
+// tells three answers apart at one fixed path: a card, the auth wall of an
+// office from before the card ("outdated"), and anything else (null).
 
 import {
   MAX_FLOOR_NAME_CHARS,
@@ -30,14 +31,15 @@ export interface OfficeProbeOptions {
   timeoutMs?: number;
 }
 
-// The office card at `origin`, or null when the address does not answer as an
+// The office card at `origin`; "outdated" when the address answers as an
+// Isomux office from before the card; null when it does not answer as an
 // Isomux office. The timeout covers the whole read, body included. The name
 // is trimmed, a blank one is null, and a long one is cut to
 // MAX_FLOOR_NAME_CHARS.
 export async function probeOffice(
   origin: string,
   opts: OfficeProbeOptions = {},
-): Promise<OfficeCard | null> {
+): Promise<OfficeCard | "outdated" | null> {
   const doFetch = opts.fetch ?? fetch;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -47,7 +49,7 @@ export async function probeOffice(
       resolve(null);
     }, opts.timeoutMs ?? OFFICE_PROBE_TIMEOUT_MS);
   });
-  const read = async (): Promise<OfficeCard | null> => {
+  const read = async (): Promise<OfficeCard | "outdated" | null> => {
     const res = await doFetch(origin + OFFICE_CARD_PATH, {
       method: "GET",
       redirect: "manual",
@@ -55,6 +57,10 @@ export async function probeOffice(
       headers: { Accept: "application/json" },
       signal: controller.signal,
     });
+    if (res.status === 401 && res.body && isJson(res)) {
+      const text = await readCapped(res.body, OFFICE_CARD_MAX_BYTES);
+      return text !== null && isWallRefusal(text) ? "outdated" : null;
+    }
     if (res.status !== 200 || !res.body) {
       void res.body?.cancel().catch(() => {});
       return null;
@@ -89,6 +95,28 @@ async function readCapped(
     chunks.push(value);
   }
   return new TextDecoder().decode(Buffer.concat(chunks));
+}
+
+function isJson(res: Response): boolean {
+  return (res.headers.get("content-type") ?? "").startsWith("application/json");
+}
+
+// An office from before the card has no route for it, so its auth wall
+// answers a cookieless JSON request with 401 and exactly this body
+// (server/auth-middleware.ts unauthorized(), every release up to v2026.10.29).
+function isWallRefusal(text: string): boolean {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const keys = Object.keys(raw);
+  return (
+    keys.length === 1 &&
+    (raw as Record<string, unknown>).error === "unauthenticated"
+  );
 }
 
 function parseCard(text: string): OfficeCard | null {

@@ -170,6 +170,59 @@ describe("ElevatorDialog", () => {
     d.view.unmount();
   });
 
+  // An unknown code falls back to the server's English detail, so a text that
+  // differs from the unreachable one is not enough: the outdated text must come
+  // from the catalog, which a second language shows.
+  it("shows its own translated message for an office that must update first", async () => {
+    const SERVER_DETAIL = "server detail";
+    const shown = async (
+      language: "en" | "ca",
+      code: "office_outdated" | "office_unreachable",
+    ) => {
+      const calls: Call[] = [];
+      setApiShim(async (method, path, body) => {
+        calls.push({ method, path, body });
+        throw new ApiError(422, code, SERVER_DETAIL);
+      });
+      const view = render(
+        onLanguage(
+          language,
+          createElement(ElevatorDialog, {
+            onClose: () => {},
+            ownOrigin: OWN,
+            openFloor: () => {},
+          }),
+          { floors: [] },
+        ),
+      );
+      await act(async () => {
+        fireEvent.change(view.getByRole("textbox"), {
+          target: { value: "harbor.example.com" },
+        });
+      });
+      await act(async () => {
+        fireEvent.click(
+          view.container.querySelector(
+            '[data-floor-action="add"]',
+          ) as HTMLElement,
+        );
+      });
+      await waitFor(() => expect(calls.length).toBe(1));
+      await act(async () => {});
+      const text = view.queryByRole("alert")?.textContent?.trim() ?? "";
+      view.unmount();
+      return text;
+    };
+    const outdated = await shown("en", "office_outdated");
+    const unreachable = await shown("en", "office_unreachable");
+    const outdatedCa = await shown("ca", "office_outdated");
+    expect(outdated.length).toBeGreaterThan(0);
+    expect(outdated).not.toBe(SERVER_DETAIL);
+    expect(outdated).not.toBe(unreachable);
+    expect(outdatedCa.length).toBeGreaterThan(0);
+    expect(outdatedCa).not.toBe(outdated);
+  });
+
   it("sends one add while the server checks the address", async () => {
     let settle: (v: unknown) => void = () => {};
     const d = open(

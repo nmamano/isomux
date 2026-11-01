@@ -366,8 +366,8 @@ The office setting **Record terminals** is off by default. When an owner turns i
 
 The lobby elevator links to other Isomux offices. Each office answers a public card at `/.well-known/isomux-office` with its name only, which its sign-in page title already shows. To add a floor, a member, a privileged agent or an API token gives an address, and the server reads the card there.
 
-- **Outbound requests.** One `GET` of that fixed path, with no cookie or credential. Isomux does not follow redirects, stops after 8 seconds, and reads at most 4 KB. Only the name comes back; every failure gets the same answer.
-- **Reach.** The request goes out from the server process, so it reaches addresses on the office's own network. The caller learns one bit about one fixed path at that address.
+- **Outbound requests.** One `GET` of that fixed path, with no cookie or credential. Isomux does not follow redirects, stops after 8 seconds, and reads at most 4 KB. Only the name comes back. An office from before the card, whose sign-in wall answers instead, gets its own answer; every other failure gets the same one.
+- **Reach.** The request goes out from the server process, so it reaches addresses on the office's own network. The caller learns which of three answers one fixed path gives at that address: a card, an older office's sign-in wall, or neither.
 - **What is stored.** The address (its origin only) and the name, in `floors.json`. No token or secret goes to the other office.
 
 ---

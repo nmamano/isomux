@@ -323,6 +323,7 @@ App 的一些原则：
   "lobby.elevator.error.self": "这就是本办公室。",
   "lobby.elevator.error.unreachable":
     "本办公室无法在该地址找到 Isomux 办公室。",
+  "lobby.elevator.error.outdated": "该办公室运行的是旧版 Isomux。请先更新它。",
   "lobby.elevator.error.exists": "该办公室已经是一个楼层。",
   "lobby.elevator.error.full": "电梯已满。请先移除一个楼层。",
   "membersChat.authorApi": "{name} · API 令牌",
