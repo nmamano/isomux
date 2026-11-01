@@ -16,6 +16,7 @@ import {
   API_TOKEN_REPLIES_ONLY,
 } from "../shared/identity.ts";
 import { appHostingUnsupportedReason } from "./app-hosting.ts";
+import type { IsolationForm } from "./process-isolation.ts";
 import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
   openCodeAuthoritySocketPath,
@@ -57,6 +58,18 @@ export function appHostingClaudeCaveatTail(
     : "";
 }
 
+// The line for a session that runs in its own PID namespace, true for the
+// form of that spawn's wrap; "" when the spawn is not wrapped. sudo and the
+// nested sandboxes print their own errors, so this line names the cause and
+// the owner's switch (task 8db21c8b).
+export function processIsolationPromptLine(form: IsolationForm | null): string {
+  if (form === "session")
+    return "\n\nThis session runs in its own process namespace: ps shows only its processes, background processes stop with it, and sudo and nested sandboxes fail; an office owner can turn off Isolate agent processes in Office Settings.";
+  if (form === "shared_server")
+    return "\n\nYour OpenCode server runs in its own process namespace: ps shows only its processes, including the other OpenCode agents of your manager, background processes stop with that server, and sudo and nested sandboxes fail; an office owner can turn off Isolate agent processes in Office Settings.";
+  return "";
+}
+
 export function buildSystemPrompt(
   agentName: string,
   agentId: string,
@@ -76,6 +89,9 @@ export function buildSystemPrompt(
   // agentMakesSchedules: offer schedule creation, else send the member to
   // the Schedules tab.
   makesSchedules: boolean = false,
+  // The form of this session's PID namespace, from the same decision as its
+  // spawn; null when it is not wrapped.
+  isolation: IsolationForm | null = null,
 ): string {
   const stop: AgentAccess =
     typeof access === "boolean" ? (access ? "privileged" : "standard") : access;
@@ -165,6 +181,10 @@ Claude harness notes:
 - CronCreate can downgrade durable jobs to session-only jobs. Read its result; use an Isomux scheduled message or ask for an Isomux schedule when work must survive release.
 - A process backgrounded inside one Bash call dies when that call returns. Use the tool's background mode only within the turn${appHostingClaudeCaveatTail(appsUnsupported)}.
 - A background completion notice reports the wrapper status. Record and read the command's own exit code.`;
+
+  // Below standard the agent has no shell, so the line would say nothing it
+  // can use; the wrap stays.
+  if (!belowStd) systemPrompt += processIsolationPromptLine(isolation);
 
   if (privileged)
     systemPrompt += `

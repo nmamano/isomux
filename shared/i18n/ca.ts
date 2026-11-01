@@ -518,6 +518,14 @@ Coses que pots fer per ell:
   "settings.office.viewOnly":
     "Només lectura. Només els propietaris de l'oficina poden editar la configuració de tota l'oficina.",
   "settings.office.name": "Nom de l'oficina",
+  "settings.office.processIsolation": "Aïlla els processos dels agents",
+  "settings.office.processIsolationHint":
+    "Cada agent només veu els seus propis processos, i els agents d'OpenCode d'un membre comparteixen els seus. sudo i els sandboxes niats no funcionen per als agents. S'aplica a les sessions d'agents que comencin després del canvi.",
+  "settings.office.processIsolationNeedsLinux": "No disponible: cal Linux.",
+  "settings.office.processIsolationNoBwrap":
+    "No disponible: instal·la bubblewrap i després reinicia Isomux.",
+  "settings.office.processIsolationDenied":
+    "No disponible: aquesta màquina no deixa que bubblewrap creï un espai de noms de processos.",
   "settings.office.nameHint":
     "(opcional, es mostra a la pestanya del navegador)",
   "settings.office.namePlaceholder": "Oficina del Nil",

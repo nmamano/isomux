@@ -188,6 +188,7 @@ import {
   type BackendFailureText,
 } from "./backend-failure-text.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { sessionIsolationForm } from "./process-isolation-state.ts";
 import { agentMakesSchedules } from "./cron-agent-limits.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { randomOutfit } from "../shared/outfit-options.ts";
@@ -4719,6 +4720,11 @@ export function createAgentManager(deps: ManagerDeps) {
     systemPrompt: string,
   ): Promise<string> {
     return getBackend(managed.info.agentType).oneShotPrompt(prompt, {
+      isolation: sessionIsolationForm({
+        agentType: managed.info.agentType,
+        codexSandbox: managed.info.codexSandbox,
+        access: agentAccessOf(managed.info),
+      }),
       cwd: managed.info.cwd,
       modelFamily: oneShotModel(managed),
       systemPrompt,
@@ -8152,6 +8158,12 @@ export function createAgentManager(deps: ManagerDeps) {
     // to agree on which scopes load, so they read the same list.
     const memoryRefs = memoryRefsFor(managed) ?? [];
     armMemoryNotice(managed, memoryRefs);
+    // One decision for the spawn and the prompt line (task 8db21c8b).
+    const isolation = sessionIsolationForm({
+      agentType: managed.info.agentType,
+      codexSandbox: managed.info.codexSandbox,
+      access,
+    });
     const systemPrompt = buildSystemPrompt(
       managed.info.name,
       managed.info.id,
@@ -8167,6 +8179,7 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.info.agentType,
       manager.record?.language ?? null,
       agentMakesSchedules(managed.info),
+      isolation,
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's
@@ -8175,6 +8188,7 @@ export function createAgentManager(deps: ManagerDeps) {
       rollSessionUsageOnResume(managed.info.id, resumeSessionId);
     }
     const opts: CreateSessionOptions = {
+      isolation,
       agentId: managed.info.id,
       cwd: managed.info.cwd,
       systemPrompt,

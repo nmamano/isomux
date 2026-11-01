@@ -2610,3 +2610,41 @@ describe("createClaudeBackend - the hooks of a session below Standard", () => {
     }
   });
 });
+
+// Task 8db21c8b: the session's PID namespace form, decided by the agent
+// manager, reaches the SDK client as isolate (withAgentSpawn wraps the CLI).
+describe("process isolation", () => {
+  const opts = {
+    agentId: "agent-iso",
+    cwd: "/tmp",
+    systemPrompt: "sys",
+    modelFamily: "haiku",
+    effort: "high",
+    permissionMode: "default",
+  };
+
+  it("asks for the wrap on create, resume and one-shot only with the session form", async () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    backend.createSession({ ...opts, isolation: "session" });
+    backend.resumeSession("s-iso", { ...opts, isolation: "session" });
+    await backend.oneShotPrompt("Topic", {
+      modelFamily: "haiku",
+      systemPrompt: "sys",
+      isolation: "session",
+    });
+    backend.createSession(opts);
+    backend.createSession({ ...opts, isolation: null });
+    backend.resumeSession("s-plain", opts);
+    await backend.oneShotPrompt("Topic", { modelFamily: "haiku" });
+    expect([
+      fake.createCalls.map((call) => call.opts.isolate === true),
+      fake.resumeCalls.map((call) => call.opts.isolate === true),
+      fake.oneShotCalls.map((call) => call.isolate === true),
+    ]).toEqual([
+      [true, false, false],
+      [true, false],
+      [true, false],
+    ]);
+  });
+});

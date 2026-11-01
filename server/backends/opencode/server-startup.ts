@@ -11,6 +11,9 @@ export const OPENCODE_SERVER_USERNAME = "opencode";
 // OpenCode never rotates its log: a start moves a log over this size to
 // opencode.log.1 (start-server.ts).
 export const OPENCODE_LOG_ROTATE_BYTES = 10 * 1024 * 1024;
+// The helper's environment variable that wraps the server in its own PID
+// namespace ("1"; server/process-isolation.ts).
+export const OPENCODE_ISOLATE_ENV = "OPENCODE_ISOLATE";
 
 export function openCodeAuthHeader(password: string): string {
   return `Basic ${btoa(`${OPENCODE_SERVER_USERNAME}:${password}`)}`;

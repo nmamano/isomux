@@ -153,8 +153,11 @@ class FakeCodexTransport implements CodexTransport {
     | null = null;
 
   // ----- CodexTransport (production surface) -----
-  start(): Promise<CodexSafetyPreflightResult> {
+  // The options of each start (task 8db21c8b: isolate).
+  readonly startOptions: ({ isolate?: boolean } | undefined)[] = [];
+  start(options?: { isolate?: boolean }): Promise<CodexSafetyPreflightResult> {
     this.started = true;
+    this.startOptions.push(options);
     return Promise.resolve(this.startResult);
   }
 
@@ -5851,5 +5854,24 @@ describe("CodexSession background work", () => {
       ),
     ).toEqual([]);
     expect(livePolls(clock)).toEqual([]);
+  });
+});
+
+// Task 8db21c8b: the App Server of a session that the agent manager gave the
+// session form starts in its own PID namespace; any other session does not.
+describe("CodexSession process isolation", () => {
+  it("starts the App Server with isolate only for the session form", async () => {
+    const forms = ["session", null, undefined] as const;
+    const starts: boolean[] = [];
+    for (const isolation of forms) {
+      const fake = new FakeCodexTransport();
+      await bootstrapped(fake, {
+        sandbox: "danger-full-access",
+        ...(isolation === undefined ? {} : { isolation }),
+      });
+      expect(fake.startOptions).toHaveLength(1);
+      starts.push(fake.startOptions[0]?.isolate === true);
+    }
+    expect(starts).toEqual([true, false, false]);
   });
 });

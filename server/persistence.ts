@@ -1336,6 +1336,17 @@ export function saveRecordTerminals(enabled: boolean): void {
   saveOfficeConfigField("recordTerminals", enabled);
 }
 
+// The owner's switch for one PID namespace per agent
+// (server/process-isolation.ts), beside the settings in office-config.json.
+// An absent switch reads as on.
+export function loadProcessIsolation(): boolean {
+  return readOfficeConfigRaw().processIsolation !== false;
+}
+
+export function saveProcessIsolation(enabled: boolean): void {
+  saveOfficeConfigField("processIsolation", enabled);
+}
+
 // Set once the boot backfill of AgentInfo.officeFreeModel ran (task
 // c00b3973), so it never runs again.
 export function loadFreeModelMarkBackfillDone(): boolean {

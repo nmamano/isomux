@@ -11,6 +11,13 @@ import { chmodSync, existsSync, lstatSync, unlinkSync } from "fs";
 import { chmod, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { homedir, userInfo } from "os";
 import { join } from "path";
+import type { Readable } from "stream";
+import {
+  isolatedArgv,
+  ISOLATION_SETUP_FAILED,
+  signalIsolated,
+  statusHasExitCode,
+} from "../process-isolation.ts";
 import {
   readPeerCredentials,
   socketFileDescriptor,
@@ -71,6 +78,8 @@ interface Connection {
   // The process group of the spawned process (its pid). It stays set after
   // the leader exits: a descendant can keep the group alive.
   group: number | null;
+  // The child is the outer bwrap of a PID namespace (process-isolation.ts).
+  isolated: boolean;
   groupStopped: boolean;
   // The bytes of a writeText, until stdin-end.
   pendingWrite: {
@@ -152,17 +161,24 @@ function startChild(
     env: Record<string, string | undefined>;
     stderr: "pipe" | "ignore";
     input?: Buffer;
+    isolate?: boolean;
   },
 ): void {
   let child: ChildProcess;
+  const isolate = options.isolate === true;
+  const spawnArgv = isolate
+    ? isolatedArgv(argv, { dieWithParent: true, statusFd: 3 })
+    : argv;
   try {
     // detached: the child leads its own process group, so the runner can stop
     // everything it started when the server goes away.
-    child = spawn(argv[0], argv.slice(1), {
+    child = spawn(spawnArgv[0], spawnArgv.slice(1), {
       cwd: options.cwd,
       env: options.env,
       detached: true,
-      stdio: ["pipe", "pipe", options.stderr],
+      stdio: isolate
+        ? ["pipe", "pipe", options.stderr, "pipe"]
+        : ["pipe", "pipe", options.stderr],
     });
   } catch (error) {
     fail(socket, "spawn_failed", (error as Error).message);
@@ -170,6 +186,13 @@ function startChild(
   }
   socket.data.child = child;
   socket.data.group = child.pid ?? null;
+  socket.data.isolated = isolate;
+  // bwrap's JSON status: without an exit-code line, an outer bwrap that
+  // exited on its own failed its setup and never ran the command.
+  let status = "";
+  const statusStream = isolate ? (child.stdio[3] as Readable | null) : null;
+  statusStream?.setEncoding("utf8");
+  statusStream?.on("data", (chunk: string) => (status += chunk));
   child.once("error", (error: NodeJS.ErrnoException) => {
     if (child.pid === undefined)
       fail(socket, error.code ?? "spawn_failed", error.message);
@@ -192,7 +215,13 @@ function startChild(
   forward(child.stderr, FRAME_STDERR);
   child.once("close", (code, signal) => {
     socket.data.child = null;
-    finish(socket, { type: "exit", code, signal });
+    if (isolate && signal === null && !statusHasExitCode(status))
+      fail(
+        socket,
+        ISOLATION_SETUP_FAILED,
+        `bwrap could not set up the PID namespace (exit ${code})`,
+      );
+    else finish(socket, { type: "exit", code, signal });
   });
 }
 
@@ -282,7 +311,7 @@ function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
     return;
   }
   if (request.op === "spawn") {
-    const { argv, cwd, env, fullEnv, stderr } = request;
+    const { argv, cwd, env, fullEnv, stderr, isolate } = request;
     if (
       !Array.isArray(argv) ||
       argv.length === 0 ||
@@ -290,7 +319,8 @@ function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
       !argv[0] ||
       (cwd !== undefined && typeof cwd !== "string") ||
       (env !== undefined && !isStringRecord(env)) ||
-      (fullEnv !== undefined && !isStringRecord(fullEnv))
+      (fullEnv !== undefined && !isStringRecord(fullEnv)) ||
+      (isolate !== undefined && typeof isolate !== "boolean")
     ) {
       fail(socket, "bad_request", "spawn needs argv, and string cwd and env");
       return;
@@ -299,6 +329,7 @@ function handleRequest(socket: RunnerSocket, request: RunnerRequest): void {
       cwd,
       env: fullEnv ?? { ...process.env, ...env },
       stderr: stderr === "pipe" ? "pipe" : "ignore",
+      isolate,
     });
     return;
   }
@@ -384,8 +415,15 @@ function handleFrame(socket: RunnerSocket, frame: Frame): void {
   if (control.type === "stdin-end") {
     data.stdinEnd = true;
     pumpStdin(socket, child);
-  } else if (control.type === "signal" && typeof control.signal === "string")
-    signalGroup(data.group, control.signal);
+  } else if (control.type === "signal" && typeof control.signal === "string") {
+    if (data.isolated && data.group !== null)
+      signalIsolated(
+        data.group,
+        control.signal,
+        control.scope === "child" ? "command" : "namespace",
+      );
+    else signalGroup(data.group, control.signal);
+  }
 }
 
 // Input for the child. The socket is never paused for it, so a signal behind
@@ -425,7 +463,11 @@ function stopGroup(data: Connection, graceMs: number): void {
   if (data.groupStopped) return;
   data.groupStopped = true;
   const group = data.group;
-  if (!signalGroup(group, "SIGTERM")) return;
+  const sent =
+    data.isolated && group !== null
+      ? signalIsolated(group, "SIGTERM", "namespace")
+      : signalGroup(group, "SIGTERM");
+  if (!sent) return;
   const timer = setTimeout(() => signalGroup(group, "SIGKILL"), graceMs);
   timer.unref?.();
 }
@@ -456,6 +498,7 @@ export function startRunner(options: RunnerOptions): { stop(): void } {
           stdinEnd: false,
           child: null,
           group: null,
+          isolated: false,
           groupStopped: false,
           pendingWrite: null,
         };

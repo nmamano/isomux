@@ -492,6 +492,14 @@ App 的一些原则：
   "settings.office.viewOnly":
     "仅供查看。只有办公室所有者可以编辑办公室通用设置。",
   "settings.office.name": "办公室名称",
+  "settings.office.processIsolation": "隔离智能体进程",
+  "settings.office.processIsolationHint":
+    "每个智能体只能看到自己的进程，同一成员的 OpenCode 智能体共享它们的进程。智能体无法使用 sudo 和嵌套沙箱。仅适用于更改后开始的智能体会话。",
+  "settings.office.processIsolationNeedsLinux": "不可用：需要 Linux。",
+  "settings.office.processIsolationNoBwrap":
+    "不可用：请安装 bubblewrap，然后重启 Isomux。",
+  "settings.office.processIsolationDenied":
+    "不可用：此机器不允许 bubblewrap 创建进程命名空间。",
   "settings.office.nameHint": "（可选，显示在浏览器标签页中）",
   "settings.office.namePlaceholder": "Nil 的办公室",
   "settings.office.rulesHint": "（添加到每个智能体的系统提示词中）",

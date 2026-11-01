@@ -16,7 +16,12 @@ import {
   openCodeToolEnvironment,
   openCodeUserConfigDir,
 } from "./config-layers.ts";
-import { openCodeAuthHeader } from "./server-startup.ts";
+import { OPENCODE_ISOLATE_ENV, openCodeAuthHeader } from "./server-startup.ts";
+import { ISOLATION_SETUP_FAILED } from "../../process-isolation.ts";
+import {
+  processIsolationNow,
+  reportIsolationSetupFailure,
+} from "../../process-isolation-state.ts";
 import type { AgentAccess } from "../../../shared/agent-access.ts";
 import {
   OPENCODE_STOP_AGENTS,
@@ -44,6 +49,18 @@ interface ServerRecord {
   environmentRevision: string;
   configRevision: string;
   startTicks?: string;
+  // pid is the outer bwrap of a PID namespace (server/process-isolation.ts).
+  isolated?: boolean;
+}
+
+// The revision a server record carries: the session environment's, with the
+// wrap form folded in, so turning isolation on or off replaces an idle
+// server (adopted ones too) as a changed environment does.
+export function openCodeServerRevision(
+  environmentRevision: string,
+  isolate: boolean,
+): string {
+  return isolate ? `${environmentRevision}:pid-namespace` : environmentRevision;
 }
 
 export const OPENCODE_CRON_AGENT = "isomux-cron";
@@ -596,8 +613,21 @@ export class OpenCodeSupervisor {
     await this.starting;
   }
 
-  private async startServer(replaceMarked: boolean): Promise<void> {
+  // The revision a server started now gets: the shared server of a member's
+  // OpenCode agents runs in its own PID namespace while isolation is on.
+  private serverRevision(): string {
+    return openCodeServerRevision(
+      this.environmentRevision,
+      processIsolationNow().state === "on",
+    );
+  }
+
+  private async startServer(
+    replaceMarked: boolean,
+    retried = false,
+  ): Promise<void> {
     const binary = this.binary;
+    const isolate = processIsolationNow().state === "on";
     const host = getAgentHost();
     await host.fs.mkdir(this.profileDir, 0o777);
     const configPath = openCodeConfigFilePath(this.profileDir);
@@ -630,7 +660,11 @@ export class OpenCodeSupervisor {
             ISOMUX_ADMIN_SOCKET: ADMIN_SOCKET_PATH,
           },
         }),
-        OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
+        OPENCODE_ENVIRONMENT_REVISION: openCodeServerRevision(
+          this.environmentRevision,
+          isolate,
+        ),
+        [OPENCODE_ISOLATE_ENV]: isolate ? "1" : undefined,
         OPENCODE_CONFIG_REVISION: this.configRevision,
         OPENCODE_SERVER_UNRESPONSIVE_PID:
           replaceMarked && this.unresponsive
@@ -638,8 +672,15 @@ export class OpenCodeSupervisor {
             : undefined,
       },
     });
-    if (exitCode !== 0)
+    if (exitCode !== 0) {
+      // A wrap that the probe passed but bwrap could not set up: probe again,
+      // and start once more in the form the new result gives.
+      if (isolate && !retried && stderr.includes(ISOLATION_SETUP_FAILED)) {
+        await reportIsolationSetupFailure();
+        return this.startServer(replaceMarked, true);
+      }
       throw new Error(`OpenCode startup failed: ${stderr.trim()}`);
+    }
     JSON.parse(stdout);
     this.record = await this.readRecord();
     if (!this.record)
@@ -740,7 +781,7 @@ export class OpenCodeSupervisor {
     const record = this.record;
     return (
       record !== null &&
-      (record.environmentRevision !== this.environmentRevision ||
+      (record.environmentRevision !== this.serverRevision() ||
         record.configRevision !== this.configRevision)
     );
   }

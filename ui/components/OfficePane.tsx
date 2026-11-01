@@ -14,6 +14,7 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
+import { ProcessIsolationSwitch } from "./ProcessIsolationSwitch.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
   UnsavedChangesPrompt,
@@ -66,6 +67,12 @@ export function OfficePane({
   // A read-only member never loads, so settingsLoaded gates the whole thing
   // and their pane can never be dirty.
   const [baselineName, setBaselineName] = useState("");
+  // The process isolation switch and its status, from the same settings
+  // reads as the version (ProcessIsolationSwitch).
+  const [isolation, setIsolation] = useState<Pick<
+    OfficeSettingsRes,
+    "processIsolation" | "processIsolationStatus"
+  > | null>(null);
   const [baselinePrompt, setBaselinePrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null && instructionsVersion != null;
@@ -84,6 +91,7 @@ export function OfficePane({
         setBaselinePrompt(instructions.instructions ?? "");
         setBaselineName(settings.name ?? "");
         setSettingsVersion(settings.version);
+        setIsolation(settings);
         setInstructionsVersion(instructions.version);
       })
       .catch(() => {
@@ -117,6 +125,7 @@ export function OfficePane({
         setName(next.name ?? "");
         setBaselineName(next.name ?? "");
         setSettingsVersion(next.version);
+        setIsolation(next);
       } catch {
         // No safe token to write with: null disables Save rather than leaving
         // it unsafe, matching the failed-hydration path above. The save that
@@ -366,6 +375,28 @@ export function OfficePane({
               {t("common.memoryEditorHint")}
             </p>
           </>
+        )}
+
+        {!readOnly && (
+          <ProcessIsolationSwitch
+            settings={isolation}
+            version={settingsVersion}
+            // Its own write moves the settings version: take the new one, so
+            // the next Save is not refused for it. A name that changed since
+            // the pane's read is another writer's: keep the old version, so
+            // Save still meets that conflict.
+            onSaved={(next) => {
+              setIsolation(next);
+              if ((next.name ?? "") === baselineName)
+                setSettingsVersion(next.version);
+            }}
+            onConflict={() =>
+              setStatus({
+                kind: "error",
+                message: t("settings.office.conflict"),
+              })
+            }
+          />
         )}
 
         {discardPrompt.open && (

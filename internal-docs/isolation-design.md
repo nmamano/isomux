@@ -13,7 +13,7 @@ How isomux scopes state, identity, and execution across multiple users on a sing
 | Office | Separate isomux process per workspace | All state (rooms, agents, tasks, logs) | OS process boundary + state directory | Designed |
 | User | Inside one office, per spawning user | Env file (Git/GH identity), per-user preferences | Application code, no OS enforcement | Implemented |
 | Room | Inside one office | Per-room prompt | Application code | Implemented |
-| Process | Inside one agent spawn | Filesystem view, PID table, UID, network | Linux namespaces (`bwrap`) | Scoped |
+| Process | Inside one agent spawn | Filesystem view, PID table, UID, network | Linux namespaces (`bwrap`) | PID table implemented; the rest scoped |
 
 The three layers are independent and compose. Office isolation enforces that two users on the same machine see fully separate state. Room isolation lets one office host multiple identities. Process isolation closes the remaining holes (an agent in room A reading room B's env file off disk, or `ps`-ing other agents' commands).
 
@@ -348,7 +348,19 @@ Closing these gaps is the job of the process layer.
 
 ## Process layer: Linux namespaces (scoped)
 
-> Status: scoped, not implemented. This section evaluates the design space and recommends a smallest-useful first slice. **A specific composed design that uses namespaces as one of several layers is in `internal-docs/per-user-isolation-design.md`** (per-user isolation in a shared office: bwrap + per-agent visibility ACL + managed personal variables + private/shared disk layout). That doc supersedes the recommendation below for the in-shared-office case; the analysis below remains useful for the office-layer namespace question when paired with the hub.
+### Implemented: one PID namespace per agent session (task 8db21c8b)
+
+On Linux each agent session starts in `bwrap --dev-bind / / --unshare-pid --proc /proc` (`server/process-isolation.ts`): the whole filesystem as it is, and only a new PID namespace. `ps` and `/proc` show the session's own processes, so an agent cannot read another agent's or the server's environment (office tokens, secret placeholders) or signal their processes. It is effective isolation, not a security boundary.
+
+- **Scope.** Claude sessions and one-shots (`--die-with-parent`); a Codex App Server only at `danger-full-access`, since Codex's own sandbox already gives each command a PID namespace; the shared OpenCode server per member and profile (no `--die-with-parent`: it outlives its helper), so a member's OpenCode agents see each other. Scheduled runs follow the same rule. Not wrapped: terminal panels, apps, the preview Chrome, probes and the usage and account helpers.
+- **One decision.** `sessionIsolationForm` (`server/process-isolation-state.ts`) decides the form once per session start; the spawn and the system prompt line both follow it.
+- **Probe and switch.** Boot probes through the agent host that spawns (the runner in split mode) before it restores agents: the wrap must show only its own processes, and `systemctl --user` must work inside when it works outside. The office setting `processIsolation` (default on) is the owner's switch; `GET /api/office/settings` gives the status (`on`, `turned_off`, `needs_linux`, `no_bwrap`, `denied`). A wrapped spawn whose bwrap setup fails (no `exit-code` line on `--json-status-fd`) fails, and the office probes again.
+- **Signals.** A catchable signal goes to the command inside (or to every process in the namespace for a group signal): bwrap has no handler, and its death kills the inner tree at once. SIGKILL goes to the outer bwrap's group. bwrap's init stays while any process in the namespace lives, so the OpenCode stop kills the init after the server exits.
+- **What breaks inside.** sudo and setuid programs (no new privileges), nested sandboxes (Chrome's own sandbox, rootless podman, bwrap, a Codex sandbox the agent starts), and processes meant to outlive the session.
+- **Gaps and escapes.** A Codex command the member approves outside Codex's sandbox, and Codex's MCP servers, see every process. An agent can start a process outside its namespace through `systemd-run --user`, ssh to the box, or read files on disk.
+- **Off.** macOS (no PID namespaces), Docker Compose (Docker's AppArmor profile blocks bwrap), and any host whose probe fails.
+
+> Status of the rest of this section: scoped, not implemented. This section evaluates the design space and recommends a smallest-useful first slice. **A specific composed design that uses namespaces as one of several layers is in `internal-docs/per-user-isolation-design.md`** (per-user isolation in a shared office: bwrap + per-agent visibility ACL + managed personal variables + private/shared disk layout). That doc supersedes the recommendation below for the in-shared-office case; the analysis below remains useful for the office-layer namespace question when paired with the hub.
 
 Process-layer isolation puts each agent spawn into Linux namespaces so the OS enforces what the application layer cannot: filesystem visibility, PID visibility, user identity, and (optionally) network reach.
 

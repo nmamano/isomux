@@ -86,6 +86,8 @@ export type RunnerRequest =
       // The whole environment, in place of the runner's own and env.
       fullEnv?: Record<string, string>;
       stderr?: "pipe" | "ignore";
+      // Wrap argv in its own PID namespace (server/process-isolation.ts).
+      isolate?: boolean;
     }
   | { op: "entry"; name: string; input: unknown }
   | ({ op: "fs" } & FsRequest)
@@ -106,7 +108,9 @@ export type FsRequest =
 // Control messages after the request.
 export type ClientControl =
   | { type: "stdin-end" }
-  | { type: "signal"; signal: NodeJS.Signals };
+  // scope: the child alone (kill) or its whole group (signalGroup). Only a
+  // wrapped child tells the two apart; absent is "group".
+  | { type: "signal"; signal: NodeJS.Signals; scope?: "child" | "group" };
 
 export type RunnerControl =
   | { type: "spawned"; pid: number }

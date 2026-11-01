@@ -145,6 +145,7 @@ import type { GetAccountRateLimitsResponse } from "./_generated/v2/GetAccountRat
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
 import type { PlanType } from "./_generated/PlanType.ts";
+import type { IsolationForm } from "../../process-isolation.ts";
 
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
 // by default), separate from the user's interactive `~/.codex/`. That means
@@ -992,7 +993,9 @@ interface PendingApproval {
 // injected). Keep this session-scoped and free of test-only helpers - fixture
 // driving lives on the fake in codex/adapter.test.ts, not here.
 export interface CodexTransport {
-  start(): Promise<CodexSafetyPreflightResult>;
+  // isolate: the App Server runs in its own PID namespace
+  // (server/process-isolation.ts).
+  start(options?: { isolate?: boolean }): Promise<CodexSafetyPreflightResult>;
   initialize(params: InitializeParams): Promise<InitializeResponse>;
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
   respondWithError(
@@ -1033,6 +1036,9 @@ export function setCodexOneShotClientFactoryForTests(
 }
 
 export interface CodexSessionInitOpts {
+  // From the agent manager's one decision (process-isolation-state.ts):
+  // "session" starts the App Server in its own PID namespace.
+  isolation?: IsolationForm | null;
   agentId: string;
   cwd: string;
   systemPrompt: string;
@@ -1335,7 +1341,9 @@ export class CodexSession implements BackendSession {
         if (refusal) throw new Error(refusal);
         emptyCwd = await codexEmptyCwd(this.opts.agentId);
       }
-      safety = await this.client.start();
+      safety = await this.client.start(
+        this.opts.isolation === "session" ? { isolate: true } : {},
+      );
       this.safetyHookIdentity = safety.hookIdentity;
       const initParams: InitializeParams = {
         clientInfo: {
@@ -3954,6 +3962,7 @@ export const codexBackend: Backend = {
       skillFolder: opts.skillFolder,
       planMode: opts.planMode,
       access: opts.access,
+      isolation: opts.isolation,
     });
   },
 
@@ -3972,6 +3981,7 @@ export const codexBackend: Backend = {
       skillFolder: opts.skillFolder,
       planMode: opts.planMode,
       access: opts.access,
+      isolation: opts.isolation,
     });
   },
 

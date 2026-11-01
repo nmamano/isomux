@@ -529,6 +529,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.viewOnly":
     "View only. Only office owners can edit office-wide settings.",
   "settings.office.name": "Office Name",
+  "settings.office.processIsolation": "Isolate agent processes",
+  "settings.office.processIsolationHint":
+    "Each agent sees only its own processes, and a member's OpenCode agents share theirs. sudo and nested sandboxes do not work for agents. Applies to agent sessions that start after the change.",
+  "settings.office.processIsolationNeedsLinux":
+    "Not available: this needs Linux.",
+  "settings.office.processIsolationNoBwrap":
+    "Not available: install bubblewrap, then restart Isomux.",
+  "settings.office.processIsolationDenied":
+    "Not available: this machine does not let bubblewrap make a process namespace.",
   "settings.office.nameHint": "(optional, shown in browser tab)",
   "settings.office.namePlaceholder": "Nil's Office",
   "settings.office.rulesHint": "(added to the system prompt of every agent)",

@@ -62,6 +62,8 @@ import {
 // never appears in the process argv (argv is world-readable via
 // /proc/<pid>/cmdline and dumped wholesale by `systemctl status`).
 export interface SdkSessionOptions {
+  // The CLI runs in its own PID namespace (withAgentSpawn).
+  isolate?: boolean;
   model: string;
   pathToClaudeCodeExecutable: string;
   systemPrompt?: Options["systemPrompt"];
@@ -253,6 +255,8 @@ export interface SdkConversation {
 }
 
 export interface SdkOneShotOptions {
+  // As SdkSessionOptions.isolate.
+  isolate?: boolean;
   prompt: string;
   model: string;
   pathToClaudeCodeExecutable: string;
@@ -331,11 +335,12 @@ export interface SdkClient {
 
 // Exported for test coverage of the passthrough + optional `resume` add-on.
 // Internal otherwise. SdkSessionOptions is a strict subset of the SDK's
-// `Options` (see the interface comment above), so this is a plain spread by
-// design. Do not translate `systemPrompt` into `extraArgs`: extraArgs is
-// rendered onto the child's argv.
+// `Options` (see the interface comment above) but for isolate, which goes to
+// withAgentSpawn, so this is a plain spread by design. Do not translate
+// `systemPrompt` into `extraArgs`: extraArgs is rendered onto the child's
+// argv.
 export function sessionOptsToV1(
-  opts: SdkSessionOptions,
+  { isolate: _isolate, ...opts }: SdkSessionOptions,
   resumeSessionId?: string,
 ): Options {
   return {
@@ -904,7 +909,10 @@ export const realV1SdkClient: SdkClient = {
     const abortController = new AbortController();
     const q = query({
       prompt: input.iterable,
-      options: withAgentSpawn({ ...sessionOptsToV1(opts), abortController }),
+      options: withAgentSpawn(
+        { ...sessionOptsToV1(opts), abortController },
+        { isolate: opts.isolate },
+      ),
     });
     return wrapV1Query(q, input, abortController, registerMcpServers(q, mcp));
   },
@@ -913,17 +921,17 @@ export const realV1SdkClient: SdkClient = {
     const abortController = new AbortController();
     const q = query({
       prompt: input.iterable,
-      options: withAgentSpawn({
-        ...sessionOptsToV1(opts, sessionId),
-        abortController,
-      }),
+      options: withAgentSpawn(
+        { ...sessionOptsToV1(opts, sessionId), abortController },
+        { isolate: opts.isolate },
+      ),
     });
     return wrapV1Query(q, input, abortController, registerMcpServers(q, mcp));
   },
-  async oneShotPrompt({ prompt, ...opts }) {
+  async oneShotPrompt({ prompt, isolate, ...opts }) {
     const q = query({
       prompt,
-      options: withAgentSpawn(oneShotQueryOptions(opts)),
+      options: withAgentSpawn(oneShotQueryOptions(opts), { isolate }),
     });
     let result: SDKResultMessage | null = null;
     for await (const msg of q) {
@@ -2108,6 +2116,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   const permissionMode =
     limited && opts.permissionMode === "auto" ? "default" : opts.permissionMode;
   const sdkOpts: SdkSessionOptions = {
+    ...(opts.isolation === "session" ? { isolate: true } : {}),
     model,
     // permissionMode is `string` at the Backend boundary; narrow at the call site.
     permissionMode: permissionMode as PermissionMode,
@@ -2381,6 +2390,7 @@ export function createClaudeBackend(
         // here too or the /tmp cwd gets its own memory folder.
         settings: CLAUDE_LAUNCH_SETTINGS,
         env: opts.env || isClaudeCloudSelected(env) ? env : undefined,
+        ...(opts.isolation === "session" ? { isolate: true } : {}),
       });
     },
 

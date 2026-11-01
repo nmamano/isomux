@@ -70,8 +70,9 @@ export interface OfficeSettingsDeps {
   // `name === undefined` preserves the current name; null or empty clears it.
   // `memberUsageCap === undefined` preserves the switch, and
   // `memberUsageShare === undefined` the share, `recordTerminals ===
-  // undefined` the "Record terminals" switch, and `providerFallback ===
-  // undefined` the fallback to the office sign-in.
+  // undefined` the "Record terminals" switch, `providerFallback ===
+  // undefined` the fallback to the office sign-in, and `processIsolation ===
+  // undefined` one PID namespace per agent.
   // Throws nothing - invalid input returns { ok: false }. `ctx` names the
   // writer for the switch's own audit row.
   applySettings(
@@ -81,6 +82,7 @@ export interface OfficeSettingsDeps {
       memberUsageShare?: number;
       recordTerminals?: boolean;
       providerFallback?: boolean;
+      processIsolation?: boolean;
       expectedVersion: string;
     },
     ctx: RouteHandlerContext,
@@ -136,6 +138,7 @@ export function officeSettingsHandlers(
         memberUsageShare?: unknown;
         recordTerminals?: unknown;
         providerFallback?: unknown;
+        processIsolation?: unknown;
       };
       // Distinguish "omitted" (undefined → preserve) from "set to null" (→
       // clear) for the name. JSON access yields undefined for an absent key and
@@ -182,6 +185,16 @@ export function officeSettingsHandlers(
         );
       }
       if (
+        b.processIsolation !== undefined &&
+        typeof b.processIsolation !== "boolean"
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          "processIsolation must be a boolean",
+        );
+      }
+      if (
         b.memberUsageShare !== undefined &&
         !validMemberShare(b.memberUsageShare)
       ) {
@@ -198,6 +211,7 @@ export function officeSettingsHandlers(
           memberUsageShare: b.memberUsageShare,
           recordTerminals: b.recordTerminals,
           providerFallback: b.providerFallback,
+          processIsolation: b.processIsolation,
           expectedVersion: b.version,
         },
         ctx,

@@ -1,6 +1,7 @@
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import type { LogMessage, LogText } from "../../shared/i18n/log-message.ts";
 import type { AgentMcpServer } from "../mcp-servers.ts";
+import type { IsolationForm } from "../process-isolation.ts";
 import type { FallbackFamily } from "../provider-fallback.ts";
 // Backend abstraction shared by Claude (claude-agent-sdk) and Codex (App Server).
 //
@@ -42,6 +43,9 @@ export type { SubagentOrigin };
 // bypassPermissions/auto; Codex: gpt-5 family × sandbox × approvalPolicy).
 
 export interface CreateSessionOptions {
+  // How this session runs in its own PID namespace, decided once with its
+  // system prompt line (server/process-isolation-state.ts). Absent: not.
+  isolation?: IsolationForm | null;
   agentId: string;
   cwd: string;
   systemPrompt: string;
@@ -582,6 +586,10 @@ export interface PermissionModeOption {
 }
 
 export interface OneShotOptions {
+  // As CreateSessionOptions.isolation. Claude reads it; a Codex one-shot
+  // thread is always read-only (its own sandbox), and OpenCode runs on the
+  // member's shared server.
+  isolation?: IsolationForm | null;
   // Working directory. Used by Codex (sandbox + RPC client) but ignored by
   // the Claude backend, which forces a neutral cwd internally so caller-cwd
   // context (git status, CLAUDE.md autoload) can't leak into the response.

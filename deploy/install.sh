@@ -3194,7 +3194,9 @@ verify_browser() {
 
 # Codex agents confine their own tool calls with bubblewrap, so `bwrap` has to
 # work for the service account or the read-only and workspace-write sandbox
-# settings have nothing to run in. On Ubuntu 24.04 the package alone is not
+# settings have nothing to run in. The office runs each agent in its own PID
+# namespace with the same bwrap (server/process-isolation.ts), and turns that
+# off at boot when bwrap does not work. On Ubuntu 24.04 the package alone is not
 # enough: the kernel ships with kernel.apparmor_restrict_unprivileged_userns=1
 # and the bubblewrap deb carries no AppArmor profile, so an unprivileged bwrap
 # lands in the restriction's deny-capabilities transition and dies with
@@ -3224,7 +3226,7 @@ configure_codex_sandbox() {
     return 0
   fi
   if ! bwrap_on_service_path && ! apt_install bubblewrap; then
-    log "warning: could not install the bubblewrap package, so codex agents have no sandbox to run their tools in (their read-only and workspace-write settings need it). Re-run this installer to retry; nothing else is affected."
+    log "warning: could not install the bubblewrap package, so codex agents have no sandbox to run their tools in (their read-only and workspace-write settings need it), and agents do not run in their own process namespace. Re-run this installer to retry; nothing else is affected."
     outcome_add "Codex's sandbox is not ready: the bubblewrap package could not be installed."
     return 0
   fi
@@ -3240,7 +3242,7 @@ configure_codex_sandbox() {
     return 0
   fi
   if ! userns_restricted; then
-    log "warning: bwrap does not work for $SERVICE_USER, and this box does not restrict unprivileged user namespaces, so AppArmor policy is not the cause and there is nothing safe to change. Codex agents cannot use their sandbox until this is fixed; nothing else is affected. bwrap said: $diag"
+    log "warning: bwrap does not work for $SERVICE_USER, and this box does not restrict unprivileged user namespaces, so AppArmor policy is not the cause and there is nothing safe to change. Codex agents cannot use their sandbox, and agents do not run in their own process namespace, until this is fixed; nothing else is affected. bwrap said: $diag"
     outcome_add "Codex's sandbox is not ready: bwrap does not work for the isomux service user."
     return 0
   fi
@@ -3251,7 +3253,7 @@ configure_codex_sandbox() {
   if diag=$(bwrap_smoke_test); then
     log "codex sandbox ready: loaded the $BWRAP_PROFILE_NAME AppArmor profile, bwrap now works for $SERVICE_USER"
   else
-    log "warning: the $BWRAP_PROFILE_NAME AppArmor profile is loaded and bwrap still does not work for $SERVICE_USER, so codex agents cannot use their sandbox. Nothing else is affected. bwrap said: $diag"
+    log "warning: the $BWRAP_PROFILE_NAME AppArmor profile is loaded and bwrap still does not work for $SERVICE_USER, so codex agents cannot use their sandbox and agents do not run in their own process namespace. Nothing else is affected. bwrap said: $diag"
     outcome_add "Codex's sandbox is not ready: bwrap does not work for the isomux service user."
   fi
 }
@@ -3261,13 +3263,16 @@ bwrap_on_service_path() {
   as_service_user env "PATH=$(service_path)" sh -c 'command -v bwrap' >/dev/null 2>&1
 }
 
-# The narrowest thing a codex sandbox does that the user-namespace restriction
-# breaks: a fresh network namespace with the filesystem bound through. Run as
-# the SERVICE ACCOUNT, because the restriction only applies to unprivileged
-# users - as root this would pass on a box where codex cannot start at all.
-# Prints whatever bwrap said, so a caller can show the real diagnostic.
+# The narrowest thing each use of bwrap does that the user-namespace
+# restriction breaks: a codex sandbox's fresh network namespace, and the
+# office's own PID namespace per agent (server/process-isolation.ts), both with
+# the filesystem bound through. Run as the SERVICE ACCOUNT, because the
+# restriction only applies to unprivileged users - as root this would pass on
+# a box where codex cannot start at all. Prints whatever bwrap said, so a
+# caller can show the real diagnostic.
 bwrap_smoke_test() {
-  as_service_user env "PATH=$(service_path)" bwrap --unshare-net --dev-bind / / /bin/true 2>&1
+  as_service_user env "PATH=$(service_path)" bwrap --unshare-net --dev-bind / / /bin/true 2>&1 &&
+    as_service_user env "PATH=$(service_path)" bwrap --dev-bind / / --unshare-pid --proc /proc /bin/true 2>&1
 }
 
 # True when the kernel is refusing unprivileged user namespaces to unconfined

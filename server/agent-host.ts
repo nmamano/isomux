@@ -11,6 +11,12 @@ import { chmod, mkdir, readFile, rm, writeFile } from "fs/promises";
 import { homedir, userInfo } from "os";
 import type { Readable, Writable } from "stream";
 import {
+  isolatedArgv,
+  ISOLATION_SETUP_FAILED,
+  signalIsolated,
+  statusHasExitCode,
+} from "./process-isolation.ts";
+import {
   runIsomuxDiff,
   type IsomuxDiffRequest,
   type IsomuxDiffRunResult,
@@ -51,6 +57,9 @@ export interface SpawnChildOptions {
   // the host's base environment.
   env?: Record<string, string | undefined>;
   stderr?: "pipe" | "ignore";
+  // Run argv in its own PID namespace (server/process-isolation.ts). The
+  // caller decides; the host only applies it.
+  isolate?: boolean;
 }
 
 export interface RunOptions {
@@ -107,6 +116,7 @@ function spawnLocalChild(
   argv: string[],
   options: SpawnChildOptions = {},
 ): AgentChild {
+  if (options.isolate) return spawnIsolatedLocalChild(argv, options);
   // detached: the child leads its own process group, so signalGroup reaches
   // its descendants too.
   const child = spawn(argv[0], argv.slice(1), {
@@ -121,6 +131,80 @@ function spawnLocalChild(
       try {
         process.kill(-child.pid, signal);
       } catch {}
+    },
+  }) as unknown as AgentChild;
+}
+
+// Called when a wrapped spawn fails its bwrap setup, on either host. Boot
+// sets it to the re-probe (process-isolation-state.ts).
+let isolationSetupFailureListener: (() => void) | null = null;
+
+export function setIsolationSetupFailureListener(
+  listener: (() => void) | null,
+): void {
+  isolationSetupFailureListener = listener;
+}
+
+export function notifyIsolationSetupFailure(): void {
+  isolationSetupFailureListener?.();
+}
+
+// The child is the outer bwrap of a new PID namespace
+// (server/process-isolation.ts). Signals reach the command inside, and a
+// failed bwrap setup is a start error (code ISOLATION_SETUP_FAILED) with no
+// "exit", as a failed spawn is.
+function spawnIsolatedLocalChild(
+  argv: string[],
+  options: SpawnChildOptions,
+): AgentChild {
+  const env = options.env ?? process.env;
+  const wrapped = isolatedArgv(argv, { dieWithParent: true, statusFd: 3 });
+  const child = spawn(wrapped[0], wrapped.slice(1), {
+    cwd: options.cwd,
+    env,
+    stdio: ["pipe", "pipe", options.stderr ?? "pipe", "pipe"],
+    detached: true,
+  });
+  let status = "";
+  const statusStream = child.stdio[3] as Readable | null;
+  statusStream?.setEncoding("utf8");
+  statusStream?.on("data", (chunk: string) => (status += chunk));
+  // "exit" waits for "close", when the status is complete.
+  let exit: [number | null, NodeJS.Signals | null] | null = null;
+  const emit = child.emit.bind(child);
+  child.emit = ((event: string | symbol, ...args: unknown[]) => {
+    if (event === "exit") {
+      exit = args as [number | null, NodeJS.Signals | null];
+      return true;
+    }
+    if (event === "close" && exit !== null) {
+      const [code, signal] = exit;
+      if (signal === null && !statusHasExitCode(status)) {
+        notifyIsolationSetupFailure();
+        emit(
+          "error",
+          Object.assign(
+            new Error(
+              `bwrap could not set up the PID namespace (exit ${code})`,
+            ),
+            { code: ISOLATION_SETUP_FAILED },
+          ),
+        );
+        return emit("close", null, null);
+      }
+      emit("exit", code, signal);
+    }
+    return emit(event, ...args);
+  }) as typeof child.emit;
+  return Object.assign(child, {
+    kill(signal: NodeJS.Signals = "SIGTERM") {
+      if (child.pid === undefined || child.exitCode !== null) return false;
+      (child as { killed: boolean }).killed = true;
+      return signalIsolated(child.pid, signal, "command");
+    },
+    signalGroup(signal: NodeJS.Signals) {
+      if (child.pid !== undefined)
+        signalIsolated(child.pid, signal, "namespace");
     },
   }) as unknown as AgentChild;
 }

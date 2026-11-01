@@ -86,6 +86,7 @@ import type {
   AppRecord,
   AppWire,
   AppListWire,
+  ProcessIsolationReason,
 } from "../shared/types.ts";
 import {
   listAllPresence,
@@ -173,6 +174,8 @@ import {
   peekMessageQueuesRaw,
   loadRecordTerminals,
   saveRecordTerminals,
+  loadProcessIsolation,
+  saveProcessIsolation,
   loadFreeModelMarkBackfillDone,
   saveFreeModelMarkBackfillDone,
 } from "./persistence.ts";
@@ -349,7 +352,16 @@ import {
 import { formatApiTokenDevice, lowercaseKey } from "../shared/identity.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
-import { setAgentHost } from "./agent-host.ts";
+import {
+  setAgentHost,
+  setIsolationSetupFailureListener,
+} from "./agent-host.ts";
+import {
+  processIsolationNow,
+  reportIsolationSetupFailure,
+  runProcessIsolationProbe,
+  setProcessIsolationSwitch,
+} from "./process-isolation-state.ts";
 import { matchRoute } from "./routes/match.ts";
 import { handleMcpRequest, type McpEndpointDeps } from "./mcp-endpoint.ts";
 import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
@@ -950,6 +962,9 @@ function createManagers(startOpts: StartServerOpts): void {
         : productionAppSupervisor);
   // Containers only: learn at boot whether Codex's sandbox can run here.
   void codexSandboxProbe();
+  // The owner's switch for one PID namespace per agent, read at each session
+  // start (process-isolation-state.ts).
+  setProcessIsolationSwitch(loadProcessIsolation);
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
   listCodexModelsSeam = startOpts.listCodexModels;
   codexModelDiscoveryTimeoutMs =
@@ -2341,8 +2356,16 @@ function officeSettingsVersion(): string {
       memberUsageCap().share(),
       loadRecordTerminals(),
       providerFallback().isEnabled(),
+      loadProcessIsolation(),
     ]),
   );
+}
+
+// What the owner's switch gives on this host: "on", or why agents do not run
+// in their own PID namespace (server/process-isolation.ts).
+function processIsolationStatusLine(): "on" | ProcessIsolationReason {
+  const status = processIsolationNow();
+  return status.state === "on" ? "on" : status.reason;
 }
 
 // office.setInstructions core: the prompt alone, guarded by the version of the
@@ -2375,6 +2398,7 @@ function applyOfficeSettings(
     memberUsageShare?: number;
     recordTerminals?: boolean;
     providerFallback?: boolean;
+    processIsolation?: boolean;
     expectedVersion: string;
   },
   actor: AuditActor,
@@ -2437,6 +2461,9 @@ function applyOfficeSettings(
       fields: [],
     });
   }
+  // Session starts from here on follow it; running sessions keep their form.
+  if (input.processIsolation !== undefined)
+    saveProcessIsolation(input.processIsolation);
   return { ok: true };
 }
 
@@ -5827,6 +5854,8 @@ function buildExecutorDeps(
         memberUsageShare: memberUsageCap().share(),
         recordTerminals: loadRecordTerminals(),
         providerFallback: providerFallback().isEnabled(),
+        processIsolation: loadProcessIsolation(),
+        processIsolationStatus: processIsolationStatusLine(),
       }),
       // Status reads the providers, so only while the cap is on.
       getMemberUsageStatus: async (provider) => ({
@@ -10305,6 +10334,11 @@ export async function runOfficeMain(): Promise<void> {
     // warning if the artifact is still unavailable.
     console.error("[codex safety] artifact unavailable at boot:", err);
   }
+  // Each agent in its own PID namespace (task 8db21c8b): the probe ends
+  // before the restore starts any agent, through the agent host that spawns.
+  // A wrapped spawn that fails its bwrap setup probes again.
+  setIsolationSetupFailureListener(() => void reportIsolationSetupFailure());
+  await runProcessIsolationProbe();
   const handle = await startServer();
   // Idle-eviction sweep: every minute, demote agents idle past the threshold to
   // lazy so they release their ~165MB subprocess. (Boot already lazy-restores

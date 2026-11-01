@@ -159,7 +159,11 @@ export class JsonRpcLiteClient {
 
   constructor(private readonly opts: JsonRpcLiteClientOptions = {}) {}
 
-  async start(): Promise<CodexSafetyPreflightResult> {
+  // isolate: run the App Server in its own PID namespace (danger-full-access
+  // sessions only; server/process-isolation.ts).
+  async start(
+    opts: { isolate?: boolean } = {},
+  ): Promise<CodexSafetyPreflightResult> {
     if (this.child || this.starting) {
       throw new Error("JsonRpcLiteClient.start() called twice");
     }
@@ -234,6 +238,7 @@ export class JsonRpcLiteClient {
         cwd: this.opts.cwd,
         env: effectiveEnv,
         stderr: "pipe",
+        ...(opts.isolate ? { isolate: true } : {}),
       });
     } finally {
       this.starting = false;

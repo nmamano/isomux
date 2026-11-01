@@ -2603,6 +2603,13 @@ export type UnavailableEngines = Partial<
 >;
 
 // Office features this host cannot run. Apps need systemd (server/app-hosting.ts).
+// Why agents do not run in their own PID namespace (server/process-isolation.ts).
+export type ProcessIsolationReason =
+  | "needs_linux"
+  | "no_bwrap"
+  | "denied"
+  | "turned_off";
+
 export type UnavailableFeatures = Partial<Record<"apps", "needs_linux">>;
 
 export type ServerMessage =

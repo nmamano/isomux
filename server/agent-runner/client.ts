@@ -15,7 +15,9 @@ import type {
   RunResult,
   SpawnChildOptions,
 } from "../agent-host.ts";
+import { notifyIsolationSetupFailure } from "../agent-host.ts";
 import type { IsomuxDiffRequest, IsomuxDiffRunResult } from "../isomux-diff.ts";
+import { ISOLATION_SETUP_FAILED } from "../process-isolation.ts";
 import {
   createFrameDecoder,
   encodeData,
@@ -306,6 +308,7 @@ export class RunnerChild extends EventEmitter implements AgentChild {
         cwd: options.cwd,
         fullEnv: definedEnv(env),
         stderr: options.stderr ?? "pipe",
+        ...(options.isolate ? { isolate: true } : {}),
       },
       {
         control: (message) => {
@@ -351,9 +354,12 @@ export class RunnerChild extends EventEmitter implements AgentChild {
     this.exited = true;
     this.stdout.push(null);
     this.stderr?.push(null);
-    if (this.pid === undefined) {
-      // The start failed (or the runner was unreachable): Node reports this
-      // as "error" with no "exit".
+    if (startError?.code === ISOLATION_SETUP_FAILED)
+      notifyIsolationSetupFailure();
+    if (this.pid === undefined || startError !== null) {
+      // The start failed (or the runner was unreachable, or an isolated
+      // child's bwrap setup failed after its spawn): Node reports this as
+      // "error" with no "exit".
       this.emit(
         "error",
         startError ??
@@ -388,13 +394,14 @@ export class RunnerChild extends EventEmitter implements AgentChild {
 
   kill(signal: NodeJS.Signals = "SIGTERM"): boolean {
     if (this.exited) return false;
-    this.stream.control({ type: "signal", signal });
+    this.stream.control({ type: "signal", signal, scope: "child" });
     this.killed = true;
     return true;
   }
 
   signalGroup(signal: NodeJS.Signals): void {
-    if (!this.exited) this.stream.control({ type: "signal", signal });
+    if (!this.exited)
+      this.stream.control({ type: "signal", signal, scope: "group" });
   }
 
   // Input this process has not sent: the runner holds at most the window.

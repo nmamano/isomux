@@ -22,6 +22,12 @@ import {
   processIsRunning,
   readProcessStartTicks,
 } from "./process-identity.ts";
+import {
+  isolatedArgv,
+  ISOLATION_SETUP_FAILED,
+  signalIsolated,
+  statusHasExitCode,
+} from "../../process-isolation.ts";
 import { lockDarwinFileUntilExit } from "./darwin-libsystem.ts";
 import { openCodeServerHealth } from "./server-health.ts";
 import {
@@ -35,6 +41,7 @@ import {
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import { openCodeSafetyPluginDir } from "./safety-plugin-tool.ts";
 import {
+  OPENCODE_ISOLATE_ENV,
   OPENCODE_LOG_ROTATE_BYTES,
   openCodeAuthHeader,
   openCodePortTaken,
@@ -50,6 +57,8 @@ interface ServerRecord {
   environmentRevision: string;
   configRevision: string;
   startTicks?: string;
+  // pid is the outer bwrap of a PID namespace (server/process-isolation.ts).
+  isolated?: boolean;
   safetyPlugin?: string;
   // Set while 2.1.4 still imports the OpenCode 1 sessions: such a server is
   // never adopted (a helper that died during the import left it).
@@ -81,6 +90,9 @@ const environmentRevision = required("OPENCODE_ENVIRONMENT_REVISION");
 // replacement path that this revision protects.
 const configRevision = required("OPENCODE_CONFIG_REVISION");
 const keepDebugOutput = process.env.ISOMUX_OPENCODE_DEBUG === "1";
+// The server runs in its own PID namespace (server/process-isolation.ts),
+// with no --die-with-parent: it outlives this helper.
+const isolate = process.env[OPENCODE_ISOLATE_ENV] === "1";
 // A server whose turn saw no event-stream frame within the deadline. It may
 // still answer health late, but it is never adopted again.
 const unresponsivePid = Number(process.env.OPENCODE_SERVER_UNRESPONSIVE_PID);
@@ -154,12 +166,16 @@ async function stop(record: ServerRecord): Promise<void> {
     );
     return;
   }
-  try {
-    process.kill(record.pid, "SIGTERM");
-  } catch {}
-  // 2.1.4 took up to 1.14 s to exit on SIGTERM with 16 turns (gate P7b), and
-  // it stops its own shell tools on the way out.
-  if (await exited(record, 3_000)) return;
+  if (record.isolated) {
+    if (await stopIsolated(record)) return;
+  } else {
+    try {
+      process.kill(record.pid, "SIGTERM");
+    } catch {}
+    // 2.1.4 took up to 1.14 s to exit on SIGTERM with 16 turns (gate P7b),
+    // and it stops its own shell tools on the way out.
+    if (await exited(record, 3_000)) return;
+  }
   // 2.1.4 starts each shell tool as the leader of its own process group
   // (core/src/shell.ts:315), so the server's group does not hold them all.
   // Read them before the kill: a killed server's children get a new parent.
@@ -171,6 +187,23 @@ async function stop(record: ServerRecord): Promise<void> {
     killIfSame(hop.pid, hop.pid, hop.startTicks);
   }
   await exited(record, 2_000);
+}
+
+// An isolated record's pid is the outer bwrap of the server's PID namespace
+// (server/process-isolation.ts), which has no handler: the SIGTERM goes to
+// the server inside. The outer bwrap exits with the server, but the
+// namespace's init stays while any process in it lives (a shell tool in its
+// own session), so its SIGKILL then ends the rest. False when the server
+// did not exit in time.
+async function stopIsolated(record: ServerRecord): Promise<boolean> {
+  const init = processDescendants(record.pid).find(
+    (hop) => hop.parentPid === record.pid,
+  );
+  signalIsolated(record.pid, "SIGTERM", "command");
+  if (!(await exited(record, 3_000))) return false;
+  if (!init) return true;
+  killIfSame(init.pid, init.pid, init.startTicks);
+  return exited(init, 2_000);
 }
 
 // SIGKILL to target (a pid, or a process group as -pid) while pid is still
@@ -186,7 +219,10 @@ function killIfSame(
   } catch {}
 }
 
-async function exited(record: ServerRecord, ms: number): Promise<boolean> {
+async function exited(
+  record: Pick<ServerRecord, "pid" | "startTicks">,
+  ms: number,
+): Promise<boolean> {
   const deadline = Date.now() + ms;
   for (;;) {
     if (!processIsRunning(record.pid)) return true;
@@ -448,38 +484,44 @@ for (let attempt = 0; attempt < 40; attempt++) {
   const stderrPath = join(debugDir, "stderr.log");
   const stdout = await open(stdoutPath, "w", 0o600);
   const stderr = await open(stderrPath, "w", 0o600);
-  const child = spawn(
+  // bwrap's JSON status: an exit-code line only when the server ran.
+  const statusPath = join(debugDir, "bwrap-status.json");
+  const status = isolate ? await open(statusPath, "w", 0o600) : null;
+  const serve = [
     binary,
-    [
-      "serve",
-      "--hostname",
-      "127.0.0.1",
-      "--port",
-      String(port),
-      "--print-logs",
-      // 2.1.4 refuses an uppercase level at start (T8).
-      "--log-level",
-      "info",
-    ],
-    {
-      cwd: serverCwd,
-      detached: true,
-      // OpenCode logs raw provider errors, including response bodies. Its own
-      // owner-only log above keeps the same lines. This private /tmp copy is
-      // read for startup and unlinked as soon as the server is healthy unless
-      // an operator explicitly enables debug capture.
-      stdio: ["ignore", stdout.fd, stderr.fd],
-      // One builder with the session's tool environment (supervisor.ts).
-      env: openCodeServerEnvironment(process.env, {
-        profileDir,
-        configPath,
-        configContent: configOverride,
-        password,
-      }),
-    },
-  );
+    "serve",
+    "--hostname",
+    "127.0.0.1",
+    "--port",
+    String(port),
+    "--print-logs",
+    // 2.1.4 refuses an uppercase level at start (T8).
+    "--log-level",
+    "info",
+  ];
+  const argv = isolate
+    ? isolatedArgv(serve, { dieWithParent: false, statusFd: 3 })
+    : serve;
+  const child = spawn(argv[0], argv.slice(1), {
+    cwd: serverCwd,
+    detached: true,
+    // OpenCode logs raw provider errors, including response bodies. Its own
+    // owner-only log above keeps the same lines. This private /tmp copy is
+    // read for startup and unlinked as soon as the server is healthy unless
+    // an operator explicitly enables debug capture.
+    stdio: status
+      ? ["ignore", stdout.fd, stderr.fd, status.fd]
+      : ["ignore", stdout.fd, stderr.fd],
+    // One builder with the session's tool environment (supervisor.ts).
+    env: openCodeServerEnvironment(process.env, {
+      profileDir,
+      configPath,
+      configContent: configOverride,
+      password,
+    }),
+  });
   child.on("error", () => {});
-  await Promise.all([stdout.close(), stderr.close()]);
+  await Promise.all([stdout.close(), stderr.close(), status?.close()]);
   child.unref();
   let identityLostAfterHealth = false;
   const healthy = child.pid ? await waitHealthy(child, port, password) : false;
@@ -496,6 +538,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
         configRevision,
         startTicks,
         safetyPlugin,
+        ...(isolate ? { isolated: true } : {}),
       };
       if (!keepDebugOutput)
         await rm(debugDir, { recursive: true, force: true });
@@ -513,11 +556,22 @@ for (let attempt = 0; attempt < 40; attempt++) {
       environmentRevision,
       configRevision,
       startTicks: readProcessStartTicks(child.pid) ?? undefined,
+      ...(isolate ? { isolated: true } : {}),
     });
+  // A wrap that bwrap could not set up: the supervisor probes again.
+  const setupFailed =
+    isolate &&
+    childExited(child) &&
+    child.signalCode === null &&
+    !statusHasExitCode(await readFile(statusPath, "utf8").catch(() => ""));
   const portTaken =
     child.exitCode === 1 &&
     openCodePortTaken(await readFile(stderrPath, "utf8").catch(() => ""), port);
   if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
+  if (setupFailed)
+    throw new Error(
+      `${ISOLATION_SETUP_FAILED}: bwrap could not set up the server's PID namespace.`,
+    );
   if (identityLostAfterHealth) continue;
   if (portTaken && lostPorts < OPENCODE_PORT_RETRIES) {
     lostPorts++;

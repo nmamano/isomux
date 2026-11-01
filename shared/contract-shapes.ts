@@ -31,6 +31,7 @@ import type {
   MemoryItem,
   OfficeSettings,
   PendingPromptKind,
+  ProcessIsolationReason,
   MembersChatMessage,
   WebhookDelivery,
   WebhookRule,
@@ -1034,6 +1035,9 @@ export interface OfficeSettingsReq {
   // The fallback to the office sign-in when a member's own sign-in reaches
   // its usage limit (server/provider-fallback.ts). Omitted preserves it.
   providerFallback?: boolean;
+  // One PID namespace per agent (server/process-isolation.ts). Omitted
+  // preserves it.
+  processIsolation?: boolean;
 }
 
 // `notes`: the usage note of each variable that has one (integrations A4).
@@ -1442,6 +1446,10 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "name"> & {
   memberUsageShare?: number;
   recordTerminals?: boolean;
   providerFallback?: boolean;
+  // The owner's switch, and what it gives on this host: "on", or why agents
+  // do not run in their own PID namespace.
+  processIsolation?: boolean;
+  processIsolationStatus?: "on" | ProcessIsolationReason;
 };
 
 // office.getMemberUsageStatus response: the member usage cap's status lines,

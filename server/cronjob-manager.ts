@@ -87,7 +87,9 @@ import {
   type EditLogUser,
 } from "./edit-target.ts";
 import { FAILED_EDIT_TEXT_KEY } from "../shared/failed-edit.ts";
-import { memorySection } from "./system-prompt.ts";
+import { memorySection, processIsolationPromptLine } from "./system-prompt.ts";
+import type { IsolationForm } from "./process-isolation.ts";
+import { sessionIsolationForm } from "./process-isolation-state.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import type {
   Backend,
@@ -670,6 +672,12 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     cronjob: Cronjob,
     runId?: string,
     trigger?: CronjobRun["trigger"],
+    // The run's PID namespace form, the same value its session options get.
+    // Inspection takes the form a run starting now would get.
+    isolation: IsolationForm | null = sessionIsolationForm({
+      agentType: cronjob.agentType,
+      codexSandbox: cronjob.codexSandbox,
+    }),
   ): string {
     const officeConfig = loadOfficeConfig();
     // humanizeSchedule produces sentence-case ("Daily at 09:00"); lowercase the
@@ -757,6 +765,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         prompt += `\n\n## Special instructions for "${cronjob.username}"\n\n${ownerRecord.memberPrompt}`;
       }
     }
+    prompt += processIsolationPromptLine(isolation);
     // Auto-loaded OFFICE memory (a cron job has no room or agent identity of its
     // own; member memory is intentionally NOT injected - see the member-memory
     // auto-load boundary in the design doc). Rendered via the injected seam + the
@@ -1398,7 +1407,17 @@ How to answer questions about Isomux itself: the source lives at https://github.
       return run;
     }
 
-    const systemPrompt = buildCronjobSystemPrompt(job, runId, trigger);
+    // One decision for the spawn and the prompt line (task 8db21c8b).
+    const isolation = sessionIsolationForm({
+      agentType: job.agentType,
+      codexSandbox: job.codexSandbox,
+    });
+    const systemPrompt = buildCronjobSystemPrompt(
+      job,
+      runId,
+      trigger,
+      isolation,
+    );
     // Resolve env up-front so a broken env file surfaces as a "Failed to create
     // session" run row instead of a stream-time error. Falls back to
     // process.env when no env file is configured for the cronjob owner.
@@ -1435,6 +1454,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       };
     }
     const opts: CreateSessionOptions = {
+      isolation,
       agentId: cronjobRunStreamId(runId),
       cwd: job.cwd,
       systemPrompt,
@@ -1855,8 +1875,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
       throw openCodeDeletedJobError();
     }
     rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
+    // One decision for the spawn and the prompt line (task 8db21c8b), from
+    // the run's snapshots, as the session options below.
+    const isolation = sessionIsolationForm({
+      agentType: run.agentTypeSnapshot,
+      codexSandbox: run.codexSandboxSnapshot,
+    });
     const systemPrompt = job
-      ? buildCronjobSystemPrompt(job, run.id, run.trigger)
+      ? buildCronjobSystemPrompt(job, run.id, run.trigger, isolation)
       : "";
     // Resolve env before minting so a broken env file cannot leak a token.
     // Claude and Codex get a rotated RUN token. OpenCode gets no token because
@@ -1879,6 +1905,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       };
     }
     return {
+      isolation,
       agentId: cronjobRunStreamId(run.id),
       cwd: run.cwdSnapshot,
       systemPrompt,
