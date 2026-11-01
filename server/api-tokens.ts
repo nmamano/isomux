@@ -49,6 +49,8 @@ interface StoredApiToken extends ApiTokenWire {
   lastSequence: number;
   lastDrainedAt: number | null;
   inbox?: ApiTokenInboxMessage[]; // Only retained if a legacy migration could not finish.
+  // A replies-only token: the agents that wrote to it, which it may answer.
+  repliedAgentIds?: string[];
 }
 
 export interface ResolvedApiToken {
@@ -208,6 +210,20 @@ function ensureLoaded(): void {
         (value.inbox !== undefined || lastSequence !== value.lastSequence)
       )
         migrated = true;
+      // A malformed set answers no agent: it never widens what the token may
+      // do.
+      let repliedAgentIds: string[] | undefined;
+      if (value.repliedAgentIds !== undefined) {
+        if (
+          Array.isArray(value.repliedAgentIds) &&
+          value.repliedAgentIds.every((agentId) => typeof agentId === "string")
+        ) {
+          repliedAgentIds = value.repliedAgentIds;
+        } else {
+          console.error("Ignoring malformed API token replied agents:", id);
+          repliedAgentIds = [];
+        }
+      }
       const record: StoredApiToken = {
         id,
         userId: value.userId,
@@ -222,6 +238,7 @@ function ensureLoaded(): void {
           ? { limits: parseApiTokenLimits(value.limits)! }
           : {}),
         lastSequence,
+        ...(repliedAgentIds ? { repliedAgentIds } : {}),
         ...(migrationFailed && inbox.length ? { inbox } : {}),
         lastDrainedAt: lastDrainedAtValid ? value.lastDrainedAt! : null,
       };
@@ -546,6 +563,13 @@ export function apiTokenRoomsById(tokenId: string): readonly string[] | null {
   return tokens!.get(tokenId)?.limits?.rooms ?? null;
 }
 
+// Whether this agent wrote to the token, so a replies-only token may answer
+// it. False for an unknown token.
+export function apiTokenHeardFrom(tokenId: string, agentId: string): boolean {
+  ensureLoaded();
+  return tokens!.get(tokenId)?.repliedAgentIds?.includes(agentId) ?? false;
+}
+
 export async function enqueueApiTokenInboxMessage(input: {
   tokenId: string;
   userId: string;
@@ -580,7 +604,25 @@ export async function enqueueApiTokenInboxMessage(input: {
       senderAgentName: input.senderAgentName,
       senderRoomName: input.senderRoomName,
     };
-    commitEntry(record, message);
+    // A replies-only token may answer this agent from now on. Undone if the
+    // entry is not committed, so a failed write grants nothing.
+    const heard =
+      record.limits?.repliesOnly === true &&
+      !(record.repliedAgentIds ?? []).includes(input.senderAgentId);
+    if (heard)
+      record.repliedAgentIds = [
+        ...(record.repliedAgentIds ?? []),
+        input.senderAgentId,
+      ];
+    try {
+      commitEntry(record, message);
+    } catch (err) {
+      if (heard)
+        record.repliedAgentIds = record.repliedAgentIds!.filter(
+          (id) => id !== input.senderAgentId,
+        );
+      throw err;
+    }
     return {
       ok: true as const,
       message,

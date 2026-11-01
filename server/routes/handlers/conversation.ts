@@ -512,6 +512,9 @@ export function conversationHandlers(
         // A personal token is the issuing human, not a separate machine
         // principal. Keeping the user sender kind preserves human-input
         // completion notifications; only the server-derived device differs.
+        // A replies-only token's device carries the marker, so its message
+        // reaches the agent as data.
+        const repliesOnly = ctx.identity.apiTokenLimits?.repliesOnly === true;
         const r = await deps.sendAsApi(
           ctx.params.id,
           b.text,
@@ -520,11 +523,13 @@ export function conversationHandlers(
             formatApiTokenDevice(
               ctx.identity.apiTokenName ?? "unknown",
               ctx.identity.apiTokenId ?? "reply unavailable: missing token id",
+              repliesOnly,
             ),
           )!,
           ctx.identity.apiTokenId ?? "",
-          // An outside model's message never answers a pending prompt.
-          { refusePromptAnswer: ctx.via === "mcp" },
+          // An outside model's message, or a replies-only token's, never
+          // answers a pending prompt.
+          { refusePromptAnswer: ctx.via === "mcp" || repliesOnly },
         );
         if (!r.ok) return fail(r.status, r.code, r.message);
         return ok({

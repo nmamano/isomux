@@ -38,13 +38,17 @@ export interface ApiTokenLimits {
   // Ordinary room ids. The token reaches a room only while the member can
   // access it too.
   rooms?: string[];
+  // Agent writes only as replies: a send, an abort or a queue cancel, and only
+  // to an agent that wrote to the token first. Needs agents write.
+  repliesOnly?: true;
 }
 
 // A route's place in the limits. "always": every token may call it (its own
 // inbox, the agent reference).
 export type RouteTokenArea =
-  | { area: ApiTokenArea; level: ApiTokenAccess }
-  | "always";
+  // reply: a replies-only token may call this route on an agent (:id) that
+  // wrote to it. Only on agents write routes.
+  { area: ApiTokenArea; level: ApiTokenAccess; reply?: true } | "always";
 
 // Write access to these areas lets the holder reach everything: code on the
 // box, text in every agent's prompt, an agent that acts with its manager's
@@ -77,13 +81,30 @@ const READ_ONLY: { areas: ApiTokenAreaLevels } = {
   ),
 };
 
+const TALK_TO_AGENTS: { areas: ApiTokenAreaLevels } = {
+  areas: { ...READ_ONLY.areas, agents: "write" },
+};
+
 export const API_TOKEN_PRESETS: {
   readOnly: { areas: ApiTokenAreaLevels };
   talkToAgents: { areas: ApiTokenAreaLevels };
+  repliesOnly: { areas: ApiTokenAreaLevels; repliesOnly: true };
 } = {
   readOnly: READ_ONLY,
-  talkToAgents: { areas: { ...READ_ONLY.areas, agents: "write" } },
+  talkToAgents: TALK_TO_AGENTS,
+  repliesOnly: { areas: TALK_TO_AGENTS.areas, repliesOnly: true },
 };
+
+// Whether write access to `area` under `limits` lets the holder reach
+// everything (FULL_ACCESS_WRITE_AREAS). Agents write is not, while replies
+// only is on.
+export function writesEqualFullAccess(
+  area: ApiTokenArea,
+  limits: Pick<ApiTokenLimits, "repliesOnly"> | undefined,
+): boolean {
+  if (area === "agents" && limits?.repliesOnly) return false;
+  return FULL_ACCESS_WRITE_AREAS.has(area);
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -92,13 +113,18 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 const KNOWN_AREAS: ReadonlySet<string> = new Set(API_TOKEN_AREAS);
 
 // null: not a valid limits value (no axis, an unknown area or level, a bad or
-// repeated room id, or extra keys). Full access is no limits at all, never an
-// empty value.
+// repeated room id, replies only other than true or without agents write, or
+// extra keys). Full access is no limits at all, never an empty value.
 export function parseApiTokenLimits(value: unknown): ApiTokenLimits | null {
   if (!isPlainObject(value)) return null;
   const keys = Object.keys(value);
   if (keys.length === 0) return null;
-  if (keys.some((key) => key !== "areas" && key !== "rooms")) return null;
+  if (
+    keys.some(
+      (key) => key !== "areas" && key !== "rooms" && key !== "repliesOnly",
+    )
+  )
+    return null;
   const out: ApiTokenLimits = {};
   if ("areas" in value) {
     const areas = value.areas;
@@ -118,6 +144,12 @@ export function parseApiTokenLimits(value: unknown): ApiTokenLimits | null {
       return null;
     if (new Set(rooms).size !== rooms.length) return null;
     out.rooms = [...(rooms as string[])];
+  }
+  if ("repliesOnly" in value) {
+    if (value.repliesOnly !== true) return null;
+    // Absent areas is every area, agents write included.
+    if (out.areas && out.areas.agents !== "write") return null;
+    out.repliesOnly = true;
   }
   return out;
 }

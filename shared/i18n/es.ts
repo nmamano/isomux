@@ -900,6 +900,9 @@ Cosas que puedes hacer por él:
   "settings.apiTokens.access.full": "Acceso completo",
   "settings.apiTokens.access.readOnly": "Solo lectura",
   "settings.apiTokens.access.talkToAgents": "Hablar con agentes",
+  "settings.apiTokens.access.repliesOnly": "Solo respuestas",
+  "settings.apiTokens.repliesOnlyHint":
+    "Solo envía a los agentes que le escribieron primero",
   "settings.apiTokens.access.custom": "Personalizado",
   "settings.apiTokens.level.none": "Ninguno",
   "settings.apiTokens.level.read": "Lectura",
@@ -909,6 +912,8 @@ Cosas que puedes hacer por él:
   "settings.apiTokens.customAccess": "Personalizado ({areas})",
   "settings.apiTokens.areaLevel": "{area}: {level}",
   "settings.apiTokens.noAreas": "ninguna área",
+  "settings.apiTokens.allAreas": "todas las áreas",
+  "settings.apiTokens.repliesOnlyItem": "solo respuestas",
   "settings.apiTokens.rooms": "Salas",
   "settings.apiTokens.rooms.all": "Todas las salas",
   "settings.apiTokens.rooms.some": "Algunas salas",

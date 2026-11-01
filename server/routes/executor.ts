@@ -356,6 +356,33 @@ export async function executeRoute(
     );
   }
 
+  // A replies-only token writes to an agent only as a reply (a send, an abort
+  // or a queue cancel) and only once that agent wrote to it. Every other
+  // agent write is an order.
+  const tokenArea = route.tokenArea;
+  if (
+    identity.apiTokenLimits?.repliesOnly &&
+    typeof tokenArea === "object" &&
+    tokenArea.area === "agents" &&
+    tokenArea.level === "write" &&
+    !(
+      tokenArea.reply &&
+      deps.guardDeps.apiTokenHeardFrom(
+        identity.apiTokenId ?? "",
+        params.id ?? "",
+      )
+    )
+  ) {
+    return render(
+      fail(
+        403,
+        "forbidden",
+        "This API token may only reply to an agent that wrote to it.",
+        { area: "agents", level: "write", repliesOnly: true },
+      ),
+    );
+  }
+
   const authz = runAuthorize(
     route.auth,
     identity,

@@ -58,6 +58,7 @@ import {
   formatPrefix,
   formatAgentSenderPrefix,
   defuseSenderLabels,
+  isRepliesOnlyApiTokenDevice,
   type AgentSenderTrust,
   formatAppSenderPrefix,
   formatCronjobSenderPrefix,
@@ -8511,10 +8512,12 @@ export function createAgentManager(deps: ManagerDeps) {
     // or the receiver itself is defused, so no line of it reads as a
     // server-written agent or member label. A member already has member
     // authority, and keeps the bytes the immediate path sends; the receiver's
-    // own handoff brief or scheduled note is its own text.
+    // own handoff brief or scheduled note is its own text. A replies-only API
+    // token does not have member authority.
     const body = m.sdkText ?? m.text;
     const own =
-      m.sender.kind === "user" ||
+      (m.sender.kind === "user" &&
+        !isRepliesOnlyApiTokenDevice(m.sender.device)) ||
       (m.sender.kind === "agent" && m.sender.agentId === receiverAgentId);
     return `${queuedItemPrefix(m, receiverAgentId)}${own ? body : defuseSenderLabels(body)}`;
   }
@@ -10114,9 +10117,12 @@ export function createAgentManager(deps: ManagerDeps) {
     // it already made; typed replies claim here. Both paths pass through
     // settleChoiceInteraction(), the sole state transition from pending. Every
     // early-return path below must therefore exclude a claimed choice.
+    // A replies-only API token's message is data: it answers no menu, runs no
+    // command, and its body is defused like an agent's.
+    const asData = isRepliesOnlyApiTokenDevice(device);
     const claimedChoice =
       opts?.claimedChoice ??
-      (ask ? null : claimTypedChoiceInteraction(managed, text));
+      (ask || asData ? null : claimTypedChoiceInteraction(managed, text));
 
     // Route through queue when busy. Multi-step pending flows (permission /
     // resume / model / effort) need the existing path because the user's reply
@@ -10124,7 +10130,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // /new etc. can preempt rather than queue.
     // An ask reply is the member's answer, typed in a field that is
     // not the composer: "/clear" there is text, not a command.
-    const isSlash = !ask && text.startsWith("/");
+    const isSlash = !ask && !asData && text.startsWith("/");
     // A new message retries a queue kept after a backend failure. The release
     // starts that flush before this message is handled, so the queue goes
     // first unless the flush waits (usage-cap read, in-flight sample); then
@@ -10909,7 +10915,8 @@ export function createAgentManager(deps: ManagerDeps) {
     const prefix = nativeCommand
       ? ""
       : `${formatPrefix({ username, device })}${ask ? askReplyNote(ask, managed.sessionManager.sessionId) : ""}`;
-    const prefixedText = prefix ? `${prefix}${text}` : text;
+    const body = asData ? defuseSenderLabels(text) : text;
+    const prefixedText = prefix ? `${prefix}${body}` : body;
     try {
       await runAgentTurn({
         managed,

@@ -30,6 +30,7 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     killedAgentManagerUserId: (agentId) => (agentId === "aDead" ? "u2" : null),
     killedAgentLastRoomId: () => null,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
     getUserByName: (name) => (name === "Nil" ? { id: "u1" } : null),
     getUserById: (userId) =>
       userId === "u-owner"

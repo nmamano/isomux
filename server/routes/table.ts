@@ -578,7 +578,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // An operator stops any agent it can reach; every agent stops any agent it
     // may message (see agentAbort).
     auth: cap(["agent:manage", "agent:send-as-self"], agentAbort),
-    tokenArea: { area: "agents", level: "write" },
+    tokenArea: { area: "agents", level: "write", reply: true },
     emits: [],
   }),
   defineRoute<EditAgentReq, AgentEnvelope>({
@@ -750,7 +750,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       messageSend,
     ),
     plainText: { params: MESSAGE_PLAIN_TEXT_PARAMS },
-    tokenArea: { area: "agents", level: "write" },
+    tokenArea: { area: "agents", level: "write", reply: true },
     emits: ["log_entry", "interaction_added", "agent_updated"],
     preconditions: [
       "messageRecipientExists",
@@ -810,7 +810,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // Every agent may take back a message it sent; cancelling anything else
     // needs queueCancelAny's reach, which the handler checks.
     auth: cap(["agent:converse", "agent:send-as-self"], queueCancelAccess),
-    tokenArea: { area: "agents", level: "write" },
+    tokenArea: { area: "agents", level: "write", reply: true },
     emits: [],
   }),
   // The receiver's waiting messages, as the chat's queue chips show them. Same

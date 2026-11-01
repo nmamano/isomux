@@ -52,6 +52,7 @@ const deps: GuardDeps = {
   killedAgentLastRoomId: () => null,
   roomExists: () => false,
   cronRunVisibleTo: () => false,
+  apiTokenHeardFrom: () => false,
 };
 
 const allowGuard: Guard = () => ({ ok: true });

@@ -22,6 +22,7 @@ import { STATE_ROOT } from "./config.ts";
 import {
   API_TOKEN_LAST_USED_PERSIST_INTERVAL_MS,
   API_TOKEN_LOG_DIR,
+  apiTokenHeardFrom,
   loadApiTokens,
   sendApiTokenMessage,
   _testResetApiTokens,
@@ -232,6 +233,72 @@ describe("personal API token persistence", () => {
       );
     } finally {
       error.mockRestore();
+    }
+  });
+
+  it("a replies-only token hears an agent once it writes, across a reload, and a bad set fails closed", async () => {
+    // Task 23339bea, slice 3: the agents a replies-only token may answer.
+    const minted = await mintApiToken({
+      userId: "u1",
+      name: "Replies",
+      expiresInDays: null,
+      limits: { repliesOnly: true },
+    });
+    const id = minted.apiToken.id;
+    expect(apiTokenHeardFrom(id, "a1")).toBe(false);
+
+    // The token's own send to an agent does not count.
+    const sent = await sendApiTokenMessage(
+      id,
+      {
+        targetAgentId: "a2",
+        targetAgentName: "Second",
+        targetRoomName: "Lab",
+        text: "request",
+      },
+      async () => ({ ok: true }),
+    );
+    expect(sent.ok).toBe(true);
+    expect(apiTokenHeardFrom(id, "a2")).toBe(false);
+
+    const reply = await enqueueApiTokenInboxMessage({
+      tokenId: id,
+      userId: "u1",
+      text: "result",
+      senderAgentId: "a1",
+      senderAgentName: "Worker",
+      senderRoomName: "Lab",
+    });
+    expect(reply.ok).toBe(true);
+    expect(apiTokenHeardFrom(id, "a1")).toBe(true);
+    expect(apiTokenHeardFrom(id, "a2")).toBe(false);
+    expect(apiTokenHeardFrom("no-such-token", "a1")).toBe(false);
+    // The set is the server's own: it is not on the wire.
+    const listed = listApiTokens("u1").find((t) => t.id === id);
+    expect(listed && "repliedAgentIds" in listed).toBe(false);
+
+    _testResetApiTokens();
+    expect(apiTokenHeardFrom(id, "a1")).toBe(true);
+
+    // A hand-edited set that is not a list of ids: the token still loads, and
+    // answers no agent.
+    for (const bad of ["a1", ["a1", 7], { a1: true }]) {
+      const stored = JSON.parse(readFileSync(file, "utf-8"));
+      stored[id].repliedAgentIds = bad;
+      writeFileSync(file, JSON.stringify(stored));
+      _testResetApiTokens();
+      const warn = spyOn(console, "warn").mockImplementation(() => undefined);
+      const error = spyOn(console, "error").mockImplementation(() => undefined);
+      try {
+        expect(resolveApiToken(minted.token)?.id).toBe(id);
+        expect({ bad, heard: apiTokenHeardFrom(id, "a1") }).toEqual({
+          bad,
+          heard: false,
+        });
+      } finally {
+        warn.mockRestore();
+        error.mockRestore();
+      }
     }
   });
 

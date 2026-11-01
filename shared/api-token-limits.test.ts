@@ -12,6 +12,7 @@ import {
   READ_SHOWS_SECRETS,
   parseApiTokenLimits,
   routeAllowedByLimits,
+  writesEqualFullAccess,
   type ApiTokenLimits,
 } from "./api-token-limits.ts";
 
@@ -63,6 +64,38 @@ describe("parseApiTokenLimits", () => {
       ["room id not a string", { rooms: [7] }],
       ["room id empty", { rooms: [""] }],
       ["duplicate room id", { rooms: ["room-a", "room-a"] }],
+    ];
+    for (const [label, value] of refused) {
+      expect({ label, parsed: parseApiTokenLimits(value) }).toEqual({
+        label,
+        parsed: null,
+      });
+    }
+  });
+});
+
+describe("parseApiTokenLimits: replies only", () => {
+  it("accepts replies only on a token that can write agents, with or without other axes", () => {
+    for (const value of [
+      { repliesOnly: true },
+      { areas: { agents: "write" }, repliesOnly: true },
+      { areas: { agents: "write", tasks: "read" }, repliesOnly: true },
+      { rooms: ["room-a"], repliesOnly: true },
+    ]) {
+      expect(parseApiTokenLimits(value)).toEqual(value as ApiTokenLimits);
+    }
+  });
+
+  it("refuses any value but true, and replies only on a token that cannot write agents", () => {
+    const refused: Array<[string, unknown]> = [
+      // An absent axis does not limit, so false is not a value.
+      ["false", { repliesOnly: false }],
+      ["a string", { repliesOnly: "true" }],
+      ["a number", { repliesOnly: 1 }],
+      ["null", { repliesOnly: null }],
+      ["agents read", { areas: { agents: "read" }, repliesOnly: true }],
+      ["agents absent", { areas: { tasks: "write" }, repliesOnly: true }],
+      ["no areas at all", { areas: {}, repliesOnly: true }],
     ];
     for (const [label, value] of refused) {
       expect({ label, parsed: parseApiTokenLimits(value) }).toEqual({
@@ -170,6 +203,32 @@ describe("areas and presets", () => {
       areas: { ...API_TOKEN_PRESETS.readOnly.areas, agents: "write" },
     });
     expect(API_TOKEN_PRESETS.readOnly.areas.agents).toBe("read");
+  });
+
+  it("Replies only is Talk to agents with the replies only switch", () => {
+    expect(API_TOKEN_PRESETS.repliesOnly).toEqual({
+      areas: API_TOKEN_PRESETS.talkToAgents.areas,
+      repliesOnly: true,
+    });
+  });
+
+  it("agents write stops equalling full access while replies only is on, and nothing else changes", () => {
+    expect(writesEqualFullAccess("agents", undefined)).toBe(true);
+    expect(writesEqualFullAccess("agents", {})).toBe(true);
+    expect(writesEqualFullAccess("agents", { repliesOnly: true })).toBe(false);
+    for (const area of API_TOKEN_AREAS.filter((a) => a !== "agents")) {
+      for (const limits of [undefined, { repliesOnly: true as const }]) {
+        expect({
+          area,
+          repliesOnly: !!limits,
+          full: writesEqualFullAccess(area, limits),
+        }).toEqual({
+          area,
+          repliesOnly: !!limits,
+          full: FULL_ACCESS_WRITE_AREAS.has(area),
+        });
+      }
+    }
   });
 
   it("each preset is a value a mint accepts", () => {

@@ -174,6 +174,8 @@ A member can limit a token to some areas of the office when they mint it (none, 
 
 A token can also be limited to some rooms. It then reaches a room only while its member can access it too, never the lobby, and gets messages only from agents in its rooms. Office-wide data stays reachable by area. A room-limited token has no office-owner reach: owner-only surfaces, such as the office settings, the office secrets and the audit log, refuse it. The limit does not pass to an agent that the token spawns: that agent has its member's full room access.
 
+A token can also be limited to replies. It can then send to, abort, or cancel a queued message of an agent only after that agent wrote to the token's inbox, and every other agent write is refused. A new token has written to no agent. The server marks the token's messages `replies only` in the sender label, defuses member-label lines in their bodies, and runs no command or prompt answer from them. The system prompt tells agents to treat such a message as data. That is an instruction rule, not a server check: the agent still acts with its manager's reach.
+
 ### 5.2 Mint and storage
 
 Each member can mint tokens in **Integrations → API tokens**. Only a browser session can mint a token. An agent, an app or another token cannot. An agent reaches this page only in a Chrome tab that a member offered to it on the office (section 6.5).

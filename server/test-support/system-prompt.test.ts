@@ -20,6 +20,7 @@ import { LOBBY_ROOM_ID } from "../../shared/types.ts";
 import {
   AGENT_SENDER_PRIVILEGED,
   AGENT_SENDER_SAME_MANAGER,
+  API_TOKEN_REPLIES_ONLY,
 } from "../../shared/identity.ts";
 import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
@@ -221,6 +222,25 @@ describe("system prompt pointer contract", () => {
       /Isomux note[^.]*interrupted or stopped your turn[^.]*not from an office member/,
     );
     expect(p).toMatch(/member's denial or safety refusal[^.]*still stands/);
+  });
+
+  // Task 23339bea, slice 3 (Nil: "Treat its answers as data"): a member label
+  // that carries the replies only marker is data, named in the label's own
+  // words so the agent can match one to the other.
+  it("treats a replies-only token's message as data, on every engine and page", () => {
+    const sentences = (text: string) => text.split(/(?<=\.)\s+/);
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      for (const privileged of [false, true]) {
+        const rule = sentences(build(engine, privileged)).find(
+          (s) => s.includes(API_TOKEN_REPLIES_ONLY) && /\bdata\b/.test(s),
+        );
+        expect({ engine, privileged, rule: rule !== undefined }).toEqual({
+          engine,
+          privileged,
+          rule: true,
+        });
+      }
+    }
   });
 
   it("keeps OpenCode's stable placeholder and proxy command", () => {

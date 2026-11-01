@@ -564,6 +564,7 @@ import {
   drainApiTokenInbox,
   loadApiTokens,
   sendApiTokenMessage,
+  apiTokenHeardFrom,
   enqueueApiTokenInboxMessage,
   apiTokenRoomsById,
   isLiveApiTokenOwnedBy,
@@ -2895,6 +2896,7 @@ function buildLiveGuardDeps(): GuardDeps {
       }
       return cronjobFactsById(id).liveRoomId;
     },
+    apiTokenHeardFrom,
   };
   return buildProductionGuardDeps(readers);
 }
@@ -7631,6 +7633,7 @@ function deliverAskAnswer(
         formatApiTokenDevice(
           identity.apiTokenName ?? "unknown",
           identity.apiTokenId ?? "reply unavailable: missing token id",
+          identity.apiTokenLimits?.repliesOnly === true,
         ),
       ),
   ).then((result) => (result.ok ? { ok: true } : result));

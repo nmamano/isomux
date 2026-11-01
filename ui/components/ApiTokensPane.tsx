@@ -18,7 +18,7 @@ import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import {
   API_TOKEN_AREAS,
   API_TOKEN_PRESETS,
-  FULL_ACCESS_WRITE_AREAS,
+  writesEqualFullAccess,
   type ApiTokenAccess,
   type ApiTokenArea,
   type ApiTokenAreaLevels,
@@ -32,7 +32,13 @@ type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
 
 // "full" mints without limits; the presets fill the area list, and any change
 // to it makes the choice "custom".
-const ACCESS_CHOICES = ["full", "readOnly", "talkToAgents", "custom"] as const;
+const ACCESS_CHOICES = [
+  "full",
+  "readOnly",
+  "talkToAgents",
+  "repliesOnly",
+  "custom",
+] as const;
 type AccessChoice = (typeof ACCESS_CHOICES)[number];
 type Areas = ApiTokenAreaLevels;
 
@@ -40,6 +46,7 @@ const ACCESS_LABEL: Record<AccessChoice, PlainMessageKey> = {
   full: "settings.apiTokens.access.full",
   readOnly: "settings.apiTokens.access.readOnly",
   talkToAgents: "settings.apiTokens.access.talkToAgents",
+  repliesOnly: "settings.apiTokens.access.repliesOnly",
   custom: "settings.apiTokens.access.custom",
 };
 
@@ -79,12 +86,12 @@ function sameAreas(a: Areas, b: Areas): boolean {
 // The choice a token's limits match: no limits is full access, a preset by its
 // name, anything else custom.
 function accessOf(limits: ApiTokenLimits | undefined): AccessChoice {
-  if (!limits?.areas) return "full";
+  if (!limits?.areas) return limits?.repliesOnly ? "custom" : "full";
+  const talk = sameAreas(limits.areas, API_TOKEN_PRESETS.talkToAgents.areas);
+  if (limits.repliesOnly) return talk ? "repliesOnly" : "custom";
   if (sameAreas(limits.areas, API_TOKEN_PRESETS.readOnly.areas))
     return "readOnly";
-  if (sameAreas(limits.areas, API_TOKEN_PRESETS.talkToAgents.areas))
-    return "talkToAgents";
-  return "custom";
+  return talk ? "talkToAgents" : "custom";
 }
 
 export function ApiTokensPane() {
@@ -95,6 +102,8 @@ export function ApiTokensPane() {
   const [expiresInDays, setExpiresInDays] = useState<ExpiryChoice>(30);
   const [access, setAccess] = useState<AccessChoice>("full");
   const [areas, setAreas] = useState<Areas>({});
+  // Only while Agents is Read and write.
+  const [repliesOnly, setRepliesOnly] = useState(false);
   // "all": no room limit. "some": only the picked rooms.
   const [roomScope, setRoomScope] = useState<"all" | "some">("all");
   const [pickedRooms, setPickedRooms] = useState<string[]>([]);
@@ -131,7 +140,14 @@ export function ApiTokensPane() {
     apiFetch<ApiTokenCreateRes>("POST", "/api/me/api-tokens", {
       name: name.trim(),
       expiresInDays,
-      ...mintLimits(access, areas, roomScope, pickedRooms, memberRooms),
+      ...mintLimits(
+        access,
+        areas,
+        repliesOnly,
+        roomScope,
+        pickedRooms,
+        memberRooms,
+      ),
     })
       .then((res) => {
         setTokens((current) => [res.apiToken, ...current]);
@@ -153,16 +169,23 @@ export function ApiTokensPane() {
     if (choice === "full") setAreas({});
     else if (choice !== "custom")
       setAreas({ ...API_TOKEN_PRESETS[choice].areas });
+    if (choice !== "custom") setRepliesOnly(choice === "repliesOnly");
   }
 
   function setArea(area: ApiTokenArea, level: ApiTokenAccess | "none") {
     setAccess("custom");
+    if (area === "agents" && level !== "write") setRepliesOnly(false);
     setAreas((current) => {
       const next = { ...current };
       if (level === "none") delete next[area];
       else next[area] = level;
       return next;
     });
+  }
+
+  function toggleRepliesOnly(on: boolean) {
+    setRepliesOnly(on);
+    setAccess(accessOf({ areas, ...(on ? { repliesOnly: true } : {}) }));
   }
 
   function revoke(id: string) {
@@ -310,10 +333,31 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
                 key={area}
                 area={area}
                 level={areas[area] ?? "none"}
+                repliesOnly={repliesOnly}
                 onChange={(level) => setArea(area, level)}
               />
             ))}
           </div>
+        )}
+        {access !== "full" && areas.agents === "write" && (
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginTop: 10,
+              fontSize: 12,
+            }}
+          >
+            <input
+              type="checkbox"
+              data-testid="api-token-replies-only"
+              checked={repliesOnly}
+              onChange={(event) => toggleRepliesOnly(event.target.checked)}
+            />
+            {t("settings.apiTokens.access.repliesOnly")}
+            <span style={hint}>{t("settings.apiTokens.repliesOnlyHint")}</span>
+          </label>
         )}
         <label style={{ display: "block", fontSize: 12, marginTop: 8 }}>
           {t("settings.apiTokens.rooms")}
@@ -444,14 +488,21 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
 function AreaRow({
   area,
   level,
+  repliesOnly,
   onChange,
 }: {
   area: ApiTokenArea;
   level: ApiTokenAccess | "none";
+  repliesOnly: boolean;
   onChange: (level: ApiTokenAccess | "none") => void;
 }) {
   const { t } = useI18n();
-  const fullAccess = level === "write" && FULL_ACCESS_WRITE_AREAS.has(area);
+  const fullAccess =
+    level === "write" &&
+    writesEqualFullAccess(
+      area,
+      repliesOnly ? { repliesOnly: true } : undefined,
+    );
   return (
     <>
       <span>
@@ -508,16 +559,20 @@ export function useMemberRooms(): MemberRoom[] {
 }
 
 // The limits a mint sends: none for Full access on every room, else the
-// areas (unless Full access) and the picked rooms (in the picker's order).
+// areas (unless Full access), replies only while Agents is Read and write,
+// and the picked rooms (in the picker's order).
 function mintLimits(
   access: AccessChoice,
   areas: Areas,
+  repliesOnly: boolean,
   roomScope: "all" | "some",
   picked: readonly string[],
   memberRooms: readonly MemberRoom[],
 ): { limits?: ApiTokenLimits } {
   const limits: ApiTokenLimits = {};
   if (access !== "full") limits.areas = areas;
+  if (access !== "full" && repliesOnly && areas.agents === "write")
+    limits.repliesOnly = true;
   if (roomScope === "some")
     limits.rooms = memberRooms
       .map((room) => room.id)
@@ -554,14 +609,17 @@ function accessSummary(
   limits: ApiTokenLimits | undefined,
 ): string {
   const choice = accessOf(limits);
-  const areas = limits?.areas;
-  if (choice !== "custom" || !areas) return t(ACCESS_LABEL[choice]);
-  const granted = API_TOKEN_AREAS.filter((area) => areas[area]).map((area) =>
-    t("settings.apiTokens.areaLevel", {
-      area: t(AREA_LABEL[area]),
-      level: t(LEVEL_LABEL[areas[area]!]),
-    }),
-  );
+  if (choice !== "custom" || !limits) return t(ACCESS_LABEL[choice]);
+  const areas = limits.areas;
+  const granted = areas
+    ? API_TOKEN_AREAS.filter((area) => areas[area]).map((area) =>
+        t("settings.apiTokens.areaLevel", {
+          area: t(AREA_LABEL[area]),
+          level: t(LEVEL_LABEL[areas[area]!]),
+        }),
+      )
+    : [t("settings.apiTokens.allAreas")];
+  if (limits.repliesOnly) granted.push(t("settings.apiTokens.repliesOnlyItem"));
   return t("settings.apiTokens.customAccess", {
     areas: granted.length
       ? new Intl.ListFormat(language, { type: "conjunction" }).format(granted)

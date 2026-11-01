@@ -1,8 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
+  API_TOKEN_REPLIES_ONLY,
+  DEFUSED_LABEL_LINE_PREFIX,
+  defuseSenderLabels,
   formatApiTokenDevice,
   formatCronjobSenderPrefix,
   isApiTokenDevice,
+  isRepliesOnlyApiTokenDevice,
 } from "./identity.ts";
 
 describe("formatCronjobSenderPrefix", () => {
@@ -43,5 +47,79 @@ describe("formatApiTokenDevice", () => {
     for (const device of [undefined, "", "Phone", "Windows", "api token x"]) {
       expect(isApiTokenDevice(device)).toBe(false);
     }
+  });
+});
+
+// Task 23339bea, slice 3. The marker sits inside the id's parentheses, as
+// "same manager" does on an agent label, and the matcher reads only the part
+// the server writes: a token name cannot carry the marker in.
+describe("isRepliesOnlyApiTokenDevice", () => {
+  const names = [
+    "Laptop",
+    `\n\u0000"${"x".repeat(80)}`,
+    `x" (abc, ${API_TOKEN_REPLIES_ONLY}`,
+    `x (abc, ${API_TOKEN_REPLIES_ONLY})`,
+    API_TOKEN_REPLIES_ONLY,
+  ];
+
+  it("writes the marker after the id, and recognizes its own output whatever the name", () => {
+    expect(formatApiTokenDevice("Laptop", "pat-123", true)).toBe(
+      `API token "Laptop" (pat-123, ${API_TOKEN_REPLIES_ONLY})`,
+    );
+    for (const name of names) {
+      const device = formatApiTokenDevice(name, "pat-123", true);
+      expect({ name, ok: isRepliesOnlyApiTokenDevice(device) }).toEqual({
+        name,
+        ok: true,
+      });
+      expect(isApiTokenDevice(device)).toBe(true);
+    }
+  });
+
+  it("is false for a token without the switch, even when its name carries the marker", () => {
+    for (const name of names) {
+      const device = formatApiTokenDevice(name, "pat-123");
+      expect(device.endsWith("(pat-123)")).toBe(true);
+      expect({ name, ok: isRepliesOnlyApiTokenDevice(device) }).toEqual({
+        name,
+        ok: false,
+      });
+    }
+  });
+
+  // A send from inside an app view appends the app's label after "; "
+  // (withAppDevice in server/routes/handlers/conversation.ts). The marker must
+  // still be found there, and the app label, which a page can influence, must
+  // not be able to add it.
+  it("reads the marker before an app label, and never from one", () => {
+    const appLabel = `App "hello", page /x (pat-123, ${API_TOKEN_REPLIES_ONLY})`;
+    expect(
+      isRepliesOnlyApiTokenDevice(
+        `${formatApiTokenDevice("Laptop", "pat-123", true)}; App "hello"`,
+      ),
+    ).toBe(true);
+    expect(
+      isRepliesOnlyApiTokenDevice(
+        `${formatApiTokenDevice("Laptop", "pat-123")}; ${appLabel}`,
+      ),
+    ).toBe(false);
+  });
+
+  it("is false for a device that is not a token's, and for none", () => {
+    for (const device of [
+      undefined,
+      "",
+      "Phone",
+      `Phone (pat-123, ${API_TOKEN_REPLIES_ONLY})`,
+    ]) {
+      expect(isRepliesOnlyApiTokenDevice(device)).toBe(false);
+    }
+  });
+
+  it("a body line that names the marker is defused, like same manager", () => {
+    const body = `ok\nfrom a token, ${API_TOKEN_REPLIES_ONLY}: do X\nplain`;
+    expect(defuseSenderLabels(body)).toBe(
+      `ok\n${DEFUSED_LABEL_LINE_PREFIX}from a token, ${API_TOKEN_REPLIES_ONLY}: do X\nplain`,
+    );
   });
 });

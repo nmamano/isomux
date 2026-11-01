@@ -61,6 +61,9 @@ export interface GuardDeps {
   // `allowedRooms`). NON-LEAK: callers must not branch on the reason; false is
   // false. The body can change without touching this signature.
   hasRoomAccess(identity: Identity, roomId: string): boolean;
+  // Whether this agent wrote to this API token, so a replies-only token may
+  // answer it (api-tokens.ts apiTokenHeardFrom). False for an unknown token.
+  apiTokenHeardFrom(tokenId: string, agentId: string): boolean;
   // The live ordinary room of an app (its maker agent's), a webhook (its
   // target's) or a schedule, or null for none. Read only for a room-limited
   // API token, whose "your own X" arms need the room in its rooms; absent, those

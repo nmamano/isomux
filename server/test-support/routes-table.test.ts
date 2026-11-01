@@ -113,6 +113,7 @@ describe("provider account routes", () => {
         killedAgentLastRoomId: () => null,
         roomExists: () => false,
         cronRunVisibleTo: () => false,
+        apiTokenHeardFrom: () => false,
       },
     );
     expect(result).toEqual({ ok: false, status: 403, code: "forbidden" });
@@ -451,6 +452,7 @@ describe("route table: public routes are routed AROUND authorize()", () => {
       killedAgentLastRoomId: () => null,
       roomExists: () => false,
       cronRunVisibleTo: () => false,
+      apiTokenHeardFrom: () => false,
     };
     const cap = API_ROUTES.find((r) => r.auth.kind === "capability");
     if (!cap || cap.auth.kind !== "capability") throw new Error("no cap route");
@@ -485,6 +487,7 @@ describe("route table: managed env values are self-only", () => {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   const identities: Record<string, Identity> = {
     user: {
@@ -798,6 +801,7 @@ describe("route table: managed office env is owner-only", () => {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   } satisfies GuardDeps;
   const identity = (
     scope: Identity["scope"],
@@ -932,6 +936,7 @@ describe("route table: users.create admits an owner's proxies for a plain member
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   } satisfies GuardDeps;
   const identity = (
     scope: Identity["scope"],
@@ -1033,6 +1038,7 @@ describe("route table: agent reference coverage", () => {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   const identities: Identity[] = [
     {
@@ -1880,6 +1886,7 @@ describe("route table: an APP identity authorizes exactly the app-self routes", 
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   const appIdentity: Identity = {
     scope: "app",
@@ -2087,6 +2094,7 @@ describe("route table: an APP has its live owner agent's reach", () => {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   // :id is the owner agent itself, so every self-bound route is open to the
   // agent and the walk shows what the app does NOT get.
@@ -2209,6 +2217,7 @@ describe("agents.listSessions / readQueue / cancelQueued / terminal non-agent se
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
 
   it("refuses cron-run and app identities even with accessible-room dependencies", () => {
@@ -2467,6 +2476,7 @@ describe("route table: usage checks use log-read scope", () => {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   const identities: Identity[] = [
     {
@@ -2544,6 +2554,7 @@ describe("route table: an API identity authorizes exactly the remote-member surf
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   it("reaches the independently declared operational routes", () => {
     const allowed: string[] = [];
@@ -2591,6 +2602,7 @@ describe("member prompt route authority", () => {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   it("opens only the member prompt routes to a privileged member's agent", () => {
     const identity: Identity = {
@@ -2687,6 +2699,7 @@ it("audit and restore reject member-owned API tokens and admit owner proxies", (
         killedAgentLastRoomId: () => null,
         roomExists: () => false,
         cronRunVisibleTo: () => false,
+        apiTokenHeardFrom: () => false,
         isOfficeOwnerUserId: (id) => id === "owner",
       };
       expect(
@@ -2791,6 +2804,7 @@ for (const opId of ["agents.discovery", "agents.avatar"]) {
       killedAgentLastRoomId: () => null,
       roomExists: () => false,
       cronRunVisibleTo: () => false,
+      apiTokenHeardFrom: () => false,
     };
     const allowed = (identity: Identity): boolean =>
       runAuthorize(route.auth, identity, { id: "a1" }, undefined, deps).ok;
@@ -2868,6 +2882,7 @@ describe("route table: voice routes reach", () => {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
   };
   const who: Record<string, Identity> = {
     member: {
@@ -3046,6 +3061,29 @@ describe("route table: API token areas", () => {
         byOpId("agents.discovery").tokenArea,
       ),
     ).toBe(true);
+  });
+
+  it("a replies-only token may answer only with a send, an abort or a queue cancel, each on one agent", () => {
+    // Task 23339bea, slice 3: every other agents write route (a new
+    // conversation, a handoff, send now, an edit, an upload) is an order, not
+    // a reply, and the executor refuses it to a replies-only token.
+    const reply = API_ROUTES.filter(
+      (route) => typeof route.tokenArea === "object" && route.tokenArea.reply,
+    );
+    expect(reply.map((route) => route.opId).sort()).toEqual(
+      ["agents.abort", "agents.cancelQueued", "agents.sendMessage"].sort(),
+    );
+    for (const route of reply) {
+      expect({
+        opId: route.opId,
+        tokenArea: route.tokenArea,
+        agentParam: route.path.startsWith("/api/agents/:id/"),
+      }).toEqual({
+        opId: route.opId,
+        tokenArea: { area: "agents", level: "write", reply: true },
+        agentParam: true,
+      });
+    }
   });
 
   it("a room's GitHub link is an environment write", () => {

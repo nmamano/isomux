@@ -81,6 +81,7 @@ function deps(over: Partial<GuardDeps> = {}): GuardDeps {
     killedAgentLastRoomId: () => null,
     roomExists: () => false,
     cronRunVisibleTo: () => false,
+    apiTokenHeardFrom: () => false,
     ...over,
   };
 }

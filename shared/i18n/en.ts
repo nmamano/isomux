@@ -891,6 +891,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.apiTokens.access.full": "Full access",
   "settings.apiTokens.access.readOnly": "Read only",
   "settings.apiTokens.access.talkToAgents": "Talk to agents",
+  "settings.apiTokens.access.repliesOnly": "Replies only",
+  "settings.apiTokens.repliesOnlyHint":
+    "Sends only to agents that wrote to it first",
   "settings.apiTokens.access.custom": "Custom",
   "settings.apiTokens.level.none": "None",
   "settings.apiTokens.level.read": "Read",
@@ -900,6 +903,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.apiTokens.customAccess": "Custom ({areas})",
   "settings.apiTokens.areaLevel": "{area}: {level}",
   "settings.apiTokens.noAreas": "no areas",
+  "settings.apiTokens.allAreas": "all areas",
+  "settings.apiTokens.repliesOnlyItem": "replies only",
   "settings.apiTokens.rooms": "Rooms",
   "settings.apiTokens.rooms.all": "All rooms",
   "settings.apiTokens.rooms.some": "Some rooms",

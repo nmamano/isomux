@@ -74,6 +74,7 @@ export interface GuardDepsLiveReaders {
     kind: "app" | "webhook" | "cronjob",
     id: string,
   ): string | null;
+  apiTokenHeardFrom(tokenId: string, agentId: string): boolean;
 }
 
 export function buildProductionGuardDeps(
@@ -90,6 +91,10 @@ export function buildProductionGuardDeps(
 
     resourceRoomId(kind, id) {
       return live.resourceRoomId?.(kind, id) ?? null;
+    },
+
+    apiTokenHeardFrom(tokenId, agentId) {
+      return live.apiTokenHeardFrom(tokenId, agentId);
     },
 
     roomIdForAgent(agentId: string): string | null {

@@ -897,6 +897,9 @@ Coses que pots fer per ell:
   "settings.apiTokens.access.full": "Accés complet",
   "settings.apiTokens.access.readOnly": "Només lectura",
   "settings.apiTokens.access.talkToAgents": "Parlar amb agents",
+  "settings.apiTokens.access.repliesOnly": "Només respostes",
+  "settings.apiTokens.repliesOnlyHint":
+    "Només envia als agents que li han escrit primer",
   "settings.apiTokens.access.custom": "Personalitzat",
   "settings.apiTokens.level.none": "Cap",
   "settings.apiTokens.level.read": "Lectura",
@@ -906,6 +909,8 @@ Coses que pots fer per ell:
   "settings.apiTokens.customAccess": "Personalitzat ({areas})",
   "settings.apiTokens.areaLevel": "{area}: {level}",
   "settings.apiTokens.noAreas": "cap àrea",
+  "settings.apiTokens.allAreas": "totes les àrees",
+  "settings.apiTokens.repliesOnlyItem": "només respostes",
   "settings.apiTokens.rooms": "Sales",
   "settings.apiTokens.rooms.all": "Totes les sales",
   "settings.apiTokens.rooms.some": "Algunes sales",

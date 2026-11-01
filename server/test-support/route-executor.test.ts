@@ -57,6 +57,7 @@ const NOOP_GUARD_DEPS: GuardDeps = {
   killedAgentLastRoomId: () => null,
   roomExists: () => false,
   cronRunVisibleTo: () => false,
+  apiTokenHeardFrom: () => false,
 };
 
 function userIdentity(role: "owner" | "member"): Identity {

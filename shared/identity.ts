@@ -80,6 +80,7 @@ export const AGENT_SENDER_LABEL_RE =
 const SENDER_LABEL_LOOKALIKE_RES = [
   /agent[\W_]*id/i,
   /same[\W_]*manager/i,
+  /replies[\W_]*only/i,
   /^[\s\p{C}\p{M}\u115F\u1160\u2800\u3164\uFFA0]*\[[^\]]*\]/u,
 ];
 
@@ -162,11 +163,17 @@ export function formatApiTokenName(tokenName: string): string {
   );
 }
 
+// A replies-only token's device carries the marker inside the id's
+// parentheses, as the agent label carries "same manager".
+export const API_TOKEN_REPLIES_ONLY = "replies only";
+
 export function formatApiTokenDevice(
   tokenName: string,
   tokenId: string,
+  repliesOnly = false,
 ): string {
-  return `${API_TOKEN_DEVICE_PREFIX}${formatApiTokenName(tokenName)}" (${tokenId})`;
+  const marker = repliesOnly ? `, ${API_TOKEN_REPLIES_ONLY}` : "";
+  return `${API_TOKEN_DEVICE_PREFIX}${formatApiTokenName(tokenName)}" (${tokenId}${marker})`;
 }
 
 // An API-token message carries the issuing human's authority but was NOT typed
@@ -178,6 +185,21 @@ export function formatApiTokenDevice(
 // format is a dashed border on the typist's own message.
 export function isApiTokenDevice(device: string | undefined): boolean {
   return device?.startsWith(API_TOKEN_DEVICE_PREFIX) === true;
+}
+
+// The token part formatApiTokenDevice writes, with the marker. The name holds
+// no double quote (formatApiTokenName), so a name cannot carry the marker in.
+// The token part ends the device, or an app label follows it ("; App ...").
+const REPLIES_ONLY_DEVICE_RE = new RegExp(
+  `^${API_TOKEN_DEVICE_PREFIX}[^"]*" \\([^,)]*, ${API_TOKEN_REPLIES_ONLY}\\)(?:; |$)`,
+);
+
+// Whether the device is a replies-only token's, read only from the part the
+// server writes.
+export function isRepliesOnlyApiTokenDevice(
+  device: string | undefined,
+): boolean {
+  return device !== undefined && REPLIES_ONLY_DEVICE_RE.test(device);
 }
 
 // Lowercase key used for users.json lookup. Display case is whatever the

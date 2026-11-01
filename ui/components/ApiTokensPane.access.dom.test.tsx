@@ -317,3 +317,96 @@ describe("API token cards: rooms", () => {
     ).toBe("readOnly");
   });
 });
+
+// Task 23339bea, slice 3: the Replies only pack and the switch under Custom.
+const repliesBox = (view: View) =>
+  view.container.querySelector<HTMLInputElement>(
+    'input[data-testid="api-token-replies-only"]',
+  );
+const fullAccessWarnings = (view: View) =>
+  [...view.container.querySelectorAll("[data-full-access-warning]")].map(
+    (node) => node.getAttribute("data-full-access-warning"),
+  );
+
+describe("API token mint form: replies only", () => {
+  it("the Replies only pack fills Talk to agents, sets the switch, drops the full-access mark on Agents, and mints exactly the pack", async () => {
+    const view = await mount();
+    await change(accessSelect(view), "talkToAgents");
+    expect(fullAccessWarnings(view)).toEqual(["agents"]);
+    await change(accessSelect(view), "repliesOnly");
+    expect(areaValues(view)).toEqual(
+      Object.fromEntries(
+        API_TOKEN_AREAS.map((area) => [
+          area,
+          API_TOKEN_PRESETS.talkToAgents.areas[area] ?? "none",
+        ]),
+      ),
+    );
+    expect(repliesBox(view)?.checked).toBe(true);
+    expect(fullAccessWarnings(view)).toEqual([]);
+    expect((await mint(view)).limits).toEqual(API_TOKEN_PRESETS.repliesOnly);
+  });
+
+  it("under Custom the switch shows only while Agents is Read and write, and sends replies only with it", async () => {
+    const view = await mount();
+    await change(accessSelect(view), "readOnly");
+    expect(repliesBox(view)).toBeNull();
+    await change(
+      el<HTMLSelectElement>(view, 'select[data-area="tasks"]'),
+      "write",
+    );
+    await change(
+      el<HTMLSelectElement>(view, 'select[data-area="agents"]'),
+      "write",
+    );
+    expect(accessSelect(view).value).toBe("custom");
+    expect(repliesBox(view)?.checked).toBe(false);
+    expect(fullAccessWarnings(view)).toEqual(["agents"]);
+    await tick(repliesBox(view)!);
+    expect(repliesBox(view)?.checked).toBe(true);
+    expect(fullAccessWarnings(view)).toEqual([]);
+    expect((await mint(view)).limits).toEqual({
+      areas: {
+        ...API_TOKEN_PRESETS.readOnly.areas,
+        tasks: "write",
+        agents: "write",
+      },
+      repliesOnly: true,
+    });
+  });
+
+  it("moving Agents off Read and write hides the switch and drops it from the mint", async () => {
+    const view = await mount();
+    await change(accessSelect(view), "repliesOnly");
+    expect(repliesBox(view)?.checked).toBe(true);
+    await change(
+      el<HTMLSelectElement>(view, 'select[data-area="agents"]'),
+      "read",
+    );
+    expect(repliesBox(view)).toBeNull();
+    const body = await mint(view);
+    expect(body.limits).toEqual(API_TOKEN_PRESETS.readOnly);
+    expect("repliesOnly" in (body.limits as object)).toBe(false);
+  });
+});
+
+describe("API token cards: replies only", () => {
+  it("names the Replies only pack, and keeps Talk to agents apart from it", async () => {
+    listed = [
+      token("replies", API_TOKEN_PRESETS.repliesOnly),
+      token("talker", API_TOKEN_PRESETS.talkToAgents),
+      token("roomsReplies", { repliesOnly: true, rooms: ["room-a"] }),
+    ];
+    const view = await mount();
+    const access = (id: string) =>
+      view.container
+        .querySelector(`[data-api-token="${id}"] [data-token-access]`)
+        ?.getAttribute("data-token-access");
+    expect({
+      replies: access("replies"),
+      talker: access("talker"),
+    }).toEqual({ replies: "repliesOnly", talker: "talkToAgents" });
+    // Every area plus the switch is neither the pack nor full access.
+    expect(access("roomsReplies")).toBe("custom");
+  });
+});
