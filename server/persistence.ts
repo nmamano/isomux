@@ -1787,17 +1787,17 @@ const TURNS_IN_FLIGHT_FILE = join(ISOMUX_DIR, "turns-in-flight.json");
 // On-disk shape: { [agentId]: TurnInFlightRecord } (server/restart-wake.ts).
 // Record validation belongs to restart-wake's boot plan. A corrupt file is
 // quarantined, like message-queues.json. Never throws.
-export function loadTurnsInFlightRaw(): Record<string, unknown> {
+export function loadTurnsInFlightRaw(
+  file = TURNS_IN_FLIGHT_FILE,
+): Record<string, unknown> {
   try {
-    if (!existsSync(TURNS_IN_FLIGHT_FILE)) return {};
-    const parsed: unknown = JSON.parse(
-      readFileSync(TURNS_IN_FLIGHT_FILE, "utf-8"),
-    );
+    if (!existsSync(file)) return {};
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
       throw new Error("not an object");
     return parsed as Record<string, unknown>;
   } catch (err) {
-    quarantineCorruptFile(TURNS_IN_FLIGHT_FILE, err);
+    quarantineCorruptFile(file, err);
     return {};
   }
 }
@@ -1805,8 +1805,9 @@ export function loadTurnsInFlightRaw(): Record<string, unknown> {
 // THROWS on failure; agent-manager catches and logs (best-effort).
 export function saveTurnsInFlight(
   store: Record<string, TurnInFlightRecord>,
+  file = TURNS_IN_FLIGHT_FILE,
 ): void {
-  atomicWriteFileSync(TURNS_IN_FLIGHT_FILE, JSON.stringify(store, null, 2));
+  atomicWriteFileSync(file, JSON.stringify(store, null, 2));
 }
 
 /** Sanitize a filename: strip path components, replace unsafe chars, fallback to hash. */

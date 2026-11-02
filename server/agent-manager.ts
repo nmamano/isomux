@@ -518,6 +518,10 @@ export interface ManagerDeps {
   // The clock and timers of the wake after a server restart
   // (server/restart-wake.ts). Defaults to the real ones; tests move time.
   restartWakeClock?: LimitResumeClock;
+  // Where the record of turns in flight lives (default
+  // ~/.isomux/turns-in-flight.json). Tests give their offices a file of their
+  // own, so a manager that another test file left behind cannot overwrite it.
+  turnsInFlightFile?: string;
   // Whether the server is stopping (server/server-stop.ts). Defaults to the
   // real one; tests set it.
   serverStopping?: () => boolean;
@@ -11375,7 +11379,7 @@ export function createAgentManager(deps: ManagerDeps) {
     for (const [id, r] of wakesOwed) store[id] = r;
     for (const [id, r] of turnsInFlight) store[id] = r;
     try {
-      saveTurnsInFlight(store);
+      saveTurnsInFlight(store, deps.turnsInFlightFile);
     } catch (err) {
       console.error(
         "Failed to persist turns in flight (a restart may not wake a cut turn):",
@@ -11456,7 +11460,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // queued messages gets its wake at once, so it joins the replay; the
   // others go out a few at a time.
   function restoreRestartWakes(): void {
-    const raw = loadTurnsInFlightRaw();
+    const raw = loadTurnsInFlightRaw(deps.turnsInFlightFile);
     const plan = planRestartWakes(raw, {
       exists: (id) => agents.has(id),
       resumable: (id) => {

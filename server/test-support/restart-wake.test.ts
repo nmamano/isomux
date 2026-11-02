@@ -4,10 +4,13 @@
 // second manager on the same state root, built from agents.json the way the
 // office boots (loadAgents()); the first one is left as it was, as a crash
 // leaves it. The record is read from disk, where the next boot reads it.
+// The record is a file only this test file uses (turnsInFlightFile): managers
+// that an earlier test file in the same bun process left behind run their
+// clear timers on the real clock and rewrite the default record file.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import {
@@ -33,6 +36,9 @@ beforeEach(() => {
   removeStateDir(STATE_ROOT);
   mkdirSync(STATE_ROOT, { recursive: true });
 });
+
+// turns-in-flight.json as the next boot reads it.
+const RECORD_FILE = join(STATE_ROOT, "restart-wake", "turns-in-flight.json");
 
 const activeFakes: FakeBackend[] = [];
 afterEach(() => {
@@ -124,6 +130,7 @@ function makeHarness(
     initialRooms,
     eventSink: sink,
     restartWakeClock: clock,
+    turnsInFlightFile: RECORD_FILE,
     serverStopping: () => stopping.value,
   });
   mgr.configureAgentTurnDeps();
@@ -165,15 +172,15 @@ const sentTo = (h: Harness, id: string) =>
 const wakesTo = (h: Harness, id: string) =>
   sentTo(h, id).filter((t) => t.includes(RESTART_WAKE_TEXT)).length;
 
-// turns-in-flight.json as the next boot reads it.
-const RECORD_FILE = join(STATE_ROOT, "turns-in-flight.json");
 type DiskRecord = Record<string, { since: number; restartWake?: true }>;
 const onDisk = (): DiskRecord =>
   existsSync(RECORD_FILE)
     ? (JSON.parse(readFileSync(RECORD_FILE, "utf-8")) as DiskRecord)
     : {};
-const seedRecord = (record: DiskRecord) =>
+const seedRecord = (record: DiskRecord) => {
+  mkdirSync(dirname(RECORD_FILE), { recursive: true });
   writeFileSync(RECORD_FILE, JSON.stringify(record));
+};
 
 // A member turn, running.
 async function memberTurn(h: Harness, id: string, text: string) {
