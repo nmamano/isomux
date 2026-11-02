@@ -262,6 +262,13 @@ export interface ManagedAgent {
   // the agent falls back to the office sign-in: its end queues the continue
   // instead of arming the resume (server/provider-fallback.ts).
   limitStopFallback?: boolean;
+  // The running turn wrote the OpenCode free usage limit notice, which
+  // stands in for its error line. Reset by beginTurn.
+  freeLimitNoticeThisTurn?: boolean;
+  // When OpenCode last refused this agent with its free usage limit
+  // (limitResumeClock ms): topic generation on an office free model waits
+  // OPENCODE_FALLBACK_RETRY_MS after it. In memory only.
+  openCodeFreeLimitAt?: number;
   // The OPENCODE_API_KEY the live OpenCode session started with.
   launchedOpenCodeKey?: string;
   // The agent's sessions run on the office sign-in because its member's own

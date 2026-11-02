@@ -18,6 +18,7 @@ import {
 import { errMessage } from "../shared/errors.ts";
 import {
   firstAnsweringModel,
+  type FreeModelCheck,
   FREE_WELCOME_AGENT_NAME,
   freeOpenCodeCandidates,
   needsOfficeFreeModelMark,
@@ -178,14 +179,14 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
   // owner has an entry here that keeps each check by its candidate list.
   const seedModelChecks = new Map<
     string,
-    Map<string, Promise<string | null>>
+    Map<string, Promise<FreeModelCheck>>
   >();
 
   function checkFreeModels(
     username: string,
     userId: string,
     candidates: string[],
-  ): Promise<string | null> {
+  ): Promise<FreeModelCheck> {
     const check = () =>
       firstAnsweringModel(
         candidates,
@@ -234,17 +235,25 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
     }
     // The provider can refuse a free model its catalog lists: check them in
     // order. When none answers in the budget, the seed keeps the first, and a
-    // refused turn moves the agent later (switchRefusedFreeModel).
-    const answered = await checkFreeModels(
+    // refused turn moves the agent later (switchRefusedFreeModel). The free
+    // usage limit ends the check: every free model shares it.
+    const check = await checkFreeModels(
       username,
       user.id,
       freeOpenCodeCandidates(listed, OPENCODE_DEFAULT_MODEL),
     );
-    if (answered === null)
+    if (check.kind === "none")
       console.warn(
         `[bootstrap] no free OpenCode model answered a check; seeding ${result.model}`,
       );
-    return { model: answered ?? result.model, fromFallback: false };
+    if (check.kind === "free_limit")
+      console.warn(
+        `[bootstrap] OpenCode's free usage limit is used up on this network; seeding ${result.model}`,
+      );
+    return {
+      model: check.kind === "answered" ? check.model : result.model,
+      fromFallback: false,
+    };
   }
 
   // The fallback constant can be withdrawn by the provider before a release
@@ -349,11 +358,12 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
       listed,
       OPENCODE_DEFAULT_MODEL,
     ).filter((model) => model !== refusedModel);
-    return firstAnsweringModel(
+    const check = await firstAnsweringModel(
       candidates,
       (model) => probeFreeModel(userId, model),
       freeModelProbeTiming,
     );
+    return check.kind === "answered" ? check.model : null;
   };
 
   // One tiny real request: the provider can refuse a free model its catalog

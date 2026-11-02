@@ -13,6 +13,7 @@ import {
 } from "./welcome-opencode-model.ts";
 import { LOBBY_ROOM_ID, type BackendModelWire } from "../shared/types.ts";
 import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
+import { OpenCodeFreeLimitError } from "./backends/opencode/errors.ts";
 
 describe("welcome OpenCode model resolution", () => {
   const preferred = "opencode/preferred-free";
@@ -274,7 +275,9 @@ describe("the first free model that answers", () => {
     };
   }
   // A probe script per model: it answers, refuses, or never settles.
-  function probes(script: Record<string, "answers" | "refuses" | "hangs">) {
+  function probes(
+    script: Record<string, "answers" | "refuses" | "hangs" | "free-limit">,
+  ) {
     const started: string[] = [];
     let open = 0;
     let maxOpen = 0;
@@ -285,6 +288,7 @@ describe("the first free model that answers", () => {
         if (script[model] === "hangs") await new Promise(() => undefined);
         if (script[model] === "refuses")
           throw new Error("Model is unavailable");
+        if (script[model] === "free-limit") throw new OpenCodeFreeLimitError();
       } finally {
         open--;
       }
@@ -296,7 +300,7 @@ describe("the first free model that answers", () => {
     const p = probes({ a: "refuses", b: "answers", c: "answers" });
     expect(
       await firstAnsweringModel(["a", "b", "c"], p.probe, timing, fakeClock()),
-    ).toBe("b");
+    ).toEqual({ kind: "answered", model: "b" });
     expect(p.started).toEqual(["a", "b"]);
     expect(p.maxOpen()).toBe(1);
   });
@@ -304,33 +308,33 @@ describe("the first free model that answers", () => {
   it("counts a probe that does not settle by its timeout as refused and goes on", async () => {
     const p = probes({ a: "hangs", b: "answers" });
     const clock = fakeClock();
-    expect(await firstAnsweringModel(["a", "b"], p.probe, timing, clock)).toBe(
-      "b",
-    );
+    expect(
+      await firstAnsweringModel(["a", "b"], p.probe, timing, clock),
+    ).toEqual({ kind: "answered", model: "b" });
     expect(p.started).toEqual(["a", "b"]);
     expect(clock.sleeps).toContain(timing.probeTimeoutMs);
   });
 
-  it("starts no probe that the budget would cut, and returns null", async () => {
+  it("starts no probe that the budget would cut, and finds none", async () => {
     // Two timeouts fit in the budget; a third would start with 50 ms left.
     const p = probes({ a: "hangs", b: "hangs", c: "answers" });
     const clock = fakeClock();
     expect(
       await firstAnsweringModel(["a", "b", "c"], p.probe, timing, clock),
-    ).toBeNull();
+    ).toEqual({ kind: "none" });
     expect(p.started).toEqual(["a", "b"]);
     expect(clock.now()).toBeLessThanOrEqual(timing.probeBudgetMs);
   });
 
-  it("returns null when every candidate refuses, or there is none", async () => {
+  it("finds none when every candidate refuses, or there is none", async () => {
     const p = probes({ a: "refuses", b: "refuses" });
     expect(
       await firstAnsweringModel(["a", "b"], p.probe, timing, fakeClock()),
-    ).toBeNull();
+    ).toEqual({ kind: "none" });
     expect(p.started).toEqual(["a", "b"]);
-    expect(
-      await firstAnsweringModel([], p.probe, timing, fakeClock()),
-    ).toBeNull();
+    expect(await firstAnsweringModel([], p.probe, timing, fakeClock())).toEqual(
+      { kind: "none" },
+    );
   });
 
   it("counts a probe that throws before it returns a promise as refused", async () => {
@@ -342,8 +346,19 @@ describe("the first free model that answers", () => {
     };
     expect(
       await firstAnsweringModel(["a", "b"], probe, timing, fakeClock()),
-    ).toBe("b");
+    ).toEqual({ kind: "answered", model: "b" });
     expect(started).toEqual(["a", "b"]);
+  });
+
+  // Task a5c551e4: OpenCode's free usage limit is shared by every free
+  // model, so a probe it refuses ends the search: each further probe only
+  // spends the same quota again.
+  it("stops at the first probe refused with the free usage limit", async () => {
+    const p = probes({ a: "refuses", b: "free-limit", c: "answers" });
+    expect(
+      await firstAnsweringModel(["a", "b", "c"], p.probe, timing, fakeClock()),
+    ).toEqual({ kind: "free_limit" });
+    expect(p.started).toEqual(["a", "b"]);
   });
 });
 

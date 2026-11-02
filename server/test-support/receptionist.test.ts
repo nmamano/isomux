@@ -9,6 +9,7 @@ import {
 } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { OpenCodeFreeLimitError } from "../backends/opencode/errors.ts";
 import { homedir } from "os";
 import { ISOMUX_KNOWLEDGE } from "../../api/chat.ts";
 import { OfficeState } from "../../shared/office-state.ts";
@@ -458,7 +459,12 @@ describe("receptionist profile and lobby", () => {
         refused: new Set<string>(),
         hangs: new Set<string>(),
         turnRefused: new Set<string>(),
+        // A turn on a model here ends as the OpenCode transport ends a free
+        // usage limit refusal on a server without OPENCODE_API_KEY.
+        turnFreeLimit: new Set<string>(),
         probed: [] as string[],
+        // OpenCode's free usage limit: every free model is refused.
+        freeLimit: false,
       };
       const fake = new FakeBackend({
         // Only the checks call the one-shot prompt.
@@ -469,11 +475,24 @@ describe("receptionist profile and lobby", () => {
             await new Promise(() => undefined);
           if (state.refused.has(opts.modelFamily))
             throw new Error("Upstream request failed: Model is unavailable.");
+          if (state.freeLimit) throw new OpenCodeFreeLimitError();
           return "OK";
         },
         session: {
           onSend: (_text, _attachments, session) => {
-            if (state.turnRefused.has(session.opts.modelFamily))
+            if (state.turnFreeLimit.has(session.opts.modelFamily)) {
+              session.push({
+                kind: "usage_limit_stop",
+                freeLimit: { keyless: true },
+              });
+              session.push({
+                kind: "turn_completed",
+                status: "failed",
+                error:
+                  'The provider `opencode` refused the request: "Free usage limit reached."',
+                providerRefusal: true,
+              });
+            } else if (state.turnRefused.has(session.opts.modelFamily))
               session.push({
                 kind: "turn_completed",
                 status: "failed",
@@ -540,6 +559,75 @@ describe("receptionist profile and lobby", () => {
       expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
       expect(receptionistOf(srv).officeFreeModel).toBe(OPENCODE_DEFAULT_MODEL);
       expect(freeWelcomeOf(srv).officeFreeModel).toBe(OPENCODE_DEFAULT_MODEL);
+    });
+
+    // Task a5c551e4: the free usage limit is shared by every free model, so
+    // the check stops at the first model it refuses; the seed keeps the
+    // preferred model and its mark.
+    it("stops checking at the free usage limit and seeds both agents on the preferred model", async () => {
+      const { fake, state } = backend();
+      state.freeLimit = true;
+      const srv = (server = await startTestServer({
+        fakeBackend: fake,
+        startServer: { discoverWelcomeOpenCodeModels: async () => listed },
+      }));
+      await claimOwner(srv, "Morgan");
+      expect(state.probed).toEqual([OPENCODE_DEFAULT_MODEL]);
+      for (const agent of [receptionistOf(srv), freeWelcomeOf(srv)])
+        expect([agent.modelFamily, agent.officeFreeModel]).toEqual([
+          OPENCODE_DEFAULT_MODEL,
+          OPENCODE_DEFAULT_MODEL,
+        ]);
+    });
+
+    // Task a5c551e4: in place of OpenCode's error, the office's notice, with
+    // the Claude and Codex sign-in cards for the owner. The agent is not
+    // left in error and does not move: every free model shares the limit.
+    it("answers a free usage limit refusal with the notice and the sign-in cards, not an error, and keeps the model", async () => {
+      const { fake, state } = backend();
+      const srv = (server = await startTestServer({
+        fakeBackend: fake,
+        startServer: { discoverWelcomeOpenCodeModels: async () => listed },
+      }));
+      const cookie = await claimOwner(srv, "Morgan");
+      const agent = freeWelcomeOf(srv);
+      state.turnFreeLimit.add(agent.modelFamily!);
+      state.probed.length = 0;
+      const sent = await api(srv, "POST", `/api/agents/${agent.id}/messages`, {
+        rawSessionId: cookie,
+        body: { text: "First message" },
+      });
+      expect(sent.status).toBe(200);
+      const notices = () =>
+        srv.agentManager
+          .getAgentLogs(agent.id)
+          .filter((e) => e.metadata?.openCodeFreeLimit === true);
+      await waitUntil(
+        () =>
+          notices().length === 1 &&
+          srv.agentManager.getAgent(agent.id)?.state !== "thinking",
+        3000,
+        "notice written and turn ended",
+      );
+      expect(srv.agentManager.getAgent(agent.id)?.state).toBe(
+        "waiting_for_response",
+      );
+      const logs = srv.agentManager.getAgentLogs(agent.id);
+      expect(logs.filter((e) => e.kind === "error")).toEqual([]);
+      const [notice] = notices();
+      expect(notice.kind).toBe("system");
+      expect([...(notice.metadata?.providerLogins ?? [])].sort()).toEqual([
+        "claude",
+        "codex",
+      ]);
+      // OpenCode's own sentence is not shown.
+      expect(logs.some((e) => e.content.includes("refused the request"))).toBe(
+        false,
+      );
+      expect(srv.agentManager.getAgent(agent.id)?.modelFamily).toBe(
+        agent.modelFamily,
+      );
+      expect(state.probed).toEqual([]);
     });
 
     it("moves a seeded agent whose model is refused at turn time to a free model that answers, and sends the message again", async () => {

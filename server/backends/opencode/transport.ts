@@ -1481,13 +1481,28 @@ export class OpenCodeTransport {
     // A turn that ends on a sign-in failure sends auth_needed first.
     const settle = (
       event: NormalizedEvent,
-      options: { authNeeded?: boolean; usageLimit?: boolean } = {},
+      options: {
+        authNeeded?: boolean;
+        usageLimit?: boolean;
+        freeLimit?: boolean;
+      } = {},
     ): void => {
       if (settled) return;
       settled = true;
       this.deadlineScheduler.clearTimeout(progressTimer);
       showOpenParts();
-      if (options.usageLimit) sink({ kind: "usage_limit_stop" });
+      if (options.usageLimit)
+        sink({
+          kind: "usage_limit_stop",
+          ...(options.freeLimit
+            ? {
+                freeLimit: {
+                  keyless:
+                    this.lease?.hasLaunchVariable("OPENCODE_API_KEY") !== true,
+                },
+              }
+            : {}),
+        });
       if (options.authNeeded) {
         sink({ kind: "auth_needed" });
         sink(event);
@@ -1932,6 +1947,7 @@ export class OpenCodeTransport {
         },
         {
           usageLimit: refusal !== null && openCodePlanLimit(error, this.model),
+          freeLimit: error.name === "provider.free-limit",
         },
       );
     };

@@ -44,6 +44,11 @@ free models with one real request each and takes the first that answers; one
 check serves both seeds. Both agents carry `officeFreeModel`, so a turn the
 provider refuses ("Model is unavailable") moves them to another free model
 that answers and sends the message again, until a member picks a model.
+OpenCode's free usage limit, which every free model shares, ends the check
+and the seed keeps the preferred model. A turn it refuses on an agent with
+no OpenCode key shows a notice in place of the error; on these two agents
+the notice carries the Claude and Codex sign-in cards for the agent's owner,
+and their topic is not generated for an hour after it.
 Seeds from before the mark get it once, at the first boot after the update,
 when they still run on a past free default (`PAST_FREE_DEFAULT_MODELS`).
 Permission mode is

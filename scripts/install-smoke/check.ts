@@ -10,7 +10,9 @@
 //   signed-out  a message to a signed-out agent of each engine shows the
 //               sign-in notice and no error or retry lines
 //   free-agent  with --free-agent (the weekly set): the Free Welcome Agent
-//               answers a message
+//               answers a message. While OpenCode's free usage limit is used
+//               up on the network, it shows the office's notice instead, and
+//               the answer is not checked (FREE_LIMIT_NOT_CHECKED).
 //
 // A failure exits 1 with a line that names the path and the step. No provider
 // credentials: every agent in a fresh office is signed out.
@@ -33,7 +35,11 @@ export interface Entry {
   agentId: string;
   kind: string;
   content: string;
-  metadata?: { providerLogin?: string } & Record<string, unknown>;
+  metadata?: {
+    providerLogin?: string;
+    openCodeFreeLimit?: true;
+    providerLogins?: string[];
+  } & Record<string, unknown>;
 }
 interface Agent {
   id: string;
@@ -429,6 +435,55 @@ export function judgeAnswer(entries: Entry[]): string | null {
   return null;
 }
 
+// The Free Welcome Agent step's outcome. While OpenCode's free usage limit
+// is used up on the runner's network the agent cannot answer: the step then
+// requires the office's notice in place of an error, and reports the answer
+// as not checked.
+export type FreeAgentVerdict =
+  | { kind: "answered" }
+  | { kind: "not_checked" }
+  | { kind: "failed"; reason: string };
+
+// The line the step prints, and run.sh copies to the job summary.
+export const FREE_LIMIT_NOT_CHECKED =
+  "NOT CHECKED free-agent: OpenCode free quota used up";
+
+export function judgeFreeAgent(
+  entries: Entry[],
+  agentState: string,
+): FreeAgentVerdict {
+  const notice = entries.find(isFreeLimitNotice);
+  if (!notice) {
+    const failure = judgeAnswer(entries);
+    return failure ? { kind: "failed", reason: failure } : { kind: "answered" };
+  }
+  const lines = entries
+    .filter((e) => e.kind !== "user_message")
+    .map((e) => `${e.kind}: ${e.content.slice(0, 200)}`);
+  if (entries.some((e) => e.kind === "error"))
+    return {
+      kind: "failed",
+      reason: `the free usage limit notice came with an error: ${lines.join(" | ")}`,
+    };
+  if (agentState === "error")
+    return {
+      kind: "failed",
+      reason: "the agent is in error after the free usage limit notice",
+    };
+  const cards = notice.metadata?.providerLogins ?? [];
+  const missing = SIGNED_OUT_ENGINES.filter((e) => !cards.includes(e));
+  if (missing.length)
+    return {
+      kind: "failed",
+      reason: `the free usage limit notice has no ${missing.join(" or ")} sign-in card`,
+    };
+  return { kind: "not_checked" };
+}
+
+function isFreeLimitNotice(e: Entry): boolean {
+  return e.kind === "system" && e.metadata?.openCodeFreeLimit === true;
+}
+
 function freeAgentOf(office: OfficeSocket): Agent | undefined {
   // The Receptionist is an OpenCode agent too, in the Lobby.
   return [...office.agents.values()].find(
@@ -441,7 +496,7 @@ async function checkFreeAgent(
   base: string,
   origin: string,
   cookie: string,
-) {
+): Promise<FreeAgentVerdict> {
   const agent = freeAgentOf(office)!;
   const mark = office.entries.length;
   const own = () =>
@@ -460,7 +515,9 @@ async function checkFreeAgent(
     agent,
     () =>
       own().some((e) => e.kind === "user_message") &&
-      own().some((e) => e.kind === "text" || e.kind === "error"),
+      own().some(
+        (e) => e.kind === "text" || e.kind === "error" || isFreeLimitNotice(e),
+      ),
     240_000,
     `an answer from ${agent.name}`,
   ).catch((error: Error) => {
@@ -468,8 +525,12 @@ async function checkFreeAgent(
       `${error.message}; ${judgeAnswer(own()) ?? "an answer arrived"}`,
     );
   });
-  const failure = judgeAnswer(own());
-  if (failure) throw new Error(failure);
+  const verdict = judgeFreeAgent(
+    own(),
+    office.agents.get(agent.id)?.state ?? "",
+  );
+  if (verdict.kind === "failed") throw new Error(verdict.reason);
+  return verdict;
 }
 
 // The setup link an unclaimed office prints in its terminal and log.
@@ -577,10 +638,13 @@ async function main() {
       await step(`signed-out-${engine}`, () =>
         checkSignedOut(socket, base, origin, cookie, engine),
       );
-    if (weekly)
-      await step("free-agent", () =>
+    if (weekly) {
+      const verdict = await step("free-agent", () =>
         checkFreeAgent(socket, base, origin, cookie),
       );
+      if (verdict.kind === "not_checked")
+        console.log(`[smoke:${path}] ${FREE_LIMIT_NOT_CHECKED}`);
+    }
   } catch (error) {
     const failure =
       error instanceof StepFailure

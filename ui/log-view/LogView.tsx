@@ -25,6 +25,7 @@ import type {
   LogEntry,
   QueuedMessage,
   Attachment,
+  ProviderAccountProvider,
 } from "../../shared/types.ts";
 import {
   familyDisplayLabel,
@@ -155,6 +156,23 @@ function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
     >
       {t(PENDING_PROMPT_LABEL[kind])}
     </span>
+  );
+}
+
+// Under the OpenCode free usage limit notice, for anyone but the agent's
+// owner, who gets the sign-in cards.
+function AskOfficeOwnerLine() {
+  const { t } = useI18n();
+  return (
+    <p
+      style={{
+        fontSize: 12,
+        color: "var(--text-muted)",
+        margin: "4px 0 0",
+      }}
+    >
+      {t("settings.signIn.askOfficeOwner")}
+    </p>
   );
 }
 
@@ -2845,34 +2863,60 @@ export function LogView({
                   stateChangedAt: stateChangedAt.get(agent.id),
                   onAbort: () => sendAbortDebounced(agent.id),
                 }}
-                afterEntry={(entry) => (
-                  <>
-                    {entry.metadata?.pickModel === true && (
-                      <PickModelButton onClick={onEditAgent} />
-                    )}
-                    {(entry.metadata?.providerLogin === "codex" ||
-                      entry.metadata?.providerLogin === "claude") &&
-                      agent.userId !== null &&
-                      sessionContext?.userId === agent.userId && (
-                        // Sign-in controls: not in the chat's HTML file.
-                        <div data-chat-export="omit">
-                          <ProviderSignInCard
-                            provider={entry.metadata.providerLogin}
-                            accounts={providerAccounts}
-                            showTitle={false}
-                            apiKeyNote
-                            canChangeOffice={sessionContext?.role === "owner"}
-                            onStartNewConversation={async () => {
-                              await apiFetch(
-                                "POST",
-                                `/api/agents/${agent.id}/new-conversation`,
-                              );
-                            }}
-                          />
-                        </div>
+                afterEntry={(entry) => {
+                  const isOwner =
+                    agent.userId !== null &&
+                    sessionContext?.userId === agent.userId;
+                  const providerLogin = entry.metadata?.providerLogin;
+                  const ownEngine =
+                    providerLogin === "codex" || providerLogin === "claude";
+                  // The OpenCode free usage limit notice on an office free
+                  // model: a titled card per engine, with no new
+                  // conversation, which would stay on the same free model.
+                  const providers: readonly ProviderAccountProvider[] =
+                    ownEngine
+                      ? [providerLogin]
+                      : (entry.metadata?.providerLogins ?? []);
+                  return (
+                    <>
+                      {entry.metadata?.pickModel === true && (
+                        <PickModelButton onClick={onEditAgent} />
                       )}
-                  </>
-                )}
+                      {providers.length > 0 &&
+                        (isOwner ? (
+                          // Sign-in controls: not in the chat's HTML file.
+                          <div data-chat-export="omit">
+                            {providers.map((provider) => (
+                              <ProviderSignInCard
+                                key={provider}
+                                provider={provider}
+                                accounts={providerAccounts}
+                                showTitle={!ownEngine}
+                                apiKeyNote
+                                canChangeOffice={
+                                  sessionContext?.role === "owner"
+                                }
+                                onStartNewConversation={
+                                  ownEngine
+                                    ? async () => {
+                                        await apiFetch(
+                                          "POST",
+                                          `/api/agents/${agent.id}/new-conversation`,
+                                        );
+                                      }
+                                    : undefined
+                                }
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          entry.metadata?.openCodeFreeLimit === true && (
+                            <AskOfficeOwnerLine />
+                          )
+                        ))}
+                    </>
+                  );
+                }}
               />
             </div>
           </div>

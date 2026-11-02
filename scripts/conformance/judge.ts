@@ -284,3 +284,20 @@ export function messagingFailure(
     .pop();
   return `${reason}; the peer sent no message${said ? ` and said ${quote(said.content)}` : ""}`;
 }
+
+// The reason an OpenCode step is not checked: OpenCode refused the agent
+// with its free usage limit since `since`, which the office's notice entry
+// marks (metadata.openCodeFreeLimit). Null when no such notice is there.
+export function freeLimitSkip(
+  entries: readonly LogEntry[],
+  since: number,
+): string | null {
+  return entries.some(
+    (entry) =>
+      entry.timestamp >= since &&
+      entry.kind === "system" &&
+      entry.metadata?.openCodeFreeLimit === true,
+  )
+    ? "not checked: OpenCode free quota used up"
+    : null;
+}

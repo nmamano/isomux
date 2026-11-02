@@ -6,6 +6,7 @@ import type { AskMemberWire, LogEntry, TaskItem } from "../../shared/types.ts";
 import {
   failedOfficeCalls,
   findMarkerTask,
+  freeLimitSkip,
   judgeCommit,
   messagingFailure,
   newOpenAsk,
@@ -799,5 +800,54 @@ describe("slashResolved", () => {
     const other = [{ ...resolved[0], content: "/wrap-sessionx" }];
     expect(slashResolved(other, "wrap-session", at)).toBeNull();
     expect(slashResolved(resolved, "wrap-session", at + 1)).toBeNull();
+  });
+});
+
+// Task a5c551e4: an OpenCode step OpenCode refused with its free usage
+// limit is not checked. The office's notice (metadata.openCodeFreeLimit)
+// marks it, never OpenCode's words, and only a notice of this step counts.
+describe("freeLimitSkip", () => {
+  const at = (
+    timestamp: number,
+    kind: LogEntry["kind"],
+    content: string,
+    metadata?: LogEntry["metadata"],
+  ): LogEntry => ({
+    id: `e${timestamp}`,
+    agentId: S,
+    timestamp,
+    kind,
+    content,
+    ...(metadata ? { metadata } : {}),
+  });
+  const notice = (timestamp: number) =>
+    at(timestamp, "system", "OpenCode's free usage limit is used up.", {
+      openCodeFreeLimit: true,
+    });
+  const STEP = 1_000;
+
+  it("skips a step with the notice since its start", () => {
+    expect(
+      freeLimitSkip(
+        [at(STEP + 1, "user_message", "go"), notice(STEP + 2)],
+        STEP,
+      ),
+    ).toEqual(expect.any(String));
+  });
+
+  it("does not skip on an earlier step's notice, OpenCode's refusal, unmarked words, or nothing", () => {
+    const refusal = at(
+      STEP + 2,
+      "error",
+      'The provider `opencode` refused the request: "Free usage limit reached."',
+    );
+    // The notice's words without its mark.
+    const unmarked = at(
+      STEP + 2,
+      "system",
+      "OpenCode's free usage limit is used up.",
+    );
+    for (const entries of [[notice(STEP - 1)], [refusal], [unmarked], []])
+      expect(freeLimitSkip(entries, STEP)).toBeNull();
   });
 });

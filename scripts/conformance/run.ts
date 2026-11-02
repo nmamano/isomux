@@ -15,7 +15,8 @@
 //
 // Each check reads the office's tasks, asks, agent logs and office-call
 // record, or the repo's git log; never what the model said. A red step does
-// not stop the run. Engines without an office subscription are skipped:
+// not stop the run. A red step OpenCode refused with its free usage limit
+// is skipped instead. Engines without an office subscription are skipped:
 // OpenCode runs on a free model, Claude on a copy of the office Claude
 // sign-in without its refresh token, Codex not yet (the office has no Codex
 // subscription).
@@ -59,6 +60,7 @@ import {
 import {
   failedOfficeCalls,
   findMarkerTask,
+  freeLimitSkip,
   judgeCommit,
   messagingFailure,
   newOpenAsk,
@@ -923,6 +925,22 @@ async function main() {
           reason = (error as Error).message;
         }
         const seconds = Math.round((Date.now() - at) / 100) / 10;
+        // A red step that OpenCode refused with its free usage limit says
+        // nothing about the office. A green step was checked.
+        const skip = reason
+          ? freeLimitSkip(
+              [
+                ...ctx.office.entries(run.subject.id),
+                ...ctx.office.entries(run.peer.id),
+              ],
+              at,
+            )
+          : null;
+        if (skip) {
+          column.steps[step] = { status: "skip", reason: skip };
+          log(engine, `SKIP ${step} (${seconds}s) ${skip}`);
+          continue;
+        }
         column.steps[step] = reason
           ? { status: "fail", seconds, reason }
           : { status: "pass", seconds };

@@ -2917,6 +2917,8 @@ App 的一些原则：
     "`{from}` 不可用，此智能体现在改用 `{to}`。",
   "systemEntries.freeModelSwitchedResend":
     "`{from}` 不可用，此智能体现在改用 `{to}`，并重新发送该消息。",
+  "systemEntries.openCodeFreeLimit":
+    "此服务器所在网络的 OpenCode 免费用量已用完，稍后会重置。要现在继续，请登录 Claude 或 Codex 并给它们的智能体发消息，或在「集成」页面（「变量」标签页）添加 `OPENCODE_API_KEY` 并选择 OpenCode 付费模型。",
   "systemEntries.openCodeFreeTierHint":
     "当某台服务器过多使用 OpenCode 的免费额度时，OpenCode 也可能发送此消息。使用付费模型或 OpenCode Go 可以避免。",
   "systemEntries.openCodeProviderRetry":

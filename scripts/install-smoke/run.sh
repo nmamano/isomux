@@ -293,4 +293,10 @@ started=$SECONDS
 log "testing $sha"
 "$path"
 cat "$logs/office-checks.log"
+# The checks run in the container or the cluster, which have no job summary:
+# a check that did not run (check.ts FREE_LIMIT_NOT_CHECKED) goes there from
+# here.
+if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+  grep -F 'NOT CHECKED' "$logs/office-checks.log" >>"$GITHUB_STEP_SUMMARY" || true
+fi
 log "PASS in $((SECONDS - started))s"

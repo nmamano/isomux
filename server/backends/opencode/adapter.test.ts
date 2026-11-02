@@ -10,6 +10,7 @@ import {
   OPENCODE_ONE_SHOT_DIR,
 } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
+import { OpenCodeFreeLimitError } from "./errors.ts";
 import {
   OPENCODE_AUTH_FAILURE,
   OPENCODE_EVENT_STREAM_DEADLINE_MS,
@@ -631,6 +632,45 @@ describe("OpenCode pinned transport", () => {
     // Check the backstop budget without depending on CPU scheduling.
     expect(timer).toHaveBeenCalledWith(expect.any(Function), 10);
     expect(harness.deletes()).toBe(1);
+  });
+  // Task a5c551e4: the office's check of the free models stops at the free
+  // usage limit, which every free model shares. The one-shot names it with a
+  // type, so no caller reads OpenCode's sentence.
+  it("rejects a one-shot refused with the free usage limit as OpenCodeFreeLimitError, and another refusal not", async () => {
+    const freeModels = () => [
+      modelRow("opencode", "free", {
+        cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+      }),
+    ];
+    const refusedWith = async (type: string) => {
+      const harness = oneShotHarness(
+        [
+          oneShotTurn([
+            oneShot.failed({
+              type,
+              status: 429,
+              message: "Free usage limit reached.",
+            }),
+          ]),
+        ],
+        2_000,
+        { models: freeModels },
+      );
+      return rejected(
+        harness.backend.oneShotPrompt("label", {
+          cwd: "/tmp",
+          modelFamily: "opencode/free",
+          systemPrompt: "label only",
+        }),
+      );
+    };
+    expect(
+      (await refusedWith("provider.free-limit")) instanceof
+        OpenCodeFreeLimitError,
+    ).toBe(true);
+    expect(
+      (await refusedWith("provider.quota")) instanceof OpenCodeFreeLimitError,
+    ).toBe(false);
   });
   it("uses the shared attachment notice contract and fails empty input safe", async () => {
     const agentId = `opencode-attachment-${Date.now()}`;

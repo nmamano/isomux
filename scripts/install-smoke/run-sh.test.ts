@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -11,6 +12,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { FREE_LIMIT_NOT_CHECKED } from "./check.ts";
 
 const RUN_SH = join(import.meta.dir, "run.sh");
 const GIT = Bun.which("git")!;
@@ -30,7 +33,8 @@ beforeEach(() => {
     `case "$1 $2" in
   "build "*) [[ $STUB_MODE == build-fails ]] && exit 17; cat >/dev/null; exit 0 ;;
   "image inspect") echo "sha256:0 linux/amd64" ;;
-  "run "*) [[ $STUB_MODE == checks-fail ]] && exit 1 ;;
+  "run "*) [[ $STUB_MODE == checks-fail ]] && exit 1
+    [[ $STUB_MODE == free-limit ]] && echo "$STUB_CHECK_LINE" ;;
 esac
 exit 0`,
   );
@@ -53,7 +57,10 @@ d="\${@: -1}/deploy/kubernetes-latest"; mkdir -p "$d"; printf '#!/bin/sh\\n' > "
   stub("python3", 'touch "$3"; echo 0000000');
   // Unless the checks fail instead, the first kubectl call in run.sh up fails,
   // after the cluster exists.
-  stub("kubectl", `[[ $STUB_MODE == checks-fail ]]`);
+  stub(
+    "kubectl",
+    `[[ $STUB_MODE == checks-fail || $STUB_MODE == free-limit || $STUB_MODE == passes ]]`,
+  );
 });
 
 afterEach(() => rmSync(base, { recursive: true, force: true }));
@@ -64,7 +71,9 @@ async function run(mode: string) {
       ...process.env,
       PATH: `${base}:${process.env.PATH}`,
       STUB_MODE: mode,
+      STUB_CHECK_LINE: FREE_LIMIT_NOT_CHECKED,
       SMOKE_LOG_DIR: join(base, "logs"),
+      GITHUB_STEP_SUMMARY: join(base, "summary.md"),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -110,5 +119,27 @@ describe("run.sh kubernetes cleanup", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("FAIL at step office-checks");
     expect(r.deletes).toEqual(["k3d cluster delete isomux-verify"]);
+  }, 60_000);
+});
+
+// Task a5c551e4: check.ts runs inside a container or a cluster client with
+// no summary file, so run.sh copies its not-checked line to the job summary.
+// Every path's checks are the office-checks step.
+describe("run.sh job summary", () => {
+  const summary = () => {
+    const file = join(base, "summary.md");
+    return existsSync(file) ? readFileSync(file, "utf8") : "";
+  };
+
+  it("copies the free agent's not-checked line to the job summary", async () => {
+    const r = await run("free-limit");
+    expect(r.code).toBe(0);
+    expect(summary()).toContain(FREE_LIMIT_NOT_CHECKED);
+  }, 60_000);
+
+  it("writes no such line when the checks pass without it", async () => {
+    const r = await run("passes");
+    expect(r.code).toBe(0);
+    expect(summary()).not.toContain(FREE_LIMIT_NOT_CHECKED);
   }, 60_000);
 });

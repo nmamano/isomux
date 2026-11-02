@@ -45,7 +45,11 @@ import {
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
 import { removeStateDir } from "./temp-state.ts";
-import { FakeBackend, type FakeSession } from "./fake-backend.ts";
+import {
+  FakeBackend,
+  type FakeBackendConfig,
+  type FakeSession,
+} from "./fake-backend.ts";
 import type { EventHandler } from "../internal-types.ts";
 import {
   DEFAULT_AGENT_CAPABILITIES,
@@ -200,11 +204,13 @@ function makeHarness(
     // The office sign-in as the office has it, not injected.
     realOffice?: boolean;
     capabilities?: Partial<AgentCapabilities>;
+    oneShot?: FakeBackendConfig["oneShot"];
   } = {},
 ): Harness {
   const fake = new FakeBackend({
     newSessionId: () => crypto.randomUUID(),
     capabilities: { ...DEFAULT_AGENT_CAPABILITIES, ...opts.capabilities },
+    ...(opts.oneShot !== undefined ? { oneShot: opts.oneShot } : {}),
   });
   const logs: LogEntry[] = [];
   const sink: EventHandler = (e) => {
@@ -1157,4 +1163,148 @@ describe("OpenCode", () => {
       expect(stateOf(h, info.id)).toBe("error");
     });
   }
+});
+
+// Task a5c551e4: OpenCode's free usage limit (provider.free-limit) on a
+// server without OPENCODE_API_KEY. The office's notice stands in for
+// OpenCode's error, and the agent is not left in error. The transport says
+// whether the server has a key (usage_limit_stop freeLimit.keyless); the
+// Free Welcome Agent's case, with its sign-in cards, is in receptionist.test.ts.
+describe("OpenCode free usage limit", () => {
+  const FREE = "opencode/free-model";
+  const REFUSAL =
+    'The provider `opencode` refused the request: "Free usage limit reached."';
+  const openCodeHarness = (oneShot?: FakeBackendConfig["oneShot"]) =>
+    makeHarness(makeOffice(), [], {
+      capabilities: { limitResume: false },
+      ...(oneShot !== undefined ? { oneShot } : {}),
+    });
+  const notices = (h: Harness, id: string) =>
+    h.logs.filter(
+      (e) => e.agentId === id && e.metadata?.openCodeFreeLimit === true,
+    );
+  const errors = (h: Harness, id: string) =>
+    h.logs.filter((e) => e.agentId === id && e.kind === "error");
+  // The running turn ends as the transport ends a free usage limit refusal.
+  function refuse(s: FakeSession, keyless: boolean): void {
+    s.push({ kind: "usage_limit_stop", freeLimit: { keyless } });
+    s.push({
+      kind: "turn_completed",
+      status: "failed",
+      error: REFUSAL,
+      providerRefusal: true,
+    });
+  }
+  async function refusedTurn(
+    h: Harness,
+    id: string,
+    keyless: boolean,
+    text = "work",
+  ): Promise<void> {
+    const s = await memberTurn(h, id, text, "claude", false);
+    refuse(s, keyless);
+    await waitUntil(() => stateOf(h, id) !== "thinking", "turn ended");
+  }
+
+  it("writes the notice in place of the error, without sign-in cards, for an agent the office did not seed", async () => {
+    const h = openCodeHarness();
+    const info = await spawn(h, "opencode", { modelFamily: FREE });
+    await refusedTurn(h, info.id, true);
+    await settle();
+    expect(notices(h, info.id)).toHaveLength(1);
+    expect(notices(h, info.id)[0].kind).toBe("system");
+    expect(notices(h, info.id)[0].metadata?.providerLogins).toBeUndefined();
+    expect(errors(h, info.id)).toEqual([]);
+    expect(stateOf(h, info.id)).toBe("waiting_for_response");
+  });
+
+  it("keeps OpenCode's error, and no notice, on a server with a key", async () => {
+    const h = openCodeHarness();
+    const info = await spawn(h, "opencode", { modelFamily: FREE });
+    h.mgr.setOfficeFreeModel(info.id, FREE);
+    await refusedTurn(h, info.id, false);
+    await settle();
+    expect(notices(h, info.id)).toEqual([]);
+    expect(errors(h, info.id)).toHaveLength(1);
+    expect(stateOf(h, info.id)).toBe("error");
+  });
+
+  // Note 1 of the task: the member's own key falls back to the office key
+  // as today (task 2008c993), with no notice next to it.
+  it("adds no notice when the member's key falls back to the office key", async () => {
+    writeManagedUserEnv(aliceId(), { OPENCODE_API_KEY: MEMBER_KEY });
+    const h = openCodeHarness();
+    const info = await spawn(h, "opencode", { modelFamily: FREE });
+    const s = await memberTurn(h, info.id, "work", "claude", false);
+    expect(accountOf(s, "opencode")).toBe(MEMBER_KEY);
+    refuse(s, false);
+    await waitUntil(() => continuesTo(h, info.id) === 1, "continue sent");
+    await settle();
+    expect(notices(h, info.id)).toEqual([]);
+  });
+
+  // A turn the member stops after the refusal ends with no turn_completed:
+  // the next turn's own failure still gets its error line.
+  it("shows the error of the next turn after a refused turn was stopped", async () => {
+    const h = openCodeHarness();
+    const info = await spawn(h, "opencode", { modelFamily: FREE });
+    const s = await memberTurn(h, info.id, "work", "claude", false);
+    s.push({ kind: "usage_limit_stop", freeLimit: { keyless: true } });
+    await settle();
+    await h.mgr.abort(info.id);
+    await waitUntil(
+      () => stateOf(h, info.id) === "waiting_for_response",
+      "stopped",
+    );
+    const next = await memberTurn(h, info.id, "next", "claude", false);
+    next.push({ kind: "turn_completed", status: "failed", error: "Boom." });
+    await waitUntil(() => stateOf(h, info.id) !== "thinking", "turn ended");
+    await settle();
+    expect(errors(h, info.id).map((e) => e.content)).toEqual(["Boom."]);
+  });
+
+  // Note 5 of the task: the topic's one-shot on the same free model only
+  // spends the quota again, so an office-seeded agent skips it for
+  // OPENCODE_FALLBACK_RETRY_MS after a refusal.
+  describe("the topic", () => {
+    // An empty label keeps the topic empty, so each message asks again.
+    function topicHarness() {
+      const asked = { count: 0 };
+      const h = openCodeHarness((prompt) => {
+        if (prompt.includes("topic label")) asked.count++;
+        return "";
+      });
+      return { h, asked };
+    }
+    async function answeredTurn(h: Harness, id: string, text: string) {
+      const s = await memberTurn(h, id, text, "claude", false);
+      await endTurn(h, id, s);
+    }
+
+    it("waits OPENCODE_FALLBACK_RETRY_MS after a refusal on an office-seeded agent", async () => {
+      const { h, asked } = topicHarness();
+      const info = await spawn(h, "opencode", { modelFamily: FREE });
+      h.mgr.setOfficeFreeModel(info.id, FREE);
+      await refusedTurn(h, info.id, true);
+      await settle();
+      const before = asked.count;
+      expect(before).toBeGreaterThan(0);
+      await answeredTurn(h, info.id, "again");
+      await settle();
+      expect(asked.count).toBe(before);
+      await h.office.clock.advance(OPENCODE_FALLBACK_RETRY_MS + 1);
+      await answeredTurn(h, info.id, "later");
+      await waitUntil(() => asked.count === before + 1, "topic asked again");
+    });
+
+    it("does not wait on an agent the office did not seed", async () => {
+      const { h, asked } = topicHarness();
+      const info = await spawn(h, "opencode", { modelFamily: FREE });
+      await refusedTurn(h, info.id, true);
+      await settle();
+      const before = asked.count;
+      await answeredTurn(h, info.id, "again");
+      await waitUntil(() => asked.count === before + 1, "topic asked again");
+    });
+  });
 });

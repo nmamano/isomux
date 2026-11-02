@@ -263,11 +263,15 @@ export type NormalizedEvent =
   // (epoch ms) is known (server/limit-resume.ts); OpenCode emits it for a
   // refusal of its own Zen or Go plan, with the reset time when the refusal
   // names one. `family`: a Claude stop that only one model family's weekly
-  // limit caused (server/provider-fallback.ts).
+  // limit caused (server/provider-fallback.ts). `freeLimit`: an OpenCode
+  // refusal named provider.free-limit, the free usage limit OpenCode keeps
+  // per network; `keyless` when the session launched without
+  // OPENCODE_API_KEY.
   | {
       kind: "usage_limit_stop";
       resetsAtMs?: number;
       family?: FallbackFamily;
+      freeLimit?: { keyless: boolean };
     }
   // Backend requested interactive input that is not a tool permission. The
   // payload stays backend-owned and default-denied; callers only need the

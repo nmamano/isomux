@@ -1205,6 +1205,14 @@ export interface SubagentOrigin {
   description?: string;
 }
 
+// A log entry's metadata: free-form, with these keys read by name.
+export type LogEntryMetadata = Record<string, unknown> & {
+  // The OpenCode free usage limit notice (systemEntries.openCodeFreeLimit).
+  openCodeFreeLimit?: true;
+  // The sign-in cards that notice shows the agent's owner.
+  providerLogins?: ("claude" | "codex")[];
+};
+
 export interface LogEntry {
   id: string;
   agentId: string;
@@ -1229,7 +1237,7 @@ export interface LogEntry {
   // The same text as message keys and values, for server-written lines; each
   // member's UI words it in that member's language (shared/i18n/log-message.ts).
   message?: LogPart[];
-  metadata?: Record<string, unknown>;
+  metadata?: LogEntryMetadata;
   attachments?: Attachment[]; // file attachments, served via /api/files/<agentId>/<filename>
   diff?: DiffPayload; // present only when kind === "diff"
   file?: FilePayload; // present only when kind === "edit-request"

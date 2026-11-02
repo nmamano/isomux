@@ -200,11 +200,13 @@ import { createMessageQueue } from "./message-queue.ts";
 import { createOfficePersistence } from "./office-persistence.ts";
 import { createAgentRestore } from "./agent-restore.ts";
 import { createAgentAffordances } from "./agent-affordances.ts";
-import type {
-  FallbackAccount,
-  FallbackProvider,
-  ProviderFallback,
+import {
+  OPENCODE_FALLBACK_RETRY_MS,
+  type FallbackAccount,
+  type FallbackProvider,
+  type ProviderFallback,
 } from "./provider-fallback.ts";
+import { OpenCodeFreeLimitError } from "./backends/opencode/errors.ts";
 import {
   BackendNotConfiguredError,
   BackendSignedOutError,
@@ -2008,6 +2010,7 @@ export function createAgentManager(deps: ManagerDeps) {
     managed.authNeededThisTurn = false;
     // A usage limit stop belongs to the turn that reported it.
     managed.limitStopResetsAtMs = null;
+    managed.freeLimitNoticeThisTurn = false;
     const current = managed.info.turnMemberIds;
     if (
       current.length !== opts.memberIds.length ||
@@ -2700,6 +2703,16 @@ export function createAgentManager(deps: ManagerDeps) {
       Date.now() < backoff.retryAt
     )
       return;
+    // OpenCode's free usage limit refused this office free model lately: a
+    // one-shot would only use more of it.
+    if (
+      !opts.manual &&
+      managed.info.officeFreeModel !== undefined &&
+      managed.openCodeFreeLimitAt !== undefined &&
+      limitResumeClock.now() - managed.openCodeFreeLimitAt <
+        OPENCODE_FALLBACK_RETRY_MS
+    )
+      return;
     // Captured before the first await. A path that bumps the token (/clear,
     // /resume, fork, a typed topic) also clears the flag, and this call then
     // drops its result and leaves the flag to whoever runs next.
@@ -2767,6 +2780,8 @@ export function createAgentManager(deps: ManagerDeps) {
       if (managed.sessionManager.sessionId)
         persistSessionTopic(agentId, managed.sessionManager.sessionId, topic);
     } catch (err) {
+      if (err instanceof OpenCodeFreeLimitError)
+        managed.openCodeFreeLimitAt = limitResumeClock.now();
       const text = errMessage(err);
       // Auth-error topic-gen failures are expected when the agent is in the
       // not-yet-signed-in state - the user already sees the auth card in
@@ -3290,7 +3305,8 @@ export function createAgentManager(deps: ManagerDeps) {
       case "turn_completed": {
         // A usage limit stopped this turn: its notice is the turn's one line.
         // Read before the blocks below clear it. OpenCode writes no notice:
-        // its refusal stays the turn's error line.
+        // its refusal stays the turn's error line, except for the free usage
+        // limit notice (freeLimitNoticeThisTurn).
         const limitStopped =
           (agents.get(agentId)?.limitStopResetsAtMs ?? null) !== null &&
           agents.get(agentId)?.info.agentType !== "opencode";
@@ -3435,7 +3451,8 @@ export function createAgentManager(deps: ManagerDeps) {
             const isAuthError = managed?.authNeededThisTurn === true;
             const silentAuthEnd = isAuthError && ev.error === undefined;
             // A usage-limit stop's notice already says why the turn ended.
-            const silentEnd = silentAuthEnd || limitStopped;
+            const freeLimitNotice = managed?.freeLimitNoticeThisTurn === true;
+            const silentEnd = silentAuthEnd || limitStopped || freeLimitNotice;
             const showFailure = () => {
               if (!silentEnd) {
                 const meta = backendFailureMeta(failure);
@@ -3460,7 +3477,7 @@ export function createAgentManager(deps: ManagerDeps) {
               // surface.
               updateState(
                 agentId,
-                isAuthError || fallbackContinues
+                isAuthError || fallbackContinues || freeLimitNotice
                   ? "waiting_for_response"
                   : "error",
               );
@@ -3496,6 +3513,7 @@ export function createAgentManager(deps: ManagerDeps) {
         if (managed) {
           managed.freeModelResend = null;
           managed.freeModelRetryTurn = false;
+          managed.freeLimitNoticeThisTurn = false;
         }
         // Resolve the per-turn deferred. Pre-refactor this lived in the consumer
         // and fired when the SDK's stream() returned at the result message.
@@ -3555,8 +3573,27 @@ export function createAgentManager(deps: ManagerDeps) {
         // Read at the turn's end (turn_completed above).
         const managed = agents.get(agentId);
         if (!managed) break;
+        if (ev.freeLimit) managed.openCodeFreeLimitAt = limitResumeClock.now();
         const resumeAt = fallbackStop(managed, ev);
         if (resumeAt !== null) managed.limitStopResetsAtMs = resumeAt;
+        // OpenCode's free usage limit on an agent with no key: a notice in
+        // place of the turn's error line, which says to switch models, and
+        // on an office free model the sign-in cards for the agent's owner.
+        if (ev.freeLimit?.keyless) {
+          managed.freeLimitNoticeThisTurn = true;
+          addLogEntry(
+            agentId,
+            "system",
+            msg("systemEntries.openCodeFreeLimit"),
+            {
+              openCodeFreeLimit: true,
+              ...(managed.info.officeFreeModel !== undefined
+                ? { providerLogins: ["claude", "codex"] }
+                : {}),
+            },
+          );
+          break;
+        }
         // OpenCode names no reset: its refusal is the turn's error line.
         if (ev.resetsAtMs === undefined) break;
         // In place of the engine's sentence, which the adapter drops: it

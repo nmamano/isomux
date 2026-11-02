@@ -60,6 +60,16 @@ export function openCodeModelUnavailableRefusal(
   return /\bmodel is unavailable\b/i.test(error.message ?? "");
 }
 
+// A one-shot prompt that OpenCode refused with provider.free-limit: the
+// free usage limit, which every free model shares. A check of the free
+// models stops at it (server/welcome-opencode-model.ts).
+export class OpenCodeFreeLimitError extends Error {
+  constructor() {
+    super("OpenCode free usage limit reached.");
+    this.name = "OpenCodeFreeLimitError";
+  }
+}
+
 // The provider's words as the member reads them. `message` is already
 // providerText output.
 export function openCodeProviderLine(

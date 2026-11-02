@@ -6,6 +6,7 @@ import {
 } from "../shared/opencode-model.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import { DEFAULT_LANGUAGE } from "../shared/languages.ts";
+import { OpenCodeFreeLimitError } from "./backends/opencode/errors.ts";
 
 // The names the office seeds its free agents with.
 export const FREE_WELCOME_AGENT_NAME = "Free Welcome Agent";
@@ -155,26 +156,39 @@ export function freeOpenCodeCandidates(
     : free;
 }
 
+// What a check of the free models found: the first model that answered,
+// none within the budget, or OpenCode's free usage limit, which every free
+// model shares.
+export type FreeModelCheck =
+  | { kind: "answered"; model: string }
+  | { kind: "none" }
+  | { kind: "free_limit" };
+
 // The first candidate that answers one probe, in order and one at a time, or
-// null when none answers within the budget. A probe that throws, rejects or
-// times out did not answer.
+// none when none answers within the budget. A probe that throws, rejects or
+// times out did not answer. A probe refused with the free usage limit ends
+// the check: the next probe would only use more of the same limit.
 export async function firstAnsweringModel(
   candidates: readonly string[],
   probe: (model: string) => Promise<void>,
   timing: FreeModelProbeTiming,
   clock: WelcomeModelRetryClock = realClock,
-): Promise<string | null> {
+): Promise<FreeModelCheck> {
   const deadline = clock.now() + timing.probeBudgetMs;
   for (const model of candidates) {
-    if (deadline - clock.now() < timing.probeTimeoutMs) return null;
+    if (deadline - clock.now() < timing.probeTimeoutMs) return { kind: "none" };
     const timedOut = clock.sleep(timing.probeTimeoutMs).then(() => false);
     const answered = (async () => {
       await probe(model);
-      return true;
-    })().catch(() => false);
-    if (await Promise.race([answered, timedOut])) return model;
+      return "answered" as const;
+    })().catch((error: unknown) =>
+      error instanceof OpenCodeFreeLimitError ? ("free_limit" as const) : false,
+    );
+    const outcome = await Promise.race([answered, timedOut]);
+    if (outcome === "free_limit") return { kind: "free_limit" };
+    if (outcome) return { kind: "answered", model };
   }
-  return null;
+  return { kind: "none" };
 }
 
 // Finds the free model a refused office-seeded agent moves to: one that

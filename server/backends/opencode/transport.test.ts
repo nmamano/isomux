@@ -1744,6 +1744,33 @@ describe("OpenCode 2 failures (T10)", () => {
     });
   }
 
+  // Task a5c551e4: the free usage limit is marked apart from a plan quota,
+  // with whether the server launched with OPENCODE_API_KEY (the office's
+  // notice is for agents without one). The key can come from the service's
+  // own env, which only the lease knows.
+  it("marks a free usage limit, and whether the server has a key, on the stop", async () => {
+    const stop = async (type: string, launchVariables: string[]) => {
+      const h = setup({
+        fake: {
+          turns: [failingTurn({ type, status: 429, message: "Limit." })],
+        },
+        lease: { launchVariables },
+        transport: { model: "opencode/free-model" },
+      });
+      const { events } = await h.turn();
+      return kinds(events, "usage_limit_stop").map(
+        (e) => (e as { freeLimit?: { keyless: boolean } }).freeLimit,
+      );
+    };
+    expect(await stop("provider.free-limit", [])).toStrictEqual([
+      { keyless: true },
+    ]);
+    expect(
+      await stop("provider.free-limit", ["OPENCODE_API_KEY"]),
+    ).toStrictEqual([{ keyless: false }]);
+    expect(await stop("provider.quota", [])).toStrictEqual([undefined]);
+  });
+
   it("quotes the provider's refusal for a 4xx other than 401", async () => {
     const h = setup({
       fake: { turns: [fixtureTurn("probe-invalid-request-400")] },

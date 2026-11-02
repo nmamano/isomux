@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import {
   OfficeSocket,
   judgeAnswer,
+  judgeFreeAgent,
   judgeSignedOut,
   sendMessage,
   stripAnsi,
@@ -199,6 +200,55 @@ describe("judgeAnswer", () => {
     expect(
       judgeAnswer([sent, entry("text", "ready"), entry("error", "boom")]),
     ).toContain("boom");
+  });
+});
+
+// Task a5c551e4: while OpenCode's free usage limit is used up on the
+// runner's network, the step is not checked, and only on the office's
+// notice (metadata.openCodeFreeLimit), never on OpenCode's words. The
+// notice must stand alone, with both sign-in cards, on an agent not in
+// error.
+describe("judgeFreeAgent", () => {
+  const sent = entry("user_message", "Reply with one word: ready");
+  const notice = (providerLogins: string[] = ["claude", "codex"]): Entry => ({
+    ...entry("system", "OpenCode's free usage limit is used up."),
+    metadata: { openCodeFreeLimit: true, providerLogins },
+  });
+  const idle = "waiting_for_response";
+
+  it("passes a text answer", () => {
+    expect(judgeFreeAgent([sent, entry("text", "ready")], idle)).toEqual({
+      kind: "answered",
+    });
+  });
+
+  it("does not check the answer behind the notice with both sign-in cards", () => {
+    expect(judgeFreeAgent([sent, notice()], idle)).toEqual({
+      kind: "not_checked",
+    });
+    expect(judgeFreeAgent([sent, notice(["codex", "claude"])], idle)).toEqual({
+      kind: "not_checked",
+    });
+  });
+
+  it("fails the notice next to an error, on an agent in error, or with a card missing", () => {
+    for (const [entries, state] of [
+      [[sent, notice(), entry("error", "boom")], idle],
+      [[sent, notice()], "error"],
+      [[sent, notice(["claude"])], idle],
+      [[sent, notice([])], idle],
+    ] as const)
+      expect(judgeFreeAgent([...entries], state).kind).toBe("failed");
+  });
+
+  it("fails OpenCode's own refusal, and a turn with no answer", () => {
+    const refusal = entry(
+      "error",
+      'The provider `opencode` refused the request: "Free usage limit reached."',
+    );
+    const unmarked = entry("system", "Free usage limit reached.");
+    for (const entries of [[sent, refusal], [sent, unmarked], [sent]])
+      expect(judgeFreeAgent(entries, idle).kind).toBe("failed");
   });
 });
 

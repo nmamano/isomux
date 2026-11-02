@@ -1,5 +1,9 @@
 import { join } from "node:path";
-import { logOpenCodeError, logOpenCodeStreamSilence } from "./errors.ts";
+import {
+  logOpenCodeError,
+  logOpenCodeStreamSilence,
+  OpenCodeFreeLimitError,
+} from "./errors.ts";
 // OpenCode backend boundary. The production singleton uses the pinned OC1
 // server transport.
 
@@ -824,8 +828,11 @@ export function createOpenCodeBackend(
       try {
         const completion = (async () => {
           let text = "";
+          let freeLimit = false;
           for await (const event of session.stream()) {
             if (event.kind === "assistant_text") text += event.text;
+            if (event.kind === "usage_limit_stop" && event.freeLimit)
+              freeLimit = true;
             if (event.kind === "approval_request") {
               await session.approve(event.approvalId, {
                 kind: "deny",
@@ -840,6 +847,7 @@ export function createOpenCodeBackend(
             }
             if (event.kind === "turn_completed") {
               if (event.status !== "completed") {
+                if (freeLimit) throw new OpenCodeFreeLimitError();
                 throw new Error(
                   event.error === undefined
                     ? "OpenCode one-shot prompt failed."
