@@ -15,6 +15,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "bun run scripts/lint.ts",
+    "typecheck": "bun node_modules/typescript-native/bin/tsc --noEmit",
     "lint:fix": "bun run scripts/lint.ts --fix",
     "lint:web": "eslint --config control-plane/web/eslint.config.mjs control-plane/web",
     "test": "bun test",
@@ -81,6 +82,7 @@
     "happy-dom": "^20.14.0",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
+    "typescript-native": "npm:typescript@7.0.2",
     "typescript-eslint": "^8.64.0"
   },
   "overrides": {

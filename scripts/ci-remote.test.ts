@@ -783,7 +783,7 @@ async function remote(opts: {
   pg?: number;
   pin?: string;
   scopeStuck?: boolean;
-  /** bun calls ("x tsc --noEmit", "run build:ui", ...) that exit 1. */
+  /** bun calls ("run typecheck", "run build:ui", ...) that exit 1. */
   fail?: string[];
   /** Replaces the script's GATE_WAIT (seconds). */
   gateWait?: number;
@@ -841,7 +841,7 @@ echo "$* $(pwd)" >> "${dir}/bun.log"
 date +%s%N >> "${dir}/bun-times"
 [[ $* == "run ci" ]] && { ${opts.ciSleep ? `sleep ${opts.ciSleep}; ` : ""}echo "ci output"; exit ${opts.ci ?? 0}; }
 # With block-tsc, tsc waits for unblock (at most 20 s).
-if [[ $* == *"tsc --noEmit"* && -e "${dir}/block-tsc" ]]; then
+if [[ $* == "run typecheck" && -e "${dir}/block-tsc" ]]; then
   for _ in $(seq 200); do [[ -e "${dir}/unblock" ]] && break; sleep 0.1; done
 fi
 ${(opts.fail ?? []).map((c) => `[[ $* == "${c}" ]] && exit 1`).join("\n")}
@@ -1125,7 +1125,7 @@ const INSTALLS = [
   "install --frozen-lockfile",
   "install --cwd control-plane/web --frozen-lockfile",
 ];
-const TSC = "x tsc --noEmit";
+const TSC = "run typecheck";
 
 async function until(cond: () => boolean, what: string): Promise<void> {
   for (let i = 0; i < 200; i++) {

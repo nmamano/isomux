@@ -5,7 +5,6 @@
 //   end:   {"end":true,"pid":1,"threadId":0,"peak":<bytes>,"limit":<bytes>}
 import { afterEach, describe, expect, it } from "bun:test";
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -21,6 +20,7 @@ import {
   heapEnv,
   heapLines,
   readHeapReport,
+  rssLines,
   type HeapUse,
 } from "./heap-report";
 import { eslintNodeOptions } from "./lint";
@@ -178,6 +178,34 @@ describe("heapLines", () => {
   });
 });
 
+describe("rssLines", () => {
+  const BUDGET = 1000 * MIB;
+
+  it("one line that names the stage and its share of the budget, with no warning below the ratio", () => {
+    const lines = rssLines("tsc", 600 * MIB, BUDGET);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("tsc");
+    expect(lines[0]).toMatch(/\b60%/);
+    expect(rssLines("tsc", HEAP_WARN_RATIO * BUDGET - 1, BUDGET)).toHaveLength(
+      1,
+    );
+  });
+
+  it("adds a warning line at the ratio and above, also over the budget", () => {
+    for (const share of [HEAP_WARN_RATIO, 0.95, 1.2]) {
+      const lines = rssLines("tsc", share * BUDGET, BUDGET);
+      expect({ share, lines: lines.length }).toEqual({ share, lines: 2 });
+      expect(lines[1]).toContain("tsc");
+    }
+  });
+
+  it("warns when the stage reported no peak", () => {
+    const lines = rssLines("tsc", undefined, BUDGET);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]).toContain("tsc");
+  });
+});
+
 describe("heapEnv", () => {
   it("names the report file and adds the quoted preload to the existing options", () => {
     const env = heapEnv("/r/x.heap", "--max-old-space-size=4096");
@@ -321,11 +349,13 @@ describe("the CI stages", () => {
   const tsc = stages.find((s) => s.name === "tsc")!;
   const lint = stages.find((s) => s.name === "lint")!;
 
-  it("only tsc and lint report heap; no other stage gets the report", () => {
-    expect(stages.filter((s) => s.heap).map((s) => s.name)).toEqual([
-      "lint",
-      "tsc",
-    ]);
+  it("only lint reports heap; tsc reports peak RSS and gets no Node options", () => {
+    expect(stages.filter((s) => s.heap).map((s) => s.name)).toEqual(["lint"]);
+    expect(
+      stages.filter((s) => s.peakRss !== undefined).map((s) => s.name),
+    ).toEqual(["tsc"]);
+    // The native compiler has no V8 heap: no preload, no heap cap.
+    expect(stageEnv(tsc, "/r/x.heap")).toBeUndefined();
     for (const stage of stages.filter((s) => !s.heap))
       expect({
         stage: stage.name,
@@ -333,41 +363,34 @@ describe("the CI stages", () => {
       }).toEqual({ stage: stage.name, report: undefined });
   });
 
-  it("the tsc process gets its 4096 MB cap and the preload together", async () => {
+  it("a stage's peak RSS is its largest process, a grandchild too, also when the stage fails", async () => {
     const dir = scratch();
-    const file = join(dir, "tsc.heap");
-    // The stage's own command, ending in --version instead of --noEmit: the
-    // preload reaches tsc's Node through it (no NODE_OPTIONS in the argv).
-    const command = [...tsc.command.slice(0, -1), "--version"];
-    expect(tsc.command.at(-1)).toBe("--noEmit");
-    const result = await runStage(
+    const HOLD = 384 * MIB;
+    // bash forks bun (a command follows), so the buffer is a grandchild's.
+    const hold = `const b = Buffer.alloc(${HOLD}, 1); if (b[7] !== 1) process.exit(9);`;
+    const big = await runStage(
       "tsc",
-      command,
-      join(dir, "tsc.log"),
-      undefined,
-      undefined,
-      stageEnv(tsc, file),
+      ["bash", "-c", '"$0" -e "$1"; exit 3', process.execPath, hold],
+      join(dir, "big.log"),
     );
-    expect(result.status).toBe("passed");
-    expect(existsSync(file)).toBe(true);
-    expect(
-      readHeapReport(readFileSync(file, "utf8"))!.heaps,
-    ).toBeGreaterThanOrEqual(1);
-    // The cap reaches Node beside the preload. Its heap limit cannot show it
-    // here: on a machine with 16 GB or more, V8's default is also 4096 MB.
-    const log = join(dir, "options.log");
-    const shown = await runStage(
+    expect({ status: big.status, exitCode: big.exitCode }).toEqual({
+      status: "failed",
+      exitCode: 3,
+    });
+    // A forked child keeps its parent's RSS high-water mark across exec, so
+    // a stage that allocates nothing reports about this runner's RSS. The
+    // condition the check rests on: that is below the grandchild's buffer.
+    const small = await runStage(
       "tsc",
-      [node(), "-p", "process.env.NODE_OPTIONS"],
-      log,
-      undefined,
-      undefined,
-      stageEnv(tsc, join(dir, "options.heap")),
+      ["bash", "-c", "exit 0"],
+      join(dir, "small.log"),
     );
-    expect(shown.status).toBe("passed");
-    const options = readFileSync(log, "utf8");
-    expect(options).toContain("--max-old-space-size=4096");
-    expect(options).toContain(`--require "${PRELOAD}"`);
+    expect(small.status).toBe("passed");
+    expect(typeof big.peakRssBytes).toBe("number");
+    expect(typeof small.peakRssBytes).toBe("number");
+    expect(small.peakRssBytes!).toBeLessThan(HOLD);
+    // Bytes, not kilobytes, and the grandchild's buffer, not this runner.
+    expect(big.peakRssBytes!).toBeGreaterThanOrEqual(HOLD);
   });
 
   it("the lint stage's options reach ESLint's Node with lint.ts's cap added", async () => {
@@ -389,6 +412,7 @@ describe("the CI stages", () => {
 });
 
 describe("the CI summary", () => {
+  const tscBudget = stages.find((s) => s.name === "tsc")!.peakRss ?? 0;
   // The lines printSummary writes, with heapFor naming one report per stage.
   function summary(
     results: Parameters<typeof printSummary>[0],
@@ -434,6 +458,7 @@ describe("the CI summary", () => {
     const others = [
       ...heapLines("tsc", readHeapReport(text)),
       ...heapLines("format:check", readHeapReport(text)),
+      ...rssLines("tsc", undefined, tscBudget),
     ];
     expect(lines.filter((line) => others.includes(line))).toEqual([]);
   });
@@ -441,10 +466,40 @@ describe("the CI summary", () => {
   it("reads a heap stage with no report file as no report", () => {
     const dir = scratch();
     const lines = summary(
-      [{ ...passed("tsc"), status: "failed", exitCode: 1 }],
+      [{ ...passed("lint"), status: "failed", exitCode: 1 }],
       dir,
     );
-    const expected = heapLines("tsc", undefined);
+    const expected = heapLines("lint", undefined);
     expect(lines.slice(-expected.length)).toEqual(expected);
+  });
+
+  it("ends with tsc's peak RSS against its budget, also when tsc failed, and no tsc heap line", () => {
+    const dir = scratch();
+    // A heap report a heap stage would read: tsc must not print it.
+    const text = report(start(1, 0), end(1, 0, 900 * MIB, 1000 * MIB));
+    writeFileSync(join(dir, "tsc.heap"), text);
+    expect(tscBudget).toBeGreaterThan(0);
+    const heap = [
+      ...heapLines("tsc", readHeapReport(text)),
+      ...heapLines("tsc", undefined),
+    ];
+    for (const peak of [Math.ceil(0.9 * tscBudget), undefined]) {
+      const lines = summary(
+        [
+          {
+            ...passed("tsc"),
+            status: "failed",
+            exitCode: 2,
+            peakRssBytes: peak,
+          },
+        ],
+        dir,
+      );
+      const expected = rssLines("tsc", peak, tscBudget);
+      // The condition the check rests on: a warning is due in both cases.
+      expect(expected.length).toBeGreaterThan(1);
+      expect(lines.slice(-expected.length)).toEqual(expected);
+      expect(lines.filter((line) => heap.includes(line))).toEqual([]);
+    }
   });
 });

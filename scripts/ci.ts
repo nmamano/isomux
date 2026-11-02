@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { heapEnv, heapLines, readHeapReport } from "./heap-report";
+import { heapEnv, heapLines, readHeapReport, rssLines } from "./heap-report";
 
 type StageName =
   | "format:check"
@@ -28,15 +28,17 @@ type StageResult = {
   status: "passed" | "failed" | "skipped";
   exitCode?: number;
   reason?: string;
+  /** The largest RSS of the stage's processes, in bytes. */
+  peakRssBytes?: number;
 };
 
 type Stage = {
   name: StageName;
   command: string[];
-  /** Added to NODE_OPTIONS for the stage. */
-  nodeOptions?: string;
   /** The summary reports the stage's heap use (scripts/heap-report.ts). */
   heap?: boolean;
+  /** The summary reports the stage's peak RSS against this budget, in bytes. */
+  peakRss?: number;
 };
 
 export const stages: Stage[] = [
@@ -45,9 +47,10 @@ export const stages: Stage[] = [
   { name: "lint", command: ["bun", "run", "lint"], heap: true },
   {
     name: "tsc",
-    command: ["bun", "x", "tsc", "--noEmit"],
-    nodeOptions: "--max-old-space-size=4096",
-    heap: true,
+    // The native compiler (TS 7): no Node heap, so the summary reports its
+    // peak RSS against a remote gate slot (GATE_SLOTS in scripts/ci-remote.sh).
+    command: ["bun", "run", "typecheck"],
+    peakRss: 3 * 1024 ** 3,
   },
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
   { name: "bun test", command: ["bun", "scripts/test-shards.ts"] },
@@ -147,6 +150,7 @@ export async function runStage(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let child: ReturnType<typeof Bun.spawn> | undefined;
   let exitCode: number;
+  let peakRssBytes: number | undefined;
   try {
     child = Bun.spawn(command, {
       stdout: fd,
@@ -174,6 +178,8 @@ export async function runStage(
             }, timeoutMs);
           });
     exitCode = await Promise.race([waitForExit(child), deadline]);
+    // wait4 reports the largest of the child and its waited descendants.
+    peakRssBytes = child.resourceUsage()?.maxRSS;
   } finally {
     clearTimeout(timer);
     if (child) children.delete(child);
@@ -198,6 +204,7 @@ export async function runStage(
     status: !timedOut && exitCode === 0 ? "passed" : "failed",
     exitCode,
     reason,
+    peakRssBytes,
   };
 }
 
@@ -206,18 +213,15 @@ function definition(name: StageName): Stage {
 }
 
 /**
- * The extra environment of one stage: its NODE_OPTIONS after the inherited
- * ones, and for a heap stage the heap report to `reportPath`. Undefined when
- * the stage needs none.
+ * The extra environment of one stage: for a heap stage, the heap report to
+ * `reportPath` after the inherited NODE_OPTIONS. Undefined for other stages.
  */
 export function stageEnv(
   stage: Stage,
   reportPath: string,
   inherited = process.env.NODE_OPTIONS,
 ): Record<string, string> | undefined {
-  const nodeOptions = [inherited, stage.nodeOptions].filter(Boolean).join(" ");
-  if (stage.heap) return heapEnv(reportPath, nodeOptions);
-  return stage.nodeOptions ? { NODE_OPTIONS: nodeOptions } : undefined;
+  return stage.heap ? heapEnv(reportPath, inherited) : undefined;
 }
 
 function printLog(result: StageResult): void {
@@ -244,7 +248,12 @@ export function printSummary(
   }
   console.log(`${"total".padEnd(14)} ${seconds.toFixed(2)}s`);
   for (const result of results) {
-    if (!definition(result.name).heap || result.status === "skipped") continue;
+    if (result.status === "skipped") continue;
+    const { heap, peakRss } = definition(result.name);
+    if (peakRss !== undefined)
+      for (const line of rssLines(result.name, result.peakRssBytes, peakRss))
+        console.log(line);
+    if (!heap) continue;
     let report = "";
     try {
       report = readFileSync(heapFor(result.name), "utf8");

@@ -96,6 +96,27 @@ export function heapLines(stage: string, use: HeapUse | undefined): string[] {
   return lines;
 }
 
+/** The summary line for a stage's peak RSS, and a warning line when one is due. */
+export function rssLines(
+  stage: string,
+  peakBytes: number | undefined,
+  budgetBytes: number,
+): string[] {
+  const name = `${stage} memory`.padEnd(14);
+  if (peakBytes === undefined)
+    return [`${name} no report`, `⚠ ${stage} memory: no peak RSS reported`];
+  const share = peakBytes / budgetBytes;
+  const percent = Math.floor(share * 100);
+  const lines = [
+    `${name} ${gib(peakBytes)} peak RSS of ${gib(budgetBytes)} budget (${percent}%)`,
+  ];
+  if (share >= HEAP_WARN_RATIO)
+    lines.push(
+      `⚠ ${stage} memory at ${percent}% of its budget: cut the use, or raise the budget in scripts/ci.ts and re-size GATE_SLOTS in scripts/ci-remote.sh`,
+    );
+  return lines;
+}
+
 /** The environment that makes Node load the preload and report to a file. */
 export function heapEnv(
   reportPath: string,

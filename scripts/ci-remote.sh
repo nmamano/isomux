@@ -23,7 +23,7 @@
 # Each run tees its output to a log under ${TMPDIR:-/tmp} and prints the path
 # first. A green run deletes its log; a red run keeps it.
 #
-# --gate runs `bun x tsc --noEmit` and, when paths are given, `bun run
+# --gate runs `bun run typecheck` and, when paths are given, `bun run
 # build:ui` and `bun test` on those paths, for the committed HEAD of this
 # checkout, on the same remote. It writes no file here: the caller redirects
 # its output. The first line is the commit's sha and the last is exit=<n>:
@@ -57,9 +57,9 @@ CI_RETRY_FOR=360
 CI_RETRY_EVERY=30
 REMOTE_ROOT=.cache/isomux-ci-remote
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-# Gate runs at once on the remote. Each takes about 2.5 GiB (tsc peaked at
-# 2.2 GiB, 2026-10-23), and the remote's memory must still hold a CI run
-# beside them (task b3056d6c).
+# Gate runs at once on the remote. Each gets about 3 GiB (tsc peaked at
+# 2.17 GiB, TS 7, 2026-11-02; the tsc stage's peakRss in scripts/ci.ts), and
+# the remote's memory must still hold a CI run beside them (task b3056d6c).
 GATE_SLOTS=2
 # Seconds a gate run waits for a slot and for a CI run to end, together.
 GATE_WAIT=600
@@ -569,7 +569,7 @@ remote_gate_main() {
       shift
       status=0
       echo "→ tsc"
-      NODE_OPTIONS=--max-old-space-size=4096 bun x tsc --noEmit || status=1
+      bun run typecheck || status=1
       if (($# > 0)); then
         echo "→ build:ui"
         if bun run build:ui >"$TMPDIR/build-ui.log" 2>&1; then
