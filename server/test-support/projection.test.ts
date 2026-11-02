@@ -1,7 +1,7 @@
 // Phase 1.2 - Projection / ACL characterization.
 //
 // Per-recipient projection / ACL net. Began as a Phase 1.2 characterization of
-// the implicit per-WebSocket fanout in server/isomux-office.ts (sendProjectedFullState +
+// the implicit per-WebSocket fanout in server/office-session-projection.ts (sendProjectedFullState +
 // the per-WS push helpers) and server/office-event-fanout.ts (routeAgentEventToWs);
 // the Phase 3 rewrites then
 // FLIPPED these tests in place as they landed, so the file now pins the CURRENT

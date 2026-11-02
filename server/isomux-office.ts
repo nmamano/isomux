@@ -61,10 +61,8 @@ import type {
   BackendModelWire,
   AgentBackendType,
   AgentInfo,
-  RoomWire,
   PresenceInfo,
   UserRecord,
-  OfficeWire,
   ProcessIsolationReason,
 } from "../shared/types.ts";
 import {
@@ -74,7 +72,7 @@ import {
   setPresence,
   _testClearPresence,
 } from "./presence.ts";
-import type { EnqueueResult, UserSendAcceptance } from "./internal-types.ts";
+import type { EnqueueResult } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
@@ -85,19 +83,12 @@ import { SpawnAccessRefusedError, type AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
 import { registerProductionCronjobManagerForModuleReads } from "./cronjob-manager.ts";
 import type { CronjobManager } from "./cronjob-manager.ts";
-import { pagerEntryVisible } from "./pager-store.ts";
 import {
-  askMemberWire,
   askAudienceFor,
-  askVisibleTo,
-  askShownToOwnerAsOther,
-  askAgentWire,
   AsksUnavailableError,
   type AskAudienceDeps,
-  type AskChange,
 } from "./asks.ts";
 import {
-  loadRecentCwds,
   saveRecentCwd,
   getFilePath,
   saveFile,
@@ -111,9 +102,8 @@ import {
   saveProcessIsolation,
 } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
-import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
 import { BACK_ROOM_FULL_MESSAGE, hasBackRoom } from "../shared/desks.ts";
-import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
+import type { InviteWire, SessionWire } from "../shared/types.ts";
 import {
   startUpdateChecker,
   getUpdateStatus,
@@ -133,16 +123,7 @@ import {
   resolveInteractiveModelSelection,
   validatePermissionMode,
 } from "./agent-validators.ts";
-import type {
-  Cronjob,
-  CronjobTarget,
-  CronjobRun,
-  LogEntry,
-  TaskItem,
-  PagerEntry,
-  AskEntry,
-  AskRef,
-} from "../shared/types.ts";
+import type { Cronjob, CronjobTarget } from "../shared/types.ts";
 import { LOBBY_ROOM_ID, cronjobRunStreamId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import type { FreeModelProbeTiming } from "./welcome-opencode-model.ts";
@@ -171,7 +152,6 @@ import {
   restoreUserRecord,
   wouldDeleteLeaveNoOwner,
   setOnUserAccessChanged,
-  type UserAccessChange,
 } from "./users.ts";
 import { homedir, hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
@@ -207,7 +187,6 @@ import {
   noteSessionDeviceByHash,
   ownerRemovalWouldStrandOffice,
   removeOwnerUnlessStranding,
-  revalidateByHash,
   revokeActiveSessionByPrefixForUserId,
   revokeInviteByPrefix,
   revokeOutstandingInviteByPrefixForUser,
@@ -225,7 +204,7 @@ import {
   type ScopedSessionRevokeResult,
   type SessionLookup,
 } from "./auth.ts";
-import { formatApiTokenDevice, lowercaseKey } from "../shared/identity.ts";
+import { lowercaseKey } from "../shared/identity.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import {
@@ -470,7 +449,6 @@ import type {
   AccessSettings,
   BackupStatusWire,
   MemberRestoreRes,
-  PreferencesReq,
   UserPublicWire,
 } from "../shared/contract-shapes.ts";
 import { createIdempotencyCache } from "./transport/idempotency.ts";
@@ -479,6 +457,7 @@ import type { EventId, EventPayloads } from "./events/registry.ts";
 import { createFrontDoor, PORT, UI_DIST } from "./office-front-door.ts";
 import { createAccessPolicy } from "./office-access-policy.ts";
 import { createEventFanout } from "./office-event-fanout.ts";
+import { createSessionProjection } from "./office-session-projection.ts";
 import {
   agentManager,
   cronjobManager,
@@ -499,7 +478,6 @@ import {
   storageRoots,
   extensionService,
   extensionSessions,
-  openCodeRunsOnHost,
   appHostingUnsupported,
   createManagers,
 } from "./office-managers.ts";
@@ -507,14 +485,9 @@ import {
   createOfficeOnboarding,
   type WelcomeModelTiming,
 } from "./office-onboarding.ts";
-import { taskDeltaFor } from "./events/task-delta.ts";
-import { taskVisibleTo } from "./task-visibility.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
-import { cronjobDeltaFor, type CronjobChange } from "./events/cronjob-delta.ts";
-import { webhookDeltaFor, type WebhookChange } from "./events/webhook-delta.ts";
 import { webhookVisibleTo } from "./webhook-visibility.ts";
 import { cronjobVisibleTo } from "./cronjob-visibility.ts";
-import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
 import { OfficeOutbox } from "./office-ws-outbox.ts";
 import {
@@ -963,6 +936,52 @@ const {
   officeSend,
   pushAppDeltaToEachWs,
   toPublicWire,
+});
+
+// The per-session projection and push (server/office-session-projection.ts).
+// Created here, right after the identity and visibility policy it reads.
+const {
+  agentVisibleForSession,
+  applyPreferencesChange,
+  applyViewChange,
+  clampViewFields,
+  deliverAskAnswer,
+  onUserAccessChanged,
+  projectAgentForSession,
+  pushAskChange,
+  pushCronjobDeltaToEachWs,
+  pushCronjobRunEntryToEachWs,
+  pushCronjobRunToEachWs,
+  pushCronjobsToEachWs,
+  pushPagerEntryToEachWs,
+  pushTaskDeltaToEachWs,
+  pushTasksToEachWs,
+  pushWebhookDeltaToEachWs,
+  replayFrames,
+  sendCronjobsTo,
+  sendMemberMessage,
+  sendProjectedFullState,
+  sendTasksTo,
+  visibleRoomProjection,
+} = createSessionProjection({
+  accessibleRoomIdsFor,
+  askAudience,
+  attributionFor,
+  browsers,
+  cronjobFactsById,
+  cronjobViewerForSession,
+  cronjobsFor,
+  emitPrivateUserRecord,
+  emitUserUpdated,
+  emitUsersList,
+  officeSend,
+  outboxFor,
+  roomAllowedForSession,
+  sendPresenceListTo,
+  sendSessionContext,
+  sessionHasFullRoomAccess,
+  taskViewerForUser,
+  webhookViewerForSession,
 });
 
 // The agent and cronjob event fan-out (server/office-event-fanout.ts). Created
@@ -6126,489 +6145,6 @@ function buildExecutorDeps(
 // boundary so the strangler doesn't leave a WS-path bypass (the [behavior-change]
 // the route table declares). One impl: these wrap the very guards the route
 // table names, fed the live GuardDeps.
-interface VisibleRoomProjection {
-  rooms: RoomWire[];
-  // global room index → dense visible index, or -1 if not visible for this
-  // session. Post-cut this is purely a per-recipient VISIBILITY predicate
-  // (>= 0 ⟺ visible); the dense value is no longer rewritten onto the wire.
-  globalToVisible: number[];
-  // Stable roomId → GLOBAL room index (covers every room, not just the
-  // visible ones). Lets roomId-authority callers map an id to its global index
-  // for corrupt-id detection and, via globalToVisible, test visibility. A roomId
-  // absent here is corrupt (loud); present-but-globalToVisible<0 is normal
-  // projection filtering.
-  globalRoomIdToIndex: Map<string, number>;
-}
-
-function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
-  const all = agentManager.getRooms();
-  // Built once, shared by both projection paths. roomId → global index
-  // for callers that derive the dense index from the authoritative roomId.
-  const globalRoomIdToIndex = new Map(all.map((r, i) => [r.id, i] as const));
-  const user = getUserById(session.userId);
-  // Fast path: a full-access user with NO hidden rooms and NO custom order sees
-  // every room in office order - the identity projection (no per-room
-  // allocations). Hidden/order migrates to [], so this is the common
-  // case and stays byte-identical to the pre-3b full-access fast path.
-  if (
-    user &&
-    sessionHasFullRoomAccess(session) &&
-    user.hidden.length === 0 &&
-    user.order.length === 0
-  ) {
-    const identity: number[] = all.map((_, i) => i);
-    return {
-      rooms: all,
-      globalToVisible: identity,
-      globalRoomIdToIndex,
-    };
-  }
-  // General path. ACCESS is the security gate (roomAllowedForSession today;
-  // canAccess). `hidden` is an additive VIEW filter ON TOP (effective shown =
-  // accessible \ hidden) and is NEVER a security gate - an
-  // owner who hides a room still has access; a re-show consults only access.
-  // `order` is a SPARSE per-user preference: rooms listed there come first in
-  // that order, then the remaining visible rooms in office order. With the
-  // migrated defaults (hidden=[], order=[]) this reduces to "accessible rooms
-  // in office order", i.e. today's projection - verified by projection.test.
-  const hidden = new Set(user?.hidden ?? []);
-  const orderRank = new Map<string, number>();
-  // First-write-wins on duplicate order ids (applyViewChange dedupes on write;
-  // this guards a hand-edited persisted order array too).
-  if (user) {
-    user.order.forEach((id, i) => {
-      if (!orderRank.has(id)) orderRank.set(id, i);
-    });
-  }
-  const visibleGlobal: number[] = [];
-  for (let i = 0; i < all.length; i++) {
-    if (!roomAllowedForSession(session, all[i].id)) continue; // access gate
-    if (all[i].type !== "lobby" && hidden.has(all[i].id)) continue; // view filter (not security)
-    visibleGlobal.push(i);
-  }
-  // Stable sort: explicit-order rank first (listed rooms, in listed order),
-  // office order (the original global index) as the tiebreak for everything
-  // unlisted. Rank +Infinity for unlisted rooms keeps them in office order.
-  visibleGlobal.sort((a, b) => {
-    const lobbyRank =
-      Number(all[b].type === "lobby") - Number(all[a].type === "lobby");
-    if (lobbyRank) return lobbyRank;
-    const ra = orderRank.has(all[a].id) ? orderRank.get(all[a].id)! : Infinity;
-    const rb = orderRank.has(all[b].id) ? orderRank.get(all[b].id)! : Infinity;
-    return ra !== rb ? ra - rb : a - b;
-  });
-  const rooms: RoomWire[] = [];
-  const globalToVisible = new Array<number>(all.length).fill(-1);
-  for (const i of visibleGlobal) {
-    globalToVisible[i] = rooms.length;
-    rooms.push(all[i]);
-  }
-  return { rooms, globalToVisible, globalRoomIdToIndex };
-}
-
-// Return the agent only when its room is visible to this session.
-function projectAgentForSession(
-  session: SessionLookup,
-  agent: AgentInfo,
-  projection?: VisibleRoomProjection,
-): AgentInfo | null {
-  // Visibility follows the current room, including the canonical lobby.
-  const proj = projection ?? visibleRoomProjection(session);
-  // Derive the global index from the authoritative roomId. Absent from
-  // the map = corrupt roomId (loud + suppress); present but globalToVisible < 0 =
-  // legitimately not visible to this session (silent, normal filtering).
-  const globalIdx = proj.globalRoomIdToIndex.get(agent.roomId);
-  if (globalIdx === undefined) {
-    console.error(
-      `[3c] projectAgentForSession: unknown roomId "${agent.roomId}" for agent ${agent.id}; suppressing`,
-    );
-    return null;
-  }
-  if (proj.globalToVisible[globalIdx] < 0) return null;
-  return agent;
-}
-
-// True if a given agentId currently lives in a room visible to this
-// session. Looks up the agent's room from AgentManager - caller doesn't
-// need to know it. Used by per-agent event routing (log_entry,
-// slash_commands, terminal_*) and write-side enforcement.
-function agentVisibleForSession(
-  session: SessionLookup,
-  agentId: string,
-): boolean {
-  if (sessionHasFullRoomAccess(session)) return true;
-  const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
-  if (!agent) return false;
-  // The agent carries its authoritative roomId directly.
-  if (!agent.roomId) return false;
-  return roomAllowedForSession(session, agent.roomId);
-}
-
-// Build and send the full_state payload for a given WS using the session's
-// projected room/agent view. Used at connect time and as the targeted
-// refresh after any change that could shift this session's visible set
-// (allowedRooms changes, agent moves across rooms, room close/rename/
-// reorder when explicit-list members are connected). Mid-session callers
-// pass replayLogsForVisible=true to also resend cached log entries for
-// agents the session can now see; without that flag, newly visible agents
-// would render in the UI with no history until the next reload.
-// Project office settings for a recipient: envFile is owner-only, so it is
-// stripped for non-owner recipients and never reaches a member's
-// full_state.office. Owners keep the full triple.
-function projectOfficeFor(session: SessionLookup): OfficeWire {
-  const office = agentManager.getOfficeSettings();
-  const isOwner = getUserById(session.userId)?.role === "owner";
-  return isOwner
-    ? {
-        prompt: office.prompt,
-        name: office.name,
-        envFile: office.envFile,
-      }
-    : {
-        prompt: office.prompt,
-        name: office.name,
-      };
-}
-
-function sendProjectedFullState(
-  ws: ServerWebSocket<OfficeWsData>,
-  options?: { replayLogsForVisible?: boolean },
-) {
-  // A refresh while frames from the previous projection still wait in the
-  // outbox: those frames may cover rooms this session just lost. Close the
-  // socket instead of sending them; the client reconnects to a fresh
-  // projection.
-  if (options?.replayLogsForVisible && outboxFor(ws).backlogged) {
-    outboxFor(ws).dispose();
-    ws.terminate();
-    return;
-  }
-  const session = ws.data.session;
-  const proj = visibleRoomProjection(session);
-  const agents: AgentInfo[] = [];
-  for (const a of agentManager.getAllAgents()) {
-    const projected = projectAgentForSession(session, a, proj);
-    if (projected) agents.push(projected);
-  }
-  const visibleAgentIds = new Set(agents.map((agent) => agent.id));
-  const interactions = agentManager
-    .getPendingInteractions()
-    .filter((interaction) => visibleAgentIds.has(interaction.agentId));
-  // ACL-filtered list of currently-killed agents for the spawn menu's
-  // revive chips. Drop entries whose lastRoomId isn't visible to this
-  // session - a member shouldn't be able to revive an agent from a
-  // private room they can't enter. Cap AFTER filtering so the user
-  // sees up to KILLED_AGENT_CHIP_CAP entries they can actually act on,
-  // not a smaller number trimmed by entries outside their room set.
-  const killedAgents = agentManager
-    .getKilledAgentSummaries()
-    .filter((k) => roomAllowedForSession(session, k.lastRoomId))
-    .slice(0, KILLED_AGENT_CHIP_CAP);
-  officeSend(
-    ws,
-    JSON.stringify({
-      type: "full_state",
-      agents,
-      recentCwds: loadRecentCwds(),
-      office: projectOfficeFor(session),
-      rooms: proj.rooms,
-      killedAgents,
-      interactions,
-      unavailableEngines: openCodeRunsOnHost()
-        ? {}
-        : { opencode: "needs_linux" },
-      unavailableFeatures:
-        appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
-      // Every office session is a person, who holds chat:members.
-      membersChat: membersChat.summary(session.userId),
-      floors: floors.list(),
-      uiBuild: uiBuildTracker?.current() ?? undefined,
-    } satisfies ServerMessage),
-  );
-  // Fence the replay so the client knows the replayed transcript is complete
-  // and can swap it in atomically. Only with replayLogsForVisible: without it
-  // there is no replay to terminate.
-  if (options?.replayLogsForVisible) {
-    outboxFor(ws).sendLazy(replayFrames(agents.map((a) => a.id)));
-  }
-}
-
-// The connect replay as a lazy run of frames: each agent's cached log entries,
-// then its slash commands, then the log_replay_complete fence. The snapshot is
-// taken NOW: a cached log only ever grows by push or is replaced by a new
-// array, so the array and its current length pin exactly the entries this
-// call would have sent at once, and entries pushed later reach the client as
-// the live frames queued behind the replay. Serialization waits for the
-// socket (server/office-ws-outbox.ts).
-function replayFrames(agentIds: string[]): Iterator<string> {
-  const snapshot = agentIds.map((agentId) => {
-    const logs = agentManager.getAgentLogs(agentId);
-    return {
-      agentId,
-      logs,
-      length: logs.length,
-      cmds: agentManager.getAgentCommands(agentId),
-    };
-  });
-  return (function* () {
-    for (const { agentId, logs, length, cmds } of snapshot) {
-      for (let i = 0; i < length; i++) {
-        yield JSON.stringify({ type: "log_entry", entry: logs[i] });
-      }
-      if (cmds.commands.length > 0 || cmds.skills.length > 0) {
-        yield JSON.stringify({
-          type: "slash_commands",
-          agentId,
-          commands: cmds.commands,
-          skills: cmds.skills,
-        });
-      }
-    }
-    yield JSON.stringify({ type: "log_replay_complete" });
-  })();
-}
-
-// Push a fresh projected full_state to every WS owned by a specific
-// userId. Called after a view change (hidden rooms) - every device that user
-// is connected from gets the new view applied without a reconnect. An access
-// change re-projects through onUserAccessChanged instead.
-function pushProjectedFullStateForUserId(userId: string) {
-  for (const ws of browsers) {
-    if (ws.data.session.userId === userId) {
-      sendProjectedFullState(ws, { replayLogsForVisible: true });
-    }
-  }
-}
-
-// An order-only view change: each of the user's sockets gets its own projected
-// room list, and no transcript replay.
-function pushRoomOrderForUserId(userId: string) {
-  for (const ws of browsers) {
-    if (ws.data.session.userId === userId) {
-      officeSend(
-        ws,
-        JSON.stringify({
-          type: "room_order_updated",
-          rooms: visibleRoomProjection(ws.data.session).rooms,
-        } satisfies ServerMessage),
-      );
-    }
-  }
-}
-
-// Push the presence_list to just ONE user's sockets (each per-recipient
-// projected). Used after a per-user view change alters which rooms that user
-// sees (hidden/order): buildPresenceListFor re-filters their ghosts, but no
-// other user's projection changed - so this stays tighter than
-// pushPresenceListToEachWs.
-function pushPresenceListForUserId(userId: string) {
-  for (const ws of browsers) {
-    if (ws.data.session.userId === userId) sendPresenceListTo(ws);
-  }
-}
-
-// The `tasks` wire event is per-recipient PROJECTED, not an all-audience
-// broadcast: each socket receives only the tasks in the rooms its user can
-// ACCESS, UNION every office-global task (no roomId), UNION closed rooms' tasks
-// for an office owner. Access, not view - a hidden room's tasks still show.
-// This is the reconnect/full_state hydration shape too, so a reload and a live
-// push agree.
-function projectTasksForSession(session: SessionLookup): TaskItem[] {
-  const viewer = taskViewerForUser(getUserById(session.userId) ?? null);
-  return agentManager.getTasks().filter((t) => taskVisibleTo(t.roomId, viewer));
-}
-
-function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
-  officeSend(
-    ws,
-    JSON.stringify({
-      type: "tasks",
-      tasks: projectTasksForSession(ws.data.session),
-    }),
-  );
-}
-
-// Push ONE task mutation to every socket as a per-recipient delta. Replaces the
-// old whole-board rebroadcast: at 535 tasks that was 635KB per mutation per
-// socket (68% of it done rows the default view hides), which is what made a
-// create take seconds to appear on a remote browser. taskDeltaFor decides what
-// each recipient is told - upsert, delete, or nothing at all - from their room
-// access; see server/events/task-delta.ts for the rule and why silence matters.
-function pushTaskDeltaToEachWs(change: TaskChange) {
-  for (const ws of browsers) {
-    const viewer = taskViewerForUser(
-      getUserById(ws.data.session.userId) ?? null,
-    );
-    const delta = taskDeltaFor(change, viewer);
-    if (delta) officeSend(ws, JSON.stringify(delta));
-  }
-}
-
-// Push ONE page change to every socket whose user can see the page - the same
-// rule GET /api/pager applies (pagerEntryVisible). Everyone else hears
-// nothing, so a page id never reaches a socket that could not read it.
-function pushPagerEntryToEachWs(entry: PagerEntry) {
-  for (const ws of browsers) {
-    const user = getUserById(ws.data.session.userId);
-    if (
-      user &&
-      pagerEntryVisible(entry, {
-        accessibleRoomIds: accessibleRoomIdsFor(user),
-        userId: user.id,
-        isOfficeOwner: user.role === "owner",
-      })
-    ) {
-      officeSend(ws, JSON.stringify({ type: "pager_upserted", entry }));
-    }
-  }
-}
-
-// Push ONE ask change to the sockets of the members askVisibleTo admits, the
-// rule GET /api/asks applies, and to no one else. A removal goes to the
-// member it named, or every owner for an office secret request, with no room
-// check, so a stack never keeps an entry that closed. Office owners hear
-// other members' asks as others_ask_* (askShownToOwnerAsOther, the rule of
-// GET /api/asks/others); the removal of one goes to every other owner, with
-// no room check either.
-function pushAskChange(change: AskChange) {
-  const { entry } = change;
-  const forOwners = entry.secret?.scope === "office";
-  for (const ws of browsers) {
-    const userId = ws.data.session.userId;
-    if (change.kind === "removed") {
-      const addressed = forOwners
-        ? !!userId && askAudience.isOfficeOwner(userId)
-        : !!userId && userId === entry.memberUserId;
-      if (addressed)
-        officeSend(ws, JSON.stringify({ type: "ask_removed", id: entry.id }));
-      else if (!entry.secret && !!userId && askAudience.isOfficeOwner(userId))
-        officeSend(
-          ws,
-          JSON.stringify({ type: "others_ask_removed", id: entry.id }),
-        );
-      continue;
-    }
-    if (askVisibleTo(entry, userId, askAudience))
-      officeSend(
-        ws,
-        JSON.stringify({ type: "ask_upserted", entry: askMemberWire(entry) }),
-      );
-    else if (askShownToOwnerAsOther(entry, userId, askAudience))
-      officeSend(
-        ws,
-        JSON.stringify({
-          type: "others_ask_upserted",
-          entry: askAgentWire(entry, (id) => getUserById(id)?.name ?? null),
-        }),
-      );
-  }
-}
-
-// A member's message to an agent: the one wrapper over sendMessage for the
-// chat send, the API-token send and an ask's answer. Resolves at the
-// acceptance decision (task 51de8814), never at turn completion: sendMessage
-// owns the echo / queue / recovery / slash / approval-reply overload and
-// streams the turn over WS.
-function sendMemberMessage(
-  agentId: string,
-  text: string,
-  username: string | undefined,
-  device: string | undefined,
-  attachments: Attachment[] | undefined,
-  opts: {
-    sendNow?: boolean;
-    clientMessageId?: string;
-    ask?: AskRef;
-    refusePromptAnswer?: boolean;
-  } = {},
-): Promise<UserSendAcceptance> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (result: UserSendAcceptance) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-    agentManager
-      .sendMessage(agentId, text, username, device, attachments, {
-        ...opts,
-        onAccepted: settle,
-      })
-      .then(() =>
-        settle({
-          ok: false,
-          status: 500,
-          code: "acceptance_missing",
-          message: "The message did not reach an acceptance decision.",
-        }),
-      )
-      .catch(() =>
-        settle({
-          ok: false,
-          status: 500,
-          code: "send_failed",
-          message: "The message could not be sent.",
-        }),
-      );
-  });
-}
-
-// A reply, a dismiss, a filed task, or a simplify request or its withdrawal
-// of an ask, delivered the way a typed member message is (an API token
-// through its own send record, as on the message route). Resolves at the
-// acceptance decision.
-function deliverAskAnswer(
-  identity: Identity,
-  entry: AskEntry,
-  text: string,
-  opts: {
-    dismissed: boolean;
-    simplify?: boolean;
-    simplifyUndone?: boolean;
-    taskId?: string;
-    device: string | undefined;
-  },
-): Promise<UserSendAcceptance> {
-  const username = attributionFor(identity).username;
-  const ask = {
-    id: entry.id,
-    prompt: entry.prompt,
-    ...(opts.dismissed ? { dismissed: true } : {}),
-    ...(opts.simplify ? { simplify: true } : {}),
-    ...(opts.simplifyUndone ? { simplifyUndone: true } : {}),
-    ...(opts.taskId ? { taskId: opts.taskId } : {}),
-    ...(entry.sessionId ? { sessionId: entry.sessionId } : {}),
-    ...(entry.app ? { app: { name: entry.app.name } } : {}),
-    // The chat shows the answered ask in full (ui/log-view/ask-link.tsx).
-    ...(entry.options ? { options: entry.options } : {}),
-    ...(entry.recommended !== undefined
-      ? { recommended: entry.recommended }
-      : {}),
-  };
-  const send = (device: string | undefined) =>
-    sendMemberMessage(entry.agentId, text, username, device, undefined, {
-      ask,
-    });
-  if (identity.scope !== "api") return send(opts.device);
-  const display = agentManager.getAgentDisplay(entry.agentId);
-  return sendApiTokenMessage(
-    identity.apiTokenId ?? "",
-    {
-      targetAgentId: entry.agentId,
-      targetAgentName: display?.name ?? entry.agentId,
-      targetRoomName: display?.roomName ?? "",
-      text,
-    },
-    () =>
-      send(
-        formatApiTokenDevice(
-          identity.apiTokenName ?? "unknown",
-          identity.apiTokenId ?? "reply unavailable: missing token id",
-          identity.apiTokenLimits?.repliesOnly === true,
-        ),
-      ),
-  ).then((result) => (result.ok ? { ok: true } : result));
-}
 
 // Push ONE app mutation to every socket as a per-recipient delta. Apps are
 // The owner and office owners always see an app. A live creator also grants
@@ -6627,348 +6163,6 @@ function pushAppDeltaToEachWs(change: AppChange) {
     });
     if (delta) officeSend(ws, JSON.stringify(delta));
   }
-}
-
-// Webhooks: per-recipient, like cronjobs. A socket hears a hook it can see
-// (server/webhook-visibility.ts), and a delete when it could see it before.
-function pushWebhookDeltaToEachWs(change: WebhookChange) {
-  for (const ws of browsers) {
-    const delta = webhookDeltaFor(
-      change,
-      webhookViewerForSession(ws.data.session),
-    );
-    if (delta) officeSend(ws, JSON.stringify(delta));
-  }
-}
-
-// Cronjobs: per-recipient like tasks. sendCronjobsTo is the connect hydration
-// and the re-projection after a change that shifts what a socket may see with
-// no single job to point at (room close, a user's access or role change).
-function sendCronjobsTo(ws: ServerWebSocket<OfficeWsData>) {
-  officeSend(
-    ws,
-    JSON.stringify({
-      type: "cronjobs_state",
-      cronjobs: cronjobsFor(cronjobViewerForSession(ws.data.session)),
-      cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
-    }),
-  );
-}
-
-function pushCronjobsToEachWs() {
-  for (const ws of browsers) sendCronjobsTo(ws);
-}
-
-function pushCronjobDeltaToEachWs(change: CronjobChange) {
-  for (const ws of browsers) {
-    const delta = cronjobDeltaFor(
-      change,
-      cronjobViewerForSession(ws.data.session),
-    );
-    if (delta) officeSend(ws, JSON.stringify(delta));
-  }
-}
-
-// A run row and a live run entry go to the sockets that can see the job.
-function pushCronjobRunToEachWs(run: CronjobRun) {
-  const facts = cronjobFactsById(run.cronjobId);
-  for (const ws of browsers) {
-    if (cronjobVisibleTo(facts, cronjobViewerForSession(ws.data.session))) {
-      officeSend(ws, JSON.stringify({ type: "cronjob_run_updated", run }));
-    }
-  }
-}
-
-function pushCronjobRunEntryToEachWs(entry: LogEntry, jobId: string) {
-  const facts = cronjobFactsById(jobId);
-  for (const ws of browsers) {
-    if (cronjobVisibleTo(facts, cronjobViewerForSession(ws.data.session))) {
-      officeSend(ws, JSON.stringify({ type: "log_entry", entry }));
-    }
-  }
-}
-
-// Re-project the WHOLE board to every socket. Not a mutation path - a mutation
-// sends one delta (pushTaskDeltaToEachWs). This is for the rare change that
-// shifts what MANY recipients may see at once with no single task to point at:
-// today, a room close, which strips a room from every user's access and leaves
-// its tasks to office owners. Each socket re-projects against its own access,
-// so this converges live boards to the reload view without telling anyone
-// anything new.
-function pushTasksToEachWs() {
-  for (const ws of browsers) sendTasksTo(ws);
-}
-
-// A user's room access changed (users.ts setOnUserAccessChanged, wired at boot).
-// Re-project every socket of that user; no other user's projection changed.
-// A role change first refreshes the cached ws.data.session, which role-keyed
-// audiences (ownerSessions in liveEmitDeps) and visibleRoomProjection read, so
-// a just-demoted ex-owner gets no further owner-only event. REFRESH, not
-// evict: the session is still valid. If revalidation fails (expired/orphaned
-// in the meantime), fall back to the notify-then-close contract the
-// per-message path applies. The client then gets its role and owner room list
-// before the projected rooms, board and cronjobs.
-//
-// A grant write that leaves the LIVE accessible set unchanged re-projects
-// nothing: rooms.close strips the dead room id from every member after the
-// room is gone, and the bare room_closed delta plus close's own every-socket
-// board and cronjobs push already converge them (no full_state log replay).
-function onUserAccessChanged(userId: string, changed: UserAccessChange) {
-  if (!changed.role) {
-    const user = getUserById(userId);
-    if (!user) return;
-    const live = new Set(agentManager.getRooms().map((room) => room.id));
-    const liveIds = (ids: Set<string>) => [...ids].filter((id) => live.has(id));
-    const now = liveIds(accessibleRoomIdsFor(user));
-    const before = new Set(
-      liveIds(accessibleRoomIdsFor(user, changed.previousAllowedRooms)),
-    );
-    if (now.length === before.size && now.every((id) => before.has(id))) {
-      return;
-    }
-  }
-  for (const ws of browsers) {
-    if (ws.data.session.userId !== userId) continue;
-    if (changed.role) {
-      const fresh = revalidateByHash(ws.data.session.sessionIdHash);
-      if (!fresh) {
-        try {
-          ws.send(JSON.stringify({ type: "session_expired" }));
-        } catch {}
-        try {
-          ws.close();
-        } catch {}
-        continue;
-      }
-      ws.data.session = fresh;
-      sendSessionContext(ws);
-      officeSend(
-        ws,
-        JSON.stringify({
-          type: "all_rooms_list",
-          rooms: fresh.role === "owner" ? agentManager.getOrdinaryRooms() : [],
-        }),
-      );
-    }
-    sendProjectedFullState(ws, { replayLogsForVisible: true });
-    sendTasksTo(ws);
-    sendCronjobsTo(ws);
-  }
-  recheckOpenAppSockets();
-  extensionService?.revalidate();
-}
-
-// Dedupe preserving FIRST occurrence (used for the sparse `order` list, so a
-// hand-edited or client-sent order with duplicates resolves deterministically).
-function dedupeFirstWins(ids: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const id of ids) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
-}
-
-// The SINGLE core that owns every per-user VIEW-preference write. TARGET-USER
-// based (owners edit a member's view via admin surfaces, and
-// a role-change/demotion hook re-clamps the target the same way), so the change
-// applies to targetUserId, never the actor's session. It is the ONE place that
-// computes: the rule-based ACCESSIBLE set, effective shown (accessible \
-// hidden), the sparse-order filter+dedupe, and the notifRooms/pushRooms clamp - then
-// persists once and fans out.
-//
-// NO-ORACLE on write (Isomuxer3 Q2): unknown / inaccessible / accessible-but-
-// hidden room ids are SILENTLY filtered/clamped, never rejected (a reject is an
-// existence oracle). Callers reject malformed body SHAPES before reaching here.
-//
-// `change` is a partial: any subset of {order, shown, notifRooms, tucked,
-// pushRooms}. An EMPTY change is the re-clamp pass (call after an access
-// mutation / demotion to re-establish hidden ⊆ accessible, notifRooms and
-// pushRooms ⊆ effective shown). `shown` is
-// the desired VISIBLE set (route input); it is converted at the boundary to
-// hidden = accessible \ shown (only accessible ids are ever persisted in
-// hidden). Returns false if the target user is missing.
-interface ViewChange {
-  order?: readonly string[];
-  shown?: readonly string[];
-  notifRooms?: readonly string[];
-  tucked?: readonly string[];
-  pushRooms?: readonly string[];
-}
-
-// PURE clamp - the single source of truth for the view invariants. Given the
-// accessible set, the user's CURRENT view fields, and a partial change, compute
-// the next fields: order deduped (first wins) + filtered to accessible (hidden-
-// but-accessible ids KEPT, so hide/show is non-destructive); hidden = the
-// accessible rooms NOT in the desired shown set (or the stored hidden re-
-// filtered to accessible); tucked deduped + filtered to accessible (hidden ids
-// kept, as for order); notifRooms and pushRooms within effective shown and
-// off tucked rooms, with push within notifRooms (shared/room-view-level.ts:
-// each room is on one level). The list the change carries wins: a change
-// that carries pushRooms adds those rooms to notifRooms; any other change,
-// the empty re-clamp included, drops push rooms without notifications.
-// applyViewChange
-// (view.*) and the users.setAccess prune-clamp both clamp through this,
-// so the invariant lives in exactly one place.
-function clampViewFields(
-  accessible: ReadonlySet<string>,
-  current: {
-    order: readonly string[];
-    hidden: readonly string[];
-    notifRooms: readonly string[];
-    tucked: readonly string[];
-    pushRooms: readonly string[];
-  },
-  change: ViewChange,
-): {
-  order: string[];
-  hidden: string[];
-  notifRooms: string[];
-  tucked: string[];
-  pushRooms: string[];
-} {
-  const order = dedupeFirstWins([...(change.order ?? current.order)]).filter(
-    (id) => accessible.has(id),
-  );
-  let hidden: string[];
-  if (change.shown !== undefined) {
-    const shownSet = new Set(change.shown.filter((id) => accessible.has(id)));
-    hidden = [...accessible].filter((id) => !shownSet.has(id));
-  } else {
-    hidden = current.hidden.filter((id) => accessible.has(id));
-  }
-  const tucked = dedupeFirstWins([...(change.tucked ?? current.tucked)]).filter(
-    (id) => accessible.has(id),
-  );
-  const hiddenSet = new Set(hidden);
-  const tuckedSet = new Set(tucked);
-  const canNotify = (id: string) =>
-    accessible.has(id) && !hiddenSet.has(id) && !tuckedSet.has(id);
-  const notifRooms = dedupeFirstWins([
-    ...(change.notifRooms ?? current.notifRooms),
-  ]).filter(canNotify);
-  let pushRooms = dedupeFirstWins([
-    ...(change.pushRooms ?? current.pushRooms),
-  ]).filter(canNotify);
-  if (change.pushRooms !== undefined && change.notifRooms === undefined) {
-    for (const id of pushRooms) {
-      if (!notifRooms.includes(id)) notifRooms.push(id);
-    }
-  } else {
-    pushRooms = pushRooms.filter((id) => notifRooms.includes(id));
-  }
-  return { order, hidden, notifRooms, tucked, pushRooms };
-}
-
-function applyViewChange(targetUserId: string, change: ViewChange): boolean {
-  const user = getUserById(targetUserId);
-  if (!user) return false;
-  const accessible = accessibleRoomIdsFor(user);
-
-  // Snapshot prior values (as keys) BEFORE the write so the post-write fanout
-  // can tell what actually changed (sets compared order-insensitively; `order`
-  // is order-sensitive).
-  const prevOrderKey = user.order.join("\u0000");
-  const prevHiddenKey = [...user.hidden].sort().join("\u0000");
-  const prevNotifKey = [...user.notifRooms].sort().join("\u0000");
-  const prevTuckedKey = [...user.tucked].sort().join("\u0000");
-  const prevPushKey = [...user.pushRooms].sort().join("\u0000");
-  const next = clampViewFields(accessible, user, change);
-
-  const r = updateUserById(targetUserId, {
-    order: next.order,
-    hidden: next.hidden,
-    notifRooms: next.notifRooms,
-    tucked: next.tucked,
-    pushRooms: next.pushRooms,
-  });
-  if (!r.ok) {
-    console.error(
-      `[view] applyViewChange failed for ${targetUserId}: ${r.error}`,
-    );
-    return false;
-  }
-
-  // Fanout, scoped to what actually changed. order/hidden change the PROJECTION
-  // (which rooms the target sees and in what order) → to the target's own
-  // sockets, a projected full_state when hidden changed, else room_order_updated,
-  // which replays no transcripts. notifRooms and hidden are record fields not carried
-  // in full_state → emitUserUpdated (public wire to all, full record to
-  // owners via the admin channel and to the subject via the self channel) +
-  // emitUsersList. hidden joined the record fan-out with the hide-rooms UI. The
-  // Users page edits it against the self record, so a shown write must refresh
-  // user.hidden on the editing client or its form
-  // would read dirty forever. `order` stays projection-only (no UI reads the
-  // record field; RoomTabBar is echo-authoritative).
-  const hiddenChanged =
-    [...next.hidden].sort().join("\u0000") !== prevHiddenKey;
-  const orderChanged = next.order.join("\u0000") !== prevOrderKey;
-  const notifChanged =
-    [...next.notifRooms].sort().join("\u0000") !== prevNotifKey;
-  // A notifRooms write keeps its public frames (view.setNotifRooms emits
-  // user_updated). A tuck or push write that moves notifRooms through the
-  // clamp stays private, like the field it carries.
-  const recordChanged =
-    hiddenChanged || (notifChanged && change.notifRooms !== undefined);
-  if (hiddenChanged) {
-    // The visible set changed: newly shown rooms need their transcripts.
-    pushProjectedFullStateForUserId(targetUserId);
-  } else if (orderChanged) {
-    pushRoomOrderForUserId(targetUserId);
-  }
-  if (hiddenChanged || orderChanged) {
-    // Re-push the target's OWN presence list: hiding/reordering changes which
-    // rooms are visible to them, so buildPresenceListFor re-filters their ghosts
-    // (full_state carries no presence; only this user's sockets are affected).
-    pushPresenceListForUserId(targetUserId);
-  }
-  if (recordChanged) {
-    emitUserUpdated(r.user);
-    emitUsersList();
-  } else if (
-    notifChanged ||
-    [...next.tucked].sort().join("\u0000") !== prevTuckedKey ||
-    [...next.pushRooms].sort().join("\u0000") !== prevPushKey
-  ) {
-    // Tucked and pushRooms are private and not in full_state: they leave the
-    // projection as it is, so only the record goes out, on the private
-    // channels. So does the notifRooms change their clamp makes.
-    emitPrivateUserRecord(r.user);
-  }
-  return true;
-}
-
-// Personal-preference core. Sibling of applyViewChange: it persists the
-// self-only preference fields and fans out the record. There is
-// nothing to clamp here - the handler already rejected values outside the
-// supported set, and users.ts normalizes defensively on top - so this is just
-// write + conditional fan-out. No projection is involved: neither field
-// changes which rooms or agents the user can see, so no full_state push.
-function applyPreferencesChange(
-  targetUserId: string,
-  change: PreferencesReq,
-): boolean {
-  const user = getUserById(targetUserId);
-  if (!user) return false;
-  const r = updateUserById(targetUserId, change);
-  if (!r.ok) {
-    console.error(
-      `[prefs] applyPreferencesChange failed for ${targetUserId}: ${r.error}`,
-    );
-    return false;
-  }
-  // Only fan out on a real change.
-  if (
-    r.user.language !== user.language ||
-    r.user.voiceInput !== user.voiceInput ||
-    r.user.voiceOutput !== user.voiceOutput ||
-    r.user.voiceName !== user.voiceName
-  ) {
-    emitPrivateUserRecord(r.user);
-  }
-  return true;
 }
 
 // Push the unfiltered global rooms list to every owner WS. Used after
