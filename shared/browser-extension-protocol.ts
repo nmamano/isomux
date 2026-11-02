@@ -194,6 +194,19 @@ export function pageCommandAllowed(method: string, params: Fields): boolean {
   );
 }
 
+// The office's kick for a stuck capture (server/browser-extension-bridge.ts).
+// Only the office sends these, on a tab or popup session: a client cannot, as
+// they are not page commands. Chrome sends one frame at most without an ack.
+export const SCREENCAST_KICK_PARAMS = {
+  format: "jpeg",
+  quality: 1,
+  maxWidth: 16,
+  maxHeight: 16,
+} as const;
+export function screencastKickCommand(method: unknown): boolean {
+  return method === "Page.startScreencast" || method === "Page.stopScreencast";
+}
+
 export interface BrowserDisplay {
   id: string;
   name: string;

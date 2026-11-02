@@ -64,6 +64,13 @@ async function harness(
   let reloads = 0;
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
+  // Each debugger command with its target and parameters.
+  const commands: Array<{
+    tabId: number;
+    sessionId?: string;
+    method: string;
+    params?: unknown;
+  }> = [];
   let debuggerDetached!: (source: { tabId: number }, reason: string) => void;
   let cdpEvent!: (
     source: { tabId: number; sessionId?: string },
@@ -426,11 +433,17 @@ async function harness(
         return detach(target.tabId);
       },
       sendCommand: (
-        target: { tabId: number },
+        target: { tabId: number; sessionId?: string },
         method: string,
         params?: unknown,
       ) => {
         calls.push(method);
+        commands.push({
+          tabId: target.tabId,
+          sessionId: target.sessionId,
+          method,
+          params,
+        });
         const dialog = dialogs.get(target.tabId);
         if (dialog && (dialog.open || method === dialog.from)) {
           dialog.open = true;
@@ -620,6 +633,7 @@ async function harness(
         throw new Error("Foreign reply");
       }),
     calls,
+    commands,
     debuggerDetached: (reason: string, tabId = 7) =>
       debuggerDetached({ tabId }, reason),
     targets: (value: typeof targets) => {
@@ -891,6 +905,92 @@ test("built worker permits owned frame hit testing but refuses foreign sessions 
     expect(
       h.socket.sent.find((m) => m.kind === "result" && m.id === id)?.error,
     ).toBeTruthy();
+  h.socket.close();
+});
+
+// The office's kick for a stuck capture (task f6dc01e6). The bridge refuses
+// these commands from a client (server/browser-extension-bridge.test.ts), so
+// only the office sends them.
+test("built worker sends the office's screencast kick at a fixed tiny size, on the tab and its popups only", async () => {
+  const h = await harness();
+  await h.offer();
+  h.navigation(7, 8);
+  await settle();
+  const popup = fields(
+    h.socket.sent.find((message) => message.method === "popup")!.params,
+  ).sessionId as string;
+  h.cdpEvent(7, "Target.attachedToTarget", {
+    sessionId: "frame-1",
+    targetInfo: { type: "iframe", targetId: "frame-target" },
+    waitingForDebugger: false,
+  });
+  await settle();
+  const greedy = {
+    format: "png",
+    quality: 100,
+    maxWidth: 4000,
+    maxHeight: 4000,
+    everyNthFrame: 1,
+  };
+  h.command(2, "cdp", { method: "Page.startScreencast", params: greedy });
+  h.command(3, "cdp", { method: "Page.stopScreencast", params: {} });
+  h.command(4, "cdp", {
+    method: "Page.startScreencast",
+    sessionId: popup,
+    params: greedy,
+  });
+  h.command(5, "cdp", {
+    method: "Page.stopScreencast",
+    sessionId: popup,
+    params: {},
+  });
+  h.command(6, "cdp", {
+    method: "Page.startScreencast",
+    sessionId: "frame-1",
+    params: greedy,
+  });
+  h.command(7, "cdp", {
+    method: "Page.stopScreencast",
+    sessionId: "frame-1",
+    params: {},
+  });
+  // Without an ack Chrome sends one frame at most.
+  h.command(8, "cdp", {
+    method: "Page.screencastFrameAck",
+    params: { sessionId: 1 },
+  });
+  // The enabling condition: the frame session takes other commands.
+  h.command(9, "cdp", {
+    method: "Runtime.evaluate",
+    sessionId: "frame-1",
+    params: {},
+  });
+  await settle();
+  expect(typeof popup).toBe("string");
+  expect(
+    h.commands.some(
+      (c) => c.method === "Runtime.evaluate" && c.sessionId === "frame-1",
+    ),
+  ).toBe(true);
+  const tiny = { format: "jpeg", quality: 1, maxWidth: 16, maxHeight: 16 };
+  const screencast = h.commands.filter((c) => c.method.includes("creencast"));
+  expect(screencast).toHaveLength(4);
+  expect(screencast).toEqual(
+    expect.arrayContaining([
+      { tabId: 7, method: "Page.startScreencast", params: tiny },
+      { tabId: 7, method: "Page.stopScreencast", params: {} },
+      { tabId: 8, method: "Page.startScreencast", params: tiny },
+      { tabId: 8, method: "Page.stopScreencast", params: {} },
+    ]),
+  );
+  for (const c of screencast) expect(c.sessionId).toBeUndefined();
+  const result = (id: number) =>
+    h.socket.sent.find((m) => m.kind === "result" && m.id === id);
+  for (const id of [2, 3, 4, 5]) {
+    expect(result(id)).toBeDefined();
+    expect(result(id)?.error).toBeUndefined();
+  }
+  for (const id of [6, 7, 8]) expect(result(id)?.error).toBeTruthy();
   h.socket.close();
 });
 

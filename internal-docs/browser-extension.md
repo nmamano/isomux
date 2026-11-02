@@ -190,15 +190,23 @@ means the member's computer. Upload uses the byte-payload workflow below.
 uses the fixed per-offer expiry selected in the popup, defaulting to Never.
 Expiry detaches control and leaves the real page open; actions do not extend it.
 
-Chrome can leave a screenshot of a background tab unanswered while no other
-tab draws, for example with the office Integrations page in front (Chrome 151
-under Xvfb, task c04479de; real GPU Chrome is unchecked). The bridge
-(`server/browser-extension-bridge.ts`) then repeats the capture with the same
-parameters after 300 ms, 900 ms, 2.1 s and so on, and the repeat frees the
-stuck capture. The repeat copies the parameters because Chrome answers the
-stuck capture with the repeat's image. A full-page repeat
-(`captureBeyondViewport`) stays inside the action fence, because it restores
-the viewport when it finishes.
+Chrome can leave a screenshot of a hidden tab unanswered while no other tab
+draws, for example with the office Integrations page in front (Chrome 151
+under Xvfb, task c04479de). The incident of task f6dc01e6, an Agents window
+behind the member's window in Windows Chrome, is probably the same case;
+Windows is unchecked. When a capture is unanswered after 300 ms, the bridge
+(`server/browser-extension-bridge.ts`) starts a 16 px screencast on its tab or
+popup, which makes Chrome draw the tab, and stops it when the capture settles
+(its answer, a drop or the client's retirement). The capture answers with its
+own image. The kick is never a second capture: Chrome saves and restores the
+tab's emulation around each capture with a clip, so two in flight leave the
+tab frozen at the capture's scroll position, then empty, in the member's
+window until the debugger detaches (task f6dc01e6). Only the office sends the
+two screencast commands: a client cannot, the extension (0.7.2 and later)
+forces the start's size and refuses them on a frame session, and the bridge
+relays no screencast event. The bridge logs `capture_kicked` for each kick, and
+`capture_kick_failed` when an older extension refuses it; that capture of a
+hidden tab then waits until its timeout.
 
 Stable extension errors are `browser_not_paired`, `browser_offline`,
 `browser_control_ended`, `action_timeout`, and `action_failed`. Control loss, an action timeout or revocation

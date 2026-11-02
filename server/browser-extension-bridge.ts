@@ -10,6 +10,7 @@ import {
   type BrowserGrantDuration,
   fields,
   pageCommandAllowed,
+  SCREENCAST_KICK_PARAMS,
   type BridgePeer,
   type Fields,
   type BrowserDisplay,
@@ -104,13 +105,13 @@ const grantClock: GrantClock = {
     return () => clearTimeout(timer);
   },
 };
-// Chrome can leave a capture of a background tab unanswered while no other tab
-// draws, and a second capture of the same tab releases it (Chrome 151 under
-// Xvfb, task c04479de). Each pending capture gets such kicks. The delay before
-// kick n (from 0) is captureKickDelay(n), because a kick costs a full capture.
-const CAPTURE_KICK_MS = 300;
-export const captureKickDelay = (kicks: number): number =>
-  CAPTURE_KICK_MS * 2 ** kicks;
+// Chrome can leave a capture of a hidden tab unanswered while no other tab
+// draws (Chrome 151 under Xvfb, task c04479de). A screencast on the tab makes
+// Chrome draw it, and the capture then answers with its own image. A second
+// capture frees it too, but two captures of one tab in flight can leave the
+// tab frozen or empty in the member's window (task f6dc01e6), so a kick is
+// never a capture. A capture still unanswered after CAPTURE_KICK_MS gets one.
+export const CAPTURE_KICK_MS = 300;
 type Assignment = {
   durationMinutes: BrowserGrantDuration;
   expiresAt: number | null;
@@ -125,6 +126,9 @@ type Assignment = {
   actor?: string;
   // Clients retired so far; work of a retired client sends nothing new.
   retirements: number;
+  // Debugger reattaches so far (recovery). A reattach ends a capture kick's
+  // screencast with the old debugger session.
+  reattaches: number;
   target?: Fields;
   // The tab's main frame id. After Chrome activates a prerendered page in the
   // tab, it is not the tab's target id, and Playwright, which finds the main
@@ -565,6 +569,9 @@ export class ExtensionConnection {
   private active = true;
   private sequence = 0;
   private pending = new Map<number, Pending>();
+  // Started capture kicks not yet answered, to the grant id: their answers
+  // reach no client, and a refused one is logged (kickCapture).
+  private kicks = new Map<number, string>();
   private assignments = new Map<string, Assignment>();
   private gateListeners = new Map<string, Set<() => void>>();
   private tooLargeListeners = new Map<string, Set<() => void>>();
@@ -1311,6 +1318,7 @@ export class ExtensionConnection {
       browserSession: crypto.randomUUID(),
       peer: { send() {}, close() {} },
       retirements: 0,
+      reattaches: 0,
       children: new Map(),
       popups: new Map(),
       pages: new Map(),
@@ -1857,6 +1865,21 @@ export class ExtensionConnection {
         return;
       }
       if (msg.kind === "result" && typeof msg.id === "number") {
+        const kick = this.kicks.get(msg.id);
+        if (kick !== undefined) {
+          this.kicks.delete(msg.id);
+          // An extension before 0.7.2 refuses the kick.
+          if (msg.error)
+            console.info(
+              "[browser-extension] " +
+                JSON.stringify({
+                  reason: "capture_kick_failed",
+                  generation: this.generation,
+                  assignment: kick,
+                }),
+            );
+          return;
+        }
         const pending = this.pending.get(msg.id);
         if (!pending) return;
         const owner = this.assignments.get(pending.assignment);
@@ -1904,6 +1927,7 @@ export class ExtensionConnection {
         const done = new Promise<void>((resolve) => {
           finish = resolve;
         });
+        a.reattaches++;
         a.recovery = {
           done,
           finish,
@@ -2001,6 +2025,12 @@ export class ExtensionConnection {
         return;
       }
 
+      // Every screencast is a capture kick's, which no client asked for.
+      if (
+        msg.method === "Page.screencastFrame" ||
+        msg.method === "Page.screencastVisibilityChanged"
+      )
+        return;
       const child =
         typeof msg.sessionId === "string" ? msg.sessionId : undefined;
       if (child && !a.children.has(child) && !a.popups.has(child)) return;
@@ -2295,8 +2325,6 @@ export class ExtensionConnection {
     }
     if (method !== "Page.captureScreenshot")
       return this.request(a, "cdp", { method, params, sessionId: target });
-    if (params.captureBeyondViewport === true)
-      return this.fencedCapture(a, params, target);
     let capture: number | undefined;
     const result = this.request(
       a,
@@ -2306,118 +2334,96 @@ export class ExtensionConnection {
         capture = id;
       },
     );
-    if (capture !== undefined) {
-      const stop = this.kickCapture(a, capture, params, target);
-      result.then(stop, stop);
-    }
+    // Playwright captures on the page's session; the extension refuses a
+    // kick on a frame session.
+    if (capture !== undefined && !a.children.has(sessionId))
+      this.kickCapture(
+        a,
+        capture,
+        target,
+        params.captureBeyondViewport === true,
+      );
     return result;
   }
 
-  // A kick copies the capture's parameters: Chrome answers the stuck capture
-  // with the kick's image, so a 1x1 kick made the screenshot a 1x1 image.
-  // A viewport capture's kick is the one command outside this.pending and the
-  // action fence: it only reads, and a kick that gets no answer must not hold
-  // the next action. receive() drops its late result, because its id is not
-  // pending.
+  // The kick is one screencast start on the capture's session and, once the
+  // capture settles (its answer, a drop or the client's retirement, not the
+  // client's timeout: Chrome still runs it), one stop. Both are outside
+  // this.pending and the action fence, because a kick only makes Chrome draw
+  // the tab, and a kick that gets no answer must not hold the next action.
   private kickCapture(
     a: Assignment,
     capture: number,
-    params: Fields,
-    sessionId: unknown,
-  ): () => void {
-    let cancel = () => {};
-    let kicks = 0;
-    const kick = () => {
-      const pending = this.pending.get(capture);
-      if (!pending || pending.timedOut) return;
+    sessionId: string | undefined,
+    fullPage: boolean,
+  ): void {
+    const pending = this.pending.get(capture);
+    if (!pending) return;
+    let started: number | undefined;
+    const cancel = this.clock.schedule(() => {
+      if (this.pending.get(capture) !== pending) return;
       try {
         this.check(a);
       } catch {
         return;
       }
-      if (!a.recovery) {
-        try {
-          this.peer.send({
-            kind: "command",
+      if (a.recovery) return;
+      const id = this.sendKick(
+        a,
+        "Page.startScreencast",
+        { ...SCREENCAST_KICK_PARAMS },
+        sessionId,
+      );
+      if (id === undefined) return;
+      started = a.reattaches;
+      this.kicks.set(id, a.id);
+      console.info(
+        "[browser-extension] " +
+          JSON.stringify({
+            reason: "capture_kicked",
             generation: this.generation,
-            id: ++this.sequence,
             assignment: a.id,
-            method: "cdp",
-            params: { method: "Page.captureScreenshot", params, sessionId },
-          });
-        } catch {
-          this.sendFailed(a, "Page.captureScreenshot");
-          return;
-        }
-      }
-      cancel = this.clock.schedule(kick, captureKickDelay(++kicks));
-    };
-    cancel = this.clock.schedule(kick, captureKickDelay(0));
-    return () => cancel();
+            session: sessionId === undefined ? "main" : "popup",
+            fullPage,
+          }),
+      );
+    }, CAPTURE_KICK_MS);
+    void pending.done.then(() => {
+      cancel();
+      // A reattach, a release or a closed popup already ended the screencast.
+      if (
+        started !== a.reattaches ||
+        !this.active ||
+        a.closed ||
+        a.recovery ||
+        (sessionId !== undefined && !a.popups.has(sessionId))
+      )
+        return;
+      this.sendKick(a, "Page.stopScreencast", {}, sessionId);
+    });
   }
 
-  // A full-page kick copies the capture's parameters as above, but it is
-  // fenced: captureBeyondViewport restores the viewport when it finishes, so
-  // a late kick could reset it in the middle of the next action. The kicks are
-  // ordinary commands, and the capture is answered only after it and all its
-  // kicks settle. Kicks continue while any of them is unanswered, because a
-  // kick sent as the capture finishes can stick too, and the next kick frees
-  // it. Each kick still ends at its own 30 s command timeout, and the doubled
-  // delay outgrows that timeout, so at most 7 kicks go out, all by about 38 s.
-  // If the capture is still unanswered, the ceiling retires the client at
-  // about 60 s, and the chain stops: a retired client sends no kick. Kicks after the action
-  // deadline are intended: they stay inside the fence, and they can free the
-  // retained capture so that the fence drains sooner. The capture's own
-  // failure wins; a failed kick is ignored, but a kick that times out after a
-  // good capture makes the action time out, as any stuck command does.
-  private async fencedCapture(
+  private sendKick(
     a: Assignment,
+    method: string,
     params: Fields,
-    sessionId: unknown,
-  ): Promise<Fields> {
-    const command = { method: "Page.captureScreenshot", params, sessionId };
-    const retirements = a.retirements;
-    let open = 1;
-    const settle = (sent: Promise<Fields>) =>
-      sent.then(
-        (result) => {
-          open--;
-          return { result };
-        },
-        (error: unknown) => {
-          open--;
-          return { error };
-        },
-      );
-    const capture = settle(this.request(a, "cdp", command));
-    const kicks: ReturnType<typeof settle>[] = [];
-    let cancel = () => {};
-    const kick = () => {
-      if (open === 0 || a.retirements !== retirements) return;
-      let sent: Promise<Fields>;
-      try {
-        sent = this.request(a, "cdp", command);
-      } catch {
-        return;
-      }
-      open++;
-      kicks.push(settle(sent));
-      cancel = this.clock.schedule(kick, captureKickDelay(kicks.length));
-    };
-    cancel = this.clock.schedule(kick, captureKickDelay(0));
-    const outcome = await capture;
-    let kicked: Awaited<ReturnType<typeof settle>>[] = [];
-    while (kicked.length < kicks.length) kicked = await Promise.all([...kicks]);
-    cancel();
-    if ("error" in outcome) throw outcome.error;
-    const timedOut = kicked.find(
-      (k) =>
-        "error" in k &&
-        k.error instanceof Error &&
-        k.error.message === COMMAND_TIMED_OUT,
-    );
-    if (timedOut && "error" in timedOut) throw timedOut.error;
-    return outcome.result;
+    sessionId: string | undefined,
+  ): number | undefined {
+    const id = ++this.sequence;
+    try {
+      this.peer.send({
+        kind: "command",
+        generation: this.generation,
+        id,
+        assignment: a.id,
+        method: "cdp",
+        params: { method, params, sessionId },
+      });
+    } catch {
+      this.sendFailed(a, method);
+      return undefined;
+    }
+    return id;
   }
 
   private release(
@@ -2447,6 +2453,8 @@ export class ExtensionConnection {
     }
     a.cancelExpiry?.();
     this.assignments.delete(a.id);
+    for (const [id, owner] of this.kicks)
+      if (owner === a.id) this.kicks.delete(id);
     for (const [id, pending] of this.pending) {
       if (pending.assignment !== a.id) continue;
       clearTimeout(pending.timer);

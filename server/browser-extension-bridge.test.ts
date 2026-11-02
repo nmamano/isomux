@@ -2,7 +2,6 @@ import { describe, test, expect, spyOn } from "bun:test";
 import {
   BrowserExtensionBridge,
   browserCredentialHash,
-  captureKickDelay,
   FENCE_CEILING_MS,
 } from "./browser-extension-bridge";
 import {
@@ -1657,12 +1656,14 @@ function fakeTimeline() {
   };
 }
 
+// Chrome can leave a capture of a background tab unanswered while no other
+// tab draws (task c04479de). A second capture of the tab frees it, but two
+// captures in flight leave the member's view of the tab broken (task
+// f6dc01e6), so the bridge frees it with a screencast instead.
 describe("screenshot kicks", () => {
-  const captures = (h: Awaited<ReturnType<typeof harness>>) =>
+  const sent = (h: Awaited<ReturnType<typeof harness>>, method: string) =>
     h.extension.messages.filter(
-      (m) =>
-        m.method === "cdp" &&
-        fields(m.params).method === "Page.captureScreenshot",
+      (m) => m.method === "cdp" && fields(m.params).method === method,
     );
   const answer = (
     h: Awaited<ReturnType<typeof harness>>,
@@ -1677,222 +1678,241 @@ describe("screenshot kicks", () => {
     });
   const reply = (h: Awaited<ReturnType<typeof harness>>, id: number) =>
     h.client.messages.find((m) => m.id === id);
+  // The bridge's diagnostic lines for kicks.
+  const kickLines = (log: { mock: { calls: unknown[][] } }) =>
+    log.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.includes('"capture_kick'))
+      .map((line) => JSON.parse(line.slice(line.indexOf("{"))) as Fields);
+  const popup = (h: Awaited<ReturnType<typeof harness>>, assignment: string) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment,
+      method: "popup",
+      params: {
+        sessionId: "popup-session",
+        targetInfo: { type: "page", targetId: "popup", openerId: "owned" },
+      },
+    });
 
-  test("a viewport capture is kicked outside the fence with its own parameters until it settles", async () => {
+  for (const shape of [
+    { name: "viewport", params: { format: "png" }, popup: false },
+    {
+      name: "full-page",
+      params: { format: "png", captureBeyondViewport: true },
+      popup: false,
+    },
+    {
+      name: "popup",
+      params: { format: "jpeg", quality: 40 },
+      popup: true,
+    },
+  ])
+    test(`a stuck ${shape.name} capture gets one screencast kick on its session and no second capture`, async () => {
+      const time = fakeTimeline();
+      const log = spyOn(console, "info");
+      const h = await harness(false, time.clock);
+      try {
+        const { assignment, sessionId: main } = await create(h);
+        if (shape.popup) popup(h, assignment);
+        const sessionId = shape.popup ? "popup-session" : main;
+        const shot = h.agent.receive({
+          id: 4,
+          sessionId,
+          method: "Page.captureScreenshot",
+          params: shape.params,
+        });
+        const [capture] = sent(h, "Page.captureScreenshot");
+        expect(fields(capture.params).params).toEqual(shape.params);
+        const target = fields(capture.params).sessionId;
+        await time.advanceTo(200);
+        expect(sent(h, "Page.startScreencast")).toHaveLength(0);
+        await time.advanceTo(1_000);
+        const starts = sent(h, "Page.startScreencast");
+        expect(starts).toHaveLength(1);
+        expect(fields(starts[0].params).sessionId).toBe(target);
+        // The kick is outside the action fence.
+        expect(h.connection.pendingCount(assignment)).toBe(1);
+        const lines = kickLines(log);
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatchObject({
+          reason: "capture_kicked",
+          generation: h.connection.generation,
+          assignment,
+          session: shape.popup ? "popup" : "main",
+          fullPage: shape.name === "full-page",
+        });
+
+        await time.advanceTo(20_000);
+        expect(sent(h, "Page.captureScreenshot")).toHaveLength(1);
+        expect(sent(h, "Page.startScreencast")).toHaveLength(1);
+        expect(sent(h, "Page.stopScreencast")).toHaveLength(0);
+        answer(h, capture, { result: { data: "capture" } });
+        await shot;
+        expect(reply(h, 4)?.result).toEqual({ data: "capture" });
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        const stops = sent(h, "Page.stopScreencast");
+        expect(stops).toHaveLength(1);
+        expect(fields(stops[0].params).sessionId).toBe(target);
+
+        // Late kick answers reach no client.
+        const heard = h.client.messages.length;
+        answer(h, starts[0], { result: {} });
+        answer(h, stops[0], { result: {} });
+        await time.flush();
+        expect(h.client.messages).toHaveLength(heard);
+        expect(h.extension.closed).toBe(false);
+        await time.advanceTo(120_000);
+        expect(sent(h, "Page.captureScreenshot")).toHaveLength(1);
+        expect(sent(h, "Page.startScreencast")).toHaveLength(1);
+        expect(sent(h, "Page.stopScreencast")).toHaveLength(1);
+      } finally {
+        log.mockRestore();
+        time.restore();
+        h.connection.close();
+      }
+    });
+
+  for (const end of ["error", "late answer", "retirement"] as const)
+    test(`a kick stops when its capture settles by ${end}, and not before`, async () => {
+      const time = fakeTimeline();
+      const log = spyOn(console, "info");
+      const h = await harness(false, time.clock);
+      try {
+        const { assignment, sessionId } = await create(h);
+        const shot = h.agent.receive({
+          id: 5,
+          sessionId,
+          method: "Page.captureScreenshot",
+          params: { format: "png" },
+        });
+        const [capture] = sent(h, "Page.captureScreenshot");
+        await time.advanceTo(1_000);
+        const [start] = sent(h, "Page.startScreencast");
+        expect(start).toBeDefined();
+        const stops = () => sent(h, "Page.stopScreencast").length;
+        if (end === "error") {
+          // An extension older than the kick refuses it: logged once.
+          answer(h, start, { error: { message: "Unsupported page command" } });
+          await time.flush();
+          expect(
+            kickLines(log).filter((l) => l.reason === "capture_kick_failed"),
+          ).toHaveLength(1);
+          expect(stops()).toBe(0);
+          answer(h, capture, { error: { message: "failed" } });
+          await shot;
+          expect(reply(h, 5)?.error).toBeDefined();
+        } else {
+          await time.advanceTo(30_000);
+          await shot;
+          // The client has its timeout; the capture still runs in Chrome.
+          expect(reply(h, 5)?.error).toBeDefined();
+          expect(h.connection.pendingTimedOut(assignment)).toBe(true);
+          await time.advanceTo(40_000);
+          expect(stops()).toBe(0);
+          if (end === "late answer") {
+            answer(h, capture, { result: { data: "late" } });
+            await time.flush();
+          } else {
+            await time.advanceTo(30_000 + FENCE_CEILING_MS + 1);
+            expect(h.client.closed).toBe(true);
+          }
+        }
+        expect(h.connection.pendingCount(assignment)).toBe(0);
+        expect(stops()).toBe(1);
+        expect(fields(sent(h, "Page.stopScreencast")[0].params).sessionId).toBe(
+          fields(capture.params).sessionId,
+        );
+        await time.advanceTo(120_000);
+        expect(sent(h, "Page.captureScreenshot")).toHaveLength(1);
+        expect(sent(h, "Page.startScreencast")).toHaveLength(1);
+        expect(stops()).toBe(1);
+      } finally {
+        log.mockRestore();
+        time.restore();
+        h.connection.close();
+      }
+    });
+
+  test("a capture answered in time and other slow commands get no kick", async () => {
     const time = fakeTimeline();
     const h = await harness(false, time.clock);
     try {
-      const { assignment } = await create(h);
-      h.connection.receive({
-        kind: "event",
-        generation: h.connection.generation,
-        assignment,
-        method: "Target.attachedToTarget",
-        params: {
-          sessionId: "child-session",
-          targetInfo: { targetId: "child-target", type: "iframe" },
-        },
-      });
-      // Another page command gets no kicks.
+      const { assignment, sessionId } = await create(h);
       void h.agent.receive({
-        id: 3,
-        sessionId: "child-session",
+        id: 6,
+        sessionId,
         method: "Runtime.evaluate",
         params: { expression: "1" },
       });
       const evaluate = h.extension.messages.at(-1)!;
       await time.advanceTo(5_000);
-      expect(h.extension.messages.at(-1)).toBe(evaluate);
       answer(h, evaluate, { result: {} });
       await time.flush();
-
-      const params = { format: "jpeg", quality: 40 };
-      const shot = h.agent.receive({
-        id: 4,
-        sessionId: "child-session",
-        method: "Page.captureScreenshot",
-        params,
-      });
-      const [capture] = captures(h);
-      await time.advanceTo(5_000 + captureKickDelay(0) - 1);
-      expect(captures(h)).toHaveLength(1);
-      await time.advanceTo(5_000 + captureKickDelay(0) + captureKickDelay(1));
-      const kicks = captures(h).slice(1);
-      expect(kicks).toHaveLength(2);
-      for (const kick of kicks)
-        expect(kick.params).toEqual(capture.params as Fields);
-      expect(fields(capture.params)).toEqual({
-        method: "Page.captureScreenshot",
-        params,
-        sessionId: "child-session",
-      });
-      expect(h.connection.pendingCount(assignment)).toBe(1);
-
-      answer(h, capture, { result: { data: "capture" } });
-      await shot;
-      expect(reply(h, 4)?.result).toEqual({ data: "capture" });
-      // Unanswered kicks do not hold the next action.
-      expect(h.connection.pendingCount(assignment)).toBe(0);
-      await time.advanceTo(60_000);
-      expect(captures(h)).toHaveLength(3);
-      // A late kick result is dropped, and the client hears nothing more.
-      const sent = h.client.messages.length;
-      answer(h, kicks[0], { result: { data: "kick" } });
-      await time.flush();
-      expect(h.client.messages).toHaveLength(sent);
-      expect(h.extension.closed).toBe(false);
-    } finally {
-      time.restore();
-      h.connection.close();
-    }
-  });
-
-  test("viewport kicks stop at the capture timeout and at release", async () => {
-    const time = fakeTimeline();
-    const h = await harness(false, time.clock);
-    try {
-      const { assignment, sessionId } = await create(h);
-      const shot = h.agent.receive({
-        id: 5,
-        sessionId,
-        method: "Page.captureScreenshot",
-        params: { format: "png" },
-      });
-      await time.advanceTo(30_000);
-      await shot;
-      expect(reply(h, 5)?.error).toBeDefined();
-      expect(h.connection.pendingTimedOut(assignment)).toBe(true);
-      const atTimeout = captures(h).length;
-      expect(atTimeout).toBeGreaterThan(1);
-      await time.advanceTo(120_000);
-      expect(captures(h)).toHaveLength(atTimeout);
-    } finally {
-      time.restore();
-      h.connection.close();
-    }
-
-    const later = fakeTimeline();
-    const g = await harness(false, later.clock);
-    try {
-      const { sessionId } = await create(g);
-      const shot = g.agent.receive({
-        id: 6,
-        sessionId,
-        method: "Page.captureScreenshot",
-        params: { format: "png" },
-      });
-      await later.advanceTo(captureKickDelay(0));
-      expect(captures(g)).toHaveLength(2);
-      g.agent.close();
-      await shot;
-      expect(g.connection.offered("agent")).toBeUndefined();
-      await later.advanceTo(120_000);
-      expect(captures(g)).toHaveLength(2);
-    } finally {
-      later.restore();
-      g.connection.close();
-    }
-  });
-
-  test("a full-page capture answers only after it and its fenced kicks settle, with its own result", async () => {
-    const time = fakeTimeline();
-    const h = await harness(false, time.clock);
-    try {
-      const { assignment, sessionId } = await create(h);
-      const params = { format: "png", captureBeyondViewport: true };
       const shot = h.agent.receive({
         id: 7,
         sessionId,
         method: "Page.captureScreenshot",
-        params,
+        params: { format: "png" },
       });
-      await time.advanceTo(captureKickDelay(0));
-      const [capture, first] = captures(h);
-      expect(first?.params).toEqual(capture.params as Fields);
-      expect(h.connection.pendingCount(assignment)).toBe(2);
-
-      answer(h, capture, { result: { data: "capture" } });
-      await time.flush();
-      expect(reply(h, 7)).toBeUndefined();
-      // The open kick keeps the chain going: a kick sent as the capture
-      // finishes can stick, and the next kick frees it.
-      await time.advanceTo(captureKickDelay(0) + captureKickDelay(1));
-      const second = captures(h)[2];
-      expect(second?.params).toEqual(capture.params as Fields);
-      answer(h, first, { error: { message: "failed" } });
-      await time.flush();
-      expect(reply(h, 7)).toBeUndefined();
-      answer(h, second, { result: { data: "kick" } });
+      await time.advanceTo(5_100);
+      answer(h, sent(h, "Page.captureScreenshot")[0], {
+        result: { data: "capture" },
+      });
       await shot;
       expect(reply(h, 7)?.result).toEqual({ data: "capture" });
-      expect(h.connection.pendingCount(assignment)).toBe(0);
       await time.advanceTo(120_000);
-      expect(captures(h)).toHaveLength(3);
+      expect(h.connection.pendingCount(assignment)).toBe(0);
+      expect(sent(h, "Page.captureScreenshot")).toHaveLength(1);
+      expect(sent(h, "Page.startScreencast")).toHaveLength(0);
+      expect(sent(h, "Page.stopScreencast")).toHaveLength(0);
     } finally {
       time.restore();
       h.connection.close();
     }
   });
 
-  test("a full-page capture keeps its own failure, and a kick timeout fails a good capture", async () => {
-    for (const failingCapture of [true, false]) {
-      const time = fakeTimeline();
-      const h = await harness(false, time.clock);
-      try {
-        const { assignment, sessionId } = await create(h);
-        const shot = h.agent.receive({
-          id: 8,
-          sessionId,
-          method: "Page.captureScreenshot",
-          params: { format: "png", captureBeyondViewport: true },
-        });
-        await time.advanceTo(captureKickDelay(0));
-        const [capture, kick] = captures(h);
-        if (failingCapture) {
-          answer(h, kick, { result: { data: "kick" } });
-          answer(h, capture, { error: { message: "failed" } });
-        } else {
-          answer(h, capture, { result: { data: "capture" } });
-          await time.flush();
-          // The kick's timeout runs on the fake timeline, kicks meanwhile.
-          await time.advanceTo(captureKickDelay(0) + 30_000);
-          expect(h.connection.pendingTimedOut(assignment)).toBe(true);
-        }
-        await time.flush();
-        // Any later kick still open must settle before the answer.
-        for (const open of captures(h).slice(2))
-          answer(h, open, { result: { data: "kick" } });
-        await shot;
-        expect(reply(h, 8)?.result).toBeUndefined();
-        expect(reply(h, 8)?.error).toBeDefined();
-      } finally {
-        time.restore();
-        h.connection.close();
-      }
-    }
-  });
-
-  test("a full-page capture nobody answers stops kicking after seven kicks", async () => {
-    const time = fakeTimeline();
-    const h = await harness(false, time.clock);
+  test("screencast events reach no client, and a client cannot send screencast commands", async () => {
+    const h = await harness();
     try {
-      const { sessionId, assignment } = await create(h);
-      const shot = h.agent.receive({
-        id: 9,
-        sessionId,
-        method: "Page.captureScreenshot",
-        params: { format: "png", captureBeyondViewport: true },
+      const { assignment, sessionId } = await create(h);
+      const event = (method: string, params: Fields) =>
+        h.connection.receive({
+          kind: "event",
+          generation: h.connection.generation,
+          assignment,
+          method,
+          params,
+        });
+      const heard = h.client.messages.length;
+      event("Page.screencastFrame", {
+        data: "frame",
+        metadata: {},
+        sessionId: 1,
       });
-      await time.advanceTo(300_000);
-      await shot;
-      // Nothing answers: the ceiling retires the client 30 s after the
-      // capture's own timeout, before the last kick times out.
-      expect(h.client.closed).toBe(true);
-      expect(h.connection.pendingCount(assignment)).toBe(0);
-      expect(h.connection.offered("agent")).toBe(assignment);
-      expect(captures(h)).toHaveLength(1 + 7);
+      event("Page.screencastVisibilityChanged", { visible: true });
+      expect(h.client.messages).toHaveLength(heard);
+      // The enabling condition: another page event reaches the client.
+      event("Runtime.consoleAPICalled", {});
+      expect(h.client.messages).toHaveLength(heard + 1);
+
+      const methods = [
+        "Page.startScreencast",
+        "Page.stopScreencast",
+        "Page.screencastFrameAck",
+      ];
+      for (const [i, method] of methods.entries()) {
+        await h.agent.receive({
+          id: 30 + i,
+          sessionId,
+          method,
+          params: method === "Page.screencastFrameAck" ? { sessionId: 1 } : {},
+        });
+        expect(reply(h, 30 + i)?.error).toBeDefined();
+        expect(sent(h, method)).toHaveLength(0);
+      }
     } finally {
-      time.restore();
       h.connection.close();
     }
   });

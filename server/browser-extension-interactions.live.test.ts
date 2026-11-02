@@ -2,7 +2,7 @@ import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
 import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { test, expect, spyOn } from "bun:test";
 import { ExtensionConnection } from "./browser-extension-bridge";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildBrowserExtension } from "../scripts/build-browser-extension";
@@ -127,11 +127,16 @@ async function withOfferedTab(
     await beforeOffer?.({ page: offered, popup });
     await popup.click("#allow");
     await popup.waitFor(
-      // The switch is checked during offering, before the office accepts it.
-      'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled && !!document.querySelector("#expiry-state").textContent',
+      'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled',
     );
     await popup.close();
     const connection = fixture.bridge.connections("fixture-member")[0];
+    // The switch is checked during offering, before the office accepts it.
+    const accepted = Date.now() + 5000;
+    while (!connection.offered("fixture-agent")) {
+      if (Date.now() >= accepted) throw new Error("The offer was not accepted");
+      await Bun.sleep(20);
+    }
     await connection.drain(connection.offered("fixture-agent")!);
     const owned = fixture.sessions(deadlineMs);
     sessions = owned;
@@ -1373,4 +1378,288 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     }
   },
   60_000,
+);
+
+// Task f6dc01e6: a tab an agent drove painted black in the member's Chrome.
+// Two captures of one tab in flight leave Chrome's capture emulation on, so
+// the window shows a frozen or empty view; the bridge freed a stuck capture
+// with a second one. The check reads the window's pixels on the X display,
+// not a CDP capture: a capture sets its own emulation and looks right.
+const ROWS = 40;
+const ROW_PX = 600;
+const rowColor = (i: number) => [
+  (i * 53 + 17) % 256,
+  (i * 97 + 71) % 256,
+  (i * 29 + 133) % 256,
+];
+const packed = ([r, g, b]: number[]) => (r << 16) | (g << 8) | b;
+
+// The count of each colour in an X screenshot of the whole display.
+function displayColours(file: string): Map<number, number> {
+  const shot = Bun.spawnSync(["scrot", "-o", file]);
+  if (shot.exitCode !== 0) throw new Error(`scrot failed: ${shot.stderr}`);
+  const ppm = readFileSync(file);
+  // P6, then width, height and maxval; a # starts a comment line.
+  const fieldsFound: number[] = [];
+  let at = 2;
+  while (fieldsFound.length < 3) {
+    while (/\s/.test(String.fromCharCode(ppm[at]))) at++;
+    if (ppm[at] === 0x23) {
+      while (ppm[at] !== 0x0a) at++;
+      continue;
+    }
+    const start = at;
+    while (!/\s/.test(String.fromCharCode(ppm[at]))) at++;
+    fieldsFound.push(Number(ppm.subarray(start, at).toString()));
+  }
+  at++;
+  const counts = new Map<number, number>();
+  for (let p = at; p + 2 < ppm.length; p += 3) {
+    const colour = (ppm[p] << 16) | (ppm[p + 1] << 8) | ppm[p + 2];
+    counts.set(colour, (counts.get(colour) ?? 0) + 1);
+  }
+  return counts;
+}
+
+// Whether the member's window paints the tab's current scroll position: the
+// rows in view fill most of the viewport, and no row out of view shows.
+async function windowPaints(page: Page, file: string) {
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  await Bun.sleep(500);
+  const view = await page.evaluate(() => ({
+    y: scrollY,
+    height: innerHeight,
+    width: document.documentElement.clientWidth,
+  }));
+  const counts = displayColours(file);
+  let painted = 0;
+  const stale: number[] = [];
+  for (let i = 0; i < ROWS; i++) {
+    const seen = counts.get(packed(rowColor(i))) ?? 0;
+    const inView =
+      i * ROW_PX < view.y + view.height && (i + 1) * ROW_PX > view.y;
+    if (inView) painted += seen;
+    else if (seen) stale.push(i);
+  }
+  return {
+    filled: painted >= 0.8 * view.width * view.height,
+    stale,
+  };
+}
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "an agent's screenshots free a stuck capture with no second capture, and the member's window keeps painting the tab",
+  async () => {
+    const colours = new Set(
+      Array.from({ length: ROWS }, (_, i) => packed(rowColor(i))),
+    );
+    // Each row colour is its own, so a count names one row.
+    expect(colours.size).toBe(ROWS);
+    await withOfferedTab(
+      (url) =>
+        url.pathname === "/idle"
+          ? html(`<!doctype html><title>Idle</title><p>idle</p>`)
+          : html(
+              `<!doctype html><title>Rows</title><body style="margin:0">${Array.from(
+                { length: ROWS },
+                (_, i) =>
+                  `<div style="height:${ROW_PX}px;background:rgb(${rowColor(i).join(",")})"></div>`,
+              ).join("")}</body>`,
+            ),
+      async ({ act, dir, origin, setupPage }) => {
+        const { ok } = expectations(act);
+        const context = setupPage.context();
+        const worker = context
+          .serviceWorkers()
+          .find((w) => w.url().endsWith("/background.js"))!;
+        expect(worker).toBeDefined();
+        // Records what reaches Chrome: the screencast commands, and the most
+        // captures of one tab in flight at once.
+        await worker.evaluate(() => {
+          type Target = { tabId: number; sessionId?: string };
+          const g = globalThis as unknown as {
+            chrome: {
+              debugger: {
+                sendCommand(
+                  target: Target,
+                  method: string,
+                  params?: unknown,
+                ): Promise<unknown>;
+              };
+            };
+            captureLog: {
+              inFlight: Record<string, number>;
+              most: number;
+              captures: number;
+              starts: number;
+              stops: number;
+            };
+          };
+          const log = {
+            inFlight: {} as Record<string, number>,
+            most: 0,
+            captures: 0,
+            starts: 0,
+            stops: 0,
+          };
+          g.captureLog = log;
+          const send = g.chrome.debugger.sendCommand.bind(g.chrome.debugger);
+          g.chrome.debugger.sendCommand = async (target, method, params) => {
+            if (method === "Page.startScreencast") log.starts++;
+            if (method === "Page.stopScreencast") log.stops++;
+            if (method !== "Page.captureScreenshot")
+              return send(target, method, params);
+            const key = `${target.tabId}/${target.sessionId ?? ""}`;
+            log.captures++;
+            log.inFlight[key] = (log.inFlight[key] ?? 0) + 1;
+            log.most = Math.max(log.most, log.inFlight[key]);
+            try {
+              return await send(target, method, params);
+            } finally {
+              log.inFlight[key]--;
+            }
+          };
+        });
+        const readLog = async () => {
+          // A kick's stop goes out after the answer.
+          await Bun.sleep(300);
+          return worker.evaluate(() => {
+            const g = globalThis as unknown as {
+              captureLog: {
+                inFlight: Record<string, number>;
+                most: number;
+                captures: number;
+                starts: number;
+                stops: number;
+              };
+            };
+            const log = { ...g.captureLog };
+            Object.assign(g.captureLog, {
+              most: 0,
+              captures: 0,
+              starts: 0,
+              stops: 0,
+            });
+            return {
+              most: log.most,
+              captures: log.captures,
+              starts: log.starts,
+              stops: log.stops,
+            };
+          });
+        };
+        const height = (png: Buffer) => png.readUInt32BE(20);
+
+        // The instrument: the window paints the tab before any capture.
+        await setupPage.evaluate(() => scrollTo(0, 2600));
+        const before = await windowPaints(
+          setupPage,
+          join(dir, "window-before.ppm"),
+        );
+
+        // The agent's tab in the background, behind an idle tab that draws
+        // nothing: Chrome leaves its captures unanswered.
+        await setupPage.evaluate(() => scrollTo(0, 400));
+        // In the agent tab's own window: Chrome on Linux keeps painting a tab
+        // that is in front of another window.
+        await worker.evaluate(async (site) => {
+          const tabs = (
+            globalThis as unknown as {
+              chrome: {
+                tabs: {
+                  query(q: object): Promise<{ windowId: number }[]>;
+                  create(p: object): Promise<unknown>;
+                };
+              };
+            }
+          ).chrome.tabs;
+          const [agentTab] = await tabs.query({ url: site + "/" });
+          await tabs.create({
+            windowId: agentTab.windowId,
+            url: site + "/idle",
+            active: true,
+          });
+        }, origin);
+        // The extension's focus emulation keeps the page's visibilityState
+        // visible, so the tab's own state is the check.
+        expect(
+          await worker.evaluate(async (site) => {
+            const tabs = (
+              globalThis as unknown as {
+                chrome: {
+                  tabs: { query(q: object): Promise<{ active: boolean }[]> };
+                };
+              }
+            ).chrome.tabs;
+            return (await tabs.query({ url: site + "/" })).map((t) => t.active);
+          }, origin),
+        ).toEqual([false]);
+        await Bun.sleep(500);
+        const viewport = ok(await act({ action: "screenshot" }));
+        const full = ok(await act({ action: "screenshot", fullPage: true }));
+        const hidden = await readLog();
+        await setupPage.bringToFront();
+        await setupPage.evaluate(() => scrollTo(0, 1600));
+        const afterHidden = await windowPaints(
+          setupPage,
+          join(dir, "window-after-hidden.ppm"),
+        );
+
+        // The tab in front: a long full-page capture outlasts the kick delay.
+        await setupPage.evaluate(() => scrollTo(0, 400));
+        const visibleFull = ok(
+          await act({ action: "screenshot", fullPage: true }),
+        );
+        const visible = await readLog();
+        await setupPage.evaluate(() => scrollTo(0, 5000));
+        const afterVisible = await windowPaints(
+          setupPage,
+          join(dir, "window-after-visible.ppm"),
+        );
+        console.log(
+          "Capture kicks:",
+          JSON.stringify({
+            before,
+            hidden,
+            afterHidden,
+            visible,
+            afterVisible,
+          }),
+        );
+
+        expect(before).toEqual({ filled: true, stale: [] });
+        expect(height(viewport.png!)).toBeLessThan(ROW_PX * 3);
+        expect(height(full.png!)).toBe(ROWS * ROW_PX);
+        expect(height(visibleFull.png!)).toBe(ROWS * ROW_PX);
+        expect({
+          // The enabling conditions: each capture needed a kick.
+          hiddenKicked: hidden.starts > 0 || hidden.captures > 2,
+          visibleKicked: visible.starts > 0 || visible.captures > 1,
+          // Every kick ends.
+          hiddenStops: hidden.stops,
+          visibleStops: visible.stops,
+          hiddenMost: hidden.most,
+          visibleMost: visible.most,
+          afterHidden,
+          afterVisible,
+        }).toEqual({
+          hiddenKicked: true,
+          visibleKicked: true,
+          hiddenStops: hidden.starts,
+          visibleStops: visible.starts,
+          hiddenMost: 1,
+          visibleMost: 1,
+          afterHidden: { filled: true, stale: [] },
+          afterVisible: { filled: true, stale: [] },
+        });
+      },
+      15_000,
+    );
+  },
+  90_000,
 );

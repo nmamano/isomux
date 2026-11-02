@@ -18,6 +18,8 @@ import {
   type ExtensionUIState,
   fields,
   pageCommandAllowed,
+  screencastKickCommand,
+  SCREENCAST_KICK_PARAMS,
   type Fields,
   EXTENSION_MAX_BYTES,
   trimOversizedEvent,
@@ -971,9 +973,10 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     throw new Error("Debugger recovery in progress");
   const args = fields(msg.params);
   const params = fields(args.params);
+  const kick = screencastKickCommand(args.method);
   if (
     typeof args.method !== "string" ||
-    !pageCommandAllowed(args.method, params)
+    (!kick && !pageCommandAllowed(args.method, params))
   )
     throw new Error("Unsupported page command");
   const requested = args.sessionId;
@@ -994,6 +997,8 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     (typeof child !== "string" || !selected.children.has(child))
   )
     throw new Error("Unknown child session");
+  // The office's capture kick draws a tab or a popup, never a frame.
+  if (kick && child !== undefined) throw new Error("Unsupported page command");
   // Never let the client broaden auto-attach to unrelated targets or popups.
   const commandParams =
     args.method === "Target.setAutoAttach"
@@ -1003,7 +1008,11 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
           flatten: true,
           filter: [{ type: "iframe", exclude: false }, { exclude: true }],
         }
-      : params;
+      : args.method === "Page.startScreencast"
+        ? { ...SCREENCAST_KICK_PARAMS }
+        : args.method === "Page.stopScreencast"
+          ? {}
+          : params;
   const epoch = selected.epoch;
   const result = await chrome.debugger.sendCommand(
     { tabId: selected.tabId, sessionId: child },
