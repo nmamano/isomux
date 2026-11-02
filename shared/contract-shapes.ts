@@ -63,6 +63,36 @@ export type UserSelfWire = UserRecord;
 // Any user's full record; delivered ONLY to owners managing them.
 export type UserAdminWire = UserRecord;
 
+// A removed member, kept for REMOVED_MEMBER_RETENTION_MS so an owner can
+// restore them (task 321e7b8e). Owners only.
+export interface RemovedMemberWire {
+  user: UserAdminWire;
+  removedAt: number;
+  // When the record and everything kept are deleted.
+  expiresAt: number;
+  // The display name of who removed them.
+  removedBy: string;
+  // The owner who got their agents, schedules and webhooks; null when none did.
+  heirName: string | null;
+  // What passed to the heir at removal.
+  passed: { agents: number; schedules: number; webhooks: number };
+}
+export interface RemovedMemberListRes {
+  members: RemovedMemberWire[];
+}
+// Restore. `agents` (default true): move back what passed to the heir and the
+// heir still owns.
+export interface MemberRestoreReq {
+  agents?: boolean;
+}
+export interface MemberRestoreRes {
+  user: UserAdminWire;
+  // The agents, schedules and webhooks that came back to the member, and those
+  // that stayed where they are now (the heir passed or deleted them).
+  movedBack: { agentIds: string[]; cronjobIds: string[]; webhookIds: string[] };
+  stayed: { agentIds: string[]; cronjobIds: string[]; webhookIds: string[] };
+}
+
 // The office.getAccess response.
 export interface AccessSettings {
   hosted: boolean;
@@ -1249,6 +1279,9 @@ export interface SecretWire {
   // The live apps that read the raw value from their environment (task
   // c7007f8b). A grant whose app was deleted is not listed.
   apps: string[];
+  // Present on a secret of a restored member: its value was deleted at the
+  // removal (task 321e7b8e), and nothing reads it until a new one is set.
+  needsValue?: true;
 }
 export interface SecretListRes {
   secrets: SecretWire[];

@@ -28,6 +28,9 @@ import {
   type HandlerErrorStatus,
 } from "../executor.ts";
 import type {
+  MemberRestoreReq,
+  MemberRestoreRes,
+  RemovedMemberWire,
   UserAdminWire,
   UserCreateReq,
   UserSelfWire,
@@ -99,6 +102,20 @@ export interface UsersDeps {
   // actor: the caller's display name, for the chat line of each agent the
   // member managed (they pass to the oldest office owner).
   delete(input: { username: string; actor: string }): Promise<DeleteOutcome>;
+  // The removed members, newest removal first (task 321e7b8e).
+  removedList(): RemovedMemberWire[];
+  // Restore a removed member by id; `agents` moves back what passed to the
+  // heir and the heir still owns. Emits users_list and removed_members.
+  restore(input: {
+    id: string;
+    agents: boolean;
+    actor: string;
+  }): Promise<
+    | { ok: true; result: MemberRestoreRes }
+    | { ok: false; status: HandlerErrorStatus; code: string; error: string }
+  >;
+  // Delete now: the record and everything kept go. Emits removed_members.
+  purge(input: { id: string }): Promise<DeleteOutcome>;
   attributionFor(identity: Identity): { createdBy: string };
 }
 
@@ -255,6 +272,25 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
         username: ctx.params.username,
         actor: deps.attributionFor(ctx.identity).createdBy,
       });
+      return r.ok ? noContent() : fail(r.status, r.code, r.error);
+    },
+
+    "users.removedList": () => ok({ members: deps.removedList() }),
+
+    "users.restore": async (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<MemberRestoreReq>;
+      if (body.agents !== undefined && typeof body.agents !== "boolean")
+        return fail(422, "invalid_request", "agents must be a boolean");
+      const r = await deps.restore({
+        id: ctx.params.id,
+        agents: body.agents ?? true,
+        actor: deps.attributionFor(ctx.identity).createdBy,
+      });
+      return r.ok ? ok(r.result) : fail(r.status, r.code, r.error);
+    },
+
+    "users.purge": async (ctx) => {
+      const r = await deps.purge({ id: ctx.params.id });
       return r.ok ? noContent() : fail(r.status, r.code, r.error);
     },
   };

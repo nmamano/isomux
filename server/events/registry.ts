@@ -59,6 +59,7 @@ import type {
   UserPublicWire,
   UserAdminWire,
   UserSelfWire,
+  RemovedMemberWire,
 } from "../../shared/contract-shapes.ts";
 
 // The fan-out lattice. A future event must declare its strategy deliberately
@@ -261,6 +262,8 @@ export interface EventPayloads {
   session_revoked: { sessionPrefix: string };
   invite_revoked: { tokenPrefix: string };
   invites_list: { invites: InviteWire[] };
+  // The removed members an owner can restore (task 321e7b8e).
+  removed_members: { members: RemovedMemberWire[] };
   sessions_active_list: { sessions: SessionWire[] };
 }
 
@@ -522,6 +525,7 @@ export const EVENT_REGISTRY = {
 
   session_revoked: { audience: "owners", projectionKey: { kind: "owners" } },
   invite_revoked: { audience: "owners", projectionKey: { kind: "owners" } },
+  removed_members: { audience: "owners", projectionKey: { kind: "owners" } },
   invites_list: {
     audience: "recipient-scoped",
     projectionKey: { kind: "userId" },

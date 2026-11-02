@@ -76,6 +76,10 @@ import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
+import {
+  RemovedMembersPane,
+  useRemovedMembersSeed,
+} from "./RemovedMembersPane.tsx";
 import { ApiTokenCards, useMemberRooms } from "./ApiTokensPane.tsx";
 import {
   ExpandableTextarea,
@@ -141,7 +145,7 @@ function sameSelection(a: Selection, b: Selection): boolean {
     return a.section === b.section;
   if (a.kind === "user" && b.kind === "user") return a.id === b.id;
   if (a.kind === "room" && b.kind === "room") return a.roomId === b.roomId;
-  return a.kind === "newMember";
+  return a.kind === "newMember" || a.kind === "removedMembers";
 }
 
 export type Selection =
@@ -151,7 +155,9 @@ export type Selection =
   // its id instead, which is also how the room-tab double-click points here.
   | { kind: "room"; roomId: string }
   // An owner creating a member: the member editor with no record behind it.
-  | { kind: "newMember" };
+  | { kind: "newMember" }
+  // The members removed in the last 30 days (task 321e7b8e), owners only.
+  | { kind: "removedMembers" };
 
 // The groups whose header opens and closes them: the two whose rows come
 // from live data and can run long.
@@ -201,10 +207,12 @@ export function UserSettingsView({
     sessionContext,
     onlineUserIds,
     activeSessions,
+    removedMembers,
   } = useAppState();
   const i18n = useI18n();
   const { t } = i18n;
   const isOwner = sessionContext?.role === "owner";
+  useRemovedMembersSeed(isOwner);
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
     [users],
@@ -802,6 +810,41 @@ export function UserSettingsView({
                 {t("settings.members.newMember")}
               </button>
             )}
+            {isOwner && removedMembers.length > 0 && (
+              <button
+                onClick={() => select({ kind: "removedMembers" })}
+                aria-current={
+                  selection?.kind === "removedMembers" ? "true" : undefined
+                }
+                data-removed-members-row=""
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  width: "100%",
+                  textAlign: "left",
+                  font: "inherit",
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  padding: "8px 14px",
+                  border: "none",
+                  cursor: "pointer",
+                  background:
+                    selection?.kind === "removedMembers"
+                      ? "var(--bg-hover)"
+                      : "transparent",
+                  borderLeft:
+                    selection?.kind === "removedMembers"
+                      ? "2px solid var(--accent)"
+                      : "2px solid transparent",
+                }}
+              >
+                <span aria-hidden="true" style={{ width: 22 }} />
+                {t("settings.removedMembers.row", {
+                  count: removedMembers.length,
+                })}
+              </button>
+            )}
 
             {groupsAfterRoster.map((group) => (
               <SidebarGroupRows
@@ -952,6 +995,19 @@ export function UserSettingsView({
                   roomId={selection.roomId}
                   closeRef={detailCloseRef}
                   onDeleted={() => setSelection(null)}
+                />
+              </div>
+            ) : selection?.kind === "removedMembers" && isOwner ? (
+              <div
+                style={{
+                  padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+                  maxWidth: 720,
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              >
+                <RemovedMembersPane
+                  onRestored={(id) => show({ kind: "user", id })}
                 />
               </div>
             ) : selection?.kind === "newMember" && isOwner ? (
@@ -2049,6 +2105,20 @@ function UserEditPanel({
               }}
             >
               {error}
+            </p>
+          )}
+
+          {confirmDelete && !creating && (
+            <p
+              data-delete-member-note=""
+              style={{
+                margin: "0 0 8px",
+                fontSize: 11,
+                color: "var(--text-muted)",
+                lineHeight: 1.4,
+              }}
+            >
+              {t("settings.profile.deleteNote")}
             </p>
           )}
 

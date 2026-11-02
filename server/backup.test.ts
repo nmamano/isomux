@@ -216,6 +216,11 @@ describe("verified backup publication", () => {
       "mcp-servers/office.json",
       "mcp-servers/users/u-alice.json",
       "mcp-servers/users/.mcp-servers.4242.0b1e5c1d-7d55-4d2a-9a43-1f2b3c4d5e6f.tmp",
+      // A removed member's kept variables and connection shapes (task
+      // 321e7b8e).
+      "removed-members/u-alice/u-alice.env",
+      "removed-members/u-alice/secrets.json",
+      "removed-members/u-alice/mcp-servers.json",
       "opencode/profiles/shared/opencode.json",
       // The server record holds the OpenCode server password.
       "opencode/profiles/shared/server.lock",

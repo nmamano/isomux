@@ -319,3 +319,39 @@ for (const [label, answer] of [
     );
     expect(other).toEqual([]);
   });
+
+// Task 321e7b8e: a restored member's server whose secret came back without a
+// value reaches no agent, as a missing secret does. Neither says a token is
+// saved; a server whose secret has a value does.
+it("a server whose secret has no value, or no secret, is left out and says no token is saved", async () => {
+  fake
+    .scope("alice")
+    .servers.push(
+      server("restored", { secret: "RESTORED" }),
+      server("lost", { secret: "GONE" }),
+      server("tok", { secret: "TOK" }),
+    );
+  fake
+    .scope("alice")
+    .secrets.push(
+      secret("RESTORED", { hosts: ["restored.example.com"], needsValue: true }),
+      secret("TOK", { hosts: ["tok.example.com"] }),
+    );
+  const view = await mount();
+  const row = (name: string) =>
+    view.container.querySelector(`[data-mcp-server-name="${name}"]`)!;
+  const tokenSaved = t("integrations.mcp.status.token");
+  const needsValue = t("integrations.secrets.needsValue");
+  expect(
+    ["restored", "lost", "tok"].map((name) => [
+      row(name).querySelector("[data-mcp-problem]")?.textContent ?? null,
+      row(name).textContent.includes(tokenSaved),
+      row(name).textContent.includes(needsValue),
+    ]),
+  ).toEqual([
+    [t("settings.connections.list.mcpSecretMissing"), false, true],
+    [t("settings.connections.list.mcpSecretMissing"), false, true],
+    [null, true, false],
+  ]);
+  expect(row("restored").querySelector("[data-connection-test]")).toBeNull();
+});

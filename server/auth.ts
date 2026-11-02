@@ -18,6 +18,7 @@ import type {
   SessionContext,
 } from "../shared/types.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { isRemovedMemberName } from "./removed-members.ts";
 import { discardSetupKey } from "./setup-key.ts";
 import { officeIdFile, readOrCreateOfficeId } from "./office-id.ts";
 import {
@@ -824,7 +825,8 @@ export async function acceptInvite(
     // office with an owner record but no session, and the Step-1
     // owner_exists guard would block recovery on retry.
     let userRecord = target ?? getUserByName(chosenName);
-    if (invite.newUser && userRecord) return { ok: false, error: "name_taken" };
+    if (invite.newUser && (userRecord || isRemovedMemberName(chosenName)))
+      return { ok: false, error: "name_taken" };
     let userRollback: (() => void) | null = null;
     if (target) {
       userRecord = target;

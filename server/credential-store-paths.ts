@@ -1,6 +1,7 @@
 // The directories that hold member and office credentials as plain text: the
 // secret store, the managed variable files and the MCP server registrations,
-// whose URLs can carry a token. Also the app token files beside the app
+// whose URLs can carry a token, and the archive of removed members, which
+// keeps their variables and MCP server URLs. Also the app token files beside the app
 // launchers (apps/units/<app>.env), which hold each app's office token. Routes that read or write a
 // file by path (the editor, read-file, validate.env) and the agents' safety
 // hooks refuse them.
@@ -19,6 +20,7 @@ const STORE_DIRS = [
   "user-env",
   "office-env",
   "mcp-servers",
+  "removed-members",
 ] as const;
 
 // The app token files: the .env files directly in this directory. The

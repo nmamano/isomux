@@ -483,6 +483,17 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.members.newMember": "New member",
   "settings.members.create": "Create member",
   "settings.members.neverSignedIn": "never signed in",
+  "settings.removedMembers.row": "Removed members ({count})",
+  "settings.removedMembers.title": "Removed members",
+  "settings.removedMembers.intro":
+    "A removed member stays here for 30 days, then Isomux deletes them. Restore brings back their room access, settings and variables. Secrets come back without their values, and MCP sign-ins must be done again. After a restore, send them a new sign-in link.",
+  "settings.removedMembers.removedOn":
+    "Removed {date} by {name}. Isomux deletes them on {expires}.",
+  "settings.removedMembers.moveBack":
+    "Move their agents, schedules and webhooks back from {heir} (schedules and webhooks stay off)",
+  "settings.removedMembers.restore": "Restore",
+  "settings.removedMembers.deleteNow": "Delete now",
+  "settings.removedMembers.restoreFailed": "Restore failed",
   "settings.role.officeOwner": "Office owner",
   "settings.role.officeOwnerExplanation":
     "Can access all rooms, invite members, and manage member access and sessions.",
@@ -521,6 +532,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "(your ghost in the office scene; other members see it next to the agent you're viewing)",
   "settings.profile.deleteHint": "Delete this member",
   "settings.profile.deleteFailed": "Delete failed",
+  "settings.profile.deleteNote":
+    "They stay in Removed members for 30 days. Their secret values are deleted now; this does not revoke the keys or OAuth grants at the provider.",
   "settings.profile.roomListFailed":
     "Could not confirm your room list; Displayed not saved.",
 
@@ -1292,6 +1305,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.secrets.saveNeedsTarget": "To save, add an address or an app.",
   "integrations.secrets.modelKeyWarning":
     "Agents cannot sign in with this secret. Move it to Variables.",
+  "integrations.secrets.needsValue": "Needs a value",
+  "integrations.secrets.setValue": "Set value",
+  "integrations.secrets.needsValueHint":
+    "The value was deleted when this member was removed.",
   "integrations.secrets.showFailed": "Could not show the value.",
   "integrations.secrets.reissueHint":
     "Agents get a new stand-in, and the old one stops working.",

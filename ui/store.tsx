@@ -80,7 +80,10 @@ import {
   rebuildUserViews,
 } from "./user-merge.ts";
 import { resolveSelectedRoomId, applyRoomClose } from "./roomSelection.ts";
-import type { AskAgentWire } from "../shared/contract-shapes.ts";
+import type {
+  AskAgentWire,
+  RemovedMemberWire,
+} from "../shared/contract-shapes.ts";
 import { connect } from "./ws.ts";
 import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
@@ -329,6 +332,9 @@ export interface AppState {
   allRooms: RoomWire[];
   invitesList: InviteWire[];
   invitesLoaded: boolean;
+  // Owner-only: the removed members an owner can restore (task 321e7b8e).
+  removedMembers: RemovedMemberWire[];
+  removedMembersLoaded: boolean;
   activeSessions: SessionWire[];
   activeSessionsLoaded: boolean;
   // When the per-message session recheck fails (server emits
@@ -581,6 +587,7 @@ type Action =
     }
   | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
+  | { type: "removed_members"; members: RemovedMemberWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
   | { type: "invite_revoked"; tokenPrefix: string }
   | { type: "session_revoked"; sessionPrefix: string }
@@ -1809,6 +1816,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         sessionContext: action.context,
         invitesLoaded: false,
+        removedMembersLoaded: false,
         activeSessionsLoaded: false,
       };
     case "all_rooms_list":
@@ -1818,6 +1826,12 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, allRooms: action.rooms };
     case "invites_list":
       return { ...state, invitesList: action.invites, invitesLoaded: true };
+    case "removed_members":
+      return {
+        ...state,
+        removedMembers: action.members,
+        removedMembersLoaded: true,
+      };
     case "sessions_active_list":
       return {
         ...state,
@@ -2010,6 +2024,8 @@ export const initialState: AppState = {
   allRooms: [],
   invitesList: [],
   invitesLoaded: false,
+  removedMembers: [],
+  removedMembersLoaded: false,
   activeSessions: [],
   activeSessionsLoaded: false,
   sessionExpired: false,

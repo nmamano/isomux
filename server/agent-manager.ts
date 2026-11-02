@@ -5400,15 +5400,18 @@ export function createAgentManager(deps: ManagerDeps) {
   // deletion, task 6a9deaba): the history entries and their sessions' manager
   // stamps, so a revived agent warns on resume. Call it while the member's
   // record still exists, for the name in the stamps. Returns the ids it
-  // changed.
+  // changed. `only` limits it to those ids (a restore gives back what the
+  // heir got, task 321e7b8e).
   function reassignKilledAgents(
     fromUserId: string,
     to: { userId: string; manager: string },
+    only?: ReadonlySet<string>,
   ): string[] {
     const history = loadAgentHistory();
     const changed: string[] = [];
     for (const [id, entry] of Object.entries(history)) {
       if (agents.has(id) || entry.userId !== fromUserId) continue;
+      if (only && !only.has(id)) continue;
       stampAgentSessions(
         id,
         entry.lastSessionId,

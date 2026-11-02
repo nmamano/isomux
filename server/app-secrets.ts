@@ -31,7 +31,7 @@ import {
   SecretStoreUnreadableError,
   type SecretScope,
   type SecretStore,
-  type StoredSecret,
+  type ValuedSecret,
 } from "./secret-store.ts";
 
 const FILE_MODE = 0o600;
@@ -79,7 +79,7 @@ export function createAppSecrets(deps: AppSecretsDeps) {
   const log = deps.log ?? ((line: string) => console.error(line));
 
   // A scope's secrets, or none when its file cannot be read.
-  function readScope(scope: SecretScope): StoredSecret[] {
+  function readScope(scope: SecretScope): ValuedSecret[] {
     try {
       return deps.store.readForProxy(scope);
     } catch (error) {

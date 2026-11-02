@@ -473,6 +473,17 @@ Cosas que puedes hacer por él:
   "settings.members.newMember": "Nuevo miembro",
   "settings.members.create": "Crear miembro",
   "settings.members.neverSignedIn": "nunca ha iniciado sesión",
+  "settings.removedMembers.row": "Miembros eliminados ({count})",
+  "settings.removedMembers.title": "Miembros eliminados",
+  "settings.removedMembers.intro":
+    "Un miembro eliminado se queda aquí 30 días; después, Isomux lo borra. Restaurar le devuelve su acceso a salas, sus ajustes y sus variables. Los secretos vuelven sin sus valores, y hay que volver a iniciar sesión en los servidores MCP. Después de restaurarlo, envíale un nuevo enlace de inicio de sesión.",
+  "settings.removedMembers.removedOn":
+    "Eliminado el {date} por {name}. Isomux lo borra el {expires}.",
+  "settings.removedMembers.moveBack":
+    "Devolverle sus agentes, programaciones y webhooks desde {heir} (las programaciones y los webhooks siguen desactivados)",
+  "settings.removedMembers.restore": "Restaurar",
+  "settings.removedMembers.deleteNow": "Borrar ahora",
+  "settings.removedMembers.restoreFailed": "No se pudo restaurar",
   "settings.role.officeOwner": "Propietario de la oficina",
   "settings.role.officeOwnerExplanation":
     "Puede acceder a todas las salas, invitar a miembros y gestionar el acceso y las sesiones de los miembros.",
@@ -511,6 +522,8 @@ Cosas que puedes hacer por él:
     "(tu fantasma en la escena de la oficina; los demás miembros lo ven junto al agente que estás viendo)",
   "settings.profile.deleteHint": "Eliminar este miembro",
   "settings.profile.deleteFailed": "No se pudo eliminar",
+  "settings.profile.deleteNote":
+    "Se queda en Miembros eliminados 30 días. Sus valores secretos se borran ahora; esto no revoca las claves ni las autorizaciones OAuth en el proveedor.",
   "settings.profile.roomListFailed":
     "No se pudo confirmar tu lista de salas; Mostradas no se guardó.",
 
@@ -1312,6 +1325,10 @@ Cosas que puedes hacer por él:
     "Para guardar, añade una dirección o una app.",
   "integrations.secrets.modelKeyWarning":
     "Los agentes no pueden iniciar sesión con este secreto. Muévelo a Variables.",
+  "integrations.secrets.needsValue": "Falta el valor",
+  "integrations.secrets.setValue": "Poner valor",
+  "integrations.secrets.needsValueHint":
+    "El valor se borró cuando se eliminó a este miembro.",
   "integrations.secrets.showFailed": "No se pudo mostrar el valor.",
   "integrations.secrets.reissueHint":
     "Los agentes reciben un sustituto nuevo y el anterior deja de funcionar.",

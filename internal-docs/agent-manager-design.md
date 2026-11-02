@@ -197,3 +197,9 @@ its own with the heir's environment and secrets, on a prompt the member wrote.
 The heir reads each schedule and turns it back on. The schedules and webhooks
 turn off before the agent transfers, because the delete awaits the next
 agent's drain after a transfer moves its agent's records to the heir.
+
+Task 321e7b8e (Nil, 2026-11-02): a removed member stays restorable for 30
+days (server/removed-members.ts). The removal records what passed to the heir;
+a restore moves back, as it is now, each agent, schedule and webhook that the
+heir still owns. What the heir passed on or deleted stays where it is. The
+schedules and webhooks come back turned off.

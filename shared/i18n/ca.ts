@@ -472,6 +472,17 @@ Coses que pots fer per ell:
   "settings.members.newMember": "Membre nou",
   "settings.members.create": "Crea el membre",
   "settings.members.neverSignedIn": "no ha iniciat mai la sessió",
+  "settings.removedMembers.row": "Membres eliminats ({count})",
+  "settings.removedMembers.title": "Membres eliminats",
+  "settings.removedMembers.intro":
+    "Un membre eliminat es queda aquí 30 dies; després, Isomux l'esborra. Restaurar li torna l'accés a les sales, la configuració i les variables. Els secrets tornen sense els valors, i cal tornar a iniciar la sessió als servidors MCP. Després de restaurar-lo, envia-li un enllaç d'inici de sessió nou.",
+  "settings.removedMembers.removedOn":
+    "Eliminat el {date} per {name}. Isomux l'esborra el {expires}.",
+  "settings.removedMembers.moveBack":
+    "Tornar-li els agents, les programacions i els webhooks des de {heir} (les programacions i els webhooks continuen desactivats)",
+  "settings.removedMembers.restore": "Restaurar",
+  "settings.removedMembers.deleteNow": "Esborrar ara",
+  "settings.removedMembers.restoreFailed": "No s'ha pogut restaurar",
   "settings.role.officeOwner": "Propietari de l’oficina",
   "settings.role.officeOwnerExplanation":
     "Pot accedir a totes les sales, convidar membres i gestionar l’accés i les sessions dels membres.",
@@ -510,6 +521,8 @@ Coses que pots fer per ell:
     "(el teu fantasma a l'escena de l'oficina; els altres membres el veuen al costat de l'agent que estàs mirant)",
   "settings.profile.deleteHint": "Elimina aquest membre",
   "settings.profile.deleteFailed": "No s'ha pogut eliminar",
+  "settings.profile.deleteNote":
+    "Es queda a Membres eliminats 30 dies. Els seus valors secrets s'esborren ara; això no revoca les claus ni les autoritzacions OAuth al proveïdor.",
   "settings.profile.roomListFailed":
     "No s'ha pogut confirmar la teva llista de sales; Mostrades no s'ha desat.",
 
@@ -1314,6 +1327,10 @@ Coses que pots fer per ell:
     "Per desar, afegeix una adreça o una app.",
   "integrations.secrets.modelKeyWarning":
     "Els agents no poden iniciar la sessió amb aquest secret. Mou-lo a Variables.",
+  "integrations.secrets.needsValue": "Falta el valor",
+  "integrations.secrets.setValue": "Posar el valor",
+  "integrations.secrets.needsValueHint":
+    "El valor es va esborrar quan es va eliminar aquest membre.",
   "integrations.secrets.showFailed": "No s'ha pogut mostrar el valor.",
   "integrations.secrets.reissueHint":
     "Els agents reben un substitut nou i l'anterior deixa de funcionar.",

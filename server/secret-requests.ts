@@ -37,6 +37,7 @@ import {
   checkSecretHosts,
   checkModelKeyHosts,
   checkSecretName,
+  checkSecretValue,
   secretFieldErrorMessage,
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
@@ -182,7 +183,9 @@ const variableExists: SecretRequestFailure = {
 };
 
 // The outcome line of a save, per kind: an office one, a member's (named),
-// and a member's whose name is gone.
+// and a member's without a name. A save into a removed member's scope is
+// refused (task 321e7b8e), so a save never writes the last one now; it stays
+// for the log entries that hold it.
 const SAVED_LINES = {
   secret: {
     office: "systemEntries.secretRequest.savedOffice",
@@ -232,6 +235,29 @@ const OLDER_LOADER_FIELDS = {
 };
 
 export function createSecretRequests(deps: SecretRequestDeps) {
+  // The save of a request for a secret that has no value: the request's
+  // hosts, form and app, then the value. The value is checked first, so a
+  // refused one changes nothing.
+  function fillValue(
+    scope: SecretScope,
+    name: string,
+    value: unknown,
+    fields: Record<string, unknown>,
+  ): SecretChange {
+    const valueError = checkSecretValue(value);
+    if (valueError) return { ok: false, kind: "invalid", error: valueError };
+    const updated = deps.store.update(scope, name, fields);
+    if (!updated.ok)
+      return updated.kind === "host_added" || updated.kind === "app_added"
+        ? {
+            ok: false,
+            kind: "invalid",
+            error: { field: "hosts", reason: "invalid" },
+          }
+        : updated;
+    return deps.store.rotate(scope, name, value);
+  }
+
   const openRequests = (): SecretAsk[] =>
     deps.asks.listAll().filter((e): e is SecretAsk => e.secret !== undefined);
 
@@ -540,7 +566,13 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       if (modelKey) return fieldFailure(modelKey);
       const form = checkSecretForm(body.form ?? { kind: "authorization" });
       if (!form.ok) return fieldFailure(form.error);
-      if (deps.store.list(scope).some((secret) => secret.name === name))
+      // A restored member's secret without a value (task 321e7b8e) is the
+      // one name a request may fill.
+      if (
+        deps.store
+          .list(scope)
+          .some((secret) => secret.name === name && !secret.needsValue)
+      )
         return changeFailure({ ok: false, kind: "exists" });
       if (app && clashes(scope, name, app.name))
         return fieldFailure({ field: "apps", reason: "clash" });
@@ -669,6 +701,16 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       if (!found.ok) return found;
       if (!isObject(body)) return invalidRequest("the body must be an object");
       const { entry, scope } = found;
+      // A removed member's request waits for their restore (task
+      // 321e7b8e): a value saved now would come back with them, set by
+      // someone else.
+      if (scope.kind === "user" && deps.memberName(scope.userId) === null)
+        return {
+          ok: false,
+          status: 409,
+          code: "member_removed",
+          message: "the member was removed; restore them before you save",
+        };
       const request = entry.secret;
       if (!knownValueRequest(request))
         return {
@@ -722,15 +764,19 @@ export function createSecretRequests(deps: SecretRequestDeps) {
               "the app was removed or replaced since the request; decline it",
           };
       }
-      const change = deps.store.create(scope, {
-        name,
-        value: body.value,
+      const fields = {
         hosts: app ? [] : (body.hosts ?? entry.secret.hosts),
         form: body.form ?? entry.secret.form,
         ...(app
           ? { apps: [{ name: app.name, createdAt: app.createdAt }] }
           : {}),
-      });
+      };
+      const needsValue = deps.store
+        .list(scope)
+        .some((secret) => secret.name === name && secret.needsValue);
+      const change = needsValue
+        ? fillValue(scope, name, body.value, fields)
+        : deps.store.create(scope, { name, value: body.value, ...fields });
       if (!change.ok) return changeFailure(change);
       closeSaved(entry, userId as string);
       try {

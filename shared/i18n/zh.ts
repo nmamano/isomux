@@ -450,6 +450,17 @@ App 的一些原则：
   "settings.members.newMember": "新成员",
   "settings.members.create": "创建成员",
   "settings.members.neverSignedIn": "从未登录",
+  "settings.removedMembers.row": "已移除的成员（{count}）",
+  "settings.removedMembers.title": "已移除的成员",
+  "settings.removedMembers.intro":
+    "已移除的成员会在这里保留 30 天，之后 Isomux 会将其删除。恢复后，其房间访问权限、设置和变量都会回来。密钥回来时没有值，MCP 服务器需要重新登录。恢复后，请给对方发送新的登录链接。",
+  "settings.removedMembers.removedOn":
+    "{date} 由 {name} 移除。Isomux 将于 {expires} 删除。",
+  "settings.removedMembers.moveBack":
+    "把其智能体、计划和 Webhook 从 {heir} 处移回（计划和 Webhook 保持关闭）",
+  "settings.removedMembers.restore": "恢复",
+  "settings.removedMembers.deleteNow": "立即删除",
+  "settings.removedMembers.restoreFailed": "恢复失败",
   "settings.role.officeOwner": "办公室所有者",
   "settings.role.officeOwnerExplanation":
     "可以访问所有房间、邀请成员，并管理成员的访问权限和会话。",
@@ -486,6 +497,8 @@ App 的一些原则：
     "（办公室场景中代表你的幽灵；其他成员会在你正在查看的智能体旁边看到它）",
   "settings.profile.deleteHint": "删除此成员",
   "settings.profile.deleteFailed": "删除失败",
+  "settings.profile.deleteNote":
+    "对方会在“已移除的成员”中保留 30 天。其密钥的值现在就会删除；这不会在服务提供方处撤销密钥或 OAuth 授权。",
   "settings.profile.roomListFailed": "无法确认房间列表；未保存「显示」设置。",
   "settings.office.title": "办公室设置",
   "settings.office.intro": "适用于所有房间的设置。",
@@ -1185,6 +1198,9 @@ App 的一些原则：
   "integrations.secrets.saveNeedsTarget": "要保存，请添加地址或 App。",
   "integrations.secrets.modelKeyWarning":
     "智能体无法用此密钥登录。请把它移到「变量」中。",
+  "integrations.secrets.needsValue": "需要值",
+  "integrations.secrets.setValue": "设置值",
+  "integrations.secrets.needsValueHint": "移除此成员时，该值已被删除。",
   "integrations.secrets.showFailed": "无法显示该值。",
   "integrations.secrets.reissueHint": "智能体获得新的占位值，旧的占位值失效。",
   "integrations.secrets.addHeading.self": "添加密钥",

@@ -545,3 +545,51 @@ describe("apps that read a secret", () => {
     expect(saveWhy(view)).toBe(true);
   });
 });
+
+// Task 321e7b8e: a restored member's secret comes back without its value
+// (needsValue on the wire). Its row says so and offers to set one; it offers
+// nothing that reads a value (Show, Test). A secret with a value next to it
+// keeps both.
+it("a secret without a value says so, has no Show or Test, and Set value saves one", async () => {
+  const row = (name: string, extra: Record<string, unknown>) => ({
+    name,
+    hosts: ["api.github.com"],
+    form: { kind: "authorization" } as const,
+    createdAt: 1,
+    valueSetAt: 1,
+    updatedAt: 1,
+    note: null,
+    apps: [],
+    value: FAKE,
+    ...extra,
+  });
+  fake
+    .scope("alice")
+    .secrets.push(row("GH_RESTORED", { needsValue: true }), row("GH_LIVE", {}));
+  const view = await mount();
+  const item = (name: string) =>
+    view.container.querySelector(`[data-secret-name="${name}"]`)!;
+  const has = (name: string, selector: string) =>
+    item(name).querySelector(selector) !== null;
+  // The live one is the control: Show and Test are there for it.
+  expect(
+    [
+      "[data-secret-needs-value]",
+      "[data-secret-show]",
+      "[data-connection-test]",
+    ].map((s) => [has("GH_RESTORED", s), has("GH_LIVE", s)]),
+  ).toEqual([
+    [true, false],
+    [false, true],
+    [false, true],
+  ]);
+
+  await click(item("GH_RESTORED").querySelector("[data-secret-replace]"));
+  await act(async () => {
+    fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  });
+  await click(view.container.querySelector("[data-panel-save]"));
+  expect(
+    fake.requests("PUT", "/api/users/alice/secrets/GH_RESTORED/value")[0].body,
+  ).toEqual({ value: FAKE });
+});

@@ -22,7 +22,13 @@ const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const { t } = translatorFor("en");
 
 // Anything unlisted rejects, which every pane that loads here catches.
+// The GETs of the removed-members list (task 321e7b8e).
+const removedSeeds: string[] = [];
 setApiShim(async (method, path) => {
+  if (path === "/api/removed-members") {
+    removedSeeds.push(method);
+    return { members: [] };
+  }
   // A create answers with an id already on the roster: the broadcast that
   // adds a new record is not part of this fixture.
   if (method === "POST" && path === "/api/users")
@@ -38,7 +44,10 @@ setApiShim(async (method, path) => {
 });
 afterAll(() => setApiShim(null));
 
-beforeEach(() => window.localStorage.clear());
+beforeEach(() => {
+  window.localStorage.clear();
+  removedSeeds.length = 0;
+});
 
 type View = ReturnType<typeof render>;
 type Props = Record<string, unknown>;
@@ -59,6 +68,7 @@ const MEMBER = {
 async function mount(
   props: Props = {},
   role: "owner" | "member" = "owner",
+  state: Record<string, unknown> = {},
 ): Promise<View> {
   const self = { ...selfUserRecord(null), role };
   const view = render(
@@ -87,6 +97,7 @@ async function mount(
               },
             }
           : {}),
+        ...state,
       },
     ),
   );
@@ -318,5 +329,70 @@ describe("New member", () => {
     // The new member's row is selected and in view.
     expect(expanded(view, "members")).toBe("true");
     expect(memberRow(view)!.getAttribute("aria-current")).toBe("true");
+  });
+});
+
+// Task 321e7b8e: the Removed members row is an owner's, and only when someone
+// is in the list. The list is fetched once for an owner, never for a member.
+describe("Removed members (task 321e7b8e)", () => {
+  const REMOVED = {
+    user: { ...MEMBER, id: "u9", name: "Mia" },
+    removedAt: 1_760_000_000_000,
+    expiresAt: 1_762_592_000_000,
+    removedBy: "Tester",
+    heirName: "Tester",
+    passed: { agents: 1, schedules: 0, webhooks: 0 },
+  };
+  const removedRow = (view: View) =>
+    view.container.querySelector<HTMLElement>("[data-removed-members-row]");
+
+  it("an owner with someone in the list gets the row, and it opens the list", async () => {
+    const view = await mount({}, "owner", {
+      removedMembers: [REMOVED],
+      removedMembersLoaded: true,
+    });
+    expect(removedSeeds).toEqual([]);
+    await act(async () => {
+      fireEvent.click(removedRow(view)!);
+    });
+    expect(
+      view.container.querySelector('[data-removed-member="u9"]'),
+    ).not.toBeNull();
+  });
+
+  it("an owner with an empty list has no row; the list is fetched once", async () => {
+    const view = await mount({}, "owner", { removedMembersLoaded: false });
+    expect(removedRow(view)).toBeNull();
+    expect(removedSeeds).toEqual(["GET"]);
+  });
+
+  // The removal's consequences are shown while Delete waits for its
+  // confirm, and not before.
+  it("a member's Delete shows the removal note only while it waits to be confirmed", async () => {
+    const view = await mount({ initialUserId: MEMBER.id });
+    const note = () =>
+      view.container.querySelector("[data-delete-member-note]");
+    const del = view.container.querySelector<HTMLButtonElement>(
+      `button[title="${t("settings.profile.deleteHint")}"]`,
+    )!;
+    expect(del).not.toBeNull();
+    expect(note()).toBeNull();
+    await act(async () => {
+      fireEvent.click(del);
+    });
+    expect(note()).not.toBeNull();
+    await act(async () => {
+      fireEvent.blur(del);
+    });
+    expect(note()).toBeNull();
+  });
+
+  it("a member has no row and fetches nothing", async () => {
+    const view = await mount({}, "member", {
+      removedMembers: [REMOVED],
+      removedMembersLoaded: false,
+    });
+    expect(removedRow(view)).toBeNull();
+    expect(removedSeeds).toEqual([]);
   });
 });

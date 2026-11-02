@@ -32,6 +32,7 @@ import {
   mintApiToken,
   resolveApiToken,
   revokeApiToken,
+  revokeApiTokensOfUser,
   setApiTokenStreamSinks,
 } from "./api-tokens.ts";
 import * as redaction from "./log-redaction.ts";
@@ -869,5 +870,36 @@ describe("token log recovery and read offsets", () => {
     expect(
       (await readInbox(apiToken.id, 2)).entries.map((e) => e.sequence),
     ).toEqual([3]);
+  });
+});
+
+// Task 321e7b8e: a removed member can be restored, so their tokens are revoked
+// at the removal instead of only failing to resolve while the record is gone.
+describe("revoking every token of a member", () => {
+  it("revokes each of the member's tokens, keeps everyone else's, and survives a reload", async () => {
+    const revoked: string[] = [];
+    setApiTokenStreamSinks({
+      logEntry: () => {},
+      revoked: (id) => revoked.push(id),
+    });
+    const mine = [
+      await mintApiToken({ userId: "u1", name: "Laptop", expiresInDays: null }),
+      await mintApiToken({ userId: "u1", name: "CI", expiresInDays: 30 }),
+    ];
+    const theirs = await mintApiToken({
+      userId: "u2",
+      name: "Phone",
+      expiresInDays: null,
+    });
+    expect(await revokeApiTokensOfUser("u1")).toBe(2);
+    for (const token of mine) expect(resolveApiToken(token.token)).toBeNull();
+    expect(resolveApiToken(theirs.token)?.userId).toBe("u2");
+    expect(listApiTokens("u1")).toEqual([]);
+    expect(revoked.sort()).toEqual(mine.map((t) => t.apiToken.id).sort());
+
+    _testResetApiTokens();
+    for (const token of mine) expect(resolveApiToken(token.token)).toBeNull();
+    expect(resolveApiToken(theirs.token)?.userId).toBe("u2");
+    expect(await revokeApiTokensOfUser("u1")).toBe(0);
   });
 });

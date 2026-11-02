@@ -77,11 +77,13 @@ export function buildAgentConnections(
 
   // Secrets: both scopes; there is no same-name rule between them. A secret
   // with no host goes only to apps (task c7007f8b): agents do not get it.
+  // Nor one without a value (a restored member's, task 321e7b8e): the agent
+  // has no placeholder for it, so it is missing.
   const secretScopes: SecretScope[] = [{ kind: "office" }];
   if (userId) secretScopes.push({ kind: "user", userId });
   for (const scope of secretScopes)
     for (const secret of orNothing(() => sources.secrets.list(scope), []))
-      if (secret.hosts.length > 0)
+      if (secret.hosts.length > 0 && !secret.needsValue)
         connections.push({
           kind: "secret",
           scope: scopeOf(scope),

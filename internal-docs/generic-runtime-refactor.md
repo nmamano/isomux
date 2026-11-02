@@ -427,6 +427,7 @@ These are intentionally office-wide read; each is justified (a global shared boa
 |---|---|---|---|---|
 | `session_revoked` | `{ sessionPrefix }` | owners | owner-flag | a plain broadcast would leak the prefix |
 | `invite_revoked` | `{ tokenPrefix }` | owners | owner-flag | |
+| `removed_members` | `{ members: RemovedMemberWire[] }` | owners | owner-flag | the removed-member archive (task 321e7b8e) |
 | `invites_list` | `{ invites: InviteWire[] }` | recipient-scoped | `userId` | owner sees all; member sees own (by username) |
 | `sessions_active_list` | `{ sessions: SessionWire[] }` | recipient-scoped | `userId` | owner sees all; member sees own |
 

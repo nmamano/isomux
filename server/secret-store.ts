@@ -52,7 +52,9 @@ export interface AppGrant {
 
 export interface StoredSecret {
   name: string;
-  value: string;
+  // null for a restored member's secret whose value went at the removal
+  // (task 321e7b8e): it reaches nothing until a new value is set. Never "".
+  value: string | null;
   hosts: string[];
   form: SecretForm;
   generation: number;
@@ -62,6 +64,18 @@ export interface StoredSecret {
   // The usage note for agents (integrations A4); absent when there is none.
   note?: string;
   // The apps that read the value from their environment; absent when none.
+  apps?: AppGrant[];
+}
+
+// A secret without its value, kept while its member is removed (task
+// 321e7b8e). A restore writes it back as a secret that has no value.
+export interface SecretShape {
+  name: string;
+  hosts: string[];
+  form: SecretForm;
+  createdAt: number;
+  updatedAt: number;
+  note?: string;
   apps?: AppGrant[];
 }
 
@@ -110,8 +124,16 @@ function toWire(
     updatedAt: secret.updatedAt,
     note: secret.note ?? null,
     apps: (secret.apps ?? []).filter(isLiveApp).map((grant) => grant.name),
+    ...(secret.value === null ? { needsValue: true as const } : {}),
   };
 }
+
+// A secret that has a value: the only kind the proxy, apps and placeholders
+// see.
+export type ValuedSecret = StoredSecret & { value: string };
+
+const hasValue = (secret: StoredSecret): secret is ValuedSecret =>
+  secret.value !== null;
 
 const sameGrant = (a: AppGrant, b: AppGrant): boolean =>
   a.name === b.name && a.createdAt === b.createdAt;
@@ -153,7 +175,7 @@ function isStoredSecret(entry: unknown): entry is StoredSecret {
   const s = entry as Record<string, unknown>;
   return (
     checkSecretName(s.name) === null &&
-    typeof s.value === "string" &&
+    (typeof s.value === "string" || s.value === null) &&
     Array.isArray(s.hosts) &&
     s.hosts.every((host) => typeof host === "string") &&
     checkSecretForm(s.form).ok &&
@@ -235,7 +257,7 @@ export function createSecretStore(
   // value, hosts and form. Never for a log line; the one response is Show
   // (secrets.reveal and officeSecrets.reveal), for the secret's own member or
   // an owner on an office secret.
-  function valuesOf(secret: StoredSecret): {
+  function valuesOf(secret: ValuedSecret): {
     value: string;
     hosts: string[];
     form: SecretForm;
@@ -247,13 +269,14 @@ export function createSecretStore(
     };
   }
 
-  // A secret's value, hosts and form, or null when it does not exist.
+  // A secret's value, hosts and form, or null when it does not exist or has
+  // no value.
   function readSecretValues(
     scope: SecretScope,
     name: string,
   ): { value: string; hosts: string[]; form: SecretForm } | null {
     const secret = read(scope).find((s) => s.name === name);
-    return secret ? valuesOf(secret) : null;
+    return secret && hasValue(secret) ? valuesOf(secret) : null;
   }
 
   // Every scope that has a file, and the user ids that have one. A file name
@@ -326,12 +349,15 @@ export function createSecretStore(
 
     // One scope's secrets with their values, for the snapshot that the
     // server sends to the secret proxy and for placeholders. One file read.
-    readForProxy(scope: SecretScope): StoredSecret[] {
-      return read(scope).map((s) => ({
-        ...s,
-        ...valuesOf(s),
-        ...(s.apps ? { apps: s.apps.map((grant) => ({ ...grant })) } : {}),
-      }));
+    // A secret without a value is left out: no placeholder, no proxy entry.
+    readForProxy(scope: SecretScope): ValuedSecret[] {
+      return read(scope)
+        .filter(hasValue)
+        .map((s) => ({
+          ...s,
+          ...valuesOf(s),
+          ...(s.apps ? { apps: s.apps.map((grant) => ({ ...grant })) } : {}),
+        }));
     },
 
     readSecretValues,
@@ -562,6 +588,41 @@ export function createSecretStore(
     // Removes every grant whose app is not live, in every scope.
     pruneApps(isLive: (grant: AppGrant) => boolean): void {
       keepGrants(isLive);
+    },
+
+    // The member's secrets without their values, for the removed-member
+    // archive. The names in `exclude` (the secrets an MCP sign-in wrote) are
+    // left out.
+    exportShapes(userId: string, exclude: readonly string[]): SecretShape[] {
+      return read({ kind: "user", userId })
+        .filter((s) => !exclude.includes(s.name))
+        .map((s) => ({
+          name: s.name,
+          hosts: [...s.hosts],
+          form: { ...s.form },
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          ...(s.note !== undefined ? { note: s.note } : {}),
+          ...(s.apps ? { apps: s.apps.map((grant) => ({ ...grant })) } : {}),
+        }));
+    },
+
+    // Restore: the shapes come back as secrets without a value. A live
+    // secret of the same name wins.
+    importShapes(userId: string, shapes: readonly SecretShape[]): void {
+      const scope: SecretScope = { kind: "user", userId };
+      const secrets = read(scope);
+      const added = shapes
+        .filter((shape) => !secrets.some((s) => s.name === shape.name))
+        .map(
+          (shape): StoredSecret => ({
+            ...shape,
+            value: null,
+            generation: 1,
+            valueSetAt: 0,
+          }),
+        );
+      if (added.length > 0) write(scope, [...secrets, ...added]);
     },
 
     // The member left the office: their file goes, even one that does not

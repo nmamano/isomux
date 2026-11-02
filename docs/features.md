@@ -50,6 +50,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **Agent managers** - an office owner can give an agent another manager in its settings.
 - **Member roster** - office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.
+- **Restore a removed member** - a removed member stays in Removed members for 30 days, and an owner can restore them with their agents.
 - **Customizable ghosts** - each member picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 
 ## Multi-device

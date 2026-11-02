@@ -451,6 +451,11 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
     id: "secret-store",
     archivePatterns: (root) => rootedDirectory(root, "secrets"),
   },
+  // A removed member's kept variables and connection shapes (task 321e7b8e).
+  {
+    id: "removed-members",
+    archivePatterns: (root) => rootedDirectory(root, "removed-members"),
+  },
   // Remote MCP server registrations (integrations A2): the URL path of some
   // hosted servers carries a token. After a restore, members add them again.
   {

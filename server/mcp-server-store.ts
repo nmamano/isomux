@@ -37,7 +37,7 @@ import { checkConnectionNote } from "../shared/connection-notes.ts";
 
 export const MCP_SERVERS_DIR = "mcp-servers";
 
-interface StoredMcpServer {
+export interface StoredMcpServer {
   name: string;
   url: string;
   secret: string | null;
@@ -409,6 +409,44 @@ export function createMcpServerStore(
       if (next.length === servers.length) return false;
       write(scope, next);
       return true;
+    },
+
+    // The member's servers for the removed-member archive (task 321e7b8e),
+    // with each sign-in reset: no refresh token and no secret the flow
+    // wrote, and a registered client registers again. `ownedSecrets` is the
+    // union of the names the flow wrote, which the archive leaves out.
+    exportForArchive(userId: string): {
+      servers: StoredMcpServer[];
+      ownedSecrets: string[];
+    } {
+      const owned = new Set<string>();
+      const servers = read({ kind: "user", userId }).map((server) => {
+        if (!server.oauth) return { ...server };
+        for (const name of server.oauth.ownedSecrets) owned.add(name);
+        const oauth: StoredOAuth = {
+          ...server.oauth,
+          refreshToken: null,
+          ownedSecrets: [],
+        };
+        if (!oauth.pasted) {
+          oauth.clientId = null;
+          oauth.clientSecret = null;
+          oauth.redirectUri = null;
+        }
+        return { ...server, oauth };
+      });
+      return { servers, ownedSecrets: [...owned] };
+    },
+
+    // Restore: the archived servers come back as they were archived. A live
+    // server of the same name wins.
+    importFromArchive(userId: string, servers: StoredMcpServer[]): void {
+      const scope: SecretScope = { kind: "user", userId };
+      const live = read(scope);
+      const added = servers.filter(
+        (server) => !live.some((s) => s.name === server.name),
+      );
+      if (added.length > 0) write(scope, [...live, ...added]);
     },
 
     // The member left the office: their file goes, even one that does not

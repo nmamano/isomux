@@ -2872,6 +2872,9 @@ export async function demoApi(
       return { invites: [...invitesListSeed] };
     case "GET /api/sessions":
       return { sessions: [...activeSessionsList] };
+    // The demo keeps no removed members.
+    case "GET /api/removed-members":
+      return { members: [] };
     case "POST /api/invites":
     case "POST /api/invites/self":
     case "POST /api/invites/recovery":

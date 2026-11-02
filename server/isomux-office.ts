@@ -194,6 +194,7 @@ import {
   updateUserById,
   deleteUser,
   deleteUserById,
+  restoreUserRecord,
   wouldDeleteLeaveNoOwner,
   setOnUserAccessChanged,
   type UserAccessChange,
@@ -476,7 +477,21 @@ import {
   listApiTokens,
   mintApiToken,
   revokeApiToken,
+  revokeApiTokensOfUser,
 } from "./api-tokens.ts";
+import {
+  archiveRemovedMember,
+  dropRemovedMember,
+  getRemovedMember,
+  listRemovedMembers,
+  purgeExpiredRemovedMembers,
+  readArchivedConnections,
+  reconcileRemovedMembers,
+  removedMemberWire,
+  restoreArchivedFiles,
+  type ArchivedConnections,
+  type RemovedMember,
+} from "./removed-members.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
 import { buildAgentSystemPrompt } from "./agent-system-prompt.ts";
@@ -485,6 +500,7 @@ import { editorHandlers } from "./routes/handlers/editor.ts";
 import type {
   AccessSettings,
   BackupStatusWire,
+  MemberRestoreRes,
   PreferencesReq,
   UserPublicWire,
 } from "../shared/contract-shapes.ts";
@@ -1246,6 +1262,67 @@ function emitInvitesList(): void {
     if (seen.has(uid)) continue;
     seen.add(uid);
     emitInvitesListForUser(uid);
+  }
+}
+
+// The removed members, to every owner (task 321e7b8e).
+function emitRemovedMembers(): void {
+  liveEmit("removed_members", {
+    members: listRemovedMembers().map(removedMemberWire),
+  });
+}
+
+// The member's connections for the archive: secrets without values and MCP
+// servers with each sign-in reset, leaving out the secrets a sign-in wrote.
+// A store file that does not parse keeps nothing (the removal deletes it
+// either way).
+function archivedConnectionsOf(
+  userId: string,
+  sources: ReturnType<typeof createMcpServerSources>,
+): ArchivedConnections {
+  let mcpServers: ArchivedConnections["mcpServers"] = [];
+  let ownedSecrets: string[] = [];
+  try {
+    ({ servers: mcpServers, ownedSecrets } =
+      sources.servers.exportForArchive(userId));
+  } catch (err) {
+    console.error(`[users] the MCP servers of ${userId} were not kept:`, err);
+  }
+  let secrets: ArchivedConnections["secrets"] = [];
+  try {
+    secrets = sources.secrets.exportShapes(userId, ownedSecrets);
+  } catch (err) {
+    console.error(`[users] the secret names of ${userId} were not kept:`, err);
+  }
+  return { secrets, mcpServers };
+}
+
+// A removed member is deleted for good (Delete now, or 30 days passed): the
+// archive, and any live connection file a restore cut short left.
+function purgeRemovedMember(userId: string): void {
+  dropRemovedMember(userId);
+  if (getUserById(userId)) return;
+  const sources = createMcpServerSources();
+  sources.secrets.removeMember(userId);
+  sources.servers.removeMember(userId);
+  removeManagedUserEnv(userId);
+}
+
+// Boot and the minute sweep: the members removed 30 days ago or more go.
+function purgeExpiredMembers(): void {
+  const purged = purgeExpiredRemovedMembers(Date.now());
+  for (const id of purged) purgeRemovedMember(id);
+  if (purged.length > 0) emitRemovedMembers();
+}
+
+// Boot: the live record wins (an unfinished removal or a finished restore),
+// then the expired members go. Never blocks the boot.
+function settleRemovedMembers(): void {
+  try {
+    reconcileRemovedMembers(listUsers().map((user) => user.id));
+    purgeExpiredMembers();
+  } catch (err) {
+    console.error("[users] removed members were not settled:", err);
   }
 }
 
@@ -3107,6 +3184,92 @@ function passMemberRecordsToHeir(
   }
 }
 
+// Restore (task 321e7b8e): what passed to the heir at the removal and the
+// heir still owns comes back to the member, as it is now; the rest stays
+// where it is. Schedules and webhooks come back turned off, as they passed.
+async function giveBackFromHeir(
+  member: RemovedMember,
+  moveBack: boolean,
+  changedBy: string,
+): Promise<Pick<MemberRestoreRes, "movedBack" | "stayed">> {
+  const { passed, heirId } = member;
+  const userId = member.user.id;
+  const movedBack = {
+    agentIds: [] as string[],
+    cronjobIds: [] as string[],
+    webhookIds: [] as string[],
+  };
+  const stayed = {
+    agentIds: [] as string[],
+    cronjobIds: [] as string[],
+    webhookIds: [] as string[],
+  };
+  const all = [...passed.agentIds, ...passed.killedAgentIds];
+  if (!moveBack || !heirId) {
+    stayed.agentIds.push(...all);
+    stayed.cronjobIds.push(...passed.cronjobIds);
+    stayed.webhookIds.push(...passed.webhookIds);
+    return { movedBack, stayed };
+  }
+  const killed = new Set<string>();
+  for (const agentId of all) {
+    const live = agentManager.getAgent(agentId);
+    if (live?.userId === heirId) {
+      const moved = await transferAgentManager(agentId, userId, changedBy);
+      (moved && moved !== "unknown_member" ? movedBack : stayed).agentIds.push(
+        agentId,
+      );
+    } else if (
+      !live &&
+      agentManager.killedAgentManagerUserId(agentId) === heirId
+    ) {
+      killed.add(agentId);
+    } else stayed.agentIds.push(agentId);
+  }
+  if (killed.size > 0) {
+    const back = agentManager.reassignKilledAgents(
+      heirId,
+      { userId, manager: member.user.name },
+      killed,
+    );
+    movedBack.agentIds.push(...back);
+    stayed.agentIds.push(...[...killed].filter((id) => !back.includes(id)));
+  }
+  // The schedules and webhooks the member owned. Those an agent made came
+  // back with it above.
+  for (const id of passed.cronjobIds) {
+    const job = cronjobManager.listCronjobs().find((j) => j.id === id);
+    if (job?.userId === userId) movedBack.cronjobIds.push(id);
+    else if (job?.userId === heirId) {
+      try {
+        cronjobManager.setCronjobOwner(id, userId, member.user.name);
+        movedBack.cronjobIds.push(id);
+      } catch (err) {
+        console.error(`[users] schedule ${id} did not come back:`, err);
+        stayed.cronjobIds.push(id);
+      }
+    } else stayed.cronjobIds.push(id);
+  }
+  const hookAudienceBefore = snapshotWebhookAudience((hook) =>
+    passed.webhookIds.includes(hook.id),
+  );
+  for (const id of passed.webhookIds) {
+    const hook = webhookRegistry.get(id);
+    if (hook?.userId === userId) movedBack.webhookIds.push(id);
+    else if (hook?.userId === heirId) {
+      try {
+        webhookRegistry.setOwner(id, userId, member.user.name);
+        movedBack.webhookIds.push(id);
+      } catch (err) {
+        console.error(`[users] webhook ${id} did not come back:`, err);
+        stayed.webhookIds.push(id);
+      }
+    } else stayed.webhookIds.push(id);
+  }
+  announceWebhookAudienceChanges(hookAudienceBefore);
+  return { movedBack, stayed };
+}
+
 function backupStatusWire(s: BackupStatus): BackupStatusWire {
   return {
     lastRunAt: s.lastBackupAt,
@@ -4871,32 +5034,64 @@ function buildExecutorDeps(
         // the 409s above, so a refused delete moves nothing; before the
         // record goes, so the sessions' manager stamps still find the
         // member's name. The caller can be the member.
-        if (target) {
-          const heir = heirOwnerFor(target.id);
-          if (heir) {
-            // Taken before the agent transfers move the hooks the agents made.
-            const hookIds = webhookRegistry
-              .list()
-              .filter((hook) => hook.userId === target.id)
-              .map((hook) => hook.id);
-            const hookAudienceBefore = snapshotWebhookAudience((hook) =>
-              hookIds.includes(hook.id),
-            );
-            turnOffMemberRecords(target.id, hookIds);
-            for (const agent of agentManager.getAllAgents())
-              if (agent.userId === target.id)
-                await transferAgentManager(agent.id, heir.id, actor);
-            agentManager.reassignKilledAgents(target.id, {
-              userId: heir.id,
-              manager: heir.name,
-            });
-            passMemberRecordsToHeir(target.id, hookIds, heir);
-            announceWebhookAudienceChanges(hookAudienceBefore);
-          }
+        const passed: RemovedMember["passed"] = {
+          agentIds: [],
+          killedAgentIds: [],
+          cronjobIds: [],
+          webhookIds: [],
+        };
+        const heir = target ? heirOwnerFor(target.id) : undefined;
+        if (target && heir) {
+          // Taken before the agent transfers move the hooks the agents made.
+          const hookIds = webhookRegistry
+            .list()
+            .filter((hook) => hook.userId === target.id)
+            .map((hook) => hook.id);
+          passed.webhookIds = hookIds;
+          passed.cronjobIds = cronjobManager
+            .listCronjobs()
+            .filter((job) => job.userId === target.id)
+            .map((job) => job.id);
+          const hookAudienceBefore = snapshotWebhookAudience((hook) =>
+            hookIds.includes(hook.id),
+          );
+          turnOffMemberRecords(target.id, hookIds);
+          for (const agent of agentManager.getAllAgents())
+            if (agent.userId === target.id) {
+              await transferAgentManager(agent.id, heir.id, actor);
+              passed.agentIds.push(agent.id);
+            }
+          passed.killedAgentIds = agentManager.reassignKilledAgents(target.id, {
+            userId: heir.id,
+            manager: heir.name,
+          });
+          passMemberRecordsToHeir(target.id, hookIds, heir);
+          announceWebhookAudienceChanges(hookAudienceBefore);
         }
-        // The member's own secrets, variables and MCP servers go with them
-        // (Nil's ruling, 2026-10-13), before the record: a failed delete
-        // leaves the member, and a retry finishes the job.
+        // The member goes to Removed members for 30 days (task 321e7b8e).
+        // The archive is written before anything live goes, so a crash part
+        // way leaves the member live, and the boot drops the archive (the
+        // live record wins). It keeps the variables whole and the secrets
+        // and MCP servers without a value or a sign-in: secret values go
+        // with the member (Nil, 2026-11-02).
+        if (target) {
+          const connections = archivedConnectionsOf(target.id, mcpSources);
+          archiveRemovedMember(
+            {
+              user: target,
+              removedAt: Date.now(),
+              removedBy: actor,
+              heirId: heir?.id ?? null,
+              heirName: heir?.name ?? null,
+              passed,
+            },
+            connections,
+          );
+        }
+        // The member's own secrets, variables and MCP servers go from the live
+        // stores, before the record: a failed delete leaves the member, and
+        // a retry finishes the job. Their API tokens go too, so a restore
+        // brings none back.
         if (target) {
           mcpSources.secrets.removeMember(target.id);
           mcpSources.servers.removeMember(target.id);
@@ -4904,10 +5099,14 @@ function buildExecutorDeps(
           removeManagedUserEnv(target.id);
           webPushStore.removeMember(target.id);
           removeMemberSkillFolders(target.id);
+          await revokeApiTokensOfUser(target.id);
+          // A paired browser would connect again after a restore.
+          extensionService?.store.revoke(target.id);
         }
         // The lockout checks again, in one auth mutex link with the removal.
         // A refusal here leaves the member with the steps above done, like
         // a failed delete: their follow-ups still run, the removal's do not.
+        // The member is live, so they leave Removed members at once.
         let refusal: typeof lastOwnerRecord | null = null;
         if (target) {
           const removed = await removeOwnerUnlessStranding(target.id, () => {
@@ -4917,13 +5116,17 @@ function buildExecutorDeps(
           });
           refusal =
             removed === "would_strand_office" ? lastOwnerSession : removed;
+          if (refusal) dropRemovedMember(target.id);
         } else {
           // Idempotent: deleteUser is a no-op for an unknown username; the
           // users_list broadcast still fires so a watcher sees the target
           // absent.
           deleteUser(username);
         }
-        if (!refusal) emitUsersList();
+        if (!refusal) {
+          emitUsersList();
+          emitRemovedMembers();
+        }
         if (target) {
           // The proxy drops the secrets. The member's agents passed to the
           // heir above, so none of them still carries the member's.
@@ -4940,6 +5143,68 @@ function buildExecutorDeps(
         }
         announceAppAudienceChanges(appAudienceBefore);
         return refusal ?? { ok: true };
+      },
+      removedList: () => listRemovedMembers().map(removedMemberWire),
+      restore: async ({ id, agents, actor }) => {
+        const member = getRemovedMember(id);
+        if (!member)
+          return {
+            ok: false,
+            status: 404,
+            code: "not_found",
+            error: "No removed member has this id.",
+          };
+        // A removed member's name is reserved, so a clash here is a record
+        // edited by hand.
+        if (getUserById(id) || getUser(member.user.name))
+          return {
+            ok: false,
+            status: 409,
+            code: "name_taken",
+            error: `User "${member.user.name}" already exists`,
+          };
+        // Files first, then the record, then the archive goes: the live
+        // record wins at boot, so a crash part way loses nothing.
+        const connections = readArchivedConnections(id);
+        restoreArchivedFiles(id);
+        mcpSources.secrets.importShapes(id, connections.secrets);
+        mcpSources.servers.importFromArchive(id, connections.mcpServers);
+        const restored = restoreUserRecord(member.user);
+        if (!restored.ok)
+          return {
+            ok: false,
+            status: 409,
+            code: "name_taken",
+            error: restored.error,
+          };
+        pruneStaleRoomRefs(
+          agentManager.getOrdinaryRooms().map((room) => room.id),
+        );
+        dropRemovedMember(id);
+        const result = await giveBackFromHeir(member, agents, actor);
+        emitUsersList();
+        emitRemovedMembers();
+        try {
+          await secretsChanged();
+        } catch {
+          console.error("[secrets] the proxy did not take a change");
+        }
+        return {
+          ok: true,
+          result: { user: getUserById(id) ?? restored.user, ...result },
+        };
+      },
+      purge: async ({ id }) => {
+        if (!getRemovedMember(id))
+          return {
+            ok: false,
+            status: 404,
+            code: "not_found",
+            error: "No removed member has this id.",
+          };
+        purgeRemovedMember(id);
+        emitRemovedMembers();
+        return { ok: true };
       },
       attributionFor,
     }),
@@ -8411,6 +8676,7 @@ export async function startServer(
   // and seeded grants=[] directly (auth.ts), so this is a no-op for them.
   migrateOwnersToRuleBasedAccess();
   settleMemberSkillFolders();
+  settleRemovedMembers();
   // After the managers (the supervisor is assigned in createManagers) and
   // before the listener: an app's token should be settled before anything can
   // present one.
@@ -8569,6 +8835,11 @@ export async function runOfficeMain(): Promise<void> {
     void handle.agentManager
       .sweepIdleAgents()
       .catch((err) => console.error("[idle-evict] sweep failed:", err));
+    try {
+      purgeExpiredMembers();
+    } catch (err) {
+      console.error("[users] the removed-member purge failed:", err);
+    }
   }, 60_000);
   idleSweep.unref?.();
   // Queue delivery watchdog: self-heal sweep so a queued message can never sit

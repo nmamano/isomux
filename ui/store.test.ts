@@ -2005,3 +2005,39 @@ describe("reducer: other members' asks", () => {
     expect(ids(stale)).toEqual(["o2"]);
   });
 });
+
+// Task 321e7b8e: the owners-only removed_members event replaces the list. A
+// new session (another member on this device) fetches it again, as invites.
+describe("removed members", () => {
+  it("the event replaces the list, and a new session marks it unloaded", () => {
+    const member = {
+      user: { id: "u9", name: "Mia" },
+      removedAt: 1,
+      expiresAt: 2,
+      removedBy: "Nil",
+      heirName: null,
+      passed: { agents: 0, schedules: 0, webhooks: 0 },
+    } as unknown as AppState["removedMembers"][number];
+    const loaded = reducer(initialState, {
+      type: "removed_members",
+      members: [member],
+    });
+    expect([loaded.removedMembers, loaded.removedMembersLoaded]).toEqual([
+      [member],
+      true,
+    ]);
+    const emptied = reducer(loaded, { type: "removed_members", members: [] });
+    expect(emptied.removedMembers).toEqual([]);
+    const next = reducer(loaded, {
+      type: "session_context",
+      context: {
+        userId: "u1",
+        username: "Nil",
+        role: "owner",
+        currentSessionPrefix: "00000000",
+        connectionId: "c1",
+      },
+    });
+    expect(next.removedMembersLoaded).toBe(false);
+  });
+});

@@ -30,6 +30,7 @@ import {
 } from "../shared/languages.ts";
 import { isVoiceInput, isVoiceName, isVoiceOutput } from "../shared/voice.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { isRemovedMemberName } from "./removed-members.ts";
 import { normalizeRoomViewLists } from "../shared/room-view-level.ts";
 import {
   defaultGhostColorForUserId,
@@ -453,6 +454,8 @@ export function createMember(
       code: "name_taken",
       error: `User "${name}" already exists`,
     };
+  if (isRemovedMemberName(name))
+    return { ok: false, code: "name_taken", error: removedNameError(name) };
   return {
     ok: true,
     user: claimUser(name, { ...initial, pendingSignIn: true }),
@@ -567,6 +570,40 @@ export function setUserRole(name: string, role: UserRole): boolean {
   return setUserRoleById(u.id, role);
 }
 
+// A removed member keeps their name until a restore or a delete (task
+// 321e7b8e): records that name a member, such as task assignees, would
+// otherwise reach a new person. "already exists" is what callers map to
+// name_taken.
+function removedNameError(name: string): string {
+  return `User "${name}" already exists in Removed members. Restore or delete them first.`;
+}
+
+// Restore of a removed member (task 321e7b8e): the record comes back with its
+// id. Refused when the id is live or a live user has the name.
+export function restoreUserRecord(
+  record: UserRecord,
+):
+  | { ok: true; user: UserRecord }
+  | { ok: false; code: "exists" | "name_taken"; error: string } {
+  load();
+  if (users[record.id])
+    return { ok: false, code: "exists", error: "The member is live." };
+  if (getUserByName(record.name))
+    return {
+      ok: false,
+      code: "name_taken",
+      error: `User "${record.name}" already exists`,
+    };
+  users[record.id] = record;
+  try {
+    persist();
+  } catch (err) {
+    delete users[record.id];
+    throw err;
+  }
+  return { ok: true, user: record };
+}
+
 // Delete by id. No-op if the user doesn't exist (idempotent). Sessions
 // for this user are not evicted here - that's auth.ts's responsibility
 // via the validate-then-evict path. Agents/cronjobs that referenced this
@@ -638,6 +675,8 @@ export function updateUserById(
         return { ok: false, error: `User "${trimmed}" already exists` };
       }
     }
+    if (isRemovedMemberName(trimmed))
+      return { ok: false, error: removedNameError(trimmed) };
     nextName = trimmed;
   }
 

@@ -1,4 +1,8 @@
-import type { ApiTokenLogEntry, AskAgentWire } from "./contract-shapes.ts";
+import type {
+  ApiTokenLogEntry,
+  AskAgentWire,
+  RemovedMemberWire,
+} from "./contract-shapes.ts";
 import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
 import type { SecretForm } from "./secret-hosts.ts";
@@ -2833,6 +2837,7 @@ export type ServerMessage =
   // never receive this message.
   | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
+  | { type: "removed_members"; members: RemovedMemberWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
   | { type: "session_revoked"; sessionPrefix: string }
   | { type: "invite_revoked"; tokenPrefix: string }

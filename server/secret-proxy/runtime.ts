@@ -12,7 +12,7 @@ import {
   SecretStoreUnreadableError,
   type SecretScope,
   type SecretStore,
-  type StoredSecret,
+  type ValuedSecret,
 } from "../secret-store.ts";
 import { OAUTH_SECRET_NAME } from "../../shared/mcp-servers.ts";
 import { placeholderFor, proxyClientToken, scopeId } from "./placeholders.ts";
@@ -109,7 +109,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
   // A scope's secrets, or none when its file cannot be read: agents in that
   // scope then get no placeholder (they never get a value either), and the
   // rest of the office keeps working.
-  function readScope(scope: SecretScope): StoredSecret[] {
+  function readScope(scope: SecretScope): ValuedSecret[] {
     const key = `store_unreadable:${scopeId(scope)}`;
     try {
       const secrets = deps.store.readForProxy(scope);
@@ -189,7 +189,7 @@ export function createSecretsRuntime(deps: SecretsRuntimeDeps) {
 
   // The secrets agents use: not one an OAuth registration owns, and not
   // one with no host, which only apps read (task c7007f8b).
-  function agentSecrets(scope: SecretScope): StoredSecret[] {
+  function agentSecrets(scope: SecretScope): ValuedSecret[] {
     const owned = ownedIn(scope);
     return readScope(scope).filter(
       (secret) => !owned(secret.name) && secret.hosts.length > 0,

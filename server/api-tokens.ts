@@ -777,6 +777,36 @@ export async function revokeApiToken(
   });
 }
 
+// Every token of a member, at their removal (task 321e7b8e): a restore must
+// not bring one back. Returns how many went.
+export async function revokeApiTokensOfUser(userId: string): Promise<number> {
+  return mutate(() => {
+    ensureLoaded();
+    const mine = [...tokens!.values()].filter((r) => r.userId === userId);
+    if (mine.length === 0) return 0;
+    for (const record of mine) {
+      tokens!.delete(record.id);
+      hashIndex!.delete(record.tokenHash);
+    }
+    try {
+      persist();
+    } catch (err) {
+      for (const record of mine) {
+        tokens!.set(record.id, record);
+        hashIndex!.set(record.tokenHash, record.id);
+      }
+      throw err;
+    }
+    for (const record of mine) {
+      lastUsedPersistedAt.delete(record.id);
+      try {
+        onRevoked(record.id);
+      } catch {}
+    }
+    return mine.length;
+  });
+}
+
 // Resolves and records the last authenticated request. Persistence is
 // coalesced to once per token per minute; the UI therefore labels it
 // approximate rather than implying a precise last successful API operation.

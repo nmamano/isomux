@@ -1006,13 +1006,22 @@ describe("the outcome line", () => {
     );
   });
 
-  it("a personal save into the secrets of a member with no name left says only the secret", async () => {
+  // Task 321e7b8e: a value saved into a removed member's secrets would come
+  // back with them at a restore, set by someone else.
+  it("a personal save into the secrets of a removed member is refused, and the request stays open for them", async () => {
     const t = setup({ a9: GONE });
-    const requestId = opened(t.requests.open("a9", ASK));
-    await save(t, GONE, "a9", requestId);
-    expect(lineOf(t, requestId)).toEqual(
-      msg("systemEntries.secretRequest.saved", { name: "GH_TOKEN" }),
-    );
+    // Opened while the member was live, addressed to an owner: the value
+    // goes to the member's secrets, and the owner may answer.
+    const requestId = opened(t.requests.open("a9", { ...ASK, member: "Nil" }));
+    const saved = await t.requests.save("u-owner", "a9", requestId, {
+      value: VALUE,
+    });
+    expect(failure(saved)).toBe("409 member_removed");
+    expect(t.store.list({ kind: "user", userId: GONE })).toEqual([]);
+    expect(t.settled).toEqual([]);
+    expect(t.asks.listAll().map((e) => e.secret?.requestId)).toEqual([
+      requestId,
+    ]);
   });
 
   it("a decline names the secret, for an agent's own request and an app's", () => {
@@ -1718,5 +1727,45 @@ describe("a request of a later kind", () => {
       ],
     ]);
     expect(next.asks.listAll().map((e) => e.prompt)).toEqual(["Go?"]);
+  });
+});
+
+// Task 321e7b8e: a restored member's secret has its name and no value. An
+// agent's request for it is how the member gives it one.
+describe("a request for a secret that has no value", () => {
+  function restored() {
+    const t = setup();
+    t.store.importShapes("u-alice", [
+      {
+        name: "GH_TOKEN",
+        hosts: ["api.github.com"],
+        form: { kind: "authorization" },
+        createdAt: 1_000,
+        updatedAt: 1_000,
+      },
+    ]);
+    return t;
+  }
+  const scope = { kind: "user", userId: "u-alice" } as const;
+
+  it("opens, and the manager's save gives the secret its value", async () => {
+    const t = restored();
+    const requestId = opened(t.requests.open("a1", ASK));
+    const { result, output } = await captureConsole(() =>
+      t.requests.save("u-alice", "a1", requestId, { value: VALUE }),
+    );
+    expect(result).toEqual({ ok: true, name: "GH_TOKEN" });
+    expect(t.store.readSecretValues(scope, "GH_TOKEN")?.value).toBe(VALUE);
+    expect(t.store.list(scope)).toHaveLength(1);
+    expect(t.store.list(scope)[0]?.needsValue).toBeUndefined();
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
+    expect(output).not.toContain(VALUE);
+  });
+
+  it("once it has a value, a new request for it is refused as before", async () => {
+    const t = restored();
+    const requestId = opened(t.requests.open("a1", ASK));
+    await t.requests.save("u-alice", "a1", requestId, { value: VALUE });
+    expect(code(t.requests.open("a1", ASK))).toBe("secret_exists");
   });
 });

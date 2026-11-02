@@ -182,6 +182,8 @@ export const AUDIT_OPERATIONS = [
   "userEnv.set",
   "users.create",
   "users.delete",
+  "users.purge",
+  "users.restore",
   "users.setAccess",
   "users.setInstructions",
   "users.update",

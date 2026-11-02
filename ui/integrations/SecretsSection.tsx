@@ -36,6 +36,7 @@ import {
   Logo,
   NoteLine,
   Panel,
+  Pill,
   errorText,
   hintText,
   input,
@@ -72,6 +73,8 @@ type SecretRow = {
   valueSetAt?: number;
   // The apps that read the value (task c7007f8b).
   apps: string[];
+  // A restored member's secret: its value was deleted at the removal.
+  needsValue?: true;
 };
 
 type Mode =
@@ -117,6 +120,7 @@ function rowsOf(result: unknown): SecretRow[] | null {
       form: secret.form,
       valueSetAt: secret.valueSetAt,
       apps: Array.isArray(secret.apps) ? secret.apps : [],
+      ...(secret.needsValue === true ? { needsValue: true as const } : {}),
     }));
 }
 
@@ -305,6 +309,7 @@ function SecretItem({
     setMode({ kind, name: secret.name });
   const here =
     mode.kind !== "idle" && mode.kind !== "add" && mode.name === secret.name;
+  const needsValue = secret.needsValue === true;
   const hosts = secret.hosts.map((host, index) => (
     <Fragment key={host}>
       {index > 0 && ", "}
@@ -366,15 +371,30 @@ function SecretItem({
           {readBy}
         </>
       }
+      status={
+        needsValue && (
+          <Pill tone="orange" data-secret-needs-value="">
+            {t("integrations.secrets.needsValue")}
+          </Pill>
+        )
+      }
       actions={
         editable && mode.kind === "idle" ? (
           <>
-            {secret.form &&
+            {!needsValue &&
+              secret.form &&
               hasSecretTest({ form: secret.form, hosts: secret.hosts }) && (
                 <TestButton test={test} run={() => void run()} />
               )}
-            <Btn small onClick={() => open("replace")} data-secret-replace>
-              {t("settings.secrets.rotate")}
+            <Btn
+              small
+              kind={needsValue ? "primary" : undefined}
+              onClick={() => open("replace")}
+              data-secret-replace
+            >
+              {needsValue
+                ? t("integrations.secrets.setValue")
+                : t("settings.secrets.rotate")}
             </Btn>
             <Btn small onClick={() => open("edit")} data-secret-edit>
               {t("common.edit")}
@@ -400,7 +420,12 @@ function SecretItem({
         </div>
       )}
       <NoteLine note={secret.note} />
-      {showable && <SecretValue path={path} />}
+      {needsValue && (
+        <div data-secret-needs-value-hint="" style={hintText}>
+          {t("integrations.secrets.needsValueHint")}
+        </div>
+      )}
+      {showable && !needsValue && <SecretValue path={path} />}
       <TestResult test={test} />
       {here && mode.kind === "replace" && (
         <ReplaceValue

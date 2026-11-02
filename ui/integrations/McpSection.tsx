@@ -127,7 +127,8 @@ function problemOf(
   if (server.oauth) return server.oauth.signedIn ? null : "sign_in";
   if (!server.secret) return null;
   const secret = secrets.find((s) => s.name === server.secret);
-  if (!secret) return "secret_missing";
+  // A restored member's secret without a value is missing to the agents.
+  if (!secret || secret.needsValue) return "secret_missing";
   return secret.hosts.includes(mcpServerHost(server.url))
     ? null
     : "secret_host";
@@ -488,13 +489,22 @@ export function McpSection({
   );
 }
 
-function statusOf(server: McpServerWire): { key: StatusKey; tone: Tone } {
+function statusOf(
+  server: McpServerWire,
+  secrets: SecretWire[],
+): { key: StatusKey; tone: Tone } {
   if (server.oauth)
     return server.oauth.signedIn
       ? { key: "integrations.mcp.status.signedIn", tone: "green" }
       : { key: "integrations.mcp.status.needsSignIn", tone: "orange" };
-  if (server.secret)
-    return { key: "integrations.mcp.status.token", tone: "green" };
+  if (server.secret) {
+    // Its secret is gone, or has no value (a restored member's, task
+    // 321e7b8e): no token is saved.
+    const secret = secrets.find((s) => s.name === server.secret);
+    return secret && !secret.needsValue
+      ? { key: "integrations.mcp.status.token", tone: "green" }
+      : { key: "integrations.secrets.needsValue", tone: "orange" };
+  }
   return { key: "integrations.mcp.status.none", tone: "neutral" };
 }
 
@@ -502,6 +512,7 @@ type StatusKey =
   | "integrations.mcp.status.signedIn"
   | "integrations.mcp.status.needsSignIn"
   | "integrations.mcp.status.token"
+  | "integrations.secrets.needsValue"
   | "integrations.mcp.status.none";
 
 function McpItem({
@@ -541,7 +552,7 @@ function McpItem({
   const errorFor = useMcpErrorText(row.host);
   const { test, run } = useConnectionTest(path);
   const server = row.server;
-  const status = server ? statusOf(server) : null;
+  const status = server ? statusOf(server, secrets) : null;
   const here =
     (mode.kind === "edit" || mode.kind === "remove") && mode.name === row.name;
   const needsSignIn = !!server?.oauth && !server.oauth.signedIn;

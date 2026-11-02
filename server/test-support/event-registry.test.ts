@@ -106,6 +106,8 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // Auth-sensitive
   session_revoked: "owners",
   invite_revoked: "owners",
+  // The removed members an owner can restore (task 321e7b8e).
+  removed_members: "owners",
   invites_list: "recipient-scoped",
   sessions_active_list: "recipient-scoped",
 };

@@ -1634,6 +1634,13 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self", "user:admin"],
     emits: ["users_list", "session_expired", "invites_list"],
   },
+  // Removed members (task 321e7b8e): owner only, cookie USER only.
+  "users.removedList": { caps: ["user:admin"], emits: [] },
+  "users.restore": {
+    caps: ["user:admin"],
+    emits: ["users_list", "removed_members"],
+  },
+  "users.purge": { caps: ["user:admin"], emits: ["removed_members"] },
   // Sessions, invites, access
   "invites.mint": { caps: ["invite:manage"], emits: ["invites_list"] },
   "invites.mintSelf": { caps: ["invite:manage"], emits: ["invites_list"] },

@@ -255,6 +255,9 @@ import type {
   InstructionsRes,
   UserSelfWire,
   UserAdminWire,
+  RemovedMemberListRes,
+  MemberRestoreReq,
+  MemberRestoreRes,
   StorageUsageWire,
   UsageReportWire,
   StoragePruneReq,
@@ -2398,6 +2401,32 @@ export const API_ROUTES: readonly RouteDef[] = [
     // The delete also revokes the member's outstanding sign-in links.
     emits: ["users_list", "session_expired", "invites_list"],
     preconditions: ["userDeleteNotSelfOwner", "userDeleteNotLastOwner"],
+  }),
+  // Removed members (task 321e7b8e): a removal keeps the member for 30 days,
+  // and an office owner restores them or deletes them at once. USER-only, as
+  // users.delete.
+  defineRoute<void, RemovedMemberListRes>({
+    opId: "users.removedList",
+    method: "GET",
+    path: "/api/removed-members",
+    auth: cap("user:admin", officeOwner),
+    emits: [],
+  }),
+  defineRoute<MemberRestoreReq, MemberRestoreRes>({
+    opId: "users.restore",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/removed-members/:id/restore",
+    auth: cap("user:admin", officeOwner),
+    emits: ["users_list", "removed_members"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "users.purge",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "DELETE",
+    path: "/api/removed-members/:id",
+    auth: cap("user:admin", officeOwner),
+    emits: ["removed_members"],
   }),
   // An office owner lists and revokes one member's personal API tokens.
   // officeOwner is cookie USER-only, so no API token or agent reaches these.
