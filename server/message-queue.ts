@@ -9,7 +9,12 @@ import type {
   LogEntry,
   QueuedMessage,
 } from "../shared/types.ts";
-import { belowStandard } from "../shared/agent-access.ts";
+import {
+  agentAccessOf,
+  belowStandard,
+  stopHasPack,
+} from "../shared/agent-access.ts";
+import { fitsInside } from "../shared/pack-fit.ts";
 import { errMessage } from "../shared/errors.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
 import {
@@ -30,6 +35,7 @@ import {
 } from "./attachment-prompt.ts";
 import type { BackendSession } from "./backends/types.ts";
 import { getAgentTokenIdentity } from "./identity/tokens.ts";
+import { AGENT_DOES_NOT_FIT, agentPackSender } from "./identity/agent-fit.ts";
 import {
   inMultiStepFlow,
   type AgentEvent,
@@ -71,6 +77,9 @@ export interface MessageQueueDeps {
   ) => SendNowResult;
   releaseBackendHold: (agentId: string, managed: ManagedAgent) => void;
   resume: (agentId: string, sessionId: string) => Promise<unknown>;
+  // An agent's message reached another agent: the receiver may reply to it
+  // under the pack rule.
+  recordHeardFrom: (receiverId: string, writerId: string) => void;
 }
 
 export function createMessageQueue(deps: MessageQueueDeps) {
@@ -88,6 +97,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     sendNow,
     releaseBackendHold,
     resume,
+    recordHeardFrom,
   } = deps;
 
   const QUEUE_MAX = 50;
@@ -147,6 +157,30 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     const receiverUserId = agents.get(receiverAgentId)?.info.userId;
     if (!sender?.userId || sender.userId !== receiverUserId) return undefined;
     return sender.privileged ? "same-manager-privileged" : "same-manager";
+  }
+
+  // Whether an agent sender's message to `receiverId` breaks the pack rule
+  // (server/identity/agent-fit.ts): the receiver does not fit the sender's
+  // pack and did not write to the sender first. A sender with no live token
+  // (killed, or gone before its scheduled message fired) carries no pack.
+  function agentSendDoesNotFit(senderId: string, receiverId: string): boolean {
+    if (senderId === receiverId) return false;
+    const token = getAgentTokenIdentity(senderId);
+    const sender = token ? agentPackSender(token.access, token.limits) : null;
+    const receiver = agents.get(receiverId)?.info;
+    if (!sender || !receiver) return false;
+    const access = agentAccessOf(receiver);
+    if (
+      fitsInside(sender, {
+        access,
+        ...(stopHasPack(access) && receiver.pack
+          ? { pack: receiver.pack }
+          : {}),
+        roomId: receiver.roomId,
+      })
+    )
+      return false;
+    return !agents.get(senderId)?.heardFrom?.has(receiverId);
   }
 
   function senderPrefixText(
@@ -261,6 +295,8 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     extraMeta?: Record<string, unknown>,
   ): void {
     for (const m of items) {
+      if (m.sender.kind === "agent" && m.sender.agentId !== agentId)
+        recordHeardFrom(agentId, m.sender.agentId);
       // Carry sdkText into the log metadata so editMessage can match
       // this entry against the SDK session (the SDK saw the expanded
       // prompt, not m.text). Same shape executeSkill uses on the
@@ -839,6 +875,13 @@ export function createMessageQueue(deps: MessageQueueDeps) {
 
     const capRefusal = enqueueCapRefusal(managed, msg.sender);
     if (capRefusal) return capRefusal;
+
+    if (
+      msg.sender.kind === "agent" &&
+      agentSendDoesNotFit(msg.sender.agentId, agentId)
+    ) {
+      return { ok: false, error: AGENT_DOES_NOT_FIT, status: 403 };
+    }
 
     const id = generateQueuedId(managed.messageQueue);
     // The continue on the office sign-in is queued by the stopped turn's

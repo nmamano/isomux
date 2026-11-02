@@ -820,7 +820,13 @@ describe("/mcp for an agent below Standard", () => {
   it("creates a marked task, refuses another's, opens an ask the member sees, and sends a message as itself", async () => {
     const o = await office();
     const agent = await spawn(o, "Triage");
+    // The peer fits inside the agent's pack, so the agent may write to it
+    // (task 134b8f77).
     const peer = await spawn(o, "Peer");
+    expect(
+      (await setAccess(o, peer.id, { access: "office", pack: TASKS_READ }))
+        .status,
+    ).toBe(200);
     expect(
       (
         await setAccess(o, agent.id, {

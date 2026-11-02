@@ -12,7 +12,6 @@ import {
   READ_SHOWS_SECRETS,
   parseApiTokenLimits,
   routeAllowedByLimits,
-  writesEqualFullAccess,
   type ApiTokenLimits,
 } from "./api-token-limits.ts";
 
@@ -165,17 +164,15 @@ describe("areas and presets", () => {
   });
 
   it("flags the areas whose write equals full access", () => {
-    // The agreed list plus rooms, files, asks and skills (design round,
-    // 2026-10-31): each puts text in an agent's prompt, code on the box or an
-    // order to an agent.
+    // The agreed list plus rooms, files and skills (design round,
+    // 2026-10-31): each puts text in an agent's prompt or code on the box.
+    // Agents, agentManagement and asks write are not in it: the pack rule
+    // bounds them (task 134b8f77, shared/pack-fit.ts).
     expect<string[]>([...FULL_ACCESS_WRITE_AREAS].sort()).toEqual(
       [
         "office",
         "rooms",
-        "agents",
-        "agentManagement",
         "files",
-        "asks",
         "memory",
         "skills",
         "schedules",
@@ -210,25 +207,6 @@ describe("areas and presets", () => {
       areas: API_TOKEN_PRESETS.talkToAgents.areas,
       repliesOnly: true,
     });
-  });
-
-  it("agents write stops equalling full access while replies only is on, and nothing else changes", () => {
-    expect(writesEqualFullAccess("agents", undefined)).toBe(true);
-    expect(writesEqualFullAccess("agents", {})).toBe(true);
-    expect(writesEqualFullAccess("agents", { repliesOnly: true })).toBe(false);
-    for (const area of API_TOKEN_AREAS.filter((a) => a !== "agents")) {
-      for (const limits of [undefined, { repliesOnly: true as const }]) {
-        expect({
-          area,
-          repliesOnly: !!limits,
-          full: writesEqualFullAccess(area, limits),
-        }).toEqual({
-          area,
-          repliesOnly: !!limits,
-          full: FULL_ACCESS_WRITE_AREAS.has(area),
-        });
-      }
-    }
   });
 
   it("each preset is a value a mint accepts", () => {

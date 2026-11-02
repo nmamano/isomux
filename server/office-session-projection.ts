@@ -75,6 +75,9 @@ export interface SessionProjectionDeps {
   emitPrivateUserRecord: (user: UserRecord) => void;
   emitUserUpdated: (user: UserRecord, prevName?: string) => void;
   emitUsersList: AccessPolicy["emitUsersList"];
+  // Whether a write by `identity` to the agent fits the pack rule
+  // (server/identity/agent-fit.ts identityFitsAgent).
+  identityFitsAgent: (identity: Identity, agentId: string) => boolean;
   officeSend: (ws: ServerWebSocket<OfficeWsData>, data: string) => void;
   outboxFor: (ws: ServerWebSocket<OfficeWsData>) => OfficeOutbox;
   roomAllowedForSession: (session: SessionLookup, roomId: string) => boolean;
@@ -97,6 +100,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     emitPrivateUserRecord,
     emitUserUpdated,
     emitUsersList,
+    identityFitsAgent,
     officeSend,
     outboxFor,
     roomAllowedForSession,
@@ -593,7 +597,8 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
           formatApiTokenDevice(
             identity.apiTokenName ?? "unknown",
             identity.apiTokenId ?? "reply unavailable: missing token id",
-            identity.apiTokenLimits?.repliesOnly === true,
+            identity.apiTokenLimits?.repliesOnly === true ||
+              !identityFitsAgent(identity, entry.agentId),
           ),
         ),
     ).then((result) => (result.ok ? { ok: true } : result));

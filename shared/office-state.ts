@@ -886,6 +886,7 @@ export class OfficeState {
         | "assignee"
         | "roomId"
         | "external"
+        | "limited"
       >
     >,
   ): OfficeEvent[] {

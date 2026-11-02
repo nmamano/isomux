@@ -258,6 +258,10 @@ export interface ManagedAgent {
   // pending resume's fire time (persisted as agents.json limitResumeAt).
   limitStopResetsAtMs: number | null;
   limitResumeAt: number | null;
+  // The agents whose message reached this one, so it may reply to them under
+  // the pack rule (server/identity/agent-fit.ts). Persisted as agents.json
+  // heardFrom; a kill of either side drops the pair.
+  heardFrom?: Set<string>;
   // A usage limit stopped the running turn on the member's own sign-in and
   // the agent falls back to the office sign-in: its end queues the continue
   // instead of arming the resume (server/provider-fallback.ts).

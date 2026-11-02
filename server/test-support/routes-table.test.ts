@@ -35,6 +35,7 @@ import {
   type Identity,
 } from "../identity/index.ts";
 import type { GuardDeps } from "../identity/guards.ts";
+import { AGENT_WRITE_FIT_TABLE } from "../identity/agent-fit.ts";
 import {
   API_TOKEN_AREAS,
   API_TOKEN_PRESETS,
@@ -3172,6 +3173,57 @@ describe("route table: API token areas", () => {
         tokenArea: { area: "asks", level: "write" },
       });
     }
+  });
+
+  it("every agents and agentManagement write says which agent the pack rule checks", () => {
+    // Task 134b8f77: the executor checks the agent a write reaches against the
+    // sender's pack. A write route missing from the table would skip the rule,
+    // so the table covers exactly these routes.
+    const writes = API_ROUTES.filter(
+      (route) =>
+        typeof route.tokenArea === "object" &&
+        (route.tokenArea.area === "agents" ||
+          route.tokenArea.area === "agentManagement") &&
+        route.tokenArea.level === "write",
+    );
+    expect(writes.length).toBeGreaterThan(10);
+    expect(Object.keys(AGENT_WRITE_FIT_TABLE).sort()).toEqual(
+      writes.map((route) => route.opId).sort(),
+    );
+    for (const route of writes) {
+      const fit = AGENT_WRITE_FIT_TABLE[route.opId];
+      expect({
+        opId: route.opId,
+        well: !fit
+          ? "missing"
+          : fit.kind === "param"
+            ? route.path.includes(`/:${fit.name}`)
+            : fit.kind === "exempt"
+              ? fit.reason.trim().length > 0
+              : true,
+      }).toEqual({ opId: route.opId, well: true });
+    }
+    // A reply route checks the agent it answers; a spawn or a revive checks
+    // the agent it makes; a scheduled message's :id is its sender.
+    for (const opId of [
+      "agents.sendMessage",
+      "agents.abort",
+      "agents.cancelQueued",
+    ]) {
+      expect({ opId, fit: AGENT_WRITE_FIT_TABLE[opId] }).toEqual({
+        opId,
+        fit: { kind: "param", name: "id" },
+      });
+    }
+    for (const opId of ["agents.spawn", "agents.revive"]) {
+      expect({ opId, kind: AGENT_WRITE_FIT_TABLE[opId]?.kind }).toEqual({
+        opId,
+        kind: "result",
+      });
+    }
+    expect(AGENT_WRITE_FIT_TABLE["agents.cancelScheduledMessage"]?.kind).toBe(
+      "exempt",
+    );
   });
 
   it("a room's GitHub link is an environment write", () => {

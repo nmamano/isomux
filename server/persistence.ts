@@ -932,6 +932,8 @@ export interface PersistedAgent {
   // The pending resume after a usage limit, epoch ms (server/limit-resume.ts).
   // Absent when none is pending.
   limitResumeAt?: number;
+  // ManagedAgent.heardFrom. Absent when empty.
+  heardFrom?: string[];
   // The agent runs on the office sign-in because its member's own sign-in
   // reached its usage limit (server/provider-fallback.ts). Absent when not.
   officeFallback?: true;

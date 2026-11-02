@@ -29,6 +29,7 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import { belowStandard } from "../../../shared/agent-access.ts";
+import { packSenderOf } from "../../identity/agent-fit.ts";
 import type { TaskDetailExternal, TaskItem } from "../../../shared/types.ts";
 import { taskVisibleTo, type TaskViewer } from "../../task-visibility.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
@@ -46,7 +47,13 @@ import type {
 type TaskChanges = Partial<
   Pick<
     TaskItem,
-    "title" | "description" | "priority" | "status" | "assignee" | "roomId"
+    | "title"
+    | "description"
+    | "priority"
+    | "status"
+    | "assignee"
+    | "roomId"
+    | "limited"
   >
 >;
 
@@ -114,6 +121,13 @@ function limitedAgent(identity: Identity): boolean {
     identity.agentAccess !== undefined &&
     belowStandard(identity.agentAccess)
   );
+}
+
+// Text from an agent below Standard, or from an API token whose pack the rule
+// bounds (server/identity/agent-fit.ts): a task it creates, or a change of
+// its that carries text, is marked, so agents read it as data.
+function marksTask(identity: Identity): boolean {
+  return limitedAgent(identity) || packSenderOf(identity) !== null;
 }
 
 // Whether `identity` may change `task`: everyone the board lets see it, except
@@ -288,7 +302,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         // From the token, like createdBy; never from the body.
         createdByAgentId:
           ctx.identity.scope === "agent" ? ctx.identity.agentId : undefined,
-        ...(limitedAgent(ctx.identity) ? { limited: true as const } : {}),
+        ...(marksTask(ctx.identity) ? { limited: true as const } : {}),
         username,
         description:
           typeof body.description === "string" ? body.description : undefined,
@@ -394,6 +408,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
           return fail(404, "not_found");
         }
       }
+      if (marksTask(ctx.identity)) changes.limited = true;
       const task = deps.updateTask(ctx.params.id, changes);
       return task ? ok(task) : fail(404, "not_found");
     },
@@ -436,7 +451,10 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         );
       }
       const changes: TaskChanges = { status: "in_progress" };
-      if (typeof body.assignee === "string") changes.assignee = body.assignee;
+      if (typeof body.assignee === "string") {
+        changes.assignee = body.assignee;
+        if (marksTask(ctx.identity)) changes.limited = true;
+      }
       const task = deps.updateTask(ctx.params.id, changes);
       return task ? ok(task) : fail(404, "not_found");
     },

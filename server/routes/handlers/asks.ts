@@ -39,6 +39,7 @@ import { randomUUID } from "crypto";
 import { basename, extname } from "path";
 import { downloadHeader, mimeTypeForFilename } from "../../mime-types.ts";
 import { actsForAgent, type Identity } from "../../identity/index.ts";
+import { packSenderOf } from "../../identity/agent-fit.ts";
 import {
   ASK_DISMISSED_TEXT,
   ASK_FILED_TEXT,
@@ -168,6 +169,8 @@ export interface AsksDeps {
     username: string | undefined;
     roomId: string;
     priority?: TaskPriority;
+    // An answer from a sender with a pack: the task text is data.
+    limited?: true;
   }): TaskItem;
   deleteTask(id: string): boolean;
   // Who the caller is on the board, as tasks.create records it.
@@ -627,6 +630,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         username,
         roomId: agent.roomId,
         ...(entry.priority ? { priority: entry.priority } : {}),
+        ...(packSenderOf(ctx.identity) ? { limited: true as const } : {}),
       });
       let result: UserSendAcceptance;
       try {

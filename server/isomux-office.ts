@@ -110,6 +110,7 @@ import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
 } from "./identity/guard-deps.ts";
+import { identityFitsAgent } from "./identity/agent-fit.ts";
 import {
   cronjobOwnerOrOfficeOwner,
   hasOfficeOwnerReach,
@@ -915,6 +916,8 @@ const {
   emitPrivateUserRecord,
   emitUserUpdated,
   emitUsersList,
+  identityFitsAgent: (identity, agentId) =>
+    identityFitsAgent(identity, agentId, buildLiveGuardDeps()),
   officeSend,
   outboxFor,
   roomAllowedForSession,
@@ -2022,6 +2025,9 @@ function buildLiveGuardDeps(): GuardDeps {
       agentManager.killedAgentManagerUserId(agentId),
     killedAgentLastRoomId: (agentId) =>
       agentManager.killedAgentLastRoomId(agentId),
+    killedAgentGrant: (agentId) => agentManager.killedAgentGrant(agentId),
+    agentHeardFrom: (receiverId, writerId) =>
+      agentManager.agentHeardFrom(receiverId, writerId),
     cronRunVisibleTo: (identity, streamId) => {
       const runPrefix = cronjobRunStreamId("");
       if (!streamId.startsWith(runPrefix)) return false;
@@ -2578,12 +2584,14 @@ function buildExecutorDeps(
         username,
         roomId,
         priority,
+        limited,
       }) =>
         agentManager.addTask(title, createdBy, {
           description,
           username,
           roomId,
           priority,
+          ...(limited ? { limited } : {}),
         }),
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,
@@ -3914,6 +3922,8 @@ function buildExecutorDeps(
           sendNow,
           clientMessageId,
         }),
+      identityFitsAgent: (identity, agentId) =>
+        identityFitsAgent(identity, agentId, buildLiveGuardDeps()),
       sendAsApi: (agentId, text, username, device, tokenId, opts) =>
         sendApiTokenMessage(
           tokenId,

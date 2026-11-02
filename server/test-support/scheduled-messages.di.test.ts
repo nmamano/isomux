@@ -481,6 +481,29 @@ describe("firing (tick)", () => {
     expect(w.notices[0].text).toContain(entry.id);
   });
 
+  it("a receiver that no longer fits the sender's pack drops the entry and notifies the sender, with no retry", () => {
+    // Task 134b8f77: the receiver moved up between the schedule and the fire,
+    // so the enqueue refuses it by the pack rule. A retry would only refuse
+    // again until the 24h deadline.
+    const w = makeWorld();
+    const m = createScheduledMessageManager(w.deps);
+    const entry = scheduleOk(m);
+    w.setEnqueueResult(() => ({
+      ok: false,
+      error: "agent_does_not_fit",
+      status: 403,
+    }));
+    w.setNow(IN_1H + 1);
+    const tick = makeTicker(m, w.sched);
+    tick();
+    tick();
+    expect(w.enqueueCalls).toHaveLength(1);
+    expect(m.listBySender("agent-a")).toHaveLength(0);
+    expect(w.notices).toHaveLength(1);
+    expect(w.notices[0].senderAgentId).toBe("agent-a");
+    expect(w.notices[0].text).toContain(entry.id);
+  });
+
   it("retryable failures (stopped receiver) stay pending and deliver on a later tick", () => {
     const w = makeWorld();
     const m = createScheduledMessageManager(w.deps);

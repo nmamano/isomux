@@ -52,15 +52,14 @@ export type RouteTokenArea =
 
 // Write access to these areas lets the holder reach everything: code on the
 // box, text in every agent's prompt, an agent that acts with its manager's
-// rights, or a new member.
+// rights, or a new member. Agents, agentManagement and asks write are not in
+// it: a token with a pack writes only to agents that fit inside it, and its
+// other messages to agents are replies marked as data (shared/pack-fit.ts).
 export const FULL_ACCESS_WRITE_AREAS: ReadonlySet<ApiTokenArea> =
   new Set<ApiTokenArea>([
     "office",
     "rooms",
-    "agents",
-    "agentManagement",
     "files",
-    "asks",
     "memory",
     "skills",
     "schedules",
@@ -95,14 +94,9 @@ export const API_TOKEN_PRESETS: {
   repliesOnly: { areas: TALK_TO_AGENTS.areas, repliesOnly: true },
 };
 
-// Whether write access to `area` under `limits` lets the holder reach
-// everything (FULL_ACCESS_WRITE_AREAS). Agents write is not, while replies
-// only is on.
-export function writesEqualFullAccess(
-  area: ApiTokenArea,
-  limits: Pick<ApiTokenLimits, "repliesOnly"> | undefined,
-): boolean {
-  if (area === "agents" && limits?.repliesOnly) return false;
+// Whether write access to `area` lets the holder reach everything
+// (FULL_ACCESS_WRITE_AREAS).
+export function writesEqualFullAccess(area: ApiTokenArea): boolean {
   return FULL_ACCESS_WRITE_AREAS.has(area);
 }
 

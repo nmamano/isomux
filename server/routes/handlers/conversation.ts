@@ -127,6 +127,10 @@ export interface ConversationDeps {
     sendNow: boolean,
     clientMessageId: string | undefined,
   ): Promise<UserSendAcceptance>;
+  // Whether a write by `identity` to the agent fits the pack rule
+  // (server/identity/agent-fit.ts identityFitsAgent). A token message that
+  // passes only as a reply is marked as data.
+  identityFitsAgent?(identity: Identity, agentId: string): boolean;
   // API-token human send. Resolves at the queue-or-direct acceptance decision,
   // never at turn completion.
   sendAsApi(
@@ -527,8 +531,11 @@ export function conversationHandlers(
         // principal. Keeping the user sender kind preserves human-input
         // completion notifications; only the server-derived device differs.
         // A replies-only token's device carries the marker, so its message
-        // reaches the agent as data.
-        const repliesOnly = ctx.identity.apiTokenLimits?.repliesOnly === true;
+        // reaches the agent as data; so does a reply from a token whose pack
+        // the agent does not fit.
+        const repliesOnly =
+          ctx.identity.apiTokenLimits?.repliesOnly === true ||
+          deps.identityFitsAgent?.(ctx.identity, ctx.params.id) === false;
         const r = await deps.sendAsApi(
           ctx.params.id,
           b.text,

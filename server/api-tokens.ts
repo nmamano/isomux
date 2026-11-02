@@ -49,7 +49,7 @@ interface StoredApiToken extends ApiTokenWire {
   lastSequence: number;
   lastDrainedAt: number | null;
   inbox?: ApiTokenInboxMessage[]; // Only retained if a legacy migration could not finish.
-  // A replies-only token: the agents that wrote to it, which it may answer.
+  // A token with limits: the agents that wrote to it, which it may answer.
   repliedAgentIds?: string[];
 }
 
@@ -563,7 +563,7 @@ export function apiTokenRoomsById(tokenId: string): readonly string[] | null {
   return tokens!.get(tokenId)?.limits?.rooms ?? null;
 }
 
-// Whether this agent wrote to the token, so a replies-only token may answer
+// Whether this agent wrote to the token, so a token with limits may answer
 // it. False for an unknown token.
 export function apiTokenHeardFrom(tokenId: string, agentId: string): boolean {
   ensureLoaded();
@@ -604,10 +604,11 @@ export async function enqueueApiTokenInboxMessage(input: {
       senderAgentName: input.senderAgentName,
       senderRoomName: input.senderRoomName,
     };
-    // A replies-only token may answer this agent from now on. Undone if the
-    // entry is not committed, so a failed write grants nothing.
+    // A token with limits may answer this agent from now on (replies only,
+    // and the pack rule of server/identity/agent-fit.ts). Undone if the entry
+    // is not committed, so a failed write grants nothing.
     const heard =
-      record.limits?.repliesOnly === true &&
+      record.limits !== undefined &&
       !(record.repliedAgentIds ?? []).includes(input.senderAgentId);
     if (heard)
       record.repliedAgentIds = [

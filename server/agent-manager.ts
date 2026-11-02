@@ -682,6 +682,26 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   const agents = new Map<string, ManagedAgent>();
+
+  // The pack rule's reply right (server/identity/agent-fit.ts): agent
+  // `writerId`'s message reached agent `receiverId`.
+  function recordHeardFrom(receiverId: string, writerId: string): void {
+    const receiver = agents.get(receiverId);
+    if (!receiver || !agents.has(writerId)) return;
+    if (receiver.heardFrom?.has(writerId)) return;
+    (receiver.heardFrom ??= new Set()).add(writerId);
+    persistAll();
+  }
+
+  function agentHeardFrom(receiverId: string, writerId: string): boolean {
+    return agents.get(receiverId)?.heardFrom?.has(writerId) ?? false;
+  }
+
+  // A killed agent leaves every pair it is in.
+  function forgetHeardFrom(agentId: string): void {
+    for (const managed of agents.values()) managed.heardFrom?.delete(agentId);
+  }
+
   // The message queue (server/message-queue.ts). Built right after `agents`,
   // before the factories below that take its functions.
   const {
@@ -719,6 +739,7 @@ export function createAgentManager(deps: ManagerDeps) {
     sendNow,
     releaseBackendHold,
     resume,
+    recordHeardFrom,
   });
   // The office MCP servers of each agent and the chat affordances
   // (server/agent-affordances.ts). Built right after the message queue, its
@@ -772,6 +793,7 @@ export function createAgentManager(deps: ManagerDeps) {
     getKilledAgentIds,
     killedAgentManagerUserId,
     killedAgentLastRoomId,
+    killedAgentGrant,
     getAgent,
     agentIdsOfUser,
   } = createOfficePersistence({
@@ -1138,6 +1160,7 @@ export function createAgentManager(deps: ManagerDeps) {
         | "assignee"
         | "roomId"
         | "external"
+        | "limited"
       >
     >,
   ): TaskItem | null {
@@ -7501,6 +7524,7 @@ export function createAgentManager(deps: ManagerDeps) {
     managed.sessionManager.session = null;
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
+    forgetHeardFrom(agentId);
     dropLimitResume(agentId, managed);
     dropSettledChoiceInteractions(agentId);
     userSendDedupe.forgetAgent(agentId);
@@ -9242,6 +9266,8 @@ export function createAgentManager(deps: ManagerDeps) {
     getKilledAgentSummariesForManager,
     getKilledAgentIds,
     killedAgentManagerUserId,
+    killedAgentGrant,
+    agentHeardFrom,
     killedAgentLastRoomId,
     restoreAgents,
     ensureLobby: (seedDefaultAgent = false) => {

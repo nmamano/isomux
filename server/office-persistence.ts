@@ -1,7 +1,11 @@
 // Rooms and desks, the agent manifest, the save of agents.json and
 // agent-history.json, and the killed-agent roster. Moved out of
 // createAgentManager (server/agent-manager.ts), which wires it.
-import type { AgentAccess } from "../shared/agent-access.ts";
+import {
+  agentAccessOf,
+  stopHasPack,
+  type AgentAccess,
+} from "../shared/agent-access.ts";
 import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import type {
   LogInFlightTurn,
@@ -340,6 +344,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
       ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
       ...(a.info.limitResume === false ? { limitResume: false } : {}),
       ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
+      ...(a.heardFrom?.size ? { heardFrom: [...a.heardFrom] } : {}),
       ...(a.officeFallback ? { officeFallback: true as const } : {}),
     };
   }
@@ -531,6 +536,21 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     return loadAgentHistory()[agentId]?.lastRoomId ?? null;
   }
 
+  // A KILLED agent's last stop and pack, which a revive gives it back, or null
+  // for a live or unknown agent.
+  function killedAgentGrant(
+    agentId: string,
+  ): { access: AgentAccess; pack?: ApiTokenLimits } | null {
+    if (agents.has(agentId)) return null;
+    const entry = loadAgentHistory()[agentId];
+    if (!entry) return null;
+    const access = agentAccessOf(entry);
+    return {
+      access,
+      ...(stopHasPack(access) && entry.pack ? { pack: entry.pack } : {}),
+    };
+  }
+
   // For legacy entries (no kill-time stamp), use the agent's log directory
   // mtime as a "last-touched" proxy. One stat call per legacy entry; fine
   // for the ~100-entry scale this file reaches in practice.
@@ -578,6 +598,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     getKilledAgentIds,
     killedAgentManagerUserId,
     killedAgentLastRoomId,
+    killedAgentGrant,
     getAgent,
     agentIdsOfUser,
   };

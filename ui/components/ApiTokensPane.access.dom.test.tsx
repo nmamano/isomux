@@ -153,26 +153,29 @@ describe("API token mint form: access", () => {
     expect(
       view.container.querySelectorAll("[data-full-access-warning]"),
     ).toHaveLength(0);
-    // tasks write is not flagged; agents write is.
-    await change(
-      el<HTMLSelectElement>(view, 'select[data-area="tasks"]'),
-      "write",
-    );
+    // tasks and agents write are not flagged (the pack rule bounds agents
+    // write, task 134b8f77); memory write is.
+    for (const area of ["tasks", "agents"]) {
+      await change(
+        el<HTMLSelectElement>(view, `select[data-area="${area}"]`),
+        "write",
+      );
+    }
     expect(
       view.container.querySelectorAll("[data-full-access-warning]"),
     ).toHaveLength(0);
     await change(
-      el<HTMLSelectElement>(view, 'select[data-area="agents"]'),
+      el<HTMLSelectElement>(view, 'select[data-area="memory"]'),
       "write",
     );
     expect(
       [...view.container.querySelectorAll("[data-full-access-warning]")].map(
         (node) => node.getAttribute("data-full-access-warning"),
       ),
-    ).toEqual(["agents"]);
+    ).toEqual(["memory"]);
     // Back to read: the mark goes.
     await change(
-      el<HTMLSelectElement>(view, 'select[data-area="agents"]'),
+      el<HTMLSelectElement>(view, 'select[data-area="memory"]'),
       "read",
     );
     expect(
@@ -329,10 +332,10 @@ const fullAccessWarnings = (view: View) =>
   );
 
 describe("API token mint form: replies only", () => {
-  it("the Replies only pack fills Talk to agents, sets the switch, drops the full-access mark on Agents, and mints exactly the pack", async () => {
+  it("the Replies only pack fills Talk to agents, sets the switch, and mints exactly the pack", async () => {
     const view = await mount();
     await change(accessSelect(view), "talkToAgents");
-    expect(fullAccessWarnings(view)).toEqual(["agents"]);
+    expect(fullAccessWarnings(view)).toEqual([]);
     await change(accessSelect(view), "repliesOnly");
     expect(areaValues(view)).toEqual(
       Object.fromEntries(
@@ -361,10 +364,8 @@ describe("API token mint form: replies only", () => {
     );
     expect(accessSelect(view).value).toBe("custom");
     expect(repliesBox(view)?.checked).toBe(false);
-    expect(fullAccessWarnings(view)).toEqual(["agents"]);
     await tick(repliesBox(view)!);
     expect(repliesBox(view)?.checked).toBe(true);
-    expect(fullAccessWarnings(view)).toEqual([]);
     expect((await mint(view)).limits).toEqual({
       areas: {
         ...API_TOKEN_PRESETS.readOnly.areas,

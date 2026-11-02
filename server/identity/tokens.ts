@@ -127,22 +127,24 @@ export function getAgentTokenRaw(agentId: string): string | null {
   return byKey.get(agentKey(agentId))?.raw ?? null;
 }
 
-// The manager, privileged flag and access stop an agent's live token
+// The manager, privileged flag, access stop and limits an agent's live token
 // carries, or null if none is live. Labels the agent's messages to another
 // agent: the label comes from the token, never from the message text.
 export function getAgentTokenIdentity(agentId: string): {
   userId: string | null;
   privileged: boolean;
   access: AgentAccess;
+  limits?: ApiTokenLimits;
 } | null {
   const token = byKey.get(agentKey(agentId));
-  return token
-    ? {
-        userId: token.userId,
-        privileged: token.privileged,
-        access: token.access ?? "standard",
-      }
-    : null;
+  if (!token) return null;
+  const limits = agentTokenLimits(token);
+  return {
+    userId: token.userId,
+    privileged: token.privileged,
+    access: token.access ?? "standard",
+    ...(limits ? { limits } : {}),
+  };
 }
 
 // The token limits of an agent below standard: its pack, or no area at all at

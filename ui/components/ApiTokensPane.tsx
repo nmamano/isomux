@@ -334,7 +334,6 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
                 key={area}
                 area={area}
                 level={areas[area] ?? "none"}
-                repliesOnly={repliesOnly}
                 onChange={(level) => setArea(area, level)}
               />
             ))}
@@ -445,21 +444,14 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
 function AreaRow({
   area,
   level,
-  repliesOnly,
   onChange,
 }: {
   area: ApiTokenArea;
   level: ApiTokenAccess | "none";
-  repliesOnly: boolean;
   onChange: (level: ApiTokenAccess | "none") => void;
 }) {
   const { t } = useI18n();
-  const fullAccess =
-    level === "write" &&
-    writesEqualFullAccess(
-      area,
-      repliesOnly ? { repliesOnly: true } : undefined,
-    );
+  const fullAccess = level === "write" && writesEqualFullAccess(area);
   return (
     <>
       <span>

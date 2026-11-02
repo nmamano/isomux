@@ -423,6 +423,16 @@ export function createScheduledMessageManager(
             recordSent(entry, result.messageId);
           continue;
         }
+        // The receiver no longer fits the sender's pack (it moved up since the
+        // schedule): a retry would only be refused again.
+        if (result.status === 403) {
+          removeAndPersistBestEffort(entry);
+          notify(
+            entry.senderAgentId,
+            `Scheduled message ${entry.id} to agent ${entry.receiverAgentId} was dropped: the recipient's access no longer fits inside yours.`,
+          );
+          continue;
+        }
         if (result.status === 404) {
           // Receiver deleted since scheduling: deliver-anyway applies to a
           // GONE SENDER, not a gone receiver - there is no chat to deliver
