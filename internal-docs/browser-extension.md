@@ -324,6 +324,16 @@ archive. No customer-side archive tool or new dependency is needed. The route
 fails closed when the archive is missing. It uses existing self authentication,
 app-host diversion and the ordinary safe-GET/no-CORS boundary.
 
+The bundles carry only the `browser.*` catalog keys, so other copy changes do
+not change the build; `browser-extension/i18n.ts` types the extension's keys
+to match. A different build needs a new manifest version, because the popup
+and the office compare only the version. `browser-extension/dist-fingerprint.json`
+records the version and the sha256 of `dist.zip`, and
+`scripts/build-browser-extension.test.ts` fails when a fresh build differs from
+it. After a change, raise the version and run `bun run build:extension --record`,
+which refuses a version that is not higher. A reviewer refuses a diff that
+changes the recorded hash but not the version.
+
 `connection.html` is both the options page and actual toolbar action popup.
 Only that exact extension URL and runtime id can call the background UI API.
 The UI API never returns raw credentials/codes. It accepts an HTTPS office

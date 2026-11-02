@@ -1,4 +1,4 @@
-import { translatorFor } from "../shared/i18n/translate";
+import { t } from "./i18n";
 import { newerFiles } from "./disk-files";
 import {
   BROWSER_EXTENSION_PROTOCOL,
@@ -107,10 +107,6 @@ type Connection = {
   offers: Map<string, (ok: boolean) => void>;
   unpairResult?: (ok: boolean) => void;
 };
-const language = navigator.language.split("-")[0];
-const { t } = translatorFor(
-  language === "es" || language === "ca" || language === "zh" ? language : "en",
-);
 let current: Connection | undefined;
 let configuration = 0;
 let retry = 0;

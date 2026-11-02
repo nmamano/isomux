@@ -1,5 +1,5 @@
-import { translatorFor } from "../shared/i18n/translate";
-import type { PlainMessageKey } from "../shared/i18n/translate";
+import { language, t } from "./i18n";
+import type { ExtensionPlainKey } from "./i18n";
 import type {
   BrowserAccess,
   ExtensionUIState,
@@ -10,10 +10,6 @@ import {
   savePairingDraft,
 } from "./pairing-draft";
 import { newerFiles } from "./disk-files";
-const language = navigator.language.split("-")[0];
-const { t } = translatorFor(
-  language === "es" || language === "ca" || language === "zh" ? language : "en",
-);
 document.documentElement.lang = language;
 const element = (id: string) => document.getElementById(id)!;
 const office = element("office") as HTMLInputElement;
@@ -42,7 +38,7 @@ const [invocationTab] = await chrome.tabs.query({
   active: true,
   currentWindow: true,
 });
-const labels: Record<string, PlainMessageKey> = {
+const labels: Record<string, ExtensionPlainKey> = {
   "office-heading": "browser.officeSection",
   "office-label": "browser.office",
   "code-label": "browser.code",

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { setUpDomTestFile } from "../ui/test-support/dom";
 import { translatorFor } from "../shared/i18n/translate";
+import { extensionCatalogs } from "../scripts/build-browser-extension";
 
 setUpDomTestFile();
 const { Script } = await import("node:vm");
@@ -9,6 +10,7 @@ const { readFile } = await import("node:fs/promises");
 const build = await Bun.build({
   entrypoints: ["browser-extension/connection.ts"],
   target: "browser",
+  plugins: [extensionCatalogs()],
 });
 if (!build.success) throw new AggregateError(build.logs, "Popup build failed");
 const popupSource = await build.outputs[0].text();

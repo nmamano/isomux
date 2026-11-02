@@ -312,6 +312,8 @@ unchanged.
 Playwright transport, and disconnect races without a browser. The worker test
 builds and executes the extension bundle against a fake Chrome API.
 `bun run build:extension` builds the package; CI builds it through `build:ui`.
+`scripts/build-browser-extension.test.ts` fails when the build differs from
+the version recorded in `browser-extension/dist-fingerprint.json`.
 
 The real-Chrome checks are the opt-in `server/browser-extension-*.live.test.ts`
 files, with a new profile and no real accounts. They need

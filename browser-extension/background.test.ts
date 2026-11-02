@@ -10,6 +10,7 @@ import {
   type Fields,
 } from "../shared/browser-extension-protocol";
 import manifest from "./manifest.json";
+import { extensionCatalogs } from "../scripts/build-browser-extension";
 
 // The scope of the member's offer from the popup on an office that does not
 // take access messages, with the default setting (My agents): the popup names
@@ -21,6 +22,7 @@ beforeAll(async () => {
   const build = await Bun.build({
     entrypoints: ["browser-extension/background.ts"],
     target: "browser",
+    plugins: [extensionCatalogs()],
   });
   if (!build.success) throw new Error("Extension build failed");
   source = await build.outputs[0].text();
