@@ -3024,6 +3024,17 @@ describe("route table: API token areas", () => {
   const apiStageOne = API_ROUTES.filter((route) =>
     passesRouteStageOne(route.auth, apiIdentity),
   );
+  // A route an API token or an agent reaches. The rest are a member's own
+  // pages, "always" for a member with a pack (routes-member-pack.test.ts).
+  const tokenOrAgentReaches = (route: (typeof API_ROUTES)[number]) =>
+    passesRouteStageOne(route.auth, apiIdentity) ||
+    passesRouteStageOne(route.auth, {
+      scope: "agent",
+      userId: "u-owner",
+      agentId: "a-1",
+      role: "member",
+      capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+    });
   const byOpId = (opId: string) => {
     const route = API_ROUTES.find((r) => r.opId === opId);
     expect(route, opId).toBeDefined();
@@ -3054,13 +3065,17 @@ describe("route table: API token areas", () => {
         !["GET", "HEAD"].includes(route.method) &&
         route.audit?.owner !== "none" &&
         route.tokenArea !== undefined &&
-        (route.tokenArea === "always" || route.tokenArea.level !== "write"),
+        (route.tokenArea === "always"
+          ? tokenOrAgentReaches(route)
+          : route.tokenArea.level !== "write"),
     ).map((route) => route.opId);
     expect(wrong).toEqual([]);
   });
 
   it("only the token's own inbox and the agent reference bypass the limits", () => {
-    const always = API_ROUTES.filter((route) => route.tokenArea === "always")
+    const always = API_ROUTES.filter(
+      (route) => route.tokenArea === "always" && tokenOrAgentReaches(route),
+    )
       .map((route) => route.opId)
       .sort();
     expect(always).toEqual(

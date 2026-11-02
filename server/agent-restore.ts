@@ -398,6 +398,9 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       limitStopResetsAtMs: null,
       limitResumeAt: null,
       ...(p.heardFrom?.length ? { heardFrom: new Set(p.heardFrom) } : {}),
+      ...(p.heardFromMembers?.length
+        ? { heardFromMembers: new Set(p.heardFromMembers) }
+        : {}),
       officeFallback: p.officeFallback === true,
       pendingFreshRecoveryNotice: false,
       authNeededThisTurn: false,

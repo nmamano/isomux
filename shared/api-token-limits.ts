@@ -50,6 +50,23 @@ export type RouteTokenArea =
   // wrote to it. Only on agents write routes.
   { area: ApiTokenArea; level: ApiTokenAccess; reply?: true } | "always";
 
+// The areas both grant, at the lower level of the two; an area missing from
+// either is none.
+export function intersectAreas(
+  a: ApiTokenAreaLevels,
+  b: ApiTokenAreaLevels,
+): ApiTokenAreaLevels {
+  const both: ApiTokenAreaLevels = {};
+  for (const [area, level] of Object.entries(a) as [
+    ApiTokenArea,
+    ApiTokenAccess,
+  ][]) {
+    const other = b[area];
+    if (other) both[area] = level === "write" ? other : "read";
+  }
+  return both;
+}
+
 // Write access to these areas lets the holder reach everything: code on the
 // box, text in every agent's prompt, an agent that acts with its manager's
 // rights, or a new member. Agents, agentManagement and asks write are not in

@@ -262,6 +262,10 @@ export interface ManagedAgent {
   // the pack rule (server/identity/agent-fit.ts). Persisted as agents.json
   // heardFrom; a kill of either side drops the pair.
   heardFrom?: Set<string>;
+  // The members this agent opened an ask to, so a member with a permission
+  // pack may reply to it. Persisted as agents.json heardFromMembers; a kill
+  // drops it.
+  heardFromMembers?: Set<string>;
   // A usage limit stopped the running turn on the member's own sign-in and
   // the agent falls back to the office sign-in: its end queues the continue
   // instead of arming the resume (server/provider-fallback.ts).

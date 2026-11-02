@@ -46,6 +46,7 @@ import { resolveToken } from "./identity/tokens.ts";
 import { appIdentityFromToken } from "./app-tokens.ts";
 import { resolveApiToken } from "./api-tokens.ts";
 import { API_CAPABILITIES } from "./identity/index.ts";
+import { withMemberPack } from "./identity/member-pack.ts";
 import { deriveAppHostDomain } from "./app-domain.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -313,7 +314,11 @@ export function authenticate(
       response: unauthorized(req, opts?.officeName ?? null, onBox),
     };
   }
-  return { kind: "ok", session, identity: identityFromSession(session) };
+  return {
+    kind: "ok",
+    session,
+    identity: withMemberPack(identityFromSession(session), getUserById),
+  };
 }
 
 // The bearer-then-cookie identity precedence, factored out as a pure helper so
@@ -329,7 +334,8 @@ export function resolveIdentityForRequest(
 ): Identity | null {
   const bearerId = resolveBearerIdentity(req, onBox);
   if (bearerId) return bearerId;
-  if (cookieLookup) return identityFromSession(cookieLookup);
+  if (cookieLookup)
+    return withMemberPack(identityFromSession(cookieLookup), getUserById);
   return null;
 }
 
@@ -337,6 +343,16 @@ export function resolveIdentityForRequest(
 // resolveIdentityForRequest() so the bearer precedence has exactly ONE
 // implementation - no drift between the live gate and the unit-tested helper.
 function resolveBearerIdentity(
+  req: Request,
+  onBox: boolean,
+  onRefused?: (identity: Identity) => void,
+): Identity | null {
+  const identity = resolveBearerIdentityUncapped(req, onBox, onRefused);
+  // Every identity of a member with a permission pack is capped to it.
+  return identity && withMemberPack(identity, getUserById);
+}
+
+function resolveBearerIdentityUncapped(
   req: Request,
   onBox: boolean,
   onRefused?: (identity: Identity) => void,

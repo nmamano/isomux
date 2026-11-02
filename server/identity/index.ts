@@ -10,6 +10,7 @@
 import type { UserRole } from "../../shared/types.ts";
 import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
+import type { MemberPack } from "../../shared/pack-fit.ts";
 
 // A token (or cookie) resolves to one of four identity scopes. Scope is
 // orthogonal to role: a USER identity additionally carries owner/member, which
@@ -184,8 +185,12 @@ export interface Identity {
   apiTokenName?: string;
   // API scope: the token's limits. AGENT scope below standard: the agent's
   // pack (no area at all at chat), so the executor's limits check covers it
-  // too. Absent = full access.
+  // too. Any scope of a member with a permission pack: cut to the pack's
+  // areas (server/identity/member-pack.ts). Absent = full access.
   apiTokenLimits?: ApiTokenLimits;
+  // Any scope whose userId is a member with a permission pack: the pack and
+  // the member's rooms, read live with the user record.
+  memberPack?: { pack: MemberPack; rooms: readonly string[] };
   // AGENT scope: the access slider stop the token was minted with.
   agentAccess?: AgentAccess;
   // Role is authoritative for USER scope. API scope also carries the issuing

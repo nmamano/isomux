@@ -111,6 +111,7 @@ import {
   type GuardDepsLiveReaders,
 } from "./identity/guard-deps.ts";
 import { identityFitsAgent } from "./identity/agent-fit.ts";
+import { withMemberPack } from "./identity/member-pack.ts";
 import {
   cronjobOwnerOrOfficeOwner,
   hasOfficeOwnerReach,
@@ -654,16 +655,28 @@ export function mayUseExtension(member: string, agentId: string): boolean {
 }
 
 // A member reaches an agent in a room they can access, whoever manages it.
+// The terminal frames of a browser socket: the agent's room is visible to the
+// member, and the member has no permission pack, read live (a pack gives no
+// shell).
+function terminalAllowed(session: SessionLookup, agentId: string): boolean {
+  if (getUserById(session.userId)?.pack) return false;
+  return agentVisibleForSession(session, agentId);
+}
+
 export function mayReachExtension(member: string, agentId: string): boolean {
   const user = getUserById(member);
   const agent = agentManager.getAgent(agentId);
+  if (!user || !agent) return false;
+  const deps = buildLiveGuardDeps();
+  const identity = withMemberPack(
+    { scope: "user", userId: member, role: user.role, capabilities: [] },
+    getUserById,
+  );
+  // A tab offer is a write to the agent: a member with a pack offers tabs
+  // only to agents that fit it.
   return (
-    !!user &&
-    !!agent &&
-    buildLiveGuardDeps().hasRoomAccess(
-      { scope: "user", userId: member, role: user.role, capabilities: [] },
-      agent.roomId,
-    )
+    deps.hasRoomAccess(identity, agent.roomId) &&
+    identityFitsAgent(identity, agentId, deps)
   );
 }
 
@@ -983,8 +996,9 @@ function currentWebhookIngress(): WebhookIngress {
 }
 
 // A webhook's agent target: the hook OWNER (not the calling agent) must reach
-// the agent's room, as messageTargetAgentId requires for apps. Checked when the
-// target is set and again on each dispatch.
+// the agent's room, as messageTargetAgentId requires for apps, and an owner
+// with a permission pack must fit the agent (the messaging rule). Checked when
+// the target is set and again on each dispatch, with the live pack.
 function webhookAgentReachable(
   userId: string | null,
   agentId: string,
@@ -993,7 +1007,14 @@ function webhookAgentReachable(
   const owner = userId ? getUserById(userId) : null;
   const target = agentManager.getAgent(agentId);
   if (!owner || !target) return "unavailable";
-  return accessibleRoomIdsFor(owner).has(target.roomId) ? "ok" : "unavailable";
+  if (!accessibleRoomIdsFor(owner).has(target.roomId)) return "unavailable";
+  const identity = withMemberPack(
+    { scope: "user", userId: owner.id, role: owner.role, capabilities: [] },
+    getUserById,
+  );
+  return identityFitsAgent(identity, agentId, buildLiveGuardDeps())
+    ? "ok"
+    : "unavailable";
 }
 
 // A room-limited token reaches only the agents in its rooms; every other
@@ -2028,6 +2049,8 @@ function buildLiveGuardDeps(): GuardDeps {
     killedAgentGrant: (agentId) => agentManager.killedAgentGrant(agentId),
     agentHeardFrom: (receiverId, writerId) =>
       agentManager.agentHeardFrom(receiverId, writerId),
+    memberHeardFrom: (userId, agentId) =>
+      agentManager.memberHeardFrom(userId, agentId),
     cronRunVisibleTo: (identity, streamId) => {
       const runPrefix = cronjobRunStreamId("");
       if (!streamId.startsWith(runPrefix)) return false;
@@ -2553,6 +2576,8 @@ function buildExecutorDeps(
       },
       memberName: (userId) => getUserById(userId)?.name ?? null,
       memberCanSeeRoom: askAudience.canSeeRoom,
+      recordMemberHeardFrom: (userId, agentId) =>
+        agentManager.recordMemberHeardFrom(userId, agentId),
       isOfficeOwner: askAudience.isOfficeOwner,
       canReadAgentLogs: (identity, agentId) =>
         logSearchAccess({
@@ -4629,7 +4654,7 @@ async function handleInboundMessage(
         break;
       }
       case "terminal_open": {
-        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        if (!terminalAllowed(session, cmd.agentId)) break;
         const opened = agentManager.openTerminal(cmd.agentId, {
           kind: "member",
           id: session.userId,
@@ -4664,7 +4689,7 @@ async function handleInboundMessage(
         break;
       }
       case "terminal_input":
-        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        if (!terminalAllowed(session, cmd.agentId)) break;
         // The typist is the socket's member, never a field of the frame.
         agentManager.terminalInput(cmd.agentId, cmd.data, {
           kind: "member",
@@ -4673,11 +4698,11 @@ async function handleInboundMessage(
         });
         break;
       case "terminal_status_request":
-        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        if (!terminalAllowed(session, cmd.agentId)) break;
         agentManager.terminalStatus(cmd.agentId);
         break;
       case "terminal_resize":
-        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        if (!terminalAllowed(session, cmd.agentId)) break;
         agentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows, {
           kind: "member",
           id: session.userId,
@@ -4685,7 +4710,7 @@ async function handleInboundMessage(
         });
         break;
       case "terminal_close":
-        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        if (!terminalAllowed(session, cmd.agentId)) break;
         agentManager.closeTerminal(cmd.agentId, {
           kind: "member",
           id: session.userId,
@@ -4695,7 +4720,7 @@ async function handleInboundMessage(
       case "terminal_restart":
         // Restart is a terminal-I/O capability: it can kill a foreground
         // process, so it carries the same room visibility gate as open/input.
-        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        if (!terminalAllowed(session, cmd.agentId)) break;
         agentManager.restartTerminal(cmd.agentId, {
           kind: "member",
           id: session.userId,

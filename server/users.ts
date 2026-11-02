@@ -30,6 +30,7 @@ import {
 } from "../shared/languages.ts";
 import { isVoiceInput, isVoiceName, isVoiceOutput } from "../shared/voice.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { parseMemberPack, type MemberPack } from "../shared/pack-fit.ts";
 import { isRemovedMemberName } from "./removed-members.ts";
 import { normalizeRoomViewLists } from "../shared/room-view-level.ts";
 import {
@@ -257,6 +258,7 @@ function load(): Record<string, UserRecord> {
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
+        ...loadedPack(value, id),
       };
     }
     users = result;
@@ -278,6 +280,22 @@ function load(): Record<string, UserRecord> {
     persist();
   }
   return users;
+}
+
+// A member's pack from users.json. A pack on an owner, or one that does not
+// parse (a hand-edited file), is dropped with a log line.
+function loadedPack(
+  value: { role?: unknown; pack?: unknown },
+  id: string,
+): { pack?: MemberPack } {
+  if (value.pack === undefined) return {};
+  const pack =
+    normalizeRole(value.role) === "member" ? parseMemberPack(value.pack) : null;
+  if (pack) return { pack };
+  console.warn(
+    `[users] dropped the permission pack of user ${id}: ${normalizeRole(value.role) === "member" ? "it does not parse" : "an owner has none"}`,
+  );
+  return {};
 }
 
 // users.json is auth state: roles ride here, and acceptInvite calls
@@ -551,7 +569,8 @@ export function setUserRoleById(id: string, role: UserRole): boolean {
   const existing = users[id];
   if (!existing) return false;
   if (existing.role === role) return true;
-  users[id] = { ...existing, role };
+  const { pack, ...rest } = existing;
+  users[id] = { ...rest, role, ...(pack && role === "member" ? { pack } : {}) };
   try {
     persist();
   } catch (err) {
@@ -655,7 +674,7 @@ export function updateUserById(
       | "voiceOutput"
       | "voiceName"
     >
-  > & { allowedRooms?: string[] },
+  > & { allowedRooms?: string[]; pack?: MemberPack | null },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
   const existing = users[id];
@@ -740,6 +759,10 @@ export function updateUserById(
     }),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
+  // A pack is a member's only: a promotion to owner drops it. The caller
+  // refuses a pack for an owner.
+  const pack = changes.pack === undefined ? existing.pack : changes.pack;
+  if (pack && next.role === "member") next.pack = pack;
 
   users[id] = next;
   try {

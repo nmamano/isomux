@@ -8,11 +8,40 @@ import {
   type AgentAccess,
 } from "./agent-access.ts";
 import {
+  parseApiTokenLimits,
   writesEqualFullAccess,
   type ApiTokenArea,
   type ApiTokenAreaLevels,
   type ApiTokenLimits,
 } from "./api-token-limits.ts";
+
+// A member's permission pack (UserRecord.pack): the areas their identities
+// reach and the highest stop their agents may sit at.
+export interface MemberPack {
+  areas: ApiTokenAreaLevels;
+  agentCeiling: AgentAccess;
+}
+
+// The stops a member's agents may be capped at: those with a pack, and chat.
+const MEMBER_CEILINGS: ReadonlySet<string> = new Set<AgentAccess>([
+  "chat",
+  "office",
+  "folder",
+  "web",
+]);
+
+// A member pack from a request or users.json, or null when it does not parse.
+export function parseMemberPack(value: unknown): MemberPack | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return null;
+  const { areas, agentCeiling, ...rest } = value as Record<string, unknown>;
+  if (Object.keys(rest).length > 0) return null;
+  if (typeof agentCeiling !== "string" || !MEMBER_CEILINGS.has(agentCeiling))
+    return null;
+  const limits = parseApiTokenLimits({ areas });
+  if (!limits?.areas) return null;
+  return { areas: limits.areas, agentCeiling: agentCeiling as AgentAccess };
+}
 
 // The sender side: its areas, its rooms (absent = every room it can access)
 // and the highest stop it may reach (an agent's own stop, a token's office).

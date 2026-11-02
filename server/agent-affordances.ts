@@ -48,6 +48,7 @@ import { mimeTypeForFilename } from "./mime-types.ts";
 import { saveFile as savePersistedFile } from "./persistence.ts";
 import { capturePreview, type PreviewCaptureDeps } from "./preview-capture.ts";
 import { getUserById } from "./users.ts";
+import { withMemberPack } from "./identity/member-pack.ts";
 
 // The chat's terminal-command answer for each refusal (an HTTP 400 body).
 const TERMINAL_COMMAND_ERRORS: Record<
@@ -138,7 +139,9 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     const token = getAgentTokenRaw(agentId);
     if (!stopHasPack(access) || !token) return [];
     const identity = resolveToken(token);
-    return identity ? officeMcpToolNames(identity) : [];
+    return identity
+      ? officeMcpToolNames(withMemberPack(identity, getUserById))
+      : [];
   }
 
   function agentMcpServers(userId: string | null | undefined) {

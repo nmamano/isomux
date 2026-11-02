@@ -13,6 +13,7 @@ import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
 import type { Floor } from "./floors.ts";
+import type { MemberPack } from "./pack-fit.ts";
 import type { AgentAccess } from "./agent-access.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
 import { keyFrom } from "./i18n/translate.ts";
@@ -2314,6 +2315,10 @@ export interface UserRecord {
   // member's first accepted sign-in link. Absent on every other record,
   // legacy ones included: absent means "has signed in".
   pendingSignIn?: true;
+  // A member's permission pack (task 134b8f77): every identity of this member
+  // (session, API tokens, agents, cron runs, apps) is capped to its areas.
+  // Absent = a full member. Never on an owner.
+  pack?: MemberPack;
 }
 
 // Office-wide user display metadata: the ONLY user shape allowed on an `all`

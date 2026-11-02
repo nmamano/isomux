@@ -353,7 +353,9 @@ export async function executeRoute(
       fail(
         403,
         "forbidden",
-        "This API token's limits do not allow this action.",
+        identity.scope === "user"
+          ? "Your permission pack does not allow this action."
+          : "This API token's limits do not allow this action.",
         typeof route.tokenArea === "object"
           ? { ...route.tokenArea }
           : undefined,

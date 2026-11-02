@@ -97,6 +97,9 @@ import {
 
 export interface AsksDeps {
   store: AskStore;
+  // An ask an agent opened to a member is the agent writing first: a member
+  // with a permission pack may then reply to it (agentManager.recordMemberHeardFrom).
+  recordMemberHeardFrom?(userId: string, agentId: string): void;
   // The closed asks (task ff590b5e): getAsk falls back to them, and the
   // history route lists them.
   history: AskHistory;
@@ -844,6 +847,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           : {}),
     });
     if (!result.ok) return tooManyAsks();
+    deps.recordMemberHeardFrom?.(memberUserId, agentId);
     return created(wire(result.entry));
   };
 

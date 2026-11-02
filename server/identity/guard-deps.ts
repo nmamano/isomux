@@ -90,6 +90,8 @@ export interface GuardDepsLiveReaders {
   killedAgentGrant?(agentId: string): Omit<FitTarget, "roomId"> | null;
   // agentManager.agentHeardFrom.
   agentHeardFrom?(receiverId: string, writerId: string): boolean;
+  // agentManager.memberHeardFrom.
+  memberHeardFrom?(userId: string, agentId: string): boolean;
 }
 
 export function buildProductionGuardDeps(
@@ -129,6 +131,10 @@ export function buildProductionGuardDeps(
 
     agentHeardFrom(receiverId, writerId) {
       return live.agentHeardFrom?.(receiverId, writerId) ?? false;
+    },
+
+    memberHeardFrom(userId, agentId) {
+      return live.memberHeardFrom?.(userId, agentId) ?? false;
     },
 
     roomIdForAgent(agentId: string): string | null {

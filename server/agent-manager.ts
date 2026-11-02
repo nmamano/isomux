@@ -41,7 +41,7 @@ import { askReplyNote } from "./asks.ts";
 import {
   formatPrefix,
   defuseSenderLabels,
-  isRepliesOnlyApiTokenDevice,
+  isRepliesOnlyDevice,
   formatApiTokenName,
 } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -695,6 +695,19 @@ export function createAgentManager(deps: ManagerDeps) {
 
   function agentHeardFrom(receiverId: string, writerId: string): boolean {
     return agents.get(receiverId)?.heardFrom?.has(writerId) ?? false;
+  }
+
+  // The same right for a member's session: agent `agentId` opened an ask to
+  // member `userId`. Kept on the agent, so a kill drops it.
+  function recordMemberHeardFrom(userId: string, agentId: string): void {
+    const agent = agents.get(agentId);
+    if (!agent || agent.heardFromMembers?.has(userId)) return;
+    (agent.heardFromMembers ??= new Set()).add(userId);
+    persistAll();
+  }
+
+  function memberHeardFrom(userId: string, agentId: string): boolean {
+    return agents.get(agentId)?.heardFromMembers?.has(userId) ?? false;
   }
 
   // A killed agent leaves every pair it is in.
@@ -6069,8 +6082,11 @@ export function createAgentManager(deps: ManagerDeps) {
     // Decided before the claim below and before any await, in the same step
     // that decides whether the text is an answer, so a prompt cannot open
     // between the check and the send.
+    // A message marked as data (a member's reply under the pack rule; a
+    // token's sets refusePromptAnswer) answers no prompt either. An ask
+    // answer waits behind the prompt instead.
     if (
-      opts.refusePromptAnswer &&
+      (opts.refusePromptAnswer || (!ask && isRepliesOnlyDevice(device))) &&
       (inMultiStepFlow(managed) ||
         managed.pendingInteraction ||
         managed.queuedPermissions.length > 0)
@@ -6092,7 +6108,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // early-return path below must therefore exclude a claimed choice.
     // A replies-only API token's message is data: it answers no menu, runs no
     // command, and its body is defused like an agent's.
-    const asData = isRepliesOnlyApiTokenDevice(device);
+    const asData = isRepliesOnlyDevice(device);
     const claimedChoice =
       opts?.claimedChoice ??
       (ask || asData ? null : claimTypedChoiceInteraction(managed, text));
@@ -9268,6 +9284,8 @@ export function createAgentManager(deps: ManagerDeps) {
     killedAgentManagerUserId,
     killedAgentGrant,
     agentHeardFrom,
+    recordMemberHeardFrom,
+    memberHeardFrom,
     killedAgentLastRoomId,
     restoreAgents,
     ensureLobby: (seedDefaultAgent = false) => {

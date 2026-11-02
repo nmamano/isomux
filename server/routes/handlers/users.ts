@@ -43,6 +43,7 @@ import {
   refuseOldFields,
 } from "./instructions.ts";
 import type { Identity } from "../../identity/index.ts";
+import { parseMemberPack, type MemberPack } from "../../../shared/pack-fit.ts";
 
 // Outcome the seam shapes for a record edit / access change: ok → the updated
 // record (UserSelfWire/UserAdminWire share the UserRecord shape; the audience
@@ -94,6 +95,8 @@ export interface UsersDeps {
   setAccess(input: {
     username: string;
     allowedRooms: string[];
+    // The member's permission pack: null clears it, absent keeps it.
+    pack?: MemberPack | null;
   }): Promise<UserOutcome>;
   // Delete (selfOrOwner + the two delete preconditions already passed). Re-checks
   // the not-last-owner record rule and the owner-session lockout with the
@@ -249,7 +252,20 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
     },
 
     "users.setAccess": async (ctx) => {
-      const body = (ctx.body ?? {}) as { allowedRooms?: unknown };
+      const body = (ctx.body ?? {}) as {
+        allowedRooms?: unknown;
+        pack?: unknown;
+      };
+      const pack =
+        body.pack === undefined || body.pack === null
+          ? body.pack
+          : parseMemberPack(body.pack);
+      if (pack === null && body.pack !== null)
+        return fail(
+          422,
+          "invalid_pack",
+          "pack must be {areas, agentCeiling}: known areas at read or write, and a ceiling of chat, office, folder or web",
+        );
       if (
         !Array.isArray(body.allowedRooms) ||
         !body.allowedRooms.every((x) => typeof x === "string")
@@ -263,6 +279,7 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       const r = await deps.setAccess({
         username: ctx.params.username,
         allowedRooms: body.allowedRooms,
+        ...(pack !== undefined ? { pack } : {}),
       });
       return r.ok ? ok({ user: r.user }) : fail(r.status, r.code, r.error);
     },

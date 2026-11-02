@@ -345,6 +345,9 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
       ...(a.info.limitResume === false ? { limitResume: false } : {}),
       ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
       ...(a.heardFrom?.size ? { heardFrom: [...a.heardFrom] } : {}),
+      ...(a.heardFromMembers?.size
+        ? { heardFromMembers: [...a.heardFromMembers] }
+        : {}),
       ...(a.officeFallback ? { officeFallback: true as const } : {}),
     };
   }

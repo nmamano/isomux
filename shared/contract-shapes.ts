@@ -49,6 +49,7 @@ import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
 import type { AgentAccess, AgentAccessGrant } from "./agent-access.ts";
+import type { MemberPack } from "./pack-fit.ts";
 
 // UserPublicWire's canonical home is shared/types.ts (next to UserRecord +
 // ServerMessage, which references it). Re-exported here so the route-table /
@@ -1013,6 +1014,8 @@ export type UserUpdateReq = Partial<{
 
 export interface SetAccessReq {
   allowedRooms: string[];
+  // The member's permission pack: null clears it, absent keeps it.
+  pack?: MemberPack | null;
 }
 
 // invites.mint (POST /api/invites) - an owner-issued sign-in link for an

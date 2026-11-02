@@ -74,6 +74,9 @@ export interface GuardDeps {
   // Whether agent `writerId` wrote to agent `receiverId` (a message that
   // reached it), so the receiver may reply.
   agentHeardFrom?(receiverId: string, writerId: string): boolean;
+  // Whether agent `agentId` opened an ask to member `userId`, so a member with
+  // a pack may reply to it.
+  memberHeardFrom?(userId: string, agentId: string): boolean;
   // The live ordinary room of an app (its maker agent's), a webhook (its
   // target's) or a schedule, or null for none. Read only for a room-limited
   // API token, whose "your own X" arms need the room in its rooms; absent, those

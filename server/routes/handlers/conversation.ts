@@ -53,7 +53,10 @@ import type {
 import { parseDeliverAt } from "../../scheduled-messages.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
 import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
-import { formatApiTokenDevice } from "../../../shared/identity.ts";
+import {
+  formatApiTokenDevice,
+  memberReplyDevice,
+} from "../../../shared/identity.ts";
 import { formatAppViewLabel } from "../../app-view-label.ts";
 
 // The AGENT (inter-agent) send outcome. The failure carries the status + stable
@@ -576,11 +579,18 @@ export function conversationHandlers(
           `clientMessageId must be at most ${USER_CLIENT_MESSAGE_ID_MAX} characters.`,
         );
       }
+      // A member with a permission pack whose pack the agent does not fit
+      // passed only as a reply: the device carries the marker, so the message
+      // reaches the agent as data.
+      const memberReply =
+        ctx.identity.memberPack !== undefined &&
+        deps.identityFitsAgent?.(ctx.identity, ctx.params.id) === false;
+      const device = memberReply ? memberReplyDevice(b.device) : b.device;
       const r = await deps.sendAsUser(
         ctx.params.id,
         b.text,
         deps.attributionFor(ctx.identity).username,
-        withAppDevice(b.device),
+        withAppDevice(device),
         b.attachments,
         b.sendNow === true,
         b.clientMessageId,

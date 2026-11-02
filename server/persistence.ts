@@ -934,6 +934,8 @@ export interface PersistedAgent {
   limitResumeAt?: number;
   // ManagedAgent.heardFrom. Absent when empty.
   heardFrom?: string[];
+  // ManagedAgent.heardFromMembers (user ids). Absent when empty.
+  heardFromMembers?: string[];
   // The agent runs on the office sign-in because its member's own sign-in
   // reached its usage limit (server/provider-fallback.ts). Absent when not.
   officeFallback?: true;

@@ -702,6 +702,9 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
   ): boolean {
     const user = getUserById(userId);
     if (!user) return false;
+    // A member whose permission pack has no apps area opens no app.
+    if (user.pack && user.role === "member" && !user.pack.areas.apps)
+      return false;
     const visibility = appVisibilityFacts(app);
     if (identity && tokenRooms(identity) !== null)
       return appVisibleTo(visibility, appViewerFacts(identity, visibility));

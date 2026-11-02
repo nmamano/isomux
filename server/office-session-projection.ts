@@ -6,7 +6,7 @@
 // at module load.
 import type { ServerWebSocket } from "bun";
 import type { PreferencesReq } from "../shared/contract-shapes.ts";
-import { formatApiTokenDevice } from "../shared/identity.ts";
+import { formatApiTokenDevice, memberReplyDevice } from "../shared/identity.ts";
 import type { TaskChange } from "../shared/office-state.ts";
 import {
   type AgentInfo,
@@ -582,7 +582,14 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       sendMemberMessage(entry.agentId, text, username, device, undefined, {
         ask,
       });
-    if (identity.scope !== "api") return send(opts.device);
+    // A member with a permission pack answers an agent outside it as data,
+    // as a token does.
+    if (identity.scope !== "api")
+      return send(
+        identity.memberPack && !identityFitsAgent(identity, entry.agentId)
+          ? memberReplyDevice(opts.device)
+          : opts.device,
+      );
     const display = agentManager.getAgentDisplay(entry.agentId);
     return sendApiTokenMessage(
       identity.apiTokenId ?? "",

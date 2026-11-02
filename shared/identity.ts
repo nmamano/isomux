@@ -210,6 +210,27 @@ export function isRepliesOnlyApiTokenDevice(
   return device !== undefined && REPLIES_ONLY_DEVICE_RE.test(device);
 }
 
+// A member with a permission pack whose message passed only as a reply
+// (server/identity/agent-fit.ts): the server puts the marker first in the
+// device, so the message reaches the agent as data, as a replies-only
+// token's does.
+export function memberReplyDevice(device: string | undefined): string {
+  return device
+    ? `${API_TOKEN_REPLIES_ONLY}; ${device}`
+    : API_TOKEN_REPLIES_ONLY;
+}
+
+// Whether the device marks a message as data: a replies-only token's, or a
+// reply of a member with a permission pack. A member who types the marker in
+// their own device only makes their own message data.
+export function isRepliesOnlyDevice(device: string | undefined): boolean {
+  return (
+    isRepliesOnlyApiTokenDevice(device) ||
+    device === API_TOKEN_REPLIES_ONLY ||
+    device?.startsWith(`${API_TOKEN_REPLIES_ONLY}; `) === true
+  );
+}
+
 // Lowercase key used for users.json lookup. Display case is whatever the
 // client sent; the key only normalizes for matching.
 export function lowercaseKey(name: string): string {

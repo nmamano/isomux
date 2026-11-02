@@ -658,6 +658,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // the target's manager still can't pass the manager-match branch.
   defineRoute<SetPrivilegedReq, AgentEnvelope>({
     opId: "agents.setPrivileged",
+    tokenArea: { area: "agentManagement", level: "write" },
     audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/agents/:id/privileged",
@@ -672,6 +673,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // route is the one way to a stop below Standard and back up from one.
   defineRoute<SetAgentAccessReq, AgentEnvelope>({
     opId: "agents.setAccess",
+    tokenArea: { area: "agentManagement", level: "write" },
     audit: { owner: "executor", targets: resourceTargets },
     method: "PUT",
     path: "/api/agents/:id/access",
@@ -1549,6 +1551,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // View preferences affect visibility only; they never grant or deny access.
   defineRoute<ViewOrderReq, NoContent>({
     opId: "view.setOrder",
+    tokenArea: "always",
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/order",
@@ -1557,6 +1560,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ShownRoomsReq, NoContent>({
     opId: "view.setShown",
+    tokenArea: "always",
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/shown",
@@ -1567,6 +1571,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<NotifRoomsReq, NoContent>({
     opId: "view.setNotifRooms",
+    tokenArea: "always",
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/notif-rooms",
@@ -1575,6 +1580,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<TuckedRoomsReq, NoContent>({
     opId: "view.setTucked",
+    tokenArea: "always",
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/tucked",
@@ -1584,6 +1590,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<PushRoomsReq, NoContent>({
     opId: "view.setPushRooms",
+    tokenArea: "always",
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PUT",
     path: "/api/me/view/push-rooms",
@@ -1597,6 +1604,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // all_rooms_list is owner-only). Pure read, no emits.
   defineRoute<void, MeRoomsRes>({
     opId: "view.listRooms",
+    tokenArea: "always",
     method: "GET",
     path: "/api/me/rooms",
     auth: cap("view:manage", authenticated),
@@ -1605,6 +1613,7 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   defineRoute({
     opId: "browser.download",
+    tokenArea: { area: "agents", level: "read" },
     method: "GET",
     path: "/api/me/browser/extension.zip",
     auth: cap("user:self", authenticated),
@@ -1612,6 +1621,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.get",
+    tokenArea: { area: "agents", level: "read" },
     method: "GET",
     path: "/api/me/browser",
     auth: cap("user:self", authenticated),
@@ -1619,6 +1629,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.pair",
+    tokenArea: { area: "agents", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/browser/pair",
@@ -1627,6 +1638,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.revoke",
+    tokenArea: { area: "agents", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/me/browser",
@@ -1635,6 +1647,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.revokeOne",
+    tokenArea: { area: "agents", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/me/browser/browsers/:id",
@@ -1643,6 +1656,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute({
     opId: "browser.reload",
+    tokenArea: { area: "agents", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/browser/browsers/:id/reload",
@@ -1659,6 +1673,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // PRIVILEGED_AGENT_CAPABILITIES.
   defineRoute<PreferencesReq, NoContent>({
     opId: "prefs.update",
+    tokenArea: "always",
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PATCH",
     path: "/api/me/preferences",
@@ -2208,6 +2223,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // token can never mint, list, or revoke API tokens, including itself.
   defineRoute<void, ApiTokenListRes>({
     opId: "apiTokens.list",
+    tokenArea: "always",
     method: "GET",
     path: "/api/me/api-tokens",
     auth: cap("user:self", userScope),
@@ -2215,6 +2231,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, ProviderAccountsWire>({
     opId: "providerAccounts.list",
+    tokenArea: { area: "environment", level: "read" },
     method: "GET",
     path: "/api/me/provider-accounts",
     auth: cap("user:self", userScope),
@@ -2226,6 +2243,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // variable names follow officeEnv.get's owner rule inside the handler.
   defineRoute<void, ConnectionsListRes>({
     opId: "connections.list",
+    tokenArea: "always",
     method: "GET",
     path: "/api/me/connections",
     auth: cap("user:self", userScope),
@@ -2244,6 +2262,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginStartReq, ProviderLoginStartRes>({
     opId: "providerAccounts.start",
+    tokenArea: { area: "environment", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/login",
@@ -2252,6 +2271,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginCallbackReq, { submitted: true }>({
     opId: "providerAccounts.callback",
+    tokenArea: { area: "environment", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/callback",
@@ -2260,6 +2280,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, ProviderAccountsWire>({
     opId: "providerAccounts.refresh",
+    tokenArea: { area: "environment", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/refresh",
@@ -2268,6 +2289,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderLoginCancelReq, { canceled: true }>({
     opId: "providerAccounts.cancel",
+    tokenArea: { area: "environment", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/cancel",
@@ -2276,6 +2298,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ProviderDisconnectReq, ProviderAccountsWire>({
     opId: "providerAccounts.disconnect",
+    tokenArea: { area: "environment", level: "write" },
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/me/provider-accounts/:provider/disconnect",
@@ -2284,6 +2307,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<ApiTokenCreateReq, ApiTokenCreateRes>({
     opId: "apiTokens.mint",
+    tokenArea: "always",
     audit: { owner: "executor", targets: createdResource("apiToken", "id") },
     method: "POST",
     path: "/api/me/api-tokens",
@@ -2292,6 +2316,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "apiTokens.revoke",
+    tokenArea: "always",
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/me/api-tokens/:id",
@@ -2371,6 +2396,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // users.setInstructions.
   defineRoute<UserUpdateReq, { user: UserSelfWire }>({
     opId: "users.update",
+    tokenArea: "always",
     audit: { owner: "executor", targets: createdResource("user", "id") },
     method: "PATCH",
     path: "/api/users/:username",
@@ -2394,6 +2420,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "users.delete",
+    tokenArea: "always",
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/users/:username",
@@ -2463,6 +2490,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, { url: string; invite: InviteWire }>({
     opId: "invites.mintSelf",
+    tokenArea: "always",
     audit: {
       owner: "executor",
       targets: createdResource("invite", "tokenPrefix"),
@@ -2487,6 +2515,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, { invites: InviteWire[] }>({
     opId: "invites.list",
+    tokenArea: "always",
     method: "GET",
     path: "/api/invites",
     auth: cap("invite:manage", authenticated),
@@ -2494,6 +2523,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "invites.revoke",
+    tokenArea: "always",
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/invites/:tokenPrefix",
@@ -2505,6 +2535,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, { sessions: SessionWire[] }>({
     opId: "sessions.list",
+    tokenArea: "always",
     method: "GET",
     path: "/api/sessions",
     auth: cap("session:manage", authenticated),
@@ -2512,6 +2543,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   defineRoute<void, NoContent>({
     opId: "sessions.revoke",
+    tokenArea: "always",
     audit: { owner: "executor", targets: resourceTargets },
     method: "DELETE",
     path: "/api/sessions/:sessionPrefix",

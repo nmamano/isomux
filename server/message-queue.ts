@@ -24,7 +24,7 @@ import {
   formatCronjobSenderPrefix,
   formatPrefix,
   formatWebhookSenderPrefix,
-  isRepliesOnlyApiTokenDevice,
+  isRepliesOnlyDevice,
   type AgentSenderTrust,
 } from "../shared/identity.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
@@ -280,8 +280,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     // token does not have member authority.
     const body = m.sdkText ?? m.text;
     const own =
-      (m.sender.kind === "user" &&
-        !isRepliesOnlyApiTokenDevice(m.sender.device)) ||
+      (m.sender.kind === "user" && !isRepliesOnlyDevice(m.sender.device)) ||
       (m.sender.kind === "agent" && m.sender.agentId === receiverAgentId);
     return `${queuedItemPrefix(m, receiverAgentId)}${own ? body : defuseSenderLabels(body)}`;
   }

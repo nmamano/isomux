@@ -5,6 +5,7 @@
 // userDeleteNotSelfOwner and userDeleteNotLastOwner preconditions.
 import type { MemberRestoreRes } from "../shared/contract-shapes.ts";
 import type { AgentInfo, UserRecord } from "../shared/types.ts";
+import type { MemberPack } from "../shared/pack-fit.ts";
 import { revokeApiTokensOfUser } from "./api-tokens.ts";
 import type { AppVisibilityFacts } from "./app-visibility.ts";
 import { noteAuditTarget, notePromptContent } from "./audit-context.ts";
@@ -559,7 +560,7 @@ export function createUsersRoutes(
       if (presenceTouched || roleChanged) pushPresenceListToEachWs();
       return { ok: true, user };
     },
-    setAccess: async ({ username, allowedRooms }) => {
+    setAccess: async ({ username, allowedRooms, pack }) => {
       const target = getUser(username);
       if (!target) {
         return {
@@ -567,6 +568,14 @@ export function createUsersRoutes(
           status: 404,
           code: "not_found",
           error: `User ${username} not found`,
+        };
+      }
+      if (pack && target.role === "owner") {
+        return {
+          ok: false,
+          status: 400,
+          code: "owner_has_no_pack",
+          error: "An office owner cannot have a permission pack.",
         };
       }
       // ATOMIC clamp: compute the new accessible set from the INCOMING
@@ -582,10 +591,12 @@ export function createUsersRoutes(
         allowedRooms: string[];
         notifRooms: string[];
         pushRooms: string[];
+        pack?: MemberPack | null;
       } = {
         allowedRooms,
         notifRooms: clamped.notifRooms,
         pushRooms: clamped.pushRooms,
+        ...(pack !== undefined ? { pack } : {}),
       };
       const result = updateUserById(target.id, changes);
       if (!result.ok) {

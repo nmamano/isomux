@@ -10,6 +10,7 @@ import {
   API_TOKEN_PRESETS,
   FULL_ACCESS_WRITE_AREAS,
   READ_SHOWS_SECRETS,
+  intersectAreas,
   parseApiTokenLimits,
   routeAllowedByLimits,
   type ApiTokenLimits,
@@ -213,5 +214,17 @@ describe("areas and presets", () => {
     for (const preset of Object.values(API_TOKEN_PRESETS)) {
       expect(parseApiTokenLimits(preset)).toEqual(preset);
     }
+  });
+});
+
+describe("intersectAreas", () => {
+  it("keeps each area both grant, at the lower level, and drops an area either lacks", () => {
+    const a = { agents: "write", tasks: "read", memory: "write" } as const;
+    const b = { agents: "read", tasks: "write", logs: "read" } as const;
+    const both = { agents: "read", tasks: "read" } as const;
+    expect(intersectAreas(a, b)).toEqual(both);
+    expect(intersectAreas(b, a)).toEqual(both);
+    expect(intersectAreas(a, a)).toEqual(a);
+    expect(intersectAreas(a, {})).toEqual({});
   });
 });
