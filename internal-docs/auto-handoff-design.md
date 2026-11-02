@@ -1,6 +1,6 @@
 # Automatic Handoff Mode
 
-Design for task b7e88135 (P0): "A mode where the user doesn't need to worry about hand offs. When context crosses a threshold, it hands itself off to a new session automatically." Written 2026-10-13 as a design; built 2026-10-14 with Nil's rulings of 2026-10-13 and 2026-10-14, which replaced the first draft's 75% threshold and its Claude-only scope. Nil's call of 2026-10-15 moved the handoff from the end of the crossing turn to the next message (section 3). Line numbers are from main at 5747e770 and have moved since; the code is in `server/auto-handoff.ts` and the automatic-handoff block of `server/agent-manager.ts`. The mechanism details are in Appendix C.
+Design for task b7e88135 (P0): "A mode where the user doesn't need to worry about hand offs. When context crosses a threshold, it hands itself off to a new session automatically." Written 2026-10-13 as a design; built 2026-10-14 with Nil's rulings of 2026-10-13 and 2026-10-14, which replaced the first draft's 75% threshold and its Claude-only scope. Nil's call of 2026-10-15 moved the handoff from the end of the crossing turn to the next message (section 3). Line numbers are from main at 5747e770 and have moved since; the code is in `server/auto-handoff.ts` and `server/handoff-and-wake.ts`, with the handoff itself in `server/agent-manager.ts`. The mechanism details are in Appendix C.
 
 ## Summary
 
@@ -130,7 +130,7 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 
 - Snapshot, generation and fired-sets: `server/internal-types.ts:24-31`, `:90-126`. Sample commit, member notice and refresh: `commitContextSample`, `maybeEmitUiContextNotice` and `refreshContextUsage` in `server/usage-readings.ts`. Turn-boundary and Codex `usage_update` sampling: `processNormalizedEvent` in `server/agent-manager.ts`. `/context` reading auto-compact: `server/command-handlers.ts:473-480`.
 - Agent notice and its engine opt-out: `server/agent-turn.ts:332`, `:345-348`, `:441-470`.
-- Handoff: `server/agent-manager.ts:9105-9246` (`newConversation` with `keepQueue`), `:9253` (guard), `:9266-9329` (`handoff`). Route: `server/routes/table.ts:644-672`. Handler: `server/routes/handlers/conversation.ts:603-619`. Office wiring: `server/isomux-office.ts:4911-4920`.
+- Handoff: `server/agent-manager.ts:9105-9246` (`newConversation` with `keepQueue`), `:9266-9329` (`handoff`); the guard `handoffInProgress` is in `server/handoff-and-wake.ts`. Route: `server/routes/table.ts:644-672`. Handler: `server/routes/handlers/conversation.ts:603-619`. Office wiring: `server/isomux-office.ts:4911-4920`.
 - Skill (retired 2026-10-23, task 970930a3): `skills/isomux-handoff/SKILL.md`. Agent reference: `server/agent-reference/conversation-lifecycle.md`. System prompt pointer: `server/system-prompt.ts:107`.
 - Queue: idle check `server/agent-manager.ts:6651-6653`; `flushQueue` `:6869-6910`; idle-branch flush in `enqueueMessage` `:6806-6815`; idle-transition trigger `:3496-3512`; send-accept drain `:7083-7091`; watchdog `:5370-5386`. Steer: decision `:6739-6762`, `:6826-6855`; tool-boundary delivery and drain `:6426-6482`, `:4690-4696`. Conversation-boundary reset: `:3876`.
 
@@ -145,7 +145,7 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 - The idle-transition trigger in `updateState` (`:3496-3512`) needs no change: it calls `flushQueue`.
 - `takeToolBoundaryMessage` (`:6426-6475`) returns null. Without this gate, a `steer: true` item already in the queue would take the whole eligible queue into the brief turn at its first tool boundary (`:6445`), and `drainBoundaryClaim` would remove those items before the handoff (`:4690-4696`, `:6478-6482`).
 - `enqueueMessage` declines a new steer with `steerDeclined: "auto_handoff"` (next to the existing reasons at `:6826-6855`). The item stays queued.
-- The route's `handoff` is split. The outer guard answers 409 `handoff_in_progress` when `handoffInProgress` (`:9253`) holds the agent or the brief turn has started (`briefStarted`); an armed phase with no brief turn is cleared and the caller's handoff runs. The auto path calls the inner body, today's `handoff`, directly, so it does not block itself.
+- The route's `handoff` is split. The outer guard answers 409 `handoff_in_progress` when `handoffInProgress` (`server/handoff-and-wake.ts`) holds the agent or the brief turn has started (`briefStarted`); an armed phase with no brief turn is cleared and the caller's handoff runs. The auto path calls the inner body, today's `handoff`, directly, so it does not block itself.
 
 **Start site.** `flushQueue` only: every caller, including enqueue's idle branch (`:6806-6815`), the idle transition, the watchdog (`:5370-5386`), boot replay and the post-turn kick. Arming (`commitContextSample`, `:3983`) starts nothing. Like the notice step (`server/agent-turn.ts:453-462`), `flushQueue` first waits up to 500 ms for the in-flight sample, so a sample that lands in time arms the phase before a batch queued during the crossing turn goes out. A later sample means the batch goes to the old session, the phase arms during that turn, and the next message after it starts the brief turn.
 
