@@ -611,7 +611,7 @@ idle server for that bound; S5 does not add a second idle timeout. Discovery
 against an already-live session must keep the same pid and cannot request a
 drain or replacement.
 
-One agent-manager helper authors the OpenCode launch environment for both
+One helper (`server/agent-skills.ts`) authors the OpenCode launch environment for both
 discovery and sessions. It resolves the configured office and user env files
 from the same user id used for the environment key and revision. The
 `start-server.ts` spawn builder then removes inherited `OPENCODE_*`,

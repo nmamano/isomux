@@ -166,8 +166,8 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     // walkthrough at a user who's already authed. Best-effort: if loading
     // the environment fails, buildEnvForUserId throws - we want the original auth-error guidance to
     // still surface, not have the hint generator itself fail. Fall back to
-    // undefined so the backend uses process.env. Mirrors the envForHints
-    // pattern elsewhere in this file.
+    // undefined so the backend uses process.env. Mirrors envForHints
+    // (server/agent-skills.ts).
     let env: { [key: string]: string | undefined } | undefined;
     try {
       env = buildEnvForUserId(managed.info.userId);
