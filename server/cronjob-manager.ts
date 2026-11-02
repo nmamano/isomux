@@ -33,6 +33,9 @@ import {
 // webhook runs bypass the overlap rule. A slot that came due while the server
 // was down fires once on the first tick after boot, however many were missed.
 //
+// A job with an agent target opens no session: each fire sends the prompt to
+// that agent as a message from the schedule (fireToAgent).
+//
 // Each fire creates a fresh session for the cronjob's selected backend, sends
 // the prompt as the first user message,
 // consumes the normalized event stream, and broadcasts log entries to the
@@ -58,9 +61,12 @@ import {
   type Cronjob,
   type CronjobRun,
   type CronjobPermissionMode,
+  type CronjobTarget,
   type LogEntry,
   type Schedule,
 } from "../shared/types.ts";
+import { nextScheduledFire } from "../shared/schedule-next-fire.ts";
+import { TARGET_RUN_NOT_RESUMABLE } from "./cron-target.ts";
 import { cwdProblem, resolveCwd, type CwdProblem } from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -250,6 +256,16 @@ export interface CronjobManagerDeps {
   // Null to start. A refusal makes a failed run, like a missing folder.
   // Omitted: no limit.
   limitRefusal?: (job: Cronjob) => LogText | null;
+  // Sends `text` to the agent target of `job` as a message from the schedule
+  // (production: isomux-office.ts). Checks the job owner's reach to the agent
+  // again. Omitted: every agent-target fire fails.
+  deliverToAgent?: (
+    job: Cronjob & { target: CronjobTarget },
+    text: string,
+  ) => Promise<
+    | { ok: true; messageId: string; agentName: string }
+    | { ok: false; reason: LogText }
+  >;
 }
 
 // Public surface of a CronjobManager instance, derived from the explicitly
@@ -360,33 +376,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     anchor: number,
     now: number = clock.now(),
   ): number | null {
-    if (schedule.type === "none") return null;
-    if (schedule.type === "interval") {
-      const intervalMs =
-        Math.max(MIN_INTERVAL_MINUTES, schedule.minutes) * 60_000;
-      if (now <= anchor) return anchor + intervalMs;
-      const elapsed = now - anchor;
-      // floor + 1 (not ceil): when elapsed lands exactly on a period boundary,
-      // ceil(N) = N gives nextFireAt == now and the scheduler fires immediately.
-      // floor(N) + 1 always returns the *next* future period.
-      const periods = Math.floor(elapsed / intervalMs) + 1;
-      return anchor + periods * intervalMs;
-    }
-    if (schedule.type === "daily") {
-      const next = new Date(now);
-      next.setSeconds(0, 0);
-      next.setHours(schedule.hour, schedule.minute, 0, 0);
-      if (next.getTime() <= now) next.setDate(next.getDate() + 1);
-      return next.getTime();
-    }
-    const next = new Date(now);
-    next.setSeconds(0, 0);
-    next.setHours(schedule.hour, schedule.minute, 0, 0);
-    const currentDay = next.getDay();
-    let daysAhead = (schedule.weekday - currentDay + 7) % 7;
-    if (daysAhead === 0 && next.getTime() <= now) daysAhead = 7;
-    next.setDate(next.getDate() + daysAhead);
-    return next.getTime();
+    return nextScheduledFire(schedule, anchor, now);
   }
 
   function clampSchedule(schedule: Schedule): Schedule {
@@ -400,6 +390,14 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     if (schedule.type === "daily") {
       return {
         type: "daily",
+        hour: Math.min(23, Math.max(0, Math.floor(schedule.hour))),
+        minute: Math.min(59, Math.max(0, Math.floor(schedule.minute))),
+      };
+    }
+    if (schedule.type === "monthly") {
+      return {
+        type: "monthly",
+        day: Math.min(31, Math.max(1, Math.floor(schedule.day))),
         hour: Math.min(23, Math.max(0, Math.floor(schedule.hour))),
         minute: Math.min(59, Math.max(0, Math.floor(schedule.minute))),
       };
@@ -440,9 +438,11 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     prompt: string;
     cwd: string;
     agentType: AgentBackendType;
-    modelFamily: Cronjob["modelFamily"];
-    effort: Cronjob["effort"];
-    permissionMode: CronjobPermissionMode;
+    // Absent: the engine's default (a job with an agent target may omit
+    // them; it runs no session).
+    modelFamily?: Cronjob["modelFamily"];
+    effort?: Cronjob["effort"];
+    permissionMode?: CronjobPermissionMode;
     codexSandbox?: CodexSandboxMode;
     // Display snapshot of the owning user's name at creation time.
     username: string;
@@ -453,6 +453,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     roomId?: string;
     // The creating agent, from the token identity.
     createdByAgentId?: string;
+    // Absent: each fire runs a fresh session.
+    target?: CronjobTarget;
   }
 
   // Give a job a new owner (an agent manager transfer, task 6a9deaba).
@@ -491,6 +493,9 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       name: input.name.trim() || "Untitled schedule",
       schedule,
       prompt: input.prompt,
+      ...(input.target
+        ? { target: { kind: "agent" as const, agentId: input.target.agentId } }
+        : {}),
       cwd: resolveCwd(input.cwd),
       agentType,
       modelFamily,
@@ -538,7 +543,10 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         | "enabled"
         | "roomId"
       >
-    >,
+    > & {
+      // null: back to a fresh session at each fire.
+      target?: CronjobTarget | null;
+    },
   ): Cronjob | null {
     const idx = cronjobs.findIndex((c) => c.id === id);
     if (idx < 0) return null;
@@ -584,6 +592,9 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       if (sandbox) next.codexSandbox = sandbox;
       else delete next.codexSandbox;
     }
+    if (changes.target === null) delete next.target;
+    else if (changes.target !== undefined)
+      next.target = { kind: "agent", agentId: changes.target.agentId };
     if (changes.enabled !== undefined) next.enabled = changes.enabled;
     // "" clears the room; the caller validated any other value.
     if (changes.roomId !== undefined) {
@@ -1342,6 +1353,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       extra.block === undefined
         ? job.prompt
         : `${job.prompt}\n\n${extra.block}`;
+    if (job.target) return fireToAgent(job, job.target, trigger, extra, prompt);
 
     // Validate cwd before spawning so a moved directory surfaces as a failed
     // run rather than an opaque backend process-exit message. A job that
@@ -1559,6 +1571,102 @@ How to answer questions about Isomux itself: the source lives at https://github.
       }
     })();
 
+    return run;
+  }
+
+  // A fire of a job with an agent target: the prompt goes to that agent as a
+  // message from the schedule, and no session runs. The row is written before
+  // the send, so Run now and a webhook can answer its id; it is never in
+  // activeRuns, so a send in flight never makes the next slot a skip.
+  function fireToAgent(
+    job: Cronjob,
+    target: CronjobTarget,
+    trigger: CronjobRun["trigger"],
+    extra: {
+      triggeredBy?: string;
+      webhook?: NonNullable<CronjobRun["webhook"]>;
+    },
+    prompt: string,
+  ): CronjobRun {
+    const jobId = job.id;
+    const runId = generateCronjobRunId();
+    const now = clock.now();
+    // The maker agent's limits (below Standard) still stop the fire.
+    const refusal = deps.limitRefusal?.(job) ?? null;
+    const startReason = reasonFields(refusal);
+    const placeholderSessionId = `message-${runId}`;
+    const run: CronjobRun = {
+      id: runId,
+      cronjobId: jobId,
+      cronjobName: job.name,
+      trigger,
+      status: refusal === null ? "running" : "failed",
+      startedAt: now,
+      endedAt: refusal === null ? null : now,
+      ...startReason,
+      promptSnapshot: prompt,
+      agentTypeSnapshot: job.agentType,
+      modelFamilySnapshot: job.modelFamily,
+      effortSnapshot: job.effort,
+      cwdSnapshot: job.cwd,
+      permissionModeSnapshot: job.permissionMode,
+      ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
+      rootSessionId: placeholderSessionId,
+      currentSessionId: placeholderSessionId,
+      previewText: startReason.errorReason ?? "",
+      ...(extra.triggeredBy ? { triggeredBy: extra.triggeredBy } : {}),
+      ...(extra.webhook ? { webhook: extra.webhook } : {}),
+      targetAgentSnapshot: { agentId: target.agentId, agentName: "" },
+    };
+    appendRun(jobId, run);
+    eventHandler({ type: "cronjob_run_updated", run });
+    if (refusal !== null) return run;
+
+    const finish = (patch: Partial<CronjobRun>) => {
+      const updated = updateRun(jobId, runId, {
+        endedAt: clock.now(),
+        ...patch,
+      });
+      if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
+    };
+    const failWith = (reason: LogText) =>
+      finish({ status: "failed", ...reasonFields(reason) });
+    const deliver = deps.deliverToAgent;
+    if (!deliver) {
+      failWith(
+        msg("systemEntries.scheduleRun.sendFailed", {
+          error: "this office cannot send schedule messages",
+        }),
+      );
+      return findRun(jobId, runId) ?? run;
+    }
+    void (async () => {
+      try {
+        const result = await deliver({ ...job, target }, prompt);
+        if (!result.ok) {
+          failWith(result.reason);
+          return;
+        }
+        finish({
+          status: "completed",
+          previewText: result.agentName,
+          targetAgentSnapshot: {
+            agentId: target.agentId,
+            agentName: result.agentName,
+          },
+        });
+      } catch (err) {
+        console.error(
+          `Cronjob run ${runId} send to ${target.agentId} failed:`,
+          errMessage(err),
+        );
+        failWith(
+          msg("systemEntries.scheduleRun.sendFailed", {
+            error: errorText(err),
+          }),
+        );
+      }
+    })();
     return run;
   }
 
@@ -2059,6 +2167,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         code: "run_not_found",
         message: "No such run.",
       };
+    if (run.targetAgentSnapshot) return notResumable(TARGET_RUN_NOT_RESUMABLE);
     // Synchronous claim - must happen before any await so a concurrent
     // send/edit for the same runId bails immediately. installResumedActive's
     // activeRuns.set keeps the slot held; the `finally` below releases it.
@@ -2331,7 +2440,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     opts?: { messageId?: string },
   ): Promise<void> {
     const run = findRun(jobId, runId);
-    if (!run) return;
+    // A run that sent a message to an agent has no session to edit; the
+    // route answers 409 before it gets here.
+    if (!run || run.targetAgentSnapshot) return;
     // Every exit that ends the edit without the edited message in the log
     // goes through here: the error entry keeps the edited text
     // (FAILED_EDIT_TEXT_KEY).
@@ -2805,6 +2916,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 export function createProductionCronjobManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
   limitRefusal?: CronjobManagerDeps["limitRefusal"];
+  deliverToAgent?: CronjobManagerDeps["deliverToAgent"];
   resolveOpenCodeSkillPaths?: CronjobManagerDeps["resolveOpenCodeSkillPaths"];
   resolveSkillFolder?: CronjobManagerDeps["resolveSkillFolder"];
   resolveOpenCodeLaunch?: CronjobManagerDeps["resolveOpenCodeLaunch"];
@@ -2812,6 +2924,9 @@ export function createProductionCronjobManager(overrides?: {
   return createCronjobManager({
     ...(overrides?.limitRefusal
       ? { limitRefusal: overrides.limitRefusal }
+      : {}),
+    ...(overrides?.deliverToAgent
+      ? { deliverToAgent: overrides.deliverToAgent }
       : {}),
     resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
     resolveEnv: defaultResolveEnv,

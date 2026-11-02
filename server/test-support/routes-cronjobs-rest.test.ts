@@ -34,6 +34,8 @@ import {
 } from "../../shared/i18n/log-message.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 import { join } from "path";
+import { formatCronjobSenderPrefix } from "../../shared/identity.ts";
+import { resolveCwd } from "../cwd-utils.ts";
 
 describe("cronjob REST", () => {
   // Phase 3a slice 2 - Cronjobs on the unified REST surface (opIds cron.*).
@@ -298,6 +300,13 @@ describe("cronjob REST", () => {
       [{ type: "weekly", weekday: 1.5, hour: 9, minute: 0 }, /\bweekday\b/],
       [{ type: "weekly", weekday: 1, minute: 0 }, /\bhour\b/],
       [{ type: "weekly", weekday: 1, hour: 9, minute: 60 }, /\bminute\b/],
+      [{ type: "monthly", hour: 9, minute: 0 }, /\bday\b/],
+      [{ type: "monthly", day: 0, hour: 9, minute: 0 }, /\bday\b/],
+      [{ type: "monthly", day: 32, hour: 9, minute: 0 }, /\bday\b/],
+      [{ type: "monthly", day: 1.5, hour: 9, minute: 0 }, /\bday\b/],
+      [{ type: "monthly", day: "1", hour: 9, minute: 0 }, /\bday\b/],
+      [{ type: "monthly", day: 1, minute: 0 }, /\bhour\b/],
+      [{ type: "monthly", day: 1, hour: 9, minute: 60 }, /\bminute\b/],
       [{ type: "interval" }, /\bminutes\b/],
       [{ type: "interval", minutes: 4 }, /\bminutes\b/],
       [{ type: "interval", minutes: 7.5 }, /\bminutes\b/],
@@ -329,6 +338,14 @@ describe("cronjob REST", () => {
       [
         { type: "interval", minutes: 5 },
         { type: "interval", minutes: 5 },
+      ],
+      [
+        { type: "monthly", day: 1, hour: 0, minute: 0 },
+        { type: "monthly", day: 1, hour: 0, minute: 0 },
+      ],
+      [
+        { type: "monthly", day: 31, hour: 23, minute: 59, weekday: 2 },
+        { type: "monthly", day: 31, hour: 23, minute: 59 },
       ],
       [{ type: "none" }, { type: "none" }],
     ];
@@ -1107,6 +1124,52 @@ describe("cronjob rooms", () => {
   });
 
   describe("cron rooms: create and move", () => {
+    // A room-limited token cannot see a job in no room, so it may not make
+    // one: before, the job was stored and the create answered 500 (task
+    // a0c26f59).
+    it("a room-limited token files into one of its rooms; no room is 422 and stores nothing", async () => {
+      const { srv, roomA } = await office();
+      const token = await mintApiToken({
+        userId: getUserByName("Maker")!.id,
+        name: "Room A",
+        expiresInDays: null,
+        limits: { rooms: [roomA] },
+      });
+      const before = srv.cronjobManager.listCronjobs().length;
+      for (const over of [{}, { roomId: "" }]) {
+        const res = await api(srv, "/api/cronjobs", {
+          method: "POST",
+          bearer: token.token,
+          body: createBody(srv, over),
+        });
+        const label = JSON.stringify(over);
+        expect([label, res.status]).toEqual([label, 422]);
+        expect([
+          label,
+          (res.body as { error?: { code?: string } }).error?.code,
+        ]).toEqual([label, "invalid_request"]);
+      }
+      expect(srv.cronjobManager.listCronjobs()).toHaveLength(before);
+
+      const inA = await api(srv, "/api/cronjobs", {
+        method: "POST",
+        bearer: token.token,
+        body: createBody(srv, { roomId: roomA }),
+      });
+      expect(inA.status).toBe(201);
+      const id = (inA.body as CronjobListWire).id;
+      // Moving it out of every room the token sees is refused the same way.
+      const out = await api(srv, `/api/cronjobs/${id}`, {
+        method: "PATCH",
+        bearer: token.token,
+        body: { roomId: "" },
+      });
+      expect(out.status).toBe(422);
+      expect(
+        srv.cronjobManager.listCronjobs().find((c) => c.id === id)?.roomId,
+      ).toBe(roomA);
+    });
+
     it('a member files into a room they can access, gets 404 for one they cannot, and "" means no room', async () => {
       const { srv, maker, roomA, roomB } = await office();
       const inA = await api(srv, "/api/cronjobs", {
@@ -1351,6 +1414,18 @@ describe("cronjob rooms", () => {
       const morganJob = seedJob(srv, "Morgan", roomA, "Morgan job");
       const betaJob = seedJob(srv, "Morgan", roomB, "Beta job");
       const agent = await spawnAgent(srv, "Picker", roomA);
+      // A job that messages an agent has no system prompt (task a0c26f59).
+      const targetJob = srv.cronjobManager.addCronjob({
+        name: "Target job",
+        schedule: { type: "interval", minutes: 60 },
+        prompt: PROMPT,
+        cwd: srv.stateRoot,
+        agentType: "claude",
+        username: "Morgan",
+        userId: getUserByName("Morgan")?.id ?? null,
+        roomId: roomA,
+        target: { kind: "agent", agentId: agent.id },
+      });
       const markerFor = (jobId: string) =>
         srv.agentManager
           .getAgentLogs(agent.id)
@@ -1368,6 +1443,10 @@ describe("cronjob rooms", () => {
       await sendHuman(srv, alice.rawSessionId, agent.id, hidden);
       expect(ran(hidden)).toBe(true);
       expect(markerFor(betaJob.id)).toBe(false);
+      const noPrompt = `/isomux-cronjob-system-prompt ${targetJob.id}`;
+      await sendHuman(srv, alice.rawSessionId, agent.id, noPrompt);
+      expect(ran(noPrompt)).toBe(true);
+      expect(markerFor(targetJob.id)).toBe(false);
 
       await sendHuman(
         srv,
@@ -1989,5 +2068,450 @@ describe("schedules an ordinary agent makes", () => {
     expect(refusedAtStart(await memberRun(srv, asAlice, othersJob.id))).toEqual(
       STARTED_RUN,
     );
+  });
+
+  // Task a0c26f59: a schedule that messages an agent runs no session, so the
+  // agent's mode and folder do not limit it. A maker below Standard still
+  // stops it, and turning it back into a session job is checked as one.
+  it("a schedule that messages an agent is not held to the maker's mode or folder; below Standard still stops it; back to a session is checked", async () => {
+    const { srv, asAlice, bot, spawnAgent } = await office();
+    const codexBot = await spawnAgent("Codex", {
+      agentType: "codex",
+      permissionMode: "never",
+      codexSandbox: "workspace-write",
+    });
+    // Itself as the target, and no session fields: the stored defaults are a
+    // Claude job in the home folder, wider than this agent in both mode and
+    // folder.
+    const job = await create(srv, codexBot.as, {
+      name: "Health",
+      schedule: { type: "monthly", day: 1, hour: 9, minute: 0 },
+      prompt: "Run the health check.",
+      target: { kind: "agent", agentId: codexBot.info.id },
+    });
+    expect(job.target).toEqual({ kind: "agent", agentId: codexBot.info.id });
+    expect(job.agentType).toBe("claude");
+    expect(job.cwd).toBe(resolveCwd("~"));
+
+    const started = await memberRun(srv, asAlice, job.id);
+    expect(refusedAtStart(started)).toEqual(STARTED_RUN);
+    await waitForRunEnd(srv, job.id, started.id);
+    expect(runById(srv, job.id, started.id)?.status).toBe("completed");
+
+    // The agent's own edit is not refused for mode or folder either.
+    const renamed = await api(srv, `/api/cronjobs/${job.id}`, codexBot.as, {
+      method: "PATCH",
+      body: { name: "Health check" },
+    });
+    expect(renamed.status).toBe(200);
+
+    // Back to a session job, the stored defaults are checked like a create:
+    // refused, and the target stays.
+    const back = await api(srv, `/api/cronjobs/${job.id}`, codexBot.as, {
+      method: "PATCH",
+      body: { target: null },
+    });
+    expect(outcome(back)).toEqual(CAP_REFUSED);
+    expect(
+      srv.cronjobManager.listCronjobs().find((c) => c.id === job.id)?.target,
+    ).toEqual({ kind: "agent", agentId: codexBot.info.id });
+
+    // Below Standard, the run start is refused, as for a session job. A Codex
+    // agent cannot take the office stop, so the Claude Bot makes this job;
+    // its home-folder default is outside Bot's folder too.
+    const botJob = await create(srv, bot.as, {
+      name: "Bot health",
+      schedule: { type: "monthly", day: 1, hour: 9, minute: 0 },
+      prompt: "Run the health check.",
+      target: { kind: "agent", agentId: bot.info.id },
+    });
+    const botRun = await memberRun(srv, asAlice, botJob.id);
+    expect(refusedAtStart(botRun)).toEqual(STARTED_RUN);
+    await waitForRunEnd(srv, botJob.id, botRun.id);
+    expect(runById(srv, botJob.id, botRun.id)?.status).toBe("completed");
+    const lowered = await api(
+      srv,
+      `/api/agents/${bot.info.id}/access`,
+      asAlice,
+      {
+        method: "PUT",
+        body: { access: "office", pack: { areas: { tasks: "read" } } },
+      },
+    );
+    expect(lowered.status).toBe(200);
+    const refused = await memberRun(srv, asAlice, botJob.id);
+    expect(refusedAtStart(refused)).toEqual(REFUSED_RUN);
+    expect(wordedRefusalKey(refused, "Bot")).toBeDefined();
+  });
+
+  async function waitForRunEnd(srv: TestServer, jobId: string, runId: string) {
+    const deadline = Date.now() + 3000;
+    while (runById(srv, jobId, runId)?.status === "running") {
+      if (Date.now() > deadline) throw new Error(`run ${runId} still running`);
+      await sleep(10);
+    }
+  }
+});
+
+describe("schedules that message an agent", () => {
+  // Task a0c26f59. A job with target {kind:"agent"} sends its prompt to an
+  // existing agent as a message from the schedule; no session runs. The job's
+  // OWNER must reach the agent's room, at the write and again at each fire,
+  // and a room-limited token must reach it too (the webhook rule).
+  //
+  // Seam: startTestServer(), the real delivery wiring. Zero LLM.
+
+  let server: TestServer | null = null;
+  afterEach(async () => {
+    await server?.stop();
+    server = null;
+  });
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  interface Res {
+    status: number;
+    body: unknown;
+  }
+  type Caller = { bearer: string } | { rawSessionId: string };
+  async function api(
+    srv: TestServer,
+    path: string,
+    caller: Caller,
+    init: { method?: string; body?: unknown } = {},
+  ): Promise<Res> {
+    const headers: Record<string, string> = {};
+    if ("bearer" in caller)
+      headers["Authorization"] = `Bearer ${caller.bearer}`;
+    if (init.body !== undefined) headers["Content-Type"] = "application/json";
+    const res = await srv.http(path, {
+      method: init.method ?? "GET",
+      headers,
+      ...("rawSessionId" in caller
+        ? { rawSessionId: caller.rawSessionId }
+        : {}),
+      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+    });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    return { status: res.status, body };
+  }
+  const errCode = (r: Res) =>
+    (r.body as { error?: { code?: string } } | null)?.error?.code;
+  const outcome = (r: Res) => [r.status, errCode(r) ?? null];
+
+  const PROMPT = "Run the monthly health check.";
+
+  // An owner Morgan, rooms A and B, Alice who reaches both, Carl who reaches
+  // only A, agent Pat in room A and agent Bea in room B.
+  async function office() {
+    const srv = await startTestServer();
+    server = srv;
+    const morgan = await srv.seedOwner("Morgan");
+    const roomA = srv.agentManager.createRoom("Alpha");
+    const roomB = srv.agentManager.createRoom("Beta");
+    const alice = await srv.seedMember("Alice");
+    const carl = await srv.seedMember("Carl");
+    const aliceId = getUserByName("Alice")!.id;
+    const carlId = getUserByName("Carl")!.id;
+    expect(updateUserById(aliceId, { allowedRooms: [roomA, roomB] }).ok).toBe(
+      true,
+    );
+    expect(updateUserById(carlId, { allowedRooms: [roomA] }).ok).toBe(true);
+    const spawn = async (name: string, roomId: string) => {
+      const info = await srv.agentManager.spawn(
+        name,
+        srv.stateRoot,
+        "default",
+        undefined,
+        undefined,
+        roomId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "claude",
+      );
+      if (!info) throw new Error(`spawn ${name} returned null`);
+      return info;
+    };
+    const pat = await spawn("Pat", roomA);
+    const bea = await spawn("Bea", roomB);
+    return {
+      srv,
+      roomA,
+      roomB,
+      aliceId,
+      carlId,
+      asMorgan: { rawSessionId: morgan.rawSessionId },
+      asAlice: { rawSessionId: alice.rawSessionId },
+      asCarl: { rawSessionId: carl.rawSessionId },
+      pat,
+      bea,
+    };
+  }
+
+  const targetBody = (agentId: string, over: Record<string, unknown> = {}) => ({
+    name: "Health",
+    schedule: { type: "monthly", day: 31, hour: 9, minute: 0 },
+    prompt: PROMPT,
+    target: { kind: "agent", agentId },
+    ...over,
+  });
+
+  async function create(
+    srv: TestServer,
+    caller: Caller,
+    body: Record<string, unknown>,
+  ): Promise<CronjobListWire> {
+    const made = await api(srv, "/api/cronjobs", caller, {
+      method: "POST",
+      body,
+    });
+    expect(made.status).toBe(201);
+    return made.body as CronjobListWire;
+  }
+
+  const stored = (srv: TestServer, id: string) =>
+    srv.cronjobManager.listCronjobs().find((c) => c.id === id);
+  const runById = (srv: TestServer, jobId: string, runId: string) =>
+    srv.cronjobManager.getRunsForCronjob(jobId).find((r) => r.id === runId);
+
+  async function runNow(srv: TestServer, caller: Caller, jobId: string) {
+    const res = await api(srv, `/api/cronjobs/${jobId}/runs`, caller, {
+      method: "POST",
+      body: {},
+    });
+    expect(res.status).toBe(200);
+    const runId = (res.body as { runId: string }).runId;
+    const deadline = Date.now() + 3000;
+    while (runById(srv, jobId, runId)?.status === "running") {
+      if (Date.now() > deadline) throw new Error(`run ${runId} still running`);
+      await sleep(10);
+    }
+    const run = runById(srv, jobId, runId);
+    if (!run) throw new Error(`run ${runId} not recorded`);
+    return run;
+  }
+
+  // The prompts the fake backend received in the sessions of one stream id.
+  const promptsOf = (srv: TestServer, streamId: string) =>
+    srv.fakeBackend.sessions
+      .filter((s) => s.opts.agentId === streamId)
+      .flatMap((s) => s.sent.map((m) => m.text));
+
+  // A failed run's reason: a catalog message, and errorReason its English.
+  function expectWordedFailure(run: CronjobRun) {
+    expect(run.status).toBe("failed");
+    expect(run.errorReasonMessage).toBeDefined();
+    expect(localizeLogParts(translatorFor("en"), run.errorReasonMessage)).toBe(
+      run.errorReason,
+    );
+  }
+
+  it("the agent gets the prompt as the schedule's message, and the run records the send with no session", async () => {
+    const { srv, asAlice, pat } = await office();
+    // No session fields: the server stores its defaults.
+    const job = await create(srv, asAlice, targetBody(pat.id));
+    expect(job.target).toEqual({ kind: "agent", agentId: pat.id });
+    expect(job.schedule).toEqual({
+      type: "monthly",
+      day: 31,
+      hour: 9,
+      minute: 0,
+    });
+    expect(job).toMatchObject({
+      agentType: "claude",
+      permissionMode: "bypassPermissions",
+      cwd: resolveCwd("~"),
+    });
+
+    const run = await runNow(srv, asAlice, job.id);
+    expect(run.status).toBe("completed");
+    expect(run.errorReason).toBeNull();
+    expect(run.targetAgentSnapshot).toEqual({
+      agentId: pat.id,
+      agentName: "Pat",
+    });
+    const label = `${formatCronjobSenderPrefix("Health")} ${PROMPT}`;
+    const deadline = Date.now() + 3000;
+    while (!promptsOf(srv, pat.id).some((t) => t.includes(label))) {
+      if (Date.now() > deadline)
+        throw new Error("the agent never got the schedule's message");
+      await sleep(10);
+    }
+    // The fire opened no session of its own.
+    expect(promptsOf(srv, cronjobRunStreamId(run.id))).toEqual([]);
+
+    // Nothing can be sent into the run, and a refused send writes nothing
+    // into it: it has no transcript.
+    const message = await api(
+      srv,
+      `/api/cronjobs/${job.id}/runs/${run.id}/messages`,
+      asAlice,
+      { method: "POST", body: { text: "and one more thing" } },
+    );
+    expect(outcome(message)).toEqual([409, "run_not_resumable"]);
+    const edit = await api(
+      srv,
+      `/api/cronjobs/${job.id}/runs/${run.id}/messages/entry-1`,
+      asAlice,
+      { method: "PATCH", body: { newText: "instead" } },
+    );
+    expect(outcome(edit)).toEqual([409, "run_not_resumable"]);
+    expect(promptsOf(srv, cronjobRunStreamId(run.id))).toEqual([]);
+    const read = await api(
+      srv,
+      `/api/cronjobs/${job.id}/runs/${run.id}`,
+      asAlice,
+    );
+    expect(read.status).toBe(200);
+    expect((read.body as { entries: LogEntry[] }).entries).toEqual([]);
+
+    // No session runs, so there is no system prompt to read.
+    const prompt = await api(
+      srv,
+      `/api/cronjobs/${job.id}/system-prompt`,
+      asAlice,
+    );
+    expect(outcome(prompt)).toEqual([409, "agent_target"]);
+  });
+
+  it("the owner must reach the agent's room, and a room-limited token too; else 404 and nothing changes", async () => {
+    const { srv, roomA, aliceId, asMorgan, asAlice, asCarl, pat, bea } =
+      await office();
+    const before = srv.cronjobManager.listCronjobs().length;
+    const roomAToken = await mintApiToken({
+      userId: aliceId,
+      name: "Room A",
+      expiresInDays: null,
+      limits: { rooms: [roomA] },
+    });
+    const refusals: Array<[string, Caller, string]> = [
+      ["a member outside the agent's room", asCarl, bea.id],
+      ["an unknown agent", asAlice, "agent-1700000000000-zzzz"],
+      ["a token limited to another room", { bearer: roomAToken.token }, bea.id],
+    ];
+    for (const [label, caller, agentId] of refusals) {
+      // In room A, so a room-limited token's create has a room it sees.
+      const res = await api(srv, "/api/cronjobs", caller, {
+        method: "POST",
+        body: targetBody(agentId, { roomId: roomA }),
+      });
+      expect([label, ...outcome(res)]).toEqual([label, 404, "not_found"]);
+    }
+    expect(srv.cronjobManager.listCronjobs()).toHaveLength(before);
+
+    // Within reach: Alice's session to Bea, her room-A token to Pat.
+    await create(srv, asAlice, targetBody(bea.id));
+    await create(
+      srv,
+      { bearer: roomAToken.token },
+      targetBody(pat.id, { roomId: roomA }),
+    );
+
+    // PATCH follows the same rule, and the reach is the OWNER's: an office
+    // owner cannot point Carl's job at an agent Carl does not reach.
+    const carlsJob = await create(srv, asCarl, targetBody(pat.id));
+    for (const caller of [asCarl, asMorgan]) {
+      const res = await api(srv, `/api/cronjobs/${carlsJob.id}`, caller, {
+        method: "PATCH",
+        body: { target: { kind: "agent", agentId: bea.id } },
+      });
+      expect(outcome(res)).toEqual([404, "not_found"]);
+    }
+    expect(stored(srv, carlsJob.id)?.target).toEqual({
+      kind: "agent",
+      agentId: pat.id,
+    });
+
+    // A target that is not one: 422, naming the field, nothing stored.
+    const count = srv.cronjobManager.listCronjobs().length;
+    for (const target of [
+      { kind: "agent" },
+      { kind: "session", agentId: pat.id },
+      "agent",
+    ]) {
+      const res = await api(srv, "/api/cronjobs", asAlice, {
+        method: "POST",
+        body: targetBody(pat.id, { target }),
+      });
+      const label = JSON.stringify(target);
+      expect([label, ...outcome(res)]).toEqual([label, 422, "invalid_request"]);
+      expect(
+        (res.body as { error?: { message?: string } }).error?.message,
+      ).toMatch(/\btarget\b/);
+    }
+    expect(srv.cronjobManager.listCronjobs()).toHaveLength(count);
+  });
+
+  it("a send the owner can no longer make fails the run with its reason; turning the job off and deleting it stay open", async () => {
+    const { srv, roomA, aliceId, asAlice, bea } = await office();
+    const job = await create(srv, asAlice, targetBody(bea.id));
+
+    // Alice loses room B: the fire re-checks her reach.
+    expect(updateUserById(aliceId, { allowedRooms: [roomA] }).ok).toBe(true);
+    expectWordedFailure(await runNow(srv, asAlice, job.id));
+    expect(promptsOf(srv, bea.id).some((t) => t.includes(PROMPT))).toBe(false);
+
+    // Back in room B, the agent is removed.
+    const roomB = bea.roomId;
+    expect(updateUserById(aliceId, { allowedRooms: [roomA, roomB] }).ok).toBe(
+      true,
+    );
+    await srv.agentManager.kill(bea.id);
+    await sleep(0);
+    expect(srv.agentManager.getAgent(bea.id)).toBeFalsy();
+    expectWordedFailure(await runNow(srv, asAlice, job.id));
+
+    const off = await api(srv, `/api/cronjobs/${job.id}`, asAlice, {
+      method: "PATCH",
+      body: { enabled: false },
+    });
+    expect(off.status).toBe(200);
+    const gone = await api(srv, `/api/cronjobs/${job.id}`, asAlice, {
+      method: "DELETE",
+    });
+    expect(gone.status).toBe(204);
+  });
+
+  it("target null turns the job back into a session job, checked as one", async () => {
+    const { srv, asAlice, pat } = await office();
+    const job = await create(srv, asAlice, targetBody(pat.id));
+
+    const badCwd = await api(srv, `/api/cronjobs/${job.id}`, asAlice, {
+      method: "PATCH",
+      body: { target: null, cwd: join(srv.stateRoot, "no-such-folder") },
+    });
+    expect(outcome(badCwd)).toEqual([400, "invalid_cwd"]);
+    expect(stored(srv, job.id)?.target).toEqual({
+      kind: "agent",
+      agentId: pat.id,
+    });
+
+    const back = await api(srv, `/api/cronjobs/${job.id}`, asAlice, {
+      method: "PATCH",
+      body: { target: null, cwd: srv.stateRoot },
+    });
+    expect(back.status).toBe(200);
+    expect((back.body as Cronjob).target).toBeUndefined();
+    expect(stored(srv, job.id)?.target).toBeUndefined();
+    // A run now is a session run of the job's prompt.
+    const res = await api(srv, `/api/cronjobs/${job.id}/runs`, asAlice, {
+      method: "POST",
+      body: {},
+    });
+    expect(res.status).toBe(200);
+    const runId = (res.body as { runId: string }).runId;
+    const deadline = Date.now() + 3000;
+    while (!promptsOf(srv, cronjobRunStreamId(runId)).includes(PROMPT)) {
+      if (Date.now() > deadline) throw new Error("no session run");
+      await sleep(10);
+    }
+    expect(runById(srv, job.id, runId)?.targetAgentSnapshot).toBeUndefined();
   });
 });

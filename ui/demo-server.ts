@@ -1,5 +1,6 @@
 import type { AuditEntry } from "../shared/audit.ts";
 import { skillFileProblem } from "../shared/skill-validation.ts";
+import { nextScheduledFire } from "../shared/schedule-next-fire.ts";
 import {
   membersChatExcerpt,
   recentMembersChatPins,
@@ -94,6 +95,7 @@ import {
   DEFAULT_AGENT_CAPABILITIES,
   NEW_AGENT_PERMISSION_MODE,
   DEFAULT_EFFORT,
+  MODEL_FAMILIES,
   OPENCODE_DEFAULT_MODEL,
   cronjobRunStreamId,
   generateCronjobId,
@@ -1424,26 +1426,7 @@ function computeNextFireDemo(
   anchor: number,
   now: number = Date.now(),
 ): number | null {
-  if (schedule.type === "none") return null;
-  if (schedule.type === "interval") {
-    const intervalMs = Math.max(5, schedule.minutes) * 60_000;
-    if (now <= anchor) return anchor + intervalMs;
-    const periods = Math.floor((now - anchor) / intervalMs) + 1;
-    return anchor + periods * intervalMs;
-  }
-  const next = new Date(now);
-  next.setSeconds(0, 0);
-  next.setHours(schedule.hour, schedule.minute, 0, 0);
-  if (schedule.type === "daily") {
-    if (next.getTime() <= now) next.setDate(next.getDate() + 1);
-    return next.getTime();
-  }
-  // weekly
-  const currentDay = next.getDay();
-  let daysAhead = (schedule.weekday - currentDay + 7) % 7;
-  if (daysAhead === 0 && next.getTime() <= now) daysAhead = 7;
-  next.setDate(next.getDate() + daysAhead);
-  return next.getTime();
+  return nextScheduledFire(schedule, anchor, now);
 }
 
 const DEMO_CRONJOBS_SEED: {
@@ -2951,11 +2934,14 @@ export async function demoApi(
         name: b.name,
         schedule: b.schedule,
         prompt: b.prompt,
-        cwd: b.cwd,
+        ...(b.target ? { target: b.target } : {}),
+        // A job that messages an agent may omit the session fields, as on
+        // the server.
+        cwd: b.cwd ?? "~",
         agentType: b.agentType ?? "claude",
-        modelFamily: b.modelFamily,
-        effort: b.effort,
-        permissionMode: b.permissionMode,
+        modelFamily: b.modelFamily ?? MODEL_FAMILIES[0].family,
+        effort: b.effort ?? DEFAULT_EFFORT,
+        permissionMode: b.permissionMode ?? "bypassPermissions",
         codexSandbox: b.codexSandbox,
         enabled: true,
         createdBy: "Ricky",
@@ -3492,10 +3478,13 @@ export async function demoApi(
     const idx = cronjobs.findIndex((c) => c.id === id);
     if (method === "PATCH") {
       if (idx < 0) return undefined;
-      const changes = (body ?? {}) as CronUpdateReq;
+      const { target, ...changes } = (body ?? {}) as CronUpdateReq;
       const merged: Cronjob = { ...cronjobs[idx], ...changes };
-      // "" clears the room, as on the server.
+      // "" clears the room, and a null target goes back to a session, as on
+      // the server.
       if (changes.roomId === "") delete merged.roomId;
+      if (target === null) delete merged.target;
+      else if (target) merged.target = target;
       if (changes.schedule) {
         const anchor = merged.lastFireAt ?? merged.createdAt;
         merged.nextFireAt = computeNextFireDemo(

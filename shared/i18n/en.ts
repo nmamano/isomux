@@ -1475,6 +1475,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.schedule.weekly": "Weekly",
   "dialogs.schedule.interval": "Every N minutes",
   "dialogs.schedule.none": "On demand",
+  "dialogs.schedule.monthly": "Monthly",
   "dialogs.schedule.weekday.sunday": "Sunday",
   "dialogs.schedule.weekday.monday": "Monday",
   "dialogs.schedule.weekday.tuesday": "Tuesday",
@@ -1486,6 +1487,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.schedule.minute": "Minute (0-59)",
   "dialogs.schedule.intervalMinutes": "Interval (minutes, min 5)",
   "dialogs.schedule.serverLocal": "Times are server-local.",
+  "dialogs.schedule.day": "Day of the month (1-31)",
+  "dialogs.schedule.dayHint":
+    "Days 29 to 31 run on the last day of a shorter month.",
+  "dialogs.schedule.target": "Each run",
+  "dialogs.schedule.targetSession": "Starts a new session",
+  "dialogs.schedule.targetAgent": "Messages an agent",
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Schedule Prompt",
   "dialogs.schedule.promptPlaceholder":
@@ -2619,6 +2626,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "cwd: {cwd} · model: {model} · effort: {effort} · permission: {permission}",
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "This run was skipped.",
+  "schedules.messagesAgent": "Messages {agent}",
+  "schedules.messageTo": "Message to {agent}",
+  "schedules.agentRunNoSession":
+    "Runs that message an agent have no session to resume.",
   "schedules.noEntries": "No log entries.",
   "schedules.runningDots": "Running...",
   "schedules.editingAbove": "Editing message above...",
@@ -2757,6 +2768,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "schedules.human.everyHours": "Every {hours}h",
   "schedules.human.everyHoursMinutes": "Every {hours}h{minutes}m",
   "schedules.human.none": "On demand",
+  "schedules.human.monthly": "Monthly on day {day} at {time}",
   "schedules.nextRunIn": "in {duration}",
 
   // --- S7: text the server writes for a signed-in reader -------------------
@@ -3347,6 +3359,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.scheduleRun.jobDeleted":
     "Run stopped: the schedule was deleted.",
   "systemEntries.scheduleRun.sendFailed": "Failed to send: {error}",
+  "systemEntries.scheduleRun.agentUnreachable":
+    "The agent no longer exists, or the schedule's owner has no access to its room.",
+  "systemEntries.scheduleRun.agentStopped":
+    "The agent is stopped or in an error state, so it did not get the message.",
+  "systemEntries.scheduleRun.agentQueueFull":
+    "The agent's message queue is full, so it did not get the message.",
   "systemEntries.scheduleRun.editBusy": "Cannot edit while the run is busy.",
   "systemEntries.scheduleRun.editSkipped":
     "Cannot edit a skipped run - it never opened a session.",

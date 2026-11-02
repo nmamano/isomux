@@ -66,6 +66,7 @@ export function CronjobRunView({
   onOpenWebhook?: (webhookId: string, deliveryRowId: string) => void;
 }) {
   const {
+    agents,
     webhooks,
     cronjobs,
     cronjobRunsByJob,
@@ -280,11 +281,19 @@ export function CronjobRunView({
   // A deleted job's runs are office owners'.
   const job = cronjobs.find((c) => c.id === jobId);
   const mayManage = job ? job.canManage : sessionContext?.role === "owner";
+  // A run that messaged an agent has no session: nothing can be sent into it.
+  const sentTo = run?.targetAgentSnapshot;
+  const sentToName = sentTo
+    ? sentTo.agentName ||
+      agents.find((a) => a.id === sentTo.agentId)?.name ||
+      sentTo.agentId
+    : null;
   const canResume =
     mayManage &&
     !!run &&
     !isRunning &&
     run.status !== "skipped" &&
+    !sentTo &&
     hasResumableSession;
 
   // Auto-scroll to bottom on new entries when the user hasn't scrolled up.
@@ -585,17 +594,33 @@ export function CronjobRunView({
               {t("schedules.promptLabel")}
             </div>
             <div style={{ whiteSpace: "pre-wrap" }}>{run.promptSnapshot}</div>
-            <div
-              {...noTranslate()}
-              style={{ marginTop: 8, fontSize: 10, color: "var(--text-ghost)" }}
-            >
-              {t("schedules.snapshot", {
-                cwd: shortenCwd(run.cwdSnapshot),
-                model: run.modelFamilySnapshot,
-                effort: run.effortSnapshot,
-                permission: run.permissionModeSnapshot,
-              })}
-            </div>
+            {sentToName !== null ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                }}
+              >
+                {t("schedules.messageTo", { agent: sentToName })}
+              </div>
+            ) : (
+              <div
+                {...noTranslate()}
+                style={{
+                  marginTop: 8,
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                }}
+              >
+                {t("schedules.snapshot", {
+                  cwd: shortenCwd(run.cwdSnapshot),
+                  model: run.modelFamilySnapshot,
+                  effort: run.effortSnapshot,
+                  permission: run.permissionModeSnapshot,
+                })}
+              </div>
+            )}
             {run.errorReason && (
               <div
                 style={{ marginTop: 8, fontSize: 11, color: "var(--red-text)" }}
@@ -852,13 +877,15 @@ export function CronjobRunView({
             textAlign: "center",
           }}
         >
-          {isRunning
-            ? t("schedules.waitToFollowUp")
-            : t(
-                run?.status === "skipped"
-                  ? "schedules.skippedNoSession"
-                  : "schedules.noSession",
-              )}
+          {sentTo
+            ? t("schedules.agentRunNoSession")
+            : isRunning
+              ? t("schedules.waitToFollowUp")
+              : t(
+                  run?.status === "skipped"
+                    ? "schedules.skippedNoSession"
+                    : "schedules.noSession",
+                )}
         </div>
       )}
     </div>

@@ -69,6 +69,11 @@ export function scheduleText(
       weekday: weekdayName(language, schedule.weekday),
       time: `${pad(schedule.hour)}:${pad(schedule.minute)}`,
     });
+  if (schedule.type === "monthly")
+    return t("schedules.human.monthly", {
+      day: schedule.day,
+      time: `${pad(schedule.hour)}:${pad(schedule.minute)}`,
+    });
   if (schedule.type === "none") return t("schedules.human.none");
   const { minutes } = schedule;
   if (minutes < 60) return t("schedules.human.everyMinutes", { minutes });

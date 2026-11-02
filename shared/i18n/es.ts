@@ -1496,6 +1496,7 @@ Cosas que puedes hacer por él:
   "dialogs.schedule.weekly": "Cada semana",
   "dialogs.schedule.interval": "Cada N minutos",
   "dialogs.schedule.none": "Bajo demanda",
+  "dialogs.schedule.monthly": "Cada mes",
   "dialogs.schedule.weekday.sunday": "Domingo",
   "dialogs.schedule.weekday.monday": "Lunes",
   "dialogs.schedule.weekday.tuesday": "Martes",
@@ -1507,6 +1508,12 @@ Cosas que puedes hacer por él:
   "dialogs.schedule.minute": "Minuto (0-59)",
   "dialogs.schedule.intervalMinutes": "Intervalo (minutos, mínimo 5)",
   "dialogs.schedule.serverLocal": "Las horas son las del servidor.",
+  "dialogs.schedule.day": "Día del mes (1-31)",
+  "dialogs.schedule.dayHint":
+    "Los días 29 a 31 se ejecutan el último día de un mes más corto.",
+  "dialogs.schedule.target": "Cada ejecución",
+  "dialogs.schedule.targetSession": "Inicia una sesión nueva",
+  "dialogs.schedule.targetAgent": "Envía un mensaje a un agente",
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Prompt de la programación",
   "dialogs.schedule.promptPlaceholder":
@@ -2678,6 +2685,10 @@ Cosas que puedes hacer por él:
     "cwd: {cwd} · modelo: {model} · esfuerzo: {effort} · permiso: {permission}",
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "Esta ejecución se omitió.",
+  "schedules.messagesAgent": "Envía un mensaje a {agent}",
+  "schedules.messageTo": "Mensaje para {agent}",
+  "schedules.agentRunNoSession":
+    "Las ejecuciones que envían un mensaje a un agente no tienen sesión que reanudar.",
   "schedules.noEntries": "No hay entradas de registro.",
   "schedules.runningDots": "En curso...",
   "schedules.editingAbove": "Editando el mensaje de arriba...",
@@ -2819,6 +2830,7 @@ Cosas que puedes hacer por él:
   "schedules.human.everyHours": "Cada {hours}h",
   "schedules.human.everyHoursMinutes": "Cada {hours}h{minutes}m",
   "schedules.human.none": "Bajo demanda",
+  "schedules.human.monthly": "Cada mes, el día {day} a las {time}",
   "schedules.nextRunIn": "en {duration}",
 
   "commands.clear.description": "Borrar el historial de la conversación",
@@ -3392,6 +3404,12 @@ Cosas que puedes hacer por él:
   "systemEntries.scheduleRun.jobDeleted":
     "Ejecución detenida: se eliminó la programación.",
   "systemEntries.scheduleRun.sendFailed": "No se pudo enviar: {error}",
+  "systemEntries.scheduleRun.agentUnreachable":
+    "El agente ya no existe, o el propietario de la programación no tiene acceso a su sala.",
+  "systemEntries.scheduleRun.agentStopped":
+    "El agente está detenido o en estado de error, así que no recibió el mensaje.",
+  "systemEntries.scheduleRun.agentQueueFull":
+    "La cola de mensajes del agente está llena, así que no recibió el mensaje.",
   "systemEntries.scheduleRun.editBusy":
     "No se puede editar mientras la ejecución está ocupada.",
   "systemEntries.scheduleRun.editSkipped":

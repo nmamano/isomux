@@ -25,6 +25,7 @@ import type {
   AgentBackendType,
   TaskItem,
   Cronjob,
+  CronjobTarget,
   Attachment,
   LogEntry,
   MemoryScope,
@@ -1681,11 +1682,14 @@ export interface CronCreateReq {
   name: string;
   schedule: Cronjob["schedule"];
   prompt: string;
-  cwd: string;
+  // Absent: each fire runs a fresh session. With a target, the session
+  // fields below may be omitted (the server stores its defaults).
+  target?: CronjobTarget;
+  cwd?: string;
   agentType?: Cronjob["agentType"];
-  modelFamily: Cronjob["modelFamily"];
-  effort: Cronjob["effort"];
-  permissionMode: Cronjob["permissionMode"];
+  modelFamily?: Cronjob["modelFamily"];
+  effort?: Cronjob["effort"];
+  permissionMode?: Cronjob["permissionMode"];
   codexSandbox?: Cronjob["codexSandbox"];
   // Task semantics: omitted = an agent caller's own room, else no room;
   // "" = no room; any other value must be a room the caller can access.
@@ -1696,6 +1700,8 @@ export type CronUpdateReq = Partial<{
   name: string;
   schedule: Cronjob["schedule"];
   prompt: string;
+  // null: back to a fresh session at each fire.
+  target: CronjobTarget | null;
   cwd: string;
   agentType: Cronjob["agentType"];
   modelFamily: Cronjob["modelFamily"];

@@ -761,6 +761,7 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
       visibleTo: () => true,
       assignableRoomIds: () => new Set(),
       defaultCreateRoomId: () => undefined,
+      agentTargetReachable: () => false,
       buildCronjobSystemPrompt: () => "system prompt",
       createCronjob: async () => {
         throw new Error("unused");

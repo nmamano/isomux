@@ -65,7 +65,11 @@ import {
   RECEPTIONIST_OUTFIT,
 } from "../shared/receptionist-profile.ts";
 import { english, translatorForRequest, translatorForUserId } from "./i18n.ts";
-import { renderLogText } from "../shared/i18n/log-message.ts";
+import {
+  msg,
+  renderLogText,
+  type LogMessage,
+} from "../shared/i18n/log-message.ts";
 import {
   INSTALL_KIND,
   isHostedAccess,
@@ -218,6 +222,7 @@ import {
 } from "./spawn-agent-limits.ts";
 import type {
   Cronjob,
+  CronjobTarget,
   CronjobListWire,
   CronjobRun,
   LogEntry,
@@ -1063,6 +1068,7 @@ function createManagers(startOpts: StartServerOpts): void {
       const breach = maker ? scheduleLimitBreach(job, maker) : null;
       return maker && breach ? scheduleRunRefusal(breach, maker, job) : null;
     },
+    deliverToAgent: deliverCronjobToAgent,
   });
   // Register the production instance for the module-read bridge that
   // command-handlers/usage-report use (they don't hold the instance).
@@ -1961,6 +1967,73 @@ function webhookAgentReachable(
   const target = agentManager.getAgent(agentId);
   if (!owner || !target) return "unavailable";
   return accessibleRoomIdsFor(owner).has(target.roomId) ? "ok" : "unavailable";
+}
+
+// A room-limited token reaches only the agents in its rooms; every other
+// caller reaches any agent (the owner rule is checked apart).
+function callerReachesAgent(identity: Identity, agentId: string): boolean {
+  if (tokenRooms(identity) === null) return true;
+  const target = agentManager.getAgent(agentId);
+  return (
+    !!target && buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)
+  );
+}
+
+// A fire of a schedule with an agent target (task a0c26f59): the prompt goes
+// to the agent as a message from the schedule. The job OWNER must still reach
+// the agent's room, as for a webhook's agent target.
+async function deliverCronjobToAgent(
+  job: Cronjob & { target: CronjobTarget },
+  text: string,
+): Promise<
+  | { ok: true; messageId: string; agentName: string }
+  | { ok: false; reason: LogMessage }
+> {
+  const agentId = job.target.agentId;
+  const unreachable = {
+    ok: false as const,
+    reason: msg("systemEntries.scheduleRun.agentUnreachable"),
+  };
+  if (webhookAgentReachable(job.userId, agentId) !== "ok") return unreachable;
+  await agentManager.prepareEnqueue(agentId);
+  // The await above can outlast a change to the job or to the owner's rooms.
+  // Everything from here to the enqueue is synchronous.
+  const current = cronjobManager.listCronjobs().find((c) => c.id === job.id);
+  if (!current)
+    return { ok: false, reason: msg("systemEntries.scheduleRun.jobDeleted") };
+  if (
+    current.target?.agentId !== agentId ||
+    webhookAgentReachable(current.userId, agentId) !== "ok"
+  )
+    return unreachable;
+  const result = agentManager.enqueueMessage(agentId, {
+    sender: {
+      kind: "cronjob",
+      cronjobId: current.id,
+      cronjobName: current.name,
+    },
+    text,
+  });
+  if (result.ok)
+    return {
+      ok: true,
+      messageId: result.messageId ?? "",
+      agentName: agentManager.getAgent(agentId)?.name ?? agentId,
+    };
+  if (result.error === "agent_stopped" || result.error === "agent_error")
+    return { ok: false, reason: msg("systemEntries.scheduleRun.agentStopped") };
+  if (result.error === "queue_full")
+    return {
+      ok: false,
+      reason: msg("systemEntries.scheduleRun.agentQueueFull"),
+    };
+  if (result.status === 404) return unreachable;
+  return {
+    ok: false,
+    reason: msg("systemEntries.scheduleRun.sendFailed", {
+      error: result.error,
+    }),
+  };
 }
 
 // A webhook's cronjob target: the hook OWNER must still exist and own the
@@ -4574,14 +4647,7 @@ function buildExecutorDeps(
     webhookTargetPrecondition({
       get: (id) => webhookRegistry.get(id),
       agentReachableByUser: webhookAgentReachable,
-      callerReachesAgent: (identity, agentId) => {
-        if (tokenRooms(identity) === null) return true;
-        const target = agentManager.getAgent(agentId);
-        return (
-          !!target &&
-          buildLiveGuardDeps().hasRoomAccess(identity, target.roomId)
-        );
-      },
+      callerReachesAgent,
       cronjobExists: (cronjobId) =>
         cronjobManager.listCronjobs().some((job) => job.id === cronjobId),
       // An ordinary agent's own job must also still be within its limits,
@@ -4664,6 +4730,11 @@ function buildExecutorDeps(
         );
       },
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
+      // The webhook rule: the job owner reaches the agent's room, and a
+      // room-limited token reaches it too.
+      agentTargetReachable: (identity, ownerUserId, agentId) =>
+        webhookAgentReachable(ownerUserId, agentId) === "ok" &&
+        callerReachesAgent(identity, agentId),
       ownScheduleLimits: ownScheduleLimitsFor,
       buildCronjobSystemPrompt: (cronjob) =>
         cronjobManager.buildCronjobSystemPrompt(cronjob),

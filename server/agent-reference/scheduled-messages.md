@@ -1,6 +1,6 @@
 # Scheduled messages
 
-Schedule an agent message by adding the query parameter `deliverAt=<time>` to `POST /api/agents/:recipientId/messages` with the message as a `text/plain` body. Use RFC3339 with an explicit UTC offset, in the future and at most 30 days ahead. Delivery survives restart and can wake an idle recipient. The create response names the item `scheduledId`.
+Schedule an agent message by adding the query parameter `deliverAt=<time>` to `POST /api/agents/:recipientId/messages` with the message as a `text/plain` body. Use RFC3339 with an explicit UTC offset, in the future and at most 30 days ahead. Delivery survives restart and can wake an idle recipient. The create response names the item `scheduledId`. For a message that repeats, make a schedule that messages the agent instead (page `cronjob-management`).
 
 `GET /api/agents/:senderId/scheduled-messages` lists the sender's outbox as `{scheduled:[...]}`. Entries use `id`, `receiverAgentId`, `deliverAt` in epoch milliseconds, and `text`. `DELETE /api/agents/:senderId/scheduled-messages/:id` cancels an item; use the create response's `scheduledId`. The route id is recipient on create but sender on list/delete.
 

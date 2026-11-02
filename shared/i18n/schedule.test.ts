@@ -25,6 +25,7 @@ const EVERY_MINUTES: Schedule = { type: "interval", minutes: 45 };
 const EVERY_HOURS: Schedule = { type: "interval", minutes: 180 };
 const EVERY_MIXED: Schedule = { type: "interval", minutes: 150 };
 const NONE: Schedule = { type: "none" };
+const MONTHLY: Schedule = { type: "monthly", day: 31, hour: 7, minute: 5 };
 
 // The short weekday name in `code`, read in UTC as schedule.ts reads it.
 const weekdayIn = (code: SupportedLanguageCode, utcDate: number) =>
@@ -58,6 +59,18 @@ describe("scheduleText", () => {
       expect(say(code, early), code).toContain("07:05");
   });
 
+  // Task a0c26f59: the day of the month and the clock, in each language's
+  // own words.
+  it("names the day of the month and the time in every language", () => {
+    const english = say("en", MONTHLY);
+    for (const { code } of SUPPORTED_LANGUAGES) {
+      const text = say(code, MONTHLY);
+      expect(text, code).toContain("31");
+      expect(text, code).toContain("07:05");
+      if (code !== "en") expect(text, code).not.toBe(english);
+    }
+  });
+
   it("joins a Chinese weekday directly and separates numeric values", () => {
     const weekly = say("zh", WEEKLY);
     const weekday = weekdayIn("zh", 7 + WEEKLY.weekday);
@@ -83,6 +96,8 @@ describe("the English and humanizeSchedule", () => {
       EVERY_HOURS,
       EVERY_MIXED,
       NONE,
+      MONTHLY,
+      { type: "monthly", day: 1, hour: 0, minute: 0 } as Schedule,
       { type: "weekly", weekday: 6, hour: 0, minute: 0 } as Schedule,
       { type: "interval", minutes: 1 } as Schedule,
     ])

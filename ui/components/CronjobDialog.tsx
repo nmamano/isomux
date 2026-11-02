@@ -73,7 +73,11 @@ export interface CronjobFormSnapshot {
   hourStr: string;
   minuteStr: string;
   weekday: number;
+  dayStr: string;
   intervalStr: string;
+  // "session": each fire runs a fresh session; "agent": it messages agentId.
+  targetKind: "session" | "agent";
+  targetAgentId: string;
   prompt: string;
   cwd: string;
   agentType: AgentBackendType;
@@ -96,7 +100,10 @@ export function cronjobFormDirty(
     current.hourStr !== baseline.hourStr ||
     current.minuteStr !== baseline.minuteStr ||
     current.weekday !== baseline.weekday ||
+    current.dayStr !== baseline.dayStr ||
     current.intervalStr !== baseline.intervalStr ||
+    current.targetKind !== baseline.targetKind ||
+    current.targetAgentId !== baseline.targetAgentId ||
     current.prompt.trim() !== baseline.prompt.trim() ||
     current.cwd.trim() !== baseline.cwd.trim() ||
     current.agentType !== baseline.agentType ||
@@ -123,6 +130,7 @@ export function CronjobDialog({
   const i18n = useI18n();
   const { t } = i18n;
   const {
+    agents,
     recentCwds,
     isMobile,
     unavailableEngines,
@@ -153,14 +161,14 @@ export function CronjobDialog({
   // Time/interval inputs are kept as strings so the user can type "300" without
   // the onChange clamping mid-keystroke (e.g. "3" → clamped to 5). Final values
   // are parsed and clamped at save time.
-  const initialHour =
-    cronjob?.schedule.type === "daily" || cronjob?.schedule.type === "weekly"
-      ? cronjob.schedule.hour
-      : 9;
-  const initialMinute =
-    cronjob?.schedule.type === "daily" || cronjob?.schedule.type === "weekly"
-      ? cronjob.schedule.minute
-      : 0;
+  const clockSchedule =
+    cronjob?.schedule.type === "daily" ||
+    cronjob?.schedule.type === "weekly" ||
+    cronjob?.schedule.type === "monthly"
+      ? cronjob.schedule
+      : null;
+  const initialHour = clockSchedule ? clockSchedule.hour : 9;
+  const initialMinute = clockSchedule ? clockSchedule.minute : 0;
   const initialInterval =
     cronjob?.schedule.type === "interval" ? cronjob.schedule.minutes : 60;
   const [hourStr, setHourStr] = useState(String(initialHour));
@@ -168,7 +176,29 @@ export function CronjobDialog({
   const [weekday, setWeekday] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(
     cronjob?.schedule.type === "weekly" ? cronjob.schedule.weekday : 1,
   );
+  const [dayStr, setDayStr] = useState(
+    String(cronjob?.schedule.type === "monthly" ? cronjob.schedule.day : 1),
+  );
   const [intervalStr, setIntervalStr] = useState(String(initialInterval));
+
+  // Where each fire goes. Only a changed target is sent, so an edit of a job
+  // whose agent is gone does not send it again.
+  const [targetKind, setTargetKind] = useState<"session" | "agent">(
+    cronjob?.target ? "agent" : "session",
+  );
+  const [targetAgentId, setTargetAgentId] = useState(
+    cronjob?.target?.agentId ?? "",
+  );
+  const isAgentTarget = targetKind === "agent";
+  // A target the viewer cannot pick (gone, or out of reach) stays selected,
+  // shown as unavailable, until the member picks another.
+  const agentOptions = agents.map((a) => ({ id: a.id, label: a.name }));
+  if (targetAgentId && !agentOptions.some((o) => o.id === targetAgentId)) {
+    agentOptions.unshift({
+      id: targetAgentId,
+      label: t("webhooks.target.unavailable", { id: targetAgentId }),
+    });
+  }
 
   function clamp(n: number, lo: number, hi: number): number {
     return Math.max(lo, Math.min(hi, n));
@@ -216,7 +246,10 @@ export function CronjobDialog({
     hourStr,
     minuteStr,
     weekday,
+    dayStr,
     intervalStr,
+    targetKind,
+    targetAgentId,
     prompt,
     cwd,
     agentType,
@@ -426,8 +459,26 @@ export function CronjobDialog({
     if (scheduleType === "daily") return { type: "daily", hour, minute };
     if (scheduleType === "weekly")
       return { type: "weekly", weekday, hour, minute };
+    if (scheduleType === "monthly")
+      return {
+        type: "monthly",
+        day: clamp(parseIntOr(dayStr, 1), 1, 31),
+        hour,
+        minute,
+      };
     if (scheduleType === "none") return { type: "none" };
     return { type: "interval", minutes: intervalMinutes };
+  }
+
+  function sessionFields() {
+    return {
+      cwd,
+      agentType,
+      modelFamily,
+      effort,
+      permissionMode,
+      ...(isCodex ? { codexSandbox } : {}),
+    };
   }
 
   function handleSave() {
@@ -435,7 +486,11 @@ export function CronjobDialog({
       setError(t("dialogs.schedule.promptEmpty"));
       return;
     }
-    if (!openCodeModelReady) {
+    if (isAgentTarget && !targetAgentId) {
+      setError(t("webhooks.dialog.pickAgent"));
+      return;
+    }
+    if (!isAgentTarget && !openCodeModelReady) {
       setError(t("common.model.selectConnected"));
       return;
     }
@@ -448,16 +503,23 @@ export function CronjobDialog({
     if (isEdit) {
       // CronUpdateReq is the changes FLAT (not wrapped in { changes } like the
       // old WS command).
+      const targetChanged =
+        (cronjob.target?.agentId ?? "") !==
+        (isAgentTarget ? targetAgentId : "");
       const body: CronUpdateReq = {
         name: name.trim() || cronjob.name,
         schedule: buildSchedule(),
         prompt,
-        cwd,
-        agentType,
-        modelFamily,
-        effort,
-        permissionMode,
-        ...(isCodex ? { codexSandbox } : {}),
+        ...(targetChanged
+          ? {
+              target: isAgentTarget
+                ? { kind: "agent", agentId: targetAgentId }
+                : null,
+            }
+          : {}),
+        // A job that messages an agent runs no session: its session fields
+        // are not shown, so they are not sent.
+        ...(isAgentTarget ? {} : sessionFields()),
         enabled,
         // Only a changed room is sent: moving the job is the maker's or an
         // office owner's explicit choice.
@@ -474,12 +536,9 @@ export function CronjobDialog({
         name: name.trim() || "Untitled schedule",
         schedule: buildSchedule(),
         prompt,
-        cwd,
-        agentType,
-        modelFamily,
-        effort,
-        permissionMode,
-        ...(isCodex ? { codexSandbox } : {}),
+        ...(isAgentTarget
+          ? { target: { kind: "agent", agentId: targetAgentId } }
+          : sessionFields()),
         roomId,
       };
       req = apiFetch("POST", "/api/cronjobs", body);
@@ -629,6 +688,7 @@ export function CronjobDialog({
           >
             <option value="daily">{t("dialogs.schedule.daily")}</option>
             <option value="weekly">{t("dialogs.schedule.weekly")}</option>
+            <option value="monthly">{t("dialogs.schedule.monthly")}</option>
             <option value="interval">{t("dialogs.schedule.interval")}</option>
             <option value="none">{t("dialogs.schedule.none")}</option>
           </select>
@@ -654,7 +714,45 @@ export function CronjobDialog({
               ))}
             </select>
           )}
-          {(scheduleType === "daily" || scheduleType === "weekly") && (
+          {scheduleType === "monthly" && (
+            <div style={{ marginBottom: 6 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                {t("dialogs.schedule.day")}
+              </div>
+              <input
+                type="number"
+                min={1}
+                max={31}
+                value={dayStr}
+                onChange={(e) => setDayStr(e.target.value)}
+                onBlur={() =>
+                  setDayStr(String(clamp(parseIntOr(dayStr, 1), 1, 31)))
+                }
+                style={inputStyle}
+                data-field="day"
+              />
+              {parseIntOr(dayStr, 1) >= 29 && (
+                <p
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-ghost)",
+                    margin: "3px 0 0",
+                  }}
+                >
+                  {t("dialogs.schedule.dayHint")}
+                </p>
+              )}
+            </div>
+          )}
+          {(scheduleType === "daily" ||
+            scheduleType === "weekly" ||
+            scheduleType === "monthly") && (
             <div style={{ display: "flex", gap: 8 }}>
               <div style={{ flex: 1 }}>
                 <div
@@ -740,6 +838,51 @@ export function CronjobDialog({
           )}
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
+            {t("dialogs.schedule.target")}
+          </label>
+          <div style={{ display: "flex", gap: 14, marginBottom: 6 }}>
+            {(["session", "agent"] as const).map((kind) => (
+              <label
+                key={kind}
+                style={{
+                  fontSize: 12,
+                  display: "flex",
+                  gap: 5,
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  type="radio"
+                  name="cronjob-target-kind"
+                  checked={targetKind === kind}
+                  onChange={() => setTargetKind(kind)}
+                  data-target-kind={kind}
+                />
+                {kind === "agent"
+                  ? t("dialogs.schedule.targetAgent")
+                  : t("dialogs.schedule.targetSession")}
+              </label>
+            ))}
+          </div>
+          {isAgentTarget && (
+            <>
+              <select
+                value={targetAgentId}
+                onChange={(e) => setTargetAgentId(e.target.value)}
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+                data-field="agentId"
+              >
+                <option value="">{t("webhooks.dialog.pickAgent")}</option>
+                {agentOptions.map((o) => (
+                  <option key={o.id} value={o.id} {...noTranslate()}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+
+          <label style={{ ...labelStyle, marginTop: 14 }}>
             {t("dialogs.schedule.prompt")}
           </label>
           <ExpandableTextarea
@@ -751,323 +894,341 @@ export function CronjobDialog({
             style={{ ...inputStyle, resize: "vertical" }}
           />
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>
-            {t("common.field.workingDirectory")}
-          </label>
-          <input
-            {...noTranslate()}
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            style={inputStyle}
-          />
-          {recentCwdsFiltered.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 4,
-                marginTop: 6,
-              }}
-            >
-              {recentCwdsFiltered.map((c) => (
-                <button
-                  key={c}
-                  {...noTranslate()}
-                  onClick={() => setCwd(c)}
-                  style={chipStyle}
-                >
-                  {shortenCwd(c)}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <label style={{ ...labelStyle, marginTop: 14 }}>
-            {t("common.field.engine")}
-          </label>
-          <select
-            value={agentType}
-            onChange={(e) =>
-              handleEngineChange(e.target.value as AgentBackendType)
-            }
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-          >
-            <option value="claude">Claude</option>
-            <option value="codex">Codex</option>
-            <option
-              value="opencode"
-              disabled={
-                unavailableEngines.opencode !== undefined &&
-                cronjob?.agentType !== "opencode"
-              }
-            >
-              {unavailableEngines.opencode !== undefined
-                ? `OpenCode (${t("dialogs.agent.engineNeedsLinux")})`
-                : "OpenCode"}
-            </option>
-          </select>
-
-          <label style={{ ...labelStyle, marginTop: 14 }}>
-            {t("common.field.model")}
-          </label>
-          {(() => {
-            // Codex models come from the server (auth-aware via model/list).
-            // On fetch failure OR an empty list we fall back to the hardcoded
-            // CODEX_MODELS list so the dialog is still usable (an empty fetched
-            // list would otherwise render a zero-option select). Claude uses
-            // MODEL_FAMILIES.
-            const backendFetched =
-              usesBackendModels && backendModels && backendModels.length > 0;
-            const backendVisible = backendFetched
-              ? backendModels.filter((m) => !m.hidden)
-              : null;
-            // Pin the stored model as an extra option whenever the rendered
-            // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
-            // editing never silently drops a value not offered on this login.
-            const renderedModelIds = backendVisible
-              ? backendVisible.map((m) => m.id)
-              : CODEX_MODELS.map((m) => m.value);
-            const storedNotInList =
-              isEdit &&
-              usesBackendModels &&
-              !renderedModelIds.includes(modelFamily);
-            return (
-              <>
-                <select
-                  {...noTranslate()}
-                  value={modelFamily}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setModelFamily(next);
-                    // Claude family-level interlock: "max" effort only where
-                    // claudeFamilySupportsMaxEffort allows it. (The "auto" permission mode interlock is gone now
-                    // that cron's only Claude permission option is
-                    // bypassPermissions.)
-                    if (
-                      !isCodex &&
-                      !claudeFamilySupportsMaxEffort(next, limited) &&
-                      effort === "max"
-                    )
-                      // Same coercion target the server's validateEffort uses
-                      // for an invalid Claude "max".
-                      setEffort(DEFAULT_EFFORT);
-                    // Dynamic backends keep only an effort the selected model
-                    // advertises. OpenCode uses its enum-ordered first option.
-                    if ((isCodex || isOpenCode) && backendVisible) {
-                      const picked = backendVisible.find((m) => m.id === next);
-                      if (picked) {
-                        if (isCodex && picked.defaultEffort) {
-                          const supported = new Set(
-                            picked.supportedEfforts.map((o) => o.level),
-                          );
-                          if (!supported.has(effort))
-                            setEffort(picked.defaultEffort as EffortLevel);
-                        } else if (isOpenCode) {
-                          const nextEffort = selectSupportedEffort(
-                            effort,
-                            picked.supportedEfforts,
-                          );
-                          if (nextEffort && nextEffort !== effort)
-                            setEffort(nextEffort);
-                        }
-                      }
-                    }
-                  }}
+          {!isAgentTarget && (
+            <>
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                {t("common.field.workingDirectory")}
+              </label>
+              <input
+                {...noTranslate()}
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                style={inputStyle}
+              />
+              {recentCwdsFiltered.length > 0 && (
+                <div
                   style={{
-                    ...inputStyle,
-                    appearance: "none",
-                    cursor: modelSelectCursor(usesBackendModels, modelsLoading),
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 4,
+                    marginTop: 6,
                   }}
-                  disabled={usesBackendModels && modelsLoading}
                 >
-                  {usesBackendModels ? (
-                    <>
-                      {backendVisible
-                        ? backendVisible.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.label}
-                            </option>
-                          ))
-                        : isCodex
-                          ? CODEX_MODELS.map((m) => (
-                              <option key={m.value} value={m.value}>
-                                {m.label}
-                              </option>
-                            ))
-                          : null}
-                      {storedNotInList && (
-                        <option key={modelFamily} value={modelFamily}>
-                          {t("common.model.currentOption")}
-                        </option>
-                      )}
-                    </>
-                  ) : (
-                    MODEL_FAMILIES.map((m) => (
-                      <option key={m.family} value={m.family}>
-                        {familyPickerLabel(m.family, claudeModels)}
-                      </option>
-                    ))
-                  )}
-                </select>
-                {/* Only claim the login lacks the model once the check has
-                    settled - while the list loads, the fallback list is wrong
-                    for backend-model logins and the message flashes. */}
-                {isEdit &&
-                  usesBackendModels &&
-                  storedNotInList &&
-                  !modelsLoading &&
-                  (backendVisible !== null || modelsError !== null) && (
-                    <p
-                      style={{
-                        fontSize: 10,
-                        color: "var(--red-text)",
-                        margin: "3px 0 0",
-                      }}
+                  {recentCwdsFiltered.map((c) => (
+                    <button
+                      key={c}
+                      {...noTranslate()}
+                      onClick={() => setCwd(c)}
+                      style={chipStyle}
                     >
-                      {t("common.model.currentIs", {
-                        model: familyDisplayLabel(modelFamily),
-                      })}{" "}
-                      {modelsError
-                        ? t("common.model.checkFailed")
-                        : t("common.model.notOffered")}
-                    </p>
-                  )}
-              </>
-            );
-          })()}
-          {usesBackendModels && modelsLoading && (
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--text-ghost)",
-                margin: "3px 0 0",
-              }}
-            >
-              {modelsStarting && isOpenCode
-                ? t("common.model.startingOpenCode")
-                : t("common.model.loading")}
-            </p>
-          )}
-          {usesBackendModels && modelsError && !modelsLoading && (
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--red-text)",
-                margin: "3px 0 0",
-              }}
-            >
-              {engineUnavailable
-                ? t("dialogs.agent.engineNeedsLinux")
-                : modelListErrorMessage(i18n, isOpenCode, modelsError)}
-            </p>
-          )}
-          {isOpenCode &&
-            !modelsLoading &&
-            !modelsError &&
-            backendModels?.filter((model) => !model.hidden).length === 0 && (
-              <p
-                style={{
-                  fontSize: 10,
-                  color: "var(--red-text)",
-                  margin: "3px 0 0",
-                }}
-              >
-                {t("common.model.noneConnected")}
-              </p>
-            )}
-          {openCodeCatalogRejectsSelection && (
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--red-text)",
-                margin: "3px 0 0",
-              }}
-            >
-              {t("common.model.selectConnected")}
-            </p>
-          )}
+                      {shortenCwd(c)}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-          {effortOptions.length > 0 && (
-            <>
               <label style={{ ...labelStyle, marginTop: 14 }}>
-                {t("common.field.effort")}
+                {t("common.field.engine")}
               </label>
               <select
-                value={effort}
-                onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                style={{
-                  ...inputStyle,
-                  appearance: "none",
-                  cursor: "pointer",
-                }}
-              >
-                {effortOptions.map((opt) => (
-                  <option key={opt.level} value={opt.level}>
-                    {effortLabel(i18n, opt.level)}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-
-          <label style={{ ...labelStyle, marginTop: 14 }}>
-            {isCodex
-              ? t("common.field.approvalPolicy")
-              : t("common.field.permissionMode")}
-          </label>
-          <select
-            value={permissionMode}
-            onChange={(e) =>
-              setPermissionMode(e.target.value as CronjobPermissionMode)
-            }
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-          >
-            {isCodex ? (
-              <option value="never">{t("common.permission.codexNever")}</option>
-            ) : isOpenCode ? (
-              <option value="bypassPermissions">
-                {t("dialogs.schedule.permissionUnattended")}
-              </option>
-            ) : (
-              <option value="bypassPermissions">
-                {t("common.permission.claudeBypass")}
-              </option>
-            )}
-          </select>
-          <p
-            style={{
-              fontSize: 10,
-              color: "var(--text-ghost)",
-              margin: "3px 0 0",
-            }}
-          >
-            {isOpenCode
-              ? t("dialogs.schedule.permissionHintOpenCode")
-              : t("dialogs.schedule.permissionHint")}
-          </p>
-
-          {isCodex && (
-            <>
-              <label style={{ ...labelStyle, marginTop: 14 }}>
-                {t("common.field.sandbox")}
-              </label>
-              <select
-                value={codexSandbox}
+                value={agentType}
                 onChange={(e) =>
-                  setCodexSandbox(e.target.value as CodexSandboxMode)
+                  handleEngineChange(e.target.value as AgentBackendType)
                 }
                 style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
               >
-                <option value="read-only">
-                  {t("common.sandbox.readOnly")}
-                </option>
-                <option value="workspace-write">
-                  {t("common.sandbox.workspaceWrite")}
-                </option>
-                <option value="danger-full-access">
-                  {t("common.sandbox.dangerFullAccess")}
+                <option value="claude">Claude</option>
+                <option value="codex">Codex</option>
+                <option
+                  value="opencode"
+                  disabled={
+                    unavailableEngines.opencode !== undefined &&
+                    cronjob?.agentType !== "opencode"
+                  }
+                >
+                  {unavailableEngines.opencode !== undefined
+                    ? `OpenCode (${t("dialogs.agent.engineNeedsLinux")})`
+                    : "OpenCode"}
                 </option>
               </select>
+
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                {t("common.field.model")}
+              </label>
+              {(() => {
+                // Codex models come from the server (auth-aware via model/list).
+                // On fetch failure OR an empty list we fall back to the hardcoded
+                // CODEX_MODELS list so the dialog is still usable (an empty fetched
+                // list would otherwise render a zero-option select). Claude uses
+                // MODEL_FAMILIES.
+                const backendFetched =
+                  usesBackendModels &&
+                  backendModels &&
+                  backendModels.length > 0;
+                const backendVisible = backendFetched
+                  ? backendModels.filter((m) => !m.hidden)
+                  : null;
+                // Pin the stored model as an extra option whenever the rendered
+                // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
+                // editing never silently drops a value not offered on this login.
+                const renderedModelIds = backendVisible
+                  ? backendVisible.map((m) => m.id)
+                  : CODEX_MODELS.map((m) => m.value);
+                const storedNotInList =
+                  isEdit &&
+                  usesBackendModels &&
+                  !renderedModelIds.includes(modelFamily);
+                return (
+                  <>
+                    <select
+                      {...noTranslate()}
+                      value={modelFamily}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setModelFamily(next);
+                        // Claude family-level interlock: "max" effort only where
+                        // claudeFamilySupportsMaxEffort allows it. (The "auto" permission mode interlock is gone now
+                        // that cron's only Claude permission option is
+                        // bypassPermissions.)
+                        if (
+                          !isCodex &&
+                          !claudeFamilySupportsMaxEffort(next, limited) &&
+                          effort === "max"
+                        )
+                          // Same coercion target the server's validateEffort uses
+                          // for an invalid Claude "max".
+                          setEffort(DEFAULT_EFFORT);
+                        // Dynamic backends keep only an effort the selected model
+                        // advertises. OpenCode uses its enum-ordered first option.
+                        if ((isCodex || isOpenCode) && backendVisible) {
+                          const picked = backendVisible.find(
+                            (m) => m.id === next,
+                          );
+                          if (picked) {
+                            if (isCodex && picked.defaultEffort) {
+                              const supported = new Set(
+                                picked.supportedEfforts.map((o) => o.level),
+                              );
+                              if (!supported.has(effort))
+                                setEffort(picked.defaultEffort as EffortLevel);
+                            } else if (isOpenCode) {
+                              const nextEffort = selectSupportedEffort(
+                                effort,
+                                picked.supportedEfforts,
+                              );
+                              if (nextEffort && nextEffort !== effort)
+                                setEffort(nextEffort);
+                            }
+                          }
+                        }
+                      }}
+                      style={{
+                        ...inputStyle,
+                        appearance: "none",
+                        cursor: modelSelectCursor(
+                          usesBackendModels,
+                          modelsLoading,
+                        ),
+                      }}
+                      disabled={usesBackendModels && modelsLoading}
+                    >
+                      {usesBackendModels ? (
+                        <>
+                          {backendVisible
+                            ? backendVisible.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.label}
+                                </option>
+                              ))
+                            : isCodex
+                              ? CODEX_MODELS.map((m) => (
+                                  <option key={m.value} value={m.value}>
+                                    {m.label}
+                                  </option>
+                                ))
+                              : null}
+                          {storedNotInList && (
+                            <option key={modelFamily} value={modelFamily}>
+                              {t("common.model.currentOption")}
+                            </option>
+                          )}
+                        </>
+                      ) : (
+                        MODEL_FAMILIES.map((m) => (
+                          <option key={m.family} value={m.family}>
+                            {familyPickerLabel(m.family, claudeModels)}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                    {/* Only claim the login lacks the model once the check has
+                    settled - while the list loads, the fallback list is wrong
+                    for backend-model logins and the message flashes. */}
+                    {isEdit &&
+                      usesBackendModels &&
+                      storedNotInList &&
+                      !modelsLoading &&
+                      (backendVisible !== null || modelsError !== null) && (
+                        <p
+                          style={{
+                            fontSize: 10,
+                            color: "var(--red-text)",
+                            margin: "3px 0 0",
+                          }}
+                        >
+                          {t("common.model.currentIs", {
+                            model: familyDisplayLabel(modelFamily),
+                          })}{" "}
+                          {modelsError
+                            ? t("common.model.checkFailed")
+                            : t("common.model.notOffered")}
+                        </p>
+                      )}
+                  </>
+                );
+              })()}
+              {usesBackendModels && modelsLoading && (
+                <p
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-ghost)",
+                    margin: "3px 0 0",
+                  }}
+                >
+                  {modelsStarting && isOpenCode
+                    ? t("common.model.startingOpenCode")
+                    : t("common.model.loading")}
+                </p>
+              )}
+              {usesBackendModels && modelsError && !modelsLoading && (
+                <p
+                  style={{
+                    fontSize: 10,
+                    color: "var(--red-text)",
+                    margin: "3px 0 0",
+                  }}
+                >
+                  {engineUnavailable
+                    ? t("dialogs.agent.engineNeedsLinux")
+                    : modelListErrorMessage(i18n, isOpenCode, modelsError)}
+                </p>
+              )}
+              {isOpenCode &&
+                !modelsLoading &&
+                !modelsError &&
+                backendModels?.filter((model) => !model.hidden).length ===
+                  0 && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "var(--red-text)",
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    {t("common.model.noneConnected")}
+                  </p>
+                )}
+              {openCodeCatalogRejectsSelection && (
+                <p
+                  style={{
+                    fontSize: 10,
+                    color: "var(--red-text)",
+                    margin: "3px 0 0",
+                  }}
+                >
+                  {t("common.model.selectConnected")}
+                </p>
+              )}
+
+              {effortOptions.length > 0 && (
+                <>
+                  <label style={{ ...labelStyle, marginTop: 14 }}>
+                    {t("common.field.effort")}
+                  </label>
+                  <select
+                    value={effort}
+                    onChange={(e) => setEffort(e.target.value as EffortLevel)}
+                    style={{
+                      ...inputStyle,
+                      appearance: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {effortOptions.map((opt) => (
+                      <option key={opt.level} value={opt.level}>
+                        {effortLabel(i18n, opt.level)}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                {isCodex
+                  ? t("common.field.approvalPolicy")
+                  : t("common.field.permissionMode")}
+              </label>
+              <select
+                value={permissionMode}
+                onChange={(e) =>
+                  setPermissionMode(e.target.value as CronjobPermissionMode)
+                }
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+              >
+                {isCodex ? (
+                  <option value="never">
+                    {t("common.permission.codexNever")}
+                  </option>
+                ) : isOpenCode ? (
+                  <option value="bypassPermissions">
+                    {t("dialogs.schedule.permissionUnattended")}
+                  </option>
+                ) : (
+                  <option value="bypassPermissions">
+                    {t("common.permission.claudeBypass")}
+                  </option>
+                )}
+              </select>
+              <p
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                  margin: "3px 0 0",
+                }}
+              >
+                {isOpenCode
+                  ? t("dialogs.schedule.permissionHintOpenCode")
+                  : t("dialogs.schedule.permissionHint")}
+              </p>
+
+              {isCodex && (
+                <>
+                  <label style={{ ...labelStyle, marginTop: 14 }}>
+                    {t("common.field.sandbox")}
+                  </label>
+                  <select
+                    value={codexSandbox}
+                    onChange={(e) =>
+                      setCodexSandbox(e.target.value as CodexSandboxMode)
+                    }
+                    style={{
+                      ...inputStyle,
+                      appearance: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="read-only">
+                      {t("common.sandbox.readOnly")}
+                    </option>
+                    <option value="workspace-write">
+                      {t("common.sandbox.workspaceWrite")}
+                    </option>
+                    <option value="danger-full-access">
+                      {t("common.sandbox.dangerFullAccess")}
+                    </option>
+                  </select>
+                </>
+              )}
             </>
           )}
 
@@ -1187,7 +1348,12 @@ export function CronjobDialog({
               <button
                 onClick={handleSave}
                 style={saveBtnStyle}
-                disabled={saving || !openCodeModelReady || engineChoiceBlocked}
+                disabled={
+                  saving ||
+                  (isAgentTarget
+                    ? !targetAgentId
+                    : !openCodeModelReady || engineChoiceBlocked)
+                }
               >
                 {saving
                   ? t("common.saving")

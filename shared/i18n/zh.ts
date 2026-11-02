@@ -1334,6 +1334,7 @@ App 的一些原则：
   "dialogs.schedule.weekly": "每周",
   "dialogs.schedule.interval": "每 N 分钟",
   "dialogs.schedule.none": "按需",
+  "dialogs.schedule.monthly": "每月",
   "dialogs.schedule.weekday.sunday": "星期日",
   "dialogs.schedule.weekday.monday": "星期一",
   "dialogs.schedule.weekday.tuesday": "星期二",
@@ -1345,6 +1346,12 @@ App 的一些原则：
   "dialogs.schedule.minute": "分钟（0-59）",
   "dialogs.schedule.intervalMinutes": "间隔（分钟，至少 5）",
   "dialogs.schedule.serverLocal": "时间以服务器本地时间为准。",
+  "dialogs.schedule.day": "每月第几天（1-31）",
+  "dialogs.schedule.dayHint":
+    "在较短的月份中，29 日至 31 日在当月最后一天运行。",
+  "dialogs.schedule.target": "每次运行",
+  "dialogs.schedule.targetSession": "开启新会话",
+  "dialogs.schedule.targetAgent": "给智能体发消息",
   "dialogs.schedule.prompt": "提示词",
   "dialogs.schedule.promptTitle": "定时任务提示词",
   "dialogs.schedule.promptPlaceholder":
@@ -2418,6 +2425,9 @@ App 的一些原则：
     "cwd：{cwd} · 模型：{model} · 推理强度：{effort} · 权限：{permission}",
   "schedules.errorLine": "错误：{reason}",
   "schedules.runSkipped": "本次运行已跳过。",
+  "schedules.messagesAgent": "给 {agent} 发消息",
+  "schedules.messageTo": "发给 {agent} 的消息",
+  "schedules.agentRunNoSession": "给智能体发消息的运行没有可继续的会话。",
   "schedules.noEntries": "没有日志记录。",
   "schedules.runningDots": "运行中…",
   "schedules.editingAbove": "正在编辑上方消息…",
@@ -2550,6 +2560,7 @@ App 的一些原则：
   "schedules.human.everyHours": "每 {hours} 小时",
   "schedules.human.everyHoursMinutes": "每 {hours} 小时 {minutes} 分钟",
   "schedules.human.none": "按需",
+  "schedules.human.monthly": "每月 {day} 日 {time}",
   "schedules.nextRunIn": "{duration} 后",
   "commands.clear.description": "清除对话历史",
   "commands.handoff.description": "在新会话中继续任务",
@@ -3047,6 +3058,12 @@ App 的一些原则：
     "无法继续此 OpenCode 运行：其定时任务已删除，共享环境配置文件也无法再解析。",
   "systemEntries.scheduleRun.jobDeleted": "运行已停止：定时任务已删除。",
   "systemEntries.scheduleRun.sendFailed": "发送失败：{error}",
+  "systemEntries.scheduleRun.agentUnreachable":
+    "该智能体已不存在，或定时任务的所有者无权访问其房间。",
+  "systemEntries.scheduleRun.agentStopped":
+    "该智能体已停止或处于错误状态，因此没有收到消息。",
+  "systemEntries.scheduleRun.agentQueueFull":
+    "该智能体的消息队列已满，因此没有收到消息。",
   "systemEntries.scheduleRun.editBusy": "运行繁忙时无法编辑。",
   "systemEntries.scheduleRun.editSkipped":
     "无法编辑已跳过的运行：它从未打开会话。",

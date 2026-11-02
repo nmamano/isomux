@@ -1021,28 +1021,31 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       const query = args.join(" ").trim();
-      // Only jobs the typing user may see. The chat carries the job's name;
-      // each reader's prompt button fetches the prompt with that reader's own
-      // authority.
+      // Only jobs the typing user may see, and only jobs that run a session:
+      // a job that messages an agent has no system prompt. The chat carries
+      // the job's name; each reader's prompt button fetches the prompt with
+      // that reader's own authority.
       const typer = username ? getUserByName(username) : undefined;
-      const all = listCronjobs().filter((cronjob) =>
-        cronjobVisibleTo(
-          {
-            makerUserId: cronjob.userId ?? null,
-            liveRoomId:
-              cronjob.roomId && deps.roomById(cronjob.roomId)
-                ? cronjob.roomId
-                : null,
-          },
-          {
-            userId: typer?.id ?? null,
-            isOfficeOwner: typer?.role === "owner",
-            canRead: typer !== undefined,
-            canManage: typer !== undefined,
-            hasRoomAccess: (roomId) =>
-              typer?.allowedRooms.includes(roomId) ?? false,
-          },
-        ),
+      const all = listCronjobs().filter(
+        (cronjob) =>
+          !cronjob.target &&
+          cronjobVisibleTo(
+            {
+              makerUserId: cronjob.userId ?? null,
+              liveRoomId:
+                cronjob.roomId && deps.roomById(cronjob.roomId)
+                  ? cronjob.roomId
+                  : null,
+            },
+            {
+              userId: typer?.id ?? null,
+              isOfficeOwner: typer?.role === "owner",
+              canRead: typer !== undefined,
+              canManage: typer !== undefined,
+              hasRoomAccess: (roomId) =>
+                typer?.allowedRooms.includes(roomId) ?? false,
+            },
+          ),
       );
 
       if (!query) {

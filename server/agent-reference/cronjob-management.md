@@ -1,6 +1,6 @@
 # Schedule management
 
-A schedule runs a prompt in a fresh session daily, weekly, at an interval, or only on demand (schedule `{type:"none"}`: Run now and webhooks start it). A schedule runs with nobody present, so only an agent that acts without approvals can make one: a Claude or OpenCode agent in `bypassPermissions`, or a Codex agent in `never`. Any other agent asks the member to create the schedule on the Schedules tab of the Automations page. A privileged agent can make one in any mode, and can change, delete or run its manager's schedules. An ordinary agent can see, change, delete or run only the schedules it made.
+A schedule runs a prompt in a fresh session, or sends it to an agent as a message, daily, weekly, monthly, at an interval, or only on demand (schedule `{type:"none"}`: Run now and webhooks start it). A schedule runs with nobody present, so only an agent that acts without approvals can make one: a Claude or OpenCode agent in `bypassPermissions`, or a Codex agent in `never`. Any other agent asks the member to create the schedule on the Schedules tab of the Automations page. A privileged agent can make one in any mode, and can change, delete or run its manager's schedules. An ordinary agent can see, change, delete or run only the schedules it made.
 
 A schedule that an ordinary agent makes cannot have more access than the agent:
 
@@ -14,7 +14,9 @@ A schedule belongs to a room, whose members see it with its runs and transcripts
 
 Create with `POST /api/cronjobs` and `{name,schedule,prompt,cwd,modelFamily,effort,permissionMode,roomId?}`. Without `roomId` the job takes your room; `roomId:""` means no room. Run now with `POST /api/cronjobs/:id/runs`, which returns `{runId}`. Change with `PATCH /api/cronjobs/:id` (for example `{enabled:false}`); delete with `DELETE /api/cronjobs/:id`. Read jobs, run lists, and run transcripts with the GET routes below.
 
-`schedule` is `{type:"daily",hour,minute}`, `{type:"weekly",weekday,hour,minute}` (weekday 0 is Sunday), `{type:"interval",minutes}` (at least 5) or `{type:"none"}`. Times are in the server's time zone.
+`schedule` is `{type:"daily",hour,minute}`, `{type:"weekly",weekday,hour,minute}` (weekday 0 is Sunday), `{type:"monthly",day,hour,minute}` (day 1 to 31; in a shorter month, a later day runs on the month's last day), `{type:"interval",minutes}` (at least 5) or `{type:"none"}`. Times are in the server's time zone.
+
+To message an agent instead of running a session, add `target:{kind:"agent",agentId}`. Each run sends the prompt to that agent, which gets it as a message from the schedule, with its own context and memory. Such a job needs no `cwd`, `modelFamily`, `effort` or `permissionMode`, and an ordinary agent's mode and folder do not limit it. The job's owner must reach the agent's room, and a token limited to rooms must reach it too; else the create or change returns 404. Isomux checks the owner again at each run, and a send that fails makes a failed run with the reason. Such a run has no transcript, so a message or edit into it returns 409. `PATCH {target:null}` turns the job back into a session job, checked as one. Its system prompt read returns 409 `agent_target`.
 
 Safe example: `GET /api/cronjobs`.
 

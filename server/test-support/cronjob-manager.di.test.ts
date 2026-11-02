@@ -47,7 +47,11 @@ import {
   type ParamsFor,
   type PlainMessageKey,
 } from "../../shared/i18n/translate.ts";
-import { localizeLogParts, msg } from "../../shared/i18n/log-message.ts";
+import {
+  localizeLogParts,
+  msg,
+  type LogMessage,
+} from "../../shared/i18n/log-message.ts";
 import { LocalizedError } from "../localized-error.ts";
 import { expectWorded, expectWordedText } from "./worded.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
@@ -2521,5 +2525,228 @@ describe("CronjobManager run failure reason in each reader's language", () => {
     const ended = mgr.findRun(job.id, run.id)!;
     expect(ended.errorReason).toBe("ECONNREFUSED");
     expect(ended.errorReasonMessage).toBeUndefined();
+  });
+});
+
+// Task a0c26f59: a job with an agent target sends its prompt through the
+// injected deliverToAgent and opens no session. The fake records each call and
+// answers as the test says; the real wiring is covered in
+// routes-cronjobs-rest.test.ts ("schedules that message an agent").
+describe("CronjobManager: a schedule that messages an agent", () => {
+  const AGENT = "agent-1700000000000-abcd";
+  const settle = () => new Promise((r) => setTimeout(r, 25));
+  type Deliver = NonNullable<CronDeps["deliverToAgent"]>;
+  type Delivered = Awaited<ReturnType<Deliver>>;
+
+  function targetInput(name: string): AddCronjobInput {
+    return {
+      ...intervalInput(name),
+      target: { kind: "agent", agentId: AGENT },
+    };
+  }
+
+  // A deliverToAgent that records each call and answers with `answer`.
+  function recorder(answer: () => Promise<Delivered>) {
+    const calls: { jobId: string; target: unknown; text: string }[] = [];
+    const deliverToAgent: Deliver = (job, text) => {
+      calls.push({ jobId: job.id, target: job.target, text });
+      return answer();
+    };
+    return { calls, deliverToAgent };
+  }
+  const delivered = (): Promise<Delivered> =>
+    Promise.resolve({ ok: true, messageId: "m-1", agentName: "Pat" });
+
+  // A failed run's reason: a catalog message, and errorReason its English.
+  function expectWordedFailure(run: CronjobRun | null | undefined) {
+    expect(run?.status).toBe("failed");
+    expect(run?.errorReasonMessage).toBeDefined();
+    expect(localizeLogParts(translatorFor("en"), run?.errorReasonMessage)).toBe(
+      run?.errorReason ?? "",
+    );
+  }
+
+  it("Run now sends the prompt to the agent and completes, with no session and no run token", async () => {
+    const fake = new FakeBackend();
+    const { calls, deliverToAgent } = recorder(delivered);
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, deliverToAgent }),
+    );
+    const job = mgr.addCronjob(targetInput("Health"));
+    expect(job.target).toEqual({ kind: "agent", agentId: AGENT });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    // The row exists at once, so Run now and a webhook can answer its id.
+    expect(run.status).toBe("running");
+    expect(mgr.findRun(job.id, run.id)?.status).toBe("running");
+    await settle();
+    expect(calls).toEqual([
+      {
+        jobId: job.id,
+        target: { kind: "agent", agentId: AGENT },
+        text: job.prompt,
+      },
+    ]);
+    const ended = mgr.findRun(job.id, run.id)!;
+    expect(ended.status).toBe("completed");
+    expect(ended.errorReason).toBeNull();
+    expect(ended.targetAgentSnapshot).toEqual({
+      agentId: AGENT,
+      agentName: "Pat",
+    });
+    expect(fake.createSessionCount).toBe(0);
+    expect(getRunTokenRaw(job.id, run.id)).toBeNull();
+  });
+
+  it("a webhook run sends the prompt and then the data block", async () => {
+    const { calls, deliverToAgent } = recorder(delivered);
+    const mgr = createCronjobManager(baseDeps({ deliverToAgent }));
+    const job = mgr.addCronjob(targetInput("Hooked"));
+    const run = mgr.runCronjobFromWebhook(
+      job.id,
+      {
+        webhookId: "wh_0123456789abcdef",
+        webhookName: "pr-review",
+        deliveryRowId: "d_00000001",
+      },
+      "<webhook-data>\n{}\n</webhook-data>",
+    )!;
+    await settle();
+    const text = `${job.prompt}\n\n<webhook-data>\n{}\n</webhook-data>`;
+    expect(calls.map((c) => c.text)).toEqual([text]);
+    expect(run.promptSnapshot).toBe(text);
+    expect(mgr.findRun(job.id, run.id)?.status).toBe("completed");
+  });
+
+  it("a refused, thrown or unwired send fails the run with a reason each reader can read", async () => {
+    const refusal = recorder(() =>
+      Promise.resolve({
+        ok: false,
+        reason: msg("systemEntries.scheduleRun.serverRestarted"),
+      }),
+    );
+    const throwing = recorder(() => Promise.reject(new Error("boom")));
+    const keys = new Map<string, unknown>();
+    for (const [label, deliverToAgent] of [
+      ["refused", refusal.deliverToAgent],
+      ["thrown", throwing.deliverToAgent],
+      ["unwired", undefined],
+    ] as const) {
+      const fake = new FakeBackend();
+      const mgr = createCronjobManager(
+        baseDeps({
+          resolveBackend: () => fake,
+          ...(deliverToAgent ? { deliverToAgent } : {}),
+        }),
+      );
+      const job = mgr.addCronjob(targetInput(label));
+      const run = mgr.runCronjobNow(job.id, "Nil")!;
+      await settle();
+      const ended = mgr.findRun(job.id, run.id);
+      expect([label, ended?.status]).toEqual([label, "failed"]);
+      expectWordedFailure(ended);
+      expect([label, fake.createSessionCount]).toEqual([label, 0]);
+      keys.set(label, (ended?.errorReasonMessage?.[0] as LogMessage).key);
+    }
+    // The refusal's own reason is the one the run keeps.
+    expect(keys.get("refused")).toBe(
+      "systemEntries.scheduleRun.serverRestarted",
+    );
+    expect(keys.get("thrown")).not.toBe(keys.get("refused"));
+    expect(refusal.calls).toHaveLength(1);
+    expect(throwing.calls).toHaveLength(1);
+  });
+
+  it("a send still in flight does not make the next scheduled slot a skip", async () => {
+    let t = FIXED_NOW;
+    const sched = fakeScheduler();
+    // Never answers: the first send stays in flight.
+    const { calls, deliverToAgent } = recorder(() => new Promise(() => {}));
+    const mgr = createCronjobManager(
+      baseDeps({
+        clock: { now: () => t },
+        scheduler: sched.scheduler,
+        deliverToAgent,
+      }),
+    );
+    const job = mgr.addCronjob(targetInput("Busy"));
+    mgr.startCronjobScheduler();
+    for (const slot of [1, 2]) {
+      t = mgr.listCronjobs().find((c) => c.id === job.id)!.nextFireAt! + 1000;
+      sched.intervals[0].fn();
+      await settle();
+      expect([slot, calls.length]).toEqual([slot, slot]);
+    }
+    const runs = mgr.getRunsForCronjob(job.id);
+    expect(runs.map((r) => [r.trigger, r.status])).toEqual([
+      ["scheduled", "running"],
+      ["scheduled", "running"],
+    ]);
+  });
+
+  it("a monthly day-31 job fires on January 31, February 28 and March 31", async () => {
+    const savedZone = process.env.TZ;
+    process.env.TZ = "Europe/Madrid";
+    try {
+      const at = (m: number, d: number, h = 0, mi = 0) =>
+        new Date(2027, m - 1, d, h, mi).getTime();
+      let t = at(1, 15, 10);
+      const sched = fakeScheduler();
+      const { calls, deliverToAgent } = recorder(delivered);
+      const mgr = createCronjobManager(
+        baseDeps({
+          clock: { now: () => t },
+          scheduler: sched.scheduler,
+          deliverToAgent,
+        }),
+      );
+      const job = mgr.addCronjob({
+        ...targetInput("Invoices"),
+        schedule: { type: "monthly", day: 31, hour: 9, minute: 0 },
+      });
+      const nextOf = () =>
+        mgr.listCronjobs().find((c) => c.id === job.id)!.nextFireAt;
+      expect(nextOf()).toBe(at(1, 31, 9));
+      mgr.startCronjobScheduler();
+      for (const slot of [at(1, 31, 9), at(2, 28, 9), at(3, 31, 9)]) {
+        expect(nextOf()).toBe(slot);
+        t = slot + 30_000;
+        sched.intervals[0].fn();
+        await settle();
+      }
+      expect(calls).toHaveLength(3);
+      expect(nextOf()).toBe(at(4, 30, 9));
+    } finally {
+      if (savedZone === undefined) delete process.env.TZ;
+      else process.env.TZ = savedZone;
+    }
+  });
+
+  it("a monthly job and a job with an agent target load unchanged", () => {
+    const writer = createCronjobManager(baseDeps());
+    const owned = (input: AddCronjobInput) => ({ ...input, userId: "u-1" });
+    writer.addCronjob(owned(targetInput("Targeted")));
+    writer.addCronjob(
+      owned({
+        ...intervalInput("Monthly"),
+        schedule: { type: "monthly", day: 31, hour: 9, minute: 0 },
+      }),
+    );
+    const onDisk = JSON.parse(JSON.stringify(writer.listCronjobs()));
+    expect(onDisk[0].target).toEqual({ kind: "agent", agentId: AGENT });
+    expect(onDisk[1].target).toBeUndefined();
+    const persistence = makeFakeCronPersistence();
+    persistence.saveCronjobs(JSON.parse(JSON.stringify(onDisk)));
+    let saves = 0;
+    const counting = {
+      ...persistence,
+      saveCronjobs: (next: Parameters<typeof persistence.saveCronjobs>[0]) => {
+        saves++;
+        persistence.saveCronjobs(next);
+      },
+    };
+    const reader = createCronjobManager(baseDeps({ persistence: counting }));
+    reader.startCronjobScheduler();
+    expect(saves).toBe(0);
+    expect(reader.listCronjobs()).toEqual(onDisk);
   });
 });

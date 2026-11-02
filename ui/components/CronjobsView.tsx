@@ -605,6 +605,7 @@ function CronjobsTable({
   onRunNow: (c: CronjobListWire) => void;
 }) {
   const { t, language } = useI18n();
+  const { agents } = useAppState();
   // Brief visual ack after clicking Run. Cleared after 1.8s so subsequent
   // clicks always re-flash. The persistent in-flight badge (below) is the
   // longer-lived signal that something is actually executing.
@@ -752,6 +753,18 @@ function CronjobsTable({
                   }}
                 >
                   {scheduleText(language, t, c.schedule)}
+                  {c.target && (
+                    <div
+                      style={{ fontSize: 10, color: "var(--text-muted)" }}
+                      data-cronjob-target={c.target.agentId}
+                    >
+                      {t("schedules.messagesAgent", {
+                        agent:
+                          agents.find((a) => a.id === c.target?.agentId)
+                            ?.name ?? c.target.agentId,
+                      })}
+                    </div>
+                  )}
                 </td>
               )}
               {!isMobile && (

@@ -18,7 +18,7 @@ import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 
 export type ScheduleLimitJob = Pick<
   Cronjob,
-  "agentType" | "codexSandbox" | "cwd"
+  "agentType" | "codexSandbox" | "cwd" | "target"
 >;
 
 export type ScheduleLimitAgent = Pick<
@@ -85,6 +85,9 @@ export function scheduleLimitBreach(
   // A job runs as its own run, with a shell: an agent below Standard reaches
   // less than any job.
   if (agent.access && belowStandard(agent.access)) return "access";
+  // A job that messages an agent runs no session: its mode and folder are
+  // never used.
+  if (job.target) return null;
   if (jobReach(job) > agentReach(agent)) return "mode";
   return folderInside(job.cwd, agent.cwd, realpath) ? null : "folder";
 }

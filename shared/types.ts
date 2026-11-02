@@ -1814,7 +1814,8 @@ export type AppListWire = (AppWire & { canManage?: true }) | AppViewerWire;
 
 // Cronjobs are scheduled SDK sessions. They are NOT agents - no desk, no room,
 // no persistent identity. Each scheduled fire creates a fresh session whose
-// transcript becomes a "run" row.
+// transcript becomes a "run" row, or, for a job with an agent target, sends
+// the prompt to that agent as a message.
 
 // The shortest interval schedule, in minutes.
 export const MIN_INTERVAL_MINUTES = 5;
@@ -1828,6 +1829,9 @@ export type Schedule =
       minute: number;
     }
   | { type: "interval"; minutes: number }
+  // Day 1-31 of each month. In a shorter month, a day past its end runs on the
+  // month's last day.
+  | { type: "monthly"; day: number; hour: number; minute: number }
   // No clock: the job runs only from Run now and from webhooks.
   | { type: "none" };
 
@@ -1850,13 +1854,19 @@ export type CronjobPermissionMode = "bypassPermissions" | "never";
 // Validation happens server-side per agentType.
 export type CronjobModel = string;
 
+// Where a fire goes. Absent on a job = a fresh session (the only kind before
+// targets existed). An agent target sends the prompt to that agent as a
+// message from the schedule; no session runs.
+export type CronjobTarget = { kind: "agent"; agentId: string };
+
 export interface Cronjob {
   id: string; // 8-char hex
   name: string; // free text, not unique
   schedule: Schedule;
   prompt: string; // first user message at each fire
+  target?: CronjobTarget;
   cwd: string;
-  agentType: AgentBackendType; // immutable on edit, mirroring agents
+  agentType: AgentBackendType;
   modelFamily: CronjobModel;
   effort: EffortLevel;
   permissionMode: CronjobPermissionMode;
@@ -1928,6 +1938,9 @@ export interface CronjobRun {
   // Set on webhook fires only: the hook and the delivery row that started
   // the run.
   webhook?: { webhookId: string; webhookName: string; deliveryRowId: string };
+  // Set on a fire of an agent-target job: the agent and its name at fire time.
+  // Such a run has no session and no transcript.
+  targetAgentSnapshot?: { agentId: string; agentName: string };
 }
 
 // Cronjob runs piggy-back on the LogEntry.agentId routing by using a
@@ -2044,6 +2057,8 @@ export function humanizeSchedule(s: Schedule): string {
     const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     return `Weekly ${weekdays[s.weekday]} at ${pad(s.hour)}:${pad(s.minute)}`;
   }
+  if (s.type === "monthly")
+    return `Monthly on day ${s.day} at ${pad(s.hour)}:${pad(s.minute)}`;
   if (s.type === "none") return "On demand";
   if (s.minutes < 60) return `Every ${s.minutes}m`;
   if (s.minutes % 60 === 0) return `Every ${s.minutes / 60}h`;

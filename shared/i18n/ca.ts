@@ -1499,6 +1499,7 @@ Coses que pots fer per ell:
   "dialogs.schedule.weekly": "Cada setmana",
   "dialogs.schedule.interval": "Cada N minuts",
   "dialogs.schedule.none": "A demanda",
+  "dialogs.schedule.monthly": "Cada mes",
   "dialogs.schedule.weekday.sunday": "Diumenge",
   "dialogs.schedule.weekday.monday": "Dilluns",
   "dialogs.schedule.weekday.tuesday": "Dimarts",
@@ -1510,6 +1511,12 @@ Coses que pots fer per ell:
   "dialogs.schedule.minute": "Minut (0-59)",
   "dialogs.schedule.intervalMinutes": "Interval (minuts, mínim 5)",
   "dialogs.schedule.serverLocal": "Les hores són les del servidor.",
+  "dialogs.schedule.day": "Dia del mes (1-31)",
+  "dialogs.schedule.dayHint":
+    "Els dies 29 a 31 s'executen l'últim dia d'un mes més curt.",
+  "dialogs.schedule.target": "Cada execució",
+  "dialogs.schedule.targetSession": "Inicia una sessió nova",
+  "dialogs.schedule.targetAgent": "Envia un missatge a un agent",
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Prompt de la programació",
   "dialogs.schedule.promptPlaceholder":
@@ -2683,6 +2690,10 @@ Coses que pots fer per ell:
     "cwd: {cwd} · model: {model} · esforç: {effort} · permís: {permission}",
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "Aquesta execució es va ometre.",
+  "schedules.messagesAgent": "Envia un missatge a {agent}",
+  "schedules.messageTo": "Missatge per a {agent}",
+  "schedules.agentRunNoSession":
+    "Les execucions que envien un missatge a un agent no tenen cap sessió per reprendre.",
   "schedules.noEntries": "No hi ha entrades de registre.",
   "schedules.runningDots": "En curs...",
   "schedules.editingAbove": "S'està editant el missatge de dalt...",
@@ -2823,6 +2834,7 @@ Coses que pots fer per ell:
   "schedules.human.everyHours": "Cada {hours}h",
   "schedules.human.everyHoursMinutes": "Cada {hours}h{minutes}m",
   "schedules.human.none": "A demanda",
+  "schedules.human.monthly": "Cada mes, el dia {day} a les {time}",
   "schedules.nextRunIn": "d'aquí a {duration}",
 
   "commands.clear.description": "Esborrar l'historial de la conversa",
@@ -3396,6 +3408,12 @@ Coses que pots fer per ell:
   "systemEntries.scheduleRun.jobDeleted":
     "Execució aturada: s'ha eliminat la programació.",
   "systemEntries.scheduleRun.sendFailed": "No s'ha pogut enviar: {error}",
+  "systemEntries.scheduleRun.agentUnreachable":
+    "L'agent ja no existeix, o el propietari de la programació no té accés a la seva sala.",
+  "systemEntries.scheduleRun.agentStopped":
+    "L'agent està aturat o en estat d'error, així que no ha rebut el missatge.",
+  "systemEntries.scheduleRun.agentQueueFull":
+    "La cua de missatges de l'agent és plena, així que no ha rebut el missatge.",
   "systemEntries.scheduleRun.editBusy":
     "No es pot editar mentre l'execució està ocupada.",
   "systemEntries.scheduleRun.editSkipped":

@@ -34,7 +34,11 @@ import {
   instructionsRes,
   parseInstructionsWrite,
 } from "./instructions.ts";
-import { cronOwnOnly, type Identity } from "../../identity/index.ts";
+import {
+  cronOwnOnly,
+  tokenRooms,
+  type Identity,
+} from "../../identity/index.ts";
 import {
   SCHEDULE_EXCEEDS_AGENT,
   SCHEDULE_ROOM_REFUSAL,
@@ -43,12 +47,18 @@ import {
   type ScheduleLimitJob,
 } from "../../cron-agent-limits.ts";
 import type { RunSendResult } from "../../internal-types.ts";
+import {
+  parseCronjobTarget,
+  TARGET_HAS_NO_SESSION,
+  TARGET_RUN_NOT_RESUMABLE,
+} from "../../cron-target.ts";
 import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
 import {
   MIN_INTERVAL_MINUTES,
   type Cronjob,
   type CronjobListWire,
   type CronjobRun,
+  type CronjobTarget,
   type LogEntry,
 } from "../../../shared/types.ts";
 import type {
@@ -76,6 +86,14 @@ export interface CronDeps {
   assignableRoomIds(identity: Identity): ReadonlySet<string>;
   // The room a create with no roomId defaults to: an agent caller's own room.
   defaultCreateRoomId(identity: Identity): string | undefined;
+  // May a job owned by ownerUserId, written by this caller, message the
+  // agent? The owner must reach the agent's room, and a room-limited token
+  // must reach it too.
+  agentTargetReachable(
+    identity: Identity,
+    ownerUserId: string | null,
+    agentId: string,
+  ): boolean;
   // The live settings of the agent whose reach the caller has (the agent, or
   // an app's owner agent), for the limits on its own schedules. Null when that
   // agent is gone or the caller acts for no agent.
@@ -89,10 +107,11 @@ export interface CronDeps {
     prompt: string;
     cwd: string;
     agentType?: Cronjob["agentType"];
-    modelFamily: Cronjob["modelFamily"];
-    effort: Cronjob["effort"];
-    permissionMode: Cronjob["permissionMode"];
+    modelFamily?: Cronjob["modelFamily"];
+    effort?: Cronjob["effort"];
+    permissionMode?: Cronjob["permissionMode"];
     codexSandbox?: Cronjob["codexSandbox"];
+    target?: CronjobTarget;
     username: string | undefined;
     userId: string | null;
     roomId: string | undefined;
@@ -163,6 +182,10 @@ export interface CronDeps {
 // The roomId field, task semantics. `undefined` = the body has no roomId; ""
 // = no room; any other value must be a live room the caller can access, and an
 // inaccessible or unknown room is one indistinguishable 404.
+// A token limited to rooms sees no job outside them, so it may not file a job
+// into no room: it could never read or manage it again.
+const TOKEN_NEEDS_ROOM = "roomId must name one of this token's rooms";
+
 function roomIdFromBody(
   body: object,
   identity: Identity,
@@ -186,7 +209,7 @@ function roomIdFromBody(
   return { ok: false, response: fail(404, "not_found") };
 }
 
-// Why a schedule in a request body is not one of the four shapes, naming the
+// Why a schedule in a request body is not one of the five shapes, naming the
 // field; null when it is. Extra keys are ignored. Out-of-range and non-integer
 // values are refused, not clamped, so what is stored is what was sent.
 function scheduleError(schedule: unknown): string | null {
@@ -212,8 +235,10 @@ function scheduleError(schedule: unknown): string | null {
       return time();
     case "weekly":
       return intIn("weekday", 0, 6) ?? time();
+    case "monthly":
+      return intIn("day", 1, 31) ?? time();
     default:
-      return 'schedule.type must be "daily", "weekly", "interval" or "none"';
+      return 'schedule.type must be "daily", "weekly", "monthly", "interval" or "none"';
   }
 }
 
@@ -242,6 +267,13 @@ function onlyTurnsOff(body: CronUpdateReq): boolean {
   return keys.length === 1 && keys[0] === "enabled" && body.enabled === false;
 }
 
+// The folder a job with an agent target stores when the request names none.
+const HOME_CWD = "~";
+
+function hasKey(body: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(body, key);
+}
+
 function jobById(deps: CronDeps, id: string | undefined): Cronjob | undefined {
   return deps.listCronjobs().find((cronjob) => cronjob.id === id);
 }
@@ -268,12 +300,13 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
 
     "cron.readSystemPrompt": (ctx) => {
       const job = deps.listCronjobs().find((c) => c.id === ctx.params.id);
-      return job && deps.visibleTo(ctx.identity, job.id)
-        ? ok({
-            systemPrompt: deps.buildCronjobSystemPrompt(job),
-            firstUserMessage: job.prompt,
-          })
-        : fail(404, "not_found");
+      if (!job || !deps.visibleTo(ctx.identity, job.id))
+        return fail(404, "not_found");
+      if (job.target) return fail(409, "agent_target", TARGET_HAS_NO_SESSION);
+      return ok({
+        systemPrompt: deps.buildCronjobSystemPrompt(job),
+        firstUserMessage: job.prompt,
+      });
     },
 
     "cron.create": async (ctx) => {
@@ -284,10 +317,27 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       if (typeof body.prompt !== "string") {
         return fail(400, "invalid_request", "prompt is required");
       }
-      if (typeof body.cwd !== "string" || body.cwd.length === 0) {
+      let target: CronjobTarget | undefined;
+      if (hasKey(body, "target")) {
+        const parsed = parseCronjobTarget(body.target);
+        if (!parsed.ok) return fail(422, "invalid_request", parsed.error);
+        target = parsed.target ?? undefined;
+      }
+      // A job that messages an agent runs no session, so it may omit the
+      // session fields; any it sends are checked as for a session job.
+      if (!target && (typeof body.cwd !== "string" || body.cwd.length === 0)) {
         return fail(400, "invalid_request", "cwd is required");
       }
-      if (body.schedule === undefined || body.modelFamily === undefined) {
+      if (
+        body.cwd !== undefined &&
+        (typeof body.cwd !== "string" || body.cwd.length === 0)
+      ) {
+        return fail(400, "invalid_request", "cwd must be a non-empty string");
+      }
+      if (body.schedule === undefined) {
+        return fail(400, "invalid_request", "schedule is required");
+      }
+      if (!target && body.modelFamily === undefined) {
         return fail(
           400,
           "invalid_request",
@@ -296,42 +346,68 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       }
       const shapeErr = scheduleError(body.schedule);
       if (shapeErr) return fail(422, "invalid_request", shapeErr);
-      if (body.effort === undefined || body.permissionMode === undefined) {
+      if (
+        !target &&
+        (body.effort === undefined || body.permissionMode === undefined)
+      ) {
         return fail(
           400,
           "invalid_request",
           "effort and permissionMode are required",
         );
       }
-      const cwdErr = deps.validateCwd(body.cwd);
-      if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
-      const folderErr = deps.folderRefusal?.(body.cwd);
-      if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
-      const familyErr = deps.modelFamilyError(
-        body.agentType ?? "claude",
-        body.modelFamily,
-      );
-      if (familyErr) return fail(422, "invalid_model_family", familyErr);
+      if (body.cwd !== undefined) {
+        const cwdErr = deps.validateCwd(body.cwd);
+        if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
+        const folderErr = deps.folderRefusal?.(body.cwd);
+        if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
+      }
+      if (body.modelFamily !== undefined) {
+        const familyErr = deps.modelFamilyError(
+          body.agentType ?? "claude",
+          body.modelFamily,
+        );
+        if (familyErr) return fail(422, "invalid_model_family", familyErr);
+      }
       const room = roomIdFromBody(body, ctx.identity, deps);
       if (!room.ok) return room.response;
+      const roomId =
+        room.roomId === undefined
+          ? deps.defaultCreateRoomId(ctx.identity)
+          : room.roomId || undefined;
+      if (roomId === undefined && tokenRooms(ctx.identity) !== null)
+        return fail(422, "invalid_request", TOKEN_NEEDS_ROOM);
+      if (
+        target &&
+        !deps.agentTargetReachable(
+          ctx.identity,
+          ctx.identity.userId,
+          target.agentId,
+        )
+      ) {
+        return fail(404, "not_found");
+      }
+      const cwd = body.cwd ?? HOME_CWD;
       const refusal = ownScheduleRefusal(
         ctx.identity,
         deps,
         {
           agentType: body.agentType ?? "claude",
           codexSandbox: body.codexSandbox,
-          cwd: body.cwd,
+          cwd,
+          target,
         },
         room.roomId,
       );
       if (refusal) return refusal;
-      deps.saveRecentCwd(body.cwd);
+      if (body.cwd !== undefined) deps.saveRecentCwd(body.cwd);
       const { username } = deps.attributionFor(ctx.identity);
       const job = await deps.createCronjob({
         name: body.name,
         schedule: body.schedule,
         prompt: body.prompt,
-        cwd: body.cwd,
+        cwd,
+        ...(target ? { target } : {}),
         agentType: body.agentType,
         modelFamily: body.modelFamily,
         effort: body.effort,
@@ -342,10 +418,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         ...(ctx.identity.scope === "agent" && ctx.identity.agentId
           ? { createdByAgentId: ctx.identity.agentId }
           : {}),
-        roomId:
-          room.roomId === undefined
-            ? deps.defaultCreateRoomId(ctx.identity)
-            : room.roomId || undefined,
+        roomId,
       });
       // The creator is the maker, so the projection is the whole record; a
       // null here would be a rule bug, and it must not fall back to the raw job.
@@ -364,27 +437,54 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         const shapeErr = scheduleError(body.schedule);
         if (shapeErr) return fail(422, "invalid_request", shapeErr);
       }
+      // undefined: the body does not set the target.
+      let target: CronjobTarget | null | undefined;
+      if (hasKey(body, "target")) {
+        const parsed = parseCronjobTarget(body.target);
+        if (!parsed.ok) return fail(422, "invalid_request", parsed.error);
+        target = parsed.target;
+      }
       const room = roomIdFromBody(body, ctx.identity, deps);
       if (!room.ok) return room.response;
-      if (body.cwd !== undefined) {
-        const cwdErr = deps.validateCwd(body.cwd);
+      if (room.roomId === "" && tokenRooms(ctx.identity) !== null)
+        return fail(422, "invalid_request", TOKEN_NEEDS_ROOM);
+      const existing = jobById(deps, ctx.params.id);
+      if (target !== undefined && !existing) return fail(404, "not_found");
+      // The reach is the job OWNER's, whoever writes.
+      if (
+        target &&
+        !deps.agentTargetReachable(
+          ctx.identity,
+          existing!.userId,
+          target.agentId,
+        )
+      ) {
+        return fail(404, "not_found");
+      }
+      // Back to a session job: the job as it will be is checked as a session
+      // job, also in the fields this body does not send.
+      const sessionFrom = target === null && existing?.target ? existing : null;
+      const toSession = sessionFrom !== null;
+      const cwdToCheck = sessionFrom ? (body.cwd ?? sessionFrom.cwd) : body.cwd;
+      if (cwdToCheck !== undefined) {
+        const cwdErr = deps.validateCwd(cwdToCheck);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
-        const folderErr = deps.folderRefusal?.(body.cwd);
+        const folderErr = deps.folderRefusal?.(cwdToCheck);
         if (folderErr) return fail(422, FOLDER_NOT_ALLOWED, folderErr);
       }
-      if (body.modelFamily !== undefined || body.agentType !== undefined) {
-        const existing = deps
-          .listCronjobs()
-          .find((cronjob) => cronjob.id === ctx.params.id);
+      if (
+        toSession ||
+        body.modelFamily !== undefined ||
+        body.agentType !== undefined
+      ) {
         if (!existing) return fail(404, "not_found");
         const familyErr = deps.modelFamilyError(
           body.agentType ?? existing.agentType,
-          body.modelFamily,
+          body.modelFamily ?? (toSession ? existing.modelFamily : undefined),
         );
         if (familyErr) return fail(422, "invalid_model_family", familyErr);
       }
       if (!onlyTurnsOff(body) && cronOwnOnly(ctx.identity)) {
-        const existing = jobById(deps, ctx.params.id);
         if (!existing) return fail(404, "not_found");
         const refusal = ownScheduleRefusal(
           ctx.identity,
@@ -398,15 +498,18 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
               ? body.codexSandbox
               : existing.codexSandbox,
             cwd: body.cwd ?? existing.cwd,
+            target:
+              target === undefined ? existing.target : (target ?? undefined),
           },
           room.roomId,
         );
         if (refusal) return refusal;
       }
       if (body.cwd !== undefined) deps.saveRecentCwd(body.cwd);
-      const { roomId: _roomId, ...rest } = body;
+      const { roomId: _roomId, target: _target, ...rest } = body;
       const job = await deps.updateCronjob(ctx.params.id, {
         ...rest,
+        ...(target !== undefined ? { target } : {}),
         ...(room.roomId !== undefined ? { roomId: room.roomId } : {}),
       });
       const projected = job ? deps.projectCronjobFor(ctx.identity, job) : null;
@@ -520,9 +623,12 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         return fail(400, "invalid_request", "newText is required");
       }
       const { id: jobId, runId, logEntryId } = ctx.params;
-      if (!deps.findRun(jobId, runId)) return fail(404, "not_found");
+      const run = deps.findRun(jobId, runId);
+      if (!run) return fail(404, "not_found");
       const refusal = runRefusal(ctx.identity, jobId);
       if (refusal) return refusal;
+      if (run.targetAgentSnapshot)
+        return fail(409, "run_not_resumable", TARGET_RUN_NOT_RESUMABLE);
       const messageId = crypto.randomUUID();
       const { username } = deps.attributionFor(ctx.identity);
       const device = typeof body.device === "string" ? body.device : undefined;
