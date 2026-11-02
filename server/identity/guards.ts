@@ -22,6 +22,13 @@ import {
   type Identity,
 } from "./index.ts";
 import type { FitTarget } from "../../shared/pack-fit.ts";
+import type { UserRecord } from "../../shared/types.ts";
+
+// What the agent ceiling reads of a member.
+export type CeilingManager = Pick<
+  UserRecord,
+  "id" | "name" | "role" | "pack" | "allowedRooms"
+>;
 
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
 // the envelope strings identical across the whole authz surface - tests pin the
@@ -71,6 +78,10 @@ export interface GuardDeps {
   // A killed agent's last stop and pack, which a revive gives it back, or null
   // for a live or unknown one.
   killedAgentGrant?(agentId: string): Omit<FitTarget, "roomId"> | null;
+  // The manager of a live agent, and a user by id, for the agent ceiling of
+  // member permission packs.
+  agentManagerOf?(agentId: string): CeilingManager | null;
+  userById?(userId: string): CeilingManager | null;
   // Whether agent `writerId` wrote to agent `receiverId` (a message that
   // reached it), so the receiver may reply.
   agentHeardFrom?(receiverId: string, writerId: string): boolean;

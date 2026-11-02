@@ -311,6 +311,10 @@ import {
 import { FAILED_EDIT_TEXT_KEY } from "../shared/failed-edit.ts";
 import { createUserSendDedupe } from "./user-send-dedupe.ts";
 import type { RefusedFreeModelReplacer } from "./welcome-opencode-model.ts";
+import { memberPackOf } from "./identity/member-pack.ts";
+import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
+import { agentStopRefusal, stopName } from "./identity/agent-fit.ts";
+import { managerRoomsOf } from "../shared/pack-fit.ts";
 // AgentManager was a singleton function-module (module-level officeState /
 // eventHandler / agents map + exported functions). It is now an instantiable
 // unit: createAgentManager(deps) owns its collaborators; the production wiring
@@ -754,6 +758,9 @@ export function createAgentManager(deps: ManagerDeps) {
     releaseBackendHold,
     resume,
     recordHeardFrom,
+    memberPackOf: (userId) => memberPackOf(userId, getUserById),
+    managerRoomsOf: (userId) =>
+      managerRoomsOf(userId ? getUserById(userId) : null),
   });
   // The office MCP servers of each agent and the chat affordances
   // (server/agent-affordances.ts). Built right after the message queue, its
@@ -808,6 +815,7 @@ export function createAgentManager(deps: ManagerDeps) {
     killedAgentManagerUserId,
     killedAgentLastRoomId,
     killedAgentGrant,
+    killedAgentCeilingRecord,
     getAgent,
     agentIdsOfUser,
   } = createOfficePersistence({
@@ -1039,6 +1047,16 @@ export function createAgentManager(deps: ManagerDeps) {
   // construction; deps.eventSink lets tests capture emitted events.
   let eventHandler: EventHandler = deps.eventSink ?? (() => {});
   let officeStatePersistenceEnabled = false;
+  // What the agent ceiling of member permission packs does to an agent
+  // (server/member-ceiling.ts); the office sets it before the boot restore.
+  let memberCeilingClamp: (agent: CeilingAgent) => CeilingClamp = () => ({
+    kind: "keep",
+  });
+  function setMemberCeilingClamp(
+    clamp: (agent: CeilingAgent) => CeilingClamp,
+  ): void {
+    memberCeilingClamp = clamp;
+  }
   // The install of a persisted agent at boot and revive, and the boot
   // restore (server/agent-restore.ts). Built as early as its deps exist.
   const { restoreOrReviveAgent, restoreAgents } = createAgentRestore({
@@ -1075,6 +1093,7 @@ export function createAgentManager(deps: ManagerDeps) {
       officeStatePersistenceEnabled = true;
     },
     profileKeyMoveLimitMs: deps.profileKeyMoveLimitMs,
+    memberCeilingClamp: (agent) => memberCeilingClamp(agent),
   });
   // Fields on AgentInfo that aren't included in the persisted shape (see
   // persistAll, server/office-persistence.ts). agent_updated events that only
@@ -4781,6 +4800,21 @@ export function createAgentManager(deps: ManagerDeps) {
     managed: ManagedAgent,
     resumeSessionId?: string,
   ): BackendSession {
+    // No session runs above the agent ceiling of its manager's permission
+    // pack: an agent its engine cannot move down waits for an owner.
+    const ceilingOf = managed.info.userId
+      ? getUserById(managed.info.userId)
+      : undefined;
+    if (
+      ceilingOf?.pack &&
+      agentStopRefusal(ceilingOf, agentAccessOf(managed.info))
+    )
+      throw new LocalizedError(
+        msg("systemEntries.aboveMemberCeiling", {
+          member: ceilingOf.name,
+          ceiling: stopName(ceilingOf.pack.agentCeiling),
+        }),
+      );
     // Clear pendingPermission so a stale approvalId from the old (about-to-close)
     // session can't accidentally route a future user message into a dead approval.
     // The backend's close() resolves any in-flight SDK resolver with deny.
@@ -7613,7 +7647,14 @@ export function createAgentManager(deps: ManagerDeps) {
     | {
         ok: false;
         error: string;
-        field?: "name" | "desk" | "room" | "back_room" | "room_full";
+        field?:
+          | "name"
+          | "desk"
+          | "room"
+          | "back_room"
+          | "room_full"
+          // Its engine cannot run at its manager's agent ceiling.
+          | "ceiling";
       }
   > {
     // 1. Must be currently killed (not in live map).
@@ -7777,6 +7818,24 @@ export function createAgentManager(deps: ManagerDeps) {
       ...persistedAutoHandoffTokens(entry.autoHandoffTokens),
       ...(entry.limitResume === false ? { limitResume: false } : {}),
     };
+
+    // An agent its manager's agent ceiling would hold below what its engine
+    // runs: refused, so it never comes back above the ceiling.
+    const userId = resolveAgentUserId(persisted);
+    if (
+      memberCeilingClamp({
+        ...persisted,
+        agentType: persisted.agentType ?? "claude",
+        userId,
+      }).kind === "cannot"
+    ) {
+      const manager = userId ? getUserById(userId) : undefined;
+      return {
+        ok: false,
+        error: `${entry.name} cannot come back: its engine and model cannot run at the highest agent level of ${manager?.name ?? "its manager"}'s permission pack.`,
+        field: "ceiling",
+      };
+    }
 
     const installResult = restoreOrReviveAgent({
       persisted,
@@ -9261,6 +9320,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // exactly the symbols server/isomux-office.ts consumed off the old namespace import.
   return {
     configureAgentTurnDeps,
+    setMemberCeilingClamp,
     getRooms,
     globalRoomIndexOf,
     roomById,
@@ -9305,6 +9365,7 @@ export function createAgentManager(deps: ManagerDeps) {
     getKilledAgentIds,
     killedAgentManagerUserId,
     killedAgentGrant,
+    killedAgentCeilingRecord,
     agentHeardFrom,
     recordMemberHeardFrom,
     memberHeardFrom,

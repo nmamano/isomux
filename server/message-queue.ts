@@ -44,6 +44,7 @@ import {
   type SendNowResult,
 } from "./internal-types.ts";
 import { loadMessageQueuesRaw, saveMessageQueues } from "./persistence.ts";
+import type { MemberPack } from "../shared/pack-fit.ts";
 
 export const TOOL_BOUNDARY_NOTE =
   "[Isomux: delivered during your turn; nothing was interrupted.]";
@@ -77,6 +78,14 @@ export interface MessageQueueDeps {
   ) => SendNowResult;
   releaseBackendHold: (agentId: string, managed: ManagedAgent) => void;
   resume: (agentId: string, sessionId: string) => Promise<unknown>;
+  // The live pack and rooms of member `userId` (server/identity/member-pack.ts).
+  memberPackOf: (
+    userId: string | null | undefined,
+  ) => { pack: MemberPack; rooms?: readonly string[] } | undefined;
+  // The rooms the agents of manager `userId` reach (shared/pack-fit.ts).
+  managerRoomsOf: (
+    userId: string | null | undefined,
+  ) => readonly string[] | undefined;
   // An agent's message reached another agent: the receiver may reply to it
   // under the pack rule.
   recordHeardFrom: (receiverId: string, writerId: string) => void;
@@ -98,6 +107,8 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     releaseBackendHold,
     resume,
     recordHeardFrom,
+    memberPackOf,
+    managerRoomsOf,
   } = deps;
 
   const QUEUE_MAX = 50;
@@ -166,10 +177,13 @@ export function createMessageQueue(deps: MessageQueueDeps) {
   function agentSendDoesNotFit(senderId: string, receiverId: string): boolean {
     if (senderId === receiverId) return false;
     const token = getAgentTokenIdentity(senderId);
-    const sender = token ? agentPackSender(token.access, token.limits) : null;
+    const sender = token
+      ? agentPackSender(token.access, token.limits, memberPackOf(token.userId))
+      : null;
     const receiver = agents.get(receiverId)?.info;
     if (!sender || !receiver) return false;
     const access = agentAccessOf(receiver);
+    const managerRooms = managerRoomsOf(receiver.userId);
     if (
       fitsInside(sender, {
         access,
@@ -177,6 +191,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
           ? { pack: receiver.pack }
           : {}),
         roomId: receiver.roomId,
+        ...(managerRooms ? { managerRooms } : {}),
       })
     )
       return false;

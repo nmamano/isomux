@@ -939,6 +939,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.apiTokens.repliesOnlyHint":
     "Sends only to agents that wrote to it first",
   "settings.apiTokens.access.custom": "Custom",
+  "settings.memberPack.workWithAgents": "Work with agents",
+  "settings.memberPack.ceiling": "Highest agent level",
+  "settings.memberPack.hint":
+    "A pack is a firm limit only for a member who never had an agent at Standard or Privileged.",
   "settings.apiTokens.level.none": "None",
   "settings.apiTokens.level.read": "Read",
   "settings.apiTokens.level.write": "Read and write",
@@ -1625,6 +1629,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "With a shell, an agent can read the office tokens of other agents. Only Chat, Office, Folder and Web limit what it can reach.",
   "dialogs.agent.access.engineCannot":
     "Not available for this engine or model yet",
+  "dialogs.agent.access.aboveCeiling":
+    "Above the highest agent level of the manager's permission pack",
   "dialogs.agent.pack.asksOnly": "Asks only",
   "dialogs.agent.pack.tasksAndAsks": "Tasks and asks",
   "dialogs.agent.pack.showsSecrets": "can show secrets",
@@ -3375,6 +3381,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "cwd is invalid: Not a directory: {path}. Click the agent name in the log view header to fix it.",
   "systemEntries.cwdInvalid.inaccessible":
     "cwd is invalid: Cannot access {path}: {message}. Click the agent name in the log view header to fix it.",
+  "systemEntries.aboveMemberCeiling":
+    "This agent cannot start above {ceiling}, the highest agent level of {member}'s permission pack. An office owner can lower it, give it another manager, or kill it.",
   "systemEntries.scheduleRun.resumeSkipped":
     "Cannot resume a skipped run - it never opened a session.",
   "systemEntries.scheduleRun.resumeNoInit":
@@ -3387,6 +3395,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Cannot resume: no access to the folder {path} ({message}).",
   "systemEntries.scheduleRun.envFailed":
     "Cannot load the variables and secrets from the Integrations page: {error}",
+  "systemEntries.scheduleRun.aboveMemberCeiling":
+    "Not run: {member}'s permission pack allows only schedules that message an agent.",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "Cannot resume this OpenCode run because its schedule was deleted and its shared environment profile can no longer be resolved.",
   "systemEntries.scheduleRun.jobDeleted":

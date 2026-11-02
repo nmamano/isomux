@@ -30,10 +30,7 @@ import type { RouteAuth, RoutePrecondition } from "./table.ts";
 import type { RouteMatch } from "./match.ts";
 import type { Identity } from "../identity/index.ts";
 import { passesRouteStageOne, authorize } from "../identity/dispatch.ts";
-import {
-  AGENT_DOES_NOT_FIT,
-  agentWriteRefusal,
-} from "../identity/agent-fit.ts";
+import { agentWriteRefusal } from "../identity/agent-fit.ts";
 import { routeAllowedByLimits } from "../../shared/api-token-limits.ts";
 import {
   ALLOW,
@@ -401,14 +398,15 @@ export async function executeRoute(
 
   // A sender with a permission pack writes only to agents that fit inside it
   // (server/identity/agent-fit.ts).
-  const notFit = agentWriteRefusal(
+  const refusal = agentWriteRefusal(
     identity,
     route,
     params,
     body,
     deps.guardDeps,
   );
-  if (notFit) return render(fail(403, AGENT_DOES_NOT_FIT, notFit));
+  if (refusal)
+    return render(fail(refusal.status, refusal.code, refusal.message));
 
   for (const pid of route.preconditions ?? []) {
     const fn = deps.preconditions.get(pid);

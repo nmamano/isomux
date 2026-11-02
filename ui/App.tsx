@@ -72,6 +72,7 @@ import { OfficeLinkOpener } from "./office-link.tsx";
 import { TaskOpener } from "./log-view/task-links.tsx";
 import { AskRefsProvider } from "./log-view/ask-refs.tsx";
 import type { OfficeLink } from "../shared/office-links.ts";
+import { useCan } from "./hooks/useCan.ts";
 
 /**
  * The page a history entry names, `null` for an entry that means the office,
@@ -127,6 +128,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   // Clicking an empty slot opens the complete spawn form. Engine is one of its
   // fields, so the user can configure the agent in either order.
   const [spawnPickerDesk, setSpawnPickerDesk] = useState<number | null>(null);
+  // A member with a permission pack spawns only with agentManagement write.
+  const canSpawn = useCan("agentManagement", "write");
   // The spawn dialog for a back room seat (the back screen's "+ New agent").
   const [spawnBackOpen, setSpawnBackOpen] = useState(false);
   // The current room's back room screen (task 5b503e32). Not a route: like a
@@ -1170,12 +1173,16 @@ export function App({ routing = true }: { routing?: boolean }) {
             />
           ) : (
             <OfficeView
-              onSpawn={(desk) => setSpawnPickerDesk(desk)}
+              onSpawn={(desk) => {
+                if (canSpawn) setSpawnPickerDesk(desk);
+              }}
               onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
               onOpenBackRoom={() => setBackRoomOpen(true)}
               backRoomOpen={backRoomOpen}
               onCloseBackRoom={goHome}
-              onSpawnBack={() => setSpawnBackOpen(true)}
+              onSpawnBack={() => {
+                if (canSpawn) setSpawnBackOpen(true);
+              }}
               onOpenSettings={() => openSettings(null)}
               onOpenUserSettingsForUser={(userId) => {
                 setEditingUserId(userId);

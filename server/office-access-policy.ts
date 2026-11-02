@@ -90,6 +90,7 @@ import {
 } from "./webhook-visibility.ts";
 import type { WebhookIngress } from "./webhooks/ingress.ts";
 import { webhookRegistry } from "./webhooks/registry.ts";
+import { type WsPushKind } from "./ws-push-area.ts";
 
 // What the identity and visibility policy reads from server/isomux-office.ts.
 export interface AccessPolicyDeps {
@@ -106,7 +107,11 @@ export interface AccessPolicyDeps {
     payload: EventPayloads[K],
     ctx?: EmitContext,
   ) => void;
-  officeSend: (ws: ServerWebSocket<OfficeWsData>, data: string) => void;
+  officeSend: (
+    ws: ServerWebSocket<OfficeWsData>,
+    kind: WsPushKind,
+    data: string,
+  ) => void;
   pushAppDeltaToEachWs: (change: AppChange) => void;
   toPublicWire: (user: UserRecord) => UserPublicWire;
 }
@@ -644,7 +649,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
             },
             webhookViewerForSession(ws.data.session),
           );
-          if (delta) officeSend(ws, JSON.stringify(delta));
+          if (delta) officeSend(ws, delta.type, JSON.stringify(delta));
         }
       }
     } catch (err) {

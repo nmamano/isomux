@@ -11,14 +11,14 @@
 // proves it agrees with the live rule-based ACL.
 //
 import { withinTokenRooms, type Identity } from "./index.ts";
-import type { GuardDeps } from "./guards.ts";
+import type { CeilingManager, GuardDeps } from "./guards.ts";
 import {
   agentAccessOf,
   stopHasPack,
   type AgentAccess,
 } from "../../shared/agent-access.ts";
 import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
-import type { FitTarget } from "../../shared/pack-fit.ts";
+import { managerRoomsOf, type FitTarget } from "../../shared/pack-fit.ts";
 
 // The minimal live readers the adapter needs, as structural shapes so the
 // production managers' richer return types (AgentInfo / RoomWire / UserRecord /
@@ -64,6 +64,8 @@ export interface GuardDepsLiveReaders {
   // User id -> live role. The app-control guard asks about the agent or API
   // token's user through this seam rather than trusting identity.role.
   getUserById(userId: string): { role: "owner" | "member" } | null;
+  // User id -> the live record the agent ceiling reads (users.getUserById).
+  userRecordById?(userId: string): CeilingManager | null;
   // The live cronjob list; id → creator userId. cronjobManager.listCronjobs.
   listCronjobs(): readonly {
     id: string;
@@ -118,15 +120,30 @@ export function buildProductionGuardDeps(
       const agent = live.getAllAgents().find((a) => a.id === agentId);
       if (!agent) return null;
       const access = agentAccessOf(agent);
+      const managerRooms = managerRoomsOf(
+        agent.userId ? live.userRecordById?.(agent.userId) : null,
+      );
       return {
         access,
         ...(stopHasPack(access) && agent.pack ? { pack: agent.pack } : {}),
         roomId: agent.roomId,
+        ...(managerRooms ? { managerRooms } : {}),
       };
     },
 
     killedAgentGrant(agentId) {
       return live.killedAgentGrant?.(agentId) ?? null;
+    },
+
+    agentManagerOf(agentId) {
+      const userId = live
+        .getAllAgents()
+        .find((agent) => agent.id === agentId)?.userId;
+      return userId ? (live.userRecordById?.(userId) ?? null) : null;
+    },
+
+    userById(userId) {
+      return live.userRecordById?.(userId) ?? null;
     },
 
     agentHeardFrom(receiverId, writerId) {

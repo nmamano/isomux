@@ -1043,6 +1043,8 @@ export interface UserCreateReq {
   // Member room grants; refused for an owner (owners reach every room by
   // rule). Unknown room ids are refused.
   allowedRooms?: string[];
+  // A member's permission pack (shared/pack-fit.ts); refused for an owner.
+  pack?: MemberPack | null;
 }
 
 export interface AccessSettingsReq {
@@ -1846,6 +1848,9 @@ export type AppErrorCode =
   // "come back after a delete".
   | "origin_retired"
   | "app_limit_reached"
+  // The app's owner is a member whose permission pack has no apps write: the
+  // app does not run.
+  | "owner_pack_no_apps"
   | "no_port_available"
   // The three server-side failures. Where one of these is the error CODE, the
   // request genuinely failed - none of them is ever dressed up as a success.

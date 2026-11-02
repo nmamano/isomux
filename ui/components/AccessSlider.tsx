@@ -7,6 +7,7 @@ import {
   belowStandard,
   engineRunsAccess,
   stopHasPack,
+  stopIncludes,
   type AgentAccess,
   type AgentPackArea,
   type AgentPackPreset,
@@ -41,9 +42,12 @@ export interface AccessSliderProps {
   // A line under the stop hint, for example that saving restarts the
   // session.
   note?: ReactNode;
+  // The agent ceiling of the manager's permission pack: stops above it are
+  // disabled.
+  ceiling?: AgentAccess;
 }
 
-const STOP_LABEL: Record<AgentAccess, PlainMessageKey> = {
+export const STOP_LABEL: Record<AgentAccess, PlainMessageKey> = {
   chat: "dialogs.agent.access.chat",
   office: "dialogs.agent.access.office",
   folder: "dialogs.agent.access.folder",
@@ -52,7 +56,7 @@ const STOP_LABEL: Record<AgentAccess, PlainMessageKey> = {
   privileged: "dialogs.agent.access.privileged",
 };
 
-const STOP_HINT: Record<AgentAccess, PlainMessageKey> = {
+export const STOP_HINT: Record<AgentAccess, PlainMessageKey> = {
   chat: "dialogs.agent.access.chatHint",
   office: "dialogs.agent.access.officeHint",
   folder: "dialogs.agent.access.folderHint",
@@ -98,7 +102,10 @@ export function AccessSlider({
   agentType,
   model,
   note,
+  ceiling,
 }: AccessSliderProps) {
+  const aboveCeiling = (stop: AgentAccess) =>
+    ceiling !== undefined && !stopIncludes(ceiling, stop);
   const { t } = useI18n();
   return (
     <div className="agent-access-field">
@@ -114,9 +121,14 @@ export function AccessSlider({
           ariaLabel={t("dialogs.agent.access")}
           attr="data-access-stop"
           stepDisabled={(stop) =>
+            aboveCeiling(stop) ||
             !engineRunsAccess(agentType, stop, model || null)
           }
-          stepTitle={() => t("dialogs.agent.access.engineCannot")}
+          stepTitle={(stop) =>
+            aboveCeiling(stop)
+              ? t("dialogs.agent.access.aboveCeiling")
+              : t("dialogs.agent.access.engineCannot")
+          }
         />
       </div>
       <p style={{ ...dialogHint, margin: "6px 0 0", lineHeight: 1.4 }}>

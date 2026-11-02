@@ -381,6 +381,8 @@ export function claimUser(
     avatarColor?: string;
     avatarVariant?: string;
     pendingSignIn?: true;
+    // A member's permission pack; dropped for an owner.
+    pack?: MemberPack;
   },
 ): UserRecord {
   load();
@@ -424,6 +426,7 @@ export function claimUser(
     // Legacy invites can seed preferences; other creation paths start unset.
     language: normalizeLanguage(initial?.language),
     ...(initial?.pendingSignIn ? { pendingSignIn: true as const } : {}),
+    ...(initial?.pack && role === "member" ? { pack: initial.pack } : {}),
   };
   users[id] = record;
   try {
@@ -453,6 +456,7 @@ export function createMember(
     allowedRooms?: string[];
     avatarColor?: string;
     avatarVariant?: string;
+    pack?: MemberPack;
   },
 ):
   | { ok: true; user: UserRecord }
@@ -523,6 +527,8 @@ export type UserAccessChange = {
   role: boolean;
   allowedRooms: boolean;
   previousAllowedRooms: readonly string[];
+  // The permission pack changed by value (areas and ceiling).
+  pack: boolean;
 };
 let onUserAccessChangedHook: (
   userId: string,
@@ -540,6 +546,23 @@ function sameRoomSet(a: readonly string[], b: readonly string[]): boolean {
   return set.size === new Set(b).size && b.every((id) => set.has(id));
 }
 
+// Whether two packs give the same areas and ceiling, whatever the key order.
+function samePack(
+  a: MemberPack | undefined,
+  b: MemberPack | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  const keys = new Set([...Object.keys(a.areas), ...Object.keys(b.areas)]);
+  return (
+    a.agentCeiling === b.agentCeiling &&
+    [...keys].every(
+      (k) =>
+        a.areas[k as keyof MemberPack["areas"]] ===
+        b.areas[k as keyof MemberPack["areas"]],
+    )
+  );
+}
+
 // Post-persist: the on-disk record is authoritative, notify the transport
 // layer. A hook exception must not fail the (already-persisted) mutation.
 function notifyAccessChange(
@@ -551,8 +574,9 @@ function notifyAccessChange(
     role: before.role !== after.role,
     allowedRooms: !sameRoomSet(before.allowedRooms, after.allowedRooms),
     previousAllowedRooms: before.allowedRooms,
+    pack: !samePack(before.pack, after.pack),
   };
-  if (!changed.role && !changed.allowedRooms) return;
+  if (!changed.role && !changed.allowedRooms && !changed.pack) return;
   try {
     onUserAccessChangedHook(id, changed);
   } catch (err) {

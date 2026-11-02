@@ -61,6 +61,7 @@ import { useI18n } from "../i18n.tsx";
 import { timeSince } from "../../shared/i18n/time.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
+import { useCan } from "../hooks/useCan.ts";
 
 const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
@@ -898,6 +899,7 @@ export function TaskView({
   const [createInitialTitle, setCreateInitialTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const quickAddRef = useRef<HTMLInputElement>(null);
+  const canWriteTasks = useCan("tasks", "write");
   const closeRef = useRef<(() => void) | null>(null);
   // ONE pending post-close intent, not two: the discard prompt is inline (not
   // modal), so a row click and a quick-add Enter could otherwise both queue and
@@ -1330,93 +1332,98 @@ export function TaskView({
             overflow: "hidden",
           }}
         >
-          {/* Quick add - type a title, press Enter (or "n" to focus). Enter
+          {/* A member whose permission pack has no tasks write files none. */}
+          {canWriteTasks && (
+            <>
+              {/* Quick add - type a title, press Enter (or "n" to focus). Enter
               opens the detail panel; it does not create immediately. Sits ABOVE
               the filter row: it is a create affordance, not a view control. */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: isMobile ? "10px 12px 0" : "10px 20px 0",
-            }}
-          >
-            <input
-              ref={quickAddRef}
-              type="text"
-              value={quickTitle}
-              onChange={(e) => setQuickTitle(e.target.value)}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                // Ignore auto-repeat (held Enter would re-open the panel) and
-                // IME composition (Enter there confirms composed text, e.g.
-                // CJK, not a submit).
-                if (
-                  e.key === "Enter" &&
-                  !e.repeat &&
-                  !e.nativeEvent.isComposing
-                ) {
-                  // Prevent the keystroke's default so it can't land as a
-                  // newline in the description field we focus on open.
-                  e.preventDefault();
-                  openCreatePanel();
-                }
-              }}
-              placeholder={t("tasks.quickAdd")}
-              style={{
-                flex: 1,
-                padding: "9px 12px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--bg-input)",
-                color: "var(--text-primary)",
-                fontSize: 13,
-                outline: "none",
-              }}
-            />
-            {roomScope === "all" && (
-              <>
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-muted)",
-                    flexShrink: 0,
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: isMobile ? "10px 12px 0" : "10px 20px 0",
+                }}
+              >
+                <input
+                  ref={quickAddRef}
+                  type="text"
+                  value={quickTitle}
+                  onChange={(e) => setQuickTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    // Ignore auto-repeat (held Enter would re-open the panel) and
+                    // IME composition (Enter there confirms composed text, e.g.
+                    // CJK, not a submit).
+                    if (
+                      e.key === "Enter" &&
+                      !e.repeat &&
+                      !e.nativeEvent.isComposing
+                    ) {
+                      // Prevent the keystroke's default so it can't land as a
+                      // newline in the description field we focus on open.
+                      e.preventDefault();
+                      openCreatePanel();
+                    }
                   }}
-                >
-                  {t("tasks.fileIn")}
-                </span>
-                <select
-                  value={allRoomsCreateRoomId}
-                  onChange={(e) => setAllRoomsCreateRoomId(e.target.value)}
-                  title={t("tasks.fileInTitle")}
+                  placeholder={t("tasks.quickAdd")}
                   style={{
-                    ...selectStyle,
-                    flexShrink: 0,
-                    maxWidth: isMobile ? 120 : 160,
+                    flex: 1,
+                    padding: "9px 12px",
+                    borderRadius: 8,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-input)",
+                    color: "var(--text-primary)",
+                    fontSize: 13,
+                    outline: "none",
                   }}
-                >
-                  <option value="">{t("tasks.globalShort")}</option>
-                  {rooms.map((r) => (
-                    <option key={r.id} {...noTranslate()} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-          </div>
+                />
+                {roomScope === "all" && (
+                  <>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-muted)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {t("tasks.fileIn")}
+                    </span>
+                    <select
+                      value={allRoomsCreateRoomId}
+                      onChange={(e) => setAllRoomsCreateRoomId(e.target.value)}
+                      title={t("tasks.fileInTitle")}
+                      style={{
+                        ...selectStyle,
+                        flexShrink: 0,
+                        maxWidth: isMobile ? 120 : 160,
+                      }}
+                    >
+                      <option value="">{t("tasks.globalShort")}</option>
+                      {rooms.map((r) => (
+                        <option key={r.id} {...noTranslate()} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
 
-          {/* Hint - Enter opens the detail panel (not an immediate create). */}
-          <div
-            style={{
-              padding: isMobile ? "4px 12px 0" : "4px 20px 0",
-              fontSize: 11,
-              color: "var(--text-hint)",
-              fontFamily: "var(--font-ui)",
-            }}
-          >
-            {t(isMobile ? "tasks.hintMobile" : "tasks.hintDesktop")}
-          </div>
+              {/* Hint - Enter opens the detail panel (not an immediate create). */}
+              <div
+                style={{
+                  padding: isMobile ? "4px 12px 0" : "4px 20px 0",
+                  fontSize: 11,
+                  color: "var(--text-hint)",
+                  fontFamily: "var(--font-ui)",
+                }}
+              >
+                {t(isMobile ? "tasks.hintMobile" : "tasks.hintDesktop")}
+              </div>
+            </>
+          )}
 
           {/* Filter row - view/status/priority/assignee + search. These narrow the table
               below, so they sit UNDER the quick-add create affordance. */}

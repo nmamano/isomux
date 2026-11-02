@@ -122,6 +122,7 @@ import type {
   EditAgentReq,
   ReviveReq,
 } from "../../../shared/contract-shapes.ts";
+import { AGENTS_CANNOT_MOVE_DOWN } from "../../identity/agent-fit.ts";
 
 // Discriminated results for the response-driven trio: the index closures own the
 // compound logic (validateCwd / saveRecentCwd / spawn null-disambiguation) and
@@ -173,7 +174,7 @@ export type ReviveResult =
   | {
       ok: false;
       error: string;
-      field?: "name" | "desk" | "room" | "back_room" | "room_full";
+      field?: "name" | "desk" | "room" | "back_room" | "room_full" | "ceiling";
     };
 
 export type KillResult = { ok: true };
@@ -305,7 +306,7 @@ export interface AgentsDeps {
     agentId: string,
     userId: string,
     changedBy: string,
-  ): Promise<AgentInfo | null | "unknown_member">;
+  ): Promise<AgentInfo | null | "unknown_member" | "cannot_move_down">;
   // Live AgentInfo lookup for the instructions read. The
   // agentParam guard already gated existence + room access, so a miss here is
   // a post-guard race (-> defensive 404).
@@ -698,7 +699,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
                 ? "no_free_desk"
                 : r.field === "room"
                   ? "room_not_found"
-                  : "revive_failed";
+                  : r.field === "ceiling"
+                    ? AGENTS_CANNOT_MOVE_DOWN
+                    : "revive_failed";
       return fail(r.field === "room" ? 404 : 409, code, r.error);
     },
 
@@ -786,6 +789,12 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       );
       if (r === "unknown_member")
         return fail(422, "unknown_member", "No member has this id");
+      if (r === "cannot_move_down")
+        return fail(
+          409,
+          AGENTS_CANNOT_MOVE_DOWN,
+          `${deps.getAgent(ctx.params.id)?.name ?? "This agent"} cannot run at the highest agent level of this member's permission pack with its engine and model. Change its engine or model first.`,
+        );
       if (!r) return fail(404, "agent_not_found", "Agent not found");
       return ok({ agent: r });
     },

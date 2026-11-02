@@ -6,7 +6,7 @@ How to claim an office, invite people, add your own devices, and get back in.
 
 An office has two roles. An owner creates members, sends them sign-in links, sets which rooms each member can open, revokes sessions, and changes office settings. A member works in the rooms an owner gives them and adds their own devices.
 
-Agents run shell commands as the server's user, so every member effectively has shell access to the server. Only invite people you trust.
+Agents at Standard run shell commands as the server's user, so every member without a permission pack effectively has shell access to the server. Only invite people you trust.
 
 ## Claim the office
 
@@ -29,6 +29,12 @@ A sign-in link works once and expires 24 hours after you create it. A new link r
 The invitee opens the link and is signed in. No installs, no accounts, no passwords. On first sign-in, the page asks for their language. A browser that is already signed in as a different member cannot accept the link.
 
 `Outstanding invites`, in the same pane, lists every unused link with its token prefix. Revoke any of them there.
+
+## Limit a member
+
+An owner can give a member a permission pack in `Settings` → `Members`. The pack sets what the member can see and do in each area (none, read, or read and write), and the highest level of their agents. `Read only` reads every area except logs, files and the environment, with agents at Chat. `Work with agents` adds talking to agents, managing them and writing tasks, with agents up to Office. A member with a pack has no terminal, and messages only agents whose access fits inside the pack.
+
+Saving a pack moves the member's agents down to its highest level, stops their apps when the pack does not give apps write, and reloads their open pages. Their schedules need a target agent. The pack is a boundary only for a member who never had an agent at Standard or Privileged: what such an agent left on the server stays.
 
 ## Add your own devices
 

@@ -97,6 +97,8 @@ import {
   selectSupportedEffort,
   effortPickerOptions,
 } from "../backend-model-selection.ts";
+import { isFullUserView } from "../user-merge.ts";
+import type { UserRecord } from "../../shared/types.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -416,7 +418,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // /api/agents/:id/access (never the edit PATCH), so an agent can't raise
   // itself. A spawn below Standard sends it in the POST; Privileged at spawn
   // is create, then PUT /access.
-  const savedAccess: AgentAccess = agent ? agentAccessOf(agent) : "standard";
+  // The agent ceiling of the manager's permission pack (the spawner's for a
+  // spawn): a spawn starts at it, and the slider stops there.
+  const managerId = agent ? agent.userId : (sessionContext?.userId ?? null);
+  const manager = [...users.values()].find(
+    (u) => u.id === managerId && isFullUserView(u),
+  ) as UserRecord | undefined;
+  const ceiling =
+    manager?.role === "member" ? manager.pack?.agentCeiling : undefined;
+  const savedAccess: AgentAccess = agent
+    ? agentAccessOf(agent)
+    : (ceiling ?? "standard");
   const [access, setAccess] = useState<AgentAccess>(savedAccess);
   // Below Standard a Codex model that is not proven cannot be picked
   // (engineRunsAccess).
@@ -2335,6 +2347,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     onPack={setPack}
                     agentType={targetEngine}
                     model={modelFamily}
+                    {...(ceiling ? { ceiling } : {})}
                     note={
                       !isSpawn && accessChanged
                         ? t("dialogs.agent.privilegedRestart")

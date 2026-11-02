@@ -856,6 +856,10 @@ App 的一些原则：
   "settings.apiTokens.access.repliesOnly": "仅回复",
   "settings.apiTokens.repliesOnlyHint": "仅向先给它发消息的智能体发送",
   "settings.apiTokens.access.custom": "自定义",
+  "settings.memberPack.workWithAgents": "与智能体协作",
+  "settings.memberPack.ceiling": "最高智能体级别",
+  "settings.memberPack.hint":
+    "权限包仅对从未拥有标准或特权级别智能体的成员是严格限制。",
   "settings.apiTokens.level.none": "无",
   "settings.apiTokens.level.read": "读取",
   "settings.apiTokens.level.write": "读写",
@@ -1476,6 +1480,7 @@ App 的一些原则：
   "dialogs.agent.access.boundaryNote":
     "有终端的智能体可以读取其他智能体的办公室令牌。只有聊天、办公室、文件夹和网络会限制它能访问的范围。",
   "dialogs.agent.access.engineCannot": "此引擎或模型暂不可用",
+  "dialogs.agent.access.aboveCeiling": "高于管理者权限包的最高智能体级别",
   "dialogs.agent.pack.asksOnly": "仅询问",
   "dialogs.agent.pack.tasksAndAsks": "任务和询问",
   "dialogs.agent.pack.showsSecrets": "可能显示密钥",
@@ -3072,6 +3077,8 @@ App 的一些原则：
     "cwd 无效：不是目录：{path}。点击日志视图标题栏中的智能体名称进行修正。",
   "systemEntries.cwdInvalid.inaccessible":
     "cwd 无效：无法访问 {path}：{message}。点击日志视图标题栏中的智能体名称进行修正。",
+  "systemEntries.aboveMemberCeiling":
+    "此智能体无法在高于 {ceiling} 的级别启动，{ceiling} 是 {member} 的权限包允许的最高智能体级别。办公室所有者可以调低它、为它指定其他管理者或终止它。",
   "systemEntries.scheduleRun.resumeSkipped":
     "无法继续已跳过的运行：它从未打开会话。",
   "systemEntries.scheduleRun.resumeNoInit":
@@ -3084,6 +3091,8 @@ App 的一些原则：
     "无法继续：无权访问文件夹 {path}（{message}）。",
   "systemEntries.scheduleRun.envFailed":
     "无法加载「集成」页面的变量和密钥：{error}",
+  "systemEntries.scheduleRun.aboveMemberCeiling":
+    "未运行：{member} 的权限包只允许向智能体发送消息的计划。",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "无法继续此 OpenCode 运行：其定时任务已删除，共享环境配置文件也无法再解析。",
   "systemEntries.scheduleRun.jobDeleted": "运行已停止：定时任务已删除。",

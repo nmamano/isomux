@@ -1,4 +1,5 @@
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
+import { ACCESS_CHANGED_CLOSE_CODE } from "../shared/pack-fit.ts";
 
 type MessageHandler = (msg: ServerMessage) => void;
 type RawHandler = (data: string) => void;
@@ -214,8 +215,15 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
     }
     if (msg) handler?.(msg);
   };
-  ws.onclose = () => {
+  // The event is optional: tests close a fake socket without one.
+  ws.onclose = (event?: CloseEvent) => {
     if (myGen !== socketGen) return;
+    // The member's permission pack changed: reload, so nothing the pack now
+    // hides stays on the page.
+    if (event?.code === ACCESS_CHANGED_CLOSE_CODE) {
+      location.reload();
+      return;
+    }
     clearPongTimer();
     clearReconnectTimer();
     clearHeartbeat();

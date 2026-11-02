@@ -946,6 +946,10 @@ Coses que pots fer per ell:
   "settings.apiTokens.repliesOnlyHint":
     "Només envia als agents que li han escrit primer",
   "settings.apiTokens.access.custom": "Personalitzat",
+  "settings.memberPack.workWithAgents": "Treballar amb agents",
+  "settings.memberPack.ceiling": "Nivell d'agent més alt",
+  "settings.memberPack.hint":
+    "Un paquet només és un límit ferm per a un membre que mai no ha tingut un agent a Estàndard o Privilegiat.",
   "settings.apiTokens.level.none": "Cap",
   "settings.apiTokens.level.read": "Lectura",
   "settings.apiTokens.level.write": "Lectura i escriptura",
@@ -1656,6 +1660,8 @@ Coses que pots fer per ell:
     "Amb un terminal, un agent pot llegir els tokens d'oficina d'altres agents. Només Xat, Oficina, Carpeta i Web limiten el que pot abastar.",
   "dialogs.agent.access.engineCannot":
     "Encara no disponible per a aquest motor o model",
+  "dialogs.agent.access.aboveCeiling":
+    "Per sobre del nivell d'agent més alt del paquet de permisos del responsable",
   "dialogs.agent.pack.asksOnly": "Només preguntes",
   "dialogs.agent.pack.tasksAndAsks": "Tasques i preguntes",
   "dialogs.agent.pack.showsSecrets": "pot mostrar secrets",
@@ -3425,6 +3431,8 @@ Coses que pots fer per ell:
     "El cwd no és vàlid: no és un directori: {path}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
   "systemEntries.cwdInvalid.inaccessible":
     "El cwd no és vàlid: no es pot accedir a {path}: {message}. Fes clic al nom de l'agent a la capçalera de la vista del registre per corregir-ho.",
+  "systemEntries.aboveMemberCeiling":
+    "Aquest agent no es pot iniciar per sobre de {ceiling}, el nivell d'agent més alt del paquet de permisos de {member}. Un propietari de l'oficina el pot baixar, donar-li un altre responsable o eliminar-lo.",
   "systemEntries.scheduleRun.resumeSkipped":
     "No es pot reprendre una execució omesa: mai no va obrir cap sessió.",
   "systemEntries.scheduleRun.resumeNoInit":
@@ -3437,6 +3445,8 @@ Coses que pots fer per ell:
     "No es pot reprendre: sense accés a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.envFailed":
     "No s'han pogut carregar les variables i els secrets de la pàgina Integracions: {error}",
+  "systemEntries.scheduleRun.aboveMemberCeiling":
+    "No s'ha executat: el paquet de permisos de {member} només permet programacions que envien un missatge a un agent.",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "No es pot reprendre aquesta execució d'OpenCode perquè la seva programació es va eliminar i ja no es pot resoldre el seu perfil d'entorn compartit.",
   "systemEntries.scheduleRun.jobDeleted":

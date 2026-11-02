@@ -50,6 +50,8 @@ import {
 } from "./persistence.ts";
 import { spawnTreeFields } from "./spawn-agent-limits.ts";
 import { buildUsageReportData, type UsageAudience } from "./usage-report.ts";
+import type { CeilingAgent } from "./member-ceiling.ts";
+import { homedir } from "os";
 
 export interface OfficePersistenceDeps {
   agents: Map<string, ManagedAgent>;
@@ -554,6 +556,25 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     };
   }
 
+  // What the agent ceiling reads of a KILLED agent (server/member-ceiling.ts),
+  // or null for a live or unknown one.
+  function killedAgentCeilingRecord(agentId: string): CeilingAgent | null {
+    if (agents.has(agentId)) return null;
+    const entry = loadAgentHistory()[agentId];
+    if (!entry) return null;
+    return {
+      id: agentId,
+      name: entry.name,
+      cwd: entry.cwd ?? homedir(),
+      agentType: entry.agentType ?? "claude",
+      userId: entry.userId ?? null,
+      ...(entry.modelFamily ? { modelFamily: entry.modelFamily } : {}),
+      ...(entry.access ? { access: entry.access } : {}),
+      privileged: entry.privileged ?? false,
+      ...(entry.pack ? { pack: entry.pack } : {}),
+    };
+  }
+
   // For legacy entries (no kill-time stamp), use the agent's log directory
   // mtime as a "last-touched" proxy. One stat call per legacy entry; fine
   // for the ~100-entry scale this file reaches in practice.
@@ -602,6 +623,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     killedAgentManagerUserId,
     killedAgentLastRoomId,
     killedAgentGrant,
+    killedAgentCeilingRecord,
     getAgent,
     agentIdsOfUser,
   };

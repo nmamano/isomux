@@ -24,6 +24,19 @@ export function memberPackLimits(
   return { ...limits, areas };
 }
 
+// The live pack and rooms of member `userId`, or undefined for an owner, a
+// full member or no user.
+export function memberPackOf(
+  userId: string | null | undefined,
+  getUser: (id: string) => UserRecord | undefined,
+): MemberPackOfIdentity | undefined {
+  const user = userId ? getUser(userId) : undefined;
+  if (!user?.pack || user.role !== "member") return undefined;
+  return { pack: user.pack, rooms: user.allowedRooms };
+}
+
+export type MemberPackOfIdentity = NonNullable<Identity["memberPack"]>;
+
 // `identity` capped by the pack of its member (identity.userId), read live
 // from the user record; unchanged for an owner, a full member or no user.
 // Applied wherever an identity is made (server/auth-middleware.ts).
@@ -31,11 +44,11 @@ export function withMemberPack(
   identity: Identity,
   getUser: (id: string) => UserRecord | undefined,
 ): Identity {
-  const user = identity.userId ? getUser(identity.userId) : undefined;
-  if (!user?.pack || user.role !== "member") return identity;
+  const member = memberPackOf(identity.userId, getUser);
+  if (!member) return identity;
   return {
     ...identity,
-    apiTokenLimits: memberPackLimits(identity.apiTokenLimits, user.pack),
-    memberPack: { pack: user.pack, rooms: user.allowedRooms },
+    apiTokenLimits: memberPackLimits(identity.apiTokenLimits, member.pack),
+    memberPack: member,
   };
 }

@@ -431,6 +431,12 @@ describe("every identity of the member is capped to the pack, read live", () => 
     expect(await tools()).toContain("list_tasks");
 
     await packCasey(o, { areas: { agents: "write" }, agentCeiling: "office" });
+    // The pack save moves the Standard agent down to the ceiling, with a new
+    // token (member-ceiling.test.ts).
+    await waitUntil(
+      () => o.srv.agentManager.getAgent(standard.id)?.access === "office",
+      "the Standard agent moved down",
+    );
     const refused = await asBearer(
       o,
       tokenOf(standard.id),
@@ -667,7 +673,7 @@ describe("the messaging rule for a member with a pack", () => {
     expect(limitedOf(edited.body)).toBe(true);
   });
 
-  it("the member lowers their own agent into the pack, and cannot raise it out", async () => {
+  it("the member moves their own agent inside the pack, and cannot raise it out", async () => {
     const o = await office();
     const mine = await spawn(o, "Mine", "Casey");
     await packCasey(o, {
@@ -676,16 +682,10 @@ describe("the messaging rule for a member with a pack", () => {
     });
     const move = (body: unknown) =>
       asCasey(o, "PUT", `/api/agents/${mine.id}/access`, body);
-    // Privileged is above every pack; turning it off is no move up.
-    expect(
-      outcome(
-        await asCasey(o, "PUT", `/api/agents/${mine.id}/privileged`, {
-          privileged: true,
-        }),
-      ),
-    ).toEqual(REFUSED);
-    expect(o.srv.agentManager.getAgent(mine.id)?.privileged ?? false).toBe(
-      false,
+    // The pack save moved it down to the ceiling (member-ceiling.test.ts).
+    await waitUntil(
+      () => o.srv.agentManager.getAgent(mine.id)?.access === "office",
+      "the agent moved down",
     );
     expect(
       (
@@ -704,7 +704,11 @@ describe("the messaging rule for a member with a pack", () => {
         }),
       ),
     ).toEqual(REFUSED);
-    expect(outcome(await move({ access: "standard" }))).toEqual(REFUSED);
+    // Above the ceiling: the ceiling's refusal.
+    expect(outcome(await move({ access: "standard" }))).toEqual({
+      status: 403,
+      code: "above_agent_ceiling",
+    });
     expect(o.srv.agentManager.getAgent(mine.id)?.access).toBe("office");
   });
 });
@@ -902,7 +906,7 @@ describe("the file panel, browser tabs and the terminal of a member with a pack"
     expect(mayReachExtension(o.ownerId, standard.id)).toBe(true);
   });
 
-  it("refuses every terminal frame on a live socket once a pack is saved", async () => {
+  it("refuses every terminal frame once a pack is saved", async () => {
     const o = await office();
     const agent = await spawn(o, "Standard");
     const am = o.srv.agentManager;
@@ -915,7 +919,7 @@ describe("the file panel, browser tabs and the terminal of a member with a pack"
       restart: spyOn(am, "restartTerminal").mockImplementation(() => false),
     };
     try {
-      const ws = await o.srv.connectWs(o.casey);
+      let ws = await o.srv.connectWs(o.casey);
       const frames = async () => {
         const id = agent.id;
         ws.send({ type: "terminal_open", agentId: id });
@@ -945,10 +949,17 @@ describe("the file panel, browser tabs and the terminal of a member with a pack"
         restart: 1,
       });
 
+      // A pack change closes the socket (member-pack-ws.test.ts); the frames
+      // go on a socket made after the save.
+      const closed = new Promise<void>((resolve) =>
+        ws.raw.addEventListener("close", () => resolve()),
+      );
       await packCasey(o, {
         areas: { agents: "write" },
         agentCeiling: "office",
       });
+      await closed;
+      ws = await o.srv.connectWs(o.casey);
       await frames();
       expect(counts()).toEqual(before);
       ws.close();

@@ -57,6 +57,7 @@ import {
   wouldDeleteLeaveNoOwner,
 } from "./users.ts";
 import { webhookRegistry } from "./webhooks/registry.ts";
+import { AGENTS_CANNOT_MOVE_DOWN } from "./identity/agent-fit.ts";
 
 // What the users routes read from server/isomux-office.ts.
 export interface UsersRoutesDeps
@@ -88,7 +89,12 @@ export interface UsersRoutesDeps
     agentId: string,
     toUserId: string,
     changedBy: string,
-  ) => Promise<AgentInfo | null | "unknown_member">;
+  ) => Promise<AgentInfo | null | "unknown_member" | "cannot_move_down">;
+  // The member permission pack's agent ceiling (server/member-ceiling.ts):
+  // the agents a pack would leave above it with an engine that cannot run at
+  // it, and the moves and app stops after a save.
+  agentsThatCannotMoveDown: (userId: string, pack: MemberPack) => AgentInfo[];
+  afterMemberPackSaved: (userId: string) => void;
 }
 
 // The member's connections for the archive: secrets without values and MCP
@@ -224,6 +230,8 @@ export function createUsersRoutes(
     snapshotAppVisibility,
     snapshotWebhookAudience,
     transferAgentManager,
+    agentsThatCannotMoveDown,
+    afterMemberPackSaved,
   } = deps;
   // Restore (task 321e7b8e): what passed to the heir at the removal and the
   // heir still owns comes back to the member, as it is now; the rest stays
@@ -257,7 +265,7 @@ export function createUsersRoutes(
       const live = agentManager.getAgent(agentId);
       if (live?.userId === heirId) {
         const moved = await transferAgentManager(agentId, userId, changedBy);
-        (moved && moved !== "unknown_member"
+        (typeof moved === "object" && moved !== null
           ? movedBack
           : stayed
         ).agentIds.push(agentId);
@@ -331,6 +339,7 @@ export function createUsersRoutes(
       avatarColor,
       avatarVariant,
       allowedRooms,
+      pack,
     }) => {
       // Room grants: members only (owners reach every room by rule, and
       // materialized owner grants are the demotion bomb), live rooms only -
@@ -362,6 +371,7 @@ export function createUsersRoutes(
         avatarColor,
         avatarVariant,
         allowedRooms: grants,
+        ...(pack && role === "member" ? { pack } : {}),
         // A new owner is notified for every room by default, like the
         // first owner; a member for the rooms granted here.
         ...(role === "owner" ? { notifRooms: roomIds } : {}),
@@ -582,6 +592,17 @@ export function createUsersRoutes(
           error: "An office owner cannot have a permission pack.",
         };
       }
+      // Nothing is written while an agent of the member could not move down
+      // to the new ceiling.
+      const stuck = pack ? agentsThatCannotMoveDown(target.id, pack) : [];
+      if (stuck.length > 0) {
+        return {
+          ok: false,
+          status: 409,
+          code: AGENTS_CANNOT_MOVE_DOWN,
+          error: `These agents cannot run at this pack's highest agent level with their engine and model: ${stuck.map((agent) => agent.name).join(", ")}. Change their engine or model, give them another manager, or kill them first.`,
+        };
+      }
       // ATOMIC clamp: compute the new accessible set from the INCOMING
       // allowedRooms and prune the target's existing notifRooms and pushRooms
       // to fit, in ONE
@@ -632,6 +653,7 @@ export function createUsersRoutes(
       if (presenceTouched) pushPresenceListToEachWs();
       announceAppAudienceChanges(appAudienceBefore);
       announceWebhookAudienceChanges(webhookAudienceBefore);
+      if (pack !== undefined) afterMemberPackSaved(result.user.id);
       return { ok: true, user: result.user };
     },
     delete: async ({ username, actor }) => {

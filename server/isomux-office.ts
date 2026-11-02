@@ -24,7 +24,12 @@ import {
   INLINE_IMAGE_TYPES,
   stopHasFolder,
 } from "../shared/agent-access.ts";
-import { folderOverlapRefusal } from "./agent-folder-rules.ts";
+import {
+  confinedFolderRefusal,
+  folderOverlapRefusal,
+} from "./agent-folder-rules.ts";
+import { createMemberCeiling } from "./member-ceiling.ts";
+import { AppSupervisorError } from "./app-supervisor.ts";
 import { type GithubSync } from "./github-sync.ts";
 import { githubSyncHandlers } from "./routes/handlers/github-sync.ts";
 import { formatIssueData } from "../shared/github-issue.ts";
@@ -164,6 +169,11 @@ import {
   setRoomsSnapshotProvider,
   type SessionLookup,
 } from "./auth.ts";
+import {
+  pushAllowedForPack,
+  type WsFrame,
+  type WsPushKind,
+} from "./ws-push-area.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
@@ -842,8 +852,42 @@ function outboxFor(ws: ServerWebSocket<OfficeWsData>): OfficeOutbox {
   return outbox;
 }
 
-function officeSend(ws: ServerWebSocket<OfficeWsData>, data: string): void {
+// Every frame to a browser socket, with its push kind (server/ws-push-area.ts).
+function officeSend(
+  ws: ServerWebSocket<OfficeWsData>,
+  kind: WsPushKind,
+  data: string,
+): void {
+  if (!wsPushAllowed(ws.data.session, kind)) return;
   outboxFor(ws).send(data);
+}
+
+// A lazy run of frames (the connect replay) through the same filter.
+function officeSendLazy(
+  ws: ServerWebSocket<OfficeWsData>,
+  frames: Iterator<WsFrame>,
+): void {
+  const session = ws.data.session;
+  outboxFor(ws).sendLazy(
+    (function* () {
+      try {
+        for (let r = frames.next(); !r.done; r = frames.next())
+          if (wsPushAllowed(session, r.value.kind)) yield r.value.data;
+      } finally {
+        frames.return?.();
+      }
+    })(),
+  );
+}
+
+// Whether the member of `session` gets a push of `kind`, by their pack read
+// live.
+function wsPushAllowed(session: SessionLookup, kind: WsPushKind): boolean {
+  const user = getUserById(session.userId);
+  return pushAllowedForPack(
+    user?.role === "member" ? user.pack : undefined,
+    kind,
+  );
 }
 
 // The identity and visibility policy (server/office-access-policy.ts). Created
@@ -898,6 +942,67 @@ const {
   toPublicWire,
 });
 
+// The agent ceiling of member permission packs (server/member-ceiling.ts).
+const memberCeiling = createMemberCeiling({
+  getUserById,
+  getAllAgents: () => agentManager.getAllAgents(),
+  engineRuns: (agent, access) =>
+    engineRunsAccessHere(agent.agentType, access, agent.modelFamily || null),
+  folderRefusal: (agent) =>
+    confinedFolderRefusal(agent, agent.cwd, folderRuleState()),
+  setAccess: (agentId, grant) => agentManager.setAccess(agentId, grant),
+});
+
+// Whether the apps of member `userId` may run: no pack, or a pack with apps
+// write (an app runs code as the office's user).
+function appsMayRunFor(userId: string | null | undefined): boolean {
+  const user = userId ? getUserById(userId) : undefined;
+  return (
+    user?.role !== "member" || !user.pack || user.pack.areas.apps === "write"
+  );
+}
+
+// Refuses to run app `name` when its owner's pack has no apps write.
+function refuseAppOfPackWithoutApps(name: string): void {
+  const app = appRegistry.get(name);
+  if (app && !appsMayRunFor(app.userId))
+    throw new AppSupervisorError(
+      "owner_pack_no_apps",
+      "This app's owner has no apps write in their permission pack, so the app cannot run.",
+    );
+}
+
+// After a member's pack is saved: their agents move down to the ceiling, and
+// their apps stop when the pack has no apps write.
+function afterMemberPackSaved(userId: string): void {
+  memberCeiling.moveMemberAgentsDown(userId).catch((err) => {
+    console.error(`[ceiling] the agents of ${userId} did not move down:`, err);
+  });
+  stopAppsThatMayNotRun((app) => app.userId === userId);
+}
+
+// Stops each app among `which` whose owner's pack has no apps write. At boot
+// for every app: an app unit is enabled, so a reboot starts it again.
+function stopAppsThatMayNotRun(
+  which: (app: { userId?: string | null }) => boolean,
+): void {
+  let apps: ReturnType<typeof appRegistry.list>;
+  try {
+    apps = appRegistry.list();
+  } catch (err) {
+    console.error("[ceiling] the app registry could not be read:", err);
+    return;
+  }
+  for (const app of apps) {
+    if (!which(app) || appsMayRunFor(app.userId)) continue;
+    try {
+      appSupervisor.stop(app.name);
+    } catch (err) {
+      console.error(`[ceiling] the app ${app.name} did not stop:`, err);
+    }
+  }
+}
+
 // The per-session projection and push (server/office-session-projection.ts).
 // Created here, right after the identity and visibility policy it reads.
 const {
@@ -937,6 +1042,7 @@ const {
   identityFitsAgent: (identity, agentId) =>
     identityFitsAgent(identity, agentId, buildLiveGuardDeps()),
   officeSend,
+  officeSendLazy,
   outboxFor,
   roomAllowedForSession,
   sendPresenceListTo,
@@ -974,6 +1080,7 @@ const { wireEventSinks } = createEventFanout({
 function sendSessionContext(ws: ServerWebSocket<OfficeWsData>): void {
   officeSend(
     ws,
+    "session_context",
     JSON.stringify({
       type: "session_context",
       context: {
@@ -1216,7 +1323,7 @@ const { buildServer } = createFrontDoor({
   mcpEndpointDeps,
   nextConnectionId,
   officeSend,
-  outboxFor,
+  officeSendLazy,
   outboxes,
   pushPresenceListToEachWs,
   replayFrames,
@@ -1764,7 +1871,7 @@ async function listBackendModels(input: {
 function broadcast(msg: ServerMessage) {
   const data = JSON.stringify(msg);
   for (const ws of browsers) {
-    officeSend(ws, data);
+    officeSend(ws, msg.type, data);
   }
 }
 
@@ -1828,6 +1935,7 @@ function sendPresenceListTo(ws: ServerWebSocket<OfficeWsData>) {
   const onlineUserIds = listOnlineUserIds();
   officeSend(
     ws,
+    "presence_list",
     JSON.stringify({
       type: "presence_list",
       entries: buildPresenceListFor(ws.data.session),
@@ -2066,7 +2174,16 @@ function buildLiveGuardDeps(): GuardDeps {
       agentManager.killedAgentManagerUserId(agentId),
     killedAgentLastRoomId: (agentId) =>
       agentManager.killedAgentLastRoomId(agentId),
-    killedAgentGrant: (agentId) => agentManager.killedAgentGrant(agentId),
+    // The grant a revive installs: the last one, moved down to the agent
+    // ceiling of its manager's permission pack. One whose engine cannot run
+    // there is judged at the ceiling too, so the revive answers it with 409.
+    killedAgentGrant: (agentId) => {
+      const record = agentManager.killedAgentCeilingRecord(agentId);
+      const clamp = record ? memberCeiling.clampedGrant(record) : null;
+      return clamp && clamp.kind !== "keep"
+        ? clamp.grant
+        : agentManager.killedAgentGrant(agentId);
+    },
     agentHeardFrom: (receiverId, writerId) =>
       agentManager.agentHeardFrom(receiverId, writerId),
     memberHeardFrom: (userId, agentId) =>
@@ -2084,6 +2201,7 @@ function buildLiveGuardDeps(): GuardDeps {
     },
     getUserByName: (username) => getUserByName(username) ?? null,
     getUserById: (userId) => getUserById(userId) ?? null,
+    userRecordById: (userId) => getUserById(userId) ?? null,
     listCronjobs: () => cronjobManager.listCronjobs(),
     listApps: () => appRegistry.list(),
     listWebhooks: () => webhookRegistry.list(),
@@ -2164,6 +2282,7 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
         if (projected) {
           officeSend(
             ws,
+            "agent_added",
             JSON.stringify({ type: "agent_added", agent: projected }),
           );
         }
@@ -2178,7 +2297,7 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
       )
         continue;
       if (ws.data.kind === "office")
-        officeSend(ws as ServerWebSocket<OfficeWsData>, data);
+        officeSend(ws as ServerWebSocket<OfficeWsData>, id, data);
       else ws.send(data);
     }
   },
@@ -2271,13 +2390,25 @@ async function transferAgentManager(
   agentId: string,
   toUserId: string,
   changedBy: string,
-): Promise<AgentInfo | null | "unknown_member"> {
+): Promise<AgentInfo | null | "unknown_member" | "cannot_move_down"> {
   const to = getUserById(toUserId);
   if (!to) return "unknown_member";
   const before = agentManager.getAgent(agentId);
   if (!before) return null;
   const from = before.userId;
   if (from === toUserId) return before;
+  // A member with a permission pack gets the agent at their agent ceiling: it
+  // moves down first, so it never runs above it under them.
+  const clamp = memberCeiling.clampFor(
+    before,
+    to.role === "member" ? to.pack : undefined,
+  );
+  if (clamp.kind === "cannot") return "cannot_move_down";
+  if (clamp.kind === "move") {
+    const moved = await agentManager.setAccess(agentId, clamp.grant);
+    if (moved === "engine_below_standard") return "cannot_move_down";
+    if (!moved) return null;
+  }
   // What the agent made and its old manager still owns. A record the agent
   // made that a third member owns now is that member's and stays.
   const made = (record: { createdByAgentId?: string; userId: string | null }) =>
@@ -2840,18 +2971,22 @@ function buildExecutorDeps(
       now: () => Date.now(),
       install: (record) => appSupervisor.install(record),
       // Each verb that runs a new process moves the widget's revision, so an
-      // open app frame reloads after the turn (task d7ac4f73).
+      // open app frame reloads after the turn (task d7ac4f73). A member's app
+      // runs only while their pack has apps write.
       reinstall: (record) => {
+        refuseAppOfPackWithoutApps(record.name);
         appSupervisor.reinstall(record);
         appProcessStarted(record.name);
       },
       teardown: (name) => appSupervisor.teardown(name),
       start: (name) => {
+        refuseAppOfPackWithoutApps(name);
         appSupervisor.start(name);
         appProcessStarted(name);
       },
       stop: (name) => appSupervisor.stop(name),
       restart: (name) => {
+        refuseAppOfPackWithoutApps(name);
         appSupervisor.restart(name);
         appProcessStarted(name);
       },
@@ -3027,6 +3162,12 @@ function buildExecutorDeps(
         );
       },
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
+      memberWithPack: (userId) => {
+        const user = getUserById(userId);
+        return user?.role === "member" && user.pack
+          ? { id: user.id, name: user.name }
+          : null;
+      },
       // The webhook rule: the job owner reaches the agent's room, and a
       // room-limited token reaches it too.
       agentTargetReachable: (identity, ownerUserId, agentId) =>
@@ -3666,6 +3807,8 @@ function buildExecutorDeps(
       snapshotAppVisibility,
       snapshotWebhookAudience,
       transferAgentManager,
+      agentsThatCannotMoveDown: memberCeiling.agentsThatCannotMoveDown,
+      afterMemberPackSaved,
     }),
   );
 
@@ -4534,7 +4677,7 @@ function pushAppDeltaToEachWs(change: AppChange) {
       isOfficeOwner: ws.data.session.role === "owner",
       hasRoomAccess: (roomId) => roomAllowedForSession(ws.data.session, roomId),
     });
-    if (delta) officeSend(ws, JSON.stringify(delta));
+    if (delta) officeSend(ws, delta.type, JSON.stringify(delta));
   }
 }
 
@@ -4553,7 +4696,7 @@ function pushAllRoomsListToOwners() {
   });
   for (const ws of browsers) {
     if (ws.data.session.role === "owner") {
-      officeSend(ws, data);
+      officeSend(ws, "all_rooms_list", data);
     }
   }
 }
@@ -4693,6 +4836,7 @@ async function handleInboundMessage(
           if (buffer) {
             officeSend(
               ws,
+              "terminal_output",
               JSON.stringify({
                 type: "terminal_output",
                 agentId: cmd.agentId,
@@ -4864,6 +5008,12 @@ function runBackgroundBoot(
   }
 
   agentManager.configureAgentTurnDeps();
+  // Before the boot restore: an agent above its manager's agent ceiling comes
+  // back at the ceiling.
+  agentManager.setMemberCeilingClamp(memberCeiling.clampedGrant);
+  // The apps of a member whose pack has no apps write stay stopped across a
+  // reboot or a crash between a pack save and its stops.
+  stopAppsThatMayNotRun(() => true);
 
   const restorePromise = (async () => {
     const restored = await agentManager.restoreAgents();

@@ -8,6 +8,7 @@ import {
   type AgentAccess,
 } from "./agent-access.ts";
 import {
+  API_TOKEN_PRESETS,
   parseApiTokenLimits,
   writesEqualFullAccess,
   type ApiTokenArea,
@@ -23,12 +24,13 @@ export interface MemberPack {
 }
 
 // The stops a member's agents may be capped at: those with a pack, and chat.
-const MEMBER_CEILINGS: ReadonlySet<string> = new Set<AgentAccess>([
+export const MEMBER_CEILING_STOPS = [
   "chat",
   "office",
   "folder",
   "web",
-]);
+] as const satisfies readonly AgentAccess[];
+const MEMBER_CEILINGS: ReadonlySet<string> = new Set(MEMBER_CEILING_STOPS);
 
 // A member pack from a request or users.json, or null when it does not parse.
 export function parseMemberPack(value: unknown): MemberPack | null {
@@ -55,11 +57,22 @@ export interface PackSender {
   ceiling: AgentAccess;
 }
 
-// The agent written to: its stop, its pack and its room.
+// The agent written to: its stop, its pack and its room, and the rooms its
+// manager reaches (an agent acts only in rooms its manager can access).
 export interface FitTarget {
   access: AgentAccess;
   pack?: ApiTokenLimits;
   roomId: string;
+  // Absent: every room (an owner, or no manager).
+  managerRooms?: readonly string[];
+}
+
+// The rooms a manager's agents reach: a member's room grants; undefined
+// (every room) for an owner or no manager.
+export function managerRoomsOf(
+  user: { role: string; allowedRooms: readonly string[] } | null | undefined,
+): readonly string[] | undefined {
+  return user?.role === "member" ? user.allowedRooms : undefined;
 }
 
 // Whether the rule applies to a sender with these areas. A pack with write in
@@ -87,7 +100,39 @@ export function fitsInside(sender: PackSender, target: FitTarget): boolean {
   if (sender.rooms) {
     const rooms = sender.rooms;
     if (!rooms.includes(target.roomId)) return false;
-    if (!target.pack.rooms?.every((room) => rooms.includes(room))) return false;
+    const packRooms = target.pack.rooms;
+    const managerRooms = target.managerRooms;
+    const reach =
+      packRooms && managerRooms
+        ? packRooms.filter((room) => managerRooms.includes(room))
+        : (packRooms ?? managerRooms);
+    if (!reach?.every((room) => rooms.includes(room))) return false;
   }
   return true;
 }
+
+// The close code of an office socket whose member's permission pack changed:
+// the page reloads, and the fresh connect gets the pack's snapshot.
+export const ACCESS_CHANGED_CLOSE_CODE = 4003;
+
+// The member pack presets of the member panel. Both give asks write, which a
+// pack holder uses only to answer and dismiss their own asks.
+export const MEMBER_PACK_PRESETS: {
+  readOnly: MemberPack;
+  workWithAgents: MemberPack;
+} = {
+  readOnly: {
+    areas: { ...API_TOKEN_PRESETS.readOnly.areas, asks: "write" },
+    agentCeiling: "chat",
+  },
+  workWithAgents: {
+    areas: {
+      ...API_TOKEN_PRESETS.readOnly.areas,
+      asks: "write",
+      agents: "write",
+      agentManagement: "write",
+      tasks: "write",
+    },
+    agentCeiling: "office",
+  },
+};

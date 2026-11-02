@@ -27,6 +27,7 @@ import {
   extensionService,
   turnEndWatch,
 } from "./office-managers.ts";
+import { type WsPushKind } from "./ws-push-area.ts";
 
 // What the event fan-out reads from server/isomux-office.ts.
 export interface EventFanoutDeps {
@@ -46,7 +47,11 @@ export interface EventFanoutDeps {
     payload: EventPayloads[K],
     ctx?: EmitContext,
   ) => void;
-  officeSend: (ws: ServerWebSocket<OfficeWsData>, data: string) => void;
+  officeSend: (
+    ws: ServerWebSocket<OfficeWsData>,
+    kind: WsPushKind,
+    data: string,
+  ) => void;
   projectAgentForSession: (
     session: SessionLookup,
     agent: AgentInfo,
@@ -279,7 +284,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
     const session = ws.data.session;
 
     if (sessionHasFullRoomAccess(session)) {
-      officeSend(ws, JSON.stringify(event));
+      officeSend(ws, event.type, JSON.stringify(event));
       return;
     }
 
@@ -289,6 +294,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
         if (projected) {
           officeSend(
             ws,
+            "agent_added",
             JSON.stringify({ type: "agent_added", agent: projected }),
           );
         }
@@ -301,7 +307,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
         // killed_agent_added right below - a session that couldn't see the
         // room must not learn the id existed.
         if (roomAllowedForSession(session, event.roomId)) {
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         break;
       }
@@ -309,7 +315,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
         // ACL: only deliver if the session can see the lastRoomId. A
         // member shouldn't learn a private room's agent died.
         if (roomAllowedForSession(session, event.agent.lastRoomId)) {
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         break;
       }
@@ -317,7 +323,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
         // Symmetric ACL with the added variant: a session that never
         // saw the chip shouldn't learn the id became alive again.
         if (roomAllowedForSession(session, event.lastRoomId)) {
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         break;
       }
@@ -332,7 +338,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
           sendProjectedFullState(ws, { replayLogsForVisible: true });
         } else if (agentVisibleForSession(session, event.agentId)) {
           // No room change - non-room fields are safe to forward verbatim.
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         break;
       }
@@ -340,7 +346,7 @@ export function createEventFanout(deps: EventFanoutDeps) {
         if (roomAllowedForSession(session, event.room.id)) {
           // New room is at the end of the global rooms array → also at
           // the end of this session's visible array. No index shift.
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         // If the room is not allowed, the member's visible list is
         // unchanged.
@@ -355,13 +361,13 @@ export function createEventFanout(deps: EventFanoutDeps) {
         // stable), so a visible recipient takes the verbatim delta and a
         // non-visible one drops it.
         if (roomAllowedForSession(session, event.roomId)) {
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         break;
       }
       case "log_entry": {
         if (agentVisibleForSession(session, event.entry.agentId)) {
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         break;
       }
@@ -371,14 +377,14 @@ export function createEventFanout(deps: EventFanoutDeps) {
       case "terminal_status":
       case "terminal_exit": {
         if (agentVisibleForSession(session, event.agentId)) {
-          officeSend(ws, JSON.stringify(event));
+          officeSend(ws, event.type, JSON.stringify(event));
         }
         break;
       }
       case "office_settings_updated":
       case "tasks_changed": {
         // No room scope - everyone sees these.
-        officeSend(ws, JSON.stringify(event));
+        officeSend(ws, event.type, JSON.stringify(event));
         break;
       }
     }

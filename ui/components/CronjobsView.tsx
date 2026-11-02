@@ -36,6 +36,7 @@ import { scheduleText } from "../../shared/i18n/schedule.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
+import { useCan } from "../hooks/useCan.ts";
 
 // The two ways to start work, then the history of both (Nil, 2026-10-06).
 type Tab = "cronjobs" | "webhooks" | "runs";
@@ -145,6 +146,8 @@ export function CronjobsView({
   const { t } = useI18n();
   const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("cronjobs");
+  const canWriteSchedules = useCan("schedules", "write");
+  const canWriteWebhooks = useCan("webhooks", "write");
   // The open hook on the Webhooks tab, and a delivery row to point at when a
   // webhook run's link opened it.
   const [openHook, setOpenHook] = useState<{
@@ -436,6 +439,7 @@ export function CronjobsView({
               tab === "webhooks" ? setWebhookDialog({}) : setCreating(true)
             }
             data-schedules-new=""
+            hidden={tab === "webhooks" ? !canWriteWebhooks : !canWriteSchedules}
             style={{
               padding: "4px 10px",
               borderRadius: 6,

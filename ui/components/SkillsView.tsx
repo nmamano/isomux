@@ -55,6 +55,7 @@ import {
   tildePath,
   validSkillName,
 } from "./skills-page.ts";
+import { useCan } from "../hooks/useCan.ts";
 
 // CodeMirror loads with the first skill opened for editing, not with the
 // office.
@@ -241,6 +242,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
   const { isMobile, hydrationEpoch } = useAppState();
   const { t, tn } = useI18n();
   const [catalog, setCatalog] = useState<SkillCatalogRes | null>(null);
+  const canWriteSkills = useCan("skills", "write");
   const [loadError, setLoadError] = useState<PageError | null>(null);
   const [engine, setEngineState] = useState<SkillTab>(readEngine);
   const [query, setQuery] = useState("");
@@ -1171,7 +1173,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
             onClick={() => guarded(() => setCreating(true))}
             disabled={!catalog}
             style={{
-              display: "inline-flex",
+              display: canWriteSkills ? "inline-flex" : "none",
               alignItems: "center",
               gap: 6,
               padding: "5px 11px",

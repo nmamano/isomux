@@ -103,6 +103,8 @@ import {
   getSettingsGroupsOpen,
   setSettingsGroupOpen,
 } from "../device-settings.ts";
+import { MemberPackEditor, samePack } from "./MemberPackEditor.tsx";
+import type { MemberPack } from "../../shared/pack-fit.ts";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -1286,6 +1288,8 @@ function UserEditPanel({
   // Whose access the Rooms table edits: a new member's role follows the
   // checkbox at once, an existing member's the saved record.
   const ownerTarget = creating ? officeOwner : targetIsOwner;
+  // An owner edits the pack of a member who stays a member.
+  const packEditable = isOwner && !ownerTarget && !officeOwner;
   // Use the unfiltered global rooms list when available so the owner
   // can manage other users' access to rooms they've hidden from their
   // own view, and so the Notifications list reflects every room the
@@ -1308,6 +1312,10 @@ function UserEditPanel({
   }
   const [allowedSetting, setAllowedSetting] = useState<string[]>(
     user.allowedRooms,
+  );
+  // The member's permission pack (task 134b8f77); null is full access.
+  const [packSetting, setPackSetting] = useState<MemberPack | null>(
+    user.pack ?? null,
   );
   // Per-user DISPLAY preference: room ids the user has hidden
   // from their own view. SELF-only, like notifications - an owner editing a
@@ -1506,6 +1514,7 @@ function UserEditPanel({
     if (avatarVariant !== user.avatarVariant) return true;
     if (!sameRoomSet(notifSetting, user.notifRooms)) return true;
     if (!sameRoomSet(allowedSetting, user.allowedRooms)) return true;
+    if (packEditable && !samePack(packSetting, user.pack)) return true;
     if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
     if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
     if (isMe && !sameRoomSet(pushSetting, userPush)) return true;
@@ -1595,17 +1604,21 @@ function UserEditPanel({
       // against the ORIGINAL username, so a combined rename + grant doesn't 404
       // the access PUT after the record renames; setAccess prune-clamps the
       // target's notif/default server-side in one write.
+      const packChanged = packEditable && !samePack(packSetting, user.pack);
       if (
         isOwner &&
         !targetIsOwner &&
-        !sameRoomSet(allowedSetting, user.allowedRooms)
+        (packChanged || !sameRoomSet(allowedSetting, user.allowedRooms))
       ) {
         // Owners are rule-based (no materialized grants), so an owner target
         // never writes allowedRooms - only a member's access is editable here.
         await apiFetch(
           "PUT",
           `/api/users/${encodeURIComponent(origName)}/access`,
-          { allowedRooms: allowedSetting },
+          {
+            allowedRooms: allowedSetting,
+            ...(packChanged ? { pack: packSetting } : {}),
+          },
         );
       }
       // (1b) The instructions, against the original name, before a rename can
@@ -1743,6 +1756,7 @@ function UserEditPanel({
         ...(!officeOwner && allowedSetting.length > 0
           ? { allowedRooms: allowedSetting }
           : {}),
+        ...(!officeOwner && packSetting ? { pack: packSetting } : {}),
       });
       onCreated?.(r.user.id);
     } catch (err) {
@@ -1985,6 +1999,17 @@ function UserEditPanel({
             </div>
           </>
         ) : null}
+
+        {packEditable && (
+          <>
+            <h5 style={sectionTitleStyle}>{t("settings.apiTokens.access")}</h5>
+            <MemberPackEditor
+              pack={packSetting}
+              onPack={setPackSetting}
+              disabled={saving}
+            />
+          </>
+        )}
 
         <h5 style={sectionTitleStyle}>{t("common.instructionsAndMemory")}</h5>
 

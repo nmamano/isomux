@@ -951,6 +951,10 @@ Cosas que puedes hacer por él:
   "settings.apiTokens.repliesOnlyHint":
     "Solo envía a los agentes que le escribieron primero",
   "settings.apiTokens.access.custom": "Personalizado",
+  "settings.memberPack.workWithAgents": "Trabajar con agentes",
+  "settings.memberPack.ceiling": "Nivel de agente más alto",
+  "settings.memberPack.hint":
+    "Un paquete solo es un límite firme para un miembro que nunca tuvo un agente en Estándar o Privilegiado.",
   "settings.apiTokens.level.none": "Ninguno",
   "settings.apiTokens.level.read": "Lectura",
   "settings.apiTokens.level.write": "Lectura y escritura",
@@ -1653,6 +1657,8 @@ Cosas que puedes hacer por él:
     "Con una terminal, un agente puede leer los tokens de oficina de otros agentes. Solo Chat, Oficina, Carpeta y Web limitan lo que puede alcanzar.",
   "dialogs.agent.access.engineCannot":
     "Aún no disponible para este motor o modelo",
+  "dialogs.agent.access.aboveCeiling":
+    "Por encima del nivel de agente más alto del paquete de permisos del responsable",
   "dialogs.agent.pack.asksOnly": "Solo preguntas",
   "dialogs.agent.pack.tasksAndAsks": "Tareas y preguntas",
   "dialogs.agent.pack.showsSecrets": "puede mostrar secretos",
@@ -3421,6 +3427,8 @@ Cosas que puedes hacer por él:
     "El cwd no es válido: no es un directorio: {path}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
   "systemEntries.cwdInvalid.inaccessible":
     "El cwd no es válido: no se puede acceder a {path}: {message}. Haz clic en el nombre del agente en la cabecera de la vista del registro para corregirlo.",
+  "systemEntries.aboveMemberCeiling":
+    "Este agente no puede iniciarse por encima de {ceiling}, el nivel de agente más alto del paquete de permisos de {member}. Un propietario de la oficina puede bajarlo, darle otro responsable o eliminarlo.",
   "systemEntries.scheduleRun.resumeSkipped":
     "No se puede retomar una ejecución omitida: nunca abrió una sesión.",
   "systemEntries.scheduleRun.resumeNoInit":
@@ -3433,6 +3441,8 @@ Cosas que puedes hacer por él:
     "No se puede retomar: sin acceso a la carpeta {path} ({message}).",
   "systemEntries.scheduleRun.envFailed":
     "No se pudieron cargar las variables y los secretos de la página Integraciones: {error}",
+  "systemEntries.scheduleRun.aboveMemberCeiling":
+    "No se ejecutó: el paquete de permisos de {member} solo permite programaciones que envían un mensaje a un agente.",
   "systemEntries.scheduleRun.openCodeJobDeleted":
     "No se puede retomar esta ejecución de OpenCode porque su programación se eliminó y ya no se puede resolver su perfil de entorno compartido.",
   "systemEntries.scheduleRun.jobDeleted":

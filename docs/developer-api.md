@@ -25,6 +25,8 @@ A token has the issuing member's operational reach: agents and their conversatio
 
 A token with a pack writes only to agents whose access fits inside it: an agent at Chat, or an agent at Office whose pack has no area or level the token lacks (and, for a room-limited token, only rooms the token has). To any other agent it can only reply, after that agent wrote to it: a send, a stop, or a queue cancel, which the agent treats as data. It can spawn or revive only an agent that fits. A refusal is `403` with code `agent_does_not_fit`. A task it creates, or a change of its that carries text, carries `limited: true`. A pack with write in an area that equals full access is outside this rule.
 
+A member's permission pack caps every token of theirs to its areas, live. Their agents spawn, revive and move only up to the pack's agent level: above it, the call returns `403` with code `above_agent_ceiling` (an owner gets `409 above_member_ceiling`).
+
 The form marks the areas where write equals full access: with them a token can make an agent act with all of its member's reach, for example by changing its memory.
 
 **Rooms** limits a token to some of your rooms. It then reaches only those rooms, while you can access them too, and not the lobby. Office-wide data, such as the members chat and tasks without a room, stays reachable by area. A room-limited token has no office-owner powers, also when an owner creates it. An agent that such a token creates still reaches all of your rooms.

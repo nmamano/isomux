@@ -127,6 +127,7 @@ import {
   secondaryFill,
   tintedFill,
 } from "../components/dialog-styles.ts";
+import { useCan, useHasPack } from "../hooks/useCan.ts";
 
 // The terminal and editor libraries load when a panel first opens, not with
 // the office.
@@ -813,7 +814,20 @@ export function LogView({
     [],
   );
   const dispatch = useDispatch();
-  const features = useFeatures();
+  const officeFeatures = useFeatures();
+  // A member with a permission pack has no terminal, and opens files only
+  // with the files area.
+  const hasPack = useHasPack();
+  const canFiles = useCan("files", "read");
+  const canTasks = useCan("tasks", "read");
+  const features = useMemo(
+    () => ({
+      ...officeFeatures,
+      terminal: officeFeatures.terminal && !hasPack,
+      editor: officeFeatures.editor && canFiles,
+    }),
+    [officeFeatures, hasPack, canFiles],
+  );
   const device = getDevice();
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
@@ -1483,7 +1497,7 @@ export function LogView({
   );
 
   const baseAgentActions: NavAction[] = [
-    ...(onOpenTasks
+    ...(onOpenTasks && canTasks
       ? [
           {
             id: "tasks",

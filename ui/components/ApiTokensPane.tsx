@@ -14,12 +14,12 @@ import {
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
 import { RoomPicker } from "./RoomPicker.tsx";
+import { AREA_LABEL, AreaLevelsGrid, LEVEL_LABEL } from "./AreaLevelsGrid.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import {
   API_TOKEN_AREAS,
   API_TOKEN_PRESETS,
-  writesEqualFullAccess,
   type ApiTokenAccess,
   type ApiTokenArea,
   type ApiTokenAreaLevels,
@@ -49,32 +49,6 @@ const ACCESS_LABEL: Record<AccessChoice, PlainMessageKey> = {
   talkToAgents: "settings.apiTokens.access.talkToAgents",
   repliesOnly: "settings.apiTokens.access.repliesOnly",
   custom: "settings.apiTokens.access.custom",
-};
-
-const AREA_LABEL: Record<ApiTokenArea, PlainMessageKey> = {
-  office: "settings.apiTokens.area.office",
-  rooms: "settings.apiTokens.area.rooms",
-  agents: "settings.apiTokens.area.agents",
-  agentManagement: "settings.apiTokens.area.agentManagement",
-  logs: "settings.apiTokens.area.logs",
-  files: "settings.apiTokens.area.files",
-  tasks: "settings.apiTokens.area.tasks",
-  asks: "settings.apiTokens.area.asks",
-  membersChat: "settings.apiTokens.area.membersChat",
-  memory: "settings.apiTokens.area.memory",
-  skills: "settings.apiTokens.area.skills",
-  schedules: "settings.apiTokens.area.schedules",
-  apps: "settings.apiTokens.area.apps",
-  webhooks: "settings.apiTokens.area.webhooks",
-  pager: "settings.apiTokens.area.pager",
-  environment: "settings.apiTokens.area.environment",
-  voice: "settings.apiTokens.area.voice",
-};
-
-const LEVEL_LABEL: Record<ApiTokenAccess | "none", PlainMessageKey> = {
-  none: "settings.apiTokens.level.none",
-  read: "settings.apiTokens.level.read",
-  write: "settings.apiTokens.level.write",
 };
 
 function sameAreas(a: Areas, b: Areas): boolean {
@@ -318,27 +292,7 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             ))}
           </select>
         </label>
-        {access !== "full" && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr auto",
-              alignItems: "center",
-              gap: "6px 10px",
-              marginTop: 10,
-              fontSize: 12,
-            }}
-          >
-            {API_TOKEN_AREAS.map((area) => (
-              <AreaRow
-                key={area}
-                area={area}
-                level={areas[area] ?? "none"}
-                onChange={(level) => setArea(area, level)}
-              />
-            ))}
-          </div>
-        )}
+        {access !== "full" && <AreaLevelsGrid areas={areas} onArea={setArea} />}
         {access !== "full" && areas.agents === "write" && (
           <label
             style={{
@@ -436,51 +390,6 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
         )}
       </div>
     </div>
-  );
-}
-
-// One area of a limited token: its name, a none / read / read and write
-// select, and a mark when its write equals full access.
-function AreaRow({
-  area,
-  level,
-  onChange,
-}: {
-  area: ApiTokenArea;
-  level: ApiTokenAccess | "none";
-  onChange: (level: ApiTokenAccess | "none") => void;
-}) {
-  const { t } = useI18n();
-  const fullAccess = level === "write" && writesEqualFullAccess(area);
-  return (
-    <>
-      <span>
-        {t(AREA_LABEL[area])}
-        {fullAccess && (
-          <span
-            data-full-access-warning={area}
-            style={{ color: "var(--red-text)", marginLeft: 6 }}
-          >
-            {t("settings.apiTokens.equalsFullAccess")}
-          </span>
-        )}
-      </span>
-      <select
-        data-area={area}
-        aria-label={t(AREA_LABEL[area])}
-        value={level}
-        onChange={(event) =>
-          onChange(event.target.value as ApiTokenAccess | "none")
-        }
-        style={dialogInput}
-      >
-        {(["none", "read", "write"] as const).map((option) => (
-          <option key={option} value={option}>
-            {t(LEVEL_LABEL[option])}
-          </option>
-        ))}
-      </select>
-    </>
   );
 }
 

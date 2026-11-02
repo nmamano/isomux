@@ -56,7 +56,7 @@ export interface AgentsRoutesDeps extends Pick<
     agentId: string,
     toUserId: string,
     changedBy: string,
-  ) => Promise<AgentInfo | null | "unknown_member">;
+  ) => Promise<AgentInfo | null | "unknown_member" | "cannot_move_down">;
 }
 
 export function createAgentsRoutes(

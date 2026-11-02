@@ -99,6 +99,7 @@ import type {
   StartServerOpts,
   WsData,
 } from "./isomux-office.ts";
+import { type WsFrame, type WsPushKind } from "./ws-push-area.ts";
 
 export const UI_DIST = join(import.meta.dir, "..", "ui", "dist");
 // Caching and compression of the built UI files (server/static-assets.ts).
@@ -214,11 +215,18 @@ export interface FrontDoorDeps {
   liveTokenSocket: (ws: ServerWebSocket<ApiTokenWsData>) => boolean;
   mcpEndpointDeps: McpEndpointDeps;
   nextConnectionId: () => string;
-  officeSend: (ws: ServerWebSocket<OfficeWsData>, data: string) => void;
-  outboxFor: (ws: ServerWebSocket<OfficeWsData>) => OfficeOutbox;
+  officeSend: (
+    ws: ServerWebSocket<OfficeWsData>,
+    kind: WsPushKind,
+    data: string,
+  ) => void;
+  officeSendLazy: (
+    ws: ServerWebSocket<OfficeWsData>,
+    frames: Iterator<WsFrame>,
+  ) => void;
   outboxes: WeakMap<ServerWebSocket<OfficeWsData>, OfficeOutbox>;
   pushPresenceListToEachWs: () => void;
-  replayFrames: (agentIds: string[]) => Iterator<string>;
+  replayFrames: (agentIds: string[]) => Iterator<WsFrame>;
   sendCronjobsTo: (ws: ServerWebSocket<OfficeWsData>) => void;
   sendPresenceListTo: (ws: ServerWebSocket<OfficeWsData>) => void;
   sendProjectedFullState: (
@@ -245,7 +253,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
     mcpEndpointDeps,
     nextConnectionId,
     officeSend,
-    outboxFor,
+    officeSendLazy,
     outboxes,
     pushPresenceListToEachWs,
     replayFrames,
@@ -908,6 +916,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           // needs for the current user.
           officeSend(
             ws,
+            "users_list",
             JSON.stringify({
               type: "users_list",
               users: listUsers().map(toPublicWire),
@@ -916,6 +925,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           if (ws.data.session.role === "owner") {
             officeSend(
               ws,
+              "users_admin_list",
               JSON.stringify({
                 type: "users_admin_list",
                 users: listUsers(),
@@ -926,6 +936,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           if (selfUserForHydration) {
             officeSend(
               ws,
+              "user_self_updated",
               JSON.stringify({
                 type: "user_self_updated",
                 user: selfUserForHydration,
@@ -937,6 +948,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                 if (browsers.has(ws))
                   officeSend(
                     ws,
+                    "provider_accounts_updated",
                     JSON.stringify({
                       type: "provider_accounts_updated",
                       accounts,
@@ -947,6 +959,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                 if (browsers.has(ws))
                   officeSend(
                     ws,
+                    "provider_accounts_updated",
                     JSON.stringify({
                       type: "provider_accounts_updated",
                       accounts: [
@@ -997,6 +1010,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           if (ws.data.session.role === "owner") {
             officeSend(
               ws,
+              "all_rooms_list",
               JSON.stringify({
                 type: "all_rooms_list",
                 rooms: agentManager.getOrdinaryRooms(),
@@ -1013,6 +1027,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           // reconnect after a cleared banner must hydrate the false state.
           officeSend(
             ws,
+            "update_status",
             JSON.stringify({ type: "update_status", ...getUpdateStatus() }),
           );
           // Send cached log history and slash commands for each agent the
@@ -1023,7 +1038,8 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           // The fence goes out even when nothing was replayed - "the replay is
           // empty" is exactly the case a client cannot infer.
           const session = ws.data.session;
-          outboxFor(ws).sendLazy(
+          officeSendLazy(
+            ws,
             replayFrames(
               agentManager
                 .getAllAgents()

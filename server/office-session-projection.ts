@@ -57,6 +57,9 @@ import { pagerEntryVisible } from "./pager-store.ts";
 import { loadRecentCwds } from "./persistence.ts";
 import { taskVisibleTo } from "./task-visibility.ts";
 import { getUserById, updateUserById, type UserAccessChange } from "./users.ts";
+import { type WsFrame, type WsPushKind } from "./ws-push-area.ts";
+import { ACCESS_CHANGED_CLOSE_CODE } from "../shared/pack-fit.ts";
+import type { ApiTokenArea } from "../shared/api-token-limits.ts";
 
 type AccessPolicy = ReturnType<typeof createAccessPolicy>;
 
@@ -78,7 +81,15 @@ export interface SessionProjectionDeps {
   // Whether a write by `identity` to the agent fits the pack rule
   // (server/identity/agent-fit.ts identityFitsAgent).
   identityFitsAgent: (identity: Identity, agentId: string) => boolean;
-  officeSend: (ws: ServerWebSocket<OfficeWsData>, data: string) => void;
+  officeSend: (
+    ws: ServerWebSocket<OfficeWsData>,
+    kind: WsPushKind,
+    data: string,
+  ) => void;
+  officeSendLazy: (
+    ws: ServerWebSocket<OfficeWsData>,
+    frames: Iterator<WsFrame>,
+  ) => void;
   outboxFor: (ws: ServerWebSocket<OfficeWsData>) => OfficeOutbox;
   roomAllowedForSession: (session: SessionLookup, roomId: string) => boolean;
   sendPresenceListTo: (ws: ServerWebSocket<OfficeWsData>) => void;
@@ -102,6 +113,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     emitUsersList,
     identityFitsAgent,
     officeSend,
+    officeSendLazy,
     outboxFor,
     roomAllowedForSession,
     sendPresenceListTo,
@@ -295,24 +307,33 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       .getKilledAgentSummaries()
       .filter((k) => roomAllowedForSession(session, k.lastRoomId))
       .slice(0, KILLED_AGENT_CHIP_CAP);
+    // A member with a permission pack gets each field only with its area
+    // (server/ws-push-area.ts has the pushes).
+    const user = getUserById(session.userId);
+    const pack = user?.role === "member" ? user.pack : undefined;
+    const can = (area: ApiTokenArea) => !pack || pack.areas[area] !== undefined;
+    const office = projectOfficeFor(session);
     officeSend(
       ws,
+      "full_state",
       JSON.stringify({
         type: "full_state",
-        agents,
-        recentCwds: loadRecentCwds(),
-        office: projectOfficeFor(session),
+        agents: can("agents") ? agents : [],
+        recentCwds: can("agentManagement") ? loadRecentCwds() : [],
+        office: can("office") ? office : { ...office, prompt: null },
         rooms: proj.rooms,
-        killedAgents,
-        interactions,
+        killedAgents: can("agentManagement") ? killedAgents : [],
+        interactions: can("agents") ? interactions : [],
         unavailableEngines: openCodeRunsOnHost()
           ? {}
           : { opencode: "needs_linux" },
         unavailableFeatures:
           appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
         // Every office session is a person, who holds chat:members.
-        membersChat: membersChat.summary(session.userId),
-        floors: floors.list(),
+        ...(can("membersChat")
+          ? { membersChat: membersChat.summary(session.userId) }
+          : {}),
+        ...(can("office") ? { floors: floors.list() } : {}),
         uiBuild: uiBuildTracker?.current() ?? undefined,
       } satisfies ServerMessage),
     );
@@ -320,7 +341,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     // and can swap it in atomically. Only with replayLogsForVisible: without it
     // there is no replay to terminate.
     if (options?.replayLogsForVisible) {
-      outboxFor(ws).sendLazy(replayFrames(agents.map((a) => a.id)));
+      officeSendLazy(ws, replayFrames(agents.map((a) => a.id)));
     }
   }
 
@@ -331,7 +352,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
   // call would have sent at once, and entries pushed later reach the client as
   // the live frames queued behind the replay. Serialization waits for the
   // socket (server/office-ws-outbox.ts).
-  function replayFrames(agentIds: string[]): Iterator<string> {
+  function replayFrames(agentIds: string[]): Iterator<WsFrame> {
     const snapshot = agentIds.map((agentId) => {
       const logs = agentManager.getAgentLogs(agentId);
       return {
@@ -344,18 +365,27 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     return (function* () {
       for (const { agentId, logs, length, cmds } of snapshot) {
         for (let i = 0; i < length; i++) {
-          yield JSON.stringify({ type: "log_entry", entry: logs[i] });
+          yield {
+            kind: "log_entry",
+            data: JSON.stringify({ type: "log_entry", entry: logs[i] }),
+          };
         }
         if (cmds.commands.length > 0 || cmds.skills.length > 0) {
-          yield JSON.stringify({
-            type: "slash_commands",
-            agentId,
-            commands: cmds.commands,
-            skills: cmds.skills,
-          });
+          yield {
+            kind: "slash_commands",
+            data: JSON.stringify({
+              type: "slash_commands",
+              agentId,
+              commands: cmds.commands,
+              skills: cmds.skills,
+            }),
+          };
         }
       }
-      yield JSON.stringify({ type: "log_replay_complete" });
+      yield {
+        kind: "log_replay_complete",
+        data: JSON.stringify({ type: "log_replay_complete" }),
+      };
     })();
   }
 
@@ -378,6 +408,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       if (ws.data.session.userId === userId) {
         officeSend(
           ws,
+          "room_order_updated",
           JSON.stringify({
             type: "room_order_updated",
             rooms: visibleRoomProjection(ws.data.session).rooms,
@@ -414,6 +445,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
   function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
     officeSend(
       ws,
+      "tasks",
       JSON.stringify({
         type: "tasks",
         tasks: projectTasksForSession(ws.data.session),
@@ -433,7 +465,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
         getUserById(ws.data.session.userId) ?? null,
       );
       const delta = taskDeltaFor(change, viewer);
-      if (delta) officeSend(ws, JSON.stringify(delta));
+      if (delta) officeSend(ws, delta.type, JSON.stringify(delta));
     }
   }
 
@@ -451,7 +483,11 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
           isOfficeOwner: user.role === "owner",
         })
       ) {
-        officeSend(ws, JSON.stringify({ type: "pager_upserted", entry }));
+        officeSend(
+          ws,
+          "pager_upserted",
+          JSON.stringify({ type: "pager_upserted", entry }),
+        );
       }
     }
   }
@@ -473,10 +509,15 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
           ? !!userId && askAudience.isOfficeOwner(userId)
           : !!userId && userId === entry.memberUserId;
         if (addressed)
-          officeSend(ws, JSON.stringify({ type: "ask_removed", id: entry.id }));
+          officeSend(
+            ws,
+            "ask_removed",
+            JSON.stringify({ type: "ask_removed", id: entry.id }),
+          );
         else if (!entry.secret && !!userId && askAudience.isOfficeOwner(userId))
           officeSend(
             ws,
+            "others_ask_removed",
             JSON.stringify({ type: "others_ask_removed", id: entry.id }),
           );
         continue;
@@ -484,11 +525,13 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       if (askVisibleTo(entry, userId, askAudience))
         officeSend(
           ws,
+          "ask_upserted",
           JSON.stringify({ type: "ask_upserted", entry: askMemberWire(entry) }),
         );
       else if (askShownToOwnerAsOther(entry, userId, askAudience))
         officeSend(
           ws,
+          "others_ask_upserted",
           JSON.stringify({
             type: "others_ask_upserted",
             entry: askAgentWire(entry, (id) => getUserById(id)?.name ?? null),
@@ -619,7 +662,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
         change,
         webhookViewerForSession(ws.data.session),
       );
-      if (delta) officeSend(ws, JSON.stringify(delta));
+      if (delta) officeSend(ws, delta.type, JSON.stringify(delta));
     }
   }
 
@@ -629,6 +672,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
   function sendCronjobsTo(ws: ServerWebSocket<OfficeWsData>) {
     officeSend(
       ws,
+      "cronjobs_state",
       JSON.stringify({
         type: "cronjobs_state",
         cronjobs: cronjobsFor(cronjobViewerForSession(ws.data.session)),
@@ -647,7 +691,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
         change,
         cronjobViewerForSession(ws.data.session),
       );
-      if (delta) officeSend(ws, JSON.stringify(delta));
+      if (delta) officeSend(ws, delta.type, JSON.stringify(delta));
     }
   }
 
@@ -656,7 +700,11 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     const facts = cronjobFactsById(run.cronjobId);
     for (const ws of browsers) {
       if (cronjobVisibleTo(facts, cronjobViewerForSession(ws.data.session))) {
-        officeSend(ws, JSON.stringify({ type: "cronjob_run_updated", run }));
+        officeSend(
+          ws,
+          "cronjob_run_updated",
+          JSON.stringify({ type: "cronjob_run_updated", run }),
+        );
       }
     }
   }
@@ -665,7 +713,11 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     const facts = cronjobFactsById(jobId);
     for (const ws of browsers) {
       if (cronjobVisibleTo(facts, cronjobViewerForSession(ws.data.session))) {
-        officeSend(ws, JSON.stringify({ type: "log_entry", entry }));
+        officeSend(
+          ws,
+          "cron_run_log_entry",
+          JSON.stringify({ type: "log_entry", entry }),
+        );
       }
     }
   }
@@ -696,6 +748,20 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
   // room is gone, and the bare room_closed delta plus close's own every-socket
   // board and cronjobs push already converge them (no full_state log replay).
   function onUserAccessChanged(userId: string, changed: UserAccessChange) {
+    // A pack change: the member's pages reload (close code 4003, ui/ws.ts), so
+    // the fresh connect gets the filtered snapshot and nothing the pack now
+    // hides stays in the browser.
+    if (changed.pack) {
+      for (const ws of browsers) {
+        if (ws.data.session.userId !== userId) continue;
+        try {
+          ws.close(ACCESS_CHANGED_CLOSE_CODE, "access changed");
+        } catch {}
+      }
+      recheckOpenAppSockets();
+      extensionService?.revalidate();
+      return;
+    }
     if (!changed.role) {
       const user = getUserById(userId);
       if (!user) return;
@@ -727,6 +793,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
         sendSessionContext(ws);
         officeSend(
           ws,
+          "all_rooms_list",
           JSON.stringify({
             type: "all_rooms_list",
             rooms:

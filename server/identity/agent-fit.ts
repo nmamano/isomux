@@ -7,18 +7,29 @@ import {
   stopIncludes,
   type AgentAccess,
 } from "../../shared/agent-access.ts";
-import type {
-  ApiTokenLimits,
-  RouteTokenArea,
+import {
+  intersectAreas,
+  type ApiTokenLimits,
+  type RouteTokenArea,
 } from "../../shared/api-token-limits.ts";
 import {
   fitsInside,
+  managerRoomsOf,
   packCountsForRule,
   type FitTarget,
+  type MemberPack,
   type PackSender,
 } from "../../shared/pack-fit.ts";
+import type { UserRecord } from "../../shared/types.ts";
 import type { Identity } from "./index.ts";
 import type { GuardDeps } from "./guards.ts";
+
+// A refusal of the executor's agent checks.
+export interface AgentWriteRefusal {
+  status: 403 | 409;
+  code: string;
+  message: string;
+}
 
 export type AgentWriteFit =
   // The agent in this route param must fit the sender.
@@ -105,6 +116,7 @@ export function packSenderOf(identity: Identity): PackSender | null {
     return agentPackSender(
       identity.agentAccess ?? "standard",
       identity.apiTokenLimits,
+      identity.memberPack,
     );
   const areas = identity.apiTokenLimits?.areas;
   const member = identity.memberPack?.pack.agentCeiling;
@@ -118,12 +130,10 @@ export function packSenderOf(identity: Identity): PackSender | null {
         : "office";
   // A member's rooms bound the agents they reach: an agent whose pack reaches
   // other rooms would act there for them. A member's token: the rooms of both.
-  const tokenRooms = identity.apiTokenLimits?.rooms;
-  const memberRooms = identity.memberPack?.rooms;
-  const rooms =
-    memberRooms && tokenRooms
-      ? tokenRooms.filter((room) => memberRooms.includes(room))
-      : (memberRooms ?? tokenRooms);
+  const rooms = bothRooms(
+    identity.apiTokenLimits?.rooms,
+    identity.memberPack?.rooms,
+  );
   return {
     agent: false,
     areas,
@@ -132,18 +142,41 @@ export function packSenderOf(identity: Identity): PackSender | null {
   };
 }
 
-// The rule's sender for an agent at `access` with token limits `limits`.
+// The rooms inside both limits; undefined (every room) when neither has any.
+function bothRooms(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): string[] | undefined {
+  if (a && b) return a.filter((room) => b.includes(room));
+  const one = a ?? b;
+  return one ? [...one] : undefined;
+}
+
+// The rule's sender for an agent at `access` with token limits `limits`, and
+// the live pack and rooms of its manager when that member has a pack: the
+// agent sends as both (areas and rooms of both, the lower stop as ceiling),
+// also at Standard and on a scheduled message's fire.
 export function agentPackSender(
   access: AgentAccess,
   limits: ApiTokenLimits | undefined,
+  member?: { pack: MemberPack; rooms?: readonly string[] },
 ): PackSender | null {
-  const areas = limits?.areas;
+  const areas = member
+    ? limits?.areas
+      ? intersectAreas(limits.areas, member.pack.areas)
+      : member.pack.areas
+    : limits?.areas;
   if (!areas || !packCountsForRule(areas)) return null;
+  const rooms = bothRooms(limits?.rooms, member?.rooms);
+  const ceiling =
+    member && !stopIncludes(member.pack.agentCeiling, access)
+      ? member.pack.agentCeiling
+      : access;
   return {
     agent: true,
     areas,
-    ...(limits.rooms ? { rooms: limits.rooms } : {}),
-    ceiling: access,
+    ...(rooms ? { rooms } : {}),
+    ceiling,
   };
 }
 
@@ -185,6 +218,7 @@ function resultTarget(
   params: Readonly<Record<string, string | undefined>>,
   body: unknown,
   deps: GuardDeps,
+  identityUserId: string | null,
 ): FitTarget | null {
   const b = (body ?? {}) as Record<string, unknown>;
   if (opId === "agents.setAccess" || opId === "agents.setPrivileged") {
@@ -197,24 +231,115 @@ function resultTarget(
       access: b.access,
       ...(b.pack !== undefined ? { pack: b.pack } : {}),
     });
-    return grant ? { ...grant, roomId: current.roomId } : null;
+    return grant ? { ...current, ...grant, roomId: current.roomId } : null;
   }
   const roomId = typeof b.roomId === "string" ? b.roomId : "";
   if (opId === "agents.revive") {
-    const grant = deps.killedAgentGrant?.(params.id ?? "");
-    return grant ? { ...grant, roomId } : null;
+    const id = params.id ?? "";
+    const grant = deps.killedAgentGrant?.(id);
+    const manager = deps.killedAgentManagerUserId(id);
+    return grant ? withManagerRooms({ ...grant, roomId }, manager, deps) : null;
   }
+  // A spawn's agent is managed by the spawner's member.
   if (b.access === undefined && b.pack === undefined)
-    return { access: "standard", roomId };
+    return withManagerRooms(
+      { access: "standard", roomId },
+      identityUserId,
+      deps,
+    );
   const grant = parseAgentAccessGrant({
     access: b.access,
     ...(b.pack !== undefined ? { pack: b.pack } : {}),
   });
-  return grant ? { ...grant, roomId } : null;
+  return grant
+    ? withManagerRooms({ ...grant, roomId }, identityUserId, deps)
+    : null;
+}
+
+// `target` with the rooms its manager `userId` reaches.
+function withManagerRooms(
+  target: FitTarget,
+  userId: string | null,
+  deps: GuardDeps,
+): FitTarget {
+  const managerRooms = managerRoomsOf(userId ? deps.userById?.(userId) : null);
+  return managerRooms ? { ...target, managerRooms } : target;
 }
 
 // The error code of a refusal by the rule.
 export const AGENT_DOES_NOT_FIT = "agent_does_not_fit";
+// An agent above its manager's agent ceiling: 403 to the member and their
+// identities, 409 to an owner.
+export const ABOVE_AGENT_CEILING = "above_agent_ceiling";
+export const ABOVE_MEMBER_CEILING = "above_member_ceiling";
+// A pack save, a manager change or a revive that would leave an agent above
+// the ceiling with an engine that cannot run below it.
+export const AGENTS_CANNOT_MOVE_DOWN = "agents_cannot_move_down";
+
+// Whether an agent at `stop` managed by `manager` sits above that member's
+// agent ceiling. Keyed on the agent's manager, whoever asks.
+export function agentStopRefusal(
+  manager: Pick<UserRecord, "role" | "pack"> | null | undefined,
+  stop: AgentAccess,
+): boolean {
+  const ceiling =
+    manager?.role === "member" ? manager.pack?.agentCeiling : null;
+  return !!ceiling && !stopIncludes(ceiling, stop);
+}
+
+// The English name of a stop, as the access slider shows it.
+export function stopName(stop: AgentAccess): string {
+  return STOP_NAME[stop];
+}
+
+const STOP_NAME: Readonly<Record<AgentAccess, string>> = {
+  chat: "Chat",
+  office: "Office",
+  folder: "Folder",
+  web: "Web",
+  standard: "Standard",
+  privileged: "Privileged",
+};
+
+// The refusal of a spawn, setAccess or setPrivileged whose agent would sit
+// above its manager's ceiling: 403 to that member and their identities, 409
+// to an owner. A revive is clamped instead (server/member-ceiling.ts).
+function ceilingRefusal(
+  identity: Identity,
+  opId: string,
+  params: Readonly<Record<string, string | undefined>>,
+  body: unknown,
+  deps: GuardDeps,
+): AgentWriteRefusal | null {
+  if (opId === "agents.revive") return null;
+  const target = resultTarget(
+    opId,
+    params,
+    body,
+    deps,
+    identity.userId ?? null,
+  );
+  if (!target) return null;
+  const manager =
+    opId === "agents.spawn"
+      ? identity.userId
+        ? deps.userById?.(identity.userId)
+        : null
+      : deps.agentManagerOf?.(params.id ?? "");
+  if (!manager?.pack || !agentStopRefusal(manager, target.access)) return null;
+  const ceiling = STOP_NAME[manager.pack.agentCeiling];
+  return manager.id === identity.userId
+    ? {
+        status: 403,
+        code: ABOVE_AGENT_CEILING,
+        message: `Your permission pack keeps your agents at ${ceiling} or lower.`,
+      }
+    : {
+        status: 409,
+        code: ABOVE_MEMBER_CEILING,
+        message: `${manager.name}'s permission pack keeps their agents at ${ceiling} or lower.`,
+      };
+}
 
 const TARGET_OUTSIDE =
   "This agent has access outside yours. You can only reply to it, after it writes to you.";
@@ -223,39 +348,56 @@ const FILES_OUTSIDE =
 const RESULT_OUTSIDE =
   "An agent you spawn, revive or move must have access and a pack inside yours.";
 
-// The executor's check for one route call: null when the identity may make it
-// under the rule, else the refusal's message. A route outside both tables is
-// not an agents or agentManagement write and does not open an agent's files.
+// The executor's check for one route call: null when the identity may make it,
+// else the refusal: the agent ceiling first, then the messaging rule. A route
+// outside both tables is not an agents or agentManagement write and does not
+// open an agent's files.
 export function agentWriteRefusal(
   identity: Identity,
   route: { opId: string; tokenArea?: RouteTokenArea },
   params: Readonly<Record<string, string | undefined>>,
   body: unknown,
   deps: GuardDeps,
-): string | null {
+): AgentWriteRefusal | null {
   const file = FILE_FIT[route.opId];
   if (file)
     return identityFitsAgent(identity, params[file.name] ?? "", deps)
       ? null
-      : FILES_OUTSIDE;
+      : notFit(FILES_OUTSIDE);
   const fit = AGENT_WRITE_FIT_TABLE[route.opId];
   if (!fit || fit.kind === "exempt") return null;
-  const sender = packSenderOf(identity);
-  if (!sender) return null;
   // A move down to Standard: the agent loses access, so it always may.
   const lowering =
     route.opId === "agents.setPrivileged" &&
     (body as { privileged?: unknown } | null)?.privileged === false;
   if (lowering) return null;
   if (fit.kind === "result") {
-    const target = resultTarget(route.opId, params, body, deps);
+    const ceiling = ceilingRefusal(identity, route.opId, params, body, deps);
+    if (ceiling) return ceiling;
+  }
+  const sender = packSenderOf(identity);
+  if (!sender) return null;
+  if (fit.kind === "result") {
+    const target = resultTarget(
+      route.opId,
+      params,
+      body,
+      deps,
+      identity.userId ?? null,
+    );
     return target !== null && fitsInside(sender, target)
       ? null
-      : RESULT_OUTSIDE;
+      : notFit(RESULT_OUTSIDE);
   }
   const agentId = params[fit.name] ?? "";
   if (identityFitsAgent(identity, agentId, deps)) return null;
   const reply =
     typeof route.tokenArea === "object" && route.tokenArea.reply === true;
-  return reply && heardFrom(identity, agentId, deps) ? null : TARGET_OUTSIDE;
+  return reply && heardFrom(identity, agentId, deps)
+    ? null
+    : notFit(TARGET_OUTSIDE);
+}
+
+function notFit(message: string): AgentWriteRefusal {
+  return { status: 403, code: AGENT_DOES_NOT_FIT, message };
 }

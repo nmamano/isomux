@@ -105,6 +105,7 @@ import type { SecretStore } from "./secret-store.ts";
 import type { EmitContext } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import type { StartServerOpts } from "./isomux-office.ts";
+import { msg } from "../shared/i18n/log-message.ts";
 
 // What createManagers calls back into server/isomux-office.ts for.
 // Functions and consts only: createManagers destructures these once, so a let
@@ -314,6 +315,13 @@ export function createManagers(
         agentManager.openCodeEnvironmentRevisionForUserId(userId),
     }),
     limitRefusal: (job) => {
+      // A schedule with no target agent runs at Standard, above every agent
+      // ceiling of a member permission pack (task 134b8f77).
+      const owner = job.userId ? getUserById(job.userId) : undefined;
+      if (!job.target && owner?.role === "member" && owner.pack)
+        return msg("systemEntries.scheduleRun.aboveMemberCeiling", {
+          member: owner.name,
+        });
       const maker = job.createdByAgentId
         ? ordinaryScheduleMaker(job.createdByAgentId)
         : null;

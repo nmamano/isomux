@@ -69,9 +69,16 @@ import type {
   AffordanceReadFileReq,
   AffordanceDiffReq,
 } from "../../../shared/contract-shapes.ts";
+import {
+  ABOVE_AGENT_CEILING,
+  ABOVE_MEMBER_CEILING,
+} from "../../identity/agent-fit.ts";
 
 export interface CronDeps {
   listCronjobs(): Cronjob[];
+  // The member `userId` when they have a permission pack, else null: a job of
+  // theirs with no target agent runs at Standard, above every agent ceiling.
+  memberWithPack?(userId: string): { id: string; name: string } | null;
   // The jobs this caller may see (server/cronjob-visibility.ts), each with
   // the caller's canManage.
   listCronjobsFor(identity: Identity): CronjobListWire[];
@@ -261,6 +268,28 @@ function ownScheduleRefusal(
   return reason === null ? null : fail(403, SCHEDULE_EXCEEDS_AGENT, reason);
 }
 
+// The refusal of a job with no target agent whose owner `ownerUserId` has a
+// permission pack: 403 to that member and their identities, 409 to an owner.
+function headlessCeilingRefusal(
+  identity: Identity,
+  ownerUserId: string | null,
+  deps: CronDeps,
+) {
+  const owner = ownerUserId ? deps.memberWithPack?.(ownerUserId) : null;
+  if (!owner) return null;
+  return owner.id === identity.userId
+    ? fail(
+        403,
+        ABOVE_AGENT_CEILING,
+        "Your permission pack allows only schedules that message an agent.",
+      )
+    : fail(
+        409,
+        ABOVE_MEMBER_CEILING,
+        `${owner.name}'s permission pack allows only schedules that message an agent.`,
+      );
+}
+
 // Turning a job off only narrows it, as a delete does.
 function onlyTurnsOff(body: CronUpdateReq): boolean {
   const keys = Object.keys(body);
@@ -400,6 +429,14 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         room.roomId,
       );
       if (refusal) return refusal;
+      if (!target) {
+        const ceiling = headlessCeilingRefusal(
+          ctx.identity,
+          ctx.identity.userId,
+          deps,
+        );
+        if (ceiling) return ceiling;
+      }
       if (body.cwd !== undefined) deps.saveRecentCwd(body.cwd);
       const { username } = deps.attributionFor(ctx.identity);
       const job = await deps.createCronjob({
@@ -450,6 +487,18 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         return fail(422, "invalid_request", TOKEN_NEEDS_ROOM);
       const existing = jobById(deps, ctx.params.id);
       if (target !== undefined && !existing) return fail(404, "not_found");
+      // The job as it will be has no target agent: it runs at Standard. A
+      // turn-off alone still passes.
+      const headless =
+        target === null || (target === undefined && !existing?.target);
+      if (existing && headless && !onlyTurnsOff(body)) {
+        const ceiling = headlessCeilingRefusal(
+          ctx.identity,
+          existing.userId,
+          deps,
+        );
+        if (ceiling) return ceiling;
+      }
       // The reach is the job OWNER's, whoever writes.
       if (
         target &&

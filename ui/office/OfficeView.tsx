@@ -106,6 +106,7 @@ import {
   promptInstall,
   readInstallEnv,
 } from "../app-install.ts";
+import { useCan } from "../hooks/useCan.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -390,12 +391,14 @@ export function OfficeView({
   // these, so a skin repaints them with no branch in the drawing; the tab bar,
   // the HUD and the panels sit outside that container and never see them.
   const skinVars = useRoomSkinVars();
-  const newRoomDoor = embed
-    ? null
-    : {
-        label: t("office.newRoom.door"),
-        onClick: () => setNewRoomOpen(true),
-      };
+  const canWriteRooms = useCan("rooms", "write");
+  const newRoomDoor =
+    embed || !canWriteRooms
+      ? null
+      : {
+          label: t("office.newRoom.door"),
+          onClick: () => setNewRoomOpen(true),
+        };
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
@@ -506,30 +509,48 @@ export function OfficeView({
   const counts = getRoomCounts(showBackRoom ? backAgents : frontAgents);
 
   const install = useInstallMode();
+  // A member with a permission pack sees only the pages of its areas.
+  const canTasks = useCan("tasks", "read");
+  const canAutomations = useCan("schedules", "read");
+  const canWebhooks = useCan("webhooks", "read");
+  const canApps = useCan("apps", "read");
+  const canSkills = useCan("skills", "read");
   const officeActions: NavAction[] = [
-    {
-      id: "tasks",
-      icon: TasksIcon,
-      label: t("common.tasks"),
-      title: t("nav.tasksShortcut"),
-      onClick: onOpenTasks,
-    },
+    ...(canTasks
+      ? [
+          {
+            id: "tasks",
+            icon: TasksIcon,
+            label: t("common.tasks"),
+            title: t("nav.tasksShortcut"),
+            onClick: onOpenTasks,
+          },
+        ]
+      : []),
     ...(inboxAction ? [inboxAction] : []),
-    {
-      id: "cronjobs",
-      icon: ClockIcon,
-      label: t("common.automations"),
-      title: t("common.automations"),
-      onClick: onOpenCronjobs,
-    },
-    {
-      id: "apps",
-      icon: AppsIcon,
-      label: t("common.apps"),
-      title: t("nav.appsShortcut"),
-      onClick: onOpenApps,
-    },
-    ...(onOpenSkills
+    ...(canAutomations || canWebhooks
+      ? [
+          {
+            id: "cronjobs",
+            icon: ClockIcon,
+            label: t("common.automations"),
+            title: t("common.automations"),
+            onClick: onOpenCronjobs,
+          },
+        ]
+      : []),
+    ...(canApps
+      ? [
+          {
+            id: "apps",
+            icon: AppsIcon,
+            label: t("common.apps"),
+            title: t("nav.appsShortcut"),
+            onClick: onOpenApps,
+          },
+        ]
+      : []),
+    ...(onOpenSkills && canSkills
       ? [
           {
             id: "skills",

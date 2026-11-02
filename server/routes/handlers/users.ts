@@ -45,6 +45,11 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import { parseMemberPack, type MemberPack } from "../../../shared/pack-fit.ts";
 
+const INVALID_PACK_MESSAGE =
+  "pack must be {areas, agentCeiling}: known areas at read or write, and a ceiling of chat, office, folder or web";
+const OWNER_HAS_NO_PACK_MESSAGE =
+  "An office owner cannot have a permission pack.";
+
 // Outcome the seam shapes for a record edit / access change: ok → the updated
 // record (UserSelfWire/UserAdminWire share the UserRecord shape; the audience
 // distinction is the route guard's, not the type's), or a status-mapped failure.
@@ -183,6 +188,14 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           "invalid_request",
           "allowedRooms must be an array of room ids",
         );
+      // A permission pack, in the same write as the member.
+      const pack =
+        body.pack === undefined || body.pack === null
+          ? undefined
+          : parseMemberPack(body.pack);
+      if (pack === null) return fail(400, "invalid_pack", INVALID_PACK_MESSAGE);
+      if (pack && body.role === "owner")
+        return fail(400, "owner_has_no_pack", OWNER_HAS_NO_PACK_MESSAGE);
       const r = await deps.create({
         name: body.name,
         role: body.role,
@@ -190,6 +203,7 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
         avatarColor: body.avatarColor,
         avatarVariant: body.avatarVariant,
         allowedRooms: body.allowedRooms,
+        ...(pack ? { pack } : {}),
       });
       return r.ok ? created({ user: r.user }) : fail(r.status, r.code, r.error);
     },
@@ -261,11 +275,7 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
           ? body.pack
           : parseMemberPack(body.pack);
       if (pack === null && body.pack !== null)
-        return fail(
-          422,
-          "invalid_pack",
-          "pack must be {areas, agentCeiling}: known areas at read or write, and a ceiling of chat, office, folder or web",
-        );
+        return fail(422, "invalid_pack", INVALID_PACK_MESSAGE);
       if (
         !Array.isArray(body.allowedRooms) ||
         !body.allowedRooms.every((x) => typeof x === "string")

@@ -14,7 +14,13 @@ import {
   type LogText,
 } from "../shared/i18n/log-message.ts";
 import type { OfficeState } from "../shared/office-state.ts";
-import type { AgentInfo, Attachment, LogEntry } from "../shared/types.ts";
+import type {
+  AgentBackendType,
+  AgentInfo,
+  Attachment,
+  LogEntry,
+} from "../shared/types.ts";
+import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { rmSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -138,6 +144,9 @@ export interface AgentRestoreDeps {
   // has filled the live map.
   enableOfficeStatePersistence: () => void;
   profileKeyMoveLimitMs: ManagerDeps["profileKeyMoveLimitMs"];
+  // What the agent ceiling of the manager does to an agent
+  // (server/member-ceiling.ts): a boot or a revive installs it moved down.
+  memberCeilingClamp: (agent: CeilingAgent) => CeilingClamp;
 }
 
 export function createAgentRestore(deps: AgentRestoreDeps) {
@@ -172,7 +181,34 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     accessGrantOf,
     needsInterruptionMarker,
     enableOfficeStatePersistence,
+    memberCeilingClamp,
   } = deps;
+
+  function clampedToCeiling(
+    persisted: PersistedAgent,
+    agentType: AgentBackendType,
+    userId: string | null,
+  ): PersistedAgent {
+    const clamp = memberCeilingClamp({
+      id: persisted.id,
+      name: persisted.name,
+      cwd: persisted.cwd,
+      agentType,
+      modelFamily: persisted.modelFamily,
+      userId,
+      ...(persisted.access ? { access: persisted.access } : {}),
+      privileged: persisted.privileged ?? false,
+      ...(persisted.pack ? { pack: persisted.pack } : {}),
+    });
+    if (clamp.kind !== "move") return persisted;
+    const { pack: _old, ...rest } = persisted;
+    return {
+      ...rest,
+      privileged: false,
+      access: clamp.grant.access,
+      ...(clamp.grant.pack ? { pack: clamp.grant.pack } : {}),
+    };
+  }
 
   // Shared per-agent install path used by both restoreAgents() at boot and
   // revive(). Validates persisted config, builds AgentInfo + ManagedAgent,
@@ -200,10 +236,13 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     // preserving its resume-failure fallback).
     lazy?: boolean;
   }): { sessionOk: boolean; sessionError: string | null } {
-    const p = opts.persisted;
+    const agentType = opts.persisted.agentType ?? "claude";
+    const userId = resolveAgentUserId(opts.persisted);
+    // An agent above its manager's agent ceiling comes back at the ceiling, so
+    // no session ever runs above it. One the engine cannot move keeps its stop
+    // and gets no session (createSession).
+    const p = clampedToCeiling(opts.persisted, agentType, userId);
     const restoredCwd = p.cwd;
-    const agentType = p.agentType ?? "claude";
-    const userId = resolveAgentUserId(p);
     // Canonicalize persisted values without making one malformed agent stop the
     // boot restore. Interactive spawn/edit applies the stricter mismatch guard.
     const { modelFamily, permissionMode, effort, codexSandbox } =
