@@ -1,6 +1,6 @@
 // The checks a chat affordance runs on what an agent sends: a terminal
 // command, a path for the editor card, a path for a file chip. The chat ops
-// (agent-manager.ts emitAgentTerminalCommand / emitAgentEditRequest /
+// (agent-affordances.ts emitAgentTerminalCommand / emitAgentEditRequest /
 // emitAgentReadFile) and an ask's affordances (routes/handlers/asks.ts) run
 // the same checks. A refusal carries a kind, not words: the chat turns it into
 // a catalog system line, the ask route into an HTTP error.

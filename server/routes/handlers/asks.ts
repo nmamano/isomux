@@ -60,7 +60,7 @@ import {
   type PathRefusal,
   type ReadFileCheck,
 } from "../../affordance-checks.ts";
-import type { AskReadFileCopy } from "../../agent-manager.ts";
+import type { AskReadFileCopy } from "../../agent-affordances.ts";
 import type {
   AskAgentWire,
   AskClosedWire,

@@ -196,7 +196,7 @@ The `logDir` field of `GET /agents` points into `STATE_ROOT/logs`. In split mode
 ## 4. The fence (ruling 5)
 
 The routes are:
-- `POST /api/agents/:id/read-file` (agent-manager.ts:2595-2667)
+- `POST /api/agents/:id/read-file` (agent-affordances.ts, emitAgentReadFile)
 - the cron variant (cronjob-manager.ts:1498-1512)
 - the editor open, save and watch (agent-manager.ts:2480-2495, :9782-9818; isomux-office.ts:4650-4700; command-handlers.ts:938)
 - `PUT /api/apps/:name/thumbnail` in its JSON `{path}` form (task a5ab665e)
