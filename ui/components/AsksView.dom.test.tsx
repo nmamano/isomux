@@ -543,12 +543,13 @@ it("sends every waiting answer at once when the Inbox goes away, and only once",
   expect(posts).toHaveLength(2);
 });
 
-// Each scrollIntoView call while it is installed: the ask and the pending line
-// it was called on (null for any other element), and the options. happy-dom
-// has no layout, so the call is what a test can see of the scroll.
+// Each scrollIntoView call while it is installed: the ask it was called on
+// (null for any other element), whether it was the held card's empty place in
+// the list, and the options. happy-dom has no layout, so the call is what a
+// test can see of the scroll.
 type ScrollCall = {
   ask: string | null;
-  pending: string | null;
+  place: boolean;
   block: string | null;
   smooth: boolean;
 };
@@ -571,8 +572,10 @@ function watchScroll(): ScrollCall[] {
   ) {
     const options = typeof arg === "object" ? arg : {};
     calls.push({
-      ask: this.closest<HTMLElement>("[data-ask]")?.dataset.ask ?? null,
-      pending: this.getAttribute("data-ask-pending"),
+      ask:
+        this.closest<HTMLElement>("[data-ask]")?.dataset.ask ??
+        this.getAttribute("data-ask-place"),
+      place: this.hasAttribute("data-ask-place"),
       block: options.block ?? null,
       smooth: options.behavior === "smooth",
     });
@@ -583,11 +586,12 @@ function watchScroll(): ScrollCall[] {
   return calls;
 }
 
-// A tall card turns into the one-line Undo line, so the list moves up under
-// a scroller that keeps its place: the line scrolls into view, nearest edge
-// and at once, so the next ask starts under it (task bfae0ab8).
+// A tall card leaves the list for its Undo toast, so the list moves up under
+// a scroller that keeps its place: the card's empty place scrolls into view,
+// nearest edge and at once, so the next ask starts under it (tasks bfae0ab8,
+// 02274529).
 for (const kind of ["reply", "dismiss", "file-task"] as const) {
-  it(`scrolls the Undo line of a ${kind} into view once, and not on Undo or when the line goes`, async () => {
+  it(`scrolls the place of a held ${kind} into view once, and not on Undo or when the line goes`, async () => {
     jest.useFakeTimers();
     const calls = watchScroll();
     const { view, latest } = mount([
@@ -597,7 +601,7 @@ for (const kind of ["reply", "dismiss", "file-task"] as const) {
     expect(calls).toEqual([]);
     const line = {
       ask: "tall",
-      pending: kind,
+      place: true,
       block: "nearest",
       smooth: false,
     };
@@ -624,6 +628,37 @@ for (const kind of ["reply", "dismiss", "file-task"] as const) {
     expect(calls).toEqual([line, line]);
   });
 }
+
+// The Undo line is a toast over the list, and the held card leaves the list
+// at once, with its agent's name when it was that run's only card: nothing in
+// the list moves when the line goes (task 02274529).
+it("moves a held answer out of the list at once, with its agent's name, and back on Undo", async () => {
+  jest.useFakeTimers();
+  const { view } = mount([ask("only", "a1", 30), ask("next", "a2", 20)]);
+  const host = view.container.querySelector("[data-asks-undo-host]")!;
+  const nameOf = (agentId: string) =>
+    view.container.querySelector<HTMLElement>(
+      `[data-asks-group="${agentId}"]`,
+    )!;
+  expect(pageOrder(view)).toEqual(["a1:only", "a2:next"]);
+  expect(nameOf("a2").style.margin.startsWith("0px ")).toBe(false);
+  await answerAsk(view, "only", "reply", "go");
+  expect(
+    host.querySelector('[data-ask="only"]')?.getAttribute("data-ask-pending"),
+  ).toBe("reply");
+  expect(pageOrder(view)).toEqual(["a2:next"]);
+  // The first name showing has no space above it, as it will once sent.
+  expect(nameOf("a2").style.margin.startsWith("0px ")).toBe(true);
+  await act(async () => fireEvent.click(undoOf(view, "only")));
+  expect(pageOrder(view)).toEqual(["a1:only", "a2:next"]);
+  expect(host.childElementCount).toBe(0);
+  await answerAsk(view, "only", "reply", "go");
+  await advance(ASK_UNDO_MS);
+  expect(posts).toEqual(["/api/asks/only/reply"]);
+  expect(pageOrder(view)).toEqual(["a2:next"]);
+  expect(nameOf("a2").style.margin.startsWith("0px ")).toBe(true);
+  expect(host.childElementCount).toBe(0);
+});
 
 it("shows the card again with the error and the draft when the held answer is refused", async () => {
   jest.useFakeTimers();
@@ -675,16 +710,17 @@ it("keeps a held answer held under the age sort while other cards leave and runs
     await answerAsk(view, "y", "reply", "head next");
     await answerAsk(view, "w", "reply", "joins");
     await advance(ASK_UNDO_MS - half);
-    // x and z are sent and gone: y now heads its run, and w's run joins it.
+    // x and z are sent and gone, and y and w are held, so no card shows.
     expect([...posts].sort()).toEqual([
       "/api/asks/x/reply",
       "/api/asks/z/reply",
     ]);
-    expect(pageOrder(view)).toEqual(["a1:y,w"]);
+    expect(pageOrder(view)).toEqual([]);
     expect(pendingOf(view, "y")).toBe("reply");
     expect(pendingOf(view, "w")).toBe("reply");
     await act(async () => fireEvent.click(undoOf(view, "w")));
     expect(fieldOf(view, "w").value).toBe("joins");
+    expect(pageOrder(view)).toEqual(["a1:w"]);
     await advance(half);
     expect([...posts].sort()).toEqual([
       "/api/asks/x/reply",

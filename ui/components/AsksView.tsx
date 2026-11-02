@@ -23,6 +23,10 @@
 // above the list, outside the filters (PinnedAsk, task 84aadfab). Its close,
 // or a new pin, moves an answer still in its Undo time between two cards: the
 // card that unmounts sends it at once, as leaving the Inbox does.
+// A held answer's Undo line is a toast over the bottom of the list
+// (AskUndoHost): its card leaves the list at once, with its agent's name when
+// no other card of that run shows, so nothing moves when the line goes
+// (task 02274529). The pinned card keeps its line in place.
 // InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useState } from "react";
@@ -30,7 +34,7 @@ import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { asksFor, visibleAsks } from "../asks-sync.ts";
-import { AskCard } from "../log-view/AskCard.tsx";
+import { AskCard, AskUndoHost } from "../log-view/AskCard.tsx";
 import { PinnedAsk } from "./PinnedAsk.tsx";
 import {
   ASKS_SORTS,
@@ -406,6 +410,8 @@ export function AsksView({
     () => agents.some((agent) => listed.some((e) => e.agentId === agent.id)),
     [listed, agents],
   );
+  // The toasts of the held answers in the list.
+  const [undoHost, setUndoHost] = useState<HTMLDivElement | null>(null);
   const roomNameById = useMemo(
     () => new Map(rooms.map((r) => [r.id, r.name])),
     [rooms],
@@ -437,6 +443,21 @@ export function AsksView({
     fontFamily: "var(--font-ui)",
   };
 
+  // The runs that show a card, and among them the runs that go on the run
+  // before (two runs of one agent around held cards, as under the age sort):
+  // their name shows once, as it will when the held cards go.
+  const held = (id: string) => answeredAsks.get(id) === "undo";
+  const shownRuns: { first: boolean; joined: boolean }[] = [];
+  let lastShown: string | null = null;
+  for (const { agent, entries } of groups) {
+    const shows = entries.some((e) => !held(e.id));
+    shownRuns.push({
+      first: shows && lastShown === null,
+      joined: !shows || lastShown === agent.id,
+    });
+    if (shows) lastShown = agent.id;
+  }
+
   return (
     <div
       style={{
@@ -444,6 +465,7 @@ export function AsksView({
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
+        position: "relative",
       }}
     >
       {/* Filters, in the list's column */}
@@ -607,95 +629,116 @@ export function AsksView({
             />
           </div>
         )}
-        <div data-asks-list="" style={{ maxWidth: 760, margin: "0 auto" }}>
-          {groups.length === 0 && !anyOpen ? (
-            // The pinned card is the one open ask: no "No open asks" under it.
-            pinnedEntry ? null : (
-              <div data-asks-empty="" style={emptyStyle}>
-                {t("asks.empty")}
-              </div>
-            )
-          ) : groups.length === 0 ? (
-            <div data-asks-filtered-empty="" style={emptyStyle}>
-              <div>{t("asks.filteredEmpty")}</div>
-              <button
-                type="button"
-                data-asks-show-all=""
-                onClick={showAll}
-                style={{
-                  marginTop: 10,
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  border: "1px solid var(--border-medium)",
-                  background: "var(--btn-surface)",
-                  color: "var(--text-primary)",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                {t("asks.showAll")}
-              </button>
-            </div>
-          ) : (
-            // One flat list: each run's header is a sibling before its cards,
-            // and a card's key is its ask id, so a card that moves to another
-            // run, or whose run's first card leaves, is not remounted (a
-            // remount would send its held answer at once).
-            groups.flatMap(({ agent, entries }, i) => [
-              <div
-                key={`group:${entries[0].id}`}
-                data-asks-group={agent.id}
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  margin: `${i === 0 ? 0 : isMobile ? 16 : 20}px 0 6px 2px`,
-                  fontFamily: "var(--font-ui)",
-                }}
-              >
+        <AskUndoHost.Provider value={undoHost}>
+          <div data-asks-list="" style={{ maxWidth: 760, margin: "0 auto" }}>
+            {groups.length === 0 && !anyOpen ? (
+              // The pinned card is the one open ask: no "No open asks" under it.
+              pinnedEntry ? null : (
+                <div data-asks-empty="" style={emptyStyle}>
+                  {t("asks.empty")}
+                </div>
+              )
+            ) : groups.length === 0 ? (
+              <div data-asks-filtered-empty="" style={emptyStyle}>
+                <div>{t("asks.filteredEmpty")}</div>
                 <button
                   type="button"
-                  {...noTranslate()}
-                  data-asks-agent={agent.id}
-                  onClick={() => (onChatAgent ?? onFocusAgent)(agent.id)}
+                  data-asks-show-all=""
+                  onClick={showAll}
                   style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    color: "var(--accent-text)",
-                    fontSize: isMobile ? 15 : 14,
-                    fontWeight: 600,
+                    marginTop: 10,
+                    padding: "6px 12px",
+                    borderRadius: 6,
+                    border: "1px solid var(--border-medium)",
+                    background: "var(--btn-surface)",
+                    color: "var(--text-primary)",
+                    fontSize: 12,
                     cursor: "pointer",
-                    textAlign: "left",
                   }}
                 >
-                  {agent.name}
+                  {t("asks.showAll")}
                 </button>
-                <span
-                  {...noTranslate()}
-                  style={{
-                    color: "var(--text-muted)",
-                    fontSize: isMobile ? 12 : 11,
-                  }}
-                >
-                  {roomNameById.get(agent.roomId) ?? ""}
-                </span>
-              </div>,
-              ...entries.map((entry) => (
-                <AskCard
-                  key={entry.id}
-                  entry={entry}
-                  isMobile={isMobile}
-                  onFocusAgent={onFocusAgent}
-                  onChatAgent={onChatAgent}
-                  undoMs={ASK_UNDO_MS}
-                  promptLines={INBOX_PROMPT_LINES}
-                />
-              )),
-            ])
-          )}
-        </div>
+              </div>
+            ) : (
+              // One flat list: each run's header is a sibling before its cards,
+              // and a card's key is its ask id, so a card that moves to another
+              // run, or whose run's first card leaves, is not remounted (a
+              // remount would send its held answer at once).
+              groups.flatMap(({ agent, entries }, i) => [
+                shownRuns[i].joined ? null : (
+                  <div
+                    key={`group:${entries[0].id}`}
+                    data-asks-group={agent.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "baseline",
+                      gap: 8,
+                      margin: `${shownRuns[i].first ? 0 : isMobile ? 16 : 20}px 0 6px 2px`,
+                      fontFamily: "var(--font-ui)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      {...noTranslate()}
+                      data-asks-agent={agent.id}
+                      onClick={() => (onChatAgent ?? onFocusAgent)(agent.id)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        color: "var(--accent-text)",
+                        fontSize: isMobile ? 15 : 14,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                    >
+                      {agent.name}
+                    </button>
+                    <span
+                      {...noTranslate()}
+                      style={{
+                        color: "var(--text-muted)",
+                        fontSize: isMobile ? 12 : 11,
+                      }}
+                    >
+                      {roomNameById.get(agent.roomId) ?? ""}
+                    </span>
+                  </div>
+                ),
+                ...entries.map((entry) => (
+                  <AskCard
+                    key={entry.id}
+                    entry={entry}
+                    isMobile={isMobile}
+                    onFocusAgent={onFocusAgent}
+                    onChatAgent={onChatAgent}
+                    undoMs={ASK_UNDO_MS}
+                    promptLines={INBOX_PROMPT_LINES}
+                  />
+                )),
+              ])
+            )}
+          </div>
+        </AskUndoHost.Provider>
       </div>
+      <div
+        ref={setUndoHost}
+        data-asks-undo-host=""
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: isMobile ? "max(12px, env(safe-area-inset-bottom))" : 16,
+          padding: isMobile ? "0 12px" : "0 20px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 6,
+          pointerEvents: "none",
+          zIndex: 2,
+        }}
+      />
     </div>
   );
 }

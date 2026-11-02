@@ -35,9 +35,12 @@
 // into a line with what was chosen and Undo, which brings the card back with
 // the draft. While held and while sent, the ask is answered in the store
 // (answeredAsks), so the counts, the desk dots and the chat's ask stack leave
-// it out at once; once sent, the Inbox drops the line too. When the line
-// starts above the view (a tall card answered at its foot), the list scrolls
-// it to the top, so the next ask starts in view. A held answer is
+// it out at once; once sent, the Inbox drops the line too. Inside an
+// AskUndoHost (the Inbox's list) the line is a toast in the host, over the
+// list, and the card leaves the list at once: what the member reads next does
+// not move when the line goes (task 02274529). When the card's place starts
+// above the view (a tall card answered at its foot), the list scrolls it to
+// the top, so the next ask starts in view. A held answer is
 // sent at once when the card unmounts (the member leaves the Inbox) and when
 // the page is hidden or closes, with keepalive so the request outlives the
 // page. A send that fails brings the ask back everywhere, with the error
@@ -47,6 +50,7 @@
 // member it is for; the owner answers it as their own.
 
 import {
+  createContext,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -55,6 +59,7 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { apiFetch, ApiError } from "../api.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -91,6 +96,10 @@ const KEEPALIVE_MAX_BYTES = 60_000;
 
 type AnswerKind = "reply" | "dismiss" | "file-task";
 type AnswerBody = AskReplyReq | (AskDismissReq & AskFileTaskReq);
+
+// Where a held answer's Undo line goes: a toast over the list, or, with no
+// host, the card's own place.
+export const AskUndoHost = createContext<HTMLElement | null>(null);
 
 // An answer the card holds for the undo window. `shown` is the reply, or the
 // note that goes with a dismiss or a filing (null for none).
@@ -296,6 +305,7 @@ function ReplyAskCard({
   const heldRef = useRef<HeldAnswer | null>(null);
   const [held, setHeld] = useState<HeldAnswer | null>(null);
   const heldLineRef = useRef<HTMLDivElement>(null);
+  const undoHost = useContext(AskUndoHost);
   const [expanded, setExpanded] = useState(false);
   const [clamped, setClamped] = useState(false);
   // A simplify request in flight, its refusal, and the original prompt shown.
@@ -488,8 +498,8 @@ function ReplyAskCard({
     dispatch({ type: "ask_undone", id: entry.id });
   }
 
-  // Bring the Undo line into view when it replaces the card, so the next ask
-  // starts under it.
+  // Bring the Undo line, or the card's empty place, into view when it
+  // replaces the card, so the next ask starts under it.
   useLayoutEffect(() => {
     if (!held) return;
     heldLineRef.current?.scrollIntoView?.({ block: "nearest" });
@@ -553,12 +563,27 @@ function ReplyAskCard({
   if (held) {
     const shown =
       held.shown === null ? null : <span {...noTranslate()}>{held.shown}</span>;
-    return (
+    const toastBox = {
+      width: "100%",
+      maxWidth: 760,
+      boxSizing: "border-box",
+      marginBottom: 0,
+      background: "var(--bg-surface-solid)",
+      boxShadow: "0 4px 16px var(--shadow-heavy)",
+      pointerEvents: "auto",
+    } as const;
+    const line = (
       <div
-        ref={heldLineRef}
+        ref={undoHost ? undefined : heldLineRef}
         data-ask={entry.id}
         data-ask-pending={held.kind}
-        style={{ ...cardBox, display: "flex", alignItems: "center", gap: 10 }}
+        style={{
+          ...cardBox,
+          ...(undoHost ? toastBox : {}),
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+        }}
       >
         <span
           style={{
@@ -590,6 +615,14 @@ function ReplyAskCard({
           {t("asks.undo")}
         </button>
       </div>
+    );
+    if (!undoHost) return line;
+    // The card's place keeps no height; the line is in the host.
+    return (
+      <>
+        <div ref={heldLineRef} data-ask-place={entry.id} />
+        {createPortal(line, undoHost)}
+      </>
     );
   }
   // Reply, Dismiss, filing as a task, Discuss in chat and Simplify: one group

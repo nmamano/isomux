@@ -79,12 +79,13 @@ export function mount(asks: AskEntry[], place: Partial<AppState> = {}) {
   return { view, focused, latest };
 }
 
-// The page in order: each group's agent and the cards under it up to the next
-// group, whether the group wraps its cards or only heads them.
+// The list in order: each group's agent and the cards under it up to the next
+// group, whether the group wraps its cards or only heads them. A held
+// answer's Undo line is a toast outside the list, so it is no card here.
 export const runsOf = (view: View) => {
   const runs: { agent: string; cards: string[] }[] = [];
   for (const el of view.container.querySelectorAll<HTMLElement>(
-    "[data-asks-group], [data-ask]",
+    "[data-asks-list] [data-asks-group], [data-asks-list] [data-ask]",
   )) {
     if (el.dataset.asksGroup !== undefined)
       runs.push({ agent: el.dataset.asksGroup, cards: [] });
