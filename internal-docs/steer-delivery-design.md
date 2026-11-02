@@ -155,8 +155,8 @@ and uses it in place of the "queued while you were processing" note:
 - agent steer: `[Isomux: another agent interrupted your turn to deliver this. Any rejection or interruption text just before it came from that interruption, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]`
 - member Send now: `[Isomux: a member interrupted your turn to deliver this. A tool call cut short may have done partial work: check its effects before you continue.]`
 
-The strings are exported from `server/agent-manager.ts` (`AGENT_INTERRUPT_NOTE`, `MEMBER_INTERRUPT_NOTE`,
-`TOOL_BOUNDARY_NOTE`). Nil signs off agent-facing copy.
+The strings are exported from `server/agent-manager.ts` (`AGENT_INTERRUPT_NOTE`, `MEMBER_INTERRUPT_NOTE`)
+and `server/message-queue.ts` (`TOOL_BOUNDARY_NOTE`). Nil signs off agent-facing copy.
 
 ### 3.3 System prompt (server/system-prompt.ts, all engines)
 

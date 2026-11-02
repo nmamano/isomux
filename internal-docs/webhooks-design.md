@@ -192,7 +192,7 @@ So a short arg (a channel name) leaves the room it does not use to a long one (t
 
 ### (a) Agent message
 
-Sender: a new variant `{ kind: "webhook"; webhookId: string; webhookName: string }` on `QueuedMessage["sender"]` (`shared/types.ts`). The prefix is `[Webhook "pr-review"]`, from a new `formatWebhookSenderPrefix` in `shared/identity.ts`, next to `formatAppSenderPrefix`. The new kind needs edits in the four places that switch on the sender: the union, `senderMeta`, `senderPrefixText`, and the queue validator in `server/agent-manager.ts`.
+Sender: a new variant `{ kind: "webhook"; webhookId: string; webhookName: string }` on `QueuedMessage["sender"]` (`shared/types.ts`). The prefix is `[Webhook "pr-review"]`, from a new `formatWebhookSenderPrefix` in `shared/identity.ts`, next to `formatAppSenderPrefix`. The new kind needs edits in the four places that switch on the sender: the union, `senderMeta`, `senderPrefixText`, and the queue validator in `server/message-queue.ts`.
 
 #### 4a. Note
 
@@ -383,7 +383,7 @@ Later: a docs section on a path-only Funnel. Funnel makes a whole port public ("
 | Limits | `server/app-message-limits.ts` (reuse the factory) |
 | Wiring | `server/isomux-office.ts` (ingress before the wall, handler deps, `sendAsWebhook`) |
 | Cronjob | `server/cronjob-manager.ts` (`runCronjobFromWebhook`, prompt line) |
-| Agent queue | `server/agent-manager.ts` (sender kind in `senderMeta`, `senderPrefixText`, validator) |
+| Agent queue | `server/message-queue.ts` (sender kind in `senderMeta`, `senderPrefixText`, validator) |
 | Routes and auth | `server/routes/table.ts`, `server/routes/handlers/webhooks.ts` (new), `server/identity/index.ts`, `server/identity/guards.ts`, `server/identity/guard-deps.ts` |
 | Events | `server/events/registry.ts` |
 | Agent docs | `server/agent-reference/webhooks.md` (new), `server/agent-reference.ts`, `server/system-prompt.ts` |

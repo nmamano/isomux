@@ -7,11 +7,11 @@
 
 ## 1. What exists today
 
-**Delivery.** `enqueueMessage` (`server/agent-manager.ts:4676`) is the single entry point for both human and
+**Delivery.** `enqueueMessage` (`server/message-queue.ts`) is the single entry point for both human and
 agent senders. It pushes onto `managed.messageQueue`, persists transactionally, and if the receiver is idle
 (`idle` / `waiting_for_response`, no multi-step flow) immediately calls `flushQueue`. Busy receivers get the
-message on the next idle transition. `flushQueue` (`:4767`) coalesces every queued item into one prompt, each
-line carrying a sender prefix from `queuedItemPrefix` (`:4467`). Queue cap 50, dedupe window 5 min.
+message on the next idle transition. `flushQueue` (`server/agent-manager.ts`) coalesces every queued item into one prompt, each
+line carrying a sender prefix from `queuedItemPrefix` (`server/message-queue.ts`). Queue cap 50, dedupe window 5 min.
 
 **Durability.** Queues are mirrored to `~/.isomux/message-queues.json` and replayed at boot (task 9870b472).
 A watchdog sweep (`sweepStuckFlushes`, `:3873`) treats "items queued while the agent is idle for over 60s with no
@@ -65,7 +65,7 @@ two-call window described above. The agent-scope rejection of the `sendNow` body
 The ack reports whether an abort actually happened (receiver busy) or the message simply delivered (receiver idle),
 so the sender can tell the two apart.
 
-**What shipped** (`enqueueMessage`'s `opts.steer`, `agent-manager.ts`). The decision is made inside the same
+**What shipped** (`enqueueMessage`'s `opts.steer`, `message-queue.ts`). The decision is made inside the same
 synchronous block as the queue push, against the same `state` read that picks flush-vs-queue, so the receiver
 cannot go idle between the enqueue and the interrupt. The busy path calls the existing `sendNow` (abort, then
 flush), fire-and-forget, exactly as the composer's Ctrl/Cmd+Enter does.
