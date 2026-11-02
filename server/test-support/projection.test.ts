@@ -2,7 +2,8 @@
 //
 // Per-recipient projection / ACL net. Began as a Phase 1.2 characterization of
 // the implicit per-WebSocket fanout in server/isomux-office.ts (sendProjectedFullState +
-// routeAgentEventToWs + the per-WS push helpers); the Phase 3 rewrites then
+// the per-WS push helpers) and server/office-event-fanout.ts (routeAgentEventToWs);
+// the Phase 3 rewrites then
 // FLIPPED these tests in place as they landed, so the file now pins the CURRENT
 // (post-3b/3c/3d) model, through the wire only (WS messages + REST responses),
 // never internals:

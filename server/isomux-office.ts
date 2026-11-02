@@ -80,11 +80,7 @@ import {
   setPresence,
   _testClearPresence,
 } from "./presence.ts";
-import type {
-  AgentEvent,
-  EnqueueResult,
-  UserSendAcceptance,
-} from "./internal-types.ts";
+import type { EnqueueResult, UserSendAcceptance } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
@@ -508,6 +504,7 @@ import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { createFrontDoor, PORT, UI_DIST } from "./office-front-door.ts";
+import { createEventFanout } from "./office-event-fanout.ts";
 import {
   agentManager,
   cronjobManager,
@@ -523,7 +520,6 @@ import {
   githubLinks,
   githubSync,
   uiBuildTracker,
-  turnEndWatch,
   providerAccountManager,
   appSupervisor,
   storageRoots,
@@ -959,6 +955,29 @@ function outboxFor(ws: ServerWebSocket<OfficeWsData>): OfficeOutbox {
 function officeSend(ws: ServerWebSocket<OfficeWsData>, data: string): void {
   outboxFor(ws).send(data);
 }
+
+// The agent and cronjob event fan-out (server/office-event-fanout.ts). Created
+// here, right after the last const it reads; startServer calls wireEventSinks.
+const { wireEventSinks } = createEventFanout({
+  agentVisibleForSession,
+  announceCronjobHookAudience,
+  apiTokenSockets,
+  broadcast,
+  browsers,
+  cronjobFacts,
+  liveEmit,
+  officeSend,
+  projectAgentForSession,
+  pushAllRoomsListToOwners,
+  pushCronjobDeltaToEachWs,
+  pushCronjobRunEntryToEachWs,
+  pushCronjobRunToEachWs,
+  pushTaskDeltaToEachWs,
+  roomAllowedForSession,
+  sendProjectedFullState,
+  sessionHasFullRoomAccess,
+  wakeTokenLogWaiters,
+});
 // The session context carries the Claude families limited in the member's own
 // env and the models they run, so it goes out again when office or personal
 // variables are saved.
@@ -1100,7 +1119,7 @@ const idempotencyCache = createIdempotencyCache();
 // startServer once the managers exist; read by the fetch handler at request time.
 let executorDeps: ExecutorDeps;
 // read_replies waiters (server/mcp-endpoint.ts), by token id. The token
-// log's entry sink (wireEventSinks) wakes them.
+// log's entry sink (wireEventSinks, server/office-event-fanout.ts) wakes them.
 const tokenLogWaiters = new Map<string, Set<() => void>>();
 function wakeTokenLogWaiters(tokenId: string): void {
   const waiters = tokenLogWaiters.get(tokenId);
@@ -2218,8 +2237,8 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
     //     to rewrite, so visible recipients get the verbatim agent.
     // Every other event - including room_closed, which post-cut just removes a
     // stable room id and no longer shifts any recipient's dense space - is
-    // delivered byte-identical verbatim. This reproduces routeAgentEventToWs for
-    // the migrated events.
+    // delivered byte-identical verbatim. This reproduces routeAgentEventToWs
+    // (server/office-event-fanout.ts) for the migrated events.
     if (id === "agent_added") {
       const agent = (payload as { agent: AgentInfo }).agent;
       for (const socket of recipients) {
@@ -7650,426 +7669,6 @@ function pushAllRoomsListToOwners() {
     }
   }
 }
-
-// Per-WS dispatch for events that touch a specific room or agent.
-// Sessions whose allowedRooms covers every current room id take the
-// fast path and receive the event verbatim. Sessions with partial
-// coverage get either:
-//   - the event verbatim if its room/agent is visible (post-cut there's no
-//     dense index to rewrite - agents carry stable room ids), or
-//   - a suppressed event (the room/agent isn't visible), or
-//   - a fresh projected full_state when a move could change which agents are
-//     visible to a restricted recipient (agent move across rooms).
-//
-// The full_state-on-shift approach is heavy-handed but keeps the UI's
-// existing positional contract intact. log entries are replayed for
-// agents that become newly visible inside the same call.
-function routeAgentEvent(event: AgentEvent) {
-  for (const ws of browsers) {
-    routeAgentEventToWs(ws, event);
-  }
-}
-
-// Route the room-ACL agent/room event fanout through the emit()
-// helper (registry audience) + the projection-aware deliver(), replacing the
-// implicit per-WS routeAgentEvent for every event whose registry audience maps
-// 1:1 to today's access decision (verified byte-identical; projection.test
-// stays green). One event that needs pre-mutation context the domain event
-// drops stays on the routeAgentEvent bridge until the carried-context slice
-// lands for it:
-//   - agent_updated MOVE (changes.roomId set): carries the NEW roomId but drops
-//     the OLD room the old∪new move audience needs.
-// agent_removed left the bridge: the domain event now carries
-// the pre-removal roomId, so it rides the registry's room-ACL audience
-// (carriedRoomId) instead of the old broadcast-all.
-function emitAgentEvent(event: AgentEvent): void {
-  if (event.type === "agent_updated" || event.type === "agent_removed")
-    extensionService?.revalidate();
-  switch (event.type) {
-    case "log_entry":
-      liveEmit(
-        "log_entry",
-        event.open
-          ? { entry: event.entry, open: true }
-          : { entry: event.entry },
-      );
-      break;
-    case "clear_logs":
-      liveEmit(
-        "clear_logs",
-        event.rollback
-          ? { agentId: event.agentId, rollback: true }
-          : { agentId: event.agentId },
-      );
-      break;
-    case "slash_commands":
-      liveEmit("slash_commands", {
-        agentId: event.agentId,
-        commands: event.commands,
-        skills: event.skills,
-      });
-      break;
-    case "terminal_output":
-      liveEmit("terminal_output", {
-        agentId: event.agentId,
-        data: event.data,
-      });
-      break;
-    case "terminal_status":
-      liveEmit("terminal_status", {
-        agentId: event.agentId,
-        process: event.process,
-        shell: event.shell,
-        ...(event.envStale ? { envStale: true as const } : {}),
-      });
-      break;
-    case "terminal_exit":
-      liveEmit("terminal_exit", {
-        agentId: event.agentId,
-        exitCode: event.exitCode,
-      });
-      break;
-    case "agent_added":
-      liveEmit("agent_added", { agent: event.agent });
-      break;
-    case "interaction_added":
-      liveEmit("interaction_added", { interaction: event.interaction });
-      break;
-    case "interaction_removed":
-      liveEmit("interaction_removed", {
-        interactionId: event.interactionId,
-        agentId: event.agentId,
-      });
-      break;
-    case "killed_agent_added":
-      liveEmit("killed_agent_added", { agent: event.agent });
-      break;
-    case "killed_agent_removed":
-      liveEmit("killed_agent_removed", {
-        agentId: event.agentId,
-        lastRoomId: event.lastRoomId,
-      });
-      break;
-    case "agent_removed":
-      // The agent's open asks go with it.
-      try {
-        askStore?.removeAgent(event.agentId);
-      } catch (err) {
-        console.error(
-          `[asks] could not remove ${event.agentId}'s entries:`,
-          errMessage(err),
-        );
-      }
-      // Room-ACL via the CARRIED pre-removal roomId. The agent
-      // is already gone from state, so the registry's carriedRoomId projection
-      // is what makes the audience computable; sessions that couldn't see the
-      // room no longer learn the id existed.
-      liveEmit("agent_removed", {
-        agentId: event.agentId,
-        roomId: event.roomId,
-      });
-      break;
-    case "room_created":
-      liveEmit("room_created", { room: event.room });
-      break;
-    case "room_renamed":
-      liveEmit("room_renamed", { roomId: event.roomId, name: event.name });
-      break;
-    case "room_settings_updated":
-      liveEmit("room_settings_updated", {
-        roomId: event.roomId,
-        prompt: event.prompt,
-      });
-      break;
-    case "room_pet_updated":
-      liveEmit("room_pet_updated", {
-        roomId: event.roomId,
-        pet: event.pet,
-      });
-      break;
-    case "room_skin_updated":
-      liveEmit("room_skin_updated", {
-        roomId: event.roomId,
-        skin: event.skin,
-      });
-      break;
-    case "room_decor_updated":
-      liveEmit("room_decor_updated", {
-        roomId: event.roomId,
-        decor: event.decor,
-      });
-      break;
-    case "room_cwd_updated":
-      liveEmit("room_cwd_updated", { roomId: event.roomId, cwd: event.cwd });
-      break;
-    case "room_closed":
-      liveEmit("room_closed", { roomId: event.roomId });
-      break;
-    case "agent_updated":
-      // NON-move updates project via agentLookup on the agent's CURRENT room.
-      // A MOVE is discriminated by a present `roomId` in changes; it needs the
-      // old∪new audience the domain event can't supply yet, so it rides the
-      // bridge (full_state refresh for restricted recipients) until oldRoomId is
-      // carried in the carried-context slice.
-      if (event.changes.roomId === undefined) {
-        liveEmit("agent_updated", {
-          agentId: event.agentId,
-          changes: event.changes,
-        });
-      } else {
-        routeAgentEvent(event);
-      }
-      break;
-    default:
-      // The routeAgentEvent bridge is BOUNDED - it is allowed ONLY for
-      // agent_updated with changes.roomId set (handled in the case above),
-      // plus any explicitly documented bridge case. Nothing else may be added
-      // here. agent_removed left the bridge (carried roomId →
-      // room-ACL; the characterization lives in projection.test.ts);
-      // the bounded-bridge + behavioral raw-send invariant (no un-projected
-      // fanout outside the projection dispatcher) is enforced by the
-      // contract-test slice. This default is unreachable for the remaining
-      // event types (office_settings_updated / tasks_changed are handled
-      // before emitAgentEvent is called).
-      routeAgentEvent(event);
-      break;
-  }
-}
-
-function routeAgentEventToWs(
-  ws: ServerWebSocket<OfficeWsData>,
-  event: AgentEvent,
-) {
-  const session = ws.data.session;
-
-  if (sessionHasFullRoomAccess(session)) {
-    officeSend(ws, JSON.stringify(event));
-    return;
-  }
-
-  switch (event.type) {
-    case "agent_added": {
-      const projected = projectAgentForSession(session, event.agent);
-      if (projected) {
-        officeSend(
-          ws,
-          JSON.stringify({ type: "agent_added", agent: projected }),
-        );
-      }
-      break;
-    }
-    case "agent_removed": {
-      // Defensive/legacy branch: agent_removed is delivered via the emit()
-      // registry (room-ACL on the carried pre-removal roomId), not this
-      // bridge, so this case is not normally reached. Scoped like
-      // killed_agent_added right below - a session that couldn't see the
-      // room must not learn the id existed.
-      if (roomAllowedForSession(session, event.roomId)) {
-        officeSend(ws, JSON.stringify(event));
-      }
-      break;
-    }
-    case "killed_agent_added": {
-      // ACL: only deliver if the session can see the lastRoomId. A
-      // member shouldn't learn a private room's agent died.
-      if (roomAllowedForSession(session, event.agent.lastRoomId)) {
-        officeSend(ws, JSON.stringify(event));
-      }
-      break;
-    }
-    case "killed_agent_removed": {
-      // Symmetric ACL with the added variant: a session that never
-      // saw the chip shouldn't learn the id became alive again.
-      if (roomAllowedForSession(session, event.lastRoomId)) {
-        officeSend(ws, JSON.stringify(event));
-      }
-      break;
-    }
-    case "agent_updated": {
-      if (event.changes.roomId !== undefined) {
-        // Room move (discriminated by a present roomId): for a restricted
-        // recipient the agent could be entering, leaving, or staying in their
-        // visible set, so a targeted full_state refresh is the cheapest correct
-        // play - but the UI's full_state reducer clears logs/slashCommands, so
-        // we replay them for every currently-visible agent or the member loses
-        // transcripts.
-        sendProjectedFullState(ws, { replayLogsForVisible: true });
-      } else if (agentVisibleForSession(session, event.agentId)) {
-        // No room change - non-room fields are safe to forward verbatim.
-        officeSend(ws, JSON.stringify(event));
-      }
-      break;
-    }
-    case "room_created": {
-      if (roomAllowedForSession(session, event.room.id)) {
-        // New room is at the end of the global rooms array → also at
-        // the end of this session's visible array. No index shift.
-        officeSend(ws, JSON.stringify(event));
-      }
-      // If the room is not allowed, the member's visible list is
-      // unchanged.
-      break;
-    }
-    case "room_closed":
-    case "room_renamed":
-    case "room_settings_updated": {
-      // Defensive/legacy branch: these room events are delivered via the emit()
-      // registry + deliver() path, not this bridge, so this case is not normally
-      // reached. Post-cut none of them shift any dense index (room ids are
-      // stable), so a visible recipient takes the verbatim delta and a
-      // non-visible one drops it.
-      if (roomAllowedForSession(session, event.roomId)) {
-        officeSend(ws, JSON.stringify(event));
-      }
-      break;
-    }
-    case "log_entry": {
-      if (agentVisibleForSession(session, event.entry.agentId)) {
-        officeSend(ws, JSON.stringify(event));
-      }
-      break;
-    }
-    case "clear_logs":
-    case "slash_commands":
-    case "terminal_output":
-    case "terminal_status":
-    case "terminal_exit": {
-      if (agentVisibleForSession(session, event.agentId)) {
-        officeSend(ws, JSON.stringify(event));
-      }
-      break;
-    }
-    case "office_settings_updated":
-    case "tasks_changed": {
-      // No room scope - everyone sees these.
-      officeSend(ws, JSON.stringify(event));
-      break;
-    }
-  }
-}
-
-// wireEventSinks: route AgentManager + CronjobManager domain events onto the
-// WS broadcast / per-recipient fanout. Extracted so startServer() wires the
-// active instances. Body left at prior indentation; prettier normalizes.
-function wireEventSinks(): void {
-  setApiTokenStreamSinks({
-    logEntry: (tokenId, entry) => {
-      liveEmit(
-        "api_token_log_entry",
-        { tokenId, entry },
-        { apiTokenId: tokenId },
-      );
-      wakeTokenLogWaiters(tokenId);
-    },
-    revoked: (tokenId) => {
-      for (const ws of apiTokenSockets) {
-        if (ws.data.tokenId !== tokenId) continue;
-        ws.close(1008, "API token unavailable");
-        apiTokenSockets.delete(ws);
-      }
-    },
-  });
-  agentManager.onEvent((event) => {
-    // Task mutations carry the full board as a domain event, but the WS layer
-    // sends only the ONE task that moved: the board is ROOM-SCOPED, so what a
-    // socket must be told depends on whether that task is visible to THAT
-    // recipient before and after the change. The event's `tasks` payload is
-    // ignored here (the persistence sink is its consumer); the whole list still
-    // rides the `tasks` event at connect and on a room-access change, so a
-    // reload and the accumulated deltas agree.
-    if (event.type === "tasks_changed") {
-      pushTaskDeltaToEachWs(event.change);
-      return;
-    }
-    // Office settings: envFile is owner-only and NEVER rides this all-audience
-    // event. Members read {prompt,name}; owners learn envFile via
-    // their full_state (owner office projection) / office.getSettings on reload.
-    if (event.type === "office_settings_updated") {
-      broadcast({
-        type: "office_settings_updated",
-        prompt: event.prompt,
-        name: event.name,
-      });
-      return;
-    }
-    // All remaining events touch a specific room or agent. The registry routes the
-    // clean room-ACL events through the emit() helper (registry audience) +
-    // projection-aware deliver(); agent_updated-MOVE stays on the
-    // routeAgentEvent bridge inside emitAgentEvent (agent_removed left the
-    // bridge - carried roomId → room-ACL).
-    emitAgentEvent(event);
-    turnEndWatch?.observe(event);
-    // Any mutation of the global rooms list also refreshes the owner-only
-    // admin view of all rooms (used by UserSettingsView). Done here
-    // (rather than inside routeAgentEvent) so the all_rooms_list message
-    // doesn't fan out per-event-type; one shot per mutation.
-    if (
-      event.type === "room_created" ||
-      event.type === "room_closed" ||
-      event.type === "room_renamed" ||
-      event.type === "room_settings_updated"
-    ) {
-      pushAllRoomsListToOwners();
-    }
-  });
-
-  cronjobManager.onCronjobEvent((event) => {
-    switch (event.type) {
-      // The clean `all`-audience cron events route through the emit() helper
-      // (byte-identical broadcast); matching registry ids + payload shapes.
-      // Cronjob records are per-recipient: who sees a job, and how much of
-      // it, depends on the socket (server/events/cronjob-delta.ts).
-      case "cronjob_added":
-        pushCronjobDeltaToEachWs({
-          kind: "added",
-          cronjob: event.cronjob,
-          facts: cronjobFacts(event.cronjob),
-        });
-        break;
-      case "cronjob_updated":
-        pushCronjobDeltaToEachWs({
-          kind: "updated",
-          cronjob: event.cronjob,
-          facts: cronjobFacts(event.cronjob),
-          before: cronjobFacts(event.previous ?? event.cronjob),
-        });
-        announceCronjobHookAudience(
-          event.cronjob.id,
-          cronjobFacts(event.previous ?? event.cronjob).liveRoomId,
-        );
-        break;
-      case "cronjob_deleted":
-        pushCronjobDeltaToEachWs({
-          kind: "deleted",
-          id: event.id,
-          before: cronjobFacts(event.cronjob),
-        });
-        announceCronjobHookAudience(
-          event.id,
-          cronjobFacts(event.cronjob).liveRoomId,
-        );
-        break;
-      case "cronjobs_prompt_updated":
-        liveEmit("cronjobs_prompt_updated", { value: event.value });
-        break;
-      case "cronjob_run_updated":
-        pushCronjobRunToEachWs(event.run);
-        break;
-      // COMPATIBILITY BRIDGE: cron-run transcript entries stream as `log_entry`
-      // with a synthetic cronrun-<runId> agentId. The TARGET registry event is
-      // `cron_run_log_entry`, but the UI/demo still key cron transcripts on
-      // `log_entry` (ui/store.tsx), and the target `log_entry` registry entry
-      // is room-ACL (it would fail-closed on the non-existent synthetic agent).
-      // So these keep the `log_entry` wire shape, sent only to the sockets
-      // that may see the job. Do NOT
-      // route through liveEmit until shared ServerMessage, ui/store, and
-      // demo-server switch together.
-      case "log_entry":
-        pushCronjobRunEntryToEachWs(event.entry, event.jobId);
-        break;
-    }
-  });
-} // end wireEventSinks
 
 // Inbound WS messages. Every durable command moved to REST, so the WS is
 // no longer a command bus: the only inbound messages are the three permanent
