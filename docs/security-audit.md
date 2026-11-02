@@ -492,7 +492,7 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 2 (Agent, App rows) and section 8.5 (who raises): `AGENT_CAPABILITIES` and `APP_CAPABILITIES` in `identity/index.ts`; the `pager.*` and `webhooks.*` routes in `routes/table.ts`.
 - Section 3.2 and section 8.1: `createWebhookRegistry` in `webhooks/registry.ts`; `createPagerSettingsFilePersistence` in `pager-settings.ts`.
 - Section 4.7, URL and id: `WEBHOOK_ID_PATTERN` and `create` in `webhooks/registry.ts`; `toWire` in `routes/handlers/webhooks.ts`.
-- Section 4.7, signature: `verifyWebhookSignature` in `webhooks/verify.ts`; `createWebhookIngress` (`handle`) in `webhooks/ingress.ts`; the `/hooks/:id` branch of `buildServer` in `isomux-office.ts`.
+- Section 4.7, signature: `verifyWebhookSignature` in `webhooks/verify.ts`; `createWebhookIngress` (`handle`) in `webhooks/ingress.ts`; the `/hooks/:id` branch of `buildServer` in `office-front-door.ts`.
 - Section 4.7, before the signature check: `handle`, `readCapped` and `WEBHOOK_BODY_MAX_BYTES` in `webhooks/ingress.ts`.
 - Section 4.7, replays, and finding 10: `claim` and `WEBHOOK_DEDUP_WINDOW_MS` in `webhooks/deliveries.ts`; `WEBHOOK_DELIVERY_LOG_MAX` in `webhooks/registry.ts`; `handle`, `dispatch` and `parsePayload` in `webhooks/ingress.ts`.
 - Section 4.7, what reaches the target: `planWebhookDelivery` in `webhooks/ingress.ts`; `buildWebhookBlock` and `escapeArgsJson` in `webhooks/block.ts`; `renderArgs` in `webhooks/match.ts`; `formatWebhookSenderPrefix` in `shared/identity.ts`; the webhook branch of the run system prompt in `cronjob-manager.ts`.

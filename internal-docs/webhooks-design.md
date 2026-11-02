@@ -27,7 +27,7 @@ Route: `POST /hooks/:id`, on the office host only. App hostnames divert before e
 
 The signature is the only gate. The route needs no session, no bearer token and no Origin. It does not care whether the request comes from the box or through a proxy, so it works the same behind Caddy, Tailscale Funnel, a load balancer or a direct bind.
 
-Placement: in the `officeHostResponse` block of `buildServer` (`server/isomux-office.ts`), next to `/readyz` and before the auth wall. The route table lists it in `PUBLIC_ROUTES` (`server/routes/table.ts`) as `hooks.deliver` with `auth: pub`, so the "no public route reaches authorize()" contract test covers it. Without this route, `/hooks/x` reaches the wall and gets 401 today.
+Placement: in the `officeHostResponse` block of `buildServer` (`server/office-front-door.ts`), next to `/readyz` and before the auth wall. The route table lists it in `PUBLIC_ROUTES` (`server/routes/table.ts`) as `hooks.deliver` with `auth: pub`, so the "no public route reaches authorize()" contract test covers it. Without this route, `/hooks/x` reaches the wall and gets 401 today.
 
 The id is random: `wh_` plus 16 hex characters (64 bits). The id is not a secret, but nobody can list the hooks of an office by guessing.
 

@@ -17,7 +17,7 @@ describe("app short URL eligibility", () => {
     const transpiler = new Bun.Transpiler({ loader: "ts" });
     const scanned = new Set<string>();
     for (const file of [
-      "isomux-office.ts",
+      "office-front-door.ts",
       "auth-middleware.ts",
       "app-auth.ts",
       "tls-ask.ts",
@@ -33,7 +33,7 @@ describe("app short URL eligibility", () => {
       for (const m of js.matchAll(/(["'`])(\/[^"'`$\\\n]*)\1/g))
         scanned.add(m[2]);
     }
-    // The scan finds literals at all: /backup (isomux-office.ts) and /inbox
+    // The scan finds literals at all: /backup (office-front-door.ts) and /inbox
     // (ui/routes.ts) are in no route table entry.
     const segments = [...scanned].map((path) => path.split("/")[1]);
     expect(segments).toContain("backup");

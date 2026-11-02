@@ -241,7 +241,7 @@ function translatorForVisitor(req: Request, onBox: boolean): Translator {
 }
 
 // Browser-tab title for /auth/* and /i/<token> pages. Mirrors the format
-// used by the SPA shell (see serveIndexHtml in server/isomux-office.ts) so the tab
+// used by the SPA shell (see serveIndexHtml in server/office-front-door.ts) so the tab
 // title stays consistent across authenticated and pre-auth surfaces. The suffix
 // arrives translated; the frame around it is punctuation and a proper noun.
 function authPageTitle(officeName: string | null, suffix: string): string {

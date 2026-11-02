@@ -82,7 +82,7 @@ still ask. The edge rules (the managed Caddyfile, the Kubernetes ingress) stay.
 
 ## F8: rate limits on the real client
 
-- `/readyz` (`server/isomux-office.ts`, `server/ready-limiter.ts`): exempt only
+- `/readyz` (`server/office-front-door.ts`, `server/ready-limiter.ts`): exempt only
   on-box requests, and key the limit on the client.
 - App sign-in redeem (`server/app-auth.ts`, `server/app-hosts.ts`): key the
   limit on label and client, not on the label only. The code is 256 bits, so a
