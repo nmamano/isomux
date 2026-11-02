@@ -712,7 +712,7 @@ This run was started by a webhook: the JSON between the <webhook-data> tags in y
 
     if (cronjob.agentType !== "opencode") {
       // A job with a room reaches that room's board too, while its creator can
-      // access the room (boardRoomIdsForIdentity in isomux-office.ts).
+      // access the room (boardRoomIdsForIdentity in office-access-policy.ts).
       const board = cronjob.roomId
         ? {
             scope: `Your schedule belongs to room ${cronjob.roomId}: you see its tasks and the office-wide ones, and a task you create goes in that room unless you send "roomId":"" (office-wide). Add ?roomId=${cronjob.roomId} to a list for that room's tasks only.`,
