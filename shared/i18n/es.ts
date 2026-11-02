@@ -107,6 +107,19 @@ export const es: Catalog = {
     "Resultado de desvinculación desconocido. Comprueba Integraciones en la oficina.",
   "browser.download": "Descargar extensión {version}",
   "browser.outdated": "La extensión de {names} está desactualizada.",
+  "browser.outdatedStore":
+    "La extensión de {names} está desactualizada. Chrome instala la actualización desde Chrome Web Store por sí solo.",
+  "browser.updateStore":
+    "Chrome instala la versión más reciente desde Chrome Web Store por sí solo.",
+  "browser.storeInstall": "Instalar desde Chrome Web Store",
+  "browser.storeMove":
+    "¿La instalaste antes desde el ZIP? Instálala desde la tienda y vincúlala; después quita la copia antigua en chrome://extensions y desvincúlala abajo.",
+  "browser.developerInstall": "Instalar desde el ZIP",
+  "browser.developerFinish":
+    "Después fíjala y vincúlala, como en los pasos de arriba.",
+  "browser.storeSteps": "Después vincúlala y quita esta copia.",
+  "browser.storeStepsPaired":
+    "Después vincúlala, selecciona Desvincular aquí y quita esta copia.",
   "browser.updateSteps":
     "Extrae el ZIP y copia sus archivos en la carpeta que cargaste. Después selecciona Volver a cargar aquí o en la extensión.",
   "browser.updateStepsPopup":

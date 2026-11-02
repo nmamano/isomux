@@ -358,6 +358,8 @@ test("the popup shows an update notice with the office's download exactly while 
 async function updatePopup(opts: {
   update?: { latest: string };
   disk: string;
+  // More fields of the background's state, for example store.
+  extra?: Record<string, unknown>;
 }) {
   document.body.innerHTML = popupHTML;
   let disk = opts.disk;
@@ -391,6 +393,7 @@ async function updatePopup(opts: {
           agents: [{ id: "a", name: "Agent" }],
           assignments: [],
           ...(opts.update ? { update: opts.update } : {}),
+          ...opts.extra,
         }),
       },
     },
@@ -459,6 +462,101 @@ test("Reload in the popup checks the disk again and does nothing when the newer 
   await p.settle();
   expect(p.reloads()).toBe(0);
   window.dispatchEvent(new Event("pagehide"));
+});
+
+// Task 328ef745: Chrome updates a store install by itself, so its update
+// notice has no download and no Reload, and does not read as the unpacked one.
+// The text of the visible parts of an element.
+const shownText = (el: Element): string =>
+  [...el.childNodes]
+    .map((node) =>
+      node.nodeType === 3
+        ? node.textContent
+        : node instanceof HTMLElement && !node.hidden
+          ? shownText(node)
+          : "",
+    )
+    .join(" ");
+test("a store install's update notice has no download and no Reload, and differs from the unpacked notice", async () => {
+  const update = { latest: "0.7.0" };
+  const unpacked = await updatePopup({ update, disk: "0.6.0" });
+  // Precondition: the unpacked notice shows the download.
+  expect(unpacked.download()).toBe(true);
+  const unpackedText = shownText(unpacked.notice);
+  window.dispatchEvent(new Event("pagehide"));
+  const store = await updatePopup({
+    update,
+    disk: "0.6.0",
+    extra: { store: true },
+  });
+  expect(store.visible(store.notice)).toBe(true);
+  expect(store.download()).toBe(false);
+  expect(store.reloadButton()).toBeUndefined();
+  expect(
+    [...store.notice.querySelectorAll("a")].filter(store.visible),
+  ).toHaveLength(0);
+  expect(shownText(store.notice).trim().length).toBeGreaterThan(0);
+  expect(shownText(store.notice)).not.toBe(unpackedText);
+  window.dispatchEvent(new Event("pagehide"));
+});
+
+// Task 328ef745: an unpacked popup links the store listing (install from the
+// store, pair, remove this copy); a store popup is that install already.
+const LISTING =
+  "https://chromewebstore.google.com/detail/isomux-browser/abcdefghijklmnopabcdefghijklmnop";
+async function listingLinks(state: Record<string, unknown>) {
+  document.body.innerHTML = popupHTML;
+  await popupScript.runInNewContext({
+    document,
+    window,
+    navigator: { language: "en" },
+    Date,
+    chrome: {
+      storage: { session: noDraft },
+      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+      runtime: { sendMessage: async () => structuredClone(state) },
+    },
+    setInterval: () => 1,
+    clearInterval() {},
+  });
+  for (let i = 0; i < 10; i++)
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  // Precondition: the popup rendered the state.
+  expect(document.getElementById("status")!.dataset.state).toBe(
+    String(state.state),
+  );
+  const links = [...document.querySelectorAll("a")].filter(
+    (a) => a.href === LISTING && !a.closest("[hidden]"),
+  );
+  window.dispatchEvent(new Event("pagehide"));
+  return links;
+}
+test("the store listing link shows in an unpacked popup with a listing, paired or not, and never in a store popup", async () => {
+  const connected = {
+    state: "connected",
+    generation: "g",
+    office: "https://office.example.com",
+    currentTab: { id: 7, eligible: true },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [],
+  };
+  const unpaired = {
+    state: "unpaired",
+    office: "",
+    agents: [],
+    assignments: [],
+  };
+  for (const base of [connected, unpaired]) {
+    const shown = await listingLinks({ ...base, storeUrl: LISTING });
+    expect([base.state, shown.length]).toEqual([base.state, 1]);
+    expect(shown[0].target).toBe("_blank");
+    for (const extra of [{ store: true, storeUrl: LISTING }, {}])
+      expect([
+        base.state,
+        extra,
+        (await listingLinks({ ...base, ...extra })).length,
+      ]).toEqual([base.state, extra, 0]);
+  }
 });
 
 test("a failed offer names the dialog cause only when the tab did not answer", async () => {

@@ -46,6 +46,10 @@
 - [Privacy Policy](https://isomux.com/hosted-privacy): Data collection, access, and retention for Hosted Isomux
 - [Refund Policy](https://isomux.com/hosted-refund): Refund eligibility and requests for Hosted Isomux
 
+## Browser extension
+
+- [Isomux Browser privacy policy](https://isomux.com/browser-extension-privacy): What the Chrome extension reads and where it sends it
+
 ## Machine-readable resources
 
 - [Isomux OpenAPI specification](https://isomux.com/openapi.json): Website API contract

@@ -2,7 +2,10 @@ import { beforeAll, test, expect } from "bun:test";
 import { runInNewContext } from "node:vm";
 import {
   ATTACH_ANSWER_MS,
+  BROWSER_EXTENSION_PROTOCOL,
+  CHROME_WEB_STORE_URL,
   EXTENSION_MAX_BYTES,
+  EXTENSION_MIN_PROTOCOL,
   fields,
   type Fields,
 } from "../shared/browser-extension-protocol";
@@ -56,6 +59,16 @@ async function harness(
     // The version in manifest.json on disk (default: the running one).
     // "fail": the read rejects; "bad": the file is not JSON.
     disk?: string;
+    // The oldest office the store extension must serve (v2026.9.22): its
+    // ready has no flags and no package, whatever the other options say.
+    oldestOffice?: boolean;
+    // chrome.management.getSelf().installType (default "development", an
+    // unpacked build); "reject": getSelf rejects. slowSelf: getSelf answers
+    // after the first socket could open.
+    installType?: string;
+    slowSelf?: boolean;
+    // More fields of the office's ready, for example storeUrl.
+    ready?: Fields;
   } = {},
 ) {
   let disk = opts.disk;
@@ -324,6 +337,14 @@ async function harness(
         },
       },
     },
+    management: {
+      getSelf: async () => {
+        if (opts.slowSelf)
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        if (opts.installType === "reject") throw new Error("getSelf failed");
+        return { installType: opts.installType ?? "development" };
+      },
+    },
     runtime: {
       id: "fixture-id",
       getURL: (path: string) => "chrome-extension://fixture-id/" + path,
@@ -522,25 +543,34 @@ async function harness(
       );
     },
   });
+  // A slow getSelf holds the first socket back (about 20 ms).
   for (let i = 0; i < 100 && !sockets.length; i++) await settle();
+  if (opts.slowSelf)
+    for (let i = 0; i < 100 && !sockets.length; i++)
+      await new Promise((resolve) => setTimeout(resolve, 1));
   // A test's calls start at its first connection: the worker's start-up
   // release of leftover debugger sessions is not one of them.
   calls.length = 0;
   detachedTabs.length = 0;
   const socket = sockets[0];
   socket.onopen?.();
-  socket.receive({
-    kind: "ready",
-    version: 4,
-    generation: "generation-1",
-    debuggerRecovery,
-    ...(opts.offerResume ? { offerResume: true } : {}),
-    ...(opts.officeScope ? { officeScope: true } : {}),
-    ...(opts.officePackage ? { package: opts.officePackage } : {}),
-    ...(opts.agentTabs ? { agentTabs: true } : {}),
-    ...(opts.access ? { access: true } : {}),
-    ...(opts.reload ? { reload: true } : {}),
-  });
+  socket.receive(
+    opts.oldestOffice
+      ? { kind: "ready", version: 4, generation: "generation-1" }
+      : {
+          kind: "ready",
+          version: 4,
+          generation: "generation-1",
+          debuggerRecovery,
+          ...(opts.offerResume ? { offerResume: true } : {}),
+          ...(opts.officeScope ? { officeScope: true } : {}),
+          ...(opts.officePackage ? { package: opts.officePackage } : {}),
+          ...(opts.agentTabs ? { agentTabs: true } : {}),
+          ...(opts.access ? { access: true } : {}),
+          ...(opts.reload ? { reload: true } : {}),
+          ...opts.ready,
+        },
+  );
   socket.receive({
     kind: "metadata",
     generation: "generation-1",
@@ -1341,16 +1371,65 @@ test("changed current tab and unoffered attach cannot expose a page", async () =
   h.socket.close();
 });
 
-test("obsolete ready protocol fails closed without a tab grant", async () => {
-  const h = await harness();
-  h.socket.close();
-  const fresh = await h.reconnect();
-  fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 3, generation: "obsolete" });
-  await settle();
-  expect(fresh.readyState).toBe(3);
-  expect(h.config()?.blocked).toBe(true);
-  expect(h.calls).toHaveLength(0);
+// The store pushes the newest extension to every office back to v2026.9.22,
+// so the extension takes any protocol from EXTENSION_MIN_PROTOCOL to its own
+// (task 328ef745). Both ends of the range come from the constants, so a bump
+// of BROWSER_EXTENSION_PROTOCOL that refuses the old offices fails here.
+const SPOKEN = Array.from(
+  { length: BROWSER_EXTENSION_PROTOCOL - EXTENSION_MIN_PROTOCOL + 1 },
+  (_, i) => EXTENSION_MIN_PROTOCOL + i,
+);
+const UNSPOKEN = [
+  EXTENSION_MIN_PROTOCOL - 1,
+  BROWSER_EXTENSION_PROTOCOL + 1,
+  String(EXTENSION_MIN_PROTOCOL),
+  EXTENSION_MIN_PROTOCOL + 0.5,
+  undefined,
+];
+
+test("ready in each protocol from the minimum to the extension's own connects", async () => {
+  for (const version of SPOKEN) {
+    const h = await harness();
+    h.socket.close();
+    const fresh = await h.reconnect();
+    fresh.onopen?.();
+    fresh.receive({ kind: "ready", version, generation: "fresh" });
+    await settle();
+    expect((await h.ui({ action: "state" })).state).toBe("connected");
+  }
+});
+
+test("ready outside the protocol range fails closed without a tab grant", async () => {
+  for (const version of UNSPOKEN) {
+    const h = await harness();
+    h.socket.close();
+    const fresh = await h.reconnect();
+    fresh.onopen?.();
+    fresh.receive({ kind: "ready", version, generation: "obsolete" });
+    await settle();
+    expect(fresh.readyState).toBe(3);
+    expect(h.config()?.blocked).toBe(true);
+    expect(h.calls).toHaveLength(0);
+  }
+});
+
+test("paired takes the same protocol range: inside it keeps the credential, outside it blocks", async () => {
+  for (const version of [...SPOKEN, ...UNSPOKEN]) {
+    const h = await harness();
+    await h.ui({
+      action: "pair",
+      office: "http://127.0.0.1",
+      code: "a".repeat(43),
+    });
+    await settle();
+    const socket = h.sockets.at(-1)!;
+    socket.onopen?.();
+    socket.receive({ kind: "paired", version, credential: "issued" });
+    await settle();
+    const spoken = SPOKEN.includes(version as number);
+    expect(h.config()?.credential).toBe(spoken ? "issued" : undefined);
+    expect(h.config()?.blocked).toBe(spoken ? undefined : true);
+  }
 });
 
 test("a failed popup cleanup retains its tab reservation until detach finishes", async () => {
@@ -2372,8 +2451,12 @@ test("the hello reports the extension's package; a newer office package offers a
     extensionVersion: "0.4.3",
     officePackage: "0.4.10",
   });
+  // An office takes the hello in the minimum protocol; maxVersion tells a
+  // newer office the highest one this extension speaks.
   expect(fresh.socket.sent[0]).toMatchObject({
     kind: "hello",
+    version: EXTENSION_MIN_PROTOCOL,
+    maxVersion: BROWSER_EXTENSION_PROTOCOL,
     package: "0.4.3",
   });
   // Precondition: ready was accepted.
@@ -2389,6 +2472,163 @@ test("the hello reports the extension's package; a newer office package offers a
     const state = await h.ui({ action: "state" });
     expect(state.state).toBe("connected");
     expect(state.update).toBeUndefined();
+  }
+});
+
+// What a v2026.9.22 office takes from the extension after the hello, from
+// git show v2026.9.22:server/browser-extension-bridge.ts and
+// browser-extension-service.ts. Any other frame closes the connection there,
+// and an invalid one refuses it.
+const OLDEST_OFFICE_KINDS = [
+  "offer",
+  "agents",
+  "result",
+  "event",
+  "pong",
+  "unpair",
+];
+const oldestOfficeTakesOffer = (offer: Fields) => {
+  const scope = offer.scope as Fields;
+  return (
+    typeof offer.assignment === "string" &&
+    /^[a-f0-9-]{36}$/.test(offer.assignment) &&
+    ((scope?.kind === "all" && Object.keys(scope).length === 1) ||
+      (scope?.kind === "agent" &&
+        typeof scope.agentId === "string" &&
+        Object.keys(scope).length === 2)) &&
+    [0, 15, 60, 240].includes(offer.durationMinutes as number)
+  );
+};
+
+test("the newest extension offers a tab to a v2026.9.22 office and runs an action in it", async () => {
+  const h = await harness(false, true, { oldestOffice: true });
+  expect((await h.ui({ action: "state" })).state).toBe("connected");
+  const { result, assignment } = await h.startOffer();
+  const offer = offers(h.socket).at(-1)!;
+  expect(oldestOfficeTakesOffer(offer)).toBe(true);
+  h.command(1, "attach");
+  await settle();
+  const attached = h.socket.sent.findLast(
+    (m) => m.kind === "result" && m.id === 1,
+  )!;
+  expect(attached.error).toBeUndefined();
+  expect((attached.result as Fields).targetInfo).toMatchObject({
+    type: "page",
+    url: "https://example.com/",
+  });
+  // The v2026.9.22 frames: no offerOrigin, and metadata assignments carry
+  // no agent for an all-agents scope.
+  h.socket.receive({
+    kind: "offered",
+    generation: "generation-1",
+    assignment,
+    scope: offer.scope,
+    durationMinutes: offer.durationMinutes,
+    expiresAt: null,
+  });
+  await settle();
+  expect((await result).error).toBeUndefined();
+  h.socket.receive({
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [
+      {
+        id: assignment,
+        scope: offer.scope,
+        durationMinutes: offer.durationMinutes,
+        expiresAt: null,
+      },
+    ],
+  });
+  await settle();
+  expect(await listed(h)).toEqual([{ id: assignment, phase: "on" }]);
+  h.command(2, "cdp", {
+    method: "Runtime.evaluate",
+    params: { expression: "1" },
+  });
+  await settle();
+  expect(h.calls).toContain("Runtime.evaluate");
+  const answer = h.socket.sent.findLast(
+    (m) => m.kind === "result" && m.id === 2,
+  )!;
+  expect(answer.error).toBeUndefined();
+  // The old office's heartbeat.
+  h.socket.receive({ kind: "ping", generation: "generation-1" });
+  await settle();
+  expect(h.socket.sent.at(-1)).toEqual({
+    kind: "pong",
+    generation: "generation-1",
+  });
+  // Every frame after the hello is one the old office takes, in its
+  // generation.
+  const after = h.socket.sent.slice(1);
+  expect(
+    after
+      .map((m) => m.kind)
+      .filter((k) => !OLDEST_OFFICE_KINDS.includes(k as string)),
+  ).toEqual([]);
+  expect(after.filter((m) => m.generation !== "generation-1")).toEqual([]);
+  expect(h.socket.readyState).toBe(1);
+});
+
+// Task 328ef745: the hello tells the office whether Chrome updates this
+// extension, so the office does not ask the member to update it by hand.
+test("the hello says install store exactly when Chrome updates the extension, also when getSelf answers late", async () => {
+  for (const [installType, slowSelf, store] of [
+    ["normal", false, true],
+    ["admin", false, true],
+    ["normal", true, true],
+    ["development", false, false],
+    ["development", true, false],
+    ["reject", false, false],
+  ] as const) {
+    const h = await harness(true, true, { installType, slowSelf });
+    const hello = h.socket.sent[0];
+    // Precondition: the first frame is the hello, and ready was accepted.
+    expect(hello.kind).toBe("hello");
+    const state = await h.ui({ action: "state" });
+    expect(state.state).toBe("connected");
+    expect([installType, slowSelf, hello.install]).toEqual([
+      installType,
+      slowSelf,
+      store ? "store" : undefined,
+    ]);
+    expect([installType, slowSelf, state.store === true]).toEqual([
+      installType,
+      slowSelf,
+      store,
+    ]);
+  }
+});
+
+const LISTING =
+  "https://chromewebstore.google.com/detail/isomux-browser/abcdefghijklmnopabcdefghijklmnop";
+test("the popup state takes the office's store URL only when it is a store listing; any other value is ignored, not refused", async () => {
+  const valid = await harness(true, true, { ready: { storeUrl: LISTING } });
+  const state = await valid.ui({ action: "state" });
+  expect(state.state).toBe("connected");
+  expect(state.storeUrl).toBe(LISTING);
+  for (const storeUrl of [
+    LISTING.replace("https:", "http:"),
+    LISTING.replace(
+      "chromewebstore.google.com",
+      "chromewebstore.google.com.evil.example",
+    ),
+    "https://evil.example/detail/x",
+    5,
+    undefined,
+  ]) {
+    const h = await harness(true, true, { ready: { storeUrl } });
+    const s = await h.ui({ action: "state" });
+    expect(s.state).toBe("connected");
+    expect(h.socket.readyState).toBe(1);
+    // Without a valid one, only the built-in listing (none today).
+    expect([storeUrl, s.storeUrl]).toEqual([
+      storeUrl,
+      CHROME_WEB_STORE_URL ?? undefined,
+    ]);
   }
 });
 

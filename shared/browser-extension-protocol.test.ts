@@ -1,10 +1,13 @@
 import { test, expect } from "bun:test";
 import {
+  CHROME_WEB_STORE_URL,
   extensionOutdated,
   officeSocketURL,
   validBrowserAccess,
   validGrantExpiry,
   validGrantScope,
+  storeInstall,
+  validStoreUrl,
 } from "./browser-extension-protocol";
 
 test("office URL input accepts origins only and derives the encrypted socket", () => {
@@ -122,4 +125,43 @@ test("a shared offer scope has its kind and nothing else", () => {
   expect(validGrantScope({ kind: "shared" })).toBe(true);
   expect(validGrantScope({ kind: "shared", agentId: "a" })).toBe(false);
   expect(validGrantScope({ kind: "shared", via: "all" })).toBe(false);
+});
+
+// Task 328ef745: the popup renders a link from the store URL the office sends,
+// so only a listing page of the Chrome Web Store passes.
+test("a store URL is a listing page on the Chrome Web Store origin and nothing else", () => {
+  const listing =
+    "https://chromewebstore.google.com/detail/isomux-browser/abcdefghijklmnopabcdefghijklmnop";
+  expect(validStoreUrl(listing)).toBe(true);
+  for (const value of [
+    listing.replace("https:", "http:"),
+    listing.replace(
+      "chromewebstore.google.com",
+      "chromewebstore.google.com.evil.example",
+    ),
+    listing.replace("chromewebstore.google.com", "evil.example"),
+    listing.replace("https://", "https://user:secret@"),
+    listing.replace("google.com/", "google.com:8443/"),
+    "https://chromewebstore.google.com/category/extensions",
+    "javascript:alert(1)",
+    "not a url",
+    "",
+    5,
+    null,
+    undefined,
+  ])
+    expect([value, validStoreUrl(value)]).toEqual([value, false]);
+  // The built-in listing is either missing or one that passes.
+  expect(
+    CHROME_WEB_STORE_URL === null || validStoreUrl(CHROME_WEB_STORE_URL),
+  ).toBe(true);
+});
+
+// Chrome updates every install but an unpacked one ("development"); the ZIP
+// download is always loaded unpacked.
+test("every install type but development is one that Chrome updates", () => {
+  for (const type of ["normal", "admin", "sideload", "other"])
+    expect([type, storeInstall(type)]).toEqual([type, true]);
+  for (const type of ["development", undefined, null, 5, {}])
+    expect([type, storeInstall(type)]).toEqual([type, false]);
 });

@@ -223,6 +223,8 @@ export class BrowserExtensionBridge {
       agentDisplay?(agent: string): BrowserDisplay;
       agents?(member: string): string[];
       officeOrigins?(): string[];
+      // The extension's store listing, sent in ready when there is one.
+      storeUrl?: string | null;
     },
     private clock: GrantClock = grantClock,
   ) {
@@ -283,6 +285,8 @@ export class BrowserExtensionBridge {
         reload: true,
         // The office's extension package, so an older extension can say so.
         package: manifest.version,
+        // An unpacked extension links the store listing.
+        ...(this.access.storeUrl ? { storeUrl: this.access.storeUrl } : {}),
         generation: connection.generation,
       });
       connection.sendMetadata();

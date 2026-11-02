@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="canonical" href="https://isomux.com/browser-extension-privacy" />
+    <title>Privacy Policy - Isomux Browser</title>
+    <meta
+      name="description"
+      content="What the Isomux Browser Chrome extension reads, and where it sends it."
+    />
+
+    <!-- Favicon (same as app) -->
+    <link rel="icon" href="/favicon.png" sizes="192x192" type="image/png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+    <!-- Theme color for mobile browsers (per system color scheme) -->
+    <meta
+      name="theme-color"
+      content="#0d1117"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f4f6f9"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <!-- Pre-paint theme resolution, same contract as the landing and the
+         hosted page. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          if (saved) {
+            document.documentElement.setAttribute("data-theme", saved);
+            var lightIds = ["light", "solarized-light"];
+            document.documentElement.setAttribute(
+              "data-theme-mode",
+              lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+            );
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="/footer.css" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      /* Palette and theme blocks are kept identical to site/index.html and
+         site/hosted.html so every page stays in sync under every theme. */
+      :root {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --accent-hover: #3da85a;
+        --border: #30363d;
+        --max-width: 760px;
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --bg-surface: #ffffff;
+          --bg-card: #eef1f5;
+          --text: #1a2030;
+          --text-dim: #5a6a80;
+          --accent: #16803f;
+          --accent-hover: #116932;
+          --border: #d8dde6;
+          color-scheme: light;
+        }
+      }
+
+      :root[data-theme-mode="dark"] {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --accent-hover: #3da85a;
+        --border: #30363d;
+        color-scheme: dark;
+      }
+      :root[data-theme-mode="light"] {
+        --bg: #f4f6f9;
+        --bg-surface: #ffffff;
+        --bg-card: #eef1f5;
+        --text: #1a2030;
+        --text-dim: #5a6a80;
+        --accent: #16803f;
+        --accent-hover: #116932;
+        --border: #d8dde6;
+        color-scheme: light;
+      }
+
+      .theme-toggle {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 90;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition:
+          background 0.15s,
+          transform 0.15s;
+      }
+      .theme-toggle:hover {
+        background: var(--bg-card);
+        transform: scale(1.06);
+      }
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.65;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      h1,
+      h2 {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+        letter-spacing: -0.01em;
+      }
+
+      .topbar {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 20px 24px 0;
+        font-size: 0.9rem;
+      }
+      .topbar a {
+        color: var(--text-dim);
+      }
+
+      main {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 24px 24px 8px;
+      }
+
+      h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+
+      .updated {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+        margin-bottom: 20px;
+      }
+
+      h2 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin-top: 30px;
+        margin-bottom: 10px;
+      }
+
+      p,
+      ul {
+        margin-bottom: 12px;
+      }
+
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 6px;
+      }
+
+      strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+        margin-bottom: 12px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        color: var(--text);
+        font-weight: 600;
+      }
+      td {
+        color: var(--text-dim);
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 20px 16px 8px;
+        }
+        h1 {
+          font-size: 1.6rem;
+        }
+        .topbar {
+          padding: 20px 16px 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar"><a href="/">&larr; Isomux</a></div>
+
+    <main>
+      <h1>Isomux Browser Privacy Policy</h1>
+      <p class="updated">Last updated: 2 November 2026</p>
+
+      <p>
+        Isomux LLC ("we") publishes Isomux Browser, the Chrome extension that
+        lets the agents of an Isomux office use your Chrome tabs. The extension
+        works only with an Isomux office that you or your team run. We receive
+        no data from it.
+      </p>
+
+      <h2>What the extension reads</h2>
+      <ul>
+        <li>
+          The office address and the browser credential that the office sends
+          when you pair. Chrome keeps them on your computer.
+        </li>
+        <li>
+          The content of the tabs that you offer to agents or let agents open,
+          and of the popups that these tabs open, while agents control them: the
+          page, what agents type and click there, and screenshots.
+        </li>
+      </ul>
+
+      <h2>Where it goes</h2>
+      <p>
+        Only to the office that you paired with: over an encrypted connection,
+        or a local one when the office runs on the same computer. The people who
+        run that office decide how long it keeps what agents read. We, Google
+        and other third parties receive nothing from the extension. It has no
+        analytics and no ads.
+      </p>
+
+      <h2>What it does not do</h2>
+      <ul>
+        <li>It does not read your other tabs.</li>
+        <li>
+          It does not collect your browsing history. Chrome warns "Read your
+          browsing history" for the webNavigation permission. The extension uses
+          this permission only to find which tab opened a popup.
+        </li>
+      </ul>
+
+      <h2>Permissions</h2>
+      <table>
+        <tr>
+          <th>Permission</th>
+          <th>Why</th>
+        </tr>
+        <tr>
+          <td>debugger</td>
+          <td>
+            Lets agents control a tab. The extension attaches when you offer the
+            tab or an agent opens it, and detaches when control ends.
+          </td>
+        </tr>
+        <tr>
+          <td>webNavigation</td>
+          <td>Finds the popups that a controlled tab opens.</td>
+        </tr>
+        <tr>
+          <td>activeTab</td>
+          <td>Lets the popup offer the tab that you have open.</td>
+        </tr>
+        <tr>
+          <td>storage</td>
+          <td>Keeps the office address, the credential and your settings.</td>
+        </tr>
+        <tr>
+          <td>alarms</td>
+          <td>Reconnects to the office after Chrome suspends the extension.</td>
+        </tr>
+      </table>
+
+      <h2>Stop and remove</h2>
+      <p>
+        Turn off <strong>Use this tab</strong> in the extension popup to end
+        agent control of a tab. <strong>Unpair</strong> in the popup, or in
+        Integrations &rarr; Browser Use in your office, revokes the browser.
+        When you remove the extension, Chrome deletes what it stored.
+      </p>
+
+      <h2>Hosted Isomux</h2>
+      <p>
+        If your office is a Hosted Isomux office, the
+        <a href="/hosted-privacy">Hosted Isomux privacy policy</a> covers the
+        server that runs it.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        We update this page when the extension changes what it reads or where it
+        sends it. Write to
+        <a href="mailto:llc@isomux.com">llc@isomux.com</a> with questions.
+      </p>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="footer-name" href="/">Isomux</a>
+      </div>
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h2>Product</h2>
+          <ul>
+            <li><a href="/hosted">Hosted</a></li>
+            <li><a href="/enterprise">Enterprise</a></li>
+            <li><a href="/compare">Compare</a></li>
+            <li><a href="/docs">Docs</a></li>
+            <li><a href="/docs/use-cases">Use cases</a></li>
+            <li>
+              <a
+                href="https://github.com/nmamano/isomux"
+                target="_blank"
+                rel="noopener"
+                >GitHub</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Company</h2>
+          <ul>
+            <li><a href="/about">About</a></li>
+            <li><a href="/contact">Contact</a></li>
+            <li><a href="/ai-instructions">AI instructions</a></li>
+            <li>
+              <a
+                href="https://nilmamano.com/blog/category/isomux"
+                target="_blank"
+                rel="noopener"
+                >Blog</a
+              >
+            </li>
+            <li>
+              <a href="https://nilmamano.com" target="_blank" rel="noopener"
+                >nilmamano.com</a
+              >
+            </li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Legal</h2>
+          <ul>
+            <li><a href="/hosted-terms">Terms</a></li>
+            <li><a href="/hosted-privacy">Privacy</a></li>
+            <li><a href="/hosted-refund">Refunds</a></li>
+          </ul>
+        </div>
+      </div>
+    </footer>
+
+    <script defer src="/analytics.js"></script>
+    <script defer src="/theme-toggle.js"></script>
+  </body>
+</html>

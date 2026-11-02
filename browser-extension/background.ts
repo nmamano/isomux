@@ -2,6 +2,10 @@ import { translatorFor } from "../shared/i18n/translate";
 import { newerFiles } from "./disk-files";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  EXTENSION_MIN_PROTOCOL,
+  CHROME_WEB_STORE_URL,
+  storeInstall,
+  validStoreUrl,
   ATTACH_ANSWER_MS,
   BROWSER_REATTACH_MS,
   extensionOutdated,
@@ -32,6 +36,14 @@ import {
   validBrowserAccess,
 } from "../shared/browser-extension-protocol";
 import { confirmPairedCode } from "./pairing-draft";
+
+// A protocol version the extension speaks. Offices back to v2026.9.22 speak
+// only EXTENSION_MIN_PROTOCOL; a later one answers in the highest version the
+// hello allows.
+const spoken = (version: unknown): boolean =>
+  Number.isInteger(version) &&
+  (version as number) >= EXTENSION_MIN_PROTOCOL &&
+  (version as number) <= BROWSER_EXTENSION_PROTOCOL;
 
 type OwnedTab = {
   tabId: number;
@@ -83,6 +95,8 @@ type Connection = {
   access?: boolean;
   // The office's extension package, from ready.
   officePackage?: string;
+  // The office's store listing, from ready, when valid.
+  storeUrl?: string;
   // The office takes files reports and sends reload, from ready.
   reload?: boolean;
   // The newer files version this connection last reported, and a disk read
@@ -124,6 +138,14 @@ type ResumeOffer = {
 const RESUME_KEY = "resumeOffers";
 const resumable = new Map<string, ResumeOffer>();
 let resumeWrites = Promise.resolve();
+// Chrome updates a store install by itself, so the hello tells the office.
+// Read once per worker start; the first socket waits for it.
+let storeBuild = false;
+const installLoaded = (async () => {
+  try {
+    storeBuild = storeInstall((await chrome.management.getSelf()).installType);
+  } catch {}
+})();
 const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
   (stored) => {
     const list = stored[RESUME_KEY];
@@ -456,12 +478,16 @@ async function currentTab(tabId: unknown) {
   }
 }
 async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
-  await resumeLoaded;
+  // A popup opened as the worker starts must not show a store build as
+  // unpacked.
+  await Promise.all([resumeLoaded, installLoaded]);
   const { connection } = await chrome.storage.local.get("connection");
   const config = connection ? fields(connection) : {};
   const selected = await currentTab(tabId);
   const c = current;
   const online = !!c?.generation && !c.closed;
+  // Before a ready, only the built-in listing.
+  const storeUrl = c?.storeUrl ?? CHROME_WEB_STORE_URL;
   let office = "";
   if (typeof config.url === "string") {
     try {
@@ -498,6 +524,8 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
     extensionOutdated(chrome.runtime.getManifest().version, c.officePackage)
       ? { update: { latest: c.officePackage } }
       : {}),
+    ...(storeBuild ? { store: true } : {}),
+    ...(storeUrl ? { storeUrl } : {}),
     assignments: online
       ? [...c.tabs].flatMap(([id, tab]) =>
           tab.scope
@@ -1179,7 +1207,13 @@ async function configure(reset = true): Promise<void> {
       (typeof config.credential !== "string" && typeof config.code !== "string")
     )
       return;
-    await Promise.all([cleanup, resumeLoaded, leftovers, settingLoaded]);
+    await Promise.all([
+      cleanup,
+      resumeLoaded,
+      leftovers,
+      settingLoaded,
+      installLoaded,
+    ]);
     if (serial !== configuration) return;
     const ws = new WebSocket(browserSocketURL(config.url));
     const c: Connection = {
@@ -1203,8 +1237,10 @@ async function configure(reset = true): Promise<void> {
     ws.onopen = () =>
       send(c, {
         kind: "hello",
-        version: BROWSER_EXTENSION_PROTOCOL,
+        version: EXTENSION_MIN_PROTOCOL,
+        maxVersion: BROWSER_EXTENSION_PROTOCOL,
         package: chrome.runtime.getManifest().version,
+        ...(storeBuild ? { install: "store" } : {}),
         ...(typeof config.credential === "string"
           ? { credential: config.credential }
           : { code: config.code }),
@@ -1225,7 +1261,7 @@ async function configure(reset = true): Promise<void> {
         const msg = fields(JSON.parse(event.data));
         if (
           (msg.kind === "ready" || msg.kind === "paired") &&
-          msg.version !== BROWSER_EXTENSION_PROTOCOL
+          !spoken(msg.version)
         ) {
           refuse();
           return;
@@ -1236,7 +1272,6 @@ async function configure(reset = true): Promise<void> {
         }
         if (
           msg.kind === "paired" &&
-          msg.version === BROWSER_EXTENSION_PROTOCOL &&
           typeof msg.credential === "string" &&
           !c.generation
         ) {
@@ -1262,7 +1297,6 @@ async function configure(reset = true): Promise<void> {
 
         if (
           msg.kind === "ready" &&
-          msg.version === BROWSER_EXTENSION_PROTOCOL &&
           typeof msg.generation === "string" &&
           !c.generation
         ) {
@@ -1273,6 +1307,7 @@ async function configure(reset = true): Promise<void> {
           c.agentTabs = msg.agentTabs === true;
           c.access = msg.access === true;
           if (validExtensionPackage(msg.package)) c.officePackage = msg.package;
+          if (validStoreUrl(msg.storeUrl)) c.storeUrl = msg.storeUrl;
           c.reload = msg.reload === true;
           // The setting goes first, so the office takes the opened tabs that
           // resume.

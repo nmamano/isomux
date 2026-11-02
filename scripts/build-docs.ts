@@ -59,6 +59,7 @@ export const STATIC_PATHS = [
   "/hosted-terms",
   "/hosted-privacy",
   "/hosted-refund",
+  "/browser-extension-privacy",
 ];
 
 type TocItem = { depth: number; id: string; text: string };

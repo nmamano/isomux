@@ -30,6 +30,12 @@ const primaryLink = {
   display: "inline-block",
   textDecoration: "none",
 };
+const stepList = {
+  margin: 0,
+  paddingLeft: 22,
+  display: "grid",
+  gap: 8,
+} as const;
 const primary = (disabled: boolean) => ({
   ...dialogSaveBtn,
   ...(disabled ? disabledLook : null),
@@ -138,12 +144,55 @@ export function BrowserPane() {
   const [extensionsCopied, setExtensionsCopied] = useState(false);
   const [name, setName] = useState(defaultName);
   const expired = !!pair && now >= pair.expiresAt;
-  const outdated = status?.browsers.filter((b) => b.outdated) ?? [];
-  const reloadable = status?.browsers.filter((b) => b.reloadable) ?? [];
+  const outdatedAll = status?.browsers.filter((b) => b.outdated) ?? [];
+  // Chrome updates a store install by itself: no download and no Reload.
+  const outdatedStore = outdatedAll.filter((b) => b.store);
+  const outdated = outdatedAll.filter((b) => !b.store);
+  const reloadable =
+    status?.browsers.filter((b) => b.reloadable && !b.store) ?? [];
   // Every out-of-date browser has the new files in place: only Reload is left.
   const filesInPlace =
     reloadable.length > 0 &&
     outdated.every((b) => reloadable.some((r) => r.id === b.id));
+  // The ZIP install: the only steps without a store listing, the developer
+  // install with one.
+  const zipSteps = status && (
+    <>
+      <li>
+        <a
+          style={primaryLink}
+          href={EXTENSION_ZIP}
+          download={EXTENSION_ZIP_NAME}
+          onClick={downloadExtension}
+        >
+          {t("browser.download", { version: status.version })}
+        </a>
+      </li>
+      <li>{t("browser.extract")}</li>
+      <li>
+        {rich("browser.extensions", {
+          address: (
+            <>
+              <code>{EXTENSIONS_PAGE}</code>{" "}
+              <button
+                data-testid="browser-extensions-copy"
+                style={filledSecondaryBtn}
+                onClick={() => {
+                  void navigator.clipboard.writeText(EXTENSIONS_PAGE).then(
+                    () => setExtensionsCopied(true),
+                    () => setError(true),
+                  );
+                }}
+              >
+                {t(extensionsCopied ? "common.copied" : "common.copy")}
+              </button>
+            </>
+          ),
+        })}
+      </li>
+      <li>{t("browser.load")}</li>
+    </>
+  );
   return (
     // The Integrations Browser Use tab shows the title and intro above this.
     <section
@@ -154,18 +203,27 @@ export function BrowserPane() {
       {status ? (
         <>
           <p style={hint}>{t("browser.chromeHelp")}</p>
-          {outdated.length > 0 && (
+          {outdatedAll.length > 0 && (
             <div
               role="status"
               data-testid="browser-update"
               style={{ ...cardStyle, marginTop: 16 }}
             >
-              <p style={{ margin: 0 }}>
-                {t("browser.outdated", {
-                  names: outdated.map((b) => b.name).join(", "),
-                })}
-              </p>
-              {!filesInPlace && (
+              {outdatedStore.length > 0 && (
+                <p style={{ margin: 0 }}>
+                  {t("browser.outdatedStore", {
+                    names: outdatedStore.map((b) => b.name).join(", "),
+                  })}
+                </p>
+              )}
+              {outdated.length > 0 && (
+                <p style={{ margin: outdatedStore.length > 0 ? "8px 0 0" : 0 }}>
+                  {t("browser.outdated", {
+                    names: outdated.map((b) => b.name).join(", "),
+                  })}
+                </p>
+              )}
+              {outdated.length > 0 && !filesInPlace && (
                 <>
                   <a
                     style={{ ...primaryLink, marginTop: 8 }}
@@ -213,46 +271,42 @@ export function BrowserPane() {
             <h4 style={{ ...sectionHeader, marginBottom: 8 }}>
               {t("browser.setup")}
             </h4>
-            <ol style={{ margin: 0, paddingLeft: 22, display: "grid", gap: 8 }}>
-              <li>
-                <a
-                  style={primaryLink}
-                  href={EXTENSION_ZIP}
-                  download={EXTENSION_ZIP_NAME}
-                  onClick={downloadExtension}
-                >
-                  {t("browser.download", { version: status.version })}
-                </a>
-              </li>
-              <li>{t("browser.extract")}</li>
-              <li>
-                {rich("browser.extensions", {
-                  address: (
-                    <>
-                      <code>{EXTENSIONS_PAGE}</code>{" "}
-                      <button
-                        data-testid="browser-extensions-copy"
-                        style={filledSecondaryBtn}
-                        onClick={() => {
-                          void navigator.clipboard
-                            .writeText(EXTENSIONS_PAGE)
-                            .then(
-                              () => setExtensionsCopied(true),
-                              () => setError(true),
-                            );
-                        }}
-                      >
-                        {t(extensionsCopied ? "common.copied" : "common.copy")}
-                      </button>
-                    </>
-                  ),
-                })}
-              </li>
-              <li>{t("browser.load")}</li>
-              <li>{t("browser.pin")}</li>
-              <li>{t("browser.finish")}</li>
-              <li>{t("browser.offerHelp")}</li>
-            </ol>
+            {status.storeUrl ? (
+              <>
+                <ol style={stepList}>
+                  <li>
+                    <a
+                      style={primaryLink}
+                      href={status.storeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {t("browser.storeInstall")}
+                    </a>
+                  </li>
+                  <li>{t("browser.pin")}</li>
+                  <li>{t("browser.finish")}</li>
+                  <li>{t("browser.offerHelp")}</li>
+                </ol>
+                <p style={{ ...hint, marginTop: 16 }}>
+                  {t("browser.storeMove")}
+                </p>
+                <h4 style={{ ...sectionHeader, margin: "16px 0 8px" }}>
+                  {t("browser.developerInstall")}
+                </h4>
+                <ol style={stepList}>
+                  {zipSteps}
+                  <li>{t("browser.developerFinish")}</li>
+                </ol>
+              </>
+            ) : (
+              <ol style={stepList}>
+                {zipSteps}
+                <li>{t("browser.pin")}</li>
+                <li>{t("browser.finish")}</li>
+                <li>{t("browser.offerHelp")}</li>
+              </ol>
+            )}
             <p style={{ ...hint, marginTop: 16, marginBottom: 0 }}>
               {t("browser.permission")}
             </p>

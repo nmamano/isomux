@@ -137,14 +137,30 @@ const errorClass = (error: unknown): string => {
 };
 // An out-of-date extension may not offer its tabs again after a restart, so
 // this replaces the promise that offers come back.
-const outdatedNote = (names: string[]) =>
-  `The extension in ${names.join(", ")} is out of date: ask your manager to update it in Integrations → Browser Use.`;
-const offlineError = (outdated: string[]) =>
+type OutdatedBrowser = { name: string; store: boolean };
+// Chrome updates a store install by itself; an unpacked one needs the
+// manager. The unpacked line goes last.
+const outdatedNote = (browsers: OutdatedBrowser[]) => {
+  const names = (store: boolean) =>
+    browsers
+      .filter((b) => b.store === store)
+      .map((b) => b.name)
+      .join(", ");
+  return [
+    names(true) &&
+      `The extension in ${names(true)} is out of date; the Chrome Web Store updates it.`,
+    names(false) &&
+      `The extension in ${names(false)} is out of date: ask your manager to update it in Integrations → Browser Use.`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+};
+const offlineError = (outdated: OutdatedBrowser[]) =>
   "No paired Chrome browser is online. " +
   (outdated.length
     ? outdatedNote(outdated)
     : "If the office just restarted, try again in a minute: offers come back with the same targets.");
-const offline = (outdated: string[]) =>
+const offline = (outdated: OutdatedBrowser[]) =>
   failure("browser_offline", offlineError(outdated));
 // Where an agent with no tab of its own can still open one.
 const OPEN_ELSEWHERE =
@@ -153,8 +169,8 @@ const withOpenElsewhere = (error: string, elsewhere: boolean) =>
   elsewhere ? `${error} ${OPEN_ELSEWHERE}` : error;
 const AGENT_TABS_OFF =
   'Your manager\'s browser does not let agents open tabs. In your ask, give the member the choice: turn on "Open their own tabs" in the extension popup, offer you a tab, or do the steps themselves.';
-const agentTabsOutdated = (names: string[]) =>
-  `${outdatedNote(names)} An updated extension can let agents open tabs.`;
+const agentTabsOutdated = (browsers: OutdatedBrowser[]) =>
+  `${outdatedNote(browsers)} An updated extension can let agents open tabs.`;
 // playwright-core takes most of a second to load, so the office loads it at
 // the first browser session, not at boot.
 let playwright: Promise<typeof import("playwright-core")> | undefined;
@@ -295,7 +311,9 @@ export class ExtensionBrowserSessions {
         url: "",
         title: "",
         tabs,
-        ...(outdated.length ? { outdatedBrowsers: outdated } : {}),
+        ...(outdated.length
+          ? { outdatedBrowsers: outdated.map((b) => b.name) }
+          : {}),
         ...(openable.length ? { agentTabBrowsers: openable } : {}),
       });
     }

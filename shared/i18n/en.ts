@@ -118,6 +118,18 @@ export const en = {
   "browser.unknown": "Unpair result unknown. Check office Integrations.",
   "browser.download": "Download extension {version}",
   "browser.outdated": "The extension in {names} is out of date.",
+  "browser.outdatedStore":
+    "The extension in {names} is out of date. Chrome installs the update from the Chrome Web Store by itself.",
+  "browser.updateStore":
+    "Chrome installs the newer version from the Chrome Web Store by itself.",
+  "browser.storeInstall": "Install from the Chrome Web Store",
+  "browser.storeMove":
+    "Installed from the ZIP before? Install from the store and pair it, then remove the old copy in chrome://extensions and unpair it below.",
+  "browser.developerInstall": "Install from the ZIP",
+  "browser.developerFinish": "Then pin it and pair it, as in the steps above.",
+  "browser.storeSteps": "Then pair it and remove this copy.",
+  "browser.storeStepsPaired":
+    "Then pair it, select Unpair here and remove this copy.",
   "browser.updateSteps":
     "Extract the ZIP and copy its files into the folder you loaded. Then select Reload here or in the extension popup.",
   "browser.updateStepsPopup":

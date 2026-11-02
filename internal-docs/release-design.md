@@ -157,6 +157,15 @@ and a failed first update came back healthy on the old code and Bun 1.4.4.
 
 Cadence: on demand, when hosted boxes need something.
 
+### Browser extension publication
+
+`.github/workflows/extension-release.yml` also runs on `release: published`,
+and once a day. It uploads the extension of the latest release to the Chrome
+Web Store when its manifest version is newer than the store's. Most releases
+do not change the extension, and those runs skip. `scripts/release.sh` does
+not change for it. The rules are in `internal-docs/browser-extension.md`
+("Chrome Web Store").
+
 ## Installer contract
 
 `ISOMUX_REF` is a tag name (the installer also accepts branches/commits for

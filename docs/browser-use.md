@@ -8,9 +8,9 @@ Agents can open pages, click and fill forms in a desktop Chrome tab that you off
 
 ## Install and pair
 
-In **Integrations → Browser Use**, download the extension and follow the steps there to load it in Chrome. Then create a pairing code there, open the extension and enter the office address and the code. A code expires after five minutes. Each member pairs their own browsers, with one code for each computer. Agents use the browsers of their manager, also when another member speaks in the chat, and the browsers of other members who let them in.
+In **Integrations → Browser Use**, follow the steps there to install the extension in Chrome: from the Chrome Web Store when the pane links it, or from the ZIP. Then create a pairing code there, open the extension and enter the office address and the code. A code expires after five minutes. Each member pairs their own browsers, with one code for each computer. Agents use the browsers of their manager, also when another member speaks in the chat, and the browsers of other members who let them in.
 
-Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.
+Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control. The [privacy policy](https://isomux.com/browser-extension-privacy) says what the extension reads and where it sends it.
 
 ## Offer a tab
 
@@ -26,4 +26,4 @@ The popup can disconnect or unpair. To revoke a browser that is offline, unpair 
 
 ## Update
 
-Update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. When the new files are in the extension folder, select **Reload** there or in the extension popup. A reload of the extension ends agent control of every tab, so offer the tabs again.
+Chrome updates an extension from the Chrome Web Store by itself. For a ZIP install, update the server and the extension together: the server refuses an extension with an older protocol. Integrations → Browser Use shows the steps when an update is ready. When the new files are in the extension folder, select **Reload** there or in the extension popup. A reload of the extension ends agent control of every tab, so offer the tabs again.

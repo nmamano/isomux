@@ -1,5 +1,12 @@
 // Internal wire protocol. No page, token, or CDP payload belongs in a log.
 export const BROWSER_EXTENSION_PROTOCOL = 4;
+// The oldest protocol the extension speaks. The Chrome Web Store pushes the
+// newest extension to every office back to v2026.9.22, which speaks only 4, so
+// this stays 4. The hello carries version EXTENSION_MIN_PROTOCOL and
+// maxVersion BROWSER_EXTENSION_PROTOCOL; a bump of BROWSER_EXTENSION_PROTOCOL
+// keeps the server's hello check accepting EXTENSION_MIN_PROTOCOL, and the
+// office answers in the highest version both speak.
+export const EXTENSION_MIN_PROTOCOL = 4;
 export const BROWSER_REATTACH_MS = 3000;
 // How long the extension waits for each command when it attaches to or
 // releases a tab. A tab that shows a JavaScript dialog answers none, and only
@@ -241,6 +248,29 @@ export function extensionOutdated(
   }
   return false;
 }
+// The extension's Chrome Web Store listing; null until the first listing.
+export const CHROME_WEB_STORE_URL: string | null = null;
+// A Chrome Web Store listing URL: https://chromewebstore.google.com/detail/...
+export function validStoreUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    url.origin === "https://chromewebstore.google.com" &&
+    !url.username &&
+    !url.password &&
+    url.pathname.startsWith("/detail/")
+  );
+}
+// Chrome updates the extension itself: an install from the store, also by
+// policy. An unpacked or ZIP install is "development".
+export function storeInstall(installType: unknown): boolean {
+  return typeof installType === "string" && installType !== "development";
+}
 // A package version as Chrome allows it: one to four dot-separated integers.
 export function validExtensionPackage(value: unknown): value is string {
   return typeof value === "string" && /^\d{1,9}(\.\d{1,9}){0,3}$/.test(value);
@@ -250,11 +280,15 @@ export interface MemberBrowserStatus {
   online: boolean;
   member: BrowserDisplay;
   version: string;
+  // The extension's store listing, when there is one.
+  storeUrl?: string;
   browsers: {
     id: string;
     name: string;
     pairedAt: number | null;
     online: boolean;
+    // Its hello this server run said it is a store install.
+    store?: boolean;
     // The package the extension reported this server run; null when its hello
     // carried none (before 0.4.5). Absent until it connects.
     package?: string | null;
@@ -282,6 +316,10 @@ export interface ExtensionUIState {
   member?: BrowserDisplay;
   // The office's package, when it is newer than this extension.
   update?: { latest: string };
+  // This extension is a store install (storeInstall).
+  store?: boolean;
+  // The store listing the office sent in ready, when valid.
+  storeUrl?: string;
   agents: BrowserDisplay[];
   // The office accepts offers to every agent the member can reach.
   officeScope?: boolean;

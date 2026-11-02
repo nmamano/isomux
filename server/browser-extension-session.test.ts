@@ -1192,6 +1192,84 @@ test("agents learn which of their manager's browsers is out of date", async () =
   }
 });
 
+// Task 328ef745: Chrome updates a store install by itself, so the agent line
+// for it does not send the manager to the update steps; an unpacked one keeps
+// them. The test compares the answers with the browser names taken out, so it
+// does not fix the copy.
+test("the out-of-date line for a store browser differs from the unpacked one, and a mix gives each its own", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-outdated-store-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, {
+    memberExists: () => true,
+    mayUse: () => true,
+  });
+  // One member per mix; each agent belongs to one of them.
+  const sessions = new ExtensionBrowserSessions(
+    service,
+    (agent) => `member-${agent}`,
+    () => true,
+    () => 500,
+  );
+  const connect = (member: string, name: string, extra: object) => {
+    const ws = {
+      data: { kind: "extension", origin } as ExtensionWsData,
+      send() {},
+      close: () => service.close(typed),
+    };
+    const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
+    service.open(typed);
+    service.message(
+      typed,
+      JSON.stringify({
+        kind: "hello",
+        version: 4,
+        code: store.pair(member, name).code,
+        ...extra,
+      }),
+    );
+    expect(typed.data.connection).toBeDefined();
+    return typed;
+  };
+  type Answer = { ok: boolean; code?: string; error: string };
+  const old = { package: "0.0.1" };
+  const unpacked = { ...old };
+  const fromStore = { ...old, install: "store" };
+  try {
+    connect("member-a", "Desk", unpacked);
+    connect("member-b", "Kiosk", fromStore);
+    connect("member-c", "Desk", unpacked);
+    connect("member-c", "Kiosk", fromStore);
+    const answer = async (agent: string) =>
+      (await sessions.run(agent, { action: "snapshot" })) as unknown as Answer;
+    const [a, b, c] = [await answer("a"), await answer("b"), await answer("c")];
+    for (const x of [a, b, c]) expect(x.code).toBe("browser_control_ended");
+    expect(a.error).toContain("Desk");
+    expect(b.error).toContain("Kiosk");
+    const unnamed = (error: string) =>
+      error.replaceAll("Desk", "<browser>").replaceAll("Kiosk", "<browser>");
+    expect(unnamed(b.error)).not.toBe(unnamed(a.error));
+    // What the unpacked line says after its name: the store one says none of it.
+    const unpackedTail = unnamed(a.error).slice(
+      unnamed(a.error).indexOf("<browser>") + "<browser>".length,
+    );
+    expect(unnamed(b.error)).not.toContain(unpackedTail);
+    // Both kinds: each name in its own line, not one list.
+    expect(c.error).toContain("Desk");
+    expect(c.error).toContain("Kiosk");
+    expect(c.error).not.toMatch(/Desk, Kiosk|Kiosk, Desk/);
+    expect(c.error).toContain(unpackedTail);
+    // The tabs answer still lists the names only.
+    expect(await sessions.run("c", { action: "tabs" })).toMatchObject({
+      ok: true,
+      outdatedBrowsers: ["Desk", "Kiosk"],
+    });
+  } finally {
+    sessions.stop();
+    service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // "hang": the action never settles, even when its client closes (a wait that
 // nothing bounds). hangTitle: the first client's title read never answers.
 // hangClose: the first client's close never returns. titlePending: the

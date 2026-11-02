@@ -41,6 +41,9 @@ declare const chrome: {
       height?: number;
     }>;
   };
+  management: {
+    getSelf(): Promise<{ installType: string }>;
+  };
   runtime: {
     id: string;
     getURL(path: string): string;

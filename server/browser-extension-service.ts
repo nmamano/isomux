@@ -14,6 +14,7 @@ import {
 } from "./browser-extension-store";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  CHROME_WEB_STORE_URL,
   extensionOutdated,
   fields,
   validExtensionPackage,
@@ -66,6 +67,9 @@ export class BrowserExtensionService {
   // The package each credential's extension reported in this server run; null
   // when its hello had none (before 0.4.5). Read only for paired browsers.
   private packages = new Map<string, string | null>();
+  // The credentials whose last hello in this server run said install store.
+  private storeInstalls = new Set<string>();
+  private readonly storeUrl: string | null;
   constructor(
     readonly store: BrowserExtensionStore,
     private access: {
@@ -80,7 +84,12 @@ export class BrowserExtensionService {
       // A member paired a browser (step asks, task c71cb60f).
       paired?(member: string): void;
     },
+    // Tests only: the store listing, which is CHROME_WEB_STORE_URL in
+    // production.
+    options: { storeUrl?: string | null } = {},
   ) {
+    this.storeUrl =
+      options.storeUrl === undefined ? CHROME_WEB_STORE_URL : options.storeUrl;
     this.bridge = new BrowserExtensionBridge({
       memberForCredentialHash: (hash) => {
         const member = store.memberForHash(hash);
@@ -93,6 +102,7 @@ export class BrowserExtensionService {
       mayReach: (member, agent) => !!access.mayReach?.(member, agent),
       managerOf: (agent) => access.managerOf?.(agent),
       officeOrigins: () => access.officeOrigins?.() ?? [],
+      storeUrl: this.storeUrl,
       ...(access.memberName && access.agentName
         ? {
             memberDisplay: (member: string) =>
@@ -130,6 +140,7 @@ export class BrowserExtensionService {
         ...(reported === undefined ? {} : { package: reported }),
         outdated: extensionOutdated(reported, manifest.version),
         reloadable: this.reloadable(b.hash),
+        ...(this.storeInstalls.has(b.hash) ? { store: true } : {}),
         ...this.agentTabs(b.hash),
       };
     });
@@ -139,6 +150,7 @@ export class BrowserExtensionService {
         this.access.memberName?.(member) ?? member,
       ),
       version: manifest.version,
+      ...(this.storeUrl ? { storeUrl: this.storeUrl } : {}),
       paired: browsers.length > 0,
       online: browsers.some((b) => b.online),
       browsers,
@@ -165,9 +177,12 @@ export class BrowserExtensionService {
     connection.reload();
     return "reloaded";
   }
-  // Names of the member's paired browsers whose extension is out of date;
-  // with online, only the connected ones.
-  outdatedBrowsers(member: string, online = false): string[] {
+  // The member's paired browsers whose extension is out of date, and whether
+  // each is a store install; with online, only the connected ones.
+  outdatedBrowsers(
+    member: string,
+    online = false,
+  ): { name: string; store: boolean }[] {
     return this.store
       .browsers(member)
       .filter(
@@ -175,7 +190,7 @@ export class BrowserExtensionService {
           extensionOutdated(this.packages.get(b.hash), manifest.version) &&
           (!online || !!this.bridge.forCredentialHash(b.hash)),
       )
-      .map((b) => b.name);
+      .map((b) => ({ name: b.name, store: this.storeInstalls.has(b.hash) }));
   }
   // Ends the member's live connections, or only the one with this credential.
   disconnect(
@@ -305,6 +320,10 @@ export class BrowserExtensionService {
           ws.data.credentialHash,
           validExtensionPackage(msg.package) ? msg.package : null,
         );
+        // Any other install value is ignored: it only picks the update copy.
+        if (msg.install === "store")
+          this.storeInstalls.add(ws.data.credentialHash);
+        else this.storeInstalls.delete(ws.data.credentialHash);
         clearTimeout(ws.data.deadline);
         ws.data.lastSeen = Date.now();
         ws.data.heartbeat = setInterval(() => this.heartbeat(ws), 15_000);

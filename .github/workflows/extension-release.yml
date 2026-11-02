@@ -1,0 +1,99 @@
+name: Publish browser extension
+
+# Uploads the extension of the newest release to the Chrome Web Store and
+# submits it for review. The daily run submits a version that waited for an
+# earlier review to end. internal-docs/browser-extension.md ("Chrome Web
+# Store") has the rules.
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      retry_rejected:
+        description: Submit again a version that the store rejected or that was cancelled
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# The release event and the daily run can overlap; one upload at a time.
+concurrency:
+  group: extension-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'nmamano/isomux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: chrome-web-store
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check the store setup
+        id: setup
+        env:
+          ITEM: ${{ vars.CWS_ITEM_ID }}
+        run: |
+          if [[ -z $ITEM ]]; then
+            echo "::notice::No Chrome Web Store item is set up (vars.CWS_ITEM_ID); nothing to publish."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      # The latest release skips prereleases, so a prerelease or a release of
+      # an older tag never goes to the store.
+      - name: Find the latest release
+        if: steps.setup.outputs.ready == 'true'
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          [[ $tag =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      # The script comes from the default branch, so a fix to it applies to
+      # the extension of an older tag.
+      - uses: actions/checkout@v7
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tool
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          path: release
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          bun-version-file: release/package.json
+      - name: Build the extension
+        if: steps.setup.outputs.ready == 'true'
+        working-directory: release
+        run: |
+          bun install --frozen-lockfile
+          bun run build:extension
+      - uses: google-github-actions/auth@v3
+        if: steps.setup.outputs.ready == 'true'
+        id: auth
+        with:
+          workload_identity_provider: ${{ vars.CWS_WIF_PROVIDER }}
+          service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+      - name: Upload and submit
+        if: steps.setup.outputs.ready == 'true'
+        env:
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          CWS_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          RETRY_REJECTED: ${{ inputs.retry_rejected && '1' || '' }}
+        run: bun tool/scripts/extension-store-release.ts release

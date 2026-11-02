@@ -58,6 +58,8 @@ const labels: Record<string, PlainMessageKey> = {
   "update-files-ready": "browser.filesReady",
   "update-reload": "browser.reload",
   "update-reload-note": "browser.reloadNote",
+  "update-store": "browser.updateStore",
+  "store-link": "browser.storeInstall",
   "agents-label": "browser.agents",
   "agents-mine": "browser.myAgents",
   "agents-members": "browser.pickedAgents",
@@ -165,9 +167,24 @@ function render(next: typeof state) {
   element("unpair").hidden = state.state !== "connected";
   element("offline-help").hidden =
     state.state === "connected" || state.state === "unpaired";
-  element("update").hidden = !state.update && !files;
-  element("update-office").hidden = !!files;
-  element("update-files").hidden = !files;
+  // Chrome updates a store install by itself: no download and no Reload.
+  const store = state.store === true;
+  element("update").hidden = store ? !state.update : !state.update && !files;
+  element("update-store").hidden = !store;
+  element("update-office").hidden = store || !!files;
+  element("update-files").hidden = store || !files;
+  // An unpacked install links the store listing. Before a ready, as in the
+  // pairing view, state.storeUrl is only the built-in CHROME_WEB_STORE_URL.
+  const listing = !store && state.storeUrl;
+  element("store-install").hidden = !listing;
+  if (listing) {
+    (element("store-link") as HTMLAnchorElement).href = listing;
+    element("store-steps").textContent = t(
+      state.state === "connected"
+        ? "browser.storeStepsPaired"
+        : "browser.storeSteps",
+    );
+  }
   if (state.update && !files) {
     const link = element("update-download") as HTMLAnchorElement;
     link.href = `${state.office}/api/me/browser/extension.zip`;

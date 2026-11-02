@@ -44,6 +44,12 @@ URL credentials, query strings and fragments are refused.
 
 The first frame, within five seconds and at most 4 KiB, is
 `{kind: "hello", version: 4, code}` or the same shape with `credential`.
+Since 0.7.2 the hello also carries `maxVersion`, the newest protocol the
+extension speaks, and the extension takes `paired` and `ready` in any version
+from `EXTENSION_MIN_PROTOCOL` to `BROWSER_EXTENSION_PROTOCOL`. The store pushes
+the newest extension to every office back to v2026.9.22, which speaks only 4:
+the minimum stays 4, and an office that bumps the protocol still takes a
+hello with version 4 and answers in the highest version both speak.
 The hello also carries `package`, the extension's manifest version (0.4.5 and
 later). A `package` that is not one to four dot-separated integers is a bad
 hello and is refused before a code is redeemed.
@@ -125,6 +131,89 @@ not seen since the office started is not out of date.
   `browser_control_ended` answers add a sentence that names them, and
   `browser_offline` replaces its promise that offers come back with that
   sentence.
+
+## Chrome Web Store
+
+The extension is an Unlisted item of the Isomux LLC publisher (llc@isomux.com):
+only the office and the docs link to it. `.github/workflows/extension-release.yml`
+runs on `release: published`, once a day, and on a manual dispatch, in the
+`chrome-web-store` environment, one run at a time. It builds the extension of
+the latest release (never a prerelease) and runs
+`scripts/extension-store-release.ts` from the default branch, which reads the
+item status through the Chrome Web Store API v2:
+
+- a taken-down item, a staged submission (one a member staged in the
+  dashboard), and a rejected or cancelled submission of the same version fail
+  the run. A rejected version is not submitted again by itself, because repeated
+  policy rejections count against the publisher; a newer version, or a manual
+  dispatch with `retry_rejected`, submits;
+- a submission in review skips, so the daily run submits a newer version after
+  the review ends and the store lags the office by at most one review;
+- a version that is not newer than the published one skips;
+- otherwise it uploads `dist.zip` and submits it (`DEFAULT_PUBLISH`,
+  `blockOnWarnings`).
+
+Isomux Main reads the runs at each tick and tells Isomux PM about a failed one.
+The job skips while `vars.CWS_ITEM_ID` is empty. Auth is GitHub OIDC through
+Workload Identity Federation (`vars.CWS_WIF_PROVIDER`,
+`vars.CWS_SERVICE_ACCOUNT`); there is no key secret.
+
+Permission guard: an update that adds a permission with a new warning turns the
+extension off for every member until each one accepts it. The script compares
+`permissions`, `host_permissions` and `content_scripts[].matches` of the built
+manifest with the manifest at the newest release tag that has the published
+version, and fails on any new entry. Optional permissions do not count. A
+worker who adds a permission opens a design ask for Nil before the change
+merges; after his go, the first upload of that version is a dashboard step.
+
+Never put the store `key` in `browser-extension/manifest.json`: an unpacked
+build would then have the store build's id, and the two could not be
+installed side by side.
+
+Rollback: roll back to the previous version in the dashboard or with the API's
+`rollback` (no review; it discards pending submissions). A forward fix waits
+for review again.
+
+The first listing is done once in the dashboard: texts, screenshots, the
+privacy tab and the reviewer notes. Single purpose: let the member's own Isomux
+office agents act in Chrome tabs that the member offers, or that agents open
+when the member turns on Open their own tabs. Per permission: `debugger` runs Chrome DevTools Protocol
+commands on those tabs only, attached at the member's offer or when an agent
+opens a tab the member allows, and detached at Off, expiry or the end of
+control; `webNavigation` takes popup ownership from `sourceTabId` only and
+collects no history; `activeTab`
+lets the popup offer the current tab; `storage`; `alarms` wakes the worker to
+reconnect. Remote code: the office's CDP runs in the page
+(`Runtime.evaluate`), never in the extension context. Data use: website
+content, sent only to the member's own office; Isomux LLC receives nothing.
+Privacy policy: `site/browser-extension-privacy.html`. Microsoft's Playwright
+MCP Bridge has the same shape.
+
+### Store installs (task 328ef745)
+
+A store build updates through Chrome, so the ZIP and Reload steps are wrong
+for it. The background reads `chrome.management.getSelf().installType` once
+per worker start, before the first socket, and the hello adds
+`install: "store"` for any value other than `"development"` (an unpacked or
+ZIP install). No store id is hard-coded: it does not exist before the first
+upload. The service keeps the flag per credential for this server run, as it
+keeps `package`; any other `install` value is ignored, not refused.
+`GET /api/me/browser` gives each browser `store`, and `outdatedBrowsers`
+tells the session which are store installs. A store browser that is out of
+date gets a sentence that Chrome updates it, in the Browser Use pane, the
+popup and the agent errors, with no ZIP and no Reload. The store lags each
+office release by one review, so this notice can show for days.
+
+`CHROME_WEB_STORE_URL` in `shared/browser-extension-protocol.ts` is the
+listing; it stays null until the first listing. While it is set, status and
+`ready` carry `storeUrl`. The pane's setup starts with the store install and
+keeps the ZIP steps under "Install from the ZIP", with the move from a ZIP
+install: install from the store, pair it, remove the old copy and unpair it.
+Pairing is bound to the Origin, so a store install is a new browser. The
+popup of an unpacked install links the listing; before a `ready`, it has
+only the built-in constant. `validStoreUrl` checks the constant and the
+office's value (https, host `chromewebstore.google.com`, path `/detail/`);
+the extension ignores an invalid one.
 
 ## Public Playwright seam and ownership
 

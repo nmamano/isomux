@@ -406,3 +406,117 @@ test("each reloadable browser gets a Reload that posts its own reload route", as
   expect(none.queryAllByTestId("browser-reload")).toHaveLength(0);
   none.unmount();
 });
+
+// Task 328ef745: Chrome updates a store install by itself, so the pane gives
+// an out-of-date store browser no download and no Reload, and its note does
+// not read as the unpacked one.
+test("an out-of-date store browser gets no download and no Reload; an unpacked one beside it keeps the download", async () => {
+  type Status =
+    import("../../shared/browser-extension-protocol").MemberBrowserStatus;
+  // A browser with its newer files in place is reloadable, and the pane then
+  // drops the download for it; so the download is checked without them.
+  const browser = (
+    id: string,
+    name: string,
+    store: boolean,
+    reloadable = false,
+  ) => ({
+    id,
+    name,
+    pairedAt: 0,
+    online: true,
+    package: "0.6.0",
+    outdated: true,
+    reloadable,
+    store,
+    agentTabs: null,
+  });
+  const base: Status = {
+    paired: true,
+    online: true,
+    member: { id: "self", name: "Fixture member" },
+    version: "0.7.0",
+    browsers: [],
+  };
+  const notice = async (browsers: Status["browsers"]) => {
+    setApiShim(async () => ({ ...base, browsers }));
+    const view = render(<BrowserPane />);
+    await act(async () => {});
+    const el = view.getByTestId("browser-update");
+    const result = {
+      text: el.textContent,
+      zip: !!el.querySelector('a[href="/api/me/browser/extension.zip"]'),
+      reloads: view
+        .queryAllByTestId("browser-reload")
+        .map((b) => b.textContent.includes("Desk")),
+    };
+    view.unmount();
+    return result;
+  };
+  const kiosk = await notice([browser("kiosk", "Kiosk", true)]);
+  expect(kiosk.text).toContain("Kiosk");
+  expect(kiosk.zip).toBe(false);
+  // Keyed on store only: even a reloadable store browser gets no Reload.
+  expect(
+    (await notice([browser("kiosk", "Kiosk", true, true)])).reloads,
+  ).toEqual([]);
+  const desk = await notice([browser("desk", "Desk", false)]);
+  // Precondition: the unpacked one gets the download, and its Reload when
+  // its files are in place.
+  expect(desk.zip).toBe(true);
+  expect(
+    (await notice([browser("desk", "Desk", false, true)])).reloads,
+  ).toEqual([true]);
+  expect(kiosk.text.replaceAll("Kiosk", "<browser>")).not.toBe(
+    desk.text.replaceAll("Desk", "<browser>"),
+  );
+  const both = await notice([
+    browser("kiosk", "Kiosk", true),
+    browser("desk", "Desk", false),
+  ]);
+  expect(both.text).toContain("Kiosk");
+  expect(both.text).toContain("Desk");
+  expect(both.zip).toBe(true);
+  // Both reloadable: only Desk's Reload.
+  expect(
+    (
+      await notice([
+        browser("kiosk", "Kiosk", true, true),
+        browser("desk", "Desk", false, true),
+      ])
+    ).reloads,
+  ).toEqual([true]);
+});
+
+// Task 328ef745: with a store listing, the setup starts with the store
+// install; the ZIP download stays, after it, as the developer install.
+test("with a store listing the setup links it before the ZIP download; without one it has no store link", async () => {
+  const listing =
+    "https://chromewebstore.google.com/detail/isomux-browser/abcdefghijklmnopabcdefghijklmnop";
+  const status = {
+    paired: false,
+    online: false,
+    member: { id: "self", name: "Fixture member" },
+    version: "0.7.0",
+    browsers: [],
+  };
+  for (const storeUrl of [listing, undefined]) {
+    setApiShim(async () => ({ ...status, ...(storeUrl ? { storeUrl } : {}) }));
+    const view = render(<BrowserPane />);
+    await act(async () => {});
+    const store = view.container.querySelectorAll(`a[href="${listing}"]`);
+    const zip = view.container.querySelector(
+      'a[href="/api/me/browser/extension.zip"]',
+    );
+    expect([storeUrl, store.length]).toEqual([storeUrl, storeUrl ? 1 : 0]);
+    expect(zip).not.toBeNull();
+    if (storeUrl) {
+      expect(
+        store[0].compareDocumentPosition(zip!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect((store[0] as HTMLAnchorElement).target).toBe("_blank");
+    }
+    view.unmount();
+  }
+});

@@ -100,6 +100,16 @@ export const zh: Catalog = {
   "browser.unknown": "解除配对的结果未知。请检查办公室的“集成”。",
   "browser.download": "下载扩展 {version}",
   "browser.outdated": "{names} 中的扩展已过期。",
+  "browser.outdatedStore":
+    "{names} 中的扩展已过期。Chrome 会自动从 Chrome 应用商店安装更新。",
+  "browser.updateStore": "Chrome 会自动从 Chrome 应用商店安装新版本。",
+  "browser.storeInstall": "从 Chrome 应用商店安装",
+  "browser.storeMove":
+    "之前从 ZIP 安装过？请从商店安装并配对，然后在 chrome://extensions 中移除旧副本，并在下方解除其配对。",
+  "browser.developerInstall": "从 ZIP 安装",
+  "browser.developerFinish": "然后按上面的步骤固定并配对。",
+  "browser.storeSteps": "然后配对它，并移除此副本。",
+  "browser.storeStepsPaired": "然后配对它，在此处选择解除配对，并移除此副本。",
   "browser.updateSteps":
     "解压 ZIP 文件，将其中的文件复制到你加载的文件夹中。然后在此处或扩展弹窗中点击“重新加载”。",
   "browser.updateStepsPopup":

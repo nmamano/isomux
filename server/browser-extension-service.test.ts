@@ -429,6 +429,94 @@ test("a hello records the extension package; status marks an older or missing on
   }
 });
 
+// Task 328ef745: a hello with install "store" marks a browser that Chrome
+// updates, for this server run. The store listing goes to the pane and to the
+// extension only when there is one.
+const LISTING =
+  "https://chromewebstore.google.com/detail/isomux-browser/abcdefghijklmnopabcdefghijklmnop";
+test("a hello's install store marks the browser this run; status and ready carry the store listing only when there is one", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-install-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const access = { memberExists: () => true, mayUse: () => true };
+  const listed = new BrowserExtensionService(store, access, {
+    storeUrl: LISTING,
+  });
+  // Not the built-in listing, so the test holds after the first listing.
+  const unlisted = new BrowserExtensionService(store, access, {
+    storeUrl: null,
+  });
+  try {
+    const connect = (
+      service: BrowserExtensionService,
+      name: string,
+      extra: Fields,
+    ) => {
+      const opened = openSocket(service);
+      service.message(
+        opened.ws,
+        hello({ code: store.pair("m", name).code, ...extra }),
+      );
+      return opened;
+    };
+    // Every browser is out of date, so outdatedBrowsers lists them all.
+    const old = { package: "0.0.1" };
+    const kiosk = connect(listed, "Kiosk", { ...old, install: "store" });
+    const desk = connect(listed, "Desk", old);
+    // Any other install value is ignored, not refused.
+    const other = connect(listed, "Other", { ...old, install: "normal" });
+    const odd = connect(listed, "Odd", { ...old, install: 5 });
+    for (const s of [kiosk, desk, other, odd])
+      expect(s.ws.data.connection).toBeDefined();
+    const view = (service: BrowserExtensionService) =>
+      service.status("m").browsers.map((b) => [b.name, b.store === true]);
+    expect(view(listed)).toEqual([
+      ["Kiosk", true],
+      ["Desk", false],
+      ["Other", false],
+      ["Odd", false],
+    ]);
+    expect(listed.outdatedBrowsers("m")).toEqual([
+      { name: "Kiosk", store: true },
+      { name: "Desk", store: false },
+      { name: "Other", store: false },
+      { name: "Odd", store: false },
+    ]);
+    expect(listed.status("m").storeUrl).toBe(LISTING);
+    expect(kiosk.messages.find((m) => m.kind === "ready")!.storeUrl).toBe(
+      LISTING,
+    );
+    // The latest hello counts: the same browser, now without install.
+    const credential = String(
+      kiosk.messages.find((m) => m.kind === "paired")!.credential,
+    );
+    kiosk.ws.close();
+    const again = openSocket(listed);
+    listed.message(again.ws, hello({ credential, ...old }));
+    expect(again.ws.data.connection).toBeDefined();
+    expect(view(listed)[0]).toEqual(["Kiosk", false]);
+
+    // No listing: neither status nor ready names one.
+    const plain = connect(unlisted, "Plain", { install: "store" });
+    expect(plain.ws.data.connection).toBeDefined();
+    expect("storeUrl" in unlisted.status("m")).toBe(false);
+    expect("storeUrl" in plain.messages.find((m) => m.kind === "ready")!).toBe(
+      false,
+    );
+    // Another server run knows nothing until each browser connects again.
+    expect(view(unlisted).filter(([name]) => name !== "Plain")).toEqual([
+      ["Kiosk", false],
+      ["Desk", false],
+      ["Other", false],
+      ["Odd", false],
+    ]);
+    expect(view(unlisted).at(-1)).toEqual(["Plain", true]);
+  } finally {
+    listed.stop();
+    unlisted.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("missing extension package fails closed instead of serving the app shell", async () => {
   const { browserExtensionHandlers } =
     await import("./routes/handlers/browser-extension");

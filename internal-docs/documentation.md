@@ -104,6 +104,15 @@ Keep these consistent across all surfaces below.
 - **Language:** English only. All footers link it under Product; the Spanish, Catalan and Chinese footers translate the link label (Comparativa, Comparativa, 对比).
 - **Deploy note:** static, `cleanUrls`, served at `/compare`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 
+## 2j. Browser extension privacy policy (isomux.com/browser-extension-privacy)
+
+- **File:** `site/browser-extension-privacy.html`.
+- **Audience:** Chrome Web Store reviewers and members who install Isomux Browser. The store listing links it as the extension's privacy policy.
+- **Structure:** what the extension reads, where it goes (only the member's own office), what it does not do, one line per permission, how to stop and remove it. Styled like the legal pages (section 2c).
+- **Update when:** the extension's permissions change, or it reads or sends something new. The permission lines must agree with `browser-extension/manifest.json` and with the store listing's data-use and permission answers (`internal-docs/browser-extension.md`, "Chrome Web Store").
+- **Language:** English only. `docs/browser-use.md` links it; no footer link.
+- **Deploy note:** static, `cleanUrls`, served at `/browser-extension-privacy`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
+
 ## 2i. Use cases (isomux.com/docs/use-cases)
 
 - **Files:** `docs/use-cases.md` (the section index) and one page per use case in `docs/use-cases/`, built by the docs site (section 4). Their screenshots stay in `site/use-cases/`.

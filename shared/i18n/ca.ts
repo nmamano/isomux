@@ -108,6 +108,19 @@ export const ca: Catalog = {
     "Resultat de desvinculació desconegut. Comprova Integracions a l’oficina.",
   "browser.download": "Descarrega l’extensió {version}",
   "browser.outdated": "L’extensió de {names} no està actualitzada.",
+  "browser.outdatedStore":
+    "L’extensió de {names} no està actualitzada. Chrome instal·la l’actualització des de Chrome Web Store tot sol.",
+  "browser.updateStore":
+    "Chrome instal·la la versió més nova des de Chrome Web Store tot sol.",
+  "browser.storeInstall": "Instal·la des de Chrome Web Store",
+  "browser.storeMove":
+    "La vas instal·lar abans des del ZIP? Instal·la-la des de la botiga i vincula-la; després treu la còpia antiga a chrome://extensions i desvincula-la a sota.",
+  "browser.developerInstall": "Instal·la des del ZIP",
+  "browser.developerFinish":
+    "Després fixa-la i vincula-la, com als passos de dalt.",
+  "browser.storeSteps": "Després vincula-la i treu aquesta còpia.",
+  "browser.storeStepsPaired":
+    "Després vincula-la, selecciona Desvincula aquí i treu aquesta còpia.",
   "browser.updateSteps":
     "Extreu el ZIP i copia’n els fitxers a la carpeta que vas carregar. Després selecciona Torna a carregar aquí o a l’extensió.",
   "browser.updateStepsPopup":
