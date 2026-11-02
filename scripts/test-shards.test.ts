@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
   DOCS_BUILD_FILES,
+  DOM_FILES_PER_PROCESS,
   MAX_WORKERS,
   failed,
   parseCounts,
@@ -222,20 +223,62 @@ it("adds the counts of every file", () => {
   ).toEqual({ pass: 5, skip: 1, todo: 1, fail: 1, tests: 8, files: 2 });
 });
 
-it("runs the DOM files in one process first and every other file alone", () => {
-  const dom = ["ui/a.dom.test.tsx", "ui/b.dom.test.tsx"];
-  const rest = ["server/a.test.ts", "server/b.test.ts", "ui/c.test.tsx"];
-  expect(plan([...rest, ...dom].sort())).toEqual([
-    dom,
+const PER = DOM_FILES_PER_PROCESS;
+const domFiles = (count: number) =>
+  Array.from(
+    { length: count },
+    (_, i) => `ui/f${String(i).padStart(4, "0")}.dom.test.tsx`,
+  );
+// What round-robin gives: process j holds files j, j + k, j + 2k, ...
+const dealt = (dom: string[], k: number) =>
+  Array.from({ length: k }, (_, j) => dom.filter((_, i) => i % k === j));
+
+it("splits the DOM files by count, at most one process per worker", () => {
+  const processes = (count: number, workers: number) =>
+    plan(domFiles(count), workers).length;
+  expect(processes(1, 8)).toBe(1);
+  expect(processes(PER, 8)).toBe(1);
+  expect(processes(PER + 1, 8)).toBe(2);
+  expect(processes(4 * PER + 1, 8)).toBe(5);
+  expect(processes(10 * PER, 8)).toBe(8);
+  expect(processes(10 * PER, 2)).toBe(2);
+  expect(processes(10 * PER, 1)).toBe(1);
+});
+
+it("deals the DOM files round-robin, each to exactly one process", () => {
+  const three = domFiles(2 * PER + 1);
+  expect(plan(three, 8)).toStrictEqual(dealt(three, 3));
+  // Capped by the workers, the processes grow instead.
+  const two = domFiles(3 * PER);
+  expect(plan(two, 2)).toStrictEqual(dealt(two, 2));
+});
+
+it("runs the DOM processes first, then the docs group, then every other file alone", () => {
+  const dom = domFiles(PER + 1);
+  // Other files sort before, between and after the DOM files, so a deal
+  // that counted every file, not only the DOM files, gives other processes.
+  const rest = [
+    "a/x.test.ts",
+    "server/a.test.ts",
+    "ui/f0001.test.tsx",
+    "z.test.ts",
+  ];
+  expect(plan([...dom, ...DOCS_BUILD_FILES, ...rest].sort(), 8)).toStrictEqual([
+    ...dealt(dom, 2),
+    DOCS_BUILD_FILES,
     ...rest.map((file) => [file]),
   ]);
-  expect(plan(rest)).toEqual(rest.map((file) => [file]));
-  expect(plan([])).toEqual([]);
+});
+
+it("starts no DOM process when there are no DOM files", () => {
+  const rest = ["server/a.test.ts", "server/b.test.ts", "ui/c.test.tsx"];
+  expect(plan(rest, 8)).toStrictEqual(rest.map((file) => [file]));
+  expect(plan([], 8)).toStrictEqual([]);
 });
 
 it("runs the files that rebuild site/docs in one process", () => {
   const rest = ["server/a.test.ts"];
-  expect(plan([...DOCS_BUILD_FILES, ...rest].sort())).toEqual([
+  expect(plan([...DOCS_BUILD_FILES, ...rest].sort(), 8)).toEqual([
     DOCS_BUILD_FILES,
     ...rest.map((file) => [file]),
   ]);

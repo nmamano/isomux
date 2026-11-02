@@ -131,6 +131,8 @@ export const SORT_ASKS = [
   ranked("a4p1", "a4", 10, "P1"),
   ranked("a4none", "a4", 200),
 ];
+export const mountSorted = () =>
+  mount(SORT_ASKS, { rooms: SORT_ROOMS, agents: SORT_AGENTS });
 export const BY_AGENT = [
   "a4:a4none,a4p1",
   "a1:a1old,a1top",

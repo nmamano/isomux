@@ -40,6 +40,8 @@ const {
   setAsksFilter,
   getAsksSeen,
   markAsksSeen,
+  getAsksSort,
+  setAsksSort,
   getAsksSortDir,
   setAsksSortDir,
   getAsksMember,
@@ -284,6 +286,28 @@ describe("asks seen", () => {
     }
     store.set(key, JSON.stringify(["a", 3, null, "b"]));
     expect(seen()).toEqual(["a", "b"]);
+  });
+});
+
+// The Asks tab sort, remembered per device. The Asks page reads it at mount
+// ("remembers the sort and both filters" in
+// ui/components/AsksView.filters.dom.test.tsx).
+describe("asks sort", () => {
+  beforeEach(() => store.clear());
+
+  it("starts as agent, round-trips each sort, and reads a value it does not know as agent", () => {
+    expect(getAsksSort()).toBe("agent");
+    // The stored values are a protocol: a browser keeps them across builds.
+    for (const sort of ["room", "priority", "age", "agent"] as const) {
+      setAsksSort(sort);
+      expect(getAsksSort()).toBe(sort);
+    }
+    // The default leaves nothing behind.
+    expect(store.size).toBe(0);
+    setAsksSort("room");
+    const [key] = [...store.keys()];
+    store.set(key, "bogus");
+    expect(getAsksSort()).toBe("agent");
   });
 });
 

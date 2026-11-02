@@ -1029,40 +1029,45 @@ it("sends a typed note with a dismiss or a file-task, and nothing for the defaul
     dismiss: '[data-ask="aaaa0001"] form button[type=button]',
     "file-task": '[data-ask="aaaa0001"] [data-ask-file-task]',
   };
-  for (const [verb, selector] of Object.entries(buttons))
-    for (const [typed, body] of [
-      [null, {}],
-      ["  not this week ", { text: "  not this week " }],
-      ["", {}],
-      ["   ", {}],
-      // The member deleted the default and typed it again: no note.
-      ["DEFAULT", {}],
-    ] as const) {
-      posts = [];
-      const view = mount(false);
-      await waitFor(() => expect(cards(view.container).length).toBe(2));
-      const input = field(view.container, "aaaa0001");
-      const prefilled = input.value;
-      if (typed !== null) {
-        fireEvent.change(input, { target: { value: "" } });
-        if (typed !== "")
-          fireEvent.change(input, {
-            target: { value: typed === "DEFAULT" ? prefilled : typed },
-          });
-      }
-      const button = view.container.querySelector<HTMLButtonElement>(selector)!;
-      await act(async () => {
-        fireEvent.click(button);
-        await new Promise((r) => setTimeout(r, 0));
-      });
-      expect([verb, typed, posts]).toEqual([
-        verb,
-        typed,
-        [{ path: `/api/asks/aaaa0001/${verb}`, body }],
-      ]);
-      expect([verb, cards(view.container)]).toEqual([verb, ["bbbb0002"]]);
-      view.unmount();
+  // Both verbs read one note rule, so the blank fields run on dismiss only.
+  // An untouched dismiss is in "sends no dismiss reason for the recommended
+  // default".
+  const cases = [
+    ["dismiss", "  not this week ", { text: "  not this week " }],
+    ["dismiss", "", {}],
+    ["dismiss", "   ", {}],
+    // The member deleted the default and typed it again: no note.
+    ["dismiss", "DEFAULT", {}],
+    ["file-task", "  not this week ", { text: "  not this week " }],
+    ["file-task", null, {}],
+  ] as const;
+  for (const [verb, typed, body] of cases) {
+    const selector = buttons[verb];
+    posts = [];
+    const view = mount(false);
+    await waitFor(() => expect(cards(view.container).length).toBe(2));
+    const input = field(view.container, "aaaa0001");
+    const prefilled = input.value;
+    if (typed !== null) {
+      fireEvent.change(input, { target: { value: "" } });
+      if (typed !== "")
+        fireEvent.change(input, {
+          target: { value: typed === "DEFAULT" ? prefilled : typed },
+        });
     }
+    const button = view.container.querySelector<HTMLButtonElement>(selector)!;
+    await act(async () => {
+      fireEvent.click(button);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect([verb, typed, posts]).toEqual([
+      verb,
+      typed,
+      [{ path: `/api/asks/aaaa0001/${verb}`, body }],
+    ]);
+    expect([verb, cards(view.container)]).toEqual([verb, ["bbbb0002"]]);
+    view.unmount();
+  }
 });
 
 it("keeps the card with the error when the server refuses a file-task, and draws the button on a phone too", async () => {

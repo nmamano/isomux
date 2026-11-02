@@ -1,8 +1,9 @@
 // The access slider of the agent dialog (task e77304b1, merge B): what a save
 // sends. A stop change is one PUT /access, never PUT /privileged; it runs
 // before the PATCH when the target is Standard or above, after it when the
-// target is below, and always before a manager transfer. The pack picker and
-// the engines are in EditAgentDialog.pack.dom.test.tsx.
+// target is below, and always before a manager transfer. The pack picker is
+// in EditAgentDialog.pack.dom.test.tsx, and the engines in
+// EditAgentDialog.access-slider.dom.test.tsx.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 

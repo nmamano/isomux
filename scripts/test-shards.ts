@@ -73,10 +73,15 @@ export function workerCount(threads = availableParallelism()): number {
   return Math.max(1, Math.min(MAX_WORKERS, Math.floor(threads / 2)));
 }
 
-// The DOM files share one process, as in a single run: in a process of its
-// own a DOM file took three to five times as long (2026-10-07), and
-// ui/test-support/dom.ts caps each file at 5 s. Every other file gets a
-// process of its own, so a slow file never waits behind others.
+// The DOM files share a few processes: in a process of its own a DOM file
+// took three to five times as long (2026-10-07), because each process loads
+// the UI module graph once, and ui/test-support/dom.ts caps each file at 5 s.
+// In one process for all of them, the DOM files set the suite's wall time
+// (287 files, 180 s on a loaded 8-thread box, 2026-11-02; no file got slower
+// later in the process). The first UI file of each DOM process loads the
+// graph inside its 5 s cap, so a cap red in that file can be the cold start.
+// Every other file gets a process of its own, so a slow file never waits
+// behind others.
 const DOM_FILE = /\.dom\.test\.[a-z]+$/;
 
 // These files rebuild site/docs (build-docs deletes the directory first),
@@ -89,18 +94,32 @@ export const DOCS_BUILD_FILES = [
   "scripts/use-cases-docs.test.ts",
 ];
 
-/** The files of each process, the DOM process first: it is the longest. */
-export function plan(files: string[]): string[][] {
-  const dom = files.filter((file) => DOM_FILE.test(file));
+/**
+ * DOM files per process, before the worker count caps the processes. Each
+ * extra process costs about 11 s of cold start against a process of about
+ * 50 s (four processes of 72 files, 2026-11-02).
+ */
+export const DOM_FILES_PER_PROCESS = 72;
+
+/**
+ * The files of each process, the DOM processes first: they are the longest.
+ * The DOM files are dealt round-robin in input order, so the files of one
+ * directory, which often cost the same, spread over the processes.
+ */
+export function plan(files: string[], workers: number): string[][] {
+  const domFiles = files.filter((file) => DOM_FILE.test(file));
+  const count = Math.min(
+    workers,
+    Math.ceil(domFiles.length / DOM_FILES_PER_PROCESS),
+  );
+  const dom = Array.from({ length: count }, (_, process) =>
+    domFiles.filter((_, index) => index % count === process),
+  );
   const docs = files.filter((file) => DOCS_BUILD_FILES.includes(file));
   const rest = files
     .filter((file) => !DOM_FILE.test(file) && !docs.includes(file))
     .map((file) => [file]);
-  return [
-    ...(dom.length > 0 ? [dom] : []),
-    ...(docs.length > 0 ? [docs] : []),
-    ...rest,
-  ];
+  return [...dom, ...(docs.length > 0 ? [docs] : []), ...rest];
 }
 
 export type Counts = {
@@ -204,8 +223,8 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const queue = plan(files);
   const workers = workerCount();
+  const queue = plan(files, workers);
   const logs = mkdtempSync(join(tmpdir(), "isomux-test-shards-"));
   const started = performance.now();
   console.log(
