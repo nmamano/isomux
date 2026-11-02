@@ -10,6 +10,7 @@ import {
   PRIVILEGED_REFERENCE_TOPICS,
   type AgentReferenceTopic,
   AGENT_REFERENCE_VERSION,
+  compactReferenceTables,
 } from "../agent-reference.ts";
 import { getUserByName } from "../users.ts";
 import { mintApiToken } from "../api-tokens.ts";
@@ -74,10 +75,13 @@ describe("agent reference routes", () => {
     };
     expect(body.version).toBe(AGENT_REFERENCE_VERSION);
     expect(body.topic).toBe("tasks");
+    // The served form: the page file with compact route tables.
     expect(body.markdown).toBe(
-      readFileSync(
-        join(import.meta.dir, "../agent-reference/tasks.md"),
-        "utf8",
+      compactReferenceTables(
+        readFileSync(
+          join(import.meta.dir, "../agent-reference/tasks.md"),
+          "utf8",
+        ),
       ),
     );
 

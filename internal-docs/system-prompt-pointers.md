@@ -21,7 +21,7 @@ On 2026-09-16, `buildSystemPrompt()` with no office, room, member, memory, or cu
 
 The measurement rendered each `agentType` with the arguments from `server/test-support/system-prompt.test.ts`, then used JavaScript string length, `Buffer.byteLength`, and a whitespace split. Every measured character is ASCII, so characters and UTF-8 bytes are equal. Dynamic office text is excluded. No tokenizer is checked into this repo, so this design does not claim a token count.
 
-The after-size budget is 9,000 bytes for an ordinary Claude or Codex agent, 11,000 bytes for an ordinary OpenCode agent, and 2,000 added bytes for a privileged agent. These are acceptance budgets, not estimates. The implementation must measure the final rendered strings for all six engine and privilege combinations before it lands.
+The after-size budget is 9,000 bytes for an ordinary Claude or Codex agent, 11,000 bytes for an ordinary OpenCode agent, and 2,000 added bytes for a privileged agent. These are acceptance budgets, not estimates (the caps below replace them). The implementation must measure the final rendered strings for all six engine and privilege combinations before it lands.
 
 On 2026-10-03, after the rebase onto current main, the same arguments render:
 
@@ -48,6 +48,15 @@ On 2026-10-05 the index became one situation per line (Nil, 2026-10-04: an agent
 | OpenCode | Privileged | 6,794 | 6,798 | 1,130 |
 
 The privileged block adds 1,037 bytes. The 75-run check above predates this wording; task 73b70f84 holds the situation-coverage method and its check.
+
+### Caps (Nil, 2026-11-02)
+
+By 2026-11-01 the prompt had grown past its 9,000-byte budget for a Claude agent in its own process namespace, and the reference pages from 59 KB on 2026-10-15 to 110 KB. Since task 215ae677 two caps hold, and raising either needs Nil (it shows at sign-off):
+
+- The prompt. `server/test-support/system-prompt.test.ts` renders every engine with each isolation form and both schedule forms, with no office text, and caps the largest: 8,750 bytes for Claude, 8,250 for Codex, 8,750 for OpenCode, and 1,750 more for a privileged agent. Each cap was the trimmed size rounded up to 250 bytes. A new line pays for itself with a cut elsewhere.
+- Each reference page: at most 8,192 bytes as an agent receives it (`server/agent-reference.test.ts`). The server serves route tables without the column padding that prettier adds (`compactReferenceTables`). A page that grows past the cap is cut first; what is left over moves to a sub-page.
+
+A sub-page (`AGENT_REFERENCE_SUBPAGES`) is an ordinary topic that holds part of a parent page: `asks-history`, `connections-settings`, `apps-server` and `browser-failures`. The index lists it with a situation as its description, the parent names it with the situation in which to fetch it, and every reader of the parent can read it. The prompt points only at the parent. A route that moves to a sub-page maps to it in `AGENT_ROUTE_REFERENCE_TOPICS`. Reference telemetry per topic from before the split does not compare with the counts after it.
 
 ## What stays inline
 

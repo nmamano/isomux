@@ -60,6 +60,7 @@ ESLint warns (`max-lines`) on a file over 3,000 lines. Do not make such a file l
 - OpenCode integration uses the pinned bundled server. One supervised server and profile are shared by agents with the same environment-source identity.
 - React/SVG for rendering. Bun's bundler, no Vite.
 - The system prompt is identical on every turn of a session. A value that changes per turn (a handle, a nonce, a timestamp) never goes in it: a changed prompt defeats the provider's prompt cache on every turn. Nil, 2026-09-16.
+- The system prompt and the agent reference pages have byte caps, tested in `server/test-support/system-prompt.test.ts` and `server/agent-reference.test.ts`. A new prompt line pays for itself with a cut elsewhere. A page is at most 8 KB as served: cut first, then move what is left over to a sub-page. Raising either cap needs Nil. Nil, 2026-11-02 (`internal-docs/system-prompt-pointers.md`).
 
 ## Project layout
 

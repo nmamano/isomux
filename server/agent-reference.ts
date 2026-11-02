@@ -30,9 +30,29 @@ export const AGENT_REFERENCE_TOPICS = {
   asks: "Asks: questions a member answers later",
   skills: "Skills: list, read, edit and create",
   connections: "Your connections and their usage notes",
+  "asks-history":
+    "You need a closed ask, its answer, or what happened to an ask before it closed",
+  "connections-settings":
+    "You change a member's or the office's variables, secrets, MCP servers, voice or pager settings",
+  "apps-server":
+    "You write app code that messages agents, pages, opens asks, or acts for the member behind a request",
+  "browser-failures":
+    "A browser action fails or times out, an office page is refused, or a tab or browser goes away",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
+
+// A sub-page holds part of a parent page that grew past the page cap. It is
+// an ordinary topic with its parent's visibility; the parent names it with
+// the situation in which to fetch it.
+export const AGENT_REFERENCE_SUBPAGES: Readonly<
+  Partial<Record<AgentReferenceTopic, AgentReferenceTopic>>
+> = {
+  "asks-history": "asks",
+  "connections-settings": "connections",
+  "apps-server": "apps",
+  "browser-failures": "browser",
+};
 
 // Pages only a privileged agent sees.
 export const PRIVILEGED_REFERENCE_TOPICS: ReadonlySet<AgentReferenceTopic> =
@@ -132,11 +152,11 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.createAsk": "asks",
   "agents.listAsks": "asks",
   "agents.getAsk": "asks",
-  "agents.askHistory": "asks",
-  "agents.askEvents": "asks",
+  "agents.askHistory": "asks-history",
+  "agents.askEvents": "asks-history",
   "agents.editAsk": "asks",
   "agents.deleteAsk": "asks",
-  "asks.get": "asks",
+  "asks.get": "asks-history",
   "pager.raise": "pager",
   "pager.list": "pager",
   "pager.get": "pager",
@@ -186,41 +206,41 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "cron.editRunMessage": "cronjob-management",
   "agentConnections.list": "connections",
   "agents.secretRequest": "connections",
-  "userEnv.set": "connections",
-  "userEnv.remove": "connections",
-  "userEnv.names": "connections",
-  "officeEnv.set": "connections",
-  "officeEnv.remove": "connections",
-  "officeEnv.names": "connections",
-  "secrets.list": "connections",
-  "secrets.create": "connections",
-  "secrets.rotate": "connections",
-  "secrets.update": "connections",
-  "secrets.delete": "connections",
-  "secrets.reissue": "connections",
-  "secrets.test": "connections",
-  "officeSecrets.list": "connections",
-  "officeSecrets.create": "connections",
-  "officeSecrets.rotate": "connections",
-  "officeSecrets.update": "connections",
-  "officeSecrets.delete": "connections",
-  "officeSecrets.reissue": "connections",
-  "officeSecrets.test": "connections",
-  "mcpServers.list": "connections",
-  "mcpServers.create": "connections",
-  "mcpServers.update": "connections",
-  "mcpServers.delete": "connections",
-  "mcpServers.test": "connections",
-  "officeMcpServers.list": "connections",
-  "officeMcpServers.create": "connections",
-  "officeMcpServers.update": "connections",
-  "officeMcpServers.delete": "connections",
-  "officeMcpServers.test": "connections",
-  "memberVoice.get": "connections",
-  "memberVoice.update": "connections",
-  "pagerSettings.get": "connections",
-  "pagerSettings.update": "connections",
-  "pagerSettings.test": "connections",
+  "userEnv.set": "connections-settings",
+  "userEnv.remove": "connections-settings",
+  "userEnv.names": "connections-settings",
+  "officeEnv.set": "connections-settings",
+  "officeEnv.remove": "connections-settings",
+  "officeEnv.names": "connections-settings",
+  "secrets.list": "connections-settings",
+  "secrets.create": "connections-settings",
+  "secrets.rotate": "connections-settings",
+  "secrets.update": "connections-settings",
+  "secrets.delete": "connections-settings",
+  "secrets.reissue": "connections-settings",
+  "secrets.test": "connections-settings",
+  "officeSecrets.list": "connections-settings",
+  "officeSecrets.create": "connections-settings",
+  "officeSecrets.rotate": "connections-settings",
+  "officeSecrets.update": "connections-settings",
+  "officeSecrets.delete": "connections-settings",
+  "officeSecrets.reissue": "connections-settings",
+  "officeSecrets.test": "connections-settings",
+  "mcpServers.list": "connections-settings",
+  "mcpServers.create": "connections-settings",
+  "mcpServers.update": "connections-settings",
+  "mcpServers.delete": "connections-settings",
+  "mcpServers.test": "connections-settings",
+  "officeMcpServers.list": "connections-settings",
+  "officeMcpServers.create": "connections-settings",
+  "officeMcpServers.update": "connections-settings",
+  "officeMcpServers.delete": "connections-settings",
+  "officeMcpServers.test": "connections-settings",
+  "memberVoice.get": "connections-settings",
+  "memberVoice.update": "connections-settings",
+  "pagerSettings.get": "connections-settings",
+  "pagerSettings.update": "connections-settings",
+  "pagerSettings.test": "connections-settings",
 } as const;
 
 export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
@@ -256,6 +276,30 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
   "voice.speak": "Human read-aloud transport route.",
 } as const;
 
+// Prettier pads route tables to align their columns; an agent pays for that
+// padding in tokens. The served form drops it and keeps every cell's text.
+// A cell ends at an unescaped "|"; a separator row holds only "|", "-", ":"
+// and spaces. Lines in a ``` fence stay as they are.
+export function compactReferenceTables(markdown: string): string {
+  let fenced = false;
+  return markdown
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("```")) fenced = !fenced;
+      if (fenced || !line.startsWith("|")) return line;
+      const separator = /^[|:\- ]*$/.test(line) && line.includes("-");
+      const cells = line.split(/(?<!\\)\|/);
+      return cells
+        .map((cell, i) => {
+          if (i === 0 || i === cells.length - 1) return cell;
+          const trimmed = cell.replace(/ {2,}$/, " ");
+          return separator ? trimmed.replace(/-+/g, "---") : trimmed;
+        })
+        .join("|");
+    })
+    .join("\n");
+}
+
 const topicNames = Object.keys(AGENT_REFERENCE_TOPICS) as AgentReferenceTopic[];
 // The pages live under server/ so every package that ships the server ships
 // them, and a missing page fails this module load instead of a request.
@@ -263,7 +307,9 @@ const referenceDir = join(import.meta.dir, "agent-reference");
 const content = new Map(
   topicNames.map((topic) => [
     topic,
-    readFileSync(join(referenceDir, `${topic}.md`), "utf8"),
+    compactReferenceTables(
+      readFileSync(join(referenceDir, `${topic}.md`), "utf8"),
+    ),
   ]),
 );
 export const AGENT_REFERENCE_VERSION = createHash("sha256")

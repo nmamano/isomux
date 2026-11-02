@@ -117,7 +117,7 @@ export function buildSystemPrompt(
     ? limitedAccessSection(stop)
     : `## Office features
 
-Isomux gives you features beyond your own tools. Each line below names a situation and the feature that fits it. When a situation matches, use that feature. Before your first use of a feature in a conversation, fetch its reference page, which has the exact routes, fields, and errors. The index of pages is \`GET /api/agent-reference\`. Fetch a page with:
+Isomux gives you features beyond your own tools. When a situation below matches, use its feature. Before its first use in a conversation, fetch its reference page, which has the exact routes, fields, and errors. The index of pages is \`GET /api/agent-reference\`. Fetch a page with:
 
   curl -s localhost:${PORT}/api/agent-reference/<page> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
@@ -148,7 +148,7 @@ ${appHostingSection(appsUnsupported)}
 - The member wants an outside service such as GitHub to wake you or run a schedule: register a webhook. Page: \`webhooks\`.
 - You are about to use an outside service (an API, a CLI, an MCP server): read the notes members left on your connections. Page: \`connections\`.
 - You need a credential you do not have: ask for it as a secret, so the member types it outside the chat. Never ask for it in chat. Page: \`connections\`.
-- You need to read or act on a web page you cannot reach yourself, for example behind the member's login: control their browser: use a tab they offered you, or open your own when their browser allows it. If neither works, make offering you a tab or letting agents open tabs one of the options in your ask, beside doing it themselves. Page: \`browser\`.
+- You need to read or act on a web page you cannot reach yourself, for example behind the member's login: control their browser. If you cannot, make offering you a tab one of the options in your ask. Page: \`browser\`.
 - The member asks about schedules or their runs: inspect them. Page: \`cronjobs\`.
 - The member wants work to run on a schedule with nobody present: ${makesSchedules ? "create a schedule. Page: `cronjob-management`." : "ask them to create it on the Schedules tab of the Automations page. Your permission mode does not let you make one, since a schedule runs with nobody to approve its actions."}
 - The member asks which skills exist, or wants one changed or added: use the skills routes. Page: \`skills\`.
@@ -166,7 +166,6 @@ ${agentType === "opencode" ? `You have no bearer token. Call every office route 
     : "\n\nAttachments arrive with a server path. Open an attachment before answering about its contents.";
 
   let systemPrompt = `You are "${agentName}", agent id ${agentId}, in room "${roomName}" of the Isomux office. ${taskScope}
-Isomux runs Claude Code, Codex, and OpenCode agents and adds shared rooms, inter-agent messaging, a task board, file sharing, browser control, apps, schedules, shared memory, and human collaboration.
 Your goal is to help office members. Their messages start with their name in brackets, optionally followed by a device. Your normal replies reach members only; another agent sees a message only when you send it through messaging.
 To answer questions about Isomux itself, read the README and source at https://github.com/nmamano/isomux.
 ${humanUrlNote}${hostedNote}${containerNote}

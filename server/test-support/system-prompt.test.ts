@@ -5,6 +5,7 @@ import {
   memorySection,
 } from "../system-prompt.ts";
 import {
+  AGENT_REFERENCE_SUBPAGES,
   AGENT_REFERENCE_TOPICS,
   PRIVILEGED_REFERENCE_TOPICS,
   type AgentReferenceTopic,
@@ -26,11 +27,13 @@ import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
   openCodeAuthoritySocketPath,
 } from "../backends/opencode/office-proxy-shared.ts";
+import type { IsolationForm } from "../process-isolation.ts";
 
 function build(
   agentType: "claude" | "codex" | "opencode" = "codex",
   privileged = false,
   makesSchedules = true,
+  isolation: IsolationForm | null = null,
 ) {
   return buildSystemPrompt(
     "A1",
@@ -47,14 +50,21 @@ function build(
     agentType,
     null,
     makesSchedules,
+    isolation,
   );
 }
+
+// A sub-page is named in its parent page, not in the prompt.
+const isSubpage = (topic: string) => topic in AGENT_REFERENCE_SUBPAGES;
 
 describe("system prompt pointer contract", () => {
   it("advertises every applicable topic and one generic fetch command", () => {
     const prompt = build();
     for (const topic of Object.keys(AGENT_REFERENCE_TOPICS)) {
-      if (!PRIVILEGED_REFERENCE_TOPICS.has(topic as AgentReferenceTopic))
+      if (
+        !PRIVILEGED_REFERENCE_TOPICS.has(topic as AgentReferenceTopic) &&
+        !isSubpage(topic)
+      )
         expect(prompt).toContain(`\`${topic}\``);
     }
     expect(prompt.match(/curl -s /g)).toHaveLength(1);
@@ -84,6 +94,7 @@ describe("system prompt pointer contract", () => {
     expect(ordinary).not.toContain("## Privileged Operator Capabilities");
     expect(privileged).toContain("## Privileged Operator Capabilities");
     for (const topic of PRIVILEGED_REFERENCE_TOPICS) {
+      if (isSubpage(topic)) continue;
       expect(privileged).toContain(`Page: \`${topic}\``);
       expect(ordinary).not.toContain(`\`${topic}\``);
     }
@@ -250,23 +261,30 @@ describe("system prompt pointer contract", () => {
     expect(prompt).not.toContain("$ISOMUX_AGENT_TOKEN");
   });
 
-  it("renders all baseline prompts within the approved byte budgets", () => {
-    const measured = (["claude", "codex", "opencode"] as const).flatMap(
-      (engine) =>
-        [false, true].flatMap((privileged) =>
-          [false, true].map((makesSchedules) => ({
-            engine,
-            privileged,
-            bytes: Buffer.byteLength(build(engine, privileged, makesSchedules)),
-          })),
-        ),
-    );
-    for (const row of measured) {
-      const ordinaryBudget = row.engine === "opencode" ? 11_000 : 9_000;
-      expect(row.bytes).toBeLessThanOrEqual(
-        ordinaryBudget + (row.privileged ? 2_000 : 0),
-      );
+  // Task 215ae677 (Nil, 2026-11-02): the prompt costs every user tokens on
+  // every turn. Each engine's largest form, over every isolation line and
+  // both schedule lines, stays under its cap, and the privileged section
+  // under its own. A new line pays for itself with a cut; raising a cap
+  // needs Nil.
+  it("renders every engine's largest prompt within the approved byte caps", () => {
+    const caps = { claude: 8_750, codex: 8_250, opencode: 8_750 };
+    const privilegedCap = 1_750;
+    const over: object[] = [];
+    for (const engine of ["claude", "codex", "opencode"] as const) {
+      for (const isolation of [null, "session", "shared_server"] as const) {
+        for (const makesSchedules of [false, true]) {
+          const bytes = (privileged: boolean) =>
+            Buffer.byteLength(
+              build(engine, privileged, makesSchedules, isolation),
+            );
+          const ordinary = bytes(false);
+          const added = bytes(true) - ordinary;
+          if (ordinary > caps[engine] || added > privilegedCap)
+            over.push({ engine, isolation, makesSchedules, ordinary, added });
+        }
+      }
     }
+    expect(over).toEqual([]);
   });
 });
 
