@@ -128,7 +128,7 @@ refusal for that model and a reply from `opencode/nemotron-3-ultra-free`, so
 this is not specific to Kubernetes. Fixed 2026-09-26: the fallback is now
 `opencode/nemotron-3-ultra-free`, and after a seed falls back, discovery
 retries in the background and moves the seeded agents to a discovered free
-model (`repickFallbackSeeds` in `server/isomux-office.ts`).
+model (`repickFallbackSeeds` in `server/office-onboarding.ts`).
 On 2026-10-26 the provider refused `opencode/nemotron-3-ultra-free` too
 ("Model is unavailable") while discovery still listed it (task 0387b8de). The
 default is now `opencode/mimo-v2.6-flash-free`. The seed checks the free
