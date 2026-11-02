@@ -11,7 +11,7 @@ An agent has two persisted manager fields (`AgentInfo.userId`, `manager` in
 the agent; `manager` is a display snapshot. Both are set at spawn from the
 authenticated identity, never the request body, and change together at a
 transfer. They are saved in the live-agent file and in agent history
-(`persistAll`, `updateAgentHistory` in `server/agent-manager.ts`).
+(`persistAll`, `updateAgentHistory` in `server/office-persistence.ts`).
 
 The code reads the manager for these behaviors:
 

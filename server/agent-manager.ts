@@ -1,10 +1,7 @@
 import type { AuditActor } from "../shared/audit.ts";
 import type { PagerStore } from "./pager-store.ts";
 import { createTaskStore } from "./task-store.ts";
-import {
-  claudeConfigRoot,
-  resolveClaudeSessionRoot,
-} from "./claude-session-root.ts";
+import { claudeConfigRoot } from "./claude-session-root.ts";
 import {
   claudeConnectorGeneration,
   forgetClaudeEngineServers,
@@ -17,9 +14,6 @@ import {
   type AgentMcpServer,
 } from "./mcp-servers.ts";
 import { loopbackPort } from "./auth.ts";
-import type { RoomPet } from "../shared/pets.ts";
-import type { RoomSkin } from "../shared/room-skins.ts";
-import type { RoomDecorPatch } from "../shared/room-decor.ts";
 import type {
   AgentBackendType,
   AgentChoiceInteraction,
@@ -29,10 +23,8 @@ import type {
   AgentState,
   Attachment,
   EffortLevel,
-  KilledAgentSummary,
   LogEntry,
   OfficeSettings,
-  PendingPromptKind,
   ProviderAccountWire,
   ProviderAccountProvider,
   QueuedMessage,
@@ -44,15 +36,11 @@ import type {
   UserRole,
 } from "../shared/types.ts";
 import {
-  claudeModelFor,
-  claudePermissionModeFor,
   effortLevelsFor,
   familyDisplayLabel,
   effortLabelParam,
   generateRoomId,
-  isClaudeFamily,
   knownModelFamiliesFor,
-  LOBBY_ROOM,
   LOBBY_ROOM_ID,
 } from "../shared/types.ts";
 import { askReplyNote } from "./asks.ts";
@@ -83,25 +71,19 @@ import {
   loadLogWithAncestors,
   loadSessionsMap,
   loadAgents,
-  saveAgents,
   listAgentSessions,
-  writeManifest,
-  buildManifest,
   persistSessionTopic,
   persistSessionSummary,
   loadSessionSummaryState,
-  storedTopic,
   persistSessionFork,
   persistSessionCwd,
   getSessionCwd,
   ensureSessionCwd,
-  getSessionClaudeConfigDir,
   ensureSessionClaudeConfigDir,
   getSessionManager,
   stampSessionManagers,
   getSessionEngineConfig,
   stampSessionEngineConfig,
-  backfillSessionEngineConfigs,
   type SessionEngineConfig,
   accumulateSessionUsage,
   appendSessionUsageSnapshot,
@@ -111,12 +93,9 @@ import {
   readEnvFile,
   loadAgentHistory,
   saveAgentHistory,
-  saveMessageQueues,
   saveFile as savePersistedFile,
   type PersistedAgent,
   type Room,
-  type AgentHistory,
-  type AgentHistoryEntry,
   loadRecordTerminals,
 } from "./persistence.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
@@ -159,7 +138,7 @@ import {
   SUMMARY_ROLLING_EVERY,
   createSessionSummarizer,
 } from "./session-summary.ts";
-import { rmSync, statSync, readFileSync } from "fs";
+import { statSync, readFileSync } from "fs";
 import {
   resolveCwd,
   validateCwd,
@@ -206,11 +185,7 @@ import {
   agentUserSkillRoots,
   officeClaudeSourceRoot,
 } from "./provider-skill-links.ts";
-import {
-  buildUsageReportData,
-  findUsageAtFork,
-  type UsageAudience,
-} from "./usage-report.ts";
+import { findUsageAtFork } from "./usage-report.ts";
 import {
   openTerminal as openTerminalImpl,
   getTerminalBuffer as getTerminalBufferImpl,
@@ -241,6 +216,8 @@ import {
 import { spawnTreeFields } from "./spawn-agent-limits.ts";
 import { createHandoffAndWake } from "./handoff-and-wake.ts";
 import { createMessageQueue } from "./message-queue.ts";
+import { createOfficePersistence } from "./office-persistence.ts";
+import { createAgentRestore } from "./agent-restore.ts";
 import type {
   FallbackAccount,
   FallbackProvider,
@@ -280,10 +257,6 @@ import type {
   EffectiveProviderAccountTarget,
   ProviderAccountReadOptions,
 } from "./provider-account-manager.ts";
-import type {
-  LogInFlightTurn,
-  ManifestInFlightTurn,
-} from "../shared/contract-shapes.ts";
 import {
   agentAccessOf,
   belowStandard,
@@ -295,7 +268,6 @@ import {
 } from "../shared/agent-access.ts";
 import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import { OfficeState } from "../shared/office-state.ts";
-import { versionOf } from "../shared/blob-version.ts";
 import {
   buildEnvForUserId,
   limitedClaudeFamiliesForUserId,
@@ -305,15 +277,8 @@ import {
   legacyEnvironmentSourceKeyForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
-import {
-  completeProfileKeyMove,
-  migrateProfileKeysOnce,
-  readProfileKeyState,
-  type ProfileKeyMove,
-} from "./opencode-profile-keys.ts";
+import { migrateProfileKeysOnce } from "./opencode-profile-keys.ts";
 import { openCodeProfilePaths } from "./backends/opencode/profile-paths.ts";
-import { moveOpenCodeSession } from "./backends/opencode/session-transfer.ts";
-import { openCodeSupervisorForEnvironment } from "./backends/opencode/supervisor.ts";
 import type { SecretSetChange } from "./secret-proxy/runtime.ts";
 
 import {
@@ -793,6 +758,45 @@ export function createAgentManager(deps: ManagerDeps) {
     releaseBackendHold,
     resume,
   });
+  // Rooms and desks, the manifest, agents.json and agent-history.json, and the
+  // killed-agent roster (server/office-persistence.ts). Built as early as its
+  // deps exist, before the factories below that take persistAll.
+  const {
+    swapDesks,
+    createRoom,
+    closeRoom,
+    renameRoom,
+    setRoomPet,
+    setRoomSkin,
+    setRoomDecor,
+    setRoomCwd,
+    moveAgent,
+    placeAgent,
+    getAllAgents,
+    getUsageReportData,
+    updateManifest,
+    pendingPrompt,
+    inFlightTurnForLogs,
+    getManifest,
+    persistAll,
+    buildKilledAgentSummary,
+    getKilledAgentSummaries,
+    getKilledAgentSummariesForManager,
+    getKilledAgentIds,
+    killedAgentManagerUserId,
+    killedAgentLastRoomId,
+    getAgent,
+    agentIdsOfUser,
+  } = createOfficePersistence({
+    agents,
+    officeState,
+    emit,
+    isLobbySeedPending: () => lobbySeedPending,
+    globalRoomIndexOf,
+    roomById,
+    unclaimedQueue,
+    accessFields,
+  });
   // Context and subscription readings (server/usage-readings.ts). Built right
   // after `agents` and the message queue so no construction-time call can
   // meet it uninitialized.
@@ -1012,9 +1016,47 @@ export function createAgentManager(deps: ManagerDeps) {
   // construction; deps.eventSink lets tests capture emitted events.
   let eventHandler: EventHandler = deps.eventSink ?? (() => {});
   let officeStatePersistenceEnabled = false;
+  // The install of a persisted agent at boot and revive, and the boot
+  // restore (server/agent-restore.ts). Built as early as its deps exist.
+  const { restoreOrReviveAgent, restoreAgents } = createAgentRestore({
+    agents,
+    officeState,
+    getBackend,
+    emit,
+    addLogEntry,
+    createSession,
+    sessionManagerDeps,
+    logCache,
+    taskStore,
+    initialLoadedAgents,
+    resolveAgentUserId,
+    userSkillRootsForInfo,
+    tokenUserIdFor,
+    noteUnresumableSession,
+    summarizeEndedSession,
+    readPersistedQueueRecord,
+    queueStore,
+    setQueueStoreCache,
+    restoreLimitResume,
+    restoreRestartWakes,
+    persistAll,
+    flushQueue,
+    agentMcpServers,
+    buildOpenCodeLaunchEnvironmentForUserId,
+    openCodeEnvironmentRevisionForUserId,
+    openCodeSkillPathsForUserId,
+    accessFields,
+    accessGrantOf,
+    needsInterruptionMarker,
+    enableOfficeStatePersistence: () => {
+      officeStatePersistenceEnabled = true;
+    },
+    profileKeyMoveLimitMs: deps.profileKeyMoveLimitMs,
+  });
   // Fields on AgentInfo that aren't included in the persisted shape (see
-  // persistAll below). agent_updated events that only touch these don't need
-  // disk writes - relevant because state transitions fire many times per turn.
+  // persistAll, server/office-persistence.ts). agent_updated events that only
+  // touch these don't need disk writes - relevant because state transitions
+  // fire many times per turn.
   const EPHEMERAL_AGENT_FIELDS = new Set([
     "state",
     "sessionSwapping",
@@ -1935,1034 +1977,6 @@ export function createAgentManager(deps: ManagerDeps) {
     // once the edit can no longer roll back, so a failed rename writes no task.
     events.push(...officeState.syncAssigneeName(agentId));
     for (const event of events) eventHandler(event);
-  }
-
-  function swapDesks(deskA: number, deskB: number, roomId: string) {
-    const events = officeState.swapDesks(deskA, deskB, roomId);
-    for (const event of events) eventHandler(event);
-  }
-
-  function createRoom(name?: string, skin?: RoomSkin | null): string {
-    const events = officeState.createRoom(name, skin);
-    const created = events.find((e) => e.type === "room_created");
-    if (!created) throw new Error("failed to create room");
-    for (const event of events) eventHandler(event);
-    return created.room.id;
-  }
-
-  function closeRoom(roomId: string): boolean {
-    const events = officeState.closeRoom(roomId);
-    if (events.length === 0) return false;
-    for (const event of events) eventHandler(event);
-    return true;
-  }
-
-  function renameRoom(roomId: string, name: string): boolean {
-    const events = officeState.renameRoom(roomId, name);
-    if (events.length === 0) return false;
-    // Room name appears in the system prompt header; it's rebuilt at every
-    // createSession, so agents in this room pick up the new name on their next
-    // conversation automatically.
-    for (const event of events) eventHandler(event);
-    return true;
-  }
-
-  /** Sets the room's pet; null clears it back to the default. Unlike a rename
-   *  this changes nothing an agent can read, so no session or prompt is
-   *  rebuilt - it only has to reach the other clients and the disk. */
-  function setRoomPet(roomId: string, pet: RoomPet | null): boolean {
-    const events = officeState.setRoomPet(roomId, pet);
-    if (events.length === 0) return false;
-    for (const event of events) eventHandler(event);
-    persistAll();
-    return true;
-  }
-
-  /** Sets the room's skin; null clears it back to the office look. Like the pet
-   *  this changes nothing an agent can read, so no session or prompt is rebuilt.
-   *  The lobby draws its own scene and takes no skin, and the caller has to tell
-   *  that apart from an unknown room, so this reports which one it was rather
-   *  than a bare boolean. */
-  function setRoomSkin(
-    roomId: string,
-    skin: RoomSkin | null,
-  ): "ok" | "room_not_found" | "skin_not_supported" {
-    const room = officeState.rooms.find((r) => r.id === roomId);
-    if (!room) return "room_not_found";
-    if (room.type === "lobby") return "skin_not_supported";
-    const events = officeState.setRoomSkin(roomId, skin);
-    if (events.length === 0) return "room_not_found";
-    for (const event of events) eventHandler(event);
-    persistAll();
-    return "ok";
-  }
-
-  /** Applies a decor patch; null clears every choice. Answers like
-   *  setRoomSkin, because decor sits on top of the skin and the lobby takes
-   *  neither. */
-  function setRoomDecor(
-    roomId: string,
-    patch: RoomDecorPatch | null,
-  ): "ok" | "room_not_found" | "skin_not_supported" {
-    const room = officeState.rooms.find((r) => r.id === roomId);
-    if (!room) return "room_not_found";
-    if (room.type === "lobby") return "skin_not_supported";
-    const events = officeState.setRoomDecor(roomId, patch);
-    if (events.length === 0) return "room_not_found";
-    for (const event of events) eventHandler(event);
-    persistAll();
-    return "ok";
-  }
-
-  /** Sets the folder new agents in the room start in (null clears it). Like
-   *  the pet it changes nothing a running agent reads. */
-  function setRoomCwd(roomId: string, cwd: string | null): boolean {
-    const events = officeState.setRoomCwd(roomId, cwd);
-    if (events.length === 0) return false;
-    for (const event of events) eventHandler(event);
-    persistAll();
-    return true;
-  }
-
-  function moveAgent(agentId: string, targetRoomId: string): boolean {
-    const events = officeState.moveAgent(agentId, targetRoomId);
-    if (events.length === 0) return false;
-    for (const event of events) eventHandler(event);
-    return true;
-  }
-
-  // moveAgent with a place: a front desk, null for a back seat, or omitted to
-  // keep the agent's area (OfficeState.placeAgent).
-  function placeAgent(
-    agentId: string,
-    targetRoomId: string,
-    desk?: number | null,
-  ): ReturnType<OfficeState["placeAgent"]> {
-    const r = officeState.placeAgent(agentId, targetRoomId, desk);
-    if (r.ok) for (const event of r.events) eventHandler(event);
-    return r;
-  }
-
-  function getAllAgents(): AgentInfo[] {
-    // info.queue is initialized empty and never mutated; the live queue lives on
-    // managed.messageQueue and reaches connected clients via incremental
-    // agent_updated events. Splice it in here so full_state (sent on each new WS
-    // connect) carries it too. Without this, a device opening the convo after
-    // another device already queued messages would render no queue chips.
-    // pendingPrompt is derived here for the same reason: it is live state, so
-    // full_state must carry today's value rather than whatever the last
-    // incremental event happened to set.
-    return [...agents.values()].map((a) => ({
-      ...a.info,
-      queue: unclaimedQueue(a),
-      pendingPrompt: pendingPromptOf(a),
-    }));
-  }
-
-  function getUsageReportData(audience: UsageAudience) {
-    return buildUsageReportData(agents, officeState.rooms, audience);
-  }
-
-  // Shared entry builder for the on-disk manifest (agents-summary.json) and
-  // the GET /agents discovery endpoint - one source so they can't drift.
-  function manifestEntries() {
-    const rooms = officeState.ordinaryRooms;
-    return [...agents.values()].map((a) => {
-      // The manifest's `room` number (and its room name) is a
-      // derived display field, recomputed from the authoritative roomId.
-      // Lobby occupants keep the manifest room:null wire contract.
-      const lobby = roomById(a.info.roomId)?.type === "lobby";
-      const roomIdx = rooms.findIndex((r) => r.id === a.info.roomId);
-      return {
-        id: a.info.id,
-        name: a.info.name,
-        desk: a.info.desk,
-        room: lobby ? null : roomIdx,
-        roomName: lobby
-          ? LOBBY_ROOM.name
-          : (rooms[roomIdx]?.name ?? `Room ${roomIdx + 1}`),
-        roomId: a.info.roomId,
-        topic: a.info.topic,
-        cwd: a.info.cwd,
-        modelFamily: a.info.modelFamily,
-        // The model the agent runs, as a canonical Anthropic id (claudeModelFor:
-        // a Bedrock or Vertex pin verbatim, else the canonical id of the model
-        // the alias runs), never the provider's regional or dated form. Codex
-        // and OpenCode already store their model ids.
-        model: isClaudeFamily(a.info.modelFamily)
-          ? claudeModelFor(a.info.modelFamily, a.info.claudeFamilyModels)
-          : a.info.modelFamily,
-        effort: a.info.effort,
-        // The mode the agent runs with: a stored Auto on a limited family
-        // reads as default. The stored value stays in agents.json.
-        permissionMode:
-          a.info.agentType === "claude"
-            ? claudePermissionModeFor(
-                a.info.modelFamily,
-                a.info.permissionMode,
-                a.info.limitedClaudeFamilies,
-              )
-            : a.info.permissionMode,
-        // Keep agentType out of the established compact discovery contract.
-        // The adjacent sandbox field remains Codex-only state.
-        sandbox: a.info.codexSandbox ?? null,
-        manager: a.info.manager,
-      };
-    });
-  }
-
-  function updateManifest() {
-    writeManifest(manifestEntries());
-  }
-
-  // Which two-step prompt an agent is parked on right now, or null. An unknown
-  // or killed id cannot be waiting for an
-  // answer. Read by the logs route so a transcript reader can tell a parked
-  // agent from one whose backend died.
-  function pendingPrompt(agentId: string): PendingPromptKind | null {
-    const managed = agents.get(agentId);
-    return managed ? pendingPromptOf(managed) : null;
-  }
-
-  function oldestActiveTool(managed: ManagedAgent) {
-    let oldest: { name: string; startedAt: number } | null = null;
-    for (const tool of managed.toolCallTimestamps.values()) {
-      if (!oldest || tool.startedAt < oldest.startedAt) oldest = tool;
-    }
-    return oldest;
-  }
-
-  function inFlightTurnForLogs(agentId: string): LogInFlightTurn | null {
-    const managed = agents.get(agentId);
-    if (!managed || !managed.sessionManager.turnIsLive(managed)) return null;
-    const activeTool = oldestActiveTool(managed);
-    return {
-      startedAt: managed.turnStartedAt,
-      activeTool: activeTool ? { ...activeTool } : null,
-    };
-  }
-
-  function inFlightTurnForManifest(
-    managed: ManagedAgent,
-  ): ManifestInFlightTurn | null {
-    if (!managed.sessionManager.turnIsLive(managed)) return null;
-    const activeTool = oldestActiveTool(managed);
-    return {
-      startedAt: managed.turnStartedAt,
-      activeTool: activeTool ? { startedAt: activeTool.startedAt } : null,
-    };
-  }
-
-  // Live manifest for GET /agents - same JSON shape as the file writeManifest
-  // persists to ~/.isomux/agents-summary.json, plus pendingPrompt.
-  //
-  // pendingPrompt is added HERE and not in manifestEntries (which both this and
-  // the file share) on purpose: it is live state, and the file is a snapshot.
-  // A written-at-prompt-time file read minutes later would assert a prompt that
-  // was answered long ago. Over HTTP the value is computed per request, so it
-  // cannot go stale.
-  function getManifest() {
-    return buildManifest(manifestEntries()).map((entry) => {
-      const managed = agents.get(entry.id);
-      return {
-        ...entry,
-        pendingPrompt: managed ? pendingPromptOf(managed) : null,
-        // Live state belongs only on the HTTP projection. Keeping it out of
-        // manifestEntries prevents agents-summary.json from freezing a turn
-        // snapshot that becomes false as soon as the turn ends.
-        inFlightTurn: managed ? inFlightTurnForManifest(managed) : null,
-      };
-    });
-  }
-
-  function persistedAgentOf(a: ManagedAgent): PersistedAgent {
-    return {
-      id: a.info.id,
-      name: a.info.name,
-      desk: a.info.desk,
-      cwd: a.info.cwd,
-      outfit: a.info.outfit,
-      permissionMode: a.info.permissionMode,
-      modelFamily: a.info.modelFamily,
-      effort: a.info.effort,
-      agentType: a.info.agentType,
-      codexSandbox: a.info.codexSandbox,
-      ...(a.info.officeFreeModel
-        ? { officeFreeModel: a.info.officeFreeModel }
-        : {}),
-      lastSessionId: a.sessionManager.sessionId,
-      topic: a.info.topic,
-      customInstructions: a.info.customInstructions,
-      userId: a.info.userId,
-      manager: a.info.manager,
-      roomId: a.info.roomId,
-      privileged: a.info.privileged ?? false,
-      ...accessFields(a.info),
-      ...spawnTreeFields(a.info),
-      ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
-      ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
-      ...(a.info.limitResume === false ? { limitResume: false } : {}),
-      ...(a.limitResumeAt !== null ? { limitResumeAt: a.limitResumeAt } : {}),
-      ...(a.officeFallback ? { officeFallback: true as const } : {}),
-    };
-  }
-
-  function persistAll() {
-    const rooms = officeState.rooms;
-    const persistedRooms: Room[] = rooms.map((r) => ({
-      id: r.id,
-      name: r.name,
-      prompt: r.prompt,
-      pet: r.pet ?? null,
-      skin: r.skin ?? null,
-      decor: r.decor ?? null,
-      ...(r.cwd ? { cwd: r.cwd } : {}),
-      type: r.type,
-      ...(r.id === LOBBY_ROOM_ID && lobbySeedPending
-        ? { defaultAgentPending: true as const }
-        : {}),
-      agents: [] as PersistedAgent[],
-    }));
-    for (const a of agents.values()) {
-      // Bucket into the persisted rooms array by the roomId-derived
-      // global index (AgentInfo no longer carries a dense room field).
-      const roomIdx = globalRoomIndexOf(a.info.roomId);
-      if (roomIdx >= 0 && roomIdx < persistedRooms.length) {
-        persistedRooms[roomIdx].agents.push(persistedAgentOf(a));
-      }
-    }
-    saveAgents(persistedRooms);
-    updateManifest();
-    updateAgentHistory();
-  }
-
-  // Snapshot live agents into history. Loop only iterates the live `agents`
-  // map, so killed entries are preserved as-is (their `killedAt` and revive
-  // payload stamped by `kill()` survive). Two consumers: /isomux-usage attribution
-  // for killed agents, and the spawn menu's revive chips (which read the snapshot
-  // to rehydrate config).
-  function updateAgentHistory() {
-    const history: AgentHistory = loadAgentHistory();
-    for (const a of agents.values()) {
-      const room = roomById(a.info.roomId);
-      if (!room) continue;
-      history[a.info.id] = {
-        name: a.info.name,
-        lastRoomId: room.id,
-        lastRoomName: room.name,
-        killedAt: null,
-        cwd: a.info.cwd,
-        outfit: a.info.outfit,
-        permissionMode: a.info.permissionMode,
-        modelFamily: a.info.modelFamily,
-        effort: a.info.effort,
-        agentType: a.info.agentType,
-        codexSandbox: a.info.codexSandbox,
-        ...(a.info.officeFreeModel
-          ? { officeFreeModel: a.info.officeFreeModel }
-          : {}),
-        lastSessionId: a.sessionManager.sessionId,
-        topic: a.info.topic,
-        customInstructions: a.info.customInstructions,
-        userId: a.info.userId,
-        manager: a.info.manager,
-        privileged: a.info.privileged ?? false,
-        ...accessFields(a.info),
-        ...spawnTreeFields(a.info),
-        ...(a.info.autoHandoff === false ? { autoHandoff: false } : {}),
-        ...persistedAutoHandoffTokens(a.info.autoHandoffTokens),
-        ...(a.info.limitResume === false ? { limitResume: false } : {}),
-      };
-    }
-    saveAgentHistory(history);
-  }
-
-  // Wire-summary chip payload for a live agent at kill time.
-  function buildKilledAgentSummary(
-    agentId: string,
-    a: ManagedAgent,
-  ): KilledAgentSummary | null {
-    const room = roomById(a.info.roomId);
-    if (!room) return null;
-    return {
-      id: agentId,
-      name: a.info.name,
-      agentType: a.info.agentType,
-      lastRoomId: room.id,
-      lastRoomName: room.name,
-      topic: a.info.topic,
-      killedAt: Date.now(),
-    };
-  }
-
-  // Wire-summary chip payload from a history entry. Legacy pre-revive entries
-  // (only name + lastRoom*, no killedAt) surface as Claude chips with their
-  // log-dir mtime as a proxy for the kill time - revive() defaults the
-  // missing config fields and tries to surface the on-disk transcript.
-  function killedAgentSummaryFromHistory(
-    agentId: string,
-    entry: AgentHistoryEntry,
-    fallbackKilledAt: number,
-  ): KilledAgentSummary {
-    return {
-      id: agentId,
-      name: entry.name,
-      agentType: entry.agentType ?? "claude",
-      lastRoomId: entry.lastRoomId,
-      lastRoomName: entry.lastRoomName,
-      topic: storedTopic(entry.topic),
-      killedAt: entry.killedAt ?? fallbackKilledAt,
-    };
-  }
-
-  // Shared body of the two killed-roster reads below. Takes an ALREADY-LOADED
-  // history so a caller that also needs to inspect entries does not pay a second
-  // read+parse of the file (loadAgentHistory is uncached).
-  function killedSummariesFrom(
-    history: AgentHistory,
-    include?: (id: string, entry: AgentHistoryEntry) => boolean,
-  ): KilledAgentSummary[] {
-    const summaries: KilledAgentSummary[] = [];
-    for (const [id, entry] of Object.entries(history)) {
-      if (agents.has(id)) continue; // revived agents have a history entry but are alive
-      if (include && !include(id, entry)) continue;
-      const fallback = entry.killedAt ? 0 : legacyKilledAtFromDisk(id);
-      // Skip entries with no killedAt AND no on-disk log dir - there's nothing
-      // to revive and no ordering signal.
-      if (!entry.killedAt && !fallback) continue;
-      summaries.push(killedAgentSummaryFromHistory(id, entry, fallback));
-    }
-    summaries.sort((a, b) => b.killedAt - a.killedAt);
-    return summaries;
-  }
-
-  // All currently-killed agents, sorted newest-first. Caller layers ACL
-  // filtering and the cap. Legacy entries (no killedAt) get the agent's log
-  // dir mtime as a proxy so they sort approximately by recency.
-  function getKilledAgentSummaries(): KilledAgentSummary[] {
-    return killedSummariesFrom(loadAgentHistory());
-  }
-
-  // The killed agents SPAWNED BY one user - the member-scoped reach behind
-  // GET /agents?killed=1, the same rule killedAgentLogAccess
-  // applies to the transcripts these ids unlock.
-  //
-  // Deliberately NOT `getKilledAgentSummaries().filter(k =>
-  // killedAgentManagerUserId(k.id) === userId)`: that lookup re-reads and
-  // re-parses agent-history.json for EVERY entry. This loads it once.
-  // A legacy entry with no recorded userId fails closed (undefined never
-  // matches a real userId), matching killedAgentManagerUserId's null.
-  function getKilledAgentSummariesForManager(
-    userId: string,
-  ): KilledAgentSummary[] {
-    return killedSummariesFrom(
-      loadAgentHistory(),
-      (_id, entry) => entry.userId === userId,
-    );
-  }
-
-  // Ids of agents KNOWN to be killed, for the storage pruner (which drops the
-  // keepPerAgent floor for them). Stricter than the killed roster on purpose:
-  // only an entry kill() stamped with killedAt counts. A legacy entry without
-  // it, or a live agent read before restoreAgents fills the live map (its entry
-  // carries killedAt: null), is not proven killed and keeps its protection.
-  function getKilledAgentIds(): Set<string> {
-    const ids = new Set<string>();
-    for (const [id, entry] of Object.entries(loadAgentHistory())) {
-      if (typeof entry.killedAt === "number" && !agents.has(id)) ids.add(id);
-    }
-    return ids;
-  }
-
-  // The spawning user recorded for a KILLED agent - one that is gone from the
-  // live map but still has its history entry (and its transcripts on disk).
-  // Gates the killed-agent branch of log reads, which is why it
-  // is a lookup of its own rather than a widening of the live-roster seams.
-  //
-  // Every unresolvable case fails closed with null: a LIVE agent (that one is
-  // the live path's business, never this one), an unknown id, and a legacy
-  // history entry from before agents recorded their user.
-  function killedAgentManagerUserId(agentId: string): string | null {
-    if (agents.has(agentId)) return null;
-    return loadAgentHistory()[agentId]?.userId ?? null;
-  }
-
-  // The room a KILLED agent was in when it died, or null for a live or
-  // unknown agent. Its files stay readable to that room after the kill.
-  function killedAgentLastRoomId(agentId: string): string | null {
-    if (agents.has(agentId)) return null;
-    return loadAgentHistory()[agentId]?.lastRoomId ?? null;
-  }
-
-  // For legacy entries (no kill-time stamp), use the agent's log directory
-  // mtime as a "last-touched" proxy. One stat call per legacy entry; fine
-  // for the ~100-entry scale this file reaches in practice.
-  function legacyKilledAtFromDisk(agentId: string): number {
-    try {
-      return statSync(join(STATE_ROOT, "logs", agentId)).mtimeMs;
-    } catch {
-      return 0;
-    }
-  }
-
-  // Shared per-agent install path used by both restoreAgents() at boot and
-  // revive(). Validates persisted config, builds AgentInfo + ManagedAgent,
-  // loads logs, attempts session startup. Boot skips the agent_added emit
-  // (full_state covers it on first connect); revive emits it after a
-  // successful install (rolls back via agents.delete + officeState.kill
-  // otherwise so the killed-agent chip stays retryable).
-  function restoreOrReviveAgent(opts: {
-    persisted: PersistedAgent;
-    roomIdx: number;
-    // Caller-chosen desk override (revive uses this; boot falls through to persisted.desk).
-    deskOverride?: number;
-    // The receptionist restores with the lobby as its room id: it has no
-    // container room, so roomIdx is ignored when this is set.
-    roomIdOverride?: string;
-    emitAgentAdded: boolean;
-    // Revive-only: on resume failure (missing/corrupt session), retry as
-    // fresh. Boot leaves the agent in error state with an explanation log.
-    fallbackToFreshOnResumeFailure?: boolean;
-    // Boot-only: restore the agent lazy (no subprocess) rather than eagerly
-    // spawning a session. The agent comes back on its desk, conversation intact,
-    // dormant; the first message wakes it via flushQueue's !session branch. This
-    // is what makes a restart free idle agents' RAM instead of re-spawning all
-    // of them at once (the OOM thundering-herd). Revive leaves this unset (eager,
-    // preserving its resume-failure fallback).
-    lazy?: boolean;
-  }): { sessionOk: boolean; sessionError: string | null } {
-    const p = opts.persisted;
-    const restoredCwd = p.cwd;
-    const agentType = p.agentType ?? "claude";
-    const userId = resolveAgentUserId(p);
-    // Canonicalize persisted values without making one malformed agent stop the
-    // boot restore. Interactive spawn/edit applies the stricter mismatch guard.
-    const { modelFamily, permissionMode, effort, codexSandbox } =
-      resolveAgentEngineSettings(agentType, p);
-    // Tag any pre-feature sessions (no stored engine) with this agent's current
-    // engine before it can switch. Runs once per agent at boot/revive; at this
-    // point current-engine == the engine every existing session ran under, so a
-    // later cross-engine resume of an old session flips back correctly instead of
-    // dead-ending on a wrong-backend createSession. (See backfill comment.)
-    backfillSessionEngineConfigs(p.id, {
-      agentType,
-      modelFamily,
-      effort,
-      permissionMode,
-      codexSandbox,
-    });
-    // Silent restore policy: each backend classifies its own stored session;
-    // this caller decides that only durable sessions auto-resume.
-    let resumeSessionId: string | null = null;
-    // The stored state of a session this restore drops, for its note.
-    let droppedState: StoredSessionState | null = null;
-    if (p.lastSessionId) {
-      try {
-        let restoreEnv = buildEnvForUserId(userId);
-        if (agentType === "claude") {
-          const root = resolveClaudeSessionRoot(
-            p.lastSessionId,
-            restoredCwd,
-            restoreEnv,
-            getSessionClaudeConfigDir(p.id, p.lastSessionId),
-            userId,
-          );
-          ensureSessionClaudeConfigDir(p.id, p.lastSessionId, root);
-          restoreEnv = {
-            ...(restoreEnv ?? getAgentHost().baseEnv()),
-            CLAUDE_CONFIG_DIR: root,
-          };
-        }
-        const stored = getBackend(agentType).inspectStoredSession(
-          p.lastSessionId,
-          {
-            cwd: restoredCwd,
-            env: restoreEnv,
-            environmentKey: environmentSourceKeyForUserId(userId),
-          },
-        );
-        if (stored === "durable") resumeSessionId = p.lastSessionId;
-        else droppedState = stored;
-      } catch {
-        // Preserve the previous indeterminate rule: let the backend attempt
-        // the resume and surface a precise error instead of silently dropping.
-        resumeSessionId = p.lastSessionId;
-      }
-    }
-    const desk = opts.deskOverride ?? p.desk;
-    // Resolve the agent's stable roomId from its container room
-    // (opts.roomIdx is the physical truth from the persisted bucket). Clamp +
-    // log if the index is out of range (corrupt state) rather than silently
-    // mapping to room 0.
-    const containerRoom = officeState.rooms[opts.roomIdx];
-    if (opts.roomIdOverride) {
-      // No container room to reconcile against.
-    } else if (!containerRoom) {
-      console.error(
-        `[3c] restore: roomIdx ${opts.roomIdx} out of range for agent ${p.id} (${officeState.rooms.length} room(s)); clamping to room 0`,
-      );
-    } else if (p.roomId && p.roomId !== containerRoom.id) {
-      console.log(
-        `[3c] restore: agent ${p.id} persisted roomId ${p.roomId} != container ${containerRoom.id}; using container`,
-      );
-    }
-    const roomId =
-      opts.roomIdOverride ??
-      containerRoom?.id ??
-      officeState.rooms[0]?.id ??
-      "";
-    const info: AgentInfo = {
-      id: p.id,
-      name: p.name,
-      desk,
-      roomId,
-      cwd: restoredCwd,
-      outfit: p.outfit,
-      permissionMode,
-      modelFamily,
-      effort,
-      // Pose tracks whether there's a conversation, not whether the subprocess
-      // is loaded. A resumable session (resumeSessionId set) comes back
-      // "waiting_for_response" - it finished its last turn and is waiting on the
-      // human - whether restored eagerly or lazily; only a genuinely blank agent
-      // (no resumable session) is "idle". Keying this off opts.lazy used to leak
-      // the RAM detail into the UI: every conversation agent slept (idle pose)
-      // after a restart until messaged, and lost Tab priority to blank desks.
-      // editMessage forks from the on-disk session, so a dormant
-      // "waiting_for_response" agent edits fine (the fork wakes it).
-      state: resumeSessionId ? "waiting_for_response" : "idle",
-      topic: storedTopic(p.topic),
-      topicGenerating: false,
-      customInstructions: p.customInstructions ?? null,
-      // Derived from the blob (never persisted separately), so legacy records
-      // that predate the field backfill correctly on load.
-      customInstructionsVersion: versionOf(p.customInstructions ?? ""),
-      agentType,
-      ...(codexSandbox ? { codexSandbox } : {}),
-      ...(p.officeFreeModel ? { officeFreeModel: p.officeFreeModel } : {}),
-      capabilities: getBackend(agentType).capabilities,
-      limitedClaudeFamilies: limitedClaudeFamiliesForUserId(userId),
-      claudeFamilyModels: claudeFamilyModelsForUserId(userId),
-      userId,
-      manager: p.manager ?? null,
-      privileged: p.privileged ?? false,
-      ...accessFields(p),
-      ...spawnTreeFields(p),
-      ...(p.autoHandoff === false ? { autoHandoff: false } : {}),
-      ...persistedAutoHandoffTokens(p.autoHandoffTokens),
-      ...(p.limitResume === false ? { limitResume: false } : {}),
-      queue: [],
-      sessionSwapping: false,
-      turnMemberIds: [],
-      // Dormant iff lazy-restored (no subprocess). Eager paths install a session
-      // below, which clears it (already false here, so installSession no-ops).
-      dormant: !!opts.lazy,
-    };
-    officeState.addExistingAgent(info);
-    // Boot migration runs after managers load persisted state. Keep skill
-    // discovery from turning a pending env import into a boot failure; session
-    // creation still resolves the env again and surfaces the repair instruction.
-    let discoveryEnv: { [key: string]: string | undefined } | undefined;
-    try {
-      discoveryEnv = buildEnvForUserId(userId);
-    } catch {
-      discoveryEnv = undefined;
-    }
-    const discoverySkillRoots = userSkillRootsForInfo(info, discoveryEnv);
-    const sessionManager = new SessionManager<ManagedAgent>(
-      p.id,
-      sessionManagerDeps,
-      resumeSessionId,
-    );
-    const managed: ManagedAgent = {
-      info,
-      sessionManager,
-      slashCommands: autocompleteCommands(info.agentType),
-      skills: deduplicateSkills([
-        ...discoverUserSkills(discoverySkillRoots),
-        ...discoverProjectSkills(p.cwd, info.agentType),
-        // Only Claude loads plugin skills.
-        ...(info.agentType === "claude"
-          ? discoverPluginSkills(
-              discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
-              p.cwd,
-            )
-          : []),
-        ...discoverBundledSkills(),
-        // Account-synced skills are Claude's too.
-        ...(info.agentType === "claude"
-          ? discoverSyncedSkills(
-              discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
-              null,
-              new Set(),
-            )
-          : []),
-      ]),
-      sdkReportedCommands: [],
-      reportedPlugins: null,
-      reportedSkills: null,
-      thinkingStartedAt: 0,
-      turnStartedAt: 0,
-      lastNormalizedEventAt: 0,
-      busyTurnWatchdogObserved: false,
-      toolCallTimestamps: new Map(),
-      topicGenToken: 0,
-      topicBackoff: null,
-      summaryPending: null,
-      contextUsage: null,
-      contextGen: 0,
-      contextSampleSeq: 0,
-      contextUsageCommittedSeq: 0,
-      contextSampleInFlight: null,
-      firedAgentThresholds: new Set(),
-      firedUiThresholds: new Set(),
-      memoryNotice: null,
-      memoryNoticeFired: false,
-      wakeNotice: null,
-      stopNotice: null,
-      settingsNotice: null,
-      autoHandoffPhase: null,
-      autoHandoffSpent: false,
-      autoHandoffCapture: null,
-      autoHandoffOpened: false,
-      autoHandoffNotice: null,
-      limitStopResetsAtMs: null,
-      limitResumeAt: null,
-      officeFallback: p.officeFallback === true,
-      pendingFreshRecoveryNotice: false,
-      authNeededThisTurn: false,
-      subscriptionUsage: null,
-      subscriptionGen: 0,
-      subscriptionSampleSeq: 0,
-      subscriptionCommittedSeq: 0,
-      pendingResume: false,
-      pendingResumeSessions: [],
-      pendingModelPick: false,
-      pendingEffortPick: false,
-      pendingInteraction: null,
-      pendingPermission: null,
-      queuedPermissions: [],
-      ptySidecar: null,
-      ptyBuffer: "",
-      lastWrittenEntryId: null,
-      messageQueue: [],
-      autoResumeInProgress: false,
-      flushInProgress: false,
-      queueHolds: new Set(),
-      backendHold: null,
-      freeModelResend: null,
-      freeModelRetryTurn: false,
-      flushStartedAt: 0,
-      lastForcedRecoveryAt: 0,
-      recentSteers: [],
-      queueDedupe: new Map(),
-      lastActiveAt: Date.now(),
-      // A never-started agent stays a blank conversation across a restart,
-      // and so does one whose stored session this restore dropped: its note
-      // is already in the chat (noteUnresumableSession). Mark those fresh so
-      // the first wake adds no other notice.
-      dormantReason: opts.lazy
-        ? p.lastSessionId && !droppedState
-          ? "boot"
-          : "fresh"
-        : null,
-    };
-    // Re-seed the durable queue + dedupe window
-    // persisted by the previous run so a restart doesn't drop queued messages
-    // (delivery order preserved; expired dedupe keys dropped). restoreAgents
-    // kicks a flush for every non-empty replayed queue after the loop. A
-    // revived agent has no record (kill removes it), so this no-ops there.
-    const persisted = readPersistedQueueRecord(p.id);
-    if (persisted) {
-      managed.messageQueue = persisted.queue;
-      managed.queueDedupe = persisted.dedupe;
-    }
-    agents.set(p.id, managed);
-    // Mint (or rotate, on revive) the agent's bearer token before any
-    // createSession/resumeSession below reads it via buildSessionEnv. Boot
-    // restore and revive both funnel here, so "rotated on revive" is automatic;
-    // revoked when the agent leaves the map (kill, or the revive rollback). The
-    // persisted privileged flag stamps the token's capability set.
-    mintAgentToken(p.id, tokenUserIdFor(info), accessGrantOf(p));
-    if (p.lastSessionId && droppedState)
-      noteUnresumableSession(p.id, agentType, p.lastSessionId, droppedState);
-
-    if (resumeSessionId) {
-      const history = loadLogWithAncestors(p.id, resumeSessionId);
-      if (history.length > 0) {
-        logCache.set(p.id, [...history]);
-      }
-    }
-
-    // Lazy restore: stop here. The agent is on its desk (addExistingAgent above),
-    // state="idle", dormant=true, sessionId set, transcript loaded into logCache,
-    // and its token is minted - everything the wake path needs. The first message
-    // resumes it via flushQueue's !session branch, which writes its own
-    // interruption marker from the logCache tail. No createSession = no boot
-    // subprocess and zero idle RAM. (emitAgentAdded is false on boot; the snapshot
-    // returned by restoreAgents carries the agent.)
-    if (opts.lazy) {
-      if (opts.emitAgentAdded) emit({ type: "agent_added", agent: info });
-      return { sessionOk: true, sessionError: null };
-    }
-
-    // Decision now, write later: the marker only lands on disk after
-    // session install succeeds AND we actually resumed (not fresh-fellback).
-    // See gated addLogEntry below.
-    const shouldAddInterruptionMarker = !!(
-      resumeSessionId &&
-      needsInterruptionMarker((logCache.get(p.id) ?? []).at(-1))
-    );
-
-    // Session install: try resume, optionally fall back to fresh on failure,
-    // record state=error if both fail. agent_added is deferred to after this
-    // settles so the broadcast state reflects reality (and so a failed revive
-    // never emits an add the client will then see removed).
-    let sessionOk = false;
-    let sessionError: LogMessage | string | null = null;
-
-    try {
-      const session = resumeSessionId
-        ? createSession(managed, resumeSessionId)
-        : createSession(managed);
-      managed.sessionManager.installSession(managed, session);
-      sessionOk = true;
-    } catch (err) {
-      sessionError = errorText(err);
-      if (resumeSessionId && opts.fallbackToFreshOnResumeFailure) {
-        console.warn(
-          `[revive] Resume of ${p.name} failed, falling back to fresh session: ${errMessage(err)}`,
-        );
-        summarizeEndedSession(p.id, managed.sessionManager.sessionId);
-        managed.sessionManager.sessionId = null;
-        // Keep the loaded transcript in logCache so the chat view shows the
-        // historical conversation (especially important for legacy revivals
-        // where the SDK can never resume because cwd/project dir don't
-        // match). New messages start a fresh SDK session that doesn't have
-        // that context, but the member can read the past.
-        // Clear the historical topic - it was derived from the OLD session
-        // that we can no longer resume. The fresh session will regenerate
-        // its own topic from new messages.
-        officeState.updateAgent(p.id, { state: "idle", topic: null });
-        try {
-          const freshSession = createSession(managed);
-          managed.sessionManager.installSession(managed, freshSession);
-          sessionOk = true;
-          sessionError = null;
-        } catch (err2) {
-          sessionError = errorText(err2);
-        }
-      }
-    }
-
-    if (!sessionOk) {
-      console.error(
-        `Failed to restore session for ${p.name}:`,
-        sessionError === null
-          ? "(unknown)"
-          : renderLogText(english, sessionError),
-      );
-      officeState.updateAgent(p.id, { state: "error" });
-      const entry: LogEntry = {
-        id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        agentId: p.id,
-        timestamp: Date.now(),
-        kind: "error",
-        ...logTextFields(
-          msg("systemEntries.restoreOnStartupFailed", {
-            error: sessionError ?? "(unknown)",
-          }),
-        ),
-      };
-      const cached = logCache.get(p.id) ?? [];
-      cached.push(entry);
-      logCache.set(p.id, cached);
-    }
-
-    // Marker write: only after resume actually happened (fresh fallback
-    // nulls managed.sessionManager.sessionId so this skips). Mirrors the SDK's own lazy
-    // placeholder for interrupted-on-resume sessions.
-    if (
-      sessionOk &&
-      shouldAddInterruptionMarker &&
-      resumeSessionId !== null &&
-      managed.sessionManager.sessionId === resumeSessionId
-    ) {
-      addLogEntry(p.id, "system", msg("systemEntries.previousInterrupted"));
-    }
-
-    // Emit only on success so a failed revive doesn't flicker an add the
-    // client will then see removed by the rollback.
-    if (opts.emitAgentAdded && sessionOk) {
-      emit({ type: "agent_added", agent: info });
-    }
-
-    return {
-      sessionOk,
-      sessionError:
-        sessionError === null ? null : renderLogText(english, sessionError),
-    };
-  }
-
-  // Restore agents from disk on startup. Creates sessions and loads log history.
-  // Boot step 2 of the OpenCode profile key migration
-  // (server/opencode-profile-keys.ts): the pending moves, one after the
-  // other, within one total limit. Each move that ends leaves the file, so a
-  // failed move does not run at every boot; moves the limit cut off stay for
-  // the next boot, and the boot goes on.
-  async function runPendingProfileKeyMoves(): Promise<void> {
-    let moves: ProfileKeyMove[];
-    try {
-      moves = readProfileKeyState()?.pendingMoves ?? [];
-    } catch (error) {
-      console.error(`[opencode] ${errMessage(error)}`);
-      return;
-    }
-    if (moves.length === 0) return;
-    const limitMs = deps.profileKeyMoveLimitMs ?? 60_000;
-    let expired = false;
-    const run = (async () => {
-      for (const move of moves) {
-        if (expired) return;
-        try {
-          await moveOpenCodeSession({
-            sessionId: move.sessionId,
-            fromProfileDir: openCodeProfilePaths(move.fromKey).profileDir,
-            target: openCodeSupervisorForEnvironment(
-              move.toKey,
-              buildOpenCodeLaunchEnvironmentForUserId(move.userId),
-              openCodeEnvironmentRevisionForUserId(move.userId),
-              agentMcpServers(move.userId),
-              openCodeSkillPathsForUserId(move.userId),
-            ),
-            targetEnvironmentKey: move.toKey,
-          });
-          completeProfileKeyMove(move);
-        } catch (error) {
-          // The owner's environment did not load: the move stays pending.
-          console.error(
-            `[opencode] session ${move.sessionId} of agent ${move.agentId} was not moved: ${errMessage(error)}`,
-          );
-        }
-      }
-    })();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const outcome = await Promise.race([
-      run.then(() => "done" as const),
-      new Promise<"expired">((resolve) => {
-        timer = setTimeout(() => resolve("expired"), limitMs);
-      }),
-    ]);
-    clearTimeout(timer);
-    if (outcome === "expired") {
-      expired = true;
-      console.error(
-        `[opencode] the profile moves took over ${limitMs / 1000} s; the rest wait for the next boot`,
-      );
-    }
-  }
-
-  async function restoreAgents() {
-    // Clean up the pre-0.2.116 per-agent launcher scripts. Isomux now passes the
-    // native Claude binary directly, so these are orphaned.
-    try {
-      rmSync(join(STATE_ROOT, "launchers"), {
-        recursive: true,
-        force: true,
-      });
-    } catch {}
-
-    // Before any restore inspects a session: an agent's last session that
-    // the profile key migration moves must be in its new profile by then.
-    await runPendingProfileKeyMoves();
-
-    // Rooms were seeded at module init from initialLoadedAgents - reuse
-    // the cached value rather than re-running loadAgents() here. Reading
-    // agents.json twice on boot was harmless but wasteful, and the
-    // cached version is what auth.ts's snapshot provider already saw.
-    const loaded = initialLoadedAgents;
-
-    for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
-      for (const p of loaded[roomIdx].agents) {
-        restoreOrReviveAgent({
-          persisted: p,
-          roomIdx,
-          emitAgentAdded: false,
-          // Boot restores agents lazy: no subprocess until first message. Frees
-          // idle RAM and removes the all-at-once respawn spike on restart.
-          lazy: true,
-        });
-        restoreLimitResume(p);
-      }
-    }
-    // Round-trip migrations back to disk in case the load step filled in new
-    // fields (room ids, prompt/envFile defaults) that weren't present before.
-    // Must run AFTER agents are populated or persistAll writes empty rooms.
-    persistAll();
-    try {
-      officeState.setTasksDirect(taskStore.load());
-    } catch (error) {
-      console.error(
-        "[tasks] could not load task storage; starting with an empty board",
-        error,
-      );
-      officeState.setTasksDirect([]);
-    }
-    officeStatePersistenceEnabled = true;
-    // Durable-queue hygiene: drop records for agents that no
-    // longer exist (e.g. killed while the store write failed, or removed from
-    // agents.json by hand). Copy-on-success like every store write: the cache
-    // only advances to the pruned view once it is actually on disk.
-    {
-      const stale = Object.keys(queueStore()).filter((k) => !agents.has(k));
-      if (stale.length > 0) {
-        const next = { ...queueStore() };
-        for (const key of stale) delete next[key];
-        try {
-          saveMessageQueues(next);
-          setQueueStoreCache(next);
-        } catch (err) {
-          console.error(
-            "Failed to prune stale message-queue records:",
-            errMessage(err),
-          );
-        }
-      }
-    }
-    // Wakes after the restart, before the replay kick so a wake for an agent
-    // with queued messages joins that replay.
-    restoreRestartWakes();
-    // Boot replay kick: resume delivery exactly where the restart cut it off.
-    // Fire-and-forget - each flush wakes its (dormant) agent via the !session
-    // resume branch. The turn runner is configured before restoreAgents runs
-    // (see isomux-office.ts boot ordering), so runAgentTurn is safe to enter. The
-    // queue watchdog is the backstop if any kick is lost.
-    for (const [agentId, m] of agents) {
-      if (m.messageQueue.length > 0) {
-        console.log(
-          `Replaying ${m.messageQueue.length} queued message(s) for ${m.info.name} (${agentId})`,
-        );
-        flushQueue(agentId).catch((err: unknown) => {
-          console.error(
-            `flushQueue (boot-replay) failed for ${agentId}:`,
-            errMessage(err),
-          );
-        });
-      }
-    }
-    return [...agents.values()].map((a) => a.info);
-  }
-
-  function getAgent(agentId: string): AgentInfo | undefined {
-    return agents.get(agentId)?.info;
-  }
-
-  // The agents a member spawned (the integrations page lists what their
-  // Claude sessions report).
-  function agentIdsOfUser(userId: string): string[] {
-    return [...agents.values()]
-      .filter((managed) => managed.info.userId === userId)
-      .map((managed) => managed.info.id);
   }
 
   // The remote MCP servers a member's agents get (server/mcp-servers.ts).

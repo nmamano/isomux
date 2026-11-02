@@ -1107,7 +1107,7 @@ export function loadAgents(): Room[] {
       // userId resolution from the legacy manager snapshot lives in
       // agent-manager.ts (which can statically import users.ts without
       // creating a cycle with persistence.ts). loadAgents() leaves the
-      // field unset; restoreAgents() in agent-manager fills it.
+      // field unset; restoreAgents() (server/agent-restore.ts) fills it.
     }
   }
   if (migratedAgents > 0) {
