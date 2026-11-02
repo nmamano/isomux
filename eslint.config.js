@@ -62,17 +62,16 @@ export default tseslint.config(
     },
   },
   {
-    // The no-unsafe-* family stays on for production code and is off for
-    // test code only: tests read response bodies and fixtures as `any`, and a
-    // wrong shape there fails the test itself.
-    files: ["**/*.test.{ts,tsx}", "server/test-support/**"],
-    rules: {
-      "@typescript-eslint/no-unsafe-argument": "off",
-      "@typescript-eslint/no-unsafe-assignment": "off",
-      "@typescript-eslint/no-unsafe-call": "off",
-      "@typescript-eslint/no-unsafe-member-access": "off",
-      "@typescript-eslint/no-unsafe-return": "off",
-    },
+    // Type-aware lint is off on test code. Typing the tests cost about 1 GB of
+    // ESLint's 3 GB heap (task abf51744, 2026-11-02), and any one type-aware
+    // rule left on them brings most of it back. tsc still checks the tests,
+    // and a wrong shape there fails the test itself.
+    files: [
+      "**/*.test.{ts,tsx}",
+      "server/test-support/**",
+      "ui/test-support/**",
+    ],
+    ...tseslint.configs.disableTypeChecked,
   },
   {
     // The control plane's store is Promise-based, and a DROPPED AWAIT there is
@@ -81,8 +80,10 @@ export default tseslint.config(
     // rules are the fence, and they are pinned here rather than left to the
     // recommended preset so a future trim of that preset cannot remove them.
     // The same block exists in control-plane/web/eslint.config.mjs, because
-    // this config ignores that directory.
+    // this config ignores that directory. It turns type information back on
+    // for control-plane tests too, which the test block above turned off.
     files: ["control-plane/**/*.{ts,tsx}"],
+    languageOptions: { parserOptions: { projectService: true } },
     rules: {
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",

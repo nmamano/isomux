@@ -38,7 +38,6 @@ async function runOfficeScenario(
   let site: ReturnType<typeof Bun.serve> | undefined;
   let popup: Awaited<ReturnType<typeof openExtensionActionPopup>> | undefined;
   const frameEvents = { attached: 0, navigated: 0 };
-  // eslint-disable-next-line @typescript-eslint/unbound-method -- called below with the exact connection as this.
   const originalReceive = ExtensionConnection.prototype.receive;
   const traceFrames = spyOn(
     ExtensionConnection.prototype,

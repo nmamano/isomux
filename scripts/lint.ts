@@ -4,10 +4,13 @@ const ESLINT_HEAP_MB = 4_096;
 
 const GIB = 1024 ** 3;
 // ESLint threads cost memory, and parallel CI stages once had earlyoom kill
-// agents on a busy box. Measured 2026-10-07 on the whole tree: no threads
-// peaked at 3.3 GiB, four at 7.5 GiB, so about 1.05 GiB a thread; a desktop
-// `bun run ci` with no lint threads took 5.65 GiB of available memory. The
-// reserve keeps the rest of CI and the machine clear of the threads.
+// agents on a busy box. Measured 2026-11-02 on the whole tree: no threads
+// peaked at 3.8 GiB, two at 6.4 GiB, four at 10.4 GiB (each thread builds its
+// own TypeScript program); a desktop `bun run ci` with no lint threads took
+// 5.65 GiB of available memory (2026-10-07). LINT_THREAD_BYTES is a budget
+// below a thread's real cost (about 2.2 GiB); the reserve carries the margin
+// and keeps the rest of CI and the machine clear of the threads: four threads
+// start only with 21 GiB available and leave more than 10 GiB.
 export const LINT_RESERVE_BYTES = 16 * GIB;
 export const LINT_THREAD_BYTES = 1.25 * GIB;
 export const MAX_LINT_THREADS = 4;
