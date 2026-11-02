@@ -122,7 +122,7 @@ export function mintAgentToken(
 }
 
 // The current raw token for an agent, or null if none is live. Used by the
-// env-injection chokepoint (agent-manager buildSessionEnv).
+// env-injection chokepoint (buildSessionEnv in server/session-accounts.ts).
 export function getAgentTokenRaw(agentId: string): string | null {
   return byKey.get(agentKey(agentId))?.raw ?? null;
 }

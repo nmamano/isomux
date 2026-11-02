@@ -17,7 +17,7 @@ The code reads the manager for these behaviors:
 
 - **Process environment and sign-in.** Every backend create, resume, stored-
   session check and terminal launch selects the member's managed variables with
-  `userId` (`buildSessionEnv` in `server/agent-manager.ts`; `server/terminal.ts`).
+  `userId` (`buildSessionEnv` in `server/session-accounts.ts`; `server/terminal.ts`).
   Member variables override office variables. An active personal Claude or
   Codex connection also selects that member's `CLAUDE_CONFIG_DIR` or
   `CODEX_HOME` (`server/env-loader.ts`; `server/provider-homes.ts`).

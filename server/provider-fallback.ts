@@ -15,10 +15,10 @@
 // the counter of its start. provider-account-state.json stores no account
 // identity, so the counter stands in for one.
 //
-// This module keeps the switch and the state. agent-manager does the rest:
-// it starts an entry at a stop, and at each turn start it moves the agent's
-// conversation to the account the state wants (alignAccount; design in task
-// 2008c993).
+// This module keeps the switch and the state. server/session-accounts.ts
+// does the rest: it starts an entry at a stop, and at each turn start it
+// moves the agent's conversation to the account the state wants
+// (alignAccount; design in task 2008c993).
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
