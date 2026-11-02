@@ -40,31 +40,23 @@ import {
   providerHomesOf,
   type FolderRuleState,
 } from "./agent-folder-rules.ts";
-import {
-  createGithubLinkStore,
-  createGithubSync,
-  type GithubLinkStore,
-  type GithubSync,
-} from "./github-sync.ts";
+import { type GithubSync } from "./github-sync.ts";
 import { githubSyncHandlers } from "./routes/handlers/github-sync.ts";
 import { formatIssueData } from "../shared/github-issue.ts";
 import { officeAuditStore, recordAudit } from "./audit-store.ts";
 import { noteAuditTarget, notePromptContent } from "./audit-context.ts";
-import { BrowserExtensionStore } from "./browser-extension-store";
 import {
-  BrowserExtensionService,
   EXTENSION_SOCKET_PATH,
   extensionUpgradeAllowed,
   type ExtensionWsData,
 } from "./browser-extension-service";
-import { ExtensionBrowserSessions } from "./browser-extension-session";
 import { browserExtensionHandlers } from "./routes/handlers/browser-extension";
 import { renderReceptionistProfile } from "./receptionist-profile.ts";
 import {
   RECEPTIONIST_PROFILE_KEY,
   RECEPTIONIST_OUTFIT,
 } from "../shared/receptionist-profile.ts";
-import { english, translatorForRequest, translatorForUserId } from "./i18n.ts";
+import { english, translatorForRequest } from "./i18n.ts";
 import {
   msg,
   renderLogText,
@@ -110,28 +102,16 @@ import { setProcessName } from "./process-name.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
-import { codexSandboxProbe } from "./backends/codex/sandbox-probe.ts";
 import { engineRunsAccessHere } from "./backends/access-here.ts";
-import { createProductionAgentManager } from "./agent-manager.ts";
 import {
   SpawnAccessRefusedError,
   type AgentManager,
   type SpawnAccessRefusal,
 } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
-import {
-  createProductionCronjobManager,
-  registerProductionCronjobManagerForModuleReads,
-} from "./cronjob-manager.ts";
+import { registerProductionCronjobManagerForModuleReads } from "./cronjob-manager.ts";
 import type { CronjobManager } from "./cronjob-manager.ts";
-import { createScheduledMessageManager } from "./scheduled-messages.ts";
-import {
-  createPagerFilePersistence,
-  createPagerArchiveFile,
-  createPagerStore,
-  pagerEntryVisible,
-  type PagerStore,
-} from "./pager-store.ts";
+import { pagerEntryVisible } from "./pager-store.ts";
 import {
   askMemberWire,
   askAudienceFor,
@@ -139,39 +119,14 @@ import {
   askShownToOwnerAsOther,
   askAgentWire,
   AsksUnavailableError,
-  createAskFilePersistence,
-  createAskStore,
   type AskAudienceDeps,
   type AskChange,
-  type AskStore,
 } from "./asks.ts";
-import {
-  createPagerSettingsFilePersistence,
-  createPagerSettingsStore,
-  type PagerSettingsStore,
-} from "./pager-settings.ts";
-import {
-  createPagerDelivery,
-  type PagerDeliveryService,
-} from "./pager-delivery.ts";
-import {
-  createWebPushFilePersistence,
-  createWebPushStore,
-  type WebPushStore,
-} from "./web-push-store.ts";
-import {
-  createWebPushDelivery,
-  type WebPushDeliveryService,
-} from "./web-push-delivery.ts";
-import { createTurnEndWatch } from "./turn-end-watch.ts";
-import type { ScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   loadRecentCwds,
   saveRecentCwd,
   getFilePath,
   saveFile,
-  loadScheduledMessagesRaw,
-  saveScheduledMessages,
   loadServerConfig,
   saveServerConfig,
   loadSessionsMap,
@@ -256,7 +211,6 @@ import {
   type RefusedFreeModelReplacer,
   type WelcomeModelRetryTiming,
 } from "./welcome-opencode-model.ts";
-import { openCodeUnsupportedReason } from "./backends/opencode/runtime.ts";
 import { checkOpenCodeModels } from "./opencode-model-check.ts";
 import {
   buildProductionGuardDeps,
@@ -285,7 +239,6 @@ import {
 } from "./users.ts";
 import { homedir, hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
-import { trackUiBuild, type UiBuildTracker } from "./ui-build.ts";
 import {
   isCredentialStorePath,
   CREDENTIAL_PATH_MESSAGE,
@@ -365,7 +318,6 @@ import {
   processIsolationNow,
   reportIsolationSetupFailure,
   runProcessIsolationProbe,
-  setProcessIsolationSwitch,
 } from "./process-isolation-state.ts";
 import { matchRoute } from "./routes/match.ts";
 import { handleMcpRequest, type McpEndpointDeps } from "./mcp-endpoint.ts";
@@ -433,17 +385,11 @@ import { previewAppGrant } from "./app-preview-grant.ts";
 import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
 import { recheckOpenAppSockets, type AppRelayWsData } from "./app-ws-relay.ts";
 import {
-  appSupervisor as productionAppSupervisor,
   UNKNOWN_RUNTIME,
   type AppRuntime,
   type AppSupervisor,
 } from "./app-supervisor.ts";
 import { appTokens, setAppOwnerAgentResolver } from "./app-tokens.ts";
-import { createContainerAppSupervisor } from "./container-app-supervisor.ts";
-import {
-  appHostingUnsupportedReason,
-  createUnavailableAppSupervisor,
-} from "./app-hosting.ts";
 import { appMessageLimiter } from "./app-message-limits.ts";
 import { reconcileAppTokens } from "./app-token-reconcile.ts";
 import { reconcileAppUrls } from "./app-url-reconcile.ts";
@@ -478,12 +424,7 @@ import {
   membersChatHandlers,
   type MembersChatAuthor,
 } from "./routes/handlers/members-chat.ts";
-import {
-  createMembersChatStore,
-  type MembersChatStore,
-} from "./members-chat.ts";
 import { floorsHandlers } from "./routes/handlers/floors.ts";
-import { createFloorsStore, type FloorsStore } from "./floors-store.ts";
 import {
   officeCardResponse,
   probeOffice,
@@ -546,7 +487,6 @@ import {
   claudeEngineServersFor,
 } from "./claude-connectors.ts";
 import {
-  ProviderAccountManager,
   type CreateClaudeAccountClient,
   type CreateCodexAccountClient,
 } from "./provider-account-manager.ts";
@@ -594,7 +534,6 @@ import {
   resetProviderFallback,
 } from "./provider-fallback.ts";
 import { measureStorageCached, type StorageRoots } from "./storage-usage.ts";
-import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
 import { planCompress, applyCompress } from "./storage-compress.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
@@ -630,6 +569,34 @@ import type {
 import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
+import {
+  agentManager,
+  cronjobManager,
+  scheduledMessageManager,
+  pagerStore,
+  askStore,
+  membersChat,
+  floors,
+  pagerSettings,
+  pagerDelivery,
+  webPushStore,
+  webPushDelivery,
+  githubLinks,
+  githubSync,
+  uiBuildTracker,
+  turnEndWatch,
+  providerAccountManager,
+  appSupervisor,
+  discoverWelcomeOpenCodeModels,
+  listCodexModelsSeam,
+  storageRoots,
+  codexModelDiscoveryTimeoutMs,
+  extensionService,
+  extensionSessions,
+  openCodeRunsOnHost,
+  appHostingUnsupported,
+  createManagers,
+} from "./office-managers.ts";
 import { taskDeltaFor } from "./events/task-delta.ts";
 import { taskVisibleTo, type TaskViewer } from "./task-visibility.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
@@ -667,8 +634,6 @@ import {
 } from "./identity/index.ts";
 import {
   scheduleExceedsAgent,
-  scheduleLimitBreach,
-  scheduleRunRefusal,
   type ScheduleLimitAgent,
 } from "./cron-agent-limits.ts";
 import {
@@ -750,13 +715,6 @@ function bootPrelude(): void {
   // A file that cannot be read or written stops the boot here.
   loadOfficeId();
 } // end bootPrelude
-
-// AgentManager / CronjobManager instances. Module-level `let` (not top-level
-// `const`) so startServer() can inject test doubles or a FakeBackend resolver;
-// production passes none and gets the real factories. The many handler closures
-// below read these after startServer() has assigned them (never before).
-let agentManager: AgentManager;
-let cronjobManager: CronjobManager;
 
 // Secrets (internal-docs/secrets-design.md): the store, and the runtime that
 // runs the proxy and gives agents placeholders. The runtime acts only after
@@ -864,20 +822,12 @@ const isLiveAppGrant = (grant: AppGrant): boolean =>
 setMcpPlaceholderProvider((scope, name) =>
   secretsRuntime.placeholderOf(scope, name),
 );
-let scheduledMessageManager: ScheduledMessageManager;
-let pagerStore: PagerStore;
-let askStore: AskStore | undefined;
 // Step asks (task c71cb60f): made with the routes. Every hook that may have
 // done a step calls stepsChanged.
 let stepAsks: StepAsks | undefined;
 function stepsChanged(): void {
   void stepAsks?.reconcile();
 }
-// Members chat: the humans-only stream on the Lobby tab. The store is
-// month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts).
-let membersChat: MembersChatStore;
-// The lobby elevator's floors: <STATE_ROOT>/floors.json (server/floors-store.ts).
-let floors: FloorsStore;
 // Who sees and answers an ask (askVisibleTo), read live: GET /api/asks,
 // pushAskChange, the member answer routes and the secret request routes.
 const askAudience: AskAudienceDeps = {
@@ -888,54 +838,6 @@ const askAudience: AskAudienceDeps = {
     return !!user && accessibleRoomIdsFor(user).has(roomId);
   },
 };
-let pagerSettings: PagerSettingsStore;
-let pagerDelivery: PagerDeliveryService;
-let webPushStore: WebPushStore;
-let webPushDelivery: WebPushDeliveryService;
-// GitHub issues into the board (task 7fc83592), in office.sqlite.
-let githubLinks: GithubLinkStore;
-let githubSync: GithubSync;
-let uiBuildTracker: UiBuildTracker | undefined;
-// Turn ends that sound the browser's turn-end sound also feed the turn-end
-// push (task 1eda8af8). Made per server start, so its last-state memory
-// starts empty each time.
-let turnEndWatch: ReturnType<typeof createTurnEndWatch> | undefined;
-let providerAccountManager: ProviderAccountManager;
-// The app supervisor is injectable for one specific reason: systemd is
-// MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
-// or cost; this one is about a test run being unable to write a unit file, stop
-// a service, or reach the office's own apps on the box it happens to run on.
-// `bun test` boots the real server through the harness, and the harness passes
-// a fake here - that default is what makes "the test suite never touches
-// systemd" a property of the wiring rather than a promise.
-let appSupervisor: AppSupervisor;
-let discoverWelcomeOpenCodeModels:
-  | ((userId: string) => Promise<BackendModelWire[]>)
-  | undefined;
-// How long a Codex spawn with no model waits for the login's model list
-// before it takes CODEX_MODELS[0].
-const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 10_000;
-
-let listCodexModelsSeam: StartServerOpts["listCodexModels"];
-// The storage roots GET /api/storage/usage and /isomux-storage measure. One
-// function for both, resolved in createManagers.
-let storageRoots: () => StorageRoots = () => productionStorageRoots();
-let codexModelDiscoveryTimeoutMs = CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
-let hostPlatform: NodeJS.Platform = process.platform;
-
-function openCodeRunsOnHost(): boolean {
-  return openCodeUnsupportedReason(hostPlatform) === null;
-}
-
-// The container supervisor runs apps without systemd; every other supervisor
-// needs a Linux host.
-function appHostingUnsupported(): string | null {
-  if (process.env.ISOMUX_APP_SUPERVISOR === "container") return null;
-  return appHostingUnsupportedReason(hostPlatform);
-}
-
-let extensionService: BrowserExtensionService | undefined;
-let extensionSessions: ExtensionBrowserSessions | undefined;
 export function mayUseExtension(member: string, agentId: string): boolean {
   return (
     agentManager.getAgent(agentId)?.userId === member &&
@@ -955,263 +857,6 @@ export function mayReachExtension(member: string, agentId: string): boolean {
       agent.roomId,
     )
   );
-}
-
-function createManagers(startOpts: StartServerOpts): void {
-  // createProductionAgentManager() loads the persisted office/agents snapshot
-  // synchronously (getRooms() valid before the async restore) and registers the
-  // office env-file provider. createProductionCronjobManager() wires the real
-  // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
-  // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
-  hostPlatform = startOpts.hostPlatform ?? process.platform;
-  appSupervisor =
-    startOpts.appSupervisor ??
-    (process.env.ISOMUX_APP_SUPERVISOR === "container"
-      ? createContainerAppSupervisor()
-      : appHostingUnsupported() !== null
-        ? createUnavailableAppSupervisor()
-        : productionAppSupervisor);
-  // Containers only: learn at boot whether Codex's sandbox can run here.
-  void codexSandboxProbe();
-  // The owner's switch for one PID namespace per agent, read at each session
-  // start (process-isolation-state.ts).
-  setProcessIsolationSwitch(loadProcessIsolation);
-  discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
-  listCodexModelsSeam = startOpts.listCodexModels;
-  codexModelDiscoveryTimeoutMs =
-    startOpts.codexModelDiscoveryTimeoutMs ?? CODEX_MODEL_DISCOVERY_TIMEOUT_MS;
-  welcomeModelTiming = startOpts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
-  freeModelProbeTiming =
-    startOpts.freeModelProbeTiming ?? FREE_MODEL_PROBE_TIMING;
-  storageRoots =
-    startOpts.storageRoots ??
-    (() => productionStorageRoots(startOpts.getBackupStatus));
-  providerAccountManager = new ProviderAccountManager(
-    (userId, accounts) => {
-      liveEmit("provider_accounts_updated", { accounts }, { userId });
-      stepsChanged();
-    },
-    startOpts.createCodexAccountClient,
-    undefined,
-    undefined,
-    undefined,
-    startOpts.createClaudeAccountClient,
-  );
-  // agentManager is created just below.
-  providerAccountManager.onAccountChanged = (provider, dir) =>
-    agentManager?.providerAccountChanged(provider, dir);
-  agentManager = createProductionAgentManager({
-    runBrowserAction: (agent, body) => extensionSessions!.run(agent, body),
-    resolveBackend: startOpts.resolveBackend,
-    storageRoots: () => storageRoots(),
-    listProviderAccounts: async (userId, options) => {
-      const accounts = await providerAccountManager.list(
-        userId,
-        options?.refresh,
-        options,
-      );
-      if (options && !options.signal.aborted) {
-        // Never start an unrelated provider just to publish a full snapshot.
-        const snapshot = await providerAccountManager.cachedList(
-          userId,
-          accounts,
-        );
-        if (snapshot && !options.signal.aborted) {
-          liveEmit(
-            "provider_accounts_updated",
-            { accounts: snapshot },
-            { userId },
-          );
-          stepsChanged();
-        }
-      }
-      return accounts;
-    },
-    effectiveProviderAccountTarget: (userId, provider) =>
-      providerAccountManager.effectiveTarget(userId, provider),
-  });
-  extensionService = new BrowserExtensionService(
-    new BrowserExtensionStore(join(STATE_ROOT, "browser-connections.json")),
-    {
-      memberExists: (member) => !!getUserById(member),
-      paired: stepsChanged,
-      mayUse: mayUseExtension,
-      mayReach: mayReachExtension,
-      managerOf: (agent) => agentManager.getAgent(agent)?.userId ?? undefined,
-      agents: () => agentManager.getAllAgents().map((agent) => agent.id),
-      memberName: (member) => getUserById(member)?.name ?? "",
-      agentName: (agent) => agentManager.getAgent(agent)?.name ?? "",
-      officeOrigins: () => [buildPublicOrigin().origin],
-    },
-  );
-  extensionSessions = new ExtensionBrowserSessions(
-    extensionService,
-    (agent) => agentManager.getAgent(agent)?.userId ?? undefined,
-    mayUseExtension,
-    startOpts.browserExtensionActionDeadline,
-  );
-  cronjobManager = createProductionCronjobManager({
-    resolveBackend: startOpts.resolveBackend,
-    resolveOpenCodeSkillPaths: (userId) =>
-      agentManager.openCodeSkillPathsForUserId(userId),
-    resolveSkillFolder: (agentType, userId) =>
-      agentManager.skillFolderForUserId(agentType, userId),
-    resolveOpenCodeLaunch: (userId) => ({
-      env: agentManager.buildOpenCodeLaunchEnvironmentForUserId(userId),
-      environmentRevision:
-        agentManager.openCodeEnvironmentRevisionForUserId(userId),
-    }),
-    limitRefusal: (job) => {
-      const maker = job.createdByAgentId
-        ? ordinaryScheduleMaker(job.createdByAgentId)
-        : null;
-      const breach = maker ? scheduleLimitBreach(job, maker) : null;
-      return maker && breach ? scheduleRunRefusal(breach, maker, job) : null;
-    },
-    deliverToAgent: deliverCronjobToAgent,
-  });
-  // Register the production instance for the module-read bridge that
-  // command-handlers/usage-report use (they don't hold the instance).
-  registerProductionCronjobManagerForModuleReads(cronjobManager);
-  // Scheduled messages: durable deliver-later entries feeding
-  // enqueueMessage at fire time. Constructed AFTER agentManager so its dep
-  // closures capture the live instance; the tick loop starts later, gated on
-  // skipSchedulers next to the cron scheduler. Firing/validation edge cases
-  // are unit-tested against createScheduledMessageManager with fakes.
-  scheduledMessageManager = createScheduledMessageManager({
-    enqueue: (receiverId, msg) => agentManager.enqueueMessage(receiverId, msg),
-    getAgentDisplay: (agentId) => agentManager.getAgentDisplay(agentId),
-    notifySender: (senderAgentId, text) => {
-      if (!agentManager.addSystemNote(senderAgentId, text)) {
-        console.error(
-          `Scheduled-message notice undeliverable (sender ${senderAgentId} gone): ${text}`,
-        );
-      }
-    },
-    recordSent: (entry, messageId) =>
-      agentManager.addAgentOutbound(
-        entry.senderAgentId,
-        entry.receiverAgentId,
-        entry.text,
-        {
-          messageId,
-          scheduledMessageId: entry.id,
-          scheduledFor: entry.deliverAt,
-        },
-      ),
-    persistence: {
-      load: loadScheduledMessagesRaw,
-      save: saveScheduledMessages,
-    },
-    clock: { now: () => Date.now() },
-    scheduler: { setTimeout, clearTimeout, setInterval, clearInterval },
-  });
-  // The pager: the store, the member settings (the Discord webhook URL is a
-  // credential and lives in its own file, never in the env injected into
-  // agents), and delivery. The store and delivery call each other through
-  // these closures.
-  membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
-  floors = createFloorsStore();
-  const askHistory = officeAskHistory();
-  askStore = createAskStore({
-    persistence: createAskFilePersistence(join(STATE_ROOT, "asks.json")),
-    onChange: (change) => pushAskChange(change),
-    history: askHistory,
-  });
-  pagerSettings = createPagerSettingsStore(
-    createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
-  );
-  pagerStore = createPagerStore({
-    persistence: createPagerFilePersistence(join(STATE_ROOT, "pager.json")),
-    archive: createPagerArchiveFile(join(STATE_ROOT, "pager-resolved.jsonl")),
-    onChange: (entry) => pushPagerEntryToEachWs(entry),
-    onRaised: (entry, kind) => {
-      pagerDelivery.onRaised(entry, kind);
-      webPushDelivery.onRaised(entry, kind);
-    },
-    onTransitioned: (entry, to) => {
-      pagerDelivery.onTransitioned(entry, to);
-      webPushDelivery.onTransitioned(entry, to);
-    },
-  });
-  agentManager.attachPagerStore(pagerStore);
-  pagerDelivery = createPagerDelivery({
-    store: pagerStore,
-    settings: (userId) => pagerSettings.get(userId),
-    setHoldUntil: (userId, at) => pagerSettings.setHoldUntil(userId, at),
-    translator: (userId) => translatorForUserId(userId).t,
-    fetch: startOpts.pagerFetch ?? ((url, init) => fetch(url, init)),
-    now: () => Date.now(),
-    scheduler: { setTimeout, clearTimeout },
-    officeOrigin: () => buildPublicOrigin().origin,
-    roomName: (roomId) => agentManager.roomById(roomId)?.name ?? null,
-  });
-  githubLinks = createGithubLinkStore(officeAuditStore().db);
-  githubSync = createGithubSync({
-    db: officeAuditStore().db,
-    links: githubLinks,
-    tasks: {
-      list: () => agentManager.getTasks(),
-      add: (title, createdBy, opts) =>
-        agentManager.addTask(title, createdBy, opts),
-      update: (id, changes) => agentManager.updateTask(id, changes),
-    },
-    fetch: (startOpts.githubSyncFetch ??
-      ((url, init) => fetch(url, init))) as typeof fetch,
-    scheduler: { setTimeout, clearTimeout },
-    now: () => Date.now(),
-    readSecret: (name) => {
-      const secret = secretStore
-        .readForProxy({ kind: "office" })
-        .find((s) => s.name === name);
-      return secret
-        ? {
-            value: secret.value,
-            hosts: [...secret.hosts],
-            updatedAt: secret.updatedAt,
-          }
-        : null;
-    },
-    roomExists: (roomId) => !!agentManager.roomById(roomId),
-  });
-  // Web Push: the second pager channel, to the devices where members turned
-  // on notifications. Keys and devices live in web-push.json.
-  webPushStore = createWebPushStore(
-    createWebPushFilePersistence(join(STATE_ROOT, "web-push.json")),
-  );
-  uiBuildTracker = trackUiBuild(UI_DIST, broadcast);
-  webPushDelivery = createWebPushDelivery({
-    store: webPushStore,
-    pages: pagerStore,
-    repeatMinutes: (userId) => pagerSettings.get(userId).repeatMinutes,
-    pushRooms: (userId) => getUserById(userId)?.pushRooms ?? null,
-    roomAudience: (roomId) =>
-      listUsers()
-        .filter((u) => canAccess(u, roomId))
-        .map((u) => u.id),
-    notifRooms: (userId) => getUserById(userId)?.notifRooms ?? null,
-    translator: (userId) => translatorForUserId(userId).t,
-    fetch: startOpts.webPushFetch ?? ((url, init) => fetch(url, init)),
-    now: () => Date.now(),
-    scheduler: { setTimeout, clearTimeout },
-    officeOrigin: () => buildPublicOrigin().origin,
-    roomName: (roomId) => agentManager.roomById(roomId)?.name ?? null,
-    isLobby: (roomId) => isLobbyRoom(roomId),
-  });
-  turnEndWatch = createTurnEndWatch({
-    agent: (agentId) => {
-      const a = agentManager.getAgent(agentId);
-      return a
-        ? {
-            id: a.id,
-            name: a.name,
-            roomId: a.roomId ?? null,
-            turnMemberIds: a.turnMemberIds,
-          }
-        : null;
-    },
-    onTurnEnd: (agent) => webPushDelivery.onTurnEnd(agent),
-  });
 }
 
 // registerBootHooks: install the auth.ts callbacks (room-snapshot provider,
@@ -10273,7 +9918,23 @@ export async function startServer(
 ): Promise<ServerHandle> {
   resetServerModuleState();
   bootPrelude();
-  createManagers(opts);
+  createManagers(opts, {
+    liveEmit,
+    stepsChanged,
+    mayUseExtension,
+    mayReachExtension,
+    deliverCronjobToAgent,
+    ordinaryScheduleMaker,
+    pushAskChange,
+    pushPagerEntryToEachWs,
+    secretStore,
+    broadcast,
+    canAccess,
+    isLobbyRoom,
+    UI_DIST,
+  });
+  welcomeModelTiming = opts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
+  freeModelProbeTiming = opts.freeModelProbeTiming ?? FREE_MODEL_PROBE_TIMING;
   migrateManagedEnvAtBoot({
     office: {
       label: "office variables",
