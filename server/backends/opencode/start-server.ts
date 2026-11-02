@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import {
   chmod,
   copyFile,
+  lstat,
   mkdir,
   mkdtemp,
   open,
@@ -35,8 +36,8 @@ import {
   openCodeConfigOverride,
   openCodeServerEnvironment,
   openCodeShellProfileValues,
+  openCodeServerTmpDir,
   openCodeShellUserValues,
-  openCodeTmpDir,
 } from "./config-layers.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import { openCodeSafetyPluginDir } from "./safety-plugin-tool.ts";
@@ -105,7 +106,7 @@ const safetyPluginText = await buildOpenCodeSafetyPlugin(
   >[0],
   {
     user: openCodeShellUserValues(process.env),
-    profile: openCodeShellProfileValues(profileDir),
+    profile: openCodeShellProfileValues(profileDir, process.env),
   },
 );
 const safetyPlugin = createHash("sha256")
@@ -437,8 +438,18 @@ const configOverride = JSON.stringify(
     safetyPluginDir,
   ),
 );
-const tmpDir = openCodeTmpDir(profileDir);
-await mkdir(tmpDir, { recursive: true, mode: 0o700 });
+// The server's TMPDIR is in a temp folder other OS users can write to
+// (/tmp on Linux), so a link or a folder they made there is refused, never
+// followed.
+const tmpDir = openCodeServerTmpDir(profileDir, process.env);
+await mkdir(tmpDir, { mode: 0o700 }).catch((error: unknown) => {
+  if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+});
+const tmpInfo = await lstat(tmpDir);
+if (!tmpInfo.isDirectory() || tmpInfo.uid !== process.getuid?.())
+  throw new Error(
+    `OpenCode did not start: ${tmpDir} is a link, a file or another user's folder. Remove it, then try again.`,
+  );
 await chmod(tmpDir, 0o700);
 // OpenCode appends every log line, provider error bodies included, to
 // XDG_DATA_HOME/opencode/log/opencode.log (openCodeLogPath in

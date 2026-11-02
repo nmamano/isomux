@@ -404,14 +404,15 @@ describe("the bundled safety plugin", () => {
     const stateRoot = "/srv/isomux-safety-plugin-state";
     const profile = join(stateRoot, "opencode", "profiles", "k");
     // The shell variables as production bakes them: the profile's folders
-    // under the state root, and the OS user's values beside them.
+    // under the state root, the server's temp folder (task 3811ffe2), and the
+    // OS user's values beside them.
     const profileValues = {
       HOME: join(profile, "home"),
       XDG_CONFIG_HOME: join(profile, "config"),
       XDG_DATA_HOME: join(profile, "data"),
       XDG_STATE_HOME: join(profile, "state"),
       XDG_CACHE_HOME: join(profile, "cache"),
-      TMPDIR: join(profile, "tmp"),
+      TMPDIR: "/srv/os-tmp/isomux-opencode-k",
       OPENCODE_DB: OPENCODE_V2_DATABASE,
     };
     const userValues = {

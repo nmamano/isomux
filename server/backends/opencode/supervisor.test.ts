@@ -325,11 +325,16 @@ describe("OpenCode shared server supervisor", () => {
     const { binary } = await makeHealthOnlyBinary(path);
     const value = "fake-opencode-mcp-value-0000";
     await mkdir(join(path, "member-opencode"));
+    const userTmp = join(path, "users-tmp");
+    await mkdir(userTmp);
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
       serverCwd: path,
       idleShutdownMs: 1000,
-      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      launchEnv: {
+        OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
+        TMPDIR: userTmp,
+      },
       mcpServers: [
         {
           name: "isomux-docs",
@@ -389,16 +394,22 @@ describe("OpenCode shared server supervisor", () => {
       XDG_CACHE_HOME: join(supervisor.profileDir, "cache"),
       // E1: it replaces the global folder, so only when the member has one.
       OPENCODE_CONFIG_DIR: join(path, "member-opencode"),
-      // E5: inside the profile.
-      TMPDIR: join(supervisor.profileDir, "tmp"),
       OPENCODE_DISABLE_AUTOUPDATE: "1",
       // E3: gone in 2.1.4.
       OPENCODE_SERVER_USERNAME: undefined,
       OPENCODE_DISABLE_SHARE: undefined,
     });
-    expect((await stat(join(supervisor.profileDir, "tmp"))).mode & 0o777).toBe(
-      0o700,
+    // Task 3811ffe2: TMPDIR is a folder of the server's own directly in the
+    // OS user's TMPDIR, not under the state root, where OpenCode's note sent
+    // agents into a folder the safety policy denies. The start makes it, owner-only.
+    const serverTmp = (await childEnvironment(lease.pid)).get("TMPDIR") ?? "";
+    expect(dirname(serverTmp) === userTmp, "TMPDIR is in the user's").toBe(
+      true,
     );
+    const tmpInfo = await lstat(serverTmp);
+    expect(tmpInfo.isDirectory()).toBe(true);
+    expect(tmpInfo.mode & 0o777).toBe(0o700);
+    expect(tmpInfo.uid).toBe(process.getuid!());
     const top = JSON.parse(
       (await childEnvironment(lease.pid)).get("OPENCODE_CONFIG_CONTENT") ??
         "{}",
@@ -414,6 +425,63 @@ describe("OpenCode shared server supervisor", () => {
     const environ = (await readFile(`/proc/${lease.pid}/environ`)).toString();
     expect(environ.includes(value)).toBe(false);
     lease.release();
+  }, 20_000);
+
+  // Task 3811ffe2: the server's TMPDIR is in a temp folder that other OS
+  // users can write too. A start uses only a real folder of this user's, and
+  // never follows a link there. (A folder of another user's needs a second
+  // account, which this test cannot make.)
+  it("refuses a start whose temp folder is a link or a file, and makes an existing folder owner-only", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const userTmp = join(path, "users-tmp");
+    await mkdir(userTmp);
+    const supervisor = makeSupervisor(
+      path,
+      undefined,
+      1000,
+      { TMPDIR: userTmp },
+      binary,
+    );
+    const start = async () => {
+      const lease = await supervisor.acquire();
+      const tmp = (await childEnvironment(lease.pid)).get("TMPDIR") ?? "";
+      lease.release();
+      await supervisor.shutdown();
+      return tmp;
+    };
+    const tmp = await start();
+    // The enabling condition: a folder in the user's TMPDIR, which a second
+    // start uses again.
+    expect(dirname(tmp) === userTmp, "the server's TMPDIR").toBe(true);
+    await rm(tmp, { recursive: true });
+    const target = join(path, "elsewhere");
+    await mkdir(target, { mode: 0o755 });
+    await chmod(target, 0o755);
+    await symlink(target, tmp);
+    const refused = async (label: string) => {
+      const error = await supervisor.acquire().then(
+        () => null,
+        (failure: unknown) => failure as Error,
+      );
+      expect(error === null, `${label}: the start fails`).toBe(false);
+      expect(error!.message.includes(tmp), `${label}: names the folder`).toBe(
+        true,
+      );
+    };
+    await refused("a link");
+    // MUTANT: chmod before the check, which follows the link.
+    expect((await stat(target)).mode & 0o777).toBe(0o755);
+    expect((await lstat(tmp)).isSymbolicLink()).toBe(true);
+    await rm(tmp);
+    await writeFile(tmp, "");
+    await refused("a file");
+    await rm(tmp);
+    // A folder of this user's that is open to others becomes owner-only.
+    await mkdir(tmp, { mode: 0o755 });
+    await chmod(tmp, 0o755);
+    expect(await start()).toBe(tmp);
+    expect((await lstat(tmp)).mode & 0o777).toBe(0o700);
   }, 20_000);
 
   // 1010dd4b, task 956b994b: a session's shell commands get the server's
@@ -912,11 +980,11 @@ describe("OpenCode shared server supervisor", () => {
     const environment = await childEnvironment(lease.pid);
     const home = environment.get("HOME") ?? "";
     const tmp = environment.get("TMPDIR") ?? "";
-    // The condition this test depends on: the server runs with both folders
-    // in the profile, under the state root.
-    expect(
-      [home, tmp].every((value) => value.startsWith(profileDir + "/")),
-    ).toBe(true);
+    // The condition this test depends on: the server runs with its HOME in
+    // the profile, under the state root, and (task 3811ffe2) its TMPDIR in
+    // the user's, outside it.
+    expect(home.startsWith(profileDir + "/")).toBe(true);
+    expect(dirname(tmp) === userTmp, "the server's TMPDIR").toBe(true);
     type Hook = (event: Record<string, unknown>) => unknown;
     const plugin = (await import(
       `${pathToFileURL(safetyPluginPath(supervisor)).href}?shell`
@@ -937,25 +1005,22 @@ describe("OpenCode shared server supervisor", () => {
       tool: { hook: hook("tool") },
       shell: { hook: hook("shell") },
     });
-    const verdict = (command: string) =>
+    const toolVerdict = (tool: string, input: Record<string, unknown>) =>
       Promise.resolve()
-        .then(() =>
-          hooks.get("tool.execute.before")!({
-            tool: "shell",
-            input: { command },
-          }),
-        )
+        .then(() => hooks.get("tool.execute.before")!({ tool, input }))
         .then(
           () => "allow",
           () => "deny",
         );
+    const verdict = (command: string) => toolVerdict("shell", { command });
     // A path that reaches the state root from the user's folder, and from
     // no other: only the user's values resolve it there.
     const intoState = (from: string) => relative(from, join(STATE_ROOT, "x"));
     // Labels name the case, never the environment's values.
+    // OpenCode's environment note names <server TMPDIR>/opencode.
     const cases: [string, string][] = [
       ["the server's HOME", `touch ${home}/x`],
-      ["the server's TMPDIR", `touch ${tmp}/x`],
+      ["the server's TMPDIR", `touch ${tmp}/opencode/x`],
       ["~", "touch ~/x"],
       ["$TMPDIR", "echo hi > $TMPDIR/x"],
       ["~ into the state root", `touch ~/${intoState(userHome)}`],
@@ -967,14 +1032,35 @@ describe("OpenCode shared server supervisor", () => {
     const verdicts: [string, string][] = [];
     for (const [label, command] of cases)
       verdicts.push([label, await verdict(command)]);
+    const write = (path: string) => toolVerdict("write", { path, content: "" });
+    verdicts.push(
+      ["write: the server's TMPDIR", await write(join(tmp, "opencode", "x"))],
+      [
+        "write: the profile's old tmp",
+        await write(join(profileDir, "tmp", "opencode", "x")),
+      ],
+    );
     expect(verdicts).toEqual([
       ["the server's HOME", "deny"],
-      ["the server's TMPDIR", "deny"],
+      ["the server's TMPDIR", "allow"],
       ["~", "allow"],
       ["$TMPDIR", "allow"],
       ["~ into the state root", "deny"],
       ["$TMPDIR into the state root", "deny"],
+      ["write: the server's TMPDIR", "allow"],
+      ["write: the profile's old tmp", "deny"],
     ]);
+    // A shell that starts from the server's environment gets the user's
+    // TMPDIR back: the plugin was built with the TMPDIR the server runs with.
+    // MUTANT: start-server.ts builds the plugin from an env other than the
+    // server's.
+    const shellEnv: Record<string, string | undefined> = {
+      HOME: home,
+      TMPDIR: tmp,
+    };
+    await hooks.get("shell.create.before")!({ env: shellEnv });
+    expect(shellEnv.TMPDIR === userTmp, "the user's TMPDIR").toBe(true);
+    expect(shellEnv.HOME === userHome, "the user's HOME").toBe(true);
     lease.release();
   });
 

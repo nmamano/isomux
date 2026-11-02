@@ -139,8 +139,13 @@ server: 2.1.4 takes each server whole from the last layer that names it, so
 the transport adds Isomux's servers to each folder at run time
 (`PUT /api/experimental/mcp/:name`).
 
-The OpenCode server keeps the profile's HOME, XDG directories and TMPDIR, so
-credentials and data stay per member. Shell commands get the agents' OS
+The OpenCode server keeps the profile's HOME and XDG directories, so
+credentials and data stay per member. Its TMPDIR is
+`isomux-opencode-<hash of the profile path>` in the user's TMPDIR (`/tmp` when
+that is unset or not absolute), outside the state root: OpenCode tells each
+session to prefer `$TMPDIR/opencode` over `/tmp`, and the safety hook denies
+writes under the state root. The start makes it owner-only and refuses a link,
+a file or another user's folder there (task 3811ffe2). Shell commands get the agents' OS
 user's HOME, XDG directories and TMPDIR (unset when the user has none), as a
 Claude agent's shell does, so git, gh, ssh and other tools read the user's
 config, and they get no `OPENCODE_DB` (task 956b994b). The session environment

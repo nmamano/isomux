@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { STATE_ROOT } from "../../config.ts";
 import {
   OPENCODE_V2_DATABASE,
   openCodeConfigOverride,
   openCodeMcpServerConfig,
+  openCodeServerTmpDir,
   openCodeShellProfileValues,
   openCodeShellUserValues,
   openCodeUserConfigDir,
@@ -51,13 +53,15 @@ describe("openCodeUserConfigDir", () => {
 describe("the shell variables the agents' OS user gives back", () => {
   it("maps each profile folder, and names the database copy for OPENCODE_DB", () => {
     const profileDir = "/state/opencode/profiles/k";
-    expect(openCodeShellProfileValues(profileDir)).toEqual({
+    const env = { TMPDIR: "/srv/os-tmp" };
+    expect(openCodeShellProfileValues(profileDir, env)).toEqual({
       HOME: join(profileDir, "home"),
       XDG_CONFIG_HOME: join(profileDir, "config"),
       XDG_DATA_HOME: join(profileDir, "data"),
       XDG_STATE_HOME: join(profileDir, "state"),
       XDG_CACHE_HOME: join(profileDir, "cache"),
-      TMPDIR: join(profileDir, "tmp"),
+      // Task 3811ffe2: the server's temp folder, outside the profile.
+      TMPDIR: openCodeServerTmpDir(profileDir, env),
       OPENCODE_DB: OPENCODE_V2_DATABASE,
     });
   });
@@ -80,6 +84,49 @@ describe("the shell variables the agents' OS user gives back", () => {
     expect(
       openCodeShellUserValues({ OPENCODE_DB: "/users/other.db" }).OPENCODE_DB,
     ).toBeNull();
+  });
+});
+
+// Task 3811ffe2 (GitHub issue 65): OpenCode tells its agents to use
+// <server TMPDIR>/opencode, and the safety policy denies every write under the
+// state root. So the server's TMPDIR is one folder per profile directly in the
+// OS temp folder.
+describe("the OpenCode server's temp folder", () => {
+  const profile = (root: string) => join(root, "opencode", "profiles", "k");
+
+  it("is a folder directly in the env's TMPDIR, outside the state root and the profile", () => {
+    for (const tmp of ["/srv/os-tmp", "/srv/os-tmp/"]) {
+      const folder = openCodeServerTmpDir(profile(STATE_ROOT), { TMPDIR: tmp });
+      expect(dirname(folder), tmp).toBe("/srv/os-tmp");
+      expect(folder.startsWith(STATE_ROOT + "/"), tmp).toBe(false);
+    }
+  });
+
+  it("is /tmp's when TMPDIR is missing, empty or not an absolute path", () => {
+    // MUTANT: a relative TMPDIR kept, which resolves from the server's cwd.
+    for (const TMPDIR of [undefined, "", "  ", "tmp", "~/tmp"])
+      expect(
+        dirname(openCodeServerTmpDir(profile(STATE_ROOT), { TMPDIR })),
+        String(TMPDIR),
+      ).toBe("/tmp");
+  });
+
+  it("is the same for one profile at every start, and differs between profiles", () => {
+    const env = { TMPDIR: "/srv/os-tmp" };
+    const one = openCodeServerTmpDir(profile("/a/.isomux"), env);
+    // The plugin build and the server env compute it apart (start-server.ts).
+    expect(openCodeServerTmpDir(profile("/a/.isomux"), { ...env })).toBe(one);
+    // Another member's profile, and a second office's profile of the same
+    // name on this computer.
+    // MUTANT: a name from the profile folder's last segment only.
+    const others = [
+      openCodeServerTmpDir(
+        join("/a/.isomux", "opencode", "profiles", "j"),
+        env,
+      ),
+      openCodeServerTmpDir(profile("/b/.isomux"), env),
+    ];
+    for (const other of others) expect(other).not.toBe(one);
   });
 });
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -103,7 +104,7 @@ export function openCodeServerEnvironment(
     // HOME, the XDG folders, TMPDIR and OPENCODE_DB. TMPDIR: E5, 2.1.4's
     // persistent-terminal daemon ignores it (a fixed /tmp/opencode-pty-<uid>/),
     // and Isomux creates no persistent terminal.
-    ...openCodeShellProfileValues(server.profileDir),
+    ...openCodeShellProfileValues(server.profileDir, env),
     OPENCODE_CONFIG: server.configPath,
     OPENCODE_CONFIG_CONTENT: server.configContent,
     OPENCODE_CONFIG_DIR: existsSync(userConfigDir) ? userConfigDir : undefined,
@@ -149,13 +150,34 @@ export function openCodeProfileHome(profileDir: string): string {
   return join(profileDir, "home");
 }
 
-export function openCodeTmpDir(profileDir: string): string {
+// Scratch for Isomux's own export and import runs of the OpenCode CLI
+// (session-transfer.ts); no agent sees it.
+export function openCodeCliTmpDir(profileDir: string): string {
   return join(profileDir, "tmp");
+}
+
+// The OpenCode server's TMPDIR: a folder per profile in the agents' OS
+// user's temp folder. OpenCode tells each session to prefer
+// join(TMPDIR, "opencode") over /tmp, and the safety hook denies writes under
+// the state root, so this folder is outside it. The hash of the full profile
+// path keeps two offices' same-named profiles apart. start-server.ts creates
+// it owner-only and refuses one it does not own.
+export function openCodeServerTmpDir(
+  profileDir: string,
+  env: Record<string, string | undefined>,
+): string {
+  const base = env.TMPDIR?.trim();
+  const id = createHash("sha256").update(profileDir).digest("hex").slice(0, 16);
+  return join(
+    base && isAbsolute(base) ? base : "/tmp",
+    `isomux-opencode-${id}`,
+  );
 }
 
 // The value the server sets for each shell variable from the profile.
 export function openCodeShellProfileValues(
   profileDir: string,
+  env: Record<string, string | undefined>,
 ): Record<OpenCodeShellVariable, string> {
   return {
     HOME: openCodeProfileHome(profileDir),
@@ -163,7 +185,7 @@ export function openCodeShellProfileValues(
     XDG_DATA_HOME: join(profileDir, "data"),
     XDG_STATE_HOME: join(profileDir, "state"),
     XDG_CACHE_HOME: join(profileDir, "cache"),
-    TMPDIR: openCodeTmpDir(profileDir),
+    TMPDIR: openCodeServerTmpDir(profileDir, env),
     OPENCODE_DB: OPENCODE_V2_DATABASE,
   };
 }

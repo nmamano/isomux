@@ -83,8 +83,8 @@ export const STATE_PATH_EXCLUSIONS: Readonly<Record<string, string>> = {
     "The OpenCode server runs with a profile home; agent shells on every " +
     "engine get the real home, and agents write there all the time.",
   TMPDIR:
-    "The OpenCode server runs with a profile scratch directory; agent " +
-    "shells get the real one, and agents write their scratch files there.",
+    "Agent shells on every engine get the real one, and agents write " +
+    "their scratch files there.",
 };
 
 export type PolicyDecision =

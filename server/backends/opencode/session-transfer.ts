@@ -8,7 +8,7 @@ import { errMessage } from "../../../shared/errors.ts";
 import {
   OPENCODE_V2_DATABASE,
   openCodeProfileHome,
-  openCodeTmpDir,
+  openCodeCliTmpDir,
 } from "./config-layers.ts";
 import { openCodeDatabasePath, openCodeProfilePaths } from "./profile-paths.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
@@ -39,7 +39,7 @@ function profileCliEnvironment(
     XDG_DATA_HOME: join(profileDir, "data"),
     XDG_STATE_HOME: join(profileDir, "state"),
     XDG_CACHE_HOME: join(profileDir, "cache"),
-    TMPDIR: openCodeTmpDir(profileDir),
+    TMPDIR: openCodeCliTmpDir(profileDir),
     OPENCODE_DB: OPENCODE_V2_DATABASE,
     OPENCODE_DISABLE_AUTOUPDATE: "1",
   };
@@ -64,7 +64,7 @@ function leasePassword(authHeader: string): string {
 const openCodeCli: OpenCodeSessionCli = {
   async exportSession(profileDir, sessionId) {
     const host = getAgentHost();
-    await host.fs.mkdir(openCodeTmpDir(profileDir), 0o700);
+    await host.fs.mkdir(openCodeCliTmpDir(profileDir), 0o700);
     const result = await host.run(
       [resolveOpenCodeBinary(), "session", "export", sessionId, "--standalone"],
       { cwd: profileDir, env: profileCliEnvironment(profileDir) },
@@ -79,7 +79,7 @@ const openCodeCli: OpenCodeSessionCli = {
     const host = getAgentHost();
     const lease = await target.acquire();
     try {
-      const tmp = openCodeTmpDir(target.profileDir);
+      const tmp = openCodeCliTmpDir(target.profileDir);
       await host.fs.mkdir(tmp, 0o700);
       const file = join(tmp, `isomux-import-${randomUUID()}.json`);
       await host.fs.writeText(file, exported, { mode: 0o600 });
