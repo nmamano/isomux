@@ -106,13 +106,133 @@ for a in "$@"; do
 done
 exec ${real} "\${args[@]}"`,
       );
+      // The reason, not only "not available": on a host with AppArmor the
+      // label step would turn this off too.
       const { deps } = hostWithBwrap(noNamespace);
-      expect((await probeProcessIsolation(deps)).available).toBe(false);
-      // The control: the real bwrap through the same swap is available.
+      expect(await probeProcessIsolation(deps)).toMatchObject({
+        available: false,
+        reason: "denied",
+      });
+      // The control: the real bwrap through the same swap passes the PID step.
+      // On a host with AppArmor, the label step after it says apparmor.
       const { deps: realDeps } = hostWithBwrap(real);
-      expect(await probeProcessIsolation(realDeps)).toEqual({
+      const control = await probeProcessIsolation(realDeps);
+      expect(control.available || control.reason === "apparmor").toBe(true);
+    },
+  );
+});
+
+// AppArmor (task ffb7007c): on Ubuntu, bwrap's children run under a profile
+// that stacks onto any program with its own profile, and in that stack Chrome
+// and other browsers cannot open a network socket. The probe leaves isolation
+// off when the command inside the namespace has a confining label that it
+// does not have outside.
+describe("process isolation probe and AppArmor", () => {
+  const LABEL_PATH = "/proc/self/attr/apparmor/current";
+
+  // The probe as it runs, with the label it reads from LABEL_PATH taken from
+  // a file: `inside` for the run in the namespace, `outside` for every other
+  // run (null: no such file, as on a host without AppArmor). bwrap is a script
+  // that runs the probe's command without a namespace and rewrites only its
+  // pid and systemctl lines, so the rest of the probe's own output is real.
+  function hostWithLabels(inside: string | null, outside: string | null) {
+    const file = (name: string, label: string | null) => {
+      const path = join(dir, name);
+      if (label !== null) writeFileSync(path, label);
+      return path;
+    };
+    const insidePath = file("inside-label", inside);
+    const outsidePath = file("outside-label", outside);
+    const bwrap = script(
+      "bwrap",
+      `while [ "$1" != "--" ]; do shift; done; shift
+"$@" | sed -E 's/^self=[0-9]+$/self=2/; s/^pids=[0-9]+$/pids=3/; s/^systemctl=[0-9]+$/systemctl=0/'
+exit \${PIPESTATUS[0]}`,
+    );
+    const runs: string[][] = [];
+    return {
+      // The runs other than the one in the namespace that read the label.
+      outsideReads: () =>
+        runs.filter(
+          (argv) =>
+            basename(argv[0]) !== "bwrap" &&
+            argv.some((arg) => arg.includes(LABEL_PATH)),
+        ),
+      insideReads: () =>
+        runs.filter(
+          (argv) =>
+            basename(argv[0]) === "bwrap" &&
+            argv.some((arg) => arg.includes(LABEL_PATH)),
+        ),
+      deps: {
+        platform: "linux" as NodeJS.Platform,
+        env: process.env,
+        run(argv: string[], options?: RunOptions) {
+          runs.push(argv);
+          const wrapped = basename(argv[0]) === "bwrap";
+          const label = wrapped ? insidePath : outsidePath;
+          const swapped = argv.map((arg) => arg.replaceAll(LABEL_PATH, label));
+          if (wrapped) swapped[0] = bwrap;
+          return localAgentHost.run(swapped, options);
+        },
+      },
+    };
+  }
+
+  // The kernel ends the label with a newline.
+  const UNPRIV = "bwrap//&unpriv_bwrap (enforce)\n";
+
+  it.each([
+    ["enforce", UNPRIV],
+    ["complain", "bwrap//&unpriv_bwrap (complain)\n"],
+    ["mixed", "bwrap//&chrome//&unpriv_bwrap (mixed)\n"],
+  ])(
+    "is not available when the namespace adds a confining label (%s)",
+    async (_mode, inside) => {
+      const host = hostWithLabels(inside, "unconfined\n");
+      const probe = await probeProcessIsolation(host.deps);
+      // The enabling condition: both reads went to the files above.
+      expect(host.insideReads().length).toBe(1);
+      expect(host.outsideReads().length).toBe(1);
+      expect(probe).toMatchObject({ available: false, reason: "apparmor" });
+      expect((probe as { detail: string }).detail).toContain(inside.trim());
+    },
+  );
+
+  // A failed read must not turn isolation on.
+  it("is not available when the label outside cannot be read", async () => {
+    const host = hostWithLabels(UNPRIV, null);
+    const probe = await probeProcessIsolation(host.deps);
+    expect(host.outsideReads().length).toBe(1);
+    expect(probe).toMatchObject({ available: false, reason: "apparmor" });
+  });
+
+  // A server that runs confined itself: bwrap adds nothing.
+  it("is available when the label is the same inside and outside", async () => {
+    const label = "snap.isomux.server (enforce)\n";
+    const host = hostWithLabels(label, label);
+    expect(await probeProcessIsolation(host.deps)).toEqual({
+      available: true,
+    });
+    expect(host.outsideReads().length).toBe(1);
+  });
+
+  // No AppArmor, or no confinement inside: nothing to compare, so the probe
+  // starts no second run.
+  it.each([
+    ["no label file", null],
+    ["an empty label", ""],
+    ["unconfined", "unconfined\n"],
+    ["a profile in unconfined mode", "bwrap (unconfined)\n"],
+  ])(
+    "is available with %s inside, without a read outside",
+    async (_case, inside) => {
+      const host = hostWithLabels(inside, UNPRIV);
+      expect(await probeProcessIsolation(host.deps)).toEqual({
         available: true,
       });
+      expect(host.insideReads().length).toBe(1);
+      expect(host.outsideReads()).toEqual([]);
     },
   );
 });

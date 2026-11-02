@@ -20,7 +20,11 @@ import {
 } from "./agent-host.ts";
 import { RunnerAgentHost } from "./agent-runner/client.ts";
 import { startRunner } from "./agent-runner/runner.ts";
-import { ISOLATION_SETUP_FAILED } from "./process-isolation.ts";
+import {
+  ISOLATION_SETUP_FAILED,
+  isolatedArgv,
+  probeProcessIsolation,
+} from "./process-isolation.ts";
 import {
   bwrapMakesPidNamespace,
   killMarked,
@@ -256,6 +260,62 @@ while [ ! -e ${dir}/own.ready ]; do sleep 0.01; done`,
       expect(events).toContain("exit:3:null");
       expect(events.filter((event) => event.startsWith("error"))).toEqual([]);
     });
+  },
+);
+
+// Headless Chrome inside the namespace (task ffb7007c): wherever the probe
+// turns isolation on, agents must still reach a local page with a browser.
+// On Ubuntu with bwrap's AppArmor profile, Chrome there gets no network, so
+// the probe must say not available. The case passes at once where the probe
+// says not available, as in an agent session, where a nested bwrap fails; it
+// tests something only where bwrap works, for example under systemd-run --user.
+const chrome = Bun.which("google-chrome") ?? Bun.which("chromium");
+describe.skipIf(chrome === null || Bun.which("bwrap") === null)(
+  "headless Chrome in the namespace",
+  () => {
+    it("loads a 127.0.0.1 page wherever the probe turns isolation on", async () => {
+      const server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch: () =>
+          new Response(`<p>${marker}</p>`, {
+            headers: { "content-type": "text/html" },
+          }),
+      });
+      const load = (wrap: boolean) => {
+        const argv = [
+          "timeout",
+          "30",
+          chrome!,
+          "--headless=new",
+          "--no-sandbox",
+          `--user-data-dir=${join(dir, wrap ? "inside" : "outside")}`,
+          "--dump-dom",
+          `http://127.0.0.1:${server.port}/`,
+        ];
+        return localAgentHost.run(
+          wrap ? isolatedArgv(argv, { dieWithParent: true }) : argv,
+        );
+      };
+      try {
+        const probe = await probeProcessIsolation({
+          platform: process.platform,
+          env: process.env,
+          run: (argv, options) => localAgentHost.run(argv, options),
+        });
+        if (!probe.available) return;
+        // The control: Chrome loads the page outside the namespace.
+        expect((await load(false)).stdout.includes(marker)).toBe(true);
+        // A failed load dumps Chrome's error page, which names the net error.
+        const inside = await load(true);
+        expect({
+          loaded: inside.stdout.includes(marker),
+          error: /\bERR_[A-Z_]+/.exec(inside.stdout)?.[0] ?? null,
+        }).toEqual({ loaded: true, error: null });
+      } finally {
+        await server.stop(true);
+      }
+    }, 90_000);
   },
 );
 

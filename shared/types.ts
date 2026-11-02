@@ -2623,6 +2623,7 @@ export type ProcessIsolationReason =
   | "needs_linux"
   | "no_bwrap"
   | "denied"
+  | "apparmor"
   | "turned_off";
 
 export type UnavailableFeatures = Partial<Record<"apps", "needs_linux">>;

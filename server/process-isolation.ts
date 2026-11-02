@@ -44,11 +44,11 @@ export interface ProcessIsolationProbeDeps {
 }
 
 // The probe runs the same wrap as an agent session and reads what the command
-// sees: its own pid, the processes in /proc, and whether systemctl --user
-// works when it works outside. Any failed step leaves isolation off, with
-// bwrap's own message as the detail.
-const PROBE_SCRIPT =
-  'echo "self=$$"; echo "pids=$(ls -d /proc/[0-9]* | wc -l)"; systemctl --user show --property=Version >/dev/null 2>&1; echo "systemctl=$?"';
+// sees: its own pid, the processes in /proc, whether systemctl --user works
+// when it works outside, and its AppArmor label. Any failed step leaves
+// isolation off, with bwrap's own message as the detail.
+const APPARMOR_LABEL = "/proc/self/attr/apparmor/current";
+const PROBE_SCRIPT = `echo "self=$$"; echo "pids=$(ls -d /proc/[0-9]* | wc -l)"; systemctl --user show --property=Version >/dev/null 2>&1; echo "systemctl=$?"; echo "apparmor=$(cat ${APPARMOR_LABEL} 2>/dev/null)"`;
 // bwrap's init is pid 1 and the command pid 2; a few processes at most.
 const MAX_PROBE_PIDS = 5;
 
@@ -97,11 +97,40 @@ export async function probeProcessIsolation(
     Number(pids) > MAX_PROBE_PIDS
   )
     return detail("bwrap ran the command without its own PID namespace");
+  // Ubuntu's bwrap profile stacks bwrap's children onto the profile of any
+  // program that has one, and in that stack Chrome and other browsers cannot
+  // open a network socket (task ffb7007c). Nothing short of root changes it.
+  const inside = /^apparmor=(.*)$/m.exec(result.stdout)?.[1]?.trim() ?? "";
+  if (confining(inside) && (await apparmorLabel(deps)) !== inside)
+    return {
+      available: false,
+      reason: "apparmor",
+      detail: `AppArmor confines programs in the namespace (${inside}), which blocks network access for browsers such as Chrome`,
+    };
   if (value("systemctl") !== "0" && (await systemctlWorks(deps)))
     return detail(
       "systemctl --user works outside the namespace but not inside it",
     );
   return { available: true };
+}
+
+// An AppArmor label that confines: not empty (no AppArmor), not unconfined,
+// and not a profile in unconfined mode. Complain mode counts as confining.
+function confining(label: string): boolean {
+  return (
+    label !== "" && label !== "unconfined" && !label.endsWith(" (unconfined)")
+  );
+}
+
+// The label of a command outside the namespace, through the same host; empty
+// when it cannot be read.
+async function apparmorLabel(deps: ProcessIsolationProbeDeps): Promise<string> {
+  try {
+    const outside = await deps.run(["cat", APPARMOR_LABEL], { env: deps.env });
+    return outside.exitCode === 0 ? outside.stdout.trim() : "";
+  } catch {
+    return "";
+  }
 }
 
 async function systemctlWorks(

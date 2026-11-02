@@ -528,6 +528,8 @@ Cosas que puedes hacer por él:
     "No disponible: instala bubblewrap y luego reinicia Isomux.",
   "settings.office.processIsolationDenied":
     "No disponible: esta máquina no deja que bubblewrap cree un espacio de nombres de procesos.",
+  "settings.office.processIsolationAppArmor":
+    "No disponible: AppArmor bloquearía el acceso a la red de navegadores como Chrome.",
   "settings.office.nameHint":
     "(opcional, se muestra en la pestaña del navegador)",
   "settings.office.namePlaceholder": "Oficina de Nil",

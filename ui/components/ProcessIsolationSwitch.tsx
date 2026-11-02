@@ -61,7 +61,9 @@ export function ProcessIsolationSwitch({
         ? t("settings.office.processIsolationNoBwrap")
         : status === "denied"
           ? t("settings.office.processIsolationDenied")
-          : null;
+          : status === "apparmor"
+            ? t("settings.office.processIsolationAppArmor")
+            : null;
   return (
     <div style={{ marginTop: 14 }}>
       <label

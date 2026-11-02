@@ -500,6 +500,8 @@ App 的一些原则：
     "不可用：请安装 bubblewrap，然后重启 Isomux。",
   "settings.office.processIsolationDenied":
     "不可用：此机器不允许 bubblewrap 创建进程命名空间。",
+  "settings.office.processIsolationAppArmor":
+    "不可用：AppArmor 会阻止 Chrome 等浏览器访问网络。",
   "settings.office.nameHint": "（可选，显示在浏览器标签页中）",
   "settings.office.namePlaceholder": "Nil 的办公室",
   "settings.office.rulesHint": "（添加到每个智能体的系统提示词中）",

@@ -538,6 +538,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Not available: install bubblewrap, then restart Isomux.",
   "settings.office.processIsolationDenied":
     "Not available: this machine does not let bubblewrap make a process namespace.",
+  "settings.office.processIsolationAppArmor":
+    "Not available: AppArmor would block network access for browsers such as Chrome.",
   "settings.office.nameHint": "(optional, shown in browser tab)",
   "settings.office.namePlaceholder": "Nil's Office",
   "settings.office.rulesHint": "(added to the system prompt of every agent)",
