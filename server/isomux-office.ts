@@ -17,10 +17,6 @@ import { auditHandlers } from "./routes/handlers/audit.ts";
 import { terminalRecordingHandlers } from "./routes/handlers/terminal-recordings.ts";
 import { auditActor } from "./audit-actor.ts";
 import { secureStateRoot } from "./state-root-mode.ts";
-import {
-  liveTerminalRecordingIds,
-  TERMINAL_RECORDINGS_DIR,
-} from "./terminal-recorder.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import {
   agentAccessOf,
@@ -83,19 +79,13 @@ import { SpawnAccessRefusedError, type AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
 import { registerProductionCronjobManagerForModuleReads } from "./cronjob-manager.ts";
 import type { CronjobManager } from "./cronjob-manager.ts";
-import {
-  askAudienceFor,
-  AsksUnavailableError,
-  type AskAudienceDeps,
-} from "./asks.ts";
+import { askAudienceFor, type AskAudienceDeps } from "./asks.ts";
 import {
   saveRecentCwd,
   getFilePath,
   saveFile,
   loadServerConfig,
   saveServerConfig,
-  loadSessionsMap,
-  peekMessageQueuesRaw,
   loadRecordTerminals,
   saveRecordTerminals,
   loadProcessIsolation,
@@ -363,7 +353,6 @@ import {
   type CreateCodexAccountClient,
 } from "./provider-account-manager.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
-import { storageHandlers } from "./routes/handlers/storage.ts";
 import { usageHandlers } from "./routes/handlers/usage.ts";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -405,9 +394,7 @@ import {
   providerFallback,
   resetProviderFallback,
 } from "./provider-fallback.ts";
-import { measureStorageCached, type StorageRoots } from "./storage-usage.ts";
-import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
-import { planCompress, applyCompress } from "./storage-compress.ts";
+import { type StorageRoots } from "./storage-usage.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
 import { triggerUpdate } from "./update-trigger.ts";
 import { readUpdateConf } from "./update-conf.ts";
@@ -458,6 +445,7 @@ import { createFrontDoor, PORT, UI_DIST } from "./office-front-door.ts";
 import { createAccessPolicy } from "./office-access-policy.ts";
 import { createEventFanout } from "./office-event-fanout.ts";
 import { createSessionProjection } from "./office-session-projection.ts";
+import { createStorageRoutes } from "./office-storage-routes.ts";
 import {
   agentManager,
   cronjobManager,
@@ -475,7 +463,6 @@ import {
   uiBuildTracker,
   providerAccountManager,
   appSupervisor,
-  storageRoots,
   extensionService,
   extensionSessions,
   appHostingUnsupported,
@@ -5950,108 +5937,7 @@ function buildExecutorDeps(
       getVersion: () => getVersionInfo(),
     }),
   );
-  // Storage visibility + the MANUAL pruner. Nothing here is
-  // scheduled: the only way anything gets deleted is an owner POSTing
-  // apply:true. The three locations are resolved fresh per call by
-  // storageRoots(), which the /isomux-storage slash command shares so the two
-  // surfaces cannot disagree about what counts as isomux storage.
-  //
-  // Rebuilt per call so the active-session set is never a stale snapshot: a
-  // plan computed a minute ago must not authorize deleting a session an agent
-  // has since resumed (applyPrune re-plans against these same live deps).
-  // Attachment filenames still owed to undelivered messages, per agent. They
-  // are NOT in any transcript yet, so the pruner's reachability scan cannot see
-  // them; without this an attachment on a message queued for a stuck agent
-  // could be deleted before it is ever delivered.
-  //
-  // Both sources, unioned: getAllAgents() splices in the live in-memory queue,
-  // and message-queues.json is the durable mirror. The durable read matters
-  // because Bun.serve binds the listener BEFORE restoreAgents repopulates the
-  // in-memory queues, so during that window the live side is empty. peek-, not
-  // load-, so a read-only prune plan can never quarantine the file.
-  //
-  // Returns null when the durable file could not be read or parsed: that is
-  // UNKNOWN, not empty, and the pruner fails closed on it. Collapsing the two
-  // would let an unreadable queue read as "nothing is owed" during exactly the
-  // boot window where the live queue is also empty.
-  //
-  // An open ask's read files are copies no transcript names either, so they
-  // are owed the same way; an unavailable asks store is unknown too.
-  const queuedAttachmentsByAgent = (): Map<string, Set<string>> | null => {
-    const durable = peekMessageQueuesRaw();
-    if (!durable.ok) return null;
-    let asks;
-    try {
-      asks = askStore?.listAll() ?? [];
-    } catch (err) {
-      if (err instanceof AsksUnavailableError) return null;
-      throw err;
-    }
-    const byAgent = new Map<string, Set<string>>();
-    const add = (agentId: string, filename: unknown) => {
-      if (typeof filename !== "string" || filename === "") return;
-      const set = byAgent.get(agentId) ?? new Set<string>();
-      set.add(filename);
-      byAgent.set(agentId, set);
-    };
-    for (const agent of agentManager.getAllAgents()) {
-      for (const queued of agent.queue ?? []) {
-        for (const att of queued.attachments ?? []) add(agent.id, att.filename);
-      }
-    }
-    for (const ask of asks)
-      for (const att of ask.readFiles ?? []) add(ask.agentId, att.filename);
-    for (const [agentId, record] of Object.entries(durable.records)) {
-      const queue = (record as { queue?: unknown })?.queue;
-      if (!Array.isArray(queue)) continue;
-      for (const entry of queue) {
-        const atts = (entry as { attachments?: unknown })?.attachments;
-        if (!Array.isArray(atts)) continue;
-        for (const att of atts) {
-          add(agentId, (att as { filename?: unknown })?.filename);
-        }
-      }
-    }
-    return byAgent;
-  };
-  const pruneDeps = (): PruneDeps => {
-    const queued = queuedAttachmentsByAgent();
-    return {
-      logsDir: join(STATE_ROOT, "logs"),
-      tokenLogsDir: join(STATE_ROOT, "token-logs"),
-      terminalRecordingsDir: join(STATE_ROOT, TERMINAL_RECORDINGS_DIR),
-      liveTerminalRecordingIds: liveTerminalRecordingIds(),
-      now: Date.now(),
-      activeSessionIds: new Set(
-        agentManager
-          .getAllAgents()
-          .map((a) => agentManager.getCurrentSessionId(a.id))
-          .filter((id): id is string => id !== null),
-      ),
-      killedAgentIds: agentManager.getKilledAgentIds(),
-      loadSessionsMap: (agentId) => loadSessionsMap(agentId),
-      queuedAttachments: (agentId) =>
-        queued === null ? null : (queued.get(agentId) ?? new Set<string>()),
-    };
-  };
-  register(
-    storageHandlers({
-      getUsage: () => measureStorageCached(storageRoots()),
-      planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
-      applyPrune: (plan) => applyPrune(plan, pruneDeps()),
-      planCompress: (olderThanDays) => planCompress(olderThanDays, pruneDeps()),
-      applyCompress: (plan) =>
-        applyCompress(plan, {
-          ...pruneDeps(),
-          isActiveNow: (sessionId) =>
-            agentManager
-              .getAllAgents()
-              .some(
-                (a) => agentManager.getCurrentSessionId(a.id) === sessionId,
-              ),
-        }),
-    }),
-  );
+  register(createStorageRoutes());
   register(
     usageHandlers({
       getUserById,
@@ -6139,14 +6025,7 @@ function buildExecutorDeps(
   };
 }
 
-// Shared cron-mutation authorization for the LEGACY WS shims. The new
-// REST routes enforce cronjobOwnerOrOfficeOwner / officeOwner via authorize();
-// the still-living WS arms must enforce the SAME tightening at the shared
-// boundary so the strangler doesn't leave a WS-path bypass (the [behavior-change]
-// the route table declares). One impl: these wrap the very guards the route
-// table names, fed the live GuardDeps.
-
-// Push ONE app mutation to every socket as a per-recipient delta. Apps are
+// Push ONE app mutation to every socket as a per-recipient delta.
 // The owner and office owners always see an app. A live creator also grants
 // launch-only visibility through its room. appDeltaFor owns both the audience
 // transition and the per-recipient projection.
