@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { heapEnv, heapLines, readHeapReport } from "./heap-report";
 
 type StageName =
   | "format:check"
@@ -29,19 +30,24 @@ type StageResult = {
   reason?: string;
 };
 
-const stages: Array<{ name: StageName; command: string[] }> = [
+type Stage = {
+  name: StageName;
+  command: string[];
+  /** Added to NODE_OPTIONS for the stage. */
+  nodeOptions?: string;
+  /** The summary reports the stage's heap use (scripts/heap-report.ts). */
+  heap?: boolean;
+};
+
+export const stages: Stage[] = [
   { name: "format:check", command: ["bun", "run", "format:check"] },
-  { name: "lint", command: ["bun", "run", "lint"] },
+  // scripts/lint.ts sets ESLint's heap cap.
+  { name: "lint", command: ["bun", "run", "lint"], heap: true },
   {
     name: "tsc",
-    command: [
-      "env",
-      "NODE_OPTIONS=--max-old-space-size=4096",
-      "bun",
-      "x",
-      "tsc",
-      "--noEmit",
-    ],
+    command: ["bun", "x", "tsc", "--noEmit"],
+    nodeOptions: "--max-old-space-size=4096",
+    heap: true,
   },
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
   { name: "bun test", command: ["bun", "scripts/test-shards.ts"] },
@@ -131,6 +137,7 @@ export async function runStage(
   waitForExit: (child: ReturnType<typeof Bun.spawn>) => Promise<number> = (
     child,
   ) => child.exited,
+  env?: Record<string, string>,
 ): Promise<StageResult> {
   const fd = openSync(log, "w");
   const started = performance.now();
@@ -141,7 +148,12 @@ export async function runStage(
   let child: ReturnType<typeof Bun.spawn> | undefined;
   let exitCode: number;
   try {
-    child = Bun.spawn(command, { stdout: fd, stderr: fd, detached: true });
+    child = Bun.spawn(command, {
+      stdout: fd,
+      stderr: fd,
+      detached: true,
+      env: env ? { ...process.env, ...env } : undefined,
+    });
     children.add(child);
     const runningChild = child;
     const deadline =
@@ -189,8 +201,23 @@ export async function runStage(
   };
 }
 
-function definition(name: StageName): { name: StageName; command: string[] } {
+function definition(name: StageName): Stage {
   return stages.find((stage) => stage.name === name)!;
+}
+
+/**
+ * The extra environment of one stage: its NODE_OPTIONS after the inherited
+ * ones, and for a heap stage the heap report to `reportPath`. Undefined when
+ * the stage needs none.
+ */
+export function stageEnv(
+  stage: Stage,
+  reportPath: string,
+  inherited = process.env.NODE_OPTIONS,
+): Record<string, string> | undefined {
+  const nodeOptions = [inherited, stage.nodeOptions].filter(Boolean).join(" ");
+  if (stage.heap) return heapEnv(reportPath, nodeOptions);
+  return stage.nodeOptions ? { NODE_OPTIONS: nodeOptions } : undefined;
 }
 
 function printLog(result: StageResult): void {
@@ -200,7 +227,11 @@ function printLog(result: StageResult): void {
   if (bytes.length > 0 && bytes.at(-1) !== 10) process.stdout.write("\n");
 }
 
-function printSummary(results: StageResult[], seconds: number): void {
+export function printSummary(
+  results: StageResult[],
+  seconds: number,
+  heapFor: (name: StageName) => string,
+): void {
   console.log("\n=== CI summary ===");
   for (const result of results) {
     const detail =
@@ -212,6 +243,17 @@ function printSummary(results: StageResult[], seconds: number): void {
     );
   }
   console.log(`${"total".padEnd(14)} ${seconds.toFixed(2)}s`);
+  for (const result of results) {
+    if (!definition(result.name).heap || result.status === "skipped") continue;
+    let report = "";
+    try {
+      report = readFileSync(heapFor(result.name), "utf8");
+    } catch {
+      // No heap started: readHeapReport reads that as no report.
+    }
+    for (const line of heapLines(result.name, readHeapReport(report)))
+      console.log(line);
+  }
 }
 
 // A usable Docker is a CLI that reaches its daemon.
@@ -271,8 +313,16 @@ async function main(): Promise<void> {
   process.once("SIGTERM", () => stopChildren("SIGTERM"));
   const logFor = (name: StageName) =>
     join(logDir, `${stages.findIndex((entry) => entry.name === name)}.log`);
+  const heapFor = (name: StageName) => `${logFor(name)}.heap`;
   const stage = (name: StageName) =>
-    runStage(name, definition(name).command, logFor(name));
+    runStage(
+      name,
+      definition(name).command,
+      logFor(name),
+      undefined,
+      undefined,
+      stageEnv(definition(name), heapFor(name)),
+    );
   const started = performance.now();
 
   try {
@@ -283,7 +333,7 @@ async function main(): Promise<void> {
     for (const result of results) {
       if (result.status === "passed") printLog(result);
     }
-    printSummary(results, seconds);
+    printSummary(results, seconds, heapFor);
     for (const result of failed) printLog(result);
 
     if (failed.length > 0 || interruptedSignal) {
