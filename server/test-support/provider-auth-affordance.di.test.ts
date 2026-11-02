@@ -9,11 +9,8 @@ import type {
   ProviderAccountWire,
   RoomWire,
 } from "../../shared/types.ts";
-import {
-  createAgentManager,
-  detectAuthErrorForEnvironment,
-  type ManagerDeps,
-} from "../agent-manager.ts";
+import { createAgentManager, type ManagerDeps } from "../agent-manager.ts";
+import { detectAuthErrorForEnvironment } from "../agent-auth.ts";
 import {
   ProviderAccountManager,
   type EffectiveProviderAccountTarget,

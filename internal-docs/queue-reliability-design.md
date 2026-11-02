@@ -197,7 +197,8 @@ persistence.ts ~1265).
   human busy-queue path; scheduled-messages' tick treats it as retryable
   (non-404 → stays pending), which is correct.
 - **Post-accept mutations are best-effort.** Drain (onSendAccepted),
-  cancelQueued, the four clear paths, surfaceBackendNotConfigured's drain:
+  cancelQueued, the four clear paths, surfaceBackendNotConfigured's drain
+  (server/agent-auth.ts):
   `persistQueueState(agentId, managed)` alongside their existing
   emitQueueUpdate; on write failure console.error and continue - the backend
   already accepted (or the user explicitly cleared), and stale disk merely
