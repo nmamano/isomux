@@ -535,7 +535,7 @@ Coses que pots fer per ell:
   "settings.profile.deleteHint": "Elimina aquest membre",
   "settings.profile.deleteFailed": "No s'ha pogut eliminar",
   "settings.profile.deleteNote":
-    "Es queda a Membres eliminats 30 dies. Els seus valors secrets s'esborren ara; això no revoca les claus ni les autoritzacions OAuth al proveïdor.",
+    "Es queda a Membres eliminats 30 dies. Els seus valors secrets i els seus inicis de sessió de Claude i Codex s'esborren ara; això no revoca res al proveïdor.",
   "settings.profile.roomListFailed":
     "No s'ha pogut confirmar la teva llista de sales; Mostrades no s'ha desat.",
 

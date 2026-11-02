@@ -16,6 +16,10 @@ import { createAgentManager } from "../agent-manager.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { setSecretEnvironmentProvider } from "../env-loader.ts";
 import {
+  getSessionClaudeConfigDir,
+  setSessionClaudeConfigDir,
+} from "../persistence.ts";
+import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
@@ -238,5 +242,49 @@ describe("when the release happens", () => {
     expect(busySession.sent.some((m) => m.text.includes("queued-next"))).toBe(
       false,
     );
+  });
+});
+
+// A removed member's Claude sign-in is deleted (task 548d607b): a process of
+// another member's agent on a session pinned to that member's home keeps the
+// token in memory and could write it back, so it is released like an
+// environment change.
+describe("a deleted Claude sign-in", () => {
+  it("releases the agents whose session is pinned to its directory, a busy one at the end of its turn, and no other", async () => {
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const removedHome = join(STATE_ROOT, "provider-homes", "u-mia", "claude");
+    const pinned = await spawnLive(mgr, "Pinned", "u-bob");
+    const busy = await spawnLive(mgr, "PinnedBusy", "u-bob");
+    const other = await spawnLive(mgr, "Other", "u-bob");
+    // Pinned there because the transcript is there.
+    const transcripts = claudeProjectDir(STATE_ROOT, {
+      CLAUDE_CONFIG_DIR: removedHome,
+    });
+    mkdirSync(transcripts, { recursive: true });
+    for (const id of [pinned, busy]) {
+      const sessionId = mgr.getCurrentSessionId(id)!;
+      writeFileSync(join(transcripts, `${sessionId}.jsonl`), "");
+      setSessionClaudeConfigDir(id, sessionId, removedHome);
+    }
+    // The condition: two sessions on the removed home, one elsewhere.
+    const pinOf = (id: string) =>
+      getSessionClaudeConfigDir(id, mgr.getCurrentSessionId(id)!);
+    expect([pinOf(pinned), pinOf(busy)]).toEqual([removedHome, removedHome]);
+    expect(pinOf(other)).not.toBe(removedHome);
+    send(mgr, busy, "hold");
+    await waitUntil(
+      () =>
+        fake.sessionForAgent(busy)!.sent.some((m) => m.text.includes("hold")),
+      "busy",
+    );
+
+    mgr.releaseClaudeRoot(removedHome);
+    await waitUntil(() => dormant(mgr, pinned), "pinned released");
+    expect(dormant(mgr, busy)).toBe(false);
+    fake.sessionForAgent(busy)!.completeTurn({ text: "done" });
+    await waitUntil(() => dormant(mgr, busy), "busy released at turn end");
+    expect(dormant(mgr, other)).toBe(false);
   });
 });

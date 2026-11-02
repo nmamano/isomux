@@ -970,6 +970,8 @@ export class ProviderAccountManager {
           await verifier.close();
         }
       }
+      // A cancel or a removed member's sign-out during the verify.
+      if (this.active.get(key) !== active) return;
       const providerSucceeded =
         active.target.provider === "claude" ||
         Boolean((done as { success?: boolean }).success);
@@ -1139,9 +1141,7 @@ export class ProviderAccountManager {
     this.onAccountChanged(provider, target.dir);
 
     const affectedUsers = scope === "office" ? this.users() : [{ id: userId }];
-    const prefix = `${target.key}:${scope}:`;
-    for (const key of this.statusCache.keys())
-      if (key.startsWith(prefix)) this.statusCache.delete(key);
+    this.dropCachedStatus(target.key, scope);
 
     let actorAccounts: ProviderAccountWire[] = [];
     for (const affected of affectedUsers) {
@@ -1150,6 +1150,71 @@ export class ProviderAccountManager {
       if (affected.id === userId) actorAccounts = accounts;
     }
     return { ok: true, value: { accounts: actorAccounts } };
+  }
+
+  // A removed member's own Claude and Codex sign-ins (task 548d607b): their
+  // sign-ins in progress are cancelled and the credential files in their
+  // provider homes are deleted. No provider process runs.
+  async signOutRemovedMember(userId: string): Promise<void> {
+    const providers = ["claude", "codex"] as const;
+    const homes = providers.map((provider) =>
+      resolve(this.personalHome(userId, provider)),
+    );
+    // First the sign-ins in progress: none may finish after the delete. A
+    // client that hangs is left after the bound; its close still runs.
+    const closing: Promise<void>[] = [];
+    for (const [key, active] of [...this.active])
+      if (active.userId === userId && active.target.scope === "personal") {
+        this.setActive(key, null);
+        if (active.phase === "starting") continue;
+        if (active.target.provider === "codex" && active.loginId)
+          closing.push(
+            this.bounded(
+              (active.client as CodexAccountClient).cancel(active.loginId),
+            ),
+          );
+        closing.push(this.bounded(active.client.close()));
+      }
+    await Promise.all(closing);
+    providers.forEach((provider, i) => {
+      const home = homes[i];
+      try {
+        unlinkSync(
+          resolve(
+            home,
+            provider === "claude" ? ".credentials.json" : "auth.json",
+          ),
+        );
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException | null)?.code !== "ENOENT") throw err;
+      }
+      this.deactivatePersonal(userId, provider);
+      providerFallback().accountChanged(userId, provider);
+      if (provider === "claude") clearClaudeConnectors(home);
+      this.onAccountChanged(provider, home);
+      this.dropCachedStatus(`${provider}:${home}`, "personal");
+    });
+  }
+
+  // Waits for `promise` up to the account status timeout, and never fails.
+  private bounded(promise: Promise<unknown>): Promise<void> {
+    let cancelTimeout = () => {};
+    const timedOut = new Promise<void>((resolveTimeout) => {
+      cancelTimeout = this.scheduleAccountStatusTimeout(resolveTimeout);
+    });
+    return Promise.race([
+      promise.then(
+        () => {},
+        () => {},
+      ),
+      timedOut,
+    ]).finally(() => cancelTimeout());
+  }
+
+  private dropCachedStatus(key: string, scope: ProviderAccountScope): void {
+    const prefix = `${key}:${scope}:`;
+    for (const cached of this.statusCache.keys())
+      if (cached.startsWith(prefix)) this.statusCache.delete(cached);
   }
 
   private clientFor(target: Target): AccountClient {

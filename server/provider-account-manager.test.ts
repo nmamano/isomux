@@ -1822,3 +1822,332 @@ describe("a refresh that overlaps a sign-in step", () => {
     expect(claudeOffice(await refresh.accounts)?.loginStatus).toBe("idle");
   });
 });
+
+// A removed member's own sign-ins (task 548d607b): signOutRemovedMember
+// deletes the credential files in their provider homes and cancels their
+// sign-ins in progress, with no provider process and no wait on a hung one.
+describe("signing out a removed member", () => {
+  type Client = Record<string, unknown>;
+  const tick = () => new Promise((resolveTick) => setTimeout(resolveTick, 0));
+  const never = <T>() => new Promise<T>(() => {});
+  const credentialFile = { claude: ".credentials.json", codex: "auth.json" };
+
+  function fixture(clients: {
+    claude?: (env: Record<string, string | undefined>) => Client | undefined;
+    codex?: (env: Record<string, string | undefined>) => Client | undefined;
+  }) {
+    const root = mkdtempSync(join(tmpdir(), "isomux-signout-"));
+    const home = (userId: string, provider: "claude" | "codex") =>
+      join(root, userId, provider);
+    // A probe reports what is on disk: connected while the credential file
+    // is there.
+    const probe = (provider: "claude" | "codex") => (env: Client) => ({
+      start: async () => {},
+      read: async () => {
+        const dir = env[
+          provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"
+        ] as string;
+        return {
+          connected: existsSync(join(dir, credentialFile[provider])),
+        };
+      },
+      close: async () => {},
+    });
+    let created = 0;
+    const timeouts: Array<() => void> = [];
+    const activated: string[] = [];
+    const deactivated: string[] = [];
+    const manager = new ProviderAccountManager(
+      () => {},
+      ((env: Record<string, string | undefined>) => {
+        created++;
+        return clients.codex?.(env) ?? probe("codex")(env);
+      }) as never,
+      undefined,
+      (id) => id,
+      () => ({}),
+      ((env: Record<string, string | undefined>) => {
+        created++;
+        return clients.claude?.(env) ?? probe("claude")(env);
+      }) as never,
+      () => ({ CLAUDE_CONFIG_DIR: join(root, "office-claude") }),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "user-a" }, { id: "user-b" }],
+      home,
+      (userId, provider) => {
+        mkdirSync(home(userId, provider), { recursive: true });
+        return home(userId, provider);
+      },
+      () => true,
+      (userId, provider) => activated.push(`${userId}/${provider}`),
+      (userId, provider) => deactivated.push(`${userId}/${provider}`),
+      (onTimeout) => {
+        timeouts.push(onTimeout);
+        return () => {
+          const index = timeouts.indexOf(onTimeout);
+          if (index >= 0) timeouts.splice(index, 1);
+        };
+      },
+      () => null,
+    );
+    const changed: string[] = [];
+    manager.onAccountChanged = (provider, dir) =>
+      changed.push(`${provider}:${dir}`);
+    const seed = (userId: string, provider: "claude" | "codex") => {
+      const dir = home(userId, provider);
+      mkdirSync(join(dir, "conversations"), { recursive: true });
+      writeFileSync(join(dir, credentialFile[provider]), "{}");
+      writeFileSync(join(dir, "conversations", "s.jsonl"), "{}");
+    };
+    const signedIn = (userId: string, provider: "claude" | "codex") =>
+      existsSync(join(home(userId, provider), credentialFile[provider]));
+    // Runs the sign-out to its end, firing the bounded waits it schedules.
+    const settle = async (run: Promise<void>) => {
+      const run$: { state: "pending" | "done" | "failed" } = {
+        state: "pending",
+      };
+      run.then(
+        () => (run$.state = "done"),
+        () => (run$.state = "failed"),
+      );
+      for (let i = 0; i < 200 && run$.state === "pending"; i++) {
+        for (const fire of timeouts.splice(0)) fire();
+        await tick();
+      }
+      return run$.state;
+    };
+    const personal = async (provider: "claude" | "codex") =>
+      (await manager.list("user-a")).find(
+        (a) => a.provider === provider && a.scope === "personal",
+      )?.accountStatus;
+    return {
+      root,
+      manager,
+      home,
+      seed,
+      signedIn,
+      settle,
+      personal,
+      activated,
+      deactivated,
+      changed,
+      created: () => created,
+    };
+  }
+
+  it("deletes both sign-ins, keeps the conversations and other members' sign-ins, and starts no provider process", async () => {
+    const f = fixture({});
+    try {
+      for (const provider of ["claude", "codex"] as const) {
+        f.seed("user-a", provider);
+        f.seed("user-b", provider);
+      }
+      // The status a member page shows before: both connected, and cached.
+      expect(await f.personal("claude")).toBe("connected");
+      expect(await f.personal("codex")).toBe("connected");
+      const before = f.created();
+
+      await withFallbackChanges(async (changes) => {
+        expect(await f.settle(f.manager.signOutRemovedMember("user-a"))).toBe(
+          "done",
+        );
+        expect(changes.sort()).toEqual([
+          ["user-a", "claude"],
+          ["user-a", "codex"],
+        ]);
+      });
+      expect(f.created()).toBe(before);
+      for (const provider of ["claude", "codex"] as const) {
+        expect(f.signedIn("user-a", provider)).toBe(false);
+        expect(
+          existsSync(join(f.home("user-a", provider), "conversations/s.jsonl")),
+        ).toBe(true);
+        expect(f.signedIn("user-b", provider)).toBe(true);
+      }
+      expect(f.deactivated.sort()).toEqual(["user-a/claude", "user-a/codex"]);
+      expect(f.changed.sort()).toEqual([
+        `claude:${resolve(f.home("user-a", "claude"))}`,
+        `codex:${resolve(f.home("user-a", "codex"))}`,
+      ]);
+      // The cached "connected" went with the sign-in.
+      expect(await f.personal("claude")).toBe("not_connected");
+      expect(await f.personal("codex")).toBe("not_connected");
+
+      // Nothing left to delete is not an error.
+      expect(await f.settle(f.manager.signOutRemovedMember("user-a"))).toBe(
+        "done",
+      );
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails when a sign-in file cannot be deleted, so the removal fails and a retry finishes", async () => {
+    const f = fixture({});
+    try {
+      // A directory in the file's place: the delete fails with EISDIR.
+      mkdirSync(join(f.home("user-a", "claude"), ".credentials.json", "x"), {
+        recursive: true,
+      });
+      expect(await f.settle(f.manager.signOutRemovedMember("user-a"))).toBe(
+        "failed",
+      );
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it("cancels the member's sign-ins in progress, closes a hung one without waiting on it, and leaves another member's", async () => {
+    let codexLogin: Client | null = null;
+    const cancelled: string[] = [];
+    let codexClosed = 0;
+    const holds: Record<string, () => void> = {};
+    const claudeLogins: string[] = [];
+    const f = fixture({
+      codex: (env) => {
+        if (codexLogin || env.CODEX_HOME !== resolve(f.home("user-a", "codex")))
+          return undefined;
+        codexLogin = {
+          start: async () => {},
+          login: async () => ({
+            authUrl: "https://example.com",
+            loginId: "l-1",
+          }),
+          waitForCompletion: () => never(),
+          read: async () => ({ connected: false }),
+          cancel: (loginId: string) => {
+            cancelled.push(loginId);
+            return never();
+          },
+          close: () => {
+            codexClosed++;
+            return never();
+          },
+        };
+        return codexLogin;
+      },
+      claude: (env) => {
+        const dir = env.CLAUDE_CONFIG_DIR;
+        const user = ["user-a", "user-b"].find(
+          (id) => dir === resolve(f.home(id, "claude")),
+        );
+        if (!user || holds[user]) return undefined;
+        return {
+          start: () =>
+            new Promise<void>((release) => {
+              holds[user] = release;
+            }),
+          login: async () => {
+            claudeLogins.push(user);
+            return { authUrl: "https://example.com" };
+          },
+          waitForCompletion: () => never(),
+          read: async () => ({ connected: false }),
+          close: async () => {},
+        };
+      },
+    });
+    try {
+      f.seed("user-a", "claude");
+      f.seed("user-a", "codex");
+      // The Claude ones first: a running sign-in is never probed, so the
+      // Codex start's status read does not reach their held clients.
+      const claudeA = f.manager.startLogin(
+        "user-a",
+        "claude",
+        "personal",
+        "browser",
+      );
+      void f.manager.startLogin("user-b", "claude", "personal", "browser");
+      for (let i = 0; i < 50 && !(holds["user-a"] && holds["user-b"]); i++)
+        await tick();
+      expect(
+        (await f.manager.startLogin("user-a", "codex", "personal", "device"))
+          .ok,
+      ).toBe(true);
+      // The condition: both Claude sign-ins are starting, Codex's started.
+      expect(Object.keys(holds).sort()).toEqual(["user-a", "user-b"]);
+
+      expect(await f.settle(f.manager.signOutRemovedMember("user-a"))).toBe(
+        "done",
+      );
+      expect(cancelled).toEqual(["l-1"]);
+      // A hung cancel still gets the process closed.
+      expect(codexClosed).toBeGreaterThan(0);
+      expect(f.signedIn("user-a", "claude")).toBe(false);
+      expect(f.signedIn("user-a", "codex")).toBe(false);
+
+      // The starting Claude sign-in sees it was cancelled and never logs in.
+      holds["user-a"]();
+      expect(await claudeA).toMatchObject({
+        ok: false,
+        code: "login_cancelled",
+      });
+      expect(claudeLogins).toEqual([]);
+      // Another member's sign-in is still in progress.
+      expect(await f.manager.cancel("user-b", "claude", "personal")).toBe(true);
+      holds["user-b"]();
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+
+  it("a sign-in that finishes during the sign-out does not sign the member in again", async () => {
+    let complete!: () => void;
+    let answerRead!: (account: { connected: boolean }) => void;
+    let verifying = false;
+    let loginClient = false;
+    const f = fixture({
+      claude: (env) => {
+        if (env.CLAUDE_CONFIG_DIR !== resolve(f.home("user-a", "claude")))
+          return undefined;
+        if (!loginClient) {
+          loginClient = true;
+          return {
+            start: async () => {},
+            login: async () => ({ authUrl: "https://example.com" }),
+            waitForCompletion: () =>
+              new Promise<void>((resolveDone) => {
+                complete = resolveDone;
+              }),
+            read: async () => ({ connected: false }),
+            close: async () => {},
+          };
+        }
+        if (verifying) return undefined;
+        // The verifier, held at its read.
+        return {
+          start: async () => {},
+          read: () => {
+            verifying = true;
+            return new Promise((resolveRead) => {
+              answerRead = resolveRead;
+            });
+          },
+          close: async () => {},
+        };
+      },
+    });
+    try {
+      expect(
+        (await f.manager.startLogin("user-a", "claude", "personal", "browser"))
+          .ok,
+      ).toBe(true);
+      complete();
+      for (let i = 0; i < 50 && !verifying; i++) await tick();
+      // The condition: the sign-in is in its verify window.
+      expect(verifying).toBe(true);
+
+      expect(await f.settle(f.manager.signOutRemovedMember("user-a"))).toBe(
+        "done",
+      );
+      answerRead({ connected: true });
+      for (let i = 0; i < 10; i++) await tick();
+      expect(f.activated).toEqual([]);
+      expect(await f.personal("claude")).not.toBe("connected");
+    } finally {
+      rmSync(f.root, { recursive: true, force: true });
+    }
+  });
+});

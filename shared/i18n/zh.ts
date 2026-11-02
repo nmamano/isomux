@@ -508,7 +508,7 @@ App 的一些原则：
   "settings.profile.deleteHint": "删除此成员",
   "settings.profile.deleteFailed": "删除失败",
   "settings.profile.deleteNote":
-    "对方会在“已移除的成员”中保留 30 天。其密钥的值现在就会删除；这不会在服务提供方处撤销密钥或 OAuth 授权。",
+    "对方会在“已移除的成员”中保留 30 天。其密钥的值和 Claude 与 Codex 登录现在就会删除；这不会在服务提供方处撤销任何内容。",
   "settings.profile.roomListFailed": "无法确认房间列表；未保存「显示」设置。",
   "settings.office.title": "办公室设置",
   "settings.office.intro": "适用于所有房间的设置。",

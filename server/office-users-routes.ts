@@ -27,7 +27,9 @@ import {
   webPushStore,
 } from "./office-managers.ts";
 import type { createSessionProjection } from "./office-session-projection.ts";
+import type { ProviderAccountManager } from "./provider-account-manager.ts";
 import { refreshPresenceForUser } from "./presence.ts";
+import { personalProviderHome } from "./provider-homes.ts";
 import {
   archiveRemovedMember,
   dropRemovedMember,
@@ -78,6 +80,7 @@ export interface UsersRoutesDeps
   emitRemovedMembers: () => void;
   emitUserUpdated: (user: UserRecord, prevName?: string) => void;
   mcpSources: ReturnType<typeof createMcpServerSources>;
+  providerAccounts: Pick<ProviderAccountManager, "signOutRemovedMember">;
   purgeRemovedMember: (userId: string) => void;
   pushPresenceListToEachWs: () => void;
   secretsChanged: () => Promise<void>;
@@ -214,6 +217,7 @@ export function createUsersRoutes(
     emitUserUpdated,
     emitUsersList,
     mcpSources,
+    providerAccounts,
     purgeRemovedMember,
     pushPresenceListToEachWs,
     secretsChanged,
@@ -727,8 +731,8 @@ export function createUsersRoutes(
           connections,
         );
       }
-      // The member's own secrets, variables and MCP servers go from the live
-      // stores, before the record: a failed delete leaves the member, and
+      // The member's own secrets, variables, MCP servers and provider
+      // sign-ins go from the live stores, before the record: a failed delete leaves the member, and
       // a retry finishes the job. Their API tokens go too, so a restore
       // brings none back.
       if (target) {
@@ -738,6 +742,13 @@ export function createUsersRoutes(
         removeManagedUserEnv(target.id);
         webPushStore.removeMember(target.id);
         removeMemberSkillFolders(target.id);
+        // Their own Claude and Codex sign-ins (task 548d607b). Another
+        // member's agent can still run a Claude session pinned to that home,
+        // with the token in memory: its process is released.
+        await providerAccounts.signOutRemovedMember(target.id);
+        agentManager.releaseClaudeRoot(
+          personalProviderHome(target.id, "claude"),
+        );
         await revokeApiTokensOfUser(target.id);
         // A paired browser would connect again after a restore.
         extensionService?.store.revoke(target.id);

@@ -545,7 +545,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.profile.deleteHint": "Delete this member",
   "settings.profile.deleteFailed": "Delete failed",
   "settings.profile.deleteNote":
-    "They stay in Removed members for 30 days. Their secret values are deleted now; this does not revoke the keys or OAuth grants at the provider.",
+    "They stay in Removed members for 30 days. Their secret values and their Claude and Codex sign-ins are deleted now; this revokes nothing at the provider.",
   "settings.profile.roomListFailed":
     "Could not confirm your room list; Displayed not saved.",
 

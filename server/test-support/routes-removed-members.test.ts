@@ -4,7 +4,13 @@
 // names come back after a restore as needing a value or a sign-in. The
 // archive's own rules are in server/removed-members.test.ts.
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintMemberLink } from "./member-link.ts";
@@ -23,6 +29,13 @@ import type {
   RemovedMemberWire,
 } from "../../shared/contract-shapes.ts";
 import type { AgentInfo } from "../../shared/types.ts";
+import {
+  activatePersonalProvider,
+  isPersonalProviderActive,
+  personalProviderHome,
+} from "../provider-homes.ts";
+import { setSessionClaudeConfigDir } from "../persistence.ts";
+import { claudeProjectDir } from "../cwd-utils.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -740,4 +753,277 @@ describe("at boot", () => {
       existsSync(join(again.stateRoot, "removed-members", "abcdef01")),
     ).toBe(false);
   });
+});
+
+// The member's own Claude and Codex sign-ins (task 548d607b): signed out at
+// the removal, and their provider homes, conversations included, deleted at
+// the purge. Boot deletes the homes of ids that are neither live nor removed.
+const SIGN_IN = { claude: ".credentials.json", codex: "auth.json" } as const;
+const PROVIDERS = ["claude", "codex"] as const;
+
+// A member's two homes, each signed in with a conversation beside it.
+function seedHomes(userId: string): void {
+  for (const provider of PROVIDERS) {
+    const home = personalProviderHome(userId, provider);
+    mkdirSync(join(home, "conversations"), { recursive: true });
+    writeFileSync(join(home, SIGN_IN[provider]), "{}");
+    writeFileSync(join(home, "conversations", "s.jsonl"), "{}");
+    activatePersonalProvider(userId, provider);
+  }
+}
+
+const homesOf = (srv: TestServer, userId: string) =>
+  join(srv.stateRoot, "provider-homes", userId);
+const signedIn = (userId: string, provider: "claude" | "codex") =>
+  existsSync(join(personalProviderHome(userId, provider), SIGN_IN[provider]));
+const conversationKept = (userId: string, provider: "claude" | "codex") =>
+  existsSync(
+    join(personalProviderHome(userId, provider), "conversations", "s.jsonl"),
+  );
+const active = (userId: string) =>
+  PROVIDERS.some((provider) => isPersonalProviderActive(userId, provider));
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function waitUntil(pred: () => boolean, label: string) {
+  for (let i = 0; i < 400 && !pred(); i++) await sleep(5);
+  if (!pred()) throw new Error(`waitUntil timed out: ${label}`);
+}
+
+describe("the member's own Claude and Codex sign-ins", () => {
+  it("are signed out at the removal, the conversations stay, and a restore brings no sign-in back", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    const miaId = idOf("Mia");
+    seedHomes(miaId);
+    seedHomes(idOf("Morgan"));
+
+    await removeMember(srv, "Mia", owner.rawSessionId);
+    for (const provider of PROVIDERS) {
+      expect({ provider, signedIn: signedIn(miaId, provider) }).toEqual({
+        provider,
+        signedIn: false,
+      });
+      expect(conversationKept(miaId, provider)).toBe(true);
+      expect(signedIn(idOf("Morgan"), provider)).toBe(true);
+    }
+    expect(active(miaId)).toBe(false);
+    expect(active(idOf("Morgan"))).toBe(true);
+
+    await restore(srv, miaId, owner.rawSessionId);
+    expect(idOf("Mia")).toBe(miaId);
+    for (const provider of PROVIDERS)
+      expect(signedIn(miaId, provider)).toBe(false);
+    expect(active(miaId)).toBe(false);
+  });
+
+  it("releases another member's agent whose Claude session is pinned to the removed member's home", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    const miaId = idOf("Mia");
+    seedHomes(miaId);
+    const info = await srv.agentManager.spawn(
+      "Pinned",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      srv.agentManager.getRooms()[0].id,
+      undefined,
+      undefined,
+      undefined,
+      "Morgan",
+      "claude",
+    );
+    if (!info) throw new Error("spawn returned null");
+    const sent = srv.agentManager.enqueueMessage(info.id, {
+      sender: { kind: "user", username: "Morgan" },
+      text: "wake",
+    });
+    expect(sent.ok).toBe(true);
+    await waitUntil(
+      () =>
+        srv.agentManager.getCurrentSessionId(info.id) !== null &&
+        ["idle", "waiting_for_response"].includes(
+          srv.agentManager.getAgent(info.id)?.state ?? "",
+        ),
+      "live",
+    );
+    // A session from before a manager change, pinned to Mia's home where its
+    // transcript is.
+    const sessionId = srv.agentManager.getCurrentSessionId(info.id)!;
+    const miaClaude = personalProviderHome(miaId, "claude");
+    const transcripts = claudeProjectDir(srv.stateRoot, {
+      CLAUDE_CONFIG_DIR: miaClaude,
+    });
+    mkdirSync(transcripts, { recursive: true });
+    writeFileSync(join(transcripts, `${sessionId}.jsonl`), "");
+    setSessionClaudeConfigDir(info.id, sessionId, miaClaude);
+    expect(srv.agentManager.getAgent(info.id)?.dormant).not.toBe(true);
+
+    await removeMember(srv, "Mia", owner.rawSessionId);
+    await waitUntil(
+      () => srv.agentManager.getAgent(info.id)?.dormant === true,
+      "released",
+    );
+  });
+
+  it("Delete now deletes the provider homes with the conversations, and the sign-in state", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    const miaId = idOf("Mia");
+    seedHomes(miaId);
+    await removeMember(srv, "Mia", owner.rawSessionId);
+    // A sign-in state entry the purge must drop too.
+    activatePersonalProvider(miaId, "codex");
+
+    const purge = await api(srv, `/api/removed-members/${miaId}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(purge.status).toBe(204);
+    expect(existsSync(homesOf(srv, miaId))).toBe(false);
+    expect(active(miaId)).toBe(false);
+  });
+
+  it("Delete now of an entry whose member is live again keeps the member's homes and sign-ins", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    const mia = getUserByName("Mia")!;
+    seedHomes(mia.id);
+    // A crash between the archive and the live deletes leaves this entry.
+    archiveRemovedMember(
+      {
+        user: mia,
+        removedAt: Date.now(),
+        removedBy: "Morgan",
+        heirId: null,
+        heirName: null,
+        passed: {
+          agentIds: [],
+          killedAgentIds: [],
+          cronjobIds: [],
+          webhookIds: [],
+        },
+      },
+      { secrets: [], mcpServers: [] },
+    );
+
+    const purge = await api(srv, `/api/removed-members/${mia.id}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(purge.status).toBe(204);
+    for (const provider of PROVIDERS) {
+      expect(signedIn(mia.id, provider)).toBe(true);
+      expect(conversationKept(mia.id, provider)).toBe(true);
+    }
+    expect(active(mia.id)).toBe(true);
+  });
+});
+
+describe("provider homes at boot", () => {
+  const ORPHAN = "0dd1d00d";
+  const EXPIRED = "abcdef01";
+
+  // Mia live, Rex removed today, a member removed 31 days ago, and homes of
+  // an id the office no longer knows (removed before the 30-day window).
+  async function office(): Promise<{
+    srv: TestServer;
+    miaId: string;
+    rexId: string;
+  }> {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    await srv.seedMember("Rex");
+    const miaId = idOf("Mia");
+    const rexId = idOf("Rex");
+    seedHomes(miaId);
+    seedHomes(rexId);
+    await removeMember(srv, "Rex", owner.rawSessionId);
+    activatePersonalProvider(rexId, "claude");
+    archiveRemovedMember(
+      {
+        user: { ...getUserByName("Mia")!, id: EXPIRED, name: "Old" },
+        removedAt: Date.now() - REMOVED_MEMBER_RETENTION_MS - 24 * 3600_000,
+        removedBy: "Morgan",
+        heirId: null,
+        heirName: null,
+        passed: {
+          agentIds: [],
+          killedAgentIds: [],
+          cronjobIds: [],
+          webhookIds: [],
+        },
+      },
+      { secrets: [], mcpServers: [] },
+    );
+    seedHomes(EXPIRED);
+    seedHomes(ORPHAN);
+    mkdirSync(join(homesOf(srv, "not.an.id")), { recursive: true });
+    return { srv, miaId, rexId };
+  }
+
+  it("deletes the homes of an expired member and of an id that is neither live nor removed, and keeps the rest", async () => {
+    const { srv, miaId, rexId } = await office();
+
+    const again = (server = await srv.restart());
+    expect(existsSync(homesOf(again, EXPIRED))).toBe(false);
+    expect(existsSync(homesOf(again, ORPHAN))).toBe(false);
+    expect(active(EXPIRED)).toBe(false);
+    expect(active(ORPHAN)).toBe(false);
+    for (const provider of PROVIDERS)
+      expect(signedIn(miaId, provider)).toBe(true);
+    expect(active(miaId)).toBe(true);
+    // Rex is in Removed members: signed out at the removal, the rest kept.
+    expect(conversationKept(rexId, "codex")).toBe(true);
+    expect(isPersonalProviderActive(rexId, "claude")).toBe(true);
+    expect(existsSync(homesOf(again, "not.an.id"))).toBe(true);
+  });
+
+  // The expired member's purge does not depend on the sweep: it runs
+  // whenever removed-members.json reads.
+  for (const [name, purges, breakStore] of [
+    [
+      "a users.json that does not parse",
+      true,
+      (srv: TestServer) =>
+        writeFileSync(join(srv.stateRoot, "users.json"), "{ not json"),
+    ],
+    [
+      "a users.json with no owner",
+      true,
+      (srv: TestServer) => {
+        const path = join(srv.stateRoot, "users.json");
+        const users = JSON.parse(readFileSync(path, "utf8")) as Record<
+          string,
+          { role?: string }
+        >;
+        for (const user of Object.values(users)) user.role = "member";
+        writeFileSync(path, JSON.stringify(users));
+      },
+    ],
+    [
+      "a removed-members.json that does not read",
+      false,
+      (srv: TestServer) =>
+        writeFileSync(join(srv.stateRoot, "removed-members.json"), "[]"),
+    ],
+  ] as const) {
+    it(`with ${name}, deletes no home of an id it cannot place`, async () => {
+      const { srv, miaId } = await office();
+      breakStore(srv);
+
+      const again = (server = await srv.restart());
+      expect(existsSync(homesOf(again, ORPHAN))).toBe(true);
+      expect(active(ORPHAN)).toBe(true);
+      for (const provider of PROVIDERS)
+        expect(signedIn(miaId, provider)).toBe(true);
+      expect(existsSync(homesOf(again, EXPIRED))).toBe(!purges);
+    });
+  }
 });

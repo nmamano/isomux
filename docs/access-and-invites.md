@@ -52,9 +52,9 @@ A session ends after 30 days without use, and after 1 year in any case. Server r
 
 Deleting a member ends their sessions, sign-in links, API tokens and paired browsers at once. Their agents, schedules and webhooks pass to the oldest office owner. Their schedules and webhooks pass turned off, and their webhooks get a new secret. Read each schedule, then turn it back on. Give each webhook's sender the new secret, then turn the webhook on.
 
-Their secret values and MCP sign-ins are deleted at once. This does not revoke a key or an OAuth grant at its provider: revoke it there. Their Claude and Codex sign-ins stay on the server's disk.
+Their secret values, MCP sign-ins and own Claude and Codex sign-ins are deleted at once. This does not revoke a key, an OAuth grant or a sign-in at its provider: revoke it there.
 
-The member stays in `Settings` → `Members` → `Removed members` for 30 days, then Isomux deletes them. `Delete now` deletes them at once.
+The member stays in `Settings` → `Members` → `Removed members` for 30 days, then Isomux deletes them with their personal Claude and Codex folders. `Delete now` deletes them at once.
 
 ## Restore a member
 

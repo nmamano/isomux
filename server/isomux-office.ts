@@ -120,6 +120,7 @@ import {
   type GuardDeps,
 } from "./identity/guards.ts";
 import {
+  hasOwner,
   listUsers,
   getUser,
   getUserById,
@@ -325,7 +326,11 @@ import {
   sweepMemberSkillFolders,
 } from "./member-skill-folder.ts";
 import { officeClaudeSourceRoot } from "./provider-skill-links.ts";
-import { personalProviderHome } from "./provider-homes.ts";
+import {
+  personalProviderHome,
+  removePersonalProviderHomes,
+  sweepPersonalProviderHomes,
+} from "./provider-homes.ts";
 import { BUNDLED_SKILLS_DIR } from "./skills.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import {
@@ -1274,7 +1279,8 @@ function emitRemovedMembers(): void {
 }
 
 // A removed member is deleted for good (Delete now, or 30 days passed): the
-// archive, and any live connection file a restore cut short left.
+// archive, any live connection file a restore cut short left, and their
+// provider homes with their conversations (task 548d607b).
 function purgeRemovedMember(userId: string): void {
   dropRemovedMember(userId);
   if (getUserById(userId)) return;
@@ -1282,6 +1288,7 @@ function purgeRemovedMember(userId: string): void {
   sources.secrets.removeMember(userId);
   sources.servers.removeMember(userId);
   removeManagedUserEnv(userId);
+  removePersonalProviderHomes(userId);
 }
 
 // Boot and the minute sweep: the members removed 30 days ago or more go.
@@ -1299,6 +1306,19 @@ function settleRemovedMembers(): void {
     purgeExpiredMembers();
   } catch (err) {
     console.error("[users] removed members were not settled:", err);
+  }
+  // The provider homes of ids that are neither live nor removed (members
+  // removed before Removed members existed). Never on a users.json that
+  // lists no owner: an unreadable one loads as empty. An unreadable
+  // removed-members.json throws, and nothing goes.
+  try {
+    if (hasOwner())
+      sweepPersonalProviderHomes([
+        ...listUsers().map((user) => user.id),
+        ...listRemovedMembers().map((member) => member.user.id),
+      ]);
+  } catch (err) {
+    console.error("[users] old provider homes were not swept:", err);
   }
 }
 
@@ -3639,6 +3659,7 @@ function buildExecutorDeps(
       emitUserUpdated,
       emitUsersList,
       mcpSources,
+      providerAccounts: providerAccountManager,
       purgeRemovedMember,
       pushPresenceListToEachWs,
       secretsChanged,

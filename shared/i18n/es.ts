@@ -536,7 +536,7 @@ Cosas que puedes hacer por él:
   "settings.profile.deleteHint": "Eliminar este miembro",
   "settings.profile.deleteFailed": "No se pudo eliminar",
   "settings.profile.deleteNote":
-    "Se queda en Miembros eliminados 30 días. Sus valores secretos se borran ahora; esto no revoca las claves ni las autorizaciones OAuth en el proveedor.",
+    "Se queda en Miembros eliminados 30 días. Sus valores secretos y sus inicios de sesión de Claude y Codex se borran ahora; esto no revoca nada en el proveedor.",
   "settings.profile.roomListFailed":
     "No se pudo confirmar tu lista de salas; Mostradas no se guardó.",
 

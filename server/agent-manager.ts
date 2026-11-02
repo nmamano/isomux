@@ -74,6 +74,7 @@ import {
   getSessionCwd,
   ensureSessionCwd,
   ensureSessionClaudeConfigDir,
+  getSessionClaudeConfigDir,
   getSessionManager,
   stampSessionManagers,
   getSessionEngineConfig,
@@ -112,7 +113,7 @@ import {
   renderSettingsNotice,
   type SettingsNoticeArm,
 } from "./settings-notice.ts";
-import { join } from "path";
+import { join, resolve } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
 import { fileLogSource } from "./log-source.ts";
@@ -4255,6 +4256,27 @@ export function createAgentManager(deps: ManagerDeps) {
         .catch(() => {})
         .then(() => releaseForEnvNow(agentId, managed));
     else releaseForEnvNow(agentId, managed);
+  }
+
+  // A Claude sign-in at `dir` was deleted (a removed member, task 548d607b):
+  // each live process whose session is pinned to `dir` is released like an
+  // environment change, so its next turn resumes without that sign-in.
+  function releaseClaudeRoot(dir: string): void {
+    const root = resolve(dir);
+    for (const [agentId, managed] of agents) {
+      const sessionId = managed.sessionManager.sessionId;
+      if (
+        managed.info.agentType !== "claude" ||
+        !managed.sessionManager.session ||
+        !sessionId
+      )
+        continue;
+      const pinned = getSessionClaudeConfigDir(agentId, sessionId);
+      if (!pinned || resolve(pinned) !== root) continue;
+      managed.envStale = true;
+      // Idle now: release now. Busy: the end of the turn releases it.
+      if (isQueueIdleState(managed.info.state)) releaseForEnv(agentId);
+    }
   }
 
   function envChanged(change: SecretSetChange): void {
@@ -9302,6 +9324,7 @@ export function createAgentManager(deps: ManagerDeps) {
     getOrdinaryRooms,
     demoteToLazy,
     envChanged,
+    releaseClaudeRoot,
     sweepIdleAgents,
     sweepStuckFlushes,
     getAgent,
