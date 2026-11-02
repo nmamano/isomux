@@ -162,23 +162,16 @@ import {
   isOutsideReachabilityBlocked,
   isProcessPreClaim,
   loadAuthState,
-  INVITE_TTL_MS,
   SELF_INVITE_TTL_MS,
   revokeInvitesForUser,
   listActiveSessions,
   listActiveSessionsForUserId,
   listInvites,
   listInvitesForUser,
-  logoutBySessionHash,
   mintInvite,
   noteSessionDeviceByHash,
   ownerRemovalWouldStrandOffice,
   removeOwnerUnlessStranding,
-  revokeActiveSessionByPrefixForUserId,
-  revokeInviteByPrefix,
-  revokeOutstandingInviteByPrefixForUser,
-  revokeSessionByPrefix,
-  toInviteWire,
   sessionContextFor,
   setOnInviteConsumed,
   setOnSessionsChanged,
@@ -186,9 +179,6 @@ import {
   setPublicOriginFallback,
   setLoopbackOriginPort,
   setRoomsSnapshotProvider,
-  type MintErr,
-  type RevokeResult,
-  type ScopedSessionRevokeResult,
   type SessionLookup,
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
@@ -280,8 +270,6 @@ import {
   deleteSkillFile,
 } from "./skill-catalog.ts";
 import { getSkillUseCounts } from "./skill-usage.ts";
-import { invitesHandlers } from "./routes/handlers/invites.ts";
-import { sessionsHandlers } from "./routes/handlers/sessions.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
 import { usersHandlers } from "./routes/handlers/users.ts";
 import {
@@ -443,6 +431,10 @@ import { createEventFanout } from "./office-event-fanout.ts";
 import { createSessionProjection } from "./office-session-projection.ts";
 import { createStorageRoutes } from "./office-storage-routes.ts";
 import { createEditorRoutes } from "./office-editor-routes.ts";
+import {
+  createInvitesRoutes,
+  createSessionsRoutes,
+} from "./office-invites-sessions-routes.ts";
 import {
   agentManager,
   cronjobManager,
@@ -1243,14 +1235,6 @@ const { buildServer } = createFrontDoor({
 });
 
 // No raw ws.send fan-out lives outside emit() and the per-WS direct replies.
-// Map an auth MintErr code → the REST status for the invite mint routes.
-function mintErrStatus(code: MintErr["code"]): HandlerErrorStatus {
-  switch (code) {
-    case "USER_NOT_FOUND":
-      return 404;
-  }
-}
-
 // Scoped invite list for a user: owner sees ALL outstanding invites; a member
 // sees only their own links. The whole invite
 // seam (this projection, the inviteOwnerOrSelf precondition, and the revoke
@@ -1354,46 +1338,12 @@ function settleRemovedMembers(): void {
   }
 }
 
-// Shared invite-revoke core for BOTH transports (the REST invites.revoke dep and
-// the legacy WS revoke_invite arm). Branches owner/member off the user RECORD,
-// calls the matching auth core op, and on success emits invite_revoked
-// (owners-only via liveEmit) + the scoped invites_list fan-out. Returns the raw
-// RevokeResult so the REST dep can apply the non-leak HTTP status policy (owner:
-// honest 404/409; member: uniform 403). One path, no WS-vs-REST divergence.
-async function revokeInviteForUserRecord(
-  u: UserRecord,
-  tokenPrefix: string,
-): Promise<RevokeResult> {
-  const result =
-    u.role === "owner"
-      ? await revokeInviteByPrefix(tokenPrefix)
-      : await revokeOutstandingInviteByPrefixForUser(tokenPrefix, u);
-  if (result === "ok") {
-    liveEmit("invite_revoked", { tokenPrefix });
-    emitInvitesList();
-  } else if (result === "ambiguous" && u.role === "owner") {
-    // Owner-only diagnostic (a member never learns a prefix is ambiguous - that
-    // would leak existence). Mirrors the legacy revoke_invite warning.
-    console.warn(
-      `[auth] ambiguous invite prefix ${tokenPrefix} - refused revoke`,
-    );
-  }
-  return result;
-}
-
-// Lockout reasons (shared by the REST preconditions + the legacy WS arms) for
-// the invariant "the office must always keep one owner with an active session,
-// so an operator can recover from inside the browser".
-const SESSION_REVOKE_LOCKOUT_REASON =
-  "Refused: this is the last active owner session in the office. Mint an " +
-  "additional invite for an owner first, accept it on another device, then retry.";
+// Lockout reason of users.update (an owner demoted) and users.delete, for the
+// invariant "the office must always keep one owner with an active session, so
+// an operator can recover from inside the browser".
 const OWNER_REMOVAL_LOCKOUT_REASON =
   "No other office owner is signed in, so no owner could sign in again from " +
   "a browser. Have another owner sign in first, then retry.";
-const SESSION_LOGOUT_LOCKOUT_REASON =
-  "You're the only owner with an active session. Signing out would lock the " +
-  "office out of in-browser recovery. Mint an additional invite for yourself " +
-  "and accept it on another device first.";
 
 // Scoped session list for a user: owner sees ALL active sessions; a member sees
 // only their own by stable, rename-safe userId. Same record-role rationale as
@@ -1430,31 +1380,6 @@ function emitSessionsList(): void {
     seen.add(uid);
     emitSessionsListForUser(uid);
   }
-}
-
-// Session-revoke core for the REST sessions.revoke dep. Branches owner/member
-// off the user RECORD; owner uses the unrestricted revoker, member the scoped
-// one. Both check the last-owner lockout inside the auth mutex and return
-// "would_strand_office". On success emits
-// session_revoked (owners-only via liveEmit); sessions_active_list rides
-// fireSessionsChangedHook→emitSessionsList and session_expired + socket close
-// ride the forceExpireSocketsForSession bridge, both inside the auth core ops.
-async function revokeSessionForUserRecord(
-  u: UserRecord,
-  sessionPrefix: string,
-): Promise<ScopedSessionRevokeResult> {
-  const result =
-    u.role === "owner"
-      ? await revokeSessionByPrefix(sessionPrefix)
-      : await revokeActiveSessionByPrefixForUserId(sessionPrefix, u.id);
-  if (result === "ok") {
-    liveEmit("session_revoked", { sessionPrefix });
-  } else if (result === "ambiguous" && u.role === "owner") {
-    console.warn(
-      `[auth] ambiguous session prefix ${sessionPrefix} - refused revoke`,
-    );
-  }
-  return result;
 }
 
 // Core access policy for the office.getAccess / office.setAccess routes.
@@ -3567,80 +3492,12 @@ function buildExecutorDeps(
     }),
   );
 
-  // Invites use recipient-scoped emit. EMIT-IN-DEP: there is
-  // no auth event sink, so the seam owns mutate→emit - mint/self-mint/revoke fan
-  // out emitInvitesList(), and revoke also liveEmits invite_revoked (owners). The
-  // handlers stay pure REST mappers. Owner/member resolves from the user RECORD
-  // uniformly across the scoped list, the inviteOwnerOrSelf
-  // precondition, and the revoke branch; invites.mint alone stays on the table's
-  // officeOwner (session) guard - an accepted asymmetry. (The owners-audience
-  // fan-out for invite_revoked/session_revoked also keys on session role, via the
-  // pre-existing shared ownerSessions in liveEmitDeps.)
   register(
-    invitesHandlers({
-      // Sign-in link for an EXISTING member (invites.mint, and its permanent
-      // alias invites.mintRecovery). userId resolves against the live record.
-      // Policy: one outstanding link per member (the mint replaces the prior
-      // one) and the standard 24h owner send-and-wait delivery window.
-      mint: async (userId, identity) => {
-        const { createdBy } = attributionFor(identity);
-        const r = await mintInvite({
-          userId,
-          createdBy,
-          ttlMs: INVITE_TTL_MS,
-        });
-        if (!r.ok) {
-          return { ok: false, status: mintErrStatus(r.code), error: r.error };
-        }
-        emitInvitesList();
-        return {
-          ok: true,
-          url: `${buildPublicOrigin().origin}/i/${r.rawToken}`,
-          invite: toInviteWire(r.invite),
-        };
-      },
-      mintSelf: async (identity) => {
-        const me = identity.userId ? getUserById(identity.userId) : undefined;
-        if (!me) {
-          return {
-            ok: false,
-            status: 404,
-            error: "Your user record is missing; reload and try again.",
-          };
-        }
-        const r = await mintInvite({
-          userId: me.id,
-          createdBy: me.name,
-          ttlMs: SELF_INVITE_TTL_MS,
-        });
-        if (!r.ok) {
-          return { ok: false, status: mintErrStatus(r.code), error: r.error };
-        }
-        emitInvitesList();
-        return {
-          ok: true,
-          url: `${buildPublicOrigin().origin}/i/${r.rawToken}`,
-          invite: toInviteWire(r.invite),
-        };
-      },
-      listScoped: (identity) => scopedInvitesFor(identity.userId),
-      revoke: async (identity, tokenPrefix) => {
-        const u = identity.userId ? getUserById(identity.userId) : undefined;
-        // inviteOwnerOrSelf already passed; a missing record here is a torn-down
-        // session - uniform 403, no leak.
-        if (!u) return { ok: false, status: 403, code: "forbidden" };
-        const result = await revokeInviteForUserRecord(u, tokenPrefix);
-        if (result === "ok") return { ok: true };
-        if (u.role === "owner") {
-          // Owner has full visibility, so an honest status leaks nothing.
-          return result === "ambiguous"
-            ? { ok: false, status: 409, code: "ambiguous_prefix" }
-            : { ok: false, status: 404, code: "not_found" };
-        }
-        // Member post-precondition not_found/ambiguous (TOCTOU): uniform 403,
-        // same envelope as the precondition - never reveal which case occurred.
-        return { ok: false, status: 403, code: "forbidden" };
-      },
+    createInvitesRoutes({
+      attributionFor,
+      emitInvitesList,
+      liveEmit,
+      scopedInvitesFor,
     }),
   );
 
@@ -3661,55 +3518,7 @@ function buildExecutorDeps(
     return owns ? null : fail(403, "forbidden");
   });
 
-  // Sessions use recipient-scoped emit and mirror invites.
-  // session_revoked → liveEmit (owners) in the shared core; sessions_active_list
-  // rides fireSessionsChangedHook→emitSessionsList; session_expired + socket
-  // close ride the forceExpireSocketsForSession bridge inside the auth core ops.
-  register(
-    sessionsHandlers({
-      listScoped: (identity) => scopedSessionsFor(identity.userId),
-      revoke: async (identity, sessionPrefix) => {
-        const u = identity.userId ? getUserById(identity.userId) : undefined;
-        if (!u) return { ok: false, status: 403, code: "forbidden" };
-        const result = await revokeSessionForUserRecord(u, sessionPrefix);
-        if (result === "ok") return { ok: true };
-        if (result === "would_strand_office") {
-          return {
-            ok: false,
-            status: 409,
-            code: "would_strand_office",
-            message: SESSION_REVOKE_LOCKOUT_REASON,
-          };
-        }
-        if (u.role === "owner") {
-          // Owner has full visibility, so an honest status leaks nothing.
-          return result === "ambiguous"
-            ? { ok: false, status: 409, code: "ambiguous_prefix" }
-            : { ok: false, status: 404, code: "not_found" };
-        }
-        // Member post-precondition not_found/ambiguous (TOCTOU): uniform 403,
-        // same envelope as the precondition - never reveal which case occurred.
-        return { ok: false, status: 403, code: "forbidden" };
-      },
-      logout: async (callerSessionIdHash) => {
-        // Fail closed: a bearer (non-cookie) caller has no current browser
-        // session to end; NEVER a 204 no-op.
-        if (!callerSessionIdHash) {
-          return { ok: false, status: 403, code: "forbidden" };
-        }
-        const result = await logoutBySessionHash(callerSessionIdHash);
-        if (result === "would_strand_office") {
-          return {
-            ok: false,
-            status: 409,
-            code: "would_strand_office",
-            message: SESSION_LOGOUT_LOCKOUT_REASON,
-          };
-        }
-        return { ok: true };
-      },
-    }),
-  );
+  register(createSessionsRoutes({ liveEmit, scopedSessionsFor }));
 
   // sessionOwnerOrSelf: owner (record role) may revoke any session; a
   // member only one bound to their own stable userId. NON-LEAKING: foreign AND
