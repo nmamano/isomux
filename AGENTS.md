@@ -44,6 +44,8 @@ Run prettier ONLY AFTER final human approval for commit. Do NOT format changes b
 
 Run ESLint during development. A good time to do it is right before human review.
 
+ESLint warns (`max-lines`) on a file over 3,000 lines. Do not make such a file longer; splitting it is a task of its own.
+
 ## Key decisions (do not revisit)
 
 - Single Bun process. No Node or separate API server. Tasks and the office audit log use one SQLite file through bun:sqlite; all other state stays in plain files.

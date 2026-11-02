@@ -124,6 +124,19 @@ export default tseslint.config(
     },
   },
   {
+    // A file this long costs every agent that reads it its context, and its
+    // reviews go shallow. A warning, not an error: the files already over it
+    // are split one task at a time. The message catalogs are flat data.
+    files: ["**/*.{ts,tsx,js,mjs,cjs}"],
+    ignores: ["shared/i18n/{en,es,ca,zh}.ts"],
+    rules: {
+      "max-lines": [
+        "warn",
+        { max: 3000, skipBlankLines: false, skipComments: false },
+      ],
+    },
+  },
+  {
     files: ["**/*.cjs", "scripts/**/*", "deploy/**/*", "eslint.config.js"],
     languageOptions: {
       globals: {

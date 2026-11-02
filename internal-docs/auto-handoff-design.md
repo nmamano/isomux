@@ -128,7 +128,7 @@ Lead rulings (2026-10-13), for implementation after Nil's go:
 
 ## Appendix B: Evidence index
 
-- Snapshot, generation and fired-sets: `server/internal-types.ts:24-31`, `:90-126`. Sample commit: `server/agent-manager.ts:3983-4019`. Member notice: `:4027-4058`. Refresh: `:4066-4091`. Turn-boundary sampling: `:4718-4725`. Codex `usage_update` sampling: `:4850`. `/context` reading auto-compact: `server/command-handlers.ts:473-480`.
+- Snapshot, generation and fired-sets: `server/internal-types.ts:24-31`, `:90-126`. Sample commit, member notice and refresh: `commitContextSample`, `maybeEmitUiContextNotice` and `refreshContextUsage` in `server/usage-readings.ts`. Turn-boundary and Codex `usage_update` sampling: `processNormalizedEvent` in `server/agent-manager.ts`. `/context` reading auto-compact: `server/command-handlers.ts:473-480`.
 - Agent notice and its engine opt-out: `server/agent-turn.ts:332`, `:345-348`, `:441-470`.
 - Handoff: `server/agent-manager.ts:9105-9246` (`newConversation` with `keepQueue`), `:9253` (guard), `:9266-9329` (`handoff`). Route: `server/routes/table.ts:644-672`. Handler: `server/routes/handlers/conversation.ts:603-619`. Office wiring: `server/isomux-office.ts:4911-4920`.
 - Skill (retired 2026-10-23, task 970930a3): `skills/isomux-handoff/SKILL.md`. Agent reference: `server/agent-reference/conversation-lifecycle.md`. System prompt pointer: `server/system-prompt.ts:107`.
