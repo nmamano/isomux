@@ -41,8 +41,10 @@ const linux = process.platform === "linux";
 
 const scratch: string[] = [];
 const procs: number[] = [];
+const listeners: Bun.TCPSocketListener<undefined>[] = [];
 
 afterEach(() => {
+  for (const listener of listeners.splice(0)) listener.stop(true);
   for (const pid of procs.splice(0)) {
     try {
       process.kill(pid, "SIGKILL");
@@ -102,15 +104,38 @@ function liveChild(): number {
   return proc.pid;
 }
 
+// A port on 127.0.0.1 that this process holds, as a run holds its sentinel.
+function heldPort(): { port: number; release: () => void } {
+  const listener = Bun.listen({
+    hostname: "127.0.0.1",
+    port: 0,
+    socket: { data() {} },
+  });
+  listeners.push(listener);
+  return { port: listener.port, release: () => listener.stop(true) };
+}
+
+// A port on 127.0.0.1 that nobody holds: the sentinel of a run that is gone.
+function freePort(): number {
+  const { port, release } = heldPort();
+  release();
+  return port;
+}
+
+function namePid(root: string): number {
+  return Number(RUN_NAME.exec(basename(root))![1]);
+}
+
 // A run folder made by a process that has exited: the real producer, so the
-// owner record is whatever createTestTempRoot writes.
-function deadRoot(base: string): string {
+// owner record is whatever createTestTempRoot writes. By default its sentinel
+// port is free, as when the run is gone.
+function deadRoot(base: string, sentinelPort = freePort()): string {
   const r = spawnSync(
     process.execPath,
     [
       "-e",
       `import { createTestTempRoot } from ${JSON.stringify(MODULE)};` +
-        `console.log(createTestTempRoot(${JSON.stringify(base)}));`,
+        `console.log(createTestTempRoot(${JSON.stringify(base)}, ${sentinelPort}));`,
     ],
     { cwd: base, encoding: "utf8" },
   );
@@ -158,7 +183,7 @@ describe("createTestTempRoot", () => {
     const base = scratchDir();
     const link = join(scratchDir(), "base-link");
     symlinkSync(base, link);
-    const root = createTestTempRoot(link);
+    const root = createTestTempRoot(link, heldPort().port);
     expect(dirname(root)).toBe(base);
     expect(RUN_NAME.exec(basename(root))?.[1]).toBe(String(process.pid));
     expect(statSync(root).isDirectory()).toBe(true);
@@ -171,7 +196,7 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
     const base = scratchDir();
     const dead = deadRoot(base);
     writeFileSync(join(dead, "leftover"), "x");
-    const live = createTestTempRoot(base);
+    const live = createTestTempRoot(base, heldPort().port);
     const result = sweepStaleTestTempRoots(base);
     expect(result.removed).toEqual([dead]);
     expect(existsSync(dead)).toBe(false);
@@ -180,7 +205,50 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
     expect(sweepStaleTestTempRoots(base).removed).toEqual([]);
   });
 
-  it("reads a reused pid (a live process with another start time) as gone", () => {
+  // Under process isolation (0bb182e8) each agent runs in its own PID
+  // namespace and /tmp is shared, so the pid of a live run in another
+  // namespace reads as gone here, or as some other process. Its sentinel port
+  // on 127.0.0.1 is held across namespaces until the run dies.
+  it("keeps the folder of a run whose pid is gone here while its sentinel port is held, and removes it once the port is free", () => {
+    const base = scratchDir();
+    const sentinel = heldPort();
+    const root = deadRoot(base, sentinel.port);
+    expect(alive(namePid(root))).toBe(false);
+    expect(sweepStaleTestTempRoots(base).removed).toEqual([]);
+    expect(existsSync(root)).toBe(true);
+    sentinel.release();
+    expect(sweepStaleTestTempRoots(base).removed).toEqual([root]);
+    expect(existsSync(root)).toBe(false);
+  });
+
+  it("reads a folder whose pid lives here but whose sentinel port is free as gone, and leaves that process alone", () => {
+    const base = scratchDir();
+    const other = liveChild();
+    // The producer's record, moved to the live pid: a pid from another
+    // namespace, or one a new process took over.
+    function rootOf(sentinelPort: number, suffix: string): string {
+      const made = deadRoot(base, sentinelPort);
+      const root = join(base, `isomux-run-${other}-${suffix}`);
+      renameSync(made, root);
+      const owner = join(root, "owner");
+      writeFileSync(
+        owner,
+        readFileSync(owner, "utf8").replace(/^\d+/, String(other)),
+      );
+      return root;
+    }
+    const gone = rootOf(freePort(), "free01");
+    // Control in the same sweep: the same pid with its port held.
+    const held = rootOf(heldPort().port, "held01");
+    const result = sweepStaleTestTempRoots(base);
+    expect(result.removed).toEqual([gone]);
+    expect(existsSync(held)).toBe(true);
+    expect(result.killed).not.toContain(other);
+    expect(alive(other)).toBe(true);
+  });
+
+  // A record without a port, as a run of older code writes it.
+  it("reads a reused pid in a legacy record (a live process with another start time) as gone", () => {
     const base = scratchDir();
     const reuser = liveChild();
     const made = deadRoot(base);
@@ -213,6 +281,9 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
       onlyTmp: join(base, `isomux-run-${live}-otmp01`),
       ownerDead: join(base, `isomux-run-${live}-odead1`),
       nameDead: join(base, `isomux-run-${dead}-ndead1`),
+      // Port 0 always binds: read as a port, it would say the run is gone.
+      portZero: join(base, `isomux-run-${live}-port00`),
+      nameDeadFreePort: join(base, `isomux-run-${dead}-ndead2`),
     };
     for (const dir of Object.values(keep)) mkdirSync(dir);
     writeFileSync(join(keep.partial, "owner"), `${live}`);
@@ -223,6 +294,11 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
     );
     writeFileSync(join(keep.ownerDead, "owner"), `${dead} 1`);
     writeFileSync(join(keep.nameDead, "owner"), `${live} ${startTime(live)}`);
+    writeFileSync(join(keep.portZero, "owner"), `${live} port 0`);
+    writeFileSync(
+      join(keep.nameDeadFreePort, "owner"),
+      `${live} port ${freePort()}`,
+    );
     // Control in the same sweep: a dead run with no owner record (killed
     // between mkdtemp and the record) is removed.
     const control = join(base, `isomux-run-${dead}-ctrl02`);
@@ -289,7 +365,7 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which processes", () => {
     const dead = deadRoot(base);
     mkdirSync(join(dead, "work"));
     writeFileSync(join(dead, "log"), "");
-    const live = createTestTempRoot(base);
+    const live = createTestTempRoot(base, heldPort().port);
     const stopped = {
       // The OpenCode supervisor case: a server whose TMPDIR is in its profile.
       tmpdir: orphan("sleep 1000", { env: { TMPDIR: join(dead, "p", "tmp") } }),
@@ -347,7 +423,7 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which processes", () => {
 describe("removeTestTempRoot", () => {
   it("removes this run's folder with its contents", () => {
     const base = scratchDir();
-    const root = createTestTempRoot(base);
+    const root = createTestTempRoot(base, heldPort().port);
     mkdirSync(join(root, "home", "deep"), { recursive: true });
     writeFileSync(join(root, "home", "deep", "f"), "x");
     removeTestTempRoot(base, root);
@@ -359,12 +435,12 @@ describe("removeTestTempRoot", () => {
     const otherBase = scratchDir();
     const outside = scratchDir();
     writeFileSync(join(outside, "precious"), "x");
-    const root = createTestTempRoot(base);
+    const root = createTestTempRoot(base, heldPort().port);
     const nested = join(root, `isomux-run-${process.pid}-nestd1`);
     mkdirSync(nested);
     const foreignName = join(base, "isomux-test-home-abcdef");
     mkdirSync(foreignName);
-    const elsewhere = createTestTempRoot(otherBase);
+    const elsewhere = createTestTempRoot(otherBase, heldPort().port);
     const link = join(base, `isomux-run-${process.pid}-link02`);
     symlinkSync(outside, link);
     for (const target of [nested, foreignName, elsewhere, link, base]) {
@@ -423,6 +499,10 @@ describe.skipIf(!linux)("preload", () => {
     expect(RUN_NAME.exec(basename(root))?.[1]).toBe(String(held.pid));
     expect(held.TMPDIR).toBe(root);
     expect(held.home).toBe(join(root, "home"));
+    // A sweep while the run lives keeps its folder: the preload recorded the
+    // sentinel port the run holds.
+    expect(sweepStaleTestTempRoots(base).removed).toEqual([]);
+    expect(existsSync(root)).toBe(true);
 
     first.kill("SIGKILL");
     await first.exited;

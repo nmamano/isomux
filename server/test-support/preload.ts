@@ -102,18 +102,15 @@ if (
     "[test preload] test app port range is owned by the preload and cannot be injected",
   );
 }
-const testAppPortBlock = claimTestAppPortBlock();
-process.env.ISOMUX_TEST_PRELOAD = "1";
-process.env.ISOMUX_TEST_APP_PORT_MIN = String(testAppPortBlock.min);
-process.env.ISOMUX_TEST_APP_PORT_MAX = String(testAppPortBlock.max);
-afterAll(() => testAppPortBlock.sentinel.stop(true));
 
 // One temp folder per test process, under the OS temp dir (/tmp on macOS),
 // so a run that is killed or times out leaves its temp files in one place:
 // TMPDIR points into it, and every tmpdir() caller writes there. Each start
 // first removes the folders of runs that are gone and stops the processes they
 // left (see temp-root.ts). Bun.spawn without an env still gives a child the
-// startup TMPDIR.
+// startup TMPDIR. A folder's owner record names the run's sentinel port, so
+// the sweep runs before the claim: a new run must not take a gone run's block
+// before it judged that run.
 const osTemp = realpathSync(tmpdir());
 const tempBase = testTempBase(process.platform, tmpdir());
 try {
@@ -121,7 +118,11 @@ try {
 } catch (err) {
   console.error(`[test preload] could not sweep ${tempBase}: ${String(err)}`);
 }
-const tempRoot = createTestTempRoot(tempBase);
+const testAppPortBlock = claimTestAppPortBlock();
+process.env.ISOMUX_TEST_PRELOAD = "1";
+process.env.ISOMUX_TEST_APP_PORT_MIN = String(testAppPortBlock.min);
+process.env.ISOMUX_TEST_APP_PORT_MAX = String(testAppPortBlock.max);
+const tempRoot = createTestTempRoot(tempBase, testAppPortBlock.sentinel.port);
 
 // Symlink-aware safety check for an explicitly-set ISOMUX_HOME. Reuses
 // temp-state's canonicalize (realpath of the nearest existing ancestor) so a
@@ -177,12 +178,15 @@ if (preset) {
 
 process.env.TMPDIR = tempRoot;
 // removeStateDir would refuse the folder itself: by then tmpdir() is the
-// folder.
+// folder. The sentinel stops only after the folder is gone: a free port tells
+// other runs' sweeps that this run is over.
 afterAll(() => {
   try {
     removeTestTempRoot(tempBase, tempRoot);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code ?? String(err);
     console.error(`[test preload] could not remove ${tempRoot}: ${code}`);
+  } finally {
+    testAppPortBlock.sentinel.stop(true);
   }
 });

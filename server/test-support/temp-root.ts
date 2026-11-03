@@ -48,17 +48,44 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-// What the owner file says: "<pid> <start time>" on Linux, "<pid>" elsewhere.
-// Null when it is missing, partial or unreadable.
-function readOwner(root: string): { pid: number; start?: string } | null {
+type Owner = { pid: number; port: number } | { pid: number; start?: string };
+
+// What the owner file says: "<pid> port <sentinel port>", or from older code
+// "<pid> <start time>" on Linux and "<pid>" elsewhere. Null when it is
+// missing, partial or unreadable, or names no valid port.
+function readOwner(root: string): Owner | null {
   let text: string;
   try {
     text = readFileSync(join(root, "owner"), "utf8");
   } catch {
     return null;
   }
-  const match = (linux ? /^(\d+) (\d+)$/ : /^(\d+)(?: (\d+))?$/).exec(text);
-  return match ? { pid: Number(match[1]), start: match[2] } : null;
+  const current = /^(\d+) port (\d+)$/.exec(text);
+  if (current) {
+    const port = Number(current[2]);
+    return port >= 1 && port <= 65535
+      ? { pid: Number(current[1]), port }
+      : null;
+  }
+  const legacy = (linux ? /^(\d+) (\d+)$/ : /^(\d+)(?: (\d+))?$/).exec(text);
+  return legacy ? { pid: Number(legacy[1]), start: legacy[2] } : null;
+}
+
+// Whether a process still holds the run's sentinel port. The kernel frees it
+// on every kind of death, and the port is seen from every PID namespace that
+// shares this network namespace. A run in another network namespace that
+// shares this temp dir reads as gone: Isomux does not run tests that way.
+function portHeld(port: number): boolean {
+  try {
+    Bun.listen({
+      hostname: "127.0.0.1",
+      port,
+      socket: { data() {} },
+    }).stop(true);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 // The folder that holds the run folders: the OS temp dir, or /tmp on macOS,
@@ -71,31 +98,34 @@ export function testTempBase(
   return realpathSync(platform === "darwin" ? "/tmp" : osTemp);
 }
 
-// Make `<base>/isomux-run-<pid>-XXXXXX` and record its owner. Returns the
-// realpath of the new folder.
-export function createTestTempRoot(base: string): string {
+// Make `<base>/isomux-run-<pid>-XXXXXX` and record its owner: this process
+// and the sentinel port it holds. Returns the realpath of the new folder.
+export function createTestTempRoot(base: string, sentinelPort: number): string {
   const root = mkdtempSync(
     join(realpathSync(base), `${RUN_PREFIX}${process.pid}-`),
   );
   // Traversable, like the OS temp dir: some tests need their files in
   // directories other users can enter.
   chmodSync(root, 0o755);
-  const start = linux ? statFields("self")?.[19] : undefined;
-  const owner = start ? `${process.pid} ${start}` : `${process.pid}`;
+  const owner = `${process.pid} port ${sentinelPort}`;
   // Written whole or not at all: a torn record must not read as another run.
   writeFileSync(join(root, "owner.tmp"), owner);
   renameSync(join(root, "owner.tmp"), join(root, "owner"));
   return root;
 }
 
-// A run folder is stale when its owner is gone. A pid that a new process took
-// over reads as gone through the start time. A record that names another pid
-// is not ours to judge, and a missing or partial one may be mid-write, so
-// both count as alive while the name's pid lives.
+// A run folder is stale when its owner is gone. A current record decides by
+// the sentinel port alone: the name's pid may belong to another PID
+// namespace, where it reads as gone or as another process. A record that
+// names another pid is not ours to judge, and a missing or partial one may be
+// mid-write, so both count as alive while the name's pid lives. An older
+// record decides by the pid, and a pid that a new process took over reads as
+// gone through the start time.
 function isStale(root: string, namePid: number): boolean {
   const owner = readOwner(root);
   if (owner === null) return !pidAlive(namePid);
   if (owner.pid !== namePid) return false;
+  if ("port" in owner) return !portHeld(owner.port);
   if (!pidAlive(namePid)) return true;
   if (!linux || owner.start === undefined) return false;
   const start = statFields(namePid)?.[19];
