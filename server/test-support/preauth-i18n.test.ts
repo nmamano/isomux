@@ -19,6 +19,8 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { _testMintLegacyInvite } from "../auth.ts";
 import { getUserByName, updateUserById } from "../users.ts";
+import { ownerLoginCommand } from "../admin-cli.ts";
+import { ADMIN_SOCKET_PATH } from "../config.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -38,7 +40,10 @@ async function page(
   language: string | null,
   init: Init = {},
 ): Promise<{ status: number; html: string }> {
-  const headers: Record<string, string> = { ...HTML_ACCEPT };
+  const headers: Record<string, string> = {
+    ...HTML_ACCEPT,
+    ...(init.headers as Record<string, string> | undefined),
+  };
   if (language) headers["Accept-Language"] = language;
   const res = await srv.http(path, { ...init, headers });
   return { status: res.status, html: await res.text() };
@@ -228,6 +233,81 @@ describe("the login page", () => {
     const { html: ca } = await page(server, "/nope", "ca");
     for (const html of [en, ca]) expect(html).toContain("<code>ssh -L</code>");
     expectTranslated(ca, en, [RETURN_LINK]);
+  });
+});
+
+// The owner-recovery step on the sign-in page (task 6e4a9789): every agent on
+// the box reaches loopback too, so the page only shows the root command that
+// mints an owner sign-in link; it never signs anyone in.
+describe("the login page's owner-recovery command", () => {
+  const OFF_BOX = { "X-Forwarded-For": "203.0.113.9" };
+
+  /** The text of each <code> element, with the HTML entities decoded. */
+  function codeTexts(html: string): { raw: string; text: string }[] {
+    const body = html.slice(html.indexOf("<body>"));
+    return [...body.matchAll(/<code>(.*?)<\/code>/gsu)].map((m) => ({
+      raw: m[1],
+      text: m[1]
+        .replaceAll("&lt;", "<")
+        .replaceAll("&gt;", ">")
+        .replaceAll("&quot;", '"')
+        .replaceAll("&#39;", "'")
+        .replaceAll("&amp;", "&"),
+    }));
+  }
+
+  /** The <code> elements that hold an owner-login command for this office. */
+  function ownerCommands(html: string): { raw: string; text: string }[] {
+    return codeTexts(html).filter(({ text }) => {
+      const data = /--data '(.*)'$/su.exec(text)?.[1];
+      if (data === undefined) return false;
+      const name = (
+        JSON.parse(data.replaceAll(`'\\''`, "'")) as {
+          name: string;
+        }
+      ).name;
+      return text === ownerLoginCommand(name, ADMIN_SOCKET_PATH);
+    });
+  }
+
+  it("shows an on-box visitor the command with this office's socket path, escaped, in every language", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    for (const [label, header] of HEADERS) {
+      const { status, html } = await page(server, "/", header);
+      expect({ label, status }).toEqual({ label, status: 401 });
+      const found = ownerCommands(html);
+      expect({ label, count: found.length }).toEqual({ label, count: 1 });
+      // The command holds quotes and a placeholder in angle brackets: each
+      // reaches the page as an entity, never as markup.
+      expect({ label, raw: /[<>"']/u.test(found[0].raw) }).toEqual({
+        label,
+        raw: false,
+      });
+    }
+  });
+
+  it("shows an off-box visitor no command: one paragraph fewer than on the box", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const onBox = await page(server, "/", "en");
+    const offBox = await page(server, "/", "en", { headers: OFF_BOX });
+    expect(offBox.status).toBe(401);
+    expect(ownerCommands(onBox.html).length).toBe(1);
+    expect(codeTexts(offBox.html)).toEqual([]);
+    expect(paragraphs(offBox.html).length).toBe(
+      paragraphs(onBox.html).length - 1,
+    );
+  });
+
+  it("is not on the page before an owner exists, on the box or off it", async () => {
+    server = await startTestServer();
+    for (const init of [{}, { headers: OFF_BOX }]) {
+      const { status, html } = await page(server, "/nope", "en", init);
+      expect(status).toBe(401);
+      expect(ownerCommands(html)).toEqual([]);
+      expect(codeTexts(html).map((c) => c.text)).toEqual(["ssh -L"]);
+    }
   });
 });
 

@@ -169,4 +169,49 @@ describe("two offices on one host, one browser jar", () => {
     expect(await whoAmI(jar, b)).toBeNull();
     expect(await whoAmI(jar, officeA)).toBe("Yu");
   }, 30_000);
+
+  // Before task c9f250af both offices wrote the bare names, so a browser that
+  // has not opened either office since holds the session of each under them.
+  it("each office takes only its own live session from the bare names and moves it to its own name", async () => {
+    const b = await startB();
+    a = await startTestServer();
+    await a.seedOwner("Morgan");
+    expect(buildPublicOrigin().isHttps).toBe(false);
+    const officeA: Office = {
+      base: a.baseUrl,
+      origin: buildPublicOrigin().origin,
+    };
+    const yu = await a.seedMember("Yu");
+    const signIn = new Jar();
+    const signedInB = await send(
+      signIn,
+      b,
+      "/auth/accept",
+      acceptForm(b.token),
+    );
+    expect(signedInB.status).toBe(302);
+    const ownB = [...signIn.cookies.keys()];
+    expect(ownB).toEqual([expect.stringMatching(/^__Host-isomux_session_/)]);
+    const ann = signIn.cookies.get(ownB[0])!;
+
+    const jar = new Jar();
+    jar.cookies.set("isomux_session", yu.rawSessionId);
+    jar.cookies.set("__Host-isomux_session", ann);
+    expect(await whoAmI(jar, officeA)).toBe("Yu");
+    expect(await whoAmI(jar, b)).toBe("Ann");
+    expect(Object.fromEntries(jar.cookies)).toEqual({
+      isomux_session: yu.rawSessionId,
+      "__Host-isomux_session": ann,
+      [officeSessionCookieNames().plain]: yu.rawSessionId,
+      [ownB[0]]: ann,
+    });
+
+    // B's session under the bare plain name: A does not hold it, and B on
+    // HTTPS does not read that name.
+    const stray = new Jar();
+    stray.cookies.set("isomux_session", ann);
+    expect(await whoAmI(stray, officeA)).toBeNull();
+    expect(await whoAmI(stray, b)).toBeNull();
+    expect([...stray.cookies.keys()]).toEqual(["isomux_session"]);
+  }, 30_000);
 });

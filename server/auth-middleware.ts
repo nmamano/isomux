@@ -53,6 +53,8 @@ import { resolveApiToken } from "./api-tokens.ts";
 import { API_CAPABILITIES } from "./identity/index.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
 import { deriveAppHostDomain } from "./app-domain.ts";
+import { ownerLoginCommand } from "./admin-cli.ts";
+import { ADMIN_SOCKET_PATH } from "./config.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -218,7 +220,7 @@ function unauthorized(
     });
   }
   return new Response(
-    renderLoginPage(translatorForVisitor(req, onBox), officeName),
+    renderLoginPage(translatorForVisitor(req, onBox), officeName, onBox),
     {
       status: 401,
       headers: {
@@ -961,7 +963,11 @@ const EMPTY_PNG = Buffer.from(
 // office reads it after sign-in. Copied raw: the office sanitises it.
 const PANEL_KEEP_SCRIPT = `try{var p=location.hash.replace(/^#/,"").split("&").find(function(x){return x.indexOf(${JSON.stringify(`${PANEL_HASH_KEY}=`)})===0});if(p&&p.length<=${MAX_PANEL_FRAGMENT_CHARS})sessionStorage.setItem(${JSON.stringify(PANEL_SESSION_KEY)},p)}catch(e){}`;
 
-function renderLoginPage(i18n: Translator, officeName: string | null): string {
+function renderLoginPage(
+  i18n: Translator,
+  officeName: string | null,
+  onBox: boolean,
+): string {
   const { t } = i18n;
   // The backdrop is a baked screenshot of the office UI served from
   // /auth/login-bg.png (the same asset isomux.com uses on its marketing page),
@@ -978,7 +984,9 @@ function renderLoginPage(i18n: Translator, officeName: string | null): string {
         hasOfficeOwner
           ? `<p>${t("preAuth.login.openInvite")}</p>
       <p>${t("preAuth.login.alreadySignedIn")}</p>
-      <p class="muted">${t("preAuth.login.askOwner")}</p>`
+      <p class="muted">${t("preAuth.login.askOwner")}</p>${
+        onBox ? ownerCommandHtml(t) : ""
+      }`
           : `<p>${t("preAuth.login.noOwner")}</p>
       <p>${t("preAuth.login.claimHere", {
         link: `<a href="/">${t("preAuth.login.claimHereLink")}</a>`,
@@ -997,6 +1005,17 @@ function renderLoginPage(i18n: Translator, officeName: string | null): string {
     undefined,
     PREAUTH_EXTRA_CSS,
   );
+}
+
+// The owner-recovery step, for a visitor on the office's own machine only. It
+// shows the root command and never signs anyone in: every agent on the box
+// reaches loopback too, and the admin socket answers only root.
+function ownerCommandHtml(t: Translator["t"]): string {
+  const command = ownerLoginCommand("<your-display-name>", ADMIN_SOCKET_PATH);
+  return `
+      <p class="muted">${t("preAuth.login.ownerCommand", {
+        command: `<code>${escapeHtml(command)}</code>`,
+      })}</p>`;
 }
 
 // First-time-setup form. Shape mirrors renderAcceptPage's bootstrap branch

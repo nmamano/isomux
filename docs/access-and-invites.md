@@ -86,7 +86,7 @@ If you lose your only owner session (cleared cookies, the 1-year cap, etc.), min
 sudo curl -s --unix-socket /home/isomux/.isomux/admin.sock -X POST http://localhost/admin/owner-login -H 'Content-Type: application/json' --data '{"name":"<your-display-name>"}'
 ```
 
-The response's `url` is a one-time sign-in link, valid for 15 minutes. The socket is `.isomux/admin.sock` in the home directory of the user that runs Isomux (`/home/isomux` on a VPS install). `bun run server/isomux-office.ts owner-login --name "<your-display-name>"` prints the command with this office's path.
+The sign-in page shows this command, with this office's path, when you open it on the office's own machine. The response's `url` is a one-time sign-in link, valid for 15 minutes. The socket is `.isomux/admin.sock` in the home directory of the user that runs Isomux (`/home/isomux` on a VPS install). `bun run server/isomux-office.ts owner-login --name "<your-display-name>"` prints the command with this office's path.
 
 In the container image (Docker), run it in the container as root:
 

@@ -3624,6 +3624,8 @@ Coses que pots fer per ell:
   "preAuth.login.alreadySignedIn":
     "Ja tens la sessió iniciada en un altre lloc? Crea enllaços d'invitació per als teus altres dispositius a Configuració.",
   "preAuth.login.askOwner": "Si no, demana'n un al propietari de l'oficina.",
+  "preAuth.login.ownerCommand":
+    "Ets el propietari de l'oficina? Executa això com a root en aquesta màquina per obtenir un enllaç d'inici de sessió: {command}",
   "preAuth.login.noOwner": "Aquesta oficina encara no té propietari.",
   "preAuth.login.claimHere": "Obre {link} per reclamar-ne la propietat.",
   "preAuth.login.claimHereLink": "la pàgina d'inici d'aquesta oficina",

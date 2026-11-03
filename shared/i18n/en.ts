@@ -3573,6 +3573,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preAuth.login.alreadySignedIn":
     "Already signed in elsewhere? Create invite links for your other devices in Settings.",
   "preAuth.login.askOwner": "Otherwise, ask the office owner for one.",
+  "preAuth.login.ownerCommand":
+    "Office owner? Run this as root on this machine to get a sign-in link: {command}",
   "preAuth.login.noOwner": "No office owner has been set up yet.",
   "preAuth.login.claimHere": "Open {link} to claim ownership.",
   "preAuth.login.claimHereLink": "this office's home page",

@@ -1244,19 +1244,21 @@ export function revalidateByHash(sessionIdHash: string): SessionLookup | null {
   return validateByHash(sessionIdHash);
 }
 
-function validateByHash(hash: string): SessionLookup | null {
+// Whether a stored session may be honored, as a read only: it never changes
+// the store. validateByHash acts on the result, and the bare-name fallback in
+// readSessionCookies uses it alone, so both agree on what is live.
+type SessionLiveness =
+  | { live: true; session: StoredSession; user: UserRecord }
+  | { live: false; stale: boolean };
+
+function sessionLiveness(hash: string, now: number): SessionLiveness {
   const session = sessions!.get(hash);
-  if (!session) return null;
-  if (!safeHashEq(session.sessionIdHash, hash)) return null;
-  const now = Date.now();
+  if (!session) return { live: false, stale: false };
+  if (!safeHashEq(session.sessionIdHash, hash)) {
+    return { live: false, stale: false };
+  }
   if (session.expiresAt < now || session.absoluteExpiresAt < now) {
-    sessions!.delete(hash);
-    forceExpireSocketsForSession(hash);
-    // Memory changed even though we don't persist here (hot-path: the
-    // throttled-persist further down covers steady-state drift); the
-    // owner UI still wants the row removed from its sessions table.
-    fireSessionsChangedHook();
-    return null;
+    return { live: false, stale: true };
   }
   // Resolve user by stable id. delete_user evicts active sessions
   // proactively via evictSessionsForUserId, so this branch is the
@@ -1264,13 +1266,31 @@ function validateByHash(hash: string): SessionLookup | null {
   // user record vanished without the proactive path firing. A rename
   // flows the new display name through without disrupting the session.
   const user = getUserById(session.userId);
-  if (!user) {
-    // User record was removed; the session is orphaned and unsafe to honor.
+  if (!user) return { live: false, stale: true };
+  return { live: true, session, user };
+}
+
+function isLiveSession(rawSessionId: string): boolean {
+  ensureLoaded();
+  return sessionLiveness(hashOf(rawSessionId), Date.now()).live;
+}
+
+function validateByHash(hash: string): SessionLookup | null {
+  const now = Date.now();
+  const liveness = sessionLiveness(hash, now);
+  if (!liveness.live) {
+    if (!liveness.stale) return null;
+    // Expired, or the user record was removed (the session is orphaned and
+    // unsafe to honor). Memory changed even though we don't persist here
+    // (hot-path: the throttled-persist further down covers steady-state
+    // drift); the owner UI still wants the row removed from its sessions
+    // table.
     sessions!.delete(hash);
     forceExpireSocketsForSession(hash);
     fireSessionsChangedHook();
     return null;
   }
+  const { session, user } = liveness;
   const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;
   const newExpires = Math.min(now + rollingTtlMs, session.absoluteExpiresAt);
   let needsRolling = false;
@@ -1614,7 +1634,14 @@ export async function removeOwnerUnlessStranding<T>(
 // The base of each office's session cookie names. Every office on a host wrote
 // these names bare before task c9f250af; browsers scope cookies by host, not
 // by port, so two offices on one host read and cleared each other's cookie.
-// An office no longer reads, writes or clears the bare names.
+//
+// An office never writes or clears a bare name, but reads it as a fallback
+// (readSessionCookies), so an office that updates from a release before
+// v2026.10.23 keeps its browsers signed in (task 6e4a9789). Remove the fallback
+// only when no office can still hold a live session older than its office-id
+// file, never after a fixed number of releases: a session lives at most 365
+// days, but an office still on an older release makes that file only at its
+// update.
 export const SHARED_COOKIE_NAME = "isomux_session";
 export const SHARED_HOST_COOKIE_NAME = "__Host-isomux_session";
 
@@ -1821,17 +1848,21 @@ export function setCookieHeader(
   );
 }
 
-// The two session cookies a request can carry for this office.
-export type SessionCookieSlot = "host" | "plain";
+// The session cookies a request can carry for this office: its own two
+// names, and the two bare names of the fallback.
+type OwnCookieSlot = "host" | "plain";
+export type SessionCookieSlot = OwnCookieSlot | "bareHost" | "barePlain";
+const OWN_SLOTS: readonly OwnCookieSlot[] = ["host", "plain"];
 
-function slotName(slot: SessionCookieSlot): string {
+function slotName(slot: OwnCookieSlot): string {
   return officeSessionCookieNames()[slot];
 }
 
-// A clear for one slot. A `__Host-` clear carries `Secure` because the prefix
-// rules apply to a deletion too, so on a loopback office it is best-effort:
-// Chrome accepts it from http://localhost, Safari has not.
-function clearLine(slot: SessionCookieSlot, isHttps: boolean): string {
+// A clear for one of this office's names; a bare name is never cleared. A
+// `__Host-` clear carries `Secure` because the prefix rules apply to a
+// deletion too, so on a loopback office it is best-effort: Chrome accepts it
+// from http://localhost, Safari has not.
+function clearLine(slot: OwnCookieSlot, isHttps: boolean): string {
   return cookieLine(slotName(slot), "", 0, slot === "host" || isHttps);
 }
 
@@ -1859,17 +1890,28 @@ export interface SessionCookies {
   // name goes first: there the office cannot reliably clear a `__Host-` cookie
   // (Safari refuses Secure cookies from http://localhost), and a stale one
   // left from an HTTPS past would otherwise hide every new sign-in.
+  //
+  // Only when neither of this office's names is present, the bare names are
+  // read in the same order, and one is selected only when its value is a live
+  // session of this office. Another office on the same host wrote the same
+  // names, and a bare cookie left after a sign-out stays in the browser, so a
+  // bare value that is not live here is not this office's cookie: it selects
+  // nothing. On HTTPS only the bare `__Host-` name is read: a page on a
+  // subdomain can plant the bare plain name, and no HTTPS office wrote it.
   selected: string | null;
   selectedName: SessionCookieSlot | null;
 }
 
 // Parse the `Cookie` request header. Multi-cookie strings ("a=1; b=2") parsed
-// without bringing in a dependency. Pure: it never touches the session store.
+// without bringing in a dependency. It reads the session store for the bare
+// names, but never changes it.
 export function readSessionCookies(req: Request): SessionCookies {
   const names = officeSessionCookieNames();
   const values: Record<SessionCookieSlot, string | null> = {
     host: null,
     plain: null,
+    bareHost: null,
+    barePlain: null,
   };
   const header = req.headers.get("cookie");
   if (header) {
@@ -1878,7 +1920,15 @@ export function readSessionCookies(req: Request): SessionCookies {
       if (idx <= 0) continue;
       const name = part.slice(0, idx).trim();
       const slot: SessionCookieSlot | null =
-        name === names.host ? "host" : name === names.plain ? "plain" : null;
+        name === names.host
+          ? "host"
+          : name === names.plain
+            ? "plain"
+            : name === SHARED_HOST_COOKIE_NAME
+              ? "bareHost"
+              : name === SHARED_COOKIE_NAME
+                ? "barePlain"
+                : null;
       // First occurrence wins per name: RFC 6265 has the browser send the
       // more specific match first, and a later duplicate under the same name
       // must never overwrite it.
@@ -1892,10 +1942,19 @@ export function readSessionCookies(req: Request): SessionCookies {
     selected: slot === null ? null : values[slot],
     selectedName: slot,
   });
-  const write = writeSlot(buildPublicOrigin().isHttps);
+  const { isHttps } = buildPublicOrigin();
+  const write = writeSlot(isHttps);
   if (values[write] !== null) return pick(write);
   const other = write === "host" ? "plain" : "host";
-  return pick(values[other] === null ? null : other);
+  if (values[other] !== null) return pick(other);
+  const bare: SessionCookieSlot[] = isHttps
+    ? ["bareHost"]
+    : ["barePlain", "bareHost"];
+  for (const slot of bare) {
+    const value = values[slot];
+    if (value && isLiveSession(value)) return pick(slot);
+  }
+  return pick(null);
 }
 
 // The raw session id to validate, or null when there is nothing to validate.
@@ -1942,8 +2001,10 @@ export function browserSessionDiagnostic(
       outcome: "cookie_rejected",
       gate,
       selected,
-      othersPresent: Object.entries(cookies.values).some(
-        ([slot, value]) => slot !== selected && value !== null,
+      // Only this office's names: a bare cookie is selected only when its
+      // session is live, so it never overrides anything.
+      othersPresent: OWN_SLOTS.some(
+        (slot) => slot !== selected && cookies.values[slot] !== null,
       ),
       // Non-reversible: distinguishes a recurring stale cookie from changing
       // ones; never the cookie value itself.
@@ -1964,6 +2025,8 @@ export function browserSessionDiagnostic(
 const SLOT_LABELS: Record<SessionCookieSlot, string> = {
   host: "__Host",
   plain: "plain",
+  bareHost: "bare__Host",
+  barePlain: "bare_plain",
 };
 
 const BROWSER_DIAGNOSTIC_WINDOW_MS = 60_000;
@@ -2066,13 +2129,16 @@ export function _testResetBrowserSessionDiagnostics(): void {
 // this can never act for a different identity than the one the caller
 // authorized.
 //
-//   1. UPGRADE - the request authenticated through this office's other name
-//      (after a move between loopback and HTTPS). Write precedence puts the
-//      write name first, so it is absent. Re-issue the SAME raw session id
-//      under the write name and clear nothing.
+//   1. UPGRADE - the request authenticated through a name other than the
+//      write name: this office's other name (after a move between loopback
+//      and HTTPS) or a bare name. Write precedence puts the write name first,
+//      so it is absent. Re-issue the SAME raw session id under the write name
+//      and clear nothing.
 //   2. RETIRE - the write name came back from the browser (so it accepted the
-//      upgrade) and authenticated this request. Clear the other name if it
-//      carries the SAME value: that is the copy step 1 made from.
+//      upgrade) and authenticated this request. Clear this office's other
+//      name if it carries the SAME value: that is the copy step 1 made from.
+//      A bare name is never cleared: it reads as absent once its session
+//      ends.
 //
 // Splitting the steps is what makes the migration incapable of signing anyone
 // out: nothing is ever cleared until its replacement has been OBSERVED. A
@@ -2098,7 +2164,7 @@ export function sessionCookieMigrationHeaders(
     ];
   }
   const lines: string[] = [];
-  for (const slot of Object.keys(cookies.values) as SessionCookieSlot[]) {
+  for (const slot of OWN_SLOTS) {
     if (slot !== write && cookies.values[slot] === selected) {
       lines.push(clearLine(slot, isHttps));
     }
