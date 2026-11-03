@@ -1253,8 +1253,8 @@ Every deploy unpacks the commit again into `releases/<commit>`, so a tree
 changed on the host after an earlier deploy never reaches a build labelled with
 the commit.
 
-**Live Stripe.** `stripe/mode.ts` accepts live mode in two production
-runtimes: Vercel production and `ISOMUX_PRODUCTION_RUNTIME=vps`, which only
+**Live Stripe.** `stripe/mode.ts` accepts live mode only in the VPS
+production runtime, `ISOMUX_PRODUCTION_RUNTIME=vps`, which only
 `deploy/vps/compose.yaml` sets.
 
 **Caddy.** `deploy/vps/hosted.caddy.example` holds the two site blocks with
@@ -3225,11 +3225,10 @@ cannot be made to violate them on demand.
 ## Stripe mode boundary
 
 `CONTROL_PLANE_STRIPE_MODE` is the only mode decision. An absent value means
-`test`; the other accepted value is `live`. Live mode is valid only on the
-production Vercel deployment or the VPS production runtime. An
-unknown value or an unidentified runtime stops before a Stripe client or
-webhook processor is constructed. A key prefix confirms the configured mode;
-it never selects it.
+`test`; the other accepted value is `live`. Live mode is valid only in the
+VPS production runtime. An unknown value or an unidentified runtime stops
+before a Stripe client or webhook processor is constructed. A key prefix
+confirms the configured mode; it never selects it.
 
 Test mode reads `STRIPE_TEST_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. Live mode
 reads `STRIPE_LIVE_SECRET_KEY` and `STRIPE_LIVE_WEBHOOK_SECRET`. The live API

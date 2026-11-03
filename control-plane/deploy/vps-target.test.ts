@@ -146,7 +146,7 @@ describe("the compose project", () => {
     }
   });
 
-  test("the runtimes name the VPS production runtime and no platform's", () => {
+  test("the runtimes name the VPS production runtime", () => {
     const runtimeOf = (name: string) =>
       services[name].environment?.ISOMUX_PRODUCTION_RUNTIME;
     expect(["provisioner", "web", "owner", "db"].map(runtimeOf)).toEqual([
@@ -155,11 +155,6 @@ describe("the compose project", () => {
       undefined,
       undefined,
     ]);
-    for (const service of Object.values(services)) {
-      expect(Object.keys(service.environment ?? {})).not.toContain(
-        "VERCEL_ENV",
-      );
-    }
   });
 });
 

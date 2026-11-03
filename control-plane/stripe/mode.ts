@@ -19,12 +19,12 @@ export class StripeModeRefused extends Error {}
 type Environment = Readonly<Record<string, string | undefined>>;
 
 /** Set only by control-plane/deploy/vps/compose.yaml: the VPS production
- * runtime, beside the Vercel platform, which supplies its own identity. */
+ * runtime. */
 export const PRODUCTION_RUNTIME_NAME = "ISOMUX_PRODUCTION_RUNTIME";
 
 /** Resolve one explicit mode at a runtime boundary. An absent setting keeps an
  * unconfigured deployment in test mode. Live mode additionally needs the
- * identity of one of the two production runtimes. */
+ * identity of the VPS production runtime. */
 export function resolveStripeMode(env: Environment): StripeMode {
   const configured = env[STRIPE_MODE_NAME];
   if (configured === undefined || configured === "test") return "test";
@@ -33,12 +33,9 @@ export function resolveStripeMode(env: Environment): StripeMode {
       `${STRIPE_MODE_NAME} must be exactly test or live; refusing to guess`,
     );
   }
-  if (
-    env.VERCEL_ENV !== "production" &&
-    env[PRODUCTION_RUNTIME_NAME] !== "vps"
-  ) {
+  if (env[PRODUCTION_RUNTIME_NAME] !== "vps") {
     throw new StripeModeRefused(
-      "live Stripe mode is allowed only in the production Vercel deployment or the VPS production runtime",
+      "live Stripe mode is allowed only in the VPS production runtime",
     );
   }
   return "live";

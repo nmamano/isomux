@@ -178,8 +178,7 @@ describe("live-mode test isolation", () => {
     const resolvedAmbientMode = /resolveStripeMode\s*\(\s*process\.env/;
     const liveEnvironmentHelper =
       /^[^"'`\n]*stripe(?:Key|WebhookSecret)FromEnv\s*\([^,]+,\s*process\.env/m;
-    const productionRuntime =
-      /(?:VERCEL_ENV\s*:\s*["']production|ISOMUX_PRODUCTION_RUNTIME\s*:\s*["']vps)/;
+    const productionRuntime = /ISOMUX_PRODUCTION_RUNTIME\s*:\s*["']vps/;
     for (const file of testSurfaceFiles()) {
       const bytes = fs.readFileSync(file, "utf8");
       expect({
