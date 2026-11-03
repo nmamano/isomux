@@ -269,6 +269,7 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
   "skills.usageCounts": "Human skills-settings route.",
   "system.backupStatus": "Human settings status route.",
   "system.version": "Human UI bootstrap route.",
+  "floors.name": "Human elevator panel name lookup.",
   "storage.usage": "Human settings status route.",
   "usage.read": "Human settings status route.",
   "voice.status": "Human voice-settings status route.",

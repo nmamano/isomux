@@ -17,6 +17,14 @@
 //     across a boot, including a damaged file.
 //   - Reach: a member reads and writes, a privileged agent writes, a plain
 //     agent gets 403.
+//   - floors.name (task 42be5397): the card's name for an origin on the
+//     member's elevator panel, probed on the server with no credentials. The
+//     answer is shared: a second ask, by any member, sends no probe, failures
+//     included. Every failure is one 422 office_unreachable without detail.
+//     Past four probes in flight for one member: 429, with no probe.
+//   - A ride to an office where the member is signed out: the login page keeps
+//     the isomux-panel part of the address in sessionStorage, for the office
+//     after sign-in.
 //
 // The probe targets are real local listeners, so the default fetch path is
 // what runs; only the timeout is shortened.
@@ -25,6 +33,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { writeFileSync } from "fs";
+import { runInNewContext } from "vm";
 import { join } from "path";
 import type { Server } from "bun";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -36,6 +45,12 @@ import {
   OFFICE_CARD_PATH,
   type Floor,
 } from "../../shared/floors.ts";
+import {
+  MAX_PANEL_FRAGMENT_CHARS,
+  PANEL_HASH_KEY,
+  PANEL_SESSION_KEY,
+} from "../../shared/elevator-panel.ts";
+import { OFFICE_NAME_MAX_IN_FLIGHT } from "../office-name-cache.ts";
 
 const PROBE_TIMEOUT_MS = 300;
 
@@ -571,10 +586,12 @@ describe("floors reach", () => {
     expect(byOwner.status).toBe(201);
     const id = floorOf(byOwner.body).id;
 
+    const namePath = `/api/floors/name?url=${encodeURIComponent(card.origin)}`;
     for (const [method, path, body] of [
       ["GET", "/api/floors", undefined],
       ["POST", "/api/floors", { url: cardListener().origin }],
       ["DELETE", `/api/floors/${id}`, undefined],
+      ["GET", namePath, undefined],
     ] as const) {
       const res = await api(srv, method, path, { bearer: plain, body });
       expect({ method, status: res.status }).toEqual({ method, status: 403 });
@@ -588,6 +605,189 @@ describe("floors reach", () => {
     });
     expect(byAgent.status).toBe(201);
     expect((await list()).length).toBe(2);
+    const nameByAgent = await api(srv, "GET", namePath, { bearer: privileged });
+    expect(nameByAgent).toEqual({ status: 200, body: { name: "Harbor" } });
+  });
+});
+
+const namePathOf = (url: string) =>
+  `/api/floors/name?url=${encodeURIComponent(url)}`;
+
+// Waits for a condition that a request in flight makes true.
+async function until(cond: () => boolean, ms = 2_000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error("condition not met in time");
+    await Bun.sleep(5);
+  }
+}
+
+describe("floors.name", () => {
+  it("answers the card's name, probed on the server with no credentials, once for every member", async () => {
+    const { srv, owner, member } = await office();
+    const ask = (url: string, rawSessionId = member.rawSessionId) =>
+      api(srv, "GET", namePathOf(url), { rawSessionId });
+    const card = cardListener("Harbor");
+    expect(await ask(card.origin)).toEqual({
+      status: 200,
+      body: { name: "Harbor" },
+    });
+    expect(card.hits.map((h) => h.path)).toEqual([OFFICE_CARD_PATH]);
+    expect(card.hits[0].headers.get("cookie")).toBeNull();
+    expect(card.hits[0].headers.get("authorization")).toBeNull();
+    // Another member, and the same origin with a path: the cached answer.
+    expect(await ask(card.origin, owner.rawSessionId)).toEqual({
+      status: 200,
+      body: { name: "Harbor" },
+    });
+    expect(await ask(`${card.origin}/lobby`)).toEqual({
+      status: 200,
+      body: { name: "Harbor" },
+    });
+    expect(card.hits).toHaveLength(1);
+    const blank = cardListener(null);
+    expect(await ask(blank.origin)).toEqual({
+      status: 200,
+      body: { name: null },
+    });
+  });
+
+  it("refuses an address that is not an http(s) origin with 400, and probes nothing", async () => {
+    const { srv, member } = await office();
+    const card = cardListener();
+    const port = new URL(card.origin).port;
+    for (const path of [
+      "/api/floors/name",
+      namePathOf("javascript:alert(1)"),
+      namePathOf(`ftp://127.0.0.1:${port}`),
+      namePathOf(`http://user:pw@127.0.0.1:${port}`),
+    ]) {
+      const res = await api(srv, "GET", path, {
+        rawSessionId: member.rawSessionId,
+      });
+      expect({ path, status: res.status, code: errCode(res.body) }).toEqual({
+        path,
+        status: 400,
+        code: "invalid_request",
+      });
+    }
+    expect(card.hits).toEqual([]);
+  });
+
+  it("answers one 422 office_unreachable without detail for every failure, and keeps that answer too", async () => {
+    const { srv, member } = await office();
+    const ask = (url: string) =>
+      api(srv, "GET", namePathOf(url), { rawSessionId: member.rawSessionId });
+    // An office from before office cards: its auth wall answers the card path.
+    const outdated = listen(() => json({ error: "unauthenticated" }, 401));
+    const page = listen(
+      () =>
+        new Response("<!doctype html><title>Not an office</title>", {
+          headers: { "Content-Type": "text/html" },
+        }),
+    );
+    const answers = [
+      await ask(CLOSED_ORIGIN),
+      await ask(outdated.origin),
+      await ask(page.origin),
+    ];
+    for (const res of answers) {
+      expect(res.status).toBe(422);
+      expect(errCode(res.body)).toBe("office_unreachable");
+    }
+    expect(answers[1].body).toEqual(answers[0].body);
+    expect(answers[2].body).toEqual(answers[0].body);
+    expect(outdated.hits).toHaveLength(1);
+    expect((await ask(outdated.origin)).status).toBe(422);
+    expect(outdated.hits).toHaveLength(1);
+  });
+
+  it("answers 429 too_many_requests past the probes one member may have in flight, without a probe", async () => {
+    // A long probe timeout: the held probes must outlast the test's asks.
+    const srv = await startTestServer({
+      startServer: { officeProbe: { timeoutMs: 10_000 } },
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const member = await srv.seedMember("Mia");
+    let open: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const held = Array.from({ length: OFFICE_NAME_MAX_IN_FLIGHT }, (_, i) =>
+      listen(async () => {
+        await gate;
+        return json({ isomux: 1, name: `Held ${i}` });
+      }),
+    );
+    const pending = held.map((l) =>
+      api(srv, "GET", namePathOf(l.origin), {
+        rawSessionId: member.rawSessionId,
+      }),
+    );
+    // Every held ask is at its probe; none answered without one.
+    const early: Res[] = [];
+    for (const p of pending) void p.then((res) => early.push(res));
+    await until(
+      () => early.length > 0 || held.every((l) => l.hits.length === 1),
+    );
+    expect(early).toEqual([]);
+    const extra = cardListener("Extra");
+    const refused = await api(srv, "GET", namePathOf(extra.origin), {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(refused.status).toBe(429);
+    expect(errCode(refused.body)).toBe("too_many_requests");
+    expect(extra.hits).toEqual([]);
+    // Another member has probes of their own.
+    expect(
+      await api(srv, "GET", namePathOf(extra.origin), {
+        rawSessionId: owner.rawSessionId,
+      }),
+    ).toEqual({ status: 200, body: { name: "Extra" } });
+    open();
+    const answers = await Promise.all(pending);
+    expect(answers.map((a) => a.status)).toEqual(held.map(() => 200));
+  });
+});
+
+describe("a ride to an office where the member is signed out", () => {
+  it("the login page keeps the panel part of the address in sessionStorage, and only that part", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Morgan");
+    // A browser's navigation asks for HTML; a JSON client gets the JSON 401.
+    const res = await srv.http("/", { headers: { Accept: "text/html" } });
+    expect(res.status).toBe(401);
+    const html = await res.text();
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+      (m) => m[1],
+    );
+    const run = (hash: string) => {
+      const stored = new Map<string, string>();
+      const sessionStorage = {
+        getItem: (k: string) => stored.get(k) ?? null,
+        setItem: (k: string, value: string) => stored.set(k, String(value)),
+        removeItem: (k: string) => stored.delete(k),
+      };
+      const ctx: Record<string, unknown> = {
+        location: { hash, pathname: "/", search: "" },
+        sessionStorage,
+        history: { replaceState: () => {} },
+      };
+      ctx.window = ctx;
+      for (const script of scripts) runInNewContext(script, ctx);
+      return stored;
+    };
+    const part = `${PANEL_HASH_KEY}=${"A".repeat(40)}`;
+    expect(run(`#foo=1&${part}&bar`).get(PANEL_SESSION_KEY)).toBe(part);
+    expect(run(`#${part}`).get(PANEL_SESSION_KEY)).toBe(part);
+    expect(run("#foo=1").has(PANEL_SESSION_KEY)).toBe(false);
+    expect(
+      run(`#${PANEL_HASH_KEY}=${"A".repeat(MAX_PANEL_FRAGMENT_CHARS)}`).has(
+        PANEL_SESSION_KEY,
+      ),
+    ).toBe(false);
   });
 });
 

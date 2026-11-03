@@ -2781,7 +2781,7 @@ export async function demoApi(
   // The demo is one office with no server to reach another, so its elevator
   // has no floors and every address answers as unreachable.
   if (route === "GET /api/floors") return { floors: [] };
-  if (route === "POST /api/floors")
+  if (route === "POST /api/floors" || route === "GET /api/floors/name")
     throw new ApiError(422, "office_unreachable", "office unreachable");
   if (method === "DELETE" && pathname.startsWith("/api/floors/"))
     throw new ApiError(404, "floor_not_found", "no such floor");

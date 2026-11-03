@@ -34,6 +34,11 @@ import { getUserById, getUserByName, hasOwner } from "./users.ts";
 import { translatorForLanguage, translatorForRequest } from "./i18n.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
 import {
+  MAX_PANEL_FRAGMENT_CHARS,
+  PANEL_HASH_KEY,
+  PANEL_SESSION_KEY,
+} from "../shared/elevator-panel.ts";
+import {
   SUPPORTED_LANGUAGES,
   type SupportedLanguageCode,
 } from "../shared/languages.ts";
@@ -950,6 +955,12 @@ const EMPTY_PNG = Buffer.from(
 // pages are static enough that string concatenation is clearer than spinning
 // up a renderer.
 
+// A ride from another office's elevator carries the member's panel in the
+// address fragment (shared/elevator-panel.ts). The member signs in through
+// another page in this tab, so the panel waits in sessionStorage until the
+// office reads it after sign-in. Copied raw: the office sanitises it.
+const PANEL_KEEP_SCRIPT = `try{var p=location.hash.replace(/^#/,"").split("&").find(function(x){return x.indexOf(${JSON.stringify(`${PANEL_HASH_KEY}=`)})===0});if(p&&p.length<=${MAX_PANEL_FRAGMENT_CHARS})sessionStorage.setItem(${JSON.stringify(PANEL_SESSION_KEY)},p)}catch(e){}`;
+
 function renderLoginPage(i18n: Translator, officeName: string | null): string {
   const { t } = i18n;
   // The backdrop is a baked screenshot of the office UI served from
@@ -977,6 +988,7 @@ function renderLoginPage(i18n: Translator, officeName: string | null): string {
       })}</p>`
       }
     </main>
+    <script>${PANEL_KEEP_SCRIPT}</script>
   `;
   return baseHtml(
     i18n.language,

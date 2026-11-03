@@ -270,6 +270,7 @@ import {
 } from "./routes/handlers/members-chat.ts";
 import { floorsHandlers } from "./routes/handlers/floors.ts";
 import { probeOffice, type OfficeProbeOptions } from "./office-card.ts";
+import { createOfficeNameCache } from "./office-name-cache.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
@@ -3444,12 +3445,16 @@ function buildExecutorDeps(
     }),
   );
 
+  const officeNames = createOfficeNameCache({
+    probe: (origin) => probeOffice(origin, officeProbe),
+  });
   register(
     floorsHandlers({
       list: () => floors.list(),
       add: (url, name) => floors.add(url, name),
       remove: (id) => floors.remove(id),
       probe: (origin) => probeOffice(origin, officeProbe),
+      lookupName: (origin, callerKey) => officeNames.lookup(origin, callerKey),
       emitFloors: (list) => liveEmit("floors_updated", { floors: list }),
     }),
   );

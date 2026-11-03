@@ -9,7 +9,9 @@
 // Error codes: 400 invalid_request (bad url), 422 office_outdated (an Isomux
 // office from before the card), 422 office_unreachable (any other probe
 // failure, no detail), 409 floor_exists, 409 too_many_floors,
-// 404 floor_not_found.
+// 404 floor_not_found. floors.name: 400 invalid_request, 422
+// office_unreachable (any probe failure, outdated included, no detail), 429
+// too_many_requests (the caller's name probes in flight are at the limit).
 //
 // LEAF over the executor + shared types: the store, the probe and the emit
 // are injected.
@@ -26,14 +28,19 @@ import {
   type Floor,
   type OfficeCard,
 } from "../../../shared/floors.ts";
-import type { FloorAddReq } from "../../../shared/contract-shapes.ts";
+import type {
+  FloorAddReq,
+  FloorNameRes,
+} from "../../../shared/contract-shapes.ts";
 import type { FloorsStore } from "../../floors-store.ts";
+import type { OfficeNameCache } from "../../office-name-cache.ts";
 
 export interface FloorsDeps {
   list: FloorsStore["list"];
   add: FloorsStore["add"];
   remove: FloorsStore["remove"];
   probe(origin: string): Promise<OfficeCard | "outdated" | null>;
+  lookupName: OfficeNameCache["lookup"];
   emitFloors(floors: Floor[]): void;
 }
 
@@ -67,6 +74,32 @@ export function floorsHandlers(deps: FloorsDeps): Record<string, RouteHandler> {
         return fail(409, "too_many_floors", "the elevator has no more floors");
       deps.emitFloors(deps.list());
       return created({ floor: result.floor });
+    },
+
+    // The elevator panel's name for an office the member rode to: the
+    // browser cannot read another office's card itself (connect-src 'self').
+    "floors.name": async (ctx) => {
+      const raw = ctx.query.get("url");
+      const url = raw === null ? null : normaliseFloorUrl(raw);
+      if (!url)
+        return fail(400, "invalid_request", "url must be an http(s) address");
+      const { identity } = ctx;
+      const caller =
+        identity.agentId ??
+        identity.apiTokenId ??
+        identity.appName ??
+        `user:${identity.userId ?? ""}`;
+      const found = await deps.lookupName(url, caller);
+      if (found.kind === "busy")
+        return fail(429, "too_many_requests", "too many name lookups at once");
+      if (found.kind === "failed")
+        return fail(
+          422,
+          "office_unreachable",
+          "the address does not answer as an Isomux office",
+        );
+      const body: FloorNameRes = { name: found.name };
+      return ok(body);
     },
 
     "floors.remove": (ctx) => {

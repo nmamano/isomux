@@ -1604,6 +1604,11 @@ export interface FloorAddReq {
 export interface FloorAddRes {
   floor: Floor;
 }
+// GET /api/floors/name?url=<origin>: the name on that office's card, for the
+// elevator panel. The browser never reads another office's card itself.
+export interface FloorNameRes {
+  name: string | null;
+}
 
 export interface MembersChatPostReq {
   text: string;

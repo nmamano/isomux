@@ -2,11 +2,18 @@
 // click that opens one, a remove that opens nothing, and an add field that
 // refuses this office and shows the server's refusals inline.
 //
-// Markers the dialog carries: each floor is an element with data-floor-id;
-// its open and remove controls are buttons with data-floor-action="open" and
-// "remove"; the add button has data-floor-action="add"; an inline error has
-// role="alert".
-import { afterAll, describe, expect, it } from "bun:test";
+// The panel (task 42be5397): the offices this browser rode through and their
+// floors, this office lit and not a ride, a personal remove that stays in this
+// browser, rides that carry the panel, and names this office's server looks
+// up (never more than four at a time; a failed one is kept, a busy one is
+// asked again).
+//
+// Markers the dialog carries: each panel button is an element with
+// data-panel-url and data-panel-kind ("here", "floor", "visited",
+// "snapshot"); an office floor also has data-floor-id; the open and remove
+// controls are buttons with data-floor-action="open" and "remove"; the add
+// button has data-floor-action="add"; an inline error has role="alert".
+import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -17,9 +24,15 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { normaliseFloorUrl } = await import("../../shared/floors.ts");
 const { createElement } = await import("react");
+const { commitPanel, readPanel, rememberName, PANEL_NAME_TTL_MS } =
+  await import("../elevator-panel-store.ts");
+const { mergePanels, panelButtons, readPanelFragment, sanitisePanel } =
+  await import("../../shared/elevator-panel.ts");
 afterAll(() => setApiShim(null));
+afterEach(() => localStorage.clear());
 
 import type { Floor } from "../../shared/floors.ts";
+import type { Panel } from "../../shared/elevator-panel.ts";
 
 const OWN = "https://here.example.com";
 const named: Floor = {
@@ -97,7 +110,7 @@ describe("ElevatorDialog", () => {
     await act(async () => {
       fireEvent.click(d.action(d.rows()[1], "open"));
     });
-    expect(d.opened).toEqual([unnamed.url]);
+    expect(d.opened.map((u) => new URL(u).origin)).toEqual([unnamed.url]);
 
     const remove = d.action(d.rows()[0], "remove");
     // An icon button still has a name for a screen reader.
@@ -111,7 +124,7 @@ describe("ElevatorDialog", () => {
     expect(d.calls).toEqual([
       { method: "DELETE", path: "/api/floors/f1", body: undefined },
     ]);
-    expect(d.opened).toEqual([unnamed.url]);
+    expect(d.opened.map((u) => new URL(u).origin)).toEqual([unnamed.url]);
     d.view.unmount();
   });
 
@@ -239,6 +252,223 @@ describe("ElevatorDialog", () => {
     expect(d.calls.length).toBe(1);
     await act(async () => {
       settle({ floor: named });
+    });
+    d.view.unmount();
+  });
+});
+
+// Offices only this browser's panel holds.
+const ATLAS = "https://atlas.example.com";
+const COVE = "https://cove.example.com";
+const DOCK = "http://dock.example.org:4000";
+
+const panelOf = (p: Partial<Panel>): Panel => ({
+  visited: p.visited ?? [],
+  removed: p.removed ?? [],
+  snapshots: p.snapshots ?? [],
+});
+// Atlas was visited first, with Cove as its floor; then this office.
+const trip = panelOf({
+  visited: [
+    { url: ATLAS, addedAt: 1 },
+    { url: OWN, addedAt: 2 },
+  ],
+  snapshots: [{ origin: ATLAS, rev: 1, floors: [COVE] }],
+});
+const seed = (p: Panel) => commitPanel(() => p);
+
+const isNameAsk = (c: Call) =>
+  c.method === "GET" && c.path.startsWith("/api/floors/name");
+const namesAsked = (calls: Call[]) =>
+  calls
+    .filter(isNameAsk)
+    .map((c) => new URL(c.path, "http://x").searchParams.get("url"));
+const notNameAsks = (calls: Call[]) => calls.filter((c) => !isNameAsk(c));
+const urlOfAsk = (c: Call) =>
+  new URL(c.path, "http://x").searchParams.get("url") ?? "";
+
+function panelRows(view: ReturnType<typeof render>) {
+  return [
+    ...view.container.querySelectorAll("[data-panel-url]"),
+  ] as HTMLElement[];
+}
+const rowFor = (view: ReturnType<typeof render>, url: string) =>
+  panelRows(view).find((r) => r.getAttribute("data-panel-url") === url)!;
+const shape = (view: ReturnType<typeof render>) =>
+  panelRows(view).map((r) => [
+    r.getAttribute("data-panel-url"),
+    r.getAttribute("data-panel-kind"),
+  ]);
+
+describe("ElevatorDialog panel", () => {
+  it("lists the offices this browser rode through, each followed by its floors, with this office lit and not a ride", async () => {
+    seed(trip);
+    const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
+    expect(shape(d.view)).toEqual([
+      [ATLAS, "visited"],
+      [COVE, "snapshot"],
+      [OWN, "here"],
+      [named.url, "floor"],
+    ]);
+    const here = rowFor(d.view, OWN);
+    expect(d.action(here, "open")).toBeNull();
+    expect(d.action(here, "remove")).toBeNull();
+    expect(rowFor(d.view, named.url).getAttribute("data-floor-id")).toBe("f1");
+    await act(async () => {});
+    d.view.unmount();
+  });
+
+  it("removes a personal entry in this browser only, with its office's floors, and sends no call", async () => {
+    seed(trip);
+    const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
+    await act(async () => {
+      fireEvent.click(d.action(rowFor(d.view, ATLAS), "remove"));
+    });
+    expect(notNameAsks(d.calls)).toEqual([]);
+    expect(d.opened).toEqual([]);
+    expect(shape(d.view)).toEqual([
+      [OWN, "here"],
+      [named.url, "floor"],
+    ]);
+    const kept = readPanel();
+    expect(panelButtons(kept, OWN, [named]).map((b) => b.url)).toEqual([
+      OWN,
+      named.url,
+    ]);
+    d.view.unmount();
+  });
+
+  it("opens a ride that carries the panel as it is at the click, from this office", async () => {
+    seed(trip);
+    const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
+    // Another tab rode to Dock after this dialog opened.
+    commitPanel((p) =>
+      mergePanels(
+        p,
+        panelOf({ visited: [{ url: DOCK, addedAt: 3 }] }),
+        Date.now(),
+      ),
+    );
+    await act(async () => {
+      fireEvent.click(d.action(rowFor(d.view, COVE), "open"));
+    });
+    await act(async () => {
+      fireEvent.click(d.action(rowFor(d.view, named.url), "open"));
+    });
+    expect(d.opened.map((u) => new URL(u).origin)).toEqual([COVE, named.url]);
+    for (const url of d.opened) {
+      const read = readPanelFragment(new URL(url).hash);
+      expect(read?.from).toBe(OWN);
+      const carried = sanitisePanel(read?.panel, Date.now());
+      expect(carried.visited.map((x) => x.url).sort()).toEqual(
+        [ATLAS, DOCK, OWN].sort(),
+      );
+      expect(carried.snapshots.find((x) => x.origin === ATLAS)?.floors).toEqual(
+        [COVE],
+      );
+    }
+    d.view.unmount();
+  });
+
+  it("asks this office's server for each personal entry's name, and shows the host until it answers", async () => {
+    seed(trip);
+    const answers = new Map<string, (v: unknown) => void>();
+    const d = open([named], (c) =>
+      isNameAsk(c)
+        ? new Promise((resolve) => answers.set(urlOfAsk(c), resolve))
+        : Promise.resolve({}),
+    );
+    await waitFor(() => expect(answers.size).toBe(2));
+    // Never for this office or its own floors.
+    expect(namesAsked(d.calls).sort()).toEqual([ATLAS, COVE].sort());
+    expect(rowFor(d.view, ATLAS).textContent).toContain("atlas.example.com");
+    await act(async () => {
+      answers.get(ATLAS)!({ name: "Atlas Works" });
+    });
+    await waitFor(() =>
+      expect(rowFor(d.view, ATLAS).textContent).toContain("Atlas Works"),
+    );
+    d.view.unmount();
+
+    // A fresh answer is not asked again.
+    const again = open([named], async (c) =>
+      isNameAsk(c) ? { name: "Cove" } : {},
+    );
+    expect(rowFor(again.view, ATLAS).textContent).toContain("Atlas Works");
+    await act(async () => {});
+    expect(namesAsked(again.calls)).toEqual([COVE]);
+    again.view.unmount();
+  });
+
+  it("keeps a failed name until it is stale, and asks a busy one again at the next open", async () => {
+    seed(trip);
+    const answer = async (c: Call) => {
+      if (!isNameAsk(c)) return {};
+      if (urlOfAsk(c) === ATLAS)
+        throw new ApiError(422, "office_unreachable", "unreachable");
+      throw new ApiError(429, "too_many_requests", "busy");
+    };
+    const first = open([named], answer);
+    await waitFor(() => expect(namesAsked(first.calls).length).toBe(2));
+    await act(async () => {});
+    expect(rowFor(first.view, ATLAS).textContent).toContain(
+      "atlas.example.com",
+    );
+    first.view.unmount();
+
+    const second = open([named], answer);
+    await waitFor(() => expect(namesAsked(second.calls)).toEqual([COVE]));
+    await act(async () => {});
+    second.view.unmount();
+
+    rememberName(
+      ATLAS,
+      null,
+      [ATLAS, COVE, OWN],
+      Date.now() - PANEL_NAME_TTL_MS - 1000,
+    );
+    const third = open([named], answer);
+    await waitFor(() =>
+      expect(namesAsked(third.calls).sort()).toEqual([ATLAS, COVE].sort()),
+    );
+    await act(async () => {});
+    third.view.unmount();
+  });
+
+  it("asks at most four names at a time", async () => {
+    const many = Array.from(
+      { length: 6 },
+      (_, i) => `https://office${i}.example.com`,
+    );
+    seed(
+      panelOf({
+        visited: [
+          ...many.map((url, i) => ({ url, addedAt: i + 1 })),
+          { url: OWN, addedAt: 10 },
+        ],
+      }),
+    );
+    const answers: Array<(v: unknown) => void> = [];
+    const d = open([], (c) =>
+      isNameAsk(c)
+        ? new Promise((resolve) => answers.push(resolve))
+        : Promise.resolve({}),
+    );
+    await waitFor(() => expect(answers.length).toBe(4));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(answers.length).toBe(4);
+    await act(async () => {
+      answers[0]({ name: "First" });
+    });
+    await waitFor(() => expect(answers.length).toBe(5));
+    await act(async () => {
+      for (const resolve of answers) resolve({ name: null });
+    });
+    await waitFor(() => expect(answers.length).toBe(6));
+    await act(async () => {
+      answers[5]({ name: null });
     });
     d.view.unmount();
   });

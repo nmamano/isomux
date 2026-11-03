@@ -89,6 +89,7 @@ import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { anyRoomSounds } from "../shared/notif-rooms.ts";
 import { createNotificationSound } from "./notification-sound.ts";
+import { syncPanel } from "./elevator-panel-store.ts";
 import {
   getUsername,
   readLegacyUserPrefs,
@@ -2067,6 +2068,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       (msg: ServerMessage) => {
         dispatch(msg as Action);
         if (msg.type === "full_state") dispatch({ type: "connected" });
+        if (msg.type === "full_state" || msg.type === "floors_updated")
+          syncPanel(msg.floors ?? []);
         // Once both session_context and users_list have arrived, mirror any
         // legacy localStorage notifRooms pref into the user record - but only
         // if the server hasn't recorded a value yet. The session cookie is

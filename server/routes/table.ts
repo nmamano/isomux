@@ -224,6 +224,7 @@ import type {
   FloorsListRes,
   FloorAddReq,
   FloorAddRes,
+  FloorNameRes,
   MembersChatPostReq,
   MembersChatEditReq,
   MembersChatThumbsUpReq,
@@ -1439,6 +1440,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("room:manage", operationalAuthenticated),
     tokenArea: { area: "rooms", level: "write" },
     emits: ["floors_updated"],
+  }),
+  defineRoute<void, FloorNameRes>({
+    opId: "floors.name",
+    method: "GET",
+    path: "/api/floors/name",
+    auth: cap("room:manage", operationalAuthenticated),
+    tokenArea: { area: "rooms", level: "write" },
+    emits: [],
   }),
   defineRoute<void, NoContent>({
     opId: "floors.remove",

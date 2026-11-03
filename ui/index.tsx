@@ -7,6 +7,10 @@ import type { AppWidgetBoot } from "./app-widget-state.ts";
 import { LanguageProvider } from "./i18n.tsx";
 import { captureInstallPrompt } from "./app-install.ts";
 import { trackOfficePage } from "./home-screen-office.ts";
+import { holdArrivingPanel } from "./elevator-panel-store.ts";
+
+// First: a ride from another office's elevator left the panel in the address.
+holdArrivingPanel();
 
 const widgetMeta = document.querySelector<HTMLMetaElement>(
   'meta[name="isomux-app-widget"]',

@@ -1457,6 +1457,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Floors: the lobby elevator's links to other offices
   "floors.list": { caps: ["office:read"], emits: [] },
   "floors.add": { caps: ["room:manage"], emits: ["floors_updated"] },
+  "floors.name": { caps: ["room:manage"], emits: [] },
   "floors.remove": { caps: ["room:manage"], emits: ["floors_updated"] },
   // Rooms
   "rooms.create": { caps: ["room:manage"], emits: ["room_created"] },
@@ -2378,6 +2379,7 @@ const API_REACHABLE_OPIDS = [
   "membersChat.getFile",
   "floors.list",
   "floors.add",
+  "floors.name",
   "floors.remove",
   "rooms.create",
   "rooms.close",

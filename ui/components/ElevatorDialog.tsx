@@ -4,14 +4,35 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { normaliseFloorUrl, type Floor } from "../../shared/floors.ts";
-import type { FloorAddReq, FloorAddRes } from "../../shared/contract-shapes.ts";
+import type {
+  FloorAddReq,
+  FloorAddRes,
+  FloorNameRes,
+} from "../../shared/contract-shapes.ts";
+import {
+  panelButtons,
+  removeFromPanel,
+  type Panel,
+  type PanelButton,
+} from "../../shared/elevator-panel.ts";
+import {
+  PANEL_NAME_TTL_MS,
+  commitPanel,
+  readNames,
+  readPanel,
+  rememberName,
+  rideFragment,
+  type PanelName,
+} from "../elevator-panel-store.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 
-// The lobby elevator: the floors (other offices this office links to), a way
-// to open one, remove one, and add another office by its address. The server
-// checks the address and takes the office name from it (POST /api/floors).
-// The list itself comes from the store, which floors_updated keeps live.
+// The lobby elevator: one button per office on this browser's panel
+// (shared/elevator-panel.ts) - the offices it rode through, their floors and
+// this office's own floors (the store, which floors_updated keeps live) - a
+// way to open one, remove one, and add another office by its address. The
+// server checks the address and takes the office name from it
+// (POST /api/floors). A ride carries the panel to the next office.
 
 // `ownOrigin` and `openFloor` default to this page's origin and a same-tab
 // navigation; tests pass their own.
@@ -29,6 +50,9 @@ const ERROR_KEYS: Record<string, PlainMessageKey> = {
   invalid_request: "lobby.elevator.error.invalid",
 };
 
+// Name lookups one open dialog has in flight; the server refuses more.
+const MAX_NAME_ASKS = 4;
+
 function hostOf(url: string): string {
   try {
     return new URL(url).host;
@@ -43,7 +67,13 @@ export function ElevatorDialog({
   openFloor = (url) => location.assign(url),
 }: ElevatorDialogProps) {
   const { t } = useI18n();
-  const { floors, isMobile } = useAppState();
+  const { floors, isMobile, office } = useAppState();
+  const here = normaliseFloorUrl(ownOrigin) ?? ownOrigin;
+  const [panel, setPanel] = useState<Panel>(() => readPanel());
+  const [names, setNames] = useState<Record<string, PanelName>>(() =>
+    readNames(),
+  );
+  const buttons = panelButtons(panel, here, floors);
   const [address, setAddress] = useState("");
   const [errorKey, setErrorKey] = useState<PlainMessageKey | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -66,6 +96,54 @@ export function ElevatorDialog({
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [onClose]);
+
+  // Each personal entry without a fresh name: ask this office's server, at
+  // most MAX_NAME_ASKS at a time. A failed lookup is kept as no name until it
+  // is stale; a busy one is asked again at the next open.
+  const personal = buttons
+    .filter((b) => b.kind === "visited" || b.kind === "snapshot")
+    .map((b) => b.url);
+  const personalKey = personal.join(" ");
+  useEffect(() => {
+    let cancelled = false;
+    const kept = readNames();
+    const now = Date.now();
+    const queue = personal.filter(
+      (url) => !kept[url] || now - kept[url].at >= PANEL_NAME_TTL_MS,
+    );
+    const keep = buttons.map((b) => b.url);
+    const next = async (): Promise<void> => {
+      const url = queue.shift();
+      if (url === undefined || cancelled) return;
+      try {
+        const res = await apiFetch<FloorNameRes>(
+          "GET",
+          `/api/floors/name?url=${encodeURIComponent(url)}`,
+        );
+        rememberName(url, res.name, keep);
+      } catch (e) {
+        if (e instanceof ApiError && e.code === "office_unreachable")
+          rememberName(url, null, keep);
+      }
+      if (!cancelled) setNames(readNames());
+      return next();
+    };
+    for (let i = 0; i < MAX_NAME_ASKS; i++) void next();
+    return () => {
+      cancelled = true;
+    };
+    // The list of personal entries is the only input that matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personalKey]);
+
+  function ride(url: string) {
+    openFloor(`${url}/#${rideFragment(here, floors)}`);
+  }
+
+  function removePersonal(url: string) {
+    showError(null);
+    setPanel(commitPanel((p) => removeFromPanel(p, url, Date.now())));
+  }
 
   function showError(key: PlainMessageKey | null, text: string | null = null) {
     setErrorKey(key);
@@ -115,6 +193,15 @@ export function ElevatorDialog({
   }
 
   const shownError = errorKey ? t(errorKey) : errorText;
+
+  // The name to show, or null for the host alone. Never a name a ride
+  // carried: this office's own name, a floor's name from floors.json, or the
+  // name this office's server read from the office's card.
+  function nameOf(button: PanelButton): string | null {
+    if (button.kind === "here") return office.name?.trim() || null;
+    if (button.floor) return button.floor.name;
+    return names[button.url]?.name ?? null;
+  }
 
   return (
     <div
@@ -180,127 +267,20 @@ export function ElevatorDialog({
             marginTop: 16,
           }}
         >
-          {floors.length === 0 && (
-            <p
-              style={{
-                fontSize: 12,
-                color: "var(--text-ghost)",
-                margin: 0,
-              }}
-            >
-              {t("lobby.elevator.empty")}
-            </p>
-          )}
-          {floors.map((floor, i) => {
-            const host = hostOf(floor.url);
-            const name = floor.name ?? host;
-            return (
-              <div
-                key={floor.id}
-                data-floor-id={floor.id}
-                style={{ display: "flex", alignItems: "center", gap: 6 }}
-              >
-                <button
-                  type="button"
-                  data-floor-action="open"
-                  onClick={() => openFloor(floor.url)}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 10px",
-                    borderRadius: 10,
-                    border: "1px solid var(--border)",
-                    background: "var(--bg-input)",
-                    color: "var(--text-primary)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      flex: "none",
-                      width: 24,
-                      height: 24,
-                      borderRadius: 12,
-                      border: "1px solid var(--border-light)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      color: "var(--accent-text)",
-                    }}
-                  >
-                    {i + 1}
-                  </span>
-                  <span style={{ minWidth: 0 }}>
-                    <span
-                      {...noTranslate()}
-                      style={{
-                        display: "block",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {name}
-                    </span>
-                    {floor.name !== null && (
-                      <span
-                        {...noTranslate()}
-                        style={{
-                          display: "block",
-                          fontSize: 11,
-                          color: "var(--text-muted)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {host}
-                      </span>
-                    )}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  data-floor-action="remove"
-                  aria-label={t("lobby.elevator.remove", { name })}
-                  title={t("lobby.elevator.remove", { name })}
-                  onClick={() => void remove(floor)}
-                  style={{
-                    flex: "none",
-                    width: 30,
-                    height: 30,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: 0,
-                    borderRadius: 8,
-                    border: secondaryBorder,
-                    background: secondaryFill,
-                    color: "var(--text-dim)",
-                    cursor: "pointer",
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
-                    <path
-                      d="M2 2l8 8M10 2l-8 8"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </button>
-              </div>
-            );
-          })}
+          {buttons.map((button, i) => (
+            <PanelRow
+              key={button.url}
+              button={button}
+              index={i}
+              name={nameOf(button)}
+              onOpen={() => ride(button.url)}
+              onRemove={() =>
+                button.floor
+                  ? void remove(button.floor)
+                  : removePersonal(button.url)
+              }
+            />
+          ))}
         </div>
 
         <label
@@ -405,6 +385,173 @@ export function ElevatorDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface PanelRowProps {
+  button: PanelButton;
+  index: number;
+  name: string | null;
+  onOpen: () => void;
+  onRemove: () => void;
+}
+
+// One panel button: a ride to that office and a remove, or, for this office,
+// a lit button that goes nowhere.
+function PanelRow({ button, index, name, onOpen, onRemove }: PanelRowProps) {
+  const { t } = useI18n();
+  const host = hostOf(button.url);
+  const label = name ?? host;
+  const isHere = button.kind === "here";
+  // An office floor goes for every member; a personal entry only from this
+  // member's panel.
+  const removeLabel = button.floor
+    ? t("lobby.elevator.remove", { name: label })
+    : t("lobby.elevator.removeMine", { name: label });
+  const face = (
+    <>
+      <span
+        aria-hidden="true"
+        style={{
+          flex: "none",
+          width: 24,
+          height: 24,
+          borderRadius: 12,
+          border: isHere
+            ? "1px solid var(--accent-text)"
+            : "1px solid var(--border-light)",
+          background: isHere ? "var(--accent-text)" : undefined,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 11,
+          fontWeight: 700,
+          color: isHere ? "var(--bg-base)" : "var(--accent-text)",
+        }}
+      >
+        {index + 1}
+      </span>
+      <span style={{ minWidth: 0, flex: 1 }}>
+        <span
+          {...noTranslate()}
+          style={{
+            display: "block",
+            fontSize: 13,
+            fontWeight: 600,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+        {name !== null && (
+          <span
+            {...noTranslate()}
+            style={{
+              display: "block",
+              fontSize: 11,
+              color: "var(--text-muted)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {host}
+          </span>
+        )}
+      </span>
+      {isHere && (
+        <span
+          style={{
+            flex: "none",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--accent-text)",
+          }}
+        >
+          {t("lobby.elevator.here")}
+        </span>
+      )}
+    </>
+  );
+  const faceStyle = {
+    flex: 1,
+    minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "8px 10px",
+    borderRadius: 10,
+    color: "var(--text-primary)",
+    textAlign: "left",
+  } as const;
+  return (
+    <div
+      data-panel-url={button.url}
+      data-panel-kind={button.kind}
+      data-floor-id={button.floor?.id}
+      style={{ display: "flex", alignItems: "center", gap: 6 }}
+    >
+      {isHere ? (
+        <div
+          aria-current="location"
+          style={{
+            ...faceStyle,
+            border: "1px solid var(--accent-text)",
+            background: "var(--bg-input)",
+          }}
+        >
+          {face}
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            data-floor-action="open"
+            onClick={onOpen}
+            style={{
+              ...faceStyle,
+              border: "1px solid var(--border)",
+              background: "var(--bg-input)",
+              cursor: "pointer",
+            }}
+          >
+            {face}
+          </button>
+          <button
+            type="button"
+            data-floor-action="remove"
+            aria-label={removeLabel}
+            title={removeLabel}
+            onClick={onRemove}
+            style={{
+              flex: "none",
+              width: 30,
+              height: 30,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+              borderRadius: 8,
+              border: secondaryBorder,
+              background: secondaryFill,
+              color: "var(--text-dim)",
+              cursor: "pointer",
+            }}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+              <path
+                d="M2 2l8 8M10 2l-8 8"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </>
+      )}
     </div>
   );
 }
