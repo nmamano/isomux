@@ -6,11 +6,12 @@ import { OPENCODE_CLI_VERSION, resolveOpenCodeBinary } from "./runtime";
 const repoRoot = join(import.meta.dir, "../../..");
 
 describe("OpenCode release pin", () => {
-  // Nil, 2026-10-23 and 2026-10-25: @opencode/cli 2.1.4, exact, with no
-  // OpenCode 1 package left beside it (task e47be82a).
+  // Nil, 2026-10-23 and 2026-10-25: @opencode/cli exact, with no OpenCode 1
+  // package left beside it (task e47be82a). 2.2.5 since 2026-11-03 (task
+  // 6dca5910).
   it("pins the package exactly, the selected platform package, and every Linux lock entry", async () => {
     const manifest = await Bun.file(join(repoRoot, "package.json")).json();
-    expect(OPENCODE_CLI_VERSION).toBe("2.1.4");
+    expect(OPENCODE_CLI_VERSION).toBe("2.2.5");
     expect(manifest.dependencies["@opencode/cli"]).toBe(OPENCODE_CLI_VERSION);
     expect(
       Object.entries(manifest.dependencies as Record<string, string>).filter(
@@ -32,7 +33,8 @@ describe("OpenCode release pin", () => {
         /^\s*"(@opencode\/cli-linux-[^"]+)": \["[^"]+@([^"]+)", "",[^\n]+"(sha512-[^"]+)"\],$/gm,
       ),
     ];
-    // The six Linux builds of 2.1.4 (gate S10, mg-s10-update-pin.json).
+    // The six Linux builds (gate S10 on 2.1.4, mg-s10-update-pin.json; the
+    // same six in 2.2.5).
     expect(entries.map((entry) => entry[1]).sort()).toEqual([
       "@opencode/cli-linux-arm64",
       "@opencode/cli-linux-arm64-musl",

@@ -1,0 +1,1079 @@
+{
+  "date": "2026-10-25",
+  "opencode": "2.1.4",
+  "item": "P4",
+  "parts": {
+    "a": {
+      "method": "Isomux 'proposed' v2 config in OPENCODE_CONFIG + OPENCODE_CONFIG_CONTENT; a repo per case with project config; GATE_CALL per action, every ask answered once; with and without Isomux rules in POST /api/session {permissions}.",
+      "cases": {
+        "A_project_toplevel_shell_allow": {
+          "agent": "build",
+          "top_only": {
+            "shell": "ask:shell",
+            "write": "ask:edit",
+            "question": "deny(tool removed)",
+            "ext_read": "ask:external_directory"
+          },
+          "with_session_rules": {
+            "shell": "ask:shell",
+            "write": "ask:edit",
+            "question": "deny(tool removed)",
+            "ext_read": "ask:external_directory"
+          },
+          "sessionAgent": "build",
+          "effectiveAgentRules": {
+            "build": [
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "read",
+                "resource": "*.env",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.*",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.example",
+                "effect": "allow"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "browser",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "skill",
+                "resource": "browser",
+                "effect": "deny"
+              }
+            ]
+          },
+          "configDocuments": [
+            {
+              "type": "directory",
+              "path": "<run>/a/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/a/opencode.json",
+              "keys": [
+                "model",
+                "default_agent",
+                "update",
+                "permissions",
+                "agents",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/a-A_project_toplevel_shell_allow/opencode.json",
+              "keys": [
+                "permissions"
+              ]
+            },
+            {
+              "type": "document",
+              "path": null,
+              "keys": [
+                "default_agent",
+                "update",
+                "permissions",
+                "agents"
+              ]
+            }
+          ]
+        },
+        "B_project_agents_build_allow_all": {
+          "agent": "build",
+          "top_only": {
+            "shell": "ask:shell",
+            "write": "ask:edit",
+            "question": "deny(tool removed)",
+            "ext_read": "allow"
+          },
+          "with_session_rules": {
+            "shell": "ask:shell",
+            "write": "ask:edit",
+            "question": "deny(tool removed)",
+            "ext_read": "ask:external_directory"
+          },
+          "sessionAgent": "build",
+          "effectiveAgentRules": {
+            "build": [
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "read",
+                "resource": "*.env",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.*",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.example",
+                "effect": "allow"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "browser",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "skill",
+                "resource": "browser",
+                "effect": "deny"
+              }
+            ]
+          },
+          "configDocuments": [
+            {
+              "type": "directory",
+              "path": "<run>/a/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/a/opencode.json",
+              "keys": [
+                "model",
+                "default_agent",
+                "update",
+                "permissions",
+                "agents",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/a-B_project_agents_build_allow_all/opencode.json",
+              "keys": [
+                "agents"
+              ]
+            },
+            {
+              "type": "document",
+              "path": null,
+              "keys": [
+                "default_agent",
+                "update",
+                "permissions",
+                "agents"
+              ]
+            }
+          ]
+        },
+        "C_project_agent_md_isomux_cron_allow_all": {
+          "agent": "isomux-cron",
+          "top_only": {
+            "shell": "ask:shell",
+            "write": "ask:edit",
+            "question": "deny(tool removed)",
+            "subagent": "deny(tool removed)",
+            "ext_read": "allow"
+          },
+          "with_session_rules": {
+            "shell": "ask:shell",
+            "write": "ask:edit",
+            "question": "deny(tool removed)",
+            "subagent": "deny(tool removed)",
+            "ext_read": "ask:external_directory"
+          },
+          "sessionAgent": "isomux-cron",
+          "effectiveAgentRules": {
+            "isomux-cron": [
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "read",
+                "resource": "*.env",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.*",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.example",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "subagent",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "subagent",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "browser",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "skill",
+                "resource": "browser",
+                "effect": "deny"
+              }
+            ]
+          },
+          "configDocuments": [
+            {
+              "type": "directory",
+              "path": "<run>/a/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/a/opencode.json",
+              "keys": [
+                "model",
+                "default_agent",
+                "update",
+                "permissions",
+                "agents",
+                "providers"
+              ]
+            },
+            {
+              "type": "directory",
+              "path": "<run>/a-C_project_agent_md_isomux_cron_allow_all/.opencode"
+            },
+            {
+              "type": "document",
+              "path": null,
+              "keys": [
+                "default_agent",
+                "update",
+                "permissions",
+                "agents"
+              ]
+            }
+          ]
+        },
+        "D_project_default_agent_and_own_agent": {
+          "agent": "(none: default_agent)",
+          "top_only": {
+            "shell": "ask:shell"
+          },
+          "with_session_rules": {
+            "shell": "ask:shell"
+          },
+          "sessionAgent": null,
+          "effectiveAgentRules": {
+            "build": [
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "read",
+                "resource": "*.env",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.*",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.example",
+                "effect": "allow"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "browser",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "skill",
+                "resource": "browser",
+                "effect": "deny"
+              }
+            ],
+            "proj": [
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "read",
+                "resource": "*.env",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.*",
+                "effect": "ask"
+              },
+              {
+                "action": "read",
+                "resource": "*.env.example",
+                "effect": "allow"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "shell",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "edit",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "question",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "isomux_safety_active",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "external_directory",
+                "resource": "*",
+                "effect": "ask"
+              },
+              {
+                "action": "*",
+                "resource": "*",
+                "effect": "allow"
+              },
+              {
+                "action": "browser",
+                "resource": "*",
+                "effect": "deny"
+              },
+              {
+                "action": "skill",
+                "resource": "browser",
+                "effect": "deny"
+              }
+            ]
+          },
+          "configDocuments": [
+            {
+              "type": "directory",
+              "path": "<run>/a/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/a/opencode.json",
+              "keys": [
+                "model",
+                "default_agent",
+                "update",
+                "permissions",
+                "agents",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/a-D_project_default_agent_and_own_agent/opencode.json",
+              "keys": [
+                "default_agent",
+                "agents"
+              ]
+            },
+            {
+              "type": "document",
+              "path": null,
+              "keys": [
+                "default_agent",
+                "update",
+                "permissions",
+                "agents"
+              ]
+            }
+          ]
+        }
+      },
+      "agentCatalog": {
+        "ok": true,
+        "ms": 2965,
+        "firstResponseIds": [
+          "build",
+          "general",
+          "explore",
+          "compaction",
+          "title",
+          "summary",
+          "plan",
+          "isomux-interactive-bypass",
+          "isomux-cron"
+        ],
+        "ids": [
+          "build",
+          "general",
+          "explore",
+          "compaction",
+          "title",
+          "summary",
+          "plan",
+          "isomux-interactive-bypass",
+          "isomux-cron"
+        ]
+      }
+    },
+    "b": {
+      "etcExists": false,
+      "method": "server started via harness/pm-strace-wrap.sh (strace -f -e trace=%file), one session opened in a repo, then grep the trace",
+      "traceLines": 2108,
+      "etcOpencodeLines": [
+        "openat(AT_FDCWD, \"/etc/opencode\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.json\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.jsonc\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "statx(AT_FDCWD, \"/etc/opencode\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7b87ab1f6910) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH) = -1 ENOENT (No such file or directory)",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.json\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH <unfinished ...>",
+        "openat(AT_FDCWD, \"/etc/opencode/opencode.jsonc\", O_RDONLY|O_LARGEFILE|O_CLOEXEC|O_PATH <unfinished ...>",
+        "statx(AT_FDCWD, \"/etc/opencode\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7b87aa06f910) = -1 ENOENT (No such file or directory)"
+      ],
+      "etcOpencodeCount": 8,
+      "controlProjectOpencodeJsonCount": 8
+    },
+    "c": {
+      "OPENCODE_CONFIG": {
+        "withOPENCODE_CONFIG": {
+          "end": "session.execution.succeeded",
+          "mockRequestsWithMarker": 2,
+          "answerHasMarker": true,
+          "failure": null,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c1-true/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c1-file/isomux-config.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            }
+          ]
+        },
+        "control_without": {
+          "end": "session.execution.failed",
+          "mockRequestsWithMarker": 0,
+          "answerHasMarker": false,
+          "failure": "Free usage limit reached. Connect a provider or subscribe to OpenCode Go to keep going, or switch models.",
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c1-false/config/opencode"
+            }
+          ]
+        }
+      },
+      "OPENCODE_CONFIG_CONTENT": {
+        "content_valid": {
+          "shellOutcome": "ask:shell",
+          "meaning": "build agent (content default_agent and shell ask applied)",
+          "sessionAgent": null,
+          "pathlessDocumentPresent": true,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c2-content_valid/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-content_valid/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-repo-content_valid/opencode.json",
+              "keys": [
+                "default_agent",
+                "agents"
+              ]
+            },
+            {
+              "type": "document",
+              "path": null,
+              "keys": [
+                "default_agent",
+                "permissions"
+              ]
+            }
+          ],
+          "logRejectedMalformed": 0,
+          "logMentionsContentSource": 0
+        },
+        "content_malformed": {
+          "shellOutcome": "deny(tool removed)",
+          "meaning": "proj agent (project default_agent won)",
+          "sessionAgent": null,
+          "pathlessDocumentPresent": false,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c2-content_malformed/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-content_malformed/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-repo-content_malformed/opencode.json",
+              "keys": [
+                "default_agent",
+                "agents"
+              ]
+            }
+          ],
+          "logRejectedMalformed": 2,
+          "logMentionsContentSource": 2
+        },
+        "control_no_content": {
+          "shellOutcome": "deny(tool removed)",
+          "meaning": "proj agent (project default_agent won)",
+          "sessionAgent": null,
+          "pathlessDocumentPresent": false,
+          "documents": [
+            {
+              "type": "directory",
+              "path": "<run>/c2-control_no_content/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-control_no_content/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            },
+            {
+              "type": "document",
+              "path": "<run>/c2-repo-control_no_content/opencode.json",
+              "keys": [
+                "default_agent",
+                "agents"
+              ]
+            }
+          ],
+          "logRejectedMalformed": 0,
+          "logMentionsContentSource": 0
+        }
+      },
+      "OPENCODE_CONFIG_DIR": {
+        "withOPENCODE_CONFIG_DIR": {
+          "pollOk": true,
+          "hasXdgMarker": false,
+          "hasDirMarker": true,
+          "documents": [
+            {
+              "type": "document",
+              "path": "<run>/c4-true-userdir/opencode.json",
+              "keys": [
+                "agents"
+              ]
+            },
+            {
+              "type": "directory",
+              "path": "<run>/c4-true-userdir"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c4-true/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            }
+          ],
+          "hasXdgMarkerAfter2s": false
+        },
+        "control_without": {
+          "pollOk": true,
+          "hasXdgMarker": true,
+          "hasDirMarker": false,
+          "documents": [
+            {
+              "type": "document",
+              "path": "<run>/c4-false/config/opencode/opencode.json",
+              "keys": [
+                "agents"
+              ]
+            },
+            {
+              "type": "directory",
+              "path": "<run>/c4-false/config/opencode"
+            },
+            {
+              "type": "document",
+              "path": "<run>/c4-false/opencode.json",
+              "keys": [
+                "model",
+                "update",
+                "providers"
+              ]
+            }
+          ]
+        }
+      },
+      "OPENCODE_DISABLE_AUTOUPDATE": {
+        "OPENCODE_DISABLE_AUTOUPDATE=1": {
+          "proxiedRequests": [
+            "CONNECT models.opencode.ai:443"
+          ],
+          "count": 3,
+          "updateLike": 3
+        },
+        "unset_and_no_update_key": {
+          "proxiedRequests": [
+            "CONNECT models.opencode.ai:443"
+          ],
+          "count": 3,
+          "updateLike": 3
+        }
+      },
+      "auth": {
+        "OPENCODE_SERVER_USERNAME": {
+          "set": "isomux",
+          "isomux_user_status": 401,
+          "opencode_user_status": 200,
+          "wrong_password_status": 401
+        },
+        "shellEnvCounts_OPENCODE_SERVER_PASSWORD_mode": {
+          "OPENCODE_SERVER_PASSWORD": "1",
+          "OPENCODE_SERVER_USERNAME": "1",
+          "control_XDG_CONFIG_HOME": "1",
+          "control_GATE_API_KEY": "1"
+        },
+        "OPENCODE_PASSWORD_only": {
+          "right_status": 200,
+          "wrong_status": 401
+        },
+        "shellEnvCounts_OPENCODE_PASSWORD_mode": {
+          "OPENCODE_PASSWORD": "1"
+        },
+        "both_set_different": {
+          "OPENCODE_PASSWORD_value_status": 200,
+          "OPENCODE_SERVER_PASSWORD_value_status": 401
+        },
+        "OPENCODE_SERVER_PASSWORD_only": {
+          "right_status": 200,
+          "wrong_status": 401,
+          "no_auth_status": 401
+        }
+      }
+    }
+  }
+}

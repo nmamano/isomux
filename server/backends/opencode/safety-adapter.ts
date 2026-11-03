@@ -6,7 +6,7 @@ import {
 import { resolve } from "node:path";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 
-// A permission.asked frame of @opencode/cli 2.1.4: an action and the
+// A permission.asked frame of OpenCode 2: an action and the
 // resources it asks for. A shell request names its command; an edit request
 // names its files relative to the session's folder, and its metadata holds
 // each file's diff.

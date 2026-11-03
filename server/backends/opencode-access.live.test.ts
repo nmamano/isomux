@@ -1,5 +1,5 @@
 // OpenCode below Standard (task e77304b1, merge C2), live tier
-// (ISOMUX_TEST_OPENCODE=1): what a real OpenCode 2.1.4 server offers the
+// (ISOMUX_TEST_OPENCODE=1): what a real server of the pinned OpenCode offers the
 // model and runs for a session at each stop. The unit tests
 // (opencode/adapter.access.test.ts, opencode/safety-plugin.test.ts) prove
 // what Isomux sends; this proves what OpenCode makes of it.
@@ -456,7 +456,11 @@ function expectNoPlants(label: string, seen: Seen[]): void {
 describe.skipIf(!LIVE)("OpenCode below Standard, live", () => {
   // The member's own plugin loads on the limited server (the residual in
   // security-audit.md 6.2a): its tool that takes the read permission is
-  // offered at Folder and Web, and the plugin refuses it.
+  // offered at Folder and Web, and the plugin refuses it. So is 2.2.5's
+  // opencode_worktree_remove: with execute denied, OpenCode offers each Code
+  // Mode tool whose permission the rules allow, and that one takes edit
+  // (core/src/tool.ts, tool/plugin/opencode.ts). The plugin refuses it by
+  // name, as it refuses plug_read.
   const folderTools = (model: string, web: boolean) =>
     [
       ...OFFICE_NAMES,
@@ -464,6 +468,7 @@ describe.skipIf(!LIVE)("OpenCode below Standard, live", () => {
       "grep",
       "read",
       "plug_read",
+      "opencode_worktree_remove",
       ...(model === GPT ? ["patch"] : ["edit", "write"]),
       ...(web ? ["webfetch", "websearch"] : []),
     ].sort();

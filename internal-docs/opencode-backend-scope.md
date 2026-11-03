@@ -1,9 +1,10 @@
 # OpenCode third-backend scope
 
-Status: OC1 backend shipped; move to OpenCode 2 (`@opencode/cli` 2.1.4) decided\
+Status: OC1 backend shipped; OpenCode 2 (`@opencode/cli` 2.2.5) since the cut-over\
 Research date: 2026-08-26  
 OpenCode 2 review: 2026-08-27  
-OpenCode 2.1.4 gate: 2026-10-25
+OpenCode 2.1.4 gate: 2026-10-25\
+OpenCode 2.2.5 re-run: 2026-11-03
 
 ## Decision summary
 

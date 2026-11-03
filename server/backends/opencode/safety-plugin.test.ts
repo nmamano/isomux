@@ -95,7 +95,7 @@ describe("openCodeToolAction", () => {
     ).toBe("/tmp");
   });
 
-  it("maps the 2.1.4 file tools to the policy's file actions", () => {
+  it("maps OpenCode's file tools to the policy's file actions", () => {
     for (const [tool, input, kind] of [
       ["read", { path: join(repo, "a") }, "read-files"],
       ["grep", { pattern: "x", path: "src", include: "*.ts" }, "read-files"],
@@ -189,6 +189,64 @@ describe("the safety plugin", () => {
         `${tool} in the folder`,
       ).toBe("allow");
     }
+  });
+
+  // 2.2.5 runs a call to a "bash" tool as shell (plugin/tool-input-repair.ts).
+  // That rename is another plugin's hook, so the check does not rely on the
+  // hook order to see "shell".
+  it("checks a bash call as a shell call", async () => {
+    const hooks = await loaded(repo);
+    expect(await verdict(hooks, "bash", { command: "rm -rf ~" })).not.toBe(
+      "allow",
+    );
+    expect(
+      await verdict(hooks, "bash", { command: "cat /srv/elsewhere/.env" }),
+    ).not.toBe("allow");
+    expect(await verdict(hooks, "bash", { command: "ls -la" })).toBe("allow");
+  });
+
+  // 2.2.5's experimental_image_generate reads each local image it is given
+  // and sends it to the image model, and saves to path with the extension of
+  // the image's real format (tool/plugin/image-generate.ts).
+  it("checks the images image_generate reads and the path it writes", async () => {
+    const hooks = await loaded(repo);
+    const secret = "keys/id_rsa";
+    const tool = "experimental_image_generate";
+    // The enabling condition: a read of the secret path is denied.
+    expect(await verdict(hooks, "read", { path: secret })).not.toBe("allow");
+    expect(
+      await verdict(hooks, tool, { prompt: "a cat", images: ["src/a.png"] }),
+      "a local image in the folder",
+    ).toBe("allow");
+    expect(
+      await verdict(hooks, tool, {
+        prompt: "a cat",
+        images: ["src/a.png", secret],
+      }),
+      "the second image is a secret",
+    ).not.toBe("allow");
+    expect(
+      await verdict(hooks, tool, {
+        prompt: "a cat",
+        images: [`https://example.com/${secret}`],
+      }),
+      "a URL is not a local read",
+    ).toBe("allow");
+    expect(
+      await verdict(hooks, tool, { prompt: "a cat", path: "out/cat.png" }),
+      "a path in the folder",
+    ).toBe("allow");
+    expect(
+      await verdict(hooks, tool, {
+        prompt: "a cat",
+        path: join(STATE_ROOT, "agents.json"),
+      }),
+      "a path under the state root",
+    ).not.toBe("allow");
+    expect(
+      await verdict(hooks, tool, { prompt: "a cat" }),
+      "no path: OpenCode's temp folder",
+    ).toBe("allow");
   });
 
   // S3: 2.1.4 asks for an outside path only through workdir and cd, so the
@@ -586,6 +644,21 @@ describe("the safety plugin below Standard", () => {
     };
     const unlisted: [string, unknown][] = [
       ["shell", { command: "ls" }],
+      ["bash", { command: "ls" }],
+      // 2.2.5 offers it at Folder and Web: it takes the edit permission.
+      ["opencode_worktree_remove", { directory: join(folder, "wt") }],
+      // 2.2.5's image tool: with no image and no path the call has no file
+      // action, and with both in the folder every action is one a stop
+      // allows by kind. Either way the tool is not on the list.
+      ["experimental_image_generate", { prompt: "x" }],
+      [
+        "experimental_image_generate",
+        {
+          prompt: "x",
+          images: [join(folder, "notes.md")],
+          path: join(folder, "out.png"),
+        },
+      ],
       ["execute", { code: "1" }],
       ["subagent", { prompt: "x" }],
       ["skill", { name: "x" }],

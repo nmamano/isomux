@@ -9,7 +9,7 @@ import {
   type AgentAccess,
 } from "../../../shared/agent-access.ts";
 
-// One OpenCode 2.1.4 permission rule.
+// One OpenCode permission rule.
 export type OpenCodeRule = {
   action: string;
   resource: string;
@@ -29,13 +29,13 @@ type StopBelow = keyof typeof OPENCODE_STOP_AGENTS;
 // The office MCP server's name in OpenCode. Its tools are "isomux_<tool>".
 export const OPENCODE_OFFICE_MCP_SERVER = "isomux";
 
-// The built-in tools each stop adds, as 2.1.4 permission names. edit covers
+// The built-in tools each stop adds, as OpenCode permission names. edit covers
 // write and patch. external_directory is denied at every stop: a path
 // outside the folder is refused, not asked about.
 const FOLDER_PERMISSIONS = ["read", "glob", "grep", "edit"];
 const WEB_PERMISSIONS = ["webfetch", "websearch"];
 
-// The tools one permission name covers (2.1.4: write and patch check edit).
+// The tools one permission name covers (write and patch check edit).
 const PERMISSION_TOOLS: Readonly<Record<string, readonly string[]>> = {
   edit: ["edit", "write", "patch"],
 };
@@ -107,7 +107,7 @@ export function openCodeStopAgentRules(access: AgentAccess): OpenCodeRule[] {
   ];
 }
 
-// 2.1.4 matches an action as a pattern: "*" stands for any run of
+// OpenCode matches an action as a pattern: "*" stands for any run of
 // characters.
 function actionMatches(action: string, permission: string): boolean {
   if (!action.includes("*")) return action === permission;

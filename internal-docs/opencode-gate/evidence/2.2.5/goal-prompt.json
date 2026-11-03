@@ -1,0 +1,18 @@
+{
+ "date": "2026-11-03",
+ "script": "harness-2.2.5/goal.ts",
+ "version": "2.2.5",
+ "promptReply": "ok",
+ "end": "session.execution.succeeded",
+ "modelRequests": 3,
+ "literalSlashReachedModel": true,
+ "kickoffLike": 0,
+ "executions": [
+  "session.execution.started",
+  "session.execution.succeeded"
+ ],
+ "commandEvents": [
+  "command.updated"
+ ],
+ "sessionGoalMentions": true
+}

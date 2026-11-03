@@ -39,3 +39,11 @@ the release that carries the OpenCode 2 cut-over (tasks `e47be82a`, `4b354a81`,
 `6018743c`, `75904a56`, `bd218a3f`). The file holds only the note: cut that
 release with `scripts/release.sh --notes-file
 internal-docs/opencode-gate/release-note-2.1.4.md`.
+
+## OpenCode 2.2.5 re-run (2026-11-03)
+
+The move to `@opencode/cli` 2.2.5 (task `6dca5910`) re-ran the safety,
+permission, config and migration items: [`report-2.2.5.md`](report-2.2.5.md),
+evidence in `evidence/2.2.5/`. `harness-2.2.5/` holds the new probes and the
+copies of `harness-2.1.4/` scripts that 2.2.5 needed changed; the others run
+from `harness-2.1.4/` as they are.

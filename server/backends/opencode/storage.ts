@@ -14,7 +14,9 @@ import { openCodeDatabasePath } from "./profile-paths.ts";
 
 // The session_v2 and session_message tables of @opencode/cli 2.1.4 (a fresh
 // 2.1.4 profile, 2026-10-25). 2.1.4 keeps a version 1 database's session and
-// message tables after its import but never writes them.
+// message tables after its import but never writes them. 2.2.5 adds
+// session_v2.time_busy, which the inspection does not read: the list stays,
+// so a profile 2.2.5 has not opened yet still passes (2026-11-03).
 const V2_SESSION_COLUMNS = [
   "id",
   "project_id",

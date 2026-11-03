@@ -97,7 +97,7 @@ export function openCodeAgentRules(agent: string): OpenCodeRule[] {
   return [...BASE_RULES];
 }
 
-// Isomux's config in the 2.1.4 keys. Every agent Isomux starts sessions with
+// Isomux's config in the OpenCode 2 keys. Every agent Isomux starts sessions with
 // carries its rules in its own block too: a user or project default_agent
 // would otherwise pick the agent, and its block applies after the top-level
 // rules. MCP servers are not here: the transport adds them at run time
@@ -514,7 +514,7 @@ export class OpenCodeSupervisor {
     for (const wake of waiters) wake();
   }
 
-  // A member's reload: a new server process. 2.1.4 also reloads a folder's
+  // A member's reload: a new server process. OpenCode also reloads a folder's
   // plugins and config when their files change (core/src/config/watch.ts),
   // but only a new process starts again what OpenCode reads at start.
   // "reloaded": the server stopped, and retained leases have a new one.

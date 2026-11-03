@@ -1,0 +1,740 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p3-failclosed",
+  "runDir": "/tmp/t-6dca5910/gate/run/sp-p3f-1793729701704",
+  "failOpen": {
+    "configuredPlugins": [
+      "<profile>/bad-setup",
+      "<profile>/bad-syntax",
+      "<profile>/v1-shape",
+      "<profile>/does-not-exist",
+      "<profile>/as-file/index.js"
+    ],
+    "settleStatus": 200,
+    "pluginList": {
+      "builtinCount": 92,
+      "total": 96,
+      "rows": [
+        {
+          "id": "isomux-safety",
+          "source": {
+            "type": "local",
+            "path": "/tmp/t-6dca5910/gate/run/sp-p3f-1793729701704/F/bad-setup"
+          },
+          "state": {
+            "status": "failed",
+            "error": "Error: SETUP_THROWS_PROBE\n    at setup (/tmp/t-6dca5910/gate/run/sp-p3f-1793729701704/F/bad-setup/index.js:1:59)\n    at <anonymous> (/$bunfs/root/chunk-61affmxa.js:2:11107)\n    at <anonymous> (/$bunfs/root/chunk-frb7cpd2.js:24:6305)\n    at Plugin.load (/$bunfs/root/chunk-jzwck6cd.js:110:31717)\n    a"
+          }
+        },
+        {
+          "id": null,
+          "source": {
+            "type": "local",
+            "path": "/tmp/t-6dca5910/gate/run/sp-p3f-1793729701704/F/bad-syntax"
+          },
+          "state": {
+            "status": "failed",
+            "error": "Plugin failed to load"
+          }
+        },
+        {
+          "id": null,
+          "source": {
+            "type": "local",
+            "path": "/tmp/t-6dca5910/gate/run/sp-p3f-1793729701704/F/v1-shape"
+          },
+          "state": {
+            "status": "failed",
+            "error": "Plugin must export a default definition with an id and an effect or setup function."
+          }
+        },
+        {
+          "id": null,
+          "source": {
+            "type": "local",
+            "path": "/tmp/t-6dca5910/gate/run/sp-p3f-1793729701704/F/does-not-exist"
+          },
+          "state": {
+            "status": "failed",
+            "error": "Plugin failed to load"
+          }
+        }
+      ]
+    },
+    "isomuxCheckVerdicts": {
+      "badSetup": {
+        "verdict": "failed",
+        "ms": 9
+      },
+      "badSyntax": {
+        "verdict": "failed",
+        "ms": 10
+      },
+      "v1Shape": {
+        "verdict": "failed",
+        "ms": 10
+      },
+      "missingDir": {
+        "verdict": "failed",
+        "ms": 5
+      },
+      "fileEntry": {
+        "verdict": "missing",
+        "ms": 3007
+      }
+    },
+    "promptEnd": "session.execution.succeeded",
+    "tools": [
+      "session.tool.called",
+      "session.tool.success"
+    ],
+    "unguardedSideFileExists": true,
+    "logLines": {
+      "failedToLoad": 4,
+      "pathMustBeDirectory": 1
+    }
+  },
+  "race": {
+    "locationGetShape": [],
+    "reload": {
+      "status": 204,
+      "pluginUpdatedLocations": []
+    },
+    "A_pollAfterCreate": {
+      "counts": {
+        "runs": 20,
+        "everEmptyBeforeActive": 20,
+        "everNonEmptyWithoutIsomux": 0,
+        "everFailed": 0,
+        "neverActive": 0,
+        "activeMs": {
+          "min": 386,
+          "max": 3228,
+          "median": 509
+        },
+        "firstPluginUpdatedBeforeOrAtActive": 0,
+        "pluginUpdatedPerFolder": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      "runs": [
+        {
+          "i": 0,
+          "createMs": 2571,
+          "activeMs": 3228,
+          "polls": 15,
+          "empty": 14,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            3327
+          ],
+          "sessionID": "ses_e5d60a67bffefmS2fSlgZljiND"
+        },
+        {
+          "i": 1,
+          "createMs": 88,
+          "activeMs": 574,
+          "polls": 14,
+          "empty": 13,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            653
+          ],
+          "sessionID": "ses_e5d60a1efffekSUAg9O9e21zfp"
+        },
+        {
+          "i": 2,
+          "createMs": 37,
+          "activeMs": 522,
+          "polls": 15,
+          "empty": 14,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            594
+          ],
+          "sessionID": "ses_e5d609ef0ffejJMQb84r9MEs6L"
+        },
+        {
+          "i": 3,
+          "createMs": 35,
+          "activeMs": 527,
+          "polls": 15,
+          "empty": 14,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            601
+          ],
+          "sessionID": "ses_e5d609c33ffeajVxmxPy21eWsj"
+        },
+        {
+          "i": 4,
+          "createMs": 61,
+          "activeMs": 509,
+          "polls": 17,
+          "empty": 16,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            574
+          ],
+          "sessionID": "ses_e5d609962ffeDugCSBAghSljk5"
+        },
+        {
+          "i": 5,
+          "createMs": 65,
+          "activeMs": 607,
+          "polls": 14,
+          "empty": 13,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            671
+          ],
+          "sessionID": "ses_e5d609699ffeawpnRYdKM3hJHr"
+        },
+        {
+          "i": 6,
+          "createMs": 42,
+          "activeMs": 485,
+          "polls": 15,
+          "empty": 14,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            538
+          ],
+          "sessionID": "ses_e5d6093a0ffeFXTTBkr71aYb8N"
+        },
+        {
+          "i": 7,
+          "createMs": 37,
+          "activeMs": 462,
+          "polls": 16,
+          "empty": 15,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            514
+          ],
+          "sessionID": "ses_e5d609102ffe3kKSA1LsBYtVHd"
+        },
+        {
+          "i": 8,
+          "createMs": 66,
+          "activeMs": 490,
+          "polls": 14,
+          "empty": 13,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            555
+          ],
+          "sessionID": "ses_e5d608e7bffeAlGcgbppFo6Rgm"
+        },
+        {
+          "i": 9,
+          "createMs": 38,
+          "activeMs": 503,
+          "polls": 15,
+          "empty": 14,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            571
+          ],
+          "sessionID": "ses_e5d608bccffe49nIN0W3v0dCmF"
+        },
+        {
+          "i": 10,
+          "createMs": 50,
+          "activeMs": 509,
+          "polls": 16,
+          "empty": 15,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            631
+          ],
+          "sessionID": "ses_e5d608918ffeGfmVDroZZlkQvZ"
+        },
+        {
+          "i": 11,
+          "createMs": 43,
+          "activeMs": 434,
+          "polls": 13,
+          "empty": 12,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            503
+          ],
+          "sessionID": "ses_e5d608663ffeX8tMtQ183PAocq"
+        },
+        {
+          "i": 12,
+          "createMs": 71,
+          "activeMs": 615,
+          "polls": 15,
+          "empty": 14,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            673
+          ],
+          "sessionID": "ses_e5d6083f3ffek92sfxYNjEM8zN"
+        },
+        {
+          "i": 13,
+          "createMs": 38,
+          "activeMs": 464,
+          "polls": 14,
+          "empty": 13,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            538
+          ],
+          "sessionID": "ses_e5d6080daffeOQBdPgkqLjp2Lb"
+        },
+        {
+          "i": 14,
+          "createMs": 39,
+          "activeMs": 386,
+          "polls": 12,
+          "empty": 11,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            435
+          ],
+          "sessionID": "ses_e5d607e57ffe92FBoBGuPYNPTW"
+        },
+        {
+          "i": 15,
+          "createMs": 34,
+          "activeMs": 529,
+          "polls": 18,
+          "empty": 17,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            595
+          ],
+          "sessionID": "ses_e5d607c1fffeoMTSM8erGtWIZ9"
+        },
+        {
+          "i": 16,
+          "createMs": 80,
+          "activeMs": 481,
+          "polls": 16,
+          "empty": 15,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            525
+          ],
+          "sessionID": "ses_e5d60794dffeKJVEeR1G03nqcU"
+        },
+        {
+          "i": 17,
+          "createMs": 90,
+          "activeMs": 516,
+          "polls": 17,
+          "empty": 16,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            569
+          ],
+          "sessionID": "ses_e5d60769affeDV2sk0HuSO227P"
+        },
+        {
+          "i": 18,
+          "createMs": 50,
+          "activeMs": 539,
+          "polls": 16,
+          "empty": 15,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            600
+          ],
+          "sessionID": "ses_e5d6073f2ffeNKptVU4Z15Jxiq"
+        },
+        {
+          "i": 19,
+          "createMs": 50,
+          "activeMs": 481,
+          "polls": 16,
+          "empty": 15,
+          "nonEmptyWithout": 0,
+          "failed": 0,
+          "shapes": [
+            "empty",
+            "active"
+          ],
+          "pluginUpdatedAtMs": [
+            569
+          ],
+          "sessionID": "ses_e5d60711bffelM1iFu7ALTmE7z"
+        }
+      ]
+    },
+    "B_modelBarrier": {
+      "counts": {
+        "runs": 20,
+        "status200": 20,
+        "isomuxActiveRightAfter": 20
+      },
+      "runs": [
+        {
+          "i": 0,
+          "modelStatus": 200,
+          "modelMs": 529,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 1,
+          "modelStatus": 200,
+          "modelMs": 484,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 2,
+          "modelStatus": 200,
+          "modelMs": 455,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 3,
+          "modelStatus": 200,
+          "modelMs": 680,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 4,
+          "modelStatus": 200,
+          "modelMs": 475,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 5,
+          "modelStatus": 200,
+          "modelMs": 535,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 6,
+          "modelStatus": 200,
+          "modelMs": 531,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 7,
+          "modelStatus": 200,
+          "modelMs": 451,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 8,
+          "modelStatus": 200,
+          "modelMs": 460,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 9,
+          "modelStatus": 200,
+          "modelMs": 484,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 10,
+          "modelStatus": 200,
+          "modelMs": 396,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 11,
+          "modelStatus": 200,
+          "modelMs": 592,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 12,
+          "modelStatus": 200,
+          "modelMs": 600,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 13,
+          "modelStatus": 200,
+          "modelMs": 496,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 14,
+          "modelStatus": 200,
+          "modelMs": 562,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 15,
+          "modelStatus": 200,
+          "modelMs": 513,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 16,
+          "modelStatus": 200,
+          "modelMs": 630,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 17,
+          "modelStatus": 200,
+          "modelMs": 674,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 18,
+          "modelStatus": 200,
+          "modelMs": 528,
+          "listLen": 93,
+          "isomux": "active"
+        },
+        {
+          "i": 19,
+          "modelStatus": 200,
+          "modelMs": 570,
+          "listLen": 93,
+          "isomux": "active"
+        }
+      ]
+    },
+    "B2_modelFirstRequest": [
+      {
+        "i": 0,
+        "modelStatus": 200,
+        "isomux": "active"
+      },
+      {
+        "i": 1,
+        "modelStatus": 200,
+        "isomux": "active"
+      },
+      {
+        "i": 2,
+        "modelStatus": 200,
+        "isomux": "active"
+      },
+      {
+        "i": 3,
+        "modelStatus": 200,
+        "isomux": "active"
+      },
+      {
+        "i": 4,
+        "modelStatus": 200,
+        "isomux": "active"
+      }
+    ],
+    "C_promptWithoutCheck": {
+      "counts": {
+        "runs": 8,
+        "denied": 8,
+        "ran": 0
+      },
+      "runs": [
+        {
+          "i": 0,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        },
+        {
+          "i": 1,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        },
+        {
+          "i": 2,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        },
+        {
+          "i": 3,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        },
+        {
+          "i": 4,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        },
+        {
+          "i": 5,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        },
+        {
+          "i": 6,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        },
+        {
+          "i": 7,
+          "end": "session.execution.succeeded",
+          "tools": [
+            "called",
+            "failed"
+          ],
+          "sideFileExists": false
+        }
+      ]
+    }
+  }
+}

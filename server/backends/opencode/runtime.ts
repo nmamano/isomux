@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-export const OPENCODE_CLI_VERSION = "2.1.4";
+export const OPENCODE_CLI_VERSION = "2.2.5";
 
 // The supervisor's record lock, process identity and the office proxy's peer
 // credential check exist for Linux and macOS only, so OpenCode does too, even

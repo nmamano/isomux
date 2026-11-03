@@ -2,7 +2,7 @@
 
 Status: OC1 implementation in progress\
 Decision dates: 2026-08-27 to 2026-08-28\
-Runtime target: `@opencode/cli` 2.1.4 (since 2026-10-25; 1.18.35 before)
+Runtime target: `@opencode/cli` 2.2.5 (since 2026-11-03; 2.1.4 from 2026-10-25, 1.18.35 before)
 
 This is the master implementation document for OC1. Where it conflicts with
 `opencode-backend-scope.md`, this document controls. The feasibility report and
@@ -98,7 +98,7 @@ server emits `permission.asked` and accepts
 route. A small HTTP client with narrow runtime validators avoids a mixed
 contract. Validators accept unknown fields but never log them.
 
-Pin the CLI to 2.1.4 (1.18.35 until the cut-over). Any CLI version change requires the gate harness and
+Pin the CLI exactly (2.2.5; 2.1.4 before 2026-11-03). Any CLI version change requires the gate harness and
 event analysis to run again. Keep the historical 1.18.23 recordings as
 regression inputs; an upgrade does not require wholesale re-recording.
 
@@ -175,10 +175,7 @@ that loaded another build is not adopted. OpenCode loads plugins fail-open,
 and a project plugin with the same id displaces this one, so before every
 prompt the transport requires that `GET /api/plugin` for the folder lists this
 plugin active and alone with its id. A refusal writes its cause to the
-service log (`detail`). That check runs once per turn: a plugin reload during
-the turn (a plugin file or the plugin list changed) unregisters this plugin's
-hooks, because it loads last, until its setup runs again, and a tool call in
-that window is not checked (2.1.4 `core/src/plugin.ts` activate). The plugin also removes the server
+service log (`detail`). The plugin also removes the server
 password and Isomux's config variables from the environment of every shell it
 sees, and gives it the user's HOME and folders (the `create.before` shell
 hook). Plugins are code with the member's
@@ -195,7 +192,7 @@ it running, and the next boot adopts it), 10 minutes after its last session
 lease is released, when the member's environment revision changes, or at the
 member's `/reload-plugins`. A new conversation does not restart it, and Isomux
 never disposes a folder instance under other agents (Lead, 2026-10-15).
-2.1.4 also watches the config files and plugin modules it loaded and reloads
+OpenCode also watches the config files and plugin modules it loaded and reloads
 its plugins when one changes (`core/src/config/watch.ts`,
 `core/src/plugin/module.ts`; read in the source, not measured). Topic labels run in a neutral folder in agent
 space, so project config and plugins do not apply to them; user-level plugins
@@ -431,7 +428,10 @@ decided the move on 2026-10-23 and 2026-10-25: an exact pin of `@opencode/cli`
 fallback, and a copy of the version 1 profile database kept before the first
 version 2 start, which a rollback to the previous Isomux release uses. The gate
 ran on 2.1.4 on 2026-10-25 and passed with conditions
-([`opencode-gate/report-2.1.4.md`](opencode-gate/report-2.1.4.md)).
+([`opencode-gate/report-2.1.4.md`](opencode-gate/report-2.1.4.md)). The pin
+moved to 2.2.5 on 2026-11-03 after a re-run of the safety, permission,
+config and migration items
+([`opencode-gate/report-2.2.5.md`](opencode-gate/report-2.2.5.md)).
 
 The move is wider than the transport module. It also rewrites the safety plugin
 for the version 2 plugin API, the config layers and permission keys, the

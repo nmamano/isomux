@@ -63,6 +63,7 @@ import {
   SECRET_VALUE,
   secretAgentEnvironment,
 } from "../../test-support/secret-env-fixture.ts";
+import { OPENCODE_CLI_VERSION } from "./runtime.ts";
 
 // Opt-in live tier (bun run test:opencode), same switch as adapter.test.ts.
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
@@ -282,7 +283,7 @@ Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
   if (new URL(request.url).pathname !== "/api/info")
     return new Response("not found", { status: 404 });
   appendFileSync(${JSON.stringify(healthMarker)}, "hit\\n");
-  return Response.json({ version: "2.1.4", pid: process.pid });
+  return Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: process.pid });
 }});
 await new Promise(() => {});
 `,
@@ -808,7 +809,7 @@ describe("OpenCode shared server supervisor", () => {
       });
       expect(response.ok).toBe(true);
       expect(((await response.json()) as { version: string }).version).toBe(
-        "2.1.4",
+        OPENCODE_CLI_VERSION,
       );
       lease.release();
     }
@@ -1160,7 +1161,7 @@ describe("OpenCode shared server supervisor", () => {
         killerHits++;
         process.kill(firstPid, "SIGKILL");
         while (readLinuxProcessStartTicks(firstPid)) await Bun.sleep(5);
-        return Response.json({ version: "2.1.4", pid: firstPid });
+        return Response.json({ version: OPENCODE_CLI_VERSION, pid: firstPid });
       },
     });
     mocks.push(killer);
@@ -2495,7 +2496,7 @@ if (before < ${taken}) {
 try {
   Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
     if (new URL(request.url).pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed" });
-    return Response.json({ version: "2.1.4", pid: process.pid });
+    return Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: process.pid });
   }});
 } catch (error) {
   appendFileSync(events, \`bind-failed \${port} \${error?.code ?? error}\\n\`);
@@ -2584,7 +2585,7 @@ if (!existsSync(marker)) {
         try { readFileSync("/proc/" + parentPid + "/stat"); await Bun.sleep(5); }
         catch { break; }
       }
-      const response = Response.json({ version: "2.1.4", pid: parentPid });
+      const response = Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: parentPid });
       void server.stop().then(() => process.exit(0));
       return response;
     }});
@@ -2596,7 +2597,7 @@ if (!existsSync(marker)) {
 appendFileSync(marker, \`second:\${process.pid}\\n\`);
 Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
   if (new URL(request.url).pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed" });
-  return Response.json({ version: "2.1.4", pid: process.pid });
+  return Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: process.pid });
 }});
 await new Promise(() => {});
 `,
@@ -2704,8 +2705,9 @@ await new Promise(() => {});
         | { source?: { path?: unknown }; state?: { status?: unknown } }
         | undefined;
     expect(active(OPENCODE_SAFETY_PLUGIN_ID)?.state?.status).toBe("active");
+    // 2.2.5 names a local plugin by its folder (2.1.4: its entry file).
     expect(active(OPENCODE_SAFETY_PLUGIN_ID)?.source?.path).toBe(
-      safetyPluginPath(supervisor),
+      openCodeSafetyPluginDir(supervisor.profileDir),
     );
     expect(active("member.project")?.state?.status, "project plugin").toBe(
       "active",
@@ -3017,6 +3019,36 @@ describe("the office safety policy on OpenCode tool calls", () => {
     ).toEqual([]);
     expect(turn.ran).toBe(false);
     expect(toolError(turn.events)).toContain(turn.reason!);
+  }, 60_000);
+
+  // 2.2.5 runs a call to a "bash" tool, which it does not have, as shell.
+  // A project plugin answers every ask with allow, so only the safety plugin
+  // can stop the call.
+  it("denies a bash call that OpenCode runs as shell, and runs an allowed one", async () => {
+    const bash = (command: (marker: string) => string) => ({
+      name: "bash",
+      args: (repo: string) => ({ command: command(join(repo, "ran")) }),
+      action: (repo: string): ProposedAction => ({
+        kind: "shell",
+        command: command(join(repo, "ran")),
+      }),
+    });
+    const allowProject = async ({ repo }: { repo: string }) =>
+      writeFile(
+        join(repo, ".opencode", "plugins", "allow.js"),
+        allowAll("member.allow-project"),
+      );
+    const allowed = await deniedTurn(allowProject, {
+      tool: bash((marker) => `touch ${marker}`),
+    });
+    expect(allowed.reason, "the policy allows the control").toBeNull();
+    expect(allowed.ran, "OpenCode ran the bash call").toBe(true);
+    const denied = await deniedTurn(allowProject, {
+      tool: bash((marker) => `git reset --hard; touch ${marker}`),
+    });
+    expect(denied.reason, "the policy denies the case").not.toBeNull();
+    expect(denied.ran).toBe(false);
+    expect(toolError(denied.events)).toContain(denied.reason!);
   }, 60_000);
 
   // A secret-bearing name OpenCode itself never asks about (its read rules

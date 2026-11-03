@@ -4,7 +4,7 @@
 // own profile. It runs as one of four Isomux agents whose rules deny every
 // tool and allow the stop's tools by exact name; the session gets the same
 // list at create and at every agent switch. The safety plugin refuses any
-// tool call not in the session's exact list. Measured on OpenCode 2.1.4; a
+// tool call not in the session's exact list. Measured on OpenCode 2.2.5; a
 // new version runs these stops only after a new probe
 // (server/backends/opencode-access.live.test.ts).
 
@@ -28,7 +28,7 @@ export {
 import { OPENCODE_OFFICE_MCP_SERVER } from "./stop-rules.ts";
 
 // The OpenCode version the probe ran on. OPENCODE_CLI_VERSION must equal it.
-export const OPENCODE_BELOW_STANDARD_PROVEN_VERSION = "2.1.4";
+export const OPENCODE_BELOW_STANDARD_PROVEN_VERSION = "2.2.5";
 
 // The variables the limited server starts with on top of the member's
 // launch env. 2.1.4 reads them once, at boot: per server, never per folder.
@@ -130,6 +130,27 @@ function configLayers(body: unknown): ConfigLayer[] | null {
   return layers;
 }
 
+// The keys of the OpenCode Console's config layer: with OPENCODE_API_KEY set,
+// 2.2.5 fetches the Console's config a moment after the start and loads it
+// as a document without a path (core/src/config/integration.ts, Remote:
+// providers, remote MCP servers, policies, web search; no plugin and no
+// local command).
+const CONSOLE_LAYER_KEYS = new Set([
+  "providers",
+  "mcp",
+  "policies",
+  "websearch",
+]);
+
+function consoleLayer(layer: ConfigLayer): boolean {
+  return (
+    layer.type === "document" &&
+    layer.path === undefined &&
+    isRecord(layer.info) &&
+    Object.keys(layer.info).every((key) => CONSOLE_LAYER_KEYS.has(key))
+  );
+}
+
 const CONFIG_REFUSAL =
   "OpenCode loads settings from this agent's folder or a folder above it, so this turn did not run. Remove opencode.json and .opencode from those folders, or move the agent to Standard.";
 const UNREADABLE_REFUSAL = (what: string) =>
@@ -139,7 +160,8 @@ const UNREADABLE_REFUSAL = (what: string) =>
 // may load only Isomux's own config, as its content document (no path) and
 // its file in the profile (`isomuxConfigFile`, exact path), and the layers of
 // the member's config dir (`memberConfigDir`, null when there is none). A
-// refusal text, else null. An unknown shape is a refusal.
+// refusal text, else null. An unknown shape is a refusal. The Console layer
+// may come and go (consoleLayer); it never stands in for Isomux's document.
 export function openCodeConfigLayersRefusal(
   configBody: unknown,
   memberConfigDir: string | null,
@@ -149,6 +171,7 @@ export function openCodeConfigLayersRefusal(
   if (!layers) return UNREADABLE_REFUSAL("settings");
   let pathless = 0;
   for (const layer of layers) {
+    if (consoleLayer(layer)) continue;
     if (layer.path === undefined) {
       if (layer.type !== "document") return UNREADABLE_REFUSAL("settings");
       pathless++;

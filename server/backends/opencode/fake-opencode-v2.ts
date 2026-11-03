@@ -1,7 +1,8 @@
-// Test support: an OpenCode 2.1.4 server stand-in behind a fetch spy, for the
-// transport and adapter tests. It serves the /api routes the transport uses
-// with the response shapes a real 2.1.4 server sent on 2026-10-25 (task
-// e47be82a), and it plays the recorded /api/event frames of fixtures/v2.
+// Test support: an OpenCode server stand-in behind a fetch spy, for the
+// transport and adapter tests. It reports the pinned version and serves the
+// /api routes the transport uses with the response shapes a real 2.1.4 server
+// sent on 2026-10-25 (task e47be82a), and it plays the recorded /api/event
+// frames of fixtures/v2.
 // Nothing here is product code.
 import { spyOn } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -10,6 +11,7 @@ import type { OpenCodeSupervisor } from "./supervisor.ts";
 import type { AgentMcpServer } from "../../mcp-servers.ts";
 import { openCodeSafetyPluginDir } from "./profile-paths.ts";
 import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
+import { OPENCODE_CLI_VERSION } from "./runtime.ts";
 
 // Port 1 refuses connections, so a request the spy does not answer fails.
 export const FAKE_BASE_URL = "http://127.0.0.1:1";
@@ -438,7 +440,11 @@ export function fakeOpenCode(options: FakeOptions = {}) {
     });
     if (method === "GET" && path === "/api/info")
       return r("info", () =>
-        json({ version: "2.1.4", pid: 4242, urls: [FAKE_BASE_URL] }),
+        json({
+          version: OPENCODE_CLI_VERSION,
+          pid: 4242,
+          urls: [FAKE_BASE_URL],
+        }),
       );
     if (method === "GET" && path === "/api/event")
       return r(
@@ -721,7 +727,9 @@ export function fakeOpenCode(options: FakeOptions = {}) {
     if (matched.route === "info") {
       const health = options.health ?? "healthy";
       if (health === "silent")
-        return hold("info", init, async () => json({ version: "2.1.4" }));
+        return hold("info", init, async () =>
+          json({ version: OPENCODE_CLI_VERSION }),
+        );
       if (health === "refused")
         throw Object.assign(new TypeError("Unable to connect."), {
           code: "ConnectionRefused",

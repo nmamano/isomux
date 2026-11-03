@@ -1,0 +1,135 @@
+{
+  "type": "document",
+  "info": {
+    "providers": {
+      "opencode": {
+        "name": "Default / OpenCode",
+        "headers": {
+          "x-opencode-org-id": "org_example"
+        },
+        "models": {
+          "claude-fable-5": {
+            "disabled": true
+          },
+          "claude-haiku-4-5": {
+            "disabled": true
+          },
+          "claude-opus-4-5": {
+            "disabled": true
+          },
+          "claude-opus-4-6": {
+            "disabled": true
+          },
+          "claude-opus-4-7": {
+            "disabled": true
+          },
+          "claude-opus-4-8": {
+            "disabled": true
+          },
+          "claude-opus-5": {
+            "disabled": true
+          },
+          "claude-sonnet-4-5": {
+            "disabled": true
+          },
+          "claude-sonnet-4-6": {
+            "disabled": true
+          },
+          "claude-sonnet-5": {
+            "disabled": true
+          },
+          "gemini-3-flash": {
+            "disabled": true
+          },
+          "gemini-3.5-flash": {
+            "disabled": true
+          },
+          "gemini-3.6-flash": {
+            "disabled": true
+          },
+          "gemini-3.7-flash": {
+            "disabled": true
+          },
+          "glm-5": {
+            "disabled": true
+          },
+          "glm-5.1": {
+            "disabled": true
+          },
+          "glm-5.2": {
+            "disabled": true
+          },
+          "gpt-5": {
+            "disabled": true
+          },
+          "gpt-5-codex": {
+            "disabled": true
+          },
+          "gpt-5-nano": {
+            "disabled": true
+          },
+          "gpt-5.1": {
+            "disabled": true
+          },
+          "gpt-5.1-codex": {
+            "disabled": true
+          },
+          "gpt-5.1-codex-max": {
+            "disabled": true
+          },
+          "gpt-5.1-codex-mini": {
+            "disabled": true
+          },
+          "gpt-5.2": {
+            "disabled": true
+          },
+          "gpt-5.2-codex": {
+            "disabled": true
+          },
+          "gpt-5.4": {
+            "disabled": true
+          },
+          "gpt-5.4-pro": {
+            "disabled": true
+          },
+          "gpt-5.6-luna": {
+            "disabled": true
+          },
+          "gpt-5.6-sol": {
+            "disabled": true
+          },
+          "gpt-6-sol": {
+            "disabled": true
+          },
+          "grok-4.5": {
+            "disabled": true
+          },
+          "grok-4.6": {
+            "disabled": true
+          },
+          "kimi-k2.5": {
+            "disabled": true
+          },
+          "kimi-k2.6": {
+            "disabled": true
+          },
+          "minimax-m2.5": {
+            "disabled": true
+          },
+          "minimax-m2.7": {
+            "disabled": true
+          },
+          "muse-spark-1.2": {
+            "disabled": true
+          },
+          "qwen3.5-plus": {
+            "disabled": true
+          },
+          "qwen3.8-max": {
+            "disabled": true
+          }
+        }
+      }
+    }
+  }
+}

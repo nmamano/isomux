@@ -61,9 +61,10 @@ import {
 } from "../../../shared/i18n/log-message.ts";
 import { providerText } from "../provider-text.ts";
 
-// The OpenCode 2.1.4 transport (task e47be82a): the /api routes and the
+// The OpenCode 2 transport (task e47be82a): the /api routes and the
 // /api/event frames of @opencode/cli 2.1.4, as recorded on 2026-10-25 in
-// fixtures/v2 and internal-docs/opencode-gate/report-2.1.4.md.
+// fixtures/v2 and internal-docs/opencode-gate/report-2.1.4.md. The pinned
+// 2.2.5 passed the same live tests (report-2.2.5.md).
 
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
@@ -2758,11 +2759,12 @@ export class OpenCodeTransport {
     if (refusal) throw new OpenCodeTurnFailure(refusal);
   }
 
-  // S2: OpenCode 2.1.4 loads plugins fail-open, lazily per folder, and a
-  // project plugin with the same id displaces Isomux's, so before every
-  // prompt the folder's plugin rows must show the Isomux plugin active and
-  // alone with its id. An active row names the plugin's entry file; a row
-  // whose load failed names the folder (gate sp-p3, 2026-10-25).
+  // S2: OpenCode loads plugins fail-open, lazily per folder, and a project
+  // plugin with the same id displaces Isomux's, so before every prompt the
+  // folder's plugin rows must show the Isomux plugin active and alone with
+  // its id. 2.1.4 named an active row by the plugin's entry file and a failed
+  // one by the folder (gate sp-p3, 2026-10-25); 2.2.5 names both by the
+  // folder.
   private async requireSafetyPlugin(
     signal: AbortSignal,
     notice: EventSink,

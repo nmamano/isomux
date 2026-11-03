@@ -1,0 +1,160 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p6-ancestry",
+  "runDir": "/tmp/t-6dca5910/gate/run/sp-p6a-1793729569297",
+  "serverPid": 2580987,
+  "serverHop": {
+    "pid": 2580987,
+    "parentPid": 2580888,
+    "startTicks": "139190047"
+  },
+  "cases": {
+    "foreground": {
+      "turnEnd": "session.execution.succeeded",
+      "brokerStatus": "200",
+      "clientChain": [
+        {
+          "pid": 2581607,
+          "ppid": 2580987,
+          "comm": "bash",
+          "isServer": false
+        },
+        {
+          "pid": 2580987,
+          "ppid": 2580888,
+          "comm": "opencode",
+          "isServer": true
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=2581635 ancestry=2581635:139190445,2581607:139190435,2580987:139190047,2580888:139190029,2580886:139190029,2561150:139146830,2561149:139146830,2440118:138930143,2199590:137759614,1035:8467 method=GET path=/agents"
+      ]
+    },
+    "background": {
+      "turnEnd": "session.execution.succeeded",
+      "brokerStatus": "200",
+      "clientChain": [
+        {
+          "pid": 2581662,
+          "ppid": 2580987,
+          "comm": "bash",
+          "isServer": false
+        },
+        {
+          "pid": 2580987,
+          "ppid": 2580888,
+          "comm": "opencode",
+          "isServer": true
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=2581708 ancestry=2581708:139190617,2581662:139190507,2580987:139190047,2580888:139190029,2580886:139190029,2561150:139146830,2561149:139146830,2440118:138930143,2199590:137759614,1035:8467 method=GET path=/agents"
+      ]
+    },
+    "setsidOrphan": {
+      "turnEnd": "session.execution.succeeded",
+      "brokerStatus": "403",
+      "clientChain": [
+        {
+          "pid": 2581720,
+          "ppid": 1035,
+          "comm": "sh",
+          "isServer": false
+        },
+        {
+          "pid": 1035,
+          "ppid": 1,
+          "comm": "systemd",
+          "isServer": false
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=2581756 ancestry=2581756:139190765,2581720:139190663,1035:8467 method=GET path=/agents"
+      ]
+    },
+    "persistentTerminal": {
+      "createStatus": 200,
+      "brokerStatus": "200",
+      "clientChain": [
+        {
+          "pid": 2581769,
+          "ppid": 2581764,
+          "comm": "sh",
+          "isServer": false
+        },
+        {
+          "pid": 2581764,
+          "ppid": 2580987,
+          "comm": "opencode-pty",
+          "isServer": false
+        },
+        {
+          "pid": 2580987,
+          "ppid": 2580888,
+          "comm": "opencode",
+          "isServer": true
+        }
+      ],
+      "daemons": [
+        {
+          "pid": 2581764,
+          "parentPid": 2580987,
+          "parentIsServer": true,
+          "chainReachesServer": true,
+          "chainComms": [
+            "opencode-pty",
+            "opencode",
+            "bun",
+            "timeout",
+            "run-batch.sh",
+            "bash",
+            "claude",
+            "isomux",
+            "systemd"
+          ]
+        }
+      ],
+      "brokerLog": [
+        "[opencode-office-proxy] peer=2581817 ancestry=2581817:139190827,2581769:139190814,2581764:139190808,2580987:139190047,2580888:139190029,2580886:139190029,2561150:139146830,2561149:139146830,2440118:138930143,2199590:137759614,1035:8467 method=GET path=/agents"
+      ],
+      "list": [
+        {
+          "id": "pty_persistent_8591507708248894",
+          "pid": 2581769,
+          "status": "running"
+        }
+      ]
+    },
+    "controlNotServerChild": {
+      "exit": 0,
+      "brokerStatus": "403",
+      "brokerLog": [
+        "[opencode-office-proxy] peer=2581822 ancestry=2581822:139190840,2581821:139190840,2580888:139190029,2580886:139190029,2561150:139146830,2561149:139146830,2440118:138930143,2199590:137759614,1035:8467 method=GET path=/agents"
+      ]
+    },
+    "controlWrongHandle": {
+      "brokerStatus": "403",
+      "brokerLog": [
+        "[opencode-office-proxy] peer=2581833 ancestry=2581833:139190853,2581832:139190853,2580987:139190047,2580888:139190029,2580886:139190029,2561150:139146830,2561149:139146830,2440118:138930143,2199590:137759614,1035:8467 method=GET path=/agents"
+      ]
+    }
+  },
+  "ptyDaemonsSeen": 1,
+  "ptyDaemonRuntimeDirUnderProfile": true,
+  "toolOutcomes": [
+    "called",
+    "success",
+    "called",
+    "success",
+    "called",
+    "success",
+    "called",
+    "success"
+  ],
+  "upstreamHits": 3,
+  "serverChildrenBeforeStop": [
+    "PID    PPID COMMAND",
+    "2581764 2580987 opencode-pty"
+  ],
+  "leftAfterStop": []
+}

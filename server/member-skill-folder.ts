@@ -83,8 +83,8 @@ export function engineNativeSkillDirs(
       join(env?.CODEX_HOME || ISOMUX_CODEX_HOME, "skills"),
       join(home, ".agents", "skills"),
     ];
-  // OpenCode 2.1.4 (measured with a server and GET /api/skill; measure again
-  // on an OpenCode upgrade): ~/.claude/skills unless one of its Claude Code
+  // OpenCode 2.1.4 and 2.2.5 (measured with a server and GET /api/skill,
+  // 2026-11-03; measure again on an OpenCode upgrade): ~/.claude/skills unless one of its Claude Code
   // flags is set, ~/.agents/skills, and skill/ and skills/ of its config
   // folder, which OPENCODE_CONFIG_DIR replaces.
   const dirs: string[] = [];

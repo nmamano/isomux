@@ -1,0 +1,144 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p6-census",
+  "version": "v2",
+  "runDir": "/tmp/t-6dca5910/gate/run/sp-p6c-v2-1793729926512",
+  "before": {
+    "realDirs": {
+      "~/.config/opencode": {
+        "mtimeMs": 1789069063681
+      },
+      "~/.local/share/opencode": {
+        "mtimeMs": 1792733496232
+      },
+      "~/.cache/opencode": {
+        "mtimeMs": 1792733881603
+      },
+      "~/.local/state/opencode": {
+        "mtimeMs": 1788052815580
+      }
+    },
+    "tmpOpencode": [
+      {
+        "name": "opencode",
+        "mtimeMs": 1792640960405
+      },
+      {
+        "name": "opencode-pty-1001",
+        "mtimeMs": 1793729606646
+      }
+    ]
+  },
+  "serverComm": "opencode",
+  "toolResults": [
+    "success",
+    "success"
+  ],
+  "terminalCreate": 200,
+  "sideEffects": {
+    "shellFile": true,
+    "editApplied": true
+  },
+  "processesDuringRun": [
+    {
+      "pid": 2591257,
+      "comm": "opencode",
+      "startTicks": "139225818"
+    },
+    {
+      "pid": 2594577,
+      "comm": "opencode-pty",
+      "startTicks": "139231900"
+    },
+    {
+      "pid": 2594583,
+      "comm": "sh",
+      "startTicks": "139231939"
+    },
+    {
+      "pid": 2594586,
+      "comm": "sleep",
+      "startTicks": "139231942"
+    }
+  ],
+  "listeners": {
+    "tcp": [
+      "LISTEN 0 512 127.0.0.1:40095 0.0.0.0:* users:((\"opencode\",pid=2591257,fd=8)) "
+    ],
+    "unix": [
+      "u_str LISTEN 0 4096 /tmp/opencode-pty-1001/fa6b3b7ed810fb3c8da113edf5ed3bfb.sock 57259477 * 0 users:((\"opencode-pty\",pid=2594577,fd=6))"
+    ],
+    "udp": []
+  },
+  "stoppedBySigterm": true,
+  "leftAfterStop": [],
+  "after": {
+    "realDirs": {
+      "~/.config/opencode": {
+        "mtimeMs": 1789069063681
+      },
+      "~/.local/share/opencode": {
+        "mtimeMs": 1792733496232
+      },
+      "~/.cache/opencode": {
+        "mtimeMs": 1792733881603
+      },
+      "~/.local/state/opencode": {
+        "mtimeMs": 1788052815580
+      }
+    },
+    "tmpOpencode": [
+      {
+        "name": "opencode",
+        "mtimeMs": 1792640960405
+      },
+      {
+        "name": "opencode-pty-1001",
+        "mtimeMs": 1793729990588
+      }
+    ]
+  },
+  "realDirsChanged": [],
+  "strace": {
+    "lines": 2602,
+    "positiveControlProfileWrites": 174,
+    "writesOutsideProfile": [
+      {
+        "path": "/tmp/opencode-pty-1001/fa6b3b7ed810fb3c8da113edf5ed3bfb.sock",
+        "ops": [
+          "unlink"
+        ]
+      }
+    ],
+    "socketsOpened": {
+      "AF_INET/SOCK_STREAM": 7,
+      "AF_NETLINK/SOCK_RAW": 1,
+      "AF_UNIX/SOCK_STREAM": 10,
+      "AF_INET/SOCK_DGRAM": 2,
+      "AF_INET6/SOCK_STREAM": 2
+    },
+    "binds": {
+      "127.0.0.1:40095": 1,
+      "/tmp/opencode-pty-1001/fa6b3b7ed810fb3c8da113edf5ed3bfb.sock": 1
+    },
+    "connects": {
+      "127.0.0.53:53": 1,
+      "172.66.173.149:443": 2,
+      "104.20.32.17:443": 2,
+      "2606:4700:10::6814:2011:443": 2,
+      "2606:4700:10::ac42:ad95:443": 2,
+      "127.0.0.1:1234": 1,
+      "127.0.0.1:11434": 1,
+      "127.0.0.1:8000": 1,
+      "127.0.0.1:39863": 1,
+      "/tmp/opencode-pty-1001/fa6b3b7ed810fb3c8da113edf5ed3bfb.sock": 3
+    }
+  },
+  "tmpTopLevelNewer": {
+    "total": 81,
+    "attributedToServer": [
+      "opencode-pty-1001"
+    ],
+    "otherProcessesCount": 80
+  }
+}

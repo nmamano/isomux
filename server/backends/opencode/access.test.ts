@@ -7,6 +7,7 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import {
   mkdirSync,
+  readFileSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -473,6 +474,113 @@ describe("openCodeConfigLayersRefusal", () => {
             ISOMUX_FILE,
           ) === "string",
       }).toEqual({ label, refused: true });
+  });
+});
+
+// 2.2.5 with OPENCODE_API_KEY set layers the OpenCode Console's config as a
+// second document without a path (core/src/config/integration.ts: providers,
+// mcp, policies and websearch only), some seconds after the server starts.
+// The fixture is that layer as a 2.2.5 server sent it (2026-11-03, the org
+// id replaced).
+describe("openCodeConfigLayersRefusal and the OpenCode Console layer", () => {
+  const MEMBER = "/home/m/.config/isomux-opencode";
+  const ISOMUX_FILE = "/state/opencode/profiles/k/opencode.json";
+  const consoleLayer = JSON.parse(
+    readFileSync(
+      join(import.meta.dir, "fixtures/console-config-layer.json"),
+      "utf8",
+    ),
+  ) as { type: string; info: Record<string, unknown> };
+  const isomuxFile = { type: "document", path: ISOMUX_FILE, info: {} };
+  const isomuxDoc = {
+    type: "document",
+    info: { agents: { "isomux-cron": { mode: "primary" } } },
+  };
+  const memberDir = { type: "directory", path: MEMBER };
+  const refusal = (body: unknown[]) =>
+    openCodeConfigLayersRefusal(body, MEMBER, ISOMUX_FILE);
+
+  it("passes Isomux's layers before and after the Console layer arrives", () => {
+    // The enabling condition: the captured layer is a document without a path.
+    expect({ type: consoleLayer.type, path: "path" in consoleLayer }).toEqual({
+      type: "document",
+      path: false,
+    });
+    expect(refusal([memberDir, isomuxFile, isomuxDoc])).toBeNull();
+    expect(
+      refusal([consoleLayer, memberDir, isomuxFile, isomuxDoc]),
+    ).toBeNull();
+  });
+
+  it("passes a Console layer with each key a Console document can hold", () => {
+    const full = {
+      ...consoleLayer,
+      info: {
+        ...consoleLayer.info,
+        mcp: { servers: { docs: { type: "remote", url: "https://x" } } },
+        policies: [{ action: "tool.use", resource: "shell:*", effect: "deny" }],
+        websearch: { provider: "opencode" },
+      },
+    };
+    expect(refusal([full, memberDir, isomuxFile, isomuxDoc])).toBeNull();
+  });
+
+  it("refuses a layer without a path that holds any other key, and a Console layer in place of Isomux's", () => {
+    const cases: [string, unknown[]][] = [
+      ...[
+        "plugins",
+        "agents",
+        "permissions",
+        "instructions",
+        "a_future_key",
+      ].map((key): [string, unknown[]] => [
+        `the Console layer with ${key}`,
+        [
+          { ...consoleLayer, info: { ...consoleLayer.info, [key]: {} } },
+          memberDir,
+          isomuxFile,
+          isomuxDoc,
+        ],
+      ]),
+      [
+        "the Console layer and no Isomux document",
+        [consoleLayer, memberDir, isomuxFile],
+      ],
+      [
+        "the Console layer and two Isomux documents",
+        [consoleLayer, memberDir, isomuxFile, isomuxDoc, isomuxDoc],
+      ],
+    ];
+    for (const [label, body] of cases)
+      expect({ label, refused: typeof refusal(body) === "string" }).toEqual({
+        label,
+        refused: true,
+      });
+  });
+
+  it("refuses a Console MCP server named like the office's", () => {
+    const named = {
+      ...consoleLayer,
+      info: {
+        ...consoleLayer.info,
+        mcp: { servers: { isomux: { type: "remote", url: "https://x" } } },
+      },
+    };
+    const listed = { location: { directory: "/f" }, data: [] };
+    expect(
+      openCodeMcpCollisionRefusal(
+        [consoleLayer, memberDir, isomuxFile, isomuxDoc],
+        listed,
+        [],
+      ),
+    ).toBeNull();
+    expect(
+      typeof openCodeMcpCollisionRefusal(
+        [named, memberDir, isomuxFile, isomuxDoc],
+        listed,
+        [],
+      ),
+    ).toBe("string");
   });
 });
 

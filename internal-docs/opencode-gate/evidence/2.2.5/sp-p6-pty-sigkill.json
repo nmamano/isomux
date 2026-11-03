@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-25",
+  "probe": "sp-p6-ptykill",
+  "runDir": "/tmp/t-6dca5910/gate/run/sp-p6k-1793729603965",
+  "terminalCreate": 200,
+  "serverPid": 2582365,
+  "before": [
+    {
+      "pid": 2582406,
+      "comm": "opencode-pty",
+      "ppid": 2582365,
+      "ticks": "139193609"
+    },
+    {
+      "pid": 2582411,
+      "comm": "sh",
+      "ppid": 2582406,
+      "ticks": "139193616"
+    }
+  ],
+  "afterServerSigkill": [
+    {
+      "pid": 2582406,
+      "comm": "opencode-pty",
+      "ppid": 2582365,
+      "alive": false,
+      "ppidNowComm": null
+    },
+    {
+      "pid": 2582411,
+      "comm": "sh",
+      "ppid": 2582406,
+      "alive": false,
+      "ppidNowComm": null
+    }
+  ],
+  "cleaned": [
+    {
+      "pid": 2582406,
+      "aliveAfterOurKill": false
+    },
+    {
+      "pid": 2582411,
+      "aliveAfterOurKill": false
+    }
+  ]
+}

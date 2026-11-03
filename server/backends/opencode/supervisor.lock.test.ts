@@ -10,6 +10,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { OpenCodeSupervisor } from "./supervisor.ts";
+import { OPENCODE_CLI_VERSION } from "./runtime.ts";
 
 // The record lock and process lifecycle on this host: flock(1) on Linux, the
 // helper's own flock(2) on macOS. Linux-only details (/proc environ, cmdline)
@@ -46,7 +47,7 @@ Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
   if (new URL(request.url).pathname === "/api/experimental/migration/v1") return Response.json({ status: "completed" });
   if (new URL(request.url).pathname !== "/api/info")
     return new Response("not found", { status: 404 });
-  return Response.json({ version: "2.1.4", pid: process.pid });
+  return Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: process.pid });
 }});
 await new Promise(() => {});
 `,

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { OPENCODE_CLI_VERSION } from "./runtime.ts";
 
 const cleanup: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -41,7 +42,7 @@ Bun.serve({ hostname: "127.0.0.1", port, async fetch(request) {
   if (url.pathname === "/api/experimental/migration/v1")
     return Response.json({ status: "completed" });
   if (url.pathname === "/api/info")
-    return Response.json({ version: "2.1.4", pid: process.pid });
+    return Response.json({ version: ${JSON.stringify(OPENCODE_CLI_VERSION)}, pid: process.pid });
   if (url.pathname === "/api/session" && request.method === "POST")
     return Response.json({ data: { id: \`session-\${process.pid}-\${++nextSession}\` } });
   if (url.pathname === "/api/event") {
@@ -164,7 +165,7 @@ await new Promise(() => {});
       },
     });
     expect(await health.json()).toEqual({
-      version: "2.1.4",
+      version: OPENCODE_CLI_VERSION,
       pid: prior.serverPid,
     });
     const resume = run("resume");
