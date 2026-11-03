@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { selectionText } from "./selection-text.ts";
 
 export type CiteSelection = {
   /** Plain text of the current selection. Source of truth for the click handler. */
@@ -75,7 +76,7 @@ export function useSelectionCite(
         setCite(null);
         return;
       }
-      const text = sel.toString();
+      const text = selectionText(sel);
       if (!text.trim()) {
         setCite(null);
         return;

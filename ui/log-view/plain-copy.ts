@@ -1,8 +1,10 @@
 // Copying from the chat: a selection goes on the clipboard as plain text
-// only, a copied agent reply loses the backslash agents write before a
-// literal dollar, and the chat bar's Copy in Plain text loses the Markdown.
+// only, with each formula as its TeX source (selection-text.ts), a copied
+// agent reply loses the backslash agents write before a literal dollar, and
+// the chat bar's Copy in Plain text loses the Markdown.
 
 import { Lexer, type Token, type Tokens } from "marked";
+import { selectionText } from "./selection-text.ts";
 
 type CopyEventLike = {
   target: EventTarget | null;
@@ -24,7 +26,8 @@ export function copySelectionAsPlainText(e: CopyEventLike): void {
     )
   )
     return;
-  const text = window.getSelection()?.toString() ?? "";
+  const sel = window.getSelection();
+  const text = sel ? selectionText(sel) : "";
   if (!text) return;
   e.clipboardData.setData("text/plain", text);
   e.preventDefault();
