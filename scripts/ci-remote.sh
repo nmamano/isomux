@@ -27,10 +27,11 @@
 # build:ui` and `bun test` on those paths, for the committed HEAD of this
 # checkout, on the same remote. It writes no file here: the caller redirects
 # its output. The first line is the commit's sha and the last is exit=<n>:
-# 0 green, 1 red, 2 refused (nothing was sent), 3 no verdict. It never runs
-# here: with no target, or when the remote cannot run it, it exits 3. Each path
-# must be tracked at HEAD and contain nothing under control-plane/, whose tests
-# need the Postgres that a CI run holds on the remote.
+# 0 green, 1 red, 2 refused (nothing was sent), 3 no verdict. A step stopped
+# by a signal or out of memory gives 3, unless another step is red. It never
+# runs here: with no target, or when the remote cannot run it, it exits 3.
+# Each path must be tracked at HEAD and contain nothing under control-plane/,
+# whose tests need the Postgres that a CI run holds on the remote.
 #
 # The remote needs git, curl, unzip, flock, jq, a working `docker compose`
 # and a user systemd manager; it needs no sudo. It keeps
@@ -563,32 +564,67 @@ remote_gate_main() {
   install_deps "$run"
 
   # tsc always; build:ui and bun test only for paths. A red build:ui is red:
-  # it is the commit's. The started file marks that the scope ran.
+  # it is the commit's. A step stopped by a signal, or a tsc out of memory,
+  # ran no check: no verdict, unless another step is red. The started file
+  # marks that the scope ran.
   (cd "$run/src" && exec systemd-run --user --scope --collect --quiet --unit="${scope%.scope}" -- \
     "${sandbox[@]}" nice -n 19 timeout -k 30s "$GATE_RUN_LIMIT" bash -c '
       : >"$1/started"
       shift
-      status=0
+      red=0 none=0
+      stopped() {
+        (($1 > 128)) || return 1
+        echo "✗ $2 was stopped by signal $(kill -l "$1")"
+        none=1
+      }
       echo "→ tsc"
-      bun run typecheck || status=1
-      if (($# > 0)); then
-        echo "→ build:ui"
-        if bun run build:ui >"$TMPDIR/build-ui.log" 2>&1; then
-          echo "→ bun test $*"
-          bun test "$@" || status=1
+      # tee keeps the output streaming; Go writes its out-of-memory error to stderr.
+      bun run typecheck 2>&1 | tee "$TMPDIR/tsc.log"
+      rc=${PIPESTATUS[0]}
+      if ((rc != 0)) && ! stopped "$rc" tsc; then
+        if grep -qE "^fatal error: (runtime: )?out of memory" "$TMPDIR/tsc.log"; then
+          echo "✗ tsc ran out of memory"
+          none=1
         else
-          cat "$TMPDIR/build-ui.log"
-          echo "✗ build:ui failed"
-          status=1
+          red=1
         fi
       fi
-      exit $status
+      if (($# > 0)); then
+        echo "→ build:ui"
+        bun run build:ui >"$TMPDIR/build-ui.log" 2>&1
+        rc=$?
+        if ((rc == 0)); then
+          echo "→ bun test $*"
+          bun test "$@"
+          rc=$?
+          ((rc == 0)) || stopped "$rc" "bun test" || red=1
+        else
+          cat "$TMPDIR/build-ui.log"
+          stopped "$rc" build:ui || { echo "✗ build:ui failed"; red=1; }
+        fi
+      fi
+      ((red)) && exit 1
+      ((none)) && exit 3
+      exit 0
     ' _ "$run" "${paths[@]}" 8>&-)
   local status=$?
   [[ -e $run/started ]] || setup_failed "the gate scope did not start"
-  [[ $status -eq 124 ]] && say "✗ the gates passed the $GATE_RUN_LIMIT limit"
-  [[ $status -eq 0 ]] && exit 0
-  exit 1
+  # The shell above gives 0, 1 or 3; any other code is not a verdict.
+  case $status in
+    0 | 1 | 3) exit "$status" ;;
+    124)
+      say "✗ the gates passed the $GATE_RUN_LIMIT limit"
+      exit 1
+      ;;
+    *)
+      if ((status > 128)); then
+        say "✗ the gates were stopped by signal $(kill -l "$status")"
+      else
+        say "✗ the gates stopped with exit $status"
+      fi
+      exit 3
+      ;;
+  esac
 }
 
 # Deletes what a crash can leave in the bare repo that makes every push fail:

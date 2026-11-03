@@ -784,7 +784,16 @@ async function remote(opts: {
   pin?: string;
   scopeStuck?: boolean;
   /** bun calls ("run typecheck", "run build:ui", ...) that exit 1. */
-  fail?: string[];
+  fail?: readonly string[];
+  /**
+   * bun calls that die by SIGKILL, as `bun run` does when the OOM killer
+   * stops its child: bun re-raises the child's signal on itself.
+   */
+  killed?: readonly string[];
+  /** This bun call kills its process group: timeout and the gate's shell. */
+  killsGroup?: string;
+  /** `bun run typecheck` writes this to stderr and exits with this code. */
+  tsc?: { stderr: string; exit: number };
   /** Replaces the script's GATE_WAIT (seconds). */
   gateWait?: number;
   /** pg_ctl writes this many lines to its -l log; by default it writes none. */
@@ -840,13 +849,27 @@ async function remote(opts: {
 echo "$* $(pwd)" >> "${dir}/bun.log"
 date +%s%N >> "${dir}/bun-times"
 [[ $* == "run ci" ]] && { ${opts.ciSleep ? `sleep ${opts.ciSleep}; ` : ""}echo "ci output"; exit ${opts.ci ?? 0}; }
+[[ $* == "run typecheck" && -e "${dir}/tsc-stderr" ]] && cat "${dir}/tsc-stderr" >&2
 # With block-tsc, tsc waits for unblock (at most 20 s).
 if [[ $* == "run typecheck" && -e "${dir}/block-tsc" ]]; then
   for _ in $(seq 200); do [[ -e "${dir}/unblock" ]] && break; sleep 0.1; done
 fi
 ${(opts.fail ?? []).map((c) => `[[ $* == "${c}" ]] && exit 1`).join("\n")}
+${(opts.killed ?? []).map((c) => `[[ $* == "${c}" ]] && kill -KILL $$`).join("\n")}
+${
+  opts.killsGroup
+    ? `if [[ $* == "${opts.killsGroup}" ]]; then
+  # Only timeout's own group: the test runner's must survive.
+  pg=$(ps -o pgid= -p $$ | tr -d ' ')
+  [[ $(ps -o comm= -p "$pg") == timeout ]] || { echo "fixture: the step is not in timeout's process group" >&2; exit 99; }
+  kill -KILL -- "-$pg"
+fi`
+    : ""
+}
+${opts.tsc ? `[[ $* == "run typecheck" ]] && exit ${opts.tsc.exit}` : ""}
 exit 0`,
   );
+  if (opts.tsc) writeFileSync(join(dir, "tsc-stderr"), `${opts.tsc.stderr}\n`);
   stub(join(pgBin, "initdb"), "exit 0");
   stub(join(pgBin, "postgres"), "cat >/dev/null; exit 0");
   stub(
@@ -1202,6 +1225,112 @@ describe("ci-remote --remote-gate, the remote half", () => {
     expect(res.status, res.out).toBe(1);
     for (const step of reached) expect(r.bunCalls()).toContain(step);
   });
+
+  // A step stopped by a signal ran no check: it is no verdict, unless another
+  // step is red, which is a verdict about the commit.
+  it.each([
+    {
+      killed: [TSC],
+      fail: [],
+      exit: 3,
+      reached: [TSC, "run build:ui", "test ./server/a.test.ts"],
+    },
+    {
+      killed: ["test ./server/a.test.ts"],
+      fail: [],
+      exit: 3,
+      reached: [TSC, "run build:ui", "test ./server/a.test.ts"],
+    },
+    // The tests need the built UI.
+    {
+      killed: ["run build:ui"],
+      fail: [],
+      exit: 3,
+      reached: [TSC, "run build:ui"],
+    },
+    {
+      killed: [TSC],
+      fail: ["test ./server/a.test.ts"],
+      exit: 1,
+      reached: [TSC, "run build:ui", "test ./server/a.test.ts"],
+    },
+  ])(
+    "exits $exit when $killed is killed and $fail is red",
+    async ({ killed, fail, exit, reached }) => {
+      const r = await remote({ killed, fail });
+      const res = r.gate(runId(), ["server/a.test.ts"]);
+      expect(res.status, res.out).toBe(exit);
+      expect(r.bunCalls()).toEqual([...INSTALLS, ...reached]);
+      // It names the signal (bash's own report of the kill says "Killed").
+      if (exit === 3) expect(res.out).toMatch(/\bKILL\b/);
+    },
+  );
+
+  // Go's runtime ends with exit 2 and a goroutine dump.
+  const goOom = (fatal: string) =>
+    [
+      "runtime: out of memory: cannot allocate 4194304-byte block (1543503872 in use)",
+      fatal,
+      "",
+      "goroutine 1 gp=0xc000002380 m=0 mp=0x1abcde0 [running]:",
+      "runtime.throw({0x1b2c3d4?, 0x0?})",
+    ].join("\n");
+
+  it.each([
+    "fatal error: out of memory",
+    "fatal error: runtime: out of memory",
+  ])(
+    "gives no verdict when tsc runs out of memory (%s), and shows its output",
+    async (fatal) => {
+      const r = await remote({ tsc: { stderr: goOom(fatal), exit: 2 } });
+      const res = r.gate(runId(), ["server/a.test.ts"]);
+      expect(res.status, res.out).toBe(3);
+      expect(res.out).toContain(goOom(fatal));
+      // The tests still run, and could still give a red.
+      expect(r.bunCalls()).toContain("test ./server/a.test.ts");
+    },
+  );
+
+  it("is red when a type error only quotes an out-of-memory line", async () => {
+    const r = await remote({
+      tsc: {
+        stderr: `server/a.ts(1,7): error TS2322: Type '"fatal error: out of memory"' is not assignable to type 'number'.`,
+        exit: 2,
+      },
+    });
+    const res = r.gate(runId(), ["server/a.test.ts"]);
+    expect(res.status, res.out).toBe(1);
+  });
+
+  it("gives no verdict when the gate's processes are killed together", async () => {
+    // As the OOM killer does to a whole scope: the shell that runs the steps
+    // gives no exit of its own.
+    const r = await remote({ killsGroup: "test ./server/a.test.ts" });
+    const res = r.gate(runId(), ["server/a.test.ts"]);
+    expect(res.status, res.out).toBe(3);
+    expect(r.bunCalls()).toEqual([
+      ...INSTALLS,
+      TSC,
+      "run build:ui",
+      "test ./server/a.test.ts",
+    ]);
+  });
+
+  it("shows tsc's output while tsc still runs", async () => {
+    // A tsc that hangs until the run limit must still leave its output.
+    const r = await remote({ tsc: { stderr: "tsc progress line", exit: 0 } });
+    writeFileSync(join(r.dir, "block-tsc"), "");
+    const id = runId();
+    const run = r.gateAsync(id, []);
+    await until(
+      () => r.gateOut(id).includes("tsc progress line"),
+      "tsc's output in the gate's output",
+    );
+    expect(r.bunCalls()).toEqual([...INSTALLS, TSC]);
+    writeFileSync(join(r.dir, "unblock"), "");
+    const res = await run;
+    expect(res.status, res.out).toBe(0);
+  }, 20_000);
 
   it("gives no verdict when the install fails", async () => {
     const r = await remote({ fail: [INSTALLS[0]!] });
