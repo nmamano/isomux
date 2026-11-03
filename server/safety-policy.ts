@@ -130,20 +130,36 @@ export interface FolderConfinement {
 }
 
 // Names that configure an engine, a repository or a shell when they sit in a
-// folder: a write never reaches them, at any depth.
-const CONFINED_WRITE_DENY: ReadonlySet<string> = new Set([
-  ".claude",
-  ".codex",
-  ".opencode",
-  ".git",
-  ".vscode",
-  ".mcp.json",
-  "opencode.json",
-  "CLAUDE.md",
-  "CLAUDE.local.md",
-  "AGENTS.md",
-  ".envrc",
-]);
+// folder: a write never reaches them, at any depth. Held in the form
+// confinedName gives.
+const CONFINED_WRITE_DENY: ReadonlySet<string> = new Set(
+  [
+    ".claude",
+    ".codex",
+    ".opencode",
+    ".agents",
+    ".git",
+    ".vscode",
+    ".mcp.json",
+    "opencode.json",
+    "opencode.jsonc",
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "AGENTS.md",
+    "AGENTS.override.md",
+    ".envrc",
+  ].map(confinedName),
+);
+
+// A path part as a case-insensitive file system (macOS) matches it: without
+// the code points HFS+ ignores in names, and case folded. Upper then lower
+// case also folds the long s and the Kelvin sign to ASCII.
+function confinedName(part: string): string {
+  return part
+    .replace(/[\u200C-\u200F\u202A-\u202E\u206A-\u206F\uFEFF]/g, "")
+    .toUpperCase()
+    .toLowerCase();
+}
 
 const OFFICE_MCP_TOOL_PREFIX = "mcp__isomux__";
 
@@ -284,9 +300,12 @@ function confinedWrite(
       : null;
   if (rel === null || rel === "") return outsideFolder(toolName);
   const parts = rel.split(sep);
-  if (parts.some((part) => CONFINED_WRITE_DENY.has(part)))
+  const settings = parts.find((part) =>
+    CONFINED_WRITE_DENY.has(confinedName(part)),
+  );
+  if (settings !== undefined)
     return deny(
-      `${toolName} may not write engine or repository settings (${parts.find((part) => CONFINED_WRITE_DENY.has(part))}).`,
+      `${toolName} may not write engine or repository settings (${settings}).`,
     );
   // No symlink on the way: each existing component is a real file or folder.
   let current = realFolder;
