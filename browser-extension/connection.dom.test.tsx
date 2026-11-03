@@ -631,13 +631,25 @@ const connected: PopupState = {
 const settleDom = () => new Promise((resolve) => setTimeout(resolve, 0));
 // A popup over a stand-in background that keeps the access it is sent.
 // answer, when it returns a promise, answers that message instead.
+// tab: the mutedInfo of the tab the popup opened on, and Chrome's answer to
+// a tab update (default: it applies).
 async function openPopup(
   initial: PopupState,
   answer?: (message: Record<string, unknown>) => Promise<unknown> | undefined,
+  tab: {
+    mutedInfo?: Record<string, unknown>;
+    update?: () => Promise<void>;
+  } = {},
 ) {
   document.body.innerHTML = popupHTML;
   let state = structuredClone(initial);
   const messages: Record<string, unknown>[] = [];
+  const tabUpdates: Array<[number, Record<string, unknown>]> = [];
+  const invocationTab = {
+    id: 7,
+    windowId: 1,
+    ...(tab.mutedInfo ? { mutedInfo: tab.mutedInfo } : {}),
+  };
   let poll!: () => void;
   await popupScript.runInNewContext({
     document,
@@ -646,8 +658,17 @@ async function openPopup(
     Date,
     chrome: {
       storage: { session: noDraft },
-      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+      tabs: {
+        query: async () => [structuredClone(invocationTab)],
+        get: async () => structuredClone(invocationTab),
+        update: async (id: number, options: Record<string, unknown>) => {
+          tabUpdates.push([id, options]);
+          await tab.update?.();
+          return { id, windowId: 1 };
+        },
+      },
       runtime: {
+        id: "fixture-id",
         sendMessage: async (message: Record<string, unknown>) => {
           messages.push(message);
           const custom = answer?.(message);
@@ -667,6 +688,7 @@ async function openPopup(
   await settleDom();
   return {
     messages,
+    tabUpdates,
     sent: (action: string) => messages.filter((m) => m.action === action),
     set: (next: PopupState) => {
       state = structuredClone(next);
@@ -997,6 +1019,81 @@ test("Use this tab stays locked until the office answers, unlocks after a refusa
       true,
       true,
     ]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+// Task ded3ae49: Chrome's tab menu cannot unmute a tab an extension muted, so
+// the popup offers Unmute tab on a tab this extension muted, paired or not.
+const OURS = { muted: true, reason: "extension", extensionId: "fixture-id" };
+const UNPAIRED: PopupState = {
+  state: "unpaired",
+  office: "",
+  agents: [],
+  assignments: [],
+};
+// The element and none of its ancestors is hidden.
+const shown = (element: HTMLElement | null) => {
+  for (let node = element; node; node = node.parentElement)
+    if (node.hidden) return false;
+  return !!element;
+};
+
+test("the popup offers Unmute tab only on a tab this extension muted; it unmutes the tab and hides, and stays after a refused update", async () => {
+  const rows: Array<[string, PopupState, Record<string, unknown> | undefined]> =
+    [
+      ["not muted", connected, undefined],
+      ["unmuted by this extension", connected, { ...OURS, muted: false }],
+      ["muted by the member", connected, { muted: true, reason: "user" }],
+      [
+        "muted by another extension",
+        connected,
+        { ...OURS, extensionId: "other" },
+      ],
+    ];
+  for (const [name, state, mutedInfo] of rows) {
+    await openPopup(state, undefined, { mutedInfo });
+    try {
+      expect({
+        name,
+        shown: shown(document.getElementById("unmute-tab")),
+      }).toEqual({ name, shown: false });
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+    }
+  }
+  for (const state of [connected, UNPAIRED]) {
+    const p = await openPopup(state, undefined, { mutedInfo: OURS });
+    try {
+      const button = document.getElementById("unmute-tab") as HTMLElement;
+      expect({ state: state.state, shown: shown(button) }).toEqual({
+        state: state.state,
+        shown: true,
+      });
+      expect(button.textContent?.trim()).toBeTruthy();
+      button.click();
+      await settleDom();
+      expect(p.tabUpdates).toEqual([[7, { muted: false }]]);
+      expect(shown(button)).toBe(false);
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+    }
+  }
+  // Chrome refuses the update, for example because the tab closed.
+  const refused = await openPopup(connected, undefined, {
+    mutedInfo: OURS,
+    update: async () => {
+      throw new Error("No tab with id: 7.");
+    },
+  });
+  try {
+    const button = document.getElementById("unmute-tab") as HTMLElement;
+    button.click();
+    await settleDom();
+    // The enabling state: the popup asked Chrome.
+    expect(refused.tabUpdates).toEqual([[7, { muted: false }]]);
+    expect(shown(button)).toBe(true);
   } finally {
     window.dispatchEvent(new Event("pagehide"));
   }

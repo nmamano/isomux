@@ -427,6 +427,7 @@ export interface AffordanceBrowserReq {
     | "upload"
     | "press"
     | "screenshot"
+    | "mute"
     | "close";
   /** `goto`: the http(s) URL to open. */
   url?: string;
@@ -444,6 +445,8 @@ export interface AffordanceBrowserReq {
   label?: string;
   /** `check`: the wanted state; default true. */
   checked?: boolean;
+  /** `mute`: true mutes the tab, false unmutes it; default true. */
+  muted?: boolean;
   /** `click`, `press`, `select`, `check`: accept the first dialog the action opens. */
   dialog?: "accept";
   /** `screenshot`: capture the whole page instead of the viewport. */
@@ -471,6 +474,8 @@ export interface AffordanceBrowserResp {
   selected?: string[];
   /** `check`: the control's checked state after the action. */
   checked?: boolean;
+  /** `mute`: the tab's mute state after the action. */
+  muted?: boolean;
   /** The input completed, but a navigation it started had not loaded. */
   loading?: boolean;
   /** JavaScript dialogs that the action opened, and their answers. A failure carries them as `error.dialogs`. */

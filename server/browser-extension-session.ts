@@ -29,6 +29,10 @@ import {
 } from "./browser-extension-bridge";
 import { officePageRefused } from "./browser-office-gate";
 import {
+  EXTENSION_MUTE_PACKAGE,
+  extensionOutdated,
+} from "../shared/browser-extension-protocol";
+import {
   EXTENSION_MAX_BYTES,
   type BrowserExtensionService,
 } from "./browser-extension-service";
@@ -171,6 +175,8 @@ const AGENT_TABS_OFF =
   'Your manager\'s browser does not let agents open tabs. In your ask, give the member the choice: turn on "Open their own tabs" in the extension popup, offer you a tab, or do the steps themselves.';
 const agentTabsOutdated = (browsers: OutdatedBrowser[]) =>
   `${outdatedNote(browsers)} An updated extension can let agents open tabs.`;
+const muteOutdated = (browsers: OutdatedBrowser[]) =>
+  `${outdatedNote(browsers)} An updated extension can mute tabs.`;
 // playwright-core takes most of a second to load, so the office loads it at
 // the first browser session, not at boot.
 let playwright: Promise<typeof import("playwright-core")> | undefined;
@@ -508,6 +514,37 @@ export class ExtensionBrowserSessions {
       this.end(key);
       connection.revoke(agent, target);
       return { ok: true, url: "", title: "", closed: true };
+    }
+    if (params.action === "mute") {
+      const tab = this.service.bridge
+        .targets(member, agent)
+        .find((t) => t.target === target);
+      if (
+        extensionOutdated(connection.extensionPackage, EXTENSION_MUTE_PACKAGE)
+      )
+        return failure(
+          "action_failed",
+          muteOutdated([
+            { name: tab?.browser ?? "", store: connection.storeInstall },
+          ]),
+        );
+      try {
+        const muted = await connection.mute(grant, params.muted!);
+        return {
+          ok: true,
+          url: tab?.url ?? "",
+          title: tab?.title ?? "",
+          target,
+          muted,
+        };
+      } catch {
+        return connection.offered(agent, target) === grant
+          ? failure(
+              "action_failed",
+              "Chrome did not change the tab's sound. Try again.",
+            )
+          : ended();
+      }
     }
     // Playwright would wait on the refused page until the action timeout.
     if (params.action !== "goto" && connection.officeGated(grant))

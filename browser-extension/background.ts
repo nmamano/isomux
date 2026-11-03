@@ -1,5 +1,6 @@
 import { t } from "./i18n";
 import { newerFiles } from "./disk-files";
+import { ownMute } from "./own-mute";
 import {
   BROWSER_EXTENSION_PROTOCOL,
   EXTENSION_MIN_PROTOCOL,
@@ -76,6 +77,12 @@ type OwnedTab = {
   // A tab an agent opened closes when its grant ends: the popup's Close tab or
   // the agent's own close asked for it.
   closeTab?: boolean;
+  // The grant's pages are muted: from the open for a tab an agent opened,
+  // else from the agent's mute.
+  muted?: boolean;
+  // An offered tab that had sound before the agent's first mute gets it back
+  // when its grant ends.
+  restoreSound?: boolean;
 };
 type Connection = {
   ws: WebSocket;
@@ -130,6 +137,9 @@ type ResumeOffer = {
   expiresAt: number | null;
   // Absent only for a tab an agent opened, which has no pin.
   offerOrigin?: string;
+  // The grant's mute flags (OwnedTab), so a resume keeps them.
+  muted?: boolean;
+  restoreSound?: boolean;
 };
 const RESUME_KEY = "resumeOffers";
 const resumable = new Map<string, ResumeOffer>();
@@ -160,7 +170,10 @@ const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
           : typeof r.offerOrigin === "string") &&
         (agent === undefined ||
           (typeof agent.id === "string" && typeof agent.name === "string")) &&
-        (manager === undefined || typeof manager.name === "string")
+        (manager === undefined || typeof manager.name === "string") &&
+        [r.muted, r.restoreSound].every(
+          (flag) => flag === undefined || typeof flag === "boolean",
+        )
       )
         resumable.set(item[0], {
           tabId: r.tabId as number,
@@ -174,11 +187,30 @@ const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
           ...(typeof r.offerOrigin === "string"
             ? { offerOrigin: r.offerOrigin }
             : {}),
+          // An entry from before 0.8.0 has no flag; an opened grant counts
+          // as muted, as one opened now is.
+          ...muteFlags({
+            muted:
+              (r.muted as boolean | undefined) ?? r.scope.kind === "opened",
+            restoreSound: r.restoreSound as boolean | undefined,
+          }),
         });
     }
   },
   () => {},
 );
+// The mute flags that are set, to copy between a grant and its resume entry.
+function muteFlags(from: {
+  muted?: boolean;
+  restoreSound?: boolean;
+}): Pick<ResumeOffer, "muted" | "restoreSound"> {
+  return {
+    ...(from.muted === undefined ? {} : { muted: from.muted }),
+    ...(from.restoreSound === undefined
+      ? {}
+      : { restoreSound: from.restoreSound }),
+  };
+}
 function saveResumable(): Promise<void> {
   const list = [...resumable];
   resumeWrites = resumeWrites
@@ -204,6 +236,7 @@ function remember(c: Connection, id: string, tab: OwnedTab): void {
     durationMinutes: tab.durationMinutes,
     expiresAt: tab.expiresAt ?? null,
     ...(opened ? {} : { offerOrigin: tab.offerOrigin }),
+    ...muteFlags(tab),
   });
   void saveResumable();
 }
@@ -214,6 +247,10 @@ function forgetResumable(id: string): void {
   if (!r || !resumable.delete(id)) return;
   void saveResumable();
   if (r.scope.kind === "opened") keepOpened(r.tabId);
+  // A live grant gives the sound back at its own end, with its popups. Here
+  // the pages its site opened before the loss are not known.
+  else if (!current?.tabs.has(id))
+    void restoreSound(r.tabId, r.restoreSound, []);
 }
 // Disconnect, pairing, unpairing and a refusal end every offer.
 async function clearResumable(): Promise<void> {
@@ -335,6 +372,48 @@ async function endOpened(tab: OwnedTab, popups: number[]): Promise<void> {
   if (tab.scope?.kind !== "opened" || tab.tabClosed || tab.tabId < 0) return;
   if (tab.closeTab || tab.opening) await closeOpened(tab, popups);
   else keepOpened(tab.tabId);
+}
+// Mutes or unmutes every page of a grant. The first mute of an offered tab
+// notes whether the member's tab had sound, to give it back at the end.
+async function muteGrant(
+  id: string,
+  tab: OwnedTab,
+  muted: boolean,
+): Promise<Fields> {
+  if (muted && tab.scope?.kind !== "opened" && tab.restoreSound === undefined)
+    tab.restoreSound = !(await chrome.tabs.get(tab.tabId)).mutedInfo?.muted;
+  tab.muted = muted;
+  const r = resumable.get(id);
+  if (r) {
+    Object.assign(r, muteFlags(tab));
+    void saveResumable();
+  }
+  await chrome.tabs.update(tab.tabId, { muted });
+  await Promise.all(
+    [...tab.popups.values()].map((popup) =>
+      chrome.tabs.update(popup.tabId, { muted }).catch(() => {}),
+    ),
+  );
+  return { muted };
+}
+// At the end of an offered tab's grant, the sound the agent's mute took. A
+// mute or unmute of the member's since then wins.
+// restore is the grant's restoreSound, which only an offered tab sets.
+async function restoreSound(
+  rootTabId: number,
+  restore: boolean | undefined,
+  popups: number[],
+): Promise<void> {
+  if (!restore) return;
+  const root = await chrome.tabs.get(rootTabId).catch(() => undefined);
+  if (!ownMute(root?.mutedInfo)) return;
+  for (const tabId of [rootTabId, ...popups])
+    try {
+      if (ownMute((await chrome.tabs.get(tabId)).mutedInfo))
+        await chrome.tabs.update(tabId, { muted: false });
+    } catch {
+      // The page closed.
+    }
 }
 
 // One Agents window per browser, made at the first open without focus, so
@@ -750,6 +829,7 @@ function resumeOffer(c: Connection, id: string, r: ResumeOffer): void {
     durationMinutes: r.durationMinutes,
     expiresAt: r.expiresAt,
     offerOrigin: r.offerOrigin,
+    ...muteFlags(r),
     phase: "offering",
     resuming: true,
     children: new Set(),
@@ -789,6 +869,7 @@ async function revoke(
     const popups = [...tab.popups.values()].map((popup) => popup.tabId);
     await detach(tab);
     await endOpened(tab, popups);
+    await restoreSound(tab.tabId, tab.restoreSound, popups);
     if (c.tabs.get(id) === tab) c.tabs.delete(id);
     refreshBadges();
   })();
@@ -938,7 +1019,10 @@ function close(c: Connection): void {
         await tab.work?.catch(() => {});
         const popups = [...tab.popups.values()].map((popup) => popup.tabId);
         await detach(tab);
-        if (!resumable.has(id)) await endOpened(tab, popups);
+        if (!resumable.has(id)) {
+          await endOpened(tab, popups);
+          await restoreSound(tab.tabId, tab.restoreSound, popups);
+        }
       }
     }),
   ]).then(() => {});
@@ -990,6 +1074,11 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     if (tab && fields(msg.params).close !== false) tab.closeTab = true;
     await revoke(c, id, "office");
     return {};
+  }
+  if (msg.method === "mute" && tab?.phase === "on") {
+    const muted = fields(msg.params).muted;
+    if (typeof muted !== "boolean") throw new Error("Invalid mute");
+    return muteGrant(id, tab, muted);
   }
   if (!tab || tab.phase !== "on" || msg.method !== "cdp")
     throw new Error("Unknown assignment");
@@ -1160,7 +1249,12 @@ function openTab(c: Connection, id: string, params: Fields): Promise<Fields> {
       check(c);
       if (!c.creating.has(id) || tab.phase !== "offering")
         throw new AttachError("ended");
-      await chrome.tabs.update(tab.tabId, { autoDiscardable: false });
+      // The agent reads the page; it never needs the sound.
+      tab.muted = true;
+      await chrome.tabs.update(tab.tabId, {
+        autoDiscardable: false,
+        muted: true,
+      });
       check(c);
       if (!c.creating.has(id)) throw new AttachError("ended");
       return await attachSteps(c, id, tab);
@@ -1553,6 +1647,8 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
     };
     const sessionId = crypto.randomUUID();
     main.popups.set(sessionId, popup);
+    if (main.muted)
+      void chrome.tabs.update(popup.tabId, { muted: true }).catch(() => {});
     const owned = () => {
       check(c);
       if (

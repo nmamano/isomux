@@ -1136,6 +1136,19 @@ function sessionOffice() {
       send(data: string) {
         const m = JSON.parse(data) as Fields;
         messages.push(m);
+        // A mute answers with the state the extension set (task ded3ae49).
+        if (m.kind === "command" && m.method === "mute")
+          queueMicrotask(() =>
+            service.message(
+              typed,
+              JSON.stringify({
+                kind: "result",
+                generation: typed.data.connection!.generation,
+                id: m.id,
+                result: { muted: (m.params as Fields).muted },
+              }),
+            ),
+          );
         if (m.kind === "command" && m.method === "open")
           queueMicrotask(() =>
             service.message(
@@ -1204,6 +1217,7 @@ function sessionOffice() {
     target?: string;
     browser?: string;
     member?: string;
+    muted?: boolean;
     agentTabBrowsers?: { id: string; browser: string; member: string }[];
   };
   const run = async (agent: string, body: object) =>
@@ -1416,6 +1430,66 @@ test("the agent's close on an opened tab ends it and closes the tab", async () =
       )?.params,
     ).toEqual({ close: true });
     expect(h.service.bridge.targets("ann", "ann-agent")).toEqual([]);
+  } finally {
+    h.stop();
+  }
+});
+
+// Task ded3ae49: the agent mutes or unmutes its tab. An extension from before
+// mute (0.7.3 and older) gets no mute command: it would end the grant's
+// command with an unknown method.
+const muteCommands = (messages: Fields[]) =>
+  messages
+    .filter((m) => m.kind === "command" && m.method === "mute")
+    .map((m) => [m.assignment, m.params]);
+
+test("mute asks the extension to mute or unmute the agent's tab, muted when left out, and answers the state", async () => {
+  const h = sessionOffice();
+  try {
+    const ann = h.connect("ann", "Laptop");
+    ann.setting("all");
+    const opened = await h.service.bridge.open("ann", "ann-agent");
+    if (!opened.ok) throw new Error("open failed");
+    const grant = ann.connection.offered("ann-agent", opened.target)!;
+    expect(grant).toBeString();
+    expect(await h.run("ann-agent", { action: "mute" })).toMatchObject({
+      ok: true,
+      muted: true,
+      target: opened.target,
+    });
+    expect(
+      await h.run("ann-agent", {
+        action: "mute",
+        muted: false,
+        target: opened.target,
+      }),
+    ).toMatchObject({ ok: true, muted: false, target: opened.target });
+    expect(muteCommands(ann.messages)).toEqual([
+      [grant, { muted: true }],
+      [grant, { muted: false }],
+    ]);
+    // The tab stays the agent's.
+    expect(h.service.bridge.targets("ann", "ann-agent")).toHaveLength(1);
+  } finally {
+    h.stop();
+  }
+});
+
+test("mute on a browser whose extension is from before mute fails, names that browser, and sends no command", async () => {
+  const h = sessionOffice();
+  try {
+    const ann = h.connect("ann", "Laptop", { package: "0.7.3" });
+    ann.setting("all");
+    const opened = await h.service.bridge.open("ann", "ann-agent");
+    if (!opened.ok) throw new Error("open failed");
+    // The enabling state: the agent holds the tab.
+    expect(h.service.bridge.targets("ann", "ann-agent")).toHaveLength(1);
+    const answer = await h.run("ann-agent", { action: "mute" });
+    expect(answer).toMatchObject({ ok: false, code: "action_failed" });
+    expect(answer.error).toContain("Laptop");
+    expect(muteCommands(ann.messages)).toEqual([]);
+    // The tab stays the agent's.
+    expect(h.service.bridge.targets("ann", "ann-agent")).toHaveLength(1);
   } finally {
     h.stop();
   }

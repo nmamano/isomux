@@ -71,6 +71,12 @@ async function harness(
     slowSelf?: boolean;
     // More fields of the office's ready, for example storeUrl.
     ready?: Fields;
+    // The tabs' mute state of an earlier worker: Chrome keeps it across a
+    // worker restart.
+    mutes?: Map<
+      number,
+      { muted: boolean; reason?: string; extensionId?: string }
+    >;
   } = {},
 ) {
   let disk = opts.disk;
@@ -207,6 +213,18 @@ async function harness(
   const tabUpdates: Array<{ tabId: number; options: Record<string, unknown> }> =
     [];
   const removedTabs: number[] = [];
+  // Each tab's mutedInfo as Chrome reports it. A mute or unmute through
+  // chrome.tabs.update names this extension; memberMute is the member's own
+  // change in Chrome.
+  const mutes =
+    opts.mutes ??
+    new Map<
+      number,
+      { muted: boolean; reason?: string; extensionId?: string }
+    >();
+  const mutedInfo = (tabId: number) => ({
+    ...(mutes.get(tabId) ?? { muted: false }),
+  });
   const createdWindows: Array<Record<string, unknown>> = [];
   let windowCreate: () => Promise<void> = async () => {};
   // The member's last focused normal window (null: Chrome has none), and the
@@ -387,9 +405,19 @@ async function harness(
       },
       update: async (tabId: number, options: Record<string, unknown>) => {
         tabUpdates.push({ tabId, options });
-        return { windowId: madeTabs.get(tabId)?.windowId ?? 1 };
+        if (typeof options.muted === "boolean")
+          mutes.set(tabId, {
+            muted: options.muted,
+            reason: "extension",
+            extensionId: "fixture-id",
+          });
+        return {
+          id: tabId,
+          windowId: madeTabs.get(tabId)?.windowId ?? 1,
+          mutedInfo: mutedInfo(tabId),
+        };
       },
-      query: async () => [selected],
+      query: async () => [{ ...selected, mutedInfo: mutedInfo(selected.id) }],
       get: (id: number) => {
         const made = madeTabs.get(id);
         return made
@@ -399,10 +427,17 @@ async function harness(
               id: made.id,
               windowId: made.windowId,
               active: false,
+              mutedInfo: mutedInfo(made.id),
             })
           : made === undefined && removedTabs.includes(id)
             ? Promise.reject(new Error(`No tab with id: ${id}.`))
-            : getTab();
+            : id !== selected.id && mutes.has(id)
+              ? // A page a site opened.
+                Promise.resolve({ id, windowId: 1, mutedInfo: mutedInfo(id) })
+              : getTab().then((tab) => ({
+                  ...tab,
+                  mutedInfo: mutedInfo(tab.id),
+                }));
       },
       create: async (options: { windowId?: number; url?: string }) => {
         if (options.windowId !== undefined && !windows.has(options.windowId))
@@ -803,6 +838,12 @@ async function harness(
     madeTabs,
     windows,
     tabUpdates,
+    mutedInfo,
+    mutes,
+    // The member mutes or unmutes the tab in Chrome.
+    memberMute: (tabId: number, muted: boolean) => {
+      mutes.set(tabId, { muted, reason: "user" });
+    },
     removedTabs,
     createdWindows,
     windowCalls,
@@ -4023,4 +4064,304 @@ test("unpair, a terminal refusal and a new pairing turn agent tabs off", async (
   const kept = await agentTabs();
   await kept.reconnect();
   expect(kept.local.get("access")).toEqual(MINE_ON);
+});
+
+// Task ded3ae49: a tab an agent opens starts muted, and the agent's mute
+// command mutes or unmutes every page of its grant. A page a site opens is
+// muted while its grant is. A member's offered tab gets its sound back when
+// the grant ends, unless the member muted it.
+const muted = (h: Harness, tabId: number) => h.mutedInfo(tabId).muted;
+const popupSent = (h: Harness, assignment: string, tabId: number) =>
+  h.sockets
+    .at(-1)!
+    .sent.some(
+      (m) =>
+        m.kind === "event" &&
+        m.method === "popup" &&
+        m.assignment === assignment &&
+        fields(fields(m.params).targetInfo).targetId === `target-${tabId}`,
+    );
+const mutes = (h: Harness) =>
+  h.tabUpdates
+    .filter((u) => "muted" in u.options)
+    .map((u) => [u.tabId, u.options.muted]);
+
+test("an opened tab is muted before its debugger attaches", async () => {
+  const h = await agentTabs();
+  const release = h.delayPopup("attach");
+  h.open(5, crypto.randomUUID());
+  for (let i = 0; i < 3; i++) await settle();
+  // The enabling state: the tab exists and its attach waits.
+  expect(h.calls).toContain("attach");
+  expect(h.madeTabs.size).toBe(1);
+  const [tabId] = [...h.madeTabs.keys()];
+  expect(muted(h, tabId)).toBe(true);
+  release();
+  for (let i = 0; i < 3; i++) await settle();
+  expect(result(h.socket, 5)?.error).toBeUndefined();
+  expect(muted(h, tabId)).toBe(true);
+});
+
+for (const end of ["the office's detach", "Off"] as const)
+  test(`an opened tab kept after ${end} stays muted, with the pages its sites opened`, async () => {
+    const h = await agentTabs();
+    const { assignment, tabId } = await opened(h, 5);
+    h.navigation(tabId, 300);
+    for (let i = 0; i < 3; i++) await settle();
+    expect(popupSent(h, assignment, 300)).toBe(true);
+    if (end === "Off")
+      await h.ui({ action: "stop", generation: "generation-1", assignment });
+    else h.command(20, "detach", { close: false });
+    for (let i = 0; i < 3; i++) await settle();
+    // The enabling state: the grant ended and the tab was kept.
+    expect(await listed(h)).toEqual([]);
+    expect(stillOpen(h, tabId)).toBe(true);
+    expect([muted(h, tabId), muted(h, 300)]).toEqual([true, true]);
+  });
+
+test("a page a site opens is muted while its grant is: always for an opened tab, for an offered tab only after the agent's mute", async () => {
+  const h = await agentTabs();
+  const own = await opened(h, 5);
+  h.navigation(own.tabId, 300);
+  for (let i = 0; i < 3; i++) await settle();
+  expect(popupSent(h, own.assignment, 300)).toBe(true);
+  expect(muted(h, 300)).toBe(true);
+
+  const offered = await onOffer(h);
+  h.navigation(7, 301);
+  for (let i = 0; i < 3; i++) await settle();
+  expect(popupSent(h, offered, 301)).toBe(true);
+  // The member's tab and its pages are not muted at the offer.
+  expect([muted(h, 7), muted(h, 301)]).toEqual([false, false]);
+  h.command(20, "mute", { muted: true });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(result(h.socket, 20)?.result).toEqual({ muted: true });
+  h.navigation(301, 302);
+  for (let i = 0; i < 3; i++) await settle();
+  expect(popupSent(h, offered, 302)).toBe(true);
+  expect(muted(h, 302)).toBe(true);
+});
+
+test("the agent's mute sets its tab and the pages its sites opened, answers the grant's state, and refuses a value that is not a boolean", async () => {
+  const h = await agentTabs();
+  const { assignment, tabId } = await opened(h, 5);
+  h.navigation(tabId, 300);
+  for (let i = 0; i < 3; i++) await settle();
+  expect(popupSent(h, assignment, 300)).toBe(true);
+  h.command(20, "mute", { muted: false });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(result(h.socket, 20)?.result).toEqual({ muted: false });
+  expect([muted(h, tabId), muted(h, 300)]).toEqual([false, false]);
+  // A page opened while the grant is not muted is not muted either.
+  h.navigation(300, 301);
+  for (let i = 0; i < 3; i++) await settle();
+  expect(popupSent(h, assignment, 301)).toBe(true);
+  expect(muted(h, 301)).toBe(false);
+  h.command(21, "mute", { muted: true });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(result(h.socket, 21)?.result).toEqual({ muted: true });
+  expect([tabId, 300, 301].map((id) => muted(h, id))).toEqual([
+    true,
+    true,
+    true,
+  ]);
+  const before = h.tabUpdates.length;
+  for (const value of [undefined, "false", 0]) {
+    h.command(22, "mute", value === undefined ? {} : { muted: value });
+    for (let i = 0; i < 3; i++) await settle();
+    expect({ value, error: !!result(h.socket, 22)?.error }).toEqual({
+      value,
+      error: true,
+    });
+  }
+  expect(h.tabUpdates.length).toBe(before);
+});
+
+for (const end of ["Off", "the office's detach", "Disconnect"] as const)
+  test(`${end} gives an offered tab its sound back after the agent's mute, unless the member muted it`, async () => {
+    // [case, the member's mute before the offer, the agent mutes, the
+    // member's mute after the agent's, muted at the end: root, popup]
+    const rows: Array<
+      [string, boolean | undefined, boolean, boolean | undefined, boolean[]]
+    > = [
+      ["the agent's mute", undefined, true, undefined, [false, false]],
+      ["muted before the offer", true, true, undefined, [true, true]],
+      ["muted by the member after", undefined, true, true, [true, true]],
+      ["no agent mute", true, false, undefined, [true, false]],
+    ];
+    for (const [name, before, agentMute, after, expected] of rows) {
+      const h = await agentTabs();
+      if (before !== undefined) h.memberMute(7, before);
+      const assignment = await onOffer(h);
+      h.navigation(7, 301);
+      for (let i = 0; i < 3; i++) await settle();
+      expect({ name, popup: popupSent(h, assignment, 301) }).toEqual({
+        name,
+        popup: true,
+      });
+      if (agentMute) {
+        h.command(20, "mute", { muted: true });
+        for (let i = 0; i < 3; i++) await settle();
+        // The enabling state: the agent's mute reached both pages.
+        expect({ name, muted: [muted(h, 7), muted(h, 301)] }).toEqual({
+          name,
+          muted: [true, true],
+        });
+      }
+      if (after !== undefined) h.memberMute(7, after);
+      if (end === "Off")
+        await h.ui({ action: "stop", generation: "generation-1", assignment });
+      else if (end === "Disconnect") await h.ui({ action: "disconnect" });
+      else h.command(21, "detach", { close: false });
+      for (let i = 0; i < 3; i++) await settle();
+      expect({ name, listed: await listed(h) }).toEqual({ name, listed: [] });
+      expect({ name, muted: [muted(h, 7), muted(h, 301)] }).toEqual({
+        name,
+        muted: expected,
+      });
+      if (!agentMute)
+        expect({ name, mutes: mutes(h) }).toEqual({ name, mutes: [] });
+    }
+  });
+
+test("an offered tab the agent muted stays muted while its offer waits to resume after a connection loss", async () => {
+  const h = await agentTabs();
+  const assignment = await onOffer(h);
+  h.command(20, "mute", { muted: true });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(muted(h, 7)).toBe(true);
+  const ws = await restart(h, 2, true, { agentTabs: true, access: true });
+  // The enabling state: the offer goes out again to resume.
+  expect(offers(ws).map((m) => m.assignment)).toEqual([assignment]);
+  expect(muted(h, 7)).toBe(true);
+});
+
+// The office takes a resumed offer: its attach, then offered.
+async function resumed(
+  ws: { receive(message: Fields): void; sent: Fields[] },
+  id: number,
+  assignment: string,
+  scope: Fields,
+  generation = "generation-2",
+) {
+  ws.receive({
+    kind: "command",
+    assignment,
+    id,
+    generation,
+    method: "attach",
+    params: {},
+  });
+  await settle();
+  expect(result(ws, id)?.error).toBeUndefined();
+  ws.receive({
+    kind: "offered",
+    generation,
+    assignment,
+    scope,
+    durationMinutes: 0,
+    expiresAt: null,
+    ...(scope.kind === "opened" ? {} : { offerOrigin: ORIGIN }),
+  });
+  await settle();
+}
+
+test("a grant resumed after an office restart keeps its mute: a page an opened tab's site opens is muted, and an offered tab the agent muted gets its sound back at Off", async () => {
+  const h = await agentTabs();
+  const own = await opened(h, 5);
+  const offered = await onOffer(h);
+  h.command(20, "mute", { muted: true });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(muted(h, 7)).toBe(true);
+  const ws = await restart(h, 2, true, { agentTabs: true, access: true });
+  await resumed(ws, 1, own.assignment, OPENED);
+  await resumed(ws, 2, offered, SHARED);
+  // The enabling state: both grants are on again.
+  expect((await listed(h)).map((r) => r.phase)).toEqual(["on", "on"]);
+  h.navigation(own.tabId, 300);
+  for (let i = 0; i < 3; i++) await settle();
+  expect(popupSent(h, own.assignment, 300)).toBe(true);
+  expect(muted(h, 300)).toBe(true);
+  await h.ui({
+    action: "stop",
+    generation: "generation-2",
+    assignment: offered,
+  });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(await listed(h)).toEqual([{ id: own.assignment, phase: "on" }]);
+  expect(muted(h, 7)).toBe(false);
+});
+
+for (const end of ["Off", "Disconnect"] as const)
+  test(`${end} while the office is away gives an offered tab the agent muted its sound back`, async () => {
+    const h = await agentTabs();
+    const assignment = await onOffer(h);
+    h.command(20, "mute", { muted: true });
+    for (let i = 0; i < 3; i++) await settle();
+    h.socket.close();
+    await settle();
+    // The enabling state: the offer waits to resume, still muted.
+    expect(await listed(h)).toEqual([{ id: assignment, phase: "offering" }]);
+    expect(muted(h, 7)).toBe(true);
+    if (end === "Off") await h.ui({ action: "stop", assignment });
+    else await h.ui({ action: "disconnect" });
+    for (let i = 0; i < 3; i++) await settle();
+    expect(await listed(h)).toEqual([]);
+    expect(muted(h, 7)).toBe(false);
+  });
+
+test("an offered tab the agent muted gets its sound back at Off also after a worker restart during the outage", async () => {
+  const h = await agentTabs();
+  const assignment = await onOffer(h);
+  h.command(20, "mute", { muted: true });
+  for (let i = 0; i < 3; i++) await settle();
+  h.socket.close();
+  await settle();
+  const later = await harness(false, true, {
+    offerResume: true,
+    officeScope: true,
+    agentTabs: true,
+    access: true,
+    local: h.local,
+    session: h.session,
+    mutes: h.mutes,
+  });
+  await settle();
+  // The enabling state: the next worker offers the tab again, still muted.
+  expect(offers(later.socket).map((m) => m.assignment)).toEqual([assignment]);
+  expect(muted(later, 7)).toBe(true);
+  await resumed(later.socket, 1, assignment, SHARED, "generation-1");
+  expect(await listed(later)).toEqual([{ id: assignment, phase: "on" }]);
+  await later.ui({ action: "stop", generation: "generation-1", assignment });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(muted(later, 7)).toBe(false);
+});
+
+test("an offered tab the agent muted gets its sound back at Off after Chrome stopped the worker without a close", async () => {
+  const h = await agentTabs();
+  const assignment = await onOffer(h);
+  h.command(20, "mute", { muted: true });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(muted(h, 7)).toBe(true);
+  // Chrome stops the idle worker: no socket close, and the debugger session
+  // on tab 7 stays until the next worker releases it.
+  const later = await harness(false, true, {
+    offerResume: true,
+    officeScope: true,
+    agentTabs: true,
+    access: true,
+    local: h.local,
+    session: h.session,
+    mutes: h.mutes,
+    leftover: [7],
+  });
+  await settle();
+  // The enabling state: the next worker offers the tab again, still muted.
+  expect(offers(later.socket).map((m) => m.assignment)).toEqual([assignment]);
+  expect(muted(later, 7)).toBe(true);
+  await resumed(later.socket, 1, assignment, SHARED, "generation-1");
+  expect(await listed(later)).toEqual([{ id: assignment, phase: "on" }]);
+  await later.ui({ action: "stop", generation: "generation-1", assignment });
+  for (let i = 0; i < 3; i++) await settle();
+  expect(muted(later, 7)).toBe(false);
 });

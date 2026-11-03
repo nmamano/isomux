@@ -1,3 +1,9 @@
+// Who set a tab's mute last; extensionId when an extension did.
+interface ChromeMutedInfo {
+  muted: boolean;
+  reason?: string;
+  extensionId?: string;
+}
 interface ChromeDebuggee {
   tabId: number;
   sessionId?: string;
@@ -97,22 +103,26 @@ declare const chrome: {
         callback: (tabId: number, change: { status?: string }) => void,
       ): void;
     };
-    query(options: {
-      active: boolean;
-      currentWindow: boolean;
-    }): Promise<
-      { id?: number; url?: string; active?: boolean; windowId?: number }[]
+    query(options: { active: boolean; currentWindow: boolean }): Promise<
+      {
+        id?: number;
+        url?: string;
+        active?: boolean;
+        windowId?: number;
+        mutedInfo?: ChromeMutedInfo;
+      }[]
     >;
     get(id: number): Promise<{
       id?: number;
       url?: string;
       active?: boolean;
       windowId?: number;
+      mutedInfo?: ChromeMutedInfo;
     }>;
     update(
       id: number,
-      options: { active?: boolean; autoDiscardable?: boolean },
-    ): Promise<{ windowId: number }>;
+      options: { active?: boolean; autoDiscardable?: boolean; muted?: boolean },
+    ): Promise<{ windowId: number; mutedInfo?: ChromeMutedInfo }>;
     create(options: {
       windowId?: number;
       url?: string;

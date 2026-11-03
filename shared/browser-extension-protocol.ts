@@ -7,6 +7,8 @@ export const BROWSER_EXTENSION_PROTOCOL = 4;
 // keeps the server's hello check accepting EXTENSION_MIN_PROTOCOL, and the
 // office answers in the highest version both speak.
 export const EXTENSION_MIN_PROTOCOL = 4;
+// The first extension package that takes the mute command.
+export const EXTENSION_MUTE_PACKAGE = "0.8.0";
 export const BROWSER_REATTACH_MS = 3000;
 // How long the extension waits for each command when it attaches to or
 // releases a tab. A tab that shows a JavaScript dialog answers none, and only

@@ -28,6 +28,7 @@ const BROWSER_ACTIONS = [
   "upload",
   "press",
   "screenshot",
+  "mute",
   "close",
 ] as const;
 type BrowserAction = (typeof BROWSER_ACTIONS)[number];
@@ -98,6 +99,8 @@ interface BrowserSuccess {
   selected?: string[];
   /** `check` only: the control's checked state, read after the action. */
   checked?: boolean;
+  /** `mute` only: the tab's mute state after the action. */
+  muted?: boolean;
   /** True when the input completed but a navigation it started had not loaded by the deadline. */
   loading?: boolean;
   /** Dialogs that the action opened, in order. */
@@ -164,6 +167,8 @@ interface ParsedParams {
   value?: string;
   label?: string;
   checked?: boolean;
+  // mute only: true mutes, false unmutes.
+  muted?: boolean;
   dialog?: "accept";
   fullPage?: boolean;
   viewport: { width: number; height: number };
@@ -306,6 +311,15 @@ export function parseBrowserParams(
     if (body.checked !== undefined && typeof body.checked !== "boolean")
       return invalid("checked must be a boolean");
     params.checked = body.checked !== false;
+  }
+
+  if (body.muted !== undefined || action === "mute") {
+    if (
+      action !== "mute" ||
+      (body.muted !== undefined && typeof body.muted !== "boolean")
+    )
+      return invalid("muted must be a boolean, on the mute action");
+    params.muted = body.muted !== false;
   }
 
   if (body.dialog !== undefined) {

@@ -85,6 +85,7 @@ export const en = {
   "browser.officeSection": "Office",
   "browser.agentTabOf": "{agent} · {member}",
   "browser.closeTab": "Close tab",
+  "browser.unmuteTab": "Unmute tab",
   "browser.agentTabsSetting": "Agents may open tabs: {scope}",
   "browser.tabShared": "Agents can use this tab.",
   "browser.assigned": "{name} uses this tab.",

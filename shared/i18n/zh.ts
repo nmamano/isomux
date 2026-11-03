@@ -67,6 +67,7 @@ export const zh: Catalog = {
   "browser.officeSection": "办公室",
   "browser.agentTabOf": "{agent} · {member}",
   "browser.closeTab": "关闭标签页",
+  "browser.unmuteTab": "取消标签页静音",
   "browser.agentTabsSetting": "代理可以打开标签页：{scope}",
   "browser.tabShared": "代理可以使用此标签页。",
   "browser.assigned": "{name} 正在使用此标签页。",

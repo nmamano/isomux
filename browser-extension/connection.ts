@@ -10,6 +10,7 @@ import {
   savePairingDraft,
 } from "./pairing-draft";
 import { newerFiles } from "./disk-files";
+import { ownMute } from "./own-mute";
 document.documentElement.lang = language;
 const element = (id: string) => document.getElementById(id)!;
 const office = element("office") as HTMLInputElement;
@@ -63,9 +64,25 @@ const labels: Record<string, ExtensionPlainKey> = {
   "members-none": "browser.membersNone",
   "allow-label": "browser.useTab",
   "open-tabs-label": "browser.openTabs",
+  "unmute-tab": "browser.unmuteTab",
 };
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
+// The popup unmutes a tab this extension muted, paired or not.
+const unmute = element("unmute-tab");
+const mutedTab = ownMute(invocationTab?.mutedInfo)
+  ? invocationTab?.id
+  : undefined;
+unmute.hidden = mutedTab === undefined;
+unmute.addEventListener("click", () => {
+  if (mutedTab === undefined) return;
+  void chrome.tabs.update(mutedTab, { muted: false }).then(
+    () => {
+      unmute.hidden = true;
+    },
+    () => {},
+  );
+});
 let state: ExtensionUIState & { generation?: string };
 // The version of newer extension files on disk. The popup reads them itself,
 // so its Reload also works while an older background runs.

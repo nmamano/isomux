@@ -71,6 +71,7 @@ export const ca: Catalog = {
   "browser.officeSection": "Oficina",
   "browser.agentTabOf": "{agent} · {member}",
   "browser.closeTab": "Tanca la pestanya",
+  "browser.unmuteTab": "Activa el so de la pestanya",
   "browser.agentTabsSetting": "Els agents poden obrir pestanyes: {scope}",
   "browser.tabShared": "Els agents poden fer servir aquesta pestanya.",
   "browser.assigned": "{name} fa servir aquesta pestanya.",

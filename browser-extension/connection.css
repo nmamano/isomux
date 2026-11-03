@@ -152,6 +152,9 @@ h2 {
 #office-control {
   padding-bottom: 10px;
 }
+#unmute-tab {
+  margin: 0 0 16px;
+}
 .control-switch {
   display: flex;
   align-items: center;

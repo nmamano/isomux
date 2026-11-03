@@ -316,9 +316,13 @@ export class BrowserExtensionService {
             }),
         );
         ws.data.credentialHash = browserCredentialHash(credential);
+        ws.data.connection.extensionPackage = validExtensionPackage(msg.package)
+          ? msg.package
+          : null;
+        ws.data.connection.storeInstall = msg.install === "store";
         this.packages.set(
           ws.data.credentialHash,
-          validExtensionPackage(msg.package) ? msg.package : null,
+          ws.data.connection.extensionPackage,
         );
         // Any other install value is ignored: it only picks the update copy.
         if (msg.install === "store")

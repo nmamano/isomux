@@ -89,6 +89,33 @@ describe("parseBrowserParams", () => {
     ).toBe(true);
   });
 
+  // Task ded3ae49: mute or unmute the agent's tab; muted is true when left out.
+  it("mute takes an optional boolean muted, which no other action takes", () => {
+    const target = crypto.randomUUID();
+    for (const body of [
+      { action: "mute" },
+      { action: "mute", muted: true },
+      { action: "mute", muted: false },
+      { action: "mute", muted: false, target },
+    ])
+      expect({ body, ok: parseBrowserParams(body).ok }).toEqual({
+        body,
+        ok: true,
+      });
+    for (const body of [
+      { action: "mute", muted: "false" },
+      { action: "mute", muted: 0 },
+      { action: "mute", muted: null },
+      { action: "goto", url: "https://example.test/", muted: true },
+      { action: "close", muted: false },
+      { action: "tabs", muted: true },
+    ])
+      expect({ body, ok: parseBrowserParams(body).ok }).toEqual({
+        body,
+        ok: false,
+      });
+  });
+
   it("rejects credentials embedded in the URL", () => {
     const r = parseBrowserParams({
       action: "goto",

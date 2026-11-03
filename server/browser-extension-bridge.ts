@@ -570,6 +570,10 @@ export class ExtensionConnection {
   readonly generation = crypto.randomUUID();
   // The version of the extension files on disk, from the last files report.
   files?: string;
+  // The extension's package from its hello; null when it carried none.
+  extensionPackage?: string | null;
+  // Its hello said it is a store install.
+  storeInstall = false;
   private active = true;
   private sequence = 0;
   private pending = new Map<number, Pending>();
@@ -1534,6 +1538,15 @@ export class ExtensionConnection {
       this.release(a, "check_failed");
       throw new Error("Browser control ended; pending outcomes may be unknown");
     }
+  }
+
+  // Mutes or unmutes every page of the grant; resolves to the state the
+  // extension set.
+  async mute(grant: string, muted: boolean): Promise<boolean> {
+    const a = this.assignments.get(grant);
+    if (!a) throw new Error("Browser control ended");
+    const result = await this.request(a, "mute", { muted });
+    return result.muted === true;
   }
 
   async stopLoading(grant: string): Promise<void> {

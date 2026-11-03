@@ -18,7 +18,7 @@ Open an HTTP(S) tab and turn on **Use this tab** in the extension popup. **Agent
 
 ## Let agents open tabs
 
-In the extension popup, turn on **Open their own tabs**. The agents that **Agents** chooses then open their own tabs in a separate Agents window when they need one, without asking you to offer a tab. The popup lists the open agent tabs, with **Show tab** and **Close tab**. When you turn the switch off, agents lose control of their tabs, and the tabs stay open.
+In the extension popup, turn on **Open their own tabs**. The agents that **Agents** chooses then open their own tabs in a separate Agents window when they need one, without asking you to offer a tab. The popup lists the open agent tabs, with **Show tab** and **Close tab**. Agent tabs start muted: to hear one, open the popup on it and click **Unmute tab**. An agent can also mute a tab you offer; it gets its sound back when you stop offering it. When you turn the switch off, agents lose control of their tabs, and the tabs stay open.
 
 ## Unpair a browser
 
