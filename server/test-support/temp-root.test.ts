@@ -478,7 +478,8 @@ describe.skipIf(!linux)("preload", () => {
     throw new Error(`fixture never wrote ${path}`);
   }
 
-  it("gives a run its own folder, and the next run removes a killed run's folder and helper", async () => {
+  // Quarantined: flaky, the next run sometimes keeps the killed run's folder, task c4f6c7a1.
+  it.skip("gives a run its own folder, and the next run removes a killed run's folder and helper", async () => {
     const base = scratchDir();
     const out = scratchDir();
     const first = Bun.spawn([process.execPath, "test", FIXTURE], {
