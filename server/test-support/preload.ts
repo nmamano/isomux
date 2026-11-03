@@ -108,9 +108,10 @@ if (
 // TMPDIR points into it, and every tmpdir() caller writes there. Each start
 // first removes the folders of runs that are gone and stops the processes they
 // left (see temp-root.ts). Bun.spawn without an env still gives a child the
-// startup TMPDIR. A folder's owner record names the run's sentinel port, so
-// the sweep runs before the claim: a new run must not take a gone run's block
-// before it judged that run.
+// startup TMPDIR. A folder's owner record names the run's sentinel port, and
+// a file next to it the sentinel socket, so a run that takes a gone run's
+// port later does not keep the gone run's folder. The sweep runs before the
+// claim: this run must not take a gone run's block before it judged that run.
 const osTemp = realpathSync(tmpdir());
 const tempBase = testTempBase(process.platform, tmpdir());
 try {
@@ -178,8 +179,8 @@ if (preset) {
 
 process.env.TMPDIR = tempRoot;
 // removeStateDir would refuse the folder itself: by then tmpdir() is the
-// folder. The sentinel stops only after the folder is gone: a free port tells
-// other runs' sweeps that this run is over.
+// folder. The sentinel stops only after the folder is gone: a closed sentinel
+// tells other runs' sweeps that this run is over.
 afterAll(() => {
   try {
     removeTestTempRoot(tempBase, tempRoot);

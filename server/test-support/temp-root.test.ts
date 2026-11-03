@@ -104,15 +104,32 @@ function liveChild(): number {
   return proc.pid;
 }
 
+// A listener that this process holds until the test ends.
+function listenOn(
+  hostname: string,
+  port: number,
+): Bun.TCPSocketListener<undefined> {
+  const listener = Bun.listen({ hostname, port, socket: { data() {} } });
+  listeners.push(listener);
+  return listener;
+}
+
 // A port on 127.0.0.1 that this process holds, as a run holds its sentinel.
 function heldPort(): { port: number; release: () => void } {
-  const listener = Bun.listen({
-    hostname: "127.0.0.1",
-    port: 0,
-    socket: { data() {} },
-  });
-  listeners.push(listener);
+  const listener = listenOn("127.0.0.1", 0);
   return { port: listener.port, release: () => listener.stop(true) };
+}
+
+// Whether some process listens on 127.0.0.1:<port>.
+function portTaken(port: number): boolean {
+  try {
+    Bun.listen({ hostname: "127.0.0.1", port, socket: { data() {} } }).stop(
+      true,
+    );
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 // A port on 127.0.0.1 that nobody holds: the sentinel of a run that is gone.
@@ -189,6 +206,17 @@ describe("createTestTempRoot", () => {
     expect(statSync(root).isDirectory()).toBe(true);
     expect(statSync(root).mode & 0o777).toBe(0o755);
   });
+
+  // Runs of older code share the temp dir (other worktrees, other PID
+  // namespaces) and read only this record: a record they cannot parse reads
+  // as a gone run there, and they would remove a live run's folder.
+  it("writes the owner record that older code reads: the pid and the sentinel port", () => {
+    const port = heldPort().port;
+    const root = createTestTempRoot(scratchDir(), port);
+    expect(readFileSync(join(root, "owner"), "utf8")).toBe(
+      `${process.pid} port ${port}`,
+    );
+  });
 });
 
 describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
@@ -219,6 +247,72 @@ describe.skipIf(!linux)("sweepStaleTestTempRoots: which folders", () => {
     sentinel.release();
     expect(sweepStaleTestTempRoots(base).removed).toEqual([root]);
     expect(existsSync(root)).toBe(false);
+  });
+
+  // Under CI load many runs start at once, and each claims the lowest free
+  // port block: a run that starts after another was killed can take the
+  // killed run's sentinel port (task c4f6c7a1).
+  it("removes the folder of a run whose sentinel port another socket now holds, and keeps the run whose own socket holds its port", () => {
+    const base = scratchDir();
+    const killed = heldPort();
+    const root = createTestTempRoot(base, killed.port);
+    killed.release();
+    listenOn("127.0.0.1", killed.port);
+    const live = createTestTempRoot(base, heldPort().port);
+    const result = sweepStaleTestTempRoots(base);
+    expect(result.removed).toEqual([root]);
+    expect(existsSync(live)).toBe(true);
+  });
+
+  // Other addresses can listen on the sentinel's port number, for example a
+  // dev server on a LAN address. Only the run's own socket on 127.0.0.1 says
+  // whether the run lives. The decoys sit on both sides of it in the kernel's
+  // socket table.
+  it("judges a run by its own socket, not by listeners on other addresses with the same port", () => {
+    const base = scratchDir();
+    const decoys = (port: number) =>
+      [2, 3, 4, 5, 6, 7, 8, 9].map((n) => listenOn(`127.0.0.${n}`, port));
+    // Its socket lives, the other listeners are gone.
+    const ownLives = heldPort();
+    const ownLivesDecoys = decoys(ownLives.port);
+    const kept = createTestTempRoot(base, ownLives.port);
+    for (const decoy of ownLivesDecoys) decoy.stop(true);
+    // Its socket is gone and a later socket took its port on 127.0.0.1, the
+    // other listeners live.
+    const ownGone = heldPort();
+    decoys(ownGone.port);
+    const removed = createTestTempRoot(base, ownGone.port);
+    ownGone.release();
+    listenOn("127.0.0.1", ownGone.port);
+    const result = sweepStaleTestTempRoots(base);
+    expect(result.removed).toEqual([removed]);
+    expect(existsSync(kept)).toBe(true);
+  });
+
+  // A record without a readable socket identity, as older code writes it (no
+  // file next to the owner record) or as a damaged one reads.
+  it("judges a record without a socket identity by its sentinel port", () => {
+    const base = scratchDir();
+    function portRecord(port: number, suffix: string, socket?: string) {
+      const root = join(base, `isomux-run-${process.pid}-${suffix}`);
+      mkdirSync(root);
+      if (socket !== undefined) writeFileSync(join(root, "socket"), socket);
+      writeFileSync(join(root, "owner"), `${process.pid} port ${port}`);
+      return root;
+    }
+    const held = heldPort().port;
+    const keep = [
+      portRecord(held, "older1"),
+      portRecord(held, "badsk1", "not an inode"),
+      portRecord(held, "badsk2", ""),
+    ];
+    const gone = [
+      portRecord(freePort(), "older2"),
+      portRecord(freePort(), "badsk3", "not an inode"),
+    ];
+    const result = sweepStaleTestTempRoots(base);
+    expect([...result.removed].sort()).toEqual([...gone].sort());
+    for (const dir of keep) expect(existsSync(dir), dir).toBe(true);
   });
 
   it("reads a folder whose pid lives here but whose sentinel port is free as gone, and leaves that process alone", () => {
@@ -478,8 +572,7 @@ describe.skipIf(!linux)("preload", () => {
     throw new Error(`fixture never wrote ${path}`);
   }
 
-  // Quarantined: flaky, the next run sometimes keeps the killed run's folder, task c4f6c7a1.
-  it.skip("gives a run its own folder, and the next run removes a killed run's folder and helper", async () => {
+  it("gives a run its own folder, and the next run removes a killed run's folder and helper", async () => {
     const base = scratchDir();
     const out = scratchDir();
     const first = Bun.spawn([process.execPath, "test", FIXTURE], {
@@ -510,6 +603,18 @@ describe.skipIf(!linux)("preload", () => {
     // What the killed run left: its folder and its helper.
     expect(existsSync(root)).toBe(true);
     expect(alive(helper)).toBe(true);
+    // Under CI load another run can claim the killed run's free sentinel port
+    // before the next run sweeps (task c4f6c7a1). Take it here, so the sweep
+    // always sees it held by a socket that is not the killed run's.
+    const sentinel = Number(
+      / port (\d+)$/.exec(readFileSync(join(root, "owner"), "utf8"))![1],
+    );
+    try {
+      listenOn("127.0.0.1", sentinel);
+    } catch {
+      // another process took it first: the same condition
+    }
+    expect(portTaken(sentinel)).toBe(true);
 
     const second = Bun.spawn([process.execPath, "test", FIXTURE], {
       cwd: REPO,
