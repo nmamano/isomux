@@ -233,10 +233,61 @@ export async function openExtensionActionPopup(
     watchDevTools({ targetInfo });
   if (unexpectedDevTools)
     throw new Error("Popup driver opened an unexpected DevTools window");
+  // Turns on Use this tab and waits until the office accepted the offer. The
+  // switch shows checked while offering, so the wait reads the grant on the
+  // popup's tab in the extension's state; returns that grant.
+  const offer = async (evidence?: string) => {
+    const grant = `(async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const s = await chrome.runtime.sendMessage({ action: "state" });
+      return {
+        state: s.state,
+        tabId: tab?.id,
+        phases: s.assignments.map((a) => a.phase),
+        grant: s.assignments.find((a) => a.tabId === tab?.id) ?? null,
+      };
+    })()`;
+    await waitFor('!document.querySelector("#allow").disabled');
+    await click("#allow");
+    let seen: {
+      state: string;
+      tabId?: number;
+      phases: string[];
+      grant: {
+        id: string;
+        tabId: number;
+        scope: Record<string, unknown>;
+        phase: string;
+        durationMinutes: number;
+        expiresAt: number | null;
+      } | null;
+    };
+    for (let i = 0; ; i++) {
+      seen = await read<typeof seen>(grant);
+      if (seen.grant?.phase === "on") return seen.grant;
+      if (i >= 100) break;
+      await Bun.sleep(50);
+    }
+    if (evidence) {
+      const result = await send("Page.captureScreenshot", { format: "png" });
+      writeFileSync(evidence, Buffer.from(String(result.data), "base64"));
+    }
+    throw new Error(
+      "The office did not accept the offer: " +
+        JSON.stringify({
+          state: seen.state,
+          tabId: seen.tabId,
+          grantPhase: seen.grant?.phase ?? null,
+          assignments: seen.phases.length,
+          phases: seen.phases,
+        }),
+    );
+  };
   return {
     read,
     waitFor,
     click,
+    offer,
     async fill(selector: string, text: string) {
       await click(selector);
       await send("Input.dispatchKeyEvent", {

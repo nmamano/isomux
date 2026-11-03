@@ -70,11 +70,7 @@ async function offeredTab(
     .targetId;
   await offeredCDP.detach();
   const popup = await openExtensionActionPopup(admin, id, tabTarget, setup);
-  await popup.waitFor('!document.querySelector("#allow").disabled');
-  await popup.click("#allow");
-  await popup.waitFor(
-    'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled && !!document.querySelector("#expiry-state").textContent',
-  );
+  await popup.offer(join(dir, "offer-failed.png"));
   await popup.close();
   const connection = fixture.bridge.connections("fixture-member")[0];
   await connection.drain(connection.offered("fixture-agent")!);

@@ -307,8 +307,8 @@ Invalid requests return `invalid_request`; missing offers return `browser_contro
 Slice 1 proved real Chrome attachment and form/text/snapshot/click/screenshot
 through the public seam, assigned-only discovery, no replay after connection
 loss, and detach leaving pages open. The slice-2 opt-in real-extension test uses
-the actual office routes and isolated member/profile state, two task agents,
-frames, popup return, screenshot action, revocation, and a short injected action
+the actual office routes and isolated member/profile state, two task agents
+on shared popup offers (each action names its tab), frames, popup return, screenshot action, revocation, and a short injected action
 deadline. The fixture asserts the unchanged 30-second production default. Unit and route tests
 cover code expiry/reuse/hash persistence, restart, Origin and app-host exclusion,
 credential separation, active access loss, popup ownership and stale generations.

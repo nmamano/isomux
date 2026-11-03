@@ -241,70 +241,29 @@ async function runOfficeScenario(
     };
     const firstTarget = await targetOf(firstPage);
     const secondTarget = await targetOf(secondPage);
-    const offeredTabIds = new Map<string, number>();
-    const offer = async (
-      page: import("playwright-core").Page,
-      agentId: string,
-      durationMinutes = 0,
-    ) => {
+    // A popup offer is a shared grant with no deadline, open to every agent
+    // the Agents setting admits (My agents here, so both). Returns the tab
+    // and the office's handle for it.
+    const known = new Set<string>();
+    const offer = async (page: import("playwright-core").Page) => {
       await page.bringToFront();
       popup = await openPopup(await targetOf(page));
-      await popup.waitFor(
-        `!!document.querySelector('#agent option[value="${agentId}"]')`,
-      );
-      await popup.read(
-        `(() => { const picker = document.querySelector('#agent'); picker.value = ${JSON.stringify(agentId)}; picker.dispatchEvent(new Event('change')); })()`,
-      );
-      try {
-        await popup.waitFor('!document.querySelector("#allow").disabled');
-      } catch (error) {
-        console.log(
-          "Offer state:",
-          await popup.read(
-            `chrome.runtime.sendMessage({action:'state'}).then(s => ({state:s.state,currentTab:s.currentTab,agents:s.agents.length,assignments:s.assignments.length,picker:document.querySelector('#agent').value,help:document.querySelector('#tab-state').textContent}))`,
-          ),
-        );
-        await popup.screenshot(join(dir, "offer-failed.png"));
-        console.log("Extension evidence:", dir);
-        throw error;
-      }
-      expect(
-        await popup.read<string>('document.querySelector("#expiry").value'),
-      ).toBe("0");
-      await popup.read(
-        `document.querySelector("#expiry").value = ${JSON.stringify(String(durationMinutes))}`,
-      );
-      await popup.click("#allow");
-      await popup.waitFor(
-        // The switch is checked during offering, before the office accepts it.
-        'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled && !!document.querySelector("#expiry-state").textContent',
-      );
-      expect(
-        await popup.read<boolean>('document.querySelector("#expiry").disabled'),
-      ).toBe(true);
-      const expiresAt = await popup.read<number | null>(
-        `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => (a.scope.kind === "all" ? "all" : a.scope.agentId) === ${JSON.stringify(agentId)}).expiresAt)`,
-      );
-      offeredTabIds.set(
-        agentId,
-        await popup.read<number>(
-          `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => (a.scope.kind === "all" ? "all" : a.scope.agentId) === ${JSON.stringify(agentId)}).tabId)`,
-        ),
-      );
-      if (expiresAt !== null)
-        expect(
-          await popup.read<string>(
-            'document.querySelector("#expiry-state").textContent',
-          ),
-        ).toContain(
-          await popup.read<string>(`new Date(${expiresAt}).toLocaleString()`),
-        );
+      const grant = await popup.offer(join(dir, "offer-failed.png"));
+      expect(grant.scope).toEqual({ kind: "shared" });
+      expect(grant.durationMinutes).toBe(0);
+      expect(grant.expiresAt).toBeNull();
       await popup.close();
-      return expiresAt;
+      const fresh = (
+        (await action(first.id, { action: "tabs" })).body.tabs as {
+          target: string;
+        }[]
+      ).filter((t) => !known.has(t.target));
+      // A re-offer of a tab makes a new handle.
+      expect(fresh).toHaveLength(1);
+      known.add(fresh[0].target);
+      return { grant: grant.id, tabId: grant.tabId, target: fresh[0].target };
     };
-    const firstExpiresAt = await offer(firstPage, first.id, 15);
-    expect(firstExpiresAt).toBeNumber();
-    if (firstExpiresAt === null) throw new Error("Timed offer has no deadline");
+    const firstTab = await offer(firstPage);
     expect(
       (await action(first.id, { action: "snapshot" })).body.snapshot,
     ).toContain("textbox");
@@ -324,30 +283,22 @@ async function runOfficeScenario(
         offerOfficeTab: async () => {
           const officePage = await setup!.newPage();
           await officePage.goto(officeOrigin + "/");
-          await offer(officePage, second.id);
-          return (body) => action(second.id, body);
+          const officeTab = await offer(officePage);
+          return (body) =>
+            action(second.id, { ...fields(body), target: officeTab.target });
         },
       });
       return;
     }
-    await secondPage.bringToFront();
-    popup = await openPopup(secondTarget);
-    await popup.waitFor(
-      `!!document.querySelector('#agent option[value="${first.id}"]')`,
-    );
-    await popup.read(
-      `(() => { const p = document.querySelector('#agent'); p.value = ${JSON.stringify(first.id)}; p.dispatchEvent(new Event('change')); })()`,
-    );
-    expect(
-      await popup.read<boolean>('document.querySelector("#allow").disabled'),
-    ).toBe(true);
-    await popup.screenshot(join(dir, "extension-conflict.png"));
-    await popup.close();
-    await offer(secondPage, second.id);
+    const secondTab = await offer(secondPage);
+    // Both agents reach both shared tabs, so each action names its tab.
+    const onFirst = (body: object, tokenId = first.id) =>
+      action(first.id, { ...body, target: firstTab.target }, tokenId);
+    const onSecond = (body: object) =>
+      action(second.id, { ...body, target: secondTab.target });
     await settings.bringToFront();
     expect(
-      (await action(first.id, { action: "goto", url: url + "?navigated" }))
-        .status,
+      (await onFirst({ action: "goto", url: url + "?navigated" })).status,
     ).toBe(200);
     expect(await targetOf(firstPage)).toBe(firstTarget);
     expect(firstPage.url()).toBe(url + "?navigated");
@@ -378,7 +329,7 @@ async function runOfficeScenario(
     if (framesOnly) {
       expect(
         (
-          await action(first.id, {
+          await onFirst({
             action: "fill",
             framePath: [0],
             selector: "input",
@@ -388,7 +339,7 @@ async function runOfficeScenario(
       ).toBe(200);
       expect(
         (
-          await action(first.id, {
+          await onFirst({
             action: "fill",
             framePath: [1],
             selector: "input",
@@ -402,7 +353,7 @@ async function runOfficeScenario(
       ] as const) {
         expect(
           (
-            await action(first.id, {
+            await onFirst({
               action: "click",
               framePath: [index],
               selector: "#frame-apply",
@@ -414,7 +365,7 @@ async function runOfficeScenario(
       }
       expect(
         (
-          await action(first.id, {
+          await onFirst({
             action: "click",
             framePath: [0, 0],
             selector: "#nested",
@@ -431,7 +382,7 @@ async function runOfficeScenario(
       ).toBe("Nested clicked");
       expect(
         (
-          await action(first.id, {
+          await onFirst({
             action: "click",
             framePath: [99],
             selector: "button",
@@ -440,7 +391,7 @@ async function runOfficeScenario(
       ).toBe("action_failed");
       // The frame has two buttons: a strictness failure is a request error
       // that names no page content.
-      const ambiguous = await action(first.id, {
+      const ambiguous = await onFirst({
         action: "click",
         framePath: [0],
         selector: "button",
@@ -450,13 +401,13 @@ async function runOfficeScenario(
       expect(JSON.stringify(ambiguous.body)).not.toContain("Apply frame");
       expect(JSON.stringify(ambiguous.body)).not.toContain("frame-apply");
       expect(await activeState()).toEqual(activeBefore);
-      const snapshot = await action(first.id, { action: "snapshot" });
+      const snapshot = await onFirst({ action: "snapshot" });
       expect(snapshot.status).toBe(200);
       expect(snapshot.body.snapshot).toContain("textbox");
       expect(snapshot.body.snapshot).toContain("framePath=[0]");
       expect(snapshot.body.snapshot).toContain("framePath=[1]");
       expect(snapshot.body.snapshot).toContain("Nested clicked");
-      const frameText = await action(first.id, { action: "text" });
+      const frameText = await onFirst({ action: "text" });
       expect(frameText.body.text).toContain("Frame contents");
       expect(frameText.body.text).toContain("framePath=[0,0]");
       expect(frameText.body.text).toContain("cross");
@@ -534,7 +485,7 @@ async function runOfficeScenario(
           })),
         );
       },
-      [...offeredTabIds.values()],
+      [firstTab.tabId, secondTab.tabId],
     );
     console.log(
       "Owned badges after navigation:",
@@ -591,7 +542,7 @@ async function runOfficeScenario(
       },
       { paths: [uploadPath, uploadRealPath], name: "fixture-upload.png" },
     );
-    const uploaded = await action(first.id, {
+    const uploaded = await onFirst({
       action: "upload",
       selector: "#attachment",
       path: uploadPath,
@@ -652,15 +603,14 @@ async function runOfficeScenario(
     expect(await activeState()).toEqual(activeBefore);
     expect(
       (
-        await action(
-          first.id,
+        await onFirst(
           { action: "upload", selector: "#attachment", path: uploadPath },
           second.id,
         )
       ).status,
     ).toBe(403);
     // Two file inputs match: the strictness failure uploads nothing.
-    const ambiguousUpload = await action(first.id, {
+    const ambiguousUpload = await onFirst({
       action: "upload",
       selector: "input[type=file]",
       path: uploadPath,
@@ -684,12 +634,10 @@ async function runOfficeScenario(
       join(dir, "upload-evidence.json"),
       JSON.stringify({ fileState, probe }, null, 2),
     );
-    expect((await action(first.id, { action: "text" }, second.id)).status).toBe(
-      403,
-    );
+    expect((await onFirst({ action: "text" }, second.id)).status).toBe(403);
     expect(
       (
-        await action(first.id, {
+        await onFirst({
           action: "fill",
           selector: "#message",
           text: "first tab",
@@ -697,22 +645,27 @@ async function runOfficeScenario(
       ).status,
     ).toBe(200);
     expect(
-      (await action(first.id, { action: "click", selector: "#apply" })).status,
+      (await onFirst({ action: "click", selector: "#apply" })).status,
     ).toBe(200);
     expect(await activeState()).toEqual(activeBefore);
     expect(await firstPage.locator("#out").getAttribute("data-trusted")).toBe(
       "true",
     );
     await screenshotBackgroundTab(firstPage, join(dir, "inactive-click.png"));
-    expect((await action(first.id, { action: "text" })).body.text).toContain(
+    expect((await onFirst({ action: "text" })).body.text).toContain(
       "first tab",
     );
+    expect((await onSecond({ action: "text" })).body.text).not.toContain(
+      "first tab",
+    );
+    // Agents take turns on a shared tab.
     expect(
-      (await action(second.id, { action: "text" })).body.text,
-    ).not.toContain("first tab");
+      (await action(second.id, { action: "text", target: firstTab.target }))
+        .body.text,
+    ).toContain("first tab");
     expect(
       (
-        await action(first.id, {
+        await onFirst({
           action: "fill",
           selector: "iframe >> nth=0 >> internal:control=enter-frame >> input",
           text: "same",
@@ -721,40 +674,37 @@ async function runOfficeScenario(
     ).toBe(200);
     expect(
       (
-        await action(first.id, {
+        await onFirst({
           action: "fill",
           selector: "iframe >> nth=1 >> internal:control=enter-frame >> input",
           text: "cross",
         })
       ).status,
     ).toBe(200);
-    const snapshot = await action(first.id, { action: "snapshot" });
+    const snapshot = await onFirst({ action: "snapshot" });
     expect(snapshot.status).toBe(200);
     expect(snapshot.body.snapshot).toContain("textbox");
-    expect((await action(first.id, { action: "screenshot" })).status).toBe(200);
-    expect(
-      (await action(first.id, { action: "click", selector: "#open" })).status,
-    ).toBe(200);
-    await wait(
-      async () =>
-        (await action(first.id, { action: "text" })).body.title === "Popup",
+    expect((await onFirst({ action: "screenshot" })).status).toBe(200);
+    expect((await onFirst({ action: "click", selector: "#open" })).status).toBe(
+      200,
     );
-    const popupClose = await action(first.id, {
+    await wait(
+      async () => (await onFirst({ action: "text" })).body.title === "Popup",
+    );
+    const popupClose = await onFirst({
       action: "click",
       selector: "button",
     });
     if (popupClose.status !== 200)
       console.log("Fixture popup close error:", popupClose.body.error);
     expect(popupClose.status).toBe(200);
-    expect((await action(first.id, { action: "text" })).body.title).toBe(
-      "Main",
-    );
+    expect((await onFirst({ action: "text" })).body.title).toBe("Main");
     await worker.evaluate(() => {
       (
         globalThis as unknown as { uploadProbe: { hold: boolean } }
       ).uploadProbe.hold = true;
     });
-    const pendingUpload = action(first.id, {
+    const pendingUpload = onFirst({
       action: "upload",
       selector: "#attachment",
       path: uploadPath,
@@ -769,40 +719,33 @@ async function runOfficeScenario(
     await firstPage.bringToFront();
     popup = await openPopup(firstTarget);
     await popup.waitFor('document.querySelector("#allow").checked');
-    expect(
-      await popup.read<boolean>('document.querySelector("#agent").disabled'),
-    ).toBe(true);
-    expect(
-      await popup.read<string>(
-        'document.querySelector("#agent").selectedOptions[0].textContent',
-      ),
-    ).toBe("first");
-    const firstAssignment = await popup.read<{ id: string; tabId: number }>(
-      `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(first.id)}))`,
-    );
     const badge = await popup.read<string>(
-      `chrome.action.getBadgeText({ tabId: ${firstAssignment.tabId} })`,
+      `chrome.action.getBadgeText({ tabId: ${firstTab.tabId} })`,
     );
     expect(badge).toBe("ON");
+    // The same grant, still with no deadline.
     expect(
-      await popup.read<number>(
-        `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(first.id)}).expiresAt)`,
+      await popup.read(
+        `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.tabId === ${firstTab.tabId}))`,
       ),
-    ).toBe(firstExpiresAt);
+    ).toMatchObject({ id: firstTab.grant, phase: "on", expiresAt: null });
     await popup.screenshot(join(dir, "extension-control.png"));
     await popup.click("#allow");
-    await popup.waitFor(
-      '!document.querySelector("#allow").checked && !document.querySelector("#agent").disabled',
-    );
+    await popup.waitFor('!document.querySelector("#allow").checked');
     await popup.screenshot(join(dir, "extension-stopped.png"));
     expect(
       await popup.read<string>(
-        `chrome.action.getBadgeText({ tabId: ${firstAssignment.tabId} })`,
+        `chrome.action.getBadgeText({ tabId: ${firstTab.tabId} })`,
       ),
     ).toBe("");
     expect(
-      (await action(first.id, { action: "goto", url })).body.error.code,
-    ).toBe("browser_control_ended");
+      await popup.read<boolean>(
+        `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.some(a => a.tabId === ${firstTab.tabId}))`,
+      ),
+    ).toBe(false);
+    expect((await onFirst({ action: "goto", url })).body.error.code).toBe(
+      "browser_control_ended",
+    );
     const interruptedUpload = await pendingUpload;
     expect(interruptedUpload.body.error.code).toBe("browser_control_ended");
     expect(interruptedUpload.body.error.message).toMatch(/unknown/i);
@@ -813,7 +756,7 @@ async function runOfficeScenario(
     });
     expect(
       (
-        await action(first.id, {
+        await onFirst({
           action: "upload",
           selector: "#attachment",
           path: uploadPath,
@@ -836,8 +779,15 @@ async function runOfficeScenario(
         globalThis as unknown as { uploadProbe: { hold: boolean } }
       ).uploadProbe.hold = false;
     });
-    await offer(firstPage, first.id);
-    expect((await action(first.id, { action: "snapshot" })).status).toBe(200);
+    const firstAgain = await offer(firstPage);
+    expect(
+      (
+        await action(first.id, {
+          action: "snapshot",
+          target: firstAgain.target,
+        })
+      ).status,
+    ).toBe(200);
     expect(
       await worker.evaluate(
         () =>
@@ -864,24 +814,17 @@ async function runOfficeScenario(
       (await action(second.id, { action: "goto", url })).body.error.code,
     ).toBe("browser_control_ended");
     await popup.close();
-    await offer(secondPage, "all");
+    const secondAgain = await offer(secondPage);
     const listed = (await action(first.id, { action: "tabs" })).body.tabs;
     expect(listed).toHaveLength(1);
-    expect(listed[0].scope).toEqual({ kind: "all" });
+    expect(listed[0].target).toBe(secondAgain.target);
+    expect(listed[0].scope).toEqual({ kind: "shared" });
     expect(
       (await action(first.id, { action: "snapshot", target: listed[0].target }))
         .status,
     ).toBe(200);
     expect((await action(second.id, { action: "snapshot" })).status).toBe(200);
     expect((await action(second.id, { action: "text" })).status).toBe(200);
-    popup = await openPopup(secondTarget);
-    const timeoutGrant = await popup.read<{
-      id: string;
-      expiresAt: number | null;
-    }>(
-      `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.scope.kind === "all"))`,
-    );
-    await popup.close();
     for (const selector of [
       "#missing-timeout-fixture",
       "#hidden-timeout",
@@ -941,19 +884,15 @@ async function runOfficeScenario(
     popup = await openPopup(secondTarget);
     expect(
       await popup.read(
-        `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.scope.kind === "all"))`,
+        `chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.tabId === ${secondAgain.tabId}))`,
       ),
-    ).toMatchObject({
-      id: timeoutGrant.id,
-      expiresAt: timeoutGrant.expiresAt,
-      phase: "on",
-    });
+    ).toMatchObject({ id: secondAgain.grant, expiresAt: null, phase: "on" });
     expect(
       await popup.read<boolean>('document.querySelector("#allow").checked'),
     ).toBe(true);
     await popup.screenshot(join(dir, "extension-timeout-retained.png"));
     await popup.close();
-    await offer(firstPage, "all");
+    await offer(firstPage);
     const choices = (await action(first.id, { action: "tabs" })).body.tabs;
     expect(choices).toHaveLength(2);
     expect(

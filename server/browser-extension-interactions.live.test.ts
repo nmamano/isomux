@@ -125,18 +125,9 @@ async function withOfferedTab(
     const popup = await openExtensionActionPopup(admin, id, target, setup);
     await popup.waitFor('!document.querySelector("#allow").disabled');
     await beforeOffer?.({ page: offered, popup });
-    await popup.click("#allow");
-    await popup.waitFor(
-      'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled',
-    );
+    await popup.offer(join(dir, "offer-failed.png"));
     await popup.close();
     const connection = fixture.bridge.connections("fixture-member")[0];
-    // The switch is checked during offering, before the office accepts it.
-    const accepted = Date.now() + 5000;
-    while (!connection.offered("fixture-agent")) {
-      if (Date.now() >= accepted) throw new Error("The offer was not accepted");
-      await Bun.sleep(20);
-    }
     await connection.drain(connection.offered("fixture-agent")!);
     const owned = fixture.sessions(deadlineMs);
     sessions = owned;
