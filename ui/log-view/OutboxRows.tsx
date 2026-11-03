@@ -54,6 +54,8 @@ export function OutboxRows({
         marginBottom: 8,
         maxHeight: isMobile ? 200 : 240,
         overflowY: "auto",
+        // In the composer's flex column only the asks stack gives way.
+        flexShrink: 0,
       }}
     >
       {attempts.map((attempt) => {

@@ -77,7 +77,7 @@ import { citationBlock, insertCite } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
 import { sendAttempt, takeAttempt } from "./outbox.ts";
 import { OutboxRows } from "./OutboxRows.tsx";
-import { AsksStack } from "./AsksStack.tsx";
+import { AsksStack, MOBILE_VISIBLE_SHARE } from "./AsksStack.tsx";
 import { errMessage } from "../../shared/errors.ts";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
@@ -2664,7 +2664,7 @@ export function LogView({
           <div
             style={{
               flex: 1,
-              minHeight: 0,
+              minHeight: PINNED_BAR_HEIGHT,
               display: "flex",
               flexDirection: "column",
               position: "relative",
@@ -2935,11 +2935,16 @@ export function LogView({
             </div>
           </div>
 
-          {/* Input */}
+          {/* Input. It shrinks only by the open asks stack, so the textarea
+          stays in the shell however tall the asks are; every other child
+          keeps its content height. The box above keeps the pinned bar's
+          height, always, so the bar never covers the stack's toggle. */}
           <div
             style={{
               position: "relative",
-              flexShrink: 0,
+              display: "flex",
+              flexDirection: "column",
+              minHeight: 0,
               padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
               paddingBottom: isMobile
                 ? "calc(10px + env(safe-area-inset-bottom, 0px))"
@@ -2997,7 +3002,16 @@ export function LogView({
               style={{ display: "none" }}
               onChange={(e) => handleFileSelect(e.target.files)}
             />
-            <AsksStack key={agent.id} agentId={agent.id} isMobile={isMobile} />
+            <AsksStack
+              key={agent.id}
+              agentId={agent.id}
+              isMobile={isMobile}
+              maxHeight={
+                isMobile && vpHeight != null
+                  ? Math.round(vpHeight * MOBILE_VISIBLE_SHARE)
+                  : undefined
+              }
+            />
             <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
             {editError !== null && (
               <div

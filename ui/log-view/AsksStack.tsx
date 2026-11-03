@@ -14,9 +14,14 @@ import { valueAskTitle } from "./SecretAskCard.tsx";
 import { loadFoldedAsks, saveFoldedAsks } from "../view-persistence.ts";
 
 // The stack's height before it scrolls: about two and a half cards on a
-// desktop, so a cut card shows there is more.
+// desktop, so a cut card shows there is more. On a phone the chat passes a
+// share of the visible height (MOBILE_VISIBLE_SHARE), and the stack also
+// shrinks to keep the chat input in view; 45vh applies without it.
 const MAX_HEIGHT_DESKTOP = 240;
 const MAX_HEIGHT_MOBILE = "45vh";
+// iOS does not shrink vh when the keyboard opens, so a vh cap let a tall ask
+// push the chat input below the keyboard (task 589a8f4f).
+export const MOBILE_VISIBLE_SHARE = 0.4;
 
 function Chevron({ open, size }: { open: boolean; size: number }) {
   return (
@@ -63,9 +68,11 @@ function CountPill({ count, isMobile }: { count: number; isMobile: boolean }) {
 export function AsksStack({
   agentId,
   isMobile,
+  maxHeight,
 }: {
   agentId: string;
   isMobile: boolean;
+  maxHeight?: number;
 }) {
   const { t } = useI18n();
   const { asks, answeredAsks, sessionContext } = useAppState();
@@ -111,6 +118,16 @@ export function AsksStack({
     setMoreBelow(!!el && el.scrollTop + el.clientHeight < el.scrollHeight - 2);
   };
   useEffect(measure, [entries.length, collapsed, asks]);
+  // The body also shrinks without a change here: the keyboard opens and the
+  // chat gives the stack less height.
+  const bodyShown = !collapsed && entries.length > 0;
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!bodyShown || !el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [bodyShown]);
 
   if (entries.length === 0) return null;
   const toggleStyle = {
@@ -165,13 +182,23 @@ export function AsksStack({
   const fade =
     "linear-gradient(to bottom, black calc(100% - 28px), transparent)";
   return (
-    <div data-asks-stack="open" style={{ marginBottom: 10 }}>
+    <div
+      data-asks-stack="open"
+      style={{
+        marginBottom: 10,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+      }}
+    >
       <button
         type="button"
         aria-expanded={true}
         onClick={() => setCollapsed(true)}
         style={{
           ...toggleStyle,
+          flexShrink: 0,
+          alignSelf: "flex-start",
           gap: 6,
           background: "none",
           border: "none",
@@ -191,7 +218,12 @@ export function AsksStack({
         data-asks-body=""
         data-asks-list=""
         style={{
-          maxHeight: isMobile ? MAX_HEIGHT_MOBILE : MAX_HEIGHT_DESKTOP,
+          maxHeight: isMobile
+            ? maxHeight !== undefined
+              ? `${maxHeight}px`
+              : MAX_HEIGHT_MOBILE
+            : MAX_HEIGHT_DESKTOP,
+          minHeight: 0,
           overflowY: "auto",
           ...(moreBelow ? { maskImage: fade, WebkitMaskImage: fade } : {}),
         }}

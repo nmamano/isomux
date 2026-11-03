@@ -195,12 +195,17 @@ function tree(
   isMobile: boolean,
   agentId = "a1",
   opener: ((link: OfficeLink) => void) | null = null,
+  maxHeight?: number,
 ) {
   return (
     <StoreProvider>
       <OfficeLinkOpener.Provider value={opener}>
         <Seed>
-          <AsksStack agentId={agentId} isMobile={isMobile} />
+          <AsksStack
+            agentId={agentId}
+            isMobile={isMobile}
+            maxHeight={maxHeight}
+          />
         </Seed>
       </OfficeLinkOpener.Provider>
     </StoreProvider>
@@ -1651,4 +1656,100 @@ it("keeps the button live with the error when the server refuses a simplify, and
   await click();
   expect(posts).toHaveLength(2);
   view.unmount();
+});
+
+// Task 589a8f4f: on a phone the chat gives the stack a cap from the visible
+// height (vh does not shrink for the iOS keyboard).
+const openBody = async (view: ReturnType<typeof render>, isMobile: boolean) => {
+  await waitFor(() =>
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
+  );
+  if (isMobile)
+    fireEvent.click(
+      view.container.querySelector<HTMLElement>(
+        "[data-asks-stack=collapsed] button",
+      )!,
+    );
+  return view.container.querySelector<HTMLElement>("[data-asks-body]")!;
+};
+
+it("caps the open stack at the height the chat gives it on a phone, and keeps its own cap without one and on a desktop", async () => {
+  const phone = render(tree(true, "a1", null, 156));
+  const body = await openBody(phone, true);
+  expect(body.style.maxHeight).toBe("156px");
+  phone.rerender(tree(true, "a1", null, 300));
+  expect(body.style.maxHeight).toBe("300px");
+  phone.unmount();
+
+  // Without a cap from the chat, the phone falls back to a share of vh.
+  const fallback = render(tree(true));
+  expect((await openBody(fallback, true)).style.maxHeight).toMatch(/vh$/);
+  fallback.unmount();
+
+  const own = render(tree(false));
+  const desktop = (await openBody(own, false)).style.maxHeight;
+  own.unmount();
+  const given = render(tree(false, "a1", null, 156));
+  expect((await openBody(given, false)).style.maxHeight).toBe(desktop);
+  given.unmount();
+});
+
+// happy-dom has no layout: the test owns the body's heights. The fade shows
+// while content waits below the visible part of the body.
+function bodyGeometry(body: HTMLElement) {
+  const geometry = { clientHeight: 300, scrollHeight: 300 };
+  for (const name of ["clientHeight", "scrollHeight"] as const)
+    Object.defineProperty(body, name, {
+      configurable: true,
+      get: () => geometry[name],
+    });
+  return geometry;
+}
+const faded = (body: HTMLElement) =>
+  /mask-image/.test(body.getAttribute("style") ?? "");
+
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = [];
+  static resize(target: Element) {
+    for (const observer of FakeResizeObserver.instances)
+      if (!observer.disconnected && observer.targets.includes(target))
+        observer.callback([{ target }]);
+  }
+  targets: Element[] = [];
+  disconnected = false;
+  constructor(readonly callback: (entries: { target: Element }[]) => void) {
+    FakeResizeObserver.instances.push(this);
+  }
+  observe(target: Element) {
+    this.targets.push(target);
+  }
+  unobserve() {}
+  disconnect() {
+    this.disconnected = true;
+  }
+}
+
+it("fades the stack's bottom edge when the body shrinks under its cards, whatever shrank it", async () => {
+  const globals = globalThis as Record<string, unknown>;
+  const original = globals.ResizeObserver;
+  FakeResizeObserver.instances = [];
+  globals.ResizeObserver = FakeResizeObserver;
+  try {
+    const view = render(tree(true, "a1", null, 400));
+    const body = await openBody(view, true);
+    const geometry = bodyGeometry(body);
+    // The cards fit: no fade.
+    await act(async () => FakeResizeObserver.resize(body));
+    expect(faded(body)).toBe(false);
+    // The column overflows and the body gives way, with no change of cap.
+    geometry.clientHeight = 150;
+    await act(async () => FakeResizeObserver.resize(body));
+    expect(faded(body)).toBe(true);
+    geometry.clientHeight = 300;
+    await act(async () => FakeResizeObserver.resize(body));
+    expect(faded(body)).toBe(false);
+    view.unmount();
+  } finally {
+    globals.ResizeObserver = original;
+  }
 });
