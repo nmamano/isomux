@@ -736,6 +736,7 @@ async function main() {
     } catch (error) {
       throw new RunFailure((error as Error).message);
     }
+    mkdirSync(env.TMPDIR!, { recursive: true, mode: 0o700 });
     const office = new Office(base, env.ISOMUX_HOME!);
     const serverLog = openSync(join(runDir, "server.log"), "a");
     server = spawn("bun", ["server/isomux-office.ts"], {

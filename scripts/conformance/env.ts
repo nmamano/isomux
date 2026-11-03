@@ -58,7 +58,9 @@ function isWithin(path: string, root: string): boolean {
 const CLAUDE_REFRESH_WINDOW_MS = 5 * 60_000;
 
 // The scratch server's process environment: the allowlisted parent variables,
-// plus PORT and the state and backup folders inside runDir. Throws when
+// plus PORT and the state, backup and temp folders inside runDir. The temp
+// folder takes what the office writes under TMPDIR (OpenCode's server
+// folder included), so it goes with the run dir. Throws when
 // runDir resolves (realpath) to the live state root or into it.
 export function buildServerEnv(
   processEnv: Record<string, string | undefined>,
@@ -76,6 +78,7 @@ export function buildServerEnv(
     PORT: String(port),
     ISOMUX_HOME: join(run, "state"),
     ISOMUX_BACKUP_DIR: join(run, "backups"),
+    TMPDIR: join(run, "tmp"),
   };
 }
 

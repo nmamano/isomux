@@ -4,8 +4,8 @@ import {
   copyFile,
   lstat,
   mkdir,
-  mkdtemp,
   open,
+  readdir,
   readFile,
   rename,
   rm,
@@ -15,7 +15,6 @@ import {
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import {
   processDescendants,
@@ -38,6 +37,7 @@ import {
   openCodeShellProfileValues,
   openCodeServerTmpDir,
   openCodeShellUserValues,
+  openCodeStartupOutputDir,
 } from "./config-layers.ts";
 import { buildOpenCodeSafetyPlugin } from "./safety-plugin-build.ts";
 import { openCodeSafetyPluginDir } from "./safety-plugin-tool.ts";
@@ -482,6 +482,25 @@ try {
     `OpenCode's log keeps its modes: ${(error as NodeJS.ErrnoException).code ?? "error"}.\n`,
   );
 }
+// Each start keeps its startup output in its own folder, which its attempts
+// share. A start that was killed leaves its folder, so every start removes
+// the earlier ones; with debug capture, the 4 newest stay, so a restart that
+// follows a failed start keeps the failure's output.
+const startupOutputDir = openCodeStartupOutputDir(profileDir);
+await mkdir(startupOutputDir, { recursive: true, mode: 0o700 });
+await chmod(startupOutputDir, 0o700);
+const startupOutputName = /^(\d+)-\d+$/;
+const earlierOutputs = await readdir(startupOutputDir);
+const keptOutputs = keepDebugOutput
+  ? earlierOutputs
+      .filter((name) => startupOutputName.test(name))
+      .sort((a, b) => Number(b.split("-")[0]) - Number(a.split("-")[0]))
+      .slice(0, 4)
+  : [];
+for (const name of earlierOutputs)
+  if (!keptOutputs.includes(name))
+    await rm(join(startupOutputDir, name), { recursive: true, force: true });
+const debugDir = join(startupOutputDir, `${Date.now()}-${process.pid}`);
 let started: ServerRecord | null = null;
 // R5: a lost port gets a new one, at most 3 times.
 const OPENCODE_PORT_RETRIES = 3;
@@ -490,7 +509,9 @@ let lostPorts = 0;
 // or when another process took its port.
 for (let attempt = 0; attempt < 40; attempt++) {
   const port = await freeLoopbackPort();
-  const debugDir = await mkdtemp(join(tmpdir(), "isomux-opencode-debug-"));
+  // A failed attempt removed it.
+  await mkdir(debugDir, { recursive: true, mode: 0o700 });
+  await chmod(debugDir, 0o700);
   const stdoutPath = join(debugDir, "stdout.log");
   const stderrPath = join(debugDir, "stderr.log");
   const stdout = await open(stdoutPath, "w", 0o600);
@@ -505,7 +526,6 @@ for (let attempt = 0; attempt < 40; attempt++) {
     "127.0.0.1",
     "--port",
     String(port),
-    "--print-logs",
     // 2.1.4 refuses an uppercase level at start (T8).
     "--log-level",
     "info",
@@ -516,10 +536,11 @@ for (let attempt = 0; attempt < 40; attempt++) {
   const child = spawn(argv[0], argv.slice(1), {
     cwd: serverCwd,
     detached: true,
-    // OpenCode logs raw provider errors, including response bodies. Its own
-    // owner-only log above keeps the same lines. This private /tmp copy is
-    // read for startup and unlinked as soon as the server is healthy unless
-    // an operator explicitly enables debug capture.
+    // Without --print-logs, OpenCode writes its log lines, which can hold
+    // raw provider errors, only to its own log above, and the server holds
+    // no output file open that grows. A startup error still reaches stderr:
+    // it is read for startup and removed as soon as the server is healthy
+    // unless an operator explicitly enables debug capture.
     stdio: status
       ? ["ignore", stdout.fd, stderr.fd, status.fd]
       : ["ignore", stdout.fd, stderr.fd],
@@ -589,8 +610,8 @@ for (let attempt = 0; attempt < 40; attempt++) {
     continue;
   }
   const debugAdvice = keepDebugOutput
-    ? ` Debug output is in ${debugDir}.`
-    : " Set ISOMUX_OPENCODE_DEBUG=1 to keep private startup output under /tmp.";
+    ? ` Startup output is in ${debugDir}.`
+    : " Set ISOMUX_OPENCODE_DEBUG=1 to keep the startup output.";
   throw new Error(
     `Pinned OpenCode server failed during startup.${debugAdvice}`,
   );

@@ -926,9 +926,10 @@ folder 0700 and both databases (`opencode.db` and `opencode-v2.db`) with their
 `-wal` and `-shm` files 0600: they hold OpenCode's account and credential
 tables. A
 startup stops after one non-bind error. For one diagnostic run, an operator can set
-`ISOMUX_OPENCODE_DEBUG=1`; this keeps private startup output in a mode-0600
-directory below `/tmp`. The operator must treat that output as secret-bearing
-and remove it after diagnosis.
+`ISOMUX_OPENCODE_DEBUG=1`; this keeps each start's stdout and stderr in an
+owner-only folder under `startup-output` in the profile, and each later start
+keeps only the four newest. The operator must treat that output as
+secret-bearing. Without it, a start removes the folders of earlier starts.
 
 ## Open questions
 

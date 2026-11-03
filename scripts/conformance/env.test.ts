@@ -64,12 +64,21 @@ describe("buildServerEnv", () => {
   // One whole-object comparison: any parent variable outside the allowlist
   // that reaches the scratch server fails it, including ones not named here.
   it("passes only the allowlisted parent variables, plus the run's port and folders", () => {
-    const env = buildServerEnv(agentShell, runDir, 4123, live);
-    const { ISOMUX_HOME, ISOMUX_BACKUP_DIR, ...rest } = env;
+    const env = buildServerEnv(
+      { ...agentShell, TMPDIR: join(scratch, "agent-tmp") },
+      runDir,
+      4123,
+      live,
+    );
+    const { ISOMUX_HOME, ISOMUX_BACKUP_DIR, TMPDIR, ...rest } = env;
     expect(rest).toEqual({ ...ALLOWED, PORT: "4123" });
     expect(ISOMUX_HOME.startsWith(`${runDir}/`)).toBe(true);
     expect(ISOMUX_BACKUP_DIR.startsWith(`${runDir}/`)).toBe(true);
     expect(ISOMUX_BACKUP_DIR).not.toBe(ISOMUX_HOME);
+    // Every temp folder of the scratch office (OpenCode's server folder
+    // included) goes with the run dir, never the agent shell's.
+    expect(TMPDIR?.startsWith(`${runDir}/`), String(TMPDIR)).toBe(true);
+    expect([ISOMUX_HOME, ISOMUX_BACKUP_DIR]).not.toContain(TMPDIR);
   });
 
   // Each refusal case first shows that a run dir beside the live root (whose

@@ -11,12 +11,13 @@ import {
   stat,
   symlink,
   truncate,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { Database } from "bun:sqlite";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { homedir, tmpdir } from "node:os";
 import { STATE_ROOT } from "../../config.ts";
@@ -35,8 +36,10 @@ import {
   openCodeLogPath,
   openCodeProfilePaths,
   openCodeSafetyPluginDir,
+  openCodeStartupOutputDir,
 } from "./profile-paths.ts";
 import { OPENCODE_LOG_ROTATE_BYTES } from "./server-startup.ts";
+import { openCodeServerTmpDir } from "./config-layers.ts";
 import { OPENCODE_SAFETY_PLUGIN_ID } from "./safety-plugin-tool.ts";
 import {
   evaluateProposedAction,
@@ -354,7 +357,7 @@ describe("OpenCode shared server supervisor", () => {
       .toString()
       .split("\0")
       .filter(Boolean)
-      .slice(-8);
+      .slice(-7);
     const port = Number(args[4]);
     expect(args).toEqual([
       "serve",
@@ -362,7 +365,6 @@ describe("OpenCode shared server supervisor", () => {
       "127.0.0.1",
       "--port",
       String(port),
-      "--print-logs",
       "--log-level",
       "info",
     ]);
@@ -1129,18 +1131,24 @@ describe("OpenCode shared server supervisor", () => {
       OPENCODE_SERVER_PASSWORD: record.password,
     });
     expect(recordText).not.toContain(apiKeyCanary);
-    const debugAfter = (await readdir(debugRoot)).filter((name) =>
-      name.startsWith("isomux-opencode-debug-"),
-    );
-    expect(debugAfter.length).toBeGreaterThan(0);
-    for (const name of debugAfter) {
-      const debugDir = join(debugRoot, name);
-      expect(
-        await readFile(join(debugDir, "stdout.log"), "utf8"),
-      ).not.toContain(apiKeyCanary);
-      expect(
-        await readFile(join(debugDir, "stderr.log"), "utf8"),
-      ).not.toContain(apiKeyCanary);
+    // Debug output stays in the profile, never in the temp folder.
+    expect(
+      (await readdir(debugRoot)).filter((name) =>
+        name.startsWith("isomux-opencode-debug-"),
+      ),
+    ).toEqual([]);
+    const outputs = openCodeStartupOutputDir(supervisor.profileDir);
+    const starts = await readdir(outputs);
+    expect(starts, "one folder for this start").toHaveLength(1);
+    expect(starts[0]).toMatch(/^\d+-\d+$/);
+    expect((await stat(outputs)).mode & 0o777).toBe(0o700);
+    const startDir = join(outputs, starts[0]);
+    expect((await stat(startDir)).mode & 0o777).toBe(0o700);
+    for (const file of ["stdout.log", "stderr.log"]) {
+      expect((await stat(join(startDir, file))).mode & 0o777, file).toBe(0o600);
+      expect(await readFile(join(startDir, file), "utf8"), file).not.toContain(
+        apiKeyCanary,
+      );
     }
     lease.release();
   }, 20_000);
@@ -4242,5 +4250,156 @@ describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
     } finally {
       lease.release();
     }
+  }, 20_000);
+});
+
+// start-server.ts keeps each start's stdout and stderr in its own
+// <start time ms>-<pid> folder under the profile's startup-output. Without
+// ISOMUX_OPENCODE_DEBUG=1 a start removes every earlier folder and its own
+// once it is done with it; with it, a start keeps the four newest earlier
+// folders by start time, so an automatic restart does not remove the
+// output a failed start's error names.
+describe("the startup output of an OpenCode server start", () => {
+  async function withDebug<T>(
+    value: "1" | undefined,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const prior = process.env.ISOMUX_OPENCODE_DEBUG;
+    if (value === undefined) delete process.env.ISOMUX_OPENCODE_DEBUG;
+    else process.env.ISOMUX_OPENCODE_DEBUG = value;
+    try {
+      return await run();
+    } finally {
+      if (prior === undefined) delete process.env.ISOMUX_OPENCODE_DEBUG;
+      else process.env.ISOMUX_OPENCODE_DEBUG = prior;
+    }
+  }
+
+  // Folders of earlier starts, and a stray file. The modification times run
+  // against the start times in the names, so an order by mtime keeps the
+  // wrong ones.
+  async function plant(outputs: string, names: string[], files: string[]) {
+    await mkdir(outputs, { recursive: true, mode: 0o755 });
+    await chmod(outputs, 0o755);
+    const base = Date.now() / 1000;
+    for (const [index, name] of names.entries()) {
+      await mkdir(join(outputs, name));
+      await writeFile(join(outputs, name, "stderr.log"), "earlier start\n");
+      const time = base - index;
+      await utimes(join(outputs, name), time, time);
+    }
+    for (const name of files) await writeFile(join(outputs, name), "x");
+    expect((await readdir(outputs)).length, "planted").toBe(
+      names.length + files.length,
+    );
+  }
+
+  const startFolder = /^\d+-\d+$/;
+
+  it("removes every earlier start's output and its own once the server is healthy, and writes nothing to the temp folder", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const tmp = join(path, "tmp");
+    await mkdir(tmp);
+    const supervisor = makeSupervisor(
+      path,
+      undefined,
+      1000,
+      { TMPDIR: tmp },
+      binary,
+    );
+    const outputs = openCodeStartupOutputDir(supervisor.profileDir);
+    await plant(outputs, ["1000-1", "2000-2", "abc-3"], ["junk"]);
+    const lease = await withDebug(undefined, () => supervisor.acquire());
+    expect(await readdir(outputs)).toEqual([]);
+    expect((await stat(outputs)).mode & 0o777).toBe(0o700);
+    // Only the server's own folder for this profile, which it keeps.
+    expect(await readdir(tmp)).toEqual([
+      basename(openCodeServerTmpDir(supervisor.profileDir, { TMPDIR: tmp })),
+    ]);
+    lease.release();
+  }, 20_000);
+
+  it("keeps the four newest earlier starts by start time in debug mode, and removes the rest", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(path, undefined, 1000, {}, binary);
+    const outputs = openCodeStartupOutputDir(supervisor.profileDir);
+    // As text, "900-1" sorts after "20000-6"; by number it is the oldest.
+    const wellFormed = [
+      "900-1",
+      "1000-2",
+      "2000-3",
+      "10000-4",
+      "3000-5",
+      "20000-6",
+    ];
+    const malformed = ["abc-1", "5000", "1e3-7", "-8"];
+    await plant(outputs, [...wellFormed, ...malformed], ["junk"]);
+    const lease = await withDebug("1", () => supervisor.acquire());
+    const after = await readdir(outputs);
+    const kept = after.filter((name) => wellFormed.includes(name)).sort();
+    expect(kept).toEqual(["10000-4", "20000-6", "2000-3", "3000-5"].sort());
+    const own = after.filter((name) => !wellFormed.includes(name));
+    expect(own, "only this start's folder besides the kept ones").toHaveLength(
+      1,
+    );
+    expect(own[0]).toMatch(startFolder);
+    expect(Number(own[0].split("-")[0])).toBeGreaterThan(20000);
+    expect((await stat(outputs)).mode & 0o777).toBe(0o700);
+    expect((await stat(join(outputs, own[0]))).mode & 0o777).toBe(0o700);
+    lease.release();
+  }, 20_000);
+
+  it("names a failed start's own folder in debug mode, and keeps it through the next start", async () => {
+    const path = await root();
+    const binary = join(path, "broken-opencode");
+    await writeFile(
+      binary,
+      "#!/bin/sh\nprintf 'wrong architecture' >&2\nexit 1\n",
+    );
+    await chmod(binary, 0o700);
+    const supervisor = makeSupervisor(path, undefined, 1000, {}, binary);
+    const outputs = openCodeStartupOutputDir(supervisor.profileDir);
+    const failure = () =>
+      supervisor.acquire().then(
+        () => "started",
+        (error: unknown) => (error instanceof Error ? error.message : "?"),
+      );
+    // Without debug, a failed start leaves no output behind.
+    expect(await withDebug(undefined, failure)).not.toBe("started");
+    expect(await readdir(outputs)).toEqual([]);
+
+    const escaped = outputs.replace(/[.*+?^$(){}|[\]\\]/g, "\\$&");
+    const named = (message: string) =>
+      new RegExp(`${escaped}/(\\d+-\\d+)`).exec(message)?.[1];
+    const first = await withDebug("1", failure);
+    const firstFolder = named(first);
+    expect(firstFolder, first).toBeDefined();
+    expect(
+      await readFile(join(outputs, firstFolder!, "stderr.log"), "utf8"),
+    ).toContain("wrong architecture");
+    const second = await withDebug("1", failure);
+    const secondFolder = named(second);
+    expect(secondFolder, second).toBeDefined();
+    expect(secondFolder).not.toBe(firstFolder);
+    expect((await readdir(outputs)).sort()).toEqual(
+      [firstFolder!, secondFolder!].sort(),
+    );
+  }, 20_000);
+
+  it("leaves the startup output alone when it adopts a running server", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const first = makeSupervisor(path, undefined, 60_000, {}, binary);
+    const initial = await withDebug(undefined, () => first.acquire());
+    initial.release();
+    const outputs = openCodeStartupOutputDir(first.profileDir);
+    await plant(outputs, ["4000-9"], []);
+    const second = makeSupervisor(path, undefined, 60_000, {}, binary);
+    const adopted = await withDebug(undefined, () => second.acquire());
+    expect(adopted.pid, "the second supervisor adopted").toBe(initial.pid);
+    expect(await readdir(outputs)).toEqual(["4000-9"]);
+    adopted.release();
   }, 20_000);
 });

@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { AGENT_ROOT } from "../../split/roots.ts";
 import { OPENCODE_V2_DATABASE, openCodeProfileHome } from "./config-layers.ts";
 
+// In config-layers.ts, which start-server.ts can import.
+export { openCodeStartupOutputDir } from "./config-layers.ts";
+
 export interface OpenCodeProfilePaths {
   profileDir: string;
   configPath: string;
@@ -42,8 +45,7 @@ export function openCodeConfigFilePath(profileDir: string): string {
 }
 
 // OpenCode appends its log here (XDG_DATA_HOME/opencode/log; 1.18.35 and
-// 2.1.4) and keeps it across server restarts; the server's stderr carries the
-// same lines.
+// 2.1.4) and keeps it across server restarts.
 export function openCodeLogPath(profileDir: string): string {
   return join(profileDir, "data", "opencode", "log", "opencode.log");
 }

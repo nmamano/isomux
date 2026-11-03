@@ -150,6 +150,12 @@ export function openCodeProfileHome(profileDir: string): string {
   return join(profileDir, "home");
 }
 
+// start-server.ts keeps each start's stdout and stderr in its own
+// <start time ms>-<pid> folder here, owner-only.
+export function openCodeStartupOutputDir(profileDir: string): string {
+  return join(profileDir, "startup-output");
+}
+
 // Scratch for Isomux's own export and import runs of the OpenCode CLI
 // (session-transfer.ts); no agent sees it.
 export function openCodeCliTmpDir(profileDir: string): string {
