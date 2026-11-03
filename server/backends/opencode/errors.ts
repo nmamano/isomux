@@ -166,6 +166,7 @@ export function logOpenCodeError(
         ...(context.failure ? { failure: context.failure } : {}),
         ...(context.step ? { step: context.step } : {}),
         ...(context.openCodeLog ? { openCodeLog: context.openCodeLog } : {}),
+        ...(context.detail ? { detail: context.detail } : {}),
       }),
     ),
   );

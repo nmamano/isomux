@@ -16,6 +16,7 @@ import {
   openCodeModelGoneFailure,
   openCodeModelUnavailableFailure,
   type OpenCodeContextBreakdown,
+  type OpenCodeSafetyPluginDetail,
   type OpenCodeTransportOptions,
 } from "./transport.ts";
 import {
@@ -2048,11 +2049,15 @@ describe("OpenCode 2 safety plugin check (S2)", () => {
 
   async function checked(plugins: () => unknown[], advanceBy?: number) {
     const clock = drivenClock();
+    // The service log's view of each failure: the member's copy does not
+    // say why the check refused.
+    const details: (OpenCodeSafetyPluginDetail | undefined)[] = [];
     const h = setup({
       fake: { plugins, turns: [fixtureTurn("text-reasoning")] },
       transport: {
         eventStreamDeadlineMs: 1_000,
         deadlineScheduler: clock.scheduler,
+        safeErrorSink: (_error, context) => details.push(context?.detail),
       },
     });
     const events: NormalizedEvent[] = [];
@@ -2074,6 +2079,7 @@ describe("OpenCode 2 safety plugin check (S2)", () => {
     return {
       h,
       events,
+      details,
       end: events.find((e) => e.kind === "turn_completed"),
     };
   }
@@ -2092,7 +2098,7 @@ describe("OpenCode 2 safety plugin check (S2)", () => {
   });
 
   it("refuses at once when another row claims the plugin's id", async () => {
-    const { h, end } = await checked(() => [
+    const { h, end, details } = await checked(() => [
       ourPluginRow(),
       {
         id: OPENCODE_SAFETY_PLUGIN_ID,
@@ -2107,21 +2113,42 @@ describe("OpenCode 2 safety plugin check (S2)", () => {
       error: OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE,
     });
     expect(h.fake.prompts()).toBe(0);
+    expect(details).toEqual(["safety_plugin:impostor"]);
   });
 
   it("refuses at once when the plugin failed to load", async () => {
-    for (const row of [
-      ourPluginRow("failed"),
-      // Setup threw: the row names the entry file.
-      {
-        id: null,
-        source: { type: "local", path: join(ourDir, "index.js") },
-        state: { status: "failed", error: "Error: setup" },
-      },
-    ]) {
-      const { h, end } = await checked(() => [row]);
+    const failedRow = (state: Record<string, unknown>) => ({
+      id: null,
+      source: { type: "local", path: ourDir },
+      state: { status: "failed", ...state },
+    });
+    for (const [row, detail] of [
+      [ourPluginRow("failed"), "safety_plugin:failed"],
+      // Setup threw: the row names the entry file, and 2.1.4 gives no ref.
+      [
+        {
+          id: null,
+          source: { type: "local", path: join(ourDir, "index.js") },
+          state: { status: "failed", error: "Error: setup" },
+        },
+        "safety_plugin:failed",
+      ],
+      // The module did not load: 2.1.4 names the failure in its own log by
+      // this ref (core/src/plugin/supervisor.ts:61).
+      [
+        failedRow({ error: "Error: load", ref: "err_0a1b2c3d" }),
+        "safety_plugin:failed:err_0a1b2c3d",
+      ],
+      // Anything that is not a ref of that shape stays out of the log.
+      [
+        failedRow({ error: "Error: load", ref: "err_/home/member/x" }),
+        "safety_plugin:failed",
+      ],
+    ] as const) {
+      const { h, end, details } = await checked(() => [row]);
       expect(end?.error).toBe(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
       expect(h.fake.prompts()).toBe(0);
+      expect(details).toEqual([detail]);
       h.transport.close();
       h.fake.restore();
     }
@@ -2139,11 +2166,33 @@ describe("OpenCode 2 safety plugin check (S2)", () => {
   });
 
   it("refuses at the deadline when the plugin never appears", async () => {
-    for (const rows of [[], [builtinPluginRow("opencode.agent")]]) {
-      const { h, end } = await checked(() => rows, 2_000);
+    // An active row of ours that does not carry the plugin's id.
+    const unnamed = { ...ourPluginRow(), id: null };
+    for (const [rows, detail] of [
+      [() => [], "safety_plugin:timeout:empty"],
+      [
+        () => [builtinPluginRow("opencode.agent")],
+        "safety_plugin:timeout:not_listed",
+      ],
+      [
+        () => [builtinPluginRow("opencode.agent"), ourPluginRow("loading")],
+        "safety_plugin:timeout:ours_loading",
+      ],
+      [() => [unnamed], "safety_plugin:timeout:ours_active_unnamed"],
+      // The detail is what the last poll saw, not the first.
+      [
+        (() => {
+          let polls = 0;
+          return () => (++polls === 1 ? [] : [ourPluginRow("loading")]);
+        })(),
+        "safety_plugin:timeout:ours_loading",
+      ],
+    ] as const) {
+      const { h, end, details } = await checked(rows, 2_000);
       expect(end?.error).toBe(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
       expect(h.fake.prompts()).toBe(0);
       expect(h.fake.count("plugin")).toBeGreaterThan(1);
+      expect(details).toEqual([detail]);
       h.transport.close();
       h.fake.restore();
     }

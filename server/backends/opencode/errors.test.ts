@@ -81,7 +81,7 @@ it("logs reviewed cause fields with secrets redacted", () => {
   }
 });
 
-it("logs the agent, the failure and OpenCode's log next to the cause", () => {
+it("logs the agent, the failure, its detail and OpenCode's log next to the cause", () => {
   const logged = spyOn(console, "error").mockImplementation(() => {});
   try {
     logOpenCodeError(
@@ -89,8 +89,9 @@ it("logs the agent, the failure and OpenCode's log next to the cause", () => {
       {
         agentId: "agent-1",
         failure: "failure text",
-        step: "begin_turn",
+        step: "safety_plugin",
         openCodeLog: "/profile/opencode.log",
+        detail: "safety_plugin:failed:err_0a1b2c3d",
       },
     );
     expect(logged.mock.calls).toHaveLength(1);
@@ -100,8 +101,9 @@ it("logs the agent, the failure and OpenCode's log next to the cause", () => {
       agentId: "agent-1",
       name: "Error",
       failure: "failure text",
-      step: "begin_turn",
+      step: "safety_plugin",
       openCodeLog: "/profile/opencode.log",
+      detail: "safety_plugin:failed:err_0a1b2c3d",
     });
   } finally {
     logged.mockRestore();

@@ -48,7 +48,9 @@ import {
   OPENCODE_SERVER_STOPPED_FAILURE,
   OPENCODE_SERVER_UNRESPONSIVE_FAILURE,
   OpenCodeTransport,
+  type OpenCodeErrorContext,
 } from "./transport.ts";
+import { scrubCredentials } from "../provider-text.ts";
 import type { NormalizedEvent } from "../types.ts";
 import type { OpenCodeServerHealth } from "./server-health.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
@@ -2811,6 +2813,36 @@ describe("the office safety policy on OpenCode tool calls", () => {
     return shared;
   }
 
+  // Why a turn never reached the provider: the transport's detail and the
+  // shared server's own lines about plugins, warnings and the file watchers
+  // of the case's folder and the profile. The nightly keeps only the test output, and afterAll deletes
+  // OpenCode's log.
+  async function notServed(
+    supervisor: OpenCodeSupervisor,
+    repo: string,
+    contexts: OpenCodeErrorContext[],
+  ): Promise<string> {
+    const log = await readFile(
+      openCodeLogPath(supervisor.profileDir),
+      "utf8",
+    ).catch((error: Error) => `(no OpenCode log: ${error.message})`);
+    const lines = log
+      .split("\n")
+      .filter(
+        (line) =>
+          /plugin|err_|level=(WARN|ERROR)/i.test(line) ||
+          (/watcher/.test(line) &&
+            (line.includes(repo) || line.includes(supervisor.profileDir))),
+      )
+      .slice(-40)
+      .map(scrubCredentials);
+    return [
+      `details: ${JSON.stringify(contexts.map((context) => context.detail ?? null))}`,
+      "OpenCode log:",
+      ...lines,
+    ].join("\n");
+  }
+
   async function deniedTurn(
     setup: (folders: {
       repo: string;
@@ -2866,12 +2898,16 @@ describe("the office safety policy on OpenCode tool calls", () => {
       calls.set(systemPrompt, call);
       supervisor = shared!.supervisor;
     }
+    const contexts: OpenCodeErrorContext[] = [];
     const transport = new OpenCodeTransport({
       cwd: repo,
       model: "gate/gate-model",
       supervisor,
       systemPrompt,
       ...(agent ? { agent } : {}),
+      safeErrorSink: (_error, context) => {
+        if (context) contexts.push(context);
+      },
     });
     const events: NormalizedEvent[] = [];
     const done =
@@ -2886,10 +2922,10 @@ describe("the office safety policy on OpenCode tool calls", () => {
       const completed = await done.promise;
       // The label tells a turn that never reached the model (the plugin
       // check refused it) from one the provider answered without the call.
-      if (!options.ownServer)
+      if (!options.ownServer && !served.has(systemPrompt))
         expect(
           served.has(systemPrompt),
-          `the case's own tool call (turn ${completed.status}: ${JSON.stringify(completed.error ?? null)})`,
+          `the case's own tool call (turn ${completed.status}: ${JSON.stringify(completed.error ?? null)})\n${await notServed(supervisor, repo, contexts)}`,
         ).toBe(true);
       const policy = evaluateProposedAction(
         options.tool?.action(repo) ?? { kind: "shell", command },

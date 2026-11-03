@@ -157,8 +157,18 @@ const realDeadlineScheduler: OpenCodeDeadlineScheduler = {
   clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
 };
 
-// A failure whose message is already member-facing copy.
-class OpenCodeTurnFailure extends Error {}
+// A failure whose message is already member-facing copy. `detail` goes to
+// the service log only.
+class OpenCodeTurnFailure extends Error {
+  readonly detail?: OpenCodeSafetyPluginDetail;
+  constructor(
+    message: string,
+    options?: ErrorOptions & { detail?: OpenCodeSafetyPluginDetail },
+  ) {
+    super(message, options);
+    if (options?.detail) this.detail = options.detail;
+  }
+}
 
 // The folder setup bound passed on a server that answers health. The server
 // is not marked: other agents' turns on it are fine, and a replacement would
@@ -939,7 +949,12 @@ export class OpenCodeTransport {
           : `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`;
       // Observability must not stop delivery of the failed completion.
       try {
-        this.safeErrorSink?.(safeError, this.errorContext(failure, at));
+        this.safeErrorSink?.(safeError, {
+          ...this.errorContext(failure, at),
+          ...(error instanceof OpenCodeTurnFailure && error.detail
+            ? { detail: error.detail }
+            : {}),
+        });
       } catch {
         console.error("OpenCode error sink failed.");
       } finally {
@@ -2760,8 +2775,10 @@ export class OpenCodeTransport {
         (source.path === dir || source.path === join(dir, "index.js"))
       );
     };
-    const refuse = () =>
-      new OpenCodeTurnFailure(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE);
+    const refuse = (detail: OpenCodeSafetyPluginDetail) =>
+      new OpenCodeTurnFailure(OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE, {
+        detail,
+      });
     for (let waited = 0; ; waited += OPENCODE_LIST_POLL_MS) {
       const body: unknown = await this.withinDeadline(
         (bounded) =>
@@ -2777,10 +2794,21 @@ export class OpenCodeTransport {
       const own = rows.filter(ours);
       // Another row with the plugin's id, or two of them: an impostor.
       if (claimants.some((row) => !ours(row)) || claimants.length > 1)
-        throw refuse();
-      const states = own.map((row) => asRecord(row.state).status);
-      if (states.some((state) => state !== "active" && state !== "loading"))
-        throw refuse();
+        throw refuse("safety_plugin:impostor");
+      const failed = own.find((row) => {
+        const status = asRecord(row.state).status;
+        return status !== "active" && status !== "loading";
+      });
+      if (failed) {
+        // 2.1.4 gives a failed module load a ref, which names its line in
+        // the OpenCode log (plugin/supervisor.ts:61).
+        const ref = asRecord(failed.state).ref;
+        const id =
+          typeof ref === "string" ? /^err_([0-9a-f]{8})$/.exec(ref)?.[1] : null;
+        throw refuse(
+          id ? `safety_plugin:failed:err_${id}` : "safety_plugin:failed",
+        );
+      }
       if (
         own.some(
           (row) =>
@@ -2792,7 +2820,17 @@ export class OpenCodeTransport {
       // An empty list, our row loading, or no row of ours yet: the folder's
       // plugins still load (active after 357-1842 ms in 20 new folders,
       // 2026-10-25).
-      if (waited >= this.eventStreamDeadlineMs) throw refuse();
+      // The log names what the last poll saw.
+      if (waited >= this.eventStreamDeadlineMs)
+        throw refuse(
+          own.some((row) => asRecord(row.state).status === "loading")
+            ? "safety_plugin:timeout:ours_loading"
+            : own.length > 0
+              ? "safety_plugin:timeout:ours_active_unnamed"
+              : rows.length > 0
+                ? "safety_plugin:timeout:not_listed"
+                : "safety_plugin:timeout:empty",
+        );
       await this.pause(OPENCODE_LIST_POLL_MS, signal);
       if (signal.aborted || this.abortRequested) return;
     }
@@ -3294,7 +3332,19 @@ export interface OpenCodeErrorContext {
   failure?: string;
   step?: OpenCodeTurnStep;
   openCodeLog?: string;
+  detail?: OpenCodeSafetyPluginDetail;
 }
+
+// Why the safety plugin check refused a turn. A timeout names what the last
+// poll saw: no plugins, plugins but no row of ours, or our row unusable.
+export type OpenCodeSafetyPluginDetail =
+  | "safety_plugin:impostor"
+  | "safety_plugin:failed"
+  | `safety_plugin:failed:err_${string}`
+  | "safety_plugin:timeout:empty"
+  | "safety_plugin:timeout:not_listed"
+  | "safety_plugin:timeout:ours_loading"
+  | "safety_plugin:timeout:ours_active_unnamed";
 
 // Where in send() a turn failed. Every step before "prompt" runs before
 // OpenCode has the prompt. Choosing the effort has no step: it cannot fail.

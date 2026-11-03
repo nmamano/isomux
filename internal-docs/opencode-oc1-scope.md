@@ -174,7 +174,11 @@ the member's variables. A server
 that loaded another build is not adopted. OpenCode loads plugins fail-open,
 and a project plugin with the same id displaces this one, so before every
 prompt the transport requires that `GET /api/plugin` for the folder lists this
-plugin active and alone with its id. The plugin also removes the server
+plugin active and alone with its id. A refusal writes its cause to the
+service log (`detail`). That check runs once per turn: a plugin reload during
+the turn (a plugin file or the plugin list changed) unregisters this plugin's
+hooks, because it loads last, until its setup runs again, and a tool call in
+that window is not checked (2.1.4 `core/src/plugin.ts` activate). The plugin also removes the server
 password and Isomux's config variables from the environment of every shell it
 sees, and gives it the user's HOME and folders (the `create.before` shell
 hook). Plugins are code with the member's
