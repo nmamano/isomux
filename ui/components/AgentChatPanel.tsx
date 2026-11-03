@@ -12,6 +12,7 @@ import { useI18n } from "../i18n.tsx";
 import { isBackSeat } from "../../shared/desks.ts";
 import { noTranslate } from "../no-translate.ts";
 import { chatVisibleEntries } from "../log-view/chat-entries.ts";
+import { uploadDraftFiles } from "../log-view/draft-attachments.ts";
 import {
   CHAT_PANEL_CSS,
   WidgetChat,
@@ -74,6 +75,17 @@ export function AgentChatPanel({
     (text: string) => dispatch({ type: "set_draft", agentId, text }),
     [dispatch, agentId],
   );
+  const draftItems = state.draftAttachments.get(agentId);
+  const attachmentsDraft = useMemo(
+    () => ({
+      items: draftItems ?? [],
+      add: (files: File[]) =>
+        uploadDraftFiles(dispatch, agentId, files, { imagesOnly: true }),
+      remove: (ids: string[]) =>
+        dispatch({ type: "remove_draft_attachments", agentId, ids }),
+    }),
+    [draftItems, dispatch, agentId],
+  );
   const onFocusHandled = useCallback(
     () => dispatch({ type: "composer_focus_handled", agentId }),
     [dispatch, agentId],
@@ -126,7 +138,7 @@ export function AgentChatPanel({
       }}
     >
       <style>{CHAT_PANEL_CSS + PANEL_CSS}</style>
-      {/* Images upload to one agent, so a new agent starts without them. */}
+      {/* Keyed: the widget's own state starts fresh for each agent. */}
       <WidgetChat
         key={agent.id}
         agent={agent}
@@ -163,6 +175,7 @@ export function AgentChatPanel({
           text: state.drafts.get(agent.id) ?? "",
           onChange: onDraft,
         }}
+        attachmentsDraft={attachmentsDraft}
         focusRequest={state.pendingComposerFocus.get(agent.id)}
         onFocusRequestHandled={onFocusHandled}
       />

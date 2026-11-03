@@ -12,6 +12,10 @@ import {
 import type { AppView, AppWidgetStatus } from "../shared/contract-shapes.ts";
 import type { AgentInfo, LogEntry, Attachment } from "../shared/types.ts";
 import { MAX_UPLOAD_BYTES } from "../shared/types.ts";
+import {
+  type DraftAttachment,
+  uploadedOnly,
+} from "./log-view/draft-attachments.ts";
 import { AGENT_LINK_PREFIX } from "../shared/office-links.ts";
 import { apiFetch } from "./api.ts";
 import { useAppState } from "./store.tsx";
@@ -900,6 +904,9 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   );
 }
 
+const fileSrc = (agentId: string, filename: string) =>
+  `/api/files/${agentId}/${encodeURIComponent(filename)}`;
+
 interface WidgetImage {
   id: string;
   name: string;
@@ -963,6 +970,7 @@ export function WidgetChat({
   title,
   headerActions,
   textDraft,
+  attachmentsDraft,
   focusRequest,
   onFocusRequestHandled,
 }: {
@@ -989,6 +997,15 @@ export function WidgetChat({
   // The text draft held outside the widget (the agent's office chat draft):
   // the widget shows it, reports each change, and clears it on a send.
   textDraft?: { text: string; onChange: (text: string) => void };
+  // The attachments held outside the widget with textDraft (the agent's
+  // office chat draft, draft-attachments.ts): the widget shows and sends
+  // these in place of its own images. remove takes ids, so a send removes
+  // only what it sent.
+  attachmentsDraft?: {
+    items: readonly DraftAttachment[];
+    add: (files: File[]) => void;
+    remove: (ids: string[]) => void;
+  };
   // A caret to focus the composer at, once (an ask's "Discuss in chat").
   focusRequest?: number;
   onFocusRequestHandled?: () => void;
@@ -1083,6 +1100,7 @@ export function WidgetChat({
     }));
   };
   const removeImage = (id: string) => {
+    if (attachmentsDraft) attachmentsDraft.remove([id]);
     setDraft((current) => ({
       ...current,
       images: current.images.filter((image) => image.id !== id),
@@ -1092,6 +1110,15 @@ export function WidgetChat({
   };
   const selectImages = (files: File[]) => {
     if (sending) return;
+    if (attachmentsDraft) {
+      attachmentsDraft.add(files);
+      setDraft((current) => ({
+        ...current,
+        clientMessageId: crypto.randomUUID(),
+        failed: false,
+      }));
+      return;
+    }
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue;
       const id = crypto.randomUUID();
@@ -1147,12 +1174,58 @@ export function WidgetChat({
         });
     }
   };
-  const pendingImages = draft.images.some((image) => !image.attachment);
+  // The images on show: the outside draft's items, or the widget's own.
+  // Outside items follow the office composer's rule: an upload in flight
+  // holds the send, a failed one is left out of it.
+  const images: {
+    id: string;
+    name: string;
+    src?: string;
+    status?: string;
+  }[] = attachmentsDraft
+    ? attachmentsDraft.items.map((item) => ({
+        id: item.id,
+        name: item.originalName,
+        ...(!item.uploading &&
+          !item.error &&
+          item.mediaType.startsWith("image/") && {
+            src: fileSrc(agent.id, item.filename),
+          }),
+        ...((item.uploading || item.error) && {
+          status: item.uploading
+            ? t("logView.attachUploading")
+            : item.error?.kind === "key"
+              ? t(item.error.key)
+              : t("membersChat.uploadFailed"),
+        }),
+      }))
+    : draft.images.map((image) => ({
+        id: image.id,
+        name: image.name,
+        ...(image.attachment
+          ? { src: fileSrc(agent.id, image.attachment.filename) }
+          : {
+              status:
+                image.error === "size"
+                  ? t("logView.attachTooLarge")
+                  : image.error
+                    ? t("membersChat.uploadFailed")
+                    : t("logView.attachUploading"),
+            }),
+      }));
+  const pendingImages = attachmentsDraft
+    ? attachmentsDraft.items.some((item) => item.uploading)
+    : draft.images.some((image) => !image.attachment);
+  // Taken at the send, so an item added while it is in flight stays.
+  const sentItems = attachmentsDraft?.items ?? [];
+  const attachments = attachmentsDraft
+    ? uploadedOnly(sentItems)
+    : draft.images.map((image) => image.attachment!);
   const busy = agent.state === "thinking" || agent.state === "tool_executing";
   const send = async () => {
     if (
       draft.key !== key ||
-      (!text.trim() && draft.images.length === 0) ||
+      (!text.trim() && attachments.length === 0) ||
       pendingImages ||
       sending ||
       !connected
@@ -1166,9 +1239,10 @@ export function WidgetChat({
         ...(boot && {
           appContext: currentView ? { ...boot, view: currentView() } : boot,
         }),
-        attachments: draft.images.map((image) => image.attachment!),
+        attachments,
       });
       textDraft?.onChange("");
+      attachmentsDraft?.remove(sentItems.map((item) => item.id));
       const next = {
         key,
         text: "",
@@ -1298,24 +1372,11 @@ export function WidgetChat({
           </div>
         ) : null}
         <div className="app-widget-images">
-          {draft.images.map((image) => (
+          {images.map((image) => (
             <figure className="app-widget-image" key={image.id}>
-              {image.attachment && (
-                <img
-                  src={`/api/files/${agent.id}/${encodeURIComponent(image.attachment.filename)}`}
-                  alt={image.name}
-                />
-              )}
+              {image.src && <img src={image.src} alt={image.name} />}
               <figcaption>{image.name}</figcaption>
-              {!image.attachment && (
-                <span role="status">
-                  {image.error === "size"
-                    ? t("logView.attachTooLarge")
-                    : image.error
-                      ? t("membersChat.uploadFailed")
-                      : t("logView.attachUploading")}
-                </span>
-              )}
+              {image.status && <span role="status">{image.status}</span>}
               <button
                 type="button"
                 disabled={sending}
@@ -1391,7 +1452,7 @@ export function WidgetChat({
                 !connected ||
                 sending ||
                 pendingImages ||
-                (!text.trim() && draft.images.length === 0)
+                (!text.trim() && attachments.length === 0)
               }
             >
               {busy ? t("logView.composer.queue") : t("common.send")}

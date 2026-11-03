@@ -19,8 +19,13 @@ import {
   loadFoldedAsks,
   saveFoldedAsks,
   pruneUserFoldedAsks,
+  saveDraftAttachments,
+  loadUserDraftAttachments,
+  pruneUserDraftAttachments,
   type StorageLike,
 } from "./view-persistence.ts";
+import type { Attachment } from "../shared/types.ts";
+import type { DraftAttachment } from "./log-view/draft-attachments.ts";
 
 function fakeStorage(init: Record<string, string> = {}): StorageLike & {
   data: Record<string, string>;
@@ -445,5 +450,144 @@ describe("folded asks: per member and agent", () => {
     expect(loadFoldedAsks("nil", "a", null)).toBe(null);
     expect(() => saveFoldedAsks("nil", "a", ["x"], null)).not.toThrow();
     expect(() => pruneUserFoldedAsks("nil", new Set(), null)).not.toThrow();
+  });
+});
+
+// The attachments of a draft survive a reload as the text does, one key per
+// composer (task bd4caaa2). Only references are kept: an item still
+// uploading or failed has nothing the server could find.
+describe("draft attachments: per-composer owner-namespaced keys", () => {
+  const uploaded = (name: string): DraftAttachment => ({
+    id: `id-${name}`,
+    filename: `stored-${name}`,
+    originalName: name,
+    mediaType: "image/png",
+    size: 42,
+    uploading: false,
+  });
+  const reference = (name: string): Attachment => ({
+    filename: `stored-${name}`,
+    originalName: name,
+    mediaType: "image/png",
+    size: 42,
+  });
+  const inFlight: DraftAttachment = {
+    id: "id-busy",
+    filename: "",
+    originalName: "busy.png",
+    mediaType: "image/png",
+    size: 42,
+    uploading: true,
+  };
+  const failed: DraftAttachment = {
+    ...uploaded("bad.png"),
+    error: { kind: "status", status: 500 },
+  };
+
+  it("round-trips the uploaded references per agent, case-insensitively on the user", () => {
+    const s = fakeStorage();
+    saveDraftAttachments("Nil", "agent-1", [uploaded("a.png")], s);
+    saveDraftAttachments(
+      "nil",
+      "agent-2",
+      [uploaded("b.png"), uploaded("c.png")],
+      s,
+    );
+    expect(loadUserDraftAttachments("NIL", s)).toEqual({
+      "agent-1": [reference("a.png")],
+      "agent-2": [reference("b.png"), reference("c.png")],
+    });
+  });
+
+  it("keeps neither in-flight nor failed items, and a draft with none left removes its key", () => {
+    const s = fakeStorage();
+    saveDraftAttachments(
+      "nil",
+      "agent-1",
+      [inFlight, uploaded("a.png"), failed],
+      s,
+    );
+    expect(loadUserDraftAttachments("nil", s)).toEqual({
+      "agent-1": [reference("a.png")],
+    });
+    expect(Object.keys(s.data)).toHaveLength(1);
+    saveDraftAttachments("nil", "agent-1", [inFlight, failed], s);
+    expect(Object.keys(s.data)).toEqual([]);
+    saveDraftAttachments("nil", "agent-1", [uploaded("a.png")], s);
+    saveDraftAttachments("nil", "agent-1", [], s);
+    expect(Object.keys(s.data)).toEqual([]);
+  });
+
+  it("keeps two users' attachments for the same agent apart, and apart from the draft text", () => {
+    const s = fakeStorage();
+    saveDraftAttachments("alice", "agent-1", [uploaded("a.png")], s);
+    saveDraftAttachments("bob", "agent-1", [uploaded("b.png")], s);
+    saveDraft("alice", "agent-1", "alice text", s);
+    expect(loadUserDraftAttachments("alice", s)).toEqual({
+      "agent-1": [reference("a.png")],
+    });
+    expect(loadUserDraftAttachments("bob", s)).toEqual({
+      "agent-1": [reference("b.png")],
+    });
+    expect(loadUserDrafts("alice", s)).toEqual({ "agent-1": "alice text" });
+    // Sending the text removes only the text's key.
+    saveDraft("alice", "agent-1", "", s);
+    expect(loadUserDraftAttachments("alice", s)).toEqual({
+      "agent-1": [reference("a.png")],
+    });
+  });
+
+  it("skips a key whose value is not a list of attachments, and keeps the good ones", () => {
+    const s = fakeStorage();
+    saveDraftAttachments("nil", "agent-good", [uploaded("a.png")], s);
+    const goodKey = Object.keys(s.data)[0];
+    const keyFor = (agentId: string) =>
+      goodKey.slice(0, goodKey.length - "agent-good".length) + agentId;
+    s.data[keyFor("agent-json")] = "{not json";
+    s.data[keyFor("agent-object")] = JSON.stringify(reference("a.png"));
+    s.data[keyFor("agent-item")] = JSON.stringify([
+      reference("a.png"),
+      { originalName: "no-filename.png", mediaType: "image/png", size: 1 },
+    ]);
+    s.data[keyFor("agent-size")] = JSON.stringify([
+      { ...reference("a.png"), size: "42" },
+    ]);
+    expect(loadUserDraftAttachments("nil", s)).toEqual({
+      "agent-good": [reference("a.png")],
+    });
+  });
+
+  it("prunes only the caller's own dead-agent keys", () => {
+    const s = fakeStorage({ "isomux-theme": "nord" });
+    saveDraftAttachments("nil", "agent-live", [uploaded("a.png")], s);
+    saveDraftAttachments("nil", "agent-dead", [uploaded("b.png")], s);
+    saveDraftAttachments("alice", "agent-dead", [uploaded("c.png")], s);
+    saveDraft("nil", "agent-dead", "text", s);
+    pruneUserDraftAttachments("nil", new Set(["agent-live"]), s);
+    expect(loadUserDraftAttachments("nil", s)).toEqual({
+      "agent-live": [reference("a.png")],
+    });
+    expect(loadUserDraftAttachments("alice", s)).toEqual({
+      "agent-dead": [reference("c.png")],
+    });
+    expect(loadUserDrafts("nil", s)).toEqual({ "agent-dead": "text" });
+    expect(s.data["isomux-theme"]).toBe("nord");
+  });
+
+  it("survives storage exceptions and unavailable storage", () => {
+    expect(loadUserDraftAttachments("nil", throwingStorage)).toEqual({});
+    expect(() =>
+      saveDraftAttachments("nil", "a", [uploaded("a.png")], throwingStorage),
+    ).not.toThrow();
+    expect(() =>
+      saveDraftAttachments("nil", "a", [], throwingStorage),
+    ).not.toThrow();
+    expect(() =>
+      pruneUserDraftAttachments("nil", new Set(), throwingStorage),
+    ).not.toThrow();
+    expect(loadUserDraftAttachments("nil", null)).toEqual({});
+    expect(() =>
+      saveDraftAttachments("nil", "a", [uploaded("a.png")], null),
+    ).not.toThrow();
   });
 });

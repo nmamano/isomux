@@ -33,6 +33,9 @@
 //   are, "isomux-asks-folded:<encoded user>:<agentId>", holding the JSON
 //   array of the ask ids that were open when the member folded the stack
 //   above the chat input. A new ask ends the fold (ui/log-view/AsksStack.tsx).
+// - Draft attachments: one key per composer, built as the draft keys are,
+//   "isomux-draft-attachments:<encoded user>:<agentId>", holding the JSON
+//   array of the draft's uploaded attachments (references, never bytes).
 //
 // Staleness is handled by validation at restore time (App.tsx checks every
 // saved id against the first full_state and prunes/falls back), not by TTL.
@@ -43,8 +46,15 @@
 // reads/writes go through an injectable StorageLike so tests can cover
 // mismatch and storage-exception paths without a DOM.
 
+import type { Attachment } from "../shared/types.ts";
+import {
+  type DraftAttachment,
+  uploadedOnly,
+} from "./log-view/draft-attachments.ts";
+
 const VIEW_KEY = "isomux-view";
 const DRAFT_KEY_PREFIX = "isomux-draft:";
+const DRAFT_ATTACHMENTS_KEY_PREFIX = "isomux-draft-attachments:";
 const FOLD_KEY_PREFIX = "isomux-asks-folded:";
 
 // The Storage operations we use, injectable for tests. `keys` exists because
@@ -235,6 +245,101 @@ export function saveDraft(
     else storage.removeItem(draftKey(user, agentId));
   } catch {
     // Best-effort: an oversized draft (quota) keeps the previous saved copy.
+  }
+}
+
+function draftAttachmentsKey(user: string, agentId: string): string {
+  return `${userDraftAttachmentsPrefix(user)}${agentId}`;
+}
+
+function userDraftAttachmentsPrefix(user: string): string {
+  return `${DRAFT_ATTACHMENTS_KEY_PREFIX}${encodeURIComponent(normUser(user))}:`;
+}
+
+function isAttachment(v: unknown): v is Attachment {
+  if (!v || typeof v !== "object") return false;
+  const a = v as Record<string, unknown>;
+  return (
+    typeof a.filename === "string" &&
+    a.filename.length > 0 &&
+    typeof a.originalName === "string" &&
+    typeof a.mediaType === "string" &&
+    typeof a.size === "number"
+  );
+}
+
+/** Write-through for one composer's attachments: only the uploaded
+ * references are kept (in-flight and errored items are dropped), and a
+ * draft with none left deletes the key. */
+export function saveDraftAttachments(
+  user: string,
+  agentId: string,
+  items: readonly DraftAttachment[],
+  storage: StorageLike | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  const references = uploadedOnly(items);
+  try {
+    const key = draftAttachmentsKey(user, agentId);
+    if (references.length > 0) storage.setItem(key, JSON.stringify(references));
+    else storage.removeItem(key);
+  } catch {
+    // Best-effort, as saveDraft.
+  }
+}
+
+/** All of `user`'s saved draft attachments, keyed by agentId. A key whose
+ * value is not a list of attachments is skipped. */
+export function loadUserDraftAttachments(
+  user: string,
+  storage: StorageLike | null = defaultStorage(),
+): Record<string, Attachment[]> {
+  if (!storage) return {};
+  const out: Record<string, Attachment[]> = {};
+  try {
+    const prefix = userDraftAttachmentsPrefix(user);
+    for (const key of storage.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      const agentId = key.slice(prefix.length);
+      if (!agentId) continue;
+      let value: unknown;
+      try {
+        value = JSON.parse(storage.getItem(key) ?? "null");
+      } catch {
+        continue;
+      }
+      if (Array.isArray(value) && value.length > 0 && value.every(isAttachment))
+        out[agentId] = value.map(
+          ({ filename, originalName, mediaType, size }: Attachment) => ({
+            filename,
+            originalName,
+            mediaType,
+            size,
+          }),
+        );
+    }
+  } catch {
+    return {};
+  }
+  return out;
+}
+
+/** pruneUserDrafts for the attachment keys. */
+export function pruneUserDraftAttachments(
+  user: string,
+  keepAgentIds: ReadonlySet<string>,
+  storage: StorageLike | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  try {
+    const prefix = userDraftAttachmentsPrefix(user);
+    for (const key of storage.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      const agentId = key.slice(prefix.length);
+      if (!keepAgentIds.has(agentId)) storage.removeItem(key);
+    }
+  } catch {
+    // Best-effort.
   }
 }
 

@@ -90,6 +90,10 @@ import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { anyRoomSounds } from "../shared/notif-rooms.ts";
 import { createNotificationSound } from "./notification-sound.ts";
 import { syncPanel } from "./elevator-panel-store.ts";
+import type {
+  DraftAttachment,
+  DraftAttachmentAction,
+} from "./log-view/draft-attachments.ts";
 import {
   getUsername,
   readLegacyUserPrefs,
@@ -163,6 +167,8 @@ export interface AppState {
   // per-room notification preferences. null if the room couldn't be resolved.
   soundTrigger: { seq: number; roomId: string | null };
   drafts: Map<string, string>; // agentId → unsent chat input
+  // agentId → the attachments of that unsent draft (draft-attachments.ts).
+  draftAttachments: Map<string, DraftAttachment[]>;
   // askId → the member's reply draft. No entry: the field still shows the
   // untouched default. "" is a kept value (the member cleared the field).
   askDrafts: Map<string, string>;
@@ -434,6 +440,7 @@ type Action =
       currentSessionId: string | null;
     }
   | { type: "set_draft"; agentId: string; text: string }
+  | DraftAttachmentAction
   // null deletes the draft.
   | { type: "set_ask_draft"; askId: string; text: string | null }
   | {
@@ -1124,6 +1131,31 @@ export function reducer(state: AppState, action: Action): AppState {
         drafts.delete(action.agentId);
       }
       return { ...state, drafts };
+    }
+    case "add_draft_attachments":
+    case "patch_draft_attachment":
+    case "remove_draft_attachments":
+    case "clear_draft_attachments": {
+      const prev = state.draftAttachments.get(action.agentId) ?? [];
+      let next: DraftAttachment[];
+      if (action.type === "add_draft_attachments") {
+        next = [...prev, ...action.items];
+      } else if (action.type === "patch_draft_attachment") {
+        // A late upload answer for an item removed or sent meanwhile.
+        if (!prev.some((a) => a.id === action.id)) return state;
+        next = prev.map((a) =>
+          a.id === action.id ? { ...a, ...action.patch } : a,
+        );
+      } else if (action.type === "remove_draft_attachments") {
+        next = prev.filter((a) => !action.ids.includes(a.id));
+      } else {
+        next = [];
+      }
+      if (next.length === 0 && prev.length === 0) return state;
+      const draftAttachments = new Map(state.draftAttachments);
+      if (next.length > 0) draftAttachments.set(action.agentId, next);
+      else draftAttachments.delete(action.agentId);
+      return { ...state, draftAttachments };
     }
     case "set_ask_draft": {
       const askDrafts = new Map(state.askDrafts);
@@ -1956,6 +1988,7 @@ export const initialState: AppState = {
   sessionsList: new Map(),
   soundTrigger: { seq: 0, roomId: null },
   drafts: new Map(),
+  draftAttachments: new Map(),
   askDrafts: new Map(),
   sidePanels: new Map(),
   pendingEditorPaths: new Map(),

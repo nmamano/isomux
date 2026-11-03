@@ -12,6 +12,7 @@ import { describe, it, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { reducer, initialState, StateCtx, type AppState } from "./store.tsx";
+import type { DraftAttachment } from "./log-view/draft-attachments.ts";
 import { ChoiceInteractionCard } from "./log-view/LogView.tsx";
 import {
   ProviderSignInCard,
@@ -2039,5 +2040,112 @@ describe("removed members", () => {
       },
     });
     expect(next.removedMembersLoaded).toBe(false);
+  });
+});
+
+// The attachments of an unsent chat draft live in the store, per agent, so
+// they outlast the composer (task bd4caaa2). An upload's late answer must not
+// bring back an item the member removed or sent.
+describe("reducer: draft attachments", () => {
+  const item = (id: string, uploading = false): DraftAttachment => ({
+    id,
+    filename: uploading ? "" : `${id}.png`,
+    originalName: `${id}.png`,
+    mediaType: "image/png",
+    size: 10,
+    uploading,
+  });
+  const ids = (s: AppState, agentId: string) =>
+    s.draftAttachments.get(agentId)?.map((a) => a.id) ?? null;
+
+  it("adds to the end of the agent's list, patches only the named item, and keeps agents apart", () => {
+    let s: AppState = initialState;
+    s = reducer(s, {
+      type: "add_draft_attachments",
+      agentId: "a1",
+      items: [item("x", true)],
+    });
+    s = reducer(s, {
+      type: "add_draft_attachments",
+      agentId: "a1",
+      items: [item("y")],
+    });
+    s = reducer(s, {
+      type: "add_draft_attachments",
+      agentId: "a2",
+      items: [item("z")],
+    });
+    expect(ids(s, "a1")).toEqual(["x", "y"]);
+    expect(ids(s, "a2")).toEqual(["z"]);
+    s = reducer(s, {
+      type: "patch_draft_attachment",
+      agentId: "a1",
+      id: "x",
+      patch: { filename: "stored-x.png", uploading: false },
+    });
+    expect(s.draftAttachments.get("a1")).toEqual([
+      { ...item("x"), filename: "stored-x.png" },
+      item("y"),
+    ]);
+    expect(s.draftAttachments.get("a2")).toEqual([item("z")]);
+  });
+
+  it("ignores a patch for an item that is gone, and creates no entry for it", () => {
+    let s: AppState = reducer(initialState, {
+      type: "add_draft_attachments",
+      agentId: "a1",
+      items: [item("x", true), item("y")],
+    });
+    s = reducer(s, {
+      type: "remove_draft_attachments",
+      agentId: "a1",
+      ids: ["x"],
+    });
+    const after = reducer(s, {
+      type: "patch_draft_attachment",
+      agentId: "a1",
+      id: "x",
+      patch: { filename: "late.png", uploading: false },
+    });
+    expect(ids(after, "a1")).toEqual(["y"]);
+    // A late answer for an agent whose draft was sent.
+    const cleared = reducer(after, {
+      type: "clear_draft_attachments",
+      agentId: "a1",
+    });
+    const late = reducer(cleared, {
+      type: "patch_draft_attachment",
+      agentId: "a1",
+      id: "y",
+      patch: { uploading: false },
+    });
+    expect(late.draftAttachments.has("a1")).toBe(false);
+  });
+
+  it("removes only the named ids, and an empty list deletes the agent's entry", () => {
+    let s: AppState = reducer(initialState, {
+      type: "add_draft_attachments",
+      agentId: "a1",
+      items: [item("x"), item("y"), item("w")],
+    });
+    s = reducer(s, {
+      type: "add_draft_attachments",
+      agentId: "a2",
+      items: [item("z")],
+    });
+    s = reducer(s, {
+      type: "remove_draft_attachments",
+      agentId: "a1",
+      ids: ["x", "w"],
+    });
+    expect(ids(s, "a1")).toEqual(["y"]);
+    s = reducer(s, {
+      type: "remove_draft_attachments",
+      agentId: "a1",
+      ids: ["y"],
+    });
+    expect(s.draftAttachments.has("a1")).toBe(false);
+    s = reducer(s, { type: "clear_draft_attachments", agentId: "a2" });
+    expect(s.draftAttachments.size).toBe(0);
   });
 });

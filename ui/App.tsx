@@ -9,14 +9,21 @@ import {
 import { send } from "./ws.ts";
 import {
   loadSavedView,
+  loadUserDraftAttachments,
   loadUserDrafts,
+  pruneUserDraftAttachments,
   pruneUserDrafts,
   pruneUserFoldedAsks,
   saveDraft,
+  saveDraftAttachments,
   saveView,
 } from "./view-persistence.ts";
 import { OfficeView, type ViewportControls } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
+import {
+  asDraftAttachments,
+  type DraftAttachment,
+} from "./log-view/draft-attachments.ts";
 import { restoreOutbox } from "./log-view/outbox.ts";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
@@ -114,6 +121,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     logs,
     focusedAgentId,
     drafts,
+    draftAttachments,
     currentRoomId,
     rooms: allRooms,
     office,
@@ -275,6 +283,18 @@ export function App({ routing = true }: { routing?: boolean }) {
       }
     }
     pruneUserDrafts(persistUser, liveAgentIds);
+    // Appended, not replaced: an item attached before this ran stays.
+    const savedAttachments = loadUserDraftAttachments(persistUser);
+    for (const [agentId, attachments] of Object.entries(savedAttachments)) {
+      if (liveAgentIds.has(agentId)) {
+        dispatch({
+          type: "add_draft_attachments",
+          agentId,
+          items: asDraftAttachments(attachments),
+        });
+      }
+    }
+    pruneUserDraftAttachments(persistUser, liveAgentIds);
     pruneUserFoldedAsks(persistUser, liveAgentIds);
     restoreOutbox(persistUser, liveAgentIds);
     const saved = loadSavedView(persistUser);
@@ -383,6 +403,27 @@ export function App({ routing = true }: { routing?: boolean }) {
       }
     }
   }, [persistEnabled, restored, persistUser, drafts]);
+
+  // The same write-through for the draft attachments (saveDraftAttachments
+  // keeps only the uploaded references).
+  const prevDraftAttachmentsRef = useRef<Map<string, DraftAttachment[]> | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!persistEnabled || !restored || !persistUser) return;
+    const prev = prevDraftAttachmentsRef.current;
+    prevDraftAttachmentsRef.current = draftAttachments;
+    for (const [agentId, items] of draftAttachments) {
+      if (prev?.get(agentId) !== items)
+        saveDraftAttachments(persistUser, agentId, items);
+    }
+    if (prev) {
+      for (const agentId of prev.keys()) {
+        if (!draftAttachments.has(agentId))
+          saveDraftAttachments(persistUser, agentId, []);
+      }
+    }
+  }, [persistEnabled, restored, persistUser, draftAttachments]);
 
   const selfUser = useSelfUser();
   // One-shot language seed: the browser's language takes

@@ -24,14 +24,9 @@ import type {
   PendingPromptKind,
   LogEntry,
   QueuedMessage,
-  Attachment,
   ProviderAccountProvider,
 } from "../../shared/types.ts";
-import {
-  familyDisplayLabel,
-  MAX_UPLOAD_BYTES,
-  showEngineCue,
-} from "../../shared/types.ts";
+import { familyDisplayLabel, showEngineCue } from "../../shared/types.ts";
 import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { LiveCharacter } from "../office/LiveCharacter.tsx";
@@ -75,6 +70,12 @@ import {
 import { ChatTranscript, useChatTranscript } from "./ChatTranscript.tsx";
 import { citationBlock, insertCite } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
+import {
+  asDraftAttachments,
+  type DraftAttachment,
+  uploadDraftFiles,
+  uploadedOnly,
+} from "./draft-attachments.ts";
 import { sendAttempt, takeAttempt } from "./outbox.ts";
 import { OutboxRows } from "./OutboxRows.tsx";
 import { AsksStack, MOBILE_VISIBLE_SHARE } from "./AsksStack.tsx";
@@ -113,7 +114,6 @@ import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 import { useI18n } from "../i18n.tsx";
 import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
-import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { choiceCardText } from "../../shared/i18n/log-message.ts";
 import { noTranslate } from "../no-translate.ts";
 import { useInboxNavAction, type InboxTab } from "../inbox.ts";
@@ -250,19 +250,12 @@ function PickModelButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+// The composer's list when the draft has no attachments.
+const NO_ATTACHMENTS: DraftAttachment[] = [];
+
 // Side panel size constraints. Mins below differ between terminal and editor
 // because the editor's tab strip + line numbers need more horizontal room
 // before content starts wrapping uselessly.
-// The one upload failure Isomux words itself. Thrown so the catch below can
-// tell it apart from whatever the browser threw, and carrying the status
-// rather than a sentence, because the staged attachment holds it across
-// renders and a language switch has to be able to re-word it.
-class UploadStatusError extends Error {
-  constructor(readonly status: number) {
-    super(`upload failed with status ${status}`);
-  }
-}
-
 const PANEL_MIN = { terminal: 300, editor: 380 } as const;
 const PANEL_MAX = { terminal: 1000, editor: 1200 } as const;
 // The chat column always keeps at least this many pixels regardless of how
@@ -782,6 +775,7 @@ export function LogView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const {
     drafts,
+    draftAttachments,
     slashCommands,
     stateChangedAt,
     isMobile,
@@ -1043,21 +1037,7 @@ export function LogView({
     }) => boolean
   >(() => false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  type StagedAttachment = Attachment & {
-    id: string;
-    uploading: boolean;
-    // Language-independent: the words are chosen at render time, so a language
-    // switch with a failed upload on screen re-reads it. `status` is Isomux's
-    // own "upload failed" case; `raw` is whatever the browser threw, passed
-    // through as delivered.
-    error?:
-      | { kind: "key"; key: PlainMessageKey }
-      | { kind: "status"; status: number }
-      | { kind: "raw"; text: string };
-  };
-  const [stagedAttachments, setStagedAttachments] = useState<
-    StagedAttachment[]
-  >([]);
+  const stagedAttachments = draftAttachments.get(agent.id) ?? NO_ATTACHMENTS;
   const hasUploading = stagedAttachments.some((a) => a.uploading);
   const validAttachments = stagedAttachments.filter((a) => !a.error);
   const [draggingOver, setDraggingOver] = useState(false);
@@ -1851,73 +1831,17 @@ export function LogView({
 
   function handleFileSelect(files: FileList | null) {
     if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      if (file.size > MAX_UPLOAD_BYTES) {
-        const id = Math.random().toString(36).slice(2, 10);
-        setStagedAttachments((prev) => [
-          ...prev,
-          {
-            id,
-            filename: "",
-            originalName: file.name,
-            mediaType: file.type || "application/octet-stream",
-            size: file.size,
-            uploading: false,
-            error: { kind: "key", key: "logView.attachTooLarge" },
-          },
-        ]);
-        continue;
-      }
-      const id = Math.random().toString(36).slice(2, 10);
-      setStagedAttachments((prev) => [
-        ...prev,
-        {
-          id,
-          filename: "",
-          originalName: file.name,
-          mediaType: file.type || "application/octet-stream",
-          size: file.size,
-          uploading: true,
-        },
-      ]);
-      const formData = new FormData();
-      formData.append("file", file);
-      fetch(`/api/upload/${agent.id}`, { method: "POST", body: formData })
-        .then((res) => {
-          if (!res.ok) throw new UploadStatusError(res.status);
-          return res.json();
-        })
-        .then((data: { attachments: Attachment[] }) => {
-          const att = data.attachments[0];
-          setStagedAttachments((prev) =>
-            prev.map((s) =>
-              s.id === id ? { ...s, ...att, uploading: false } : s,
-            ),
-          );
-        })
-        .catch((err) => {
-          setStagedAttachments((prev) =>
-            prev.map((s) =>
-              s.id === id
-                ? {
-                    ...s,
-                    uploading: false,
-                    error:
-                      err instanceof UploadStatusError
-                        ? { kind: "status", status: err.status }
-                        : { kind: "raw", text: (err as Error).message },
-                  }
-                : s,
-            ),
-          );
-        });
-    }
+    uploadDraftFiles(dispatch, agent.id, Array.from(files));
     // Reset file input so the same file can be re-selected
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeStaged(id: string) {
-    setStagedAttachments((prev) => prev.filter((a) => a.id !== id));
+    dispatch({
+      type: "remove_draft_attachments",
+      agentId: agent.id,
+      ids: [id],
+    });
   }
 
   function handleDragOver(e: React.DragEvent) {
@@ -2105,12 +2029,11 @@ export function LogView({
     const attempt = takeAttempt(id);
     if (!attempt) return;
     if (attempt.attachments && attempt.attachments.length > 0) {
-      const restored = attempt.attachments.map((att) => ({
-        ...att,
-        id: Math.random().toString(36).slice(2, 10),
-        uploading: false,
-      }));
-      setStagedAttachments((prev) => [...prev, ...restored]);
+      dispatch({
+        type: "add_draft_attachments",
+        agentId: agent.id,
+        items: asDraftAttachments(attempt.attachments),
+      });
     }
     if (attempt.text) restoreFailedEdit(attempt.text);
   }
@@ -2132,11 +2055,7 @@ export function LogView({
       return false;
     }
     const attachments =
-      validAttachments.length > 0
-        ? validAttachments.map(
-            ({ id: _id, uploading: _u, error: _e, ...att }) => att,
-          )
-        : undefined;
+      validAttachments.length > 0 ? uploadedOnly(validAttachments) : undefined;
     if (!connected) {
       // Socket isn't open - the message route is reachable over HTTP, but the
       // streamed echo won't arrive, so a "sent" message would mislead. Leave the
@@ -2167,7 +2086,7 @@ export function LogView({
     setSendError(false);
     setEditError(null);
     setInput("");
-    setStagedAttachments([]);
+    dispatch({ type: "clear_draft_attachments", agentId: agent.id });
     if (!opts?.keepListening) stopListening(true);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
