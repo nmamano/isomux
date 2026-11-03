@@ -7,8 +7,7 @@
 //
 // The layout contract: <dir>/<version>/bun holds each version, and <link>
 // (the path the service runs) stays a REGULAR file with the bytes of one of
-// them. Not a symlink: Bun's process.execPath resolves a symlink, and the
-// server bakes dirname(process.execPath) into each app unit's PATH.
+// them.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {

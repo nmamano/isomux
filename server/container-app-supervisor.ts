@@ -5,6 +5,7 @@
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stableBunPath } from "./stable-bun-path.ts";
 import { STATE_ROOT } from "./config.ts";
 import { appHostDomain, appPublicUrl } from "./app-domain.ts";
 import {
@@ -66,7 +67,7 @@ export function createContainerAppSupervisor(
       PORT: String(app.port),
       ISOMUX_APP_NAME: app.name,
       ISOMUX_APP_DATA_DIR: app.dataDir,
-      PATH: computeAppPath(app.cwd, dirname(process.execPath)),
+      PATH: computeAppPath(app.cwd, dirname(stableBunPath())),
     };
     const descriptor = ["# Container app environment descriptor", "[Service]"];
     if (url !== null) {

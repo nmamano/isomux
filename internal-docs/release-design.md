@@ -122,9 +122,9 @@ Build and Install smoke (release set) runs, since the CI gates then run.
 its own directory, `<dir>/<version>/bun` (`/usr/local/lib/isomux/bun` on a
 system box, `$STATUS_DIR/bun` on a user-kind box), and the path the service
 runs (`/usr/local/bin/bun`, the `BUN` of `update.conf`) is a hardlink of one of
-them. Not a symlink: Bun's `process.execPath` resolves a symlink, and the
-server writes the directory of `process.execPath` into each app unit's PATH
-and the codex wrapper, so a symlink would pin those to one version directory.
+them. The server writes the Bun path it was started by into each app unit's
+PATH and the codex wrapper when that path resolves to the running binary, else
+`process.execPath` (server/stable-bun-path.ts), so a symlink works too.
 When the target pins another Bun, the updater runs the target's installer with
 `ISOMUX_BUN_ONLY=1` before the dependency sync (the exact
 `ISOMUX_INSTALL_BUN_MODE_VERSION=1` line is required, and the call is under

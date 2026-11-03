@@ -58,6 +58,7 @@ import { spawnSync } from "child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
+import { stableBunPath } from "./stable-bun-path.ts";
 import { STATE_ROOT } from "./config.ts";
 import { unitNameFor, unitPrefixFor } from "./office-units.ts";
 import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "./split/roots.ts";
@@ -275,8 +276,9 @@ function unitQuoted(raw: string, what: string): string {
 //   - every node_modules/.bin from the app's own directory upward, nearest
 //     first, which is how `vite` or `next` resolve without a package-manager
 //     wrapper (the trick portless landed on for the same problem);
-//   - the directory of the runtime running isomux itself, which is where `bun`
-//     actually lives on a box that installed it the normal way (~/.bun/bin).
+//   - the directory of the Bun path isomux was started by (stableBunPath),
+//     which is where `bun` lives on a box that installed it the normal way
+//     (~/.bun/bin).
 //
 // Computed whenever the unit is written - at registration, and again on an
 // update that changes the command or the working directory - and baked into the
@@ -696,7 +698,7 @@ export function createAppSupervisor(
   const host = options.host ?? createSystemdHost();
   const prefix =
     options.unitPrefix ?? unitPrefixFor(AGENT_ROOT, AGENT_ROOT_IS_DEFAULT);
-  const runtimeBinDir = options.runtimeBinDir ?? dirname(process.execPath);
+  const runtimeBinDir = options.runtimeBinDir ?? dirname(stableBunPath());
   const now = options.now ?? (() => Date.now());
   const cacheMs = options.cacheMs ?? APP_STATE_CACHE_MS;
   const hostDomain = options.appHostDomain ?? appHostDomain;

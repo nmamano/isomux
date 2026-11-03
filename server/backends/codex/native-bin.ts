@@ -30,6 +30,7 @@ import { AGENT_ROOT, AGENT_ROOT_IS_DEFAULT } from "../../split/roots.ts";
 
 import { errMessage } from "../../../shared/errors.ts";
 import { getAgentHost } from "../../agent-host.ts";
+import { stableBunPath } from "../../stable-bun-path.ts";
 
 const ISOMUX_ROOT = join(import.meta.dir, "..", "..", "..");
 
@@ -219,7 +220,7 @@ function buildCodexWrapperScript(): string {
 # An external CODEX_HOME in the env (e.g. managed personal variables for billing isolation, see
 # internal-docs/isolation-design.md) is honored verbatim.
 ${codexHomeDefaultBlock}
-exec ${shellSingleQuote(process.execPath)} ${shellSingleQuote(launcher)} "$@"
+exec ${shellSingleQuote(stableBunPath())} ${shellSingleQuote(launcher)} "$@"
 `;
 }
 

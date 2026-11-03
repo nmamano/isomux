@@ -2899,12 +2899,9 @@ bun_place() {
 # (verified download, or the copy already there) and make <link> that file.
 #
 # <link> is the path the service runs (/usr/local/bin/bun on an installer box)
-# and stays a REGULAR file, a hardlink of <dir>/<version>/bun: Bun's
-# process.execPath resolves a symlink, and the server writes the directory of
-# process.execPath into each app unit's PATH, so a symlink would pin every app
-# registered after a switch to one version directory. The Bun that <link> held
-# before is kept as <dir>/<its version>/bun for a rollback. Every failure
-# leaves <link> as it was.
+# and stays a REGULAR file, a hardlink of <dir>/<version>/bun. The Bun that
+# <link> held before is kept as <dir>/<its version>/bun for a rollback. Every
+# failure leaves <link> as it was.
 converge_bun() {
   local version=$1 link=$2 dir=$3
   local target=$dir/$version/bun have="" src="" arch="" sha="" tool tmp
