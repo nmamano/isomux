@@ -26,6 +26,7 @@ import { ZoomControls } from "../ZoomControls.tsx";
 import { getDraggedDesk, setDraggedDesk } from "../drag-state.ts";
 import { Vignette } from "../Vignette.tsx";
 import { Cloud } from "../Floor.tsx";
+import { mobileSceneScale } from "../grid.ts";
 import type { ViewportControls } from "../OfficeView.tsx";
 import {
   FIGURE_SCALE,
@@ -35,7 +36,7 @@ import {
   TILE_A,
   TILE_B,
   WALL_H,
-  MIN_SCALE,
+  WALL_T,
   backRoomLayout,
   type Point,
 } from "./geometry.ts";
@@ -59,8 +60,7 @@ const TABLE = { top: "#b38c63", front: "#94714d", side: "#7d5e40" };
 const LAPTOP = { base: "#9da3aa", lid: "#c8ccd2" };
 const CHAIR = { seat: "#3f6470", back: "#355561", leg: "#4a4a4a" };
 const SHADE = { outer: "#2f5446", rim: "#4d7a67" };
-// The walls' thickness, and a brick's length along a wall top.
-const WALL_T = 8;
+// A brick's length along a wall top.
 const BRICK_LEN = 26;
 const LONG_PRESS_MS = 500;
 // A cord's length above its bulb: long enough to run off the top of the
@@ -72,6 +72,8 @@ const CORD_H = 20000;
 const BULB_STAGGER = [0, 34, 14, 46, 6, 26, 40, 18, 30, 10];
 const BULB_GAP = 24;
 const SIGN_FONT = 30;
+// The stencil's height over the floor, under the window.
+const SIGN_H = 96;
 const SIGN_SPACING = 4;
 // The ladder's foot, in tiles from the right wall's end: it stands at the
 // right, under the trap door, which is on the right of the front floor.
@@ -160,6 +162,7 @@ function Bubble({ color, glyph }: { color: string; glyph: string }) {
 function Figure({
   agent,
   at,
+  scale,
   z,
   unread,
   askCount,
@@ -170,6 +173,9 @@ function Figure({
 }: {
   agent: AgentInfo;
   at: Point;
+  /** The seating's scale (layout.k): the figure, its hit box and its plate
+   *  shrink with the tables. */
+  scale: number;
   z: number;
   unread: boolean;
   // Open asks from this agent to the viewer: the count dot.
@@ -181,8 +187,8 @@ function Figure({
   onDrag: (dragging: boolean) => void;
 }) {
   const { tn } = useI18n();
-  const h = 68 * FIGURE_SCALE;
-  const w = 52 * FIGURE_SCALE;
+  const h = 68 * FIGURE_SCALE * scale;
+  const w = 52 * FIGURE_SCALE * scale;
   const plate = styleForModel(agent.modelFamily);
   const press = useRef<number | null>(null);
   const pressed = useRef(false);
@@ -257,11 +263,10 @@ function Figure({
         style={{
           position: "absolute",
           // The hit box is the figure plus the floor cell around its feet.
-          // 54 units is about 45 px at the smallest scale (a phone tap).
-          left: at.x - 27,
-          top: at.y - h - 6,
-          width: 54,
-          height: h + 22,
+          left: at.x - 27 * scale,
+          top: at.y - h - 6 * scale,
+          width: 54 * scale,
+          height: h + 22 * scale,
           zIndex: z,
           cursor: "pointer",
           WebkitTapHighlightColor: "transparent",
@@ -274,15 +279,16 @@ function Figure({
         </div>
       </div>
       {/* The nameplate: the front's, smaller. Neighbours on a table sit a
-          stool step (24 units) lower, more than its height, so plates do not
-          overlap at any room size. */}
+          stool step lower, more than its height at any seating scale, so
+          plates do not overlap. */}
       <div
         data-back-nameplate
         style={{
           position: "absolute",
           left: at.x,
           top: at.y - h - 15,
-          transform: "translateX(-50%)",
+          transform: `translateX(-50%) scale(${scale})`,
+          transformOrigin: "50% 100%",
           zIndex: 5000 + z,
           pointerEvents: "none",
           display: "flex",
@@ -349,8 +355,10 @@ function Figure({
         <div
           style={{
             position: "absolute",
-            left: at.x + 6,
-            top: at.y - h - 32,
+            left: at.x + 6 * scale,
+            top: at.y - h - 32 * scale,
+            transform: `scale(${scale})`,
+            transformOrigin: "0 0",
             zIndex: 5001 + z,
             pointerEvents: "none",
           }}
@@ -469,15 +477,11 @@ export function BackRoomScreen({
   // The figure being dragged: the ladder shows itself as the drop target.
   const [dragged, setDragged] = useState<AgentInfo | null>(null);
   // The front's zoom and pan (task f0af4677), with its own saved view. The
-  // rest view fits the whole room down to a readable scale and crops evenly
-  // below it; zoom goes far enough out to show a full room on a phone, and
-  // one finger always pans (there is no room swipe here).
-  const viewport = useViewport(`${side}|${isMobile ? 1 : 0}`, true, {
+  // building is the front's, so the rest view fits it as the front's does
+  // (task dc9786a8); one finger always pans (there is no room swipe here).
+  const sceneScale = isMobile ? mobileSceneScale() : 1;
+  const viewport = useViewport(`${isMobile ? 1 : 0}|${sceneScale}`, true, {
     kind: "back",
-    artBox: { left: 0, top: 0, right: 1, bottom: 1 },
-    fitWidth: true,
-    minScale: 0.25,
-    restMinScale: MIN_SCALE,
     touchPanAtRest: true,
   });
   const { setContent } = viewport;
@@ -697,7 +701,7 @@ export function BackRoomScreen({
   const signSpan =
     (layout.nc - LADDER_FROM_END - SIGN_LADDER_GAP - SIGN_C0) * TILE_A;
   const signScale = Math.min(1, signSpan / signW);
-  const sign = up(layout.at(SIGN_C0 + signSpan / 2 / TILE_A, 0), WALL_H * 0.55);
+  const sign = up(layout.at(SIGN_C0 + signSpan / 2 / TILE_A, 0), SIGN_H);
   // The text slants down to its right: its left end is its highest point.
   const signTop = sign.y - (signScale * signW) / 4 - signScale * SIGN_FONT;
   // The window, centred over the stencil. The opening is on the wall face;
@@ -817,12 +821,14 @@ export function BackRoomScreen({
     if (s) seated.set(`${s.table},${s.stool}`, a);
   }
   const rows: React.ReactNode[] = [];
+  const { k } = layout;
+  const tableH = k * TABLE_H;
   for (let j = 0; j < side; j++) {
     const tb = layout.table(j);
     const t0 = layout.at(tb.c0, tb.r);
     const t1 = layout.at(tb.c1, tb.r);
-    const t2 = layout.at(tb.c1, tb.r + TABLE_DEPTH);
-    const t3 = layout.at(tb.c0, tb.r + TABLE_DEPTH);
+    const t2 = layout.at(tb.c1, tb.r + k * TABLE_DEPTH);
+    const t3 = layout.at(tb.c0, tb.r + k * TABLE_DEPTH);
     rows.push(
       <svg
         key={`table-${j}`}
@@ -839,21 +845,21 @@ export function BackRoomScreen({
       >
         <path
           d={poly([
-            up(t0, TABLE_H),
-            up(t1, TABLE_H),
-            up(t2, TABLE_H),
-            up(t3, TABLE_H),
+            up(t0, tableH),
+            up(t1, tableH),
+            up(t2, tableH),
+            up(t3, tableH),
           ])}
           fill={TABLE.top}
           stroke="rgba(0,0,0,0.25)"
           strokeWidth={0.6}
         />
         <path
-          d={poly([up(t3, TABLE_H), up(t2, TABLE_H), t2, t3])}
+          d={poly([up(t3, tableH), up(t2, tableH), t2, t3])}
           fill={TABLE.front}
         />
         <path
-          d={poly([up(t1, TABLE_H), up(t2, TABLE_H), t2, t1])}
+          d={poly([up(t1, tableH), up(t2, tableH), t2, t1])}
           fill={TABLE.side}
         />
         {/* A laptop at each taken seat, its lid toward us: one path for
@@ -864,9 +870,9 @@ export function BackRoomScreen({
           let lids = "";
           for (let i = 0; i < side; i++) {
             if (!seated.has(`${j},${i}`)) continue;
-            const c = tb.c0 + 0.5 + i;
+            const c = tb.c0 + k * (0.5 + i);
             const p = (dc: number, dr: number) =>
-              up(layout.at(c + dc, tb.r + dr), TABLE_H);
+              up(layout.at(c + k * dc, tb.r + k * dr), tableH);
             // The base reaches toward the agent; the lid stands on its
             // front edge, its back to us.
             const [b0, b1, b2, b3] = [
@@ -876,7 +882,7 @@ export function BackRoomScreen({
               p(-0.15, 0.3),
             ];
             bases += poly([b0, b1, b2, b3]) + " ";
-            lids += poly([b3, b2, up(b2, 9), up(b3, 9)]) + " ";
+            lids += poly([b3, b2, up(b2, 9 * k), up(b3, 9 * k)]) + " ";
           }
           return (
             bases && (
@@ -903,6 +909,7 @@ export function BackRoomScreen({
             key={agent.id}
             agent={agent}
             at={at}
+            scale={k}
             z={j * 10 + 3}
             unread={needsAttention.has(agent.id)}
             askCount={askCounts?.get(agent.id) ?? 0}
@@ -933,25 +940,25 @@ export function BackRoomScreen({
             {/* An empty chair facing the table: a post on a foot, the back
                 on the seat's far edge, then the seat. */}
             <path
-              d={`M${at.x} ${at.y} L${at.x} ${at.y - 12} M${at.x - 6} ${at.y - 1} L${at.x + 6} ${at.y + 1}`}
+              d={`M${at.x} ${at.y} L${at.x} ${at.y - 12 * k} M${at.x - 6 * k} ${at.y - k} L${at.x + 6 * k} ${at.y + k}`}
               stroke={CHAIR.leg}
-              strokeWidth={2}
+              strokeWidth={2 * k}
             />
             <path
               d={poly([
-                { x: at.x, y: at.y - 18 },
-                { x: at.x + 12, y: at.y - 12 },
-                { x: at.x + 12, y: at.y - 28 },
-                { x: at.x, y: at.y - 34 },
+                { x: at.x, y: at.y - 18 * k },
+                { x: at.x + 12 * k, y: at.y - 12 * k },
+                { x: at.x + 12 * k, y: at.y - 28 * k },
+                { x: at.x, y: at.y - 34 * k },
               ])}
               fill={CHAIR.back}
             />
             <path
               d={poly([
-                { x: at.x - 12, y: at.y - 12 },
-                { x: at.x, y: at.y - 18 },
-                { x: at.x + 12, y: at.y - 12 },
-                { x: at.x, y: at.y - 6 },
+                { x: at.x - 12 * k, y: at.y - 12 * k },
+                { x: at.x, y: at.y - 18 * k },
+                { x: at.x + 12 * k, y: at.y - 12 * k },
+                { x: at.x, y: at.y - 6 * k },
               ])}
               fill={CHAIR.seat}
             />
@@ -978,6 +985,7 @@ export function BackRoomScreen({
   }
 
   const barButton: React.CSSProperties = {
+    pointerEvents: "auto",
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
@@ -994,16 +1002,28 @@ export function BackRoomScreen({
   return (
     <div
       data-back-room
-      style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        minWidth: 0,
+        position: "relative",
+      }}
     >
+      {/* The bar floats over the room, so the room's view is the front's
+          size and the building fits it as the front's does. */}
       <div
         style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1,
+          pointerEvents: "none",
           display: "flex",
           alignItems: "center",
           gap: 10,
           padding: isMobile ? "6px 10px" : "8px 16px",
-          borderBottom: "1px solid var(--border-subtle)",
-          background: "var(--bg-hud)",
         }}
       >
         <button
@@ -1020,12 +1040,16 @@ export function BackRoomScreen({
         >
           {t("office.backRoom.backTo", { room: roomName })}
         </button>
+        {/* A plate under the title, so it reads over the room too. */}
         <span
           style={{
             fontWeight: 700,
             fontSize: 13,
             color: "var(--text-primary)",
             whiteSpace: "nowrap",
+            padding: "5px 11px",
+            borderRadius: 8,
+            background: "var(--bg-base)",
           }}
         >
           {t("office.backRoom.title")}
@@ -1063,13 +1087,15 @@ export function BackRoomScreen({
           <div
             ref={attachRoom}
             className="back-room-still"
+            // The front scene's centring and phone scale (OfficeView).
             style={{
               position: "absolute",
               left: "50%",
-              top: "50%",
+              top: isMobile ? "45%" : "50%",
               width: layout.width,
               height: layout.height,
-              transform: "translate(-50%, -50%)",
+              transform: `translate(-50%, -50%) scale(${sceneScale})`,
+              transformOrigin: "center center",
             }}
           >
             <style>{`.back-room-still *, .back-room-still *::before, .back-room-still *::after { animation: none !important; transition: none !important; } .back-room-still [data-back-ladder]:focus:not(:focus-visible), .back-room-still [data-back-board-line]:focus:not(:focus-visible) { outline: none; }`}</style>

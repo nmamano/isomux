@@ -54,7 +54,7 @@ import {
   LEFT_DOOR_COORD,
   RIGHT_DOOR_COORD,
 } from "./useGhostTransitions.ts";
-import { SCENE_W, SCENE_H } from "./grid.ts";
+import { SCENE_W, SCENE_H, mobileSceneScale } from "./grid.ts";
 import { LobbyScene } from "./lobby/index.ts";
 import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
 import { crownHolder, employeeOfTheMinute } from "./lobby/employee.ts";
@@ -399,7 +399,7 @@ export function OfficeView({
           label: t("office.newRoom.door"),
           onClick: () => setNewRoomOpen(true),
         };
-  const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
+  const mobileScale = isMobile ? mobileSceneScale() : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
   // transform-only updates).

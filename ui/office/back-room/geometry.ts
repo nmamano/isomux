@@ -1,21 +1,34 @@
 // The back room's drawing (task 5b503e32): an isometric basement with n long
-// tables of n stools, laid out in its own pixel space. A seat's place on screen
-// comes from its stored (table, stool), so growing the room never moves a
-// figure that is already seated.
+// tables of n stools. Its building is the front room's (task dc9786a8): the
+// same floor, walls and place in the scene, so going down never changes the
+// building's size. A seat's place comes from its stored (table, stool).
 
 import type { BackSeat } from "../../../shared/desks.ts";
+import {
+  FLOOR_BACK_X,
+  FLOOR_BACK_Y,
+  FLOOR_N,
+  SCENE_H,
+  SCENE_W,
+  VB_X,
+  VB_Y,
+} from "../grid.ts";
 
 // Tile half-diagonals, as in the front room (ui/office/grid.ts).
 export const TILE_A = 47.5;
 export const TILE_B = 23.75;
-export const WALL_H = 175;
-export const SLAB_H = 12;
+// The front room's wall height, wall thickness and slab (ui/office/Floor.tsx).
+export const WALL_H = 240;
+export const WALL_T = 9;
+export const SLAB_H = 14;
 // Stool step along a table, and table step across tables, in tiles.
 const SEAT_STEP = 1.0;
 const TABLE_STEP = 1.45;
-// Free floor around the tables, in tiles.
+// Free floor around the tables, in tiles: at the left and right ends of the
+// tables, behind the first table (the ladder stands there), and in front.
 const MARGIN_C = 0.9;
 const MARGIN_R = 1.2;
+const MARGIN_FRONT = 0.6;
 export const TABLE_H = 12;
 export const TABLE_DEPTH = 0.45;
 // Figures are drawn at this fraction of the front room's character size.
@@ -33,6 +46,10 @@ export interface BackRoomLayout {
   nr: number;
   width: number;
   height: number;
+  /** The seating's scale: 1 while the tables fit the floor at their full
+   *  size, less in a fuller room, where tables, stools and figures shrink
+   *  together. */
+  k: number;
   /** Screen point of floor coordinates (c along a table, r across). */
   at: (c: number, r: number) => Point;
   /** Where a seated figure's feet are. */
@@ -42,33 +59,34 @@ export interface BackRoomLayout {
 }
 
 export function backRoomLayout(side: number): BackRoomLayout {
-  const nc = side * SEAT_STEP + 2 * MARGIN_C;
-  const nr = side * TABLE_STEP + MARGIN_R + 0.6;
-  const x0 = nr * TILE_A + 20;
-  const y0 = WALL_H + 60;
+  const nc = FLOOR_N;
+  const nr = FLOOR_N;
+  const x0 = FLOOR_BACK_X - VB_X;
+  const y0 = FLOOR_BACK_Y - VB_Y;
   const at = (c: number, r: number) => ({
     x: x0 + (c - r) * TILE_A,
     y: y0 + (c + r) * TILE_B,
   });
-  const tableR = (j: number) => MARGIN_R + j * TABLE_STEP;
+  // The tables' block at full size, and the floor it may take.
+  const tablesC = side * SEAT_STEP + 0.2;
+  const tablesR = (side - 1) * TABLE_STEP + TABLE_DEPTH;
+  const freeC = nc - 2 * MARGIN_C;
+  const freeR = nr - MARGIN_R - MARGIN_FRONT;
+  const k = Math.min(1, freeC / tablesC, freeR / tablesR);
+  // The block is centred on the free floor.
+  const c0 = MARGIN_C + (freeC - k * tablesC) / 2;
+  const r0 = MARGIN_R + (freeR - k * tablesR) / 2;
+  const tableR = (j: number) => r0 + k * j * TABLE_STEP;
   return {
     side,
     nc,
     nr,
-    width: (nc + nr) * TILE_A + 40,
-    height: y0 + (nc + nr) * TILE_B + SLAB_H + 20,
+    width: SCENE_W,
+    height: SCENE_H,
+    k,
     at,
     seat: (s) =>
-      at(MARGIN_C + 0.5 + s.stool * SEAT_STEP, tableR(s.table) - 0.04),
-    table: (j) => ({
-      c0: MARGIN_C,
-      c1: MARGIN_C + side * SEAT_STEP + 0.2,
-      r: tableR(j),
-    }),
+      at(c0 + k * (0.5 + s.stool * SEAT_STEP), tableR(s.table) - 0.04 * k),
+    table: (j) => ({ c0, c1: c0 + k * tablesC, r: tableR(j) }),
   };
 }
-
-// The lowest scale the back room's rest view fits to, so a seat stays about
-// 44 px wide along its table (a phone tap target) and a figure stays readable.
-// Below it, the rest view crops; zoom still goes lower (task f0af4677).
-export const MIN_SCALE = 0.83;

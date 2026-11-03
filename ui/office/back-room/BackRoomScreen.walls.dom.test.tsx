@@ -88,7 +88,7 @@ describe("BackRoomScreen walls", () => {
   // One render per size for all the wall checks: a 100-agent render costs
   // about 0.6 s.
   it("stands the ladder at the right wall's end, the stencil clear of it, the board on the left wall, and every lamp above both", () => {
-    // At 3x3 and at 10x10 (the layout is linear in the side): the ladder's
+    // At 3x3 and at 10x10 (the lamps follow the side): the ladder's
     // right edge stays inside the wall, past its middle; the "BACK ROOM"
     // stencil stays between the back corner and the ladder; the board stays
     // between the left wall's two corners.

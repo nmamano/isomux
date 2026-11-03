@@ -7,6 +7,12 @@ export const SCENE_W = 950,
 export const VB_X = -355,
   VB_Y = -100;
 
+// The scene's scale on a phone: it fills the screen's width less 200 units,
+// so the wall ends crop.
+export function mobileSceneScale(): number {
+  return screen.width / (SCENE_W - 200);
+}
+
 // The floor tile grid: N x N tiles from the back corner, where the two walls
 // meet the floor. A row step goes down-left and a column step down-right, both
 // at the 2:1 isometric slope.

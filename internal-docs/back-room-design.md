@@ -1,8 +1,7 @@
 # Back room design (task 5b503e32)
 
 Status: approved for build by Nil on 2026-10-15 (relayed by the PM and the
-Lead). Mocks of the look: /tmp/b1042/mocks/r2 (the room size there is the
-old fixed 10 × 10; the build grows the room as below).
+Lead). Mocks of the look: /tmp/b1042/mocks/r2.
 
 ## Concept
 
@@ -66,7 +65,11 @@ seats in use, with no stored state (`backRoomSide`):
   exists until 100.
 
 Growth adds one stool to every table and one new table, so no agent changes
-seat. The room shrinks only when its outer ring is empty. A new agent takes the
+seat. The building does not grow (task dc9786a8; Nil: "going down shouldn't
+change the building size"): the back room draws the front's floor and walls at
+the front's place and scale. The tables sit centred on the floor at full size
+up to 6 × 6; in a larger room, tables, stools and figures shrink together to
+fit. The room shrinks only when its outer ring is empty. A new agent takes the
 first free seat of the smallest square that has one (`firstFreeBackSeat`):
 ring by ring from the inner corner, by table and then stool. Past 100, a spawn
 or move fails with 409 `back_room_full`, "The back room is full (100 agents)."
@@ -177,11 +180,10 @@ Approved by the Lead, 2026-10-15.
   2026-10-15, 100 static figures draw at the front view's frame time, 100
   animated ones 3 to 4 times slower.
 - Zoom and pan as on the front (wheel, drag, pinch, +, - and 0, and the zoom
-  buttons), with the front's useViewport and a saved view of its own. The rest
-  view fits the room down to the smallest readable figure size (scale 0.83)
-  and crops evenly below it; zoom goes out to 0.25, so a phone can show a full
-  10 × 10 room. One finger pans at any scale (no room swipe here).
-- A bar: "← {room}", "Back room", "+ New agent". Figure menu: "Move to front"
+  buttons), with the front's useViewport and rest view and a saved view of
+  its own. One finger pans at any scale (no room swipe here).
+- A bar over the top of the room: "← {room}", "Back room", "+ New agent". It
+  takes no height, so the room's view is the front's size. Figure menu: "Move to front"
   (first free desk; disabled with "Front is full").
 - On a desktop, a figure dragged onto the ladder moves to the first free
   front desk, the mirror of the trap door; during the drag the ladder shows

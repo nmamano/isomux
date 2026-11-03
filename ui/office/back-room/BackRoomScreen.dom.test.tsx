@@ -133,7 +133,7 @@ describe("BackRoomScreen", () => {
     expect(getDraggedDesk()).toBe(3);
   });
 
-  it("gives the 0, + and - keys its own view, which zooms out past the front's limit", () => {
+  it("gives the 0, + and - keys its own view, which zooms out as far as the front's", () => {
     const ref: { current: { zoomOut: () => void } | null } = { current: null };
     const view = render(
       onLanguage(
@@ -158,8 +158,8 @@ describe("BackRoomScreen", () => {
     const scene = view.container.querySelector(
       "[data-back-room] > div:nth-child(2) > div",
     ) as HTMLElement;
-    // The front stops at 0.5; the back room goes to 0.25.
-    expect(scene.style.transform).toContain("scale(0.25)");
+    // The building is the front's, so zoom stops where the front's does.
+    expect(scene.style.transform).toContain("scale(0.5)");
     view.unmount();
     expect(ref.current).toBeNull();
   });

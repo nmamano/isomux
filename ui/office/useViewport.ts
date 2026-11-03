@@ -87,31 +87,13 @@ const savedViews: Record<
   back: { state: { ...DEFAULT_STATE }, rest: { ...DEFAULT_STATE } },
 };
 
-/** What differs between viewports. Every field defaults to the front office. */
+/** What differs between the front and the back room. Every field defaults to the front. */
 export interface ViewportOptions {
   /** Which saved view the hook keeps across unmounts. */
   kind?: ViewportKind;
-  /** The painted scene as fractions of the content's layout box. */
-  artBox?: Bounds;
-  /** Whether width may drive the rest scale down, as well as height. */
-  fitWidth?: boolean;
-  /** The zoom range. */
-  minScale?: number;
-  maxScale?: number;
-  /** The lowest scale the rest view fits to; below it the rest view crops. */
-  restMinScale?: number;
   /** One finger pans at the rest scale too. The front cedes it to the room
    *  swipe until the user zooms in. */
   touchPanAtRest?: boolean;
-}
-
-interface ViewportConfig {
-  artBox: Bounds;
-  fitWidth: boolean;
-  minScale: number;
-  maxScale: number;
-  restMinScale: number;
-  touchPanAtRest: boolean;
 }
 
 // Pan should start from any non-interactive surface in the scene. Every clickable
@@ -211,14 +193,14 @@ export function computeRestView(
 }
 
 /** The painted scene box, derived from the measured layout box. */
-export function artBounds(b: Bounds, box: Bounds = ART_BOX): Bounds {
+export function artBounds(b: Bounds): Bounds {
   const w = b.right - b.left;
   const h = b.bottom - b.top;
   return {
-    left: b.left + box.left * w,
-    right: b.left + box.right * w,
-    top: b.top + box.top * h,
-    bottom: b.top + box.bottom * h,
+    left: b.left + ART_BOX.left * w,
+    right: b.left + ART_BOX.right * w,
+    top: b.top + ART_BOX.top * h,
+    bottom: b.top + ART_BOX.bottom * h,
   };
 }
 
@@ -290,15 +272,7 @@ export function useViewport(
   options: ViewportOptions = {},
 ) {
   // A call site's options never change; handlers set up once read them too.
-  const config: ViewportConfig = {
-    artBox: options.artBox ?? ART_BOX,
-    fitWidth: options.fitWidth ?? FIT_AXES === "both",
-    minScale: options.minScale ?? VIEWPORT.MIN_SCALE,
-    maxScale: options.maxScale ?? VIEWPORT.MAX_SCALE,
-    restMinScale:
-      options.restMinScale ?? options.minScale ?? VIEWPORT.MIN_SCALE,
-    touchPanAtRest: options.touchPanAtRest ?? false,
-  };
+  const touchPanAtRest = options.touchPanAtRest ?? false;
   const kind = options.kind ?? "front";
   // The saved view of this kind. Both refs point at the module's objects,
   // which the handlers update in place.
@@ -477,9 +451,8 @@ export function useViewport(
     const target = computeRestView(
       container.clientWidth,
       container.clientHeight,
-      artBounds(b, config.artBox),
-      config.fitWidth,
-      config.restMinScale,
+      artBounds(b),
+      FIT_AXES === "both",
     );
     restView.current.x = target.x;
     restView.current.y = target.y;
@@ -495,7 +468,7 @@ export function useViewport(
 
   function zoomAt(cx: number, cy: number, newScale: number) {
     const s = state.current;
-    const clamped = clampScale(newScale, config.minScale, config.maxScale);
+    const clamped = clampScale(newScale);
     const ratio = clamped / s.scale;
     s.x = cx - ratio * (cx - s.x);
     s.y = cy - ratio * (cy - s.y);
@@ -793,10 +766,7 @@ export function useViewport(
       // One-finger touches at rest scale belong to the swipe-to-change-room
       // hook (iOS-gallery pattern). Once zoomed in, the user needs one-finger
       // pan to look around, so we take the gesture back.
-      if (
-        !config.touchPanAtRest &&
-        state.current.scale <= VIEWPORT.ZOOM_EPSILON
-      ) {
+      if (!touchPanAtRest && state.current.scale <= VIEWPORT.ZOOM_EPSILON) {
         return;
       }
       const t = e.touches[0];
@@ -822,7 +792,7 @@ export function useViewport(
         const newMidY = (t1.clientY + t2.clientY) / 2 - rect.top;
 
         const newScale = g.initial.scale * (dist / g.startDist);
-        const clamped = clampScale(newScale, config.minScale, config.maxScale);
+        const clamped = clampScale(newScale);
         const scaleRatio = clamped / g.initial.scale;
 
         // Zoom anchored at the current midpoint, pinning the scene point that
