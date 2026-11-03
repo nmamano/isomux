@@ -204,6 +204,7 @@ export function AskLink({
       <InlineMarkdown
         content={oneLine}
         code
+        colors
         links={false}
         whiteSpace="nowrap"
       />

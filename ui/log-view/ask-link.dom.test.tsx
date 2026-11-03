@@ -687,3 +687,39 @@ it("draws a diff block as diff rows in the expanded prompt", () => {
   expect(full.textContent).not.toContain("```");
   view.unmount();
 });
+
+// Colour markup (task d6cadcdb): the collapsed line and the open prompt
+// (AskPrompt, also in the Inbox and above the chat input) draw it.
+it("draws colour markup in the collapsed line and in the expanded prompt", () => {
+  const entry = answerTo("colored", {
+    id: "abcd1234",
+    prompt: ":green[**Quick stamp**] Ship the release?",
+    options: ["Approve", "Revert"],
+  });
+  const view = render(onLanguage("en", <Transcript entries={[entry]} />));
+  const line = view.container.querySelector<HTMLElement>(
+    '[data-log-entry-id="colored"] [data-ask-link="abcd1234"]',
+  )!;
+  const label = (root: Element) => {
+    const span = root.querySelector<HTMLElement>("[data-color]");
+    return [span?.dataset.color, span?.style.color, span?.textContent];
+  };
+  const toggle = line.querySelector<HTMLElement>("[data-ask-link-toggle]")!;
+  expect(label(toggle)).toStrictEqual([
+    "green",
+    "var(--green-text)",
+    "Quick stamp",
+  ]);
+  expect(toggle.textContent).not.toContain(":green[");
+  fireEvent.click(toggle);
+  const full = line.querySelector<HTMLElement>("[data-ask-link-full]")!;
+  expect(label(full)).toStrictEqual([
+    "green",
+    "var(--green-text)",
+    "Quick stamp",
+  ]);
+  expect(full.querySelector("[data-color] strong")?.textContent).toBe(
+    "Quick stamp",
+  );
+  view.unmount();
+});

@@ -79,6 +79,7 @@ export function AskPrompt({ content }: { content: string }) {
         key={i}
         content={segment.text}
         code
+        colors
         tasks={taskMap}
         onOpenTask={openTask}
       />

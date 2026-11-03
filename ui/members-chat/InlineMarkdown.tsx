@@ -1,6 +1,11 @@
 import { Fragment, useMemo, type ReactNode } from "react";
 import { Lexer, defaults, type MarkedToken, type Token } from "marked";
 import { renderTaskText, type TaskMap } from "../log-view/task-links.tsx";
+import {
+  MARKUP_COLORS,
+  colorMarkupOptions,
+  type ColorToken,
+} from "./color-markup.ts";
 
 // The full log renderer also runs HTML, SVG, Mermaid and code hooks. Keep
 // this small inline grammar separate, and let React escape all source text.
@@ -26,8 +31,18 @@ const CODE_STYLE = {
 };
 
 function renderTokens(tokens: Token[], grammar: Grammar): ReactNode[] {
-  // No extensions are registered, so every token is a built-in one.
-  return (tokens as MarkedToken[]).map((token, index) => {
+  // The colour markup is the one extension; every other token is built in.
+  return (tokens as (MarkedToken | ColorToken)[]).map((token, index) => {
+    if (token.type === "color")
+      return (
+        <span
+          key={index}
+          data-color={token.name}
+          style={{ color: MARKUP_COLORS.get(token.name) }}
+        >
+          {renderTokens(token.tokens, grammar)}
+        </span>
+      );
     if (token.type === "strong" && token.tokens)
       return <strong key={index}>{renderTokens(token.tokens, grammar)}</strong>;
     if (token.type === "em" && token.tokens)
@@ -88,6 +103,7 @@ export function InlineMarkdown({
   code = false,
   links = true,
   whiteSpace = "pre-wrap",
+  colors = false,
   tasks,
   onOpenTask,
 }: {
@@ -98,6 +114,8 @@ export function InlineMarkdown({
   /** False draws a safe link as its text, for a line inside a button. */
   links?: boolean;
   whiteSpace?: "pre-wrap" | "nowrap";
+  /** Draw `:green[text]` colour markup (color-markup.ts). Off by default. */
+  colors?: boolean;
   /** With onOpenTask, draw these tasks' ids as chips (TaskChip). */
   tasks?: TaskMap;
   onOpenTask?: (id: string) => void;
@@ -105,7 +123,11 @@ export function InlineMarkdown({
   const nodes = useMemo(
     () =>
       renderTokens(
-        Lexer.lexInline(content, { ...defaults, gfm: true, breaks: false }),
+        Lexer.lexInline(content, {
+          ...(colors ? colorMarkupOptions : defaults),
+          gfm: true,
+          breaks: false,
+        }),
         {
           code,
           links,
@@ -114,7 +136,7 @@ export function InlineMarkdown({
             : {}),
         },
       ),
-    [content, code, links, tasks, onOpenTask],
+    [content, code, links, colors, tasks, onOpenTask],
   );
   return <span style={{ whiteSpace }}>{nodes}</span>;
 }
