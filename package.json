@@ -15,7 +15,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "bun run scripts/lint.ts",
-    "typecheck": "bun node_modules/typescript-native/bin/tsc --noEmit",
+    "typecheck": "bun scripts/typecheck.ts",
     "lint:fix": "bun run scripts/lint.ts --fix",
     "lint:web": "eslint --config control-plane/web/eslint.config.mjs control-plane/web",
     "test": "bun test",

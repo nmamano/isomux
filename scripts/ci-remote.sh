@@ -57,8 +57,9 @@ CI_RETRY_FOR=360
 CI_RETRY_EVERY=30
 REMOTE_ROOT=.cache/isomux-ci-remote
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
-# Gate runs at once on the remote. Each gets about 3 GiB (tsc peaked at
-# 2.17 GiB, TS 7, 2026-11-02; the tsc stage's peakRss in scripts/ci.ts), and
+# Gate runs at once on the remote. Each gets about 3 GiB (the tsc stage's
+# peakRss in scripts/ci.ts; tsc peaked at 1.25 GiB, its largest partition,
+# 2026-11-03, task 53a41bd9), and
 # the remote's memory must still hold a CI run beside them (task b3056d6c).
 GATE_SLOTS=2
 # Seconds a gate run waits for a slot and for a CI run to end, together.

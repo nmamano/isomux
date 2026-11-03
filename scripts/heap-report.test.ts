@@ -18,9 +18,11 @@ import { printSummary, runStage, stageEnv, stages } from "./ci";
 import {
   HEAP_WARN_RATIO,
   heapEnv,
+  crashMarker,
   heapLines,
   readHeapReport,
   rssLines,
+  runMarker,
   type HeapUse,
 } from "./heap-report";
 import { eslintNodeOptions } from "./lint";
@@ -46,8 +48,13 @@ const end = (pid: number, threadId: number, peak: number, limit: number) =>
   JSON.stringify({ end: true, pid, threadId, peak, limit });
 const report = (...lines: string[]) => lines.map((l) => `${l}\n`).join("");
 
-function use(peakBytes: number, limitBytes: number, lost = 0): HeapUse {
-  return { peakBytes, limitBytes, heaps: 1, lost };
+function use(
+  peakBytes: number,
+  limitBytes: number,
+  lost = 0,
+  crashes: string[] = [],
+): HeapUse {
+  return { peakBytes, limitBytes, heaps: 1, lost, crashes };
 }
 
 // Node, not Bun: Bun ignores NODE_OPTIONS --require.
@@ -97,6 +104,7 @@ describe("readHeapReport", () => {
       limitBytes: 1000 * MIB,
       heaps: 2,
       lost: 0,
+      crashes: [],
     });
   });
 
@@ -138,7 +146,61 @@ describe("readHeapReport", () => {
       limitBytes: 100 * MIB,
       heaps: 1,
       lost: 0,
+      crashes: [],
     });
+  });
+
+  // scripts/lint.ts writes a run marker before each ESLint run and a crash
+  // marker after a run that crashed; the summary judges the last run.
+  it("counts a lost heap only in the last run, and keeps the crash of an earlier run", () => {
+    const text = report(
+      runMarker("3").trimEnd(),
+      // The first run's main thread crashed before it started a thread.
+      start(20, 0),
+      crashMarker("exit 133, SIGTRAP").trimEnd(),
+      runMarker("off").trimEnd(),
+      start(21, 0),
+      end(21, 0, 200 * MIB, 4000 * MIB),
+    );
+    expect(readHeapReport(text)).toEqual({
+      peakBytes: 200 * MIB,
+      limitBytes: 4000 * MIB,
+      heaps: 1,
+      lost: 0,
+      crashes: ["exit 133, SIGTRAP"],
+    });
+  });
+
+  it("counts a lost heap of the last run, and the worst heap of every run", () => {
+    const text = report(
+      runMarker("3").trimEnd(),
+      start(30, 0),
+      start(30, 1),
+      // The worst share is in the first run.
+      end(30, 1, 900 * MIB, 1000 * MIB),
+      crashMarker("exit 134, SIGABRT").trimEnd(),
+      runMarker("off").trimEnd(),
+      start(31, 0),
+      start(31, 1),
+      end(31, 0, 100 * MIB, 4000 * MIB),
+    );
+    expect(readHeapReport(text)).toEqual({
+      peakBytes: 900 * MIB,
+      limitBytes: 1000 * MIB,
+      heaps: 2,
+      lost: 1,
+      crashes: ["exit 134, SIGABRT"],
+    });
+  });
+
+  it("reads a marker as no heap", () => {
+    // Each marker is one report line.
+    for (const marker of [runMarker("3"), crashMarker("exit 133, SIGTRAP")])
+      expect(marker.split("\n")).toEqual([marker.trimEnd(), ""]);
+    expect(readHeapReport(runMarker("off"))).toBeUndefined();
+    expect(
+      readHeapReport(report(runMarker("off").trimEnd(), start(40, 0))),
+    ).toMatchObject({ heaps: 0, lost: 1 });
   });
 });
 
@@ -165,6 +227,28 @@ describe("heapLines", () => {
   it("warns when a heap was lost, also when the worst finished heap is low", () => {
     const lines = heapLines("lint", use(100 * MIB, 1000 * MIB, 1));
     expect(lines.length).toBeGreaterThan(1);
+  });
+
+  it("names a crashed run instead of a lost heap, and still warns on a lost heap of the last run", () => {
+    const clean = heapLines("lint", use(100 * MIB, 1000 * MIB));
+    const lost = heapLines("lint", use(100 * MIB, 1000 * MIB, 1));
+    // The condition the check rests on: a lost heap gives a line.
+    expect(lost.length).toBe(clean.length + 1);
+    const crashed = heapLines(
+      "lint",
+      use(100 * MIB, 1000 * MIB, 0, ["exit 133, SIGTRAP"]),
+    );
+    expect(crashed.slice(0, clean.length)).toEqual(clean);
+    expect(crashed).toHaveLength(clean.length + 1);
+    expect(crashed.at(-1)).toContain("133");
+    expect(crashed.at(-1)).toContain("SIGTRAP");
+    expect(crashed.filter((line) => lost.includes(line))).toEqual(clean);
+    const both = heapLines(
+      "lint",
+      use(100 * MIB, 1000 * MIB, 1, ["exit 133, SIGTRAP"]),
+    );
+    expect(both).toEqual(expect.arrayContaining([...lost, crashed.at(-1)]));
+    expect(both).toHaveLength(clean.length + 2);
   });
 
   it("warns when no heap reported at all", () => {

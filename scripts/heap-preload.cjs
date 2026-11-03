@@ -1,5 +1,6 @@
-// The CI heap report (scripts/heap-report.ts). scripts/ci.ts loads this file
-// into the tsc and ESLint Node processes with NODE_OPTIONS=--require, and Node
+// The ESLint heap report (scripts/heap-report.ts). scripts/ci.ts, or
+// scripts/lint.ts when no caller set a report, loads this file into the ESLint
+// Node process with NODE_OPTIONS=--require, and Node
 // runs it in every worker thread too. Each heap appends a start line when it
 // loads and an end line at exit. V8 runs no exit handler when it aborts on its
 // heap limit, so a start with no end is a heap that died.
@@ -9,8 +10,8 @@ if (report) {
   const v8 = require("node:v8");
   const vm = require("node:vm");
   const { threadId } = require("node:worker_threads");
-  // A report that fails gives no line, never a changed exit code: the
-  // summary reads a missing end line as no report.
+  // A report that fails gives no line, never a changed exit code here; a
+  // missing end line fails the lint in scripts/lint.ts.
   const write = (line) => {
     try {
       appendFileSync(

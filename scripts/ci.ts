@@ -43,12 +43,14 @@ type Stage = {
 
 export const stages: Stage[] = [
   { name: "format:check", command: ["bun", "run", "format:check"] },
-  // scripts/lint.ts sets ESLint's heap cap.
+  // scripts/lint.ts sets ESLint's heap cap, and fails a lint whose last ESLint
+  // run has a heap that did not report.
   { name: "lint", command: ["bun", "run", "lint"], heap: true },
   {
     name: "tsc",
-    // The native compiler (TS 7): no Node heap, so the summary reports its
-    // peak RSS against a remote gate slot (GATE_SLOTS in scripts/ci-remote.sh).
+    // The native compiler (TS 7): no Node heap, so the summary reports the
+    // peak RSS of its largest partition (scripts/typecheck.ts) against a
+    // remote gate slot (GATE_SLOTS in scripts/ci-remote.sh).
     command: ["bun", "run", "typecheck"],
     peakRss: 3 * 1024 ** 3,
   },

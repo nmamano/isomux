@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { crashMarker, heapEnv, readHeapReport, runMarker } from "./heap-report";
 
 const ESLINT_HEAP_MB = 4_096;
 
@@ -55,6 +58,35 @@ export function eslintNodeOptions(existing?: string): string {
     .join(" ");
 }
 
+/**
+ * The environment of an ESLint process: the heap cap after `env`'s
+ * NODE_OPTIONS and, with `selfReport`, the heap preload reporting to that path.
+ */
+export function eslintEnv(
+  env: Record<string, string | undefined>,
+  selfReport?: string,
+): Record<string, string> {
+  const kept: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env))
+    if (value !== undefined) kept[key] = value;
+  const self = selfReport ? heapEnv(selfReport, env.NODE_OPTIONS) : {};
+  return {
+    ...kept,
+    ...self,
+    NODE_OPTIONS: eslintNodeOptions(self.NODE_OPTIONS ?? env.NODE_OPTIONS),
+  };
+}
+
+/**
+ * The heap report of a lint: `self` when lint.ts loaded the preload itself
+ * (no ISOMUX_HEAP_REPORT from the caller).
+ */
+export type LintReport = {
+  self: boolean;
+  read: () => string;
+  append: (line: string) => void;
+};
+
 /** How one ESLint process ended. `signal` is set when a signal killed it. */
 export type EslintRun = (
   concurrency: string,
@@ -72,27 +104,62 @@ function exitText(result: { code: number; signal: string | null }): string {
     : `exit ${result.code}`;
 }
 
-function spawnEslint(fix: boolean): EslintRun {
+function spawnEslint(fix: boolean, selfReport?: string): EslintRun {
   return async (concurrency) => {
     const child = Bun.spawn(eslintCommand(fix, concurrency), {
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
-      env: {
-        ...process.env,
-        NODE_OPTIONS: eslintNodeOptions(process.env.NODE_OPTIONS),
-      },
+      env: eslintEnv(process.env, selfReport),
     });
     const code = await child.exited;
     return { code, signal: child.signalCode };
   };
 }
 
+/**
+ * The verdict of the last ESLint run from its part of the heap report. Every
+ * heap of a clean run reported means every thread left its file loop, so
+ * ESLint linted every file; a heap that did not report fails the lint.
+ */
+function heapVerdict(code: number, text: string, self: boolean): number {
+  if (code !== 0) return code;
+  const use = readHeapReport(text);
+  if (use === undefined) {
+    if (self) {
+      // ESLint under Bun (no Node on the machine) loads no preload.
+      console.log("eslint heap: no report; ESLint may not have run under Node");
+      return 0;
+    }
+    console.error(
+      "eslint heap: no heap reported, so this lint cannot show it checked every file",
+    );
+    return 1;
+  }
+  if (use.lost === 0) return 0;
+  console.error(
+    `eslint heap: ${use.lost} ${use.lost === 1 ? "heap" : "heaps"} did not report, so ESLint may not have checked every file`,
+  );
+  return 1;
+}
+
 export async function runLint(
   fix: boolean,
   run: EslintRun = spawnEslint(fix),
   available: number | undefined = availableMemory(),
+  report?: LintReport,
 ): Promise<number> {
+  // Markers go in only between ESLint runs, so no write races a heap's.
+  let runStart = 0;
+  const marked: EslintRun = async (threads) => {
+    report?.append(runMarker(threads));
+    runStart = report?.read().length ?? 0;
+    return run(threads);
+  };
+  const verdict = (code: number) =>
+    report
+      ? heapVerdict(code, report.read().slice(runStart), report.self)
+      : code;
   const concurrency = lintConcurrency(available);
   console.log(
     `eslint threads: ${concurrency}` +
@@ -100,16 +167,48 @@ export async function runLint(
         ? " (available memory unknown)"
         : ` (${(available / GIB).toFixed(1)} GiB available)`),
   );
-  const first = await run(concurrency);
-  if (first.code < CRASH_EXIT) return first.code;
+  const first = await marked(concurrency);
+  if (first.code < CRASH_EXIT) return verdict(first.code);
   console.error(
     `eslint crashed (${exitText(first)}), not a lint finding; running it again with threads off`,
   );
-  const second = await run("off");
+  report?.append(crashMarker(exitText(first)));
+  const second = await marked("off");
   if (second.code >= CRASH_EXIT)
     console.error(`eslint crashed again (${exitText(second)})`);
-  return second.code;
+  return verdict(second.code);
 }
 
-if (import.meta.main)
-  process.exitCode = await runLint(process.argv.includes("--fix"));
+/** The heap report at `path`; `self` when lint.ts asked for it. */
+function fileReport(path: string, self: boolean): LintReport {
+  return {
+    self,
+    read: () => {
+      try {
+        return readFileSync(path, "utf8");
+      } catch {
+        return "";
+      }
+    },
+    append: (line) => appendFileSync(path, line),
+  };
+}
+
+if (import.meta.main) {
+  const fix = process.argv.includes("--fix");
+  // CI (scripts/ci.ts) sets the report and loads the preload; otherwise, as
+  // on GitHub, lint.ts loads it itself into a report of its own.
+  const given = process.env.ISOMUX_HEAP_REPORT;
+  const dir = given ? undefined : mkdtempSync(join(tmpdir(), "isomux-lint-"));
+  const path = given ?? join(dir!, "heap.jsonl");
+  try {
+    process.exitCode = await runLint(
+      fix,
+      spawnEslint(fix, given ? undefined : path),
+      availableMemory(),
+      fileReport(path, !given),
+    );
+  } finally {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  }
+}
