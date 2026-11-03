@@ -16,6 +16,9 @@ import {
   loadUserDrafts,
   saveDraft,
   pruneUserDrafts,
+  loadFoldedAsks,
+  saveFoldedAsks,
+  pruneUserFoldedAsks,
   type StorageLike,
 } from "./view-persistence.ts";
 
@@ -363,5 +366,84 @@ describe("saved view: the lobby flag", () => {
         }),
       ),
     ).toBeNull();
+  });
+});
+
+// The chat's ask stack remembers a fold per member and agent (task 107e0eee):
+// the ask ids that were open when the member folded it.
+describe("folded asks: per member and agent", () => {
+  it("round-trips per agent, case-insensitively on the user, and null removes the key", () => {
+    const s = fakeStorage();
+    saveFoldedAsks("Nil", "agent-1", ["ask-a", "ask-b"], s);
+    saveFoldedAsks("nil", "agent-2", ["ask-c"], s);
+    expect(loadFoldedAsks("NIL", "agent-1", s)).toEqual(["ask-a", "ask-b"]);
+    expect(loadFoldedAsks("nil", "agent-2", s)).toEqual(["ask-c"]);
+    expect(loadFoldedAsks("nil", "agent-3", s)).toBe(null);
+    saveFoldedAsks("nil", "agent-1", null, s);
+    saveFoldedAsks("nil", "agent-2", null, s);
+    expect(loadFoldedAsks("nil", "agent-1", s)).toBe(null);
+    expect(Object.keys(s.data)).toEqual([]);
+  });
+
+  it("keeps two users apart, also when a delimiter is in a name", () => {
+    const s = fakeStorage();
+    saveFoldedAsks("alice", "agent-1", ["ask-a"], s);
+    saveFoldedAsks("a:b", "agent-1", ["ask-b"], s);
+    saveFoldedAsks("a", "b:agent-1", ["ask-c"], s);
+    expect(loadFoldedAsks("bob", "agent-1", s)).toBe(null);
+    expect(loadFoldedAsks("alice", "agent-1", s)).toEqual(["ask-a"]);
+    expect(loadFoldedAsks("a:b", "agent-1", s)).toEqual(["ask-b"]);
+    expect(loadFoldedAsks("a", "b:agent-1", s)).toEqual(["ask-c"]);
+  });
+
+  it("reads a payload that is not an array of strings as no fold", () => {
+    for (const raw of [
+      "not json",
+      "null",
+      "{}",
+      '"ask-a"',
+      "[1]",
+      '["ask-a", 2]',
+    ]) {
+      const s = fakeStorage();
+      saveFoldedAsks("nil", "agent-1", ["ask-a"], s);
+      const keys = Object.keys(s.data);
+      expect(keys.length).toBe(1);
+      s.data[keys[0]] = raw;
+      expect(loadFoldedAsks("nil", "agent-1", s)).toBe(null);
+    }
+  });
+
+  it("prunes only the caller's folds for agents that are gone", () => {
+    const s = fakeStorage({ "isomux-theme": "nord" });
+    saveFoldedAsks("nil", "agent-live", ["ask-a"], s);
+    saveFoldedAsks("nil", "agent-dead", ["ask-b"], s);
+    saveFoldedAsks("alice", "agent-dead", ["ask-c"], s);
+    saveDraft("nil", "agent-dead", "a draft", s);
+    pruneUserFoldedAsks("nil", new Set(["agent-live"]), s);
+    expect(loadFoldedAsks("nil", "agent-live", s)).toEqual(["ask-a"]);
+    expect(loadFoldedAsks("nil", "agent-dead", s)).toBe(null);
+    expect(loadFoldedAsks("alice", "agent-dead", s)).toEqual(["ask-c"]);
+    // The drafts' prune and the folds' prune do not reach each other's keys.
+    expect(loadUserDrafts("nil", s)).toEqual({ "agent-dead": "a draft" });
+    pruneUserDrafts("nil", new Set(), s);
+    expect(loadFoldedAsks("nil", "agent-live", s)).toEqual(["ask-a"]);
+    expect(s.data["isomux-theme"]).toBe("nord");
+  });
+
+  it("survives storage exceptions and unavailable storage", () => {
+    expect(loadFoldedAsks("nil", "a", throwingStorage)).toBe(null);
+    expect(() =>
+      saveFoldedAsks("nil", "a", ["x"], throwingStorage),
+    ).not.toThrow();
+    expect(() =>
+      saveFoldedAsks("nil", "a", null, throwingStorage),
+    ).not.toThrow();
+    expect(() =>
+      pruneUserFoldedAsks("nil", new Set(), throwingStorage),
+    ).not.toThrow();
+    expect(loadFoldedAsks("nil", "a", null)).toBe(null);
+    expect(() => saveFoldedAsks("nil", "a", ["x"], null)).not.toThrow();
+    expect(() => pruneUserFoldedAsks("nil", new Set(), null)).not.toThrow();
   });
 });

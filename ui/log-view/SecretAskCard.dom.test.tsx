@@ -68,6 +68,8 @@ const SCOPE_SECRETS = [
   apps: [],
 }));
 beforeEach(() => {
+  // The viewer has a name here, so a fold of the stack is kept per browser.
+  localStorage.clear();
   posts = [];
   gets = [];
   answer = async () => ({ name: "GH_TOKEN" });

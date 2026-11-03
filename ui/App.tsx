@@ -11,6 +11,7 @@ import {
   loadSavedView,
   loadUserDrafts,
   pruneUserDrafts,
+  pruneUserFoldedAsks,
   saveDraft,
   saveView,
 } from "./view-persistence.ts";
@@ -274,6 +275,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       }
     }
     pruneUserDrafts(persistUser, liveAgentIds);
+    pruneUserFoldedAsks(persistUser, liveAgentIds);
     restoreOutbox(persistUser, liveAgentIds);
     const saved = loadSavedView(persistUser);
     if (!saved) {

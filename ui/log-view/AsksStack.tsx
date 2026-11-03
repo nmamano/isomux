@@ -2,14 +2,16 @@
 // (openAsks), stacked above the chat input
 // (internal-docs/asks-design.md), one AskCard each. The stack scrolls past a
 // maximum height and collapses to one bar: open by default on a desktop,
-// collapsed on a phone.
+// collapsed on a phone. A fold is kept per member and agent in this browser
+// (ui/view-persistence.ts) until an ask that was not open at the fold arrives.
 
 import { useEffect, useRef, useState } from "react";
-import { useAppState } from "../store.tsx";
+import { useAppState, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { asksFor, openAsks } from "../asks-sync.ts";
 import { AskCard } from "./AskCard.tsx";
 import { valueAskTitle } from "./SecretAskCard.tsx";
+import { loadFoldedAsks, saveFoldedAsks } from "../view-persistence.ts";
 
 // The stack's height before it scrolls: about two and a half cards on a
 // desktop, so a cut card shows there is more.
@@ -66,9 +68,41 @@ export function AsksStack({
   isMobile: boolean;
 }) {
   const { t } = useI18n();
-  const { asks, answeredAsks } = useAppState();
+  const { asks, answeredAsks, sessionContext } = useAppState();
   const entries = asksFor(openAsks(asks, answeredAsks), agentId);
-  const [collapsed, setCollapsed] = useState(isMobile);
+  // No name in the demo, as App's persistEnabled keeps nothing per browser
+  // there.
+  const { llmConnected } = useFeatures();
+  const user = llmConnected ? (sessionContext?.username ?? null) : null;
+  // The ask ids open at the member's fold, or null. Read again when the
+  // member's name arrives; with no name the fold lives in this mount only.
+  const readFold = (u: string | null) => {
+    const ids = u ? loadFoldedAsks(u, agentId) : null;
+    return ids ? new Set(ids) : null;
+  };
+  const [foldUser, setFoldUser] = useState(user);
+  const [fold, setFold] = useState(() => readFold(user));
+  if (foldUser !== user) {
+    setFoldUser(user);
+    setFold(readFold(user));
+  }
+  const [openedHere, setOpenedHere] = useState(false);
+  const covered = !!fold && entries.every((e) => fold.has(e.id));
+  const collapsed = covered || (isMobile && !openedHere);
+  // A new ask ends the fold: the stack goes back to the device default.
+  const foldEnded = !!fold && !covered;
+  useEffect(() => {
+    if (!foldEnded) return;
+    if (user) saveFoldedAsks(user, agentId, null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFold(null);
+  }, [foldEnded, user, agentId]);
+  const setCollapsed = (next: boolean) => {
+    const ids = next ? entries.map((e) => e.id) : null;
+    setFold(ids && new Set(ids));
+    setOpenedHere(!next);
+    if (user) saveFoldedAsks(user, agentId, ids);
+  };
   const bodyRef = useRef<HTMLDivElement>(null);
   // Fade the bottom edge while more cards wait below it.
   const [moreBelow, setMoreBelow] = useState(false);

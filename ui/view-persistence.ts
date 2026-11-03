@@ -29,6 +29,10 @@
 //   (there is no live cross-tab draft sync; each tab's composer is local).
 //   The username is encodeURIComponent-encoded so the ":"-delimited key
 //   can't be confused by any character the server might allow in names.
+// - Ask-stack folds: one key per member and agent, built as the draft keys
+//   are, "isomux-asks-folded:<encoded user>:<agentId>", holding the JSON
+//   array of the ask ids that were open when the member folded the stack
+//   above the chat input. A new ask ends the fold (ui/log-view/AsksStack.tsx).
 //
 // Staleness is handled by validation at restore time (App.tsx checks every
 // saved id against the first full_state and prunes/falls back), not by TTL.
@@ -41,6 +45,7 @@
 
 const VIEW_KEY = "isomux-view";
 const DRAFT_KEY_PREFIX = "isomux-draft:";
+const FOLD_KEY_PREFIX = "isomux-asks-folded:";
 
 // The Storage operations we use, injectable for tests. `keys` exists because
 // per-composer draft keys need enumeration (restore + prune); the default
@@ -249,6 +254,70 @@ export function pruneUserDrafts(
       if (!key.startsWith(prefix)) continue;
       const agentId = key.slice(prefix.length);
       if (!keepAgentIds.has(agentId)) storage.removeItem(key);
+    }
+  } catch {
+    // Best-effort.
+  }
+}
+
+function userFoldPrefix(user: string): string {
+  return `${FOLD_KEY_PREFIX}${encodeURIComponent(normUser(user))}:`;
+}
+
+function foldKey(user: string, agentId: string): string {
+  return `${userFoldPrefix(user)}${agentId}`;
+}
+
+/** The ask ids that were open when `user` folded `agentId`'s ask stack, or
+ * null when no fold is kept. Strict: anything but an array of strings is no
+ * fold. */
+export function loadFoldedAsks(
+  user: string,
+  agentId: string,
+  storage: StorageLike | null = defaultStorage(),
+): string[] | null {
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem(foldKey(user, agentId));
+    if (!raw) return null;
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) && v.every((id) => typeof id === "string")
+      ? v
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep the fold of `agentId`'s ask stack; null removes it. */
+export function saveFoldedAsks(
+  user: string,
+  agentId: string,
+  askIds: readonly string[] | null,
+  storage: StorageLike | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  try {
+    if (askIds) storage.setItem(foldKey(user, agentId), JSON.stringify(askIds));
+    else storage.removeItem(foldKey(user, agentId));
+  } catch {
+    // Best-effort.
+  }
+}
+
+/** Drop `user`'s ask-stack folds for agents that no longer exist, as
+ * pruneUserDrafts does for drafts. */
+export function pruneUserFoldedAsks(
+  user: string,
+  keepAgentIds: ReadonlySet<string>,
+  storage: StorageLike | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  try {
+    const prefix = userFoldPrefix(user);
+    for (const key of storage.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      if (!keepAgentIds.has(key.slice(prefix.length))) storage.removeItem(key);
     }
   } catch {
     // Best-effort.
