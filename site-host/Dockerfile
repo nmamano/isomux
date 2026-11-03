@@ -1,6 +1,7 @@
 # isomux.com, self-hosted: site/ served by site-host/server.ts. Built by
-# .github/workflows/site-image.yml after `bun run build:demo` and
-# `bun run build:docs`; this image never builds the site.
+# .github/workflows/site-image.yml after `bun run build:demo`,
+# `bun run build:docs` and site-host/version-assets.ts; this image never builds
+# the site.
 # Run: docker run --rm --read-only --cap-drop ALL -p 127.0.0.1:3000:3000 \
 #        --env-file <root-only file with ANTHROPIC_API_KEY, DISCORD_WEBHOOK_URL> isomux-site
 FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4

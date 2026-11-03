@@ -18,7 +18,8 @@
 #   - Cloudflare purge of the site's names (purge_hosts), not the whole zone: the
 #     isomux.com zone also holds cloud.isomux.com (Hosted Isomux). The purge-only token
 #     is in $env_dir/purge-token. A failed purge is retried and logged and does not fail
-#     the deploy: pages carry s-maxage=300, so the edge heals in 5 minutes.
+#     the deploy. Pages carry s-maxage=86400, so it leaves $state/purge-failed-at, and
+#     each later tick that does not deploy tries the purge again until one succeeds.
 #
 # GitHub reads: the registry (ghcr.io) for the tag, which is not the api.github.com rate
 # limit; and one conditional api.github.com request per tick (the image workflow's newest
@@ -91,8 +92,13 @@ main() {
     return 0
   }
 
-  select_target || return 0
-  deploy_target
+  if select_target; then
+    deploy_target
+  elif [[ -e $state/purge-failed-at ]]; then
+    # The purge after a deploy failed, and the edge keeps pages a day: try again
+    # at each tick that does not deploy (a deploy purges anyway).
+    purge_edge
+  fi
 }
 
 say() { printf '%s auto-deploy: %s\n' "$(date -u +%FT%TZ)" "$*"; }
@@ -338,12 +344,15 @@ remove_old_images() {
   done < <("$docker" image ls --digests --format '{{.Repository}}@{{.Digest}}' "$image" 2>/dev/null | sort -u)
 }
 
-# Purges the site's names at Cloudflare: three tries, then a log line. Never fails the
-# tick. The token goes to curl on stdin (--config), so it is not in any process's argv.
+# Purges the site's names at Cloudflare: three tries, then a log line and the
+# purge-failed-at marker, which main() retries at later ticks. Never fails the tick.
+# The token goes to curl on stdin (--config), so it is not in any process's argv.
 purge_edge() {
   local token_file=$env_dir/purge-token token try out purge_body
   if [[ -z $zone || ! -f $token_file ]]; then
     say "purge skipped: no ISOMUX_SITE_CF_ZONE or no $token_file"
+    # Nothing to retry until the config changes.
+    rm -f "$state/purge-failed-at"
     return 0
   fi
   token=$(head -n1 "$token_file" | tr -d '[:space:]')
@@ -355,11 +364,12 @@ purge_edge() {
     if python3 -c 'import json,sys; sys.exit(0 if json.loads(sys.argv[1]).get("success") is True else 1)' "$out" 2>/dev/null; then
       say "purged the Cloudflare cache (try $try)"
       date -u +%FT%TZ >"$state/purged-at"
+      rm -f "$state/purge-failed-at"
       return 0
     fi
     if ((try < 3)); then sleep $((retry_sleep * try)); fi
   done
-  say "FAIL the Cloudflare purge failed 3 times; pages heal within s-maxage (5 minutes)"
+  say "FAIL the Cloudflare purge failed 3 times; the next tick tries again"
   date -u +%FT%TZ >"$state/purge-failed-at"
   return 0
 }

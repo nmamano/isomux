@@ -19,13 +19,20 @@ export type SiteOptions = { root: string; vercelJson: unknown };
 
 export type SiteHandler = (request: Request) => Promise<Response>;
 
-// Pages and files: the browser revalidates every time, a shared cache (the
-// Cloudflare edge) keeps a copy 5 minutes. A deploy purges the edge.
-const CACHED = "public, max-age=0, s-maxage=300, must-revalidate";
+// Pages and redirects: the Cloudflare edge keeps a copy a day, and a deploy
+// purges it. The browser shows its own copy and fetches the new one behind it.
+const PAGE = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
+// Every other file of site/, asked for without its version.
+const FILE = "public, max-age=3600, s-maxage=86400";
+// A script or style asked for with ?v=<its version> (site-host/version-assets.ts
+// writes it into the pages): a new content gets a new URL.
+const IMMUTABLE = "public, max-age=31536000, immutable";
 // Markdown and the 406 share their URL with the HTML page. Cloudflare does not
 // key its cache on Accept, so these must never enter a shared cache; nor must
 // the chat, a 405 or a 500.
 const NEVER = "no-store";
+// The hex characters of a file's sha1 (its ETag) that make its version.
+const VERSION_LENGTH = 12;
 // Vercel's own HSTS on the responses that vercel.json headers do not reach.
 const PLATFORM_HSTS = "max-age=63072000";
 
@@ -244,7 +251,7 @@ function redirect(location: string, status: number, method: string): Response {
       "Content-Type": "text/plain",
       Location: location,
       "Strict-Transport-Security": PLATFORM_HSTS,
-      "Cache-Control": CACHED,
+      "Cache-Control": PAGE,
     },
   });
 }
@@ -345,7 +352,10 @@ export async function createSiteHandler(
   const output = resolve(root, config.output);
   const middleware = await loadMiddleware(root);
   const functions = await loadFunctions(root);
-  const etags = new Map<string, { mtime: number; etag: string }>();
+  const etags = new Map<
+    string,
+    { mtime: number; etag: string; version: string }
+  >();
 
   /** The path inside the output directory that a request path names, if safe. */
   function insideOutput(pathname: string): string | null {
@@ -382,18 +392,30 @@ export async function createSiteHandler(
     const body = await readFile(path);
     let cached = etags.get(path);
     if (!cached || cached.mtime !== info.mtimeMs) {
+      const hex = sha1(body);
       cached = {
         mtime: info.mtimeMs,
-        etag: `"${createHash("sha1").update(body).digest("hex")}"`,
+        etag: `"${hex}"`,
+        version: hex.slice(0, VERSION_LENGTH),
       };
       etags.set(path, cached);
     }
+    const extension = extname(path).toLowerCase();
+    const type = CONTENT_TYPES[extension] ?? "application/octet-stream";
+    // A ?v= that names another content (a page the edge kept from before a
+    // deploy) gets the plain file policy, never a year.
+    const versioned =
+      (extension === ".js" || extension === ".css") &&
+      new URL(request.url).searchParams.get("v") === cached.version;
     const headers = new Headers({
-      "Content-Type":
-        CONTENT_TYPES[extname(path).toLowerCase()] ??
-        "application/octet-stream",
+      "Content-Type": type,
       ETag: cached.etag,
       "Accept-Ranges": "bytes",
+      "Cache-Control": type.startsWith("text/html")
+        ? PAGE
+        : versioned
+          ? IMMUTABLE
+          : FILE,
     });
     if (request.headers.get("if-none-match") === cached.etag)
       return new Response(null, { status: 304, headers });
@@ -513,15 +535,29 @@ export async function createSiteHandler(
   };
 }
 
-// Every response names its caching. A function keeps its own value (the
-// not-found page) unless the body is Markdown or the function is the chat.
+// Every response names its caching. A file or a function keeps its own value
+// (serveFile(), the not-found page) unless the body is Markdown, the function
+// is the chat, or the status is one no cache may keep.
 function cacheControl(request: Request, response: Response): string {
   const type = response.headers.get("content-type") ?? "";
   if (type.startsWith("text/markdown")) return NEVER;
   if (new URL(request.url).pathname === "/api/chat") return NEVER;
   if ([206, 405, 406, 416].includes(response.status) || response.status >= 500)
     return NEVER;
-  return response.headers.get("cache-control") ?? CACHED;
+  return response.headers.get("cache-control") ?? PAGE;
+}
+
+/**
+ * The version of a file of site/: what ?v= must carry for the file to be
+ * cached as immutable. site-host/version-assets.ts writes it into the pages.
+ */
+export function assetVersion(body: Uint8Array): string {
+  return sha1(body).slice(0, VERSION_LENGTH);
+}
+
+/** A file's sha1 in hex: its ETag, and its version's first characters. */
+function sha1(body: Uint8Array): string {
+  return createHash("sha1").update(body).digest("hex");
 }
 
 /** Serves the handler on a TCP port or a Unix socket. */

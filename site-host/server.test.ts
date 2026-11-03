@@ -5,8 +5,8 @@
 // compares status, Location, the header set and the body.
 //
 // On purpose, the site host differs from Vercel in:
-// - Cache-Control: one policy (CACHE below), so that Cloudflare can cache pages
-//   and can never cache markdown, a 406 or the chat.
+// - Cache-Control: the policy of cachePolicy() below, so that Cloudflare can
+//   cache pages and files and can never cache markdown, a 406 or the chat.
 // - The CSP: Vercel Web Analytics is gone, so va.vercel-scripts.com is too.
 // - Headers the Vercel platform adds (IGNORED below).
 // - The rows in DIVERGES, each with its reason.
@@ -26,8 +26,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { createSiteHandler, serveSite, type SiteHandler } from "./server.ts";
+import { join, relative, resolve } from "node:path";
+import {
+  assetVersion,
+  createSiteHandler,
+  serveSite,
+  type SiteHandler,
+} from "./server.ts";
+import { versionAssets } from "./version-assets.ts";
 
 const REPO = resolve(import.meta.dir, "..");
 const PARITY = JSON.parse(
@@ -46,7 +52,13 @@ type Row = {
   bodySha256: string;
 };
 
-const PAGE = "public, max-age=0, s-maxage=300, must-revalidate";
+// Pages and redirects: the edge keeps them a day (a deploy purges it); the
+// browser shows its copy and fetches the new one behind it.
+const PAGE = "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800";
+// Every other file of site/, asked for without its version.
+const FILE = "public, max-age=3600, s-maxage=86400";
+// A script or style asked for with ?v=<its version>.
+const IMMUTABLE = "public, max-age=31536000, immutable";
 const ANALYTICS_CSP = " https://va.vercel-scripts.com";
 // Vercel platform headers the site host does not send.
 const IGNORED = new Set([
@@ -198,8 +210,8 @@ function cachePolicy(row: Row): string {
   // api/not-found keeps its own value.
   if (row.headers["cache-control"] === "public, max-age=60")
     return "public, max-age=60";
-  if (row.status === 200 || (row.status >= 300 && row.status < 400))
-    return PAGE;
+  if (row.status === 200) return type.startsWith("text/html") ? PAGE : FILE;
+  if (row.status >= 300 && row.status < 400) return PAGE;
   throw new Error(`no cache policy for row ${row.name}`);
 }
 
@@ -238,6 +250,8 @@ beforeAll(async () => {
     join(root, "site/demo/app.html"),
   );
   served = join(root, VERCEL_JSON.outputDirectory);
+  // As the image workflow does after the build.
+  await versionAssets(served);
 });
 
 afterAll(() => {
@@ -516,7 +530,7 @@ describe("byte ranges", () => {
       expect(res.status).toBe(200);
       expect(res.headers.get("content-range")).toBeNull();
       expect(sha256(body)).toBe(sha256(whole()));
-      expect(res.headers.get("cache-control")).toBe(PAGE);
+      expect(res.headers.get("cache-control")).toBe(FILE);
     },
   );
 });
@@ -543,6 +557,125 @@ describe("conditional requests", () => {
       }),
     );
     expect(other.status).toBe(200);
+  });
+});
+
+describe("versioned scripts and styles", () => {
+  const version = (path: string) =>
+    assetVersion(readFileSync(join(served, path)));
+  const get = async (path: string, init: RequestInit = {}) =>
+    (await site())(new Request(`https://isomux.com${path}`, init));
+
+  it("every page links each script and style of site/ with its version, which is served as immutable", async () => {
+    const pages = readdirSync(served, { recursive: true, encoding: "utf8" })
+      .filter((path) => path.endsWith(".html"))
+      .map((path) => join(served, path));
+    const urls = new Set<string>();
+    for (const page of pages) {
+      const html = readFileSync(page, "utf8");
+      for (const [, url] of html.matchAll(
+        /(?:src|href)="(\/(?!\/)[^"#?]+\.(?:js|css)(?:\?[^"#]*)?)"/g,
+      )) {
+        const [path, query] = url.split("?");
+        // A reference with a query of its own stays as written.
+        if (query !== undefined && !query.startsWith("v=")) continue;
+        if (!existsSync(join(served, path))) continue;
+        expect({ page: relative(served, page), url }).toEqual({
+          page: relative(served, page),
+          url: `${path}?v=${version(path)}`,
+        });
+        urls.add(url);
+      }
+    }
+    // The site's own pages and the built docs pages.
+    expect([...urls]).toContain(`/footer.css?v=${version("/footer.css")}`);
+    expect([...urls]).toContain(
+      `/docs/_styles.css?v=${version("/docs/_styles.css")}`,
+    );
+    for (const url of urls) {
+      const res = await get(url);
+      const body = new Uint8Array(await res.arrayBuffer());
+      expect({ url, status: res.status }).toEqual({ url, status: 200 });
+      expect(res.headers.get("cache-control")).toBe(IMMUTABLE);
+      expect(sha256(body)).toBe(
+        sha256(readFileSync(join(served, url.split("?")[0]))),
+      );
+    }
+  });
+
+  it("finds the version in any position of the query", async () => {
+    const v = version("/chatbot.js");
+    for (const query of [`?v=${v}&x=1`, `?x=1&v=${v}`]) {
+      const res = await get(`/chatbot.js${query}`);
+      await res.arrayBuffer();
+      expect(res.headers.get("cache-control")).toBe(IMMUTABLE);
+    }
+  });
+
+  // A page the edge kept from before a deploy, or a made-up value: the file
+  // served now is not the one the URL names, so it must not be kept a year.
+  it("serves a file asked for with another version as a plain file", async () => {
+    const v = version("/chatbot.js");
+    const others = [
+      "000000000000",
+      version("/footer.css"),
+      v.slice(0, 6),
+      `${v}0`,
+      "",
+    ];
+    expect(others).not.toContain(v);
+    for (const other of others) {
+      const res = await get(`/chatbot.js?v=${other}`);
+      await res.arrayBuffer();
+      expect({ other, cache: res.headers.get("cache-control") }).toEqual({
+        other,
+        cache: FILE,
+      });
+    }
+  });
+
+  it("never serves a page as immutable, even with its own version", async () => {
+    const res = await get(`/about?v=${version("/about.html")}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toStartWith("text/html");
+    await res.arrayBuffer();
+    expect(res.headers.get("cache-control")).toBe(PAGE);
+  });
+
+  it("keeps the policy on a 304 and a HEAD", async () => {
+    const v = version("/footer.css");
+    const first = await get("/footer.css");
+    await first.arrayBuffer();
+    const etag = first.headers.get("etag")!;
+    expect(etag).not.toBeNull();
+    for (const [path, cache] of [
+      [`/footer.css?v=${v}`, IMMUTABLE],
+      ["/footer.css", FILE],
+    ]) {
+      const again = await get(path, { headers: { "if-none-match": etag } });
+      expect(again.status).toBe(304);
+      expect((await again.arrayBuffer()).byteLength).toBe(0);
+      expect({ path, cache: again.headers.get("cache-control") }).toEqual({
+        path,
+        cache,
+      });
+      const head = await get(path, { method: "HEAD" });
+      expect(head.status).toBe(200);
+      expect((await head.arrayBuffer()).byteLength).toBe(0);
+      expect({ path, cache: head.headers.get("cache-control") }).toEqual({
+        path,
+        cache,
+      });
+    }
+  });
+
+  it("never caches a byte range, even of a versioned file", async () => {
+    const res = await get(`/chatbot.js?v=${version("/chatbot.js")}`, {
+      headers: { range: "bytes=0-9" },
+    });
+    await res.arrayBuffer();
+    expect(res.status).toBe(206);
+    expect(res.headers.get("cache-control")).toBe("no-store");
   });
 });
 

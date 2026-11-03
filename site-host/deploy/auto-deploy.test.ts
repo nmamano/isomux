@@ -193,7 +193,8 @@ beforeAll(async () => {
       return new Response("<!doctype html>", {
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "public, max-age=0, s-maxage=300, must-revalidate",
+          "Cache-Control":
+            "public, max-age=0, s-maxage=86400, stale-while-revalidate=604800",
         },
       });
     },
@@ -385,24 +386,48 @@ describe("auto-deploy.sh", () => {
     expect(lines(join(fake, "removed"))).toEqual([`${IMAGE}@${digest(1)}`]);
   });
 
-  it("retries a failed purge, logs it, and keeps the deploy", async () => {
-    purgeFailures = 5;
+  // Pages stay a day at the edge, so a purge that failed is tried again at
+  // each later tick until it succeeds.
+  const okSince = (before: number) =>
+    purges.slice(before).map((purge) => purge.ok);
+
+  it("retries a failed purge, logs it, keeps the deploy, and tries again at the next tick", async () => {
+    purgeFailures = 3;
     let before = purges.length;
     mainDigest = digest(4);
-    let { status, output } = await tick();
-    expect(status.result).toBe("deployed");
-    expect(status.deployed).toBe(commit(4));
-    expect(purges.length - before).toBe(3);
-    expect(output).toMatch(/purge.*fail|fail.*purge/i);
-    purgeFailures = 1;
+    const deploy = await tick();
+    expect(deploy.status.result).toBe("deployed");
+    expect(deploy.status.deployed).toBe(commit(4));
+    expect(okSince(before)).toEqual([false, false, false]);
+    expect(deploy.output).toMatch(/purge.*fail|fail.*purge/i);
+    // No new image: the tick only tries the purge again, and it fails again.
+    purgeFailures = 3;
     before = purges.length;
+    const retry = await tick();
+    expect(retry.status.result).toBe("up_to_date");
+    expect(okSince(before)).toEqual([false, false, false]);
+  });
+
+  it("stops trying once a purge succeeds", async () => {
+    purgeFailures = 1;
+    let before = purges.length;
+    const retry = await tick();
+    const retried = okSince(before);
+    before = purges.length;
+    const idle = await tick();
+    const idled = okSince(before);
+    // All ticks run before the checks, so a failure here leaves the next tests
+    // the image they expect.
+    purgeFailures = 1;
     mainDigest = digest(5);
-    ({ status, output } = await tick());
-    expect(status.result).toBe("deployed");
-    expect(purges.slice(before).map((purge) => purge.ok)).toEqual([
-      false,
-      true,
-    ]);
+    before = purges.length;
+    const deploy = await tick();
+    expect(retry.status.result).toBe("up_to_date");
+    expect(retried).toEqual([false, true]);
+    expect(idle.status.result).toBe("up_to_date");
+    expect(idled).toEqual([]);
+    expect(deploy.status.result).toBe("deployed");
+    expect(okSince(before)).toEqual([false, true]);
   });
 
   it("rolls back an image that does not run healthy, purges, and does not try it again", async () => {
@@ -455,7 +480,9 @@ describe("auto-deploy.sh", () => {
     expect(running()).toBe(digest(5));
   });
 
-  it("deploys without a purge when no zone is set", async () => {
+  it("deploys without a purge when no zone is set, and drops a failed purge", async () => {
+    // A purge failed before the zone was removed: there is nothing to retry.
+    writeFileSync(join(root, "auto-deploy/purge-failed-at"), "");
     writeFileSync(
       join(envDir, "auto-deploy.env"),
       `ISOMUX_SITE_IMAGE=${IMAGE}\nISOMUX_SITE_GITHUB_REPO=${REPO}\nISOMUX_SITE_IMAGE_WORKFLOW=site-image.yml\n`,
@@ -468,6 +495,8 @@ describe("auto-deploy.sh", () => {
     expect(status.deployed).toBe(commit(12));
     expect(purges.length).toBe(before);
     config();
+    await tick();
+    expect(purges.length).toBe(before);
   });
 
   it("installs this directory's unit files when the installed copies differ", async () => {
@@ -540,7 +569,12 @@ describe("auto-deploy.sh", () => {
     let { status } = await tick();
     expect(status.result).toBe("rollback_failed");
     expect(status.stopped).toBe(true);
+    // A purge would send visitors from the pages the edge keeps to a site that
+    // does not run healthy.
+    writeFileSync(join(root, "auto-deploy/purge-failed-at"), "");
+    const before = purges.length;
     ({ status } = await tick());
     expect(status.result).toBe("stopped");
+    expect(purges.length).toBe(before);
   });
 });

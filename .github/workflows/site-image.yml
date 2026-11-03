@@ -40,6 +40,11 @@ jobs:
       - name: Build the site
         run: bun install --frozen-lockfile && bun run build:demo && bun run build:docs
 
+      # Each script and style link of the pages gets ?v=<content version>, which the
+      # site host caches as immutable. It fails when it finds none to rewrite.
+      - name: Version the scripts and styles
+        run: bun site-host/version-assets.ts site
+
       - name: Test the site server, the chat and the egress proxy
         run: bun test ./site-host/server.test.ts ./site-host/deploy/egress-proxy.test.ts ./api/_*.test.ts
 
