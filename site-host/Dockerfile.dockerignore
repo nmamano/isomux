@@ -8,4 +8,3 @@ api/_*.test.ts
 !site-host/server.ts
 !site-host/deploy/egress-proxy.ts
 !node_modules/path-to-regexp-6
-site/.gitignore

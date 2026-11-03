@@ -1,6 +1,6 @@
 // Self-hosted isomux.com: serves site/ with the routing in vercel.json, the
 // routing middleware (middleware.ts) and the functions in api/, so the site
-// behaves as on Vercel and a rollback to Vercel stays exact.
+// behaves as it did on Vercel.
 //
 // Vercel's order, as recorded from live isomux.com in parity.json:
 // cleanUrls redirects, vercel.json redirects, the middleware, the files of the
@@ -160,7 +160,6 @@ function parse(vercelJson: unknown): Config {
     config,
     [
       "$schema",
-      "buildCommand",
       "outputDirectory",
       "cleanUrls",
       "redirects",
@@ -327,7 +326,7 @@ async function loadMiddleware(root: string): Promise<Middleware | undefined> {
 }
 
 // Each api/<name>.ts is the function at /api/<name>. Files that start with "_"
-// are helpers and tests, as on Vercel.
+// are helpers and tests, as they were on Vercel.
 async function loadFunctions(root: string): Promise<Map<string, Handler>> {
   const functions = new Map<string, Handler>();
   for (const file of await readdir(join(root, "api"))) {

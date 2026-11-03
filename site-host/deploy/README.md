@@ -9,7 +9,7 @@ The same pattern as bigOspeedrun and nilmamano.com (`~/nil/self-host-playbook.md
 
 ## Page caching
 
-Pages and redirects send `Cache-Control: public, max-age=0, s-maxage=86400, stale-while-revalidate=604800`: the edge keeps them a day (each deploy purges it), and a browser shows its copy and fetches the new one behind it. Other files send `public, max-age=3600, s-maxage=86400`, and a script or style asked for with its own `?v=` sends `public, max-age=31536000, immutable`, so a changed script or style gets a new URL, and a browser never keeps an old one for the new page. The Markdown answers, the chat, the 406 and byte ranges send `no-store`. Only the image versions the links: a local build and a rollback to Vercel serve the plain names, which still answer. One Cloudflare cache rule on the isomux.com zone (phase `http_request_cache_settings`) makes pages cacheable at the edge:
+Pages and redirects send `Cache-Control: public, max-age=0, s-maxage=86400, stale-while-revalidate=604800`: the edge keeps them a day (each deploy purges it), and a browser shows its copy and fetches the new one behind it. Other files send `public, max-age=3600, s-maxage=86400`, and a script or style asked for with its own `?v=` sends `public, max-age=31536000, immutable`, so a changed script or style gets a new URL, and a browser never keeps an old one for the new page. The Markdown answers, the chat, the 406 and byte ranges send `no-store`. Only the image versions the links: a local build serves the plain names, which still answer. One Cloudflare cache rule on the isomux.com zone (phase `http_request_cache_settings`) makes pages cacheable at the edge:
 
 ```
 (http.host in {"isomux.com" "www.isomux.com"}
@@ -66,5 +66,4 @@ To run it again, push new rehearsal images: a digest on `auto-deploy/failed` is 
 - A failed check after a swap: automatic (the previous digest runs again, the new one goes on `auto-deploy/failed`).
 - A bad commit: `git revert` and push; the next image deploys within about 10 minutes.
 - A pin: create `/etc/isomux-site/auto-deploy.hold`, put the wanted digest in `release.env` and its commit in `release.commit`, then `docker compose -p isomux-site -f /opt/isomux-site/compose.yaml --env-file /opt/isomux-site/release.env up -d --wait`.
-- Back to Vercel (until Nil retires the Vercel project): restore the apex and `www` records saved before the cut-over (DNS only). The gate can stay: no traffic reaches the VPS then.
 - DNS only to the VPS (Cloudflare proxy off): remove the `cloudflare_only` gate first, with a drained Caddy reload.

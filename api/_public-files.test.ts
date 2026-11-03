@@ -9,10 +9,10 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 
-// Vercel deploys every file under api/ as a public function, except a file
-// whose name starts with "_" or "." or ends in ".d.ts". Fail-closed: the rule
-// reads the basename only, so a file in an "_"-prefixed subdirectory counts as
-// public, and every extension counts.
+// Vercel deployed every file under api/ as a public function, except a file
+// whose name starts with "_" or "." or ends in ".d.ts", and site-host keeps
+// that rule. Fail-closed: the rule reads the basename only, so a file in an
+// "_"-prefixed subdirectory counts as public, and every extension counts.
 function publicFiles(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })
     .filter((entry) => !entry.isDirectory())

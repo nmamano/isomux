@@ -13,7 +13,6 @@ site/docs/
 site/sitemap.xml
 site/_agent/docs/
 *.log
-.vercel
 .claude/
 
 # Private business docs - never committed (Nil, 2026-08-02)

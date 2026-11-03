@@ -1,5 +1,3 @@
-export const config = { runtime: "edge" };
-
 function jsonError(
   status: number,
   code: string,
@@ -726,8 +724,8 @@ async function answer(req: Request, ip: string): Promise<Response> {
             );
           }
         }
-        // Log bot response to Discord before closing the stream
-        // (Vercel Edge tears down after close, so fire-and-forget wouldn't complete)
+        // Log bot response to Discord before closing the stream, so the log
+        // is complete when the reply ends.
         if (webhookUrl && fullText) {
           // One at a time, so the parts arrive in order.
           for (const content of botPosts(fullText, tag)) {

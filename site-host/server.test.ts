@@ -1,14 +1,16 @@
-// The self-hosted isomux.com must answer as Vercel answers today, except where
-// this file says it differs on purpose. site-host/parity.json holds live
-// Vercel responses (recorded 2026-10-25); the replay sends each request to
+// The self-hosted isomux.com must answer as Vercel answered before the move,
+// except where this file says it differs on purpose. site-host/parity.json
+// holds the live Vercel responses recorded on 2026-10-25. It is a frozen
+// record: the script that recorded it was deleted with the Vercel project, so
+// its "source" names a file that is gone. The replay sends each request to
 // createSiteHandler over a copy of site/ with the docs built into it, and
 // compares status, Location, the header set and the body.
 //
-// On purpose, the site host differs from Vercel in:
+// On purpose, the site host differs from what Vercel answered in:
 // - Cache-Control: the policy of cachePolicy() below, so that Cloudflare can
 //   cache pages and files and can never cache markdown, a 406 or the chat.
 // - The CSP: Vercel Web Analytics is gone, so va.vercel-scripts.com is too.
-// - Headers the Vercel platform adds (IGNORED below).
+// - Headers the Vercel platform added (IGNORED below).
 // - The rows in DIVERGES, each with its reason.
 
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";

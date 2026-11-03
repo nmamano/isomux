@@ -1,7 +1,5 @@
 import { negotiate } from "./_content-negotiation";
 
-export const config = { runtime: "edge" };
-
 const MARKDOWN_404 = `# Isomux: page not found
 
 The requested path does not exist.

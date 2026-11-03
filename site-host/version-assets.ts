@@ -2,7 +2,7 @@
 // changes: src="/x.js" becomes src="/x.js?v=<assetVersion>" in every .html of
 // the site. The image workflow runs it after the site build; the site host
 // caches a matching ?v= as immutable. Only the image gets it: it rewrites the
-// tracked pages in place, so a local build and Vercel serve the plain names.
+// tracked pages in place, so a local build serves the plain names.
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { assetVersion } from "./server.ts";
