@@ -135,7 +135,8 @@ button:focus-visible {
   background: #242b38;
   border-radius: 8px;
 }
-#update a {
+#update a,
+#store-install a {
   color: #99b8ff;
 }
 #update-steps {
