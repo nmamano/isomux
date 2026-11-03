@@ -116,9 +116,11 @@ function local(remoteCode: number, localCode = 0, retry?: Retry): Local {
 
   // ssh: drops options, then runs the command in the remote's home. The
   // remote half itself (CI or gate) is not run; it answers with remoteCode,
-  // or with the next "<code>|<seconds>|<last line>" of remote-queue. Any
-  // other piped script runs for real. With push-fails, every push fails.
-  // unreachable fails every ssh call, or as many as the number it holds.
+  // or with the next "<code>|<seconds>|<last line>[|<down>]" of
+  // remote-queue. Any other piped script runs for real. With push-fails,
+  // every push fails. unreachable fails every ssh call, or as many as the
+  // number it holds; a queue line's <down> writes it as the remote half ends
+  // (a number, or - for every later call), as a crash of the box does.
   stub(
     join(bin, "ssh"),
     `printf '%s\\n' "$*" >> "$FIX/ssh.log"
@@ -144,11 +146,13 @@ if [[ $1 == bash && $2 == -s && ( $4 == --remote || $4 == --remote-gate ) ]]; th
   printf '%s\\n' "$*" >> "$FIX/remote.log"
   echo "remote output for $5"
   if [[ -s $FIX/remote-queue ]]; then
-    IFS='|' read -r code pause line < "$FIX/remote-queue"
+    IFS='|' read -r code pause line down < "$FIX/remote-queue"
     sed -i 1d "$FIX/remote-queue"
     sleep "$pause"
     # ssh prints its own error on stderr; the remote half prints on stdout.
     if ((code == 255)); then echo "$line" >&2; else echo "$line"; fi
+    if [[ $down == - ]]; then : > "$FIX/unreachable"
+    elif [[ -n $down ]]; then echo "$down" > "$FIX/unreachable"; fi
     exit "$code"
   fi
   [[ -e $FIX/red-$5 ]] && exit 1
@@ -618,6 +622,95 @@ describe("ci-remote --gate, the local half", () => {
     expectFrame(r, head, 0);
     expect(f.remoteRuns()).toHaveLength(1);
   });
+});
+
+// A remote-gate ssh that ends with 255 lost its connection: the gate waits for
+// the remote to answer and runs once more, on the same commit. A remote 3, a
+// first push that fails and a remote down from the start are never retried
+// (the "relays a remote no verdict", "remote is unreachable" and "second push
+// failure" tests above).
+describe("ci-remote --gate, a lost connection", () => {
+  const DROP = "client_loop: send disconnect: Broken pipe";
+  // ssh calls that fail after the drop: the lost attempt's ref cleanup and
+  // the first polls. A retry that does not wait for the box fails its push.
+  const DOWN = 4;
+
+  it.each([0, 1])(
+    "waits for the remote, runs the gates once more and relays its %i",
+    (verdict) => {
+      const f = local(verdict, 0, RETRY_NOW);
+      const head = gateCommit(f);
+      writeFileSync(join(f.dir, "remote-queue"), `255|0|${DROP}|${DOWN}\n`);
+      const r = f.run(["--gate", "server/a.test.ts"], {
+        target: TARGET,
+        merge: true,
+      });
+      expectFrame(r, head, verdict);
+      // The box was down for DOWN ssh calls after the drop, and is up again.
+      expect(read(join(f.dir, "unreachable")).trim()).toBe("0");
+      const runs = f.remoteRuns().map((line) => line.split(" "));
+      expect(runs).toHaveLength(2);
+      // The same commit and paths, with a new run id.
+      expect(runs[1]![4]).toBe(head);
+      expect(runs[0]![4]).toBe(head);
+      expect(runs[1]!.slice(6)).toEqual(runs[0]!.slice(6));
+      expect(runs[1]![5]).not.toBe(runs[0]![5]);
+      expect(attempts(f)).toBe(2);
+      // The log names the retry between the drop and the second run.
+      const lines = r.out.split("\n");
+      const drop = lines.indexOf(DROP);
+      const second = lines.findLastIndex((l) => l.startsWith("remote output"));
+      expect(drop, r.out).toBeGreaterThan(-1);
+      expect(second, r.out).toBeGreaterThan(drop);
+      expect(
+        lines.slice(drop + 1, second).filter((l) => l.includes(TARGET)),
+        r.out,
+      ).not.toEqual([]);
+      // Neither attempt's ref stays: the lost one's cleanup failed while
+      // the box was down.
+      const bare = join(f.home, REMOTE_ROOT, "repo.git");
+      expect(git(bare, "for-each-ref", "refs/gate/")).toBe("");
+      expect(f.bunCalls()).toEqual([]);
+      expect(f.logs()).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["loses the connection again", `255|0|${DROP}`],
+    ["gives no verdict", "3|0|"],
+  ])("gives no verdict, with no third run, when the retry %s", (_, retry) => {
+    const f = local(0, 0, RETRY_NOW);
+    const head = gateCommit(f);
+    writeFileSync(join(f.dir, "remote-queue"), `255|0|${DROP}\n${retry}\n`);
+    const r = f.run(["--gate", "server/a.test.ts"], {
+      target: TARGET,
+      merge: true,
+    });
+    expectFrame(r, head, 3);
+    expect(f.remoteRuns()).toHaveLength(2);
+    expect(f.bunCalls()).toEqual([]);
+  });
+
+  // The window is real seconds, so the poll count is a lower bound.
+  it("gives no verdict when the remote does not answer within the window", () => {
+    const f = local(0, 0, { for: 2, every: 1 });
+    const head = gateCommit(f);
+    writeFileSync(join(f.dir, "remote-queue"), `255|0|${DROP}|-\n`);
+    const start = Date.now();
+    const r = f.run(["--gate", "server/a.test.ts"], {
+      target: TARGET,
+      merge: true,
+    });
+    expectFrame(r, head, 3);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(1000);
+    expect(f.remoteRuns()).toHaveLength(1);
+    expect(attempts(f)).toBe(1);
+    // After the drop: the ref cleanup and at least two polls, all refused.
+    const calls = f.sshCalls();
+    const drop = calls.findIndex((l) => l.includes("--remote-gate"));
+    expect(calls.length - drop - 1, calls.join("\n")).toBeGreaterThanOrEqual(3);
+    expect(f.bunCalls()).toEqual([]);
+  }, 10_000);
 });
 
 // --- push repair, both modes ------------------------------------------------

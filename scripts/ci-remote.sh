@@ -30,6 +30,9 @@
 # 0 green, 1 red, 2 refused (nothing was sent), 3 no verdict. A step stopped
 # by a signal or out of memory gives 3, unless another step is red. It never
 # runs here: with no target, or when the remote cannot run it, it exits 3.
+# When its ssh session ends with no exit status (a dropped connection), it
+# waits up to CI_RETRY_FOR seconds for the remote to answer and runs the
+# gates there once more, so a run can take that wait plus a second run.
 # Each path must be tracked at HEAD and contain nothing under control-plane/,
 # whose tests need the Postgres that a CI run holds on the remote.
 #
@@ -50,10 +53,10 @@ PG_VERSION=18.4.0-beta.17
 # The control-plane suite's Postgres port, a constant in control-plane/testing/pg.ts.
 PG_PORT=5433
 RUN_LIMIT=30m
-# Seconds to keep trying the remote after its first no-verdict, and the pause
-# between tries: long enough for a remote that crashed to come back (the WSL
-# remote used here restarts within one 5-minute keepalive cycle plus its boot,
-# 2026-10-23).
+# Seconds to keep trying the remote after its first no-verdict (for a gate,
+# after a lost connection), and the pause between tries: long enough for a
+# remote that crashed to come back (the WSL remote used here restarts within
+# one 5-minute keepalive cycle plus its boot, 2026-10-23).
 CI_RETRY_FOR=360
 CI_RETRY_EVERY=30
 REMOTE_ROOT=.cache/isomux-ci-remote
@@ -198,6 +201,37 @@ gate_main() {
   return "$status"
 }
 
+# One gate run on the remote: returns the remote half's 0, 1 or 3, ssh's
+# 255, or 3 when the push fails.
+gate_attempt() {
+  local sha=$1 id=$2 status
+  shift 2
+  push_commit "$sha" "refs/gate/$id" || {
+    echo "✗ $TARGET could not take the commit"
+    return 3
+  }
+  ssh "${SSH_OPTS[@]}" "$TARGET" bash -s -- --remote-gate "$sha" "$id" -- "$@" <"${BASH_SOURCE[0]}" 2>&1
+  status=$?
+  drop_gate_ref "$id"
+  return "$status"
+}
+
+# The remote half deletes its ref; this covers a run that never started.
+drop_gate_ref() {
+  ssh "${SSH_OPTS[@]}" "$TARGET" "git -C $REMOTE_ROOT/repo.git update-ref -d refs/gate/$1" >/dev/null 2>&1
+}
+
+# Asks the remote at once, then every CI_RETRY_EVERY seconds, for up to
+# CI_RETRY_FOR seconds. Returns 1 when it never answers.
+wait_for_target() {
+  local deadline=$((SECONDS + CI_RETRY_FOR))
+  while :; do
+    ssh "${SSH_OPTS[@]}" "$TARGET" true >/dev/null 2>&1 && return 0
+    ((SECONDS + CI_RETRY_EVERY <= deadline)) || return 1
+    sleep "$CI_RETRY_EVERY"
+  done
+}
+
 gate_run() {
   local sha=$1 top arg path files id status
   shift
@@ -243,13 +277,26 @@ gate_run() {
   fi
   id=$(new_id)
   echo "→ tsc${paths[*]:+ and bun test} on $TARGET"
-  push_commit "$sha" "refs/gate/$id" || {
-    echo "✗ $TARGET could not take the commit; run the gates here"
-    return 3
-  }
-  ssh "${SSH_OPTS[@]}" "$TARGET" bash -s -- --remote-gate "$sha" "$id" -- "${paths[@]}" <"${BASH_SOURCE[0]}" 2>&1
+  gate_attempt "$sha" "$id" "${paths[@]}"
   status=$?
-  ssh "${SSH_OPTS[@]}" "$TARGET" "git -C $REMOTE_ROOT/repo.git update-ref -d refs/gate/$id" >/dev/null 2>&1
+  # 255 is ssh's own: the session ended with no exit status, mostly because
+  # the connection dropped (a crash of the remote). One more attempt once the
+  # remote answers. It takes a new id: after a network drop with no crash,
+  # the lost run can keep its slot and its temp directory until it ends.
+  if ((status == 255)); then
+    echo "→ the ssh session to $TARGET ended with no exit status (ssh exit 255); waiting up to ${CI_RETRY_FOR}s for $TARGET to answer"
+    if wait_for_target; then
+      # The lost attempt's own cleanup ran while the remote was down.
+      drop_gate_ref "$id"
+      echo "→ $TARGET answers again; running the gates once more"
+      id=$(new_id)
+      gate_attempt "$sha" "$id" "${paths[@]}"
+      status=$?
+    else
+      echo "✗ $TARGET did not answer for ${CI_RETRY_FOR}s"
+      status=3
+    fi
+  fi
   case $status in
     0 | 1) return "$status" ;;
     3) ;;
