@@ -9,6 +9,8 @@
 import { describe, it, expect } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { buildSystemPrompt } from "../system-prompt.ts";
+import { buildPublicOrigin, isOutsideReachabilityBlocked } from "../auth.ts";
+import { appHostDomain } from "../app-domain.ts";
 
 const ORIGIN = "https://office.example";
 const ENV_ORIGIN = "https://env.example";
@@ -54,5 +56,15 @@ describe("public-origin-derived prompt", () => {
       if (prevEnv === undefined) delete process.env.ISOMUX_PUBLIC_ORIGIN;
       else process.env.ISOMUX_PUBLIC_ORIGIN = prevEnv;
     }
+
+    // stop() leaves the module state of a process that never booted, so a
+    // later file in the same process does not inherit this boot's origin.
+    const after = buildPublicOrigin();
+    expect(after.source).toBe("localhost");
+    expect(after.isHttps).toBe(false);
+    expect(isOutsideReachabilityBlocked()).toBe(true);
+    const later = buildSystemPrompt("A1", "agent-1", "Test Room", "room-1");
+    expect(later.split(ORIGIN).length - 1).toBe(0);
+    expect(() => appHostDomain()).toThrow();
   });
 });

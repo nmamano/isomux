@@ -2293,17 +2293,27 @@ export function _testResetState() {
   sessions = null;
   wsBySession.clear();
   // Repeated in-process harness boots must not inherit a prior run's mutex
-  // chain, persist throttle, or cached origin/port. Reset them so each boot
-  // starts from a known-idle auth module. (Boot captures bootHadOwner /
-  // bootExternalAccess are re-frozen by startServer's freezeBootState.)
+  // chain, persist throttle, or boot state. Reset them so each boot starts
+  // from a known-idle auth module.
   mutexTail = Promise.resolve();
   sessionsNeedsPersist = false;
   invitesNeedsPersist = false;
   lastPersist = 0;
-  cachedFallbackOrigin = null;
-  boundLoopbackPort = null;
+  _testResetBootState();
   // Re-read from the state root on next use, as a restart does.
   officeId = undefined;
+}
+
+// Return the boot captures and the origin/port to the state of a process
+// that never booted; the next read falls back to the strict pre-boot default.
+// Tests only: the harness calls it on stop(), so a later test file in the same
+// process does not inherit the last boot's public origin.
+export function _testResetBootState(): void {
+  bootHadOwner = null;
+  bootExternalAccess = null;
+  bootNetworkBind = null;
+  cachedFallbackOrigin = null;
+  boundLoopbackPort = null;
 }
 
 export function _testResetOwnerClaimedInThisProcess(): void {

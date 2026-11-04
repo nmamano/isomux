@@ -32,6 +32,7 @@ import {
   mintInvite,
   INVITE_TTL_MS,
   _testResetState,
+  _testResetBootState,
   _testResetOwnerClaimedInThisProcess,
   _testSeedOwner,
 } from "../auth.ts";
@@ -499,6 +500,10 @@ async function bootTestServer(
         // Release the single-instance lock even if handle.stop() hangs/throws,
         // so a failed teardown cannot wedge the whole test process.
         activeHarness = false;
+        // Here, not after handle.stop(): it can lose the race above. Later
+        // files in this process must not inherit this boot's origin.
+        _testResetBootState();
+        _testResetAppHostDomain();
       }
     }
 
