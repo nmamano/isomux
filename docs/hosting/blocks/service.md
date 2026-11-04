@@ -20,6 +20,7 @@ ExecStart="$HOME/.bun/bin/bun" run dev
 Restart=on-failure
 RestartSec=5s
 OOMPolicy=continue
+TimeoutStopSec=30
 
 [Install]
 WantedBy=default.target

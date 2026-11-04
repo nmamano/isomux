@@ -37,7 +37,7 @@ async function runStop(
   body: string,
 ): Promise<StopRun> {
   const code = `
-    const { serverStopping, runAtServerStop } = await import(${JSON.stringify(STOP_MODULE)});
+    const { serverStopping, runAtServerStop, setStopFinalStep } = await import(${JSON.stringify(STOP_MODULE)});
     const out = (value) => console.log(JSON.stringify(value));
     ${body}
     setInterval(() => {}, 1000);
@@ -146,13 +146,104 @@ describe("the server's stop signal", () => {
       "SIGINT",
       `runAtServerStop(async () => {
          out({ phase: "hook-start", stopping: serverStopping() });
-         setTimeout(() => process.kill(process.pid, "SIGINT"), 50);
+         // Past the window in which a repeat is a wrapper's forwarded copy.
+         setTimeout(() => process.kill(process.pid, "SIGINT"), 1_000);
          await new Promise(() => {});
        });`,
     );
     expect(run.lines).toEqual([{ phase: "hook-start", stopping: true }]);
     expect(death(run)).toEqual({
       signalCode: "SIGINT",
+      exitCode: null,
+      hung: false,
+      stderr: "",
+    });
+  });
+
+  test("the final step runs after every hook settles, with the signal time, and the process then dies by the signal", async () => {
+    // The office's last act at a stop (task 44f7b101): SIGKILL what outlived
+    // the signal. It must come after the hooks (OpenCode's own shutdown ends
+    // its servers) and before the re-raise.
+    const run = await runStop(
+      "SIGTERM",
+      `setStopFinalStep(async (signalAt) => {
+         out({ phase: "final-start", signalAt, now: Date.now() });
+         await new Promise((resolve) => setTimeout(resolve, 150));
+         out({ phase: "final-end" });
+       });
+       ${SLOW_HOOK}
+       out({ phase: "before", now: Date.now() });`,
+    );
+    expect(run.lines.map((line) => line.phase)).toEqual([
+      "before",
+      "hook-start",
+      "hook-end",
+      "final-start",
+      // The re-raise waited for the final step.
+      "final-end",
+    ]);
+    const before = run.lines[0].now as number;
+    const final = run.lines[3] as { signalAt: number; now: number };
+    // The time the signal arrived, not the time the step started: the grace
+    // counts from the signal.
+    expect(final.signalAt).toBeGreaterThanOrEqual(before);
+    expect(final.signalAt).toBeLessThan(final.now - 100);
+    expect(death(run)).toEqual({
+      signalCode: "SIGTERM",
+      exitCode: null,
+      hung: false,
+      stderr: "",
+    });
+  });
+
+  for (const failure of [
+    `() => { throw new Error("sync final step failure"); }`,
+    `async () => { throw new Error("async final step failure"); }`,
+  ])
+    test(`a final step that fails still lets the process die by the signal (${failure.startsWith("async") ? "rejects" : "throws"})`, async () => {
+      const run = await runStop(
+        "SIGTERM",
+        `setStopFinalStep(${failure});
+         ${SLOW_HOOK}`,
+      );
+      expect(run.lines.map((line) => line.phase)).toEqual([
+        "hook-start",
+        "hook-end",
+      ]);
+      expect(death(run)).toEqual({
+        signalCode: "SIGTERM",
+        exitCode: null,
+        hung: false,
+        stderr: "",
+      });
+      // Logged, as a failed hook is.
+      expect(run.stderr).toContain("final step failure");
+    });
+
+  test("a repeat of the signal right after the first is a forwarded copy: the hooks and the final step still run", async () => {
+    // `bun run dev` (the docs unit) stays alive at a stop and forwards the
+    // signal to the office, which then gets it twice within milliseconds
+    // (measured 2026-11-04). Taking the copy as a second Ctrl-C would skip
+    // every hook and the final step.
+    const run = await runStop(
+      "SIGTERM",
+      `setStopFinalStep(async () => out({ phase: "final" }));
+       runAtServerStop(async () => {
+         out({ phase: "hook-start" });
+         process.kill(process.pid, "SIGTERM");
+         out({ phase: "copy-sent" });
+         await new Promise((resolve) => setTimeout(resolve, 150));
+         out({ phase: "hook-end" });
+       });`,
+    );
+    expect(run.lines.map((line) => line.phase)).toEqual([
+      "hook-start",
+      "copy-sent",
+      "hook-end",
+      "final",
+    ]);
+    expect(death(run)).toEqual({
+      signalCode: "SIGTERM",
       exitCode: null,
       hung: false,
       stderr: "",

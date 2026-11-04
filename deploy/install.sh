@@ -3732,6 +3732,10 @@ OOMScoreAdjust=-500
 # radius, measured" - the pairing is the only configuration of the seven tested
 # that cost one agent instead of all of them.
 OOMPolicy=continue
+# The office ends what outlives its stop a few seconds after the signal
+# (server/stop-reap.ts). This bounds a stop that hangs anyway: the default
+# 90 s keeps the office down that long at every restart and update.
+TimeoutStopSec=30
 
 [Install]
 WantedBy=multi-user.target

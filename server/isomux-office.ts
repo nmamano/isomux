@@ -69,6 +69,7 @@ import {
 import type { EnqueueResult } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
+import { armStopReap } from "./stop-reap.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
@@ -5528,6 +5529,11 @@ export async function runOfficeMain(): Promise<void> {
   // harness calls startServer() directly and must not rename itself. After the
   // CLI fast-path above, which is a different program and keeps its own name.
   setProcessName();
+  // At a systemd stop, SIGKILL what still runs in the unit's cgroup a short
+  // grace after the signal, so a process that ignores SIGTERM cannot hold the
+  // restart for the unit's stop timeout (server/stop-reap.ts). Decided before
+  // the marker is set: every process this office starts inherits it.
+  armStopReap();
   // Before anything reads PATH: agents and terminals inherit it.
   if (process.env.PATH)
     process.env.PATH = normalizeBunRunPath(process.env.PATH, process.cwd());

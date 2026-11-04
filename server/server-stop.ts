@@ -17,10 +17,23 @@
 // re-raise. A second signal while hooks run ends the process at once by that
 // signal, so a hung hook never needs SIGKILL. The flag never resets, and a
 // hook registered after the signal does not run.
+//
+// A repeat within FORWARDED_COPY_MS of the first is ignored: under a unit that
+// runs `bun run dev`, systemd signals the outer bun and the office together,
+// and bun run forwards its copy to the office (measured 2026-11-04). Taking
+// that copy as the second signal would skip every hook.
+//
+// After the hooks, one final step runs before the re-raise: the office's
+// SIGKILL of what outlived the signal (stop-reap.ts). It fails like a hook.
 
 type StopSignal = "SIGINT" | "SIGTERM";
 
+// How soon after the first signal a repeat is taken as a forwarded copy.
+const FORWARDED_COPY_MS = 500;
+
 let stopping = false;
+let signalAt = 0;
+let finalStep: ((signalAt: number) => Promise<unknown>) | null = null;
 const hooks: (() => Promise<unknown>)[] = [];
 
 /** True once this process got SIGTERM or SIGINT. Never resets. */
@@ -36,6 +49,16 @@ export function runAtServerStop(hook: () => Promise<unknown>): void {
   hooks.push(hook);
 }
 
+/**
+ * Run `step` after every hook settles and before the re-raise, with the time
+ * the signal arrived. One slot: a later call replaces it, null clears it.
+ */
+export function setStopFinalStep(
+  step: ((signalAt: number) => Promise<unknown>) | null,
+): void {
+  finalStep = step;
+}
+
 function dieBy(signal: StopSignal): void {
   process.off("SIGINT", onSigint);
   process.off("SIGTERM", onSigterm);
@@ -44,16 +67,24 @@ function dieBy(signal: StopSignal): void {
 
 function onStopSignal(signal: StopSignal): void {
   if (stopping) {
+    if (Date.now() - signalAt < FORWARDED_COPY_MS) return;
     dieBy(signal);
     return;
   }
   stopping = true;
-  void Promise.allSettled(hooks.map(async (hook) => hook())).then((results) => {
-    for (const result of results)
-      if (result.status === "rejected")
-        console.error("[server-stop] stop hook failed:", result.reason);
-    dieBy(signal);
-  });
+  signalAt = Date.now();
+  void Promise.allSettled(hooks.map(async (hook) => hook()))
+    .then(async (results) => {
+      for (const result of results)
+        if (result.status === "rejected")
+          console.error("[server-stop] stop hook failed:", result.reason);
+      const step = finalStep;
+      if (step) await step(signalAt);
+    })
+    .catch((err: unknown) => {
+      console.error("[server-stop] final stop step failed:", err);
+    })
+    .finally(() => dieBy(signal));
 }
 
 const onSigint = () => onStopSignal("SIGINT");
