@@ -24,7 +24,7 @@ import { join, relative } from "node:path";
 // so a broken link stays in the list and its process fails too. The walk stops
 // at a link back to a directory it is in; bun's own scan of such a loop is not
 // stable (task ec7fb691).
-const TEST_FILE =
+export const TEST_FILE =
   /(\.test|_test|\.spec|_spec)\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
 
 export function testFiles(root: string): string[] {

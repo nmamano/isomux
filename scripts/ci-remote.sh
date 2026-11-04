@@ -23,18 +23,23 @@
 # Each run tees its output to a log under ${TMPDIR:-/tmp} and prints the path
 # first. A green run deletes its log; a red run keeps it.
 #
-# --gate runs `bun run typecheck` and, when paths are given, `bun run
-# build:ui` and `bun test` on those paths, for the committed HEAD of this
-# checkout, on the same remote. It writes no file here: the caller redirects
-# its output. The first line is the commit's sha and the last is exit=<n>:
-# 0 green, 1 red, 2 refused (nothing was sent), 3 no verdict. A step stopped
-# by a signal or out of memory gives 3, unless another step is red. It never
-# runs here: with no target, or when the remote cannot run it, it exits 3.
-# When its ssh session ends with no exit status (a dropped connection), it
-# waits up to CI_RETRY_FOR seconds for the remote to answer and runs the
-# gates there once more, so a run can take that wait plus a second run.
-# Each path must be tracked at HEAD and contain nothing under control-plane/,
-# whose tests need the Postgres that a CI run holds on the remote.
+# --gate runs `bun run typecheck` and, when there are tests to run, `bun run
+# build:ui` and `bun test` on them, for the committed HEAD of this checkout,
+# on the same remote. The tests are the ones scripts/gate-tests.ts selects
+# from the diff since main, plus the paths given; it also runs `bun run
+# ci:web` when the diff can break control-plane/web. It writes no file here:
+# the caller redirects its output. The first line is the commit's sha and the
+# last is exit=<n>: 0 green, 1 red, 2 refused (nothing was sent), 3 no
+# verdict. A step stopped by a signal or out of memory gives 3, unless another
+# step is red. It never runs here: with no target, or when the remote cannot
+# run it, it exits 3. When its ssh session ends with no exit status (a dropped
+# connection), it waits up to CI_RETRY_FOR seconds for the remote to answer
+# and runs the gates there once more, so a run can take that wait plus a
+# second run. Each path must be tracked at HEAD and contain nothing under
+# control-plane/, whose tests need the Postgres that a CI run holds on the
+# remote: the control-plane tests the diff selects are not sent, and the last
+# lines name them with the command that runs them here. A selector that fails
+# refuses.
 #
 # The remote needs git, curl, unzip, flock, jq, a working `docker compose`,
 # a user systemd manager and a writable /dev/shm; it needs no sudo. It keeps
@@ -63,7 +68,8 @@ REMOTE_ROOT=.cache/isomux-ci-remote
 SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
 # Gate runs at once on the remote. Each gets about 3 GiB (the tsc stage's
 # peakRss in scripts/ci.ts; tsc peaked at 1.25 GiB, its largest partition,
-# 2026-11-03, task 53a41bd9), and
+# 2026-11-03, task 53a41bd9; `bun run ci:web` peaked at 1.79 GiB, its whole
+# cgroup, 2026-11-04, task 2cd2741a), and
 # the remote's memory must still hold a CI run beside them (task b3056d6c).
 GATE_SLOTS=2
 # Seconds a gate run waits for a slot and for a CI run to end, together.
@@ -195,8 +201,13 @@ gate_main() {
   local sha status
   sha=$(git rev-parse --verify --quiet "HEAD^{commit}") || sha=$NULL_SHA
   echo "$sha"
+  GATE_NOT_RUN=()
   gate_run "$sha" "$@"
   status=$?
+  if ((${#GATE_NOT_RUN[@]} > 0)); then
+    echo "! not run here: the diff selects control-plane tests, which need Postgres on $PG_PORT; run them here:"
+    echo "  bun test ${GATE_NOT_RUN[*]}"
+  fi
   echo "exit=$status"
   return "$status"
 }
@@ -210,7 +221,7 @@ gate_attempt() {
     echo "✗ $TARGET could not take the commit"
     return 3
   }
-  ssh "${SSH_OPTS[@]}" "$TARGET" bash -s -- --remote-gate "$sha" "$id" -- "$@" <"${BASH_SOURCE[0]}" 2>&1
+  ssh "${SSH_OPTS[@]}" "$TARGET" bash -s -- --remote-gate "$sha" "$id" ${GATE_WEB:+--web} -- "$@" <"${BASH_SOURCE[0]}" 2>&1
   status=$?
   drop_gate_ref "$id"
   return "$status"
@@ -250,6 +261,7 @@ gate_run() {
   # bun test reads a bare argument as a name filter, so each one must be a
   # tracked path; the remote hands it to bun as ./<path>.
   local paths=() cp
+  local -A named=()
   for arg in "$@"; do
     if [[ $arg == -* ]]; then
       echo "✗ $arg: give paths only, no bun test options"
@@ -269,14 +281,47 @@ gate_run() {
       return 2
     fi
     paths+=("$(printf '%q' "$path")")
+    named[$path]=1
   done
+  # The tests the diff selects. The checkout's own selector: it belongs to
+  # the commit under test.
+  local selector=$top/scripts/gate-tests.ts out line base="" selected=()
+  GATE_WEB=""
+  if [[ ! -f $selector ]]; then
+    echo "✗ $selector is missing: the gate cannot select the tests"
+    return 2
+  fi
+  if ! out=$(cd "$top" && bun "$selector" 2>&1); then
+    echo "✗ the test selector failed:"
+    echo "$out"
+    return 2
+  fi
+  while IFS= read -r line; do
+    case $line in
+      "base "*) base=${line#base } ;;
+      web) GATE_WEB=1 ;;
+      "cp "*) GATE_NOT_RUN+=("./${line#cp }") ;;
+      ?*)
+        selected+=("$line")
+        [[ -n ${named[$line]:-} ]] && continue
+        named[$line]=1
+        paths+=("$(printf '%q' "$line")")
+        ;;
+    esac
+  done <<<"$out"
+  if [[ -z $base || $base == none ]]; then
+    echo "→ no main branch to diff against: no tests selected"
+  else
+    echo "→ the diff from $base selects ${#selected[@]} test files${GATE_WEB:+ and bun run ci:web}"
+    for line in "${selected[@]}"; do echo "  $line"; done
+  fi
   TARGET=$(git config --get isomux.ciRemote)
   if [[ -z $TARGET ]]; then
     echo "✗ git config isomux.ciRemote is not set; run the gates here"
     return 3
   fi
   id=$(new_id)
-  echo "→ tsc${paths[*]:+ and bun test} on $TARGET"
+  echo "→ tsc${paths[*]:+ and bun test}${GATE_WEB:+ and ci:web} on $TARGET"
   gate_attempt "$sha" "$id" "${paths[@]}"
   status=$?
   # 255 is ssh's own: the session ended with no exit status, mostly because
@@ -573,8 +618,9 @@ take_gate_slot() {
 }
 
 remote_gate_main() {
-  local sha=$1 id=$2
+  local sha=$1 id=$2 web=""
   shift 2
+  [[ ${1:-} == --web ]] && web=1 && shift
   [[ ${1:-} == -- ]] && shift
   # ./ makes bun test read a path, not a name filter.
   local paths=() arg
@@ -614,14 +660,15 @@ remote_gate_main() {
   git -C "$root/repo.git" update-ref -d "refs/gate/$id"
   install_deps "$run"
 
-  # tsc always; build:ui and bun test only for paths. A red build:ui is red:
-  # it is the commit's. A step stopped by a signal, or a tsc out of memory,
-  # ran no check: no verdict, unless another step is red. The started file
-  # marks that the scope ran.
+  # tsc always; build:ui and bun test only for paths; ci:web only for --web. A
+  # red build:ui is red: it is the commit's. A step stopped by a signal, or a
+  # tsc out of memory, ran no check: no verdict, unless another step is red.
+  # The started file marks that the scope ran.
   (cd "$run/src" && exec systemd-run --user --scope --collect --quiet --unit="${scope%.scope}" -- \
     "${sandbox[@]}" nice -n 19 timeout -k 30s "$GATE_RUN_LIMIT" bash -c '
       : >"$1/started"
-      shift
+      web=$2
+      shift 2
       red=0 none=0
       stopped() {
         (($1 > 128)) || return 1
@@ -654,10 +701,16 @@ remote_gate_main() {
           stopped "$rc" build:ui || { echo "✗ build:ui failed"; red=1; }
         fi
       fi
+      if [[ -n $web ]]; then
+        echo "→ ci:web"
+        bun run ci:web
+        rc=$?
+        ((rc == 0)) || stopped "$rc" ci:web || { echo "✗ ci:web failed"; red=1; }
+      fi
       ((red)) && exit 1
       ((none)) && exit 3
       exit 0
-    ' _ "$run" "${paths[@]}" 8>&-)
+    ' _ "$run" "$web" "${paths[@]}" 8>&-)
   local status=$?
   [[ -e $run/started ]] || setup_failed "the gate scope did not start"
   # The shell above gives 0, 1 or 3; any other code is not a verdict.

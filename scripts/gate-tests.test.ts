@@ -1,0 +1,376 @@
+// scripts/gate-tests.ts: which test files a diff selects for the hand-off
+// gate. Each case is a small synthetic tree, so a case names the one edge
+// (import, path literal, whole-tree glob) that selects a test.
+
+import { describe, expect, it } from "bun:test";
+import { spawnSync } from "child_process";
+import { join } from "path";
+import {
+  HUB_IMPORTERS,
+  WHOLE_TREE_TESTS,
+  selectGateTests,
+  type GateTests,
+} from "./gate-tests.ts";
+
+type Tree = Record<string, string | undefined>;
+
+function select(
+  tree: Tree,
+  changed: string[],
+  wholeTree: Record<string, string[]> = {},
+): GateTests {
+  return selectGateTests({
+    files: Object.keys(tree),
+    read: (path) => tree[path],
+    changed,
+    wholeTree,
+  });
+}
+
+/** n modules that import `target`, each with its own test. */
+function importers(n: number, target: string): Tree {
+  const tree: Tree = {};
+  for (let i = 0; i < n; i++) {
+    tree[`ui/m${i}.ts`] =
+      `import { t } from "../${target}";\nexport const m = t;\n`;
+    tree[`ui/m${i}.test.ts`] = `import { m } from "./m${i}";\n`;
+  }
+  return tree;
+}
+
+const moduleTests = (n: number) =>
+  Array.from({ length: n }, (_, i) => `ui/m${i}.test.ts`).sort();
+
+describe("selectGateTests, imports", () => {
+  // Each row: a tree, the changed path, the tests it selects. The tree also
+  // holds a test that imports nothing changed, and a file read() cannot
+  // read, so every row also proves those stay out.
+  const rows: [string, Tree, string, string[]][] = [
+    [
+      "a direct import, with an explicit extension",
+      {
+        "server/a.ts": "export const a = 1;\n",
+        "server/a.test.ts": 'import { a } from "./a.ts";\n',
+      },
+      "server/a.ts",
+      ["server/a.test.ts"],
+    ],
+    [
+      "an import with no extension, of a .tsx file",
+      {
+        "ui/view.tsx": "export const View = () => null;\n",
+        "ui/view.dom.test.tsx": 'import { View } from "./view";\n',
+      },
+      "ui/view.tsx",
+      ["ui/view.dom.test.tsx"],
+    ],
+    [
+      "the @shared/ alias of the root tsconfig",
+      {
+        "shared/form.ts": "export const form = 1;\n",
+        "ui/form.test.ts": 'import { form } from "@shared/form";\n',
+      },
+      "shared/form.ts",
+      ["ui/form.test.ts"],
+    ],
+    [
+      "a directory import, through its index file",
+      {
+        "server/lib/index.ts": "export const lib = 1;\n",
+        "server/lib.test.ts": 'import { lib } from "./lib";\n',
+      },
+      "server/lib/index.ts",
+      ["server/lib.test.ts"],
+    ],
+    [
+      // Task 995fc76a: routes-table.test.ts reaches plain-text-form.ts only
+      // through the route table.
+      "two hops through a module few files import",
+      {
+        "shared/plain-text-form.ts": "export const form = 1;\n",
+        "server/routes/table.ts":
+          'import { form } from "../../shared/plain-text-form.ts";\nexport const table = form;\n',
+        "server/test-support/routes-table.test.ts":
+          'import { table } from "../routes/table.ts";\n',
+      },
+      "shared/plain-text-form.ts",
+      ["server/test-support/routes-table.test.ts"],
+    ],
+    [
+      "a re-export",
+      {
+        "server/x.ts": "export const x = 1;\n",
+        "server/y.ts": "export const y = 2;\n",
+        "server/barrel.ts": 'export { x } from "./x";\nexport * from "./y";\n',
+        "server/barrel.test.ts": 'import { x, y } from "./barrel";\n',
+      },
+      "server/y.ts",
+      ["server/barrel.test.ts"],
+    ],
+    [
+      "a dynamic import with a literal",
+      {
+        "ui/lazy.tsx": "export default () => null;\n",
+        "ui/lazy.test.ts": 'const m = await import("./lazy.tsx");\n',
+      },
+      "ui/lazy.tsx",
+      ["ui/lazy.test.ts"],
+    ],
+    [
+      "a require call",
+      {
+        "scripts/old.cjs": "module.exports = 1;\n",
+        "scripts/old.test.ts": 'const old = require("./old.cjs");\n',
+      },
+      "scripts/old.cjs",
+      ["scripts/old.test.ts"],
+    ],
+    [
+      // tsc checks types on every gate; only runtime edges select tests.
+      "no import that names types only",
+      {
+        "server/types.ts": "export type T = number;\n",
+        "server/a.test.ts": 'import type { T } from "./types";\n',
+        "server/b.test.ts": 'import { type T } from "./types";\n',
+      },
+      "server/types.ts",
+      [],
+    ],
+    [
+      "a changed test file, which selects itself",
+      { "server/new.test.ts": "// new\n" },
+      "server/new.test.ts",
+      ["server/new.test.ts"],
+    ],
+  ];
+  it.each(rows)("selects through %s", (_, tree, changed, tests) => {
+    const result = select(
+      {
+        ...tree,
+        "server/other.ts": "export const other = 1;\n",
+        "server/other.test.ts": 'import { other } from "./other";\n',
+        "ui/logo.png": undefined,
+      },
+      [changed],
+    );
+    expect(result).toEqual({ tests, controlPlaneTests: [], web: false });
+  });
+
+  it("selects a test reached by two routes once", () => {
+    const result = select(
+      {
+        "server/a.ts": "export const a = 1;\n",
+        "server/b.ts": 'import { a } from "./a";\nexport const b = a;\n',
+        "server/a.test.ts":
+          'import { a } from "./a";\nimport { b } from "./b";\n',
+      },
+      ["server/a.ts", "server/b.ts"],
+    );
+    expect(result.tests).toStrictEqual(["server/a.test.ts"]);
+  });
+
+  it("does not select a test whose file the diff deletes", () => {
+    const result = select({ "server/a.ts": "" }, ["server/gone.test.ts"]);
+    expect(result.tests).toStrictEqual([]);
+  });
+});
+
+describe("selectGateTests, hubs", () => {
+  // A hub: shared/i18n/translate.ts, which a copy edit in en.ts reaches. It
+  // has n module importers and its own test, n + 1 importers in all.
+  const hub = (n: number, extra: Tree = {}): Tree => ({
+    "shared/i18n/en.ts": 'export const en = { hi: "Hi" };\n',
+    "shared/i18n/translate.ts":
+      'import { en } from "./en";\nexport const t = en;\n',
+    "shared/i18n/translate.test.ts": 'import { t } from "./translate";\n',
+    ...importers(n, "shared/i18n/translate"),
+    ...extra,
+  });
+
+  it(`walks through a module that ${HUB_IMPORTERS} files import`, () => {
+    expect(select(hub(HUB_IMPORTERS - 1), ["shared/i18n/en.ts"]).tests).toEqual(
+      [
+        ...moduleTests(HUB_IMPORTERS - 1),
+        "shared/i18n/translate.test.ts",
+      ].sort(),
+    );
+  });
+
+  // translate.ts imports the changed en.ts, so its own tests run.
+  it("stops at a module with one importer more, but selects its own tests", () => {
+    expect(select(hub(HUB_IMPORTERS), ["shared/i18n/en.ts"]).tests).toEqual([
+      "shared/i18n/translate.test.ts",
+    ]);
+  });
+
+  it("counts test files as importers of a hub", () => {
+    const tree = hub(HUB_IMPORTERS - 1, {
+      "shared/i18n/more.test.ts": 'import { t } from "./translate";\n',
+    });
+    expect(select(tree, ["shared/i18n/en.ts"]).tests).toEqual([
+      "shared/i18n/more.test.ts",
+      "shared/i18n/translate.test.ts",
+    ]);
+  });
+
+  // server/test-support/harness.ts: 2 modules and 147 tests import it, and a
+  // copy edit reaches it through server/isomux-office.ts (2026-11-04).
+  it("selects nothing at a hub that does not import a changed file", () => {
+    const tree: Tree = {
+      "server/templates.ts": "export const templates = [];\n",
+      "server/office.ts":
+        'import { templates } from "./templates";\nexport const office = templates;\n',
+      "server/office.test.ts": 'import { office } from "./office";\n',
+      "server/harness.ts":
+        'import { office } from "./office";\nexport const harness = office;\n',
+    };
+    for (let i = 0; i <= HUB_IMPORTERS; i++)
+      tree[`server/h${i}.test.ts`] = 'import { harness } from "./harness";\n';
+    expect(select(tree, ["server/templates.ts"]).tests).toEqual([
+      "server/office.test.ts",
+    ]);
+  });
+
+  it("walks on from a hub the diff changes", () => {
+    expect(
+      select(hub(HUB_IMPORTERS), ["shared/i18n/translate.ts"]).tests,
+    ).toEqual(
+      [...moduleTests(HUB_IMPORTERS), "shared/i18n/translate.test.ts"].sort(),
+    );
+  });
+});
+
+describe("selectGateTests, path literals", () => {
+  const tree: Tree = {
+    "docs/features.md": "# Features\n",
+    "ui/page.html": "<html></html>\n",
+    "scripts/docs.test.ts":
+      'const text = readFileSync("docs/features.md", "utf8");\n',
+    "ui/page.test.ts":
+      'const html = readFileSync(join(import.meta.dir, "page.html"), "utf8");\n',
+    "server/readme.test.ts": 'const p = join(root, "../README.md");\n',
+    "scripts/name.test.ts": 'const name = "features.md";\n',
+  };
+
+  it.each([
+    ["repo-relative", "docs/features.md", ["scripts/docs.test.ts"]],
+    ["relative to the test's directory", "ui/page.html", ["ui/page.test.ts"]],
+    [
+      "with ../, relative to the test's directory",
+      "README.md",
+      ["server/readme.test.ts"],
+    ],
+    // A test that reads a file the diff deletes must run, and go red.
+    ["of a deleted file", "docs/old.md", ["scripts/old.test.ts"]],
+  ])("selects a test with a literal path, %s", (_, changed, tests) => {
+    const result = select(
+      {
+        ...tree,
+        "scripts/old.test.ts": 'readFileSync("docs/old.md", "utf8");\n',
+      },
+      [changed],
+    );
+    expect(result.tests).toEqual(tests);
+  });
+});
+
+describe("selectGateTests, whole-tree tests", () => {
+  const tree: Tree = {
+    "ui/first-bundle.test.ts": "// walks ui/\n",
+    "ui/deep/style.css": "a {}\n",
+    "server/a.ts": "export const a = 1;\n",
+  };
+  const table = { "ui/first-bundle.test.ts": ["ui/**"] };
+
+  it.each([
+    ["a changed file", "ui/deep/style.css", ["ui/first-bundle.test.ts"]],
+    ["a deleted file", "ui/deep/gone.css", ["ui/first-bundle.test.ts"]],
+    ["no file", "server/a.ts", []],
+  ])("selects a test whose glob matches %s", (_, changed, tests) => {
+    expect(select(tree, [changed], table).tests).toEqual(tests);
+  });
+
+  // A rename of a whole-tree test or of the directory it reads must fail
+  // the gate, not drop the test from every later gate.
+  it.each([
+    [
+      "a key that is not tracked",
+      { "ui/gone.test.ts": ["ui/**"] },
+      "ui/gone.test.ts",
+    ],
+    [
+      "a key that is not a test file",
+      { "server/a.ts": ["ui/**"] },
+      "server/a.ts",
+    ],
+    [
+      "a glob that matches no tracked file",
+      { "ui/first-bundle.test.ts": ["web/**"] },
+      "web/**",
+    ],
+  ])("throws, naming it, on %s", (_, wholeTree, offender) => {
+    expect(() => select(tree, ["server/a.ts"], wholeTree)).toThrow(offender);
+  });
+
+  it("has a table that holds at the current HEAD", () => {
+    const root = join(import.meta.dir, "..");
+    const ls = spawnSync("git", ["ls-files", "-z"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    expect(ls.status, ls.stderr).toBe(0);
+    const files = ls.stdout.split("\0").filter(Boolean);
+    expect(Object.keys(WHOLE_TREE_TESTS).length).toBeGreaterThan(0);
+    // The table checks need the paths only: no file is read.
+    const result = selectGateTests({
+      files,
+      read: () => "",
+      changed: Object.keys(WHOLE_TREE_TESTS),
+      wholeTree: WHOLE_TREE_TESTS,
+    });
+    // Each key is a changed test here, so each one selects itself.
+    expect([...result.tests, ...result.controlPlaneTests].sort()).toEqual(
+      Object.keys(WHOLE_TREE_TESTS).sort(),
+    );
+  });
+});
+
+describe("selectGateTests, control-plane", () => {
+  const tree: Tree = {
+    "shared/x.ts": "export const x = 1;\n",
+    "shared/i18n/en.ts": "export const en = {};\n",
+    "shared/i18n/translate.ts":
+      'import { en } from "./en";\nexport const t = en;\n',
+    ...importers(HUB_IMPORTERS + 1, "shared/i18n/translate"),
+    "control-plane/plans.ts":
+      'import { x } from "../shared/x";\nexport const plans = x;\n',
+    "control-plane/store.test.ts": 'import { plans } from "./plans";\n',
+    "control-plane/web/app/page.tsx":
+      'import { plans } from "../../plans";\nimport { t } from "../../../shared/i18n/translate";\n',
+    "control-plane/web/package.json": "{}\n",
+    "server/y.ts": "export const y = 1;\n",
+    "server/y.test.ts": 'import { y } from "./y";\n',
+  };
+
+  it("puts a selected control-plane test apart from the gate's tests", () => {
+    expect(select(tree, ["shared/x.ts"])).toEqual({
+      tests: [],
+      controlPlaneTests: ["control-plane/store.test.ts"],
+      web: true,
+    });
+  });
+
+  it.each([
+    ["a module control-plane/web reaches", "shared/x.ts", true],
+    // The web walk is one yes or no: no hub stops it.
+    [
+      "a module control-plane/web reaches through a hub",
+      "shared/i18n/en.ts",
+      true,
+    ],
+    ["a file under control-plane/web", "control-plane/web/package.json", true],
+    ["a module control-plane/web does not reach", "server/y.ts", false],
+  ])("asks for ci:web for a change to %s: %p", (_, changed, web) => {
+    expect(select(tree, [changed]).web).toBe(web);
+  });
+});

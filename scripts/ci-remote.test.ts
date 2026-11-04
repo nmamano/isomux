@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,6 +23,8 @@ const SCRIPT = join(import.meta.dir, "ci-remote.sh");
 const HOOK = join(import.meta.dir, "..", ".githooks", "pre-push");
 const REMOTE_ROOT = ".cache/isomux-ci-remote";
 const TARGET = "ci@ci-box";
+/** The test selector and the files it imports, copied into each fixture. */
+const SELECTOR = ["gate-tests.ts", "test-shards.ts"];
 /** What the stub ssh prints when it cannot connect. */
 const SSH_DOWN = "ssh: connect to host ci-box port 22: Connection timed out";
 
@@ -94,6 +97,20 @@ function patchRetry(dir: string, retry: Retry): string {
   return script;
 }
 
+/**
+ * Empties the selector copy's whole-tree table: its keys are this repo's
+ * tests, which the fixture repo does not hold, and a key that is not tracked
+ * fails the selector.
+ */
+function emptyWholeTreeTable(path: string): void {
+  const text = readFileSync(path, "utf8");
+  const table =
+    /^(export const WHOLE_TREE_TESTS: Record<string, string\[\]> = )\{\n[\s\S]*?\n\};$/m;
+  if (!table.test(text))
+    throw new Error("gate-tests.ts has no WHOLE_TREE_TESTS table");
+  writeFileSync(path, text.replace(table, "$1{};"));
+}
+
 function local(remoteCode: number, localCode = 0, retry?: Retry): Local {
   const dir = mkdtempSync(join(tmpdir(), "isomux-ci-remote-"));
   dirs.push(dir);
@@ -107,6 +124,11 @@ function local(remoteCode: number, localCode = 0, retry?: Retry): Local {
   git(repo, "config", "user.email", "probe@probe");
   git(repo, "config", "user.name", "Probe");
   writeFileSync(join(repo, "f.txt"), "one\n");
+  // The gate's local half runs the checkout's own test selector.
+  mkdirSync(join(repo, "scripts"));
+  for (const file of SELECTOR)
+    copyFileSync(join(import.meta.dir, file), join(repo, "scripts", file));
+  emptyWholeTreeTable(join(repo, "scripts", "gate-tests.ts"));
   git(repo, "add", ".");
   git(repo, "commit", "-qm", "one");
   const first = git(repo, "rev-parse", "HEAD");
@@ -160,9 +182,11 @@ if [[ $1 == bash && $2 == -s && ( $4 == --remote || $4 == --remote-gate ) ]]; th
 fi
 exec bash -c "$*"`,
   );
+  // The test selector runs on the real bun and is not a logged call.
   stub(
     join(bin, "bun"),
-    `echo "$* $(git rev-parse HEAD)" >> "$FIX/bun.log"
+    `if [[ $1 == */scripts/gate-tests.ts ]]; then exec "$REAL_BUN" "$@"; fi
+echo "$* $(git rev-parse HEAD)" >> "$FIX/bun.log"
 exit ${localCode}`,
   );
 
@@ -190,6 +214,7 @@ exit ${localCode}`,
           PATH: `${bin}:${process.env.PATH}`,
           TMPDIR: join(dir, "tmp"),
           FIX: dir,
+          REAL_BUN: process.execPath,
           // Only the fixture repo's own config names a target.
           GIT_CONFIG_GLOBAL: "/dev/null",
           GIT_CONFIG_NOSYSTEM: "1",
@@ -624,6 +649,121 @@ describe("ci-remote --gate, the local half", () => {
   });
 });
 
+// The paths a remote-gate run tests: what follows its last " -- ".
+function sentPaths(run: string | undefined): string[] {
+  const at = run?.lastIndexOf(" -- ") ?? -1;
+  return at < 0
+    ? []
+    : run!
+        .slice(at + 4)
+        .split(" ")
+        .sort();
+}
+
+/**
+ * main holds a module, a test of it, and a control-plane test of it; the
+ * branch "lane" changes the module. Returns main's sha and the lane's HEAD.
+ */
+function laneCommit(f: Local): { base: string; head: string } {
+  gateCommit(f);
+  writeFileSync(join(f.repo, "server", "mod.ts"), "export const mod = 1;\n");
+  writeFileSync(
+    join(f.repo, "server", "mod.test.ts"),
+    'import { mod } from "./mod.ts";\n',
+  );
+  writeFileSync(
+    join(f.repo, "control-plane", "mod.test.ts"),
+    'import { mod } from "../server/mod.ts";\n',
+  );
+  git(f.repo, "add", ".");
+  git(f.repo, "commit", "-qm", "module");
+  const base = git(f.repo, "rev-parse", "HEAD");
+  git(f.repo, "checkout", "-qb", "lane");
+  writeFileSync(join(f.repo, "server", "mod.ts"), "export const mod = 2;\n");
+  git(f.repo, "commit", "-qam", "change the module");
+  return { base, head: git(f.repo, "rev-parse", "HEAD") };
+}
+
+describe("ci-remote --gate, the tests the diff selects", () => {
+  it("sends the selected tests with the given paths, once each", () => {
+    const f = local(0);
+    const { base, head } = laneCommit(f);
+    const r = f.run(["--gate", "server/a.test.ts", "server/mod.test.ts"], {
+      target: TARGET,
+      merge: true,
+    });
+    expectFrame(r, head, 0);
+    const runs = f.remoteRuns();
+    expect(runs).toHaveLength(1);
+    expect(sentPaths(runs[0])).toEqual([
+      "server/a.test.ts",
+      "server/mod.test.ts",
+    ]);
+    expect(runs[0]).toMatch(new RegExp(`--remote-gate ${head} \\S+ -- `));
+    // The log names the base it diffed against, and the control-plane test
+    // it selected but did not send.
+    expect(r.out).toContain(base);
+    expect(r.out).toContain("control-plane/mod.test.ts");
+  });
+
+  it("sends the selected tests when it is given no paths", () => {
+    const f = local(0);
+    const { head } = laneCommit(f);
+    const r = f.run(["--gate"], { target: TARGET, merge: true });
+    expectFrame(r, head, 0);
+    expect(sentPaths(f.remoteRuns()[0])).toEqual(["server/mod.test.ts"]);
+  });
+
+  it("asks the remote for ci:web when the diff changes control-plane/web", () => {
+    const f = local(0);
+    laneCommit(f);
+    mkdirSync(join(f.repo, "control-plane", "web"));
+    writeFileSync(
+      join(f.repo, "control-plane", "web", "page.tsx"),
+      "// page\n",
+    );
+    git(f.repo, "add", ".");
+    git(f.repo, "commit", "-qm", "web page");
+    const head = git(f.repo, "rev-parse", "HEAD");
+    const r = f.run(["--gate"], { target: TARGET, merge: true });
+    expectFrame(r, head, 0);
+    expect(f.remoteRuns()[0]).toMatch(
+      new RegExp(`--remote-gate ${head} \\S+ --web -- `),
+    );
+  });
+
+  it("runs the given paths only when there is no main to diff against", () => {
+    const f = local(0);
+    const { head } = laneCommit(f);
+    git(f.repo, "branch", "-m", "main", "trunk");
+    const r = f.run(["--gate", "server/a.test.ts"], {
+      target: TARGET,
+      merge: true,
+    });
+    expectFrame(r, head, 0);
+    expect(sentPaths(f.remoteRuns()[0])).toEqual(["server/a.test.ts"]);
+  });
+
+  // A selector that fails must not turn into a gate that tests less.
+  it("refuses, sending nothing, when the selector fails", () => {
+    const f = local(0);
+    laneCommit(f);
+    writeFileSync(
+      join(f.repo, "scripts", "gate-tests.ts"),
+      'throw new Error("selector-broke");\n',
+    );
+    git(f.repo, "commit", "-qam", "break the selector");
+    const head = git(f.repo, "rev-parse", "HEAD");
+    const r = f.run(["--gate", "server/a.test.ts"], {
+      target: TARGET,
+      merge: true,
+    });
+    expectFrame(r, head, 2);
+    expect(r.out).toContain("selector-broke");
+    expect(f.sshCalls()).toEqual([]);
+  });
+});
+
 // A remote-gate ssh that ends with 255 lost its connection: the gate waits for
 // the remote to answer and runs once more, on the same commit. A remote 3, a
 // first push that fails and a remote down from the start are never retried
@@ -856,8 +996,15 @@ type Remote = {
   bunTmpdirs(): [string, string][];
   /** The data directory each initdb call created. */
   pgDataDirs(): string[];
-  /** Runs the gate half for one run id, with its test arguments. */
-  gate(id: string, args: string[]): { status: number | null; out: string };
+  /**
+   * Runs the gate half for one run id, with its test arguments and the
+   * flags that go before them (--web).
+   */
+  gate(
+    id: string,
+    args: string[],
+    flags?: string[],
+  ): { status: number | null; out: string };
   /**
    * The same, without waiting: for runs that overlap. The output so far is in
    * gateOut(id).
@@ -1075,7 +1222,7 @@ exit 0`,
         .map((line) => line.split("|") as [string, string]),
     pgDataDirs: () =>
       read(join(dir, "pg-datadirs")).split("\n").filter(Boolean),
-    gate(id, args) {
+    gate(id, args, flags = []) {
       dirs.push(`/dev/shm/igr-${id.split("-")[1]}`);
       git(src, "push", "-q", bare, `${sha}:refs/gate/${id}`);
       const r = spawnSync(
@@ -1089,6 +1236,7 @@ exit 0`,
           "--remote-gate",
           sha,
           id,
+          ...flags,
           "--",
           ...args,
         ],
@@ -1350,6 +1498,38 @@ describe("ci-remote --remote-gate, the remote half", () => {
     expect(res.status, res.out).toBe(0);
     expect(r.bunCalls()).toEqual([...INSTALLS, TSC]);
   });
+
+  it.each([
+    [["server/a.test.ts"], [TSC, "run build:ui", "test ./server/a.test.ts"]],
+    [[], [TSC]],
+  ])("runs ci:web last with --web, given paths %p", async (args, steps) => {
+    const r = await remote({});
+    const res = r.gate(runId(), args, ["--web"]);
+    expect(res.status, res.out).toBe(0);
+    expect(r.bunCalls()).toEqual([...INSTALLS, ...steps, "run ci:web"]);
+  });
+
+  // ci:web is a step as the others: red is red, and a kill is no verdict
+  // unless another step is red.
+  it.each([
+    { killed: [], fail: ["run ci:web"], exit: 1 },
+    { killed: ["run ci:web"], fail: [], exit: 3 },
+    { killed: ["run ci:web"], fail: ["test ./server/a.test.ts"], exit: 1 },
+  ])(
+    "exits $exit with --web when $killed is killed and $fail is red",
+    async ({ killed, fail, exit }) => {
+      const r = await remote({ killed, fail });
+      const res = r.gate(runId(), ["server/a.test.ts"], ["--web"]);
+      expect(res.status, res.out).toBe(exit);
+      expect(r.bunCalls()).toEqual([
+        ...INSTALLS,
+        TSC,
+        "run build:ui",
+        "test ./server/a.test.ts",
+        "run ci:web",
+      ]);
+    },
+  );
 
   it.each([
     [TSC, [TSC, "run build:ui", "test ./server/a.test.ts"]],

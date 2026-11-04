@@ -60,7 +60,13 @@ export const stages: Stage[] = [
   // model credits. It runs after bun test, never beside it: its first-reply
   // waits fail under load.
   { name: "opencode live", command: ["bun", "run", "test:opencode:ci"] },
-  { name: "ci:web", command: ["bun", "run", "ci:web"] },
+  {
+    name: "ci:web",
+    command: ["bun", "run", "ci:web"],
+    // A gate run on the remote runs it too (scripts/ci-remote.sh --gate):
+    // 1.79 GiB peak for its whole cgroup, 2026-11-04, task 2cd2741a.
+    peakRss: 3 * 1024 ** 3,
+  },
   // The release image check (build, smoke, Compose) on the committed HEAD.
   // The release workflow runs the same scripts; without this stage they
   // drifted and two release tags published no image.

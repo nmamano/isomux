@@ -433,11 +433,11 @@ describe("the CI stages", () => {
   const tsc = stages.find((s) => s.name === "tsc")!;
   const lint = stages.find((s) => s.name === "lint")!;
 
-  it("only lint reports heap; tsc reports peak RSS and gets no Node options", () => {
+  it("only lint reports heap; tsc and ci:web report peak RSS, and tsc gets no Node options", () => {
     expect(stages.filter((s) => s.heap).map((s) => s.name)).toEqual(["lint"]);
     expect(
       stages.filter((s) => s.peakRss !== undefined).map((s) => s.name),
-    ).toEqual(["tsc"]);
+    ).toEqual(["tsc", "ci:web"]);
     // The native compiler has no V8 heap: no preload, no heap cap.
     expect(stageEnv(tsc, "/r/x.heap")).toBeUndefined();
     for (const stage of stages.filter((s) => !s.heap))
