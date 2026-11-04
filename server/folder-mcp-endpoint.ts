@@ -16,6 +16,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { stopHasFolder, type AgentAccess } from "../shared/agent-access.ts";
 import type { Identity } from "./identity/index.ts";
+import { MCP_MAX_TOOL_INPUT_ELEMENTS } from "./mcp-endpoint.ts";
 import {
   FOLDER_FILES_MCP_SERVER,
   type FolderFilesRequest,
@@ -120,10 +121,10 @@ const TOOLS: {
 ];
 
 function buildServer(agent: FolderFilesAgent, deps: FolderMcpDeps): McpServer {
-  const server = new McpServer({
-    name: FOLDER_FILES_MCP_SERVER,
-    version: "1.0.0",
-  });
+  const server = new McpServer(
+    { name: FOLDER_FILES_MCP_SERVER, version: "1.0.0" },
+    { maxToolInputElements: MCP_MAX_TOOL_INPUT_ELEMENTS },
+  );
   for (const tool of TOOLS)
     server.registerTool(
       tool.name,

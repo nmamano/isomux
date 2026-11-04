@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { MCP_MAX_TOOL_INPUT_ELEMENTS } from "../mcp-endpoint.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getUserByName } from "../users.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
@@ -675,5 +676,48 @@ describe("/mcp room projection", () => {
     });
     expect(read.isError).toBe(true);
     expect(toolText(read)).toContain(restReadCode);
+  });
+});
+
+// A tool call's arguments hold at most MCP_MAX_TOOL_INPUT_ELEMENTS keys and
+// elements, counted before validation (GHSA-46jr-4wx8-v453). Unknown keys pass
+// validation, so only the cap refuses the call one key over.
+describe("/mcp tool input cap", () => {
+  it("runs a call at the cap and refuses one key over it, sending nothing", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const { owner, userId, room } = await ownerOffice(srv);
+    const agent = await spawn(srv, "Worker", room, {
+      username: owner.username,
+      userId,
+    });
+    const minted = await mintToken(srv, owner.rawSessionId);
+    const client = await connect(srv, minted.token);
+    const withKeys = (total: number, text: string) => {
+      const args: Record<string, unknown> = { agentId: agent.id, text };
+      for (let i = Object.keys(args).length; i < total; i++)
+        args[`extra${i}`] = i;
+      expect(Object.keys(args).length).toBe(total);
+      return args;
+    };
+
+    const over = await call(
+      client,
+      "send_message",
+      withKeys(MCP_MAX_TOOL_INPUT_ELEMENTS + 1, "over the cap"),
+    );
+    expect(over.isError).toBe(true);
+    expect(await tokenLog(srv, minted.token)).toEqual([]);
+
+    const at = toolJson<{ messageId: string }>(
+      await call(
+        client,
+        "send_message",
+        withKeys(MCP_MAX_TOOL_INPUT_ELEMENTS, "at the cap"),
+      ),
+    );
+    expect(
+      (await tokenLog(srv, minted.token)).map((entry) => entry.id),
+    ).toEqual([at.messageId]);
   });
 });

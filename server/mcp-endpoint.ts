@@ -41,6 +41,14 @@ export interface McpEndpointDeps {
   ): Promise<void>;
 }
 
+// The most array elements and object keys one tool call's arguments may hold,
+// for this server and the folder one. Without a cap the SDK validates
+// arguments of any size, and one request can exhaust the server's memory. The
+// largest input a tool needs is an ask's 10 options. The request body keeps the
+// SDK's 4 MiB default rather than a lower one: both endpoints authenticate the
+// token before the SDK reads the body.
+export const MCP_MAX_TOOL_INPUT_ELEMENTS = 1000;
+
 const MAX_WAIT_SECONDS = 25;
 const DEFAULT_CONVERSATION_LIMIT = 20;
 const MAX_CONVERSATION_LIMIT = 100;
@@ -102,7 +110,10 @@ function buildServer(
   requestSignal: AbortSignal,
   onTool?: (name: string) => void,
 ): McpServer {
-  const server = new McpServer({ name: "isomux", version: "1.0.0" });
+  const server = new McpServer(
+    { name: "isomux", version: "1.0.0" },
+    { maxToolInputElements: MCP_MAX_TOOL_INPUT_ELEMENTS },
+  );
   // The SDK answers tools/list only once a tool was registered, and a pack can
   // grant none: a placeholder registered and removed at once makes the list
   // an empty one instead of "method not found".

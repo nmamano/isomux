@@ -47,6 +47,13 @@ const config: NextConfig = {
   turbopack: { root: repoRoot },
   ...(cpus === undefined ? {} : { experimental: { cpus } }),
   outputFileTracingRoot: repoRoot,
+  // The site uses no next/image, so the image optimizer is only attack surface.
+  // `unoptimized` makes /_next/image answer 404. `maximumDiskCacheSize: 0` is
+  // needed as well: Next creates .next/cache/images at the first such request,
+  // before it checks `unoptimized`. In the VPS image the node user cannot write
+  // there, and nothing awaits that promise, so it logged an unhandled EACCES
+  // rejection once per process.
+  images: { unoptimized: true, maximumDiskCacheSize: 0 },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

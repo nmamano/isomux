@@ -12,6 +12,7 @@ import {
   type FolderMcpDeps,
 } from "./folder-mcp-endpoint.ts";
 import type { FolderFilesRequest, FolderFilesResult } from "./folder-files.ts";
+import { MCP_MAX_TOOL_INPUT_ELEMENTS } from "./mcp-endpoint.ts";
 import type { Identity } from "./identity/index.ts";
 
 const URL_ = `http://127.0.0.1:4000${FOLDER_FILES_MCP_PATH}`;
@@ -235,5 +236,35 @@ describe("the tools", () => {
       );
     expect(outcome).toBe(true);
     expect(t.runs).toEqual([]);
+  });
+});
+
+// The cap of /mcp holds here too (GHSA-46jr-4wx8-v453): unknown keys pass
+// validation, so only the cap refuses the call one key over.
+describe("the tool input cap", () => {
+  it("runs a call at the cap and refuses one key over it, running nothing", async () => {
+    const t = deps(CODEX_AT("folder"));
+    const client = await connect(agentIdentity(), t.d);
+    const withKeys = (total: number) => {
+      const args: Record<string, unknown> = { file_path: "a.txt" };
+      for (let i = 1; i < total; i++) args[`extra${i}`] = i;
+      expect(Object.keys(args).length).toBe(total);
+      return args;
+    };
+    const callWith = async (total: number) =>
+      (await client.callTool({
+        name: "read_file",
+        arguments: withKeys(total),
+      })) as { isError?: boolean };
+
+    expect((await callWith(MCP_MAX_TOOL_INPUT_ELEMENTS + 1)).isError).toBe(
+      true,
+    );
+    expect(t.runs).toEqual([]);
+
+    expect((await callWith(MCP_MAX_TOOL_INPUT_ELEMENTS)).isError ?? false).toBe(
+      false,
+    );
+    expect(t.runs.map((run) => run.args)).toEqual([{ file_path: "a.txt" }]);
   });
 });

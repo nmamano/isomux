@@ -13,7 +13,7 @@ const WORKERS_ENV = "ISOMUX_WEB_BUILD_WORKERS";
 
 const WEB_DIR = path.join(import.meta.dirname, "..", "control-plane", "web");
 
-// Next.js 16.3.8 prints this line when a build worker ends abnormally, then
+// Next.js 16.4.5 prints this line when a build worker ends abnormally, then
 // exits 1 (next/dist/lib/worker.js), the same code as a build error. A worker
 // that a signal killed (SIGSEGV in CI, 2026-10-25, task 65d244ad) is a crash;
 // one that exited with a code ("signal: null") can be a real failure.
