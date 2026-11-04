@@ -215,6 +215,9 @@ export interface AgentFormSnapshot {
   privileged: boolean;
   // The access slider stop and, at a stop with a pack, the pack (JSON).
   access?: string;
+  // The chosen manager's user id ("" for none). Only an owner in edit mode
+  // can change it.
+  manager?: string;
   autoHandoff: boolean;
   // The threshold field as typed, in thousands of tokens.
   autoHandoffTokens: string;
@@ -245,6 +248,7 @@ export function agentFormDirty(
     "codexSandbox",
     "privileged",
     "access",
+    "manager",
     "autoHandoff",
     "limitResume",
   ] as const;
@@ -563,6 +567,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     codexSandbox,
     privileged,
     access: JSON.stringify(grant),
+    manager: managerUserId,
     autoHandoff,
     autoHandoffTokens,
     limitResume,

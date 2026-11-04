@@ -27,6 +27,7 @@ const BASE: AgentFormSnapshot = {
   permissionMode: "auto",
   codexSandbox: "workspace-write",
   privileged: false,
+  manager: "u1",
   autoHandoff: false,
   autoHandoffTokens: "500",
   limitResume: true,
@@ -45,6 +46,7 @@ describe("agentFormDirty", () => {
       { permissionMode: "default" },
       { codexSandbox: "read-only" },
       { privileged: true },
+      { manager: "u2" },
       { autoHandoff: true },
       { limitResume: false },
     ];

@@ -6,13 +6,15 @@ import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { fireEvent, render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
 const { setApiShim } = await import("../api.ts");
 const { onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
 const { claudeAgent, room, settle, viewer } =
   await import("../test-support/claude-limits-fixture.tsx");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const EN = translatorFor("en");
 
 type Role = "owner" | "member";
 
@@ -33,13 +35,14 @@ const users = new Map(
 function renderAs(
   role: Role,
   agent: ReturnType<typeof claudeAgent> = claudeAgent("opus", "default", []),
+  onClose: () => void = () => {},
 ) {
   const sessionContext =
     role === "owner"
       ? viewer([])
       : { ...viewer([]), userId: "member", username: "Member", role };
   return render(
-    onLanguage("en", <EditAgentDialog onClose={() => {}} agent={agent} />, {
+    onLanguage("en", <EditAgentDialog onClose={onClose} agent={agent} />, {
       rooms: [room],
       agents: [agent],
       users,
@@ -83,6 +86,14 @@ function shim(): { method: string; path: string; body: unknown }[] {
     return {};
   });
   return calls;
+}
+
+function pressEscape() {
+  act(() => {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  });
 }
 
 async function save(container: HTMLElement) {
@@ -208,6 +219,61 @@ describe("edit dialog manager field", () => {
       });
       await settle();
       expect(hintText(view.container)).toContain("Other");
+    } finally {
+      view.unmount();
+      setApiShim(null);
+    }
+  });
+
+  // A manager pick alone is an unsaved change (task 3a0e15a8): Escape asks
+  // before it drops the pick, and sends nothing.
+  it("asks before Escape drops a manager pick", async () => {
+    const calls = shim();
+    let closes = 0;
+    const view = renderAs("owner", undefined, () => closes++);
+    try {
+      await settle();
+      fireEvent.change(chosen(view.container), {
+        target: { value: "peer" },
+      });
+      await settle();
+      expect(view.queryByText(EN.t("common.discardPrompt"))).toBeNull();
+      pressEscape();
+      await settle();
+      expect(view.queryByText(EN.t("common.discardPrompt"))).not.toBeNull();
+      expect(closes).toBe(0);
+      expect(calls).toEqual([]);
+    } finally {
+      view.unmount();
+      setApiShim(null);
+    }
+  });
+
+  // Picked back, the form is clean again, also for a manager who is no
+  // longer a member: that option's value is the dirty check's baseline.
+  it("closes on Escape with no prompt once the pick is undone", async () => {
+    shim();
+    let closes = 0;
+    const agent = {
+      ...claudeAgent("opus", "default", []),
+      userId: "gone",
+      manager: "Gone",
+    };
+    const view = renderAs("owner", agent, () => closes++);
+    try {
+      await settle();
+      fireEvent.change(chosen(view.container), {
+        target: { value: "peer" },
+      });
+      await settle();
+      fireEvent.change(chosen(view.container), {
+        target: { value: "gone" },
+      });
+      await settle();
+      pressEscape();
+      await settle();
+      expect(view.queryByText(EN.t("common.discardPrompt"))).toBeNull();
+      expect(closes).toBe(1);
     } finally {
       view.unmount();
       setApiShim(null);
