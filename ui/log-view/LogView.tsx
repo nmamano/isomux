@@ -129,6 +129,7 @@ import {
   tintedFill,
 } from "../components/dialog-styles.ts";
 import { useCan, useHasPack } from "../hooks/useCan.ts";
+import { isTouchPrimary } from "../touch-primary.ts";
 
 // The terminal and editor libraries load when a panel first opens, not with
 // the office.
@@ -806,14 +807,10 @@ export function LogView({
     [tasks],
   );
   const interaction = interactions.find((item) => item.agentId === agent.id);
-  // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
-  // windows (split-screen) with a hardware keyboard still send on Enter.
-  const isTouchPrimary = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      !!window.matchMedia?.("(pointer: coarse)").matches,
-    [],
-  );
+  // The input device, not viewport `isMobile`, so narrow desktop windows
+  // (split-screen) with a hardware keyboard still send on Enter and focus the
+  // composer when an agent opens.
+  const touchPrimary = useMemo(() => isTouchPrimary(), []);
   const dispatch = useDispatch();
   const officeFeatures = useFeatures();
   // A member with a permission pack has no terminal, and opens files only
@@ -1283,7 +1280,7 @@ export function LogView({
   // Scroll-hide lives in handleScroll below - keeping the hook
   // selection-only, with the chat's existing scroll path owning geometry
   // invalidation.
-  const citeEnabled = !isTouchPrimary && !editingLogEntryId;
+  const citeEnabled = !touchPrimary && !editingLogEntryId;
   const { cite, clearCite } = useSelectionCite(scrollRef, citeEnabled);
 
   const lastScrollTopRef = useRef(0);
@@ -3232,7 +3229,7 @@ export function LogView({
                     if (
                       e.key === "Enter" &&
                       (e.ctrlKey || e.metaKey) &&
-                      !isTouchPrimary
+                      !touchPrimary
                     ) {
                       // Ctrl/Cmd+Enter: "deliver now". Identical to plain Enter
                       // when the agent is idle; when it's busy, the server
@@ -3249,7 +3246,7 @@ export function LogView({
                       !e.shiftKey &&
                       !e.ctrlKey &&
                       !e.metaKey &&
-                      !isTouchPrimary
+                      !touchPrimary
                     ) {
                       e.preventDefault();
                       handleSend();
@@ -3283,7 +3280,7 @@ export function LogView({
                           ? i18n.t("logView.composer.typeShort")
                           : i18n.t("logView.composer.type")
                   }
-                  autoFocus={!isMobile}
+                  autoFocus={!touchPrimary}
                   rows={1}
                   style={{
                     width: "100%",

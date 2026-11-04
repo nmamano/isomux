@@ -25,6 +25,7 @@ import {
   composerMaxHeight,
   fitComposer,
 } from "../composer-height.ts";
+import { isTouchPrimary } from "../touch-primary.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -79,14 +80,10 @@ export function CronjobRunView({
   const i18n = useI18n();
   const { t, language } = i18n;
   const dispatch = useDispatch();
-  // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
-  // windows (split-screen) with a hardware keyboard still send on Enter.
-  const isTouchPrimary = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      !!window.matchMedia?.("(pointer: coarse)").matches,
-    [],
-  );
+  // The input device, not viewport `isMobile`, so narrow desktop windows
+  // (split-screen) with a hardware keyboard still send on Enter and focus the
+  // follow-up box.
+  const touchPrimary = useMemo(() => isTouchPrimary(), []);
   const streamId = cronjobRunStreamId(runId);
   const runs = cronjobRunsByJob.get(jobId) ?? [];
   const device = getDevice();
@@ -798,7 +795,7 @@ export function CronjobRunView({
                   if (
                     e.key === "Enter" &&
                     !e.shiftKey &&
-                    !isTouchPrimary &&
+                    !touchPrimary &&
                     !e.nativeEvent.isComposing
                   ) {
                     e.preventDefault();
@@ -810,7 +807,7 @@ export function CronjobRunView({
                     ? t("schedules.editingAbove")
                     : t("schedules.followUp")
                 }
-                autoFocus={!isMobile}
+                autoFocus={!touchPrimary}
                 rows={1}
                 disabled={!!editingLogEntryId}
                 style={{

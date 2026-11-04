@@ -60,6 +60,7 @@ import {
   secondaryFill,
   tintedFill,
 } from "../components/dialog-styles.ts";
+import { isTouchPrimary } from "../touch-primary.ts";
 
 // The char counter appears once a draft is this close to the cap.
 const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
@@ -261,12 +262,7 @@ export function MembersChatPanel({
   const [atBottom, setAtBottom] = useState(true);
   const dragCounter = useRef(0);
 
-  const isTouchPrimary = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      !!window.matchMedia?.("(pointer: coarse)").matches,
-    [],
-  );
+  const touchPrimary = useMemo(() => isTouchPrimary(), []);
 
   // Keep the newest message in view unless the reader scrolled up.
   useEffect(() => {
@@ -1056,7 +1052,7 @@ export function MembersChatPanel({
                   !e.shiftKey &&
                   !e.ctrlKey &&
                   !e.metaKey &&
-                  !isTouchPrimary
+                  !touchPrimary
                 ) {
                   e.preventDefault();
                   handleSend();
@@ -1098,7 +1094,7 @@ export function MembersChatPanel({
               </span>
             )}
           </div>
-          {(isTouchPrimary || isMobile) && (
+          {(touchPrimary || isMobile) && (
             <button
               onClick={handleSend}
               disabled={!canSend}

@@ -510,18 +510,22 @@ it("folds a settled tool group, expands results on demand, and updates the offic
 // (direct link, install entry) is reachable there too. The iPhone Home Screen
 // window opens it in place as well; nothing leaves for Safari or the office,
 // and it has no direct link (task 79beacd9: Safari holds no session, and the
-// app's own host is outside the window).
-for (const [device, phone, homeScreen] of [
-  ["desktop", false, false],
-  ["phone", true, false],
-  ["phone on the iPhone Home Screen", true, true],
+// app's own host is outside the window). A desktop window narrow enough for
+// the phone layout keeps a mouse and a keyboard (task 472fa057).
+for (const [device, phone, homeScreen, touch] of [
+  ["desktop", false, false, false],
+  ["narrow desktop window", true, false, false],
+  ["phone", true, false, true],
+  ["phone on the iPhone Home Screen", true, true, true],
 ] as const) {
   it(`toggles the chat in place with its launcher, and Escape closes it (${device})`, async () => {
     sessionStorage.clear();
     const { StateCtx, initialState } = await import("./store.tsx");
     const { asDevice, IPHONE_HOME_SCREEN } =
       await import("./test-support/ios-home-screen.ts");
+    const { primaryPointer } = await import("./test-support/pointer.ts");
     const undo = homeScreen ? asDevice(IPHONE_HOME_SCREEN) : () => {};
+    const undoPointer = primaryPointer(touch);
     const iframesOn = iframesOff();
     setApiShim(async () => ({
       ...boot,
@@ -593,10 +597,11 @@ for (const [device, phone, homeScreen] of [
       expect(panel.querySelector("header")).not.toBeNull();
       expect(headerLink()?.getAttribute("href") ?? null).toBe(direct);
       if (direct) expect(headerLink()?.target).toBe("_blank");
-      // A desktop opens the chat ready to type. A phone does not: the soft
-      // keyboard would cover the app and half the panel at each open, as the
-      // office composer avoids (LogView autoFocus={!isMobile}).
-      expect(document.activeElement === textarea).toBe(!phone);
+      // A mouse and keyboard open the chat ready to type, at any width. A
+      // touch screen does not: the soft keyboard would cover the app and half
+      // the panel at each open, as the office composer avoids.
+      expect(window.matchMedia("(pointer: coarse)").matches).toBe(touch);
+      expect(document.activeElement === textarea).toBe(!touch);
       // The launcher is the only close control: the chat header holds none.
       expect(panel.querySelector("header button")).toBeNull();
       await act(async () => {
@@ -616,6 +621,7 @@ for (const [device, phone, homeScreen] of [
     } finally {
       view?.unmount();
       iframesOn();
+      undoPointer();
       undo();
     }
   });

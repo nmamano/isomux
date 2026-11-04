@@ -146,7 +146,6 @@ export function AgentChatPanel({
         stateChangedAt={state.stateChangedAt.get(agent.id)}
         connected={state.connected}
         open
-        isMobile={state.isMobile}
         title={rich("appWidget.title", { agentName: select })}
         headerActions={
           <>

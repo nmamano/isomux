@@ -66,6 +66,7 @@ import {
   type ReviewFinding,
 } from "../../shared/review-findings.ts";
 import { secondaryBorder, secondaryFill } from "../components/dialog-styles.ts";
+import { isTouchPrimary } from "../touch-primary.ts";
 
 function EditIcon() {
   return (
@@ -1755,15 +1756,10 @@ export function EditableUserMessage({
   const { t } = useI18n();
   const [text, setText] = useState(content);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
+  // The input device, not viewport `isMobile`, so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter,
   // matching the main composer in LogView.tsx.
-  const isTouchPrimary = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      !!window.matchMedia?.("(pointer: coarse)").matches,
-    [],
-  );
+  const touchPrimary = useMemo(() => isTouchPrimary(), []);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -1779,7 +1775,7 @@ export function EditableUserMessage({
       e.key === "Enter" &&
       !e.shiftKey &&
       !e.nativeEvent.isComposing &&
-      !isTouchPrimary
+      !touchPrimary
     ) {
       e.preventDefault();
       if (text.trim()) onSubmit?.(entryId, text.trim());

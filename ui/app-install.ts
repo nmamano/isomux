@@ -8,6 +8,7 @@
 // a browser (Nil, 2026-10-30).
 
 import { isIos, readPushEnv, type PushEnv } from "./push-subscription.ts";
+import { isTouchPrimary } from "./touch-primary.ts";
 
 // The hash the Apps page adds to the short link: the page opens its install
 // popover on load.
@@ -47,10 +48,7 @@ export function readInstallEnv(): InstallEnv {
     ios: isIos(env),
     standalone: env.standalone,
     promptSupported: "onbeforeinstallprompt" in window,
-    handheld: isHandheld(
-      env,
-      window.matchMedia?.("(pointer: coarse)").matches === true,
-    ),
+    handheld: isHandheld(env, isTouchPrimary()),
   };
 }
 

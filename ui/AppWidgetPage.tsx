@@ -69,6 +69,7 @@ import {
   screenshotHint,
   type AppWidgetBoot,
 } from "./app-widget-state.ts";
+import { isTouchPrimary } from "./touch-primary.ts";
 
 // The chat panel (WidgetChat in its section), on the app page and over the
 // Office's Inbox (AgentChatPanel, task e3c25581): each injects these rules. The
@@ -863,7 +864,6 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
             stateChangedAt={state.stateChangedAt.get(agent.id)}
             connected={state.connected}
             open={open}
-            isMobile={state.isMobile}
             directHref={directHref}
             installEntry={
               headerInstall && (
@@ -960,7 +960,6 @@ export function WidgetChat({
   logs,
   connected,
   open,
-  isMobile = false,
   directHref,
   installEntry,
   installSteps,
@@ -981,7 +980,6 @@ export function WidgetChat({
   logs: LogEntry[];
   connected: boolean;
   open: boolean;
-  isMobile?: boolean;
   directHref?: string | null;
   // "Install as app", beside the direct link, and the steps it opens.
   installEntry?: ReactNode;
@@ -1054,11 +1052,11 @@ export function WidgetChat({
   const lastScrollTop = useRef(0);
   const wasOpen = useRef(false);
   const scrollToEnd = () => end.current?.scrollIntoView?.({ block: "end" });
-  // On a phone, focus would raise the keyboard over the app at each open, as
-  // the office composer avoids (LogView's autoFocus).
+  // On a touch screen, focus would raise the keyboard over the app at each
+  // open, as the office composer avoids (LogView's autoFocus).
   useEffect(() => {
-    if (open && !isMobile) textarea.current?.focus();
-  }, [open, isMobile]);
+    if (open && !isTouchPrimary()) textarea.current?.focus();
+  }, [open]);
   // As LogView does for "Discuss in chat": the focus runs inside the click, so
   // a phone opens the keyboard, and the request is spent in every case.
   useLayoutEffect(() => {
@@ -1412,7 +1410,7 @@ export function WidgetChat({
               event.key === "Enter" &&
               !event.shiftKey &&
               !event.nativeEvent.isComposing &&
-              !window.matchMedia("(pointer: coarse)").matches
+              !isTouchPrimary()
             ) {
               event.preventDefault();
               void send();

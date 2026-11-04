@@ -3,6 +3,7 @@ import type { SkillInfo } from "../../shared/types.ts";
 import { apiFetch } from "../api.ts";
 import { buildSkillsMenuGroups, type CommandEntry } from "./skills-grouping.ts";
 import { useI18n } from "../i18n.tsx";
+import { isTouchPrimary } from "../touch-primary.ts";
 
 // Display groups + most-used ranking live in skills-grouping.ts (a pure,
 // unit-tested transform); this component owns fetching the counts and
@@ -90,11 +91,11 @@ export function SkillsPopover({
     };
   }, [onClose]);
 
-  // Autofocus the filter box on desktop. Skipped on mobile: focusing a text
+  // Autofocus the filter box, except on a touch screen: focusing a text
   // input pops the soft keyboard over the list the user is trying to browse.
   useEffect(() => {
-    if (!isMobile && !draftMode) filterRef.current?.focus();
-  }, [isMobile, draftMode]);
+    if (!isTouchPrimary() && !draftMode) filterRef.current?.focus();
+  }, [draftMode]);
 
   useEffect(() => {
     if (!isMobile) return;

@@ -20,6 +20,7 @@ import {
 } from "./terminal-replay-guard.ts";
 import { DARK_THEME, LIGHT_THEME } from "./terminal-themes.ts";
 import { createPtyResizer, type PtyResizer } from "./terminal-resize.ts";
+import { isTouchPrimary } from "../touch-primary.ts";
 
 // xterm escape sequences for navigation keys we expose on the soft-key bar.
 const ESC = "\x1b";
@@ -250,9 +251,10 @@ export function TerminalPanel({
   // When the panel mounts because the member explicitly toggled it open we
   // grab keyboard focus (default). When the mount is a side-effect of an
   // agent-switch restore, the member expects to keep typing in the chat box,
-  // so the parent passes false. On mobile we never auto-focus on mount -
-  // iOS gates the soft-keyboard on a user gesture, so we wait for a tap on
-  // the terminal body before calling term.focus().
+  // so the parent passes false. On a touch screen we never auto-focus on
+  // mount - iOS gates the soft-keyboard on a user gesture, so we wait for a
+  // tap on the terminal body. A narrow desktop window has the mobile chrome
+  // and focuses its input proxy.
   autoFocus?: boolean;
   // When true, render the mobile-friendly chrome: a soft-key bar and CSS
   // overrides that make xterm's hidden helper textarea focusable enough
@@ -483,7 +485,7 @@ export function TerminalPanel({
     // container has measurable size before fitAddon runs.
     requestAnimationFrame(() => {
       fitAddon.fit();
-      if (autoFocus && !mobile) term.focus();
+      if (autoFocus && !isTouchPrimary()) focusTerminal();
       resizer.now(term.cols, term.rows);
       if (mobile) {
         // Trick xterm into rendering its focused cursor (block + blink) even

@@ -88,6 +88,7 @@ import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
+import { isTouchPrimary } from "../touch-primary.ts";
 import { filledSecondaryBtn } from "../components/dialog-styles.ts";
 
 const PROMPT_LINES = 3;
@@ -305,14 +306,9 @@ function ReplyAskCard({
   // Set by a pointerdown on a field without focus: only the tap that focuses
   // the field selects the default, so a later tap places the caret.
   const clickFocuses = useRef(false);
-  // Use `pointer: coarse` instead of viewport `isMobile`, as the chat input
+  // The input device, not viewport `isMobile`, as the chat input
   // does: Enter sends only with a mouse.
-  const isTouchPrimary = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      !!window.matchMedia?.("(pointer: coarse)").matches,
-    [],
-  );
+  const touchPrimary = useMemo(() => isTouchPrimary(), []);
   // Set by an option tap; the next commit focuses the field. No deps: a tap
   // on the option the field already holds leaves the draft the same.
   const pendingFocus = useRef(false);
@@ -402,8 +398,7 @@ function ReplyAskCard({
   // keeps the browser's Enter.
   function onReplyKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     tabToReplyField(e);
-    if (e.key !== "Enter" || isTouchPrimary || e.nativeEvent.isComposing)
-      return;
+    if (e.key !== "Enter" || touchPrimary || e.nativeEvent.isComposing) return;
     if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
     e.preventDefault();
     e.currentTarget.form?.requestSubmit();
