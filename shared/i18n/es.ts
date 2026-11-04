@@ -1852,6 +1852,7 @@ Cosas que puedes hacer por él:
   "apiCall.asks.create": "Crear petición",
   "apiCall.asks.list": "Listar peticiones",
   "apiCall.asks.get": "Consultar petición",
+  "apiCall.asks.getFile": "Leer archivo de la petición",
   "apiCall.asks.history": "Consultar peticiones pasadas",
   "apiCall.asks.events": "Consultar el registro de peticiones",
   "apiCall.asks.edit": "Editar petición",

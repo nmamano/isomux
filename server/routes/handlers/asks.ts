@@ -146,6 +146,9 @@ export interface AsksDeps {
     ): ReadFileCheck | null;
     copyReadFile(agentId: string, absPath: string): AskReadFileCopy | null;
   };
+  // A file in the agent's files dir (an ask's copy), or null when it is
+  // gone. getFilePath owns path traversal.
+  filePath(agentId: string, filename: string): string | null;
   // The served file's headers, as agents.getFile sends them.
   contentTypeFor(filename: string): string;
   untrustedFileHeaders(): Record<string, string>;
@@ -354,6 +357,25 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         askShownToOwnerAsOther(entry, identity.userId, audienceFor(identity)))
       ? entry
       : null;
+  };
+
+  // A read file the ask references in place, probed again: it can be gone or
+  // replaced since the ask was made. Served as agents.getFile serves a copy.
+  // Null when the probe refuses it.
+  const serveReference = (
+    entry: AskEntry,
+    ref: AskReadFile,
+    query: URLSearchParams,
+  ): HandlerResult | null => {
+    if (ref.path === undefined) return null;
+    const probe = deps.affordances.probeReadFile(entry.agentId, ref.path, {
+      capped: false,
+    });
+    if (!probe?.ok) return null;
+    return file(probe.path, deps.contentTypeFor(ref.filename), {
+      ...deps.untrustedFileHeaders(),
+      ...downloadHeader(query, ref.filename),
+    });
   };
 
   // Who answered and their words, for the closed ask's record. A bare
@@ -1071,6 +1093,27 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return ask ? ok(ask) : notFound();
     }),
 
+    // A read file of the agent's own ask, open or closed (task a5fb19fa):
+    // only a filename the ask lists. A copy is served from the agent's files
+    // dir, a reference as asks.getFile serves it. The prune does not keep a
+    // closed ask's copies, so they can be gone.
+    "agents.getAskFile": guarded((ctx) => {
+      const { id: agentId, askId, filename } = ctx.params;
+      const entry =
+        own(agentId, askId) ?? deps.history.get(agentId, askId)?.entry ?? null;
+      const ref = entry?.readFiles?.find((f) => f.filename === filename);
+      const noFile = () => fail(404, "not_found", "No such file in this ask.");
+      if (!entry || !ref) return noFile();
+      if (ref.path !== undefined)
+        return serveReference(entry, ref, ctx.query) ?? noFile();
+      const path = deps.filePath(agentId, filename);
+      if (!path) return noFile();
+      return file(path, deps.contentTypeFor(filename), {
+        ...deps.untrustedFileHeaders(),
+        ...downloadHeader(ctx.query, filename),
+      });
+    }),
+
     // Any agent's ask by its id, open or closed, for a caller with the reach
     // of that agent's logs.
     "asks.get": guarded((ctx) => {
@@ -1290,26 +1333,17 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.fileTask": guarded(fileTask),
     "asks.simplify": guarded(simplify),
     "asks.simplifyUndo": guarded(simplifyUndo),
-    // A file the ask references where it is. The path is probed again on
-    // every request: the file can be gone or replaced since the ask was
-    // made. Served as agents.getFile serves a copy. An office owner gets the
-    // file of another member's ask too.
+    // A file the ask references where it is, for the ask's member. An office
+    // owner gets the file of another member's ask too.
     "asks.getFile": guarded((ctx) => {
       const entry = readableBy(ctx.identity, ctx.params.askId);
       const ref = entry?.readFiles?.find(
         (f) => f.filename === ctx.params.filename && f.path !== undefined,
       );
-      const noFile = () =>
-        fail(404, "not_found", "No such file in an open ask.");
-      if (!entry || !ref?.path) return noFile();
-      const probe = deps.affordances.probeReadFile(entry.agentId, ref.path, {
-        capped: false,
-      });
-      if (!probe?.ok) return noFile();
-      return file(probe.path, deps.contentTypeFor(ref.filename), {
-        ...deps.untrustedFileHeaders(),
-        ...downloadHeader(ctx.query, ref.filename),
-      });
+      return (
+        (entry && ref && serveReference(entry, ref, ctx.query)) ??
+        fail(404, "not_found", "No such file in an open ask.")
+      );
     }),
   };
 }

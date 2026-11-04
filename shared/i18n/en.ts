@@ -1820,6 +1820,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.asks.create": "Create ask",
   "apiCall.asks.list": "List asks",
   "apiCall.asks.get": "Check ask",
+  "apiCall.asks.getFile": "Read ask file",
   "apiCall.asks.history": "Check past asks",
   "apiCall.asks.events": "Check ask log",
   "apiCall.asks.edit": "Edit ask",

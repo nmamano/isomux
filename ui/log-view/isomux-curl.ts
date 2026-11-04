@@ -829,6 +829,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/agents/*/asks", "apiCall.asks.list"],
   ["GET", "/api/agents/*/asks/history", "apiCall.asks.history"],
   ["GET", "/api/agents/*/asks/events", "apiCall.asks.events"],
+  ["GET", "/api/agents/*/asks/*/files/*", "apiCall.asks.getFile"],
   ["GET", "/api/agents/*/asks/*", "apiCall.asks.get"],
   ["PATCH", "/api/agents/*/asks/*", "apiCall.asks.edit"],
   ["DELETE", "/api/agents/*/asks/*", "apiCall.asks.delete"],

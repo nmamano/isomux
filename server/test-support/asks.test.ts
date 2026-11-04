@@ -2988,6 +2988,124 @@ describe("chat affordances on an ask", () => {
     expect(await get(clip.filename)).toBe("404 not_found");
   });
 
+  // Task a5fb19fa: the agent that opened an ask reads back the files it
+  // holds, with the reach of agents.getAsk and no file the ask does not list.
+  it("serves the agent its own ask's copies and references, open or closed, and no other file", async () => {
+    const w = await world();
+    const cwd = seed(w);
+    const CLIP = Buffer.from("clip bytes");
+    const clipPath = join(cwd, "clip.mp4");
+    writeFileSync(clipPath, CLIP);
+    const ask = async (agentId: string, readFiles: string[]) => {
+      const r = await call(
+        w.srv,
+        "POST",
+        `/api/agents/${agentId}/asks`,
+        w.as(agentId),
+        { json: { text: "Approve the cut?", readFiles } },
+      );
+      expect(r.status).toBe(201);
+      return r.body as AskEntry;
+    };
+    const entry = await ask(w.asker.id, ["plot.png", "clip.mp4"]);
+    const [png, clip] = entry.readFiles!;
+    // The other agent's ask holds a copy of the same file; a second ask of
+    // the asker holds a copy of another file.
+    const theirs = await ask(w.other.id, ["plot.png"]);
+    const second = await ask(w.asker.id, ["notes.md"]);
+    // A file in the asker's files dir that no ask lists.
+    const dir = join(w.srv.stateRoot, "logs", w.asker.id, "files");
+    writeFileSync(join(dir, "stray.png"), PNG);
+
+    const get = async (
+      askId: string,
+      filename: string,
+      { agentId = w.asker.id, token = w.asker.id } = {},
+    ) => {
+      const r = await w.srv.http(
+        `/api/agents/${agentId}/asks/${askId}/files/${filename}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${w.as(token).bearer}` },
+        },
+      );
+      const body = Buffer.from(await r.arrayBuffer());
+      if (r.status !== 200) {
+        const code = (
+          JSON.parse(body.toString()) as { error?: { code?: string } }
+        ).error?.code;
+        return `${r.status} ${code}`;
+      }
+      const which = body.equals(PNG)
+        ? "png"
+        : body.equals(CLIP)
+          ? "clip"
+          : `other(${body.length})`;
+      // An agent's file is untrusted: the office serves it sandboxed.
+      const csp = r.headers.get("content-security-policy") ?? "";
+      return `200 ${which} ${r.headers.get("content-type")} ${csp.includes("sandbox") ? "sandboxed" : "unsandboxed"}`;
+    };
+    const servedPng = "200 png image/png sandboxed";
+    const servedClip = "200 clip video/mp4 sandboxed";
+    // The enabling cases, before and after each refusal below.
+    expect(await get(entry.id, png.filename)).toBe(servedPng);
+    expect(await get(entry.id, clip.filename)).toBe(servedClip);
+
+    // The copy is the snapshot the ask holds; the reference is the file now.
+    writeFileSync(join(cwd, "plot.png"), "changed");
+    expect(await get(entry.id, png.filename)).toBe(servedPng);
+
+    // Only a filename the ask lists: not a file of the files dir no ask
+    // lists, not a copy another of the agent's asks holds, and not the
+    // other agent's ask, through its own path or through the other's.
+    expect(existsSync(join(dir, "stray.png"))).toBe(true);
+    expect(await get(entry.id, "stray.png")).toBe("404 not_found");
+    const notes = second.readFiles![0].filename;
+    expect(await get(second.id, notes)).toMatch(/^200 /);
+    expect(await get(entry.id, notes)).toBe("404 not_found");
+    const theirPng = theirs.readFiles![0].filename;
+    expect(
+      await get(theirs.id, theirPng, {
+        agentId: w.other.id,
+        token: w.other.id,
+      }),
+    ).toBe(servedPng);
+    expect(await get(theirs.id, theirPng)).toBe("404 not_found");
+    expect(await get(theirs.id, theirPng, { agentId: w.other.id })).toBe(
+      "403 forbidden",
+    );
+    expect(await get(entry.id, png.filename, { token: w.other.id })).toBe(
+      "403 forbidden",
+    );
+
+    // A reference is probed on each read: a link into the credential store,
+    // gone, then back.
+    mkdirSync(join(w.srv.stateRoot, "secrets"), { recursive: true });
+    const secretFile = join(w.srv.stateRoot, "secrets", "office.json");
+    writeFileSync(secretFile, "{}");
+    unlinkSync(clipPath);
+    symlinkSync(secretFile, clipPath);
+    expect(await get(entry.id, clip.filename)).toBe("404 not_found");
+    unlinkSync(clipPath);
+    expect(await get(entry.id, clip.filename)).toBe("404 not_found");
+    writeFileSync(clipPath, CLIP);
+    expect(await get(entry.id, clip.filename)).toBe(servedClip);
+
+    // Closed: still served while the office keeps the file.
+    const withdrawn = await call(
+      w.srv,
+      "DELETE",
+      `/api/agents/${w.asker.id}/asks/${entry.id}`,
+      w.as(w.asker.id),
+    );
+    expect(withdrawn.status).toBe(204);
+    expect(await get(entry.id, png.filename)).toBe(servedPng);
+    expect(await get(entry.id, clip.filename)).toBe(servedClip);
+    // A copy the office no longer keeps.
+    unlinkSync(join(dir, png.filename));
+    expect(await get(entry.id, png.filename)).toBe("404 not_found");
+  });
+
   it("keeps a reference through an edit that omits the list, and names it anew when the list is sent again", async () => {
     const w = await world();
     const cwd = seed(w);

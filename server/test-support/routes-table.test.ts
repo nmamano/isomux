@@ -1336,6 +1336,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.listAsks": { caps: ["self:affordance"], emits: [] },
   "agents.getAsk": { caps: ["self:affordance"], emits: [] },
+  "agents.getAskFile": { caps: ["self:affordance"], emits: [] },
   "agents.askHistory": { caps: ["log:read"], emits: [] },
   "agents.askEvents": { caps: ["log:read"], emits: [] },
   // An ask change also reaches office owners as another member's ask
@@ -2103,6 +2104,7 @@ const APP_REFUSED_OPIDS = [
   "agents.createAsk",
   "agents.listAsks",
   "agents.getAsk",
+  "agents.getAskFile",
   "agents.editAsk",
   "agents.deleteAsk",
   "agents.previewUrl",
@@ -3215,6 +3217,7 @@ describe("route table: API token areas", () => {
       "agents.createAsk",
       "agents.listAsks",
       "agents.getAsk",
+      "agents.getAskFile",
       "agents.editAsk",
       "agents.deleteAsk",
     ]) {

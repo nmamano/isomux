@@ -2781,6 +2781,7 @@ function buildExecutorDeps(
         copyReadFile: (agentId, absPath) =>
           agentManager.copyAskReadFile(agentId, absPath),
       },
+      filePath: (agentId, filename) => getFilePath(agentId, filename),
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
       untrustedFileHeaders,
       deliver: deliverAskAnswer,

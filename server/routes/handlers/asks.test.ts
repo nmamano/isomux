@@ -84,6 +84,7 @@ function rig(over: Partial<AsksDeps> = {}) {
       probeReadFile: () => null,
       copyReadFile: () => null,
     },
+    filePath: () => null,
     contentTypeFor: () => "application/octet-stream",
     untrustedFileHeaders: () => ({}),
     deliver: (_identity, _entry, text, opts) => {

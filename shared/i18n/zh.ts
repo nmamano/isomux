@@ -1644,6 +1644,7 @@ App 的一些原则：
   "apiCall.asks.create": "创建请示",
   "apiCall.asks.list": "列出请示",
   "apiCall.asks.get": "查看请示",
+  "apiCall.asks.getFile": "读取请示文件",
   "apiCall.asks.history": "查看过往请示",
   "apiCall.asks.events": "查看请示日志",
   "apiCall.asks.edit": "编辑请示",

@@ -156,6 +156,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.createAsk": "asks",
   "agents.listAsks": "asks",
   "agents.getAsk": "asks",
+  "agents.getAskFile": "asks",
   "agents.askHistory": "asks-history",
   "agents.askEvents": "asks-history",
   "agents.editAsk": "asks",

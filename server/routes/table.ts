@@ -1067,6 +1067,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "asks", level: "write" },
     emits: [],
   }),
+  // A file of the agent's own ask, open or closed (task a5fb19fa): a copy
+  // or a file referenced in place, only a filename the ask lists.
+  defineRoute<void, unknown>({
+    opId: "agents.getAskFile",
+    method: "GET",
+    path: "/api/agents/:id/asks/:askId/files/:filename",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "asks", level: "write" },
+    emits: [],
+  }),
   // An agent's closed asks (task ff590b5e), with the reach of its logs: every
   // field of a closed ask - the prompt, the options, the member's answer - is
   // already in that agent's log (the create call and the member's reply
