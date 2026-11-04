@@ -341,6 +341,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     isSpawn ||
     sessionContext?.role === "owner" ||
     (sessionContext?.userId != null && agent?.userId === sessionContext.userId);
+  // Agent memory follows the same rule on the server: another member who
+  // reaches the room reads it but cannot change it.
+  const canEditMemory = canTogglePrivilege;
   // Every engine reports the measure; an agent whose engine stays put follows
   // its own capability flag.
   const showAutoHandoff =
@@ -1684,7 +1687,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             : t("common.loadingMemory")
         }
         rows={3}
-        readOnly={!mem.loaded}
+        readOnly={!mem.loaded || !canEditMemory}
         style={{ ...inputStyle, resize: "vertical" }}
       />
       <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
@@ -1692,6 +1695,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           size: mem.size,
           cap: mem.cap ?? "…",
         })}
+        {!canEditMemory && <> {t("dialogs.agent.memoryReadOnly")}</>}
       </p>
     </div>
   );

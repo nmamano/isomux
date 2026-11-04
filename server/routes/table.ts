@@ -44,6 +44,7 @@ import {
   apiTokenInboxSelf,
   selfOrOwner,
   proxyMemberPrompt,
+  memberSharesRoom,
   selfUserOrApi,
   userOrApi,
   selfOrEnvOwner,
@@ -2375,16 +2376,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "office", level: "write" },
     emits: ["users_list"],
   }),
-  // The member's instructions. The PUT writes only the text, so a proxy agent
-  // needs no body-key check.
+  // The member's instructions. Anyone who shares a room with the member reads
+  // them, as their memory (memberSharesRoom); that covers the member, their
+  // agents and tokens, and an owner's reach. The PUT writes only the text, so
+  // a proxy agent needs no body-key check.
   defineRoute<void, InstructionsRes>({
     opId: "users.readInstructions",
     method: "GET",
     path: "/api/users/:username/instructions",
-    auth: cap(
-      ["user:self", "user:admin", "user:prompt"],
-      or(selfOrOwner, proxyMemberPrompt),
-    ),
+    auth: authn(memberSharesRoom("username")),
     tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
@@ -3199,9 +3199,8 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // Three verbs: READ (whole file + version), APPEND (one server-stamped line),
-  // REPLACE (whole-file overwrite, version-guarded). All scopes; authenticated +
-  // target-existence gated (permissive on every verb, no per-scope access gate;
-  // restraint lives in the system-prompt affordance).
+  // REPLACE (whole-file overwrite, version-guarded). All scopes; access by scope
+  // follows the rooms and is checked in the handler (handlers/memory.ts).
   defineRoute<void, MemoryReadRes>({
     opId: "memory.read",
     method: "GET",

@@ -1146,6 +1146,7 @@ describe("route table: agent reference coverage", () => {
       "agents.spawn",
       "agents.kill",
       "agents.readInstructions",
+      "users.readInstructions",
     ]) {
       expect(reached.has(opId), `${opId} not reached`).toBe(true);
     }
@@ -1613,10 +1614,8 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:admin", "user:create"],
     emits: ["users_list"],
   },
-  "users.readInstructions": {
-    caps: ["user:self", "user:admin", "user:prompt"],
-    emits: [],
-  },
+  // Authenticated: who reads is the room-overlap guard (memberSharesRoom).
+  "users.readInstructions": { caps: [], emits: [] },
   // Writes only the text, so no role change and no full_state.
   "users.setInstructions": {
     caps: ["user:self", "user:admin", "user:prompt"],

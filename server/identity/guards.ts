@@ -101,6 +101,9 @@ export interface GuardDeps {
   roomIdForAgent(agentId: string): string | null;
   // The userId that owns `username`, or null if unknown.
   userIdForUsername(username: string): string | null;
+  // The live ordinary rooms member `userId` reaches (the lobby is not one), or
+  // none for an unknown member. Absent: no room overlap (sharesRoomWithMember).
+  memberRoomIds?(userId: string): readonly string[];
   // The creator userId of `cronjobId`, or null if unknown / unowned.
   cronjobCreatorUserId(cronjobId: string): string | null;
   // The agent that made `cronjobId`, or null if unknown or a member made it.
@@ -519,6 +522,43 @@ export const proxyMemberPrompt: Guard = ({ identity, params, deps }) => {
     ? ALLOW
     : FORBIDDEN;
 };
+
+// Whether the identity may read member `userId`'s memory and instructions:
+// it is that member (or one of their agents or tokens), it has an office
+// owner's reach, or it reaches a live ordinary room the member reaches. The
+// lobby does not count: every member reaches it. The room check is
+// hasRoomAccess, as for room memory, so token rooms and packs apply.
+export function sharesRoomWithMember(
+  identity: Identity,
+  userId: string,
+  deps: Pick<
+    GuardDeps,
+    "hasRoomAccess" | "isOfficeOwnerUserId" | "memberRoomIds"
+  >,
+): boolean {
+  if (identity.scope === "app" && !actsForAgent(identity)) return false;
+  if (identity.userId === userId) return true;
+  if (hasOfficeOwnerReach(identity, deps)) return true;
+  return (deps.memberRoomIds?.(userId) ?? []).some((roomId) =>
+    deps.hasRoomAccess(identity, roomId),
+  );
+}
+
+// users.readInstructions: a caller that shares a room with the member
+// (sharesRoomWithMember). An unknown username denies like a member with no
+// shared room.
+export function memberSharesRoom(usernameParamName = "username"): Guard {
+  return (ctx) => {
+    const gate = operationalAuthenticated(ctx);
+    if (!gate.ok) return gate;
+    const username = ctx.params[usernameParamName];
+    const userId = username ? ctx.deps.userIdForUsername(username) : null;
+    return userId !== null &&
+      sharesRoomWithMember(ctx.identity, userId, ctx.deps)
+      ? ALLOW
+      : FORBIDDEN;
+  };
+}
 
 // AGENT-only self-affordance gate: the `:id` path param must equal the token's
 // agentId. USER and CRON-RUN identities carry no agentId, so they can NEVER

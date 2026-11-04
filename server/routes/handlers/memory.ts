@@ -4,18 +4,20 @@
 //
 // Scopes: agent, room, office, member. On APPEND the author + date are server-
 // stamped from the token identity, NEVER the body; scopeId is a TARGET selector,
-// not an authority claim. Authority is intentionally permissive: any
-// authenticated caller (agent token OR user cookie) may read,
-// append, or REPLACE ANY scope and ANY existing target - there is deliberately NO
-// per-scope access gate on any verb, only target-EXISTENCE validation. Restraint
-// (especially "don't make big changes to office-wide memory") lives in the
-// system-prompt affordance, and the op-log is the recovery net - not an
-// authorization boundary.
+// not an authority claim. Access follows the rooms (task bf94d714):
+//   room   - read and write: whoever reaches the room.
+//   member - read: whoever shares a live ordinary room with the member
+//            (sharesRoomWithMember); write: the member, their agents and
+//            tokens, and an office owner's reach.
+//   agent  - write: the agent, its manager's identities, an office owner's
+//            reach; read: those, and whoever reaches the agent's room (its
+//            system prompt, which holds this memory, has that audience).
+//   office - any authenticated caller.
+// A scope the caller cannot read answers as missing (404); one it reads but
+// cannot write answers 403. A pack's memory area limits it further.
 //
-// The one structural privacy property is in AUTO-LOAD (agent-manager), not here:
-// a member's notes auto-load only into that member's own agents' prompts. REST reads
-// of any scope are open to any authenticated caller - member memory is
-// context-scoped for auto-load, not REST-private.
+// Auto-load is separate (agent-manager): a member's notes auto-load only into
+// that member's own agents' prompts.
 //
 // LEAF over the executor + injected MemoryDeps. No manager/auth/store imports.
 
@@ -27,7 +29,11 @@ import {
   MemoryLineTooLongError,
 } from "../../memory-store.ts";
 import { MEMORY_CAPS } from "../../../shared/memory-caps.ts";
-import { tokenRooms, type Identity } from "../../identity/index.ts";
+import {
+  tokenRooms,
+  withinTokenRooms,
+  type Identity,
+} from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
 import type {
   MemoryCreateReq,
@@ -35,10 +41,15 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 
 export interface MemoryDeps {
-  // A room-limited API token reaches room and agent memory only in a room it
-  // reaches; for it, a scope outside reads as missing. Absent: no check.
-  tokenReachesRoom?(identity: Identity, roomId: string): boolean;
-  agentRoomId?(agentId: string): string | null;
+  // The live room-access rule (GuardDeps.hasRoomAccess): token rooms and
+  // packs apply.
+  hasRoomAccess(identity: Identity, roomId: string): boolean;
+  // GuardDeps-backed sharesRoomWithMember and hasOfficeOwnerReach.
+  sharesRoomWithMember(identity: Identity, userId: string): boolean;
+  hasOfficeOwnerReach(identity: Identity): boolean;
+  // A live agent's room and manager, or null.
+  agentRoomId(agentId: string): string | null;
+  agentManagerUserId(agentId: string): string | null;
   // Whole raw file + optimistic-concurrency version.
   read(
     scope: MemoryScope,
@@ -76,8 +87,7 @@ export interface MemoryDeps {
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
   // Target-EXISTENCE checks: the target's display name, or null when it does
-  // not exist. Existence only - there is deliberately NO access gate; never
-  // reuse requiresRoomAccess.
+  // not exist. Access is checked in resolveTarget.
   roomName(roomId: string): string | null;
   agentName(agentId: string): string | null;
   userName(userId: string): string | null;
@@ -90,27 +100,53 @@ type Target =
   | { error: ReturnType<typeof fail> };
 
 export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
+  // Whether a room-limited token's rooms include this room; every other
+  // caller passes.
+  function tokenReaches(identity: Identity, roomId: string | null) {
+    if (tokenRooms(identity) === null) return true;
+    return !!roomId && withinTokenRooms(identity, roomId);
+  }
+
+  // Who writes agent memory: the agent, its manager's identities (a
+  // room-limited token only for an agent in its rooms), an owner's reach.
+  function writesAgent(identity: Identity, agentId: string): boolean {
+    if (identity.scope === "agent" && identity.agentId === agentId) return true;
+    const manager = deps.agentManagerUserId(agentId);
+    if (
+      manager !== null &&
+      identity.userId === manager &&
+      tokenReaches(identity, deps.agentRoomId(agentId))
+    ) {
+      return true;
+    }
+    return deps.hasOfficeOwnerReach(identity);
+  }
+
+  function readsAgent(identity: Identity, agentId: string): boolean {
+    if (writesAgent(identity, agentId)) return true;
+    const roomId = deps.agentRoomId(agentId);
+    return roomId !== null && deps.hasRoomAccess(identity, roomId);
+  }
+
+  function writesMember(identity: Identity, userId: string): boolean {
+    return identity.userId === userId || deps.hasOfficeOwnerReach(identity);
+  }
+
   // Resolve the (scope, target file) for this caller, or a deliberate error.
   // Shared by READ (query) and APPEND/REPLACE (body).
   //   agent  - omitted scopeId defaults to the caller's own agent (agent token);
-  //            a user cookie must pass an explicit agent id. Any existing agent
-  //            may be targeted by any authenticated caller.
+  //            a user cookie must pass an explicit agent id.
   //   room   - scopeId required + must EXIST.
   //   office - never takes a scopeId (always office.md).
-  //   member   - omitted scopeId defaults to the caller's own/manager userId; any
-  //            existing member may be targeted by any authenticated caller.
+  //   member - omitted scopeId defaults to the caller's own/manager userId.
   //   other  - unsupported.
-  // Whether the caller reaches a room's memory: every caller but a
-  // room-limited API token, which needs the room among the ones it reaches.
-  function tokenReaches(identity: Identity, roomId: string | null | undefined) {
-    if (tokenRooms(identity) === null) return true;
-    return !!roomId && (deps.tokenReachesRoom?.(identity, roomId) ?? false);
-  }
-
+  // A target the caller cannot read answers as missing; one it reads but
+  // cannot write (a write verb) answers 403.
   function resolveTarget(
     identity: Identity,
     scope: unknown,
     rawScopeId: unknown,
+    verb: "read" | "write",
   ): Target {
     if (scope === "agent") {
       if (rawScopeId === undefined || rawScopeId === null) {
@@ -133,11 +169,17 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
       }
       const name = deps.agentName(rawScopeId);
-      if (
-        name === null ||
-        !tokenReaches(identity, deps.agentRoomId?.(rawScopeId))
-      ) {
+      if (name === null || !readsAgent(identity, rawScopeId)) {
         return { error: fail(404, "agent_not_found", "no such agent") };
+      }
+      if (verb === "write" && !writesAgent(identity, rawScopeId)) {
+        return {
+          error: fail(
+            403,
+            "memory_write_forbidden",
+            "only the agent, its manager, the manager's agents, and office owners and their agents can change this memory",
+          ),
+        };
       }
       return { scope: "agent", scopeId: rawScopeId, name };
     }
@@ -152,7 +194,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         };
       }
       const name = deps.roomName(rawScopeId);
-      if (name === null || !tokenReaches(identity, rawScopeId)) {
+      if (name === null || !deps.hasRoomAccess(identity, rawScopeId)) {
         return { error: fail(404, "room_not_found", "no such room") };
       }
       return { scope: "room", scopeId: rawScopeId, name };
@@ -193,8 +235,17 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
       }
       const name = deps.userName(rawScopeId);
-      if (name === null) {
+      if (name === null || !deps.sharesRoomWithMember(identity, rawScopeId)) {
         return { error: fail(404, "user_not_found", "no such user") };
+      }
+      if (verb === "write" && !writesMember(identity, rawScopeId)) {
+        return {
+          error: fail(
+            403,
+            "memory_write_forbidden",
+            "only the member, their agents, and office owners and their agents can change this memory",
+          ),
+        };
       }
       return { scope: "member", scopeId: rawScopeId, name };
     }
@@ -213,7 +264,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     "memory.read": (ctx) => {
       const scope = ctx.query.get("scope") ?? "agent";
       const scopeId = ctx.query.get("scopeId") ?? undefined;
-      const target = resolveTarget(ctx.identity, scope, scopeId);
+      const target = resolveTarget(ctx.identity, scope, scopeId, "read");
       if ("error" in target) return target.error;
       const memory = deps.read(target.scope, target.scopeId);
       return ok({
@@ -240,7 +291,12 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       if (text.length === 0) {
         return fail(400, "invalid_text", "text must not be blank");
       }
-      const target = resolveTarget(ctx.identity, body.scope, body.scopeId);
+      const target = resolveTarget(
+        ctx.identity,
+        body.scope,
+        body.scopeId,
+        "write",
+      );
       if ("error" in target) return target.error;
       // Write-time dedup guard: reject an exact restatement already in this scope,
       // naming the existing line's text.
@@ -313,7 +369,12 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           "version is required (from a preceding READ)",
         );
       }
-      const target = resolveTarget(ctx.identity, body.scope, body.scopeId);
+      const target = resolveTarget(
+        ctx.identity,
+        body.scope,
+        body.scopeId,
+        "write",
+      );
       if ("error" in target) return target.error;
       const author = deps.authorFor(ctx.identity);
       if (!author) {

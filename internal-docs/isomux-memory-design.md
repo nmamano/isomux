@@ -18,10 +18,12 @@
 > - Every mutation is recorded to an append-only **op-log** (`memory/.oplog.jsonl`,
 >   full post-op snapshot) for manual recovery.
 > - **Per-scope size caps** refuse growth over budget and keep auto-load complete.
-> - **Authority is permissive on every verb** (any authenticated caller may
->   read/append/replace any existing target); `date` is server-stamped on APPEND,
->   as is `author` except on the self-note case above. The only structural boundary is that a member's memory auto-loads
->   solely into that member's own agents' prompts.
+> - **Access follows rooms** (task bf94d714, section 2): room memory for whoever
+>   reaches the room, member memory read by whoever shares a room with the member,
+>   agent memory written by the agent, its manager's identities and owners, office
+>   memory open; `date` is server-stamped on APPEND, as is `author` except on the
+>   self-note case above. A member's memory auto-loads solely into that member's
+>   own agents' prompts.
 > - **Humans curate through the same READ/REPLACE verbs** from each scope's
 >   settings field (a shared `useMemoryEditor` hook).
 >
@@ -120,38 +122,47 @@ confidentiality guarantee or a REST-private read**:
 - The `member` scope was called `boss` before task f41c93e9, and the routes
   accepted `boss` until task 744fa64a. Old audit rows name `memory:boss:<id>`;
   an audit filter on either name finds both.
-- `office`, `room`, `agent` are cross-member visible by scope.
-- `bosses/<userId>.md` is structurally scoped only at **auto-load** time (below),
-  not over REST.
+**Access follows rooms** (task bf94d714; Nil, 2026-11-04: "if two members share a
+room, let agents access instructions and memories so they can work better
+together"). Until then every verb was open to any authenticated caller on any
+existing target.
 
-**Permissive authority model.** All office agents currently run as the **same OS
-user**, and agent reads under `~/.isomux` are explicitly allowed by
-`safety-hooks.ts`, so a capable agent can `grep` the memory files directly
-regardless. Rather than pretend otherwise, the REST surface is openly permissive
-and restraint lives in the system-prompt affordance:
+- **room** - read and write: whoever reaches the room (`hasRoomAccess`).
+- **member** - read: whoever shares a live ordinary room with the member
+  (`sharesRoomWithMember` in server/identity/guards.ts; the lobby does not
+  count, every member reaches it), which includes the member's own identities
+  and an office owner's reach. Write: the member, their agents and tokens, and
+  an office owner's reach. `GET /api/users/:username/instructions` uses the same
+  read rule.
+- **agent** - write: the agent, its manager's identities, an office owner's
+  reach. Read: those, and whoever reaches the agent's room - the agent's
+  system prompt, which holds this memory, already has that audience.
+- **office** - any authenticated caller.
+- A scope the caller cannot read answers 404, as a missing target; one it reads
+  but cannot write answers 403 `memory_write_forbidden`. Token rooms and a
+  permission pack's memory area limit all of this further.
+- `author` + `date` are server-stamped on APPEND from the caller's identity; body
+  values are ignored. (`author` is omitted from the line - not taken from the
+  body - when an agent appends to its own agent scope; see Provenance above.)
 
-- **Every verb (READ / APPEND / REPLACE) is authenticated + target-EXISTENCE
-  gated, open to any authenticated caller** (agent token or user cookie) for any
-  existing scope/target, including any member and including the destructive REPLACE.
-  There is no per-scope / per-room / per-member access gate. `author` + `date` are
-  server-stamped on APPEND from the caller's identity; body values are ignored.
-  (`author` is omitted from the line - not taken from the body - when an agent
-  appends to its own agent scope; see Provenance above.)
+All office agents currently run as the **same OS user**, and agent reads under
+`~/.isomux` are explicitly allowed by `safety-hooks.ts`, so a capable agent can
+`grep` the memory files directly regardless: the rule is an API boundary, not
+confidentiality.
 - **The one structural member property is in AUTO-LOAD, not REST:** a member's notes
   are auto-injected only into that member's own agents' prompts (keyed on the
   agent's stable manager `userId`), so one member's notes never bleed into another
-  member's context. This is context-scoping, not a read boundary.
+  member's context.
 - **Do not teach agents the member-memory filesystem path in the system prompt.**
   Reduces casual leakage; does not make it confidential.
 
-**On permissive REPLACE specifically (a deliberate product/security decision).**
-REPLACE is a whole-file destructive primitive, so making it permissive means any
-authenticated agent can rewrite office memory (which auto-injects into every
-agent), any nameable room, or another member's file. Nil chose this knowingly: the
-risk class is handled in the affordance ("Do not make big changes to it"), and
-the **op-log is the recovery net - not an authorization boundary**.
-This is pinned by a test asserting a plain agent token _can_ REPLACE office memory,
-so it is not silently re-gated later.
+**On REPLACE of office memory (a deliberate product/security decision).**
+REPLACE is a whole-file destructive primitive, and office memory stays open to it,
+so any authenticated agent can rewrite office memory (which auto-injects into every
+agent). Nil chose this knowingly: the risk class is handled in the affordance ("Do
+not make big changes to it"), and the **op-log is the recovery net - not an
+authorization boundary**. This is pinned by a test asserting a plain agent token
+_can_ REPLACE office memory, so it is not silently re-gated later.
 
 Net: the scope model is an **honest-path / API + auto-injection boundary**, not a
 security boundary. Real confidentiality waits on the per-user isolation work.
@@ -248,12 +259,12 @@ fields. `author`/`date` are server-assigned on APPEND. `scopeId` is a
 caller-supplied **target selector** (validated for shape + existence), not an
 authority claim.
 
-| Write/read target | Accepted from            | Target resolution                                                                                                  |
-| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `agents/<id>.md`  | any authenticated caller | omitted `scopeId` defaults to the caller's own agent (agent token); a user must pass an explicit, existing agent id |
-| `rooms/<id>.md`   | any authenticated caller | `scopeId` required; must be an existing room                                                                       |
-| `office.md`       | any authenticated caller | no `scopeId`                                                                                                       |
-| `bosses/<id>.md`  | any authenticated caller | omitted `scopeId` defaults to the caller's own/manager `userId`; or an explicit, existing user id (any member)        |
+| Write/read target | Accepted from (section 2)                    | Target resolution                                                                                                  |
+| ----------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `agents/<id>.md`  | write: agent, manager, owners; read: + room  | omitted `scopeId` defaults to the caller's own agent (agent token); a user must pass an explicit, existing agent id |
+| `rooms/<id>.md`   | whoever reaches the room                     | `scopeId` required; must be an existing room                                                                       |
+| `office.md`       | any authenticated caller                     | no `scopeId`                                                                                                       |
+| `bosses/<id>.md`  | write: member, owners; read: + shared room   | omitted `scopeId` defaults to the caller's own/manager `userId`; or an explicit, existing user id                    |
 
 ### Humans write/curate via the settings menu
 
@@ -285,7 +296,7 @@ The four memory scopes mirror the four system-prompt surfaces the human already
 owns (office prompt, room prompt, agent custom instructions, `memberPrompt`). A
 _human-authored_ fact that should be authoritative belongs in the prompt; a
 _human-curated_ memory line belongs in the settings memory field. The field is a
-thin client of the same permissive `/api/memory` READ/REPLACE verbs agents use - 
+thin client of the same `/api/memory` READ/REPLACE verbs agents use - 
 no separate human write API, no parallel copy of the prompt-editing UI.
 
 ## 6. System-prompt affordance ("How to use memory")
@@ -381,11 +392,11 @@ Deferred. Add only if real scale demands:
 - **Three verbs on `/api/memory`:** READ (text + version + size/cap), APPEND
   (server-stamped, 400-character text limit, exact-dup 409, hard-cap 422,
   post-write size/cap), REPLACE (verbatim, version-guarded 409).
-- **Permissive on every verb** (any authenticated caller, target-existence gated),
-  including the destructive REPLACE of office memory - restraint via the affordance,
-  recovery via the op-log; pinned by a test.
-- **Member boundary is auto-load only** (a member's notes auto-inject solely into that
-  member's own agents' prompts), not a REST-read restriction.
+- **Access follows rooms** (section 2); office memory stays open to every caller,
+  including the destructive REPLACE - restraint via the affordance, recovery via
+  the op-log; pinned by a test.
+- **Member auto-load** (a member's notes auto-inject solely into that member's own
+  agents' prompts) is separate from the REST read rule.
 - **APPEND dedup is exact-normalized only** (no fuzzy/Jaccard); a reword is allowed.
 - **Optimistic concurrency via a short sha256 `version`**; the synchronous
   read-modify-write within one store call is serialized by the single-threaded

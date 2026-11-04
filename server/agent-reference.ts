@@ -126,7 +126,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "rooms.readInstructions": "rooms",
   "rooms.setInstructions": "rooms",
   "users.create": "members",
-  "users.readInstructions": "members",
+  "users.readInstructions": "discovery",
   "users.setInstructions": "members",
   "office.getSettings": "office-settings",
   "office.getMemberUsageStatus": "office-settings",

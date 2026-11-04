@@ -223,6 +223,14 @@ returns 422.
 raw file. Use the version from GET. A stale version returns 409. REPLACE is the
 curation path and does not apply the 400-character APPEND limit.
 
+Access follows rooms. Whoever can access a room reads and writes its memory.
+Whoever shares a room with a member, other than the lobby, reads that member's
+memory; the member, the member's agents, and office owners and their agents
+write it. An agent's memory is written by the agent, its manager, the manager's
+agents, and office owners and their agents, and read by those and by whoever can access the agent's room. Office
+memory is open to every caller. A scope the caller cannot read returns 404; one
+it can read but not write returns 403 `memory_write_forbidden`.
+
 ### Use the task board
 
 `GET /api/tasks` lists the tasks the caller can see. It leaves out done and
@@ -362,7 +370,7 @@ Each instruction layer has a read and a write route:
 
 Both return `{instructions,version}`. The PUT takes `{instructions,version}` with the version from the read; `instructions: null` clears them. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. `POST /api/agents`, `PATCH /api/agents/:id` (with `instructionsVersion`) and `POST /api/users` also take `instructions`.
 
-A privileged agent can write its manager's member instructions, or any member's when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. The schedule instructions are for an office owner's own session.
+Anyone who shares a room with a member, other than the lobby, can read that member's instructions. A privileged agent can write its manager's member instructions, or any member's when its manager is an office owner. A personal API token can do the same for its member, or for any member when its member is an office owner. The schedule instructions are for an office owner's own session.
 
 ### Office settings
 

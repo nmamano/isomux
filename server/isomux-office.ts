@@ -122,6 +122,7 @@ import { withMemberPack } from "./identity/member-pack.ts";
 import {
   cronjobOwnerOrOfficeOwner,
   hasOfficeOwnerReach,
+  sharesRoomWithMember,
   logSearchAccess,
   queueCancelAny,
   type GuardDeps,
@@ -2209,6 +2210,16 @@ function buildLiveGuardDeps(): GuardDeps {
     },
     getUserByName: (username) => getUserByName(username) ?? null,
     getUserById: (userId) => getUserById(userId) ?? null,
+    // A grant can name a closed room, so only live ordinary rooms count.
+    memberRoomIds: (userId) => {
+      const user = getUserById(userId);
+      if (!user) return [];
+      const reach = accessibleRoomIdsFor(user);
+      return agentManager
+        .getOrdinaryRooms()
+        .map((room) => room.id)
+        .filter((roomId) => reach.has(roomId));
+    },
     userRecordById: (userId) => getUserById(userId) ?? null,
     listCronjobs: () => cronjobManager.listCronjobs(),
     listApps: () => appRegistry.list(),
@@ -3110,15 +3121,21 @@ function buildExecutorDeps(
     }),
   );
 
-  // Memory (isomux-memory agent-scope tracer). Author + date are
-  // server-stamped from the token (authorFor); scopeId is a target selector, not
-  // authority. A write whose caller record can't be resolved fails 404 rather
-  // than being stamped "unknown".
+  // Memory (isomux-memory). Author + date are server-stamped from the token
+  // (authorFor); scopeId is a target selector, not authority. Access follows
+  // the rooms through the guard deps. A write whose caller record can't be
+  // resolved fails 404 rather than being stamped "unknown".
   register(
     memoryHandlers({
-      tokenReachesRoom: (identity, roomId) =>
+      hasRoomAccess: (identity, roomId) =>
         buildLiveGuardDeps().hasRoomAccess(identity, roomId),
+      sharesRoomWithMember: (identity, userId) =>
+        sharesRoomWithMember(identity, userId, buildLiveGuardDeps()),
+      hasOfficeOwnerReach: (identity) =>
+        hasOfficeOwnerReach(identity, buildLiveGuardDeps()),
       agentRoomId: (agentId) => agentManager.getAgent(agentId)?.roomId ?? null,
+      agentManagerUserId: (agentId) =>
+        agentManager.getAgent(agentId)?.userId ?? null,
       read: (scope, scopeId) => memoryStore.read(scope, scopeId),
       append: (input) => memoryStore.append(input),
       replace: (input) => memoryStore.replace(input),
@@ -3138,8 +3155,8 @@ function buildExecutorDeps(
         return null;
       },
       isSafeScopeId,
-      // EXISTENCE only - no access gate (permissive model). Room and member
-      // names are the ones the auto-load labels use.
+      // Existence checks; room and member names are the ones the auto-load
+      // labels use.
       roomName: (roomId) =>
         agentManager.getOrdinaryRooms().find((r) => r.id === roomId)?.name ??
         null,

@@ -61,6 +61,9 @@ export interface GuardDepsLiveReaders {
   cronRunVisibleTo(identity: Identity, streamId: string): boolean;
   // Username → user record (or null). users.getUserByName.
   getUserByName(username: string): { id: string } | null;
+  // The live ordinary rooms (lobby excluded) a member reaches, or [] for an
+  // unknown member.
+  memberRoomIds?(userId: string): readonly string[];
   // User id -> live role. The app-control guard asks about the agent or API
   // token's user through this seam rather than trusting identity.role.
   getUserById(userId: string): { role: "owner" | "member" } | null;
@@ -174,6 +177,10 @@ export function buildProductionGuardDeps(
 
     isOfficeOwnerUserId(userId: string): boolean {
       return live.getUserById(userId)?.role === "owner";
+    },
+
+    memberRoomIds(userId: string): readonly string[] {
+      return live.memberRoomIds?.(userId) ?? [];
     },
 
     cronjobCreatorUserId(cronjobId: string): string | null {

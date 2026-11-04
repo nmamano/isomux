@@ -8,7 +8,7 @@ Use `GET /agents?killed=1` for agents the manager spawned and later killed. Thes
 
 `GET /api/agents/:id/instructions` returns an agent's instructions as `{instructions,version}`; `instructions` is null when it has none. A privileged agent changes them (see agent-management).
 
-Member profiles are in `~/.isomux/users.json`. Read a profile when another member speaks and their preferences or member prompt matter.
+Read a member's profile when another member speaks and their preferences matter. `GET /api/users/:username/instructions` returns their special instructions as `{instructions,version}` when you share a room with them (the lobby does not count), and 403 otherwise. The other profile fields are in `~/.isomux/users.json`.
 
 Safe example: `GET /agents`.
 

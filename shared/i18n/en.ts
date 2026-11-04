@@ -1664,6 +1664,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "dialogs.agent.modelTier.subscription": "Subscription (OpenCode Go)",
   "dialogs.agent.memoryHint":
     "(durable facts for this agent; raw lines; {size} / {cap})",
+  "dialogs.agent.memoryReadOnly":
+    "Only the agent's manager and office owners can edit this memory.",
   "dialogs.agent.memoryTitle": "Agent Memory",
   "dialogs.agent.memoryPlaceholder": "Some memory relevant to this agent",
   "dialogs.agent.customInstructions": "Custom Instructions",

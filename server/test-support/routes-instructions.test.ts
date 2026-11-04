@@ -22,7 +22,8 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { versionOf } from "../../shared/blob-version.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName, setUserRoleById } from "../users.ts";
+import { getUserByName, setUserRoleById, updateUserById } from "../users.ts";
+import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
 import {
   startTestServer,
   type TestServer,
@@ -341,9 +342,10 @@ describe.each(LAYERS.map((l) => [l.name, l] as const))(
       }
       const expected = [...layer.allowed].sort();
       expect(writes.sort()).toEqual(expected);
-      // An agent's instructions are also read by its manager's ordinary agents.
+      // An agent's instructions are also read by its manager's ordinary
+      // agents, and a member's by every agent of an owner (owner reach).
       expect(reads.sort()).toEqual(
-        layer === agentLayer
+        layer === agentLayer || layer === memberLayer
           ? [...expected, "ownerPlainAgent"].sort()
           : expected,
       );
@@ -445,21 +447,22 @@ describe("member instructions write", () => {
   it("reaches other members only with an owner's reach, checked live on each request", async () => {
     const o = await office();
     const path = "/api/users/Morgan/instructions";
-    const reached = async () => {
+    const writers = async () => {
       const allowed: string[] = [];
       for (const [who, auth] of Object.entries(o.callers)) {
-        const read = await call(o.srv, "GET", path, auth);
         const write = await call(o.srv, "PUT", path, {
           ...auth,
           body: { instructions: "x", version: "000000000000" },
         });
-        expect([who, write.status === 403]).toEqual([who, read.status === 403]);
-        expect([who, read.status]).not.toEqual([who, 401]);
-        if (read.status !== 403) allowed.push(who);
+        expect([who, write.status]).toEqual([
+          who,
+          write.status === 403 ? 403 : 409,
+        ]);
+        if (write.status === 409) allowed.push(who);
       }
       return allowed.sort();
     };
-    expect(await reached()).toEqual([
+    expect(await writers()).toEqual([
       "ownerApiToken",
       "ownerPrivilegedAgent",
       "ownerSession",
@@ -468,16 +471,154 @@ describe("member instructions write", () => {
     // Morgan's own still reach Morgan's text.
     expect(setUserRoleById(o.miaId, "owner")).toBe(true);
     expect(setUserRoleById(o.morganId, "member")).toBe(true);
-    const mias = (await reached()).filter((who) => who.startsWith("member"));
+    const mias = (await writers()).filter((who) => who.startsWith("member"));
     expect(mias).toEqual([
       "memberApiToken",
       "memberPrivilegedAgent",
       "memberSession",
     ]);
-    const memberRead = await call(o.srv, "GET", "/api/users/Mia/instructions", {
-      bearer: o.callers.ownerApiToken.bearer,
+    const memberWrite = await call(
+      o.srv,
+      "PUT",
+      "/api/users/Mia/instructions",
+      {
+        bearer: o.callers.ownerApiToken.bearer,
+        body: { instructions: "x", version: "000000000000" },
+      },
+    );
+    expect(memberWrite.status).toBe(403);
+  });
+});
+
+// Reading a member's instructions follows the rooms (task bf94d714): the
+// member's own identities, owners (with every agent of theirs), and whoever
+// shares a live ordinary room with the member. The lobby is not shared. The
+// write stays with the member and an owner's reach (above).
+describe("member instructions read", () => {
+  async function rooms() {
+    server = await startTestServer();
+    const srv = server;
+    const morgan = await srv.seedOwner("Morgan");
+    const mia = await srv.seedMember("Mia");
+    const nora = await srv.seedMember("Nora");
+    const pat = await srv.seedMember("Pat");
+    const id = (name: string) => getUserByName(name)!.id;
+    const roomA = srv.agentManager.createRoom("Alpha");
+    const roomB = srv.agentManager.createRoom("Beta");
+    srv.agentManager.ensureLobby();
+    expect(updateUserById(id("Mia"), { allowedRooms: [roomA] }).ok).toBe(true);
+    expect(updateUserById(id("Nora"), { allowedRooms: [roomA] }).ok).toBe(true);
+    expect(updateUserById(id("Pat"), { allowedRooms: [roomB] }).ok).toBe(true);
+    const mint = async (name: string, limits?: ApiTokenLimits) =>
+      (
+        await mintApiToken({
+          userId: id(name),
+          name,
+          expiresInDays: null,
+          ...(limits ? { limits } : {}),
+        })
+      ).token;
+    // Mia's instructions, written by Mia.
+    const path = "/api/users/Mia/instructions";
+    const before = await call(srv, "GET", path, { session: mia.rawSessionId });
+    const { version } = before.body as { version: string };
+    expect(
+      (
+        await call(srv, "PUT", path, {
+          session: mia.rawSessionId,
+          body: { instructions: "Mia's rules", version },
+        })
+      ).status,
+    ).toBe(200);
+    return {
+      srv,
+      id,
+      roomA,
+      path,
+      callers: {
+        miaPlainAgent: { bearer: mintAgentToken("mia-plain", id("Mia")) },
+        nora: { session: nora.rawSessionId },
+        noraPlainAgent: { bearer: mintAgentToken("nora-plain", id("Nora")) },
+        noraApiTokenInA: { bearer: await mint("Nora", { rooms: [roomA] }) },
+        noraApiTokenNoRooms: { bearer: await mint("Nora", { rooms: [] }) },
+        pat: { session: pat.rawSessionId },
+        patPlainAgent: { bearer: mintAgentToken("pat-plain", id("Pat")) },
+        morganPlainAgent: {
+          bearer: mintAgentToken("morgan-plain", id("Morgan")),
+        },
+        morganApiTokenInB: { bearer: await mint("Morgan", { rooms: [roomB] }) },
+      } satisfies Record<string, Auth>,
+      morgan,
+    };
+  }
+
+  it("reaches the member's own agents, owners' agents and whoever shares a room, with the text", async () => {
+    const o = await rooms();
+    const out: Record<string, string> = {};
+    for (const [who, auth] of Object.entries(o.callers)) {
+      const r = await call(o.srv, "GET", o.path, auth);
+      const text = (r.body as { instructions?: string } | null)?.instructions;
+      out[who] = r.status === 200 ? `200 ${text}` : `${r.status}`;
+    }
+    expect(out).toEqual({
+      miaPlainAgent: "200 Mia's rules",
+      nora: "200 Mia's rules",
+      noraPlainAgent: "200 Mia's rules",
+      noraApiTokenInA: "200 Mia's rules",
+      noraApiTokenNoRooms: "403",
+      // Pat reaches only room B and the lobby.
+      pat: "403",
+      patPlainAgent: "403",
+      morganPlainAgent: "200 Mia's rules",
+      // A room-limited token has no owner reach.
+      morganApiTokenInB: "403",
     });
-    expect(memberRead.status).toBe(403);
+    // A reader that shares a room still writes nothing.
+    const write = await call(o.srv, "PUT", o.path, {
+      ...o.callers.noraPlainAgent,
+      body: { instructions: "x", version: versionOf("Mia's rules") },
+    });
+    expect(write.status).toBe(403);
+    expect(getUserByName("Mia")!.memberPrompt).toBe("Mia's rules");
+  });
+
+  it("an unknown member reads as one that shares no room, and a lost grant applies to the next read", async () => {
+    const o = await rooms();
+    const unknown = await call(
+      o.srv,
+      "GET",
+      "/api/users/Nobody/instructions",
+      o.callers.noraPlainAgent,
+    );
+    const unshared = await call(o.srv, "GET", o.path, o.callers.patPlainAgent);
+    expect({ status: unknown.status, error: errOf(unknown) }).toEqual({
+      status: unshared.status,
+      error: errOf(unshared),
+    });
+    expect(unshared.status).toBe(403);
+
+    expect(
+      (await call(o.srv, "GET", o.path, o.callers.noraPlainAgent)).status,
+    ).toBe(200);
+    expect(updateUserById(o.id("Nora"), { allowedRooms: [] }).ok).toBe(true);
+    expect(
+      (await call(o.srv, "GET", o.path, o.callers.noraPlainAgent)).status,
+    ).toBe(403);
+  });
+
+  it("a token without the office area reads no member's instructions", async () => {
+    const o = await rooms();
+    const token = (
+      await mintApiToken({
+        userId: o.id("Nora"),
+        name: "Nora memory only",
+        expiresInDays: null,
+        limits: { areas: { memory: "read" }, rooms: [o.roomA] },
+      })
+    ).token;
+    const r = await call(o.srv, "GET", o.path, { bearer: token });
+    const area = (errOf(r) as { area?: string } | undefined)?.area;
+    expect({ status: r.status, area }).toEqual({ status: 403, area: "office" });
   });
 });
 

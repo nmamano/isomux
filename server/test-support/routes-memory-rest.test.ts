@@ -2,10 +2,13 @@ import { officeAuditStore } from "../audit-store.ts";
 // isomux-memory on the unified REST surface - three verbs: READ (GET), APPEND
 // (POST), REPLACE (PUT) /api/memory.
 //
-// All scopes (agent/room/office/member) are permissive on EVERY verb: any
-// authenticated caller may read/append/replace any EXISTING target - no access
-// gate (Nil's product decision; restraint lives in the system-prompt affordance,
-// recovery in the op-log). On APPEND author + date are server-stamped (never
+// Access follows the rooms (task bf94d714): room memory to whoever reaches the
+// room; a member's memory read by whoever shares a live ordinary room with that
+// member and written by the member's own identities; an agent's memory written
+// by the agent, its manager's identities and owners, and read also by whoever
+// reaches its room; office memory by any caller. Owners reach everything. No
+// read is a 404 like a missing target; a read without a write is 403
+// memory_write_forbidden. On APPEND author + date are server-stamped (never
 // body). APPEND has an exact-duplicate guard. REPLACE is whole-file, guarded by
 // the optimistic version from the preceding READ (409 on mismatch); it writes raw
 // text verbatim. Evidence = the persisted memory/*.md files + the op-log + REST
@@ -16,7 +19,8 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, updateUserById } from "../users.ts";
+import { mintApiToken } from "../api-tokens.ts";
 import type { AgentInfo, MemoryItem } from "../../shared/types.ts";
 import { MEMORY_LINE_MAX } from "../memory-store.ts";
 
@@ -342,8 +346,8 @@ describe("routes/memory REST: APPEND hard cap", () => {
   });
 });
 
-describe("routes/memory REST: APPEND permissive + existence gates", () => {
-  it("an agent may append to ANOTHER agent's scope (explicit id); nonexistent -> 404; malformed -> 400", async () => {
+describe("routes/memory REST: APPEND existence gates", () => {
+  it("an agent appends to a same-manager agent's scope (explicit id); nonexistent -> 404; malformed -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
@@ -539,7 +543,7 @@ describe("routes/memory REST: REPLACE (whole-file, version-guarded)", () => {
 });
 
 describe("routes/memory REST: member scope", () => {
-  it("agent omitted -> its manager; user omitted -> own; explicit other member is permissive; GET open to any caller", async () => {
+  it("agent omitted -> its manager; user omitted -> own; an owner's agent reaches another member", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Morgan");
@@ -569,7 +573,7 @@ describe("routes/memory REST: member scope", () => {
     expect(m.status).toBe(201);
     expect(readMem(srv, "bosses", `${memberId}.md`)).toContain("member fact");
 
-    // agent explicitly targets ANOTHER member -> permitted
+    // the owner's agent explicitly targets ANOTHER member -> owner reach
     const cross = await api(srv, "/api/memory", {
       method: "POST",
       bearer: token,
@@ -577,7 +581,7 @@ describe("routes/memory REST: member scope", () => {
     });
     expect(cross.status).toBe(201);
 
-    // GET another member's file works for any authenticated caller (intentional)
+    // and reads it
     const read = await api(
       srv,
       `/api/memory?scope=member&scopeId=${memberId}`,
@@ -908,6 +912,9 @@ describe("routes/memory REST: READ names the resolved scope", () => {
     const member = await srv.seedMember("Member");
     const ownerId = getUserByName("Morgan")!.id;
     const memberId = getUserByName("Member")!.id;
+    // Member shares a room with Morgan, so reads Morgan's member memory.
+    const shared = srv.agentManager.createRoom("Shared");
+    expect(updateUserById(memberId, { allowedRooms: [shared] }).ok).toBe(true);
     const bot = await spawnAgent(srv, "MemBot");
     const peer = await spawnAgent(srv, "PeerBot");
     const token = mintAgentToken(bot.id, ownerId);
@@ -943,6 +950,7 @@ describe("routes/memory REST: READ names the resolved scope", () => {
         rawSessionId: member.rawSessionId,
       },
     );
+    expect(theirs.status).toBe(200);
     expect(asNamed(theirs.body)).toMatchObject({
       scopeId: ownerId,
       name: getUserByName("Morgan")!.name,
@@ -963,5 +971,244 @@ describe("routes/memory REST: READ names the resolved scope", () => {
       expect(r.status).toBe(404);
       expect(errCode(r.body)).toBe(code);
     }
+  });
+});
+
+describe("routes/memory REST: access follows the rooms", () => {
+  async function spawnIn(
+    srv: TestServer,
+    name: string,
+    roomId: string,
+    userId: string,
+  ): Promise<AgentInfo> {
+    const info = await srv.agentManager.spawn(
+      name,
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      roomId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+      undefined,
+      userId,
+    );
+    if (!info) throw new Error(`spawn ${name} returned null`);
+    return info;
+  }
+
+  // Morgan owns the office. Mia and Nora share room A, Pat has room B, Quinn
+  // shares room D with Mia. Every member also reaches the lobby, which is not
+  // a shared room.
+  async function office() {
+    const srv = await startTestServer();
+    server = srv;
+    const morgan = await srv.seedOwner("Morgan");
+    const mia = await srv.seedMember("Mia");
+    const nora = await srv.seedMember("Nora");
+    const pat = await srv.seedMember("Pat");
+    const quinn = await srv.seedMember("Quinn");
+    const id = (name: string) => getUserByName(name)!.id;
+    const roomA = srv.agentManager.createRoom("Alpha");
+    const roomB = srv.agentManager.createRoom("Beta");
+    const roomD = srv.agentManager.createRoom("Delta");
+    srv.agentManager.ensureLobby();
+    for (const [name, rooms] of [
+      ["Mia", [roomA, roomD]],
+      ["Nora", [roomA]],
+      ["Pat", [roomB]],
+      ["Quinn", [roomD]],
+    ] as const) {
+      expect(updateUserById(id(name), { allowedRooms: [...rooms] }).ok).toBe(
+        true,
+      );
+    }
+    const miaBot = await spawnIn(srv, "MiaBot", roomA, id("Mia"));
+    const miaBot2 = await spawnIn(srv, "MiaBot2", roomA, id("Mia"));
+    const noraBot = await spawnIn(srv, "NoraBot", roomA, id("Nora"));
+    const patBot = await spawnIn(srv, "PatBot", roomB, id("Pat"));
+    const morganBot = await spawnIn(srv, "MorganBot", roomB, id("Morgan"));
+    const apiToken = async (name: string, rooms?: string[]) =>
+      (
+        await mintApiToken({
+          userId: id(name),
+          name,
+          expiresInDays: null,
+          ...(rooms ? { limits: { rooms } } : {}),
+        })
+      ).token;
+    const callers = {
+      mia: { rawSessionId: mia.rawSessionId },
+      miaBot: { bearer: mintAgentToken(miaBot.id, id("Mia")) },
+      miaBot2: { bearer: mintAgentToken(miaBot2.id, id("Mia")) },
+      miaNoRooms: { bearer: await apiToken("Mia", []) },
+      nora: { rawSessionId: nora.rawSessionId },
+      noraBot: { bearer: mintAgentToken(noraBot.id, id("Nora")) },
+      noraInA: { bearer: await apiToken("Nora", [roomA]) },
+      pat: { rawSessionId: pat.rawSessionId },
+      patBot: { bearer: mintAgentToken(patBot.id, id("Pat")) },
+      quinn: { rawSessionId: quinn.rawSessionId },
+      morgan: { rawSessionId: morgan.rawSessionId },
+      morganBot: { bearer: mintAgentToken(morganBot.id, id("Morgan")) },
+      // An owner's room-limited token has no owner reach.
+      morganInB: { bearer: await apiToken("Morgan", [roomB]) },
+    };
+    return { srv, id, roomA, roomB, roomD, miaBot, callers };
+  }
+  type Office = Awaited<ReturnType<typeof office>>;
+  type Auth = { rawSessionId?: string; bearer?: string };
+
+  const grade = (r: Res) =>
+    errCode(r.body) ? `${r.status} ${errCode(r.body)}` : `${r.status}`;
+
+  let n = 0;
+  // Read, append and replace (a stale version: an allowed replace is a 409
+  // and writes nothing) as one caller. A refused append leaves no trace,
+  // checked through the owner's read.
+  async function probe(
+    o: Office,
+    scope: string,
+    scopeId: string,
+    auth: Auth,
+  ): Promise<string> {
+    const text = `probe note ${++n}`;
+    const path = `/api/memory?scope=${scope}&scopeId=${scopeId}`;
+    const read = await api(o.srv, path, auth);
+    const append = await api(o.srv, "/api/memory", {
+      ...auth,
+      method: "POST",
+      body: { scope, scopeId, text },
+    });
+    const replace = await api(o.srv, "/api/memory", {
+      ...auth,
+      method: "PUT",
+      body: { scope, scopeId, text: "replaced\n", version: "000000000000" },
+    });
+    const stored = await api(o.srv, path, o.callers.morgan);
+    expect(stored.status).toBe(200);
+    expect([text, asRead(stored.body).text.includes(text)]).toEqual([
+      text,
+      append.status === 201,
+    ]);
+    return [grade(read), grade(append), grade(replace)].join(" | ");
+  }
+
+  async function matrix(
+    o: Office,
+    scope: string,
+    scopeId: string,
+  ): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    for (const [who, auth] of Object.entries(o.callers))
+      out[who] = await probe(o, scope, scopeId, auth);
+    return out;
+  }
+
+  const FULL = "200 | 201 | 409 memory_conflict";
+  const READ_ONLY =
+    "200 | 403 memory_write_forbidden | 403 memory_write_forbidden";
+  const none = (code: string) => `404 ${code} | 404 ${code} | 404 ${code}`;
+
+  it("member memory: read by whoever shares a room with the member, written by the member's own identities and owners", async () => {
+    const o = await office();
+    expect(await matrix(o, "member", o.id("Mia"))).toEqual({
+      mia: FULL,
+      miaBot: FULL,
+      miaBot2: FULL,
+      // The member's own room-limited token: its own member memory.
+      miaNoRooms: FULL,
+      nora: READ_ONLY,
+      noraBot: READ_ONLY,
+      noraInA: READ_ONLY,
+      // Pat reaches only B and the lobby.
+      pat: none("user_not_found"),
+      patBot: none("user_not_found"),
+      quinn: READ_ONLY,
+      morgan: FULL,
+      morganBot: FULL,
+      morganInB: none("user_not_found"),
+    });
+    // An owner reaches every room, so any member with a room shares one with
+    // the owner. A token limited to no rooms shares none.
+    const owners = await matrix(o, "member", o.id("Morgan"));
+    expect({
+      pat: owners.pat,
+      noraBot: owners.noraBot,
+      miaNoRooms: owners.miaNoRooms,
+      morganBot: owners.morganBot,
+      morganInB: owners.morganInB,
+    }).toEqual({
+      pat: READ_ONLY,
+      noraBot: READ_ONLY,
+      miaNoRooms: none("user_not_found"),
+      morganBot: FULL,
+      morganInB: FULL,
+    });
+  });
+
+  it("room memory: whoever reaches the room", async () => {
+    const o = await office();
+    expect(await matrix(o, "room", o.roomA)).toEqual({
+      mia: FULL,
+      miaBot: FULL,
+      miaBot2: FULL,
+      miaNoRooms: none("room_not_found"),
+      nora: FULL,
+      noraBot: FULL,
+      noraInA: FULL,
+      pat: none("room_not_found"),
+      patBot: none("room_not_found"),
+      quinn: none("room_not_found"),
+      morgan: FULL,
+      morganBot: FULL,
+      morganInB: none("room_not_found"),
+    });
+  });
+
+  it("agent memory: written by the agent, its manager's identities and owners; read also by whoever reaches its room", async () => {
+    const o = await office();
+    expect(await matrix(o, "agent", o.miaBot.id)).toEqual({
+      mia: FULL,
+      miaBot: FULL,
+      miaBot2: FULL,
+      // The manager's token reaches the agent only in a room it reaches.
+      miaNoRooms: none("agent_not_found"),
+      nora: READ_ONLY,
+      noraBot: READ_ONLY,
+      noraInA: READ_ONLY,
+      pat: none("agent_not_found"),
+      patBot: none("agent_not_found"),
+      quinn: none("agent_not_found"),
+      morgan: FULL,
+      morganBot: FULL,
+      morganInB: none("agent_not_found"),
+    });
+  });
+
+  it("is checked live: a closed room is no longer shared, and a manager who loses the agent's room still reads and writes its memory", async () => {
+    const o = await office();
+    const { callers } = o;
+    expect(await probe(o, "member", o.id("Mia"), callers.quinn)).toBe(
+      READ_ONLY,
+    );
+    expect(o.srv.agentManager.closeRoom(o.roomD)).toBe(true);
+    expect(await probe(o, "member", o.id("Mia"), callers.quinn)).toBe(
+      none("user_not_found"),
+    );
+
+    expect(updateUserById(o.id("Mia"), { allowedRooms: [] }).ok).toBe(true);
+    // Mia lost room A, and her agent still sits there.
+    expect(await probe(o, "room", o.roomA, callers.mia)).toBe(
+      none("room_not_found"),
+    );
+    expect(o.srv.agentManager.getAgent(o.miaBot.id)!.roomId).toBe(o.roomA);
+    expect(await probe(o, "agent", o.miaBot.id, callers.mia)).toBe(FULL);
+    // Mia shares no room with Nora any more.
+    expect(await probe(o, "member", o.id("Mia"), callers.nora)).toBe(
+      none("user_not_found"),
+    );
   });
 });
