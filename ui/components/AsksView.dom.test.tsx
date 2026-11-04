@@ -270,7 +270,11 @@ describe("asks seen", () => {
   const ALL_SORT_IDS = SORT_ASKS.map((a) => a.id).sort();
 
   it("marks every open ask it can show seen, whatever the filters, and one that arrives or whose agent arrives", async () => {
-    setAsksFilter({ uncheckedRooms: ["r2"], priorities: ["P1"] });
+    setAsksFilter({
+      uncheckedRooms: ["r2"],
+      uncheckedAgents: [],
+      priorities: ["P1"],
+    });
     const { view, latest } = mount(
       [...SORT_ASKS, ranked("ghostAsk", "a9", 3, "P1")],
       { rooms: SORT_ROOMS, agents: SORT_AGENTS },

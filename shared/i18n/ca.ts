@@ -1909,6 +1909,7 @@ Coses que pots fer per ell:
   "asks.member": "Membre",
   "asks.memberMine": "Jo",
   "asks.memberAll": "Tots els membres",
+  "asks.agentAll": "Tots els agents",
   "asks.forMember": "Per a {member}",
   "asks.chip": "petició: {words}",
   "asks.openAsk": "Obre la petició {id}",

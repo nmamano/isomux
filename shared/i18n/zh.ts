@@ -1697,6 +1697,7 @@ App 的一些原则：
   "asks.member": "成员",
   "asks.memberMine": "我",
   "asks.memberAll": "所有成员",
+  "asks.agentAll": "所有智能体",
   "asks.forMember": "给 {member}",
   "asks.chip": "请示：{words}",
   "asks.openAsk": "打开请示 {id}",

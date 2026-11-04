@@ -50,6 +50,7 @@ const {
   setChatCopyFormat,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
+type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
 
 // The usage pill's pinned limit (task df489513). Stored per device per agent
 // AND per provider: an agent switched between engines must not stay pinned to a
@@ -179,32 +180,42 @@ describe("settings groups open", () => {
   });
 });
 
-// The Inbox Asks tab's room and priority filters, remembered per browser
-// (task a930c9d6). All rooms and all priorities is the default, and storing
-// it leaves nothing behind, as the sort does.
+// The Inbox Asks tab's room, priority and agent filters, remembered per
+// browser (tasks a930c9d6, b3cb0a41). All rooms, all priorities and all agents
+// is the default, and storing it leaves nothing behind, as the sort does.
 describe("asks filter", () => {
   beforeEach(() => store.clear());
-  const ALL = { uncheckedRooms: [], priorities: [...FILTER_PRIORITIES] };
+  const ALL = {
+    uncheckedRooms: [],
+    uncheckedAgents: [],
+    priorities: [...FILTER_PRIORITIES],
+  };
 
   it("starts on all, round-trips a choice, and an all choice stores nothing", () => {
     expect(getAsksFilter()).toEqual(ALL);
-    setAsksFilter({ uncheckedRooms: ["r2", "r3"], priorities: ["P1", "none"] });
-    expect(getAsksFilter()).toEqual({
+    const choice = {
       uncheckedRooms: ["r2", "r3"],
-      priorities: ["P1", "none"],
-    });
+      uncheckedAgents: ["a2", "a7"],
+      priorities: ["P1", "none"] as PriorityFilterValue[],
+    };
+    setAsksFilter(choice);
+    expect(getAsksFilter()).toEqual(choice);
     expect(store.size).toBe(1);
     // Every priority unchecked is a choice too: the tab shows its
     // "filters hide every ask" state, not all.
-    setAsksFilter({ uncheckedRooms: [], priorities: [] });
-    expect(getAsksFilter()).toEqual({ uncheckedRooms: [], priorities: [] });
+    setAsksFilter({ ...ALL, priorities: [] });
+    expect(getAsksFilter()).toEqual({ ...ALL, priorities: [] });
+    // One agent unchecked, with every room and priority: a choice to keep.
+    setAsksFilter({ ...ALL, uncheckedAgents: ["a2"] });
+    expect(getAsksFilter()).toEqual({ ...ALL, uncheckedAgents: ["a2"] });
+    expect(store.size).toBe(1);
     setAsksFilter(ALL);
     expect(getAsksFilter()).toEqual(ALL);
     expect(store.size).toBe(0);
   });
 
   it("reads a broken or wrong-shaped value as all, and keeps the valid part of a mixed one", () => {
-    setAsksFilter({ uncheckedRooms: ["r2"], priorities: ["P1"] });
+    setAsksFilter({ ...ALL, uncheckedRooms: ["r2"], priorities: ["P1"] });
     const [key] = [...store.keys()];
     for (const raw of [
       "{not json",
@@ -217,16 +228,41 @@ describe("asks filter", () => {
       store.set(key, raw);
       expect(getAsksFilter(), raw).toEqual(ALL);
     }
-    // A level this build does not know and a room id that is not a string
-    // are dropped; the rest of the choice stands.
+    // A level this build does not know, and a room or agent id that is not a
+    // string, are dropped; the rest of the choice stands.
     store.set(
       key,
-      JSON.stringify({ uncheckedRooms: ["r2", 7], priorities: ["P9", "P1"] }),
+      JSON.stringify({
+        uncheckedRooms: ["r2", 7],
+        uncheckedAgents: [8, "a2"],
+        priorities: ["P9", "P1"],
+      }),
     );
     expect(getAsksFilter()).toEqual({
       uncheckedRooms: ["r2"],
+      uncheckedAgents: ["a2"],
       priorities: ["P1"],
     });
+  });
+
+  // A filter stored before the agent filter existed keeps its rooms and
+  // priorities, with no agent unchecked; so does one whose agents are not a
+  // list.
+  it("reads a value without agents, or with agents that are not a list, as no agent unchecked", () => {
+    setAsksFilter({ ...ALL, uncheckedRooms: ["r2"], priorities: ["P1"] });
+    const [key] = [...store.keys()];
+    for (const raw of [
+      '{"uncheckedRooms":["r2"],"priorities":["P1"]}',
+      '{"uncheckedRooms":["r2"],"priorities":["P1"],"uncheckedAgents":"a2"}',
+      '{"uncheckedRooms":["r2"],"priorities":["P1"],"uncheckedAgents":null}',
+    ]) {
+      store.set(key, raw);
+      expect(getAsksFilter(), raw).toEqual({
+        uncheckedRooms: ["r2"],
+        uncheckedAgents: [],
+        priorities: ["P1"],
+      });
+    }
   });
 });
 

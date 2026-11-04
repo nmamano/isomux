@@ -219,10 +219,11 @@ export function setAsksMember(member: AsksMember): void {
   } catch {}
 }
 
-// The Inbox Asks tab's filters, remembered on this device: the rooms the
-// member unchecked and the checked priorities. They start as all.
+// The Inbox Asks tab's filters, remembered on this device: the rooms and the
+// agents the member unchecked, and the checked priorities. They start as all.
 export interface AsksFilterSetting {
   uncheckedRooms: string[];
+  uncheckedAgents: string[];
   priorities: PriorityFilterValue[];
 }
 
@@ -230,28 +231,42 @@ const KEY_ASKS_FILTER = "isomux-asks-filter";
 
 const isAllAsksFilter = (filter: AsksFilterSetting) =>
   filter.uncheckedRooms.length === 0 &&
+  filter.uncheckedAgents.length === 0 &&
   FILTER_PRIORITIES.every((p) => filter.priorities.includes(p));
 
-// A value that is not this shape reads as all; a room id that is not a
-// string, or a level this build does not know, is dropped.
+const stringIds = (ids: unknown[]) =>
+  ids.filter((id): id is string => typeof id === "string");
+
+// A value that is not this shape reads as all; a room or agent id that is not
+// a string, or a level this build does not know, is dropped. A value stored
+// before the agent filter (task b3cb0a41), with no agent list, keeps its rooms
+// and priorities and shows every agent.
 export function getAsksFilter(): AsksFilterSetting {
   try {
     const stored: unknown = JSON.parse(
       localStorage.getItem(KEY_ASKS_FILTER) ?? "null",
     );
     if (stored && typeof stored === "object") {
-      const { uncheckedRooms, priorities } = stored as Record<string, unknown>;
+      const { uncheckedRooms, uncheckedAgents, priorities } = stored as Record<
+        string,
+        unknown
+      >;
       if (Array.isArray(uncheckedRooms) && Array.isArray(priorities)) {
         return {
-          uncheckedRooms: uncheckedRooms.filter(
-            (id): id is string => typeof id === "string",
-          ),
+          uncheckedRooms: stringIds(uncheckedRooms),
+          uncheckedAgents: Array.isArray(uncheckedAgents)
+            ? stringIds(uncheckedAgents)
+            : [],
           priorities: FILTER_PRIORITIES.filter((p) => priorities.includes(p)),
         };
       }
     }
   } catch {}
-  return { uncheckedRooms: [], priorities: [...FILTER_PRIORITIES] };
+  return {
+    uncheckedRooms: [],
+    uncheckedAgents: [],
+    priorities: [...FILTER_PRIORITIES],
+  };
 }
 
 export function setAsksFilter(filter: AsksFilterSetting): void {

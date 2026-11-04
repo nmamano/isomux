@@ -1873,6 +1873,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.member": "Member",
   "asks.memberMine": "Me",
   "asks.memberAll": "All members",
+  "asks.agentAll": "All agents",
   "asks.forMember": "For {member}",
   "asks.chip": "ask: {words}",
   "asks.openAsk": "Open ask {id}",

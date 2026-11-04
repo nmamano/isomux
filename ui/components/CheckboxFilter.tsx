@@ -126,6 +126,7 @@ export function CheckboxFilter<T extends string>({
         display: "flex",
         flex: buttonStyle.flex,
         minWidth: buttonStyle.minWidth,
+        maxWidth: buttonStyle.maxWidth,
       }}
     >
       <button
@@ -165,6 +166,9 @@ export function CheckboxFilter<T extends string>({
             left: 0,
             minWidth: "100%",
             maxWidth: "calc(100vw - 24px)",
+            // A long list, such as the Inbox's agents, scrolls.
+            maxHeight: "min(60vh, 420px)",
+            overflowY: "auto",
             zIndex: 600,
             background: "var(--bg-overlay-solid)",
             border: "1px solid var(--border-light)",

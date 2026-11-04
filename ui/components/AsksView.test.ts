@@ -66,6 +66,7 @@ const ASKS: AskMemberWire[] = [
 ];
 const all = (): AskFilter => ({
   hiddenRooms: new Set(),
+  hiddenAgents: new Set(),
   priorities: FILTER_PRIORITIES,
 });
 const sorted = (asks: AskMemberWire[], sort: AsksSort, dir: AsksSortDir) =>

@@ -1905,6 +1905,7 @@ Cosas que puedes hacer por él:
   "asks.member": "Miembro",
   "asks.memberMine": "Yo",
   "asks.memberAll": "Todos los miembros",
+  "asks.agentAll": "Todos los agentes",
   "asks.forMember": "Para {member}",
   "asks.chip": "petición: {words}",
   "asks.openAsk": "Abrir la petición {id}",
