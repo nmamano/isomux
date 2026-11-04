@@ -753,6 +753,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   120_000,
 );
 
+const SLOW_SWITCH_MS = 700;
+
 // Settings switches with the pattern of the Discord developer portal: a native
 // input[role=switch] under a styled cover inside its label, so that a human
 // click on the cover toggles it. The other controls cover the failure paths.
@@ -765,6 +767,7 @@ const SWITCH_PAGE = `<!doctype html><title>Bot</title>
 <label class="sw"><input type="checkbox" role="switch" id="locked" aria-label="Locked" disabled><span class="cover"></span></label>
 <span role="switch" id="aria-locked" aria-label="Aria locked" aria-checked="false" aria-disabled="true" tabindex="0">Aria locked</span>
 <span role="switch" id="aria" aria-label="Aria switch" aria-checked="false" tabindex="0">Aria switch</span>
+<span role="switch" id="slow" aria-label="Slow switch" aria-checked="false" tabindex="0">Slow switch</span>
 <span class="sw"><input type="checkbox" role="switch" id="dead" aria-label="Dead cover"><span class="cover" id="dead-cover"></span></span>
 <span style="position:relative;display:inline-block"><span class="sw"><input type="checkbox" role="switch" id="bannered" aria-label="Under banner"></span><span id="banner" style="position:absolute;inset:0;background:#000"></span></span>
 <span style="position:fixed;left:-200px;top:10px;width:40px;height:24px"><input type="checkbox" role="switch" id="offscreen" aria-label="Offscreen" style="position:absolute;inset:0;margin:0"></span>
@@ -789,6 +792,14 @@ for (const id of ["aria", "aria-locked"])
     if ($(id).getAttribute("aria-disabled") === "true") return;
     $(id).setAttribute("aria-checked", String($(id).getAttribute("aria-checked") !== "true"));
   });
+// Sets its state only when its own request returns, like a Cloudflare switch.
+$("slow").addEventListener("click", () => {
+  log("click:slow");
+  setTimeout(() => {
+    log("flip:slow");
+    $("slow").setAttribute("aria-checked", String($("slow").getAttribute("aria-checked") !== "true"));
+  }, ${SLOW_SWITCH_MS});
+});
 addEventListener("pointerdown", () => log("pointerdown"), true);
 </script>`;
 
@@ -1019,6 +1030,25 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           const next = await act({ action: "check", selector: "#intent" });
           expect(ok(next).checked).toBe(true);
           expect(next.elapsed).toBeLessThan(DEADLINE_MS / 2);
+
+          // A switch that sets its state after its own request returns: check
+          // waits for the wanted state, in both directions, and clicks once.
+          for (const wanted of [true, false]) {
+            const seen = await read("#events");
+            const slow = await act({
+              action: "check",
+              selector: "#slow",
+              checked: wanted,
+            });
+            expect(ok(slow).checked).toBe(wanted);
+            expect(slow.elapsed).toBeGreaterThanOrEqual(SLOW_SWITCH_MS);
+            expect(await read("#events")).toBe(
+              seen + "pointerdown;click:slow;flip:slow;",
+            );
+            expect(
+              /switch "Slow switch" \[checked\]/.test(await switches()),
+            ).toBe(wanted);
+          }
         } finally {
           dispatch.mockRestore();
         }

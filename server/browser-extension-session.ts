@@ -191,6 +191,9 @@ const SETTLEMENT_GRACE_MS = 1000;
 const INPUT_RESERVE_MS = 1500;
 const TITLE_RESERVE_MS = 500;
 const MAX_DIALOG_MESSAGE = 2000;
+// How long a check waits for a control to take the state after its click.
+const CHECK_SETTLE_MS = 3000;
+const CHECK_POLL_MS = 100;
 const PLAYWRIGHT_CLOSED_TARGET =
   "Target page, context or browser has been closed";
 const notPerformed = (action: "click" | "select", reason: string) =>
@@ -980,10 +983,43 @@ export class ExtensionBrowserSessions {
             // Forced past the visibility and hit-target checks, so that a
             // native input under its own styled cover works.
             await inputThenSettle(async () => {
-              await control.setChecked(wanted, {
-                force: true,
-                timeout: inputBudget(),
-              });
+              try {
+                await control.setChecked(wanted, {
+                  force: true,
+                  timeout: inputBudget(),
+                });
+              } catch (error) {
+                if (
+                  !(error instanceof Error) ||
+                  checkNotPerformedReason(error.message) !==
+                    CHECK_REASON.unchanged
+                )
+                  throw error;
+                // A switch can set its state only after its own request
+                // returns. Wait for it; a second click would toggle it back.
+                const windowEnd = Math.min(
+                  performance.now() + CHECK_SETTLE_MS,
+                  deadline - INPUT_RESERVE_MS,
+                );
+                for (;;) {
+                  if (timedOut || !valid()) throw error;
+                  const left = windowEnd - performance.now();
+                  if (left <= 0) throw error;
+                  try {
+                    if (
+                      (await control.isChecked({
+                        timeout: Math.max(1, left),
+                      })) === wanted
+                    )
+                      break;
+                  } catch {
+                    throw error;
+                  }
+                  await new Promise((resolve) =>
+                    setTimeout(resolve, CHECK_POLL_MS),
+                  );
+                }
+              }
               checked = await control.isChecked({ timeout: inputBudget() });
             });
           } catch (error) {
