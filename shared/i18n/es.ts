@@ -558,6 +558,10 @@ Cosas que puedes hacer por él:
     "No disponible: esta máquina no deja que bubblewrap cree un espacio de nombres de procesos.",
   "settings.office.processIsolationAppArmor":
     "No disponible: AppArmor bloquearía el acceso a la red de navegadores como Chrome.",
+  "settings.office.claudeIsomuxLabel":
+    "Identificar los agentes de Claude como Isomux",
+  "settings.office.claudeIsomuxLabelHint":
+    "Los agentes de Claude indican a Anthropic que se ejecutan en Isomux, no en el Agent SDK. En las pruebas de Isomux, el tráfico del SDK consumió el límite de 5 horas aproximadamente el doble de rápido. Anthropic no ha dicho si esto está permitido, y el riesgo recae en la cuenta de Claude de cada miembro. Se aplica a los agentes de Claude de todos los miembros, en las sesiones que empiecen después del cambio.",
   "settings.office.nameHint":
     "(opcional, se muestra en la pestaña del navegador)",
   "settings.office.namePlaceholder": "Oficina de Nil",

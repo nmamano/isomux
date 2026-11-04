@@ -102,7 +102,7 @@ import {
 } from "../../shared/types.ts";
 import type { ModelFamily } from "../../shared/types.ts";
 import { getAgentHost } from "../agent-host.ts";
-import { saveFile } from "../persistence.ts";
+import { loadClaudeIsomuxLabel, saveFile } from "../persistence.ts";
 import {
   resolveAttachmentNotices,
   formatAttachmentLines,
@@ -2106,7 +2106,45 @@ function claudeTranslateOptions(opts: CreateSessionOptions): TranslateOptions {
   };
 }
 
-function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
+// The owner's switch (office setting claudeIsomuxLabel) labels a launch as
+// Isomux traffic: CLAUDE_CODE_ENTRYPOINT=isomux where the env has no label.
+// Without one the SDK writes "sdk-ts", and with it Anthropic counted the same
+// work against the 5-hour limit about twice as fast (task 11b5ef0c). A label
+// already in the env (a member's or the office's variable, or the server's
+// own) wins, and then nothing is added. An empty value counts as none, as in
+// the SDK and the CLI.
+//
+// Checked in the bundled CLI of agent SDK 0.3.293: the label also makes the
+// CLI treat the session as a non-SDK client.
+// 1. The claude.ai Artifact tool is off by default only for sdk-* entrypoints.
+//    CLAUDE_CODE_ARTIFACT=0 keeps it off, so the switch changes the label and
+//    nothing a member sees; a CLAUDE_CODE_ARTIFACT already in the env wins.
+// 2. The built-in claude-code-guide subagent joins the Agent tool's list.
+// 3. Feedback survey and prompt gates open; they need the interactive UI,
+//    which a stream session does not have.
+// 4. EACCES/EPERM/EROFS on mkdir and open are no longer classed as expected
+//    in the CLI's own error reporting, which isomux turns off.
+// 5. The CLI stops sampling its child processes' memory.
+// 6. The session file no longer marks the session as an SDK one, so it can
+//    show in an interactive `claude --resume` list over the same config
+//    folder. Isomux resumes by id.
+// 7. Telemetry reads the entrypoint as "other"; the user agent names isomux.
+// Recheck this list when the SDK is upgraded.
+function withIsomuxLabel(
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  if (env.CLAUDE_CODE_ENTRYPOINT) return env;
+  return {
+    ...env,
+    CLAUDE_CODE_ENTRYPOINT: "isomux",
+    CLAUDE_CODE_ARTIFACT: env.CLAUDE_CODE_ARTIFACT || "0",
+  };
+}
+
+function buildSdkOpts(
+  opts: CreateSessionOptions,
+  isomuxLabel: boolean,
+): SdkSessionOptions {
   const env = withCloudModelDefaults(opts.env ?? getAgentHost().baseEnv());
   const model = claudeModelForEnvironment(opts.modelFamily, env);
   // A limited family (Sonnet 4.5 and Haiku 4.5 on Bedrock and Vertex) takes no
@@ -2179,7 +2217,10 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   } else if (opts.skillFolder) {
     sdkOpts.additionalDirectories = [opts.skillFolder];
   }
-  if (opts.env || isClaudeCloudSelected(env)) sdkOpts.env = env;
+  // Options.env replaces the child's environment, so a label for an env-less
+  // caller goes on a copy of the whole inherited one.
+  if (isomuxLabel) sdkOpts.env = withIsomuxLabel(env);
+  else if (opts.env || isClaudeCloudSelected(env)) sdkOpts.env = env;
   return sdkOpts;
 }
 
@@ -2206,9 +2247,19 @@ function attachmentDeliveryFor(
     : { kind: "inline-images" };
 }
 
+// What the Claude backend reads at each launch. Tests pass their own.
+export interface ClaudeBackendDeps {
+  // The owner's switch that labels Claude agents as Isomux traffic
+  // (office setting claudeIsomuxLabel).
+  isomuxLabel?: () => boolean;
+}
+
 export function createClaudeBackend(
   sdkClient: SdkClient = realV1SdkClient,
+  deps: ClaudeBackendDeps = {},
 ): Backend {
+  // Read at each launch: a change reaches sessions that start after it.
+  const isomuxLabel = deps.isomuxLabel ?? loadClaudeIsomuxLabel;
   return {
     capabilities: CAPABILITIES,
     toolBoundaryDelivery: true,
@@ -2243,7 +2294,7 @@ export function createClaudeBackend(
       return new ClaudeSession(
         opts.agentId,
         sdkClient,
-        buildSdkOpts(opts),
+        buildSdkOpts(opts, isomuxLabel()),
         undefined,
         opts.mcpServers,
         opts.planMode,
@@ -2259,7 +2310,7 @@ export function createClaudeBackend(
       return new ClaudeSession(
         opts.agentId,
         sdkClient,
-        buildSdkOpts(opts),
+        buildSdkOpts(opts, isomuxLabel()),
         sessionId,
         opts.mcpServers,
         opts.planMode,
@@ -2389,7 +2440,11 @@ export function createClaudeBackend(
         // built-in default (auto-memory ON), so the flag layer is needed
         // here too or the /tmp cwd gets its own memory folder.
         settings: CLAUDE_LAUNCH_SETTINGS,
-        env: opts.env || isClaudeCloudSelected(env) ? env : undefined,
+        env: isomuxLabel()
+          ? withIsomuxLabel(env)
+          : opts.env || isClaudeCloudSelected(env)
+            ? env
+            : undefined,
         ...(opts.isolation === "session" ? { isolate: true } : {}),
       });
     },

@@ -1351,6 +1351,17 @@ export function saveProcessIsolation(enabled: boolean): void {
   saveOfficeConfigField("processIsolation", enabled);
 }
 
+// The owner's switch that labels Claude agents as Isomux traffic
+// (CLAUDE_CODE_ENTRYPOINT, server/backends/claude.ts), beside the settings in
+// office-config.json. An absent switch reads as off.
+export function loadClaudeIsomuxLabel(): boolean {
+  return readOfficeConfigRaw().claudeIsomuxLabel === true;
+}
+
+export function saveClaudeIsomuxLabel(enabled: boolean): void {
+  saveOfficeConfigField("claudeIsomuxLabel", enabled);
+}
+
 // Set once the boot backfill of AgentInfo.officeFreeModel ran (task
 // c00b3973), so it never runs again.
 export function loadFreeModelMarkBackfillDone(): boolean {

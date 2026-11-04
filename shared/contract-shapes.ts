@@ -1079,6 +1079,9 @@ export interface OfficeSettingsReq {
   // One PID namespace per agent (server/process-isolation.ts). Omitted
   // preserves it.
   processIsolation?: boolean;
+  // Claude agents start labelled as Isomux, not as the Agent SDK
+  // (server/backends/claude.ts). Omitted preserves it.
+  claudeIsomuxLabel?: boolean;
 }
 
 // `notes`: the usage note of each variable that has one (integrations A4).
@@ -1494,6 +1497,8 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "name"> & {
   // do not run in their own PID namespace.
   processIsolation?: boolean;
   processIsolationStatus?: "on" | ProcessIsolationReason;
+  // The owner's switch that labels Claude agents as Isomux traffic.
+  claudeIsomuxLabel?: boolean;
 };
 
 // office.getMemberUsageStatus response: the member usage cap's status lines,

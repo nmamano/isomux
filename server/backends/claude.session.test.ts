@@ -1346,6 +1346,151 @@ describe("Claude launch telemetry settings", () => {
   }
 });
 
+// The owner's Isomux label (task 11b5ef0c): the env each launch path hands the
+// SDK. The SDK writes CLAUDE_CODE_ENTRYPOINT=sdk-ts only when the env has no
+// value, so this env is the whole effect. With the label the CLI would turn the
+// claude.ai Artifact tool on, so the label brings CLAUDE_CODE_ARTIFACT=0 with
+// it. A value already in the env wins for each variable; an empty value counts
+// as none, as in the CLI.
+describe("Claude Isomux label", () => {
+  const LABEL = "CLAUDE_CODE_ENTRYPOINT";
+  const ARTIFACT = "CLAUDE_CODE_ARTIFACT";
+  const opts = (env?: Record<string, string>) => ({
+    agentId: "label-test",
+    effort: "low",
+    cwd: "/tmp",
+    systemPrompt: "sys",
+    modelFamily: "haiku",
+    permissionMode: "default",
+    env,
+  });
+  // The env of a create, a resume and a one-shot, in that order.
+  async function launches(
+    labelOn: () => boolean,
+    env?: Record<string, string>,
+  ): Promise<(Record<string, string | undefined> | undefined)[]> {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake, { isomuxLabel: labelOn });
+    backend.createSession(opts(env));
+    backend.resumeSession("label-session", opts(env));
+    await backend.oneShotPrompt("hello", opts(env));
+    return [
+      fake.createCalls[0].opts.env,
+      fake.resumeCalls[0].opts.env,
+      fake.oneShotCalls[0].env,
+    ];
+  }
+
+  it("labels every launch and turns the Artifact tool off when the env has neither value", async () => {
+    const envs: Record<string, string>[] = [
+      { KEEP_ME: "yes" },
+      { KEEP_ME: "yes", [LABEL]: "", [ARTIFACT]: "" },
+    ];
+    for (const env of envs) {
+      const given = { ...env };
+      for (const sent of await launches(() => true, env))
+        expect(sent).toEqual({
+          KEEP_ME: "yes",
+          [LABEL]: "isomux",
+          [ARTIFACT]: "0",
+        });
+      // The caller's env object is not written to.
+      expect(env).toEqual(given);
+    }
+  });
+
+  it("keeps a value the env already has", async () => {
+    // A member's own Artifact choice: kept, and the label is still added.
+    for (const sent of await launches(() => true, { [ARTIFACT]: "1" }))
+      expect(sent).toEqual({ [LABEL]: "isomux", [ARTIFACT]: "1" });
+    // A member's own label: the switch adds nothing, not even the Artifact
+    // value, so that member keeps what their own label gives.
+    for (const sent of await launches(() => true, { [LABEL]: "mine" }))
+      expect(sent).toEqual({ [LABEL]: "mine" });
+  });
+
+  it("changes nothing while the switch is off", async () => {
+    const env = { KEEP_ME: "yes" };
+    for (const sent of await launches(() => false, env))
+      expect(sent).toEqual({ KEEP_ME: "yes" });
+    // An env-less caller still hands the SDK no env (it inherits the
+    // server's environment as before).
+    for (const sent of await launches(() => false))
+      expect(sent).toBeUndefined();
+  });
+
+  it("labels an env-less caller on the server's whole environment, and keeps the server's own label", async () => {
+    const { getAgentHost, setAgentHost } = await import("../agent-host.ts");
+    const host = getAgentHost();
+    let base: Record<string, string> = { PATH: "/srv/bin", HOME: "/srv" };
+    setAgentHost({ ...host, baseEnv: () => base });
+    try {
+      // Options.env replaces the child's environment: the label goes on a
+      // copy of the inherited one, never on its own.
+      for (const sent of await launches(() => true))
+        expect(sent).toEqual({
+          PATH: "/srv/bin",
+          HOME: "/srv",
+          [LABEL]: "isomux",
+          [ARTIFACT]: "0",
+        });
+      expect(base).toEqual({ PATH: "/srv/bin", HOME: "/srv" });
+      base = { PATH: "/srv/bin", [LABEL]: "cli" };
+      for (const sent of await launches(() => true)) {
+        expect(sent?.[LABEL]).toBe("cli");
+        expect(sent?.[ARTIFACT]).toBeUndefined();
+      }
+    } finally {
+      setAgentHost(host);
+    }
+  });
+
+  it("reads the switch at each launch, so a change reaches the next one", async () => {
+    let on = true;
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake, { isomuxLabel: () => on });
+    const env = { KEEP_ME: "yes" };
+    backend.createSession(opts(env));
+    on = false;
+    backend.createSession(opts(env));
+    backend.resumeSession("label-session", opts(env));
+    await backend.oneShotPrompt("hello", opts(env));
+    on = true;
+    backend.resumeSession("label-session", opts(env));
+    await backend.oneShotPrompt("hello", opts(env));
+    const label = (e?: Record<string, string | undefined>) => e?.[LABEL];
+    expect([
+      label(fake.createCalls[0].opts.env),
+      label(fake.createCalls[1].opts.env),
+      label(fake.resumeCalls[0].opts.env),
+      label(fake.oneShotCalls[0].env),
+      label(fake.resumeCalls[1].opts.env),
+      label(fake.oneShotCalls[1].env),
+    ]).toEqual(["isomux", undefined, undefined, undefined, "isomux", "isomux"]);
+  });
+
+  it("follows the saved office setting by default", async () => {
+    const { saveClaudeIsomuxLabel } = await import("../persistence.ts");
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    const env = { KEEP_ME: "yes" };
+    try {
+      backend.createSession(opts(env));
+      saveClaudeIsomuxLabel(true);
+      backend.createSession(opts(env));
+      saveClaudeIsomuxLabel(false);
+      backend.createSession(opts(env));
+    } finally {
+      saveClaudeIsomuxLabel(false);
+    }
+    expect(fake.createCalls.map((c) => c.opts.env?.[LABEL])).toEqual([
+      undefined,
+      "isomux",
+      undefined,
+    ]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Tool-boundary delivery (tasks 0a248523, 7529b23b)
 // ---------------------------------------------------------------------------

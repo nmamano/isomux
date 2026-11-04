@@ -71,8 +71,9 @@ export interface OfficeSettingsDeps {
   // `memberUsageCap === undefined` preserves the switch, and
   // `memberUsageShare === undefined` the share, `recordTerminals ===
   // undefined` the "Record terminals" switch, `providerFallback ===
-  // undefined` the fallback to the office sign-in, and `processIsolation ===
-  // undefined` one PID namespace per agent.
+  // undefined` the fallback to the office sign-in, `processIsolation ===
+  // undefined` one PID namespace per agent, and `claudeIsomuxLabel ===
+  // undefined` the Isomux label on Claude agents.
   // Throws nothing - invalid input returns { ok: false }. `ctx` names the
   // writer for the switch's own audit row.
   applySettings(
@@ -83,6 +84,7 @@ export interface OfficeSettingsDeps {
       recordTerminals?: boolean;
       providerFallback?: boolean;
       processIsolation?: boolean;
+      claudeIsomuxLabel?: boolean;
       expectedVersion: string;
     },
     ctx: RouteHandlerContext,
@@ -139,6 +141,7 @@ export function officeSettingsHandlers(
         recordTerminals?: unknown;
         providerFallback?: unknown;
         processIsolation?: unknown;
+        claudeIsomuxLabel?: unknown;
       };
       // Distinguish "omitted" (undefined → preserve) from "set to null" (→
       // clear) for the name. JSON access yields undefined for an absent key and
@@ -195,6 +198,16 @@ export function officeSettingsHandlers(
         );
       }
       if (
+        b.claudeIsomuxLabel !== undefined &&
+        typeof b.claudeIsomuxLabel !== "boolean"
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          "claudeIsomuxLabel must be a boolean",
+        );
+      }
+      if (
         b.memberUsageShare !== undefined &&
         !validMemberShare(b.memberUsageShare)
       ) {
@@ -212,6 +225,7 @@ export function officeSettingsHandlers(
           recordTerminals: b.recordTerminals,
           providerFallback: b.providerFallback,
           processIsolation: b.processIsolation,
+          claudeIsomuxLabel: b.claudeIsomuxLabel,
           expectedVersion: b.version,
         },
         ctx,

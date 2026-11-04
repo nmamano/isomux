@@ -567,6 +567,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Not available: this machine does not let bubblewrap make a process namespace.",
   "settings.office.processIsolationAppArmor":
     "Not available: AppArmor would block network access for browsers such as Chrome.",
+  "settings.office.claudeIsomuxLabel": "Label Claude agents as Isomux",
+  "settings.office.claudeIsomuxLabelHint":
+    "Claude agents tell Anthropic they run in Isomux, not in the Agent SDK. In Isomux's tests, SDK traffic used the 5-hour limit about twice as fast. Anthropic has not said whether this is allowed, and the risk falls on each member's Claude account. Applies to every member's Claude agents, in sessions that start after the change.",
   "settings.office.nameHint": "(optional, shown in browser tab)",
   "settings.office.namePlaceholder": "Nil's Office",
   "settings.office.rulesHint": "(added to the system prompt of every agent)",

@@ -14,6 +14,7 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
+import { OfficeSettingSwitch } from "./OfficeSettingSwitch.tsx";
 import { ProcessIsolationSwitch } from "./ProcessIsolationSwitch.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
@@ -67,11 +68,11 @@ export function OfficePane({
   // A read-only member never loads, so settingsLoaded gates the whole thing
   // and their pane can never be dirty.
   const [baselineName, setBaselineName] = useState("");
-  // The process isolation switch and its status, from the same settings
-  // reads as the version (ProcessIsolationSwitch).
-  const [isolation, setIsolation] = useState<Pick<
+  // The switches that save at once (OfficeSettingSwitch), from the same
+  // settings reads as the version.
+  const [switches, setSwitches] = useState<Pick<
     OfficeSettingsRes,
-    "processIsolation" | "processIsolationStatus"
+    "processIsolation" | "processIsolationStatus" | "claudeIsomuxLabel"
   > | null>(null);
   const [baselinePrompt, setBaselinePrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -91,7 +92,7 @@ export function OfficePane({
         setBaselinePrompt(instructions.instructions ?? "");
         setBaselineName(settings.name ?? "");
         setSettingsVersion(settings.version);
-        setIsolation(settings);
+        setSwitches(settings);
         setInstructionsVersion(instructions.version);
       })
       .catch(() => {
@@ -102,6 +103,17 @@ export function OfficePane({
       cancelled = true;
     };
   }, [readOnly]);
+
+  // A switch's own write moves the settings version: take the new one, so
+  // the next Save is not refused for it. A name that changed since the
+  // pane's read is another writer's: keep the old version, so Save still
+  // meets that conflict.
+  const onSwitchSaved = (next: OfficeSettingsRes) => {
+    setSwitches(next);
+    if ((next.name ?? "") === baselineName) setSettingsVersion(next.version);
+  };
+  const onSwitchConflict = () =>
+    setStatus({ kind: "error", message: t("settings.office.conflict") });
 
   async function handleSave() {
     // The name (settings PUT), the instructions (instructions PUT) and the
@@ -125,7 +137,7 @@ export function OfficePane({
         setName(next.name ?? "");
         setBaselineName(next.name ?? "");
         setSettingsVersion(next.version);
-        setIsolation(next);
+        setSwitches(next);
       } catch {
         // No safe token to write with: null disables Save rather than leaving
         // it unsafe, matching the failed-hydration path above. The save that
@@ -378,25 +390,23 @@ export function OfficePane({
         )}
 
         {!readOnly && (
-          <ProcessIsolationSwitch
-            settings={isolation}
-            version={settingsVersion}
-            // Its own write moves the settings version: take the new one, so
-            // the next Save is not refused for it. A name that changed since
-            // the pane's read is another writer's: keep the old version, so
-            // Save still meets that conflict.
-            onSaved={(next) => {
-              setIsolation(next);
-              if ((next.name ?? "") === baselineName)
-                setSettingsVersion(next.version);
-            }}
-            onConflict={() =>
-              setStatus({
-                kind: "error",
-                message: t("settings.office.conflict"),
-              })
-            }
-          />
+          <>
+            <ProcessIsolationSwitch
+              settings={switches}
+              version={settingsVersion}
+              onSaved={onSwitchSaved}
+              onConflict={onSwitchConflict}
+            />
+            <OfficeSettingSwitch
+              field="claudeIsomuxLabel"
+              checked={switches ? switches.claudeIsomuxLabel : null}
+              version={settingsVersion}
+              label={t("settings.office.claudeIsomuxLabel")}
+              hint={t("settings.office.claudeIsomuxLabelHint")}
+              onSaved={onSwitchSaved}
+              onConflict={onSwitchConflict}
+            />
+          </>
         )}
 
         {discardPrompt.open && (

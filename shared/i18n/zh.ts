@@ -527,6 +527,9 @@ App 的一些原则：
     "不可用：此机器不允许 bubblewrap 创建进程命名空间。",
   "settings.office.processIsolationAppArmor":
     "不可用：AppArmor 会阻止 Chrome 等浏览器访问网络。",
+  "settings.office.claudeIsomuxLabel": "将 Claude 智能体标记为 Isomux",
+  "settings.office.claudeIsomuxLabelHint":
+    "Claude 智能体会告诉 Anthropic 它们运行在 Isomux 中，而不是 Agent SDK 中。在 Isomux 的测试中，SDK 流量消耗 5 小时限额的速度约为两倍。Anthropic 尚未说明是否允许这样做，风险由每位成员的 Claude 账号承担。适用于所有成员的 Claude 智能体，在更改后开始的会话中生效。",
   "settings.office.nameHint": "（可选，显示在浏览器标签页中）",
   "settings.office.namePlaceholder": "Nil 的办公室",
   "settings.office.rulesHint": "（添加到每个智能体的系统提示词中）",

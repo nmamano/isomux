@@ -86,6 +86,8 @@ import {
   saveServerConfig,
   loadRecordTerminals,
   saveRecordTerminals,
+  loadClaudeIsomuxLabel,
+  saveClaudeIsomuxLabel,
   loadProcessIsolation,
   saveProcessIsolation,
 } from "./persistence.ts";
@@ -1614,6 +1616,7 @@ function officeSettingsVersion(): string {
       loadRecordTerminals(),
       providerFallback().isEnabled(),
       loadProcessIsolation(),
+      loadClaudeIsomuxLabel(),
     ]),
   );
 }
@@ -1656,6 +1659,7 @@ function applyOfficeSettings(
     recordTerminals?: boolean;
     providerFallback?: boolean;
     processIsolation?: boolean;
+    claudeIsomuxLabel?: boolean;
     expectedVersion: string;
   },
   actor: AuditActor,
@@ -1721,6 +1725,9 @@ function applyOfficeSettings(
   // Session starts from here on follow it; running sessions keep their form.
   if (input.processIsolation !== undefined)
     saveProcessIsolation(input.processIsolation);
+  // Claude sessions that start from here on follow it.
+  if (input.claudeIsomuxLabel !== undefined)
+    saveClaudeIsomuxLabel(input.claudeIsomuxLabel);
   return { ok: true };
 }
 
@@ -3868,6 +3875,7 @@ function buildExecutorDeps(
         providerFallback: providerFallback().isEnabled(),
         processIsolation: loadProcessIsolation(),
         processIsolationStatus: processIsolationStatusLine(),
+        claudeIsomuxLabel: loadClaudeIsomuxLabel(),
       }),
       // Status reads the providers, so only while the cap is on.
       getMemberUsageStatus: async (provider) => ({
