@@ -849,6 +849,13 @@ type Remote = {
   bunDirs(): string[];
   /** Nanosecond timestamps of the bun calls, in call order. */
   bunTimes(): bigint[];
+  /**
+   * The TMPDIR of each bun call that could write a file there, in call
+   * order: [call, TMPDIR].
+   */
+  bunTmpdirs(): [string, string][];
+  /** The data directory each initdb call created. */
+  pgDataDirs(): string[];
   /** Runs the gate half for one run id, with its test arguments. */
   gate(id: string, args: string[]): { status: number | null; out: string };
   /**
@@ -941,6 +948,8 @@ async function remote(opts: {
     `[[ $1 == --version ]] && { echo ${bunVersion}; exit 0; }
 echo "$* $(pwd)" >> "${dir}/bun.log"
 date +%s%N >> "${dir}/bun-times"
+# A suite writes temp files; record only a TMPDIR that took one.
+touch "$TMPDIR/bun-was-here" && echo "$*|$TMPDIR" >> "${dir}/bun-tmpdirs"
 [[ $* == "run ci" ]] && { ${opts.ciSleep ? `sleep ${opts.ciSleep}; ` : ""}echo "ci output"; exit ${opts.ci ?? 0}; }
 [[ $* == "run typecheck" && -e "${dir}/tsc-stderr" ]] && cat "${dir}/tsc-stderr" >&2
 # With block-tsc, tsc waits for unblock (at most 20 s).
@@ -963,7 +972,12 @@ ${opts.tsc ? `[[ $* == "run typecheck" ]] && exit ${opts.tsc.exit}` : ""}
 exit 0`,
   );
   if (opts.tsc) writeFileSync(join(dir, "tsc-stderr"), `${opts.tsc.stderr}\n`);
-  stub(join(pgBin, "initdb"), "exit 0");
+  // initdb creates its -D directory, as the real one does.
+  stub(
+    join(pgBin, "initdb"),
+    `while (($#)); do [[ $1 == -D ]] && mkdir -p "$2" && touch "$2/PG_VERSION" && echo "$2" >> "${dir}/pg-datadirs"; shift; done
+exit 0`,
+  );
   stub(join(pgBin, "postgres"), "cat >/dev/null; exit 0");
   stub(
     join(pgBin, "pg_ctl"),
@@ -1020,7 +1034,7 @@ exit 0`,
     run(id) {
       // The script's own cleanup removes this; a test whose cleanup is meant
       // to fail must not leave it behind.
-      dirs.push(`/tmp/icr-${id.split("-")[1]}`);
+      dirs.push(`/dev/shm/icr-${id.split("-")[1]}`);
       git(src, "push", "-q", bare, `${sha}:refs/ci/${id}`);
       const r = spawnSync("bash", ["-s", "--", "--remote", sha, id], {
         cwd: home,
@@ -1054,8 +1068,15 @@ exit 0`,
         .split("\n")
         .filter(Boolean)
         .map((t) => BigInt(t)),
+    bunTmpdirs: () =>
+      read(join(dir, "bun-tmpdirs"))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => line.split("|") as [string, string]),
+    pgDataDirs: () =>
+      read(join(dir, "pg-datadirs")).split("\n").filter(Boolean),
     gate(id, args) {
-      dirs.push(`/tmp/igr-${id.split("-")[1]}`);
+      dirs.push(`/dev/shm/igr-${id.split("-")[1]}`);
       git(src, "push", "-q", bare, `${sha}:refs/gate/${id}`);
       const r = spawnSync(
         "bash",
@@ -1082,7 +1103,7 @@ exit 0`,
       return { status: r.status, out: r.stdout };
     },
     async gateAsync(id, args) {
-      dirs.push(`/tmp/igr-${id.split("-")[1]}`);
+      dirs.push(`/dev/shm/igr-${id.split("-")[1]}`);
       git(src, "push", "-q", bare, `${sha}:refs/gate/${id}`);
       const proc = Bun.spawn(
         [
@@ -1133,12 +1154,34 @@ describe("ci-remote, the remote half", () => {
       "run ci",
     ]);
     expect(readdirSync(join(r.root, "runs"))).toEqual([]);
-    expect(existsSync(`/tmp/icr-${id.split("-")[1]}`)).toBe(false);
+    expect(existsSync(`/dev/shm/icr-${id.split("-")[1]}`)).toBe(false);
     const bare = join(r.root, "repo.git");
     expect(git(bare, "for-each-ref", "--format=%(refname)")).toBe(
       "refs/ci-base",
     );
   });
+
+  // The suite's temp files and the database are most of a run's writes:
+  // they stay in memory, off the remote's disk.
+  it.each([0, 1])(
+    "keeps the suite's TMPDIR and the database in memory, and deletes both after a run (ci exit %d)",
+    async (code) => {
+      const r = await remote({ ci: code });
+      const res = r.run(runId());
+      expect(res.status, res.out).toBe(code);
+      const tmp = r
+        .bunTmpdirs()
+        .filter(([call]) => call === "run ci")
+        .map(([, t]) => t);
+      const pg = r.pgDataDirs();
+      // bun run ci wrote to its TMPDIR, and initdb created its directory.
+      expect({ tmp: tmp.length, pg: pg.length }).toEqual({ tmp: 1, pg: 1 });
+      expect([...tmp, ...pg].filter((d) => !d.startsWith("/dev/shm/"))).toEqual(
+        [],
+      );
+      expect([...tmp, ...pg].filter((d) => existsSync(d))).toEqual([]);
+    },
+  );
 
   // 3 from CI is red, not "no verdict"; 124 is red and names the time limit.
   it.each([3, 124])(
@@ -1166,7 +1209,7 @@ describe("ci-remote, the remote half", () => {
       // CI ran, and its processes outlived the cleanup.
       expect(r.bunCalls()).toContain("run ci");
       expect(existsSync(run)).toBe(true);
-      expect(existsSync(`/tmp/icr-${id.split("-")[1]}`)).toBe(true);
+      expect(existsSync(`/dev/shm/icr-${id.split("-")[1]}`)).toBe(true);
       expect(res.stderr).toContain(run);
       expect(res.status, res.out).toBe(verdict);
     },
@@ -1224,7 +1267,7 @@ describe("ci-remote, the remote half", () => {
   it("removes a run that was killed before its own cleanup", async () => {
     const r = await remote({ ci: 0 });
     const stale = runId();
-    const staleTmp = `/tmp/icr-${stale.split("-")[1]}`;
+    const staleTmp = `/dev/shm/icr-${stale.split("-")[1]}`;
     mkdirSync(join(r.root, "runs", stale, "src"), { recursive: true });
     mkdirSync(staleTmp);
     dirs.push(staleTmp);
@@ -1289,7 +1332,12 @@ describe("ci-remote --remote-gate, the remote half", () => {
       expect(d).toBe(join(r.root, "gate-runs", "slot-1", "src"));
     const runs = join(r.root, "gate-runs");
     expect(existsSync(runs) ? readdirSync(runs) : []).toEqual([]);
-    expect(existsSync(`/tmp/igr-${id.split("-")[1]}`)).toBe(false);
+    expect(existsSync(`/dev/shm/igr-${id.split("-")[1]}`)).toBe(false);
+    // Every step wrote its temp files in memory, and they are gone.
+    const tmp = r.bunTmpdirs();
+    expect(tmp.map(([call]) => call)).toEqual(r.bunCalls());
+    expect(tmp.filter(([, t]) => !t.startsWith("/dev/shm/"))).toEqual([]);
+    expect(tmp.filter(([, t]) => existsSync(t))).toEqual([]);
     const bare = join(r.root, "repo.git");
     expect(git(bare, "for-each-ref", "--format=%(refname)")).toBe(
       "refs/gate-base",
@@ -1517,6 +1565,27 @@ describe("ci-remote --remote-gate, the remote half", () => {
         .systemctlCalls()
         .some((c) => c.includes("kill") && c.includes("isomux-gate-slot-1")),
     ).toBe(true);
+  });
+
+  // The slot's note names the temp directory of a killed run. The next holder
+  // deletes it, and deletes nothing the note names outside the gate's own.
+  it.each([
+    ["deletes the killed run's temp directory that its note names", true],
+    ["keeps a directory the note names outside the gate's own", false],
+  ])("the next holder of a slot %s", async (_, own) => {
+    const r = await remote({});
+    const slot = join(r.root, "gate-runs", "slot-1");
+    const named = own
+      ? `/dev/shm/igr-${runId().split("-")[1]}`
+      : join(r.dir, "igr-deadbeef");
+    mkdirSync(named);
+    dirs.push(named);
+    writeFileSync(join(named, "left-behind"), "");
+    mkdirSync(slot, { recursive: true });
+    writeFileSync(join(slot, "tmpdir"), `${named}\n`);
+    const res = r.gate(runId(), []);
+    expect(res.status, res.out).toBe(0);
+    expect(existsSync(join(named, "left-behind"))).toBe(!own);
   });
 
   it("gives no verdict and keeps the slot's files while a killed run's processes live", async () => {

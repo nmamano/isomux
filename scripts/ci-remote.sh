@@ -36,13 +36,13 @@
 # Each path must be tracked at HEAD and contain nothing under control-plane/,
 # whose tests need the Postgres that a CI run holds on the remote.
 #
-# The remote needs git, curl, unzip, flock, jq, a working `docker compose`
-# and a user systemd manager; it needs no sudo. It keeps
+# The remote needs git, curl, unzip, flock, jq, a working `docker compose`,
+# a user systemd manager and a writable /dev/shm; it needs no sudo. It keeps
 # ~/.cache/isomux-ci-remote: a bare repo, the pinned node, bun and Postgres,
-# and the bun package cache. A run's checkout, HOME, TMPDIR and database live
-# in runs/<id> there and are deleted when the run ends. The container stage
-# removes its image but leaves Docker build cache in the daemon, which
-# BuildKit's garbage collection bounds.
+# and the bun package cache. A run's checkout and HOME live in runs/<id>
+# there, and its TMPDIR and database in /dev/shm, in memory; all are deleted
+# when the run ends. The container stage removes its image but leaves Docker
+# build cache in the daemon, which BuildKit's garbage collection bounds.
 set -uo pipefail
 
 NODE_VERSION=v24.22.1
@@ -432,10 +432,12 @@ remote_main() {
   local sha=$1 id=$2
   local root=$HOME/$REMOTE_ROOT
   local run=$root/runs/$id
-  # TMPDIR stays short and under /tmp as on a dev box: a long one pushes the
-  # suite's unix socket paths over the kernel's 108-byte limit, and a test
-  # checks that its temp files sit in world-traversable directories.
-  local tmp=/tmp/icr-${id##*-}
+  # TMPDIR is in memory: the suite's temp files and the database were most
+  # of a run's disk writes (about 2.5 of 3 GB, 2026-11-04). It stays short and
+  # world-traversable: a long one pushes the suite's unix socket paths over
+  # the kernel's 108-byte limit, and a test checks that its temp files sit in
+  # world-traversable directories.
+  local tmp=/dev/shm/icr-${id##*-}
   local tools=$root/toolchain
   local pg_bin=$tools/pg-$PG_VERSION/node_modules/@embedded-postgres/linux-x64/native/bin
 
@@ -451,7 +453,7 @@ remote_main() {
     NEXT_TELEMETRY_DISABLED=1 LANG=C.UTF-8 USER="$USER" LOGNAME="$USER" SHELL=/bin/bash)
   clear_run() {
     local dir=$1 id=${1##*/}
-    clear_dir "isomux-ci-$id.scope" "$dir" "/tmp/icr-${id##*-}"
+    clear_dir "isomux-ci-$id.scope" "$dir" "/dev/shm/icr-${id##*-}"
   }
   # The load and the stall totals at both ends of a red run tell a box that
   # stalled from a commit that failed.
@@ -502,17 +504,19 @@ remote_main() {
   install_deps "$run"
 
   # Postgres and CI run in one scope, so killing the scope stops every
-  # process of the run, detached CI stages included. The started file marks
-  # that the setup inside the scope passed and `bun run ci` began.
+  # process of the run, detached CI stages included. The database is in
+  # TMPDIR; its logs stay in the run directory for the red-run report. The
+  # started file marks that the setup inside the scope passed and `bun run ci`
+  # began.
   say "  running bun run ci"
   local load_start
   load_start=$(load_now)
   : >"$run/ci.log"
   (cd "$run/src" && exec systemd-run --user --scope --collect --quiet --unit="isomux-ci-$id" -- \
     "${sandbox[@]}" bash -c '
-      "$1/initdb" -D "$2/pg" -U isomux --auth=trust >"$2/pg-setup.log" 2>&1 &&
-        echo "CREATE DATABASE control_plane_test;" | "$1/postgres" --single -D "$2/pg" postgres >>"$2/pg-setup.log" 2>&1 &&
-        "$1/pg_ctl" -D "$2/pg" -o "-p $3 -h 127.0.0.1 -k $TMPDIR" -l "$2/pg.log" -w start >>"$2/pg-setup.log" 2>&1 ||
+      "$1/initdb" -D "$TMPDIR/pg" -U isomux --auth=trust >"$2/pg-setup.log" 2>&1 &&
+        echo "CREATE DATABASE control_plane_test;" | "$1/postgres" --single -D "$TMPDIR/pg" postgres >>"$2/pg-setup.log" 2>&1 &&
+        "$1/pg_ctl" -D "$TMPDIR/pg" -o "-p $3 -h 127.0.0.1 -k $TMPDIR" -l "$2/pg.log" -w start >>"$2/pg-setup.log" 2>&1 ||
         exit 3
       : >"$2/started"
       nice -n 10 timeout -k 30s "$4" bun run ci >"$2/ci.log" 2>&1
@@ -584,9 +588,9 @@ remote_gate_main() {
   take_gate_slot "$root" || exit 3
   slot=$GATE_SLOT
   run=$root/gate-runs/slot-$slot
-  # Short, under /tmp, for the same reasons as CI's. The run directory notes
-  # it, so the slot's next holder can delete it after a kill.
-  tmp=/tmp/igr-${id##*-}
+  # In memory and short, for the same reasons as CI's. The run directory
+  # notes it, so the slot's next holder can delete it after a kill.
+  tmp=/dev/shm/igr-${id##*-}
   scope=isomux-gate-slot-$slot.scope
   local sandbox=(env -i --default-signal=PIPE
     PATH="$tools/node-$NODE_VERSION-linux-x64/bin:$tools/bun-$BUN_VERSION:/usr/local/bin:/usr/bin:/bin"
@@ -595,7 +599,7 @@ remote_gate_main() {
 
   # What an earlier holder of this slot left when it was killed.
   stale_tmp=$(cat "$run/tmpdir" 2>/dev/null)
-  [[ $stale_tmp =~ ^/tmp/igr-[0-9a-f]+$ ]] || stale_tmp=""
+  [[ $stale_tmp =~ ^/dev/shm/igr-[0-9a-f]+$ ]] || stale_tmp=""
   clear_dir "$scope" "$run" $stale_tmp || setup_failed "gate slot $slot still has processes"
   # The run directory comes first: it names its temp directory.
   mkdir -p "$run/home" && echo "$tmp" >"$run/tmpdir" || setup_failed "cannot create $run"
