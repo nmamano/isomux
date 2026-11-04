@@ -526,6 +526,68 @@ export function assetGoneAction(
     : { kind: "clear", key: LIFECYCLE_ASSET_GONE };
 }
 
+/**
+ * An office pays when it has a subscription that is active or trialing and not
+ * cancelling; past_due does not count. One SQL fragment over an `instances i`
+ * alias, shared by the lifecycle pass and the work schedule, so the schedule
+ * reads the same predicate the pass decides on.
+ */
+export const PAYING_SQL =
+  "exists (select 1 from subscriptions s where s.instance_id = i.id " +
+  "and s.status in ('active', 'trialing') and s.cancel_at_period_end = 0)";
+
+/** The provider-cancel row's key: a provider cancel on the asset of an office
+ * that pays and is not cancelling. */
+export const LIFECYCLE_PROVIDER_CANCEL = "lifecycle-provider-cancel-scheduled";
+/**
+ * The fixed parts of the provider-cancel sentence, around the provider id and
+ * the provider's raw end date. Exported because the work schedule builds the
+ * same sentence in SQL to find the open identity (key and sentence).
+ */
+export const PROVIDER_CANCEL_REASON_PARTS = {
+  before: "the provider will delete server ",
+  between: " on ",
+  after:
+    ", but this office's subscription is active and not cancelling; revoke " +
+    "the cancellation at the provider",
+  unknownDate: "an unknown date",
+} as const;
+
+/** The provider-cancel sentence for this asset. */
+export function providerCancelReason(asset: AssetRow): string {
+  const p = PROVIDER_CANCEL_REASON_PARTS;
+  // The provider's raw date, not a parsed one: the schedule rebuilds this
+  // sentence with a string concat, which cannot fail on a bad date.
+  return (
+    p.before +
+    (asset.provider_id ?? asset.id) +
+    p.between +
+    (asset.service_ends_at ?? p.unknownDate) +
+    p.after
+  );
+}
+
+/**
+ * The provider-cancel condition: raise while the office pays (an active or
+ * trialing subscription that is not cancelling) and its asset is
+ * cancel-scheduled, clear otherwise.
+ */
+export function providerCancelAction(
+  asset: AssetRow | null,
+  paying: boolean,
+): AttentionAction {
+  // The state only, never service_ends_at: reconcile leaves the old date on the
+  // row when the provider cancel is revoked.
+  return paying && asset?.asset_state === "cancel_scheduled"
+    ? {
+        kind: "raise",
+        key: LIFECYCLE_PROVIDER_CANCEL,
+        reason: providerCancelReason(asset),
+        severity: "critical",
+      }
+    : { kind: "clear", key: LIFECYCLE_PROVIDER_CANCEL };
+}
+
 export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   const { instance, asset, operations, subscription, now } = inputs;
   const none = (note: string): LifecycleDecision => ({

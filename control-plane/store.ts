@@ -35,7 +35,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import pg from "pg";
 import type { Pool, PoolClient, PoolConfig, QueryResult } from "pg";
-import { ASSET_GONE_REASON, LIFECYCLE_ASSET_GONE } from "./lifecycle.ts";
+import {
+  ASSET_GONE_REASON,
+  LIFECYCLE_ASSET_GONE,
+  LIFECYCLE_PROVIDER_CANCEL,
+  PAYING_SQL,
+  PROVIDER_CANCEL_REASON_PARTS,
+} from "./lifecycle.ts";
 import { deadSql, UNPAID_OPENING_HOLD_MS } from "./reservation-hold.ts";
 
 export type Clock = () => number;
@@ -2217,6 +2223,21 @@ export class Store {
         "or a.asset_state not in ('cancelled', 'absent')) " +
         "and exists (select 1 from attention_reasons r where r.instance_id = i.id " +
         "and r.cleared_at is null and r.source_op_id = $12)))) " +
+        // lifecycle-provider-cancel-scheduled work: the oldest asset is
+        // cancel_scheduled while the office pays (active or trialing, not
+        // cancelling). A raise is due until the open row carries exactly the
+        // sentence providerCancelReason builds; a clear until no row with the
+        // key is open once the condition is gone.
+        "or exists (select 1 from instances i " +
+        "left join lateral (select pa.id, pa.provider_id, pa.asset_state, pa.service_ends_at " +
+        "from provider_assets pa where pa.instance_id = i.id order by pa.created_at limit 1) a on true " +
+        "cross join lateral (select (a.asset_state = 'cancel_scheduled' and " +
+        `${PAYING_SQL}) is true as live) c ` +
+        "where (c.live and not exists (select 1 from attention_reasons r where r.instance_id = i.id " +
+        "and r.cleared_at is null and r.source_op_id = $15 and r.reason = " +
+        "$16::text || coalesce(a.provider_id, a.id) || $17::text || coalesce(a.service_ends_at, $18::text) || $19::text)) " +
+        "or (not c.live and exists (select 1 from attention_reasons r where r.instance_id = i.id " +
+        "and r.cleared_at is null and r.source_op_id = $15))) " +
         "or exists (select 1 from reinstatement_attempts r where r.state = 'opening' " +
         "and r.fence_expires_at <= $1 and not exists (select 1 from operations o where o.id = " +
         "'op-checkout_expire-' || r.id)) " +
@@ -2296,6 +2317,11 @@ export class Store {
         LIFECYCLE_ASSET_GONE,
         ASSET_GONE_REASON,
         opts.welcomeMailConfigured ? 1 : 0,
+        LIFECYCLE_PROVIDER_CANCEL,
+        PROVIDER_CANCEL_REASON_PARTS.before,
+        PROVIDER_CANCEL_REASON_PARTS.between,
+        PROVIDER_CANCEL_REASON_PARTS.unknownDate,
+        PROVIDER_CANCEL_REASON_PARTS.after,
       ],
     );
     if (!row) throw new Error("the work schedule query returned no row");

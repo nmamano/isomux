@@ -2852,6 +2852,21 @@ decideLifecycle takes over the same row. The provisioner's work schedule makes
 the lifecycle pass due while either path has this row to raise or clear, so a
 box lost after startup is seen on the next loop, not only after a restart.
 
+### A provider cancel on an office that pays
+
+If the oldest asset is `cancel_scheduled` while the office pays, the lifecycle
+raises one critical row, `lifecycle-provider-cancel-scheduled`, naming the
+provider id and the provider's raw end date. The office pays when it has a
+subscription that is `active` or `trialing` with `cancel_at_period_end = 0`;
+`past_due` does not count. The row clears when the asset is no longer
+`cancel_scheduled` or the office stops paying. Only `asset_state` decides it:
+reconcile leaves the old `service_ends_at` on the row after a revoke. When the
+provider date moves, the old row clears and the new one is raised in one
+transaction. Nothing acts on the provider. An operator ends it by revoking the
+cancellation at the provider; a row resolved by hand is raised again on the next
+pass while the cancel stays. The work schedule rebuilds the sentence in SQL, so
+the pass is due until the open row carries the current date.
+
 ### Resume, and the box that must never be resumed
 
 `power_on` undoes a DUNNING suspension and nothing else. Four predicates, all

@@ -21,7 +21,10 @@ import {
   decideLifecycle,
   GONE_STATES,
   LIFECYCLE_ASSET_GONE,
+  LIFECYCLE_PROVIDER_CANCEL,
+  PAYING_SQL,
   PROMISE_BROKEN,
+  providerCancelAction,
   type AttentionAction,
   type LifecyclePhase,
 } from "./lifecycle.ts";
@@ -93,6 +96,26 @@ async function neverCancelledAssetGone(
       "and r.cleared_at is null)) " +
       "order by s.id",
     [LIFECYCLE_ASSET_GONE, ...gone],
+  );
+}
+
+/**
+ * Offices whose provider asset is cancel-scheduled while they pay, or that have
+ * the row open. A pre-filter only: each one is re-decided inside its
+ * transaction from assetForInstance, and the open-row half is what lets the
+ * condition clear.
+ */
+async function providerCancelCandidates(
+  store: Store,
+): Promise<{ id: string }[]> {
+  return store.sqlAll<{ id: string }>(
+    "select i.id from instances i where " +
+      `(${PAYING_SQL} and exists (select 1 from provider_assets a ` +
+      "where a.instance_id = i.id and a.asset_state = 'cancel_scheduled')) " +
+      "or exists (select 1 from attention_reasons r where r.instance_id = i.id " +
+      "and r.source_op_id = $1 and r.cleared_at is null) " +
+      "order by i.id",
+    [LIFECYCLE_PROVIDER_CANCEL],
   );
 }
 
@@ -385,6 +408,69 @@ export async function lifecycleTick(
           instance.id,
           assetGoneAction(instance, await store.assetForInstance(instance.id)),
         );
+      });
+    } catch (err) {
+      summary.failed++;
+      report(`lifecycle ${scanned.id} failed: ${messageOf(err)}`);
+      continue;
+    }
+    if (!committed) continue;
+    if (committed.raised) summary.raised++;
+    summary.cleared += committed.cleared;
+  }
+
+  // A provider cancel on an office that pays and is not cancelling: the
+  // provider deletes a server the customer still pays for. Only a person can
+  // revoke that cancel, so this raises and never acts.
+  for (const scanned of await providerCancelCandidates(store)) {
+    let committed: { raised: boolean; cleared: number } | null = null;
+    try {
+      committed = await store.tx(async () => {
+        const instance = await store.getInstance(scanned.id);
+        if (!instance) return null;
+        const paying =
+          (
+            await store.sqlGet<{ paying: number }>(
+              `select case when ${PAYING_SQL} then 1 else 0 end as paying ` +
+                "from instances i where i.id = $1",
+              [instance.id],
+            )
+          )?.paying === 1;
+        const asset = await store.assetForInstance(instance.id);
+        const action = providerCancelAction(asset, paying);
+        let cleared = 0;
+        if (action.kind === "raise") {
+          // The sentence carries the provider's date. When the date moves,
+          // the old sentence goes in the same transaction as the new one is
+          // raised, so the office never has two rows.
+          for (const open of await store.openReasons(instance.id)) {
+            if (
+              open.source_op_id !== LIFECYCLE_PROVIDER_CANCEL ||
+              open.reason === action.reason
+            )
+              continue;
+            await clearAttentionIn(
+              store,
+              instance.id,
+              open.id,
+              LIFECYCLE_TICK_ACTOR,
+            );
+            cleared++;
+          }
+        }
+        const applied = await applyAttention(
+          store,
+          instance.id,
+          action.kind === "raise"
+            ? {
+                ...action,
+                detail:
+                  `service_ends_at=${asset?.service_ends_at ?? "unknown"} ` +
+                  `observed=${new Date(now).toISOString()}`,
+              }
+            : action,
+        );
+        return { raised: applied.raised, cleared: cleared + applied.cleared };
       });
     } catch (err) {
       summary.failed++;

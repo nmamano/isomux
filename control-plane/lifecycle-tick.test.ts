@@ -12,15 +12,17 @@ import {
   GONE_STATES,
   GRACE_MS,
   LIFECYCLE_ASSET_GONE,
+  LIFECYCLE_PROVIDER_CANCEL,
   LIFECYCLE_REASON,
   lifecycleOperationId,
   phaseAt,
   PROMISE_AT_RISK,
   PROMISE_BROKEN,
+  PROVIDER_CANCEL_REASON_PARTS,
   RETENTION_MS,
 } from "./lifecycle.ts";
 import { lifecycleTick, resolveBrokenPromise } from "./lifecycle-tick.ts";
-import { raiseAttentionIn } from "./attention.ts";
+import { raiseAttentionIn, resolveAttentionIn } from "./attention.ts";
 import { CERTIFICATE_CONTACT_REASON } from "./certificate-credentials.ts";
 import { LIVENESS_REASON } from "./liveness-watch.ts";
 import { Store } from "./store.ts";
@@ -1200,38 +1202,38 @@ describe("the never-cancelled scan", () => {
   });
 });
 
+async function schedule(store: Store, now: number) {
+  return store.workSchedule(now, GRACE_MS, RETENTION_MS, {
+    providerConfigured: true,
+    provisioningConfigured: true,
+    checkoutConfigured: true,
+    cadenceConfigured: true,
+    livenessConfigured: false,
+    staleProvisioningMs: 30 * 60_000,
+    staleProvisioningReason: "stalled",
+  });
+}
+
+/** What the drive loop does: run the cadence only when it is due. */
+async function drivenPass(store: Store, now: number) {
+  const due = await schedule(store, now);
+  return due.cadenceDue ? lifecycleTick(store, now) : null;
+}
+
+/** An office past startup: its next provider reconcile is in the future, so
+ * nothing but the cadence can notice a change. */
+async function settled(store: Store, now: number) {
+  const asset = (await store.getAsset("asset-1"))!;
+  await store.casAsset(asset.id, asset.version, {
+    next_reconcile_at: now + 3600_000,
+  });
+  expect(await schedule(store, now)).toMatchObject({
+    tickDue: false,
+    cadenceDue: false,
+  });
+}
+
 describe("the scheduler sees asset-gone work", () => {
-  async function schedule(store: Store, now: number) {
-    return store.workSchedule(now, GRACE_MS, RETENTION_MS, {
-      providerConfigured: true,
-      provisioningConfigured: true,
-      checkoutConfigured: true,
-      cadenceConfigured: true,
-      livenessConfigured: false,
-      staleProvisioningMs: 30 * 60_000,
-      staleProvisioningReason: "stalled",
-    });
-  }
-
-  /** What the drive loop does: run the cadence only when it is due. */
-  async function drivenPass(store: Store, now: number) {
-    const due = await schedule(store, now);
-    return due.cadenceDue ? lifecycleTick(store, now) : null;
-  }
-
-  /** An office past startup: its next provider reconcile is in the future, so
-   * nothing but the cadence can notice a change. */
-  async function settled(store: Store, now: number) {
-    const asset = (await store.getAsset("asset-1"))!;
-    await store.casAsset(asset.id, asset.version, {
-      next_reconcile_at: now + 3600_000,
-    });
-    expect(await schedule(store, now)).toMatchObject({
-      tickDue: false,
-      cadenceDue: false,
-    });
-  }
-
   for (const [label, endedAt, reason] of [
     ["a never-cancelled", null, null],
     ["a cancelled but not ended", null, CUSTOMER_CANCELLATION_REASON],
@@ -1336,6 +1338,265 @@ describe("the scheduler sees asset-gone work", () => {
     });
     expect((await schedule(store, c.now())).cadenceDue).toBe(false);
     expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 0 });
+    await store.close();
+  });
+});
+
+describe("a provider cancel on a paying office", () => {
+  // The 2026-11-04 incident's shape: the office pays and is not cancelling, and
+  // the provider will still delete its server. Nothing here acts on the
+  // provider; the row is for a person.
+  const NOW = Date.parse("2026-11-04T05:00:00Z");
+  const SERVER = "203474835";
+
+  async function seedPaying(
+    store: Store,
+    status: "active" | "trialing" = "active",
+  ): Promise<void> {
+    await seed(store, { endedAt: null, reason: null });
+    await store.sqlRun(
+      "update subscriptions set status = $1, cancel_at_period_end = 0 where id = 'sub_1'",
+      [status],
+    );
+  }
+
+  async function patchAsset(
+    store: Store,
+    id: string,
+    patch: { asset_state?: string; service_ends_at?: string | null },
+  ): Promise<void> {
+    const asset = (await store.getAsset(id))!;
+    expect(await store.casAsset(asset.id, asset.version, patch)).not.toBeNull();
+  }
+
+  /** What reconcile writes when the provider reports a cancel. */
+  async function providerCancels(store: Store, endsAt: string | null) {
+    await patchAsset(store, "asset-1", {
+      asset_state: "cancel_scheduled",
+      service_ends_at: endsAt,
+    });
+  }
+
+  function sentence(server: string, endsAt: string | null): string {
+    const p = PROVIDER_CANCEL_REASON_PARTS;
+    return p.before + server + p.between + (endsAt ?? p.unknownDate) + p.after;
+  }
+
+  async function rows(store: Store) {
+    return (await store.openReasons("inst-1"))
+      .filter((row) => row.source_op_id === LIFECYCLE_PROVIDER_CANCEL)
+      .map((row) => ({ reason: row.reason, severity: row.severity }));
+  }
+
+  async function idle(store: Store, now: number): Promise<void> {
+    expect(await schedule(store, now)).toMatchObject({
+      tickDue: false,
+      cadenceDue: false,
+    });
+  }
+
+  /** A paying, settled office whose provider cancel the cadence has raised. */
+  async function raised(
+    store: Store,
+    endsAt: string | null = "2026-11-24",
+  ): Promise<void> {
+    await seedPaying(store);
+    await settled(store, NOW);
+    await providerCancels(store, endsAt);
+    expect(await drivenPass(store, NOW)).toMatchObject({ raised: 1 });
+    expect(await rows(store)).toEqual([
+      { reason: sentence(SERVER, endsAt), severity: "critical" },
+    ]);
+  }
+
+  for (const status of ["active", "trialing"] as const) {
+    test(`${status}: one critical row naming the server and the date, then idle`, async () => {
+      const store = await tempStore(() => NOW);
+      await seedPaying(store, status);
+      await settled(store, NOW);
+      await providerCancels(store, "2026-11-24");
+
+      expect(await schedule(store, NOW)).toMatchObject({
+        tickDue: false,
+        cadenceDue: true,
+      });
+      expect(await drivenPass(store, NOW)).toMatchObject({
+        raised: 1,
+        failed: 0,
+      });
+      expect(await rows(store)).toEqual([
+        { reason: sentence(SERVER, "2026-11-24"), severity: "critical" },
+      ]);
+      await idle(store, NOW);
+      expect(await lifecycleTick(store, NOW)).toMatchObject({
+        raised: 0,
+        cleared: 0,
+      });
+      expect(await rows(store)).toHaveLength(1);
+
+      // A warning only: nothing opened, nothing moved.
+      expect(await store.operationsFor("inst-1")).toEqual([]);
+      expect((await store.getInstance("inst-1"))!.service_state).toBe("live");
+      expect((await store.getAsset("asset-1"))!.asset_state).toBe(
+        "cancel_scheduled",
+      );
+      await store.close();
+    });
+  }
+
+  for (const [label, assetState, keys] of [
+    // Reconcile leaves service_ends_at as it was, so the date alone must not
+    // keep the row open.
+    ["the provider cancel is revoked", "active", []],
+    // The server is gone: the asset-gone row takes over, and "revoke the
+    // cancel" is no longer an instruction anyone can follow.
+    ["the provider deletes the server", "cancelled", [LIFECYCLE_ASSET_GONE]],
+  ] as const) {
+    test(`${label}: the row clears, then idle`, async () => {
+      const store = await tempStore(() => NOW);
+      await raised(store);
+
+      await patchAsset(store, "asset-1", { asset_state: assetState });
+      expect((await store.getAsset("asset-1"))!.service_ends_at).toBe(
+        "2026-11-24",
+      );
+      expect((await schedule(store, NOW)).cadenceDue).toBe(true);
+      expect(await drivenPass(store, NOW)).toMatchObject({ cleared: 1 });
+      expect(await openAttentionKeys(store)).toEqual([...keys]);
+      await idle(store, NOW);
+      await store.close();
+    });
+  }
+
+  for (const [label, update] of [
+    [
+      "the subscription starts cancelling",
+      "update subscriptions set cancel_at_period_end = 1",
+    ],
+    [
+      "the subscription goes past due",
+      "update subscriptions set status = 'past_due'",
+    ],
+    [
+      "the subscription is cancelled",
+      "update subscriptions set status = 'canceled'",
+    ],
+  ] as const) {
+    test(`${label}: the row clears and is not raised again`, async () => {
+      const store = await tempStore(() => NOW);
+      await raised(store);
+
+      await store.sqlRun(update);
+      expect((await schedule(store, NOW)).cadenceDue).toBe(true);
+      expect(await drivenPass(store, NOW)).toMatchObject({
+        raised: 0,
+        cleared: 1,
+      });
+      expect(await rows(store)).toEqual([]);
+      await idle(store, NOW);
+      expect(await lifecycleTick(store, NOW)).toMatchObject({
+        raised: 0,
+        cleared: 0,
+      });
+      await store.close();
+    });
+  }
+
+  test("the provider moves the date: one row, with the new date", async () => {
+    const store = await tempStore(() => NOW);
+    await raised(store, "2026-11-24");
+
+    await patchAsset(store, "asset-1", { service_ends_at: "2026-11-20" });
+    expect((await schedule(store, NOW)).cadenceDue).toBe(true);
+    expect(await drivenPass(store, NOW)).toMatchObject({
+      raised: 1,
+      cleared: 1,
+    });
+    expect(await rows(store)).toEqual([
+      { reason: sentence(SERVER, "2026-11-20"), severity: "critical" },
+    ]);
+    await idle(store, NOW);
+    await store.close();
+  });
+
+  test("no provider date: the sentence says so, and the schedule agrees", async () => {
+    const store = await tempStore(() => NOW);
+    await raised(store, null);
+    await idle(store, NOW);
+    await store.close();
+  });
+
+  test("an operator resolve does not end it while the cancel stays", async () => {
+    const store = await tempStore(() => NOW);
+    await raised(store);
+
+    await store.tx(() =>
+      resolveAttentionIn(
+        store,
+        "inst-1",
+        LIFECYCLE_PROVIDER_CANCEL,
+        "operator",
+      ),
+    );
+    expect(await rows(store)).toEqual([]);
+    expect((await schedule(store, NOW)).cadenceDue).toBe(true);
+    expect(await drivenPass(store, NOW)).toMatchObject({ raised: 1 });
+    expect(await rows(store)).toHaveLength(1);
+    await idle(store, NOW);
+    await store.close();
+  });
+
+  test("a newer cancel-scheduled asset behind an active oldest one is not due", async () => {
+    // The pass reads the oldest asset, as assetForInstance does: being due
+    // here would spin the cadence for nothing.
+    const c = clock(NOW);
+    const store = await tempStore(c.now);
+    await seedPaying(store);
+    await settled(store, c.now());
+    c.set(NOW + 1000);
+    await store.createAsset({
+      id: "asset-2",
+      instance_id: "inst-1",
+      provider: "contabo",
+      provider_id: "203474836",
+      intent_id: null,
+      asset_state: "cancel_scheduled",
+      ipv4: null,
+      service_ends_at: "2026-11-24",
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now() + 3600_000,
+    });
+    await idle(store, c.now());
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 0,
+      failed: 0,
+    });
+    expect(await rows(store)).toEqual([]);
+    await store.close();
+  });
+
+  test("paying is re-read inside the transaction", async () => {
+    const store = await tempStore(() => NOW);
+    await seedPaying(store);
+    await providerCancels(store, "2026-11-24");
+    // A webhook records cancel_at_period_end between the scan and the write.
+    const tx = store.tx.bind(store);
+    let opened = 0;
+    store.tx = (async (fn: () => Promise<unknown>) => {
+      opened++;
+      await store.sqlRun(
+        "update subscriptions set cancel_at_period_end = 1 where id = 'sub_1'",
+      );
+      return tx(fn);
+    }) as Store["tx"];
+
+    expect(await lifecycleTick(store, NOW)).toMatchObject({
+      raised: 0,
+      failed: 0,
+    });
+    // The scan did pick the office up: no other pass has work here.
+    expect(opened).toBe(1);
+    expect(await rows(store)).toEqual([]);
     await store.close();
   });
 });

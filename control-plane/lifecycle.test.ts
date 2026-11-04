@@ -10,6 +10,7 @@ import {
   isCustomerCancellation,
   lifecycleOperationId,
   LIFECYCLE_ASSET_GONE,
+  LIFECYCLE_PROVIDER_CANCEL,
   LIFECYCLE_REASON,
   LIFECYCLE_REPOWERED,
   LIFECYCLE_STRAY,
@@ -19,8 +20,10 @@ import {
   phaseAt,
   poweredOffAtFrom,
   promiseAtRisk,
+  providerCancelAction,
   RETENTION_MS,
 } from "./lifecycle.ts";
+import type { AssetState } from "./provider.ts";
 import { suspensionOperationId } from "./stripe/dunning.ts";
 import type { AssetRow, OperationRow } from "./store.ts";
 
@@ -605,4 +608,35 @@ describe("a provider term that would break the promise", () => {
       promiseAtRisk(asset({ service_ends_at: null }), retentionEnd),
     ).toBeNull();
   });
+});
+
+describe("providerCancelAction: a provider cancel on a paying office", () => {
+  // Every asset state, both sides of paying. Only a cancel-scheduled asset on a
+  // paying office raises; a gone asset is the asset-gone row's business, and a
+  // missing row is no evidence of a provider cancel.
+  const states: AssetState[] = [
+    "none",
+    "order_pending",
+    "order_ambiguous",
+    "active",
+    "cancel_scheduled",
+    "cancelled",
+    "absent",
+  ];
+  for (const paying of [true, false]) {
+    for (const state of [...states, null]) {
+      const raises = paying && state === "cancel_scheduled";
+      test(`${state ?? "no asset row"}, ${paying ? "paying" : "not paying"}: ${raises ? "raise" : "clear"}`, () => {
+        const action = providerCancelAction(
+          state === null
+            ? null
+            : asset({ asset_state: state, service_ends_at: "2026-11-24" }),
+          paying,
+        );
+        expect(action.kind).toBe(raises ? "raise" : "clear");
+        expect(action.key).toBe(LIFECYCLE_PROVIDER_CANCEL);
+        if (action.kind === "raise") expect(action.severity).toBe("critical");
+      });
+    }
+  }
 });
