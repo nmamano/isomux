@@ -5,6 +5,12 @@ import { clearAttention, raiseAttention } from "./attention.ts";
 export const CERTIFICATE_CONTACT_STALE_MS = 3 * 24 * 60 * 60 * 1_000;
 export const CERTIFICATE_CONTACT_REASON =
   "the hosted office has stopped checking certificate renewal";
+/** A live office whose subscription is active or trialing has no active
+ * credential, so its box cannot renew. The box still holds the token of the
+ * newest credential issued to it. */
+export const CERTIFICATE_CREDENTIAL_MISSING_REASON =
+  "the hosted office has no active certificate renewal credential, so its " +
+  "certificate will not renew; re-activate its newest revoked credential";
 
 export interface CertificateCredentialRow {
   id: string;
@@ -101,7 +107,46 @@ export async function revokeCertificateCredentials(
   return rows.length;
 }
 
-/** Raise durable operator attention after three missed daily renewal checks. */
+/**
+ * The office is live and its subscription is active or trialing. A
+ * subscription that cancels at period end counts, unlike PAYING_SQL in
+ * lifecycle.ts: the office runs, and must renew, until it is deprovisioned.
+ */
+async function liveWithSubscription(
+  store: Store,
+  instanceId: string,
+): Promise<boolean> {
+  const row = await store.sqlGet<{ id: string }>(
+    "select i.id from instances i where i.id = $1 and i.service_state = 'live' " +
+      "and exists (select 1 from subscriptions s where s.instance_id = i.id " +
+      "and s.status in ('active', 'trialing'))",
+    [instanceId],
+  );
+  return row !== null;
+}
+
+/** Clear the open rows of one reason that this watch raised. */
+export async function clearCertificateWatchReason(
+  store: Store,
+  instanceId: string,
+  reason: string,
+): Promise<void> {
+  for (const row of await store.openReasons(instanceId)) {
+    if (row.source_op_id !== "" || row.reason !== reason) continue;
+    await clearAttention(
+      store,
+      instanceId,
+      row.id,
+      "certificate-renewal-watch",
+    );
+  }
+}
+
+/**
+ * Raise durable operator attention after three missed daily renewal checks,
+ * and when a live office with an active or trialing subscription has no active
+ * credential.
+ */
 export async function applyCertificateContactAttention(
   store: Store,
   instanceId: string,
@@ -110,7 +155,8 @@ export async function applyCertificateContactAttention(
     "select * from certificate_credentials where instance_id = $1 and status = 'active'",
     [instanceId],
   );
-  const open = (await store.openReasons(instanceId)).filter(
+  const openReasons = await store.openReasons(instanceId);
+  const open = openReasons.filter(
     (row) =>
       row.source_op_id === "" && row.reason === CERTIFICATE_CONTACT_REASON,
   );
@@ -123,8 +169,37 @@ export async function applyCertificateContactAttention(
         "certificate-renewal-watch",
       );
     }
+    // A revoked credential is refused, so the box makes no contact and the
+    // stale-contact row cannot say so: this row does.
+    if (!(await liveWithSubscription(store, instanceId))) {
+      await clearCertificateWatchReason(
+        store,
+        instanceId,
+        CERTIFICATE_CREDENTIAL_MISSING_REASON,
+      );
+    } else if (
+      !openReasons.some(
+        (row) =>
+          row.source_op_id === "" &&
+          row.reason === CERTIFICATE_CREDENTIAL_MISSING_REASON,
+      )
+    ) {
+      await raiseAttention(store, {
+        instanceId,
+        sourceOpId: "",
+        reasonClass: "operation_condition",
+        reason: CERTIFICATE_CREDENTIAL_MISSING_REASON,
+        severity: "critical",
+        actor: "certificate-renewal-watch",
+      });
+    }
     return;
   }
+  await clearCertificateWatchReason(
+    store,
+    instanceId,
+    CERTIFICATE_CREDENTIAL_MISSING_REASON,
+  );
   const newestContact = Math.max(
     ...active.map((row) => row.last_used_at ?? row.created_at),
   );

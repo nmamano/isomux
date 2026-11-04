@@ -450,7 +450,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "subscriptions",
     verb: "select",
-    via: "lifecycle-tick.ts cancelledSubscriptions and the transactional subscription re-read",
+    via: "lifecycle-tick.ts cancelledSubscriptions and the transactional subscription re-read; certificate-credentials.ts liveWithSubscription, from the certificate-contact watch",
   },
   {
     table: "subscriptions",
@@ -505,7 +505,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "certificate_credentials",
     verb: "select",
-    via: "authenticateCertificateCredential, from the renewal seam",
+    via: "authenticateCertificateCredential, from the renewal seam; applyCertificateContactAttention, from the certificate-contact watch",
   },
   {
     table: "certificate_credentials",

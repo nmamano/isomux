@@ -125,6 +125,7 @@ describe("the subscription insert", () => {
     expect(callersOf("insertSubscription")).toEqual([
       "account-email.test.ts",
       "cancel.test.ts",
+      "certificate-credentials.test.ts",
       "exercises/cancel-live.ts",
       "lifecycle-tick.test.ts",
       "provisioning-start.test.ts",

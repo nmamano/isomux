@@ -4,6 +4,7 @@ import {
   applyCertificateContactAttention,
   CERTIFICATE_CONTACT_REASON,
   CERTIFICATE_CONTACT_STALE_MS,
+  CERTIFICATE_CREDENTIAL_MISSING_REASON,
   issueCertificateCredential,
   revokeCertificateCredentials,
 } from "./certificate-credentials.ts";
@@ -25,6 +26,7 @@ import {
 import { InviteHold } from "./invite-hold.ts";
 import { expectRejection } from "../server/test-support/expect-rejection.ts";
 import { startMintSeam } from "./mint-seam.ts";
+import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 
 let store: Store;
 
@@ -205,6 +207,184 @@ describe("one-office certificate credentials", () => {
       status: "active",
       last_used_at: null,
     });
+  });
+});
+
+// A revoked credential on a live office that still pays went unseen for nine
+// days (task d53c86b0): the box's renew calls were refused, and nothing said so.
+describe("a live paid office with no active renewal credential", () => {
+  async function seedSubscription(
+    id: string,
+    status: string,
+    cancelAtPeriodEnd: 0 | 1,
+  ): Promise<void> {
+    await store.tx(async () => {
+      const account = await ensureAccount(store, {
+        id: `acct-${id}`,
+        email: `${id}@b.test`,
+      });
+      await insertSubscription(store, {
+        id: `sub-${id}`,
+        account_id: account.id,
+        instance_id: id,
+        stripe_customer_id: `cus-${id}`,
+        status,
+        current_period_end: store.now() + 30 * 24 * 60 * 60 * 1_000,
+        cancel_at_period_end: cancelAtPeriodEnd,
+        ended_at: null,
+        canceled_at: null,
+        cancellation_reason: null,
+        cancellation_policy: "legacy",
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 0,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        last_event_id: null,
+        last_event_created: null,
+      });
+    });
+  }
+
+  /** A live office whose only credential the hand-run cancel revoked. */
+  async function revokedOffice(
+    id: string,
+    subscription: { status: string; cancelAtPeriodEnd: 0 | 1 } | null,
+  ): Promise<string> {
+    await office(id, id.replace(/^inst-/, ""));
+    const issued = await issueCertificateCredential(store, id);
+    if (subscription) {
+      await seedSubscription(
+        id,
+        subscription.status,
+        subscription.cancelAtPeriodEnd,
+      );
+    }
+    expect(await revokeCertificateCredentials(store, id)).toBe(1);
+    return issued.id;
+  }
+
+  const missingRows = async (id: string) =>
+    (await store.openReasons(id)).filter(
+      (row) =>
+        row.source_op_id === "" &&
+        row.reason === CERTIFICATE_CREDENTIAL_MISSING_REASON,
+    );
+
+  const setServiceState = async (
+    id: string,
+    serviceState: "live" | "suspended",
+  ) => {
+    const current = await store.getInstance(id);
+    await store.casInstance(id, current!.version, {
+      service_state: serviceState,
+    });
+  };
+
+  test("raises one critical row while the subscription is active or trialing, also when it cancels at period end", async () => {
+    for (const [id, status, cancelAtPeriodEnd] of [
+      ["inst-cred-active", "active", 0],
+      ["inst-cred-trialing", "trialing", 0],
+      ["inst-cred-cancelling", "active", 1],
+    ] as const) {
+      await revokedOffice(id, { status, cancelAtPeriodEnd });
+      await applyCertificateContactAttention(store, id);
+      await applyCertificateContactAttention(store, id);
+      const rows = await missingRows(id);
+      expect({ id, rows: rows.length }).toEqual({ id, rows: 1 });
+      expect(rows[0]).toMatchObject({
+        reason_class: "operation_condition",
+        severity: "critical",
+      });
+      expect((await store.getInstance(id))?.attention_severity).toBe(
+        "critical",
+      );
+    }
+  });
+
+  test("raises nothing for an office that does not pay", async () => {
+    for (const [id, subscription] of [
+      ["inst-cred-pastdue", { status: "past_due", cancelAtPeriodEnd: 0 }],
+      ["inst-cred-canceled", { status: "canceled", cancelAtPeriodEnd: 0 }],
+      ["inst-cred-nosub", null],
+    ] as const) {
+      await revokedOffice(id, subscription);
+      await applyCertificateContactAttention(store, id);
+      expect({ id, rows: (await missingRows(id)).length }).toEqual({
+        id,
+        rows: 0,
+      });
+    }
+  });
+
+  test("clears the row when the office stops paying or stops being live", async () => {
+    const id = "inst-cred-flip";
+    await revokedOffice(id, { status: "active", cancelAtPeriodEnd: 0 });
+    await applyCertificateContactAttention(store, id);
+    expect(await missingRows(id)).toHaveLength(1);
+
+    await store.sqlRun(
+      "update subscriptions set status = 'past_due' where instance_id = $1",
+      [id],
+    );
+    await applyCertificateContactAttention(store, id);
+    expect(await missingRows(id)).toHaveLength(0);
+
+    await store.sqlRun(
+      "update subscriptions set status = 'active' where instance_id = $1",
+      [id],
+    );
+    await applyCertificateContactAttention(store, id);
+    expect(await missingRows(id)).toHaveLength(1);
+
+    await setServiceState(id, "suspended");
+    await applyCertificateContactAttention(store, id);
+    expect(await missingRows(id)).toHaveLength(0);
+  });
+
+  test("clears the row when the newest revoked credential is re-activated", async () => {
+    const id = "inst-cred-reactivated";
+    const credentialId = await revokedOffice(id, {
+      status: "active",
+      cancelAtPeriodEnd: 0,
+    });
+    await applyCertificateContactAttention(store, id);
+    expect(await missingRows(id)).toHaveLength(1);
+
+    // The hand fix of 2026-11-04.
+    await store.sqlRun(
+      "update certificate_credentials set status = 'active', revoked_at = null, " +
+        "version = version + 1 where id = $1",
+      [credentialId],
+    );
+    await applyCertificateContactAttention(store, id);
+    expect(await missingRows(id)).toHaveLength(0);
+    expect(
+      (await store.openReasons(id)).map((row) => row.reason),
+    ).not.toContain(CERTIFICATE_CONTACT_REASON);
+  });
+
+  test("a revocation turns an open stale-contact row into the missing-credential row", async () => {
+    const id = "inst-cred-incident";
+    await office(id, "cred-incident");
+    const issued = await issueCertificateCredential(store, id);
+    await seedSubscription(id, "active", 0);
+    await store.sqlRun(
+      "update certificate_credentials set created_at = $1 where id = $2",
+      [store.now() - CERTIFICATE_CONTACT_STALE_MS - 1, issued.id],
+    );
+    await applyCertificateContactAttention(store, id);
+    const reasons = async () =>
+      (await store.openReasons(id)).map((row) => row.reason).sort();
+    expect(await reasons()).toEqual([CERTIFICATE_CONTACT_REASON]);
+
+    await revokeCertificateCredentials(store, id);
+    await applyCertificateContactAttention(store, id);
+    expect(await reasons()).toEqual([CERTIFICATE_CREDENTIAL_MISSING_REASON]);
   });
 });
 

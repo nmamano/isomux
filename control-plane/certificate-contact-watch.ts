@@ -2,7 +2,11 @@
 // claim, so one failure cannot hide the rest or hold the database on a
 // five-second retry loop.
 
-import { applyCertificateContactAttention } from "./certificate-credentials.ts";
+import {
+  applyCertificateContactAttention,
+  CERTIFICATE_CREDENTIAL_MISSING_REASON,
+  clearCertificateWatchReason,
+} from "./certificate-credentials.ts";
 import type { Store } from "./store.ts";
 
 export const CERTIFICATE_CONTACT_INTERVAL_MS = 24 * 60 * 60 * 1_000;
@@ -69,6 +73,30 @@ export async function watchCertificateContact(
           );
         }
       }
+    }
+  }
+  // The claim takes live offices only, so an office that stopped being live
+  // would keep its missing-credential row forever. Clear that row alone: its
+  // stale-contact row stays, as it does today.
+  const notLive = await store.sqlAll<{ id: string }>(
+    "select i.id from instances i where i.service_state <> 'live' and exists " +
+      "(select 1 from attention_reasons r where r.instance_id = i.id " +
+      "and r.cleared_at is null and r.source_op_id = '' and r.reason = $1) " +
+      "order by i.id",
+    [CERTIFICATE_CREDENTIAL_MISSING_REASON],
+  );
+  for (const instance of notLive) {
+    try {
+      await clearCertificateWatchReason(
+        store,
+        instance.id,
+        CERTIFICATE_CREDENTIAL_MISSING_REASON,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      deps.report?.(
+        `certificate-credential row could not clear for ${instance.id}: ${message}`,
+      );
     }
   }
   return checked;

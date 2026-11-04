@@ -1493,6 +1493,16 @@ the log over at least two days. That window no longer needs a period without
 a deploy. Use the configured Compose project name in the tag if it differs
 from `isomux-hosted`, and confirm the journal retained the full window.
 
+### An office with no active renewal credential
+
+The daily certificate-contact pass raises one critical row when a `live`
+office has a subscription that is `active` or `trialing` (a cancel at period
+end counts) and no active row in `certificate_credentials`. The box's renew
+calls are then refused, so the three-day contact row cannot fire. The row
+clears on the next pass after an active credential exists or the office stops
+qualifying, so it can stay up to one day. An operator ends it by re-activating
+the newest revoked credential: the box still holds that token.
+
 ## The driver protocol
 
 Marker polling alone cannot tell a slow step from a dead process, and a blind
