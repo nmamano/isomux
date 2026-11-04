@@ -23,7 +23,10 @@ import {
 } from "../identity/index.ts";
 import {
   mintAgentToken,
+  mintRunToken,
   revokeAgentToken,
+  revokeRunToken,
+  revokedTokenHolder,
   resolveToken,
   redactTokens,
   _testResetTokens,
@@ -237,6 +240,43 @@ describe("identity: agent tokens", () => {
     revokeAgentToken("agent-a");
     expect(resolveToken(a)).toBeNull();
     expect(resolveToken(b)?.agentId).toBe("agent-b");
+  });
+});
+
+// The auth log names who held a refused bearer (task 9a0d4985): a token that
+// was valid and is no longer is a different report from one that never was.
+describe("identity: revoked token holder (task 9a0d4985)", () => {
+  it("names the agent or run of a revoked or rotated token, and never revives it", () => {
+    const killed = mintAgentToken("agent-k", "user-1");
+    const rotatedOut = mintAgentToken("agent-r", "user-1");
+    const current = mintAgentToken("agent-r", "user-1"); // rotation
+    const run = mintRunToken("job-1", "run-1", "user-1");
+    expect(revokedTokenHolder(killed)).toBeNull(); // live: not revoked
+    revokeAgentToken("agent-k");
+    revokeRunToken("job-1", "run-1");
+    expect(revokedTokenHolder(killed)).toBe("agent-k");
+    expect(revokedTokenHolder(rotatedOut)).toBe("agent-r");
+    expect(revokedTokenHolder(run)).toBe("run-1");
+    expect(revokedTokenHolder(current)).toBeNull();
+    expect(revokedTokenHolder("never-minted")).toBeNull();
+    // Remembering a revoked token never makes it resolve again.
+    expect(resolveToken(killed)).toBeNull();
+    expect(resolveToken(rotatedOut)).toBeNull();
+    expect(resolveToken(current)?.agentId).toBe("agent-r");
+    _testResetTokens();
+    expect(revokedTokenHolder(killed)).toBeNull();
+  });
+
+  it("is bounded: the 1025th revocation forgets only the oldest", () => {
+    // Run tokens revoke once per run, so an unbounded memory grows forever.
+    const raws: string[] = [];
+    for (let i = 0; i < 1025; i++) {
+      raws.push(mintRunToken("job-cap", `run-${i}`, null));
+      revokeRunToken("job-cap", `run-${i}`);
+    }
+    expect(revokedTokenHolder(raws[0])).toBeNull();
+    expect(revokedTokenHolder(raws[1])).toBe("run-1");
+    expect(revokedTokenHolder(raws[1024])).toBe("run-1024");
   });
 });
 

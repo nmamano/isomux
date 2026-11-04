@@ -20,7 +20,7 @@ import {
   type InvitePeek,
   type SessionLookup,
 } from "./auth.ts";
-import type { ClaimErr } from "./auth.ts";
+import type { BearerRefusal, ClaimErr } from "./auth.ts";
 import { readCappedBody } from "./app-thumbnails.ts";
 import { OFFICE_MARKER_HEADER } from "./browser-office-gate.ts";
 import {
@@ -47,7 +47,7 @@ import {
   identityFromSession,
   type Identity,
 } from "./identity/index.ts";
-import { resolveToken } from "./identity/tokens.ts";
+import { resolveToken, revokedTokenHolder } from "./identity/tokens.ts";
 import { appIdentityFromToken } from "./app-tokens.ts";
 import { resolveApiToken } from "./api-tokens.ts";
 import { API_CAPABILITIES } from "./identity/index.ts";
@@ -198,6 +198,9 @@ export interface AuthOk {
 }
 export interface AuthRejected {
   kind: "rejected";
+  // Set on a 401 when the request sent no usable bearer (none, empty or
+  // malformed) and no session cookie, so the /api envelope can say so.
+  missingCredentials?: true;
   response: Response;
 }
 
@@ -305,20 +308,29 @@ export function authenticate(
   //
   // Off-box, an agent, cron-run or app token is ignored like an invalid one,
   // and the refusal is logged.
-  const bearerId = resolveBearerIdentity(req, onBox, logOffBoxToken);
-  if (bearerId) {
-    return { kind: "ok", identity: bearerId };
+  const bearer = resolveBearerIdentity(req, onBox, logOffBoxToken);
+  if ("identity" in bearer) {
+    return { kind: "ok", identity: bearer.identity };
   }
   const cookies = readSessionCookies(req);
   const session = validateSession(cookies.selected || null);
+  const diagnostic = browserSessionDiagnostic(cookies, session, "http");
+  // The line names why the bearer path gave no identity, so a refused agent
+  // call explains itself in the log.
   emitBrowserSessionDiagnostic(
-    browserSessionDiagnostic(cookies, session, "http"),
+    diagnostic && diagnostic.outcome !== "session_matched"
+      ? { ...diagnostic, bearer: bearer.refusal }
+      : diagnostic,
     req,
   );
   if (!session) {
+    const missing =
+      diagnostic?.outcome === "cookie_absent" &&
+      SENT_NO_BEARER.has(bearer.refusal.state);
     return {
       kind: "rejected",
       response: unauthorized(req, opts?.officeName ?? null, onBox),
+      ...(missing ? { missingCredentials: true as const } : {}),
     };
   }
   return {
@@ -339,12 +351,23 @@ export function resolveIdentityForRequest(
   cookieLookup: SessionLookup | null,
   onBox: boolean,
 ): Identity | null {
-  const bearerId = resolveBearerIdentity(req, onBox);
-  if (bearerId) return bearerId;
+  const bearer = resolveBearerIdentity(req, onBox);
+  if ("identity" in bearer) return bearer.identity;
   if (cookieLookup)
     return withMemberPack(identityFromSession(cookieLookup), getUserById);
   return null;
 }
+
+// The identity, or the reason the bearer gave none. One pass gives both: a
+// second read could disagree with the first (a mint in between).
+type BearerResult = { identity: Identity } | { refusal: BearerRefusal };
+
+// The refusals where the request sent no usable bearer at all.
+const SENT_NO_BEARER = new Set<BearerRefusal["state"]>([
+  "none",
+  "empty",
+  "malformed",
+]);
 
 // Single source of bearer-identity resolution, shared by authenticate() and
 // resolveIdentityForRequest() so the bearer precedence has exactly ONE
@@ -353,36 +376,51 @@ function resolveBearerIdentity(
   req: Request,
   onBox: boolean,
   onRefused?: (identity: Identity) => void,
-): Identity | null {
-  const identity = resolveBearerIdentityUncapped(req, onBox, onRefused);
+): BearerResult {
+  const result = resolveBearerIdentityUncapped(req, onBox, onRefused);
   // Every identity of a member with a permission pack is capped to it.
-  return identity && withMemberPack(identity, getUserById);
+  return "identity" in result
+    ? { identity: withMemberPack(result.identity, getUserById) }
+    : result;
 }
 
 function resolveBearerIdentityUncapped(
   req: Request,
   onBox: boolean,
   onRefused?: (identity: Identity) => void,
-): Identity | null {
+): BearerResult {
+  const header = req.headers.get("authorization");
+  if (!header) return { refusal: { state: "none" } };
   const bearer = readBearerToken(req);
-  if (!bearer) return null;
+  // "Bearer" with no token is what curl sends for an unset variable.
+  if (!bearer)
+    return {
+      refusal: {
+        state: /^bearer$/i.test(header.trim()) ? "empty" : "malformed",
+      },
+    };
   // In-memory tokens (agent, cron-run) first, then the persisted app-token
   // store. The two spaces cannot collide - 256 bits of entropy each - so the
   // order is about cost, not precedence: an agent token resolves from a map,
   // an app token reads a file.
   const transientOrApp = resolveToken(bearer) ?? appIdentityFromToken(bearer);
   if (transientOrApp) {
-    if (onBox) return transientOrApp;
+    if (onBox) return { identity: transientOrApp };
     onRefused?.(transientOrApp);
-    return null;
+    return { refusal: { state: "off_box" } };
   }
   const apiToken = resolveApiToken(bearer);
-  if (!apiToken) return null;
+  if (!apiToken) {
+    const holder = revokedTokenHolder(bearer);
+    return {
+      refusal: holder ? { state: "revoked", holder } : { state: "unknown" },
+    };
+  }
   // Role and existence are live, never stamped into a durable credential. A
   // deletion or demotion therefore changes authorization on the next request.
   const user = getUserById(apiToken.userId);
-  if (!user) return null;
-  return {
+  if (!user) return { refusal: { state: "unknown" } };
+  const identity: Identity = {
     scope: "api",
     userId: user.id,
     role: user.role,
@@ -391,6 +429,7 @@ function resolveBearerIdentityUncapped(
     apiTokenName: apiToken.name,
     ...(apiToken.limits ? { apiTokenLimits: apiToken.limits } : {}),
   };
+  return { identity };
 }
 
 // One line per refused request, naming the holder and never the token.

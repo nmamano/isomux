@@ -44,9 +44,15 @@ import {
   sessionCookieMigrationHeaders,
   validateSession,
   _testSetSessionExpiry,
+  type BearerRefusal,
   type BrowserSessionDiagnostic,
 } from "../auth.ts";
-import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { authenticate } from "../auth-middleware.ts";
+import {
+  getAgentTokenRaw,
+  mintAgentToken,
+  revokeAgentToken,
+} from "../identity/tokens.ts";
 import { officeIdFile } from "../office-id.ts";
 import { deleteUser } from "../users.ts";
 
@@ -686,7 +692,10 @@ describe("browser session lockout diagnostics", () => {
       const rejected = await server.http("/api/sessions");
       expect(rejected.status).toBe(401);
       expect(lines.map(withoutClient)).toContain(
-        expected({ outcome: "cookie_absent", gate: "http" }, "/api/sessions"),
+        expected(
+          { outcome: "cookie_absent", gate: "http", bearer: { state: "none" } },
+          "/api/sessions",
+        ),
       );
 
       _testResetBrowserSessionDiagnostics();
@@ -754,6 +763,147 @@ describe("browser session lockout diagnostics", () => {
       expect(admitted).toHaveLength(256);
       expect(lines).toHaveLength(257);
       expect(lines[256]).not.toContain("path=/cap-test-");
+    } finally {
+      console.log = original;
+    }
+  });
+});
+
+// Why the bearer path of the HTTP gate gave no identity (task 9a0d4985). A
+// report of "my valid token got a 401" explains itself from the log line, and
+// a caller that sent no credential at all reads that in the 401 itself.
+describe("bearer refusal on the HTTP gate", () => {
+  it("prints the bearer state, and the holder of a revoked token, as fields of the line", () => {
+    const req = new Request("https://office.example/api/tasks");
+    const fields = (bearer?: BearerRefusal) =>
+      formatBrowserSessionDiagnostic(
+        {
+          outcome: "cookie_absent",
+          gate: "http",
+          ...(bearer ? { bearer } : {}),
+        },
+        req,
+      ).split(" ");
+    for (const state of [
+      "none",
+      "empty",
+      "malformed",
+      "unknown",
+      "off_box",
+    ] as const) {
+      const line = fields({ state });
+      expect(line).toContain(`bearer=${state}`);
+      expect(line.some((f) => f.startsWith("holder="))).toBe(false);
+    }
+    const revoked = fields({ state: "revoked", holder: "agent-x" });
+    expect(revoked).toContain("bearer=revoked");
+    expect(revoked).toContain("holder=agent-x");
+    // The ws gate passes no bearer state, and its line has no bearer field.
+    expect(fields().some((f) => f.startsWith("bearer="))).toBe(false);
+    // A rejected cookie carries the bearer state as well.
+    expect(
+      formatBrowserSessionDiagnostic(
+        {
+          outcome: "cookie_rejected",
+          gate: "http",
+          selected: "plain",
+          othersPresent: false,
+          bearer: { state: "unknown" },
+        },
+        req,
+      ).split(" "),
+    ).toContain("bearer=unknown");
+  });
+
+  it("logs why each bearer was refused, and tells only a caller with no credential that it sent none", async () => {
+    server = await startTestServer();
+    const original = console.log;
+    const lines: string[] = [];
+    console.log = (...args: unknown[]) => lines.push(args.join(" "));
+    const refuse = async (headers: Record<string, string>) => {
+      _testResetBrowserSessionDiagnostics();
+      lines.length = 0;
+      const res = await server!.http("/api/tasks", { headers });
+      const body = (await res.json()) as {
+        error: { code: string; message: string };
+      };
+      const line = lines.find((l) => l.includes("path=/api/tasks")) ?? "";
+      return { status: res.status, error: body.error, fields: line.split(" ") };
+    };
+    try {
+      const revokedRaw = mintAgentToken("agent-gone", null);
+      revokeAgentToken("agent-gone");
+      const none = await refuse({});
+      const empty = await refuse({ Authorization: "Bearer" });
+      const malformed = await refuse({ Authorization: "Basic dXNlcjpwYXNz" });
+      const unknown = await refuse({ Authorization: "Bearer not-a-token" });
+      const revoked = await refuse({ Authorization: `Bearer ${revokedRaw}` });
+      const staleCookie = await refuse({
+        Cookie: `${own().plain}=not-a-session`,
+      });
+      const all = { none, empty, malformed, unknown, revoked, staleCookie };
+      for (const r of Object.values(all)) {
+        expect(r.status).toBe(401);
+        expect(r.error.code).toBe("unauthenticated");
+      }
+      expect(none.fields).toContain("bearer=none");
+      expect(empty.fields).toContain("bearer=empty");
+      expect(malformed.fields).toContain("bearer=malformed");
+      expect(unknown.fields).toContain("bearer=unknown");
+      expect(revoked.fields).toContain("bearer=revoked");
+      expect(revoked.fields).toContain("holder=agent-gone");
+      expect(revoked.fields.join(" ")).not.toContain(revokedRaw);
+      expect(staleCookie.fields).toContain("bearer=none");
+      // No usable bearer and no cookie: the 401 says what was missing.
+      expect(empty.error.message).toBe(none.error.message);
+      expect(malformed.error.message).toBe(none.error.message);
+      // A token that once was valid reads exactly like one that never was,
+      // and a stale cookie is not "no credential": both keep the plain 401.
+      expect(revoked.error).toEqual(unknown.error);
+      expect(staleCookie.error).toEqual(unknown.error);
+      expect(none.error.message).not.toBe(unknown.error.message);
+
+      // A valid bearer next to the same stale cookie passes, and logs nothing.
+      const agentRaw = mintAgentToken("agent-live", null);
+      _testResetBrowserSessionDiagnostics();
+      lines.length = 0;
+      const ok = await server.http("/api/tasks", {
+        headers: { Authorization: `Bearer ${agentRaw}` },
+      });
+      expect(ok.status).toBe(200);
+      expect(lines.filter((l) => l.includes("path=/api/tasks"))).toEqual([]);
+
+      // Off-box, a live agent token is refused with its own state; the
+      // request sent a credential, so the reason is not "missing".
+      _testResetBrowserSessionDiagnostics();
+      lines.length = 0;
+      const warn = console.warn;
+      console.warn = () => {};
+      let offBox;
+      try {
+        offBox = authenticate(
+          new Request("https://office.example/api/tasks", {
+            headers: { Authorization: `Bearer ${agentRaw}` },
+          }),
+          false,
+        );
+      } finally {
+        console.warn = warn;
+      }
+      expect(offBox.kind).toBe("rejected");
+      expect(
+        offBox.kind === "rejected" && offBox.missingCredentials,
+      ).toBeFalsy();
+      expect(
+        lines.find((l) => l.includes("path=/api/tasks"))?.split(" "),
+      ).toContain("bearer=off_box");
+      const missing = authenticate(
+        new Request("https://office.example/api/tasks"),
+        true,
+      );
+      expect(missing.kind === "rejected" && missing.missingCredentials).toBe(
+        true,
+      );
     } finally {
       console.log = original;
     }

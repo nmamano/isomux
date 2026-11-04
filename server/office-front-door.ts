@@ -645,7 +645,13 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                 const badOrigin = apiAuth.response.status === 403;
                 return badOrigin
                   ? errorResponse(403, "bad_origin", "bad origin")
-                  : errorResponse(401, "unauthenticated", "unauthenticated");
+                  : errorResponse(
+                      401,
+                      "unauthenticated",
+                      apiAuth.missingCredentials
+                        ? "no bearer token or session cookie"
+                        : "unauthenticated",
+                    );
               }
               // Sampled before the call: a self handoff or new-conversation
               // replaces the session that made it.

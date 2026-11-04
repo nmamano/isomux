@@ -1965,14 +1965,23 @@ export function readSessionCookie(req: Request): string | null {
   return readSessionCookies(req).selected || null;
 }
 
+// Why the bearer path of the HTTP gate gave no identity. `empty` is
+// "Authorization: Bearer" with no token, which curl sends when the variable
+// it names is unset. `revoked` names the agent or run that held the token,
+// never the token.
+export type BearerRefusal =
+  | { state: "none" | "empty" | "malformed" | "unknown" | "off_box" }
+  | { state: "revoked"; holder: string };
+
 export type BrowserSessionDiagnostic =
-  | { outcome: "cookie_absent"; gate: "http" | "ws" }
+  | { outcome: "cookie_absent"; gate: "http" | "ws"; bearer?: BearerRefusal }
   | {
       outcome: "cookie_rejected";
       gate: "http" | "ws";
       selected: SessionCookieSlot;
       othersPresent: boolean;
       marker?: string;
+      bearer?: BearerRefusal;
     }
   | {
       outcome: "session_matched";
@@ -2074,7 +2083,11 @@ export function formatBrowserSessionDiagnostic(
     0,
     120,
   );
-  const context = `gate=${diagnostic.gate} path=${path} client=${browserFamily(req.headers.get("user-agent"))}`;
+  const bearer =
+    "bearer" in diagnostic && diagnostic.bearer
+      ? `bearer=${diagnostic.bearer.state}${diagnostic.bearer.state === "revoked" ? ` holder=${diagnostic.bearer.holder}` : ""} `
+      : "";
+  const context = `${bearer}gate=${diagnostic.gate} path=${path} client=${browserFamily(req.headers.get("user-agent"))}`;
   switch (diagnostic.outcome) {
     case "cookie_absent":
       return `[auth] browser session cookie absent ${context}`;

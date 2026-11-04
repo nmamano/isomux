@@ -53,6 +53,13 @@ interface StoredToken {
 const byKey = new Map<string, StoredToken>();
 const byHash = new Map<string, string>();
 
+// Hashes of revoked (and rotated-out) tokens mapped to the agent or run id
+// that held them, so the auth log can name the holder of a refused bearer.
+// Run tokens are revoked on every run, so the map keeps only the newest
+// REVOKED_LIMIT entries.
+const REVOKED_LIMIT = 1024;
+const revokedHolders = new Map<string, string>();
+
 function agentKey(agentId: string): string {
   return `agent:${agentId}`;
 }
@@ -87,6 +94,13 @@ function remove(key: string): void {
   if (!existing) return;
   byHash.delete(existing.hash);
   byKey.delete(key);
+  const holder = existing.agentId ?? existing.runId;
+  if (!holder) return;
+  revokedHolders.set(existing.hash, holder);
+  if (revokedHolders.size > REVOKED_LIMIT) {
+    const oldest = revokedHolders.keys().next().value;
+    if (oldest !== undefined) revokedHolders.delete(oldest);
+  }
 }
 
 // Mint (or rotate) the agent's token. Re-minting for the same agentId revokes
@@ -224,6 +238,13 @@ export function resolveToken(raw: string): Identity | null {
   };
 }
 
+// The agent or run id that held a recently revoked token, or null. Names the
+// holder of a refused bearer in the auth log.
+export function revokedTokenHolder(raw: string): string | null {
+  if (!raw) return null;
+  return revokedHolders.get(hashOf(raw)) ?? null;
+}
+
 // Scrub any LIVE raw token embedded in arbitrary text. The primary secrecy
 // guarantee is structural (the token only ever enters subprocess env, never a
 // log/prompt/WS/diff path); this is a belt-and-suspenders helper for any
@@ -244,4 +265,5 @@ export function redactTokens(text: string): string {
 export function _testResetTokens(): void {
   byKey.clear();
   byHash.clear();
+  revokedHolders.clear();
 }
