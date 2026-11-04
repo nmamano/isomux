@@ -5,7 +5,7 @@
 // A restart also resets the screen, so no line of the old shell stays.
 
 import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
-import { setUpDomTestFile } from "../test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
@@ -45,15 +45,12 @@ class FakeResizeObserver {
 }
 
 let layout = { cols: 100, rows: 30 };
-const globals = globalThis as Record<string, unknown>;
-const originalResizeObserver = globals.ResizeObserver;
 const propose = spyOn(FitAddon.prototype, "proposeDimensions");
 beforeAll(() => {
-  globals.ResizeObserver = FakeResizeObserver;
+  stubGlobal("ResizeObserver", FakeResizeObserver);
   propose.mockImplementation(() => ({ ...layout }));
 });
 afterAll(() => {
-  globals.ResizeObserver = originalResizeObserver;
   propose.mockRestore();
 });
 

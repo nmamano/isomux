@@ -1,6 +1,6 @@
 // Schedule-settings and new-room translations split from
 // dialogs.i18n.dom.test.tsx.
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 import {
   SHIPPED_LANGUAGE_CODES,
@@ -14,6 +14,12 @@ const { CronjobsPromptDialog } =
 const { NewRoomDialog } = await import("./office/NewRoomDialog.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { createElement } = await import("react");
+const { setApiShim } = await import("./api.ts");
+
+// The schedule settings load their instructions on mount: keep that pending,
+// as these tests read only the dialog's own text.
+setApiShim(() => new Promise(() => {}));
+afterAll(() => setApiShim(null));
 
 type View = ReturnType<typeof render>;
 type Language = "ca" | "es" | null;

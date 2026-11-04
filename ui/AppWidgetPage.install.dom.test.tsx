@@ -14,6 +14,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   expect,
   it,
   mock,
@@ -63,13 +64,22 @@ const settings = (
 const iframeLoading = settings.disableIframePageLoading;
 settings.disableIframePageLoading = true;
 let undoDevice = () => {};
+// happy-dom's window has onbeforeinstallprompt; a test is a browser without
+// it unless it calls asChrome(). Put happy-dom's back after each test.
+const installHandler = Object.getOwnPropertyDescriptor(
+  window,
+  "onbeforeinstallprompt",
+)!;
 let view: ReturnType<typeof render> | undefined;
+beforeEach(() => {
+  Reflect.deleteProperty(window, "onbeforeinstallprompt");
+});
 afterEach(() => {
   view?.unmount();
   view = undefined;
   undoDevice();
   undoDevice = () => {};
-  Reflect.deleteProperty(window, "onbeforeinstallprompt");
+  Object.defineProperty(window, "onbeforeinstallprompt", installHandler);
   // No test may leave an event for the next one.
   window.dispatchEvent(new Event("appinstalled"));
   window.history.replaceState(null, "", "/hello/");

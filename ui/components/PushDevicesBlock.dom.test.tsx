@@ -7,7 +7,14 @@
 // unsubscribes; a refused permission saves nothing; other devices list with
 // a remove action.
 
-import { describe, expect, it, afterAll, beforeEach } from "bun:test";
+import {
+  describe,
+  expect,
+  it,
+  afterAll,
+  afterEach,
+  beforeEach,
+} from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -93,6 +100,7 @@ function removePushApis() {
     [navigator, "serviceWorker"],
     [window, "PushManager"],
     [window, "Notification"],
+    [window, "isSecureContext"],
   ] as const) {
     delete (obj as unknown as Record<string, unknown>)[key];
   }
@@ -115,6 +123,7 @@ setApiShim(async (method, path, body) => {
   return { delivered: true };
 });
 afterAll(() => setApiShim(null));
+afterEach(removePushApis);
 
 beforeEach(() => {
   removePushApis();

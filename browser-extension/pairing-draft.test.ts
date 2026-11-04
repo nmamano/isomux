@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 
 // The popup saves drafts and the worker confirms codes, in separate contexts,
 // in any order. Session storage here can hold a write in flight.
@@ -18,6 +18,9 @@ let hold: Promise<void> | null = null;
     },
   },
 };
+afterAll(() => {
+  delete (globalThis as { chrome?: unknown }).chrome;
+});
 const { confirmPairedCode, readPairingDraft, savePairingDraft } =
   await import("./pairing-draft");
 

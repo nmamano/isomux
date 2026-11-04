@@ -8,7 +8,7 @@
 // host, so its analytics half does nothing) and then calls the function it
 // defines with a location and a referrer of its own.
 
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setUpDomTestFile } from "../ui/test-support/dom.ts";
@@ -58,6 +58,10 @@ function params(id: string): [string, string][] {
 
 beforeEach(() => {
   sessionStorage.clear();
+});
+afterEach(() => {
+  delete (window as unknown as { isomuxFirstTouch?: FirstTouch })
+    .isomuxFirstTouch;
 });
 
 describe("the first-touch signup source on isomux.com", () => {

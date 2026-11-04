@@ -126,11 +126,38 @@ function registerCompactDomMatchers(): void {
 
 registerCompactDomMatchers();
 
-function register(): void {
-  if (!GlobalRegistrator.isRegistered)
-    GlobalRegistrator.register({ url: "http://localhost/" });
+// Requests sent through happy-dom's fetch or XMLHttpRequest since the current
+// file set up. None leaves the process: a DOM test that needs a response gives
+// the file setApiShim() or a fetch stub, and the harness fails a file that
+// sends one, naming each "<METHOD> <url>". The rejection is a TypeError, as
+// from a browser that is offline, so app code takes its normal failure path.
+const refusedRequests: string[] = [];
+
+function refuse(request: { method: string; url: string }): never {
+  refusedRequests.push(`${request.method} ${request.url}`);
+  throw new TypeError(
+    `Failed to fetch ${request.url}: a DOM test sends no real requests`,
+  );
+}
+
+/** Returns true when it registered a new window. */
+function register(): boolean {
+  const fresh = !GlobalRegistrator.isRegistered;
+  if (fresh)
+    GlobalRegistrator.register({
+      url: "http://localhost/",
+      settings: {
+        fetch: {
+          interceptor: {
+            beforeAsyncRequest: async ({ request }) => refuse(request),
+            beforeSyncRequest: ({ request }) => refuse(request),
+          },
+        },
+      },
+    });
   forwardSchedulers();
   stubMissingBrowserApis();
+  return fresh;
 }
 
 // The window's timer and microtask entry points, which a closed happy-dom
@@ -217,6 +244,73 @@ function removeStubs(): void {
   stubbed.clear();
 }
 
+type Globals = Map<string, PropertyDescriptor>;
+
+function snapshotGlobals(): Globals {
+  return new Map(Object.entries(Object.getOwnPropertyDescriptors(globalThis)));
+}
+
+// Globals a module sets once per process, at its first import, and never takes
+// back: not a leak of whichever file happened to import it first.
+const PROCESS_GLOBALS = new Set([
+  // @testing-library/react, at its import in this module's body.
+  "IS_REACT_ACT_ENVIRONMENT",
+  // zod's global config and registry, at the first import of zod.
+  "__zod_globalConfig",
+  "__zod_globalRegistry",
+]);
+
+function sameDescriptor(a: PropertyDescriptor, b: PropertyDescriptor): boolean {
+  return Object.is(a.value, b.value) && a.get === b.get && a.set === b.set;
+}
+
+/** The globals that differ from `baseline`: added, removed or replaced. */
+function changedGlobals(baseline: Globals): string[] {
+  const now = snapshotGlobals();
+  const changed = new Set<string>();
+  for (const [name, descriptor] of now) {
+    const before = baseline.get(name);
+    if (!before || !sameDescriptor(before, descriptor)) changed.add(name);
+  }
+  for (const name of baseline.keys()) if (!now.has(name)) changed.add(name);
+  return [...changed].filter((name) => !PROCESS_GLOBALS.has(name)).sort();
+}
+
+function restoreGlobals(baseline: Globals, names: string[]): void {
+  const globals = globalThis as Record<string, unknown>;
+  for (const name of names) {
+    const descriptor = baseline.get(name);
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    else delete globals[name];
+  }
+}
+
+/** The test file that called into this module: the first frame outside it. */
+function callerPath(): string {
+  for (const line of (new Error().stack ?? "").split("\n").slice(1)) {
+    const path = /\(?((?:file:\/\/)?\/[^\s()]+?):\d+:\d+\)?$/.exec(line)?.[1];
+    if (path && path !== import.meta.path) return path;
+  }
+  return "an unknown test file";
+}
+
+/** One DOM test file, from its setUpDomTestFile() to the end of its teardown. */
+type DomFile = {
+  path: string;
+  /** The globals before this file registered a window. */
+  before: Globals;
+  /** The globals once the window was up, with the harness's own stubs. */
+  window: Globals;
+  /** What stubGlobal() replaced, by name: the descriptor before its first call. */
+  stubs: Map<string, PropertyDescriptor | undefined>;
+};
+
+let currentFile: DomFile | null = null;
+let lastDomFile: string | null = null;
+
+// Bun's own globals, before this module registers the first window.
+const bunGlobals = snapshotGlobals();
+
 // This module's own body is the earliest point at which a DOM can exist, and it
 // runs before the importing test file's body, so registering here and THEN
 // resolving @testing-library/react keeps that library's evaluation at module
@@ -234,8 +328,48 @@ const { cleanup } = await import("@testing-library/react");
 export const DOM_TEST_CAP_MS = 5000;
 
 /**
+ * Sets a global for the rest of this test file. The harness puts the value
+ * that was there before back when the file ends, before it checks for leaks.
+ * Call it after setUpDomTestFile().
+ */
+export function stubGlobal(name: string, value: unknown): void {
+  if (!currentFile)
+    throw new Error(
+      `stubGlobal("${name}") needs setUpDomTestFile() first, in the same file`,
+    );
+  if (!currentFile.stubs.has(name))
+    currentFile.stubs.set(
+      name,
+      Object.getOwnPropertyDescriptor(globalThis, name),
+    );
+  Object.defineProperty(globalThis, name, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
+function restoreStubGlobals(file: DomFile): void {
+  const globals = globalThis as Record<string, unknown>;
+  for (const [name, descriptor] of file.stubs) {
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    else delete globals[name];
+  }
+  file.stubs.clear();
+}
+
+/**
  * Registers happy-dom for one test file and wires its lifecycle: React cleanup
  * after every test, unregistration after the file, and the wall-clock cap.
+ *
+ * At the end of the file the harness puts back every global the file changed,
+ * and fails the file, naming each one, and each request it sent through
+ * happy-dom. It also repairs, and fails on, what an earlier file left behind
+ * when this file starts. It cannot see a global that a file's own afterAll
+ * writes after the harness's afterAll; the next DOM file reports that one.
+ * When the harness fails the file, bun 1.4.4 skips the file's later afterAll
+ * hooks, as it does after any afterAll that throws.
  *
  * Call it once, in the module body, before any `await import(...)` of UI code.
  * The clock starts here and includes the awaited UI imports below the call.
@@ -245,37 +379,81 @@ export function setUpDomTestFile({
   capMs = DOM_TEST_CAP_MS,
 }: { capMs?: number } = {}): void {
   const startedAt = performance.now();
+  const path = callerPath();
+  const problems: string[] = [];
+  let before = bunGlobals;
+  // Registered already only in the first DOM file of the process, by this
+  // module's body, so nothing ran in between.
+  if (!GlobalRegistrator.isRegistered) {
+    const left = changedGlobals(bunGlobals);
+    if (left.length) {
+      restoreGlobals(bunGlobals, left);
+      problems.push(
+        `An earlier file in this bun process left these globals changed: ${left.join(", ")}. ` +
+          `The harness put Bun's back. ${path} did not change them: look at ` +
+          (lastDomFile
+            ? `${lastDomFile}, the last DOM file, or a non-DOM file that ran after it.`
+            : `a non-DOM file that ran before this one.`),
+      );
+    }
+    before = snapshotGlobals();
+  }
+  refusedRequests.length = 0;
   register();
+  const file: DomFile = {
+    path,
+    before,
+    window: snapshotGlobals(),
+    stubs: new Map(),
+  };
+  currentFile = file;
   // The body call above covers bun's current load-then-run order. This covers a
   // run that loads every file before executing any test, where another file's
   // afterAll would have unregistered in between.
-  beforeAll(register);
+  beforeAll(() => {
+    if (register()) file.window = snapshotGlobals();
+  });
   afterEach(cleanup);
   afterAll(async () => {
     const elapsedMs = performance.now() - startedAt;
-    // try/finally, not sequence: a file that blows its budget still has to hand
-    // Bun's globals back to whatever runs next.
+    if (elapsedMs > capMs)
+      problems.push(
+        `DOM test file took ${Math.round(elapsedMs)} ms, over the ${capMs} ms cap. ` +
+          `Cut renders or move the assertion to a plain unit test.`,
+      );
+    const changed = new Set<string>();
+    // Nested try/finally, so the globals come back even when unregister
+    // throws: nothing else hands Bun's globals back to whatever runs next.
     try {
-      if (elapsedMs > capMs)
-        throw new Error(
-          `DOM test file took ${Math.round(elapsedMs)} ms, over the ${capMs} ms cap. ` +
-            `Cut renders or move the assertion to a plain unit test.`,
-        );
+      restoreStubGlobals(file);
+      // React's scheduler can still hold a task after cleanup, and it reads
+      // window when it runs. Run it while the DOM exists: in a process with
+      // no file after this one it ran after unregister and failed the file
+      // (ui/App.boot.dom.test.tsx, 2026-10-07).
+      await new Promise((resolve) => setImmediate(resolve));
+      // While the window is up: unregister puts its own keys back, so a
+      // window global the file replaced is visible only here.
+      for (const name of changedGlobals(file.window)) changed.add(name);
+      if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
     } finally {
-      // Nested, so the stubs come off even when the cap throws AND when
-      // unregister itself does. They are ours, not happy-dom's, and nothing
-      // else will clean them up.
-      try {
-        // React's scheduler can still hold a task after cleanup, and it reads
-        // window when it runs. Run it while the DOM exists: in a process with
-        // no file after this one it ran after unregister and failed the file
-        // (ui/App.boot.dom.test.tsx, 2026-10-07).
-        await new Promise((resolve) => setImmediate(resolve));
-        if (GlobalRegistrator.isRegistered)
-          await GlobalRegistrator.unregister();
-      } finally {
-        removeStubs();
-      }
+      removeStubs();
+      const left = changedGlobals(file.before);
+      restoreGlobals(file.before, left);
+      for (const name of left) changed.add(name);
+      currentFile = null;
+      lastDomFile = path;
     }
+    if (changed.size)
+      problems.push(
+        `${path} left these globals changed: ${[...changed].sort().join(", ")}. ` +
+          `Put each back before the file ends (in afterEach or in the test), or set it with stubGlobal(). ` +
+          `A restore in the file's own afterAll comes too late: bun runs it after the harness's.`,
+      );
+    if (refusedRequests.length)
+      problems.push(
+        `${path} sent requests through happy-dom, which DOM tests refuse: ${refusedRequests.join(", ")}. ` +
+          `Give the file setApiShim() or a fetch stub.`,
+      );
+    if (problems.length) throw new Error(problems.join("\n\n"));
   });
 }

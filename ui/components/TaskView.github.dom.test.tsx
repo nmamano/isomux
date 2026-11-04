@@ -16,6 +16,14 @@ const { formatIssueData } = await import("../../shared/github-issue.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 
 afterEach(() => setApiShim(async () => ({})));
+// The issue chip opens github.com in a new tab: happy-dom would load it.
+(
+  window as unknown as {
+    happyDOM: {
+      settings: { navigation: { disableChildPageNavigation: boolean } };
+    };
+  }
+).happyDOM.settings.navigation.disableChildPageNavigation = true;
 afterAll(() => setApiShim(null));
 
 const external = {

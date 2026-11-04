@@ -3,7 +3,7 @@
 // iPhone shows the Share > Add to Home Screen steps. No entry in an installed
 // window or in a browser with no offer.
 
-import { afterEach, beforeAll, expect, it, mock } from "bun:test";
+import { afterEach, beforeAll, beforeEach, expect, it, mock } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { render, fireEvent, act } = await import("@testing-library/react");
@@ -26,7 +26,16 @@ const DESKTOP = {
 
 let undoDevice = () => {};
 let undoMedia = () => {};
+// happy-dom's window has onbeforeinstallprompt; a test is a browser without
+// it unless it calls asChrome(). Put happy-dom's back after each test.
+const installHandler = Object.getOwnPropertyDescriptor(
+  window,
+  "onbeforeinstallprompt",
+)!;
 let view: ReturnType<typeof render> | undefined;
+beforeEach(() => {
+  Reflect.deleteProperty(window, "onbeforeinstallprompt");
+});
 afterEach(() => {
   view?.unmount();
   view = undefined;
@@ -34,7 +43,7 @@ afterEach(() => {
   undoDevice = () => {};
   undoMedia();
   undoMedia = () => {};
-  Reflect.deleteProperty(window, "onbeforeinstallprompt");
+  Object.defineProperty(window, "onbeforeinstallprompt", installHandler);
   window.dispatchEvent(new Event("appinstalled"));
   localStorage.clear();
 });

@@ -2,7 +2,7 @@
 // each room offers its front and its back room, each disabled only when that
 // area is full. No button shows an agent count. Every room but the lobby has
 // a back room, with no field for it (task e2fb9fa0).
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -16,6 +16,9 @@ const { BACK_ROOM_SEATS, DESK_COUNT, firstFreeBackSeat } =
   await import("../../shared/desks.ts");
 
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+// The dialog loads the agent's memory and checks its folder on mount.
+beforeEach(() => setApiShim(async () => ({})));
+afterAll(() => setApiShim(null));
 const EN = translatorFor("en");
 
 const frontFull = { ...room, id: "r2", name: "Front Full" };
@@ -114,7 +117,7 @@ describe("Move to room buttons", () => {
         { targetRoomId: "r2", desk: null },
       ]);
     } finally {
-      setApiShim(null);
+      setApiShim(async () => ({}));
     }
   });
 

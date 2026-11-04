@@ -3,7 +3,7 @@
 // the OS: a light preference gets "light", anything else the dark default.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { setUpDomTestFile } from "./test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 
@@ -16,12 +16,12 @@ const { DEFAULT_THEME_ID, THEMES, emitThemesCss, getThemeById } =
 const PICK_KEY = "isomux-theme";
 
 function stubOsPreference(light: boolean) {
-  window.matchMedia = ((query: string) => ({
+  stubGlobal("matchMedia", (query: string) => ({
     matches: light && query === "(prefers-color-scheme: light)",
     media: query,
     addEventListener: () => {},
     removeEventListener: () => {},
-  })) as unknown as typeof window.matchMedia;
+  }));
 }
 
 function mountedTheme(): string | null {

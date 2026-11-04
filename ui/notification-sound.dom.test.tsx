@@ -3,7 +3,7 @@
 // so a context exists only once a room can sound, and it runs only while a
 // chime plays.
 import { afterAll, beforeEach, expect, it } from "bun:test";
-import { setUpDomTestFile } from "./test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "./test-support/dom.ts";
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
@@ -114,7 +114,7 @@ const lastOscillator = () => contexts.at(-1)!.oscillators.at(-1)!;
 const settle = () => act(async () => {});
 
 const g = globalThis as { AudioContext?: unknown };
-const browserAudio = g.AudioContext;
+stubGlobal("AudioContext", FakeAudioContext);
 let hidden = false;
 // Kept: the DOM harness unregisters the global document before this file's
 // afterAll runs.
@@ -126,7 +126,6 @@ Object.defineProperty(doc, "hidden", {
 const noop = () => {};
 setApiShim(async () => ({}));
 afterAll(() => {
-  g.AudioContext = browserAudio;
   delete (doc as { hidden?: boolean }).hidden;
   setApiShim(null);
   setShim(noop);

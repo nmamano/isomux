@@ -4,7 +4,7 @@
 // plays at a time. Every failure shows a line that offers the browser voices,
 // never silence (Nil, 2026-10-21: the speech API shuts down 2027-01-06).
 import { afterAll, beforeEach, expect, it } from "bun:test";
-import { setUpDomTestFile } from "../test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
@@ -40,7 +40,6 @@ let browserSpoke = 0;
 // when the tap did not unlock the element.
 let refusePieces = false;
 
-const realFetch = globalThis.fetch;
 const proto = window.HTMLMediaElement.prototype;
 // Descriptors, so the originals go back exactly as they were.
 // An absent own property is deleted again, not defined.
@@ -87,8 +86,7 @@ const failure = (status: number, code: string, extra = {}) =>
   Response.json({ error: { code, message: "x", ...extra } }, { status });
 
 function install(opts: { speechSynthesis: boolean }) {
-  globalThis.fetch = fakeFetch as typeof fetch;
-  window.fetch = fakeFetch as typeof fetch;
+  stubGlobal("fetch", fakeFetch);
   proto.play = function (this: HTMLMediaElement) {
     plays.push({ el: this, src: this.src });
     if (refusePieces && this.src.startsWith("blob:")) {
@@ -108,34 +106,30 @@ function install(opts: { speechSynthesis: boolean }) {
   URL.revokeObjectURL = (url: string) => {
     revoked.push(url);
   };
-  Object.defineProperty(globalThis, "SpeechSynthesisUtterance", {
-    configurable: true,
-    writable: true,
-    value: class {
+  stubGlobal(
+    "SpeechSynthesisUtterance",
+    class {
       lang = "";
       voice = null;
       onend = null;
       onerror = null;
       constructor(public text: string) {}
     },
-  });
-  if (opts.speechSynthesis) {
-    Object.defineProperty(globalThis, "speechSynthesis", {
-      configurable: true,
-      writable: true,
-      value: {
-        getVoices: () => [],
-        speak() {
-          browserSpoke++;
-        },
-        cancel() {},
-        addEventListener() {},
-        removeEventListener() {},
-      },
-    });
-  } else {
-    delete (globalThis as unknown as Record<string, unknown>).speechSynthesis;
-  }
+  );
+  stubGlobal(
+    "speechSynthesis",
+    opts.speechSynthesis
+      ? {
+          getVoices: () => [],
+          speak() {
+            browserSpoke++;
+          },
+          cancel() {},
+          addEventListener() {},
+          removeEventListener() {},
+        }
+      : undefined,
+  );
 }
 
 beforeEach(() => {
@@ -156,14 +150,10 @@ beforeEach(() => {
 
 afterAll(() => {
   setApiShim(null);
-  globalThis.fetch = realFetch;
   for (const { target, name, descriptor } of saved) {
     if (descriptor) Object.defineProperty(target, name, descriptor);
     else delete (target as unknown as Record<string, unknown>)[name];
   }
-  delete (globalThis as unknown as Record<string, unknown>).speechSynthesis;
-  delete (globalThis as unknown as Record<string, unknown>)
-    .SpeechSynthesisUtterance;
 });
 
 function page(

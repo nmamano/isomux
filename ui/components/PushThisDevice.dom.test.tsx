@@ -93,6 +93,7 @@ function removePushApis() {
     [navigator, "serviceWorker"],
     [window, "PushManager"],
     [window, "Notification"],
+    [window, "isSecureContext"],
   ] as const) {
     delete (obj as unknown as Record<string, unknown>)[key];
   }

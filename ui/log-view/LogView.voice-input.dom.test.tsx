@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from "bun:test";
-import { setUpDomTestFile } from "../test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
@@ -77,15 +77,8 @@ class WorkingRecognition {
 }
 
 function installRecognition(value: unknown) {
-  Object.defineProperty(window, "SpeechRecognition", {
-    configurable: true,
-    writable: true,
-    value,
-  });
-  Object.defineProperty(window, "isSecureContext", {
-    configurable: true,
-    value: true,
-  });
+  stubGlobal("SpeechRecognition", value);
+  stubGlobal("isSecureContext", true);
 }
 
 function page(draft = "") {
@@ -116,10 +109,7 @@ function micButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
-afterAll(() => {
-  setApiShim(null);
-  delete (globalThis as unknown as Record<string, unknown>).SpeechRecognition;
-});
+afterAll(() => setApiShim(null));
 
 it("can start on the second click after the first recognition start throws", () => {
   let throwingStarts = 0;

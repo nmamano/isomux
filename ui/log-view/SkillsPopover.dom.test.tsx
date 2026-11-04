@@ -1,5 +1,5 @@
 import { afterAll, expect, it, mock } from "bun:test";
-import { setUpDomTestFile } from "../test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
@@ -32,10 +32,7 @@ function installVisualViewport({
         listener(new Event(type));
     },
   };
-  Object.defineProperty(window, "visualViewport", {
-    configurable: true,
-    value: viewport,
-  });
+  stubGlobal("visualViewport", viewport);
   return viewport;
 }
 

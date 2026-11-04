@@ -4,7 +4,7 @@
 // that only suspends the context leaves every queued note audible, because
 // those notes play the moment the context runs again.
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-import { setUpDomTestFile } from "../../test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "../../test-support/dom.ts";
 setUpDomTestFile();
 const { act, fireEvent, render, renderHook } =
   await import("@testing-library/react");
@@ -106,7 +106,7 @@ class FakeAudioContext {
   }
 }
 
-(globalThis as { AudioContext?: unknown }).AudioContext = FakeAudioContext;
+stubGlobal("AudioContext", FakeAudioContext);
 
 const reaches = (from: FakeNode, to: FakeNode, seen = new Set<FakeNode>()) => {
   if (from === to) return true;

@@ -227,12 +227,25 @@ describe("where the chat reads a selection", () => {
     });
     // happy-dom has no layout: give the selection and the chat a box.
     const box = new DOMRect(10, 10, 100, 20);
-    const rects = Range.prototype.getClientRects;
-    const bounds = HTMLElement.prototype.getBoundingClientRect;
+    // Descriptors: happy-dom's classes outlive the window, and an assignment
+    // back would leave an own getBoundingClientRect on HTMLElement.prototype
+    // that hides Element's for every later file in the process.
+    const rects = Object.getOwnPropertyDescriptor(
+      Range.prototype,
+      "getClientRects",
+    );
+    const bounds = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "getBoundingClientRect",
+    );
     Range.prototype.getClientRects = () =>
       Object.assign([box], { item: () => box }) as unknown as DOMRectList;
     HTMLElement.prototype.getBoundingClientRect = () =>
       new DOMRect(0, 0, 500, 500);
+    const putBack = (target: object, name: string, d?: PropertyDescriptor) => {
+      if (d) Object.defineProperty(target, name, d);
+      else Reflect.deleteProperty(target, name);
+    };
     try {
       const start = textNodeOf(view.container, "Runs in");
       const end = textNodeOf(view.container, "as shown.");
@@ -244,8 +257,8 @@ describe("where the chat reads a selection", () => {
         expect(seen?.text).toBe(PARAGRAPH);
       });
     } finally {
-      Range.prototype.getClientRects = rects;
-      HTMLElement.prototype.getBoundingClientRect = bounds;
+      putBack(Range.prototype, "getClientRects", rects);
+      putBack(HTMLElement.prototype, "getBoundingClientRect", bounds);
     }
   });
 });

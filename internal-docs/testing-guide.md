@@ -149,10 +149,17 @@ const { App } = await import("./App.tsx");
    hook fires. Registering at import time inside `ui/test-support/dom.ts` is not
    a substitute either: bun caches that module, so the side effect serves the
    first DOM file only.
-2. Leave the unregistration in place. happy-dom replaces
-   `globalThis.WebSocket`, and `server/test-support/harness.ts` constructs one.
-   A DOM file that keeps its globals made three tests in that harness fail in
-   the same `bun test` process.
+2. Leave every global as you found it. Files share one `bun test` process,
+   and a closed window's `fetch` left on `globalThis` failed 71 server tests
+   later in it (task 222af307). Set a global with `stubGlobal(name, value)`,
+   which the harness puts back, or restore it in `afterEach`. A restore in the
+   file's own `afterAll` is too late: bun runs it after the harness's, once the
+   window is closed. At the end of each file the harness puts back what the
+   file changed and fails the file, naming each global. When a file starts it
+   repairs what an earlier file left, and fails naming the last DOM file. A
+   harness failure skips the file's later `afterAll` hooks (bun 1.4.4).
+   Prototypes are not checked: restore a patched method by its descriptor, or
+   an assignment back leaves an own property that outlives the window.
 3. Use the queries `render()` returns. Do not use the module-level `screen`.
    `screen` binds to the `document` that existed when `@testing-library/dom` was
    first evaluated; the next DOM file registers a new window, and `screen` then
@@ -165,7 +172,11 @@ const { App } = await import("./App.tsx");
    failing `toBeNull()` assertion in about 6 seconds. The compact matcher wrote
    598 bytes. `toEqual` and `toStrictEqual` still use Bun's unbounded DOM
    serialization, so compare node identity with `toBe`.
-5. Every file carries a 5 s wall-clock cap, asserted in its own `afterAll` (a
+5. No request leaves the process. The harness refuses each request sent
+   through happy-dom's `fetch` or `XMLHttpRequest` with a `TypeError`, as an
+   offline browser does, and fails the file naming each one. Give the file
+   `setApiShim()` or a fetch stub.
+6. Every file carries a 5 s wall-clock cap, asserted in its own `afterAll` (a
    throwing `afterAll` fails the run). The clock starts at
    `setUpDomTestFile()`, so it measures the file, including its awaited imports, but not bun's startup: the App
    file reads 2251 ms in-file and about 3 s as a whole invocation.
@@ -177,9 +188,8 @@ throws inside a once-only listener, and the error reads as if the click failed.
 Add to that list only what a test actually trips over, only when it is absent,
 and always tracked: `GlobalRegistrator` captures the global property set when it
 registers, so a stub added afterwards survives its unregister and only the
-harness can take it back off. `ui/components/NavActions.dom.test.tsx` registers
-an `afterAll` after the harness's own that asserts the stub is gone, which is
-what keeps that true.
+harness can take it back off. `ui/test-support/dom-leaks.test.ts` checks that
+the next file sees Bun's own globals.
 
 The harness also keeps the window's timers reachable from modules loaded in an
 earlier file. bun evaluates a module once per process, so react-dom keeps the

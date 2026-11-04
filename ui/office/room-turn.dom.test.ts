@@ -1,35 +1,27 @@
 // The room turn on a wall-door click (task fee198a0): it runs for a fixed
 // time (task 8f71e886), and every way a turn ends leaves only the live scene.
 // requestAnimationFrame is a manual queue, so frames run at chosen times.
-import { afterAll, beforeEach, describe, expect, it } from "bun:test";
-import { setUpDomTestFile } from "../test-support/dom.ts";
+import { beforeEach, describe, expect, it } from "bun:test";
+import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const { beginRoomTurn, finishRoomTurn, cancelRoomTurn } =
   await import("./room-turn.ts");
 
-const realRaf = globalThis.requestAnimationFrame;
-const realCaf = globalThis.cancelAnimationFrame;
-const realMatchMedia = globalThis.matchMedia;
 let frames = new Map<number, FrameRequestCallback>();
 let nextFrame = 1;
 let reduce = false;
-globalThis.requestAnimationFrame = (cb) => {
+stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
   frames.set(nextFrame, cb);
   return nextFrame++;
-};
-globalThis.cancelAnimationFrame = (id) => void frames.delete(id);
-globalThis.matchMedia = ((query: string) => ({
+});
+stubGlobal("cancelAnimationFrame", (id: number) => void frames.delete(id));
+stubGlobal("matchMedia", (query: string) => ({
   matches: reduce && query.includes("reduce"),
   media: query,
   addEventListener() {},
   removeEventListener() {},
-})) as unknown as typeof matchMedia;
-afterAll(() => {
-  globalThis.requestAnimationFrame = realRaf;
-  globalThis.cancelAnimationFrame = realCaf;
-  globalThis.matchMedia = realMatchMedia;
-});
+}));
 
 /** Runs the frames queued so far, as if `ms` passed since now. */
 function flush(ms = 0) {

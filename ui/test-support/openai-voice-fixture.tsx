@@ -10,6 +10,7 @@ import { act } from "@testing-library/react";
 import { createElement, useReducer } from "react";
 import { LogView } from "../log-view/LogView.tsx";
 import { selfUserRecord, stateWithSelfUser } from "./language-fixture.tsx";
+import { stubGlobal } from "./dom.ts";
 import { StateCtx, DispatchCtx, reducer } from "../store.tsx";
 import { LanguageProvider } from "../i18n.tsx";
 import { setApiShim } from "../api.ts";
@@ -190,26 +191,16 @@ async function fakeFetch(input: unknown, init?: RequestInit) {
   return reply();
 }
 
-const realFetch = globalThis.fetch;
 export const realSetTimeout = window.setTimeout;
 
 export function installBrowser(opts: { speechRecognition: boolean }) {
-  const set = (name: string, value: unknown) =>
-    Object.defineProperty(window, name, {
-      configurable: true,
-      writable: true,
-      value,
-    });
-  set(
+  stubGlobal(
     "SpeechRecognition",
     opts.speechRecognition ? CountingRecognition : undefined,
   );
-  set("webkitSpeechRecognition", undefined);
-  set("MediaRecorder", FakeRecorder);
-  Object.defineProperty(window, "isSecureContext", {
-    configurable: true,
-    value: true,
-  });
+  stubGlobal("webkitSpeechRecognition", undefined);
+  stubGlobal("MediaRecorder", FakeRecorder);
+  stubGlobal("isSecureContext", true);
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
     value: {
@@ -231,12 +222,11 @@ export function installBrowser(opts: { speechRecognition: boolean }) {
       },
     },
   });
-  globalThis.fetch = fakeFetch as typeof fetch;
-  window.fetch = fakeFetch as typeof fetch;
+  stubGlobal("fetch", fakeFetch);
 }
 
-// Resets the stand-ins before each test and gives the browser back after the
-// file. Call it once, in the test file's body.
+// Resets the stand-ins before each test. The render harness gives the
+// browser globals back after the file (stubGlobal). Call it once, in the test file's body.
 export function setUpOpenAIVoice(): void {
   beforeEach(() => {
     voice.uploads = [];
@@ -275,13 +265,7 @@ export function setUpOpenAIVoice(): void {
     window.setTimeout = realSetTimeout;
   });
 
-  afterAll(() => {
-    setApiShim(null);
-    globalThis.fetch = realFetch;
-    for (const name of ["SpeechRecognition", "MediaRecorder"]) {
-      delete (globalThis as unknown as Record<string, unknown>)[name];
-    }
-  });
+  afterAll(() => setApiShim(null));
 }
 
 // A live store (the real reducer), so the draft the mic writes reaches the

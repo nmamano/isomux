@@ -2,7 +2,7 @@
 // (ui/office/office-install*.dom.test.tsx). Import it with await import after
 // setUpDomTestFile(), and call setUpOfficeInstallFile() in the file body.
 
-import { afterEach, beforeAll, mock } from "bun:test";
+import { afterEach, beforeAll, beforeEach, mock } from "bun:test";
 import { fireEvent, render } from "@testing-library/react";
 import { createElement } from "react";
 import { onLanguage } from "./language-fixture.tsx";
@@ -32,7 +32,16 @@ let view: ReturnType<typeof render> | undefined;
 // Each file has its own window: hold its install event as ui/index.tsx does
 // at boot, and leave nothing for the next test.
 export function setUpOfficeInstallFile(): void {
+  // happy-dom's window has onbeforeinstallprompt; a test is a browser without
+  // it unless it calls asChrome(). Put happy-dom's back after each test.
+  const installHandler = Object.getOwnPropertyDescriptor(
+    window,
+    "onbeforeinstallprompt",
+  )!;
   beforeAll(() => captureInstallPrompt(window));
+  beforeEach(() => {
+    Reflect.deleteProperty(window, "onbeforeinstallprompt");
+  });
   afterEach(() => {
     view?.unmount();
     view = undefined;
@@ -40,7 +49,7 @@ export function setUpOfficeInstallFile(): void {
     undoDevice = () => {};
     undoPointer();
     undoPointer = () => {};
-    Reflect.deleteProperty(window, "onbeforeinstallprompt");
+    Object.defineProperty(window, "onbeforeinstallprompt", installHandler);
     window.dispatchEvent(new Event("appinstalled"));
     localStorage.clear();
   });

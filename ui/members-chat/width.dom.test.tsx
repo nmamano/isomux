@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "bun:test";
-import { setUpDomTestFile } from "../test-support/dom.ts";
+import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
 const { createElement } = await import("react");
@@ -47,8 +47,7 @@ function office(mobile = false) {
 beforeEach(() => localStorage.clear());
 // Tests below move the window width; put it back even when one fails.
 const initialWidth = window.innerWidth;
-const setViewport = (value: number) =>
-  Object.defineProperty(window, "innerWidth", { configurable: true, value });
+const setViewport = (value: number) => stubGlobal("innerWidth", value);
 afterEach(() => setViewport(initialWidth));
 it("keeps the panel and zoom inset together, remembers keyboard resizing, and clamps after a viewport resize", () => {
   const view = render(office());

@@ -51,6 +51,14 @@ beforeEach(() => {
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
+  // The widget's handlers for its own onclick attributes, on window.
+  for (const name of [
+    "__chatOpen",
+    "__chatClose",
+    "__chatSend",
+    "__chatSubmit",
+  ])
+    delete (window as unknown as Record<string, unknown>)[name];
 });
 
 function openChat(lang: string): string {

@@ -6,7 +6,7 @@
 // page installs, so the item shows the steps in place instead: opening the
 // app page there loaded the app only to show them (Nil, 2026-10-30).
 
-import { afterAll, afterEach, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -45,13 +45,22 @@ setApiShim(async (method, path) => {
   throw new Error(`Unexpected request: ${method} ${path}`);
 });
 let undoDevice = () => {};
+// happy-dom's window has onbeforeinstallprompt; a test is a browser without
+// it unless it calls asChrome(). Put happy-dom's back after each test.
+const installHandler = Object.getOwnPropertyDescriptor(
+  window,
+  "onbeforeinstallprompt",
+)!;
 let view: ReturnType<typeof render> | undefined;
+beforeEach(() => {
+  Reflect.deleteProperty(window, "onbeforeinstallprompt");
+});
 afterEach(() => {
   view?.unmount();
   view = undefined;
   undoDevice();
   undoDevice = () => {};
-  Reflect.deleteProperty(window, "onbeforeinstallprompt");
+  Object.defineProperty(window, "onbeforeinstallprompt", installHandler);
 });
 afterAll(() => setApiShim(null));
 

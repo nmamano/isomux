@@ -187,16 +187,20 @@ describe("stampUiBuild", () => {
   // fold a compare against the placeholder before the stamp runs.
   describe("the id the running bundle reports", () => {
     const PAGE_ID = "aaaaaaaaaaaaaaaa";
-    let realDocument: unknown;
+    let realDocument: PropertyDescriptor | undefined;
     beforeEach(() => {
-      realDocument = (globalThis as { document?: unknown }).document;
+      realDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
       // A page whose meta holds some other build.
       (globalThis as { document?: unknown }).document = {
         querySelector: () => ({ getAttribute: () => PAGE_ID }),
       };
     });
+    // Absent before is absent after: a document left as undefined still
+    // reads as a DOM to the render harness's next file.
     afterEach(() => {
-      (globalThis as { document?: unknown }).document = realDocument;
+      if (realDocument)
+        Object.defineProperty(globalThis, "document", realDocument);
+      else delete (globalThis as { document?: unknown }).document;
     });
 
     async function bundleStage(): Promise<string> {
