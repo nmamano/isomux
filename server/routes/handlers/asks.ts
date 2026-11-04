@@ -97,6 +97,10 @@ import {
 
 export interface AsksDeps {
   store: AskStore;
+  // Whether a sudo run of the agent holds its sudo requests (task
+  // 43a28eed): from sudo's password check to the run's end. The agent's
+  // withdraw of a sudo request waits for it.
+  sudoRunInProgress?(agentId: string): boolean;
   // An ask an agent opened to a member is the agent writing first: a member
   // with a permission pack may then reply to it (agentManager.recordMemberHeardFrom).
   recordMemberHeardFrom?(userId: string, agentId: string): void;
@@ -379,6 +383,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     fail(422, "invalid_priority", "priority must be one of P0, P1, P2, P3, P4");
   const secretRequest = (message: string) =>
     fail(409, "secret_request", message);
+  const sudoRequest = (message: string) => fail(409, "sudo_request", message);
   const tooManyAsks = () =>
     fail(
       429,
@@ -562,6 +567,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         secretRequest(
           "This ask is a secret request. Save or decline it instead.",
         ),
+      );
+    if (entry.sudo)
+      return refuse(
+        sudoRequest("This ask is a sudo request. Run or decline it instead."),
       );
     if (delivering.has(entry.id))
       return refuse(
@@ -895,6 +904,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return secretRequest(
         "A secret request cannot be edited. Delete it to withdraw it.",
       );
+    if (prev.sudo)
+      return sudoRequest(
+        "A sudo request cannot be edited. Delete it to withdraw it.",
+      );
     // A step and its link are fixed after create (task c71cb60f).
     if (body.step !== undefined)
       return fail(400, "invalid_request", "an ask's step cannot be edited");
@@ -1003,7 +1016,14 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     ),
 
     "agents.deleteAsk": guarded((ctx) => {
-      if (!own(ctx.params.id, ctx.params.askId)) return notFound();
+      const entry = own(ctx.params.id, ctx.params.askId);
+      if (!entry) return notFound();
+      if (entry.sudo && deps.sudoRunInProgress?.(entry.agentId))
+        return fail(
+          409,
+          "run_in_progress",
+          "A sudo command of this agent is running. Try again when it ends.",
+        );
       return store.remove(ctx.params.askId, { outcome: "withdrawn" })
         ? noContent()
         : notFound();

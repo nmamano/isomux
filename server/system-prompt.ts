@@ -124,7 +124,7 @@ Isomux gives you features beyond your own tools. When a situation below matches,
 - You made or found a file, image, or plot the member should see: show it in chat. Page: \`chat-affordances\`.
 - You changed code and the member should review it: show the diff in chat. Page: \`chat-affordances\`.
 - The member wants to look at or edit a file with you: open it in their editor panel. Page: \`chat-affordances\`.
-- A command on the server needs the member's own input, such as a sudo password, or the member wants to run it: put it in their terminal panel. Run other commands yourself. Page: \`chat-affordances\`.
+- A command needs sudo: open a sudo request (page \`sudo-requests\`). For one that needs the member's input, or that they want to run, use their terminal panel. Run others yourself. Page: \`chat-affordances\`.
 - The member should see a web page you are working on: show a screenshot of it. Page: \`chat-affordances\`.
 - You need to know who else is in the office, what another agent works on, or whether it is busy or stuck: look it up. Page: \`discovery\`.
 - A member other than your manager speaks to you and their preferences matter: read their profile. Page: \`discovery\`.

@@ -1859,6 +1859,9 @@ Coses que pots fer per ell:
   "asks.closedDone": "Tancada: el pas està fet",
   "asks.closedSaved": "Secret desat",
   "asks.closedDeclined": "Petició de secret rebutjada",
+  "asks.closedSudoRan": "S'ha executat com a root",
+  "asks.closedSudoDeclined": "Sol·licitud sudo rebutjada",
+  "asks.closedSudoRefused": "Tancada: sudo ha rebutjat tots els intents",
   "asks.closedAgentRemoved": "Tancada: s'ha eliminat l'agent",
   "apiCall.tasks.listOpen": "Llistar tasques obertes",
   "apiCall.tasks.listOpenGlobal":
@@ -1920,6 +1923,7 @@ Coses que pots fer per ell:
   "apiCall.agents.suggestCommand": "Suggerir una ordre de terminal",
   "apiCall.agents.suggestCommandDetail": "Suggerir una ordre de terminal",
   "apiCall.agents.requestSecret": "Demanar un secret",
+  "apiCall.agents.requestSudo": "Demanar executar una ordre com a root",
   "apiCall.agents.context": "Consultar l'ús del context",
   "apiCall.agents.subscription": "Consultar l'ús de la subscripció",
   "apiCall.agents.logsSearch": "Cercar als registres de conversa",
@@ -2128,6 +2132,22 @@ Coses que pots fer per ell:
     "L'agent ha vist un fitxer adjuntat abans en aquest xat. Fes clic per mostrar-lo.",
   "cards.editRequest.open": "Obre a l'editor",
   "cards.editRequest.openHint": "Obre {path} al plafó lateral de l'editor",
+  "cards.sudoRequest.title": "S'executa com a root",
+  "cards.sudoRequest.byAgent": "De {agent}",
+  "cards.sudoRequest.byAgentOf": "De {agent}, agent de {manager}",
+  "cards.sudoRequest.cwd": "A",
+  "cards.sudoRequest.password": "Contrasenya per a sudo",
+  "cards.sudoRequest.hint":
+    "La contrasenya va només a sudo: no es desa i l'agent no la veu mai. L'agent rep el codi de sortida i la sortida. Un reinici del servidor atura l'ordre.",
+  "cards.sudoRequest.run": "Executar",
+  "cards.sudoRequest.running": "S'està executant…",
+  "cards.sudoRequest.runFailed": "No s'ha pogut executar l'ordre.",
+  "cards.sudoRequest.notStarted":
+    "sudo no ha executat l'ordre. Intents restants: {attempts}. sudo ha dit: {reason}",
+  "cards.sudoRequest.invalidPassword":
+    "Escriu la contrasenya en una sola línia.",
+  "cards.sudoRequest.runInProgress":
+    "Hi ha una ordre sudo d'aquest agent en execució. Torna-ho a provar quan acabi.",
   "cards.secretRequest.title": "Sol·licitud de secret: {name}",
   "cards.secretRequest.personal":
     "Es desa als secrets del responsable d'aquest agent.",
@@ -3198,6 +3218,18 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.browserPaired": "Chrome vinculat.",
   "systemEntries.stepAsk.githubLinked": "Sala enllaçada amb GitHub.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
+  "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
+  "systemEntries.sudoRequest.exited":
+    "Ha acabat amb el codi de sortida {code}: {command}",
+  "systemEntries.sudoRequest.timedOut":
+    "Aturat després de 30 minuts: {command}",
+  "systemEntries.sudoRequest.killed": "Acabat per {signal}: {command}",
+  "systemEntries.sudoRequest.lost": "Resultat desconegut: {command}",
+  "systemEntries.sudoRequest.lockedOut":
+    "Sol·licitud sudo tancada després de {attempts} intents rebutjats: {command}",
+  "systemEntries.sudoRequest.declined": "Sol·licitud sudo rebutjada: {command}",
+  "systemEntries.sudoRequest.restarted":
+    "El servidor s'ha reiniciat durant l'execució; el resultat és desconegut: {command}",
   "systemEntries.limitResume.resumed":
     "El límit d'ús s'ha restablert. Isomux ha reprès l'agent.",
   "systemEntries.restartWake.resumed":

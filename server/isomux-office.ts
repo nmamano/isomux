@@ -278,6 +278,10 @@ import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { secretsHandlers } from "./routes/handlers/secrets.ts";
 import { secretRequestHandlers } from "./routes/handlers/secret-requests.ts";
 import { createSecretRequests } from "./secret-requests.ts";
+import { sudoRequestHandlers } from "./routes/handlers/sudo-requests.ts";
+import { createSudoRequests, type SudoRequests } from "./sudo-requests.ts";
+import { probeSudo, startSudo } from "./sudo-runner.ts";
+import { createSudoRunStore } from "./sudo-run-store.ts";
 import { createConnectionWrites } from "./connection-writes.ts";
 import { createStepAsks, type StepAsks } from "./step-asks.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
@@ -1301,6 +1305,7 @@ const folderMcpDeps: FolderMcpDeps = {
 // The OAuth MCP flow of this boot (integrations A2b) and its refresh timer.
 let mcpOAuth: McpOAuth | null = null;
 let mcpOAuthTimer: ReturnType<typeof setInterval> | null = null;
+let sudoRequests: SudoRequests | null = null;
 const MCP_OAUTH_TICK_MS = 60_000;
 
 // Editor file watchers, keyed by connectionId -> (`${agentId}\0${absPath}` ->
@@ -2523,6 +2528,7 @@ function buildExecutorDeps(
   installKind: InstallKind = INSTALL_KIND,
   connectionTestFetch: ConnectionTestFetch = (url, init) => fetch(url, init),
   officeProbe: OfficeProbeOptions = {},
+  sudoPath?: string,
 ): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
   const preconditions = new Map<RoutePrecondition, PreconditionFn>();
@@ -2717,6 +2723,8 @@ function buildExecutorDeps(
   register(
     askHandlers({
       store: askStore!,
+      sudoRunInProgress: (agentId) =>
+        sudoRequests?.runInProgress(agentId) ?? false,
       history: officeAskHistory(),
       steps: stepAsks,
       agent: (agentId) => {
@@ -3775,6 +3783,49 @@ function buildExecutorDeps(
           ),
       }),
       (identity) => askAudienceFor(askAudience, identity),
+    ),
+  );
+  // Sudo requests (task 43a28eed): an agent asks to run a command as root,
+  // an office owner types the box account's password in the ask. A hosted
+  // office has no sudo for its account.
+  sudoRequests = createSudoRequests({
+    asks: askStore!,
+    audience: askAudience,
+    agentUserId: (agentId) => {
+      const agent = agentManager.getAgent(agentId);
+      return agent ? (agent.userId ?? null) : undefined;
+    },
+    agentCwd: (agentId) => agentManager.getAgent(agentId)?.cwd ?? null,
+    agentLimited: (agentId) => {
+      const agent = agentManager.getAgent(agentId);
+      return !agent || belowStandard(agentAccessOf(agent));
+    },
+    isOfficeOwner: (userId) => askAudience.isOfficeOwner(userId),
+    memberByName: (name) => {
+      const user = getUserByName(name);
+      return user ? { id: user.id, name: user.name } : null;
+    },
+    memberName: (userId) => getUserById(userId)?.name ?? null,
+    probe: async () =>
+      isHostedAccess(installKind, loadServerConfig().publicOrigin)
+        ? "unavailable"
+        : probeSudo({ sudoPath }),
+    start: (opts) => startSudo({ ...opts, home: homedir(), sudoPath }),
+    runs: createSudoRunStore(join(STATE_ROOT, "sudo-runs.json")),
+    report: (agentId, requestId, outcome, line, member, notice) =>
+      agentManager.emitAgentSudoRequestReport(
+        agentId,
+        requestId,
+        outcome,
+        line,
+        member,
+        notice,
+      ),
+    now: () => Date.now(),
+  });
+  register(
+    sudoRequestHandlers(sudoRequests, (identity) =>
+      askAudienceFor(askAudience, identity),
     ),
   );
   mcpOAuth = createMcpOAuth({
@@ -5055,6 +5106,9 @@ function runBackgroundBoot(
     // A step done while the server was down closes its ask now, once the
     // agents are back to hear it.
     stepsChanged();
+    // A sudo run in progress when the server stopped: its agent hears now
+    // that the result is unknown.
+    sudoRequests?.recover();
     try {
       backfillOfficeFreeModelMarks();
     } catch (err) {
@@ -5146,6 +5200,9 @@ export interface StartServerOpts {
   // Tests override the host platform to exercise the non-Linux seeding and
   // engine availability without a Mac.
   hostPlatform?: NodeJS.Platform;
+  // The sudo that sudo requests probe and run (task 43a28eed). Production
+  // omits it (/usr/bin/sudo); tests pass a stand-in that never runs as root.
+  sudoPath?: string;
   // Listen port. Omit → process.env.PORT || 4000 (production). Tests pass 0 for
   // an ephemeral port.
   port?: number;
@@ -5386,6 +5443,7 @@ export async function startServer(
     opts.installKind,
     opts.connectionTestFetch,
     opts.officeProbe,
+    opts.sudoPath,
   );
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The

@@ -56,7 +56,11 @@ function outcomeText(
     case "saved":
       return t("asks.closedSaved");
     case "declined":
-      return t("asks.closedDeclined");
+      return ask.sudo ? t("asks.closedSudoDeclined") : t("asks.closedDeclined");
+    case "ran":
+      return t("asks.closedSudoRan");
+    case "refused":
+      return t("asks.closedSudoRefused");
     case "agent_removed":
       return t("asks.closedAgentRemoved");
   }

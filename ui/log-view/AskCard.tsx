@@ -75,6 +75,7 @@ import type {
 import { AskPrompt } from "./AskPrompt.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { RecommendedStar } from "./recommended-star.tsx";
+import { SudoAskCard } from "./SudoAskCard.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
 import { askLinkFor } from "../../shared/office-links.ts";
 import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
@@ -163,6 +164,14 @@ export function AskCard({
     <SecretAskCard
       entry={entry}
       secret={entry.secret}
+      isMobile={isMobile}
+      onFocusAgent={onFocusAgent}
+      onChatAgent={onChatAgent}
+    />
+  ) : entry.sudo ? (
+    <SudoAskCard
+      entry={entry}
+      sudo={entry.sudo}
       isMobile={isMobile}
       onFocusAgent={onFocusAgent}
       onChatAgent={onChatAgent}

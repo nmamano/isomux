@@ -283,6 +283,26 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     );
   }
 
+  // A sudo request's outcome (task 43a28eed): the system entry, and the
+  // notice to the agent, `notice` in place of the line when given, none
+  // when null.
+  function emitAgentSudoRequestReport(
+    agentId: string,
+    requestId: string,
+    outcome: string,
+    line: LogMessage,
+    member: string,
+    notice: string | null | undefined,
+  ): void {
+    emitAgentAskOutcome(
+      agentId,
+      line,
+      { sudoRequestSettled: requestId, outcome },
+      member,
+      notice,
+    );
+  }
+
   // A step ask closed itself (task c71cb60f): its step is done.
   function emitAgentStepAskDone(
     agentId: string,
@@ -301,15 +321,17 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     line: LogMessage,
     metadata: Record<string, unknown>,
     member: string,
+    notice?: string | null,
   ): void {
     if (!agents.has(agentId)) return;
     addLogEntry(agentId, "system", line, metadata);
+    if (notice === null) return;
     const username = getUserById(member)?.name;
     void prepareEnqueue(agentId)
       .then(() => {
         const result = enqueueMessage(agentId, {
           sender: { kind: "user", ...(username ? { username } : {}) },
-          text: `[Isomux: ${renderLogText(english, line)}]`,
+          text: notice ?? `[Isomux: ${renderLogText(english, line)}]`,
           notice: true,
         });
         if (!result.ok)
@@ -587,6 +609,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     emitAgentEditRequest,
     emitAgentTerminalCommand,
     emitAgentSecretRequestSettled,
+    emitAgentSudoRequestReport,
     emitAgentStepAskDone,
     copyAskReadFile,
     emitAgentReadFile,

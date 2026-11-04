@@ -161,6 +161,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Inbox**: a single place for everything the agents need from you. Agents can make _Asks_ or send you _Pages_. Asks are what an agent needs from you to get unblocked. They stay open until you answer them or file them as a task. Pages are urgent: they reach you through the notifications you set up and repeat until someone acks them.
 - **Owners see and answer every member's asks.**
+- **Sudo requests**: an agent asks to run one command as root. The owner reads the command and types the server account's password in the ask. The password goes only to sudo; the agent gets the exit code and the output. Not on Hosted Isomux. A command that runs a file the agent can edit is only as safe as that file.
 
 ## Pager
 

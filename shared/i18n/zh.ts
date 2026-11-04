@@ -1656,6 +1656,9 @@ App 的一些原则：
   "asks.closedDone": "已关闭：步骤已完成",
   "asks.closedSaved": "密钥已保存",
   "asks.closedDeclined": "密钥请求已拒绝",
+  "asks.closedSudoRan": "已以 root 身份运行",
+  "asks.closedSudoDeclined": "sudo 请求已拒绝",
+  "asks.closedSudoRefused": "已关闭：sudo 拒绝了所有尝试",
   "asks.closedAgentRemoved": "已关闭：智能体已被移除",
   "apiCall.tasks.listOpen": "列出未完成任务",
   "apiCall.tasks.listOpenGlobal": "列出未完成任务（仅限办公室全局）",
@@ -1708,6 +1711,7 @@ App 的一些原则：
   "apiCall.agents.suggestCommand": "建议终端命令",
   "apiCall.agents.suggestCommandDetail": "建议终端命令",
   "apiCall.agents.requestSecret": "请求密钥",
+  "apiCall.agents.requestSudo": "请求以 root 身份运行命令",
   "apiCall.agents.context": "检查上下文用量",
   "apiCall.agents.subscription": "检查订阅用量",
   "apiCall.agents.logsSearch": "搜索对话日志",
@@ -1905,6 +1909,21 @@ App 的一些原则：
     "智能体查看了此聊天中较早附加的文件。点击显示。",
   "cards.editRequest.open": "在编辑器中打开",
   "cards.editRequest.openHint": "在编辑器侧面板中打开 {path}",
+  "cards.sudoRequest.title": "以 root 身份运行",
+  "cards.sudoRequest.byAgent": "来自 {agent}",
+  "cards.sudoRequest.byAgentOf": "来自 {agent}（{manager} 的智能体）",
+  "cards.sudoRequest.cwd": "目录",
+  "cards.sudoRequest.password": "sudo 密码",
+  "cards.sudoRequest.hint":
+    "密码只交给 sudo：不会保存，智能体也永远看不到。智能体会收到退出码和输出。服务器重启会中止此命令。",
+  "cards.sudoRequest.run": "运行",
+  "cards.sudoRequest.running": "正在运行…",
+  "cards.sudoRequest.runFailed": "无法运行此命令。",
+  "cards.sudoRequest.notStarted":
+    "sudo 没有运行此命令。剩余尝试次数：{attempts}。sudo 的消息：{reason}",
+  "cards.sudoRequest.invalidPassword": "请在一行内输入密码。",
+  "cards.sudoRequest.runInProgress":
+    "此智能体有一个 sudo 命令正在运行。请在它结束后重试。",
   "cards.secretRequest.title": "密钥请求：{name}",
   "cards.secretRequest.personal": "保存到此智能体负责人的密钥中。",
   "cards.secretRequest.office": "办公室密钥：由办公室所有者保存。",
@@ -2879,6 +2898,16 @@ App 的一些原则：
   "systemEntries.stepAsk.browserPaired": "Chrome 已配对。",
   "systemEntries.stepAsk.githubLinked": "房间已关联到 GitHub。",
   "systemEntries.secretRequest.declined": "{name} 的请求已被拒绝。",
+  "systemEntries.sudoRequest.started": "正在以 root 身份运行：{command}",
+  "systemEntries.sudoRequest.exited": "已结束，退出码 {code}：{command}",
+  "systemEntries.sudoRequest.timedOut": "30 分钟后已停止：{command}",
+  "systemEntries.sudoRequest.killed": "已被 {signal} 终止：{command}",
+  "systemEntries.sudoRequest.lost": "结果未知：{command}",
+  "systemEntries.sudoRequest.lockedOut":
+    "sudo 请求已关闭，{attempts} 次尝试均被拒绝：{command}",
+  "systemEntries.sudoRequest.declined": "sudo 请求已拒绝：{command}",
+  "systemEntries.sudoRequest.restarted":
+    "运行期间服务器已重启，结果未知：{command}",
   "systemEntries.limitResume.resumed":
     "用量限制已重置。Isomux 已让智能体继续。",
   "systemEntries.restartWake.resumed":

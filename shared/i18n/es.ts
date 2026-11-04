@@ -1856,6 +1856,9 @@ Cosas que puedes hacer por él:
   "asks.closedDone": "Cerrada: el paso está hecho",
   "asks.closedSaved": "Secreto guardado",
   "asks.closedDeclined": "Petición de secreto rechazada",
+  "asks.closedSudoRan": "Se ejecutó como root",
+  "asks.closedSudoDeclined": "Solicitud sudo rechazada",
+  "asks.closedSudoRefused": "Cerrada: sudo rechazó todos los intentos",
   "asks.closedAgentRemoved": "Cerrada: se eliminó el agente",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",
   "apiCall.tasks.listOpenGlobal":
@@ -1917,6 +1920,7 @@ Cosas que puedes hacer por él:
   "apiCall.agents.suggestCommand": "Sugerir un comando de terminal",
   "apiCall.agents.suggestCommandDetail": "Sugerir un comando de terminal",
   "apiCall.agents.requestSecret": "Pedir un secreto",
+  "apiCall.agents.requestSudo": "Pedir ejecutar un comando como root",
   "apiCall.agents.context": "Consultar el uso del contexto",
   "apiCall.agents.subscription": "Consultar el uso de la suscripción",
   "apiCall.agents.logsSearch": "Buscar en los registros de conversación",
@@ -2127,6 +2131,22 @@ Cosas que puedes hacer por él:
     "El agente ha visto un archivo adjuntado antes en este chat. Haz clic para mostrarlo.",
   "cards.editRequest.open": "Abrir en el editor",
   "cards.editRequest.openHint": "Abrir {path} en el panel lateral del editor",
+  "cards.sudoRequest.title": "Se ejecuta como root",
+  "cards.sudoRequest.byAgent": "De {agent}",
+  "cards.sudoRequest.byAgentOf": "De {agent}, agente de {manager}",
+  "cards.sudoRequest.cwd": "En",
+  "cards.sudoRequest.password": "Contraseña para sudo",
+  "cards.sudoRequest.hint":
+    "La contraseña va solo a sudo: no se guarda y el agente nunca la ve. El agente recibe el código de salida y la salida. Un reinicio del servidor detiene el comando.",
+  "cards.sudoRequest.run": "Ejecutar",
+  "cards.sudoRequest.running": "Ejecutando…",
+  "cards.sudoRequest.runFailed": "No se pudo ejecutar el comando.",
+  "cards.sudoRequest.notStarted":
+    "sudo no ejecutó el comando. Intentos restantes: {attempts}. sudo dijo: {reason}",
+  "cards.sudoRequest.invalidPassword":
+    "Escribe la contraseña en una sola línea.",
+  "cards.sudoRequest.runInProgress":
+    "Hay un comando sudo de este agente en ejecución. Vuelve a intentarlo cuando termine.",
   "cards.secretRequest.title": "Solicitud de secreto: {name}",
   "cards.secretRequest.personal":
     "Se guarda en los secretos del responsable de este agente.",
@@ -3196,6 +3216,17 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.browserPaired": "Chrome vinculado.",
   "systemEntries.stepAsk.githubLinked": "Sala enlazada con GitHub.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
+  "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
+  "systemEntries.sudoRequest.exited":
+    "Terminó con código de salida {code}: {command}",
+  "systemEntries.sudoRequest.timedOut": "Detenido tras 30 minutos: {command}",
+  "systemEntries.sudoRequest.killed": "Terminado por {signal}: {command}",
+  "systemEntries.sudoRequest.lost": "Resultado desconocido: {command}",
+  "systemEntries.sudoRequest.lockedOut":
+    "Solicitud sudo cerrada tras {attempts} intentos rechazados: {command}",
+  "systemEntries.sudoRequest.declined": "Solicitud sudo rechazada: {command}",
+  "systemEntries.sudoRequest.restarted":
+    "El servidor se reinició durante la ejecución; su resultado es desconocido: {command}",
   "systemEntries.limitResume.resumed":
     "El límite de uso se restableció. Isomux reanudó el agente.",
   "systemEntries.restartWake.resumed":

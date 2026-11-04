@@ -942,6 +942,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/agents/*/edit-file", "apiCall.agents.offerFile"],
   ["POST", "/api/agents/*/terminal-command", "apiCall.agents.suggestCommand"],
   ["POST", "/api/agents/*/secret-requests", "apiCall.agents.requestSecret"],
+  ["POST", "/api/agents/*/sudo-requests", "apiCall.agents.requestSudo"],
   ["GET", "/api/agents/*/context", "apiCall.agents.context"],
   ["GET", "/api/agents/*/subscription", "apiCall.agents.subscription"],
   // One route, three modes (search / retrieve / list). This static label is the
@@ -1210,6 +1211,8 @@ export function humanizeIsomuxRequest(
           return t("apiCall.agents.suggestCommandDetail");
         if (sub === "secret-requests" && m === "POST")
           return t("apiCall.agents.requestSecret");
+        if (sub === "sudo-requests" && m === "POST")
+          return t("apiCall.agents.requestSudo");
         if (sub === "new-conversation" && m === "POST")
           return t("apiCall.agents.clearConversation", { who });
         if (sub === "handoff" && m === "POST")

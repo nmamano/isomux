@@ -1826,6 +1826,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.closedDone": "Closed: the step is done",
   "asks.closedSaved": "Secret saved",
   "asks.closedDeclined": "Secret request declined",
+  "asks.closedSudoRan": "Ran as root",
+  "asks.closedSudoDeclined": "Sudo request declined",
+  "asks.closedSudoRefused": "Closed: sudo refused every attempt",
   "asks.closedAgentRemoved": "Closed: the agent was removed",
   "apiCall.tasks.listOpen": "List open tasks",
   "apiCall.tasks.listOpenGlobal": "List open tasks (office-global only)",
@@ -1879,6 +1882,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.agents.suggestCommand": "Suggest terminal command",
   "apiCall.agents.suggestCommandDetail": "Suggest a terminal command",
   "apiCall.agents.requestSecret": "Ask for a secret",
+  "apiCall.agents.requestSudo": "Ask to run a command as root",
   "apiCall.agents.context": "Check context usage",
   "apiCall.agents.subscription": "Check subscription usage",
   "apiCall.agents.logsSearch": "Search conversation logs",
@@ -2076,6 +2080,21 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "The agent viewed a file attached earlier in this chat. Click to show it.",
   "cards.editRequest.open": "Open in editor",
   "cards.editRequest.openHint": "Open {path} in the editor side panel",
+  "cards.sudoRequest.title": "Runs as root",
+  "cards.sudoRequest.byAgent": "From {agent}",
+  "cards.sudoRequest.byAgentOf": "From {agent}, {manager}'s agent",
+  "cards.sudoRequest.cwd": "In",
+  "cards.sudoRequest.password": "Password for sudo",
+  "cards.sudoRequest.hint":
+    "The password goes only to sudo: it is not saved, and the agent never sees it. The agent gets the exit code and the output. A server restart stops the command.",
+  "cards.sudoRequest.run": "Run",
+  "cards.sudoRequest.running": "Running…",
+  "cards.sudoRequest.runFailed": "Could not run the command.",
+  "cards.sudoRequest.notStarted":
+    "sudo did not run the command. Attempts left: {attempts}. sudo said: {reason}",
+  "cards.sudoRequest.invalidPassword": "Type the password on one line.",
+  "cards.sudoRequest.runInProgress":
+    "A sudo command of this agent is running. Try again when it ends.",
   "cards.secretRequest.title": "Secret request: {name}",
   "cards.secretRequest.personal":
     "Saved in the secrets of this agent's manager.",
@@ -3154,6 +3173,16 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.browserPaired": "Chrome paired.",
   "systemEntries.stepAsk.githubLinked": "Room linked to GitHub.",
   "systemEntries.secretRequest.declined": "Request for {name} declined.",
+  "systemEntries.sudoRequest.started": "Running as root: {command}",
+  "systemEntries.sudoRequest.exited": "Ended with exit code {code}: {command}",
+  "systemEntries.sudoRequest.timedOut": "Stopped after 30 minutes: {command}",
+  "systemEntries.sudoRequest.killed": "Ended by {signal}: {command}",
+  "systemEntries.sudoRequest.lost": "Result unknown: {command}",
+  "systemEntries.sudoRequest.lockedOut":
+    "Sudo request closed after {attempts} refused attempts: {command}",
+  "systemEntries.sudoRequest.declined": "Sudo request declined: {command}",
+  "systemEntries.sudoRequest.restarted":
+    "The server restarted during the run; its result is unknown: {command}",
   "systemEntries.limitResume.resumed":
     "Usage limit reset. Isomux resumed the agent.",
   "systemEntries.restartWake.resumed":

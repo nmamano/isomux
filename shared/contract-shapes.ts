@@ -1358,6 +1358,23 @@ export interface SecretRequestAnswerRes {
   name: string;
 }
 
+// Sudo requests (task 43a28eed). The agent asks; an office owner types the
+// box account's password, and the server runs the command once with it.
+export interface SudoRequestReq {
+  command: string;
+  reason: string;
+  member?: string;
+}
+export interface SudoRequestRes {
+  requestId: string;
+}
+export interface SudoRequestRunReq {
+  password: string;
+}
+export interface SudoRequestAnswerRes {
+  requestId: string;
+}
+
 // Remote MCP servers (integrations loop, A2). `secret` names a secret in the
 // same scope; the editor's own list is the only response with the whole URL.
 export interface McpServerWire {

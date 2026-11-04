@@ -40,6 +40,7 @@ import {
   type AskReadFile,
   type FilePayload,
   type SecretAskRequest,
+  type SudoAskRequest,
   type StepAskRequest,
   type TaskPriority,
 } from "../shared/types.ts";
@@ -111,6 +112,17 @@ export class AsksUnavailableError extends Error {
   }
 }
 
+function isSudoAskRequest(v: unknown): v is SudoAskRequest {
+  return (
+    isObject(v) &&
+    typeof v.requestId === "string" &&
+    v.requestId !== "" &&
+    typeof v.command === "string" &&
+    v.command !== "" &&
+    typeof v.cwd === "string"
+  );
+}
+
 function isSecretAskRequest(v: unknown): v is SecretAskRequest {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
@@ -172,9 +184,9 @@ const isAskReadFile = (v: unknown) =>
   isObject(v) &&
   (v.path === undefined || (typeof v.path === "string" && isAbsolute(v.path)));
 
-// Three shapes: a plain ask and a personal secret request are for one
-// member; an office secret request is for every office owner and names no
-// member. A secret request has no link and no options.
+// Four shapes: a plain ask, a personal secret request and a sudo request are
+// for one member; an office secret request is for every office owner and
+// names no member. A secret or sudo request has no link and no options.
 function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
@@ -250,6 +262,22 @@ function isAskEntry(v: unknown): v is AskEntry {
     (r.originalPrompt !== undefined && typeof r.originalPrompt !== "string")
   )
     return false;
+  // A sudo request (task 43a28eed) is for one office owner and has only its
+  // prompt (the reason) and its request.
+  if (r.sudo !== undefined)
+    return (
+      hasMember &&
+      r.secret === undefined &&
+      r.link === undefined &&
+      r.options === undefined &&
+      r.priority === undefined &&
+      r.commands === undefined &&
+      r.editFiles === undefined &&
+      r.readFiles === undefined &&
+      r.step === undefined &&
+      r.app === undefined &&
+      isSudoAskRequest(r.sudo)
+    );
   if (r.secret === undefined) return hasMember;
   if (
     r.link !== undefined ||
@@ -314,14 +342,15 @@ export function askVisibleTo(
 }
 
 // Whether an office owner sees and may answer an ask as another member's: an
-// ask askVisibleTo does not admit for them, not a secret request, whose agent is
+// ask askVisibleTo does not admit for them, not a secret or sudo request, whose agent is
 // in a room they can reach.
 export function askShownToOwnerAsOther(
   entry: AskEntry,
   userId: string | null,
   deps: AskAudienceDeps,
 ): boolean {
-  if (!userId || !deps.isOfficeOwner(userId) || entry.secret) return false;
+  if (!userId || !deps.isOfficeOwner(userId) || entry.secret || entry.sudo)
+    return false;
   if (askVisibleTo(entry, userId, deps)) return false;
   const roomId = deps.agentRoomId(entry.agentId);
   return roomId !== null && deps.canSeeRoom(userId, roomId);
@@ -431,12 +460,13 @@ export interface AskStore {
   // Every open entry, for a scan across agents (secret requests).
   listAll(): AskEntry[];
   listForAgent(agentId: string): AskEntry[];
-  // Throws on an entry that is none of the three shapes.
+  // Throws on an entry that is none of the four shapes.
   create(input: {
     agentId: string;
     memberUserId?: string;
     prompt: string;
     secret?: SecretAskRequest;
+    sudo?: SudoAskRequest;
     link?: string;
     options?: string[];
     recommended?: string;
@@ -579,6 +609,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       memberUserId,
       prompt,
       secret,
+      sudo,
       link,
       options,
       recommended,
@@ -601,6 +632,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         createdAt: at,
         updatedAt: at,
         ...(secret ? { secret } : {}),
+        ...(sudo ? { sudo } : {}),
         ...(link !== undefined ? { link } : {}),
         ...(options !== undefined ? { options } : {}),
         ...(recommended !== undefined ? { recommended } : {}),

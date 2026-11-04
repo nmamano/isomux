@@ -318,6 +318,10 @@ async function bootTestServer(
       }),
       // Never the host's /etc/isomux/install-kind marker.
       installKind: "self-hosted",
+      // Never the host's sudo: a path that does not exist, so sudo requests
+      // answer sudo_unavailable unless a test passes a stand-in
+      // (fake-sudo.ts).
+      sudoPath: join(STATE_ROOT, "no-sudo-in-test-harness"),
       ...opts.startServer,
     });
 

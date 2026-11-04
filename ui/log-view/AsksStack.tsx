@@ -10,6 +10,7 @@ import { useAppState, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { asksFor, openAsks } from "../asks-sync.ts";
 import { AskCard } from "./AskCard.tsx";
+import { sudoAskTitle } from "./SudoAskCard.tsx";
 import { valueAskTitle } from "./SecretAskCard.tsx";
 import { loadFoldedAsks, saveFoldedAsks } from "../view-persistence.ts";
 
@@ -205,7 +206,9 @@ export function AsksStack({
           >
             {entries[0].secret
               ? valueAskTitle(t, entries[0].secret)
-              : entries[0].prompt.replace(/\s+/g, " ")}
+              : entries[0].sudo
+                ? sudoAskTitle(t)
+                : entries[0].prompt.replace(/\s+/g, " ")}
           </span>
         </button>
       </div>

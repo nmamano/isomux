@@ -1170,6 +1170,16 @@ export type StepAskRequest =
   // The GitHub issue link of the agent's room at create.
   | { kind: "github-link"; roomId: string };
 
+// A sudo request (task 43a28eed): the agent asks to run one command as root,
+// and the office owner it is for types the box account's password in the
+// ask. The server runs the command with it and forgets it. It holds no
+// password: the request is the command, and the agent's cwd when it opened.
+export interface SudoAskRequest {
+  requestId: string;
+  command: string;
+  cwd: string;
+}
+
 // Whether this release knows the request's kind. The asks file also loads a
 // kind from a later release (server/asks.ts); such a request can only be
 // declined here.
@@ -1506,6 +1516,9 @@ export interface AskEntry {
   // Present when the ask is a secret request: the member answers it with
   // the masked form, not a reply. The prompt holds the request's reason.
   secret?: SecretAskRequest;
+  // Present when the ask is a sudo request: the member answers it with the
+  // password form, not a reply. The prompt holds the request's reason.
+  sudo?: SudoAskRequest;
   // The office page where the member acts, as one of OFFICE_LINK_PATHS
   // (shared/office-links.ts). Never on a secret request.
   link?: string;
@@ -1568,6 +1581,10 @@ export const ASK_OUTCOMES = [
   // A secret request: saved or declined. The record never holds the value.
   "saved",
   "declined",
+  // A sudo request (task 43a28eed): run (sudo started the command), or
+  // closed after sudo refused every attempt. Declined is "declined".
+  "ran",
+  "refused",
   // The agent went (a kill or a delete).
   "agent_removed",
 ] as const;

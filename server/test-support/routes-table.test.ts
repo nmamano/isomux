@@ -1316,6 +1316,19 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:env"],
     emits: ["log_entry", "ask_removed"],
   },
+  "agents.sudoRequest": {
+    caps: ["self:affordance"],
+    emits: ["ask_upserted"],
+  },
+  // Browser sessions only: neither agents nor API tokens hold user:admin.
+  "sudoRequests.run": {
+    caps: ["user:admin"],
+    emits: ["log_entry", "ask_removed"],
+  },
+  "sudoRequests.decline": {
+    caps: ["user:admin"],
+    emits: ["log_entry", "ask_removed"],
+  },
   "agents.createAsk": {
     caps: ["self:affordance"],
     emits: ["ask_upserted", "others_ask_upserted"],
@@ -2068,6 +2081,7 @@ const APP_REFUSED_OPIDS = [
   "agents.editFile",
   "agents.terminalCommand",
   "agents.secretRequest",
+  "agents.sudoRequest",
   "agents.createAsk",
   "agents.listAsks",
   "agents.getAsk",

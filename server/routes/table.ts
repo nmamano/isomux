@@ -200,6 +200,10 @@ import type {
   SecretRequestRes,
   SecretRequestSaveReq,
   SecretRequestAnswerRes,
+  SudoRequestReq,
+  SudoRequestRes,
+  SudoRequestRunReq,
+  SudoRequestAnswerRes,
   PagerSettingsReq,
   MemberVoiceReq,
   MemberVoiceRes,
@@ -988,6 +992,38 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/secret-requests/:requestId/decline",
     auth: cap("user:env", memberScope),
     tokenArea: { area: "environment", level: "write" },
+    emits: ["log_entry", "ask_removed"],
+  }),
+  // Sudo requests (task 43a28eed): the agent asks for itself, and the
+  // request waits as an ask for the office owner it names, who types the
+  // box account's password to run the command. user:admin admits browser
+  // sessions only: no API token or agent answers. Audit rows name the body's
+  // fields, never the password.
+  defineRoute<SudoRequestReq, SudoRequestRes>({
+    opId: "agents.sudoRequest",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/agents/:id/sudo-requests",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    tokenArea: { area: "files", level: "write" },
+    emits: ["ask_upserted"],
+  }),
+  defineRoute<SudoRequestRunReq, SudoRequestAnswerRes>({
+    opId: "sudoRequests.run",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/agents/:id/sudo-requests/:requestId/run",
+    auth: cap("user:admin", officeOwner),
+    tokenArea: { area: "files", level: "write" },
+    emits: ["log_entry", "ask_removed"],
+  }),
+  defineRoute<void, SudoRequestAnswerRes>({
+    opId: "sudoRequests.decline",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/agents/:id/sudo-requests/:requestId/decline",
+    auth: cap("user:admin", officeOwner),
+    tokenArea: { area: "files", level: "write" },
     emits: ["log_entry", "ask_removed"],
   }),
   // Asks (internal-docs/asks-design.md): the agent manages its
