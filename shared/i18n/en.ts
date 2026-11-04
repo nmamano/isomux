@@ -2752,6 +2752,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "tasks.filterAllStatuses": "All statuses",
   "tasks.filterAllPriorities": "All priorities",
   "tasks.filterNone": "None",
+  "tasks.filterOnly": "Only",
+  "tasks.filterOnlyName": "Only {name}",
   "tasks.filterPriorityNoneShort": "none",
   "tasks.searchPlaceholder": "Search tasks...",
   "tasks.col.status": "S",

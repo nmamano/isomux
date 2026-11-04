@@ -2543,6 +2543,8 @@ App 的一些原则：
   "tasks.filterAllStatuses": "全部状态",
   "tasks.filterAllPriorities": "全部优先级",
   "tasks.filterNone": "无",
+  "tasks.filterOnly": "仅显示",
+  "tasks.filterOnlyName": "仅显示 {name}",
   "tasks.filterPriorityNoneShort": "无",
   "tasks.searchPlaceholder": "搜索任务…",
   "tasks.col.status": "状态",

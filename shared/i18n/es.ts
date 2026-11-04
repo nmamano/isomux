@@ -2815,6 +2815,8 @@ Cosas que puedes hacer por él:
   "tasks.filterAllStatuses": "Todos los estados",
   "tasks.filterAllPriorities": "Todas las prioridades",
   "tasks.filterNone": "Ninguno",
+  "tasks.filterOnly": "Solo",
+  "tasks.filterOnlyName": "Solo {name}",
   "tasks.filterPriorityNoneShort": "ninguna",
   "tasks.searchPlaceholder": "Buscar tareas...",
   "tasks.col.status": "E",

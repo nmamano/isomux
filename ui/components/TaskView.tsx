@@ -1480,6 +1480,8 @@ export function TaskView({
                 }))}
                 checked={filterStatuses}
                 onToggle={(s) => setFilterStatuses((prev) => toggled(prev, s))}
+                onSet={setFilterStatuses}
+                allLabel={t("tasks.filterAllStatuses")}
                 open={openFilter === "status"}
                 onOpenChange={(o) => setOpenFilter(o ? "status" : null)}
                 buttonStyle={isMobile ? mobileFilterSelectStyle : selectStyle}
@@ -1497,6 +1499,8 @@ export function TaskView({
                 onToggle={(p) =>
                   setFilterPriorities((prev) => toggled(prev, p))
                 }
+                onSet={setFilterPriorities}
+                allLabel={t("tasks.filterAllPriorities")}
                 open={openFilter === "priority"}
                 onOpenChange={(o) => setOpenFilter(o ? "priority" : null)}
                 buttonStyle={isMobile ? mobileFilterSelectStyle : selectStyle}

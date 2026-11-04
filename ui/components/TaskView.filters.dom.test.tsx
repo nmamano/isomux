@@ -9,9 +9,12 @@ const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const {
+  allFilterBox,
+  allFilterState,
   checkedFilterValues,
   filterButton,
   filterCounts,
+  onlyFilterButton,
   openCheckboxFilter,
   setCheckboxFilter,
   toggleCheckboxFilter,
@@ -236,4 +239,31 @@ it("counts each checkbox's tasks under the other filter", async () => {
     done: 3,
     obsolete: 2,
   });
+});
+
+// Task 286eaa5d: one status or priority in one click, and all back in one.
+it("shows one status or priority with its Only button, and all with the All box", async () => {
+  const { c, shown } = renderView();
+  await act(async () =>
+    fireEvent.click(await onlyFilterButton(c, "status", "done")),
+  );
+  expect(await checkedFilterValues(c, "status")).toEqual(["done"]);
+  // The default priorities still apply: P4 stays out.
+  expect(shown()).toEqual(["none-done", "p3-done"]);
+  expect(filterButton(c, "status").getAttribute("aria-expanded")).toBe("true");
+  await act(async () =>
+    fireEvent.click(await onlyFilterButton(c, "priority", "P4")),
+  );
+  expect(await checkedFilterValues(c, "priority")).toEqual(["P4"]);
+  expect(shown()).toEqual(["p4-done"]);
+  // Some statuses checked: All checks every one, obsolete too.
+  expect(await allFilterState(c, "status")).toBe("some");
+  await act(async () => fireEvent.click(await allFilterBox(c, "status")));
+  expect(await allFilterState(c, "status")).toBe("all");
+  expect(shown()).toEqual(
+    ["p4-done", "p4-obsolete", "p4-open", "p4-progress"].sort(),
+  );
+  await act(async () => fireEvent.click(await allFilterBox(c, "status")));
+  expect(await allFilterState(c, "status")).toBe("none");
+  expect(shown()).toEqual([]);
 });

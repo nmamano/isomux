@@ -10,10 +10,13 @@ setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
 const {
+  allFilterBox,
+  allFilterState,
   checkedFilterValues,
   filterButton,
   filterCounts,
   filterOptions,
+  onlyFilterButton,
   openCheckboxFilter,
   setCheckboxFilter,
 } = await import("../test-support/checkbox-filters.ts");
@@ -378,6 +381,81 @@ describe("the filter row", () => {
       "a4:a4p1,a4none",
       "a2:a2only",
     ]);
+  });
+
+  // Task 286eaa5d: one room in one click, and all of them back in one.
+  it("shows one room with its Only button, without toggling that room, and remembers it", async () => {
+    const first = mountSorted();
+    const c = first.view.container;
+    // Each Only names its room for a screen reader.
+    const only1 = await onlyFilterButton(c, "room", "r1");
+    const only2 = await onlyFilterButton(c, "room", "r2");
+    expect(only1.getAttribute("aria-label")).toContain("Room One");
+    expect(only2.getAttribute("aria-label")).toContain("Room Two");
+    // r1 is checked: Only leaves it checked (a toggle as well would clear it).
+    expect(await checkedFilterValues(c, "room")).toEqual(["r2", "r1"]);
+    await act(async () => fireEvent.click(only1));
+    expect(await checkedFilterValues(c, "room")).toEqual(["r1"]);
+    expect(pageOrder(first.view)).toEqual(["a1:a1old,a1top", "a3:a3p1"]);
+    expect(isOpen(first.view, "room")).toBe("true");
+    // r2 is unchecked: Only checks it and unchecks the rest.
+    await act(async () =>
+      fireEvent.click(await onlyFilterButton(c, "room", "r2")),
+    );
+    expect(await checkedFilterValues(c, "room")).toEqual(["r2"]);
+    expect(pageOrder(first.view)).toEqual(["a4:a4none,a4p1", "a2:a2only"]);
+    expect(isOpen(first.view, "room")).toBe("true");
+    first.view.unmount();
+    const second = mountSorted();
+    expect(await checkedFilterValues(second.view.container, "room")).toEqual([
+      "r2",
+    ]);
+    expect(pageOrder(second.view)).toEqual(["a4:a4none,a4p1", "a2:a2only"]);
+  });
+
+  it("has an All box that is checked, mixed or clear, and checks every room unless all are checked", async () => {
+    const { view } = mountSorted();
+    const c = view.container;
+    const clickAll = async () => {
+      const box = await allFilterBox(c, "room");
+      await act(async () => fireEvent.click(box));
+      expect(isOpen(view, "room")).toBe("true");
+    };
+    expect(await allFilterState(c, "room")).toBe("all");
+    // All checked: a click clears every room.
+    await clickAll();
+    expect(await checkedFilterValues(c, "room")).toEqual([]);
+    expect(await allFilterState(c, "room")).toBe("none");
+    expect(pageOrder(view)).toEqual([]);
+    // None checked: a click checks every room.
+    await clickAll();
+    expect(await checkedFilterValues(c, "room")).toEqual(["r2", "r1"]);
+    expect(await allFilterState(c, "room")).toBe("all");
+    expect(pageOrder(view)).toEqual(BY_AGENT);
+    // Some checked: mixed, and a click checks every room.
+    await setRooms(view, ["r1"]);
+    expect(await allFilterState(c, "room")).toBe("some");
+    await clickAll();
+    expect(await checkedFilterValues(c, "room")).toEqual(["r2", "r1"]);
+    expect(await allFilterState(c, "room")).toBe("all");
+    // A room toggled back on in the list makes All checked again.
+    await setRooms(view, ["r2"]);
+    await setRooms(view, ["r2", "r1"]);
+    expect(await allFilterState(c, "room")).toBe("all");
+  });
+
+  it("has Only and All on the priority list too", async () => {
+    const { view } = mountSorted();
+    const c = view.container;
+    await act(async () =>
+      fireEvent.click(await onlyFilterButton(c, "priority", "P1")),
+    );
+    expect(await checkedFilterValues(c, "priority")).toEqual(["P1"]);
+    expect(pageOrder(view)).toEqual(["a3:a3p1", "a4:a4p1"]);
+    expect(await allFilterState(c, "priority")).toBe("some");
+    await act(async () => fireEvent.click(await allFilterBox(c, "priority")));
+    expect(await checkedFilterValues(c, "priority")).toEqual(ALL_PRIORITIES);
+    expect(pageOrder(view)).toEqual(BY_AGENT);
   });
 
   // A room the member unchecks stays unchecked while it is gone from the

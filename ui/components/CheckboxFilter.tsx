@@ -1,8 +1,10 @@
 // The filter-row checkbox list of the Tasks page and the Inbox's Asks tab
 // (task 2bbc5021): a button that shows a summary and opens a list of choices,
-// each with a count.
+// each with a count. An All box checks or clears every choice, and each
+// choice's Only button checks it alone (task 286eaa5d).
 
 import { useEffect, useRef } from "react";
+import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { FilterChevron } from "./ChevronSelect.tsx";
 import {
@@ -50,7 +52,8 @@ export function toggled<T>(list: readonly T[], value: T): T[] {
 // The parent holds which list is open, so its Escape handler can close it
 // first; `name` marks the root (data-checkbox-filter) for that handler and for
 // tests. An option or the summary with `noTranslate` is a name, such as a
-// room's, that page translation must not change.
+// room's, that page translation must not change. `onSet` replaces the checked
+// values at once, for All and Only.
 export function CheckboxFilter<T extends string>({
   name,
   label,
@@ -59,6 +62,8 @@ export function CheckboxFilter<T extends string>({
   options,
   checked,
   onToggle,
+  onSet,
+  allLabel,
   open,
   onOpenChange,
   buttonStyle,
@@ -70,11 +75,23 @@ export function CheckboxFilter<T extends string>({
   options: { value: T; label: string; count: number; noTranslate?: boolean }[];
   checked: readonly T[];
   onToggle: (value: T) => void;
+  onSet: (values: T[]) => void;
+  allLabel: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   buttonStyle: React.CSSProperties;
 }) {
+  const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
+  const allRef = useRef<HTMLInputElement>(null);
+  const checkedCount = options.filter((o) => checked.includes(o.value)).length;
+  const allChecked = checkedCount === options.length;
+  // indeterminate is a DOM property, with no attribute to render.
+  useEffect(() => {
+    if (allRef.current) {
+      allRef.current.indeterminate = checkedCount > 0 && !allChecked;
+    }
+  });
   useEffect(() => {
     if (!open) return;
     // A tap, click or focus move outside the list closes it.
@@ -88,6 +105,18 @@ export function CheckboxFilter<T extends string>({
       document.removeEventListener("focusin", onOutside);
     };
   }, [open, onOpenChange]);
+  const rowStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    minHeight: 28,
+    borderRadius: 6,
+    fontSize: 12,
+    color: "var(--text-primary)",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
   return (
     <div
       ref={rootRef}
@@ -135,6 +164,7 @@ export function CheckboxFilter<T extends string>({
             top: "calc(100% + 4px)",
             left: 0,
             minWidth: "100%",
+            maxWidth: "calc(100vw - 24px)",
             zIndex: 600,
             background: "var(--bg-overlay-solid)",
             border: "1px solid var(--border-light)",
@@ -143,45 +173,77 @@ export function CheckboxFilter<T extends string>({
             boxShadow: "0 12px 40px var(--shadow-heavy)",
           }}
         >
+          <label style={rowStyle}>
+            <input
+              ref={allRef}
+              type="checkbox"
+              data-checkbox-all=""
+              checked={allChecked}
+              onChange={() =>
+                onSet(allChecked ? [] : options.map((o) => o.value))
+              }
+              style={{ margin: 0 }}
+            />
+            <span style={{ flex: 1 }}>{allLabel}</span>
+          </label>
+          {/* Only is beside the label, not in it: a button in a label would
+              toggle the checkbox too. */}
           {options.map((o) => (
-            <label
+            <div
               key={o.value}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 10px",
-                minHeight: 28,
-                borderRadius: 6,
-                fontSize: 12,
-                color: "var(--text-primary)",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
+              style={{ display: "flex", alignItems: "center" }}
             >
-              <input
-                type="checkbox"
-                value={o.value}
-                checked={checked.includes(o.value)}
-                onChange={() => onToggle(o.value)}
-                style={{ margin: 0 }}
-              />
-              <span
-                {...(o.noTranslate ? noTranslate() : {})}
-                style={{ flex: 1 }}
-              >
-                {o.label}
-              </span>
-              <span
+              <label style={{ ...rowStyle, flex: 1, minWidth: 0 }}>
+                <input
+                  type="checkbox"
+                  value={o.value}
+                  checked={checked.includes(o.value)}
+                  onChange={() => onToggle(o.value)}
+                  style={{ margin: 0 }}
+                />
+                <span
+                  {...(o.noTranslate ? noTranslate() : {})}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {o.label}
+                </span>
+                <span
+                  style={{
+                    marginLeft: 12,
+                    color: "var(--text-muted)",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  {o.count}
+                </span>
+              </label>
+              <button
+                type="button"
+                data-checkbox-only={o.value}
+                aria-label={t("tasks.filterOnlyName", { name: o.label })}
+                onClick={() => onSet([o.value])}
                 style={{
-                  marginLeft: 12,
+                  alignSelf: "stretch",
+                  minHeight: 28,
+                  padding: "0 10px",
+                  border: "none",
+                  borderRadius: 6,
+                  background: "transparent",
                   color: "var(--text-muted)",
-                  fontVariantNumeric: "tabular-nums",
+                  fontSize: 11,
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                  flexShrink: 0,
                 }}
               >
-                {o.count}
-              </span>
-            </label>
+                {t("tasks.filterOnly")}
+              </button>
+            </div>
           ))}
         </div>
       )}

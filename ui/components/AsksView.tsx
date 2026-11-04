@@ -505,6 +505,14 @@ export function AsksView({
                   : [...prev, id],
               )
             }
+            onSet={(ids) =>
+              setUncheckedRooms(
+                filterRooms
+                  .map((room) => room.id)
+                  .filter((id) => !ids.includes(id)),
+              )
+            }
+            allLabel={t("roomFilter.all")}
             open={openFilter === "room"}
             onOpenChange={(o) => setOpenFilter(o ? "room" : null)}
             buttonStyle={selectStyle}
@@ -520,6 +528,8 @@ export function AsksView({
             }))}
             checked={priorities}
             onToggle={(p) => setPriorities((prev) => toggled(prev, p))}
+            onSet={setPriorities}
+            allLabel={t("tasks.filterAllPriorities")}
             open={openFilter === "priority"}
             onOpenChange={(o) => setOpenFilter(o ? "priority" : null)}
             buttonStyle={selectStyle}

@@ -2819,6 +2819,8 @@ Coses que pots fer per ell:
   "tasks.filterAllStatuses": "Tots els estats",
   "tasks.filterAllPriorities": "Totes les prioritats",
   "tasks.filterNone": "Cap",
+  "tasks.filterOnly": "Només",
+  "tasks.filterOnlyName": "Només {name}",
   "tasks.filterPriorityNoneShort": "cap",
   "tasks.searchPlaceholder": "Cerca tasques...",
   "tasks.col.status": "E",

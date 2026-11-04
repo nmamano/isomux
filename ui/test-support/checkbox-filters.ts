@@ -18,12 +18,13 @@ export function filterButton(
   return root(container, which).querySelector("button")!;
 }
 
-// The checkbox values in the open list, in order.
+// An option's checkbox; the list's All box (data-checkbox-all) is not one.
+const OPTION = 'input[type="checkbox"]:not([data-checkbox-all])';
+
+// The option values in the open list, in order.
 export function filterOptions(container: HTMLElement, which: string): string[] {
   return [
-    ...root(container, which).querySelectorAll<HTMLInputElement>(
-      'input[type="checkbox"]',
-    ),
+    ...root(container, which).querySelectorAll<HTMLInputElement>(OPTION),
   ].map((box) => box.value);
 }
 
@@ -35,7 +36,7 @@ export async function checkedFilterValues(
   await openCheckboxFilter(container, which);
   return [
     ...root(container, which).querySelectorAll<HTMLInputElement>(
-      'input[type="checkbox"]:checked',
+      `${OPTION}:checked`,
     ),
   ].map((box) => box.value);
 }
@@ -48,7 +49,7 @@ export async function filterCounts(
   await openCheckboxFilter(container, which);
   const counts: Record<string, number> = {};
   for (const box of root(container, which).querySelectorAll<HTMLInputElement>(
-    'input[type="checkbox"]',
+    OPTION,
   ))
     counts[box.value] = Number(
       box.closest("label")!.lastElementChild!.textContent,
@@ -72,9 +73,47 @@ export async function toggleCheckboxFilter(
 ) {
   await openCheckboxFilter(container, which);
   const box = root(container, which).querySelector<HTMLInputElement>(
-    `input[type="checkbox"][value="${value}"]`,
+    `${OPTION}[value="${value}"]`,
   )!;
   await act(async () => fireEvent.click(box));
+}
+
+// The All box at the top of the list (task 286eaa5d); opens the list first.
+export async function allFilterBox(
+  container: HTMLElement,
+  which: string,
+): Promise<HTMLInputElement> {
+  await openCheckboxFilter(container, which);
+  const box = root(container, which).querySelector<HTMLInputElement>(
+    "input[data-checkbox-all]",
+  );
+  if (!box) throw new Error(`no All box in checkbox filter "${which}"`);
+  return box;
+}
+
+// The All box as one word: "all", "some" (indeterminate) or "none".
+export async function allFilterState(
+  container: HTMLElement,
+  which: string,
+): Promise<string> {
+  const box = await allFilterBox(container, which);
+  if (box.indeterminate) return box.checked ? "some+checked" : "some";
+  return box.checked ? "all" : "none";
+}
+
+// The Only button of one option (data-checkbox-only, task 286eaa5d); opens
+// the list first.
+export async function onlyFilterButton(
+  container: HTMLElement,
+  which: string,
+  value: string,
+): Promise<HTMLButtonElement> {
+  await openCheckboxFilter(container, which);
+  const button = root(container, which).querySelector<HTMLButtonElement>(
+    `button[data-checkbox-only="${value}"]`,
+  );
+  if (!button) throw new Error(`no Only button for "${value}" in "${which}"`);
+  return button;
 }
 
 // Leaves exactly the given values checked.
