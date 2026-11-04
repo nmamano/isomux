@@ -8,6 +8,7 @@ import { render } from "@testing-library/react";
 import { AsksView } from "../components/AsksView.tsx";
 import { StateCtx, DispatchCtx, initialState, reducer } from "../store.tsx";
 import { act, fireEvent } from "@testing-library/react";
+import { filterButton, setCheckboxFilter } from "./checkbox-filters.ts";
 
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type TaskPriority = import("../../shared/types.ts").TaskPriority;
@@ -148,3 +149,14 @@ export const BY_AGE = [
   "a4:a4p1",
   "a1:a1top",
 ];
+
+// The room and priority filters are the Tasks page's checkbox lists
+// (CheckboxFilter, task 2bbc5021): several choices at once, all checked at
+// open, each with a count.
+export const ALL_PRIORITIES = ["P0", "P1", "P2", "P3", "P4", "none"];
+export const setRooms = (view: View, rooms: string[]) =>
+  setCheckboxFilter(view.container, "room", rooms);
+export const setPriorities = (view: View, levels: string[]) =>
+  setCheckboxFilter(view.container, "priority", levels);
+export const isOpen = (view: View, which: string) =>
+  filterButton(view.container, which).getAttribute("aria-expanded");

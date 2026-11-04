@@ -291,7 +291,7 @@ describe("asks seen", () => {
 
 // The Asks tab sort, remembered per device. The Asks page reads it at mount
 // ("remembers the sort and both filters" in
-// ui/components/AsksView.filters.dom.test.tsx).
+// ui/components/AsksView.filter-memory.dom.test.tsx).
 describe("asks sort", () => {
   beforeEach(() => store.clear());
 

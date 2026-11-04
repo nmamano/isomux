@@ -195,7 +195,7 @@ describe("askGroups direction (task 452cf482)", () => {
 
 // Under "age" the filters run first, so a hidden ask between two of one
 // agent's asks joins them into one run. The filter row's wiring is in
-// ui/components/AsksView.filters.dom.test.tsx.
+// ui/components/AsksView.filter-options.dom.test.tsx.
 it("age sort: the filters run first, so a hidden ask joins the runs on each side of it", () => {
   const asks = [
     theAsk("aOld", "a1", 90, "P1"),

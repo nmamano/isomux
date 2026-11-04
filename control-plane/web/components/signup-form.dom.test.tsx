@@ -32,6 +32,8 @@ const realFetch = globalThis.fetch;
 afterAll(async () => {
   globalThis.fetch = realFetch;
   await GlobalRegistrator.unregister();
+  // Bun has none; a leftover becomes the baseline of the next DOM harness file.
+  delete (globalThis as { isSecureContext?: boolean }).isSecureContext;
 });
 
 interface Post {

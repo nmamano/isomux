@@ -4,8 +4,8 @@
 // waits ASK_UNDO_MS for an Undo on a line that scrolls into view, and is sent
 // at once when the page goes away.
 // A card shows its priority. The filter row, which sorts and filters the
-// groups, is in AsksView.filters.dom.test.tsx, and the sort's direction in
-// AsksView.sort-dir.dom.test.tsx.
+// groups, is in the AsksView.filter*.dom.test.tsx files, and the sort's
+// direction in AsksView.sort-dir.dom.test.tsx.
 // The agent's name opening its chat and an ask from an agent the client does
 // not have are in ui/App.inbox.dom.test.tsx; the card itself, which the chat's
 // stack sends at once, is in AsksStack.dom.test.tsx.
