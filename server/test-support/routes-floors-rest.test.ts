@@ -774,6 +774,9 @@ describe("a ride to an office where the member is signed out", () => {
         location: { hash, pathname: "/", search: "" },
         sessionStorage,
         history: { replaceState: () => {} },
+        // The on-box owner block's copy script looks up its button and
+        // returns when it finds none.
+        document: { querySelector: () => null },
       };
       ctx.window = ctx;
       for (const script of scripts) runInNewContext(script, ctx);

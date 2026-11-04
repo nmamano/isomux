@@ -3250,8 +3250,9 @@ App 的一些原则：
   "preAuth.login.alreadySignedIn":
     "已在其他设备上登录？请在设置中为其他设备创建邀请链接。",
   "preAuth.login.askOwner": "否则，请向办公室所有者索取链接。",
+  "preAuth.login.ownerLockedOut": "你是办公室所有者但无法登录？",
   "preAuth.login.ownerCommand":
-    "你是办公室所有者？在这台机器上以 root 身份运行以下命令，获取登录链接：{command}",
+    "在这台机器上以 root 身份运行以下命令，获取登录链接：",
   "preAuth.login.noOwner": "尚未设置办公室所有者。",
   "preAuth.login.claimHere": "打开 {link} 以认领所有权。",
   "preAuth.login.claimHereLink": "此办公室的首页",

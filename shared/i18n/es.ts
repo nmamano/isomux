@@ -3623,8 +3623,10 @@ Cosas que puedes hacer por él:
   "preAuth.login.alreadySignedIn":
     "¿Ya tienes sesión iniciada en otro sitio? Crea enlaces de invitación para tus otros dispositivos en Ajustes.",
   "preAuth.login.askOwner": "Si no, pídeselo al propietario de la oficina.",
+  "preAuth.login.ownerLockedOut":
+    "¿Eres el propietario de la oficina y no puedes entrar?",
   "preAuth.login.ownerCommand":
-    "¿Eres el propietario de la oficina? Ejecuta esto como root en esta máquina para obtener un enlace de inicio de sesión: {command}",
+    "Ejecuta esto como root en esta máquina para obtener un enlace de inicio de sesión:",
   "preAuth.login.noOwner": "Esta oficina todavía no tiene propietario.",
   "preAuth.login.claimHere": "Abre {link} para reclamar la propiedad.",
   "preAuth.login.claimHereLink": "la página de inicio de esta oficina",

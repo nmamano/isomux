@@ -21,6 +21,8 @@ import { _testMintLegacyInvite } from "../auth.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { ownerLoginCommand } from "../admin-cli.ts";
 import { ADMIN_SOCKET_PATH } from "../config.ts";
+import { Window, type Element as PageElement } from "happy-dom";
+import { runInContext, type Context } from "node:vm";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -287,7 +289,86 @@ describe("the login page's owner-recovery command", () => {
     }
   });
 
-  it("shows an off-box visitor no command: one paragraph fewer than on the box", async () => {
+  const windows: Window[] = [];
+  afterEach(async () => {
+    for (const window of windows.splice(0)) await window.happyDOM.close();
+  });
+
+  const SCRIPT = /<script>([\s\S]*?)<\/script>/gu;
+
+  /** The source of each inline script on the page, in order. */
+  function scripts(html: string): string[] {
+    return [...html.matchAll(SCRIPT)].map((m) => m[1]);
+  }
+
+  /** The page's markup in a happy-dom window, without its scripts: happy-dom
+   * 21 drops a script whose source holds "<=" (the panel script does). */
+  function load(html: string): Window {
+    const window = new Window({ url: "http://localhost/" });
+    window.document.write(html.replace(SCRIPT, ""));
+    windows.push(window);
+    return window;
+  }
+
+  /** The owner-recovery <details> of an on-box page, with its parts. */
+  function recoveryBlock(html: string): {
+    details: PageElement;
+    summary: string;
+    button: string;
+  } {
+    const { document } = load(html);
+    const all = document.querySelectorAll("details");
+    expect(all.length).toBe(1);
+    const details = all[0];
+    const first = details.firstElementChild;
+    expect(first?.tagName).toBe("SUMMARY");
+    const buttons = details.querySelectorAll("button");
+    expect(buttons.length).toBe(1);
+    return {
+      details,
+      summary: first?.textContent?.trim() ?? "",
+      button: buttons[0].textContent?.trim() ?? "",
+    };
+  }
+
+  it("folds the on-box command into a closed disclosure whose hint and copy button read in the browser's language", async () => {
+    // Nil at sign-off (task b7d1ce62): a hint line that expands to the
+    // instructions and the command, with a copy button.
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const seen: Record<string, { summary: string; button: string }> = {};
+    for (const [label, header] of HEADERS) {
+      const { html } = await page(server, "/", header);
+      const block = recoveryBlock(html);
+      expect({ label, open: block.details.hasAttribute("open") }).toEqual({
+        label,
+        open: false,
+      });
+      // The command sits inside the fold, not next to it.
+      const inside = [...block.details.querySelectorAll("code")].map(
+        (code) => code.textContent,
+      );
+      expect({ label, inside }).toEqual({
+        label,
+        inside: [ownerLoginCommand("<your-display-name>", ADMIN_SOCKET_PATH)],
+      });
+      expect({
+        label,
+        summary: block.summary.length > 0,
+        button: block.button.length > 0,
+      }).toEqual({ label, summary: true, button: true });
+      seen[label] = { summary: block.summary, button: block.button };
+    }
+    for (const label of ["Spanish", "Catalan"])
+      for (const part of ["summary", "button"] as const)
+        expect({ label, part, text: seen[label][part] }).not.toEqual({
+          label,
+          part,
+          text: seen.English[part],
+        });
+  });
+
+  it("shows an off-box visitor no command, no fold, no copy button and no copy script", async () => {
     server = await startTestServer();
     await server.seedOwner("Morgan");
     const onBox = await page(server, "/", "en");
@@ -295,9 +376,101 @@ describe("the login page's owner-recovery command", () => {
     expect(offBox.status).toBe(401);
     expect(ownerCommands(onBox.html).length).toBe(1);
     expect(codeTexts(offBox.html)).toEqual([]);
-    expect(paragraphs(offBox.html).length).toBe(
-      paragraphs(onBox.html).length - 1,
-    );
+    const { document } = load(offBox.html);
+    expect(document.querySelectorAll("details, button").length).toBe(0);
+    expect(scripts(offBox.html).length).toBe(scripts(onBox.html).length - 1);
+  });
+
+  it("copies exactly the command the page shows, and says so only when the copy worked", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const { html } = await page(server, "/", "en");
+    const command = ownerLoginCommand("<your-display-name>", ADMIN_SOCKET_PATH);
+    // clipboard: what navigator.clipboard.writeText does (absent off a secure
+    // context); execCommand: what document.execCommand("copy") returns.
+    const cases: Array<{
+      clipboard: "resolves" | "rejects" | "absent";
+      execCommand: boolean;
+      written: string[];
+      selected: string[];
+      labelChanges: boolean;
+    }> = [
+      {
+        clipboard: "resolves",
+        execCommand: false,
+        written: [command],
+        selected: [],
+        labelChanges: true,
+      },
+      {
+        clipboard: "rejects",
+        execCommand: true,
+        written: [command],
+        selected: [command],
+        labelChanges: true,
+      },
+      {
+        clipboard: "absent",
+        execCommand: true,
+        written: [],
+        selected: [command],
+        labelChanges: true,
+      },
+      {
+        clipboard: "rejects",
+        execCommand: false,
+        written: [command],
+        selected: [command],
+        labelChanges: false,
+      },
+    ];
+    for (const c of cases) {
+      const window = load(html);
+      const { document } = window;
+      const written: string[] = [];
+      Object.defineProperty(window.navigator, "clipboard", {
+        configurable: true,
+        value:
+          c.clipboard === "absent"
+            ? undefined
+            : {
+                writeText: (text: string) => {
+                  written.push(text);
+                  return c.clipboard === "resolves"
+                    ? Promise.resolve()
+                    : Promise.reject(new Error("NotAllowedError"));
+                },
+              },
+      });
+      // The text selected when the page asks the browser to copy.
+      const selected: string[] = [];
+      Object.defineProperty(document, "execCommand", {
+        configurable: true,
+        value: (name: string) => {
+          if (name === "copy")
+            selected.push(window.getSelection()?.toString() ?? "");
+          return c.execCommand;
+        },
+      });
+      for (const script of scripts(html))
+        runInContext(script, window as unknown as Context);
+      const button = document.querySelector("details button");
+      expect({ button: button !== null }).toEqual({ button: true });
+      if (!(button instanceof window.HTMLElement)) return;
+      const before = button.textContent?.trim() ?? "";
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const after = button.textContent?.trim() ?? "";
+      expect({
+        ...c,
+        written,
+        selected,
+        labelChanges: after !== before,
+      }).toEqual(c);
+      if (c.labelChanges) expect(after.length).toBeGreaterThan(0);
+      // Nothing copied: the command stays selected for the visitor's Ctrl+C.
+      else expect(window.getSelection()?.toString()).toBe(command);
+    }
   });
 
   it("is not on the page before an owner exists, on the box or off it", async () => {
@@ -307,6 +480,9 @@ describe("the login page's owner-recovery command", () => {
       expect(status).toBe(401);
       expect(ownerCommands(html)).toEqual([]);
       expect(codeTexts(html).map((c) => c.text)).toEqual(["ssh -L"]);
+      expect(
+        load(html).document.querySelectorAll("details, button").length,
+      ).toBe(0);
     }
   });
 });

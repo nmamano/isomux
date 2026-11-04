@@ -1007,15 +1007,26 @@ function renderLoginPage(
   );
 }
 
+// Copies the owner command for the button next to it. The labels come from
+// the button's attributes, so no translated text goes into script source. When
+// neither copy path works, the command stays selected for the visitor's Ctrl+C.
+const OWNER_COPY_SCRIPT = `(function(){var b=document.querySelector(".owner-copy"),c=document.querySelector(".owner-cmd code");if(!b||!c)return;var t;function done(){b.textContent=b.getAttribute("data-copied");clearTimeout(t);t=setTimeout(function(){b.textContent=b.getAttribute("data-copy")},1500)}function fallback(){var s=window.getSelection(),r=document.createRange();r.selectNodeContents(c);s.removeAllRanges();s.addRange(r);var ok=false;try{ok=document.execCommand("copy")}catch(e){}if(ok)done()}b.addEventListener("click",function(){var text=c.textContent;if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(text).then(done,fallback);else fallback()})})()`;
+
 // The owner-recovery step, for a visitor on the office's own machine only. It
 // shows the root command and never signs anyone in: every agent on the box
 // reaches loopback too, and the admin socket answers only root.
 function ownerCommandHtml(t: Translator["t"]): string {
   const command = ownerLoginCommand("<your-display-name>", ADMIN_SOCKET_PATH);
   return `
-      <p class="muted">${t("preAuth.login.ownerCommand", {
-        command: `<code>${escapeHtml(command)}</code>`,
-      })}</p>`;
+      <details class="owner-help">
+        <summary class="muted">${t("preAuth.login.ownerLockedOut")}</summary>
+        <p class="muted">${t("preAuth.login.ownerCommand")}</p>
+        <div class="owner-cmd">
+          <code>${escapeHtml(command)}</code>
+          <button type="button" class="owner-copy" data-copy="${escapeAttr(t("common.copy"))}" data-copied="${escapeAttr(t("common.copied"))}">${t("common.copy")}</button>
+        </div>
+      </details>
+      <script>${OWNER_COPY_SCRIPT}</script>`;
 }
 
 // First-time-setup form. Shape mirrors renderAcceptPage's bootstrap branch
@@ -1153,6 +1164,27 @@ const PREAUTH_EXTRA_CSS = `
   @media (prefers-color-scheme: dark) {
     .muted { color: #a88f60; }
   }
+  .owner-help { margin: 0.5em 0; }
+  .owner-help summary { cursor: pointer; }
+  .owner-cmd {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .owner-cmd code {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.8em;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(110, 80, 36, 0.1);
+  }
+  @media (prefers-color-scheme: dark) {
+    .owner-cmd code { background: rgba(220, 190, 130, 0.12); }
+  }
+  .owner-cmd button { padding: 4px 10px; font-size: 0.85em; }
 `;
 
 function renderAcceptPage(
