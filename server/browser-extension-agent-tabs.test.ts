@@ -1219,6 +1219,7 @@ function sessionOffice() {
     member?: string;
     muted?: boolean;
     agentTabBrowsers?: { id: string; browser: string; member: string }[];
+    canOpenTabs?: boolean;
   };
   const run = async (agent: string, body: object) =>
     (await sessions.run(agent, body)) as unknown as Answer;
@@ -1312,6 +1313,94 @@ test("an agent with no tab learns where it may open one: tabs lists the browsers
     expect(await h.run("bob-agent", { action: "tabs" })).toMatchObject({
       ok: false,
     });
+  } finally {
+    h.stop();
+  }
+});
+
+// Task a9a0b388: an agent learns from tabs, and from a read with no tab,
+// that it may open its own tab before it asks the member to offer one.
+// "action":"open" and agentTabBrowsers are protocol names the errors point to.
+const NAMES_OPEN = /"action":\s*"open"/;
+
+test("tabs says whether a browser of the manager lets the agent open a tab; another member's browser does not count", async () => {
+  const h = sessionOffice();
+  try {
+    const laptop = h.connect("ann", "Laptop");
+    // Connected, setting off: an ok answer that says false, not a missing field.
+    const off = await h.run("ann-agent", { action: "tabs" });
+    expect(off).toMatchObject({ ok: true, tabs: [] });
+    expect(off.canOpenTabs).toBe(false);
+    laptop.setting("all");
+    expect((await h.run("ann-agent", { action: "tabs" })).canOpenTabs).toBe(
+      true,
+    );
+    // Two browsers of the manager allow it: open asks for a pick, but the
+    // agent may still open its own tab.
+    h.connect("ann", "Desk").setting("all");
+    expect((await h.run("ann-agent", { action: "tabs" })).canOpenTabs).toBe(
+      true,
+    );
+    // Only another member's browser allows it: false, and agentTabBrowsers
+    // lists that browser.
+    h.connect("bob", "Desk");
+    const elsewhere = await h.run("bob-agent", { action: "tabs" });
+    expect(elsewhere.agentTabBrowsers ?? []).toEqual([]);
+    expect(elsewhere.canOpenTabs).toBe(false);
+    laptop.setting("office");
+    const listed = await h.run("bob-agent", { action: "tabs" });
+    expect(listed.agentTabBrowsers?.map((b) => b.member)).toEqual(["Ann"]);
+    expect(listed.canOpenTabs).toBe(false);
+  } finally {
+    h.stop();
+  }
+});
+
+test("a read with no tab tells the agent to open its own when its manager's browser allows it, and points to another member's browser otherwise", async () => {
+  const h = sessionOffice();
+  try {
+    const read = (agent: string, body: object = { action: "snapshot" }) =>
+      h.run(agent, body);
+    const laptop = h.connect("ann", "Laptop");
+    // Setting off, no other browser: the member must offer a tab.
+    const none = await read("ann-agent");
+    expect(none).toMatchObject({ ok: false, code: "browser_control_ended" });
+    expect(none.error).not.toMatch(NAMES_OPEN);
+    expect(none.error).not.toContain("agentTabBrowsers");
+    // The manager's browser allows it: open your own.
+    laptop.setting("all");
+    const own = await read("ann-agent");
+    expect(own).toMatchObject({ ok: false, code: "browser_control_ended" });
+    expect(own.error).toMatch(NAMES_OPEN);
+    // A stale target keeps its own text: find the current targets.
+    const stale = await read("ann-agent", {
+      action: "snapshot",
+      target: crypto.randomUUID(),
+    });
+    expect(stale).toMatchObject({ ok: false, code: "browser_control_ended" });
+    expect(stale.error).not.toMatch(NAMES_OPEN);
+    // bob's browser is on with the setting off; only ann's allows bob-agent.
+    const bobDesk = h.connect("bob", "Desk");
+    const offHere = await read("bob-agent");
+    expect(offHere).toMatchObject({ code: "browser_control_ended" });
+    expect(offHere.error).not.toContain("agentTabBrowsers");
+    laptop.setting("office");
+    const elsewhere = await read("bob-agent");
+    expect(elsewhere).toMatchObject({ code: "browser_control_ended" });
+    expect(elsewhere.error).not.toMatch(NAMES_OPEN);
+    expect(elsewhere.error).toContain("agentTabBrowsers");
+    // bob's browser goes offline, and then bob unpairs: same pointer.
+    bobDesk.close();
+    const offline = await read("bob-agent");
+    expect(offline).toMatchObject({ ok: false, code: "browser_offline" });
+    expect(offline.error).toContain("agentTabBrowsers");
+    h.store.revoke("bob");
+    const unpaired = await read("bob-agent");
+    expect(unpaired).toMatchObject({ ok: false, code: "browser_not_paired" });
+    expect(unpaired.error).toContain("agentTabBrowsers");
+    // ann narrows to her own agents: no pointer is left for bob-agent.
+    laptop.setting("all");
+    expect((await read("bob-agent")).error).not.toContain("agentTabBrowsers");
   } finally {
     h.stop();
   }

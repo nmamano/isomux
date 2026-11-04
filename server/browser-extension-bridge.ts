@@ -394,6 +394,14 @@ export class BrowserExtensionBridge {
     return this.openers(manager, agent).map(({ entry }) => entry);
   }
 
+  /** Whether a connected browser of the manager lets the agent open a tab,
+   * so open without a browser named uses it or asks for one. */
+  mayOpen(manager: string | undefined, agent: string): boolean {
+    return this.openers(manager, agent).some(
+      (o) => o.connection.memberId === manager,
+    );
+  }
+
   private openers(
     manager: string | undefined,
     agent: string,

@@ -171,6 +171,10 @@ const OPEN_ELSEWHERE =
   'Another member\'s browser lets you open a tab: pass its id as "browser" (see agentTabBrowsers in action "tabs").';
 const withOpenElsewhere = (error: string, elsewhere: boolean) =>
   elsewhere ? `${error} ${OPEN_ELSEWHERE}` : error;
+const NO_TAB_OPEN_OWN =
+  'You have no tab. Open your own: {"action":"open","url":"https://..."}.';
+const OFFER_A_TAB =
+  "Open the Chrome extension popup on an HTTP(S) tab, choose Agents that include this agent, and turn on Use this tab.";
 const AGENT_TABS_OFF =
   'Your manager\'s browser does not let agents open tabs. In your ask, give the member the choice: turn on "Open their own tabs" in the extension popup, offer you a tab, or do the steps themselves.';
 const agentTabsOutdated = (browsers: OutdatedBrowser[]) =>
@@ -324,6 +328,7 @@ export class ExtensionBrowserSessions {
           ? { outdatedBrowsers: outdated.map((b) => b.name) }
           : {}),
         ...(openable.length ? { agentTabBrowsers: openable } : {}),
+        canOpenTabs: bridge.mayOpen(member, agent),
       });
     }
     if (!params.target && bridge.ambiguous(member, agent))
@@ -465,16 +470,28 @@ export class ExtensionBrowserSessions {
     const params = parseBrowserParams(body);
     if (!params.ok) return params;
     if (!bound) {
+      const bridge = this.service.bridge;
+      // No tab to act on: point the agent to a tab it may open itself
+      // before the member is asked to offer one.
+      const elsewhere = bridge.agentTabBrowsers(member, agent).length > 0;
       if (!member || !this.service.store.paired(member))
-        return failure("browser_not_paired", "No Chrome browser is paired");
+        return failure(
+          "browser_not_paired",
+          withOpenElsewhere("No Chrome browser is paired.", elsewhere),
+        );
       const outdated = this.service.outdatedBrowsers(member);
-      if (!this.service.bridge.connections(member).length)
-        return offline(outdated);
+      if (!bridge.connections(member).length)
+        return failure(
+          "browser_offline",
+          withOpenElsewhere(offlineError(outdated), elsewhere),
+        );
       return failure(
         "browser_control_ended",
         (params.target
           ? 'This target is no longer offered. Use action "tabs" to find the current targets; a tab offered again has a new target.'
-          : "Open the Chrome extension popup on an HTTP(S) tab, choose Agents that include this agent, and turn on Use this tab.") +
+          : bridge.mayOpen(member, agent)
+            ? NO_TAB_OPEN_OWN
+            : withOpenElsewhere(OFFER_A_TAB, elsewhere)) +
           (outdated.length ? " " + outdatedNote(outdated) : ""),
       );
     }

@@ -73,6 +73,9 @@ interface BrowserSuccess {
   outdatedBrowsers?: string[];
   /** `tabs` only: the connected browsers where this agent may open a tab. */
   agentTabBrowsers?: { id: string; browser: string; member: string }[];
+  /** `tabs` only: whether a connected browser of the manager lets this
+   * agent open a tab. */
+  canOpenTabs?: boolean;
   /** `open` only: the name of the browser that holds the new tab. */
   browser?: string;
   /** `open` only: the name of the member whose browser it is. */
