@@ -1,6 +1,7 @@
 // Render-test harness for the UI: happy-dom plus @testing-library/react,
 // registered per test file. Never through the bunfig preload - that one serves
-// the server suite, which must keep Bun's own globals.
+// the server suite, which must keep Bun's own globals. The preload only records
+// those globals (start-globals.ts), as the baseline for the leak checks below.
 //
 // Two measured facts (2026-09-05; bun 1.3.11, happy-dom 20.14.0) give this
 // module its shape.
@@ -33,6 +34,11 @@
 
 import { afterAll, afterEach, beforeAll, expect } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+import {
+  type Globals,
+  snapshotGlobals,
+  startGlobals,
+} from "./start-globals.ts";
 
 type MatcherUtils = {
   printExpected(value: unknown): string;
@@ -244,12 +250,6 @@ function removeStubs(): void {
   stubbed.clear();
 }
 
-type Globals = Map<string, PropertyDescriptor>;
-
-function snapshotGlobals(): Globals {
-  return new Map(Object.entries(Object.getOwnPropertyDescriptors(globalThis)));
-}
-
 // Globals a module sets once per process, at its first import, and never takes
 // back: not a leak of whichever file happened to import it first.
 const PROCESS_GLOBALS = new Set([
@@ -308,8 +308,24 @@ type DomFile = {
 let currentFile: DomFile | null = null;
 let lastDomFile: string | null = null;
 
-// Bun's own globals, before this module registers the first window.
-const bunGlobals = snapshotGlobals();
+// Bun's own globals, as the preload recorded them before any test file ran.
+// Without the preload, the earliest point left is this module's first load.
+const bunGlobals = startGlobals() ?? snapshotGlobals();
+
+// What files that ran before this module loaded left changed. The harness
+// puts Bun's back now, and the first DOM file reports them.
+const leftBeforeHarness = changedGlobals(bunGlobals);
+restoreGlobals(bunGlobals, leftBeforeHarness);
+
+function leftByEarlierFile(left: string[], path: string): string {
+  return (
+    `An earlier file in this bun process left these globals changed: ${left.join(", ")}. ` +
+    `The harness put Bun's back. ${path} did not change them: look at ` +
+    (lastDomFile
+      ? `${lastDomFile}, the last DOM file, or a file that ran after it and does not use this harness.`
+      : `a file that ran before this one and does not use this harness.`)
+  );
+}
 
 // This module's own body is the earliest point at which a DOM can exist, and it
 // runs before the importing test file's body, so registering here and THEN
@@ -388,15 +404,12 @@ export function setUpDomTestFile({
     const left = changedGlobals(bunGlobals);
     if (left.length) {
       restoreGlobals(bunGlobals, left);
-      problems.push(
-        `An earlier file in this bun process left these globals changed: ${left.join(", ")}. ` +
-          `The harness put Bun's back. ${path} did not change them: look at ` +
-          (lastDomFile
-            ? `${lastDomFile}, the last DOM file, or a non-DOM file that ran after it.`
-            : `a non-DOM file that ran before this one.`),
-      );
+      problems.push(leftByEarlierFile(left, path));
     }
     before = snapshotGlobals();
+  } else if (leftBeforeHarness.length) {
+    problems.push(leftByEarlierFile(leftBeforeHarness, path));
+    leftBeforeHarness.length = 0;
   }
   refusedRequests.length = 0;
   register();

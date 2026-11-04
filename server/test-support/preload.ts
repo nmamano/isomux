@@ -24,6 +24,7 @@ import {
   testTempBase,
 } from "./temp-root.ts";
 import { inheritedGitRepoEnv } from "./git-env.ts";
+import { recordStartGlobals } from "../../ui/test-support/start-globals.ts";
 
 // Next builds its request store once, at load, from globalThis.AsyncLocalStorage,
 // and falls back to a fake whose exit() throws. A Next server sets the global
@@ -191,3 +192,6 @@ afterAll(() => {
     testAppPortBlock.sentinel.stop(true);
   }
 });
+
+// Last, so that the DOM harness's baseline holds what this preload set.
+recordStartGlobals();

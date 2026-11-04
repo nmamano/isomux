@@ -276,6 +276,105 @@ it("sets chrome", () => { (globalThis as Record<string, unknown>).chrome = {}; }
     });
   }, 30_000);
 
+  // A file outside the harness that leaks before the first harness file of the
+  // process loads it (task 4a2ca1fd): the harness must neither take the leak
+  // for one of Bun's globals nor blame the first harness file for it.
+  it("names an earlier file, not the first DOM file, for a global left before the harness loaded", async () => {
+    const leaker: [string, string] = [
+      "leaker.test.ts",
+      `import { it } from "bun:test";
+import { appendFileSync } from "node:fs";
+appendFileSync(process.env.ORDER_FILE!, "leaker\\n");
+(globalThis as Record<string, unknown>).isSecureContext = true;
+it("runs", () => {});
+`,
+    ];
+    const [touched, untouched] = await Promise.all([
+      runInOneProcess("leaked-first-touched", [
+        leaker,
+        // Sets the leaked key for one test and deletes it after: clean.
+        domFixture(
+          "toucher",
+          `import { afterEach } from "bun:test";
+afterEach(() => { delete (globalThis as Record<string, unknown>).isSecureContext; });
+it("sets isSecureContext for one test", () => {
+  Object.defineProperty(globalThis, "isSecureContext", { value: true, writable: true, configurable: true });
+});`,
+        ),
+        bunGlobalsCheck("after"),
+      ]),
+      runInOneProcess("leaked-first-untouched", [
+        leaker,
+        domFixture("quiet", plainDomTest),
+        domFixture(
+          "leaver",
+          `it("sets chrome", () => { (globalThis as Record<string, unknown>).chrome = {}; });`,
+        ),
+        bunGlobalsCheck("after"),
+      ]),
+    ]);
+    expect(touched.order).toEqual(["leaker", "toucher", "after"]);
+    expect(untouched.order).toEqual(["leaker", "quiet", "leaver", "after"]);
+
+    // Each sentence that lists `key` as changed, up to the list: whom it
+    // blames. The harness reports each problem on a line of its own.
+    const blamesFor = (failure: string, key: string): string[] => {
+      const lines = [
+        ...failure.matchAll(
+          new RegExp(`^(.*?): (?:[\\w$]+, )*${key}\\b`, "gm"),
+        ),
+      ].map((line) => line[1]!);
+      if (!lines.length)
+        throw new Error(`no sentence lists ${key}:\n${failure}`);
+      return lines;
+    };
+    const blaming = (failure: string, key: string, path: string) =>
+      blamesFor(failure, key).filter((line) => line.includes(path));
+
+    // The file that touched the key is reported, but not blamed for it.
+    const toucher = touched.file("toucher.dom.test.ts");
+    expect(toucher.passed).toEqual(["sets isSecureContext for one test"]);
+    expect(toucher.failures, touched.output).toHaveLength(1);
+    expect(
+      blaming(
+        toucher.failures[0]!,
+        "isSecureContext",
+        touched.path("toucher.dom.test.ts"),
+      ),
+    ).toEqual([]);
+
+    // A first harness file that never touched the key reports it too.
+    const quiet = untouched.file("quiet.dom.test.ts");
+    expect(quiet.passed).toEqual(["runs"]);
+    expect(quiet.failures, untouched.output).toHaveLength(1);
+    expect(
+      blaming(
+        quiet.failures[0]!,
+        "isSecureContext",
+        untouched.path("quiet.dom.test.ts"),
+      ),
+    ).toEqual([]);
+    // Once: the next harness file is blamed only for what it left itself.
+    // That sentence names its file, which shows blamesFor reads the blame.
+    const leaver = untouched.file("leaver.dom.test.ts");
+    expect(leaver.failures).toHaveLength(1);
+    expect(leaver.failures[0]).not.toContain("isSecureContext");
+    expect(
+      blaming(
+        leaver.failures[0]!,
+        "chrome",
+        untouched.path("leaver.dom.test.ts"),
+      ).length,
+    ).toBeGreaterThan(0);
+
+    // The harness put Bun's globals back, not the leaked value.
+    for (const run of [touched, untouched])
+      expect(run.file("after.test.ts"), run.output).toEqual({
+        passed: ["has Bun's own globals"],
+        failures: [],
+      });
+  }, 30_000);
+
   it("puts back what stubGlobal replaced or added, also past the cap", async () => {
     const run = await runInOneProcess("stubs", [
       domFixture(

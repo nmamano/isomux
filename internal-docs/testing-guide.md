@@ -156,7 +156,9 @@ const { App } = await import("./App.tsx");
    file's own `afterAll` is too late: bun runs it after the harness's, once the
    window is closed. At the end of each file the harness puts back what the
    file changed and fails the file, naming each global. When a file starts it
-   repairs what an earlier file left, and fails naming the last DOM file. A
+   repairs what an earlier file left, and fails naming the last DOM file. The
+   baseline is the globals the test preload recorded, so the first DOM file of
+   a process also reports what a file outside the harness left before it. A
    harness failure skips the file's later `afterAll` hooks (bun 1.4.4).
    Prototypes are not checked: restore a patched method by its descriptor, or
    an assignment back leaves an own property that outlives the window.
