@@ -56,7 +56,8 @@ const flat: CSSProperties = {
 
 // The provider accounts the cards read, shared with the rest of the office
 // through the store. Both cards of the tab mount this; the read is cheap.
-export function useProviderAccounts() {
+// Reads nothing while enabled is false: a pack without environment read.
+export function useProviderAccounts(enabled: boolean) {
   const { providerAccounts } = useAppState();
   const dispatch = useDispatch();
   const { t } = useI18n();
@@ -104,14 +105,15 @@ export function useProviderAccounts() {
   }
 
   useEffect(() => {
-    void read(false);
-    // Once per mount; Refresh reads again.
+    if (enabled) void read(false);
+    // Once per mount or enable; Refresh reads again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
   // A saved variable or secret can change the OPENAI_API_KEY the Codex card
   // names.
   useEffect(() => {
+    if (!enabled) return;
     const reread = () => void read(false);
     const offEnv = onManagedEnvSaved(reread);
     const offConnections = onConnectionsChanged(reread);
@@ -120,7 +122,7 @@ export function useProviderAccounts() {
       offConnections();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
   return {
     accounts: providerAccounts,

@@ -7,7 +7,8 @@
 // are the viewer's own too (they moved here from Settings in task db800fd8),
 // so they need a session and never follow the member picker. GitHub issues
 // links a room to a repo and shows only to an owner (it moved here from Room
-// settings in task 7ac5ba2e). An owner can
+// settings in task 7ac5ba2e). A member with a permission pack sees only the
+// tabs of its areas (task a1d3fa5f). An owner can
 // pick another member's personal ones; the card then turns orange, takes the
 // member's name and offers a way back, and every form names the member, so an
 // owner cannot forget whose items they are changing (Nil, 2026-10-13).
@@ -28,6 +29,9 @@ import {
   type ReactNode,
 } from "react";
 import { useAppState } from "../store.tsx";
+import { canUse } from "../hooks/useCan.ts";
+import { useSelfUser } from "../hooks/useSelfUser.ts";
+import type { ApiTokenArea } from "../../shared/api-token-limits.ts";
 import { useI18n } from "../i18n.tsx";
 import { BEDROCK_GUIDE } from "../connection-rows.ts";
 import {
@@ -90,6 +94,21 @@ const CARD_TABS: readonly IntegrationsTab[] = [
   "variables",
 ];
 
+// The area of the routes each tab calls; null for none (API tokens) or for
+// owners only (GitHub issues: an owner has no pack).
+const TAB_AREA: Record<IntegrationsTab, ApiTokenArea | null> = {
+  providers: "environment",
+  mcp: "environment",
+  secrets: "environment",
+  variables: "environment",
+  voice: "voice",
+  browser: "agents",
+  github: null,
+  pager: "pager",
+  "api-tokens": null,
+  messaging: "environment",
+};
+
 const TAB_INTRO = {
   providers: "integrations.tabIntro.providers",
   mcp: "integrations.tabIntro.mcp",
@@ -130,24 +149,32 @@ function IntegrationsPage({
   const self = sessionContext?.username ?? "";
 
   // Shared with the server, which checks an ask's link to a tab. Pager and
-  // API tokens show only with a session, and GitHub issues only to an owner;
-  // a remembered or requested one the viewer lacks falls back like an
-  // unknown tab.
-  const tabs = INTEGRATIONS_TABS.filter(
-    (id) =>
+  // API tokens show only with a session, GitHub issues only to an owner, and
+  // a tab outside the member's pack not at all; a remembered or requested one
+  // the viewer lacks falls back like an unknown tab.
+  const selfUser = useSelfUser();
+  const tabs = INTEGRATIONS_TABS.filter((id) => {
+    const area = TAB_AREA[id];
+    return (
       (sessionContext || !SELF_TABS.includes(id)) &&
-      (role === "owner" || id !== "github"),
-  );
+      (role === "owner" || id !== "github") &&
+      (area === null || canUse(selfUser, area, "read"))
+    );
+  });
+  const canEnvironment = canUse(selfUser, "environment", "read");
 
   // Read once: the request is one-shot, and App clears it below.
   const [initial] = useState(() => request);
   const requestedTab =
     initial?.tab && tabs.includes(initial.tab) ? initial.tab : null;
-  const [tab, setTabState] = useState<IntegrationsTab>(() =>
-    initial?.signIn
+  const [chosen, setTabState] = useState<IntegrationsTab>(() =>
+    initial?.signIn && tabs.includes("mcp")
       ? "mcp"
-      : (requestedTab ?? getIntegrationsTab(tabs) ?? "providers"),
+      : (requestedTab ?? getIntegrationsTab(tabs) ?? tabs[0] ?? "providers"),
   );
+  // The pack can arrive or change while the page is open: a chosen tab it
+  // no longer shows falls back to the first, and the device keeps the choice.
+  const tab = tabs.includes(chosen) ? chosen : (tabs[0] ?? chosen);
   // On a phone the list and a tab take turns, like Settings: the list shows
   // first unless the open names a tab.
   const [listShown, setListShown] = useState(
@@ -288,7 +315,7 @@ function IntegrationsPage({
       setSignIn(null);
   };
 
-  const accounts = useProviderAccounts();
+  const accounts = useProviderAccounts(canEnvironment);
   const personalRef = useRef<HTMLElement>(null);
 
   function section(target: Target): ReactNode {
@@ -383,7 +410,7 @@ function IntegrationsPage({
   }
 
   // The viewer's own card lists what others changed for them on this tab.
-  const changes = useIntegrationChanges(!!sessionContext);
+  const changes = useIntegrationChanges(!!sessionContext && canEnvironment);
   const personalCard = (
     <PersonalCard
       cardRef={personalRef}
