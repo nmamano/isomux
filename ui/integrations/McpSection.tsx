@@ -24,6 +24,7 @@ import { mcpServerHost, oauthSecretNames } from "../../shared/mcp-servers.ts";
 import type { SecretForm } from "../../shared/secret-hosts.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import {
   notifyConnectionsChanged,
   onConnectionsChanged,
@@ -317,7 +318,9 @@ export function McpSection({
   const base = basePath(target);
   const path = `${base}/mcp-servers`;
   const secretsPath = `${base}/secrets`;
-  const editable = canEdit(target, role);
+  // A pack that gives environment at read shows the items, not the changes.
+  const environmentWrite = useCan("environment", "write");
+  const editable = canEdit(target, role) && environmentWrite;
   const summary = summaryOnly(target, role);
   const mine = useMyConnections();
   const scope = scopeOf(target);
@@ -331,7 +334,9 @@ export function McpSection({
   const load = () =>
     Promise.all([
       apiFetch<McpServerListRes>("GET", path),
-      editable && !summary
+      // Reading the secrets is environment read: a pack at read still gets
+      // each server's credential status.
+      canEdit(target, role) && !summary
         ? apiFetch<SecretListRes>("GET", secretsPath)
         : Promise.resolve({ secrets: [] }),
     ])

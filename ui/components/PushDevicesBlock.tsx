@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import type {
   PushDevice,
   PushDeviceFailure,
@@ -164,8 +165,10 @@ export function PushThisDevice({
     usePushDevices(username);
   // Set by a tap here, so a browser that was on before says nothing.
   const [tapped, setTapped] = useState(false);
+  // Turning on saves a device, a change on pager.
+  const pagerWrite = useCan("pager", "write");
 
-  if (!data) return null;
+  if (!data || !pagerWrite) return null;
   if (support !== "ok") {
     return (
       <p
@@ -238,6 +241,8 @@ export function PushDevicesBlock({ username }: { username: string }) {
     remove,
     test,
   } = usePushDevices(username);
+  // A pack that gives pager at read lists the devices, not their changes.
+  const pagerWrite = useCan("pager", "write");
   const [othersOpen, setOthersOpen] = useState(false);
   const others = data?.devices.filter((d) => d.id !== thisId) ?? [];
 
@@ -245,39 +250,43 @@ export function PushDevicesBlock({ username }: { username: string }) {
     <div style={cardStyle} data-testid="push-devices">
       {support === "ok" ? (
         <div style={row}>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={on}
-            data-testid="push-toggle"
-            data-on={on}
-            onClick={() => void (thisId ? remove(thisId) : turnOn())}
-            disabled={busy || !data}
-            style={{
-              ...switchButton,
-              ...(busy || !data ? disabledLook : null),
-            }}
-          >
-            <span
-              aria-hidden
-              style={{
-                ...switchTrack,
-                background: on ? "var(--accent)" : "var(--border-medium)",
-              }}
-            >
-              <span style={{ ...switchKnob, left: on ? 16 : 2 }} />
-            </span>
-            {t("push.settings.switch")}
-          </button>
-          {on && (
-            <button
-              data-testid="push-test"
-              onClick={() => void test()}
-              disabled={busy}
-              style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
-            >
-              {t("push.settings.test")}
-            </button>
+          {pagerWrite && (
+            <>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={on}
+                data-testid="push-toggle"
+                data-on={on}
+                onClick={() => void (thisId ? remove(thisId) : turnOn())}
+                disabled={busy || !data}
+                style={{
+                  ...switchButton,
+                  ...(busy || !data ? disabledLook : null),
+                }}
+              >
+                <span
+                  aria-hidden
+                  style={{
+                    ...switchTrack,
+                    background: on ? "var(--accent)" : "var(--border-medium)",
+                  }}
+                >
+                  <span style={{ ...switchKnob, left: on ? 16 : 2 }} />
+                </span>
+                {t("push.settings.switch")}
+              </button>
+              {on && (
+                <button
+                  data-testid="push-test"
+                  onClick={() => void test()}
+                  disabled={busy}
+                  style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
+                >
+                  {t("push.settings.test")}
+                </button>
+              )}
+            </>
           )}
           {status && statusLine(status)}
         </div>
@@ -349,13 +358,19 @@ export function PushDevicesBlock({ username }: { username: string }) {
                     })}
                   </span>
                 )}
-                <button
-                  onClick={() => void remove(d.id)}
-                  disabled={busy}
-                  style={{ ...cardActionBtn, ...(busy ? disabledLook : null) }}
-                >
-                  {t("push.settings.remove")}
-                </button>
+                {pagerWrite && (
+                  <button
+                    data-testid="push-remove"
+                    onClick={() => void remove(d.id)}
+                    disabled={busy}
+                    style={{
+                      ...cardActionBtn,
+                      ...(busy ? disabledLook : null),
+                    }}
+                  >
+                    {t("push.settings.remove")}
+                  </button>
+                )}
               </div>
             ))}
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { apiFetch } from "../api";
 import { useI18n } from "../i18n";
+import { useCan } from "../hooks/useCan";
 import type { MemberBrowserStatus } from "../../shared/browser-extension-protocol";
 import { sectionHeader, hint, cardStyle, codeStyle } from "./access-shared";
 import {
@@ -47,6 +48,9 @@ const secondary = (disabled: boolean) => ({
 
 export function BrowserPane() {
   const { t, rich, language } = useI18n();
+  // A pack that gives agents at read shows the paired browsers, not the
+  // pairing or its changes.
+  const agentsWrite = useCan("agents", "write");
   // Prefilled from the browser the member is on, for example Chrome on
   // Windows; empty when that is not a browser to pair.
   const defaultName = () => {
@@ -238,7 +242,7 @@ export function BrowserPane() {
                   </p>
                 </>
               )}
-              {reloadable.length > 0 && (
+              {reloadable.length > 0 && agentsWrite && (
                 <>
                   <div
                     style={{
@@ -267,50 +271,52 @@ export function BrowserPane() {
               )}
             </div>
           )}
-          <div style={{ ...cardStyle, marginTop: 16 }}>
-            <h4 style={{ ...sectionHeader, marginBottom: 8 }}>
-              {t("browser.setup")}
-            </h4>
-            {status.storeUrl ? (
-              <>
+          {agentsWrite && (
+            <div style={{ ...cardStyle, marginTop: 16 }}>
+              <h4 style={{ ...sectionHeader, marginBottom: 8 }}>
+                {t("browser.setup")}
+              </h4>
+              {status.storeUrl ? (
+                <>
+                  <ol style={stepList}>
+                    <li>
+                      <a
+                        style={primaryLink}
+                        href={status.storeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        {t("browser.storeInstall")}
+                      </a>
+                    </li>
+                    <li>{t("browser.pin")}</li>
+                    <li>{t("browser.finish")}</li>
+                    <li>{t("browser.offerHelp")}</li>
+                  </ol>
+                  <p style={{ ...hint, marginTop: 16 }}>
+                    {t("browser.storeMove")}
+                  </p>
+                  <h4 style={{ ...sectionHeader, margin: "16px 0 8px" }}>
+                    {t("browser.developerInstall")}
+                  </h4>
+                  <ol style={stepList}>
+                    {zipSteps}
+                    <li>{t("browser.developerFinish")}</li>
+                  </ol>
+                </>
+              ) : (
                 <ol style={stepList}>
-                  <li>
-                    <a
-                      style={primaryLink}
-                      href={status.storeUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {t("browser.storeInstall")}
-                    </a>
-                  </li>
+                  {zipSteps}
                   <li>{t("browser.pin")}</li>
                   <li>{t("browser.finish")}</li>
                   <li>{t("browser.offerHelp")}</li>
                 </ol>
-                <p style={{ ...hint, marginTop: 16 }}>
-                  {t("browser.storeMove")}
-                </p>
-                <h4 style={{ ...sectionHeader, margin: "16px 0 8px" }}>
-                  {t("browser.developerInstall")}
-                </h4>
-                <ol style={stepList}>
-                  {zipSteps}
-                  <li>{t("browser.developerFinish")}</li>
-                </ol>
-              </>
-            ) : (
-              <ol style={stepList}>
-                {zipSteps}
-                <li>{t("browser.pin")}</li>
-                <li>{t("browser.finish")}</li>
-                <li>{t("browser.offerHelp")}</li>
-              </ol>
-            )}
-            <p style={{ ...hint, marginTop: 16, marginBottom: 0 }}>
-              {t("browser.permission")}
-            </p>
-          </div>
+              )}
+              <p style={{ ...hint, marginTop: 16, marginBottom: 0 }}>
+                {t("browser.permission")}
+              </p>
+            </div>
+          )}
           <div style={{ ...cardStyle, marginTop: 16 }}>
             <h4 style={sectionHeader}>{t("browser.connection")}</h4>
             <p style={hint}>
@@ -375,118 +381,124 @@ export function BrowserPane() {
                       </span>
                     )}
                   </span>
-                  <button
-                    data-testid="browser-revoke"
-                    style={secondary(busy)}
-                    disabled={busy}
-                    onClick={() =>
-                      void change(
-                        "DELETE",
-                        `/api/me/browser/browsers/${encodeURIComponent(b.id)}`,
-                      )
-                    }
-                  >
-                    {t("browser.unpair")}
-                  </button>
+                  {agentsWrite && (
+                    <button
+                      data-testid="browser-revoke"
+                      style={secondary(busy)}
+                      disabled={busy}
+                      onClick={() =>
+                        void change(
+                          "DELETE",
+                          `/api/me/browser/browsers/${encodeURIComponent(b.id)}`,
+                        )
+                      }
+                    >
+                      {t("browser.unpair")}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
-            <div style={dialogLabel}>{t("browser.office")}</div>
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                marginBottom: 16,
-              }}
-            >
-              <code data-testid="browser-office" style={codeStyle}>
-                {window.location.origin}
-              </code>
-              <button
-                style={{ ...filledSecondaryBtn, flexShrink: 0 }}
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(window.location.origin)
-                    .then(
-                      () => setOfficeCopied(true),
-                      () => setError(true),
-                    );
-                }}
-              >
-                {t(officeCopied ? "common.copied" : "common.copy")}
-              </button>
-            </div>
-            <label style={dialogLabel} htmlFor="browser-name">
-              {t("browser.name")}
-            </label>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                id="browser-name"
-                data-testid="browser-name"
-                style={{ ...dialogInput, minWidth: 0 }}
-                maxLength={40}
-                autoComplete="off"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-              <button
-                data-testid="browser-pair"
-                style={{ ...primary(busy), flexShrink: 0 }}
-                disabled={busy}
-                onClick={() =>
-                  void change("POST", "/api/me/browser/pair", { name })
-                }
-              >
-                {t("browser.generate")}
-              </button>
-            </div>
-            <p style={hint}>{t("browser.nameHint")}</p>
-            {pair && (
-              <div style={{ marginTop: 16 }}>
-                <p style={hint}>{t("browser.pairHelp")}</p>
-                <label style={dialogLabel} htmlFor="browser-code">
-                  {t("browser.code")}
+            {agentsWrite && (
+              <>
+                <div style={dialogLabel}>{t("browser.office")}</div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    marginBottom: 16,
+                  }}
+                >
+                  <code data-testid="browser-office" style={codeStyle}>
+                    {window.location.origin}
+                  </code>
+                  <button
+                    style={{ ...filledSecondaryBtn, flexShrink: 0 }}
+                    onClick={() => {
+                      void navigator.clipboard
+                        .writeText(window.location.origin)
+                        .then(
+                          () => setOfficeCopied(true),
+                          () => setError(true),
+                        );
+                    }}
+                  >
+                    {t(officeCopied ? "common.copied" : "common.copy")}
+                  </button>
+                </div>
+                <label style={dialogLabel} htmlFor="browser-name">
+                  {t("browser.name")}
                 </label>
                 <div style={{ display: "flex", gap: 8 }}>
                   <input
-                    id="browser-code"
-                    data-testid="browser-code"
+                    id="browser-name"
+                    data-testid="browser-name"
                     style={{ ...dialogInput, minWidth: 0 }}
-                    type={revealed ? "text" : "password"}
+                    maxLength={40}
                     autoComplete="off"
-                    readOnly
-                    value={expired ? "" : pair.code}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
                   />
                   <button
-                    style={{ ...secondary(expired), flexShrink: 0 }}
-                    disabled={expired}
-                    aria-pressed={revealed}
-                    onClick={() => setRevealed(!revealed)}
+                    data-testid="browser-pair"
+                    style={{ ...primary(busy), flexShrink: 0 }}
+                    disabled={busy}
+                    onClick={() =>
+                      void change("POST", "/api/me/browser/pair", { name })
+                    }
                   >
-                    {t(revealed ? "browser.hide" : "browser.show")}
-                  </button>
-                  <button
-                    style={{ ...primary(expired), flexShrink: 0 }}
-                    disabled={expired}
-                    onClick={() => {
-                      void navigator.clipboard.writeText(pair.code).then(
-                        () => setCopied(true),
-                        () => setError(true),
-                      );
-                    }}
-                  >
-                    {t(copied ? "common.copied" : "common.copy")}
+                    {t("browser.generate")}
                   </button>
                 </div>
-                <p style={hint}>
-                  {expired
-                    ? t("browser.expired")
-                    : t("browser.expires", {
-                        time: new Date(pair.expiresAt).toLocaleTimeString(),
-                      })}
-                </p>
-              </div>
+                <p style={hint}>{t("browser.nameHint")}</p>
+                {pair && (
+                  <div style={{ marginTop: 16 }}>
+                    <p style={hint}>{t("browser.pairHelp")}</p>
+                    <label style={dialogLabel} htmlFor="browser-code">
+                      {t("browser.code")}
+                    </label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        id="browser-code"
+                        data-testid="browser-code"
+                        style={{ ...dialogInput, minWidth: 0 }}
+                        type={revealed ? "text" : "password"}
+                        autoComplete="off"
+                        readOnly
+                        value={expired ? "" : pair.code}
+                      />
+                      <button
+                        style={{ ...secondary(expired), flexShrink: 0 }}
+                        disabled={expired}
+                        aria-pressed={revealed}
+                        onClick={() => setRevealed(!revealed)}
+                      >
+                        {t(revealed ? "browser.hide" : "browser.show")}
+                      </button>
+                      <button
+                        style={{ ...primary(expired), flexShrink: 0 }}
+                        disabled={expired}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(pair.code).then(
+                            () => setCopied(true),
+                            () => setError(true),
+                          );
+                        }}
+                      >
+                        {t(copied ? "common.copied" : "common.copy")}
+                      </button>
+                    </div>
+                    <p style={hint}>
+                      {expired
+                        ? t("browser.expired")
+                        : t("browser.expires", {
+                            time: new Date(pair.expiresAt).toLocaleTimeString(),
+                          })}
+                    </p>
+                  </div>
+                )}
+              </>
             )}
           </div>
           <p style={hint}>{t("browser.retained")}</p>

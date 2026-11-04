@@ -16,6 +16,7 @@ import {
   filledSecondaryBtn,
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { ProviderMark } from "./ProviderMark.tsx";
 import { Reserved } from "./Reserved.tsx";
@@ -198,6 +199,9 @@ function ProviderScopeConnection({
 }) {
   const i18n = useI18n();
   const { t, rich } = i18n;
+  // A pack that gives environment at read: the status only, with no line,
+  // since an owner cannot sign in for a member's own account.
+  const environmentWrite = useCan("environment", "write");
   // The action that runs: the server's push can end it on screen (a
   // sign-out shows the Sign in button) before its own request returns.
   const [running, setRunning] = useState<
@@ -616,9 +620,10 @@ function ProviderScopeConnection({
         </div>
       )}
 
-      {readOnly ? (
+      {readOnly || !environmentWrite ? (
         // The Integrations page already says only owners change it, and an
         // owner's sign-in in progress shows its own status.
+        readOnly &&
         !pageLook &&
         !connected &&
         !account?.loginQueue &&
@@ -734,7 +739,7 @@ function ProviderScopeConnection({
       )}
       {account?.accountStatus === "connected" && (
         <div style={connectedRowStyle}>
-          {readOnly ? null : !confirmingSignOut ? (
+          {readOnly || !environmentWrite ? null : !confirmingSignOut ? (
             <button
               data-provider-sign-out
               style={{
@@ -780,7 +785,7 @@ function ProviderScopeConnection({
               </button>
             </div>
           )}
-          {pageLook && !confirmingSignOut && (
+          {pageLook && !confirmingSignOut && environmentWrite && (
             <button
               style={{ ...filledSecondaryBtn, flexShrink: 0 }}
               disabled={test.state === "running"}

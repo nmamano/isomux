@@ -19,6 +19,7 @@ import {
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import {
   notifyConnectionsChanged,
   onConnectionsChanged,
@@ -174,7 +175,9 @@ export function SecretsSection({
   const { t, language } = useI18n();
   const alive = useAlive();
   const path = `${basePath(target)}/secrets`;
-  const editable = canEdit(target, role);
+  // A pack that gives environment at read shows the items, not the changes.
+  const environmentWrite = useCan("environment", "write");
+  const editable = canEdit(target, role) && environmentWrite;
   const summary = summaryOnly(target, role);
   const [secrets, setSecrets] = useState<SecretRow[] | null>(null);
   const [loadError, setLoadError] = useState(false);

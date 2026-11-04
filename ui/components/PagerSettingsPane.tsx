@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import type {
   PagerSettingsReq,
   PagerSettingsRes,
@@ -58,6 +59,8 @@ export function PagerSettingsPane({
   member?: string;
 }) {
   const { t, tn } = useI18n();
+  // A pack that gives pager at read shows the settings, not their changes.
+  const pagerWrite = useCan("pager", "write");
   const path = `/api/users/${encodeURIComponent(username)}/pager-settings`;
   const [saved, setSaved] = useState<PagerSettingsRes | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -211,17 +214,19 @@ export function PagerSettingsPane({
         >
           {masked}
         </code>
-        <button
-          data-testid={live ? "pager-webhook-remove" : undefined}
-          onClick={() => void save({ webhookUrl: null })}
-          disabled={busy}
-          style={{
-            ...secondaryBtn,
-            ...(busy ? disabledLook : null),
-          }}
-        >
-          {t("pager.settings.webhookRemove")}
-        </button>
+        {pagerWrite && (
+          <button
+            data-testid={live ? "pager-webhook-remove" : undefined}
+            onClick={() => void save({ webhookUrl: null })}
+            disabled={busy}
+            style={{
+              ...secondaryBtn,
+              ...(busy ? disabledLook : null),
+            }}
+          >
+            {t("pager.settings.webhookRemove")}
+          </button>
+        )}
       </div>
     ) : (
       <p
@@ -282,6 +287,7 @@ export function PagerSettingsPane({
               id="pager-webhook"
               data-testid="pager-webhook"
               value={url}
+              disabled={!pagerWrite}
               placeholder="https://discord.com/api/webhooks/…"
               onChange={(e) => {
                 setUrl(e.target.value);
@@ -313,6 +319,7 @@ export function PagerSettingsPane({
               inputMode="numeric"
               autoComplete="off"
               value={userId}
+              disabled={!pagerWrite}
               onChange={(e) => {
                 setUserId(e.target.value);
                 setStatus(null);
@@ -321,30 +328,34 @@ export function PagerSettingsPane({
             />
 
             <div style={actionRow}>
-              <button
-                data-testid="pager-save"
-                onClick={() => void save(change)}
-                disabled={busy || !dirty}
-                style={{
-                  ...dialogSaveBtn,
-                  ...(busy || !dirty ? disabledLook : null),
-                }}
-              >
-                {busy ? t("common.saving") : t("common.save")}
-              </button>
-              <button
-                data-testid="pager-test"
-                onClick={() => void test()}
-                disabled={busy || dirty || !saved?.webhookUrlMasked}
-                style={{
-                  ...cardActionBtn,
-                  ...(busy || dirty || !saved?.webhookUrlMasked
-                    ? disabledLook
-                    : null),
-                }}
-              >
-                {t("pager.settings.test")}
-              </button>
+              {pagerWrite && (
+                <>
+                  <button
+                    data-testid="pager-save"
+                    onClick={() => void save(change)}
+                    disabled={busy || !dirty}
+                    style={{
+                      ...dialogSaveBtn,
+                      ...(busy || !dirty ? disabledLook : null),
+                    }}
+                  >
+                    {busy ? t("common.saving") : t("common.save")}
+                  </button>
+                  <button
+                    data-testid="pager-test"
+                    onClick={() => void test()}
+                    disabled={busy || dirty || !saved?.webhookUrlMasked}
+                    style={{
+                      ...cardActionBtn,
+                      ...(busy || dirty || !saved?.webhookUrlMasked
+                        ? disabledLook
+                        : null),
+                    }}
+                  >
+                    {t("pager.settings.test")}
+                  </button>
+                </>
+              )}
               {loading && <span style={hint}>{t("common.loading")}</span>}
               {statusLine("discord")}
             </div>
@@ -358,7 +369,7 @@ export function PagerSettingsPane({
               id="pager-repeat"
               data-testid="pager-repeat"
               value={loading ? "" : repeat}
-              disabled={busy}
+              disabled={busy || !pagerWrite}
               onChange={(e) => void saveRepeat(e.target.value)}
               style={selectStyle}
             >

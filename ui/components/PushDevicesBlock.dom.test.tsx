@@ -5,7 +5,7 @@
 // on asks permission, subscribes with the office key and saves the
 // subscription with a label; turning off removes the device and
 // unsubscribes; a refused permission saves nothing; other devices list with
-// a remove action.
+// a remove action; a pack at pager read leaves the list without a control.
 
 import {
   describe,
@@ -15,12 +15,17 @@ import {
   afterEach,
   beforeEach,
 } from "bun:test";
+import type { ReactElement } from "react";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
 const { render, fireEvent, act } = await import("@testing-library/react");
-const { PushDevicesBlock } = await import("./PushDevicesBlock.tsx");
+const { PushDevicesBlock, PushThisDevice } =
+  await import("./PushDevicesBlock.tsx");
+const { StateCtx } = await import("../store.tsx");
+const { selfUserRecord, stateWithSelfUser } =
+  await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { pushDeviceId, base64UrlDecode } =
   await import("../../shared/web-push.ts");
@@ -234,5 +239,64 @@ describe("push devices block", () => {
     expect(browser.unsubscribed).toBe(0);
     expect(view.queryAllByTestId("push-device")).toHaveLength(0);
     view.unmount();
+  });
+});
+
+// A member whose permission pack gives pager at read only (task 119d0b47):
+// every device change is pager write, so the block lists the devices with no
+// switch, Test or Remove, and the room view's Turn on is gone.
+describe("a pack that gives pager at read only", () => {
+  const atLevel = (level: "read" | "write") => {
+    const record = {
+      ...selfUserRecord("en"),
+      role: "member" as const,
+      pack: { areas: { pager: level }, agentCeiling: "office" },
+    };
+    const base = stateWithSelfUser("en");
+    return {
+      ...base,
+      users: new Map([[record.name.toLowerCase(), record]]),
+      sessionContext: { ...base.sessionContext!, role: "member" as const },
+    } as typeof base;
+  };
+  const mountAt = async (level: "read" | "write", element: ReactElement) => {
+    const view = render(
+      <StateCtx.Provider value={atLevel(level)}>{element}</StateCtx.Provider>,
+    );
+    await act(async () => {});
+    return view;
+  };
+  const CONTROLS = ["push-toggle", "push-test", "push-remove"];
+  const shown = (view: ReturnType<typeof render>, ids: string[]) =>
+    ids.filter((id) => view.queryByTestId(id) !== null);
+
+  it("lists this browser's and the other devices without a control", async () => {
+    installPushApis();
+    browser.sub = makeSub();
+    devices = [
+      { id: THIS_ID, label: "Mac", createdAt: 1 },
+      { id: "0123456789abcdef", label: "iPhone", createdAt: 2 },
+    ];
+    for (const level of ["write", "read"] as const) {
+      const view = await mountAt(level, <PushDevicesBlock username="morgan" />);
+      await act(async () => fireEvent.click(view.getByTestId("push-others")));
+      expect(view.getAllByTestId("push-device")).toHaveLength(1);
+      expect(shown(view, CONTROLS)).toEqual(level === "write" ? CONTROLS : []);
+      view.unmount();
+    }
+    expect(writes).toEqual([]);
+  });
+
+  it("gives the room view no Turn on", async () => {
+    installPushApis();
+    for (const level of ["write", "read"] as const) {
+      const view = await mountAt(level, <PushThisDevice username="morgan" />);
+      // The devices loaded in both runs: the GET answered.
+      expect(view.queryByTestId("push-unsupported")).toBeNull();
+      expect(shown(view, ["push-turn-on"])).toEqual(
+        level === "write" ? ["push-turn-on"] : [],
+      );
+      view.unmount();
+    }
   });
 });

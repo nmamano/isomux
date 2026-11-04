@@ -518,6 +518,117 @@ it("leaves a member only the status and Test of an office sign-in", () => {
   });
 });
 
+// A member whose permission pack gives environment at read only (task
+// 119d0b47): every sign-in route is environment write, so neither scope has a
+// control. The chat card's line about an office owner keeps the office rule:
+// an owner cannot sign in a member's personal account.
+it("leaves a member at environment read the status of each sign-in and no control", async () => {
+  const { StateCtx } = await import("../store.tsx");
+  const { selfUserRecord, stateWithSelfUser } =
+    await import("../test-support/language-fixture.tsx");
+  const atLevel = (level: "read" | "write") => {
+    const record = {
+      ...selfUserRecord("en"),
+      role: "member" as const,
+      pack: { areas: { environment: level }, agentCeiling: "office" },
+    };
+    const base = stateWithSelfUser("en");
+    return {
+      ...base,
+      users: new Map([[record.name.toLowerCase(), record]]),
+      sessionContext: { ...base.sessionContext!, role: "member" as const },
+    } as typeof base;
+  };
+  const account = (
+    scope: "office" | "personal",
+    accountStatus: "connected" | "not_connected",
+  ) => ({
+    provider: "codex" as const,
+    scope,
+    accountStatus,
+    accountLabel: accountStatus === "connected" ? "ana@example.com" : undefined,
+    loginStatus: "idle" as const,
+    canBrowserLogin: true,
+  });
+  const card = (
+    level: "read" | "write",
+    accountStatus: "connected" | "not_connected",
+    pageLook: boolean,
+  ) =>
+    createElement(
+      StateCtx.Provider,
+      { value: atLevel(level) },
+      createElement(ProviderSignInCard, {
+        provider: "codex",
+        accounts: [
+          account("office", accountStatus),
+          account("personal", accountStatus),
+        ],
+        canChangeOffice: false,
+        pageLook,
+      }),
+    );
+  const controls = (
+    view: ReturnType<typeof render>,
+    scope: "office" | "personal",
+  ) => {
+    const root = view.container.querySelector(
+      `[data-sign-in-scope="${scope}"]`,
+    )!.parentElement!;
+    return {
+      signIn: !!root.querySelector("[data-start-provider-login]"),
+      signOut: !!root.querySelector("[data-provider-sign-out]"),
+      test: !!root.querySelector("[data-sign-in-test]"),
+      askOwner: !!root.querySelector("[data-ask-office-owner]"),
+      status: !!root.querySelector("[data-provider-account-state]"),
+    };
+  };
+  const none = { signIn: false, signOut: false, test: false };
+
+  // The chat card, signed out: at write the member signs in their own.
+  const view = render(card("write", "not_connected", false));
+  expect(controls(view, "personal")).toEqual({
+    ...none,
+    signIn: true,
+    askOwner: false,
+    status: true,
+  });
+  view.rerender(card("read", "not_connected", false));
+  expect(controls(view, "office")).toEqual({
+    ...none,
+    askOwner: true,
+    status: true,
+  });
+  expect(controls(view, "personal")).toEqual({
+    ...none,
+    askOwner: false,
+    status: true,
+  });
+
+  // The Integrations page, signed in: Test and Sign out at write only.
+  view.rerender(card("write", "connected", true));
+  expect(controls(view, "office")).toEqual({
+    ...none,
+    test: true,
+    askOwner: false,
+    status: true,
+  });
+  expect(controls(view, "personal")).toEqual({
+    ...none,
+    signOut: true,
+    test: true,
+    askOwner: false,
+    status: true,
+  });
+  view.rerender(card("read", "connected", true));
+  for (const scope of ["office", "personal"] as const)
+    expect(controls(view, scope)).toEqual({
+      ...none,
+      askOwner: false,
+      status: true,
+    });
+});
+
 // Codex uses an OPENAI_API_KEY in the agents' env over a stored sign-in
 // (task a704657a). The card names where the key comes from on both scopes;
 // only the personal scope trades "not connected" for the key state, since the

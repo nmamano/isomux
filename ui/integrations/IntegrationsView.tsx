@@ -162,6 +162,8 @@ function IntegrationsPage({
     );
   });
   const canEnvironment = canUse(selfUser, "environment", "read");
+  // Refresh runs the account check, a change on environment.
+  const environmentWrite = canUse(selfUser, "environment", "write");
 
   // Read once: the request is one-shot, and App clears it below.
   const [initial] = useState(() => request);
@@ -670,7 +672,7 @@ function IntegrationsPage({
                           : t("integrations.officeWhoMember")
                       }
                       action={
-                        tab === "providers" ? (
+                        tab === "providers" && environmentWrite ? (
                           <Btn
                             small
                             disabled={accounts.refreshing}

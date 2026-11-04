@@ -19,6 +19,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import { notifyManagedEnvSaved } from "../connections-events.ts";
 import { ConnectionNoteField } from "../components/ConnectionNoteField.tsx";
 import {
@@ -113,7 +114,9 @@ export function VariablesSection({
   const whoseHeading = useWhose();
   const alive = useAlive();
   const base = basePath(target);
-  const editable = canEdit(target, role);
+  // A pack that gives environment at read shows the items, not the changes.
+  const environmentWrite = useCan("environment", "write");
+  const editable = canEdit(target, role) && environmentWrite;
   // The office's values reach owners only; a member's reach that member only.
   const withValues =
     target.kind === "self" || (target.kind === "office" && role === "owner");

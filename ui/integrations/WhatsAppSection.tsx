@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
 import type {
@@ -52,6 +53,8 @@ export function WhatsAppSection() {
   const { t } = useI18n();
   const { whatsappStatus: status } = useAppState();
   const dispatch = useDispatch();
+  // A pack that gives environment at read shows the link, not its changes.
+  const environmentWrite = useCan("environment", "write");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<PlainMessageKey | null>(null);
   const [codeForm, setCodeForm] = useState(false);
@@ -127,74 +130,75 @@ export function WhatsAppSection() {
         </p>
       )}
 
-      {(status?.state === "unlinked" || status?.state === "dead") && (
-        <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            <Btn
-              kind="primary"
-              disabled={busy}
-              onClick={() => void link({ method: "qr" })}
-              data-whatsapp-link=""
-            >
-              {status.state === "dead"
-                ? t("integrations.whatsapp.linkAgain")
-                : t("integrations.whatsapp.link")}
-            </Btn>
-            {status.state === "dead" && (
+      {(status?.state === "unlinked" || status?.state === "dead") &&
+        environmentWrite && (
+          <>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <Btn
+                kind="primary"
                 disabled={busy}
-                onClick={() => void unlink()}
-                data-whatsapp-unlink=""
+                onClick={() => void link({ method: "qr" })}
+                data-whatsapp-link=""
               >
-                {t("integrations.whatsapp.unlink")}
+                {status.state === "dead"
+                  ? t("integrations.whatsapp.linkAgain")
+                  : t("integrations.whatsapp.link")}
               </Btn>
+              {status.state === "dead" && (
+                <Btn
+                  disabled={busy}
+                  onClick={() => void unlink()}
+                  data-whatsapp-unlink=""
+                >
+                  {t("integrations.whatsapp.unlink")}
+                </Btn>
+              )}
+              {!codeForm && (
+                <Btn
+                  kind="link"
+                  onClick={() => setCodeForm(true)}
+                  data-whatsapp-code-form=""
+                >
+                  {t("integrations.whatsapp.useCode")}
+                </Btn>
+              )}
+            </div>
+            {codeForm && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void link({ method: "code", phone });
+                }}
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  marginTop: 10,
+                  flexWrap: "wrap",
+                }}
+              >
+                <input
+                  type="tel"
+                  name="whatsappPhone"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder={t("integrations.whatsapp.phonePlaceholder")}
+                  aria-label={t("integrations.whatsapp.phoneLabel")}
+                  style={{ ...input, width: 220 }}
+                />
+                <Btn
+                  disabled={busy || !phone.trim()}
+                  onClick={() => void link({ method: "code", phone })}
+                  data-whatsapp-get-code=""
+                >
+                  {t("integrations.whatsapp.getCode")}
+                </Btn>
+              </form>
             )}
-            {!codeForm && (
-              <Btn
-                kind="link"
-                onClick={() => setCodeForm(true)}
-                data-whatsapp-code-form=""
-              >
-                {t("integrations.whatsapp.useCode")}
-              </Btn>
-            )}
-          </div>
-          {codeForm && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void link({ method: "code", phone });
-              }}
-              style={{
-                display: "flex",
-                gap: 8,
-                marginTop: 10,
-                flexWrap: "wrap",
-              }}
-            >
-              <input
-                type="tel"
-                name="whatsappPhone"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder={t("integrations.whatsapp.phonePlaceholder")}
-                aria-label={t("integrations.whatsapp.phoneLabel")}
-                style={{ ...input, width: 220 }}
-              />
-              <Btn
-                disabled={busy || !phone.trim()}
-                onClick={() => void link({ method: "code", phone })}
-                data-whatsapp-get-code=""
-              >
-                {t("integrations.whatsapp.getCode")}
-              </Btn>
-            </form>
-          )}
-          <p style={{ ...hintText, margin: "12px 0 0" }}>
-            {t("integrations.whatsapp.warning")}
-          </p>
-        </>
-      )}
+            <p style={{ ...hintText, margin: "12px 0 0" }}>
+              {t("integrations.whatsapp.warning")}
+            </p>
+          </>
+        )}
 
       {status?.state === "linking" && (
         <>
@@ -233,13 +237,15 @@ export function WhatsAppSection() {
                 ? t("integrations.whatsapp.scanSteps")
                 : t("integrations.whatsapp.codeSteps")}
           </p>
-          <Btn
-            disabled={busy}
-            onClick={() => void unlink()}
-            data-whatsapp-cancel=""
-          >
-            {t("common.cancel")}
-          </Btn>
+          {environmentWrite && (
+            <Btn
+              disabled={busy}
+              onClick={() => void unlink()}
+              data-whatsapp-cancel=""
+            >
+              {t("common.cancel")}
+            </Btn>
+          )}
         </>
       )}
 
@@ -263,15 +269,17 @@ export function WhatsAppSection() {
               ? t("integrations.whatsapp.connected")
               : t("integrations.whatsapp.connecting")}
           </Pill>
-          <Btn
-            kind="danger"
-            small
-            disabled={busy}
-            onClick={() => void unlink()}
-            data-whatsapp-unlink=""
-          >
-            {t("integrations.whatsapp.unlink")}
-          </Btn>
+          {environmentWrite && (
+            <Btn
+              kind="danger"
+              small
+              disabled={busy}
+              onClick={() => void unlink()}
+              data-whatsapp-unlink=""
+            >
+              {t("integrations.whatsapp.unlink")}
+            </Btn>
+          )}
         </div>
       )}
       {status?.state === "linked" && <WhatsAppRows />}
@@ -310,6 +318,7 @@ const BY_NUMBER = "";
 function WhatsAppRows() {
   const { t } = useI18n();
   const { agents, sessionContext } = useAppState();
+  const environmentWrite = useCan("environment", "write");
   const selfId = sessionContext?.userId ?? null;
   const [routes, setRoutes] = useState<WhatsAppRoute[] | null>(null);
   const [chats, setChats] = useState<WhatsAppChatSeen[]>([]);
@@ -431,18 +440,20 @@ function WhatsAppRows() {
             )
           }
           actions={
-            <Btn
-              small
-              disabled={busy}
-              onClick={() =>
-                void run(() =>
-                  apiFetch("DELETE", `/api/whatsapp/routes/${r.id}`),
-                )
-              }
-              data-whatsapp-row-delete={r.id}
-            >
-              {t("common.delete")}
-            </Btn>
+            environmentWrite && (
+              <Btn
+                small
+                disabled={busy}
+                onClick={() =>
+                  void run(() =>
+                    apiFetch("DELETE", `/api/whatsapp/routes/${r.id}`),
+                  )
+                }
+                data-whatsapp-row-delete={r.id}
+              >
+                {t("common.delete")}
+              </Btn>
+            )
           }
         />
       ))}
@@ -555,7 +566,8 @@ function WhatsAppRows() {
           />
         </form>
       ) : (
-        routes !== null && (
+        routes !== null &&
+        environmentWrite && (
           <AddRow
             label={t("integrations.whatsapp.rows.add")}
             onClick={openForm}
