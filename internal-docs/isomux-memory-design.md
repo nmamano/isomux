@@ -19,7 +19,8 @@
 >   full post-op snapshot) for manual recovery.
 > - **Per-scope size caps** refuse growth over budget and keep auto-load complete.
 > - **Access follows rooms** (task bf94d714, section 2): room memory for whoever
->   reaches the room, member memory read by whoever shares a room with the member,
+>   reaches the room, member memory read by whoever shares a room with the member or has an office
+>   owner's reach,
 >   agent memory written by the agent, its manager's identities and owners, office
 >   memory open; `date` is server-stamped on APPEND, as is `author` except on the
 >   self-note case above. A member's memory auto-loads solely into that member's
