@@ -135,7 +135,7 @@ async function foldNow(root: HTMLElement) {
 
 it("keeps the fold when the member visits another chat and comes back, and after a reload", async () => {
   const view = await mount();
-  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   await foldNow(view.container);
   expect(foldedIds()).toEqual(["aaaa0001", "bbbb0002"]);
   // Another agent's chat: its own stack, not folded.
@@ -168,7 +168,7 @@ it("opens again and drops the fold when a new ask came while the member was away
 
   const back = await mount({ entries: [...ENTRIES, NEW_ASK] });
   expect(stack(back.container)).toBe("open");
-  expect(cards(back.container)).toEqual(["aaaa0001", "bbbb0002", "vvvv0022"]);
+  expect(cards(back.container)).toEqual(["vvvv0022", "bbbb0002", "aaaa0001"]);
   await waitFor(() => expect(foldedIds()).toBe(null));
   back.unmount();
 });
@@ -182,7 +182,7 @@ it("opens when a new ask arrives in the folded chat, and an answer to it does no
   // The new ask is answered: the asks folded before it show again, open.
   act(() => seeded({ type: "ask_removed", id: NEW_ASK.id }));
   expect(stack(view.container)).toBe("open");
-  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   view.unmount();
   const back = await mount();
   expect(stack(back.container)).toBe("open");

@@ -1,6 +1,6 @@
 // The stack of open asks above the chat input
 // (internal-docs/asks-design.md): one agent's entries for this member,
-// oldest first, open on a desktop and collapsed on a phone, and an answer that
+// newest first, open on a desktop and collapsed on a phone, and an answer that
 // posts to the member route and closes the card only when the server took it.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -225,10 +225,10 @@ const cards = (root: HTMLElement) =>
     (c) => c.dataset.ask,
   );
 
-it("shows this agent's asks only, oldest first, open on a desktop", async () => {
+it("shows this agent's asks only, newest first, open on a desktop", async () => {
   const view = mount(false);
   await waitFor(() =>
-    expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]),
+    expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]),
   );
   expect(
     view.container
@@ -241,7 +241,7 @@ it("shows this agent's asks only, oldest first, open on a desktop", async () => 
 it("names the app that opened an ask on that ask's card only", async () => {
   const view = mount(false, "a9");
   await waitFor(() =>
-    expect(cards(view.container)).toEqual(["oooo0015", "pppp0016"]),
+    expect(cards(view.container)).toEqual(["pppp0016", "oooo0015"]),
   );
   const card = (id: string) =>
     view.container.querySelector<HTMLElement>(`[data-ask="${id}"]`)!;
@@ -250,7 +250,7 @@ it("names the app that opened an ask on that ask's card only", async () => {
   view.unmount();
 });
 
-it("starts collapsed on a phone, with the count and the oldest prompt, and opens on a tap", async () => {
+it("starts collapsed on a phone, with the count and the newest prompt, and opens on a tap", async () => {
   const view = mount(true);
   await waitFor(() =>
     expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
@@ -260,10 +260,10 @@ it("starts collapsed on a phone, with the count and the oldest prompt, and opens
   )!;
   expect(cards(view.container)).toEqual([]);
   expect(bar.textContent).toContain("2");
-  expect(bar.textContent).toContain("First question?");
-  expect(bar.textContent).not.toContain("Second question?");
+  expect(bar.textContent).toContain("Second question?");
+  expect(bar.textContent).not.toContain("First question?");
   fireEvent.click(bar);
-  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   view.unmount();
 });
 
@@ -288,7 +288,7 @@ it("replies with the field's text and closes the card once the server took it", 
     { path: "/api/asks/aaaa0001/reply", body: { text: prefilled } },
   ]);
   // Still there while the request is open.
-  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   await act(async () => {
     release();
     await new Promise((r) => setTimeout(r, 0));
@@ -314,7 +314,7 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
     await new Promise((r) => setTimeout(r, 0));
   });
   expect(posts.map((p) => p.path)).toEqual(["/api/asks/bbbb0002/dismiss"]);
-  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
     "agent_stopped",
   );
@@ -344,7 +344,7 @@ it("draws a button for an office page it knows, and a click opens that page", as
   fireEvent.click(button);
   expect(opened).toEqual([{ page: "integrations", tab: "mcp" }]);
   // The ask stays open, and nothing was posted.
-  expect(cards(view.container)).toEqual(["dddd0004", "eeee0005"]);
+  expect(cards(view.container)).toEqual(["eeee0005", "dddd0004"]);
   expect(posts).toEqual([]);
   view.unmount();
 });
@@ -363,7 +363,7 @@ it("draws a button for an agent it knows, named for the agent, and a click opens
   expect(button.textContent).not.toBe("Scout");
   fireEvent.click(button);
   expect(opened).toEqual([{ agentId: "a1" }]);
-  expect(cards(view.container)).toEqual(["kkkk0011", "llll0012"]);
+  expect(cards(view.container)).toEqual(["llll0012", "kkkk0011"]);
   expect(posts).toEqual([]);
   view.unmount();
 });
@@ -518,7 +518,7 @@ const namedMarks = (root: HTMLElement, label: string) =>
 it("starts the field with the recommended option, marks that option only, and one Reply sends it", async () => {
   const view = mount(false, "a8");
   await waitFor(() =>
-    expect(cards(view.container)).toEqual(["mmmm0013", "nnnn0014"]),
+    expect(cards(view.container)).toEqual(["nnnn0014", "mmmm0013"]),
   );
   const card = view.container.querySelector<HTMLElement>(
     '[data-ask="mmmm0013"]',
@@ -737,7 +737,7 @@ it("keeps a typed reply, per ask, when the member leaves the chat and comes back
   view.rerender(tree(false, "a2"));
   expect(cards(view.container)).toEqual(["cccc0003"]);
   view.rerender(tree(false, "a1"));
-  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   expect(field(view.container, "aaaa0001").value).toBe("half a thought");
   expect(field(view.container, "bbbb0002").value).toBe(prefilled);
   view.unmount();
@@ -980,8 +980,8 @@ it("grows the reply field with its text up to the composers' cap, from the first
 it("moves between the reply fields with Tab and Shift+Tab, and lets the browser go on at either end", async () => {
   const view = mount(false);
   await waitFor(() => expect(cards(view.container).length).toBe(2));
-  const first = field(view.container, "aaaa0001");
-  const second = field(view.container, "bbbb0002");
+  const first = field(view.container, "bbbb0002");
+  const second = field(view.container, "aaaa0001");
   // fireEvent returns false when a handler prevented the default.
   const press = (el: HTMLElement, init: Record<string, unknown> = {}) => {
     let free = true;
@@ -992,16 +992,16 @@ it("moves between the reply fields with Tab and Shift+Tab, and lets the browser 
   };
   act(() => first.focus());
   expect(press(first)).toBe(false);
-  expect(focused()).toBe("bbbb0002/field");
+  expect(focused()).toBe("aaaa0001/field");
   // The field it lands on is untouched, so the default is selected.
   expect(selection(second)).toEqual([0, second.value.length]);
   // The last field: the browser's own order goes on to the buttons.
   expect(press(second)).toBe(true);
-  expect(focused()).toBe("bbbb0002/field");
+  expect(focused()).toBe("aaaa0001/field");
   expect(press(second, { shiftKey: true })).toBe(false);
-  expect(focused()).toBe("aaaa0001/field");
+  expect(focused()).toBe("bbbb0002/field");
   expect(press(first, { shiftKey: true })).toBe(true);
-  expect(focused()).toBe("aaaa0001/field");
+  expect(focused()).toBe("bbbb0002/field");
   // A modifier or an open IME composition is not this move.
   for (const init of [
     { ctrlKey: true },
@@ -1010,7 +1010,7 @@ it("moves between the reply fields with Tab and Shift+Tab, and lets the browser 
     { isComposing: true },
   ]) {
     expect([init, press(first, init)]).toEqual([init, true]);
-    expect(focused()).toBe("aaaa0001/field");
+    expect(focused()).toBe("bbbb0002/field");
   }
   view.unmount();
 });
@@ -1018,14 +1018,14 @@ it("moves between the reply fields with Tab and Shift+Tab, and lets the browser 
 it("skips a secret request's fields when it moves with Tab", async () => {
   const view = mount(false, "a5");
   await waitFor(() =>
-    expect(cards(view.container)).toEqual(["gggg0007", "hhhh0008", "iiii0009"]),
+    expect(cards(view.container)).toEqual(["iiii0009", "hhhh0008", "gggg0007"]),
   );
-  const first = field(view.container, "gggg0007");
+  const first = field(view.container, "iiii0009");
   act(() => first.focus());
   act(() => {
     fireEvent.keyDown(first, { key: "Tab" });
   });
-  expect(focused()).toBe("iiii0009/field");
+  expect(focused()).toBe("gggg0007/field");
   view.unmount();
 });
 
@@ -1098,7 +1098,7 @@ it("keeps the card with the error when the server refuses a file-task, and draws
     await new Promise((r) => setTimeout(r, 0));
   });
   expect(posts.map((p) => p.path)).toEqual(["/api/asks/aaaa0001/file-task"]);
-  expect(cards(view.container)).toEqual(["aaaa0001", "bbbb0002"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
     "agent_stopped",
   );
@@ -1359,7 +1359,7 @@ it("asks for a simpler ask with no text; the pushed mark puts the banner with Un
   });
   expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/simplify"]);
   expect("text" in posts[0].body).toBe(false);
-  expect(cards(view.container)).toEqual(["qqqq0017", "rrrr0018", "ssss0019"]);
+  expect(cards(view.container)).toEqual(["ssss0019", "rrrr0018", "qqqq0017"]);
   expect(field(view.container, "qqqq0017").value).toBe("too long");
 
   // With options, so the banner is seen to take their place too.
@@ -1646,7 +1646,7 @@ it("keeps the button live with the error when the server refuses a simplify, and
     });
   await click();
   expect(posts.map((p) => p.path)).toEqual(["/api/asks/qqqq0017/simplify"]);
-  expect(cards(view.container)).toEqual(["qqqq0017", "rrrr0018", "ssss0019"]);
+  expect(cards(view.container)).toEqual(["ssss0019", "rrrr0018", "qqqq0017"]);
   expect(
     inCard(view.container, "qqqq0017", "[role=alert]")?.textContent,
   ).toContain("agent_stopped");
@@ -1751,5 +1751,89 @@ it("fades the stack's bottom edge when the body shrinks under its cards, whateve
     view.unmount();
   } finally {
     globals.ResizeObserver = original;
+  }
+});
+
+// Newest first puts a new ask above the cards (task afed08d7). iOS Safari has
+// no scroll anchoring, so the stack keeps a scrolled member's place itself;
+// at the top the new ask is the one in view. A removal above the member is
+// left to the browser.
+it("keeps a scrolled member's place when a new ask arrives on top, and stays at the top otherwise", async () => {
+  const view = render(tree(true));
+  const body = await openBody(view, true);
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  // A card is 100 px high; the body shows 120 px of them.
+  for (const [name, get] of [
+    ["scrollHeight", () => 100 * cards(body).length],
+    ["clientHeight", () => 120],
+  ] as const)
+    Object.defineProperty(body, name, { configurable: true, get });
+  const scrollTo = (top: number) => {
+    body.scrollTop = top;
+    fireEvent.scroll(body);
+  };
+  const arrive = (id: string, ageMin: number) =>
+    act(() =>
+      seeded({
+        type: "ask_upserted",
+        entry: entry(id, "a1", `New ${id}?`, ageMin),
+      }),
+    );
+
+  scrollTo(50);
+  arrive("wwww0101", 0);
+  expect(cards(body)).toEqual(["wwww0101", "bbbb0002", "aaaa0001"]);
+  expect(body.scrollTop).toBe(150);
+
+  // The top card goes: the stack does not move the body.
+  act(() => seeded({ type: "ask_removed", id: "wwww0101" }));
+  expect(cards(body)).toEqual(["bbbb0002", "aaaa0001"]);
+  expect(body.scrollTop).toBe(150);
+
+  // An older ask lands below the member: nothing above them moved.
+  scrollTo(50);
+  arrive("xxxx0102", 60);
+  expect(cards(body)).toEqual(["bbbb0002", "xxxx0102", "aaaa0001"]);
+  expect(body.scrollTop).toBe(50);
+
+  scrollTo(0);
+  arrive("yyyy0103", 0);
+  expect(cards(body)[0]).toBe("yyyy0103");
+  expect(body.scrollTop).toBe(0);
+  view.unmount();
+});
+
+it("opens a fold that a new ask ended at the top, wherever the member had scrolled", async () => {
+  // The body is a new element after the fold, so its height goes on the
+  // prototype. A fold forgets the scroll it hid.
+  const proto = HTMLElement.prototype;
+  Object.defineProperty(proto, "scrollHeight", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.hasAttribute("data-asks-body") ? 100 * cards(this).length : 0;
+    },
+  });
+  try {
+    const view = render(tree(false));
+    await waitFor(() => expect(cards(view.container).length).toBe(2));
+    const body = () =>
+      view.container.querySelector<HTMLElement>("[data-asks-body]");
+    body()!.scrollTop = 50;
+    fireEvent.scroll(body()!);
+    fireEvent.click(
+      view.container.querySelector<HTMLElement>("[data-asks-stack] > button")!,
+    );
+    expect(body()).toBe(null);
+    act(() =>
+      seeded({
+        type: "ask_upserted",
+        entry: entry("zzzz0104", "a1", "New zzzz0104?", 0),
+      }),
+    );
+    await waitFor(() => expect(cards(view.container)[0]).toBe("zzzz0104"));
+    expect(body()!.scrollTop).toBe(0);
+    view.unmount();
+  } finally {
+    delete (proto as unknown as Record<string, unknown>).scrollHeight;
   }
 });

@@ -1,11 +1,11 @@
 // The agent's open asks for this member, less those answered on the Inbox
-// (openAsks), stacked above the chat input
+// (openAsks), stacked newest first above the chat input
 // (internal-docs/asks-design.md), one AskCard each. The stack scrolls past a
 // maximum height and collapses to one bar: open by default on a desktop,
 // collapsed on a phone. A fold is kept per member and agent in this browser
 // (ui/view-persistence.ts) until an ask that was not open at the fold arrives.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAppState, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { asksFor, openAsks } from "../asks-sync.ts";
@@ -76,7 +76,8 @@ export function AsksStack({
 }) {
   const { t } = useI18n();
   const { asks, answeredAsks, sessionContext } = useAppState();
-  const entries = asksFor(openAsks(asks, answeredAsks), agentId);
+  // Newest first, so the ask the agent just opened is the one in view.
+  const entries = asksFor(openAsks(asks, answeredAsks), agentId).reverse();
   // No name in the demo, as App's persistEnabled keeps nothing per browser
   // there.
   const { llmConnected } = useFeatures();
@@ -113,10 +114,41 @@ export function AsksStack({
   const bodyRef = useRef<HTMLDivElement>(null);
   // Fade the bottom edge while more cards wait below it.
   const [moreBelow, setMoreBelow] = useState(false);
+  // The body's scroll at the end of the last commit or scroll, and the ids
+  // it showed; nothing while the stack is collapsed.
+  const lastScroll = useRef({ top: 0, height: 0, ids: new Set<string>() });
+  const remember = () => {
+    const el = bodyRef.current;
+    if (!el) {
+      lastScroll.current = { top: 0, height: 0, ids: new Set() };
+      return;
+    }
+    lastScroll.current = {
+      top: el.scrollTop,
+      height: el.scrollHeight,
+      ids: new Set(entries.map((e) => e.id)),
+    };
+  };
   const measure = () => {
     const el = bodyRef.current;
     setMoreBelow(!!el && el.scrollTop + el.clientHeight < el.scrollHeight - 2);
   };
+  const onScroll = () => {
+    remember();
+    measure();
+  };
+  // A new ask on top of a scrolled body moves the member's cards down. Keep
+  // their place, as iOS Safari has no scroll anchoring. The value is absolute,
+  // so a browser that anchored already gets the same scrollTop. At the top the
+  // new ask stays in view; a removal is left to the browser.
+  const newestId = entries[0]?.id;
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    const last = lastScroll.current;
+    if (el && newestId && last.top > 0 && !last.ids.has(newestId))
+      el.scrollTop = last.top + (el.scrollHeight - last.height);
+    remember();
+  });
   useEffect(measure, [entries.length, collapsed, asks]);
   // The body also shrinks without a change here: the keyboard opens and the
   // chat gives the stack less height.
@@ -214,7 +246,7 @@ export function AsksStack({
       </button>
       <div
         ref={bodyRef}
-        onScroll={measure}
+        onScroll={onScroll}
         data-asks-body=""
         data-asks-list=""
         style={{

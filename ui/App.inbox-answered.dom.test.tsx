@@ -136,7 +136,7 @@ it("keeps an answered ask off the agent's chat stack while it is sent, brings it
   expect(stackIds(view)).toEqual(["q2"]);
 
   await settle(() => settles[0].fail("ask_busy"));
-  expect(stackIds(view)).toEqual(["q1", "q2"]);
+  expect(stackIds(view)).toEqual(["q2", "q1"]);
   expect(
     card(view, "q1")?.querySelector("[role=alert]")?.textContent,
   ).toContain("ask_busy");
@@ -145,7 +145,7 @@ it("keeps an answered ask off the agent's chat stack while it is sent, brings it
   // accepts; the old error goes as the new answer starts.
   await reply(view, "q1");
   expect(posts).toEqual(["/api/asks/q1/reply", "/api/asks/q1/reply"]);
-  expect(stackIds(view)).toEqual(["q1", "q2"]);
+  expect(stackIds(view)).toEqual(["q2", "q1"]);
   expect(card(view, "q1")!.querySelector("[role=alert]")).toBeNull();
   await settle(() => settles[1].ok());
   expect(stackIds(view)).toEqual(["q2"]);
