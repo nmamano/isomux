@@ -176,7 +176,7 @@ describe("agent form prompt preview", () => {
 });
 
 describe("spawn dialog focus", () => {
-  it("opens on the selected template card", async () => {
+  it("opens on the template row", async () => {
     setApiShim(async (_method, path) =>
       path === "/api/validate/cwd" ? { ok: true } : {},
     );
@@ -201,7 +201,68 @@ describe("spawn dialog focus", () => {
         ".spawn-template-section",
       )!;
       expect(templates.contains(document.activeElement)).toBe(true);
-      expect(document.activeElement?.getAttribute("aria-pressed")).toBe("true");
+      expect(document.activeElement?.getAttribute("aria-haspopup")).toBe(
+        "listbox",
+      );
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+// Task 4098131b: the templates open from one row, so the Name field stays in
+// view. A pick fills the form and closes the list; Escape closes only the list.
+describe("spawn template list", () => {
+  it("fills the form on a pick, and Escape closes the list, not the dialog", async () => {
+    setApiShim(async (_method, path) =>
+      path === "/api/validate/cwd" ? { ok: true } : {},
+    );
+    let closes = 0;
+    const view = render(
+      onLanguage(
+        "en",
+        <EditAgentDialog
+          onClose={() => closes++}
+          deskIndex={0}
+          roomId={room.id}
+          defaultCwd="~"
+          spawnAgentType="claude"
+        />,
+        { rooms: [room], agents: [], hasReceivedInitialState: true },
+      ),
+    );
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const q = (selector: string) =>
+        view.container.querySelectorAll<HTMLElement>(selector);
+      const row = q("[data-profile-trigger]")[0];
+      const nameInput = q(
+        ".agent-identity-section input",
+      )[0] as HTMLInputElement;
+      expect(q("[data-profile-list]").length).toBe(0);
+      expect(nameInput.value).toBe("");
+
+      act(() => row.click());
+      expect(row.getAttribute("aria-expanded")).toBe("true");
+      act(() => q("[data-profile-option]")[2].click());
+      expect(q("[data-profile-list]").length).toBe(0);
+      expect(nameInput.value === "").toBe(false);
+      expect(row.textContent!.includes(nameInput.value)).toBe(true);
+
+      act(() => row.click());
+      expect(q("[data-profile-option]")[2].getAttribute("aria-selected")).toBe(
+        "true",
+      );
+      act(() => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        );
+      });
+      expect(q("[data-profile-list]").length).toBe(0);
+      expect(q(".spawn-template-section").length).toBe(1);
+      expect(closes).toBe(0);
     } finally {
       view.unmount();
     }

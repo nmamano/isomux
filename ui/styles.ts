@@ -291,7 +291,6 @@ ${emitThemesCss()}
     font-size: 13px;
     font-weight: 700;
   }
-  .spawn-template-section .agent-settings-group-title { padding-top: 0; border-top: 0; }
   .agent-settings-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 28px; }
   .agent-settings-fields > * { min-width: 0; }
   .agent-instructions-section > button { margin-top: 12px; }

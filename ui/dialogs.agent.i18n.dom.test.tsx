@@ -69,6 +69,12 @@ async function settle(): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
+// The template list opens from one row (task 4098131b).
+function openTemplates(view: View): void {
+  const row = view.container.querySelector("[data-profile-trigger]")!;
+  if (row.getAttribute("aria-expanded") !== "true")
+    act(() => (row as HTMLElement).click());
+}
 function checkCostume(view: View, label: string, construction: string): void {
   const group = view.getByRole("group", { name: new RegExp(`^${label} · `) });
   const buttons = Array.from(group.querySelectorAll("button"));
@@ -102,6 +108,7 @@ it("reads Catalan, Spanish and default English, including the costume picker", a
   shows(view, ANCHOR.spawnTitle.ca);
   shows(view, ANCHOR.identity.ca);
   shows(view, ANCHOR.blank.ca);
+  openTemplates(view);
   shows(view, ANCHOR.codeReviewer.ca);
   shows(view, ANCHOR.permissionMode.ca);
   shows(view, ANCHOR.permissionDefault.ca);
@@ -120,6 +127,7 @@ it("reads Catalan, Spanish and default English, including the costume picker", a
   shows(view, ANCHOR.spawnTitle.en);
   shows(view, ANCHOR.identity.en);
   shows(view, ANCHOR.blank.en);
+  openTemplates(view);
   shows(view, ANCHOR.codeReviewer.en);
   shows(view, ANCHOR.permissionDefault.en);
   shows(view, ANCHOR.permissionBypass.en);

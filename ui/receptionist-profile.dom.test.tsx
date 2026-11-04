@@ -56,8 +56,14 @@ describe("receptionist profile dialog", () => {
           { rooms: [room], hasReceivedInitialState: true },
         ),
       );
+      // The templates open from one row (task 4098131b).
       await act(async () =>
-        fireEvent.click(view.getByRole("button", { name: new RegExp(label) })),
+        fireEvent.click(
+          view.container.querySelector("[data-profile-trigger]")!,
+        ),
+      );
+      await act(async () =>
+        fireEvent.click(view.getByRole("option", { name: new RegExp(label) })),
       );
       expect(view.getByDisplayValue(label)).toBeTruthy();
       expect(view.getByDisplayValue("~")).toBeTruthy();

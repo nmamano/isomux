@@ -34,6 +34,7 @@ import {
 } from "../../shared/desks.ts";
 import { randomOutfit } from "../../shared/outfit-options.ts";
 import { OutfitPicker } from "./OutfitPicker.tsx";
+import { FilterChevron } from "./ChevronSelect.tsx";
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
@@ -378,6 +379,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // chooses a template, that choice owns model and effort until Blank is
   // selected; a late machine default must not overwrite it.
   const templateAppliedRef = useRef(false);
+  // The template list opens from one row at the top of the spawn form, so the
+  // Name field stays in view (task 4098131b).
+  const [templateListOpen, setTemplateListOpen] = useState(false);
+  const templatePickerRef = useRef<HTMLDivElement>(null);
+  const chosenTemplate =
+    AGENT_TEMPLATES.find((template) => template.key === selectedTemplateKey) ??
+    null;
+  const templateTriggerRef = useRef<HTMLButtonElement>(null);
   // Agent memory (edit mode only) - edited via the unified /api/memory verbs
   // (load + version-guarded save), saved separately from the agent PATCH.
   const mem = useMemoryEditor("agent", agent?.id ?? null, !!agent?.id);
@@ -651,6 +660,31 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     setPermissionMode(values.permissionMode);
   }
 
+  function closeTemplateList() {
+    setTemplateListOpen(false);
+    templateTriggerRef.current?.focus();
+  }
+
+  // A pick fills the form and closes the list.
+  function pickTemplate(template: AgentTemplate | null) {
+    if (template) applyTemplate(template);
+    else applyBlankTemplate();
+    closeTemplateList();
+  }
+
+  // A click outside the row and its list closes the list. A click, not a
+  // press: the backdrop's press must still see the list open and keep the
+  // dialog.
+  useEffect(() => {
+    if (!templateListOpen) return;
+    function onClick(e: MouseEvent) {
+      if (templatePickerRef.current?.contains(e.target as Node)) return;
+      setTemplateListOpen(false);
+    }
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [templateListOpen]);
+
   function cancelPendingTemplateModelResolution() {
     pendingTemplateRef.current = null;
   }
@@ -742,6 +776,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // this dialog; our capture listener runs first, so stand down for it.
       if (isExpandedEditorOpen()) return;
       e.stopPropagation();
+      if (templateListOpen) {
+        closeTemplateList();
+        return;
+      }
       if (saving) return;
       if (confirmDiscard) cancelDiscard();
       else requestClose();
@@ -1703,6 +1741,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   return (
     <div
       onMouseDown={(e) => {
+        if (templateListOpen) return;
         if (e.target === e.currentTarget) requestClose();
       }}
       style={{
@@ -1805,78 +1844,165 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           <div className="agent-dialog-grid">
             {isSpawn && (
               <section className="agent-settings-group spawn-template-section">
-                <h4 className="agent-settings-group-title">
+                <label id="spawn-template-label" style={labelStyle}>
                   {t("dialogs.agent.group.template")}
-                </h4>
-                <p
-                  style={{
-                    ...dialogHint,
-                    margin: "3px 0 8px",
-                  }}
-                >
-                  {t("dialogs.agent.templateHint")}
-                </p>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: isMobile
-                      ? "repeat(2, minmax(0, 1fr))"
-                      : "repeat(3, minmax(0, 1fr))",
-                    gap: 6,
-                  }}
-                >
+                </label>
+                <div ref={templatePickerRef} style={{ position: "relative" }}>
                   <button
+                    ref={templateTriggerRef}
                     type="button"
-                    onClick={applyBlankTemplate}
-                    aria-pressed={selectedTemplateKey === null}
+                    data-profile-trigger
+                    aria-haspopup="listbox"
+                    aria-expanded={templateListOpen}
+                    aria-labelledby="spawn-template-label spawn-template-value"
                     autoFocus={isSpawn}
+                    onClick={() => setTemplateListOpen((open) => !open)}
                     style={{
-                      ...templateCardStyle(selectedTemplateKey === null, false),
-                      gridColumn: "1 / -1",
+                      ...templateCardStyle(false, false, chosenTemplate?.group),
+                      width: "100%",
+                      // One height with or without an avatar.
+                      minHeight: 46,
+                      padding: "6px 10px",
                     }}
                   >
-                    <span style={templateCardTextStyle}>
-                      <span style={templateCardTitleStyle}>
-                        {t("dialogs.agent.blank")}
+                    {chosenTemplate && (
+                      <span
+                        style={{ ...templateAvatarStyle, height: 32 }}
+                        aria-hidden="true"
+                      >
+                        <Character
+                          state="idle"
+                          outfit={chosenTemplate.outfit}
+                          portrait
+                          height={30}
+                        />
                       </span>
-                      <span style={templateCardDescriptionStyle}>
-                        {t("dialogs.agent.blankHint")}
+                    )}
+                    <span
+                      id="spawn-template-value"
+                      style={{
+                        ...templateCardTextStyle,
+                        flex: 1,
+                        flexDirection: "row",
+                        alignItems: "baseline",
+                        gap: 8,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <span style={templateCardTitleStyle}>
+                        {chosenTemplate
+                          ? t(chosenTemplate.labelKey)
+                          : t("dialogs.agent.blank")}
+                      </span>
+                      <span
+                        style={{
+                          ...templateCardDescriptionStyle,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {chosenTemplate
+                          ? t(chosenTemplate.descriptionKey)
+                          : t("dialogs.agent.blankHint")}
                       </span>
                     </span>
+                    <FilterChevron />
                   </button>
-                  {AGENT_TEMPLATES.map((template) => {
-                    const selected = selectedTemplateKey === template.key;
-                    return (
-                      <button
-                        key={template.key}
-                        type="button"
-                        onClick={() => applyTemplate(template)}
-                        aria-pressed={selected}
-                        style={templateCardStyle(
-                          selected,
-                          false,
-                          template.group,
-                        )}
+                  {templateListOpen && (
+                    <>
+                      {isMobile && (
+                        <div
+                          aria-hidden="true"
+                          onClick={closeTemplateList}
+                          style={templateSheetBackdropStyle}
+                        />
+                      )}
+                      <div
+                        data-profile-list
+                        role="listbox"
+                        aria-labelledby="spawn-template-label"
+                        style={
+                          isMobile ? templateSheetStyle : templatePopoverStyle
+                        }
                       >
-                        <span style={templateAvatarStyle} aria-hidden="true">
-                          <Character
-                            state="idle"
-                            outfit={template.outfit}
-                            portrait
-                            height={44}
-                          />
-                        </span>
-                        <span style={templateCardTextStyle}>
-                          <span style={templateCardTitleStyle}>
-                            {t(template.labelKey)}
-                          </span>
-                          <span style={templateCardDescriptionStyle}>
-                            {t(template.descriptionKey)}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
+                        <p style={{ ...dialogHint, margin: "0 0 8px" }}>
+                          {t("dialogs.agent.templateHint")}
+                        </p>
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: isMobile
+                              ? "minmax(0, 1fr)"
+                              : "repeat(auto-fill, minmax(260px, 1fr))",
+                            gap: 6,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            data-profile-option
+                            role="option"
+                            aria-selected={selectedTemplateKey === null}
+                            onClick={() => pickTemplate(null)}
+                            style={{
+                              ...templateCardStyle(
+                                selectedTemplateKey === null,
+                                false,
+                              ),
+                              gridColumn: "1 / -1",
+                            }}
+                          >
+                            <span style={templateCardTextStyle}>
+                              <span style={templateCardTitleStyle}>
+                                {t("dialogs.agent.blank")}
+                              </span>
+                              <span style={templateCardDescriptionStyle}>
+                                {t("dialogs.agent.blankHint")}
+                              </span>
+                            </span>
+                          </button>
+                          {AGENT_TEMPLATES.map((template) => {
+                            const selected =
+                              selectedTemplateKey === template.key;
+                            return (
+                              <button
+                                key={template.key}
+                                type="button"
+                                data-profile-option
+                                role="option"
+                                aria-selected={selected}
+                                onClick={() => pickTemplate(template)}
+                                style={templateCardStyle(
+                                  selected,
+                                  false,
+                                  template.group,
+                                )}
+                              >
+                                <span
+                                  style={templateAvatarStyle}
+                                  aria-hidden="true"
+                                >
+                                  <Character
+                                    state="idle"
+                                    outfit={template.outfit}
+                                    portrait
+                                    height={44}
+                                  />
+                                </span>
+                                <span style={templateCardTextStyle}>
+                                  <span style={templateCardTitleStyle}>
+                                    {t(template.labelKey)}
+                                  </span>
+                                  <span style={templateCardDescriptionStyle}>
+                                    {t(template.descriptionKey)}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </section>
             )}
@@ -2585,6 +2711,47 @@ const TEMPLATE_GROUP_COLORS: Record<AgentTemplate["group"], string> = {
   work: "#50b86c",
   life: "#e85d75",
   places: "#d4a843",
+};
+
+// Desktop: the list drops under the row and scrolls on its own.
+const templatePopoverStyle: React.CSSProperties = {
+  position: "absolute",
+  top: "calc(100% + 4px)",
+  left: 0,
+  right: 0,
+  zIndex: 20,
+  maxHeight: "min(440px, 60vh)",
+  overflowY: "auto",
+  overscrollBehavior: "contain",
+  padding: 10,
+  borderRadius: 10,
+  border: "1px solid var(--border-light)",
+  background: "var(--bg-overlay-solid)",
+  boxShadow: "0 12px 32px var(--shadow-heavy)",
+};
+
+// Mobile: the list is a sheet from the bottom of the screen.
+const templateSheetBackdropStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 20,
+  background: "rgba(0,0,0,0.45)",
+};
+
+const templateSheetStyle: React.CSSProperties = {
+  position: "fixed",
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 21,
+  maxHeight: "80dvh",
+  overflowY: "auto",
+  overscrollBehavior: "contain",
+  padding: "14px 14px max(14px, env(safe-area-inset-bottom))",
+  borderRadius: "14px 14px 0 0",
+  borderTop: "1px solid var(--border-light)",
+  background: "var(--bg-overlay-solid)",
+  boxShadow: "0 -12px 32px var(--shadow-heavy)",
 };
 
 const templateAvatarStyle: React.CSSProperties = {
