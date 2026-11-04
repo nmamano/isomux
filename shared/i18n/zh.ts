@@ -1648,6 +1648,7 @@ App 的一些原则：
   "asks.forMember": "给 {member}",
   "asks.chip": "请示：{words}",
   "asks.openAsk": "打开请示 {id}",
+  "asks.viewInInbox": "在收件箱中查看",
   "asks.pinnedMissing": "你无法查看此请示，或它不存在。",
   "asks.stillOpen": "仍待处理",
   "asks.answeredBy": "{member} 已回复",

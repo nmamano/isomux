@@ -150,6 +150,16 @@ const ENTRIES: AskEntry[] = [
     ...entry("uuuu0021", "b3", "Reload the extension?", 2),
     options: ["Done"],
   },
+  // Agent b4's asks link to one ask in the Inbox: another ask, and the ask
+  // itself.
+  {
+    ...entry("abcd0022", "b4", "See the other ask?", 2),
+    link: "/inbox/asks/abcd0099",
+  },
+  {
+    ...entry("abcd0023", "b4", "See this ask?", 1),
+    link: "/inbox/asks/abcd0023",
+  },
 ];
 // The one agent the store knows: the target of a7's first link.
 const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
@@ -368,10 +378,90 @@ it("draws a button for an agent it knows, named for the agent, and a click opens
   view.unmount();
 });
 
+// View in Inbox (task bc525a93): the chat is not comfortable for a long ask,
+// so each reply card in the stack opens its ask in the Inbox.
+const viewInInbox = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>("[data-ask-view-inbox]")].map(
+    (b) => b.closest<HTMLElement>("[data-ask]")?.dataset.ask,
+  );
+
 it("draws no link without an opener", async () => {
   const view = mount(false, "a3");
   await waitFor(() => expect(cards(view.container).length).toBe(2));
   expect(linkButtons(view.container)).toEqual([]);
+  expect(viewInInbox(view.container)).toEqual([]);
+  view.unmount();
+});
+
+it("draws View in Inbox on each reply card, and a click opens that ask in the Inbox", async () => {
+  const opened: OfficeLink[] = [];
+  // a1's asks have no office link and no original: the row has this button
+  // only.
+  const view = mount(false, "a1", (link) => opened.push(link));
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  expect(viewInInbox(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
+  const button = view.container.querySelector<HTMLButtonElement>(
+    '[data-ask="aaaa0001"] [data-ask-view-inbox]',
+  )!;
+  expect(button.tagName).toBe("BUTTON");
+  expect(button.textContent?.trim()).not.toBe("");
+  fireEvent.click(button);
+  expect(opened).toEqual([{ page: "asks", askId: "aaaa0001" }]);
+  // The ask stays open in the stack, and nothing was posted.
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
+  expect(posts).toEqual([]);
+  view.unmount();
+});
+
+it("puts View in Inbox before the ask's own link and Show original", async () => {
+  const opener = () => {};
+  const linked = mount(false, "a3", opener);
+  await waitFor(() => expect(cards(linked.container).length).toBe(2));
+  const card = linked.container.querySelector<HTMLElement>(
+    '[data-ask="dddd0004"]',
+  )!;
+  const view = card.querySelector("[data-ask-view-inbox]");
+  const office = card.querySelector("[data-ask-office-link]");
+  expect([view !== null, office !== null]).toEqual([true, true]);
+  // The same row (a scalar: toBe on two nodes dumps both on a failure).
+  expect(view!.parentElement === office!.parentElement).toBe(true);
+  expect(
+    view!.compareDocumentPosition(office!) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  linked.unmount();
+
+  const rewritten = mount(false, "b1", opener);
+  await waitFor(() => expect(cards(rewritten.container).length).toBe(3));
+  const card2 = rewritten.container.querySelector<HTMLElement>(
+    '[data-ask="ssss0019"]',
+  )!;
+  const view2 = card2.querySelector("[data-ask-view-inbox]");
+  const original = card2.querySelector("[data-ask-show-original]");
+  expect([view2 !== null, original !== null]).toEqual([true, true]);
+  expect(view2!.parentElement === original!.parentElement).toBe(true);
+  expect(
+    view2!.compareDocumentPosition(original!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  rewritten.unmount();
+});
+
+it("draws no View in Inbox on a secret request", async () => {
+  const view = mount(false, "a5", () => {});
+  await waitFor(() => expect(cards(view.container).length).toBe(3));
+  expect(viewInInbox(view.container)).toEqual(["iiii0009", "gggg0007"]);
+  view.unmount();
+});
+
+it("draws no View in Inbox on an ask whose own link opens it in the Inbox", async () => {
+  const view = mount(false, "b4", () => {});
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  // Both links are drawn; only the ask that links elsewhere has the button.
+  expect(linkButtons(view.container)).toEqual([
+    ["abcd0023", "/inbox/asks/abcd0023"],
+    ["abcd0022", "/inbox/asks/abcd0099"],
+  ]);
+  expect(viewInInbox(view.container)).toEqual(["abcd0022"]);
   view.unmount();
 });
 

@@ -1851,6 +1851,7 @@ Coses que pots fer per ell:
   "asks.forMember": "Per a {member}",
   "asks.chip": "petició: {words}",
   "asks.openAsk": "Obre la petició {id}",
+  "asks.viewInInbox": "Mostra a la safata d'entrada",
   "asks.pinnedMissing": "No pots veure aquesta petició, o no existeix.",
   "asks.stillOpen": "Encara oberta",
   "asks.answeredBy": "Resposta de {member}",

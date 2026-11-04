@@ -62,6 +62,51 @@ it("opens an ask's office page over the chat, and Back returns to the chat", asy
   expect(view.container.querySelector("[data-asks-stack]")).not.toBeNull();
 });
 
+// View in Inbox (task bc525a93): a card in the chat's stack opens its ask
+// pinned on the Asks tab, with the draft the member typed in the chat.
+it("opens a chat ask in the Inbox with its draft, draws no View in Inbox there, and Back returns to the chat", async () => {
+  const view = await boot();
+  await act(async () => fireEvent.click(inboxButton(view)!));
+  // App provides the opener (the office link is drawn), but the Inbox's own
+  // cards have no View in Inbox.
+  expect(officeLink(view, "q1")).not.toBeNull();
+  expect(view.container.querySelector("[data-ask-view-inbox]")).toBeNull();
+
+  await chatFromInbox(view, "a1");
+  const inStack = (selector: string) =>
+    view.container.querySelector<HTMLElement>(
+      `[data-asks-stack] [data-ask="q1"] ${selector}`,
+    );
+  const draft = "Yes, but only after the migration";
+  await act(async () =>
+    fireEvent.change(inStack("[data-ask-reply-input]")!, {
+      target: { value: draft },
+    }),
+  );
+  expect(inStack("[data-ask-view-inbox]")).not.toBeNull();
+  await act(async () => fireEvent.click(inStack("[data-ask-view-inbox]")!));
+  expect(window.location.pathname.startsWith("/inbox/asks")).toBe(true);
+  expect(selectedTab(view)).toBe("asks");
+  expect(view.container.querySelector("[data-asks-stack]")).toBeNull();
+  const pinned =
+    view.container.querySelector<HTMLElement>("[data-asks-pinned]");
+  expect(pinned?.getAttribute("data-asks-pinned")).toBe("q1");
+  expect(
+    pinned?.querySelector<HTMLTextAreaElement>(
+      '[data-ask="q1"] [data-ask-reply-input]',
+    )?.value,
+  ).toBe(draft);
+  expect(pinned?.querySelector("[data-ask-view-inbox]")).toBeNull();
+
+  await go("back");
+  expect(window.location.pathname).toBe("/");
+  expect(view.container.querySelector("[data-asks-stack]")).not.toBeNull();
+  // The ask is still open, and the chat's card still holds the draft.
+  expect(
+    (inStack("[data-ask-reply-input]") as HTMLTextAreaElement | null)?.value,
+  ).toBe(draft);
+});
+
 it("switches to the Pages tab for an ask's link to it, and closes out of the Inbox", async () => {
   setAsks([ask("q1", "a1", "/inbox/pages")]);
   const view = await boot();

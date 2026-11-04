@@ -1848,6 +1848,7 @@ Cosas que puedes hacer por él:
   "asks.forMember": "Para {member}",
   "asks.chip": "petición: {words}",
   "asks.openAsk": "Abrir la petición {id}",
+  "asks.viewInInbox": "Ver en la bandeja de entrada",
   "asks.pinnedMissing": "No puedes ver esta petición, o no existe.",
   "asks.stillOpen": "Sigue abierta",
   "asks.answeredBy": "Respondida por {member}",

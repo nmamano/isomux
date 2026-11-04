@@ -264,7 +264,7 @@ export function AsksStack({
         }}
       >
         {entries.map((entry) => (
-          <AskCard key={entry.id} entry={entry} isMobile={isMobile} />
+          <AskCard key={entry.id} entry={entry} isMobile={isMobile} inboxLink />
         ))}
       </div>
     </div>

@@ -1818,6 +1818,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.forMember": "For {member}",
   "asks.chip": "ask: {words}",
   "asks.openAsk": "Open ask {id}",
+  "asks.viewInInbox": "View in Inbox",
   "asks.pinnedMissing": "You cannot see this ask, or it does not exist.",
   "asks.stillOpen": "Still open",
   "asks.answeredBy": "Answered by {member}",
