@@ -55,3 +55,19 @@ OPENCODE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/opencode
 ```
 
 OpenCode agents load user-level plugins and config from `OPENCODE_CONFIG_DIR`, else from `~/.config/opencode` of the OS user that runs the agents. Isomux's own OpenCode settings take precedence. Changes load after you send `/reload-plugins` to an OpenCode agent, after Isomux restarts, or when your variables change on the Integrations page.
+
+## OpenCode on your own model server
+
+OpenCode agents can use a model server that you run, such as Ollama. Add it as a provider in `opencode.json` in the OpenCode config folder (`OPENCODE_CONFIG_DIR`, else `~/.config/opencode`), with the models to show in the model picker:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": { "baseURL": "http://<server>:11434/v1" },
+      "models": { "qwen3:32b": {} }
+    }
+  }
+}
+```
