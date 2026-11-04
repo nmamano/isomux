@@ -9,18 +9,14 @@ import {
 
 describe("the DNS hook authorization gate", () => {
   test("permits only the one challenge name bound to the office", () => {
-    expect(() =>
-      assertAuthorizedChallenge(
-        "_acme-challenge.office.example.",
-        "_acme-challenge.office.example",
-      ),
-    ).not.toThrow();
-    expect(() =>
-      assertAuthorizedChallenge(
-        "_ACME-CHALLENGE.OFFICE.EXAMPLE",
-        "_acme-challenge.office.example",
-      ),
-    ).not.toThrow();
+    assertAuthorizedChallenge(
+      "_acme-challenge.office.example.",
+      "_acme-challenge.office.example",
+    );
+    assertAuthorizedChallenge(
+      "_ACME-CHALLENGE.OFFICE.EXAMPLE",
+      "_acme-challenge.office.example",
+    );
     for (const name of [
       "_acme-challenge.victim.example",
       "_acme-challenge.child.office.example",

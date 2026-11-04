@@ -25,18 +25,16 @@ describe("certificate test rails", () => {
   });
 
   test("test targets require local fake services and a non-production zone", () => {
-    expect(() =>
-      assertCertificateTarget(
-        {
-          kind: "test",
-          caDirectory: "http://127.0.0.1:14000/directory",
-          cloudflareBaseUrl: "http://localhost:14001/client/v4",
-          zoneId: "fake-zone",
-          productionZoneId: "prod-zone",
-        },
-        { NODE_ENV: "test" },
-      ),
-    ).not.toThrow();
+    assertCertificateTarget(
+      {
+        kind: "test",
+        caDirectory: "http://127.0.0.1:14000/directory",
+        cloudflareBaseUrl: "http://localhost:14001/client/v4",
+        zoneId: "fake-zone",
+        productionZoneId: "prod-zone",
+      },
+      { NODE_ENV: "test" },
+    );
     expect(() =>
       assertCertificateTarget(
         {
@@ -59,7 +57,7 @@ describe("certificate test rails", () => {
       zoneId: "staging-exercise-zone",
       productionZoneId: "prod-zone",
     };
-    expect(() => assertCertificateTarget(staging, {})).not.toThrow();
+    assertCertificateTarget(staging, {});
     expect(() =>
       assertCertificateTarget(
         { ...staging, caDirectory: "https://acme.example/directory" },

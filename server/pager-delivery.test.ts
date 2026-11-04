@@ -635,7 +635,7 @@ describe("pager delivery: failures", () => {
     await settle();
     s.state.settingsError = new Error(`cannot load ${URL_}`);
     await s.time.advance(5 * MIN);
-    expect(() => s.svc.rescheduleMember("u1")).not.toThrow();
+    s.svc.rescheduleMember("u1");
     s.state.settingsError = null;
     const realRecord = s.store.recordDelivery.bind(s.store);
     s.store.recordDelivery = () => {

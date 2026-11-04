@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -72,6 +73,52 @@ describe("skills page and the office Claude root", () => {
     const previous = setPersonalProviderActiveProvider(
       (userId, provider) =>
         userId === "fixture-member" && provider === "claude",
+    );
+    cleanup.push(() => setPersonalProviderActiveProvider(previous));
+    expect(seen()).toEqual(everywhere);
+  });
+
+  // The Codex twin: the office CODEX_HOME is the Codex source root, so a
+  // personal Codex account keeps its skills on every engine.
+  it("lists a skill in a custom office Codex home on every engine, with and without a personal Codex account", () => {
+    const envPath = managedOfficeEnvPath();
+    const previousEnv = existsSync(envPath)
+      ? readFileSync(envPath, "utf8")
+      : null;
+    cleanup.push(() => {
+      if (previousEnv === null) removeStateDir(envPath);
+      else writeFileSync(envPath, previousEnv);
+    });
+    const officeCodex = mkdtempSync(join(tmpdir(), "isomux-office-codex-"));
+    cleanup.push(() => rmSync(officeCodex, { recursive: true, force: true }));
+    writeManagedOfficeEnv({ CODEX_HOME: officeCodex });
+    const name = "office-codex-check";
+    mkdirSync(join(officeCodex, "skills", name), { recursive: true });
+    writeFileSync(
+      join(officeCodex, "skills", name, "SKILL.md"),
+      "---\ndescription: fixture\n---\nfixture body\n",
+    );
+
+    const mgr = createProductionAgentManager();
+    const seen = () =>
+      buildSkillCatalog(
+        mgr.skillEngineContexts("fixture-member", () => true),
+        {},
+        mgr.newSkillDir(),
+        "/home",
+      ).engines.map((e): [string, boolean] => [
+        e.engine,
+        e.skills.some((s) => s.name === name),
+      ]);
+    const everywhere: [string, boolean][] = [
+      ["claude", true],
+      ["codex", true],
+      ["opencode", true],
+    ];
+    expect(seen()).toEqual(everywhere);
+
+    const previous = setPersonalProviderActiveProvider(
+      (userId, provider) => userId === "fixture-member" && provider === "codex",
     );
     cleanup.push(() => setPersonalProviderActiveProvider(previous));
     expect(seen()).toEqual(everywhere);

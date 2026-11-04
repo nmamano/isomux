@@ -1200,19 +1200,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
           const reason = msg("systemEntries.scheduleRun.permissionRequested");
           try {
             await active.session.approve(ev.approvalId, { kind: "deny" });
+            if (active.session.canAbortInPlace()) await active.session.abort();
           } finally {
-            try {
-              await active.session.abort();
-            } finally {
-              finalizeRun(active, "failed", reason);
-            }
+            finalizeRun(active, "failed", reason);
           }
           return;
         }
         if (ev.kind === "input_request") {
           const reason = msg("systemEntries.scheduleRun.questionRequested");
           try {
-            await active.session.abort();
+            if (active.session.canAbortInPlace()) await active.session.abort();
           } finally {
             finalizeRun(active, "failed", reason);
           }

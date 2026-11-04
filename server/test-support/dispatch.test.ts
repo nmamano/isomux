@@ -10,11 +10,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { authorize, type RouteAuthz } from "../identity/dispatch.ts";
-import {
-  type AuthzOutcome,
-  type Guard,
-  type GuardDeps,
-} from "../identity/guards.ts";
+import { type Guard, type GuardDeps } from "../identity/guards.ts";
 import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
@@ -71,10 +67,7 @@ describe("dispatcher: authn stage (null identity)", () => {
       requiredCapability: "office:read",
       resourceGuard: throwGuard,
     };
-    let outcome: AuthzOutcome | undefined;
-    expect(() => {
-      outcome = authorize(route, input(null));
-    }).not.toThrow();
+    const outcome = authorize(route, input(null));
     expect(outcome).toEqual({
       ok: false,
       status: 401,
@@ -89,10 +82,7 @@ describe("dispatcher: stage 1 (coarse capability)", () => {
       requiredCapability: "agent:manage",
       resourceGuard: throwGuard,
     };
-    let outcome: AuthzOutcome | undefined;
-    expect(() => {
-      outcome = authorize(route, input(agent));
-    }).not.toThrow();
+    const outcome = authorize(route, input(agent));
     expect(outcome).toEqual({ ok: false, status: 403, code: "forbidden" });
   });
 });

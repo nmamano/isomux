@@ -381,7 +381,7 @@ describe("whatsapp inbound: the row and the office", () => {
     const { h, inbound, msg } = harness();
     h.deliverThrows = true;
     inbound.onMessage(U, msg({ text: "lost" }));
-    expect(() => h.clock.advance(WHATSAPP_BURST_QUIET_MS)).not.toThrow();
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
     h.deliverThrows = false;
     inbound.onMessage(U, msg({ text: "next" }));
     h.clock.advance(WHATSAPP_BURST_QUIET_MS);

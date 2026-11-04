@@ -33,7 +33,7 @@ import { join } from "path";
 import { claudeProjectDir, findCodexRolloutPath } from "../cwd-utils.ts";
 import { renderLogText, type LogText } from "../../shared/i18n/log-message.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
-import { LIVE } from "../test-support/live-gate.ts";
+import { LIVE, liveEngineEnv } from "../test-support/live-gate.ts";
 
 import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
@@ -107,9 +107,12 @@ afterAll(() => {
 function newCwd(cfg: ProviderConfig): string {
   const cwd = mkdtempSync(join(tmpdir(), `isomux-live-${cfg.name}-`));
   tempDirs.push(cwd);
-  if (cfg.name === "claude") tempDirs.push(claudeProjectDir(cwd, process.env));
+  if (cfg.name === "claude") tempDirs.push(claudeProjectDir(cwd, ENGINE_ENV));
   return cwd;
 }
+
+// The box's sign-in, which the test preload keeps aside.
+const ENGINE_ENV = liveEngineEnv();
 
 const TERSE_PROMPT =
   "You are a terse test agent. Do exactly what is asked and nothing more.";
@@ -128,7 +131,7 @@ function openSession(
     effort: "",
     permissionMode: cfg.permissionMode,
     sandbox: cfg.sandbox,
-    env: process.env,
+    env: ENGINE_ENV,
   };
   return resumeId
     ? cfg.backend.resumeSession(resumeId, opts)
@@ -138,7 +141,7 @@ function openSession(
 function accessFor(cfg: ProviderConfig, cwd: string): SessionAccessOptions {
   return {
     cwd,
-    env: process.env,
+    env: ENGINE_ENV,
     modelFamily: cfg.modelFamily,
     permissionMode: cfg.permissionMode,
   };
@@ -454,7 +457,7 @@ for (const cfg of PROVIDERS) {
             "completed",
           );
           expect(again.turns[0].text.toLowerCase()).toContain(newWord);
-          const path = findCodexRolloutPath(first.sessionId, process.env);
+          const path = findCodexRolloutPath(first.sessionId, ENGINE_ENV);
           expect(path).toBeTruthy();
           const updates = readFileSync(path!, "utf8")
             .split("\n")

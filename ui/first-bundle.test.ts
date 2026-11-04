@@ -9,7 +9,8 @@
 // a dynamic import() starts a separate chunk, so neither is followed.
 
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 
 const REPO = join(import.meta.dir, "..");
@@ -37,17 +38,33 @@ interface Walk {
   packages: Map<string, string>;
 }
 
-function walk(followDynamic: boolean): Walk {
-  const transpiler = new Bun.Transpiler({ loader: "tsx" });
+// The bundler picks the loader by extension: a .ts file is not JSX, so an
+// arrow generic like <T>(x: T) => x parses there and not in a .tsx file.
+const LOADERS = {
+  ts: new Bun.Transpiler({ loader: "ts" }),
+  tsx: new Bun.Transpiler({ loader: "tsx" }),
+  js: new Bun.Transpiler({ loader: "js" }),
+  jsx: new Bun.Transpiler({ loader: "jsx" }),
+};
+
+function transpilerFor(file: string): Bun.Transpiler {
+  if (file.endsWith(".ts")) return LOADERS.ts;
+  if (file.endsWith(".tsx")) return LOADERS.tsx;
+  if (file.endsWith(".jsx")) return LOADERS.jsx;
+  return LOADERS.js;
+}
+
+function walk(followDynamic: boolean, entry = ENTRY): Walk {
   const files = new Set<string>();
   const packages = new Map<string, string>();
-  const queue = [ENTRY];
+  const queue = [entry];
   while (queue.length > 0) {
     const file = queue.pop()!;
     if (files.has(file)) continue;
     files.add(file);
     if (!/\.(tsx?|jsx?|mjs)$/.test(file)) continue;
-    for (const imp of transpiler.scanImports(readFileSync(file, "utf8"))) {
+    const source = readFileSync(file, "utf8");
+    for (const imp of transpilerFor(file).scanImports(source)) {
       if (imp.kind === "dynamic-import" && !followDynamic) continue;
       if (imp.path.startsWith(".") || imp.path.startsWith("/")) {
         queue.push(Bun.resolveSync(imp.path, dirname(file)));
@@ -71,6 +88,26 @@ describe("first bundle", () => {
       .map(([specifier, importer]) => `${specifier} (from ${importer})`)
       .sort();
     expect(leaked).toEqual([]);
+  });
+
+  it("parses each file as the bundler does, so an arrow generic in a .ts file is walked", () => {
+    // `<T>(x: T) => x` is a type parameter in a .ts file and a JSX tag in a
+    // .tsx file. The bundler picks the loader by extension; a walk that parsed
+    // every file as TSX failed on a .ts file that tsc and the build accept.
+    const dir = mkdtempSync(join(tmpdir(), "first-bundle-"));
+    const entry = join(dir, "entry.tsx");
+    writeFileSync(
+      entry,
+      'import { id } from "./generic.ts";\nexport const x = <b>{id(1)}</b>;\n',
+    );
+    writeFileSync(
+      join(dir, "generic.ts"),
+      'import "./leaf.ts";\nexport const id = <T>(x: T) => x;\n',
+    );
+    writeFileSync(join(dir, "leaf.ts"), "export const leaf = 1;\n");
+    expect(
+      [...walk(false, entry).files].map((f) => relative(dir, f)).sort(),
+    ).toEqual(["entry.tsx", "generic.ts", "leaf.ts"]);
   });
 
   it("sees every one of those libraries when dynamic imports are followed", () => {

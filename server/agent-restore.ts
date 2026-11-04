@@ -22,7 +22,7 @@ import type {
 } from "../shared/types.ts";
 import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { rmSync } from "fs";
-import { homedir } from "os";
+import { claudeConfigDirOf } from "./provider-skill-links.ts";
 import { join } from "path";
 import { getAgentHost } from "./agent-host.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
@@ -391,16 +391,13 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
         ...discoverProjectSkills(p.cwd, info.agentType),
         // Only Claude loads plugin skills.
         ...(info.agentType === "claude"
-          ? discoverPluginSkills(
-              discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
-              p.cwd,
-            )
+          ? discoverPluginSkills(claudeConfigDirOf(discoveryEnv), p.cwd)
           : []),
         ...discoverBundledSkills(),
         // Account-synced skills are Claude's too.
         ...(info.agentType === "claude"
           ? discoverSyncedSkills(
-              discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+              claudeConfigDirOf(discoveryEnv),
               null,
               new Set(),
             )

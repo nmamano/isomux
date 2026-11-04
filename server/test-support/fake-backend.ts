@@ -305,8 +305,15 @@ export class FakeSession implements BackendSession {
     return Promise.resolve();
   }
 
+  // Like ClaudeSession, a session that cannot abort in place rejects: the
+  // caller checks canAbortInPlace() first.
   async abort(): Promise<void> {
     this.abortCount++;
+    if (!this.abortInPlace) {
+      throw new Error(
+        "FakeSession.abort() is unsupported - check canAbortInPlace() first.",
+      );
+    }
   }
 
   canAbortInPlace(): boolean {

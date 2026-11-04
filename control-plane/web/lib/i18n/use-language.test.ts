@@ -168,7 +168,7 @@ describe("resolveInBrowser", () => {
     // hydration effect: a throw here would take the page's whole language
     // resolution with it. The three values we write need no decoding at all.
     browser("isomux_lang=%", ["ca"]);
-    expect(() => resolveInBrowser()).not.toThrow();
+    resolveInBrowser();
     expect(resolveInBrowser()).toBe("ca");
     browser("isomux_lang=%E4%", ["de"]);
     expect(resolveInBrowser()).toBe("en");

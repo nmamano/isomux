@@ -152,15 +152,13 @@ describe("memory-store: append", () => {
     });
     expect(first.item.raw.length).toBe(24);
     // 24 + 1 newline + 24 + 1 = 50 <= 60, so a second self-note fits.
-    expect(() =>
-      store.append({
-        scope: "agent",
-        scopeId: "a1",
-        author: "SomeAgent",
-        authorAgentId: "a1",
-        text: "9876543210",
-      }),
-    ).not.toThrow();
+    store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "SomeAgent",
+      authorAgentId: "a1",
+      text: "9876543210",
+    });
     // The same two lines WITH the author would be 35 + 1 + 35 + 1 = 72 > 60.
     const { store: authored } = freshStore({
       caps: { ...MEMORY_CAPS, agent: 60 },

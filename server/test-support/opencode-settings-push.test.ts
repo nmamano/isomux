@@ -123,9 +123,7 @@ describe("an OpenCode settings push", () => {
   it("never throws when the backend's push fails", async () => {
     const { mgr, pushes, failPushes } = setup();
     failPushes();
-    expect(() =>
-      mgr.pushOpenCodeSettings({ kind: "user", userId: USER }),
-    ).not.toThrow();
+    mgr.pushOpenCodeSettings({ kind: "user", userId: USER });
     expect(pushes).toHaveLength(1);
   });
 

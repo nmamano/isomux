@@ -20,7 +20,7 @@ describe("app hosting on a host without systemd", () => {
     expect(supervisor.readToken("hello")).toBeNull();
     expect(supervisor.readUnitFile("hello")).toBeNull();
     expect(supervisor.unitInjectsToken("hello")).toBe(false);
-    expect(() => supervisor.teardown("hello")).not.toThrow();
+    supervisor.teardown("hello");
     const refusals: Array<() => unknown> = [
       () => supervisor.install(record),
       () => supervisor.reinstall(record),

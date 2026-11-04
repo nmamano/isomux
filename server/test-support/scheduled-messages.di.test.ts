@@ -697,7 +697,7 @@ describe("firing: the record in the sender's log", () => {
     w.setRecordThrows(true);
     w.setNow(IN_1H + 2);
     const tick = makeTicker(m, w.sched);
-    expect(() => tick()).not.toThrow();
+    tick();
     tick();
     expect(w.recorded.map((r) => r.entry.text)).toEqual(["first", "second"]);
     expect(w.enqueueCalls.map((c) => c.msg.text)).toEqual(["first", "second"]);

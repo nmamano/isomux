@@ -78,4 +78,20 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-return": "off",
     },
   },
+  // Same ban as the root config: bun's expect(fn).not.toThrow() also hides a
+  // promise rejection fn creates.
+  {
+    files: ["**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.property.name=/^toThrow(Error)?$/][callee.object.property.name='not']",
+          message:
+            "Call the function directly: a throw fails the test, and expect(fn).not.toThrow() also hides a promise rejection the call creates.",
+        },
+      ],
+    },
+  },
 );

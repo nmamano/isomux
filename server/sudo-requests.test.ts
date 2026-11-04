@@ -710,7 +710,7 @@ describe("a restart during a run", () => {
     t.reports.length = 0;
     t.control.reportThrows = true;
     const again = t.boot();
-    expect(() => again.requests.recover()).not.toThrow();
+    again.requests.recover();
     expect(t.reports.map((x) => x.agentId).sort()).toEqual(["a1", "a3"]);
     expect(again.runs.list()).toEqual([]);
   });

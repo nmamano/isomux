@@ -634,4 +634,64 @@ describe.skipIf(!linux)("preload", () => {
     // The finished run removed its own folder too.
     expect(readdirSync(base)).toEqual([]);
   }, 60_000);
+
+  // The process that runs the tests may name its own Claude and Codex homes
+  // (an office agent runs in its member's). Tests that read skills, plugins or
+  // sign-ins must see the run's empty homes; a live test that needs the real
+  // sign-in finds it kept aside.
+  it("gives a run its own Claude and Codex homes, and keeps the inherited ones aside", async () => {
+    const out = scratchDir();
+    const base = scratchDir();
+    const run = async (
+      tag: string,
+      inherited: Record<string, string>,
+    ): Promise<Record<string, unknown>> => {
+      const env = childEnv({
+        TMPDIR: base,
+        TEMP_ROOT_FIXTURE_OUT: join(out, `${tag}.json`),
+        ...inherited,
+      });
+      if (!("CLAUDE_CONFIG_DIR" in inherited)) delete env.CLAUDE_CONFIG_DIR;
+      if (!("CODEX_HOME" in inherited)) delete env.CODEX_HOME;
+      const child = Bun.spawn([process.execPath, "test", FIXTURE], {
+        cwd: REPO,
+        env,
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      const code = await child.exited;
+      expect(code, await new Response(child.stderr).text()).toBe(0);
+      return readWhenWritten(join(out, `${tag}.json`));
+    };
+
+    const claude = join(scratchDir(), "member-claude");
+    const codex = join(scratchDir(), "member-codex");
+    const named = await run("named", {
+      CLAUDE_CONFIG_DIR: claude,
+      CODEX_HOME: codex,
+    });
+    const root = named.tmpdir as string;
+    for (const key of ["claudeConfigDir", "codexHome"]) {
+      const dir = String(named[key]);
+      expect([key, dir.startsWith(root + "/")]).toEqual([key, true]);
+    }
+    expect(named.claudeConfigDir).not.toBe(named.codexHome);
+    expect(named.providerHomesAreDirs).toEqual([true, true]);
+    expect([named.inheritedClaudeConfigDir, named.inheritedCodexHome]).toEqual([
+      claude,
+      codex,
+    ]);
+
+    const unnamed = await run("unnamed", {});
+    for (const key of ["claudeConfigDir", "codexHome"]) {
+      const dir = String(unnamed[key]);
+      expect([key, dir.startsWith((unnamed.tmpdir as string) + "/")]).toEqual([
+        key,
+        true,
+      ]);
+    }
+    expect([
+      unnamed.inheritedClaudeConfigDir,
+      unnamed.inheritedCodexHome,
+    ]).toEqual([null, null]);
+  }, 60_000);
 });

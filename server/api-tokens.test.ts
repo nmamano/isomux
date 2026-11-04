@@ -733,7 +733,7 @@ describe("token log recovery and read offsets", () => {
         statSync(pathFor(apiToken.id)).size - 12,
       );
       if (reboot) _testResetApiTokens();
-      expect(() => loadApiTokens()).not.toThrow();
+      loadApiTokens();
       expect(resolveApiToken(token)?.id).toBe(apiToken.id);
       expect(listApiTokens("u1")).toHaveLength(2);
       const result = await readInbox(apiToken.id);
@@ -757,7 +757,7 @@ describe("token log recovery and read offsets", () => {
       await inboxMessage(other.apiToken.id, "other history");
       const damaged = readFileSync(pathFor(apiToken.id), "utf8");
       if (reboot) _testResetApiTokens();
-      expect(() => loadApiTokens()).not.toThrow();
+      loadApiTokens();
       const read = await readInbox(apiToken.id);
       expect(read.entries).toEqual([]);
       expect(read.latestSequence).toBe(1);

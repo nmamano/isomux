@@ -778,7 +778,7 @@ describe("whatsapp supervisor: faults around it never escape", () => {
     const h = harness();
     const child = await bootLinked(h);
     h.pagerThrows = true;
-    expect(() => child.close(DISCONNECT.loggedOut)).not.toThrow();
+    child.close(DISCONNECT.loggedOut);
     await until(() => h.sup.status(U).state === "unlinked", "the unlink");
     expect(h.sup.status(U)).toEqual({
       state: "unlinked",
@@ -853,14 +853,14 @@ describe("whatsapp supervisor: rows and inbound (slice 2)", () => {
     h.allow.set(U, CHATS);
     h.sup.setRoutes(U);
     expect(child.sent.at(-1)).toEqual(routed);
-    expect(() => h.sup.setRoutes(V)).not.toThrow();
+    h.sup.setRoutes(V);
   });
 
   it("a message goes to the inbound hook; a hook that throws never escapes and the next message still goes", async () => {
     const h = harness();
     const child = await bootLinked(h);
     h.onMessageThrows = true;
-    expect(() => child.emit(message("m1"))).not.toThrow();
+    child.emit(message("m1"));
     h.onMessageThrows = false;
     child.emit(message("m2"));
     await settle();
@@ -1007,9 +1007,7 @@ describe("whatsapp supervisor: a reply send (slice 2b)", () => {
     expect(one).toEqual({ done: true, value: { ok: true, id: "3EB0A" } });
     expect(two).toEqual({ done: true, value: { ok: false, reason: "failed" } });
     // A second answer to a settled request changes nothing.
-    expect(() =>
-      child.emit({ ev: "sent", requestId: "ask-1", id: "3EB0B" }),
-    ).not.toThrow();
+    child.emit({ ev: "sent", requestId: "ask-1", id: "3EB0B" });
     await settle();
     expect(one.value).toEqual({ ok: true, id: "3EB0A" });
   });
@@ -1026,9 +1024,7 @@ describe("whatsapp supervisor: a reply send (slice 2b)", () => {
       done: true,
       value: { ok: false, reason: "unknown" },
     });
-    expect(() =>
-      child.emit({ ev: "sent", requestId: "ask-1", id: "3EB0A" }),
-    ).not.toThrow();
+    child.emit({ ev: "sent", requestId: "ask-1", id: "3EB0A" });
     await settle();
     expect(late.value).toEqual({ ok: false, reason: "unknown" });
 

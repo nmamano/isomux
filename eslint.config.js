@@ -125,6 +125,23 @@ export default tseslint.config(
     },
   },
   {
+    // bun's expect(fn).not.toThrow() passes when fn leaves a rejected promise
+    // behind, so the test it guards cannot fail on the rejection. The same rule
+    // is in control-plane/web/eslint.config.mjs, which this config ignores.
+    files: ["**/*.{ts,tsx,js,mjs,cjs}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.property.name=/^toThrow(Error)?$/][callee.object.property.name='not']",
+          message:
+            "Call the function directly: a throw fails the test, and expect(fn).not.toThrow() also hides a promise rejection the call creates.",
+        },
+      ],
+    },
+  },
+  {
     // A file this long costs every agent that reads it its context, and its
     // reviews go shallow. A warning, not an error: the files already over it
     // are split one task at a time. The message catalogs are flat data.

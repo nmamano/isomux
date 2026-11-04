@@ -111,7 +111,7 @@ describe("the leaf issuer refuses names on its own", () => {
 
   test("a name that isListed does not accept", () => {
     expect(() => issuer.issue("api.stripe.com")).toThrow(LeafRefusedError);
-    expect(() => issuer.issue("github.com")).not.toThrow();
+    issuer.issue("github.com");
   });
 });
 

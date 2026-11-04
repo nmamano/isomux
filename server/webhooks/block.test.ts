@@ -266,9 +266,7 @@ describe("buildWebhookBlock: refuses input outside the fixed limits", () => {
   }
 
   it("accepts the 40-character arg names it refuses one past", () => {
-    expect(() =>
-      buildWebhookBlock(base({ args: tenArgs(() => "") })),
-    ).not.toThrow();
+    buildWebhookBlock(base({ args: tenArgs(() => "") }));
   });
 });
 

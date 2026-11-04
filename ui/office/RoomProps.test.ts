@@ -79,7 +79,7 @@ test("drawnPet falls back the way coatFor does, and an unknown species does not 
       species: DEFAULT_ROOM_PET.species,
       coat: 1,
     });
-    expect(() => coatFor(pet)).not.toThrow();
+    coatFor(pet);
     expect(coatFor(pet)).toBe(PET_PALETTES[DEFAULT_ROOM_PET.species][1]);
   }
   // Unknown species and a coat past the end: both fall back.

@@ -154,7 +154,7 @@ await new Promise(() => {});
     const prior = JSON.parse(await readFile(resultPath, "utf8")) as {
       serverPid: number;
     };
-    expect(() => process.kill(prior.serverPid, 0)).not.toThrow();
+    process.kill(prior.serverPid, 0);
     const record = JSON.parse(
       await readFile(join(root, "profile", "server.lock"), "utf8"),
     ) as { port: number; password: string; environmentRevision: string };

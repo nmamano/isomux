@@ -142,6 +142,6 @@ describe("appHostDomain lifecycle", () => {
     // The VALUE depends on this process's boot state, which a pure test has no
     // business asserting - deriveAppHostDomain's matrix above covers that.
     // What matters here is that it answers at all instead of throwing.
-    expect(() => appHostDomain()).not.toThrow();
+    appHostDomain();
   });
 });

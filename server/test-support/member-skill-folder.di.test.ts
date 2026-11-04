@@ -14,14 +14,20 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, join, resolve, sep } from "node:path";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { personalProviderHome } from "../provider-homes.ts";
-import { setPersonalProviderActiveProvider } from "../env-loader.ts";
+import {
+  buildEnvForUserId,
+  setPersonalProviderActiveProvider,
+} from "../env-loader.ts";
+import { removeManagedUserEnv, writeManagedUserEnv } from "../user-env.ts";
+import type { PersistedAgent } from "../persistence.ts";
 import { ISOMUX_CODEX_HOME } from "../backends/codex/native-bin.ts";
 import { getAgentHost, setAgentHost } from "../agent-host.ts";
 
@@ -572,6 +578,209 @@ describe("Sk menu and /name per engine", () => {
           name,
           listed.has(name),
         ]);
+      }
+    }
+  });
+});
+
+// The test preload gives the run its own Claude and Codex homes in
+// CLAUDE_CONFIG_DIR and CODEX_HOME (task 2c371832). With or without a merged
+// env, every place that finds a member's skills reads them there: never the
+// homes of the process that runs the tests, never the box's ~/.claude and
+// ~/.codex. A skill, plugin and synced skill in the run's homes must appear.
+describe("provider homes of a test run", () => {
+  it("reads skills, plugins and synced skills from the run's Claude and Codex homes, with and without a merged env, at spawn, refresh and restore", async () => {
+    const claudeHome = process.env.CLAUDE_CONFIG_DIR;
+    const codexHome = process.env.CODEX_HOME;
+    for (const [name, dir] of [
+      ["CLAUDE_CONFIG_DIR", claudeHome],
+      ["CODEX_HOME", codexHome],
+    ] as const)
+      expect([name, !!dir && resolve(dir).startsWith(tmpdir() + sep)]).toEqual([
+        name,
+        true,
+      ]);
+    const planted = [
+      join(claudeHome!, "skills", "rh-run-claude"),
+      join(claudeHome!, "skills", "synced", "bucket", "rh-run-synced"),
+      join(codexHome!, "skills", "rh-run-codex"),
+      join(STATE_ROOT, "rh-plugin"),
+    ];
+    skillFolder(planted[0], "---\ndescription: run claude\n---\nx\n");
+    skillFolder(planted[1], "---\ndescription: run synced\n---\nx\n");
+    skillFolder(planted[2], "---\ndescription: run codex\n---\nx\n");
+    skillFolder(
+      join(planted[3], "skills", "run-do"),
+      "---\ndescription: run plugin\n---\nx\n",
+    );
+    const pluginFiles = [
+      join(claudeHome!, "plugins", "installed_plugins.json"),
+      join(claudeHome!, "settings.json"),
+    ];
+    for (const file of pluginFiles) expect(existsSync(file)).toBe(false);
+    mkdirSync(join(claudeHome!, "plugins"), { recursive: true });
+    writeFileSync(
+      pluginFiles[0],
+      JSON.stringify({
+        plugins: { "rhplug@test": [{ installPath: planted[3] }] },
+      }),
+    );
+    writeFileSync(
+      pluginFiles[1],
+      JSON.stringify({ enabledPlugins: { "rhplug@test": true } }),
+    );
+    const plain = "0d1e0101"; // no merged env
+    const merged = "0d1e0102"; // a member variable: a merged env
+    writeManagedUserEnv(merged, { RH_FIXTURE_FLAG: "1" });
+    restore.push(() => {
+      removeManagedUserEnv(merged);
+      for (const path of [...planted, ...pluginFiles])
+        rmSync(path, { recursive: true, force: true });
+      rmSync(join(claudeHome!, "skills", "synced"), {
+        recursive: true,
+        force: true,
+      });
+    });
+    const previous = setPersonalProviderActiveProvider(() => false);
+    restore.push(() => setPersonalProviderActiveProvider(previous));
+    expect(buildEnvForUserId(plain)).toBeUndefined();
+    expect(buildEnvForUserId(merged)?.RH_FIXTURE_FLAG).toBe("1");
+
+    const bundled = join(STATE_ROOT, "rh-bundled");
+    for (const name of BUNDLED)
+      skillFolder(join(bundled, name), `bundled ${name}`);
+    const userSkills = ["rh-run-claude", "rh-run-codex"];
+    const claudeOnly = ["rhplug:run-do", "rh-run-synced"];
+    const want = (agentType: "claude" | "codex") =>
+      agentType === "claude" ? [...userSkills, ...claudeOnly] : userSkills;
+    const listed = (skills: { name: string }[]) =>
+      [...userSkills, ...claudeOnly].filter((name) =>
+        skills.some((s) => s.name === name),
+      );
+
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+    });
+    const room = "room-rh";
+    const persisted = [plain, merged].map((userId) => ({
+      id: `agent-rh-restore-${userId}`,
+      name: `restore ${userId}`,
+      desk: 0,
+      cwd: STATE_ROOT,
+      outfit: {
+        hat: "none",
+        color: "#000000",
+        hair: "#000000",
+        hairStyle: "short",
+        skin: "#ffffff",
+        beard: "none",
+        accessory: null,
+      },
+      permissionMode: "default",
+      effort: "high",
+      agentType: "claude",
+      lastSessionId: null,
+      topic: null,
+      customInstructions: null,
+      userId,
+      username: null,
+    })) as unknown as PersistedAgent[];
+    const rooms: RoomWire[] = [
+      { id: room, name: room, prompt: null, canCloseWhenEmpty: false },
+    ];
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms }),
+      initialRooms: [{ id: room, name: room, prompt: null, agents: persisted }],
+      bundledSkillsDir: bundled,
+    });
+    mgr.configureAgentTurnDeps();
+    await mgr.restoreAgents();
+    restore.push(() => fake.sessions.forEach((s) => s.close()));
+    for (const agent of persisted)
+      expect([
+        "restore",
+        agent.userId,
+        listed(mgr.getAgentCommands(agent.id).skills),
+      ]).toEqual(["restore", agent.userId, want("claude")]);
+
+    for (const userId of [plain, merged]) {
+      // The skills page: its provider user roots and plugin root. The
+      // ~/.agents root comes from HOME, not from a provider home.
+      for (const context of mgr.skillEngineContexts(userId, () => true)) {
+        const providerRoots = context.userRoots.filter(
+          (root) => basename(root.root) !== ".agents",
+        );
+        expect([context.engine, providerRoots.length > 0]).toEqual([
+          context.engine,
+          true,
+        ]);
+        for (const root of providerRoots)
+          expect([
+            context.engine,
+            root.root,
+            resolve(root.root).startsWith(tmpdir() + sep),
+          ]).toEqual([context.engine, root.root, true]);
+        expect([context.engine, context.pluginRoot]).toEqual([
+          context.engine,
+          claudeHome!,
+        ]);
+      }
+      for (const agentType of ["claude", "codex"] as const) {
+        const info = (await mgr.spawn(
+          `rh ${agentType} ${userId}`,
+          STATE_ROOT,
+          "default",
+          undefined,
+          undefined,
+          room,
+          undefined,
+          undefined,
+          "high",
+          "Owner",
+          agentType,
+          undefined,
+          userId,
+        ))!;
+        void mgr.sendMessage(info.id, "hello", "Owner");
+        const deadline = Date.now() + 2_000;
+        const read = () => mgr.getAgentCommands(info.id).skills;
+        while (
+          !(
+            fake.sessionForAgent(info.id) &&
+            read().some((s) => s.name === "wrap-session")
+          ) &&
+          Date.now() < deadline
+        )
+          await Bun.sleep(5);
+        const session = fake.sessionForAgent(info.id);
+        expect([agentType, userId, session !== undefined]).toEqual([
+          agentType,
+          userId,
+          true,
+        ]);
+        expect(["spawn", agentType, userId, listed(read())]).toEqual([
+          "spawn",
+          agentType,
+          userId,
+          want(agentType),
+        ]);
+        mgr.refreshSkillMenus();
+        expect(["refresh", agentType, userId, listed(read())]).toEqual([
+          "refresh",
+          agentType,
+          userId,
+          want(agentType),
+        ]);
+        // Claude reads its own home's skills by itself, so its member folder
+        // links only the Codex one.
+        if (agentType === "claude") {
+          const folder = join(session!.opts.skillFolder!, ".claude", "skills");
+          expect([
+            userId,
+            names(folder).filter((n) => n.startsWith("rh-")),
+          ]).toEqual([userId, ["rh-run-codex"]]);
+        }
       }
     }
   });

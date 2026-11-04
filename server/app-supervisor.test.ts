@@ -903,7 +903,7 @@ describe("app-supervisor: teardown", () => {
         ? { code: 1, stderr: "Unit isomux-app-hello.service not loaded." }
         : undefined,
     );
-    expect(() => supervisor(host).teardown("hello")).not.toThrow();
+    supervisor(host).teardown("hello");
   });
 
   it("REFUSES when it cannot ASK whether the app is still running", () => {
@@ -984,9 +984,7 @@ describe("app-supervisor: teardown", () => {
           : undefined,
       );
     for (const [load, active] of safe) {
-      expect(() =>
-        supervisor(host(load, active)).teardown("hello"),
-      ).not.toThrow();
+      supervisor(host(load, active)).teardown("hello");
       expect(supervisor(host(load, active)).provablyNotRunning("hello")).toBe(
         true,
       );

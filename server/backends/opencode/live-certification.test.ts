@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { preferredFreeOpenCodeModel } from "../../../shared/opencode-model.ts";
 import { OPENCODE_DEFAULT_MODEL } from "../../../shared/types.ts";
-import { LIVE } from "../../test-support/live-gate.ts";
+import { LIVE, liveEngineEnv } from "../../test-support/live-gate.ts";
 import type { NormalizedEvent } from "../types.ts";
 import { createOpenCodeBackend } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
@@ -55,7 +55,7 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
     supervisor = new OpenCodeSupervisor({
       profileDir: join(root, "profile"),
       serverCwd: repo,
-      launchEnv: { ...process.env },
+      launchEnv: liveEngineEnv(),
     });
     const backend = createOpenCodeBackend({ supervisor });
     const discovered = await backend.listModels({ cwd: repo });

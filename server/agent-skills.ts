@@ -29,7 +29,10 @@ import {
   engineNativeSkillDirs,
   memberSkillFolderPath,
 } from "./member-skill-folder.ts";
-import { officeClaudeSourceRoot } from "./provider-skill-links.ts";
+import {
+  claudeConfigDirOf,
+  officeClaudeSourceRoot,
+} from "./provider-skill-links.ts";
 import type { SecretScope } from "./secret-store.ts";
 import type { createSessionAccounts } from "./session-accounts.ts";
 import { SKILL_ENGINES, type SkillEngineContext } from "./skill-catalog.ts";
@@ -122,7 +125,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
           engine === "claude"
             ? env?.CLAUDE_CONFIG_DIR ||
               deps.providerSkillSourceRoots?.claude ||
-              join(homedir(), ".claude")
+              claudeConfigDirOf()
             : env?.CODEX_HOME || ISOMUX_CODEX_HOME;
       const folder = memberSkillFolderPath(info.userId, engine, providerRoot);
       const done = built?.get(folder);
@@ -331,7 +334,7 @@ export function createAgentSkills(deps: AgentSkillsDeps) {
     return SKILL_ENGINES.map((engine) => ({
       engine,
       userRoots: userSkillRootsForInfo({ agentType: engine, userId }, env),
-      pluginRoot: env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
+      pluginRoot: claudeConfigDirOf(env),
       cwds: infos
         .filter((info) => info.agentType === engine)
         .map((info) => info.cwd),

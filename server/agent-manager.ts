@@ -165,7 +165,10 @@ import {
 } from "./skills.ts";
 import {
   agentUserSkillRoots,
+  claudeConfigDirOf,
+  codexUserHomeOf,
   officeClaudeSourceRoot,
+  officeCodexSourceRoot,
 } from "./provider-skill-links.ts";
 import { findUsageAtFork } from "./usage-report.ts";
 import {
@@ -3814,7 +3817,8 @@ export function createAgentManager(deps: ManagerDeps) {
         const managed = agents.get(agentId);
         if (!managed) break;
         addLogEntry(agentId, "error", msg("systemEntries.inputRequest"));
-        void managed.sessionManager.session?.abort();
+        const session = managed.sessionManager.session;
+        if (session?.canAbortInPlace()) void session.abort().catch(() => {});
         updateState(agentId, "error");
         break;
       }
@@ -4598,17 +4602,15 @@ export function createAgentManager(deps: ManagerDeps) {
   }
 
   function claudeConfigDirFor(managed: ManagedAgent): string {
-    return (
-      buildSessionEnv(managed)?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")
-    );
+    return claudeConfigDirOf(buildSessionEnv(managed));
   }
 
   function userSkillRootsForInfo(
     info: Pick<AgentInfo, "agentType" | "userId">,
     env: { [key: string]: string | undefined } | undefined,
   ): UserSkillRoot[] {
-    const claudeRoot = env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
-    const codexRoot = env?.CODEX_HOME || join(homedir(), ".codex");
+    const claudeRoot = claudeConfigDirOf(env);
+    const codexRoot = codexUserHomeOf(env);
     return agentUserSkillRoots(
       info.agentType,
       info.userId,
@@ -5082,8 +5084,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // Only Claude loads plugin skills.
         ...(info.agentType === "claude"
           ? discoverPluginSkills(
-              buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
-                join(homedir(), ".claude"),
+              claudeConfigDirOf(buildEnvForUserId(info.userId)),
               resolvedCwd,
             )
           : []),
@@ -5091,8 +5092,7 @@ export function createAgentManager(deps: ManagerDeps) {
         // Account-synced skills are Claude's too.
         ...(info.agentType === "claude"
           ? discoverSyncedSkills(
-              buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
-                join(homedir(), ".claude"),
+              claudeConfigDirOf(buildEnvForUserId(info.userId)),
               null,
               new Set(),
             )
@@ -9522,7 +9522,9 @@ export function createProductionAgentManager(overrides?: {
       get claude() {
         return officeClaudeSourceRoot();
       },
-      codex: join(homedir(), ".codex"),
+      get codex() {
+        return officeCodexSourceRoot();
+      },
     },
     bundledSkillsDir: BUNDLED_SKILLS_DIR,
   });

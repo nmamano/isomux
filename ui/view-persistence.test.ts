@@ -204,21 +204,17 @@ describe("saved view: owner-checked load/save", () => {
 
   it("survives storage exceptions and unavailable storage", () => {
     expect(loadSavedView("nil", throwingStorage)).toBeNull();
-    expect(() =>
-      saveView(
-        "nil",
-        { roomId: null, agentId: null, panel: null, lobby: false },
-        throwingStorage,
-      ),
-    ).not.toThrow();
+    saveView(
+      "nil",
+      { roomId: null, agentId: null, panel: null, lobby: false },
+      throwingStorage,
+    );
     expect(loadSavedView("nil", null)).toBeNull();
-    expect(() =>
-      saveView(
-        "nil",
-        { roomId: null, agentId: null, panel: null, lobby: false },
-        null,
-      ),
-    ).not.toThrow();
+    saveView(
+      "nil",
+      { roomId: null, agentId: null, panel: null, lobby: false },
+      null,
+    );
   });
 });
 
@@ -286,14 +282,12 @@ describe("drafts: per-composer owner-namespaced keys", () => {
 
   it("survives storage exceptions and unavailable storage", () => {
     expect(loadUserDrafts("nil", throwingStorage)).toEqual({});
-    expect(() => saveDraft("nil", "a", "b", throwingStorage)).not.toThrow();
-    expect(() => saveDraft("nil", "a", "", throwingStorage)).not.toThrow();
-    expect(() =>
-      pruneUserDrafts("nil", new Set(), throwingStorage),
-    ).not.toThrow();
+    saveDraft("nil", "a", "b", throwingStorage);
+    saveDraft("nil", "a", "", throwingStorage);
+    pruneUserDrafts("nil", new Set(), throwingStorage);
     expect(loadUserDrafts("nil", null)).toEqual({});
-    expect(() => saveDraft("nil", "a", "b", null)).not.toThrow();
-    expect(() => pruneUserDrafts("nil", new Set(), null)).not.toThrow();
+    saveDraft("nil", "a", "b", null);
+    pruneUserDrafts("nil", new Set(), null);
   });
 });
 
@@ -438,18 +432,12 @@ describe("folded asks: per member and agent", () => {
 
   it("survives storage exceptions and unavailable storage", () => {
     expect(loadFoldedAsks("nil", "a", throwingStorage)).toBe(null);
-    expect(() =>
-      saveFoldedAsks("nil", "a", ["x"], throwingStorage),
-    ).not.toThrow();
-    expect(() =>
-      saveFoldedAsks("nil", "a", null, throwingStorage),
-    ).not.toThrow();
-    expect(() =>
-      pruneUserFoldedAsks("nil", new Set(), throwingStorage),
-    ).not.toThrow();
+    saveFoldedAsks("nil", "a", ["x"], throwingStorage);
+    saveFoldedAsks("nil", "a", null, throwingStorage);
+    pruneUserFoldedAsks("nil", new Set(), throwingStorage);
     expect(loadFoldedAsks("nil", "a", null)).toBe(null);
-    expect(() => saveFoldedAsks("nil", "a", ["x"], null)).not.toThrow();
-    expect(() => pruneUserFoldedAsks("nil", new Set(), null)).not.toThrow();
+    saveFoldedAsks("nil", "a", ["x"], null);
+    pruneUserFoldedAsks("nil", new Set(), null);
   });
 });
 
@@ -576,18 +564,10 @@ describe("draft attachments: per-composer owner-namespaced keys", () => {
 
   it("survives storage exceptions and unavailable storage", () => {
     expect(loadUserDraftAttachments("nil", throwingStorage)).toEqual({});
-    expect(() =>
-      saveDraftAttachments("nil", "a", [uploaded("a.png")], throwingStorage),
-    ).not.toThrow();
-    expect(() =>
-      saveDraftAttachments("nil", "a", [], throwingStorage),
-    ).not.toThrow();
-    expect(() =>
-      pruneUserDraftAttachments("nil", new Set(), throwingStorage),
-    ).not.toThrow();
+    saveDraftAttachments("nil", "a", [uploaded("a.png")], throwingStorage);
+    saveDraftAttachments("nil", "a", [], throwingStorage);
+    pruneUserDraftAttachments("nil", new Set(), throwingStorage);
     expect(loadUserDraftAttachments("nil", null)).toEqual({});
-    expect(() =>
-      saveDraftAttachments("nil", "a", [uploaded("a.png")], null),
-    ).not.toThrow();
+    saveDraftAttachments("nil", "a", [uploaded("a.png")], null);
   });
 });

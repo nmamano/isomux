@@ -711,7 +711,7 @@ describe("failure paths", () => {
     expect(proxyAddress(alice.HTTPS_PROXY)).toBe(
       `http://127.0.0.1:${runtime.proxyPort}`,
     );
-    expect(() => buildEnvForUserId(BOB)).not.toThrow();
+    buildEnvForUserId(BOB);
     expect(buildEnvForUserId(BOB)?.HTTPS_PROXY).toBeUndefined();
     expect(logs).toContain("store_unreadable");
   });

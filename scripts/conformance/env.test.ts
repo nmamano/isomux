@@ -85,7 +85,7 @@ describe("buildServerEnv", () => {
   // name the live root's path is a prefix of) is accepted, so the throw is
   // about where the run dir resolves.
   it("refuses a run dir that is the live state root or inside it", () => {
-    expect(() => buildServerEnv(agentShell, runDir, 4123, live)).not.toThrow();
+    buildServerEnv(agentShell, runDir, 4123, live);
     expect(() => buildServerEnv(agentShell, live, 4123, live)).toThrow();
     expect(() =>
       buildServerEnv(agentShell, join(live, "sub"), 4123, live),
@@ -95,7 +95,7 @@ describe("buildServerEnv", () => {
   it("refuses a run dir that resolves into the live root through a link", () => {
     const viaLink = join(scratch, "link-into-live");
     symlinkSync(join(live, "sub"), viaLink);
-    expect(() => buildServerEnv(agentShell, runDir, 4123, live)).not.toThrow();
+    buildServerEnv(agentShell, runDir, 4123, live);
     expect(() => buildServerEnv(agentShell, viaLink, 4123, live)).toThrow();
   });
 
@@ -103,9 +103,7 @@ describe("buildServerEnv", () => {
   it("refuses a run dir inside the live root when the live root is a link", () => {
     const liveLink = join(scratch, "live-link");
     symlinkSync(live, liveLink);
-    expect(() =>
-      buildServerEnv(agentShell, runDir, 4123, liveLink),
-    ).not.toThrow();
+    buildServerEnv(agentShell, runDir, 4123, liveLink);
     expect(() =>
       buildServerEnv(agentShell, join(live, "sub"), 4123, liveLink),
     ).toThrow();

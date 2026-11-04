@@ -6,19 +6,50 @@ import { personalProviderHome } from "./provider-homes.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
 import { getAgentHost } from "./agent-host.ts";
 
+// The Claude and Codex homes of an engine started with `env`. With no env the
+// engine inherits the host's base env, so CLAUDE_CONFIG_DIR or CODEX_HOME
+// there wins over the box ~/.claude or ~/.codex.
+export function claudeConfigDirOf(env?: {
+  [key: string]: string | undefined;
+}): string {
+  return (
+    (env ?? getAgentHost().baseEnv()).CLAUDE_CONFIG_DIR?.trim() ||
+    join(homedir(), ".claude")
+  );
+}
+
+export function codexUserHomeOf(env?: {
+  [key: string]: string | undefined;
+}): string {
+  return (
+    (env ?? getAgentHost().baseEnv()).CODEX_HOME?.trim() ||
+    join(homedir(), ".codex")
+  );
+}
+
+function officeEnvOrNull(): { [key: string]: string | undefined } | null {
+  try {
+    return buildOfficeEnv();
+  } catch {
+    return null;
+  }
+}
+
 // The office's Claude root: CLAUDE_CONFIG_DIR from the office env, else the
 // box ~/.claude. Skill discovery reads it as the Claude source root, member
 // skill folders link its skills, and the skills page creates new skills in it,
 // so a skill there reaches every engine with or without a personal account.
 // Read on each call, so an office env edit takes effect without a restart.
 export function officeClaudeSourceRoot(): string {
-  let root: string | undefined;
-  try {
-    root = buildOfficeEnv().CLAUDE_CONFIG_DIR || undefined;
-  } catch {
-    root = undefined;
-  }
-  return root ?? join(homedir(), ".claude");
+  return (
+    officeEnvOrNull()?.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude")
+  );
+}
+
+// The office's Codex root, by the same rule: CODEX_HOME from the office env,
+// else the box ~/.codex.
+export function officeCodexSourceRoot(): string {
+  return officeEnvOrNull()?.CODEX_HOME?.trim() || join(homedir(), ".codex");
 }
 
 export function providerUserSkillRoots(

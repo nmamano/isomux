@@ -452,6 +452,8 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     const order: string[] = [];
     const fake = new FakeBackend({
       session: {
+        // OpenCode stops a turn in place.
+        abortInPlace: true,
         onSend: (_text, _attachments, session) => {
           session.approve = async (id, decision) => {
             order.push(`deny:${id}:${decision.kind}`);
@@ -685,6 +687,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
   it("aborts and explains an interactive question request", async () => {
     const fake = new FakeBackend({
       session: {
+        abortInPlace: true,
         onSend: (_text, _attachments, session) =>
           session.push({
             kind: "input_request",
@@ -2261,6 +2264,17 @@ describe("CronjobManager run failure reason in each reader's language", () => {
 
   const OWN = msg("systemEntries.streamError", { error: "own words" });
 
+  // The catalog keys of a run's log lines.
+  const logKeys = (entries: LogEntry[]): string[] =>
+    entries.flatMap((e) =>
+      (e.message ?? []).flatMap((part) =>
+        typeof part === "string" ? [] : [part.key],
+      ),
+    );
+
+  // The fake models Claude here: no abort in place, and abort() rejects as
+  // ClaudeSession.abort() does. The run closes the session instead, so the
+  // log holds the reason and no stream error from a refused abort.
   it("a permission request and a question fail the run with a worded reason and log line", async () => {
     const asked = await endedRun({
       onSend: (_t, _a, s) =>
@@ -2277,6 +2291,9 @@ describe("CronjobManager run failure reason in each reader's language", () => {
       asked.entries,
       "systemEntries.scheduleRun.permissionRequested",
     );
+    expect(asked.fake.lastSession?.abortCount).toBe(0);
+    expect(asked.fake.lastSession?.closed).toBe(true);
+    expect(logKeys(asked.entries)).not.toContain("systemEntries.streamError");
 
     const question = await endedRun({
       onSend: (_t, _a, s) =>
@@ -2291,6 +2308,11 @@ describe("CronjobManager run failure reason in each reader's language", () => {
     expectLogLine(
       question.entries,
       "systemEntries.scheduleRun.questionRequested",
+    );
+    expect(question.fake.lastSession?.abortCount).toBe(0);
+    expect(question.fake.lastSession?.closed).toBe(true);
+    expect(logKeys(question.entries)).not.toContain(
+      "systemEntries.streamError",
     );
   });
 

@@ -128,7 +128,7 @@ it("quarantines malformed legacy JSON without deleting its bytes", () => {
   const { root, audit, db } = setup();
   const path = join(root, "tasks.json");
   writeFileSync(path, "malformed source");
-  expect(() => importLegacyTasks(audit, root)).not.toThrow();
+  importLegacyTasks(audit, root);
   const files = readdirSync(root).filter((name) =>
     name.startsWith("tasks.json.corrupt-"),
   );
@@ -145,7 +145,7 @@ it("quarantines duplicate legacy task ids and preserves the original bytes", () 
     { id: "dup", title: "two" },
   ]);
   writeFileSync(join(root, "tasks.json"), source);
-  expect(() => importLegacyTasks(audit, root)).not.toThrow();
+  importLegacyTasks(audit, root);
   const files = readdirSync(root).filter((name) =>
     name.startsWith("tasks.json.corrupt-"),
   );

@@ -178,6 +178,24 @@ if (preset) {
   });
 }
 
+// The process that runs the tests may name its own Claude and Codex homes (an
+// office agent runs in its member's), and the engine falls back to the box
+// ~/.claude and ~/.codex. Each run gets empty homes of its own, so no test
+// reads or writes real skills, plugins or sign-ins. A live test that needs the
+// real sign-in reads the inherited value from ISOMUX_TEST_INHERITED_*.
+for (const [name, dir] of [
+  ["CLAUDE_CONFIG_DIR", "claude-config"],
+  ["CODEX_HOME", "codex-home"],
+] as const) {
+  const inherited = process.env[name];
+  if (inherited === undefined)
+    delete process.env[`ISOMUX_TEST_INHERITED_${name}`];
+  else process.env[`ISOMUX_TEST_INHERITED_${name}`] = inherited;
+  const home = join(tempRoot, dir);
+  mkdirSync(home);
+  process.env[name] = home;
+}
+
 process.env.TMPDIR = tempRoot;
 // removeStateDir would refuse the folder itself: by then tmpdir() is the
 // folder. The sentinel stops only after the folder is gone: a closed sentinel

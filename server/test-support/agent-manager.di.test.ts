@@ -1129,6 +1129,76 @@ describe("AgentManager DI (temp-state isolated)", () => {
     expect(mgr.getAgent(info!.id)?.state).toBe("error");
   });
 
+  // An engine that asks a question mid-turn (OpenCode) gets its turn stopped
+  // in place. An engine that cannot stop in place (Claude: abort() rejects)
+  // gets no abort call, whose rejection would end the server.
+  for (const abortInPlace of [true, false]) {
+    it(`stops a turn that asks a question only on an engine that aborts in place (abortInPlace ${abortInPlace})`, async () => {
+      const room = `room-input-request-${abortInPlace}`;
+      const fake = new FakeBackend({
+        session: {
+          abortInPlace,
+          onSend: (_text, _attachments, session) =>
+            session.push({
+              kind: "input_request",
+              inputType: "question",
+              requestId: "question-1",
+            }),
+        },
+      });
+      const mgr = createAgentManager({
+        resolveBackend: () => fake,
+        officeState: new OfficeState({ rooms: rooms(room) }),
+        initialRooms: [],
+      });
+      mgr.configureAgentTurnDeps();
+      const info = await mgr.spawn(
+        "Asks a question",
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        room,
+        undefined,
+        undefined,
+        "high",
+        "tester",
+        "claude",
+        undefined,
+        "user-a",
+      );
+      try {
+        void mgr.sendMessage(info!.id, "hello", "tester");
+        const asked = () =>
+          mgr
+            .getAgentLogs(info!.id)
+            .some((entry) =>
+              (entry.message ?? []).some(
+                (part) =>
+                  typeof part !== "string" &&
+                  part.key === "systemEntries.inputRequest",
+              ),
+            );
+        const deadline = Date.now() + 2000;
+        while (
+          !(asked() && mgr.getAgent(info!.id)?.state === "error") &&
+          Date.now() < deadline
+        )
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        // Let a rejected abort, if any, reach the process.
+        await new Promise((resolve) => setTimeout(resolve, 20));
+
+        expect(asked()).toBe(true);
+        expect(mgr.getAgent(info!.id)?.state).toBe("error");
+        expect(fake.sessionForAgent(info!.id)?.abortCount).toBe(
+          abortInPlace ? 1 : 0,
+        );
+      } finally {
+        fake.sessions.forEach((session) => session.close());
+      }
+    });
+  }
+
   it("keeps Codex terminal fallback when no browser card is actionable", async () => {
     const cases = [
       ["no user", null, async () => []],

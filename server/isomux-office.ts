@@ -345,7 +345,10 @@ import {
   cleanupLegacySkillLinks,
   sweepMemberSkillFolders,
 } from "./member-skill-folder.ts";
-import { officeClaudeSourceRoot } from "./provider-skill-links.ts";
+import {
+  officeClaudeSourceRoot,
+  officeCodexSourceRoot,
+} from "./provider-skill-links.ts";
 import {
   personalProviderHome,
   removePersonalProviderHomes,
@@ -2064,7 +2067,7 @@ function settleMemberSkillFolders(): void {
       ),
       sourceRoots: {
         claude: officeClaudeSourceRoot(),
-        codex: join(homedir(), ".codex"),
+        codex: officeCodexSourceRoot(),
       },
       bundledDir: BUNDLED_SKILLS_DIR,
       marker: join(STATE_ROOT, "member-skills", ".legacy-cleaned"),

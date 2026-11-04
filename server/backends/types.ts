@@ -542,6 +542,7 @@ export interface BackendSession {
   //     turn_completed (status="interrupted") flows through the consumer.
   //   - Replace (Claude or non-interruptible Codex): orchestrator calls
   //     close() and installs a replacement session.
+  // Callers check canAbortInPlace() first: Claude's abort() rejects.
   abort(): Promise<void>;
 
   // True when abort() will interrupt the in-flight turn in place without

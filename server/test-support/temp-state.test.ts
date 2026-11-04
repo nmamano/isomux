@@ -15,7 +15,7 @@ describe("assertSafeToDelete", () => {
   it("allows a freshly-created dir under the OS temp dir", () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-guard-ok-"));
     try {
-      expect(() => assertSafeToDelete(dir)).not.toThrow();
+      assertSafeToDelete(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -81,7 +81,7 @@ describe("removeStateDir", () => {
   it("is a no-op on an already-absent temp path", () => {
     const dir = join(tmpdir(), `isomux-guard-absent-${Date.now()}`);
     expect(existsSync(dir)).toBe(false);
-    expect(() => removeStateDir(dir)).not.toThrow();
+    removeStateDir(dir);
   });
 
   it("refuses to remove the real ~/.isomux", () => {

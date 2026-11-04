@@ -152,7 +152,7 @@ describe("the build context", () => {
     expect(dockerfile).toContain(
       "RUN bun control-plane/deploy/assert-runtime-files.ts",
     );
-    expect(() => assertRuntimeFiles()).not.toThrow();
+    assertRuntimeFiles();
 
     const emptyRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "isomux-runtime-files-"),
