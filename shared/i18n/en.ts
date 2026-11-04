@@ -1120,6 +1120,63 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Browser Use",
+  "integrations.tabs.messaging": "Messaging",
+  "integrations.whatsapp.link": "Link with a QR code",
+  "integrations.whatsapp.linkAgain": "Link again",
+  "integrations.whatsapp.useCode": "Use a pairing code instead",
+  "integrations.whatsapp.phoneLabel": "Your WhatsApp number",
+  "integrations.whatsapp.phonePlaceholder": "+44 7700 900123",
+  "integrations.whatsapp.getCode": "Get code",
+  "integrations.whatsapp.warning":
+    "This is an unofficial WhatsApp link. WhatsApp can restrict a number that uses one, so a second number is safer.",
+  "integrations.whatsapp.starting": "Starting…",
+  "integrations.whatsapp.scanSteps":
+    "In WhatsApp on your phone, open Linked devices › Link a device, and scan this code.",
+  "integrations.whatsapp.codeSteps":
+    "In WhatsApp on your phone, open Linked devices › Link a device › Link with phone number instead, and type this code.",
+  "integrations.whatsapp.qrAlt": "QR code to link WhatsApp",
+  "integrations.whatsapp.linkedAs": "Linked as {phone}",
+  "integrations.whatsapp.connected": "Connected",
+  "integrations.whatsapp.connecting": "Connecting",
+  "integrations.whatsapp.unlink": "Unlink",
+  "integrations.whatsapp.reason.linkExpired": "Linking did not finish.",
+  "integrations.whatsapp.reason.installFailed":
+    "Isomux could not download the WhatsApp package. Check that the server can reach the internet, then try again.",
+  "integrations.whatsapp.reason.unlinkedByPhone": "Your phone unlinked Isomux.",
+  "integrations.whatsapp.reason.replaced":
+    "Another connection took over this WhatsApp link.",
+  "integrations.whatsapp.reason.crashLoop":
+    "The WhatsApp connection kept failing.",
+  "integrations.whatsapp.error.phone":
+    "Enter your full number, with the country code.",
+  "integrations.whatsapp.error.tooSoon":
+    "Wait a minute before you ask for another code.",
+  "integrations.whatsapp.error.failed": "Something went wrong. Try again.",
+  "integrations.whatsapp.rows.title": "Chats",
+  "integrations.whatsapp.rows.hint":
+    "Messages from these chats go to the agent you pick.",
+  "integrations.whatsapp.rows.empty": "No chats yet.",
+  "integrations.whatsapp.rows.add": "Add a chat",
+  "integrations.whatsapp.rows.save": "Add",
+  "integrations.whatsapp.rows.chat": "Chat",
+  "integrations.whatsapp.rows.byNumber": "Enter a number",
+  "integrations.whatsapp.rows.number": "Number",
+  "integrations.whatsapp.rows.name": "Name",
+  "integrations.whatsapp.rows.nameHint": "The agent sees this name.",
+  "integrations.whatsapp.rows.agent": "Agent",
+  "integrations.whatsapp.rows.noAgents":
+    "None of your agents can reply. Give one more access than Chat.",
+  "integrations.whatsapp.rows.trigger": "Messages",
+  "integrations.whatsapp.rows.trigger.mention": "Only mentions of you",
+  "integrations.whatsapp.rows.trigger.all": "All",
+  "integrations.whatsapp.rows.group": "Group",
+  "integrations.whatsapp.rows.shellWarning":
+    "This agent has a shell. Anyone in this chat can ask it to run commands.",
+  "integrations.whatsapp.rows.dead.agentGone": "Agent deleted",
+  "integrations.whatsapp.rows.dead.agentNotYours": "No longer your agent",
+  "integrations.whatsapp.rows.dead.agentChatOnly": "Agent has Chat access",
+  "integrations.whatsapp.rows.error.taken":
+    "This chat is already on the list, or the list is full.",
   "integrations.tabs.voice": "Voice",
   "integrations.tabs.github": "GitHub issues",
   "integrations.tabIntro.providers":
@@ -2029,6 +2086,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.apps.unarchive": "Unarchive app",
   "apiCall.webhooks.list": "List webhooks",
   "apiCall.webhooks.create": "Create webhook",
+  "apiCall.messaging.reply": "Draft reply to contact",
   "apiCall.webhooks.read": "Read webhook",
   "apiCall.webhooks.update": "Update webhook",
   "apiCall.webhooks.delete": "Delete webhook",
@@ -2063,6 +2121,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · schedule",
   "common.sender.webhook": "{name} · webhook",
+  "common.sender.messaging": "{name} · {app}",
   "cards.userMessage.expand": "Expand message",
   "cards.userMessage.collapse": "Collapse message",
   "cards.userMessage.editAndBranch": "Edit & branch",

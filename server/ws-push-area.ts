@@ -96,6 +96,7 @@ export const WS_PUSH_AREA = {
   users_list: "always",
   webhook_deleted: "webhooks",
   webhook_upserted: "webhooks",
+  whatsapp_status: "environment",
 } as const satisfies Record<WsPushKind, WsPushArea>;
 
 // Whether a socket of a member with `pack` gets a push of `kind`. No pack:

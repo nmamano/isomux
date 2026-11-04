@@ -39,6 +39,7 @@ export const AGENT_REFERENCE_TOPICS = {
   "browser-failures":
     "A browser action fails or times out, an office page is refused, or a tab or browser goes away",
   "sudo-requests": "You need to run a command as root",
+  "messaging-apps": "Replies to the member's contacts in messaging apps",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -54,6 +55,7 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "apps-server": "apps",
   "browser-failures": "browser",
   "sudo-requests": "asks",
+  "messaging-apps": "messaging",
 };
 
 // Pages only a privileged agent sees.
@@ -160,6 +162,7 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.deleteAsk": "asks",
   "agents.sudoRequest": "sudo-requests",
   "asks.get": "asks-history",
+  "messaging.reply": "messaging-apps",
   "pager.raise": "pager",
   "pager.list": "pager",
   "pager.get": "pager",

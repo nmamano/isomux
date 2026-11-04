@@ -137,7 +137,7 @@ it("an owner has a GitHub tab; a member has none, and a remembered or requested 
   const owner = await open(withRooms(OWNER));
   expect(rows(owner)).toContain("github");
   // The viewer's own tabs stay last.
-  expect(rows(owner).slice(-2)).toEqual(["pager", "api-tokens"]);
+  expect(rows(owner).slice(-3)).toEqual(["pager", "api-tokens", "messaging"]);
   owner.unmount();
 
   install(false);

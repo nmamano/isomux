@@ -10,7 +10,13 @@ import { askHandlers, type AsksDeps } from "./asks.ts";
 import { createAskStore } from "../../asks.ts";
 import type { RouteHandlerContext } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import { APP_CAPABILITIES, USER_CAPABILITIES } from "../../identity/index.ts";
+import {
+  AGENT_CAPABILITIES,
+  API_CAPABILITIES,
+  APP_CAPABILITIES,
+  USER_CAPABILITIES,
+} from "../../identity/index.ts";
+import type { WhatsAppAnswerResult } from "../../whatsapp/replies.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
   ASK_SIMPLIFY_TEXT,
@@ -730,5 +736,288 @@ describe("an app's own asks", () => {
         `${opId} 404 not_found`,
       );
     expect(store.get(id)?.prompt).toBe("Merge the queue?");
+  });
+});
+
+// A WhatsApp reply draft (task d03a61d8, slice 2b): only the row's member,
+// signed in, answers it, and the answer goes to the replies module before the
+// agent is told. What each answer sends is server/whatsapp/replies.test.ts;
+// here the module is a fake whose results the test picks.
+describe("a WhatsApp reply draft", () => {
+  const DRAFT = { app: "whatsapp", routeId: "r1", text: "see you at 5" };
+  const settle = () => new Promise((r) => setImmediate(r));
+  // A refusal answers before any delivery: one held open shows as pending
+  // instead of hanging the test.
+  const quick = (p: Promise<string>) =>
+    Promise.race([p, settle().then(() => "still pending")]);
+  const as = (
+    identity: Identity,
+    t: ReturnType<typeof rig>,
+    id: string,
+    text?: string,
+  ) => ({
+    ...t.ctx(text),
+    identity,
+    params: { askId: id },
+  });
+  const owner: Identity = { ...member, userId: "u-owner", role: "owner" };
+  const apiToken: Identity = {
+    scope: "api",
+    userId: "u1",
+    role: "member",
+    apiTokenId: "tok1",
+    apiTokenName: "laptop",
+    capabilities: API_CAPABILITIES,
+  };
+  const agent: Identity = {
+    scope: "agent",
+    userId: "u1",
+    agentId: "a1",
+    role: "member",
+    capabilities: AGENT_CAPABILITIES,
+  };
+
+  function draftRig() {
+    const calls: {
+      askId: string;
+      dismissed: boolean;
+      text: string | undefined;
+    }[] = [];
+    const results: Array<WhatsAppAnswerResult | Promise<WhatsAppAnswerResult>> =
+      [];
+    const t = rig({
+      isOfficeOwner: (userId) => userId === "u-owner",
+      whatsapp: {
+        answer: async (entry, input) => {
+          calls.push({ askId: entry.id, ...input });
+          return (
+            results.shift() ?? {
+              kind: "deliver",
+              text: "SENT NOTICE",
+              outcome: "replied",
+            }
+          );
+        },
+      },
+    });
+    const made = t.store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Send to Mom?",
+      options: ["Send", "Don't send"],
+      messaging: DRAFT,
+    });
+    if (!made.ok) throw new Error(made.code);
+    return { ...t, draft: made.entry, calls, results };
+  }
+
+  it("an owner, the member's API token and an agent get 404 for Send, Don't send and a dismiss: nothing sent, nobody told; the member's Send goes", async () => {
+    const t = draftRig();
+    for (const [who, identity] of [
+      ["owner", owner],
+      ["api token", apiToken],
+      ["agent", agent],
+    ] as const) {
+      for (const [opId, text] of [
+        ["asks.reply", "Send"],
+        ["asks.reply", "Don't send"],
+        ["asks.dismiss", undefined],
+      ] as const)
+        expect(
+          `${who} ${opId} ${await quick(t.outcome(t.handlers[opId](as(identity, t, t.draft.id, text))))}`,
+        ).toBe(`${who} ${opId} 404 not_found`);
+    }
+    expect(t.calls).toEqual([]);
+    expect(t.delivered).toEqual([]);
+    expect(t.store.get(t.draft.id)).not.toBeNull();
+
+    // The same owner and token answer a plain ask: the draft refused them.
+    for (const identity of [owner, apiToken]) {
+      const plain = t.store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Toast?",
+      });
+      if (!plain.ok) throw new Error(plain.code);
+      const pending = t.outcome(
+        t.handlers["asks.reply"](as(identity, t, plain.entry.id, "Send")),
+      );
+      await settle();
+      t.held.at(-1)!.resolve({ ok: true });
+      expect(await pending).toBe("noContent");
+    }
+    // A plain ask never reaches WhatsApp, whatever its words.
+    expect(t.calls).toEqual([]);
+
+    const sent = t.outcome(
+      t.handlers["asks.reply"](as(member, t, t.draft.id, "Send")),
+    );
+    await settle();
+    expect(t.calls).toEqual([
+      { askId: t.draft.id, dismissed: false, text: "Send" },
+    ]);
+    expect(t.delivered.at(-1)).toBe("SENT NOTICE");
+    t.held.at(-1)!.resolve({ ok: true });
+    expect(await sent).toBe("noContent");
+    expect(t.store.get(t.draft.id)).toBeNull();
+  });
+
+  it("a dismiss goes to the module with the member's note, and the agent gets the module's words", async () => {
+    const t = draftRig();
+    t.results.push({
+      kind: "deliver",
+      text: "NOT SENT: not now",
+      outcome: "dismissed",
+    });
+    const pending = t.outcome(
+      t.handlers["asks.dismiss"](as(member, t, t.draft.id, "not now")),
+    );
+    await settle();
+    expect(t.calls).toEqual([
+      { askId: t.draft.id, dismissed: true, text: "not now" },
+    ]);
+    expect(t.delivered).toEqual(["NOT SENT: not now"]);
+    expect(t.deliveredFlags).toEqual([{ dismissed: true, simplify: false }]);
+    t.held[0].resolve({ ok: true });
+    expect(await pending).toBe("noContent");
+    expect(t.store.get(t.draft.id)).toBeNull();
+  });
+
+  it("a send that fails answers its status and keeps the ask open, with nothing told; the next Send can go", async () => {
+    const t = draftRig();
+    t.results.push({
+      kind: "fail",
+      status: 504,
+      code: "whatsapp_unknown",
+      error: "no answer",
+    });
+    expect(
+      await quick(
+        t.outcome(t.handlers["asks.reply"](as(member, t, t.draft.id, "Send"))),
+      ),
+    ).toBe("504 whatsapp_unknown");
+    expect(t.delivered).toEqual([]);
+    expect(t.store.get(t.draft.id)).not.toBeNull();
+    const again = t.outcome(
+      t.handlers["asks.reply"](as(member, t, t.draft.id, "Send")),
+    );
+    await settle();
+    t.held[0].resolve({ ok: true });
+    expect(await again).toBe("noContent");
+    expect(t.calls).toHaveLength(2);
+  });
+
+  it("a row gone at Send time: the agent gets the notice, the ask closes and the member gets the 409", async () => {
+    const t = draftRig();
+    t.results.push({
+      kind: "deliver",
+      text: "ROW GONE",
+      outcome: "replied",
+      refusal: {
+        status: 409,
+        code: "messaging_route_gone",
+        error: "the row is gone",
+      },
+    });
+    const pending = t.outcome(
+      t.handlers["asks.reply"](as(member, t, t.draft.id, "Send")),
+    );
+    await settle();
+    expect(t.delivered).toEqual(["ROW GONE"]);
+    t.held[0].resolve({ ok: true });
+    expect(await pending).toBe("409 messaging_route_gone");
+    expect(t.store.get(t.draft.id)).toBeNull();
+  });
+
+  it("a second answer while the first is with WhatsApp is 409 ask_busy: one send", async () => {
+    const t = draftRig();
+    let release!: (r: WhatsAppAnswerResult) => void;
+    t.results.push(new Promise((r) => (release = r)));
+    const first = t.outcome(
+      t.handlers["asks.reply"](as(member, t, t.draft.id, "Send")),
+    );
+    await settle();
+    expect(t.calls).toHaveLength(1);
+    expect(
+      await quick(
+        t.outcome(t.handlers["asks.reply"](as(member, t, t.draft.id, "Send"))),
+      ),
+    ).toBe("409 ask_busy");
+    expect(
+      await quick(
+        t.outcome(t.handlers["asks.dismiss"](as(member, t, t.draft.id))),
+      ),
+    ).toBe("409 ask_busy");
+    expect(t.calls).toHaveLength(1);
+    release({ kind: "deliver", text: "SENT NOTICE", outcome: "replied" });
+    await settle();
+    t.held[0].resolve({ ok: true });
+    expect(await first).toBe("noContent");
+    expect(t.calls).toHaveLength(1);
+  });
+
+  it("filing it as a task, a simplify request and its withdrawal are 409 messaging_draft: nothing filed, sent or told", async () => {
+    const t = draftRig();
+    for (const opId of [
+      "asks.fileTask",
+      "asks.simplify",
+      "asks.simplifyUndo",
+    ] as const)
+      expect(
+        `${opId} ${await quick(t.outcome(t.handlers[opId](as(member, t, t.draft.id))))}`,
+      ).toBe(`${opId} 409 messaging_draft`);
+    expect([t.filed, t.delivered, t.calls]).toEqual([[], [], []]);
+    expect(t.store.get(t.draft.id)).not.toBeNull();
+  });
+
+  it("the agent cannot edit it, only withdraw it, and cannot make one through a plain ask", async () => {
+    const t = draftRig();
+    const agentCtx = (
+      askId: string | undefined,
+      body: unknown,
+    ): RouteHandlerContext => {
+      const params: Record<string, string> = { id: "a1" };
+      if (askId) params.askId = askId;
+      return { ...t.ctx(), identity: agent, params, body };
+    };
+    expect(
+      await t.outcome(
+        t.handlers["agents.editAsk"](
+          agentCtx(t.draft.id, { text: "Send to Mom now?" }),
+        ),
+      ),
+    ).toBe("409 messaging_draft");
+    expect(t.store.get(t.draft.id)).toMatchObject({
+      prompt: "Send to Mom?",
+      messaging: DRAFT,
+    });
+
+    // A create or an edit naming a draft does not get one.
+    expect(
+      await t.outcome(
+        t.handlers["agents.createAsk"](
+          agentCtx(undefined, { text: "Send?", messaging: DRAFT }),
+        ),
+      ),
+    ).toBe("json 201");
+    expect(
+      await t.outcome(
+        t.handlers["agents.editAsk"](
+          agentCtx(t.entry.id, { text: "Toast?", messaging: DRAFT }),
+        ),
+      ),
+    ).toBe("json 200");
+    expect(
+      t.store
+        .listAll()
+        .filter((e) => e.messaging)
+        .map((e) => e.id),
+    ).toEqual([t.draft.id]);
+
+    expect(
+      await t.outcome(t.handlers["agents.deleteAsk"](agentCtx(t.draft.id, {}))),
+    ).toBe("noContent");
+    expect(t.store.get(t.draft.id)).toBeNull();
+    expect(t.calls).toEqual([]);
   });
 });

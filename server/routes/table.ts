@@ -3,6 +3,7 @@ import {
   ASK_EDIT_PLAIN_TEXT_PARAMS,
   ASK_REPLY_PLAIN_TEXT_PARAMS,
   INBOX_PLAIN_TEXT_PARAMS,
+  WHATSAPP_REPLY_PLAIN_TEXT_PARAMS,
   MESSAGE_PLAIN_TEXT_PARAMS,
   type PlainTextParams,
 } from "../../shared/plain-text-form.ts";
@@ -289,6 +290,16 @@ import type {
   VoiceStatusRes,
   VoiceTranscribeRes,
 } from "../../shared/voice.ts";
+import type {
+  WhatsAppChatSeen,
+  WhatsAppLinkReq,
+  WhatsAppReplyAccepted,
+  WhatsAppReplyReq,
+  WhatsAppRoute,
+  WhatsAppRouteCreateReq,
+  WhatsAppRouteUpdateReq,
+  WhatsAppStatus,
+} from "../../shared/whatsapp.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -1765,6 +1776,97 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/voice/speak",
     auth: cap("voice:use", operationalAuthenticated),
     tokenArea: { area: "voice", level: "write" },
+    emits: [],
+  }),
+
+  // The member's WhatsApp link (task d03a61d8): the caller's own, by cookie
+  // only. user:self keeps agents and API tokens out, and no owner links a
+  // member's phone. A status can carry the QR that links the WhatsApp.
+  defineRoute<void, WhatsAppStatus>({
+    opId: "whatsapp.status",
+    method: "GET",
+    path: "/api/whatsapp",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "read" },
+    emits: [],
+  }),
+  defineRoute<WhatsAppLinkReq, WhatsAppStatus>({
+    opId: "whatsapp.link",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "POST",
+    path: "/api/whatsapp/link",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: ["whatsapp_status"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "whatsapp.unlink",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "DELETE",
+    path: "/api/whatsapp",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: ["whatsapp_status"],
+  }),
+  // The member's WhatsApp contact rows and the chats their WhatsApp saw
+  // since the link (slice 2). Same gate: the caller's own, by cookie only.
+  defineRoute<void, WhatsAppChatSeen[]>({
+    opId: "whatsapp.chats",
+    method: "GET",
+    path: "/api/whatsapp/chats",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "read" },
+    emits: [],
+  }),
+  defineRoute<void, WhatsAppRoute[]>({
+    opId: "whatsappRoutes.list",
+    method: "GET",
+    path: "/api/whatsapp/routes",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "read" },
+    emits: [],
+  }),
+  defineRoute<WhatsAppRouteCreateReq, WhatsAppRoute>({
+    opId: "whatsappRoutes.create",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "POST",
+    path: "/api/whatsapp/routes",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: [],
+  }),
+  defineRoute<WhatsAppRouteUpdateReq, WhatsAppRoute>({
+    opId: "whatsappRoutes.update",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "PATCH",
+    path: "/api/whatsapp/routes/:routeId",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: [],
+  }),
+  // An agent drafts a reply to its row in a messaging app; the row's member
+  // approves it in their Inbox (slice 2b). Only the row's agent: any other
+  // agent gets 404. The path is generic: WhatsApp is the only app today.
+  defineRoute<WhatsAppReplyReq, WhatsAppReplyAccepted>({
+    opId: "messaging.reply",
+    audit: {
+      owner: "executor",
+      targets: selectedTargets({ result: ["askId"] }),
+    },
+    method: "POST",
+    path: "/api/messaging/routes/:routeId/messages",
+    auth: cap("self:affordance", agentTokenSender),
+    plainText: { params: WHATSAPP_REPLY_PLAIN_TEXT_PARAMS },
+    tokenArea: { area: "asks", level: "write" },
+    emits: ["ask_upserted", "others_ask_upserted"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "whatsappRoutes.delete",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "DELETE",
+    path: "/api/whatsapp/routes/:routeId",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
 

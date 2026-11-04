@@ -37,7 +37,7 @@ const noSession = { ...OWNER, sessionContext: null } as unknown as typeof OWNER;
 const phone = { ...OWNER, isMobile: true };
 
 describe("the sidebar", () => {
-  it("lists the tabs in order, Pager and API tokens last, and selects by row", async () => {
+  it("lists the tabs in order, the viewer's own (Pager, API tokens, WhatsApp) last, and selects by row", async () => {
     const view = await open();
     // GitHub issues is an owner's tab; where it sits is not this test's.
     expect(rows(view).filter((id) => id !== "github")).toEqual([
@@ -49,6 +49,7 @@ describe("the sidebar", () => {
       "browser",
       "pager",
       "api-tokens",
+      "messaging",
     ]);
     expect(selectedTab(view)).toBe("providers");
     await tab(view, "mcp");
@@ -93,7 +94,7 @@ describe("the sidebar", () => {
 });
 
 describe("without a session", () => {
-  it("has no Pager or API tokens row, and asks for neither", async () => {
+  it("has no Pager, API tokens or WhatsApp row, and asks for none", async () => {
     const view = await open(noSession);
     expect(rows(view)).toEqual([
       "providers",
@@ -103,7 +104,9 @@ describe("without a session", () => {
       "voice",
       "browser",
     ]);
-    expect(fake.requests("GET", /pager-settings|api-tokens/)).toHaveLength(0);
+    expect(
+      fake.requests("GET", /pager-settings|api-tokens|whatsapp/),
+    ).toHaveLength(0);
   });
 
   it("falls back to Model providers from a remembered or requested Pager or API tokens tab", async () => {
@@ -128,7 +131,7 @@ describe("on a phone", () => {
   it("shows the list first, a row opens its tab, and the back row returns to the list", async () => {
     let closed = 0;
     const view = await open(phone, { onClose: () => closed++ });
-    expect(rows(view)).toHaveLength(9);
+    expect(rows(view)).toHaveLength(10);
     expect(cards(view)).toBe(0);
     expect(back(view)).toBeNull();
 
@@ -139,7 +142,7 @@ describe("on a phone", () => {
     expect(window.localStorage.getItem(TAB_KEY)).toBe("secrets");
 
     await click(back(view));
-    expect(rows(view)).toHaveLength(9);
+    expect(rows(view)).toHaveLength(10);
     expect(cards(view)).toBe(0);
 
     // Escape on a tab goes back to the list, not out of the page.
@@ -148,7 +151,7 @@ describe("on a phone", () => {
     await act(async () => {
       fireEvent.keyDown(document.body, { key: "Escape" });
     });
-    expect(rows(view)).toHaveLength(9);
+    expect(rows(view)).toHaveLength(10);
     expect(cards(view)).toBe(0);
     expect(closed).toBe(0);
   });

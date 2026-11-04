@@ -243,6 +243,22 @@ describe("removing a member", () => {
     expect(filesHolding(srv.stateRoot, SECRET_VALUE)).toEqual([]);
   });
 
+  it("deletes their WhatsApp session (task d03a61d8)", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    const dir = join(srv.stateRoot, "whatsapp", idOf("Mia"));
+    mkdirSync(join(dir, "auth"), { recursive: true });
+    writeFileSync(join(dir, "auth", "creds.json"), "{}");
+    writeFileSync(
+      join(dir, "link.json"),
+      '{"phone":"447700900123","linkedAt":1}',
+    );
+
+    await removeMember(srv, "Mia", owner.rawSessionId);
+    expect(existsSync(dir)).toBe(false);
+  });
+
   it("a member who removes themselves is restorable too", async () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Morgan");

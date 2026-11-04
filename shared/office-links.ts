@@ -39,6 +39,8 @@ export const INTEGRATIONS_TABS = [
   // They moved here from Settings (task db800fd8).
   "pager",
   "api-tokens",
+  // The viewer's own messaging apps: WhatsApp (task d03a61d8).
+  "messaging",
 ] as const;
 export type IntegrationsTab = (typeof INTEGRATIONS_TABS)[number];
 

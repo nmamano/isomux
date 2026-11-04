@@ -38,6 +38,7 @@ export const TAB_LABEL: Record<IntegrationsTab, PlainMessageKey> = {
   github: "integrations.tabs.github",
   pager: "settings.sidebar.pager",
   "api-tokens": "settings.sidebar.apiTokens",
+  messaging: "integrations.tabs.messaging",
 };
 
 /** The catalog key of the page or tab a link opens. */

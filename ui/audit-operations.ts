@@ -106,6 +106,7 @@ export const AUDIT_OPERATIONS = [
   "memberVoice.update",
   "memory.append",
   "memory.replace",
+  "messaging.reply",
   "office.setAccess",
   "office.setInstructions",
   "office.setSettings",
@@ -199,4 +200,9 @@ export const AUDIT_OPERATIONS = [
   "webhooks.delete",
   "webhooks.rotateSecret",
   "webhooks.update",
+  "whatsapp.link",
+  "whatsapp.unlink",
+  "whatsappRoutes.create",
+  "whatsappRoutes.delete",
+  "whatsappRoutes.update",
 ] as const;

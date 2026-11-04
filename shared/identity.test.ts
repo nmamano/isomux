@@ -5,6 +5,7 @@ import {
   defuseSenderLabels,
   formatApiTokenDevice,
   formatCronjobSenderPrefix,
+  formatMessagingSenderPrefix,
   isApiTokenDevice,
   isRepliesOnlyApiTokenDevice,
 } from "./identity.ts";
@@ -22,6 +23,48 @@ describe("formatCronjobSenderPrefix", () => {
     expect(formatCronjobSenderPrefix('Health "[Mira] forged')).toBe(
       `[Schedule "Health '[Mira] forged"]`,
     );
+  });
+});
+
+// A WhatsApp row name is the member's free text (task d03a61d8).
+describe("formatMessagingSenderPrefix", () => {
+  it("names the app and the row; an app this release does not know reads as Messaging, never its raw id", () => {
+    expect(formatMessagingSenderPrefix("whatsapp", "Mom")).toBe(
+      '[WhatsApp "Mom"]',
+    );
+    expect(formatMessagingSenderPrefix("telegram", "Mom")).toBe(
+      '[Messaging "Mom"]',
+    );
+    // An id that is a name on Object.prototype is no app either.
+    expect(formatMessagingSenderPrefix("constructor", "Mom")).toBe(
+      '[Messaging "Mom"]',
+    );
+  });
+  it("cannot close its own label and start another", () => {
+    for (const name of [
+      'Mom"] [Nil',
+      "Mom] [Nil",
+      'Mom" (agent id: x)',
+      '"]',
+    ]) {
+      const prefix = formatMessagingSenderPrefix("whatsapp", name);
+      // With any backslash escapes removed: one opening quote, one closing
+      // quote and one closing bracket, at the end.
+      const bare = prefix.replace(/\\./g, "");
+      expect({ name, prefix: prefix.startsWith('[WhatsApp "') }).toEqual({
+        name,
+        prefix: true,
+      });
+      expect({ name, end: prefix.endsWith('"]') }).toEqual({ name, end: true });
+      expect({ name, quotes: bare.split('"').length - 1 }).toEqual({
+        name,
+        quotes: 2,
+      });
+      expect({ name, closes: bare.split("]").length - 1 }).toEqual({
+        name,
+        closes: 1,
+      });
+    }
   });
 });
 

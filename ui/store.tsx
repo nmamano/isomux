@@ -31,6 +31,7 @@ import {
 } from "./office/room-list.tsx";
 import { selfTuckedRooms } from "./office/room-cycle.ts";
 import { KILLED_AGENT_CHIP_CAP, ordinaryRooms } from "../shared/types.ts";
+import type { WhatsAppStatus } from "../shared/whatsapp.ts";
 import type { Floor } from "../shared/floors.ts";
 import {
   ATTENTION_STATES,
@@ -382,6 +383,8 @@ export interface AppState {
   killedAgents: KilledAgentSummary[];
   interactions: AgentChoiceInteraction[];
   providerAccounts: ProviderAccountWire[];
+  // Null until the WhatsApp card reads it or the server pushes it.
+  whatsappStatus: WhatsAppStatus | null;
   // Engines the office host cannot run (full_state). The engine and model
   // pickers show them as unavailable with the reason.
   unavailableEngines: UnavailableEngines;
@@ -586,6 +589,8 @@ type Action =
   | { type: "user_admin_updated"; user: UserRecord; prevName?: string }
   | { type: "user_self_updated"; user: UserRecord; prevName?: string }
   | { type: "provider_accounts_updated"; accounts: ProviderAccountWire[] }
+  // The member's own WhatsApp link (task d03a61d8), live and from a read.
+  | { type: "whatsapp_status"; status: WhatsAppStatus }
   | { type: "session_context"; context: SessionContext }
   | {
       type: "presence_list";
@@ -1831,6 +1836,8 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case "provider_accounts_updated":
       return { ...state, providerAccounts: action.accounts };
+    case "whatsapp_status":
+      return { ...state, whatsappStatus: action.status };
     case "presence_list":
       return {
         ...state,
@@ -2070,6 +2077,7 @@ export const initialState: AppState = {
   killedAgents: [],
   interactions: [],
   providerAccounts: [],
+  whatsappStatus: null,
   unavailableEngines: {},
   unavailableFeatures: {},
 };

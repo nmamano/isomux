@@ -980,6 +980,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["DELETE", "/api/webhooks/*", "apiCall.webhooks.delete"],
   ["GET", "/api/webhooks/*/deliveries", "apiCall.webhooks.deliveries"],
   ["POST", "/api/webhooks/*/dry-run", "apiCall.webhooks.dryRun"],
+  ["POST", "/api/messaging/routes/*/messages", "apiCall.messaging.reply"],
   // Per-user Sk-menu counters (reachable by privileged agent tokens).
   ["GET", "/api/skill-usage", "apiCall.skillUsage.read"],
   // The Skills page routes (server/agent-reference/skills.md).

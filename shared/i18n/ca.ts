@@ -1136,6 +1136,66 @@ Coses que pots fer per ell:
   "integrations.tabs.secrets": "Secrets",
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Ús del navegador",
+  "integrations.tabs.messaging": "Missatgeria",
+  "integrations.whatsapp.link": "Vincula amb un codi QR",
+  "integrations.whatsapp.linkAgain": "Torna a vincular",
+  "integrations.whatsapp.useCode": "Fes servir un codi de vinculació",
+  "integrations.whatsapp.phoneLabel": "El teu número de WhatsApp",
+  "integrations.whatsapp.phonePlaceholder": "+44 7700 900123",
+  "integrations.whatsapp.getCode": "Obtén el codi",
+  "integrations.whatsapp.warning":
+    "Aquest és un enllaç no oficial de WhatsApp. WhatsApp pot restringir un número que en faci servir un, així que un segon número és més segur.",
+  "integrations.whatsapp.starting": "S'està iniciant…",
+  "integrations.whatsapp.scanSteps":
+    "Al WhatsApp del telèfon, obre Dispositius vinculats › Vincula un dispositiu i escaneja aquest codi.",
+  "integrations.whatsapp.codeSteps":
+    "Al WhatsApp del telèfon, obre Dispositius vinculats › Vincula un dispositiu › Vincula amb el número de telèfon i escriu aquest codi.",
+  "integrations.whatsapp.qrAlt": "Codi QR per vincular WhatsApp",
+  "integrations.whatsapp.linkedAs": "Vinculat com a {phone}",
+  "integrations.whatsapp.connected": "Connectat",
+  "integrations.whatsapp.connecting": "Connectant",
+  "integrations.whatsapp.unlink": "Desvincula",
+  "integrations.whatsapp.reason.linkExpired":
+    "La vinculació no s'ha completat.",
+  "integrations.whatsapp.reason.installFailed":
+    "Isomux no ha pogut baixar el paquet de WhatsApp. Comprova que el servidor arriba a internet i torna-ho a provar.",
+  "integrations.whatsapp.reason.unlinkedByPhone":
+    "El teu telèfon ha desvinculat Isomux.",
+  "integrations.whatsapp.reason.replaced":
+    "Una altra connexió ha pres aquest enllaç de WhatsApp.",
+  "integrations.whatsapp.reason.crashLoop":
+    "La connexió de WhatsApp fallava contínuament.",
+  "integrations.whatsapp.error.phone":
+    "Escriu el número complet, amb el prefix del país.",
+  "integrations.whatsapp.error.tooSoon":
+    "Espera un minut abans de demanar un altre codi.",
+  "integrations.whatsapp.error.failed":
+    "Alguna cosa ha fallat. Torna-ho a provar.",
+  "integrations.whatsapp.rows.title": "Xats",
+  "integrations.whatsapp.rows.hint":
+    "Els missatges d’aquests xats van a l’agent que triïs.",
+  "integrations.whatsapp.rows.empty": "Encara no hi ha xats.",
+  "integrations.whatsapp.rows.add": "Afegeix un xat",
+  "integrations.whatsapp.rows.save": "Afegeix",
+  "integrations.whatsapp.rows.chat": "Xat",
+  "integrations.whatsapp.rows.byNumber": "Escriu un número",
+  "integrations.whatsapp.rows.number": "Número",
+  "integrations.whatsapp.rows.name": "Nom",
+  "integrations.whatsapp.rows.nameHint": "L’agent veu aquest nom.",
+  "integrations.whatsapp.rows.agent": "Agent",
+  "integrations.whatsapp.rows.noAgents":
+    "Cap dels teus agents no pot respondre. Dona’n a un més accés que Xat.",
+  "integrations.whatsapp.rows.trigger": "Missatges",
+  "integrations.whatsapp.rows.trigger.mention": "Només les mencions a tu",
+  "integrations.whatsapp.rows.trigger.all": "Tots",
+  "integrations.whatsapp.rows.group": "Grup",
+  "integrations.whatsapp.rows.shellWarning":
+    "Aquest agent té una shell. Qualsevol persona d’aquest xat li pot demanar que executi ordres.",
+  "integrations.whatsapp.rows.dead.agentGone": "Agent eliminat",
+  "integrations.whatsapp.rows.dead.agentNotYours": "Ja no és el teu agent",
+  "integrations.whatsapp.rows.dead.agentChatOnly": "L’agent té accés Xat",
+  "integrations.whatsapp.rows.error.taken":
+    "Aquest xat ja és a la llista, o la llista és plena.",
   "integrations.tabs.voice": "Veu",
   "integrations.tabs.github": "Incidències de GitHub",
   "integrations.tabIntro.providers":
@@ -2080,6 +2140,7 @@ Coses que pots fer per ell:
   "apiCall.apps.unarchive": "Desarxivar l'app",
   "apiCall.webhooks.list": "Llistar els webhooks",
   "apiCall.webhooks.create": "Crear un webhook",
+  "apiCall.messaging.reply": "Redactar resposta a contacte",
   "apiCall.webhooks.read": "Llegir un webhook",
   "apiCall.webhooks.update": "Actualitzar el webhook",
   "apiCall.webhooks.delete": "Eliminar el webhook",
@@ -2115,6 +2176,7 @@ Coses que pots fer per ell:
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · programació",
   "common.sender.webhook": "{name} · webhook",
+  "common.sender.messaging": "{name} · {app}",
   "cards.userMessage.expand": "Expandeix el missatge",
   "cards.userMessage.collapse": "Contrau el missatge",
   "cards.userMessage.editAndBranch": "Edita i ramifica",

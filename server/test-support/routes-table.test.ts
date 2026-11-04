@@ -354,6 +354,7 @@ describe("route table: plain-text form", () => {
         ],
       ],
       ["asks.reply", []],
+      ["messaging.reply", []],
       ["apiTokenInbox.send", []],
       [
         "asks.appCreate",
@@ -1528,6 +1529,23 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self"],
     emits: ["user_admin_updated", "user_self_updated"],
   },
+  // The member's own WhatsApp link (task d03a61d8): never an agent, an API
+  // token or an owner acting for them. The status can carry the linking QR.
+  "whatsapp.status": { caps: ["user:self"], emits: [] },
+  "whatsapp.link": { caps: ["user:self"], emits: ["whatsapp_status"] },
+  "whatsapp.unlink": { caps: ["user:self"], emits: ["whatsapp_status"] },
+  // The member's own contact rows and the chats their WhatsApp saw (slice 2).
+  "whatsapp.chats": { caps: ["user:self"], emits: [] },
+  "whatsappRoutes.list": { caps: ["user:self"], emits: [] },
+  "whatsappRoutes.create": { caps: ["user:self"], emits: [] },
+  "whatsappRoutes.update": { caps: ["user:self"], emits: [] },
+  "whatsappRoutes.delete": { caps: ["user:self"], emits: [] },
+  // A reply draft (slice 2b): the row's own agent only, as an ask to the
+  // row's member. The handler refuses every other agent with 404.
+  "messaging.reply": {
+    caps: ["self:affordance"],
+    emits: ["ask_upserted", "others_ask_upserted"],
+  },
   // Voice input spends the caller's user's OPENAI_API_KEY; it changes no state.
   "voice.status": { caps: ["voice:use"], emits: [] },
   "voice.transcribe": { caps: ["voice:use"], emits: [] },
@@ -2095,6 +2113,8 @@ const APP_REFUSED_OPIDS = [
   "agentConnections.list",
   "apiTokenInbox.send",
   "pager.raise",
+  // A WhatsApp reply speaks as the row's agent, to a contact (slice 2b).
+  "messaging.reply",
   // No app shape in the record: it would name the member.
   "agents.sendMessage",
   "agents.editMessage",

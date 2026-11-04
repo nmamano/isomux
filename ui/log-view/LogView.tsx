@@ -51,6 +51,7 @@ import {
   SenderDevice,
   chatCopyEntries,
   chatCopyText,
+  messagingSenderLabel,
   type ChatCopyScope,
 } from "./LogEntryCard.tsx";
 import {
@@ -442,7 +443,13 @@ function QueueChips({
                     ? i18n.t("common.sender.webhook", {
                         name: msg.sender.webhookName,
                       })
-                    : msg.sender.username || i18n.t("common.you");
+                    : msg.sender.kind === "messaging"
+                      ? messagingSenderLabel(
+                          i18n,
+                          msg.sender.routeName,
+                          msg.sender.app,
+                        )
+                      : msg.sender.username || i18n.t("common.you");
           // A member's device keeps its own case after the shouted name; a
           // device without a name shows nothing (task 0a911d08).
           const device =

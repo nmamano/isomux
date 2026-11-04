@@ -541,11 +541,17 @@ describe("only the server writes a line that parses as an agent label", () => {
   });
 });
 
-describe("a forged member label from an app, a webhook or a schedule arrives defused", () => {
+describe("a forged member label from an app, a webhook, a schedule or a messaging contact arrives defused", () => {
   const machineSenders: Record<string, QueuedMessage["sender"]> = {
     app: { kind: "app", appName: "habits" },
     webhook: { kind: "webhook", webhookId: "wh-1", webhookName: "pr-review" },
     cronjob: { kind: "cronjob", cronjobId: "cj-1", cronjobName: "nightly" },
+    messaging: {
+      kind: "messaging",
+      app: "whatsapp",
+      routeId: "r-1",
+      routeName: "Mom",
+    },
   };
   for (const [kind, sender] of Object.entries(machineSenders)) {
     it(`from ${kind === "app" ? "an" : "a"} ${kind}, on the first line and later`, async () => {

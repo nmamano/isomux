@@ -30,6 +30,7 @@ import type { Floor } from "../../shared/floors.ts";
 import type { RoomPet } from "../../shared/pets.ts";
 import type { RoomSkin } from "../../shared/room-skins.ts";
 import type { RoomDecor } from "../../shared/room-decor.ts";
+import type { WhatsAppStatus } from "../../shared/whatsapp.ts";
 import type {
   LogEntry,
   AgentInfo,
@@ -203,6 +204,9 @@ export interface EventPayloads {
   // the now-public users_list can no longer carry the caller's own grants/view.
   user_self_updated: { user: UserSelfWire; prevName?: string };
   provider_accounts_updated: { accounts: ProviderAccountWire[] };
+  // Recipient-scoped (by userId): the member's own WhatsApp link status. It
+  // can carry the QR that links their WhatsApp, so only their sockets get it.
+  whatsapp_status: { status: WhatsAppStatus };
   // Members chat: a post or an in-place edit (upsert by id), a deletion, and the
   // recipient's own read pointer moving on another device.
   members_chat_message: { message: MembersChatMessage; updateOnly?: boolean };
@@ -411,6 +415,10 @@ export const EVENT_REGISTRY = {
   users_admin_list: { audience: "owners", projectionKey: { kind: "owners" } },
   user_admin_updated: { audience: "owners", projectionKey: { kind: "owners" } },
   user_self_updated: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
+  },
+  whatsapp_status: {
     audience: "recipient-scoped",
     projectionKey: { kind: "userId" },
   },

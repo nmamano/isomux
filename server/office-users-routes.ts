@@ -25,6 +25,7 @@ import {
   cronjobManager,
   extensionService,
   webPushStore,
+  whatsappSupervisor,
 } from "./office-managers.ts";
 import type { createSessionProjection } from "./office-session-projection.ts";
 import type { ProviderAccountManager } from "./provider-account-manager.ts";
@@ -763,6 +764,8 @@ export function createUsersRoutes(
         dropOAuthTokensOfScope({ kind: "user", userId: target.id });
         removeManagedUserEnv(target.id);
         webPushStore.removeMember(target.id);
+        // Logs the linked device out and deletes the WhatsApp session.
+        await whatsappSupervisor.removeMember(target.id);
         removeMemberSkillFolders(target.id);
         // Their own Claude and Codex sign-ins (task 548d607b). Another
         // member's agent can still run a Claude session pinned to that home,

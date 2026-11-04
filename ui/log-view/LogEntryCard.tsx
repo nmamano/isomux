@@ -16,6 +16,7 @@ import type {
   SubagentOrigin,
 } from "../../shared/types.ts";
 import { isApiTokenDevice } from "../../shared/identity.ts";
+import { messagingAppName } from "../../shared/messaging.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
@@ -578,7 +579,8 @@ export function senderIsHuman(
     metadata?.sender_agent_name ||
     metadata?.sender_app_name ||
     metadata?.sender_cronjob_name ||
-    metadata?.sender_webhook_name
+    metadata?.sender_webhook_name ||
+    metadata?.sender_messaging_route_name
   )
     return false;
   // A personal API token is the human's authority, but the message came from a
@@ -607,6 +609,20 @@ export function SenderDevice({ device }: { device?: string }) {
       </span>
     </>
   );
+}
+
+// A messaging contact's chip: the row's name and the app's display name. An
+// app this release does not know (a later release queued it) shows the name
+// alone, never the raw id.
+export function messagingSenderLabel(
+  i18n: Translator,
+  name: string,
+  app: string | undefined,
+): string {
+  const appName = app === undefined ? undefined : messagingAppName(app);
+  return appName
+    ? i18n.t("common.sender.messaging", { name, app: appName })
+    : name;
 }
 
 export function describeMessageSender(
@@ -654,6 +670,21 @@ export function describeMessageSender(
   if (senderWebhookName) {
     return {
       label: i18n.t("common.sender.webhook", { name: senderWebhookName }),
+      fromHuman: false,
+    };
+  }
+  // A member's messaging contact, by the name of the member's row. The member
+  // is the row's owner, not the sender.
+  const senderMessagingName = metadata?.sender_messaging_route_name as
+    | string
+    | undefined;
+  if (senderMessagingName) {
+    return {
+      label: messagingSenderLabel(
+        i18n,
+        senderMessagingName,
+        metadata?.sender_messaging_app as string | undefined,
+      ),
       fromHuman: false,
     };
   }

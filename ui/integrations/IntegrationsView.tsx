@@ -39,6 +39,7 @@ import { McpSection, SignInNotice } from "./McpSection.tsx";
 import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
 import { VoiceSection } from "./VoiceSection.tsx";
+import { WhatsAppSection } from "./WhatsAppSection.tsx";
 import { ChangedForYou, useIntegrationChanges } from "./ChangedForYou.tsx";
 import { GithubSection } from "./GithubSection.tsx";
 import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
@@ -73,7 +74,11 @@ export type IntegrationsRequest = {
 
 export type { IntegrationsTab };
 // The tabs shown only with a session.
-const SELF_TABS: readonly IntegrationsTab[] = ["pager", "api-tokens"];
+const SELF_TABS: readonly IntegrationsTab[] = [
+  "pager",
+  "api-tokens",
+  "messaging",
+];
 // The tabs with a personal card and no office card: a member's own setting,
 // which an owner can also set for a member (task 7a3b4114).
 const MEMBER_TABS: readonly IntegrationsTab[] = ["voice", "pager"];
@@ -93,9 +98,10 @@ const TAB_INTRO = {
   voice: "integrations.tabIntro.voice",
   browser: "browser.intro",
   github: "integrations.tabIntro.github",
-  // Pager and API tokens: the panes carry their own heading and intro.
+  // Pager, API tokens and WhatsApp: the panes carry their own intro.
   pager: null,
   "api-tokens": null,
+  messaging: null,
 } as const;
 
 type IntegrationsProps = {
@@ -366,11 +372,12 @@ function IntegrationsPage({
             member={target.kind === "member" ? target.username : undefined}
           />
         ) : null;
-      // The Browser Use, GitHub issues and API tokens tabs have no cards (see
-      // the page below).
+      // The Browser Use, GitHub issues, API tokens and Messaging tabs have no
+      // cards (see the page below).
       case "browser":
       case "github":
       case "api-tokens":
+      case "messaging":
         return null;
     }
   }
@@ -617,6 +624,9 @@ function IntegrationsPage({
                 />
               ) : tab === "api-tokens" ? (
                 sessionContext && <ApiTokensPane />
+              ) : tab === "messaging" ? (
+                // The viewer's own phone: never on another member's card.
+                sessionContext && <WhatsAppSection />
               ) : CARD_TABS.includes(tab) ? (
                 <>
                   <section

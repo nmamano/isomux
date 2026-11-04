@@ -437,6 +437,9 @@ export function PagerView({
       }
       return <span {...noTranslate()}>{name}</span>;
     }
+    // The office about the member's own feature (WhatsApp): the feature name.
+    if (entry.source.kind === "office")
+      return <span {...noTranslate()}>{entry.source.name}</span>;
     const label = t("pager.view.appSource", { name: entry.source.name });
     const app = sourceApp(entry, apps);
     if (!app) return <span {...noTranslate()}>{label}</span>;

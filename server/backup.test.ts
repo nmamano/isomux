@@ -250,6 +250,12 @@ describe("verified backup publication", () => {
       "web-push.json",
       "web-push.json.tmp",
       "web-push.json.corrupt-1789000000000",
+      // A member's WhatsApp session (full access to their WhatsApp) and the
+      // downloaded bridge package (task d03a61d8). A restore means a relink.
+      "whatsapp/u-alice/auth/creds.json",
+      "whatsapp/u-alice/link.json",
+      "whatsapp/runtime/.lock-sha256",
+      "whatsapp/runtime/node_modules/baileys/package.json",
     ];
     const kept = [
       "pager.json",
@@ -260,6 +266,7 @@ describe("verified backup publication", () => {
       "container-runtime/hello.log",
       "apps/data/hello/state.json",
       "apps/data/hello/user-env/keep.txt",
+      "apps/data/hello/whatsapp/link.json",
       "api-tokens.json",
       "codex-home/sessions/thread.jsonl",
       "codex-home/memories/memory.md",

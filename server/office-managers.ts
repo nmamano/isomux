@@ -102,6 +102,37 @@ import {
   scheduleRunRefusal,
 } from "./cron-agent-limits.ts";
 import type { SecretStore } from "./secret-store.ts";
+import { renderSVG } from "uqr";
+import {
+  createWhatsAppSupervisor,
+  type WhatsAppSupervisor,
+} from "./whatsapp/supervisor.ts";
+import { createBridgeInstaller } from "./whatsapp/installer.ts";
+import {
+  WHATSAPP_RUNTIME_DIR,
+  readLink,
+  whatsappRoot,
+} from "./whatsapp/store.ts";
+import {
+  createWhatsAppRoutes,
+  type WhatsAppRoutes,
+} from "./whatsapp/routes.ts";
+import { createWhatsAppInbound } from "./whatsapp/inbound.ts";
+import {
+  createWhatsAppReplies,
+  type WhatsAppReplies,
+} from "./whatsapp/replies.ts";
+import { openIdRing } from "./whatsapp/routes-store.ts";
+import { WHATSAPP_APP } from "../shared/whatsapp.ts";
+import { agentAccessOf } from "../shared/agent-access.ts";
+import { randomBytes } from "crypto";
+import {
+  WHATSAPP_BRIDGE_ENTRY,
+  WHATSAPP_PACKAGE_DIR,
+  readProcRss,
+  runBridgeInstall,
+  spawnBridge,
+} from "./whatsapp/process.ts";
 import type { EmitContext } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import type { StartServerOpts } from "./isomux-office.ts";
@@ -150,6 +181,11 @@ export let pagerSettings: PagerSettingsStore;
 export let pagerDelivery: PagerDeliveryService;
 export let webPushStore: WebPushStore;
 export let webPushDelivery: WebPushDeliveryService;
+// One WhatsApp bridge per linked member (server/whatsapp/, task d03a61d8),
+// the members' contact rows, and the path from a routed chat to its agent.
+export let whatsappSupervisor: WhatsAppSupervisor;
+export let whatsappRoutes: WhatsAppRoutes;
+export let whatsappReplies: WhatsAppReplies;
 // GitHub issues into the board (task 7fc83592), in office.sqlite.
 export let githubLinks: GithubLinkStore;
 export let githubSync: GithubSync;
@@ -457,6 +493,97 @@ export function createManagers(
     officeOrigin: () => buildPublicOrigin().origin,
     roomName: (roomId) => agentManager.roomById(roomId)?.name ?? null,
     isLobby: (roomId) => isLobbyRoom(roomId),
+  });
+  whatsappRoutes = createWhatsAppRoutes({
+    stateRoot: STATE_ROOT,
+    now: () => Date.now(),
+    newId: () => `r_${randomBytes(4).toString("hex")}`,
+    agent: (agentId) => {
+      const info = agentManager.getAgent(agentId);
+      return info
+        ? { userId: info.userId, access: agentAccessOf(info), name: info.name }
+        : null;
+    },
+    linkedPhone: (userId) => readLink(STATE_ROOT, userId)?.phone ?? null,
+    onChange: (userId) => whatsappSupervisor.setRoutes(userId),
+  });
+  const routes = whatsappRoutes;
+  const whatsappInbound = createWhatsAppInbound({
+    clock: {
+      now: () => Date.now(),
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (handle) =>
+        clearTimeout(handle as ReturnType<typeof setTimeout>),
+    },
+    route: (userId, chat) => routes.forChat(userId, chat),
+    linkedAt: (userId) => readLink(STATE_ROOT, userId)?.linkedAt ?? null,
+    seen: (userId) => openIdRing(STATE_ROOT, userId, "seen"),
+    sent: (userId) => openIdRing(STATE_ROOT, userId, "sent"),
+    check: (userId, route) => routes.check(userId, route),
+    memberName: (userId) => getUserById(userId)?.name ?? "the member",
+    deliver: (_userId, route, text) =>
+      agentManager.enqueueMessage(route.agentId, {
+        sender: {
+          kind: "messaging",
+          app: WHATSAPP_APP,
+          routeId: route.id,
+          routeName: route.name,
+        },
+        text,
+      }).ok,
+  });
+  whatsappSupervisor = createWhatsAppSupervisor({
+    stateRoot: STATE_ROOT,
+    bridgeEntry: WHATSAPP_BRIDGE_ENTRY,
+    bunPath: process.execPath,
+    baseEnv: process.env,
+    spawner: spawnBridge,
+    installer: createBridgeInstaller({
+      runtimeDir: join(whatsappRoot(STATE_ROOT), WHATSAPP_RUNTIME_DIR),
+      packageDir: WHATSAPP_PACKAGE_DIR,
+      runInstall: (dir) => runBridgeInstall(dir, process.env),
+    }),
+    clock: {
+      now: () => Date.now(),
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (handle) =>
+        clearTimeout(handle as ReturnType<typeof setTimeout>),
+    },
+    readRss: readProcRss,
+    pager: {
+      raise: (userId, key, title, body) => {
+        pagerStore.raise({
+          source: {
+            kind: "office",
+            feature: "whatsapp",
+            name: "WhatsApp",
+            roomId: null,
+          },
+          targetUserId: userId,
+          fields: { title, body, key },
+        });
+      },
+    },
+    renderQr: (code) => renderSVG(code),
+    emitStatus: (userId, status) =>
+      liveEmit("whatsapp_status", { status }, { userId }),
+    hooks: {
+      allowlist: (userId) => routes.allowlist(userId),
+      onMessage: (userId, msg) => whatsappInbound.onMessage(userId, msg),
+      onLinked: (userId, phone) => routes.onLinked(userId, phone),
+      onUnlinked: (userId) => whatsappInbound.dropMember(userId),
+      onShutdown: () => whatsappInbound.flushAll(),
+    },
+  });
+  whatsappReplies = createWhatsAppReplies({
+    routes,
+    agent: (agentId) => {
+      const info = agentManager.getAgent(agentId);
+      return info ? { userId: info.userId, name: info.name } : null;
+    },
+    asks: askStore,
+    supervisor: whatsappSupervisor,
+    sent: (userId) => openIdRing(STATE_ROOT, userId, "sent"),
   });
   turnEndWatch = createTurnEndWatch({
     agent: (agentId) => {

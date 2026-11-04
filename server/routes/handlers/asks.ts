@@ -20,6 +20,7 @@
 // emit directly. LEAF over the executor, the store and shared types.
 
 import type { StepAsks, StepCheck } from "../../step-asks.ts";
+import type { WhatsAppReplies } from "../../whatsapp/replies.ts";
 import {
   ASK_HISTORY_LIMIT_DEFAULT,
   ASK_HISTORY_LIMIT_MAX,
@@ -167,6 +168,10 @@ export interface AsksDeps {
   ): Promise<UserSendAcceptance>;
   // The agent's display name, for the filed task's description.
   agentName(agentId: string): string | null;
+  // WhatsApp reply drafts (task d03a61d8): only the row's member, signed in,
+  // answers one, and a Send answer sends it before the agent is told.
+  // Absent in leaf tests.
+  whatsapp?: Pick<WhatsAppReplies, "answer">;
   // File a task on the board, and take it back when the agent refuses the
   // message that names it.
   createTask(input: {
@@ -572,6 +577,18 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return refuse(
         sudoRequest("This ask is a sudo request. Run or decline it instead."),
       );
+    // A reply draft to a messaging contact (task d03a61d8): only the row's
+    // member, from the office, answers it. No agent, owner, app, schedule or API token
+    // can make the tap that sends a message from the member's phone.
+    if (
+      entry.messaging &&
+      !(
+        ctx.identity.scope === "user" &&
+        ctx.identity.userId !== null &&
+        ctx.identity.userId === entry.memberUserId
+      )
+    )
+      return refuse(notFound());
     if (delivering.has(entry.id))
       return refuse(
         fail(409, "ask_busy", "An answer to this ask is being sent."),
@@ -593,12 +610,58 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
   };
 
+  const messagingDraft = (message = "Answer Send or Don't send.") =>
+    fail(409, "messaging_draft", message);
+
+  // A messaging reply draft: the replies module sends it (or not) first, and
+  // the agent then gets its words. A failed send tells nobody and leaves the
+  // ask open for another Send.
+  const answerDraft = async (
+    ctx: Parameters<RouteHandler>[0],
+    entry: AskEntry,
+    input: { dismissed: boolean; text: string | undefined },
+    device: string | undefined,
+  ): Promise<HandlerResult> => {
+    if (!deps.whatsapp)
+      return messagingDraft(
+        "Replies to messaging contacts are not available in this office.",
+      );
+    const res = await deps.whatsapp.answer(entry, input);
+    if (res.kind === "fail") return fail(res.status, res.code, res.error);
+    const dismissed = res.outcome === "dismissed";
+    const result = await deps.deliver(ctx.identity, entry, res.text, {
+      dismissed,
+      device,
+    });
+    if (!result.ok) return fail(result.status, result.code, result.message);
+    close(entry, {
+      outcome: res.outcome,
+      ...answeredBy(ctx.identity, input.text),
+    });
+    return res.refusal
+      ? fail(res.refusal.status, res.refusal.code, res.refusal.error)
+      : noContent();
+  };
+
   const answer =
     (dismissed: boolean): RouteHandler =>
     async (ctx) => {
       const checked = answerable(ctx, dismissed ? "note" : "required");
       if (!checked.ok) return checked.result;
       const { entry, device } = checked;
+      if (entry.messaging) {
+        delivering.add(entry.id);
+        try {
+          return await answerDraft(
+            ctx,
+            entry,
+            { dismissed, text: checked.text },
+            device,
+          );
+        } finally {
+          delivering.delete(entry.id);
+        }
+      }
       const text = checked.text ?? ASK_DISMISSED_TEXT;
       delivering.add(entry.id);
       try {
@@ -625,6 +688,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const checked = answerable(ctx, "note");
     if (!checked.ok) return checked.result;
     const { entry, text: note, device } = checked;
+    if (entry.messaging) return messagingDraft();
     const agent = deps.agent(entry.agentId);
     if (!agent) return notFound();
     const { title, description } = askTaskFields(
@@ -679,6 +743,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const checked = answerable(ctx, "none");
     if (!checked.ok) return checked.result;
     const { entry, device } = checked;
+    if (entry.messaging) return messagingDraft();
     if (entry.simplifyRequestedAt !== undefined)
       return fail(
         409,
@@ -718,6 +783,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const checked = answerable(ctx, "none");
     if (!checked.ok) return checked.result;
     const { entry, device } = checked;
+    if (entry.messaging) return messagingDraft();
     if (entry.simplifyRequestedAt === undefined)
       return fail(
         409,
@@ -900,6 +966,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
     const prev = find();
     if (!prev) return notFound();
+    // A reply draft is fixed once the member can see it.
+    if (prev.messaging)
+      return messagingDraft(
+        "A reply draft cannot be edited. Delete it and draft a new one.",
+      );
     if (prev.secret)
       return secretRequest(
         "A secret request cannot be edited. Delete it to withdraw it.",

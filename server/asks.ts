@@ -262,6 +262,22 @@ function isAskEntry(v: unknown): v is AskEntry {
     (r.originalPrompt !== undefined && typeof r.originalPrompt !== "string")
   )
     return false;
+  // A reply draft to a messaging contact (task d03a61d8): on a plain ask
+  // only. Any app id loads, as an unknown link does: a file that a later
+  // release wrote with another app must not move the asks file aside on a
+  // downgrade. Sending serves only the apps this release knows.
+  if (
+    r.messaging !== undefined &&
+    !(
+      isObject(r.messaging) &&
+      typeof r.messaging.app === "string" &&
+      r.messaging.app !== "" &&
+      typeof r.messaging.routeId === "string" &&
+      r.messaging.routeId !== "" &&
+      typeof r.messaging.text === "string"
+    )
+  )
+    return false;
   // A sudo request (task 43a28eed) is for one office owner and has only its
   // prompt (the reason) and its request.
   if (r.sudo !== undefined)
@@ -276,9 +292,11 @@ function isAskEntry(v: unknown): v is AskEntry {
       r.readFiles === undefined &&
       r.step === undefined &&
       r.app === undefined &&
+      r.messaging === undefined &&
       isSudoAskRequest(r.sudo)
     );
   if (r.secret === undefined) return hasMember;
+  if (r.messaging !== undefined) return false;
   if (
     r.link !== undefined ||
     r.options !== undefined ||
@@ -475,6 +493,8 @@ export interface AskStore {
     sessionId?: string;
     step?: StepAskRequest;
     app?: { name: string; createdAt: number };
+    // A reply draft to a messaging contact (task d03a61d8).
+    messaging?: { app: string; routeId: string; text: string };
   }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
   // link, options, recommended, each affordance list and priority: undefined
   // keeps the ask's value, null removes it. Removing the options removes the
@@ -618,6 +638,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       sessionId,
       step,
       app,
+      messaging,
     }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
@@ -641,6 +662,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(sessionId ? { sessionId } : {}),
         ...(step ? { step } : {}),
         ...(app ? { app } : {}),
+        ...(messaging ? { messaging } : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);

@@ -14,6 +14,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getUserByName } from "../users.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { writeRoutes } from "../whatsapp/routes-store.ts";
 import { API_ROUTES } from "../routes/table.ts";
 import { routeAllowedByLimits } from "../../shared/api-token-limits.ts";
 import {
@@ -774,7 +775,15 @@ describe("/mcp for an agent below Standard", () => {
       "create_task",
       "update_task",
     ];
-    const ASK_TOOLS = ["delete_ask", "edit_ask", "list_my_asks", "open_ask"];
+    // messaging_reply drafts an ask (task d03a61d8): the asks area, for every
+    // agent; the route refuses one with no row.
+    const ASK_TOOLS = [
+      "delete_ask",
+      "edit_ask",
+      "list_my_asks",
+      "open_ask",
+      "messaging_reply",
+    ];
     const cases: Array<[string, Record<string, string>, string[]]> = [
       ["no areas", {}, []],
       ["tasks read", { tasks: "read" }, TASK_READ_TOOLS],
@@ -815,6 +824,52 @@ describe("/mcp for an agent below Standard", () => {
         }).toEqual({ access, label, tools: [...expected].sort() });
       }
     }
+  });
+
+  it("drafts a WhatsApp reply to its own row as an ask the member sees; a row it does not have is an error", async () => {
+    const o = await office();
+    const agent = await spawn(o, "Replier");
+    expect(
+      (
+        await setAccess(o, agent.id, {
+          access: "office",
+          pack: { areas: { asks: "write" } },
+        })
+      ).status,
+    ).toBe(200);
+    writeRoutes(o.srv.stateRoot, o.userId, {
+      phone: "447700900111",
+      routes: [
+        {
+          id: "r1",
+          chat: "447700900123@s.whatsapp.net",
+          group: false,
+          name: "Mom",
+          agentId: agent.id,
+          createdAt: 1,
+        },
+      ],
+    });
+    const client = await connect(o, tokenOf(agent.id));
+    const drafted = toolJson<{ askId: string }>(
+      await call(client, "messaging_reply", {
+        routeId: "r1",
+        text: "see you at 5",
+      }),
+    );
+    const memberAsks = (await asMember(o, "GET", "/api/asks")).body as Array<{
+      id: string;
+      agentId: string;
+    }>;
+    expect(memberAsks.find((a) => a.id === drafted.askId)?.agentId).toBe(
+      agent.id,
+    );
+    const refused = await call(client, "messaging_reply", {
+      routeId: "r2",
+      text: "hi",
+    });
+    expect(refused.isError).toBe(true);
+    expect((await asMember(o, "GET", "/api/asks")).body).toHaveLength(1);
   });
 
   it("creates a marked task, refuses another's, opens an ask the member sees, and sends a message as itself", async () => {
@@ -1348,6 +1403,7 @@ describe("a spawn below Standard", () => {
       "delete_ask",
       "edit_ask",
       "list_my_asks",
+      "messaging_reply",
       "open_ask",
     ]);
 

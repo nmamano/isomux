@@ -12,6 +12,7 @@ import type { RoomDecor } from "./room-decor.ts";
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
+import type { WhatsAppStatus } from "./whatsapp.ts";
 import type { Floor } from "./floors.ts";
 import type { MemberPack } from "./pack-fit.ts";
 import type { AgentAccess } from "./agent-access.ts";
@@ -623,7 +624,12 @@ export interface QueuedMessage {
     // registered (internal-docs/webhooks-design.md section 4a). The id and the
     // name come from the hook record, never from the request. Names are
     // [a-z0-9-], so the prefix needs no escaping either.
-    | { kind: "webhook"; webhookId: string; webhookName: string };
+    | { kind: "webhook"; webhookId: string; webhookName: string }
+    // A message from a member's contact in a messaging app (WhatsApp is the
+    // only one today), through one of the member's contact rows (task
+    // d03a61d8). The name is the row's, set by the member, never the
+    // contact's own name in the app.
+    | { kind: "messaging"; app: string; routeId: string; routeName: string };
   text: string; // what we show in chat (raw user input)
   // What we send to the SDK in place of `text`. Set when the queued item is a
   // pre-expanded slash command (e.g. /subagent-review → full skill prompt).
@@ -1409,6 +1415,14 @@ export type PagerSource =
       registrationGen: number;
       name: string; // the app name, for display
       roomId: string | null;
+    }
+  // The office itself, about one of the member's own features (WhatsApp, task
+  // d03a61d8). No room: only the target member sees it.
+  | {
+      kind: "office";
+      feature: "whatsapp";
+      name: string; // the feature name, for display
+      roomId: null;
     };
 
 // The send to the member's own channel. Never holds the destination URL or a
@@ -1556,6 +1570,10 @@ export interface AskEntry {
   // The prompt before the first rewrite a simplify request got, for the
   // card's "Show original". Set by the server, never by an edit.
   originalPrompt?: string;
+  // A reply draft to a messaging contact (task d03a61d8): the text that goes
+  // out through `app` when the row's member answers Send. Fixed after
+  // create: the agent cannot edit or simplify the ask, only withdraw it.
+  messaging?: { app: string; routeId: string; text: string };
 }
 
 // A file an ask shows. A copy is an Attachment in the agent's files dir. A
@@ -2845,6 +2863,7 @@ export type ServerMessage =
   // UserRecord), incl. at connect hydration since users_list is now public-only.
   | { type: "user_self_updated"; user: UserRecord; prevName?: string }
   | { type: "provider_accounts_updated"; accounts: ProviderAccountWire[] }
+  | { type: "whatsapp_status"; status: WhatsAppStatus }
   | { type: "session_context"; context: SessionContext }
   // totalOnlineUsers counts distinct userIds across ALL live presence
   // entries (including off-scene viewMode="away" sessions whose

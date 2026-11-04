@@ -3183,6 +3183,18 @@ export async function demoApi(
     // The Voice tab: the demo has no OpenAI key.
     case "GET /api/voice":
       return { keySource: null, keyName: null };
+    // The WhatsApp card of the Messaging tab: the demo has no phone to link.
+    case "GET /api/whatsapp":
+      return { state: "unlinked" };
+    // Linking starts and waits: no phone answers in the demo.
+    case "POST /api/whatsapp/link":
+      return { state: "linking", method: "qr" };
+    case "DELETE /api/whatsapp":
+      return undefined;
+    // No phone is ever linked in the demo, so no chat was seen or routed.
+    case "GET /api/whatsapp/chats":
+    case "GET /api/whatsapp/routes":
+      return [];
     // "Changed for you": nobody changes the visitor's settings in the demo.
     case "GET /api/me/integration-changes":
       return { items: [] };

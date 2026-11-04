@@ -1,0 +1,9 @@
+{
+  "name": "isomux-whatsapp-bridge",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "dependencies": {
+    "baileys": "7.0.0-rc14"
+  }
+}

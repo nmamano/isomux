@@ -70,6 +70,14 @@ const APP_SRC: PagerSource = {
   roomId: "r1",
 };
 
+// The office about one member's own feature (WhatsApp, task d03a61d8).
+const OFFICE_SRC: PagerSource = {
+  kind: "office",
+  feature: "whatsapp",
+  name: "WhatsApp",
+  roomId: null,
+};
+
 function fields(title: string, extra: Partial<PagerRaiseFields> = {}) {
   return { title, ...extra };
 }
@@ -371,6 +379,18 @@ describe("pager store: load posture", () => {
     expect(store.list()).toEqual([appEntry]);
   });
 
+  it("an office-source record loads", () => {
+    const officeEntry: PagerEntry = {
+      ...valid,
+      id: "3a3b3c3d",
+      source: OFFICE_SRC,
+    };
+    const store = createTestPagerStore({
+      persistence: memPersistence({ kind: "data", value: [officeEntry] }),
+    });
+    expect(store.list()).toEqual([officeEntry]);
+  });
+
   it("a bad record or an unparsable file is moved aside; the store starts empty", () => {
     for (const loaded of [
       { kind: "data", value: [valid, { ...valid, state: "weird" }] },
@@ -386,6 +406,16 @@ describe("pager store: load posture", () => {
           valid,
           { ...valid, source: { ...APP_SRC, registrationGen: undefined } },
         ],
+      },
+      // An office source in a room, or about a feature the store does not
+      // know.
+      {
+        kind: "data",
+        value: [valid, { ...valid, source: { ...OFFICE_SRC, roomId: "r1" } }],
+      },
+      {
+        kind: "data",
+        value: [valid, { ...valid, source: { ...OFFICE_SRC, feature: "sms" } }],
       },
       { kind: "data", value: { not: "an array" } },
       { kind: "corrupt" },
@@ -540,5 +570,13 @@ describe("pager visibility", () => {
     expect(pagerEntryVisible(base, viewer(["r1"], "x"))).toBe(true);
     expect(pagerEntryVisible(base, viewer([], "owner"))).toBe(false);
     expect(pagerEntryVisible(base, viewer([], "x", true))).toBe(false);
+  });
+
+  it("an office page: its target member only, not an office owner or another member", () => {
+    const office: PagerEntry = { ...base, source: OFFICE_SRC };
+    expect(pagerEntryVisible(office, viewer([], "owner"))).toBe(true);
+    expect(pagerEntryVisible(office, viewer(["r1"], "x"))).toBe(false);
+    expect(pagerEntryVisible(office, viewer(["r1"], "x", true))).toBe(false);
+    expect(pagerEntryVisible(office, viewer([], null, true))).toBe(false);
   });
 });

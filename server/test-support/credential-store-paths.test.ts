@@ -49,6 +49,9 @@ function seedStore(root: string) {
   const mcpServers = join(root, "mcp-servers", "users", "u-test.json");
   // An app's office token, as its unit reads it.
   const appToken = join(root, "apps", "units", "hello.env");
+  // A member's linked WhatsApp session: full access to their WhatsApp (task
+  // d03a61d8).
+  const whatsapp = join(root, "whatsapp", "u-test", "auth", "creds.json");
   for (const path of [
     store,
     user,
@@ -56,6 +59,7 @@ function seedStore(root: string) {
     officeEnvTemp,
     mcpServers,
     appToken,
+    whatsapp,
   ])
     mkdirSync(join(path, ".."), { recursive: true });
   // A one-line JSON store holds no "=": a dotenv parser would quote it.
@@ -70,6 +74,7 @@ function seedStore(root: string) {
   // A bare second line, as in the user-env file: validate.env quotes the
   // line it fails on, unless the file is a credential file.
   writeFileSync(appToken, `ISOMUX_APP_TOKEN=${FAKE}\n${FAKE}\n`);
+  writeFileSync(whatsapp, `{"noiseKey":{"private":"${FAKE}"}}`);
   // The app's launcher, beside it: not a credential.
   writeFileSync(join(root, "apps", "units", "hello.sh"), "exec true\n");
   const linkDir = join(root, "linked");
@@ -85,6 +90,7 @@ function seedStore(root: string) {
     officeEnvTemp,
     mcpServers,
     appToken,
+    whatsapp,
     link,
     viaDirLink: join(dirLink, "office.json"),
     dotDot: join(root, "linked", "..", "secrets", "office.json"),

@@ -193,6 +193,7 @@ const LOGO_COLORS: Record<string, string> = {
   GitHub: "#6e7681",
   Stripe: "#635bff",
   Fly: "#8b5cf6",
+  WhatsApp: "#25d366",
 };
 
 export function Logo({ label, size = 28 }: { label: string; size?: number }) {

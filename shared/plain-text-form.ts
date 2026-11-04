@@ -43,6 +43,11 @@ export const MESSAGE_PLAIN_TEXT_PARAMS = {
   deliverAt: "string",
   clientMessageId: "string",
 } as const satisfies PlainTextParams<SendMessageReq>;
+// A WhatsApp reply draft: the body is the text.
+export const WHATSAPP_REPLY_PLAIN_TEXT_PARAMS =
+  {} as const satisfies PlainTextParams<{
+    text: string;
+  }>;
 export const INBOX_PLAIN_TEXT_PARAMS =
   {} as const satisfies PlainTextParams<ApiTokenInboxSendReq>;
 export const ASK_CREATE_PLAIN_TEXT_PARAMS = {

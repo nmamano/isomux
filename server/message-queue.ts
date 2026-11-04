@@ -24,6 +24,7 @@ import {
   formatCronjobSenderPrefix,
   formatPrefix,
   formatWebhookSenderPrefix,
+  formatMessagingSenderPrefix,
   isRepliesOnlyDevice,
   type AgentSenderTrust,
 } from "../shared/identity.ts";
@@ -147,6 +148,12 @@ export function createMessageQueue(deps: MessageQueueDeps) {
           sender_webhook_id: sender.webhookId,
           sender_webhook_name: sender.webhookName,
         };
+      case "messaging":
+        return {
+          sender_messaging_app: sender.app,
+          sender_messaging_route_id: sender.routeId,
+          sender_messaging_route_name: sender.routeName,
+        };
       default: {
         const _exhaustive: never = sender;
         throw new Error(
@@ -227,6 +234,9 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       // what the JSON is worth; the label says where it came from.
       case "webhook":
         return `${formatWebhookSenderPrefix(sender.webhookName)} `;
+      // A member's messaging contact: the row's name, never the contact's own.
+      case "messaging":
+        return `${formatMessagingSenderPrefix(sender.app, sender.routeName)} `;
       default: {
         const _exhaustive: never = sender;
         throw new Error(
@@ -675,6 +685,15 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     if (s.kind === "webhook")
       return (
         typeof s.webhookId === "string" && typeof s.webhookName === "string"
+      );
+    // Any app id loads: a message a later release queued for an app this
+    // one does not know still reaches the agent after a downgrade.
+    if (s.kind === "messaging")
+      return (
+        typeof s.app === "string" &&
+        s.app !== "" &&
+        typeof s.routeId === "string" &&
+        typeof s.routeName === "string"
       );
     return false;
   }

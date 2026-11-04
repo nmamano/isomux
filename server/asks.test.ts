@@ -90,6 +90,7 @@ const SECRET = {
   form: { kind: "authorization" as const },
   reason: "To open the pull request.",
 };
+const DRAFT = { app: "whatsapp", routeId: "r1", text: "*hi*\nsee you at 5" };
 const BASE = {
   id: "abcd1234",
   agentId: "a1",
@@ -309,6 +310,54 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // A WhatsApp reply draft (task d03a61d8): the row and the text that
+    // goes out at Send, on a plain ask only.
+    [
+      "WhatsApp reply draft",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        options: ["Send", "Don't send"],
+        messaging: DRAFT,
+      },
+      true,
+    ],
+    // An app a later release knows: it loads, so a downgrade keeps the file.
+    [
+      "reply draft for an app this release does not know",
+      { ...BASE, memberUserId: "u1", messaging: { ...DRAFT, app: "telegram" } },
+      true,
+    ],
+    ...(
+      [
+        ["draft that is not an object", "x"],
+        ["draft with no row", { app: "whatsapp", text: "hi" }],
+        [
+          "draft with an empty row",
+          { app: "whatsapp", routeId: "", text: "hi" },
+        ],
+        [
+          "draft whose text is not a string",
+          { app: "whatsapp", routeId: "r1", text: 5 },
+        ],
+        ["draft with no app", { routeId: "r1", text: "hi" }],
+        ["draft with an empty app", { app: "", routeId: "r1", text: "hi" }],
+      ] as const
+    ).map(([label, messaging]): [string, unknown, boolean] => [
+      label,
+      { ...BASE, memberUserId: "u1", messaging },
+      false,
+    ]),
+    [
+      "secret with a draft",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: { ...SECRET, scope: "personal" },
+        messaging: DRAFT,
+      },
+      false,
+    ],
     ...(["commands", "editFiles", "readFiles"] as const).map(
       (key): [string, unknown, boolean] => [
         `secret with ${key}`,
@@ -354,6 +403,26 @@ describe("the three shapes", () => {
       AFFORDANCES.readFiles[0],
       REFERENCE,
     ]);
+  });
+
+  it("keeps a WhatsApp reply draft through a write and a load", () => {
+    const { path } = fileIn();
+    const first = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    const made = first.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Send this?",
+      options: ["Send", "Don't send"],
+      messaging: DRAFT,
+    });
+    if (!made.ok) throw new Error("create failed");
+    expect(made.entry.messaging).toEqual(DRAFT);
+    const second = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    expect(second.get(made.entry.id)?.messaging).toEqual(DRAFT);
   });
 
   it("refuses to create an entry of no shape, and writes nothing", () => {

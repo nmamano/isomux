@@ -270,6 +270,34 @@ function buildServer(
       `/api/agents/${encodeURIComponent(identity.agentId ?? "")}/asks`,
     );
 
+  // A reply to a messaging contact (task d03a61d8): an agent's own, as an
+  // ask. Listed for
+  // every agent that may open asks; the route refuses a row it does not have,
+  // since a row added during a session would not show in a tool list.
+  if (asAgent && mayCall(["POST", "/api/messaging/routes/_/messages"])) {
+    server.registerTool(
+      "messaging_reply",
+      {
+        description:
+          "Draft a reply to a contact of your manager in a messaging app (WhatsApp). routeId is in the message's label line. Your manager approves it in their Inbox before it goes out; the answer comes to your chat.",
+        inputSchema: {
+          routeId: z.string().min(1),
+          text: z.string().min(1),
+        },
+      },
+      async ({ routeId, text }) => {
+        const res = await call(
+          "POST",
+          `/api/messaging/routes/${encodeURIComponent(routeId)}/messages`,
+          { text },
+        );
+        return res.status >= 200 && res.status < 300
+          ? json(res.body)
+          : routeError(res);
+      },
+    );
+  }
+
   // The token's own inbox: an API token's only. An agent's replies come to
   // its chat.
   if (

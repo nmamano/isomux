@@ -60,7 +60,8 @@ export type HandlerErrorStatus =
   | 429
   | 500
   | 501
-  | 502;
+  | 502
+  | 504;
 export type HandlerResult =
   | { kind: "json"; status?: number; body: unknown }
   | {

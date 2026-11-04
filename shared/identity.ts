@@ -3,6 +3,8 @@
 // Old log entries (pre-migration) carry combined values like "Nil Phone" in
 // `username` with no `device` - the helpers below render them verbatim.
 
+import { messagingAppName } from "./messaging.ts";
+
 export function formatPrefix({
   username,
   device,
@@ -140,6 +142,21 @@ export function formatAppSenderPrefix(appName: string): string {
 // Format: `[Webhook "pr-review"]`.
 export function formatWebhookSenderPrefix(webhookName: string): string {
   return `[Webhook "${webhookName}"]`;
+}
+
+// A messaging contact row's name is free-form (the member sets it): quotes
+// and brackets are escaped, so it cannot close the label and start another.
+// The label names the app, because its formatting rules differ; an app this
+// release does not know shows as "Messaging".
+// Format: `[WhatsApp "Mom"]`.
+export function formatMessagingSenderPrefix(
+  app: string,
+  routeName: string,
+): string {
+  const escaped = routeName
+    .replace(/[\p{Cc}\u2028\u2029]/gu, " ")
+    .replace(/[\\"\]]/g, (c) => `\\${c}`);
+  return `[${messagingAppName(app) ?? "Messaging"} "${escaped}"]`;
 }
 
 // Cron job names are free-form, unlike app names. Normalize them before they

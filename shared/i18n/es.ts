@@ -1137,6 +1137,65 @@ Cosas que puedes hacer por él:
   "integrations.tabs.secrets": "Secretos",
   "integrations.tabs.variables": "Variables",
   "integrations.tabs.browser": "Uso del navegador",
+  "integrations.tabs.messaging": "Mensajería",
+  "integrations.whatsapp.link": "Vincular con un código QR",
+  "integrations.whatsapp.linkAgain": "Volver a vincular",
+  "integrations.whatsapp.useCode": "Usar un código de vinculación",
+  "integrations.whatsapp.phoneLabel": "Tu número de WhatsApp",
+  "integrations.whatsapp.phonePlaceholder": "+44 7700 900123",
+  "integrations.whatsapp.getCode": "Obtener código",
+  "integrations.whatsapp.warning":
+    "Este es un enlace no oficial de WhatsApp. WhatsApp puede restringir un número que lo use, así que un segundo número es más seguro.",
+  "integrations.whatsapp.starting": "Iniciando…",
+  "integrations.whatsapp.scanSteps":
+    "En WhatsApp en tu teléfono, abre Dispositivos vinculados › Vincular un dispositivo y escanea este código.",
+  "integrations.whatsapp.codeSteps":
+    "En WhatsApp en tu teléfono, abre Dispositivos vinculados › Vincular un dispositivo › Vincular con el número de teléfono y escribe este código.",
+  "integrations.whatsapp.qrAlt": "Código QR para vincular WhatsApp",
+  "integrations.whatsapp.linkedAs": "Vinculado como {phone}",
+  "integrations.whatsapp.connected": "Conectado",
+  "integrations.whatsapp.connecting": "Conectando",
+  "integrations.whatsapp.unlink": "Desvincular",
+  "integrations.whatsapp.reason.linkExpired": "La vinculación no terminó.",
+  "integrations.whatsapp.reason.installFailed":
+    "Isomux no pudo descargar el paquete de WhatsApp. Comprueba que el servidor llega a internet y vuelve a intentarlo.",
+  "integrations.whatsapp.reason.unlinkedByPhone":
+    "Tu teléfono desvinculó Isomux.",
+  "integrations.whatsapp.reason.replaced":
+    "Otra conexión tomó este enlace de WhatsApp.",
+  "integrations.whatsapp.reason.crashLoop":
+    "La conexión de WhatsApp fallaba una y otra vez.",
+  "integrations.whatsapp.error.phone":
+    "Escribe el número completo, con el prefijo del país.",
+  "integrations.whatsapp.error.tooSoon":
+    "Espera un minuto antes de pedir otro código.",
+  "integrations.whatsapp.error.failed": "Algo salió mal. Vuelve a intentarlo.",
+  "integrations.whatsapp.rows.title": "Chats",
+  "integrations.whatsapp.rows.hint":
+    "Los mensajes de estos chats van al agente que elijas.",
+  "integrations.whatsapp.rows.empty": "Aún no hay chats.",
+  "integrations.whatsapp.rows.add": "Añadir un chat",
+  "integrations.whatsapp.rows.save": "Añadir",
+  "integrations.whatsapp.rows.chat": "Chat",
+  "integrations.whatsapp.rows.byNumber": "Escribir un número",
+  "integrations.whatsapp.rows.number": "Número",
+  "integrations.whatsapp.rows.name": "Nombre",
+  "integrations.whatsapp.rows.nameHint": "El agente ve este nombre.",
+  "integrations.whatsapp.rows.agent": "Agente",
+  "integrations.whatsapp.rows.noAgents":
+    "Ninguno de tus agentes puede responder. Dale a uno más acceso que Chat.",
+  "integrations.whatsapp.rows.trigger": "Mensajes",
+  "integrations.whatsapp.rows.trigger.mention": "Solo las menciones a ti",
+  "integrations.whatsapp.rows.trigger.all": "Todos",
+  "integrations.whatsapp.rows.group": "Grupo",
+  "integrations.whatsapp.rows.shellWarning":
+    "Este agente tiene una shell. Cualquiera en este chat puede pedirle que ejecute comandos.",
+  "integrations.whatsapp.rows.dead.agentGone": "Agente eliminado",
+  "integrations.whatsapp.rows.dead.agentNotYours": "Ya no es tu agente",
+  "integrations.whatsapp.rows.dead.agentChatOnly":
+    "El agente tiene acceso Chat",
+  "integrations.whatsapp.rows.error.taken":
+    "Este chat ya está en la lista, o la lista está llena.",
   "integrations.tabs.voice": "Voz",
   "integrations.tabs.github": "Incidencias de GitHub",
   "integrations.tabIntro.providers":
@@ -2079,6 +2138,7 @@ Cosas que puedes hacer por él:
   "apiCall.apps.unarchive": "Desarchivar la app",
   "apiCall.webhooks.list": "Listar los webhooks",
   "apiCall.webhooks.create": "Crear un webhook",
+  "apiCall.messaging.reply": "Redactar respuesta a contacto",
   "apiCall.webhooks.read": "Leer un webhook",
   "apiCall.webhooks.update": "Actualizar el webhook",
   "apiCall.webhooks.delete": "Eliminar el webhook",
@@ -2114,6 +2174,7 @@ Cosas que puedes hacer por él:
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · programación",
   "common.sender.webhook": "{name} · webhook",
+  "common.sender.messaging": "{name} · {app}",
   "cards.userMessage.expand": "Expandir mensaje",
   "cards.userMessage.collapse": "Contraer mensaje",
   "cards.userMessage.editAndBranch": "Editar y ramificar",

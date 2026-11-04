@@ -483,6 +483,13 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/webhooks/secrets.json.tmp`,
     ],
   },
+  // Members' WhatsApp sessions (full access to each member's WhatsApp) and
+  // the downloaded bridge package (task d03a61d8). After a restore, members
+  // link again; the package downloads again at the first link.
+  {
+    id: "whatsapp-sessions",
+    archivePatterns: (root) => rootedDirectory(root, "whatsapp"),
+  },
   // The pager's Discord webhook URLs. After a restore, each member enters
   // theirs again.
   {

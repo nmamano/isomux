@@ -431,11 +431,18 @@ export function parseRaiseFields(
 }
 
 // One identity per source, so an agent and an app with the same id string
-// never share pages, and neither do two registrations of one app name.
-function pagerSourceKey(source: PagerSource): string {
-  return source.kind === "agent"
-    ? `agent:${source.agentId}`
-    : `app:${source.appName}:${source.registrationGen}`;
+// never share pages, and neither do two registrations of one app name. An
+// office source is per member, so one member's pages never count toward
+// another's PAGER_MAX_ACTIVE_PER_SOURCE.
+function pagerSourceKey(source: PagerSource, targetUserId: string): string {
+  switch (source.kind) {
+    case "agent":
+      return `agent:${source.agentId}`;
+    case "app":
+      return `app:${source.appName}:${source.registrationGen}`;
+    case "office":
+      return `office:${source.feature}:${targetUserId}`;
+  }
 }
 
 function isPagerSource(v: unknown): v is PagerSource {
@@ -445,6 +452,7 @@ function isPagerSource(v: unknown): v is PagerSource {
   if (s.kind === "agent") {
     return typeof s.agentId === "string" && typeof s.roomId === "string";
   }
+  if (s.kind === "office") return s.feature === "whatsapp" && s.roomId === null;
   return (
     s.kind === "app" &&
     typeof s.appName === "string" &&
@@ -472,6 +480,9 @@ export function pagerEntryVisible(
   entry: PagerEntry,
   viewer: PagerViewer,
 ): boolean {
+  // The office's page about a member's own feature: that member only.
+  if (entry.source.kind === "office")
+    return viewer.userId !== null && viewer.userId === entry.targetUserId;
   const roomId = entry.source.roomId;
   if (roomId !== null && viewer.accessibleRoomIds.has(roomId)) return true;
   if (roomId !== null && viewer.ownNeedsRoom) return false;
@@ -926,7 +937,7 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
 
     raise({ source, targetUserId, fields }) {
       ensureAvailable();
-      const sourceKey = pagerSourceKey(source);
+      const sourceKey = pagerSourceKey(source, targetUserId);
       const t = now();
       // At most one open or acked page per (source, key): a raise with the
       // same key updates it. A raise on an acked page does not re-open it.
@@ -937,7 +948,7 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
               (e) =>
                 e.state !== "resolved" &&
                 e.key === fields.key &&
-                pagerSourceKey(e.source) === sourceKey,
+                pagerSourceKey(e.source, e.targetUserId) === sourceKey,
             );
       if (existing) {
         // Room, source name and target stay as at the first raise. An omitted
@@ -955,7 +966,9 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
         return { outcome: "updated", entry: copy(updated) };
       }
       const active = entries.filter(
-        (e) => e.state !== "resolved" && pagerSourceKey(e.source) === sourceKey,
+        (e) =>
+          e.state !== "resolved" &&
+          pagerSourceKey(e.source, e.targetUserId) === sourceKey,
       ).length;
       if (active >= PAGER_MAX_ACTIVE_PER_SOURCE) return { outcome: "too_many" };
       const entry: PagerEntry = {

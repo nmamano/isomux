@@ -23,12 +23,7 @@
 // of checks - notably that a caller-supplied session id is validated against
 // THIS agent's own session list before anything is opened with it.
 
-import {
-  ok,
-  fail,
-  type RouteHandler,
-  type HandlerErrorStatus,
-} from "../executor.ts";
+import { ok, fail, type RouteHandler } from "../executor.ts";
 import {
   isSafeId,
   parseLogQuery,
@@ -152,11 +147,7 @@ export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
           );
           return outcome.ok
             ? ok(outcome.result)
-            : fail(
-                outcome.status as HandlerErrorStatus,
-                outcome.code,
-                outcome.message,
-              );
+            : fail(outcome.status, outcome.code, outcome.message);
         }
       }
     },

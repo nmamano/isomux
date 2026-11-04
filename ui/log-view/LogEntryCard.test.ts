@@ -339,6 +339,33 @@ describe("describeMessageSender", () => {
       undefined,
       false,
     ],
+    // A member's WhatsApp contact through a row (task d03a61d8): never the
+    // member, whose row it is.
+    [
+      "a WhatsApp contact",
+      {
+        sender_messaging_app: "whatsapp",
+        sender_messaging_route_id: "r_3f9a0c1d",
+        sender_messaging_route_name: "Mom",
+        username: "Nil",
+      },
+      EN.t("common.sender.messaging", { name: "Mom", app: "WhatsApp" }),
+      undefined,
+      false,
+    ],
+    // An app a later release queued: the row's name alone, never the raw id.
+    [
+      "a contact in an app this release does not know",
+      {
+        sender_messaging_app: "telegram",
+        sender_messaging_route_id: "r_3f9a0c1d",
+        sender_messaging_route_name: "Mom",
+        username: "Nil",
+      },
+      "Mom",
+      undefined,
+      false,
+    ],
     // The token is the member's authority, so the label stays theirs, but the
     // message came from a script and reads that way (dashed, not editable).
     [

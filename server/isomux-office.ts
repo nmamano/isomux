@@ -209,6 +209,7 @@ import { officeAskHistory } from "./ask-history.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { integrationChangesHandlers } from "./routes/handlers/integration-changes.ts";
 import { voiceHandlers } from "./routes/handlers/voice.ts";
+import { whatsappHandlers } from "./routes/handlers/whatsapp.ts";
 import { voiceKeyForUserId } from "./voice-key.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
@@ -441,6 +442,9 @@ import {
   pagerDelivery,
   webPushStore,
   webPushDelivery,
+  whatsappSupervisor,
+  whatsappRoutes,
+  whatsappReplies,
   githubLinks,
   githubSync,
   uiBuildTracker,
@@ -2798,6 +2802,7 @@ function buildExecutorDeps(
         }),
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,
+      whatsapp: whatsappReplies,
     }),
   );
 
@@ -2805,6 +2810,14 @@ function buildExecutorDeps(
     voiceHandlers({
       keyFor: (userId) => voiceKeyForUserId(userId),
       fetch: (input, init) => fetch(input, init),
+    }),
+  );
+
+  register(
+    whatsappHandlers({
+      supervisor: whatsappSupervisor,
+      routes: whatsappRoutes,
+      replies: whatsappReplies,
     }),
   );
 
@@ -5145,6 +5158,12 @@ function runBackgroundBoot(
   // `bun test` runs no timers; stopServer() clears the timers defensively.
   if (!startOpts.skipSchedulers) scheduledMessageManager.start();
 
+  // Start a WhatsApp bridge for each linked member. An office with none
+  // downloads and starts nothing.
+  void whatsappSupervisor.boot().catch(() => {
+    console.error("[whatsapp] the boot of the WhatsApp bridges failed");
+  });
+
   // Resume the repeat of open pages from their saved last attempt.
   if (!startOpts.skipSchedulers) {
     pagerDelivery.start();
@@ -5310,6 +5329,8 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   extensionSessions?.stop();
   pagerDelivery?.stop();
   webPushDelivery?.stop();
+  // Ends the bridges and keeps the links: the next start connects again.
+  await whatsappSupervisor?.shutdown();
   githubSync?.stop();
   uiBuildTracker?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
