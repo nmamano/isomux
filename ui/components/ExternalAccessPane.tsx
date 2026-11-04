@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type { AccessSettings } from "../../shared/contract-shapes.ts";
 import { useI18n } from "../i18n.tsx";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import {
   dialogInput,
   dialogSaveBtn,
@@ -112,10 +113,6 @@ function ExternalAccessSection({
     const nextEnabled = enabled;
     const nextUrl = nextEnabled ? urlInput.trim() : "";
     setPending(true);
-    // Save supersedes any in-flight discard prompt (the user picked Save
-    // over Discard) - drop the stashed navigation so it can't replay.
-    pendingDiscardActionRef.current = null;
-    setConfirmDiscard(false);
     setError(null);
     setSignInUrl(null);
     setRestartRequired(false);
@@ -147,50 +144,25 @@ function ExternalAccessSection({
     urlInput.trim() !== savedSnapshot.urlInput;
 
   // Navigation-away dirty gate (see the closeRef prop docs). Dirty → show
-  // the inline discard prompt and stash the navigation to run on Discard;
-  // clean → navigate immediately. Cancel drops the stashed navigation so a
-  // later Discard can't replay it.
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const pendingDiscardActionRef = useRef<(() => void) | null>(null);
+  // the inline discard prompt and stash the navigation to run on Discard, or
+  // when a save in flight finishes; clean → navigate immediately.
+  const discardPrompt = useUnsavedChangesPrompt(loaded && dirty, {
+    closeRef,
+    // Reset to the saved snapshot: if the navigation re-renders this pane
+    // (or is a no-op), the form shouldn't still show the discarded edits.
+    onDiscard: () => {
+      setEnabled(savedSnapshot.enabled);
+      setUrlInput(savedSnapshot.urlInput);
+    },
+  });
   // The prompt sits mid-pane (no sticky footer here) - scroll it into view
   // when it opens, so a header-back/ESC while scrolled elsewhere doesn't
   // look like a dead click.
   const discardPromptRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
-    if (confirmDiscard)
+    if (discardPrompt.open)
       discardPromptRef.current?.scrollIntoView({ block: "nearest" });
-  }, [confirmDiscard]);
-  function requestClose(after?: () => void) {
-    if (loaded && dirty) {
-      pendingDiscardActionRef.current = after ?? null;
-      setConfirmDiscard(true);
-    } else {
-      after?.();
-    }
-  }
-  function commitDiscard() {
-    const next = pendingDiscardActionRef.current;
-    pendingDiscardActionRef.current = null;
-    setConfirmDiscard(false);
-    // Reset to the saved snapshot: if the navigation re-renders this pane
-    // (or is a no-op), the form shouldn't still show the discarded edits.
-    setEnabled(savedSnapshot.enabled);
-    setUrlInput(savedSnapshot.urlInput);
-    next?.();
-  }
-  function cancelDiscard() {
-    pendingDiscardActionRef.current = null;
-    setConfirmDiscard(false);
-  }
-  // Mirror requestClose into the parent's ref every render so the captured
-  // closure always sees fresh form state - same no-deps pattern as
-  // UserSettingsView's UserEditPanel.
-  useEffect(() => {
-    if (closeRef) closeRef.current = requestClose;
-    return () => {
-      if (closeRef) closeRef.current = null;
-    };
-  });
+  }, [discardPrompt.open]);
 
   // Tab-close guard while dirty: in-app navigation already routes through
   // the discard prompt, but closing/reloading the tab was the one silent
@@ -267,7 +239,7 @@ function ExternalAccessSection({
           {error}
         </p>
       )}
-      {confirmDiscard && (
+      {discardPrompt.open && (
         <div
           ref={discardPromptRef}
           style={{
@@ -285,7 +257,7 @@ function ExternalAccessSection({
             {t("settings.externalAccess.discardPrompt")}
           </span>
           <button
-            onClick={commitDiscard}
+            onClick={discardPrompt.discard}
             style={{
               padding: "6px 12px",
               borderRadius: 6,
@@ -300,7 +272,7 @@ function ExternalAccessSection({
             {t("common.discard")}
           </button>
           <button
-            onClick={cancelDiscard}
+            onClick={discardPrompt.cancel}
             style={{
               padding: "6px 12px",
               borderRadius: 6,

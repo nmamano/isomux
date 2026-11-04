@@ -326,7 +326,10 @@ export function StoragePane({
   const deleting = phase.kind === "applying";
   // The request cannot be canceled after apply starts. Route attempts to leave
   // through the app prompt, while keeping the delete-specific explanation.
-  const leavePrompt = useUnsavedChangesPrompt(deleting, closeRef);
+  const leavePrompt = useUnsavedChangesPrompt(deleting, {
+    closeRef,
+    resumeWhenClean: false,
+  });
 
   return (
     <div style={{ marginTop: 24 }}>

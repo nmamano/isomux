@@ -36,9 +36,12 @@ export function DevicePane({
   const [justSaved, setJustSaved] = useState(false);
   const dirty = label.trim() !== saved;
 
-  const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
-    setLabel(saved);
-    setJustSaved(false);
+  const discardPrompt = useUnsavedChangesPrompt(dirty, {
+    closeRef,
+    onDiscard: () => {
+      setLabel(saved);
+      setJustSaved(false);
+    },
   });
 
   function handleSave() {

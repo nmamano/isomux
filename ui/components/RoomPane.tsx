@@ -320,14 +320,17 @@ export function RoomPane({
         roomLookBody(look, baselineLook) !== null)) ||
     mem.dirty ||
     viewDirty;
-  const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
-    setName(baselineName);
-    setPrompt(baselinePrompt);
-    setCwd(baselineCwd);
-    setLook(baselineLook);
-    setView(viewBase);
-    mem.reset();
-    setError(null);
+  const discardPrompt = useUnsavedChangesPrompt(dirty, {
+    closeRef,
+    onDiscard: () => {
+      setName(baselineName);
+      setPrompt(baselinePrompt);
+      setCwd(baselineCwd);
+      setLook(baselineLook);
+      setView(viewBase);
+      mem.reset();
+      setError(null);
+    },
   });
 
   if (!room) return null;

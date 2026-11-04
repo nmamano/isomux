@@ -6,11 +6,11 @@ import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./EditAgentDialog.tsx");
-const { setApiShim } = await import("../api.ts");
+const { ApiError, setApiShim } = await import("../api.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
-const { claudeAgent, room } =
+const { claudeAgent, room, settle, viewer } =
   await import("../test-support/claude-limits-fixture.tsx");
 const { BACK_ROOM_SEATS, DESK_COUNT, firstFreeBackSeat } =
   await import("../../shared/desks.ts");
@@ -143,4 +143,98 @@ describe("Move to room buttons", () => {
       view.unmount();
     }
   });
+});
+
+// Task ee577900: Move stays enabled while a save runs. A move asked for then
+// (or from the prompt, before Save) waits on the discard prompt; the save
+// landing closes the dialog AND moves the agent. A failed save keeps the
+// dialog, the prompt and the agent where they are.
+describe("a move that races a save", () => {
+  for (const order of ["save first", "move first"] as const)
+    for (const outcome of ["saved", "failed"] as const)
+      it(`${order}, ${outcome}`, async () => {
+        const held: {
+          resolve: (v: unknown) => void;
+          reject: (e: unknown) => void;
+        }[] = [];
+        const moves: unknown[] = [];
+        setApiShim(async (method, path, body) => {
+          if (path === "/api/validate/cwd") return { ok: true };
+          if (path.startsWith("/api/memory"))
+            return { text: "", version: "v1", size: 0, cap: 5000 };
+          // An instructions edit is a save the dialog awaits before it closes.
+          if (method === "PATCH" && path === "/api/agents/a1")
+            return new Promise((resolve, reject) =>
+              held.push({ resolve, reject }),
+            );
+          if (method === "POST" && path.endsWith("/move")) moves.push(body);
+          return {};
+        });
+        let closed = 0;
+        const agent = claudeAgent("opus", "default", []);
+        const view = render(
+          onLanguage(
+            "en",
+            <EditAgentDialog onClose={() => closed++} agent={agent} />,
+            {
+              rooms: [room, backFull],
+              agents: [agent],
+              hasReceivedInitialState: true,
+              sessionContext: viewer([]),
+            },
+          ),
+        );
+        try {
+          await settle();
+          const instructions = view.getByPlaceholderText(
+            EN.t("dialogs.agent.customInstructionsPlaceholder"),
+          );
+          await act(async () => {
+            fireEvent.change(instructions, {
+              target: { value: "Answer in one line." },
+            });
+          });
+          const save = async () => {
+            await act(async () => {
+              fireEvent.click(
+                view.getByRole("button", { name: EN.t("common.save") }),
+              );
+            });
+          };
+          const move = async () => {
+            await act(async () => {
+              fireEvent.click(view.getByRole("button", { name: "Back Full" }));
+            });
+          };
+          for (const step of order === "save first"
+            ? [save, move]
+            : [move, save])
+            await step();
+          const prompt = () =>
+            view.queryByText(EN.t("common.discardPrompt")) !== null;
+          expect(held).toHaveLength(1);
+          expect(prompt()).toBe(true);
+          expect(moves).toStrictEqual([]);
+
+          await act(async () => {
+            if (outcome === "saved") held[0]!.resolve({});
+            else held[0]!.reject(new ApiError(500, "internal", "disk full"));
+          });
+          await settle();
+          await settle();
+          if (outcome === "saved") {
+            expect(closed).toBe(1);
+            // Desk 0 is free in Back Full.
+            expect(moves).toStrictEqual([{ targetRoomId: "r4", desk: 0 }]);
+          } else {
+            expect(view.queryByText("disk full")).not.toBeNull();
+            expect(closed).toBe(0);
+            expect(prompt()).toBe(true);
+            expect(moves).toStrictEqual([]);
+          }
+        } finally {
+          view.unmount();
+          setApiShim(async () => ({}));
+        }
+      });
 });

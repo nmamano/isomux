@@ -4,51 +4,88 @@ import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
 
 export function useUnsavedChangesPrompt(
   dirty: boolean,
-  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>,
-  onDiscard?: () => void,
+  {
+    closeRef,
+    onDiscard,
+    onLeave,
+    resumeWhenClean = true,
+  }: {
+    // Filled with the guarded close every render, for a parent that routes
+    // its navigation through this form.
+    closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+    // Resets the fields when the member picks Discard.
+    onDiscard?: () => void;
+    // Runs before the stashed action on every exit that goes through.
+    onLeave?: () => void;
+    // When the form turns clean while the prompt is open (a save that was in
+    // flight has finished), close the prompt and run the stashed action.
+    // False closes the prompt and drops the action. Default true.
+    resumeWhenClean?: boolean;
+  } = {},
 ) {
   const [open, setOpen] = useState(false);
-  const pendingActionRef = useRef<(() => void) | null>(null);
+  // The exit that waits on the prompt: set while the prompt is open, with the
+  // caller's action if it gave one.
+  const pendingRef = useRef<{ after?: () => void } | null>(null);
+  // The timer below runs after the render that made the form clean, so it
+  // reads the options of the latest render.
+  const latestRef = useRef({ onLeave, resumeWhenClean });
+  useEffect(() => {
+    latestRef.current = { onLeave, resumeWhenClean };
+  });
 
   useEffect(() => {
     if (dirty) return;
-    pendingActionRef.current = null;
     // Defer the state update because this effect reacts to a saved/reset form;
     // a synchronous update here trips React's cascading-render safeguard.
-    const close = window.setTimeout(() => setOpen(false), 0);
+    // The pending exit is read when the timer fires: if the form turns dirty
+    // again first, the cleanup cancels the timer and the exit still waits.
+    const close = window.setTimeout(() => {
+      const pending = pendingRef.current;
+      pendingRef.current = null;
+      setOpen(false);
+      // Nothing is unsaved now (a save that raced the exit has finished), so
+      // the exit the member asked for goes through.
+      if (pending && latestRef.current.resumeWhenClean) leave(pending.after);
+    }, 0);
     return () => window.clearTimeout(close);
   }, [dirty]);
 
-  useEffect(() => {
-    if (closeRef) {
-      closeRef.current = (after?: () => void) => {
-        if (!dirty) {
-          after?.();
-          return;
-        }
-        pendingActionRef.current = after ?? null;
-        setOpen(true);
-      };
+  function leave(after?: () => void) {
+    latestRef.current.onLeave?.();
+    after?.();
+  }
+
+  function request(after?: () => void) {
+    if (!dirty) {
+      leave(after);
+      return;
     }
+    pendingRef.current = { after };
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (closeRef) closeRef.current = request;
     return () => {
       if (closeRef) closeRef.current = null;
     };
   });
 
   function discard() {
-    const next = pendingActionRef.current;
-    pendingActionRef.current = null;
+    const pending = pendingRef.current;
+    pendingRef.current = null;
     setOpen(false);
     onDiscard?.();
-    next?.();
+    leave(pending?.after);
   }
 
   function cancel() {
-    pendingActionRef.current = null;
+    pendingRef.current = null;
     setOpen(false);
   }
 
-  return { open, discard, cancel };
+  return { open, discard, cancel, request };
 }
 
 export function UnsavedChangesPrompt({

@@ -278,7 +278,7 @@ export function SkillsView({ onClose }: { onClose: () => void }) {
     draftRef.current = draft;
   }, [draft]);
   const guardRef = useRef<((after?: () => void) => void) | null>(null);
-  const prompt = useUnsavedChangesPrompt(dirty, guardRef);
+  const prompt = useUnsavedChangesPrompt(dirty, { closeRef: guardRef });
   // Run `action` now, or after the member agrees to drop unsaved text.
   const guarded = useCallback((action: () => void) => {
     if (guardRef.current) guardRef.current(action);

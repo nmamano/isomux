@@ -104,3 +104,77 @@ it("shows the form it last loaded on this device while the settings load, with n
   await act(async () => resolve(answers));
   view.unmount();
 });
+
+// Task ee577900: the page asks to leave while the address is unsaved, and the
+// member saves - before the ask or from its prompt. When the save lands, the
+// prompt goes away and the page leaves; when it fails, both stay.
+for (const order of ["save first", "leave first"] as const) {
+  it(`settles the discard prompt with the save it raced (${order})`, async () => {
+    const held: {
+      resolve: (v: unknown) => void;
+      reject: (e: unknown) => void;
+    }[] = [];
+    setApiShim(async (method) => {
+      if (method === "GET")
+        return {
+          hosted: false,
+          externalAccess: true,
+          publicOrigin: "https://office.example",
+          boundLoopback: false,
+        };
+      return new Promise((resolve, reject) => held.push({ resolve, reject }));
+    });
+    const closeRef: {
+      current: ((after?: () => void) => void) | null;
+    } = { current: null };
+    const prompt = (view: ReturnType<typeof render>) =>
+      view.queryByText(t("settings.externalAccess.discardPrompt")) !== null;
+
+    for (const outcome of ["saved", "failed"] as const) {
+      const left: string[] = [];
+      const view = render(
+        onLanguage(null, <ExternalAccessPane closeRef={closeRef} />),
+      );
+      await act(async () => {});
+      await act(async () => {
+        fireEvent.change(view.getByRole("textbox"), {
+          target: { value: "https://new.example" },
+        });
+      });
+      const leave = async () => {
+        await act(async () => closeRef.current!(() => left.push("left")));
+      };
+      const save = async () => {
+        await act(async () => {
+          fireEvent.click(view.getByRole("button", { name: t("common.save") }));
+        });
+      };
+      for (const step of order === "save first" ? [save, leave] : [leave, save])
+        await step();
+      expect(held, outcome).toHaveLength(1);
+      expect(prompt(view), outcome).toBe(true);
+      expect(left, outcome).toStrictEqual([]);
+
+      await act(async () => {
+        if (outcome === "saved")
+          held[0]!.resolve({ signInUrl: null, restartRequired: false });
+        else held[0]!.reject(new Error("offline"));
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      if (outcome === "saved") {
+        expect(prompt(view), outcome).toBe(false);
+        expect(left, outcome).toStrictEqual(["left"]);
+      } else {
+        expect(
+          view.queryByText(t("settings.externalAccess.updateFailed")),
+        ).not.toBeNull();
+        expect(prompt(view), outcome).toBe(true);
+        expect(left, outcome).toStrictEqual([]);
+      }
+      held.length = 0;
+      view.unmount();
+    }
+  });
+}

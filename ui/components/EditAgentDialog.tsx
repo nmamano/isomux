@@ -1028,15 +1028,24 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetEngine]);
 
-  function handleSave() {
-    // Save supersedes an in-flight discard prompt: the user picked Save over
-    // Discard, so the stashed action must not be able to replay later.
+  // A save that went through closes the dialog. A prompt still open (the
+  // member asked to leave while the save ran, or pressed Save on the prompt)
+  // has nothing left to discard, so its stashed action (Move to Room) runs
+  // now, in the order commitDiscard uses. A stashed revive is dropped: the
+  // member saved this form instead.
+  function closeAfterSave() {
+    pendingReviveRef.current = null;
+    const next = pendingDiscardActionRef.current;
     pendingDiscardActionRef.current = null;
+    onClose();
+    next?.();
+  }
+
+  function handleSave() {
     if (!openCodeModelReady) {
       setCwdError(t("common.model.selectConnected"));
       return;
     }
-    setConfirmDiscard(false);
     // The threshold counts only while it shows; an invalid one blocks Save.
     const handoffTokens =
       showAutoHandoff && autoHandoff
@@ -1110,7 +1119,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               access: "privileged",
             } satisfies SetAgentAccessReq);
         })
-        .then(() => onClose())
+        .then(() => closeAfterSave())
         .catch(showError)
         .finally(() => setSaving(false));
     } else {
@@ -1195,7 +1204,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // PATCH - it re-mints the token and restarts the session like a model
       // change.
       if (!hasChanges && !managerChanged && !accessChanged && !mem.dirty) {
-        onClose();
+        closeAfterSave();
         return;
       }
       setCwdError(null);
@@ -1254,13 +1263,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               setNameError(null);
               return;
             }
-            onClose();
+            closeAfterSave();
           })
           .catch(showError)
           .finally(() => setSaving(false));
       } else {
         runSeq().catch(() => {});
-        onClose();
+        closeAfterSave();
       }
     }
   }

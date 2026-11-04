@@ -222,11 +222,14 @@ export function OfficePane({
   const dirty =
     (settingsLoaded && (name !== baselineName || text !== baselinePrompt)) ||
     mem.dirty;
-  const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
-    setName(baselineName);
-    setText(baselinePrompt);
-    mem.reset();
-    setStatus({ kind: "idle" });
+  const discardPrompt = useUnsavedChangesPrompt(dirty, {
+    closeRef,
+    onDiscard: () => {
+      setName(baselineName);
+      setText(baselinePrompt);
+      mem.reset();
+      setStatus({ kind: "idle" });
+    },
   });
 
   return (

@@ -72,6 +72,7 @@ import { RoomPane } from "./RoomPane.tsx";
 import { ThemePane } from "./ThemePane.tsx";
 import { UpdatePane } from "./UpdatePane.tsx";
 import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
+import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
 import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
@@ -1425,13 +1426,6 @@ function UserEditPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // Discard-unsaved-changes confirmation. Set true by requestClose when
-  // the form is dirty; cleared by either commit (Discard) or cancel.
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // Holds the parent-supplied "after" callback while the discard prompt
-  // is visible - e.g. "select user Y" or "close the page". Runs once
-  // the user clicks Discard; cleared on Cancel.
-  const pendingDiscardActionRef = useRef<(() => void) | null>(null);
   // Holds the server's lockout-prevention reason if delete_user is refused.
   // Same shape as the logout_blocked / revoke_blocked surfaces elsewhere -
   // shown inline next to Delete so the member sees why the row didn't go.
@@ -1521,40 +1515,13 @@ function UserEditPanel({
     return false;
   }
 
-  // Parent-driven close path. If the form is clean, runs onClose + after
-  // immediately; if dirty, surfaces the "Discard unsaved changes?" prompt
-  // and stashes `after` for the Discard handler to run on commit.
-  function requestClose(after?: () => void) {
-    if (isDirty()) {
-      pendingDiscardActionRef.current = after ?? null;
-      setConfirmDiscard(true);
-    } else {
-      onClose();
-      after?.();
-    }
-  }
-
-  function commitDiscard() {
-    const next = pendingDiscardActionRef.current;
-    pendingDiscardActionRef.current = null;
-    setConfirmDiscard(false);
-    onClose();
-    next?.();
-  }
-
-  function cancelDiscard() {
-    pendingDiscardActionRef.current = null;
-    setConfirmDiscard(false);
-  }
-
-  // Mirror requestClose into the parent's ref every render so the captured
-  // closure always sees fresh form state - same no-deps pattern TaskView
-  // uses for its own dirty-check ref.
-  useEffect(() => {
-    if (closeRef) closeRef.current = requestClose;
-    return () => {
-      if (closeRef) closeRef.current = null;
-    };
+  // Parent-driven close path (closeRef) and the panel's own Cancel. A clean
+  // form runs onClose + after at once; a dirty one shows the "Discard unsaved
+  // changes?" prompt and stashes `after` - e.g. "select user Y" or "close the
+  // page" - for Discard, or for a save that finishes while the prompt is open.
+  const discardPrompt = useUnsavedChangesPrompt(isDirty(), {
+    closeRef,
+    onLeave: onClose,
   });
 
   // Tab-close guard while dirty:
@@ -1577,12 +1544,6 @@ function UserEditPanel({
       void handleCreate(trimmed);
       return;
     }
-    // Save supersedes any in-flight discard prompt: the user picked Save
-    // over Discard. Without this, a save failure leaves the prompt up
-    // with a stale pending action (e.g. "close the page") that a later
-    // Discard click would execute against the user's expectations.
-    pendingDiscardActionRef.current = null;
-    setConfirmDiscard(false);
     setSaving(true);
     setError(null);
     const renamed = trimmed !== user.name;
@@ -2163,7 +2124,7 @@ function UserEditPanel({
             </p>
           )}
 
-          {confirmDiscard && (
+          {discardPrompt.open && (
             <div
               style={{
                 display: "flex",
@@ -2182,7 +2143,7 @@ function UserEditPanel({
                 {t("common.discardPrompt")}
               </span>
               <button
-                onClick={commitDiscard}
+                onClick={discardPrompt.discard}
                 style={{
                   padding: "6px 12px",
                   borderRadius: 6,
@@ -2197,7 +2158,7 @@ function UserEditPanel({
                 {t("common.discard")}
               </button>
               <button
-                onClick={cancelDiscard}
+                onClick={discardPrompt.cancel}
                 style={{
                   padding: "6px 12px",
                   borderRadius: 6,
@@ -2247,7 +2208,7 @@ function UserEditPanel({
             )}
             <div style={{ display: "flex", gap: 8 }}>
               <button
-                onClick={() => requestClose()}
+                onClick={() => discardPrompt.request()}
                 style={cancelBtnStyle}
                 disabled={saving}
               >
