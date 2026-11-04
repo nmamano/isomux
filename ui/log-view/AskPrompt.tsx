@@ -2,7 +2,13 @@ import { useContext, useMemo } from "react";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { useAppState } from "../store.tsx";
 import { TaskOpener, type TaskMap } from "./task-links.tsx";
-import { splitPromptDiffs, type DiffLine } from "./ask-prompt-diff.ts";
+import {
+  matchAskFile,
+  splitAskPrompt,
+  type DiffLine,
+} from "./ask-prompt-diff.ts";
+import { FileViewCard } from "./FileViewCard.tsx";
+import type { AskReadFile } from "../../shared/types.ts";
 
 // The chat diff card's colors (diff2html's variables, re-routed in dark mode
 // under .d2h-isomux-host), with the light values for a page without its sheet.
@@ -64,9 +70,23 @@ function DiffRow({ line }: { line: DiffLine }) {
 }
 
 // An ask prompt: inline markdown, with each ```diff block drawn as a red and
-// green diff. The ids of the tasks the member sees are chips, as in the chat.
-export function AskPrompt({ content }: { content: string }) {
-  const segments = useMemo(() => splitPromptDiffs(content), [content]);
+// green diff, and each reference line as the read files it names, in the
+// chat's file card. A name with no file, and every name where the surface
+// passes no files, shows as the name. The ids of the tasks the member sees are
+// chips, as in the chat. `srcFor` is where a file is served from; files come
+// with it.
+export function AskPrompt<T extends AskReadFile>({
+  content,
+  files,
+  srcFor,
+  isMobile,
+}: {
+  content: string;
+  files?: readonly T[];
+  srcFor?: (att: T) => string;
+  isMobile?: boolean;
+}) {
+  const segments = useMemo(() => splitAskPrompt(content), [content]);
   const { tasks } = useAppState();
   const taskMap: TaskMap = useMemo(
     () => new Map(tasks.map((task) => [task.id, task])),
@@ -74,7 +94,15 @@ export function AskPrompt({ content }: { content: string }) {
   );
   const openTask = useContext(TaskOpener) ?? undefined;
   return segments.map((segment, i) =>
-    segment.kind === "text" ? (
+    segment.kind === "files" ? (
+      <PlacedFiles
+        key={i}
+        names={segment.names}
+        files={srcFor ? (files ?? []) : []}
+        srcFor={srcFor ?? (() => "")}
+        isMobile={isMobile}
+      />
+    ) : segment.kind === "text" ? (
       <InlineMarkdown
         key={i}
         content={segment.text}
@@ -101,6 +129,46 @@ export function AskPrompt({ content }: { content: string }) {
           <DiffRow key={j} line={line} />
         ))}
       </div>
+    ),
+  );
+}
+
+// One reference row: each run of names with files is one file card, in order,
+// and a name with no file is its own line. A run shows a file once.
+function PlacedFiles<T extends AskReadFile>({
+  names,
+  files,
+  srcFor,
+  isMobile,
+}: {
+  names: string[];
+  files: readonly T[];
+  srcFor: (att: T) => string;
+  isMobile?: boolean;
+}) {
+  const runs: (T[] | string)[] = [];
+  for (const name of names) {
+    const file = matchAskFile(name, files);
+    const last = runs[runs.length - 1];
+    if (!file) runs.push(name);
+    else if (Array.isArray(last)) {
+      if (!last.includes(file)) last.push(file);
+    } else runs.push([file]);
+  }
+  return runs.map((run, i) =>
+    typeof run === "string" ? (
+      <div key={i} data-ask-file-name="">
+        {run}
+      </div>
+    ) : (
+      <FileViewCard
+        key={i}
+        attachments={run}
+        // srcFor serves every file, so the agent's files dir is not used.
+        agentId=""
+        isMobile={isMobile}
+        srcFor={srcFor}
+      />
     ),
   );
 }

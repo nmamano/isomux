@@ -19,7 +19,8 @@
 // a typed note after it (sendOption). The field starts with the option the
 // agent recommends (marked on its button), empty for options without one, and
 // with the catalog's "done" for an ask without options. An ask's files, editor files and commands are the
-// chat's own cards, in that order; their buttons open this agent's panel
+// chat's own cards, in that order, except that a file a reference line of the
+// prompt names shows there (ui/log-view/ask-prompt-diff.ts); their buttons open this agent's panel
 // through the store, as in chat (on the Inbox they also open the agent's
 // chat), and answer nothing.
 //
@@ -67,7 +68,7 @@ import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
-import type { AskMemberWire } from "../../shared/types.ts";
+import type { AskMemberWire, AskReadFile } from "../../shared/types.ts";
 import type {
   AskDismissReq,
   AskFileTaskReq,
@@ -75,6 +76,7 @@ import type {
   AskSimplifyReq,
 } from "../../shared/contract-shapes.ts";
 import { AskPrompt } from "./AskPrompt.tsx";
+import { unplacedAskFiles } from "./ask-prompt-diff.ts";
 import { noTranslate } from "../no-translate.ts";
 import { RecommendedStar } from "./recommended-star.tsx";
 import { SudoAskCard } from "./SudoAskCard.tsx";
@@ -195,6 +197,15 @@ export function AskCard({
   );
 }
 
+// Where an ask's read file is served from: a reference by the ask's own route,
+// a copy from the agent's files dir.
+function askFileSrc(entry: AskMemberWire) {
+  return (att: AskReadFile) =>
+    att.path
+      ? `/api/asks/${entry.id}/files/${att.filename}`
+      : `/api/files/${entry.agentId}/${att.filename}`;
+}
+
 // A path or command with no panel to send it to: the text only.
 function PlainAffordance({ text }: { text: string }) {
   return (
@@ -223,8 +234,12 @@ function AskAffordances({
 }) {
   const dispatch = useDispatch();
   const features = useFeatures();
-  const { agentId, readFiles, editFiles, commands } = entry;
-  if (!readFiles && !editFiles && !commands) return null;
+  const { agentId, editFiles, commands } = entry;
+  if (!entry.readFiles && !editFiles && !commands) return null;
+  // The prompt shows the files it places.
+  const readFiles = entry.readFiles
+    ? unplacedAskFiles(entry.prompt, entry.readFiles)
+    : [];
   const openInEditor = (path: string) => {
     dispatch({ type: "open_in_editor", agentId, path });
     onFocusAgent?.(agentId);
@@ -235,18 +250,12 @@ function AskAffordances({
   };
   return (
     <div style={{ marginTop: 4 }}>
-      {readFiles && (
+      {readFiles.length > 0 && (
         <FileViewCard
           attachments={readFiles}
           agentId={agentId}
           isMobile={isMobile}
-          // A reference is served by the ask's own route, a copy from the
-          // agent's files dir.
-          srcFor={(att) =>
-            att.path
-              ? `/api/asks/${entry.id}/files/${att.filename}`
-              : `/api/files/${agentId}/${att.filename}`
-          }
+          srcFor={askFileSrc(entry)}
         />
       )}
       {editFiles?.map((file, i) => (
@@ -371,11 +380,20 @@ function ReplyAskCard({
     if (inputRef.current) fitComposer(inputRef.current, isMobile);
   }, [reply, isMobile, held]);
 
-  // Show more only when the clamp cuts the prompt.
+  // Show more only when the clamp cuts the prompt. A file placed in the
+  // prompt has no height until it loads, so each load measures again.
   useLayoutEffect(() => {
     const el = promptRef.current;
     if (!el || expanded) return;
-    setClamped(el.scrollHeight > el.clientHeight + 1);
+    const measure = () => setClamped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // Load events do not bubble: listen in the capture phase.
+    el.addEventListener("load", measure, true);
+    el.addEventListener("loadedmetadata", measure, true);
+    return () => {
+      el.removeEventListener("load", measure, true);
+      el.removeEventListener("loadedmetadata", measure, true);
+    };
   }, [entry.prompt, expanded, promptLines]);
 
   const since = timeSince(language, entry.createdAt);
@@ -758,7 +776,12 @@ function ReplyAskCard({
                   }),
             }}
           >
-            <AskPrompt content={entry.prompt} />
+            <AskPrompt
+              content={entry.prompt}
+              files={entry.readFiles}
+              srcFor={askFileSrc(entry)}
+              isMobile={isMobile}
+            />
           </div>
           {(clamped || expanded) && (
             <button
@@ -856,7 +879,12 @@ function ReplyAskCard({
                 overflowWrap: "break-word",
               }}
             >
-              <AskPrompt content={entry.originalPrompt} />
+              <AskPrompt
+                content={entry.originalPrompt}
+                files={entry.readFiles}
+                srcFor={askFileSrc(entry)}
+                isMobile={isMobile}
+              />
             </div>
           )}
         </div>

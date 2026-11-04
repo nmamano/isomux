@@ -4,7 +4,7 @@
 // literal text it was.
 import { describe, expect, it } from "bun:test";
 import {
-  splitPromptDiffs,
+  splitAskPrompt,
   WORD_DIFF_MAX_CHARS,
   type DiffLine,
   type DiffWord,
@@ -29,21 +29,21 @@ const bare = (lines: DiffLine[]) =>
   lines.map(({ kind, text }) => ({ kind, text }));
 
 function diffLines(segments: PromptSegment[]): DiffLine[] {
-  const diffs = segments.filter((s) => s.kind === "diff");
+  const diffs = segments.flatMap((s) => (s.kind === "diff" ? [s.lines] : []));
   expect(diffs).toHaveLength(1);
-  return diffs[0].lines;
+  return diffs[0];
 }
 
-describe("splitPromptDiffs", () => {
+describe("splitAskPrompt", () => {
   it("keeps a prompt with no block as one text segment, byte for byte", () => {
     const prompt = "Ship `t-1`?\n\n- one\n+ two\n";
-    expect(splitPromptDiffs(prompt)).toStrictEqual([
+    expect(splitAskPrompt(prompt)).toStrictEqual([
       { kind: "text", text: prompt },
     ]);
   });
 
   it("splits a block out of the text, and the newlines next to the fences belong to the block", () => {
-    const segments = splitPromptDiffs(
+    const segments = splitAskPrompt(
       "Copy change in **Asks**:\n```diff\nAsk card > link:\n- Show original\n+ Show the first version\n```\nApprove?",
     );
     expect(segments.map((s) => s.kind)).toEqual(["text", "diff", "text"]);
@@ -60,24 +60,30 @@ describe("splitPromptDiffs", () => {
   });
 
   it("draws a block at the very start or end with no empty text segment", () => {
-    const segments = splitPromptDiffs("```diff\n- a\n+ b\n```");
+    const segments = splitAskPrompt("```diff\n- a\n+ b\n```");
     expect(segments.map((s) => s.kind)).toEqual(["diff"]);
   });
 
   it("keeps two blocks and the text between them in order", () => {
-    const segments = splitPromptDiffs(
+    const segments = splitAskPrompt(
       "One:\n```diff\n- a\n```\nTwo:\n```diff\n+ b\n```\nEnd.",
     );
     expect(
       segments.map((s) =>
-        s.kind === "text" ? s.text : bare(s.lines).map((l) => l.kind),
+        s.kind === "diff" ? bare(s.lines).map((l) => l.kind) : s,
       ),
-    ).toStrictEqual(["One:", ["removed"], "Two:", ["added"], "End."]);
+    ).toStrictEqual([
+      { kind: "text", text: "One:" },
+      ["removed"],
+      { kind: "text", text: "Two:" },
+      ["added"],
+      { kind: "text", text: "End." },
+    ]);
   });
 
   it("drops one space after a marker, keeps the rest, and keeps a context line verbatim", () => {
     const lines = diffLines(
-      splitPromptDiffs(
+      splitAskPrompt(
         [
           "```diff",
           "-tight",
@@ -106,7 +112,7 @@ describe("splitPromptDiffs", () => {
   });
 
   it("reads CRLF lines and fences with trailing blanks", () => {
-    const segments = splitPromptDiffs(
+    const segments = splitAskPrompt(
       "Before\r\n```diff \t\r\n- old\r\n+ new\r\n```\t\r\nAfter",
     );
     expect(segments.map((s) => s.kind)).toEqual(["text", "diff", "text"]);
@@ -128,15 +134,15 @@ describe("splitPromptDiffs", () => {
     ["a fence inside a line", "Look: ```diff\n- a\n+ b\n```\n"],
     ["an empty block", "Look:\n```diff\n```\nEnd."],
   ])("keeps %s as literal text", (_name, prompt) => {
-    expect(splitPromptDiffs(prompt)).toStrictEqual([
+    expect(splitAskPrompt(prompt)).toStrictEqual([
       { kind: "text", text: prompt },
     ]);
   });
 
   it("closes a block at its first close fence and reads two blocks back to back", () => {
-    const segments = splitPromptDiffs("```diff\n- a\n```\n```diff\n+ b\n```");
+    const segments = splitAskPrompt("```diff\n- a\n```\n```diff\n+ b\n```");
     expect(
-      segments.map((s) => (s.kind === "text" ? s.text : bare(s.lines))),
+      segments.map((s) => (s.kind === "diff" ? bare(s.lines) : s)),
     ).toStrictEqual([
       [{ kind: "removed", text: "a" }],
       [{ kind: "added", text: "b" }],
@@ -147,7 +153,7 @@ describe("splitPromptDiffs", () => {
 describe("word marks", () => {
   it("marks the changed words of a removed line and the added line after it", () => {
     const [removed, added] = diffLines(
-      splitPromptDiffs(
+      splitAskPrompt(
         "```diff\n- Keep the old copy here\n+ Keep the new copy here\n```",
       ),
     );
@@ -165,7 +171,7 @@ describe("word marks", () => {
 
   it("marks a changed phrase as one run: the blank between two changed words is marked, a blank at its edge is not", () => {
     const [removed, added] = diffLines(
-      splitPromptDiffs(
+      splitAskPrompt(
         "```diff\n- A simpler version is on its way.\n+ The agent is rewriting this ask in plain words.\n```",
       ),
     );
@@ -182,7 +188,7 @@ describe("word marks", () => {
 
   it("pairs line i of a removed run with line i of the added run after it", () => {
     const lines = diffLines(
-      splitPromptDiffs(
+      splitAskPrompt(
         "```diff\nWhere:\n- Save now\n- Close tab\n+ Save later\n+ Close panel\n```",
       ),
     );
@@ -205,7 +211,7 @@ describe("word marks", () => {
     ["a removed line alone", "- a b"],
     ["an added line alone", "+ a x"],
   ])("gives no word marks to %s", (_name, body) => {
-    const lines = diffLines(splitPromptDiffs("```diff\n" + body + "\n```"));
+    const lines = diffLines(splitAskPrompt("```diff\n" + body + "\n```"));
     expect(lines.length).toBeGreaterThan(0);
     for (const l of lines) expect(l.words).toBeUndefined();
   });
@@ -227,10 +233,10 @@ describe("word marks", () => {
     const over = Math.ceil(WORD_DIFF_MAX_CHARS / 2) + 20;
     // The limit must be reachable from a real ask, under the prompt cap.
     expect(pair(over).length).toBeLessThanOrEqual(ASK_PROMPT_MAX);
-    const [r1, a1] = diffLines(splitPromptDiffs(pair(under)));
+    const [r1, a1] = diffLines(splitAskPrompt(pair(under)));
     expect(r1.words).toBeDefined();
     expect(a1.words).toBeDefined();
-    const [r2, a2] = diffLines(splitPromptDiffs(pair(over)));
+    const [r2, a2] = diffLines(splitAskPrompt(pair(over)));
     expect(bare([r2, a2]).map((l) => l.kind)).toEqual(["removed", "added"]);
     expect(r2.words).toBeUndefined();
     expect(a2.words).toBeUndefined();
