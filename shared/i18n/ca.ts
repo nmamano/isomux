@@ -2538,6 +2538,7 @@ Coses que pots fer per ell:
   "contextMenu.moveToFrontFull": "Mou al davant (ple)",
   "app.reconnecting": "S'està reconnectant…",
   "app.uiBuild.outOfDate": "Aquesta pàgina no està actualitzada",
+  "app.uiBuild.ids": "Aquesta pàgina {own} · servidor {server}",
   "themes.dark": "Fosc",
   "themes.light": "Clar",
   "themes.nord": "Nord",

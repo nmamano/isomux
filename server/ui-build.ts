@@ -1,6 +1,7 @@
 // The UI build id: a hash of the built bundle that scripts/build.sh stamps into
-// the isomux-ui-build meta of ui/dist/index.html. The server tells tabs which
-// build it serves (full_state, and a ui_build broadcast when a build:ui lands
+// the isomux-ui-build meta of ui/dist/index.html, which the server reads, and
+// into index.js, which the tab reads (ui/ui-build.ts). The server tells tabs
+// which build it serves (full_state, and a ui_build broadcast when a build:ui lands
 // with no restart), and a tab running an older build shows a Reload notice
 // (ui/components/UiBuildNotice.tsx).
 //
@@ -9,7 +10,7 @@
 // every open tab to reload.
 
 import { createHash } from "node:crypto";
-import { readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerMessage } from "../shared/types.ts";
 
@@ -32,22 +33,39 @@ function readUiBuild(distDir: string): string | null {
 
 // Called by scripts/build.sh on the stage dir, before scripts/publish-ui-dist.ts
 // renames its files into ui/dist (index.html last). Hashes stageDir's index.js
-// and its index.html (which still holds the placeholder meta) and puts the id
-// in that meta. Returns the id. index.js names its chunks by their hashes, so
-// its hash also covers them.
+// and its index.html (both still hold the placeholder), then puts the id in
+// the page's meta, where the server reads it, and in every placeholder of
+// index.js, where the running tab reads it (ui/ui-build.ts). Returns the id.
+// index.js names its chunks by their hashes, so its hash also covers them.
+// Every check runs before the first write, so a refused stage stays as it was.
 export function stampUiBuild(stageDir: string): string {
   const htmlPath = join(stageDir, "index.html");
+  const jsPath = join(stageDir, "index.js");
   const html = readFileSync(htmlPath, "utf8");
+  const js = readFileSync(jsPath, "utf8");
   // A page with no placeholder is stamped already: a new id for it would
   // never match the id the page carries, and the notice would never clear.
   if (!html.includes(PLACEHOLDER))
     throw new Error(`${htmlPath} has no ${PLACEHOLDER} placeholder`);
+  // Without one, the running code would never know its build.
+  if (!js.includes(PLACEHOLDER))
+    throw new Error(`${jsPath} has no ${PLACEHOLDER} placeholder`);
+  // Chunks are cached for a year under their hashed names: a stamp would
+  // change their bytes under the same name.
+  for (const name of readdirSync(stageDir)) {
+    if (name === "index.js" || !name.endsWith(".js")) continue;
+    if (readFileSync(join(stageDir, name), "utf8").includes(PLACEHOLDER))
+      throw new Error(
+        `${join(stageDir, name)} holds ${PLACEHOLDER}; only index.js may`,
+      );
+  }
   const id = createHash("sha256")
-    .update(readFileSync(join(stageDir, "index.js")))
+    .update(js)
     .update("\0")
     .update(html)
     .digest("hex")
     .slice(0, 16);
+  writeFileSync(jsPath, js.replaceAll(PLACEHOLDER, id));
   writeFileSync(htmlPath, html.replace(PLACEHOLDER, id));
   return id;
 }

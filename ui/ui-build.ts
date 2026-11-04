@@ -1,15 +1,16 @@
 // Which UI build this tab runs, and when to tell the member that the server
 // serves a newer one (server/ui-build.ts).
 
-const PLACEHOLDER = "__ISOMUX_UI_BUILD__";
+// scripts/build.sh replaces this placeholder in index.js with the build id.
+// The id comes from the running code, not from the page's meta: a restored tab
+// can pair an old cached page with the current index.js.
+const BUILD = "__ISOMUX_UI_BUILD__";
 
-// This page's build id, from the meta scripts/build.sh fills in. null when the
-// meta is missing or still holds the placeholder.
+// This tab's build id. null in a bundle that was never stamped (dev, tests,
+// the demo). Checked by its shape, never against the placeholder: the
+// minifier would fold that compare, and the stamp would replace both sides.
 export function ownUiBuild(): string | null {
-  const content = document
-    .querySelector('meta[name="isomux-ui-build"]')
-    ?.getAttribute("content");
-  return content && content !== PLACEHOLDER ? content : null;
+  return /^[0-9a-f]{16}$/.test(BUILD) ? BUILD : null;
 }
 
 // Derived, never latched: when the server serves this tab's build again, the

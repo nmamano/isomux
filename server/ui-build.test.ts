@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   mkdtempSync,
   readdirSync,
@@ -99,51 +99,132 @@ describe("the id the server reads", () => {
 });
 
 describe("stampUiBuild", () => {
-  function stage(js: string, html = PLACEHOLDER_HTML): string {
+  // A bundle as Bun writes it: the placeholder sits wherever ui/ui-build.ts's
+  // constant ended up, possibly inlined at more than one use.
+  const BUNDLE = `var a="${PLACEHOLDER}";console.log(a,"${PLACEHOLDER}");`;
+  function stage(
+    js: string,
+    html = PLACEHOLDER_HTML,
+    extra: Record<string, string> = {},
+  ): string {
     const dir = distDir();
     writeFileSync(join(dir, "index.js"), js);
     writeFileSync(join(dir, "index.html"), html);
+    for (const [name, body] of Object.entries(extra))
+      writeFileSync(join(dir, name), body);
     return dir;
   }
+  const read = (dir: string, name: string) =>
+    readFileSync(join(dir, name), "utf8");
   const metaOf = (dir: string) =>
     /<meta name="isomux-ui-build" content="([^"]*)"/.exec(
-      readFileSync(join(dir, "index.html"), "utf8"),
+      read(dir, "index.html"),
     )?.[1];
+  const snapshot = (dir: string) =>
+    Object.fromEntries(
+      readdirSync(dir)
+        .sort()
+        .map((name) => [name, read(dir, name)]),
+    );
 
-  it("puts the id in the page meta, where the server reads it", () => {
-    const dir = stage("console.log(1);");
+  it("puts the same id in the page meta and in the bundle", () => {
+    const dir = stage(BUNDLE);
     const id = stampUiBuild(dir);
     expect(id).toMatch(/^[0-9a-f]{16}$/);
     expect(metaOf(dir)).toBe(id);
     expect(servedId(dir)).toBe(id);
-    // The page is the only carrier: no other file is added to the stage,
-    // where the publish would take it into ui/dist.
+    // Every placeholder in the bundle, and nothing else in it.
+    expect(read(dir, "index.js")).toBe(BUNDLE.replaceAll(PLACEHOLDER, id));
+    // No other file is added to the stage, where the publish would take it
+    // into ui/dist.
     expect(readdirSync(dir).sort()).toEqual(["index.html", "index.js"]);
   });
 
   // A second stamp finds no placeholder. A new id for a page that carries the
   // old one would never match it, and the notice would never clear.
-  it("refuses a page that is already stamped, and keeps the first id", () => {
-    const dir = stage("console.log(1);");
+  it("refuses a stage that is already stamped, and keeps the first id", () => {
+    const dir = stage(BUNDLE);
     const id = stampUiBuild(dir);
+    const stamped = snapshot(dir);
     expect(() => stampUiBuild(dir)).toThrow();
+    expect(snapshot(dir)).toEqual(stamped);
     expect(metaOf(dir)).toBe(id);
-    expect(servedId(dir)).toBe(id);
   });
 
-  it("the id depends only on the bundle and the page", () => {
-    const same1 = stampUiBuild(stage("console.log(1);"));
-    const same2 = stampUiBuild(stage("console.log(1);"));
-    const otherJs = stampUiBuild(stage("console.log(2);"));
+  it.each([
+    // The running code would never know its build: no notice, ever.
+    ["a bundle with no placeholder", "console.log(1);", {}],
+    // Chunks are cached for a year under their hashed names: new bytes under
+    // the same name would reach no tab that has the old ones.
+    [
+      "a placeholder in a chunk",
+      BUNDLE,
+      { "chunk-0a1b2c3d.js": `export var b="${PLACEHOLDER}";` },
+    ],
+  ])("refuses %s, and leaves the stage as it was", (_label, js, extra) => {
+    const dir = stage(js, PLACEHOLDER_HTML, extra);
+    const before = snapshot(dir);
+    expect(() => stampUiBuild(dir)).toThrow();
+    expect(snapshot(dir)).toEqual(before);
+  });
+
+  // A rebuild that changes nothing must not tell open tabs to reload.
+  it("the id depends only on the unstamped bundle and page", () => {
+    const same1 = stampUiBuild(stage(BUNDLE));
+    const same2 = stampUiBuild(stage(BUNDLE));
+    const otherJs = stampUiBuild(stage(BUNDLE + "console.log(2);"));
     const otherHtml = stampUiBuild(
-      stage(
-        "console.log(1);",
-        PLACEHOLDER_HTML.replace("</body>", "<p></p></body>"),
-      ),
+      stage(BUNDLE, PLACEHOLDER_HTML.replace("</body>", "<p></p></body>")),
     );
     expect(same2).toBe(same1);
     expect(otherJs).not.toBe(same1);
     expect(otherHtml).not.toBe(same1);
+  });
+
+  // The tab's id comes from the code it runs, never from the page: a
+  // restored tab can pair an old cached page with the current index.js.
+  // Built as scripts/build.sh builds it (minified), because a minifier can
+  // fold a compare against the placeholder before the stamp runs.
+  describe("the id the running bundle reports", () => {
+    const PAGE_ID = "aaaaaaaaaaaaaaaa";
+    let realDocument: unknown;
+    beforeEach(() => {
+      realDocument = (globalThis as { document?: unknown }).document;
+      // A page whose meta holds some other build.
+      (globalThis as { document?: unknown }).document = {
+        querySelector: () => ({ getAttribute: () => PAGE_ID }),
+      };
+    });
+    afterEach(() => {
+      (globalThis as { document?: unknown }).document = realDocument;
+    });
+
+    async function bundleStage(): Promise<string> {
+      const built = await Bun.build({
+        entrypoints: [join(import.meta.dir, "..", "ui", "ui-build.ts")],
+        minify: true,
+        target: "browser",
+      });
+      expect(built.success).toBe(true);
+      return stage(await built.outputs[0]!.text());
+    }
+    const ownOf = async (dir: string) =>
+      (
+        (await import(join(dir, "index.js"))) as {
+          ownUiBuild: () => string | null;
+        }
+      ).ownUiBuild();
+
+    it("is the stamped id", async () => {
+      const dir = await bundleStage();
+      const id = stampUiBuild(dir);
+      expect(id).not.toBe(PAGE_ID);
+      expect(await ownOf(dir)).toBe(id);
+    });
+
+    it("is unknown in a bundle that was never stamped", async () => {
+      expect(await ownOf(await bundleStage())).toBeNull();
+    });
   });
 });
 

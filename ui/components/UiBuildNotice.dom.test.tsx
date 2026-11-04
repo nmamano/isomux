@@ -7,6 +7,7 @@ const { act, fireEvent, render } = await import("@testing-library/react");
 const { StateCtx, DispatchCtx, initialState, reducer } =
   await import("../store.tsx");
 const browser = await import("../reload-browser.ts");
+const build = await import("../ui-build.ts");
 const { UiBuildNotice } = await import("./UiBuildNotice.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
 
@@ -17,7 +18,8 @@ const OWN = "0123456789abcdef";
 const NEW = "fedcba9876543210";
 const NEWER = "00000000ffffffff";
 
-// The meta scripts/build.sh fills in; ui/index.html ships the placeholder.
+// The page's build meta. The tab's own id must not come from it: a restored
+// tab can pair an old cached page with the current index.js.
 function setMeta(content: string | null): void {
   document.head
     .querySelectorAll('meta[name="isomux-ui-build"]')
@@ -44,16 +46,25 @@ function fullState(uiBuild?: string): Action {
 
 let reload: ReturnType<typeof spyOn<typeof browser, "reloadBrowser">> | null =
   null;
+let ownSpy: ReturnType<typeof spyOn<typeof build, "ownUiBuild">> | null = null;
 afterEach(() => {
   reload?.mockRestore();
   reload = null;
+  ownSpy?.mockRestore();
+  ownSpy = null;
   setMeta(null);
 });
 
 // Renders the notice over a live reducer: server messages and the notice's
-// own buttons both go through it.
-function show(own: string | null) {
-  setMeta(own);
+// own buttons both go through it. own is the id the running bundle reports
+// (ui/ui-build.ts ownUiBuild); "unstamped" keeps the real, unstamped module.
+function show(own: string | null | "unstamped") {
+  // A test that renders several times spies afresh each time.
+  ownSpy?.mockRestore();
+  ownSpy = null;
+  reload?.mockRestore();
+  if (own !== "unstamped")
+    ownSpy = spyOn(build, "ownUiBuild").mockImplementation(() => own);
   reload = spyOn(browser, "reloadBrowser").mockImplementation(() => {});
   let state: typeof initialState = { ...initialState, connected: true };
   const tree = () => (
@@ -109,10 +120,33 @@ describe("new UI build notice", () => {
     expect(noOwn.reloadButton()).toBeNull();
     noOwn.view.unmount();
 
-    // A page served unbuilt still holds ui/index.html's placeholder.
-    const placeholder = show("__ISOMUX_UI_BUILD__");
-    placeholder.send(fullState(NEW));
-    expect(placeholder.reloadButton()).toBeNull();
+    // A bundle that was never stamped, as in tests and dev.
+    const unstamped = show("unstamped");
+    unstamped.send(fullState(NEW));
+    expect(unstamped.reloadButton()).toBeNull();
+  });
+
+  // The restored-tab case: an old cached page with its old meta runs the
+  // current index.js. The meta must not decide what the tab runs.
+  it("takes this tab's build from the running code, never the page meta", () => {
+    setMeta(OWN);
+    const unstamped = show("unstamped");
+    unstamped.send(fullState(NEW));
+    expect(unstamped.reloadButton()).toBeNull();
+  });
+
+  it("names both builds by their short ids", () => {
+    const { view, send } = show(OWN);
+    send(fullState(NEW));
+    const text = view.getByRole("status").textContent ?? "";
+    expect(text).toContain(OWN.slice(0, 7));
+    expect(text).toContain(NEW.slice(0, 7));
+    expect(text).not.toContain(OWN.slice(0, 8));
+    expect(text).not.toContain(NEW.slice(0, 8));
+    // This tab's id comes first, as in "this page ... server ...".
+    expect(text.indexOf(OWN.slice(0, 7))).toBeLessThan(
+      text.indexOf(NEW.slice(0, 7)),
+    );
   });
 
   it("follows a build that lands with no reconnect, both ways", () => {

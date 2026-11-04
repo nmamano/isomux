@@ -13,7 +13,12 @@ export function UiBuildNotice(): React.ReactElement | null {
   const { serverUiBuild, uiBuildDismissed, connected } = useAppState();
   const dispatch = useDispatch();
   const { t } = useI18n();
-  if (!showUiBuildNotice(ownUiBuild(), serverUiBuild, uiBuildDismissed))
+  const own = ownUiBuild();
+  if (
+    !showUiBuildNotice(own, serverUiBuild, uiBuildDismissed) ||
+    !own ||
+    !serverUiBuild
+  )
     return null;
 
   return (
@@ -41,7 +46,21 @@ export function UiBuildNotice(): React.ReactElement | null {
         animation: "fadeIn 0.2s ease",
       }}
     >
-      <span style={{ whiteSpace: "nowrap" }}>{t("app.uiBuild.outOfDate")}</span>
+      <span
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {t("app.uiBuild.outOfDate")}
+        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+          {t("app.uiBuild.ids", {
+            own: own.slice(0, 7),
+            server: serverUiBuild.slice(0, 7),
+          })}
+        </span>
+      </span>
       <button
         onClick={() => reloadBrowser()}
         style={{
