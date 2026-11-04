@@ -28,7 +28,8 @@
 //
 // WHAT IS REAL: the database (a scratch one in the local container), the rows
 // (written through the same `accountForDevSignIn` + `reserveOffice` path signup
-// uses), the server (built and started by this file, under the runtime named on
+// uses; the first office is paid with a subscription row written by the Stripe
+// webhook's own writer, with no Stripe call), the server (built and started by this file, under the runtime named on
 // the command line), the pages, the API route, the operator grant, and Chrome.
 //
 // WHAT IS NOT DRIVEN, and deliberately: the sign-in CEREMONY. Measured
@@ -57,6 +58,7 @@ import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { setOperator } from "../../operator-admin.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { Store } from "../../store.ts";
+import { insertSubscription } from "../../stripe/billing-store.ts";
 import { databaseUrl } from "../../config.ts";
 import { LOCAL_DATABASE_URL } from "../../testing/pg.ts";
 import { assertScratchTarget } from "../../testing/target.ts";
@@ -231,6 +233,34 @@ async function main(): Promise<void> {
   });
   if (!reserved.ok) throw new Error(`could not seed: ${reserved.reason}`);
   const instanceId = reserved.reservation.instance_id;
+  // Signup refuses a second office while the first is unpaid, so the first is
+  // paid the way the Stripe webhook records it: a subscription row, no Stripe.
+  await store.tx(async () =>
+    insertSubscription(store, {
+      id: `sub-p3prod-${stamp}`,
+      account_id: owner.id,
+      instance_id: instanceId,
+      stripe_customer_id: `cus-p3prod-${stamp}`,
+      status: "active",
+      current_period_end: null,
+      cancel_at_period_end: 0,
+      ended_at: null,
+      canceled_at: null,
+      cancellation_reason: null,
+      discount_percent_off: null,
+      discount_coupon_id: null,
+      discount_ends_at: null,
+      ever_full_discount: 0,
+      latest_invoice_id: null,
+      payment_failures: 0,
+      exhaustion_observed_at: null,
+      coupon_grace_until: null,
+      episode_id: null,
+      episode_state: "none",
+      last_event_id: null,
+      last_event_created: null,
+    }),
+  );
   const secondOfficeName = `${officeName}b`;
   const secondReserved = await reserveOffice(store, {
     accountId: owner.id,

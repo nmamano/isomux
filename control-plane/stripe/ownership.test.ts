@@ -140,6 +140,7 @@ describe("the subscription insert", () => {
       "stripe/reconcile.ts",
       "web-store-lifetime.test.ts",
       "web/e2e/lifecycle.e2e.ts",
+      "web/e2e/production-server.e2e.ts",
       "web/e2e/signup-flow.e2e.ts",
     ]);
   });

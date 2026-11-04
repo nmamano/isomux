@@ -2647,9 +2647,10 @@ returned, and `handoff-local.e2e.ts` pins it.
 ### The production-server transcript, and the one thing it does not drive
 
 `e2e/production-server.e2e.ts` is the evidence behind the matrix above. It
-builds and starts the app under the runtime named on its command line, seeds an
-office through the product's own `accountForDevSignIn` + `reserveOffice` path,
-and drives a real Chrome against it: the signed-out redirect, the dashboard
+builds and starts the app under the runtime named on its command line, seeds two
+offices through the product's own `accountForDevSignIn` + `reserveOffice` path
+(the first paid with a subscription row through the Stripe webhook's writer, no
+Stripe call), and drives a real Chrome against it: the signed-out redirect, the dashboard
 showing THAT office's hostname and the ladder derived from its goal, the polled
 `/api/progress/<id>` route, a second signed-in account refused the same office,
 an internal instance-id route returning 404 for both the owner and a second
