@@ -135,10 +135,13 @@ async function officeMcp(req: Request): Promise<Response> {
   }
 }
 
+// As the office server: the session installs the safety hook from it.
+// Prepare while this module loads: the hook build and the trust probe take
+// several seconds, and Bun's 5 s hook cap must not compete with them.
+if (LIVE) await prepareCodexSafetyHookArtifact();
+
 beforeAll(async () => {
   if (!LIVE) return;
-  // As the office server: the session installs the safety hook from it.
-  await prepareCodexSafetyHookArtifact();
   root = mkdtempSync(join(tmpdir(), "codex-access-live-"));
   home = join(root, "codex-home");
   stdioMarker = join(root, "planted-stdio-started");
