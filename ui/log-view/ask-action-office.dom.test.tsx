@@ -1,9 +1,10 @@
 // Action asks, part 5 (task e3d1bc63): the cards of a member's removal,
 // restore and delete for good, the office update, and the storage prune and
-// compress. One rule picks the clicks: an Apply that loses data for good asks
-// again before it runs (remove, purge, and prune after its preview); the
-// others run on the first click. The other kinds' cards are in
-// ask-action.dom.test.tsx; this file keeps that one under the DOM time cap.
+// compress. One rule picks the clicks for every kind: the card has no Undo,
+// so a destructive Apply asks again before it runs (a prune after its
+// preview); the others run on the first click. The other kinds'
+// cards are in ask-action.dom.test.tsx; this file keeps that one under the
+// DOM time cap.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -16,6 +17,7 @@ const { StoreProvider, useDispatch } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
+const { en } = await import("../../shared/i18n/en.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 
 const NOW = Date.now();
@@ -58,14 +60,19 @@ beforeEach(() => {
 });
 afterAll(() => setApiShim(null));
 
-// Morgan (u1, the member the asks are for) is an office owner; Casey (u2) is
-// the asking agent's manager.
-const member = (id: string, name: string, role: "owner" | "member") =>
+// Morgan (u1, the member the asks are for) and Dana (u3) are office owners;
+// Casey (u2) is the asking agent's manager, in Studio.
+const member = (
+  id: string,
+  name: string,
+  role: "owner" | "member",
+  allowedRooms: string[] = [],
+) =>
   ({
     id,
     name,
     role,
-    allowedRooms: [],
+    allowedRooms,
     notifRooms: [],
     pushRooms: [],
     hidden: [],
@@ -79,9 +86,13 @@ const member = (id: string, name: string, role: "owner" | "member") =>
   }) as never;
 const MEMBERS = [
   member("u1", "Morgan", "owner"),
-  member("u2", "Casey", "member"),
+  member("u2", "Casey", "member", ["r1"]),
+  member("u3", "Dana", "owner"),
 ];
-const ROOMS = [{ id: "r1", name: "Studio" }] as never[];
+const ROOMS = [
+  { id: "r1", name: "Studio" },
+  { id: "r2", name: "Garden" },
+] as never[];
 
 let seeded: ReturnType<typeof useDispatch> = () => {};
 function Seed({
@@ -139,7 +150,6 @@ const results = (view: { container: HTMLElement }) =>
   [...view.container.querySelectorAll<HTMLElement>("[data-ask-result]")].map(
     (el) => el.dataset.askResult,
   );
-// prune after its preview); the others run on the first click.
 const REMOVED = {
   members: [
     {
@@ -183,29 +193,77 @@ const PREVIEW = {
 const isConfirm = (button: HTMLButtonElement | null) =>
   !!button && button.hasAttribute("data-ask-action-confirm");
 
-it.each([
-  ["member-remove", { kind: "member-remove", userId: "u2" }],
-  ["member-purge", { kind: "member-purge", userId: "u4" }],
-] as const)(
-  "a %s Apply asks again: the first click runs nothing, the second posts the run once",
-  async (_kind, step) => {
-    read = readRemoved;
-    const { view, apply } = await mount([memberAsk("del00001", step)]);
-    await waitFor(() => expect(apply("del00001")).not.toBe(null));
-    expect(isConfirm(apply("del00001"))).toBe(false);
+// Every destructive kind asks again (Nil's UI rule in AGENTS.md,
+// 2026-11-05). Each pair is the ask id and its step; the prune is apart, as
+// its first click is a preview.
+const ASKS_AGAIN = [
+  ["con00001", { kind: "member-remove", userId: "u2" }],
+  ["con00002", { kind: "member-purge", userId: "u4" }],
+  ["con00003", { kind: "member-sessions", userId: "u2" }],
+  ["con00004", { kind: "sign-in-links-revoke", userId: "u2" }],
+  [
+    "con00005",
+    { kind: "api-token-revoke", tokenId: "aaaa000000000001", userId: "u1" },
+  ],
+  // A restart: it cuts every turn in flight, and no way goes back.
+  ["con00006", { kind: "office-update", tag: "v2026.11.2" }],
+  // Casey out of Studio.
+  [
+    "con00007",
+    { kind: "member-room", userId: "u2", roomId: "r1", grant: false },
+  ],
+  // Dana, an owner, made a member.
+  ["con00008", { kind: "member-role", userId: "u3", role: "member" }],
+] as const;
+// The other side of the same kinds: a grant and a promote take nothing away.
+const ONE_CLICK = [
+  // Casey into Garden.
+  [
+    "one00001",
+    { kind: "member-room", userId: "u2", roomId: "r2", grant: true },
+  ],
+  // Casey made an owner.
+  ["one00002", { kind: "member-role", userId: "u2", role: "owner" }],
+] as const;
+// The card of each step, in one mount: the DOM time cap.
+const mountSteps = (steps: readonly (readonly [string, object])[]) =>
+  mount(steps.map(([id, step]) => memberAsk(id, { ...step })));
+
+it("an Apply that destroys something asks again: the first click runs nothing, the second posts the run once", async () => {
+  read = readRemoved;
+  const { view, apply } = await mountSteps(ASKS_AGAIN);
+  for (const [id] of ASKS_AGAIN) {
+    await waitFor(() => expect(apply(id), id).not.toBe(null));
+    expect([id, isConfirm(apply(id))]).toEqual([id, false]);
+    posts = [];
     await act(async () => {
-      fireEvent.click(apply("del00001")!);
-    });
-    expect(posts).toEqual([]);
-    expect(isConfirm(apply("del00001"))).toBe(true);
-    await act(async () => {
-      fireEvent.click(apply("del00001")!);
+      fireEvent.click(apply(id)!);
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(posts).toEqual(["/api/asks/del00001/action"]);
-    view.unmount();
-  },
-);
+    expect(posts, `${id} first click`).toEqual([]);
+    expect([id, isConfirm(apply(id))]).toEqual([id, true]);
+    await act(async () => {
+      fireEvent.click(apply(id)!);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(posts, `${id} second click`).toEqual([`/api/asks/${id}/action`]);
+  }
+  view.unmount();
+});
+
+it("a room grant and a promote run on the first click", async () => {
+  const { view, apply } = await mountSteps(ONE_CLICK);
+  for (const [id] of ONE_CLICK) {
+    expect(apply(id), id).not.toBe(null);
+    posts = [];
+    await act(async () => {
+      fireEvent.click(apply(id)!);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(posts, id).toEqual([`/api/asks/${id}/action`]);
+  }
+  view.unmount();
+});
 
 // As on the page: the second click must follow the first, so a click that
 // lands later, after the member moved on, runs nothing for good. The confirm
@@ -213,40 +271,42 @@ it.each([
 // and a prune's button is disabled during its preview, which drops the focus
 // with no blur (Chrome, seen with a real mouse). Without the focus, no blur
 // ever ends the confirm.
-it.each([
-  ["member-remove", { kind: "member-remove", userId: "u2" }],
-  ["member-purge", { kind: "member-purge", userId: "u4" }],
-  ["storage-prune", PRUNE_STEP],
-] as const)(
-  "a %s confirm takes the focus and ends when the Apply button loses it: the next click asks again and runs nothing",
-  async (_kind, step) => {
-    read = readRemoved;
-    answer = async () => PREVIEW;
-    const { view, apply } = await mount([memberAsk("del00007", step)]);
-    await waitFor(() => expect(apply("del00007")).not.toBe(null));
+it("each confirm takes the focus and ends when the Apply button loses it: the next click asks again and runs nothing", async () => {
+  read = readRemoved;
+  answer = async () => PREVIEW;
+  const steps = [...ASKS_AGAIN, ["con00009", PRUNE_STEP]] as const;
+  const { view, apply } = await mountSteps(steps);
+  for (const [id] of steps) {
+    await waitFor(() => expect(apply(id), id).not.toBe(null));
     await act(async () => {
-      fireEvent.click(apply("del00007")!);
+      fireEvent.click(apply(id)!);
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(isConfirm(apply("del00007"))).toBe(true);
+    expect([id, isConfirm(apply(id))]).toEqual([id, true]);
     expect(
       document.activeElement?.closest("[data-ask]")?.getAttribute("data-ask"),
-    ).toBe("del00007");
-    expect(document.activeElement?.hasAttribute("data-ask-action-apply")).toBe(
-      true,
-    );
+      id,
+    ).toBe(id);
+    expect(
+      document.activeElement?.hasAttribute("data-ask-action-apply"),
+      id,
+    ).toBe(true);
     await act(async () => {
-      fireEvent.blur(apply("del00007")!);
+      fireEvent.blur(apply(id)!);
     });
-    expect(isConfirm(apply("del00007"))).toBe(false);
+    expect([id, isConfirm(apply(id))]).toEqual([id, false]);
     await act(async () => {
-      fireEvent.click(apply("del00007")!);
+      fireEvent.click(apply(id)!);
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(posts).not.toContain("/api/asks/del00007/action");
-    view.unmount();
-  },
-);
+    expect(posts, id).not.toContain(`/api/asks/${id}/action`);
+    // Leave the card idle for the next one.
+    await act(async () => {
+      fireEvent.blur(apply(id)!);
+    });
+  }
+  view.unmount();
+});
 
 it("a member-remove card of the member the ask is for says Apply removes them; another member's does not", async () => {
   const { view, block } = await mount([
@@ -382,7 +442,7 @@ it.each([
   },
 );
 
-it("an office-update card shows the release now and the one asked for; after the run starts the update it shows started and no Apply", async () => {
+it("an office-update card shows the release now and the one asked for; after the confirmed run starts the update it shows started and no Apply", async () => {
   read = (path) =>
     path === "/api/office/update"
       ? { managed: true, serviceKind: "user", busyAgents: 2 }
@@ -409,8 +469,49 @@ it("an office-update card shows the release now and the one asked for; after the
     fireEvent.click(apply("upd00001")!);
     await new Promise((r) => setTimeout(r, 0));
   });
+  // A restart asks again.
+  expect(posts).toEqual([]);
+  expect(isConfirm(apply("upd00001"))).toBe(true);
+  await act(async () => {
+    fireEvent.click(apply("upd00001")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
   expect(posts).toEqual(["/api/asks/upd00001/action"]);
   expect(block("upd00001")!.hasAttribute("data-ask-action-started")).toBe(true);
   expect(apply("upd00001")).toBe(null);
+  view.unmount();
+});
+
+// A sign-in link made for another member is sent to them, not to an invitee
+// (Nil, 2026-11-05): the hint under the URL names the member, the title does
+// not, and the box keeps the sign-in label. Here, not in
+// ask-action.dom.test.tsx, for the DOM time cap. Copy is matched by catalog
+// value, never by literal text.
+it("a sign-in link result for another member: the hint names them, the title does not, and the box has no invite wording", async () => {
+  const url = "https://office.example/i/RAWLINK9";
+  answer = async () => ({ url, invite: {} });
+  const { view, apply } = await mount([
+    memberAsk("sil00001", { kind: "sign-in-link", userId: "u2" }),
+  ]);
+  await act(async () => {
+    fireEvent.click(apply("sil00001")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts).toEqual(["/api/asks/sil00001/action"]);
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask-result="sil00001"]',
+  )!;
+  expect(card.textContent).toContain(url);
+  expect(card.hasAttribute("data-ask-result-for-self")).toBe(false);
+  const text = card.textContent ?? "";
+  expect(text).toContain(en["settings.access.signInUrl"]);
+  expect(text).not.toContain(en["settings.access.inviteUrl"]);
+  expect(text).not.toContain(en["settings.access.sendUrl"]);
+  // Casey, once in the card, and that once in the hint under the URL.
+  const hints = [...card.querySelectorAll("p")].filter((p) =>
+    p.textContent?.includes("Casey"),
+  );
+  expect(hints).toHaveLength(1);
+  expect(text.split("Casey").length - 1).toBe(1);
   view.unmount();
 });

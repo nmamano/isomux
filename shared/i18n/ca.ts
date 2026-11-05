@@ -2108,7 +2108,9 @@ Coses que pots fer per ell:
   "asks.action.notRemoved": "Aquest membre ja no és a Membres eliminats.",
   "asks.action.olderThanDays.one": "De més de {count} dia",
   "asks.action.olderThanDays.other": "De més de {count} dies",
-  "asks.result.signInLink": "Enllaç d'inici de sessió per a {member}",
+  "asks.result.signInLink": "Enllaç d'inici de sessió",
+  "asks.result.sendSignInLink":
+    "Envia'l a {member}. És d'un sol ús: obrir-lo al seu dispositiu hi inicia la sessió. La URL es mostra un cop - copia-la ara.",
   "asks.result.apiToken": "Token d'API {name}",
   "asks.result.commandRun": "Executat des de la petició",
   "asks.viewInInbox": "Mostra a la safata d'entrada",

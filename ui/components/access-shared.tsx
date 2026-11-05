@@ -193,24 +193,37 @@ export function MintedSecretBox({
 }
 
 // A freshly-minted sign-in URL. `forSelf` marks a link for the member's own
-// device: no invitee to send it to.
+// device: no invitee to send it to. `sendTo` marks a link for an existing
+// member (an ask's result), who is not an invitee: the hint names them, or
+// says only that the URL shows once when their name is unknown.
 export function MintedUrlBox({
   url,
   forSelf = false,
+  sendTo,
 }: {
   url: string;
   forSelf?: boolean;
+  sendTo?: string;
 }) {
   const { t } = useI18n();
+  const member = !forSelf && sendTo !== undefined;
   return (
     <MintedSecretBox
       value={url}
       label={t(
-        forSelf ? "settings.access.signInUrl" : "settings.access.inviteUrl",
+        forSelf || member
+          ? "settings.access.signInUrl"
+          : "settings.access.inviteUrl",
       )}
-      hint={t(
-        forSelf ? "settings.access.openUrlSelf" : "settings.access.sendUrl",
-      )}
+      hint={
+        member && sendTo
+          ? t("asks.result.sendSignInLink", { member: sendTo })
+          : t(
+              forSelf || member
+                ? "settings.access.openUrlSelf"
+                : "settings.access.sendUrl",
+            )
+      }
       blocked={t("settings.access.clipboardBlocked")}
       copyTitle={t("settings.access.copyUrl")}
     />

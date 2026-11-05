@@ -255,15 +255,22 @@ export function AskActionBlock({
   );
   // A prune's dry run, from its first click.
   const [preview, setPreview] = useState<PrunePlanWire | null>(null);
-  // One rule: an Apply that loses data for good asks again before it runs. A
-  // removal deletes the member's secret values and sign-ins at once, a delete
-  // for good and a prune delete for good; a prune's first click is its
-  // preview. The others run on the first click: the card already shows what
-  // they change.
+  // Nil's UI rule (AGENTS.md, 2026-11-05): a destructive Apply asks again
+  // before it runs, as the card has no Undo: a removal, a delete for good, a
+  // prune, a sign-out, a revoke, a room access taken away, an owner made a
+  // member, and an update (its restart cuts every turn, with no way back). A
+  // prune's first click is its preview. The others run on the first click:
+  // the card already shows what they change.
   const confirms =
     step.kind === "member-remove" ||
     step.kind === "member-purge" ||
-    step.kind === "storage-prune";
+    step.kind === "storage-prune" ||
+    step.kind === "member-sessions" ||
+    step.kind === "sign-in-links-revoke" ||
+    step.kind === "api-token-revoke" ||
+    step.kind === "office-update" ||
+    (step.kind === "member-room" && !step.grant) ||
+    (step.kind === "member-role" && step.role === "member");
   const [error, setError] = useState<string | null>(null);
   // One run at a time: a second click in the same frame still sees "idle".
   const running = useRef(false);

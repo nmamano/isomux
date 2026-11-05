@@ -2101,7 +2101,9 @@ Cosas que puedes hacer por él:
   "asks.action.notRemoved": "Este miembro ya no está en Miembros eliminados.",
   "asks.action.olderThanDays.one": "Con más de {count} día",
   "asks.action.olderThanDays.other": "Con más de {count} días",
-  "asks.result.signInLink": "Enlace de inicio de sesión para {member}",
+  "asks.result.signInLink": "Enlace de inicio de sesión",
+  "asks.result.sendSignInLink":
+    "Envíaselo a {member}. Es de un solo uso: al abrirlo en su dispositivo inicia sesión. La URL se muestra una vez - cópiala ahora.",
   "asks.result.apiToken": "Token de API {name}",
   "asks.result.commandRun": "Ejecutado desde la petición",
   "asks.viewInInbox": "Ver en la bandeja de entrada",

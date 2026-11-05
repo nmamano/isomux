@@ -1874,7 +1874,9 @@ App 的一些原则：
   "asks.action.notRemoved": "这位成员已不在已移除成员中。",
   "asks.action.olderThanDays.one": "超过 {count} 天",
   "asks.action.olderThanDays.other": "超过 {count} 天",
-  "asks.result.signInLink": "{member} 的登录链接",
+  "asks.result.signInLink": "登录链接",
+  "asks.result.sendSignInLink":
+    "请把它发给 {member}。链接仅可使用一次：在对方设备上打开即可登录。URL 只显示一次，请立即复制。",
   "asks.result.apiToken": "API 令牌 {name}",
   "asks.result.commandRun": "已从请示中运行",
   "asks.viewInInbox": "在收件箱中查看",

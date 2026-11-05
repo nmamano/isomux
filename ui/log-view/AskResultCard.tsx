@@ -2,8 +2,8 @@
 // or an API token, in the shared copy box, and Close. The Inbox and the
 // chat's ask stack draw one per entry of the store's askResults, where the
 // ask was; the ask itself has closed. Close drops the entry; nothing else
-// keeps it. A link for another member says to send it to them; only the
-// member's own link says to open it on their device. Part 5: what a storage
+// keeps it. A link for another member says to send it to them, by name (Nil,
+// 2026-11-05: a member, not an invitee); the member's own link does not. Part 5: what a storage
 // prune or compress did, in the page's words: the member's only receipt.
 // Task c3b91695: the output of the commands whose Run closed the ask.
 
@@ -33,10 +33,12 @@ export function AskResultCard({
       case "sign-in-link":
         return (
           <>
-            <div style={{ fontWeight: 600 }}>
-              {t("asks.result.signInLink", { member: result.target })}
-            </div>
-            <MintedUrlBox url={result.value} forSelf={result.forSelf} />
+            <div style={{ fontWeight: 600 }}>{t("asks.result.signInLink")}</div>
+            <MintedUrlBox
+              url={result.value}
+              forSelf={result.forSelf}
+              sendTo={result.target}
+            />
           </>
         );
       case "api-token":

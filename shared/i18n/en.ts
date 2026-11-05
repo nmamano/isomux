@@ -2057,7 +2057,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.action.notRemoved": "This member is no longer in Removed members.",
   "asks.action.olderThanDays.one": "Older than {count} day",
   "asks.action.olderThanDays.other": "Older than {count} days",
-  "asks.result.signInLink": "Sign-in link for {member}",
+  "asks.result.signInLink": "Sign-in link",
+  "asks.result.sendSignInLink":
+    "Send it to {member}. It's one-time: opening it on their device signs them in. The URL is shown once - copy it now.",
   "asks.result.apiToken": "API token {name}",
   "asks.result.commandRun": "Ran from the ask",
   "asks.viewInInbox": "View in Inbox",
