@@ -21,7 +21,7 @@
 > - **Access follows rooms** (task bf94d714, section 2): room memory for whoever
 >   reaches the room, member memory read by whoever shares a room with the member or has an office
 >   owner's reach,
->   agent memory written by the agent, its manager's identities and owners, office
+>   agent memory written by the agent and whoever can edit its instructions, office
 >   memory open; `date` is server-stamped on APPEND, as is `author` except on the
 >   self-note case above. A member's memory auto-loads solely into that member's
 >   own agents' prompts.
@@ -135,9 +135,11 @@ existing target.
   and an office owner's reach. Write: the member, their agents and tokens, and
   an office owner's reach. `GET /api/users/:username/instructions` uses the same
   read rule.
-- **agent** - write: the agent, its manager's identities, an office owner's
-  reach. Read: those, and whoever reaches the agent's room - the agent's
-  system prompt, which holds this memory, already has that audience.
+- **agent** - write: the agent, and whoever passes `agents.setInstructions`
+  for it (Nil, 2026-11-05: "Agent memory writes follow agent instructions";
+  `authorizeRoute` in server/routes/executor.ts runs that route's checks).
+  Read: those, and whoever reaches the agent's room - the agent's system
+  prompt, which holds this memory, already has that audience.
 - **office** - any authenticated caller.
 - A scope the caller cannot read answers 404, as a missing target; one it reads
   but cannot write answers 403 `memory_write_forbidden`. Token rooms and a
@@ -262,7 +264,7 @@ authority claim.
 
 | Write/read target | Accepted from (section 2)                    | Target resolution                                                                                                  |
 | ----------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `agents/<id>.md`  | write: agent, manager, owners; read: + room  | omitted `scopeId` defaults to the caller's own agent (agent token); a user must pass an explicit, existing agent id |
+| `agents/<id>.md`  | write: agent, instructions editors; read: + room | omitted `scopeId` defaults to the caller's own agent (agent token); a user must pass an explicit, existing agent id |
 | `rooms/<id>.md`   | whoever reaches the room                     | `scopeId` required; must be an existing room                                                                       |
 | `office.md`       | any authenticated caller                     | no `scopeId`                                                                                                       |
 | `bosses/<id>.md`  | write: member, owners; read: + shared room   | omitted `scopeId` defaults to the caller's own/manager `userId`; or an explicit, existing user id                    |

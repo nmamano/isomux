@@ -226,8 +226,8 @@ curation path and does not apply the 400-character APPEND limit.
 Access follows rooms. Whoever can access a room reads and writes its memory.
 The member, the member's agents, and office owners and their agents read and
 write a member's memory; whoever else shares a room with the member, other than
-the lobby, reads it. An agent's memory is written by the agent, its manager, the manager's
-agents, and office owners and their agents, and read by those and by whoever can access the agent's room. Office
+the lobby, reads it. An agent's memory is written by the agent and by whoever can edit its
+instructions, and read by those and by whoever can access the agent's room. Office
 memory is open to every caller. A scope the caller cannot read returns 404; one
 it can read but not write returns 403 `memory_write_forbidden`.
 

@@ -1753,8 +1753,6 @@ Cosas que puedes hacer por él:
   "dialogs.agent.modelTier.subscription": "Suscripción (OpenCode Go)",
   "dialogs.agent.memoryHint":
     "(hechos duraderos de este agente; líneas en bruto; {size} / {cap})",
-  "dialogs.agent.memoryReadOnly":
-    "Solo el responsable del agente y los propietarios de la oficina pueden editar esta memoria.",
   "dialogs.agent.memoryTitle": "Memoria del agente",
   "dialogs.agent.memoryPlaceholder":
     "Alguna memoria relevante para este agente",

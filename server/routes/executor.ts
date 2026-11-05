@@ -264,6 +264,63 @@ export function runAuthorize(
   }
 }
 
+// Whether `identity` may call `route` with these params: every check the
+// executor runs before the preconditions and the handler. Returns the refusal,
+// or null to go on. Exported so a handler can ask whether a caller passes
+// another route (memory writes follow agents.setInstructions).
+export function authorizeRoute(
+  route: RouteMatch["route"],
+  identity: Identity,
+  params: Record<string, string>,
+  body: unknown,
+  guardDeps: GuardDeps,
+): HandlerResult | null {
+  // A limited API token is refused a route outside its areas before any guard
+  // runs, so a refused call learns nothing about the resource. The detail names
+  // what to grant; the route-to-area map is public.
+  if (!routeAllowedByLimits(identity.apiTokenLimits, route.tokenArea)) {
+    return fail(
+      403,
+      "forbidden",
+      identity.scope === "user"
+        ? "Your permission pack does not allow this action."
+        : "This API token's limits do not allow this action.",
+      typeof route.tokenArea === "object" ? { ...route.tokenArea } : undefined,
+    );
+  }
+
+  // A replies-only token writes to an agent only as a reply (a send, an abort
+  // or a queue cancel) and only once that agent wrote to it. Every other
+  // agent write is an order.
+  const tokenArea = route.tokenArea;
+  if (
+    identity.apiTokenLimits?.repliesOnly &&
+    typeof tokenArea === "object" &&
+    tokenArea.area === "agents" &&
+    tokenArea.level === "write" &&
+    !(
+      tokenArea.reply &&
+      guardDeps.apiTokenHeardFrom(identity.apiTokenId ?? "", params.id ?? "")
+    )
+  ) {
+    return fail(
+      403,
+      "forbidden",
+      "This API token may only reply to an agent that wrote to it.",
+      { area: "agents", level: "write", repliesOnly: true },
+    );
+  }
+
+  const authz = runAuthorize(route.auth, identity, params, body, guardDeps);
+  if (!authz.ok) return fail(authz.status, authz.code);
+
+  // A sender with a permission pack writes only to agents that fit inside it
+  // (server/identity/agent-fit.ts).
+  const refusal = agentWriteRefusal(identity, route, params, body, guardDeps);
+  if (refusal) return fail(refusal.status, refusal.code, refusal.message);
+  return null;
+}
+
 // Execute a matched route for a resolved (non-null) identity. The caller
 // (server/office-front-door.ts fetch handler) is responsible for resolving identity and for
 // only dispatching routes that have a registered handler.
@@ -343,71 +400,8 @@ export async function executeRoute(
     via: opts?.via,
   };
 
-  // A limited API token is refused a route outside its areas before any guard
-  // runs, so a refused call learns nothing about the resource. The detail names
-  // what to grant; the route-to-area map is public.
-  if (!routeAllowedByLimits(identity.apiTokenLimits, route.tokenArea)) {
-    return render(
-      fail(
-        403,
-        "forbidden",
-        identity.scope === "user"
-          ? "Your permission pack does not allow this action."
-          : "This API token's limits do not allow this action.",
-        typeof route.tokenArea === "object"
-          ? { ...route.tokenArea }
-          : undefined,
-      ),
-    );
-  }
-
-  // A replies-only token writes to an agent only as a reply (a send, an abort
-  // or a queue cancel) and only once that agent wrote to it. Every other
-  // agent write is an order.
-  const tokenArea = route.tokenArea;
-  if (
-    identity.apiTokenLimits?.repliesOnly &&
-    typeof tokenArea === "object" &&
-    tokenArea.area === "agents" &&
-    tokenArea.level === "write" &&
-    !(
-      tokenArea.reply &&
-      deps.guardDeps.apiTokenHeardFrom(
-        identity.apiTokenId ?? "",
-        params.id ?? "",
-      )
-    )
-  ) {
-    return render(
-      fail(
-        403,
-        "forbidden",
-        "This API token may only reply to an agent that wrote to it.",
-        { area: "agents", level: "write", repliesOnly: true },
-      ),
-    );
-  }
-
-  const authz = runAuthorize(
-    route.auth,
-    identity,
-    params,
-    body,
-    deps.guardDeps,
-  );
-  if (!authz.ok) return render(fail(authz.status, authz.code));
-
-  // A sender with a permission pack writes only to agents that fit inside it
-  // (server/identity/agent-fit.ts).
-  const refusal = agentWriteRefusal(
-    identity,
-    route,
-    params,
-    body,
-    deps.guardDeps,
-  );
-  if (refusal)
-    return render(fail(refusal.status, refusal.code, refusal.message));
+  const refused = authorizeRoute(route, identity, params, body, deps.guardDeps);
+  if (refused) return render(refused);
 
   for (const pid of route.preconditions ?? []) {
     const fn = deps.preconditions.get(pid);

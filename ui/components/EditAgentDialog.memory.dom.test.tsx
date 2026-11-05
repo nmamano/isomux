@@ -1,6 +1,6 @@
-// The agent dialog's memory box (task bf94d714): whoever opens the dialog
-// reads the agent's memory, and only the agent's manager and office owners
-// edit it - the server refuses anyone else's save.
+// The agent dialog's memory box (tasks bf94d714, 39b2c176): whoever can edit
+// the agent's instructions in the dialog also edits its memory, whether or not
+// they manage the agent.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -20,7 +20,7 @@ function memoryBox(container: HTMLElement): HTMLTextAreaElement {
 }
 
 describe("the agent dialog's memory box", () => {
-  it("shows the memory to every viewer, and is read-only for one who neither manages the agent nor owns the office", async () => {
+  it("shows the memory to every viewer, and lets each one edit it, a member who does not manage the agent too", async () => {
     // The fixture agent's manager is the member "member".
     const viewers = {
       owner: viewer([]),
@@ -62,7 +62,7 @@ describe("the agent dialog's memory box", () => {
     expect(seen).toEqual({
       owner: { value: NOTE, readOnly: false },
       manager: { value: NOTE, readOnly: false },
-      peer: { value: NOTE, readOnly: true },
+      peer: { value: NOTE, readOnly: false },
     });
   });
 });

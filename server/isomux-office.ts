@@ -196,6 +196,7 @@ import { type FolderMcpDeps } from "./folder-mcp-endpoint.ts";
 import { runFolderFiles } from "./folder-files-host.ts";
 import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
 import {
+  authorizeRoute,
   executeRoute,
   fail,
   type ExecutorDeps,
@@ -3151,6 +3152,12 @@ function buildExecutorDeps(
   // (authorFor); scopeId is a target selector, not authority. Access follows
   // the rooms through the guard deps. A write whose caller record can't be
   // resolved fails 404 rather than being stamped "unknown".
+  // Agent memory writes follow agents.setInstructions (Nil, 2026-11-05).
+  const setAgentInstructionsRoute = API_ROUTES.find(
+    (r) => r.opId === "agents.setInstructions",
+  );
+  if (!setAgentInstructionsRoute)
+    throw new Error("agents.setInstructions is missing from API_ROUTES");
   register(
     memoryHandlers({
       hasRoomAccess: (identity, roomId) =>
@@ -3159,9 +3166,15 @@ function buildExecutorDeps(
         sharesRoomWithMember(identity, userId, buildLiveGuardDeps()),
       hasOfficeOwnerReach: (identity) =>
         hasOfficeOwnerReach(identity, buildLiveGuardDeps()),
+      editsAgentInstructions: (identity, agentId) =>
+        authorizeRoute(
+          setAgentInstructionsRoute,
+          identity,
+          { id: agentId },
+          undefined,
+          buildLiveGuardDeps(),
+        ) === null,
       agentRoomId: (agentId) => agentManager.getAgent(agentId)?.roomId ?? null,
-      agentManagerUserId: (agentId) =>
-        agentManager.getAgent(agentId)?.userId ?? null,
       read: (scope, scopeId) => memoryStore.read(scope, scopeId),
       append: (input) => memoryStore.append(input),
       replace: (input) => memoryStore.replace(input),

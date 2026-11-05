@@ -9,9 +9,10 @@
 //   member - read: whoever shares a live ordinary room with the member
 //            (sharesRoomWithMember); write: the member, their agents and
 //            tokens, and an office owner's reach.
-//   agent  - write: the agent, its manager's identities, an office owner's
-//            reach; read: those, and whoever reaches the agent's room (its
-//            system prompt, which holds this memory, has that audience).
+//   agent  - write: the agent, and whoever can edit its instructions
+//            (agents.setInstructions); read: those, and whoever reaches the
+//            agent's room (its system prompt, which holds this memory, has
+//            that audience).
 //   office - any authenticated caller.
 // A scope the caller cannot read answers as missing (404); one it reads but
 // cannot write answers 403. A pack's memory area limits it further.
@@ -29,11 +30,7 @@ import {
   MemoryLineTooLongError,
 } from "../../memory-store.ts";
 import { MEMORY_CAPS } from "../../../shared/memory-caps.ts";
-import {
-  tokenRooms,
-  withinTokenRooms,
-  type Identity,
-} from "../../identity/index.ts";
+import type { Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
 import type {
   MemoryCreateReq,
@@ -47,9 +44,11 @@ export interface MemoryDeps {
   // GuardDeps-backed sharesRoomWithMember and hasOfficeOwnerReach.
   sharesRoomWithMember(identity: Identity, userId: string): boolean;
   hasOfficeOwnerReach(identity: Identity): boolean;
-  // A live agent's room and manager, or null.
+  // Whether the identity passes agents.setInstructions for this agent, as the
+  // executor checks it (authorizeRoute).
+  editsAgentInstructions(identity: Identity, agentId: string): boolean;
+  // A live agent's room, or null.
   agentRoomId(agentId: string): string | null;
-  agentManagerUserId(agentId: string): string | null;
   // Whole raw file + optimistic-concurrency version.
   read(
     scope: MemoryScope,
@@ -100,26 +99,11 @@ type Target =
   | { error: ReturnType<typeof fail> };
 
 export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
-  // Whether a room-limited token's rooms include this room; every other
-  // caller passes.
-  function tokenReaches(identity: Identity, roomId: string | null) {
-    if (tokenRooms(identity) === null) return true;
-    return !!roomId && withinTokenRooms(identity, roomId);
-  }
-
-  // Who writes agent memory: the agent, its manager's identities (a
-  // room-limited token only for an agent in its rooms), an owner's reach.
+  // Who writes agent memory: the agent, and whoever can edit its
+  // instructions.
   function writesAgent(identity: Identity, agentId: string): boolean {
     if (identity.scope === "agent" && identity.agentId === agentId) return true;
-    const manager = deps.agentManagerUserId(agentId);
-    if (
-      manager !== null &&
-      identity.userId === manager &&
-      tokenReaches(identity, deps.agentRoomId(agentId))
-    ) {
-      return true;
-    }
-    return deps.hasOfficeOwnerReach(identity);
+    return deps.editsAgentInstructions(identity, agentId);
   }
 
   function readsAgent(identity: Identity, agentId: string): boolean {
@@ -177,7 +161,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           error: fail(
             403,
             "memory_write_forbidden",
-            "only the agent, its manager, the manager's agents, and office owners and their agents can change this memory",
+            "only the agent and whoever can edit its instructions can change this memory",
           ),
         };
       }

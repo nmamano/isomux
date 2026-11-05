@@ -1757,8 +1757,6 @@ Coses que pots fer per ell:
   "dialogs.agent.modelTier.subscription": "Subscripció (OpenCode Go)",
   "dialogs.agent.memoryHint":
     "(fets duradors d'aquest agent; línies en brut; {size} / {cap})",
-  "dialogs.agent.memoryReadOnly":
-    "Només el responsable de l'agent i els propietaris de l'oficina poden editar aquesta memòria.",
   "dialogs.agent.memoryTitle": "Memòria de l'agent",
   "dialogs.agent.memoryPlaceholder":
     "Alguna memòria rellevant per a aquest agent",

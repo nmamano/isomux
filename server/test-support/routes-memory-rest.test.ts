@@ -182,7 +182,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     const ownerId = getUserByName("Morgan")!.id;
     const bot = await spawnAgent(srv, "MemBot");
     const other = await spawnAgent(srv, "Nosy");
-    const token = mintAgentToken(other.id, ownerId);
+    // Privileged: it edits MemBot's instructions, so it writes its memory.
+    const token = mintAgentToken(other.id, ownerId, true);
 
     const r = await api(srv, "/api/memory", {
       method: "POST",
@@ -347,14 +348,14 @@ describe("routes/memory REST: APPEND hard cap", () => {
 });
 
 describe("routes/memory REST: APPEND existence gates", () => {
-  it("an agent appends to a same-manager agent's scope (explicit id); nonexistent -> 404; malformed -> 400", async () => {
+  it("a privileged agent appends to another agent's scope (explicit id); nonexistent -> 404; malformed -> 400", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Morgan");
     const ownerId = getUserByName("Morgan")!.id;
     const a = await spawnAgent(srv, "A");
     const b = await spawnAgent(srv, "B");
-    const tokenA = mintAgentToken(a.id, ownerId);
+    const tokenA = mintAgentToken(a.id, ownerId, true);
 
     const cross = await api(srv, "/api/memory", {
       method: "POST",
@@ -1168,27 +1169,66 @@ describe("routes/memory REST: access follows the rooms", () => {
     });
   });
 
-  it("agent memory: written by the agent, its manager's identities and owners; read also by whoever reaches its room", async () => {
+  it("agent memory: written by the agent and whoever edits its instructions; read also by whoever reaches its room", async () => {
     const o = await office();
     expect(await matrix(o, "agent", o.miaBot.id)).toEqual({
-      mia: FULL,
+      // The agent itself, a standard agent.
       miaBot: FULL,
-      miaBot2: FULL,
+      mia: FULL,
+      // Standard agents have no agent:manage, so they cannot edit its
+      // instructions, whoever manages them.
+      miaBot2: READ_ONLY,
       // The manager's token reaches the agent only in a room it reaches.
       miaNoRooms: none("agent_not_found"),
-      nora: READ_ONLY,
+      // Another member who reaches the agent's room edits its instructions.
+      nora: FULL,
       noraBot: READ_ONLY,
-      noraInA: READ_ONLY,
+      noraInA: FULL,
       pat: none("agent_not_found"),
       patBot: none("agent_not_found"),
       quinn: none("agent_not_found"),
       morgan: FULL,
-      morganBot: FULL,
+      morganBot: READ_ONLY,
       morganInB: none("agent_not_found"),
     });
   });
 
-  it("is checked live: a closed room is no longer shared, and a manager who loses the agent's room still reads and writes its memory", async () => {
+  it("agent memory: a privileged agent writes it where it reaches the room, and a token's agentManagement level decides the write", async () => {
+    const o = await office();
+    const priv = async (name: string, roomId: string, manager: string) =>
+      mintAgentToken(
+        (await spawnIn(o.srv, name, roomId, o.id(manager))).id,
+        o.id(manager),
+        true,
+      );
+    const token = async (agentManagement: "read" | "write") =>
+      (
+        await mintApiToken({
+          userId: o.id("Nora"),
+          name: `nora-${agentManagement}`,
+          expiresInDays: null,
+          limits: { areas: { memory: "write", agentManagement } },
+        })
+      ).token;
+    const out: Record<string, string> = {};
+    for (const [who, bearer] of [
+      ["noraPrivInA", await priv("NoraPriv", o.roomA, "Nora")],
+      ["patPrivInB", await priv("PatPriv", o.roomB, "Pat")],
+      ["morganPrivInB", await priv("MorganPriv", o.roomB, "Morgan")],
+      ["noraManagesRead", await token("read")],
+      ["noraManagesWrite", await token("write")],
+    ] as const)
+      out[who] = await probe(o, "agent", o.miaBot.id, { bearer });
+    expect(out).toEqual({
+      noraPrivInA: FULL,
+      patPrivInB: none("agent_not_found"),
+      morganPrivInB: FULL,
+      noraManagesRead: READ_ONLY,
+      noraManagesWrite: FULL,
+    });
+  });
+
+  it("is checked live: a closed room is no longer shared, and a manager who loses the agent's room loses its memory", async () => {
     const o = await office();
     const { callers } = o;
     expect(await probe(o, "member", o.id("Mia"), callers.quinn)).toBe(
@@ -1205,7 +1245,9 @@ describe("routes/memory REST: access follows the rooms", () => {
       none("room_not_found"),
     );
     expect(o.srv.agentManager.getAgent(o.miaBot.id)!.roomId).toBe(o.roomA);
-    expect(await probe(o, "agent", o.miaBot.id, callers.mia)).toBe(FULL);
+    expect(await probe(o, "agent", o.miaBot.id, callers.mia)).toBe(
+      none("agent_not_found"),
+    );
     // Mia shares no room with Nora any more.
     expect(await probe(o, "member", o.id("Mia"), callers.nora)).toBe(
       none("user_not_found"),

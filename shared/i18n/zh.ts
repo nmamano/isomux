@@ -1559,8 +1559,6 @@ App 的一些原则：
   "dialogs.agent.modelTier.payg": "按量付费（OpenCode 额度）",
   "dialogs.agent.modelTier.subscription": "订阅（OpenCode Go）",
   "dialogs.agent.memoryHint": "（此智能体的长期信息；原始行；{size} / {cap}）",
-  "dialogs.agent.memoryReadOnly":
-    "只有该智能体的负责人和办公室所有者可以编辑此记忆。",
   "dialogs.agent.memoryTitle": "智能体记忆",
   "dialogs.agent.memoryPlaceholder": "与此智能体相关的记忆",
   "dialogs.agent.customInstructions": "自定义指令",
