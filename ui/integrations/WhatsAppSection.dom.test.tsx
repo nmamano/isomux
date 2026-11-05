@@ -9,8 +9,10 @@ setUpDomTestFile();
 
 const { fireEvent, render, act } = await import("@testing-library/react");
 const { WhatsAppSection } = await import("./WhatsAppSection.tsx");
-const { stateWithSelfUser } =
+const { asMember, selfUserRecord, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
+const { getWhatsAppLayout, setWhatsAppLayout, WHATSAPP_HELD_ROWS_MAX } =
+  await import("../device-settings.ts");
 const { StateCtx, DispatchCtx, reducer } = await import("../store.tsx");
 const { LanguageProvider } = await import("../i18n.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
@@ -29,8 +31,19 @@ let linkAnswer: () => Promise<unknown> = async () => current;
 let rows: WhatsAppRoute[] = [];
 let seenChats: WhatsAppChatSeen[] = [];
 let rowAnswer: (body: unknown) => Promise<unknown> = async () => ({});
+// The held layout (task eeec205a): a read held open until its release, and a
+// read that fails.
+let statusGate: Promise<void> | null = null;
+let routesGate: Promise<void> | null = null;
+let statusFails = false;
+let routesFail = false;
 
 beforeEach(() => {
+  statusGate = null;
+  routesGate = null;
+  statusFails = false;
+  routesFail = false;
+  window.localStorage.removeItem("isomux-whatsapp-layout");
   current = { state: "unlinked" };
   calls = [];
   linkAnswer = async () => current;
@@ -39,7 +52,11 @@ beforeEach(() => {
   rowAnswer = async () => ({});
   setApiShim(async (method, path, body) => {
     calls.push({ method, path, body });
-    if (method === "GET" && path === "/api/whatsapp/routes") return rows;
+    if (method === "GET" && path === "/api/whatsapp/routes") {
+      if (routesGate) await routesGate;
+      if (routesFail) throw new ApiError(500, "internal", "Internal");
+      return rows;
+    }
     if (method === "GET" && path === "/api/whatsapp/chats") return seenChats;
     if (method === "POST" && path === "/api/whatsapp/routes")
       return rowAnswer(body);
@@ -47,7 +64,11 @@ beforeEach(() => {
       rows = rows.filter((r) => !path.endsWith(`/${r.id}`));
       return undefined;
     }
-    if (method === "GET" && path === "/api/whatsapp") return current;
+    if (method === "GET" && path === "/api/whatsapp") {
+      if (statusGate) await statusGate;
+      if (statusFails) throw new ApiError(500, "internal", "Internal");
+      return current;
+    }
     if (method === "POST" && path === "/api/whatsapp/link") return linkAnswer();
     if (method === "DELETE" && path === "/api/whatsapp") return undefined;
     throw new Error(`unexpected ${method} ${path}`);
@@ -367,4 +388,213 @@ it("shows no rows card unless linked", async () => {
   expect(s.card()).toBe("unlinked");
   expect(s.q("[data-whatsapp-rows]")).toBeNull();
   expect(calls.some((c) => c.path === "/api/whatsapp/routes")).toBe(false);
+});
+
+// While a read is out, the card holds the layout this device last saw, so it
+// does not grow when the answer arrives (task eeec205a).
+
+function gate(): [Promise<void>, () => Promise<void>] {
+  let open!: () => void;
+  const held = new Promise<void>((resolve) => (open = resolve));
+  return [
+    held,
+    async () => {
+      open();
+      await settle();
+    },
+  ];
+}
+const route = (id: string): WhatsAppRoute => ({
+  id,
+  chat: `4477009001${id.slice(1).padStart(2, "0")}@s.whatsapp.net`,
+  group: false,
+  name: `Contact ${id}`,
+  agentId: "a-office",
+  createdAt: 1,
+});
+const routesOf = (n: number) =>
+  Array.from({ length: n }, (_, i) => route(`r${i + 1}`));
+// Matches outside any held block, that is, what the member can see and use.
+function live(root: Element, selector: string): Element[] {
+  return [...root.querySelectorAll(selector)].filter(
+    (el) => el.closest("[data-reserved]") === null,
+  );
+}
+function heldBlocks(root: Element): Element[] {
+  const blocks = [...root.querySelectorAll("[data-reserved]")];
+  for (const block of blocks) {
+    expect(block.getAttribute("aria-hidden")).toBe("true");
+    expect(block.hasAttribute("inert")).toBe(true);
+  }
+  return blocks;
+}
+const inHeld = (root: Element, selector: string) =>
+  root.querySelectorAll(`[data-reserved] ${selector}`).length;
+const section = (s: Awaited<ReturnType<typeof show>>) =>
+  s.q("[data-integrations-card=whatsapp]")!;
+const routeReads = () =>
+  calls.filter((c) => c.method === "GET" && c.path === "/api/whatsapp/routes");
+
+it("on a first visit, the card holds the link buttons until the status answers, and the live ones take their place", async () => {
+  const [held, release] = gate();
+  statusGate = held;
+  const s = await show();
+  expect(s.card()).toBe("loading");
+  expect(section(s).getAttribute("aria-busy")).toBe("true");
+  expect(heldBlocks(section(s)).length).toBeGreaterThan(0);
+  expect(inHeld(section(s), "button")).toBeGreaterThan(0);
+  // Nothing held can be used.
+  expect(live(section(s), "button")).toHaveLength(0);
+  // The unlinked layout has no rows.
+  expect(s.q("[data-whatsapp-rows]")).toBeNull();
+
+  await release();
+  expect(s.card()).toBe("unlinked");
+  expect(section(s).getAttribute("aria-busy")).toBe("false");
+  expect(heldBlocks(section(s))).toHaveLength(0);
+  expect(live(section(s), "[data-whatsapp-link]")).toHaveLength(1);
+  expect(getWhatsAppLayout()).toEqual({ linked: false, rows: 0 });
+});
+
+it("a linked load is remembered with its row count, and the next load holds the linked line and that many rows without reading them", async () => {
+  current = LINKED;
+  rows = routesOf(3);
+  const first = await show({ agents: AGENTS });
+  expect(live(section(first), "[data-whatsapp-row]")).toHaveLength(3);
+  expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 3 });
+  first.view.unmount();
+
+  calls = [];
+  const [held, release] = gate();
+  statusGate = held;
+  const s = await show({ agents: AGENTS });
+  expect(s.card()).toBe("loading");
+  expect(heldBlocks(section(s)).length).toBeGreaterThan(0);
+  expect(inHeld(section(s), "[data-whatsapp-row]")).toBe(3);
+  expect(inHeld(section(s), "[data-whatsapp-unlink]")).toBe(1);
+  expect(inHeld(section(s), "[data-integrations-add]")).toBe(1);
+  // Held, not unlinked: no link button anywhere.
+  expect(s.q("[data-whatsapp-link]")).toBeNull();
+  expect(live(section(s), "button")).toHaveLength(0);
+  // A held copy reads nothing.
+  expect(routeReads()).toHaveLength(0);
+
+  // The status answers; the live rows then read, and hold the count meanwhile.
+  const [rowsHeld, releaseRows] = gate();
+  routesGate = rowsHeld;
+  await release();
+  expect(s.card()).toBe("linked");
+  expect(live(section(s), "[data-whatsapp-connected]")).toHaveLength(1);
+  expect(routeReads()).toHaveLength(1);
+  expect(inHeld(section(s), "[data-whatsapp-row]")).toBe(3);
+  expect(live(section(s), "[data-whatsapp-row]")).toHaveLength(0);
+
+  await releaseRows();
+  expect(heldBlocks(section(s))).toHaveLength(0);
+  expect(live(section(s), "[data-whatsapp-row]")).toHaveLength(3);
+});
+
+it("with the status known, the rows hold the last row count until they answer, and the answer's count is remembered", async () => {
+  current = LINKED;
+  rows = routesOf(2);
+  const first = await show({ agents: AGENTS });
+  expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 2 });
+  first.view.unmount();
+
+  const [held, release] = gate();
+  routesGate = held;
+  rows = routesOf(1);
+  // A second open in the same page load: the store has the status.
+  const s = await show({ agents: AGENTS, whatsappStatus: LINKED });
+  expect(s.card()).toBe("linked");
+  expect(live(section(s), "[data-whatsapp-connected]")).toHaveLength(1);
+  const block = s.q("[data-whatsapp-rows]")!;
+  expect(heldBlocks(block).length).toBeGreaterThan(0);
+  expect(inHeld(block, "[data-whatsapp-row]")).toBe(2);
+  expect(inHeld(block, "[data-integrations-add]")).toBe(1);
+  expect(live(block, "button")).toHaveLength(0);
+
+  await release();
+  expect(heldBlocks(section(s))).toHaveLength(0);
+  expect(live(block, "[data-whatsapp-row]")).toHaveLength(1);
+  expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 1 });
+});
+
+it("a held layout keeps at most the row cap", async () => {
+  current = LINKED;
+  rows = routesOf(WHATSAPP_HELD_ROWS_MAX + 5);
+  const first = await show({ agents: AGENTS });
+  expect(live(section(first), "[data-whatsapp-row]")).toHaveLength(
+    WHATSAPP_HELD_ROWS_MAX + 5,
+  );
+  expect(getWhatsAppLayout()).toEqual({
+    linked: true,
+    rows: WHATSAPP_HELD_ROWS_MAX,
+  });
+  first.view.unmount();
+
+  statusGate = gate()[0];
+  const s = await show({ agents: AGENTS });
+  expect(inHeld(section(s), "[data-whatsapp-row]")).toBe(
+    WHATSAPP_HELD_ROWS_MAX,
+  );
+});
+
+it("an unlink, a push and a link in progress rewrite the linked flag and keep the row count", async () => {
+  current = LINKED;
+  rows = routesOf(2);
+  const s = await show({ agents: AGENTS });
+  expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 2 });
+
+  await s.click("[data-whatsapp-unlink]");
+  expect(s.card()).toBe("unlinked");
+  expect(getWhatsAppLayout()).toEqual({ linked: false, rows: 2 });
+
+  await s.push({ state: "linking", method: "qr" });
+  expect(getWhatsAppLayout()).toEqual({ linked: false, rows: 2 });
+
+  await s.push(LINKED);
+  await settle();
+  expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 2 });
+
+  await s.push({ state: "dead", reason: "crash_loop", phone: "447700900111" });
+  expect(getWhatsAppLayout()).toEqual({ linked: false, rows: 2 });
+});
+
+it("a failed read holds nothing: the error line shows without held space", async () => {
+  statusFails = true;
+  const s = await show();
+  expect(s.q("[role=alert]")).not.toBeNull();
+  expect(heldBlocks(section(s))).toHaveLength(0);
+  s.view.unmount();
+
+  statusFails = false;
+  current = LINKED;
+  routesFail = true;
+  const r = await show({ agents: AGENTS, whatsappStatus: LINKED });
+  const block = r.q("[data-whatsapp-rows]")!;
+  expect(block.querySelector("[role=alert]")).not.toBeNull();
+  expect(heldBlocks(block)).toHaveLength(0);
+});
+
+it("at environment read, the held card holds what the live one shows: no buttons", async () => {
+  const member = asMember("read");
+  const record = { ...selfUserRecord(null), ...member.record };
+  const over = {
+    ...member.state,
+    users: new Map([[record.name.toLowerCase(), record]]),
+    agents: AGENTS,
+  };
+  // Unlinked: the live card has no button, so nothing holds one.
+  statusGate = gate()[0];
+  const unlinked = await show(over);
+  expect(unlinked.card()).toBe("loading");
+  expect(inHeld(section(unlinked), "button")).toBe(0);
+  unlinked.view.unmount();
+
+  // Linked: the line and the rows, without Unlink, Delete or Add.
+  setWhatsAppLayout({ linked: true, rows: 2 });
+  const linked = await show(over);
+  expect(inHeld(section(linked), "[data-whatsapp-row]")).toBe(2);
+  expect(inHeld(section(linked), "button")).toBe(0);
 });

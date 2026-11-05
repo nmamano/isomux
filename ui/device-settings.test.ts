@@ -48,6 +48,11 @@ const {
   setAsksMember,
   getChatCopyFormat,
   setChatCopyFormat,
+  getWhatsAppLayout,
+  setWhatsAppLayout,
+  getGithubLayout,
+  setGithubLayout,
+  WHATSAPP_HELD_ROWS_MAX,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
@@ -448,5 +453,56 @@ describe("chat copy format", () => {
       get.mockRestore();
       set.mockRestore();
     }
+  });
+});
+
+// The layouts the Messaging and GitHub issues tabs hold while they load (task
+// eeec205a). A first visit holds the unlinked card, and GitHub's form with no
+// secret allowed yet.
+describe("integrations held layouts", () => {
+  beforeEach(() => {
+    store.delete("isomux-whatsapp-layout");
+    store.delete("isomux-github-layout");
+  });
+
+  it("keeps what was saved, and holds the unlinked card before a first save", () => {
+    expect(getWhatsAppLayout()).toEqual({ linked: false, rows: 0 });
+    setWhatsAppLayout({ linked: true, rows: 3 });
+    expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 3 });
+    setWhatsAppLayout({ linked: true, rows: WHATSAPP_HELD_ROWS_MAX });
+    expect(getWhatsAppLayout().rows).toBe(WHATSAPP_HELD_ROWS_MAX);
+
+    expect(getGithubLayout()).toEqual({ linked: false, secret: false });
+    setGithubLayout({ linked: true, secret: true });
+    expect(getGithubLayout()).toEqual({ linked: true, secret: true });
+    setGithubLayout({ linked: false, secret: true });
+    expect(getGithubLayout()).toEqual({ linked: false, secret: true });
+  });
+
+  it.each([
+    "junk",
+    "[]",
+    "null",
+    '{"linked":"yes","rows":1}',
+    '{"linked":true}',
+    '{"linked":true,"rows":-1}',
+    '{"linked":true,"rows":1.5}',
+    '{"linked":true,"rows":"2"}',
+    `{"linked":true,"rows":${WHATSAPP_HELD_ROWS_MAX + 1}}`,
+  ])("reads the stored WhatsApp value %s as the unlinked card", (raw) => {
+    store.set("isomux-whatsapp-layout", raw);
+    expect(getWhatsAppLayout()).toEqual({ linked: false, rows: 0 });
+  });
+
+  it.each([
+    "junk",
+    "[]",
+    "{}",
+    '{"linked":1,"secret":true}',
+    '{"linked":true}',
+    '{"linked":true,"secret":"yes"}',
+  ])("reads the stored GitHub value %s as no link and no secret", (raw) => {
+    store.set("isomux-github-layout", raw);
+    expect(getGithubLayout()).toEqual({ linked: false, secret: false });
   });
 });

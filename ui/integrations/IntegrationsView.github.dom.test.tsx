@@ -23,6 +23,7 @@ const { RoomPane } = await import("../components/RoomPane.tsx");
 const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
 const { LOBBY_ROOM } = await import("../../shared/types.ts");
+const { getGithubLayout } = await import("../device-settings.ts");
 type RoomWire = import("../../shared/types.ts").RoomWire;
 type GithubLinkWire = import("../../shared/types.ts").GithubLinkWire;
 afterAll(() => setApiShim(null));
@@ -80,6 +81,7 @@ const officeSecrets = (...list: ReturnType<typeof secret>[]) => {
 };
 
 beforeEach(() => {
+  window.localStorage.removeItem("isomux-github-layout");
   links = {};
   install(true);
   officeSecrets(secret("GITHUB_SYNC_TOKEN", { hosts: [GITHUB] }));
@@ -406,4 +408,116 @@ it("opens on the room a GitHub step names, with its form marked", async () => {
   ]);
   const form = q(view, "[data-github-link]");
   expect(marked[0] === form || marked[0].contains(form)).toBe(true);
+});
+
+// While the reads are out, the card holds the layout this device last saw, so
+// the tab does not grow when they answer (task eeec205a).
+const card = (view: View) =>
+  view.container.querySelector("[data-integrations-card=github]");
+function heldBlocks(root: Element): Element[] {
+  const blocks = [...root.querySelectorAll("[data-reserved]")];
+  for (const block of blocks) {
+    expect(block.getAttribute("aria-hidden")).toBe("true");
+    expect(block.hasAttribute("inert")).toBe(true);
+  }
+  return blocks;
+}
+const live = (root: Element, selector: string) =>
+  [...root.querySelectorAll(selector)].filter(
+    (el) => el.closest("[data-reserved]") === null,
+  );
+
+it("holds the card while the reads are out, then shows the live one", async () => {
+  const release = fake.hold("/api/office/secrets");
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  const held = card(view);
+  expect(held).not.toBeNull();
+  expect(heldBlocks(held!).length).toBeGreaterThan(0);
+  expect(
+    held!.querySelectorAll("[data-reserved] select[data-github-link-room]"),
+  ).toHaveLength(1);
+  expect(live(held!, "select, input, button")).toHaveLength(0);
+  // No link remembered: the held form is a new link's.
+  expect(held!.querySelector("[data-github-link-unlink]")).toBeNull();
+
+  await act(async () => release());
+  expect(heldBlocks(card(view)!)).toHaveLength(0);
+  expect(live(card(view)!, "select[data-github-link-room]")).toHaveLength(1);
+  expect(getGithubLayout()).toEqual({ linked: false, secret: true });
+});
+
+it("remembers whether the room it opens on is linked, and the next load holds that form", async () => {
+  links = { r2: saved("r2", "Acme/Widgets") };
+  const first = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(getGithubLayout()).toEqual({ linked: true, secret: true });
+  first.unmount();
+
+  const release = fake.hold("/api/office/secrets");
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(
+    card(view)!.querySelectorAll("[data-reserved] [data-github-link-unlink]"),
+  ).toHaveLength(1);
+  expect(live(card(view)!, "button")).toHaveLength(0);
+  await act(async () => release());
+  expect(heldBlocks(card(view)!)).toHaveLength(0);
+});
+
+it("a save or an unlink rewrites the remembered layout", async () => {
+  links = { r2: saved("r2", "Acme/Widgets") };
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(getGithubLayout()).toEqual({ linked: true, secret: true });
+
+  await act(async () => fireEvent.click(q(view, "[data-github-link-unlink]")));
+  await act(async () => {});
+  expect(getGithubLayout()).toEqual({ linked: false, secret: true });
+
+  await change(view, "[data-github-link-repo]", "acme/gadgets");
+  await act(async () => fireEvent.click(q(view, "[data-github-link-save]")));
+  await act(async () => {});
+  expect(getGithubLayout()).toEqual({ linked: true, secret: true });
+});
+
+// A new link's form has a secret select when the office allows a secret for
+// api.github.com, else a line that links the Secrets tab.
+it("remembers whether a new link's form had a secret select, and the next load holds that form", async () => {
+  officeSecrets();
+  const none = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(live(card(none)!, "[data-github-link-no-secret]")).toHaveLength(1);
+  expect(getGithubLayout()).toEqual({ linked: false, secret: false });
+  none.unmount();
+
+  let release = fake.hold("/api/office/secrets");
+  const heldNone = await open(withRooms(OWNER), {
+    request: { tab: "github" },
+  });
+  const held = card(heldNone)!;
+  expect(
+    held.querySelectorAll("[data-reserved] [data-github-link-no-secret]"),
+  ).toHaveLength(1);
+  expect(held.querySelector("[data-github-link-secret]")).toBeNull();
+  await act(async () => release());
+  heldNone.unmount();
+
+  officeSecrets(secret("GITHUB_SYNC_TOKEN", { hosts: [GITHUB] }));
+  const some = await open(withRooms(OWNER), { request: { tab: "github" } });
+  expect(getGithubLayout()).toEqual({ linked: false, secret: true });
+  some.unmount();
+
+  release = fake.hold("/api/office/secrets");
+  const heldSome = await open(withRooms(OWNER), {
+    request: { tab: "github" },
+  });
+  const card2 = card(heldSome)!;
+  expect(
+    card2.querySelectorAll("[data-reserved] select[data-github-link-secret]"),
+  ).toHaveLength(1);
+  expect(card2.querySelector("[data-github-link-no-secret]")).toBeNull();
+  await act(async () => release());
+
+  // The secret removed on the Secrets tab: the next load holds the line.
+  officeSecrets();
+  await act(async () => notifyConnectionsChanged());
+  await act(async () => {});
+  expect(live(card2, "[data-github-link-no-secret]")).toHaveLength(1);
+  expect(getGithubLayout()).toEqual({ linked: false, secret: false });
 });

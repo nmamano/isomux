@@ -518,8 +518,9 @@ export function setSettingsGroupOpen(id: string, open: boolean): void {
 
 // What a pane showed when it last loaded on this device. While it loads
 // again, it holds that layout, so it keeps its height when the answer arrives
-// (task 0eab60fd). Before a pane's first load on a device it holds its fuller
-// layout (`fallback`). `read` returns null for a stored value it cannot use.
+// (task 0eab60fd). Before a pane's first load on a device it holds the layout
+// a first visit most likely gets, usually its fuller one (`fallback`). `read`
+// returns null for a stored value it cannot use.
 function getHeldLayout<T>(
   key: string,
   read: (raw: Record<string, unknown>) => T | null,
@@ -602,4 +603,55 @@ export function getPagerLayout(): PagerLayout {
 
 export function setPagerLayout(layout: PagerLayout): void {
   setHeldLayout(KEY_PAGER_LAYOUT, layout);
+}
+
+// Integrations → Messaging: whether WhatsApp was linked, and how many contact
+// rows it had (at most WHATSAPP_HELD_ROWS_MAX).
+const KEY_WHATSAPP_LAYOUT = "isomux-whatsapp-layout";
+export const WHATSAPP_HELD_ROWS_MAX = 20;
+
+export type WhatsAppLayout = { linked: boolean; rows: number };
+
+// A first visit is most likely a member who has not linked yet.
+export function getWhatsAppLayout(): WhatsAppLayout {
+  return getHeldLayout(
+    KEY_WHATSAPP_LAYOUT,
+    ({ linked, rows }) =>
+      typeof linked === "boolean" &&
+      Number.isInteger(rows) &&
+      (rows as number) >= 0 &&
+      (rows as number) <= WHATSAPP_HELD_ROWS_MAX
+        ? { linked, rows: rows as number }
+        : null,
+    { linked: false, rows: 0 },
+  );
+}
+
+export function setWhatsAppLayout(layout: WhatsAppLayout): void {
+  setHeldLayout(KEY_WHATSAPP_LAYOUT, {
+    linked: layout.linked,
+    rows: Math.min(layout.rows, WHATSAPP_HELD_ROWS_MAX),
+  });
+}
+
+// Integrations → GitHub issues: whether the room the card opens on was
+// linked, and whether an office secret could sign the sync (a select, not the
+// "no secret" line). A first visit is an owner who has not set it up.
+const KEY_GITHUB_LAYOUT = "isomux-github-layout";
+
+export type GithubLayout = { linked: boolean; secret: boolean };
+
+export function getGithubLayout(): GithubLayout {
+  return getHeldLayout(
+    KEY_GITHUB_LAYOUT,
+    ({ linked, secret }) =>
+      typeof linked === "boolean" && typeof secret === "boolean"
+        ? { linked, secret }
+        : null,
+    { linked: false, secret: false },
+  );
+}
+
+export function setGithubLayout(layout: GithubLayout): void {
+  setHeldLayout(KEY_GITHUB_LAYOUT, layout);
 }

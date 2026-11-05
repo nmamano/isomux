@@ -3,13 +3,16 @@
 // the form below it saves that room's link on its own (it is not part of the
 // room's PATCH). The select names each room's linked repo, so the tab also
 // reads as the list of links. The token is picked from the office secrets
-// the sync will send to GitHub (task edcc3e34).
+// the sync will send to GitHub (task edcc3e34). While the reads are out, the
+// card holds the form this device last opened on (task eeec205a).
 
 import { StepMark } from "./step-focus.tsx";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useAppState } from "../store.tsx";
+import { Reserved } from "../components/Reserved.tsx";
+import { getGithubLayout, setGithubLayout } from "../device-settings.ts";
 import { onConnectionsChanged } from "../connections-events.ts";
 import { noTranslate } from "../no-translate.ts";
 import {
@@ -56,6 +59,19 @@ function statusKey(status: GithubLinkStatus): PlainMessageKey {
   );
 }
 
+// What a held card's form shows for a linked room.
+const HELD_LINK: GithubLinkWire = {
+  id: "held",
+  roomId: "held",
+  repo: "owner/repo",
+  labels: [],
+  collaboratorsOnly: false,
+  secretName: DEFAULT_GITHUB_SYNC_SECRET,
+  createdByUserId: "",
+  createdAt: 0,
+  status: { kind: "ok" },
+};
+
 // onSecrets switches the page to the Secrets tab.
 export function GithubSection({
   onSecrets,
@@ -80,6 +96,18 @@ export function GithubSection({
   // The names of the office secrets the sync may send to GitHub; null until
   // the list answered. A failed load offers none.
   const [usable, setUsable] = useState<string[] | null>(null);
+  const [held] = useState(getGithubLayout);
+
+  // The next load opens on a linked room when there is one (below), so that
+  // is the form it holds. Each answer, each save or unlink, and each change
+  // to the secrets.
+  useEffect(() => {
+    if (links && usable)
+      setGithubLayout({
+        linked: Object.keys(links).length > 0,
+        secret: usable.length > 0,
+      });
+  }, [links, usable]);
 
   useEffect(() => {
     let alive = true;
@@ -148,12 +176,14 @@ export function GithubSection({
         </p>
       </section>
     );
-  if (!links || !picked || !usable) return null;
-  const roomId = choices.some((room) => room.id === picked)
-    ? picked
-    : choices[0].id;
-  return (
-    <section data-integrations-card="github" style={card}>
+  // The room select and its form; a held card draws them from placeholders.
+  const body = (
+    roomId: string,
+    shown: Record<string, GithubLinkWire>,
+    names: string[],
+    live = true,
+  ) => (
+    <>
       <label style={dialogLabel}>{t("integrations.github.room")}</label>
       <select
         data-github-link-room
@@ -163,18 +193,18 @@ export function GithubSection({
       >
         {choices.map((room) => (
           <option key={room.id} value={room.id}>
-            {links[room.id]
-              ? `${room.name} · ${links[room.id].repo}`
+            {shown[room.id]
+              ? `${room.name} · ${shown[room.id].repo}`
               : room.name}
           </option>
         ))}
       </select>
-      <StepMark active={roomId === focusRoomId} kind="github-link">
+      <StepMark active={live && roomId === focusRoomId} kind="github-link">
         <RoomGithubLink
           key={roomId}
           roomId={roomId}
-          saved={links[roomId] ?? null}
-          usable={usable}
+          saved={shown[roomId] ?? null}
+          usable={names}
           onSecrets={onSecrets}
           onSaved={(link) =>
             setLinks((prev) => {
@@ -186,6 +216,30 @@ export function GithubSection({
           }
         />
       </StepMark>
+    </>
+  );
+
+  if (!links || !picked || !usable) {
+    const first = choices[0].id;
+    return (
+      <section data-integrations-card="github" style={card}>
+        <Reserved>
+          {body(
+            first,
+            held.linked ? { [first]: HELD_LINK } : {},
+            held.secret ? [DEFAULT_GITHUB_SYNC_SECRET] : [],
+            false,
+          )}
+        </Reserved>
+      </section>
+    );
+  }
+  const roomId = choices.some((room) => room.id === picked)
+    ? picked
+    : choices[0].id;
+  return (
+    <section data-integrations-card="github" style={card}>
+      {body(roomId, links, usable)}
     </section>
   );
 }

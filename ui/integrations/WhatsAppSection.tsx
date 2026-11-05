@@ -2,12 +2,16 @@
 // own WhatsApp as a linked device, by QR or by a pairing code, and unlinks
 // it. Only the viewer's own: no owner links a member's phone. The status
 // comes from GET /api/whatsapp, then live from the whatsapp_status event.
+// While a read is out, the card holds the layout this device last saw, so it
+// does not grow when the answer arrives (task eeec205a).
 
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useCan } from "../hooks/useCan.ts";
 import { useAppState, useDispatch } from "../store.tsx";
+import { Reserved } from "../components/Reserved.tsx";
+import { getWhatsAppLayout, setWhatsAppLayout } from "../device-settings.ts";
 import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
 import type {
   WhatsAppChatSeen,
@@ -49,6 +53,23 @@ const ERROR: Record<number, PlainMessageKey> = {
   429: "integrations.whatsapp.error.tooSoon",
 };
 
+// What a held card draws in place of the answers it waits for.
+const HELD_LINKED = {
+  state: "linked",
+  phone: "447700900000",
+  linkedAt: 0,
+  connected: true,
+} as const;
+const heldRoutes = (n: number): WhatsAppRoute[] =>
+  Array.from({ length: n }, (_, i) => ({
+    id: `held-${i}`,
+    chat: "447700900000@s.whatsapp.net",
+    group: false,
+    name: "WhatsApp",
+    agentId: "",
+    createdAt: 0,
+  }));
+
 export function WhatsAppSection() {
   const { t } = useI18n();
   const { whatsappStatus: status } = useAppState();
@@ -59,9 +80,19 @@ export function WhatsAppSection() {
   const [error, setError] = useState<PlainMessageKey | null>(null);
   const [codeForm, setCodeForm] = useState(false);
   const [phone, setPhone] = useState("");
+  const [held] = useState(getWhatsAppLayout);
 
   const show = (next: WhatsAppStatus) =>
     dispatch({ type: "whatsapp_status", status: next });
+
+  // Every status comes through the store; the rows keep their own count.
+  useEffect(() => {
+    if (status)
+      setWhatsAppLayout({
+        linked: status.state === "linked",
+        rows: getWhatsAppLayout().rows,
+      });
+  }, [status]);
 
   useEffect(() => {
     apiFetch<WhatsAppStatus>("GET", "/api/whatsapp")
@@ -99,6 +130,111 @@ export function WhatsAppSection() {
       return { state: "unlinked" };
     });
 
+  // The unlinked or dead card's buttons and warning, and the linked line. A
+  // held card draws the same blocks.
+  const linkBlock = (state: "unlinked" | "dead") =>
+    environmentWrite && (
+      <>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          <Btn
+            kind="primary"
+            disabled={busy}
+            onClick={() => void link({ method: "qr" })}
+            data-whatsapp-link=""
+          >
+            {state === "dead"
+              ? t("integrations.whatsapp.linkAgain")
+              : t("integrations.whatsapp.link")}
+          </Btn>
+          {state === "dead" && (
+            <Btn
+              disabled={busy}
+              onClick={() => void unlink()}
+              data-whatsapp-unlink=""
+            >
+              {t("integrations.whatsapp.unlink")}
+            </Btn>
+          )}
+          {!codeForm && (
+            <Btn
+              kind="link"
+              onClick={() => setCodeForm(true)}
+              data-whatsapp-code-form=""
+            >
+              {t("integrations.whatsapp.useCode")}
+            </Btn>
+          )}
+        </div>
+        {codeForm && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void link({ method: "code", phone });
+            }}
+            style={{
+              display: "flex",
+              gap: 8,
+              marginTop: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <input
+              type="tel"
+              name="whatsappPhone"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder={t("integrations.whatsapp.phonePlaceholder")}
+              aria-label={t("integrations.whatsapp.phoneLabel")}
+              style={{ ...input, width: 220 }}
+            />
+            <Btn
+              disabled={busy || !phone.trim()}
+              onClick={() => void link({ method: "code", phone })}
+              data-whatsapp-get-code=""
+            >
+              {t("integrations.whatsapp.getCode")}
+            </Btn>
+          </form>
+        )}
+        <p style={{ ...hintText, margin: "12px 0 0" }}>
+          {t("integrations.whatsapp.warning")}
+        </p>
+      </>
+    );
+  const linkedLine = (linked: { phone: string; connected: boolean }) => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap",
+      }}
+    >
+      <span style={{ fontSize: 13 }}>
+        {t("integrations.whatsapp.linkedAs", { phone: `+${linked.phone}` })}
+      </span>
+      <Pill
+        tone={linked.connected ? "green" : "neutral"}
+        data-whatsapp-connected={String(linked.connected)}
+      >
+        {linked.connected
+          ? t("integrations.whatsapp.connected")
+          : t("integrations.whatsapp.connecting")}
+      </Pill>
+      {environmentWrite && (
+        <Btn
+          kind="danger"
+          small
+          disabled={busy}
+          onClick={() => void unlink()}
+          data-whatsapp-unlink=""
+        >
+          {t("integrations.whatsapp.unlink")}
+        </Btn>
+      )}
+    </div>
+  );
+
   return (
     <section
       data-integrations-card="whatsapp"
@@ -131,74 +267,7 @@ export function WhatsAppSection() {
       )}
 
       {(status?.state === "unlinked" || status?.state === "dead") &&
-        environmentWrite && (
-          <>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              <Btn
-                kind="primary"
-                disabled={busy}
-                onClick={() => void link({ method: "qr" })}
-                data-whatsapp-link=""
-              >
-                {status.state === "dead"
-                  ? t("integrations.whatsapp.linkAgain")
-                  : t("integrations.whatsapp.link")}
-              </Btn>
-              {status.state === "dead" && (
-                <Btn
-                  disabled={busy}
-                  onClick={() => void unlink()}
-                  data-whatsapp-unlink=""
-                >
-                  {t("integrations.whatsapp.unlink")}
-                </Btn>
-              )}
-              {!codeForm && (
-                <Btn
-                  kind="link"
-                  onClick={() => setCodeForm(true)}
-                  data-whatsapp-code-form=""
-                >
-                  {t("integrations.whatsapp.useCode")}
-                </Btn>
-              )}
-            </div>
-            {codeForm && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void link({ method: "code", phone });
-                }}
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  marginTop: 10,
-                  flexWrap: "wrap",
-                }}
-              >
-                <input
-                  type="tel"
-                  name="whatsappPhone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder={t("integrations.whatsapp.phonePlaceholder")}
-                  aria-label={t("integrations.whatsapp.phoneLabel")}
-                  style={{ ...input, width: 220 }}
-                />
-                <Btn
-                  disabled={busy || !phone.trim()}
-                  onClick={() => void link({ method: "code", phone })}
-                  data-whatsapp-get-code=""
-                >
-                  {t("integrations.whatsapp.getCode")}
-                </Btn>
-              </form>
-            )}
-            <p style={{ ...hintText, margin: "12px 0 0" }}>
-              {t("integrations.whatsapp.warning")}
-            </p>
-          </>
-        )}
+        linkBlock(status.state)}
 
       {status?.state === "linking" && (
         <>
@@ -250,39 +319,24 @@ export function WhatsAppSection() {
       )}
 
       {status?.state === "linked" && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ fontSize: 13 }}>
-            {t("integrations.whatsapp.linkedAs", { phone: `+${status.phone}` })}
-          </span>
-          <Pill
-            tone={status.connected ? "green" : "neutral"}
-            data-whatsapp-connected={String(status.connected)}
-          >
-            {status.connected
-              ? t("integrations.whatsapp.connected")
-              : t("integrations.whatsapp.connecting")}
-          </Pill>
-          {environmentWrite && (
-            <Btn
-              kind="danger"
-              small
-              disabled={busy}
-              onClick={() => void unlink()}
-              data-whatsapp-unlink=""
-            >
-              {t("integrations.whatsapp.unlink")}
-            </Btn>
-          )}
-        </div>
+        <>
+          {linkedLine(status)}
+          <WhatsAppRows />
+        </>
       )}
-      {status?.state === "linked" && <WhatsAppRows />}
+      {!status && !error && (
+        // The layout this device last saw, until the status answers.
+        <Reserved>
+          {held.linked ? (
+            <>
+              {linkedLine(HELD_LINKED)}
+              <WhatsAppRows holdRows={held.rows} />
+            </>
+          ) : (
+            linkBlock("unlinked")
+          )}
+        </Reserved>
+      )}
 
       {error && (
         <p role="alert" style={{ ...errorText, margin: "10px 0 0" }}>
@@ -314,8 +368,9 @@ function chatNumber(chat: string): string | null {
 const BY_NUMBER = "";
 
 // The contact rows of a linked member: which WhatsApp chats reach which of
-// their agents.
-function WhatsAppRows() {
+// their agents. `holdRows`: a held card's copy, with that many placeholder
+// rows and no reads.
+function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const { t } = useI18n();
   const { agents, sessionContext } = useAppState();
   const environmentWrite = useCan("environment", "write");
@@ -330,6 +385,7 @@ function WhatsAppRows() {
   const [name, setName] = useState("");
   const [agentId, setAgentId] = useState("");
   const [trigger, setTrigger] = useState<WhatsAppRouteTrigger>("mention");
+  const [heldRows] = useState(() => getWhatsAppLayout().rows);
 
   // Agents that can reply: the member's own, above Chat stop.
   const mine = agents.filter(
@@ -348,8 +404,18 @@ function WhatsAppRows() {
       .then(setRoutes)
       .catch(() => setError("integrations.whatsapp.error.failed"));
   useEffect(() => {
-    void load();
+    if (holdRows === undefined) void load();
+    // Once, on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Each answer: the next load holds this many rows.
+  useEffect(() => {
+    if (routes)
+      setWhatsAppLayout({
+        linked: getWhatsAppLayout().linked,
+        rows: routes.length,
+      });
+  }, [routes]);
 
   function openForm() {
     setAdding(true);
@@ -409,18 +475,12 @@ function WhatsAppRows() {
     agent !== null &&
     (chat !== BY_NUMBER || phone.trim() !== "");
 
-  return (
-    <div data-whatsapp-rows="" style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 650 }}>
-        {t("integrations.whatsapp.rows.title")}
-      </div>
-      <p style={{ ...hintText, margin: "4px 0 8px" }}>
-        {t("integrations.whatsapp.rows.hint")}
-      </p>
-      {routes?.length === 0 && (
+  const list = (shown: WhatsAppRoute[]) => (
+    <>
+      {shown.length === 0 && (
         <Empty>{t("integrations.whatsapp.rows.empty")}</Empty>
       )}
-      {routes?.map((r) => (
+      {shown.map((r) => (
         <ItemRow
           key={r.id}
           data-whatsapp-row={r.id}
@@ -457,6 +517,36 @@ function WhatsAppRows() {
           }
         />
       ))}
+    </>
+  );
+  const addRow = environmentWrite && (
+    <AddRow label={t("integrations.whatsapp.rows.add")} onClick={openForm} />
+  );
+
+  return (
+    <div data-whatsapp-rows="" style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 650 }}>
+        {t("integrations.whatsapp.rows.title")}
+      </div>
+      <p style={{ ...hintText, margin: "4px 0 8px" }}>
+        {t("integrations.whatsapp.rows.hint")}
+      </p>
+      {holdRows !== undefined ? (
+        <>
+          {list(heldRoutes(holdRows))}
+          {addRow}
+        </>
+      ) : routes === null ? (
+        // The last row count, until the rows answer.
+        !error && (
+          <Reserved>
+            {list(heldRoutes(heldRows))}
+            {addRow}
+          </Reserved>
+        )
+      ) : (
+        list(routes)
+      )}
 
       {adding ? (
         <form
@@ -566,13 +656,7 @@ function WhatsAppRows() {
           />
         </form>
       ) : (
-        routes !== null &&
-        environmentWrite && (
-          <AddRow
-            label={t("integrations.whatsapp.rows.add")}
-            onClick={openForm}
-          />
-        )
+        routes !== null && addRow
       )}
 
       {error && (
