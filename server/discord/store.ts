@@ -4,6 +4,8 @@
 //   routes.json  - the routes
 //   cursors.json - per bot, then per channel or thread id, the highest
 //                  message id delivered, so a catch-up starts after it
+//   sent.json    - the last WHATSAPP_ID_RING_MAX ask ids whose reply went
+//                  out, so a second Send posts nothing
 // Files are 0600 and written atomically. A file that does not parse reads as
 // empty.
 
@@ -17,6 +19,7 @@ import {
   writeFileSync,
 } from "fs";
 import { join } from "path";
+import { WHATSAPP_ID_RING_MAX, type IdRing } from "../whatsapp/routes-store.ts";
 import {
   isSnowflake,
   normaliseDiscordPrefix,
@@ -33,6 +36,7 @@ export interface StoredBot {
 const BOTS_FILE = "bots.json";
 const ROUTES_FILE = "routes.json";
 const CURSORS_FILE = "cursors.json";
+const SENT_FILE = "sent.json";
 
 export function discordRoot(stateRoot: string): string {
   return join(stateRoot, "discord");
@@ -206,4 +210,24 @@ export function listDiscordMembers(stateRoot: string): string[] {
 
 export function removeDiscordMember(stateRoot: string, userId: string): void {
   rmSync(discordMemberDir(stateRoot, userId), { recursive: true, force: true });
+}
+
+// The ask ids whose Discord reply went out (a second Send posts nothing),
+// in discord/<userId>/sent.json, the last WHATSAPP_ID_RING_MAX.
+export function openDiscordSentRing(stateRoot: string, userId: string): IdRing {
+  const raw = readJson(stateRoot, userId, SENT_FILE);
+  const ids: string[] = Array.isArray(raw)
+    ? raw.filter((id): id is string => typeof id === "string")
+    : [];
+  const set = new Set(ids);
+  return {
+    has: (id) => set.has(id),
+    add(id) {
+      if (set.has(id)) return;
+      ids.push(id);
+      set.add(id);
+      while (ids.length > WHATSAPP_ID_RING_MAX) set.delete(ids.shift()!);
+      writeJson(stateRoot, userId, SENT_FILE, ids);
+    },
+  };
 }

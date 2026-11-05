@@ -25,7 +25,7 @@ import type {
   StepRoute,
   StepRun,
 } from "../../step-asks.ts";
-import type { WhatsAppReplies } from "../../whatsapp/replies.ts";
+import type { MessagingAppReplies } from "../../messaging/replies.ts";
 import {
   ASK_HISTORY_LIMIT_DEFAULT,
   ASK_HISTORY_LIMIT_MAX,
@@ -196,10 +196,10 @@ export interface AsksDeps {
   ): Promise<UserSendAcceptance>;
   // The agent's display name, for the filed task's description.
   agentName(agentId: string): string | null;
-  // WhatsApp reply drafts (task d03a61d8): only the row's member, signed in,
-  // answers one, and a Send answer sends it before the agent is told.
-  // Absent in leaf tests.
-  whatsapp?: Pick<WhatsAppReplies, "answer">;
+  // Messaging reply drafts (WhatsApp, task d03a61d8; Discord, task
+  // 7fd44c30): only the route's member, signed in, answers one, and a Send
+  // answer sends it before the agent is told. Absent in leaf tests.
+  messaging?: Pick<MessagingAppReplies, "answer">;
   // File a task on the board, and take it back when the agent refuses the
   // message that names it.
   createTask(input: {
@@ -669,11 +669,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     input: { dismissed: boolean; text: string | undefined },
     device: string | undefined,
   ): Promise<HandlerResult> => {
-    if (!deps.whatsapp)
+    if (!deps.messaging)
       return messagingDraft(
         "Replies to messaging contacts are not available in this office.",
       );
-    const res = await deps.whatsapp.answer(entry, input);
+    const res = await deps.messaging.answer(entry, input);
     if (res.kind === "fail") return fail(res.status, res.code, res.error);
     const dismissed = res.outcome === "dismissed";
     const result = await deps.deliver(ctx.identity, entry, res.text, {

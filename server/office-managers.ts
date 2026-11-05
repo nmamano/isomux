@@ -141,9 +141,19 @@ import {
 import { createDiscordRoutes, type DiscordRoutes } from "./discord/routes.ts";
 import { createDiscordInbound } from "./discord/inbound.ts";
 import { DISCORD_API_BASE, createDiscordRest } from "./discord/rest.ts";
-import { readCursors, readBots, writeCursors } from "./discord/store.ts";
+import {
+  openDiscordSentRing,
+  readBots,
+  readCursors,
+  writeCursors,
+} from "./discord/store.ts";
 import { DISCORD_GATEWAY_ENTRY, spawnGateway } from "./discord/process.ts";
 import { DISCORD_APP } from "../shared/discord.ts";
+import { createDiscordReplies } from "./discord/replies.ts";
+import {
+  createMessagingReplies,
+  type MessagingAppReplies,
+} from "./messaging/replies.ts";
 import type { EmitContext } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import type { StartServerOpts } from "./isomux-office.ts";
@@ -202,6 +212,8 @@ export let whatsappReplies: WhatsAppReplies;
 // agent.
 export let discordSupervisor: DiscordSupervisor;
 export let discordRoutes: DiscordRoutes;
+// An agent's reply on any messaging route, dispatched by app (slice 2).
+export let messagingReplies: MessagingAppReplies;
 // GitHub issues into the board (task 7fc83592), in office.sqlite.
 export let githubLinks: GithubLinkStore;
 export let githubSync: GithubSync;
@@ -669,6 +681,20 @@ export function createManagers(
     readRss: readProcRss,
     rest: discordRest,
     gatewayUrl: DISCORD_GATEWAY_URL,
+    pager: {
+      raise: (userId, key, title, body) => {
+        pagerStore.raise({
+          source: {
+            kind: "office",
+            feature: "discord",
+            name: "Discord",
+            roomId: null,
+          },
+          targetUserId: userId,
+          fields: { title, body, key },
+        });
+      },
+    },
     emitStatus: (userId, bots) =>
       liveEmit("discord_status", { bots }, { userId }),
     hooks: {
@@ -680,6 +706,43 @@ export function createManagers(
         discordRoutes.removeBot(userId, botId);
       },
       onShutdown: () => discordInbound.flushAll(),
+    },
+  });
+  const discordReplies = createDiscordReplies({
+    routes: discordRoutes,
+    agent: (agentId) => {
+      const info = agentManager.getAgent(agentId);
+      return info ? { userId: info.userId, name: info.name } : null;
+    },
+    // A dead bot does not post: its token or its connection is broken.
+    bot: (userId, botId) =>
+      discordSupervisor.list(userId).find((b) => b.id === botId)?.status
+        .state === "dead"
+        ? null
+        : discordSupervisor.view(userId, botId),
+    rest: discordRest,
+    asks: askStore,
+    sent: (userId) => openDiscordSentRing(STATE_ROOT, userId),
+    tokenRefused: (userId, botId) =>
+      discordSupervisor.tokenRefused(userId, botId),
+    now: () => Date.now(),
+    newNonce: () => randomBytes(12).toString("hex"),
+  });
+  messagingReplies = createMessagingReplies({
+    whatsapp: {
+      reply: (agentId, routeId, body) =>
+        whatsappReplies.reply(agentId, routeId, body.text),
+      answer: (entry, input) => whatsappReplies.answer(entry, input),
+    },
+    discord: discordReplies,
+    routeApp: (agentId, routeId) => {
+      const userId = agentManager.getAgent(agentId)?.userId ?? null;
+      if (!userId) return null;
+      if (discordRoutes.get(userId, routeId)?.agentId === agentId)
+        return "discord";
+      if (whatsappRoutes.get(userId, routeId)?.agentId === agentId)
+        return "whatsapp";
+      return null;
     },
   });
   turnEndWatch = createTurnEndWatch({

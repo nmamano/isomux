@@ -1,14 +1,15 @@
 // Discord messages from routed channels to agents (task 7fd44c30): what is
 // dropped, what is only context, how a burst makes one delivery, the cursor,
 // and the catch-up after a fresh gateway session (order, no duplicate, no
-// flush while it runs, the gap line). Fake clock, fake REST and fake
-// delivery; the block is the real one, parsed back.
+// flush while it runs, the gap line), and (slice 2) the head that says a
+// reply needs a channel and the 👀 reaction on what was delivered. Fake
+// clock, fake REST and fake delivery; the block is the real one, parsed back.
 //
 // The stored cursor of the main channel is an 18-digit id from 2022, below
 // every message here: compared as strings it is above them all, so every
 // delivery in this file also checks that snowflakes compare as BigInt.
 
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
   DISCORD_EPOCH_MS,
   type DiscordRoute,
@@ -26,7 +27,11 @@ import {
   type DiscordBotView,
 } from "./inbound.ts";
 import type { DiscordMessage } from "./protocol.ts";
-import type { DiscordMessagesPage, DiscordRest } from "./rest.ts";
+import type {
+  DiscordMessagesPage,
+  DiscordReactResult,
+  DiscordRest,
+} from "./rest.ts";
 import type { DiscordMessagePlace } from "./routes.ts";
 
 const U = "u-alice";
@@ -39,6 +44,9 @@ const CAT = "1300000000000000001";
 const GENERAL = "1300000000000000002";
 const OTHER = "1300000000000000004";
 const THREAD = "1300000000000000009";
+const FORUM = "1300000000000000003";
+// A post under FORUM.
+const POST = "1300000000000000010";
 const T0 = 1_800_000_000_000;
 const HOUR = 60 * 60_000;
 // Below every id in this file by value, above them all as a string.
@@ -100,6 +108,8 @@ interface Line {
   from: string;
   authorId: string;
   channel: string;
+  channelId: string;
+  messageId: string;
   link: string;
   text: string;
   attachments: { name: string; url: string }[];
@@ -128,6 +138,19 @@ const PLACES: Record<string, DiscordMessagePlace & { channelName: string }> = {
     categoryId: CAT,
     channelName: "a thread",
   },
+  [POST]: {
+    botId: BOT,
+    guildId: GUILD,
+    channelId: FORUM,
+    categoryId: CAT,
+    channelName: "a post",
+  },
+};
+const KINDS: Record<string, "text" | "forum" | "category"> = {
+  [CAT]: "category",
+  [GENERAL]: "text",
+  [OTHER]: "text",
+  [FORUM]: "forum",
 };
 
 function harness() {
@@ -144,6 +167,9 @@ function harness() {
     cursors: { [GENERAL]: OLD_18 } as Record<string, string>,
     cursorWrites: 0,
     deliverThrows: false,
+    // Delivery attempts, and an agent that refuses them.
+    delivered: 0,
+    refuse: false,
     deliveries: [] as { routeId: string; head: string; lines: Line[] }[],
     // The channel history the fake REST pages through.
     history: new Map<string, DiscordMessage[]>(),
@@ -154,6 +180,14 @@ function harness() {
     page: null as
       | null
       | ((channelId: string) => Promise<DiscordMessagesPage> | null),
+    // The reactions asked for, and how each one answers (default: ok).
+    reactions: [] as {
+      token: string;
+      channelId: string;
+      messageId: string;
+      emoji: string;
+    }[],
+    react: null as null | (() => Promise<DiscordReactResult>),
   };
   const view: DiscordBotView = {
     userId: U,
@@ -165,6 +199,8 @@ function harness() {
       guildId === GUILD ? (PLACES[channelId] ?? null) : null,
     textChannels: (r) =>
       r.scope === "channel" ? [r.targetId] : [GENERAL, OTHER],
+    kindOf: (guildId, channelId) =>
+      guildId === GUILD ? (KINDS[channelId] ?? null) : null,
   };
   const rest: DiscordRest = {
     me: async () => ({ ok: false, reason: "failed", error: "" }),
@@ -184,6 +220,11 @@ function harness() {
     activeThreads: async (_token, guildId) => {
       h.threadCalls.push(guildId);
       return { ok: true, threads: h.threads };
+    },
+    postMessage: async () => ({ ok: false, reason: "failed", error: "" }),
+    addReaction: (token, channelId, messageId, emoji) => {
+      h.reactions.push({ token, channelId, messageId, emoji });
+      return h.react ? h.react() : Promise.resolve({ ok: true });
     },
   };
   const inbound = createDiscordInbound({
@@ -224,7 +265,9 @@ function harness() {
     },
     memberName: () => "Morgan",
     deliver: (_u, r, text) => {
+      h.delivered++;
       if (h.deliverThrows) throw new Error("queue full");
+      if (h.refuse) return false;
       const json = text.split(`${OPEN}\n`)[1].split("\n</messaging-data>")[0];
       h.deliveries.push({
         routeId: r.id,
@@ -254,14 +297,16 @@ function harness() {
     };
   };
   const texts = () => h.deliveries.map((d) => d.lines.map((l) => l.text));
-  // The head a delivery of route r has, with or without the gap line.
-  const headOf = (r: DiscordRoute, gap: boolean) =>
+  // The head a delivery of route r has, with or without the gap line and
+  // the line that says a reply needs a channel.
+  const headOf = (r: DiscordRoute, gap: boolean, channelRequired = false) =>
     buildDiscordBlock({
       routeId: r.id,
       routeName: r.name,
       memberName: "Morgan",
       replyMode: r.replyMode,
       ...(gap ? { gap: true } : {}),
+      ...(channelRequired ? { channelRequired: true } : {}),
       lines: [],
       reservedChars: 0,
     }).split(OPEN)[0];
@@ -289,6 +334,8 @@ describe("discord inbound: delivery", () => {
             from: "Nelly",
             authorId: "1600000000000000001",
             channel: "general",
+            channelId: GENERAL,
+            messageId: m.id,
             link: `https://discord.com/channels/${GUILD}/${GENERAL}/${m.id}`,
             text: "can the bot look?",
             attachments: [
@@ -310,6 +357,8 @@ describe("discord inbound: delivery", () => {
     expect(h.deliveries[0].routeId).toBe("r-general");
     expect(h.deliveries[0].lines[0]).toMatchObject({
       channel: "a thread",
+      channelId: THREAD,
+      messageId: m.id,
       link: `https://discord.com/channels/${GUILD}/${THREAD}/${m.id}`,
     });
     expect(h.cursors[THREAD]).toBe(m.id);
@@ -729,3 +778,157 @@ describe("discord inbound: catch-up after a fresh session", () => {
 function texts(h: { deliveries: { lines: Line[] }[] }) {
   return h.deliveries.map((d) => d.lines.map((l) => l.text));
 }
+
+describe("discord inbound: what a reply needs to know (slice 2)", () => {
+  it("the head says a reply needs a channel for a forum, category or server route, and not for a channel route on a text channel", () => {
+    const cases: [DiscordRoute, string, boolean][] = [
+      [route(), GENERAL, false],
+      [route({ id: "r-forum", targetId: FORUM, name: "help" }), POST, true],
+      [
+        route({ id: "r-cat", scope: "category", targetId: CAT, name: "talk" }),
+        OTHER,
+        true,
+      ],
+      [
+        route({ id: "r-all", scope: "server", targetId: GUILD, name: "all" }),
+        OTHER,
+        true,
+      ],
+    ];
+    for (const [r, channelId, required] of cases) {
+      const { h, inbound, msg, headOf } = harness();
+      h.routes = { [channelId === POST ? FORUM : channelId]: r };
+      inbound.onMessage(U, BOT, msg({ channelId }));
+      h.clock.advance(DISCORD_BURST_QUIET_MS);
+      expect({ route: r.id, head: h.deliveries[0]?.head }).toEqual({
+        route: r.id,
+        head: headOf(r, false, required),
+      });
+    }
+  });
+});
+
+describe("discord inbound: the 👀 reaction (slice 2)", () => {
+  const logs: ReturnType<typeof spyOn>[] = [];
+  afterEach(() => {
+    for (const l of logs.splice(0)) l.mockRestore();
+  });
+
+  it("on a route with react, each line that counts gets 👀 where it was posted after the delivery; context lines do not; a route without react gets none", async () => {
+    const { h, inbound, msg } = harness();
+    h.routes[GENERAL] = route({ trigger: "mention", react: true });
+    const context = msg({ content: "chat" });
+    const asked = msg({ content: "@bot look", mentionsBot: true });
+    const inThread = msg({ channelId: THREAD, replyToBot: true });
+    for (const m of [context, asked, inThread]) inbound.onMessage(U, BOT, m);
+    h.clock.advance(DISCORD_BURST_QUIET_MS);
+    await settle();
+    expect(h.deliveries).toHaveLength(2);
+    expect(
+      h.reactions
+        .map((r) => [r.token, r.channelId, r.messageId, r.emoji])
+        .sort(),
+    ).toEqual(
+      [
+        ["fake-token", GENERAL, asked.id, "👀"],
+        ["fake-token", THREAD, inThread.id, "👀"],
+      ].sort(),
+    );
+
+    const plain = harness();
+    plain.inbound.onMessage(U, BOT, plain.msg());
+    plain.h.clock.advance(DISCORD_BURST_QUIET_MS);
+    await settle();
+    expect(plain.h.deliveries).toHaveLength(1);
+    expect(plain.h.reactions).toEqual([]);
+  });
+
+  it("at most 10 reactions per delivery, all on delivered lines", async () => {
+    const { h, inbound, msg } = harness();
+    h.routes[GENERAL] = route({ react: true });
+    const sent = Array.from({ length: 12 }, () => msg());
+    for (const m of sent) inbound.onMessage(U, BOT, m);
+    h.clock.advance(DISCORD_BURST_QUIET_MS);
+    await settle();
+    expect(h.deliveries[0].lines).toHaveLength(12);
+    expect(h.reactions).toHaveLength(10);
+    const ids = new Set(sent.map((m) => m.id));
+    for (const r of h.reactions) expect(ids.has(r.messageId)).toBe(true);
+    expect(new Set(h.reactions.map((r) => r.messageId)).size).toBe(10);
+  });
+
+  it("a delivery the agent refused gets no reaction", async () => {
+    const { h, inbound, msg } = harness();
+    h.routes[GENERAL] = route({ react: true });
+    h.refuse = true;
+    inbound.onMessage(U, BOT, msg());
+    h.clock.advance(DISCORD_BURST_QUIET_MS);
+    await settle();
+    expect(h.delivered).toBe(1);
+    expect(h.reactions).toEqual([]);
+  });
+
+  it("reactions go one at a time and never hold the delivery or the cursor", async () => {
+    const { h, inbound, msg } = harness();
+    h.routes[GENERAL] = route({ react: true });
+    const waiting: (() => void)[] = [];
+    h.react = () =>
+      new Promise((resolve) => waiting.push(() => resolve({ ok: true })));
+    const sent = [msg(), msg(), msg()];
+    for (const m of sent) inbound.onMessage(U, BOT, m);
+    h.clock.advance(DISCORD_BURST_QUIET_MS);
+    // Delivered and the cursor moved while the first reaction is still out.
+    expect(h.deliveries).toHaveLength(1);
+    expect(h.cursors[GENERAL]).toBe(sent[2].id);
+    await settle();
+    expect(h.reactions).toHaveLength(1);
+    waiting.shift()!();
+    await settle();
+    expect(h.reactions).toHaveLength(2);
+    waiting.shift()!();
+    await settle();
+    waiting.shift()!();
+    await settle();
+    expect(h.reactions).toHaveLength(3);
+  });
+
+  it("reactions that fail, reject or throw never escape: at most one log line per delivery, and the next delivery still goes", async () => {
+    const lines: string[] = [];
+    for (const method of ["log", "warn", "error"] as const)
+      logs.push(
+        spyOn(console, method).mockImplementation((...args: unknown[]) => {
+          lines.push(args.map(String).join(" "));
+        }),
+      );
+    const answers: (() => Promise<DiscordReactResult>)[] = [
+      () =>
+        Promise.resolve({
+          ok: false,
+          reason: "forbidden",
+          error: "403 fake-token",
+        }),
+      () => Promise.reject(new Error("socket fake-token")),
+      () => {
+        throw new Error("sync fake-token");
+      },
+    ];
+    for (const answer of answers) {
+      const { h, inbound, msg } = harness();
+      h.routes[GENERAL] = route({ react: true });
+      h.react = answer;
+      lines.length = 0;
+      for (let i = 0; i < 10; i++) inbound.onMessage(U, BOT, msg());
+      h.clock.advance(DISCORD_BURST_QUIET_MS);
+      await settle();
+      expect(h.deliveries).toHaveLength(1);
+      expect(lines.length).toBeLessThanOrEqual(1);
+      for (const line of lines) expect(line).not.toContain("fake-token");
+      const next = msg();
+      inbound.onMessage(U, BOT, next);
+      h.clock.advance(DISCORD_BURST_QUIET_MS);
+      await settle();
+      expect(h.deliveries).toHaveLength(2);
+      expect(h.cursors[GENERAL]).toBe(next.id);
+    }
+  });
+});

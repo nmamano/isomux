@@ -36,6 +36,8 @@ const LINE: DiscordBlockLine = {
   from: "Nelly",
   authorId: "1600000000000000001",
   channel: "general",
+  channelId: "2",
+  messageId: "3",
   link: "https://discord.com/channels/1/2/3",
   text: "hi",
   attachments: [],
@@ -63,6 +65,8 @@ describe("buildDiscordBlock", () => {
         from: "Bo",
         authorId: "1600000000000000002",
         channel: "a thread",
+        channelId: "1300000000000000009",
+        messageId: "1700000000000000002",
         text: "@bot look",
         attachments: [
           { name: "a.png", url: "https://cdn.discordapp.com/a.png" },
@@ -186,6 +190,36 @@ describe("buildDiscordBlock: the head", () => {
       });
     expect(buildDiscordBlock(input({ gap: true })).split(OPEN)[1]).toBe(
       buildDiscordBlock(input()).split(OPEN)[1],
+    );
+  });
+
+  it("a route whose reply needs a channel adds one line to the head that names the line's channelId field, when it can reply; nothing else changes", () => {
+    for (const replyMode of ["bot", "ask"] as const) {
+      const without = head({ replyMode });
+      const required = head({ replyMode, channelRequired: true });
+      expect(head({ replyMode, channelRequired: false })).toBe(without);
+      expect(required.split("\n").length).toBe(without.split("\n").length + 1);
+      for (const line of without.split("\n"))
+        expect({ replyMode, line, kept: required.includes(line) }).toEqual({
+          replyMode,
+          line,
+          kept: true,
+        });
+      const added = required
+        .split("\n")
+        .filter((line) => !without.split("\n").includes(line));
+      expect(added).toHaveLength(1);
+      // The field names are the protocol the agent reads and sends back.
+      expect(added[0]).toContain("channelId");
+      expect(
+        buildDiscordBlock(input({ replyMode, channelRequired: true })).split(
+          OPEN,
+        )[1],
+      ).toBe(buildDiscordBlock(input({ replyMode })).split(OPEN)[1]);
+    }
+    // A read-only route has no way to reply: no such line.
+    expect(head({ replyMode: "read", channelRequired: true })).toBe(
+      head({ replyMode: "read" }),
     );
   });
 });

@@ -118,15 +118,6 @@ export interface WhatsAppRouteUpdateReq {
   ownMessages?: boolean;
 }
 
-// An agent's reply (slice 2b) and the route's answer: a draft that waits for
-// the member's Send, or, on a row with sendDirect, the message sent.
-export interface WhatsAppReplyReq {
-  text: string;
-}
-export type WhatsAppReplyAccepted =
-  | { askId: string; status: "waiting_for_member" }
-  | { status: "sent" };
-
 export const WHATSAPP_ROUTE_NAME_MAX = 60;
 export const WHATSAPP_ROUTES_MAX = 50;
 export const WHATSAPP_PREFIX_MAX = 40;

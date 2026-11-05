@@ -3,7 +3,7 @@ import {
   ASK_EDIT_PLAIN_TEXT_PARAMS,
   ASK_REPLY_PLAIN_TEXT_PARAMS,
   INBOX_PLAIN_TEXT_PARAMS,
-  WHATSAPP_REPLY_PLAIN_TEXT_PARAMS,
+  MESSAGING_REPLY_PLAIN_TEXT_PARAMS,
   MESSAGE_PLAIN_TEXT_PARAMS,
   type PlainTextParams,
 } from "../../shared/plain-text-form.ts";
@@ -294,13 +294,15 @@ import type {
 import type {
   WhatsAppChatSeen,
   WhatsAppLinkReq,
-  WhatsAppReplyAccepted,
-  WhatsAppReplyReq,
   WhatsAppRoute,
   WhatsAppRouteCreateReq,
   WhatsAppRouteUpdateReq,
   WhatsAppStatus,
 } from "../../shared/whatsapp.ts";
+import type {
+  MessagingReplyAccepted,
+  MessagingReplyReq,
+} from "../../shared/messaging.ts";
 import type {
   DiscordBot,
   DiscordConnectReq,
@@ -1877,11 +1879,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
-  // An agent replies to its row in a messaging app: the row's member approves
-  // it in their Inbox (slice 2b), unless they turned that step off for the row
-  // (task 70fae82c). Only the row's agent: any other agent gets 404. The path
-  // is generic: WhatsApp is the only app today.
-  defineRoute<WhatsAppReplyReq, WhatsAppReplyAccepted>({
+  // An agent replies to its route in a messaging app (WhatsApp, Discord):
+  // by the route's setting, the member approves it in their Inbox, or it goes
+  // out at once. Only the route's agent: any other agent gets 404.
+  defineRoute<MessagingReplyReq, MessagingReplyAccepted>({
     opId: "messaging.reply",
     audit: {
       owner: "executor",
@@ -1890,7 +1891,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/messaging/routes/:routeId/messages",
     auth: cap("self:affordance", agentTokenSender),
-    plainText: { params: WHATSAPP_REPLY_PLAIN_TEXT_PARAMS },
+    plainText: { params: MESSAGING_REPLY_PLAIN_TEXT_PARAMS },
     tokenArea: { area: "asks", level: "write" },
     emits: ["ask_upserted", "others_ask_upserted"],
   }),

@@ -17,6 +17,7 @@ import type {
   ApiTokenInboxSendReq,
   SendMessageReq,
 } from "./contract-shapes.ts";
+import type { MessagingReplyReq } from "./messaging.ts";
 
 export type PlainTextParamKind = "flag" | "string" | { readonly list: string };
 
@@ -43,11 +44,12 @@ export const MESSAGE_PLAIN_TEXT_PARAMS = {
   deliverAt: "string",
   clientMessageId: "string",
 } as const satisfies PlainTextParams<SendMessageReq>;
-// A WhatsApp reply draft: the body is the text.
-export const WHATSAPP_REPLY_PLAIN_TEXT_PARAMS =
-  {} as const satisfies PlainTextParams<{
-    text: string;
-  }>;
+// A reply to a messaging route: the body is the text; Discord's channel and
+// the message it answers go in the query.
+export const MESSAGING_REPLY_PLAIN_TEXT_PARAMS = {
+  channelId: "string",
+  replyTo: "string",
+} as const satisfies PlainTextParams<MessagingReplyReq>;
 export const INBOX_PLAIN_TEXT_PARAMS =
   {} as const satisfies PlainTextParams<ApiTokenInboxSendReq>;
 export const ASK_CREATE_PLAIN_TEXT_PARAMS = {

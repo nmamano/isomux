@@ -1,5 +1,6 @@
 // The Discord REST calls the server makes (task 7fd44c30): the token check,
-// the catch-up reads and the active threads. A fake fetch stands in for
+// the catch-up reads, the active threads, and (slice 2) a post as the bot and
+// the 👀 reaction. A fake fetch stands in for
 // Discord. Each call answers a result and never throws; a 429 is waited out a
 // bounded number of times; no error text carries the token.
 
@@ -29,6 +30,8 @@ function harness(
 ) {
   const h = {
     calls: [] as Call[],
+    // Each call's body and content type, in call order.
+    bodies: [] as { body: string | null; type: string | null }[],
     sleeps: [] as number[],
     rest: undefined as unknown as DiscordRest,
   };
@@ -40,6 +43,10 @@ function harness(
       auth: headers.get("authorization"),
     };
     h.calls.push(call);
+    h.bodies.push({
+      body: typeof init?.body === "string" ? init.body : null,
+      type: headers.get("content-type"),
+    });
     return answer(call, h.calls.length);
   }) as typeof fetch;
   h.rest = createDiscordRest({
@@ -270,5 +277,156 @@ describe("discord rest: active threads", () => {
       ],
     });
     expect(h.calls[0].url).toBe(`${BASE}/guilds/${GUILD}/threads/active`);
+  });
+});
+
+const POST_ID = "1800000000000000001";
+const MSG = "1700000000000000001";
+const throwing =
+  (message: string, name = "Error") =>
+  () => {
+    const err = new Error(message);
+    err.name = name;
+    throw err;
+  };
+
+describe("discord rest: a post as the bot", () => {
+  it("posts JSON to the channel that pings nobody, with the nonce enforced, and answers the new message's id", async () => {
+    const h = harness(() => json(200, { id: POST_ID, channel_id: CHANNEL }));
+    expect(
+      await h.rest.postMessage(TOKEN, CHANNEL, {
+        content: "@everyone hi <@1600000000000000001>",
+        nonce: "n-1",
+      }),
+    ).toEqual({ ok: true, id: POST_ID });
+    expect(h.calls).toEqual([
+      {
+        method: "POST",
+        url: `${BASE}/channels/${CHANNEL}/messages`,
+        auth: `Bot ${TOKEN}`,
+      },
+    ]);
+    expect(h.bodies[0].type).toContain("application/json");
+    const body = JSON.parse(h.bodies[0].body ?? "null") as Record<
+      string,
+      unknown
+    >;
+    expect(body).toEqual({
+      content: "@everyone hi <@1600000000000000001>",
+      nonce: "n-1",
+      enforce_nonce: true,
+      allowed_mentions: { parse: [], replied_user: false },
+    });
+  });
+
+  it("a replyTo becomes a message reference that does not fail when the message is gone", async () => {
+    const h = harness(() => json(200, { id: POST_ID }));
+    await h.rest.postMessage(TOKEN, CHANNEL, {
+      content: "yes",
+      replyTo: MSG,
+      nonce: "n-2",
+    });
+    const body = JSON.parse(h.bodies[0].body ?? "null") as {
+      message_reference?: Record<string, unknown>;
+      allowed_mentions?: Record<string, unknown>;
+    };
+    expect(body.message_reference).toMatchObject({
+      message_id: MSG,
+      fail_if_not_exists: false,
+    });
+    expect(body.allowed_mentions).toEqual({ parse: [], replied_user: false });
+  });
+
+  it("each answer has its reason: 401, 403, 404, another 4xx, 5xx or a bad body, a network error, a timeout; no error text carries the token", async () => {
+    const cases: [() => Response, string][] = [
+      [() => json(401, { message: "401: Unauthorized" }), "unauthorized"],
+      [
+        () => json(403, { message: "Missing Permissions", code: 50013 }),
+        "forbidden",
+      ],
+      [
+        () => json(404, { message: "Unknown Channel", code: 10003 }),
+        "not_found",
+      ],
+      [
+        () =>
+          json(400, { message: `Thread is archived ${TOKEN}`, code: 50083 }),
+        "rejected",
+      ],
+      [() => json(502, { message: `bad gateway ${TOKEN}` }), "failed"],
+      [() => new Response("<html>", { status: 200 }), "failed"],
+      [() => json(200, { channel_id: CHANNEL }), "failed"],
+      [throwing(`socket hang up for Bot ${TOKEN}`, "TypeError"), "unknown"],
+      [throwing("The operation timed out.", "TimeoutError"), "unknown"],
+    ];
+    for (const [answer, reason] of cases) {
+      const res = await harness(answer).rest.postMessage(TOKEN, CHANNEL, {
+        content: "hi",
+        nonce: "n",
+      });
+      expect({ reason, got: res.ok ? "ok" : res.reason }).toEqual({
+        reason,
+        got: reason,
+      });
+      if (!res.ok) expect(res.error).not.toContain(TOKEN);
+    }
+  });
+
+  it("a 429 is waited out and the same post is sent again under the same nonce", async () => {
+    const h = harness((_c, n) =>
+      n === 1 ? json(429, { retry_after: 0.5 }) : json(200, { id: POST_ID }),
+    );
+    expect(
+      await h.rest.postMessage(TOKEN, CHANNEL, { content: "hi", nonce: "n-3" }),
+    ).toEqual({ ok: true, id: POST_ID });
+    expect(h.sleeps).toEqual([500]);
+    expect(h.bodies.map((b) => b.body)).toEqual([
+      h.bodies[0].body,
+      h.bodies[0].body,
+    ]);
+    const always = harness(() => json(429, { retry_after: 0.25 }));
+    expect(
+      await always.rest.postMessage(TOKEN, CHANNEL, {
+        content: "x",
+        nonce: "n",
+      }),
+    ).toMatchObject({ ok: false, reason: "rate_limited" });
+  });
+});
+
+describe("discord rest: a reaction", () => {
+  it("PUTs the emoji, URL-encoded, as the bot on the message; a 204 with no body is ok", async () => {
+    const h = harness(() => new Response(null, { status: 204 }));
+    expect(await h.rest.addReaction(TOKEN, CHANNEL, MSG, "👀")).toEqual({
+      ok: true,
+    });
+    expect(h.calls).toEqual([
+      {
+        method: "PUT",
+        url: `${BASE}/channels/${CHANNEL}/messages/${MSG}/reactions/%F0%9F%91%80/@me`,
+        auth: `Bot ${TOKEN}`,
+      },
+    ]);
+  });
+
+  it("a refusal or a network error is a failure with its reason and never throws; no error text carries the token", async () => {
+    const cases: [() => Response, string][] = [
+      [() => json(403, { message: `Missing Access ${TOKEN}` }), "forbidden"],
+      [() => json(404, { message: "Unknown Message" }), "not_found"],
+      [throwing(`reset ${TOKEN}`, "TypeError"), "unknown"],
+    ];
+    for (const [answer, reason] of cases) {
+      const res = await harness(answer).rest.addReaction(
+        TOKEN,
+        CHANNEL,
+        MSG,
+        "👀",
+      );
+      expect({ reason, got: res.ok ? "ok" : res.reason }).toEqual({
+        reason,
+        got: reason,
+      });
+      if (!res.ok) expect(res.error).not.toContain(TOKEN);
+    }
   });
 });

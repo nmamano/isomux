@@ -12,7 +12,6 @@ import type {
   WhatsAppRouteUpdateReq,
 } from "../../../shared/whatsapp.ts";
 import type { WhatsAppSupervisor } from "../../whatsapp/supervisor.ts";
-import type { WhatsAppReplies } from "../../whatsapp/replies.ts";
 import type {
   WhatsAppRouteResult,
   WhatsAppRoutes,
@@ -21,7 +20,6 @@ import type {
 export interface WhatsAppDeps {
   supervisor: WhatsAppSupervisor;
   routes: WhatsAppRoutes;
-  replies: Pick<WhatsAppReplies, "reply">;
 }
 
 const ERROR_CODES = {
@@ -159,21 +157,6 @@ export function whatsappHandlers(
       return deps.routes.remove(userId, ctx.params.routeId)
         ? noContent()
         : fail(404, "not_found", "no such row");
-    },
-
-    // An agent's reply to its row (slice 2b): an ask to the member, or, on a
-    // row that sends at once, the message itself (task 70fae82c). The route
-    // id names a WhatsApp row: see WhatsAppReplies.reply for the id space a
-    // second messaging app shares.
-    "messaging.reply": async (ctx) => {
-      const agentId = ctx.identity.agentId;
-      if (ctx.identity.scope !== "agent" || !agentId)
-        return fail(403, "forbidden");
-      const text = isObject(ctx.body) ? ctx.body.text : undefined;
-      const res = await deps.replies.reply(agentId, ctx.params.routeId, text);
-      if (!res.ok) return fail(res.status, res.code, res.error);
-      if ("sent" in res) return ok({ status: "sent" });
-      return ok({ askId: res.askId, status: "waiting_for_member" }, 202);
     },
 
     "whatsapp.unlink": async (ctx) => {

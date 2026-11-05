@@ -160,6 +160,9 @@ interface Harness {
   // The removal and shutdown hooks throw.
   lifecycleThrows: boolean;
   emitThrows: boolean;
+  // The pages raised (slice 2), and a pager that throws.
+  pages: { userId: string; key: string; title: string; body: string }[];
+  pagerThrows: boolean;
   childrenOf(token: string): FakeChild[];
 }
 
@@ -198,6 +201,8 @@ function harness(root?: string): Harness {
     hookThrows: false,
     lifecycleThrows: false,
     emitThrows: false,
+    pages: [],
+    pagerThrows: false,
     childrenOf: (token) =>
       h.spawns.filter((s) => s.child.token === token).map((s) => s.child),
   };
@@ -226,6 +231,12 @@ function harness(root?: string): Harness {
         },
     },
     gatewayUrl: GATEWAY_URL,
+    pager: {
+      raise: (userId, key, title, body) => {
+        if (h.pagerThrows) throw new Error("pager down");
+        h.pages.push({ userId, key, title, body });
+      },
+    },
     emitStatus: (userId, bots) => {
       if (h.emitThrows) throw new Error("socket gone");
       h.emits.push({ userId, bots: structuredClone(bots) });
@@ -683,6 +694,138 @@ describe("discord supervisor: a hook that throws at a removal or a shutdown", ()
     await h.clock.advance(DISCORD_FAILURE_WINDOW_MS);
     expect(h.spawns).toHaveLength(2);
     rmSync(h.stateRoot, { recursive: true, force: true });
+  });
+});
+
+describe("discord supervisor: pages", () => {
+  async function crashLoop(h: Harness): Promise<void> {
+    for (let failure = 1; failure <= DISCORD_MAX_FAILURES; failure++) {
+      last(h.childrenOf(TOKEN)).exit(1);
+      if (failure < DISCORD_MAX_FAILURES)
+        await h.clock.advance(DISCORD_BACKOFF_MAX_MS);
+    }
+    await until(() => h.sup.list(U)[0].status.state === "dead", "dead");
+  }
+
+  it("a refused token, the intent off, or a crash loop raises one page to the bot's member, naming the bot; a transient failure raises none", async () => {
+    const keys: string[] = [];
+    for (const kill of ["4004", "4014", "crash"] as const) {
+      const h = harness();
+      const child = await connected(h);
+      child.emit({ ev: "ready", user: { id: BOT, name: "Office Bot" } });
+      // One failure: a restart, no page.
+      child.exit(1);
+      await h.clock.advance(DISCORD_BACKOFF_FIRST_MS);
+      expect({ kill, pages: h.pages }).toEqual({ kill, pages: [] });
+      const next = last(h.childrenOf(TOKEN));
+      if (kill === "crash") await crashLoop(h);
+      else {
+        next.emit({
+          ev: "closed",
+          code:
+            kill === "4004"
+              ? GATEWAY_CLOSE.authenticationFailed
+              : GATEWAY_CLOSE.disallowedIntents,
+        });
+        next.exit(1);
+        await until(() => h.sup.list(U)[0].status.state === "dead", "dead");
+      }
+      // The crash loop keeps trying at the longest backoff: no new page.
+      await h.clock.advance(3 * DISCORD_BACKOFF_MAX_MS);
+      expect({ kill, n: h.pages.length }).toEqual({ kill, n: 1 });
+      const [page] = h.pages;
+      expect(page.userId).toBe(U);
+      expect(page.body).toContain("Office Bot");
+      for (const text of [page.key, page.title, page.body])
+        expect(text).not.toContain(TOKEN);
+      expect(page.key).toContain(BOT);
+      keys.push(page.key);
+      const done = h.sup.shutdown();
+      await h.clock.advance(MINUTE);
+      await done;
+      current = null;
+      rmSync(h.stateRoot, { recursive: true, force: true });
+    }
+    // One page per reason: a fixed dead state never hides another.
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("a disconnect, a member removal or a shutdown raises no page", async () => {
+    const h = harness();
+    await connected(h);
+    await h.sup.disconnect(U, BOT);
+    await connected(h);
+    await h.sup.removeMember(U);
+    await connected(h);
+    const done = h.sup.shutdown();
+    await h.clock.advance(MINUTE);
+    await done;
+    current = null;
+    await h.clock.advance(DISCORD_FAILURE_WINDOW_MS);
+    expect(h.pages).toEqual([]);
+    rmSync(h.stateRoot, { recursive: true, force: true });
+  });
+
+  it("tokenRefused: dead token_invalid, the child stops with no restart, one page; again, or a 4004 after it, raises no second", async () => {
+    const h = harness();
+    const child = await connected(h);
+    child.emit({ ev: "ready", user: { id: BOT, name: "Office Bot" } });
+    h.sup.tokenRefused(U, BOT);
+    await until(() => child.exited, "the child stopped");
+    expect(h.sup.list(U)[0].status).toEqual({
+      state: "dead",
+      reason: "token_invalid",
+    });
+    expect(last(h.emits).bots[0].status).toEqual({
+      state: "dead",
+      reason: "token_invalid",
+    });
+    h.sup.tokenRefused(U, BOT);
+    await h.clock.advance(DISCORD_FAILURE_WINDOW_MS);
+    expect(h.childrenOf(TOKEN)).toHaveLength(1);
+    expect(h.pages).toHaveLength(1);
+    // The token stays: the member connects the bot again to heal it.
+    expect(readBots(h.stateRoot, U)).toHaveLength(1);
+  });
+
+  it("a 4004 first and tokenRefused after it is one page too", async () => {
+    const h = harness();
+    const child = await connected(h);
+    child.emit({ ev: "closed", code: GATEWAY_CLOSE.authenticationFailed });
+    child.exit(1);
+    await until(() => h.sup.list(U)[0].status.state === "dead", "dead");
+    h.sup.tokenRefused(U, BOT);
+    await h.clock.advance(MINUTE);
+    expect(h.pages).toHaveLength(1);
+  });
+
+  it("tokenRefused for a bot that is not the member's, or no bot, does nothing and never throws", async () => {
+    const h = harness();
+    await connected(h);
+    h.sup.tokenRefused(V, BOT);
+    h.sup.tokenRefused(U, "1100000000000000099");
+    await h.clock.advance(MINUTE);
+    expect(h.pages).toEqual([]);
+    expect(h.sup.list(U)[0].status.state).not.toBe("dead");
+  });
+
+  it("a pager that throws never escapes: the bot still goes dead and stops", async () => {
+    const h = harness();
+    const child = await connected(h);
+    h.pagerThrows = true;
+    h.sup.tokenRefused(U, BOT);
+    await until(() => child.exited, "the child stopped");
+    expect(h.sup.list(U)[0].status.state).toBe("dead");
+    const done = h.sup.shutdown();
+    await h.clock.advance(MINUTE);
+    await done;
+    rmSync(h.stateRoot, { recursive: true, force: true });
+    const t = harness();
+    t.pagerThrows = true;
+    const c = await connected(t);
+    c.emit({ ev: "closed", code: GATEWAY_CLOSE.disallowedIntents });
+    c.exit(1);
+    await until(() => t.sup.list(U)[0].status.state === "dead", "dead");
   });
 });
 

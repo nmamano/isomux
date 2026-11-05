@@ -17,6 +17,10 @@ export interface DiscordBlockLine {
   authorId: string;
   // The channel or thread name.
   channel: string;
+  // The channel or thread the message was posted in, and its id: where a
+  // reply goes (channelId) and what it answers (replyTo).
+  channelId: string;
+  messageId: string;
   // https://discord.com/channels/<guild>/<channel>/<message>
   link: string;
   text: string;
@@ -32,13 +36,17 @@ export interface DiscordBlockInput {
   replyMode: "bot" | "read" | "ask";
   // The catch-up left messages unread (page cap or age limit).
   gap?: boolean;
+  // A reply must name its channel: the route is a forum, a category or a
+  // server (slice 2). The head says to take it from the line's channelId.
+  channelRequired?: boolean;
   lines: DiscordBlockLine[];
   // Characters the sender label in front of the text takes.
   reservedChars: number;
 }
 
 function headLines(input: DiscordBlockInput): string[] {
-  const { routeId, routeName, memberName, replyMode, gap } = input;
+  const { routeId, routeName, memberName, replyMode, gap, channelRequired } =
+    input;
   const how = `(messaging_reply, or page \`messaging-apps\`)`;
   return [
     `Discord route ${escapedJson(routeName)} of ${escapedJson(memberName)}, route ${routeId}.`,
@@ -48,6 +56,11 @@ function headLines(input: DiscordBlockInput): string[] {
       : replyMode === "ask"
         ? `To answer, draft a reply to route ${routeId} ${how}: ${escapedJson(memberName)} approves it before it goes out.`
         : "This route is read only: you cannot answer in Discord.",
+    ...(channelRequired && replyMode !== "read"
+      ? [
+          "This route covers more than one channel: each reply names its channel with the channelId of the message it answers.",
+        ]
+      : []),
     ...(gap
       ? [
           "Some earlier messages in this channel were not delivered: the catch-up after a reconnect could not read them all.",
@@ -67,6 +80,8 @@ export function buildDiscordBlock(input: DiscordBlockInput): string {
     from: line.from,
     authorId: line.authorId,
     channel: line.channel,
+    channelId: line.channelId,
+    messageId: line.messageId,
     link: line.link,
     text: line.text,
     attachments: line.attachments.map((a) => ({ name: a.name, url: a.url })),

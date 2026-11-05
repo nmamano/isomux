@@ -354,7 +354,7 @@ describe("route table: plain-text form", () => {
         ],
       ],
       ["asks.reply", []],
-      ["messaging.reply", []],
+      ["messaging.reply", ["channelId", "replyTo"]],
       ["apiTokenInbox.send", []],
       [
         "asks.appCreate",

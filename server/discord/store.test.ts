@@ -14,10 +14,12 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 import type { DiscordRoute } from "../../shared/discord.ts";
+import { WHATSAPP_ID_RING_MAX } from "../whatsapp/routes-store.ts";
 import {
   discordMemberDir,
   discordRoot,
   listDiscordMembers,
+  openDiscordSentRing,
   readBots,
   readCursors,
   readDiscordRoutes,
@@ -163,6 +165,28 @@ describe("discord store", () => {
       "1300000000000000001": "1400000000000000001",
     });
     expect(readCursors(r, U, BOT2)).toEqual({});
+  });
+
+  it("the sent ring keeps its ids on disk, 0600, per member, the newest up to the cap, and goes with the member's directory", () => {
+    const r = root();
+    const ring = openDiscordSentRing(r, U);
+    expect(ring.has("ask:1")).toBe(false);
+    ring.add("ask:1");
+    ring.add("ask:1");
+    expect(openDiscordSentRing(r, U).has("ask:1")).toBe(true);
+    expect(openDiscordSentRing(r, V).has("ask:1")).toBe(false);
+    const file = join(discordMemberDir(r, U), "sent.json");
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const many = openDiscordSentRing(r, U);
+    for (let i = 2; i <= WHATSAPP_ID_RING_MAX + 1; i++) many.add(`ask:${i}`);
+    const back = openDiscordSentRing(r, U);
+    expect([
+      back.has("ask:1"),
+      back.has("ask:2"),
+      back.has(`ask:${WHATSAPP_ID_RING_MAX + 1}`),
+    ]).toEqual([false, true, true]);
+    removeDiscordMember(r, U);
+    expect(openDiscordSentRing(r, U).has("ask:2")).toBe(false);
   });
 
   it("lists the members with a directory, and removes one member's files only", () => {

@@ -280,17 +280,23 @@ function buildServer(
       "messaging_reply",
       {
         description:
-          "Reply to a contact of your manager in a messaging app (WhatsApp). routeId is in the message's label line. Per chat, the reply waits for your manager's Send in their Inbox (the answer comes to your chat) or goes out at once (status sent). After a 504, the message may have gone out: do not send it again.",
+          "Reply on a route of your manager in a messaging app (WhatsApp, Discord). routeId is in the message's label line. By the route's setting, the reply waits for your manager's Send in their Inbox (the answer comes to your chat) or goes out at once (status sent). Discord only: channelId is the channel or thread to post in, from the message you answer; it is required when the delivery says so. replyTo is the messageId you answer. After a 504, the message may have gone out: do not send it again.",
         inputSchema: {
           routeId: z.string().min(1),
           text: z.string().min(1),
+          channelId: z.string().optional(),
+          replyTo: z.string().optional(),
         },
       },
-      async ({ routeId, text }) => {
+      async ({ routeId, text, channelId, replyTo }) => {
         const res = await call(
           "POST",
           `/api/messaging/routes/${encodeURIComponent(routeId)}/messages`,
-          { text },
+          {
+            text,
+            ...(channelId !== undefined ? { channelId } : {}),
+            ...(replyTo !== undefined ? { replyTo } : {}),
+          },
         );
         return res.status >= 200 && res.status < 300
           ? json(res.body)

@@ -14,3 +14,18 @@ export function messagingAppName(app: string): string | undefined {
     ? MESSAGING_APP_NAMES[app]
     : undefined;
 }
+
+// An agent's reply to its route (POST /api/messaging/routes/:routeId/
+// messages). channelId and replyTo are Discord's: the channel or thread it
+// goes to, and the message it answers.
+export interface MessagingReplyReq {
+  text: string;
+  channelId?: string;
+  replyTo?: string;
+}
+
+// A draft that waits for the member, or the message sent (messageId on
+// Discord).
+export type MessagingReplyAccepted =
+  | { askId: string; status: "waiting_for_member" }
+  | { status: "sent"; messageId?: string };

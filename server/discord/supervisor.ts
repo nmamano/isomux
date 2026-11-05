@@ -10,6 +10,8 @@
 //                 (crash_loop), and it keeps restarting every
 //                 DISCORD_BACKOFF_MAX_MS; a ready heals it
 // A child above DISCORD_RSS_LIMIT is killed, which counts as a failure.
+// A 401 on a REST call (tokenRefused) is dead token_invalid too, and stops
+// the child. Each dead state raises one page to the bot's member.
 //
 // It runs from timers and child exits in the office server, where a throw
 // ends the server: every callback has its own try/catch. Every text from a
@@ -20,6 +22,7 @@ import { dirname } from "path";
 import {
   DISCORD_BOTS_MAX,
   type DiscordBot,
+  type DiscordBotReason,
   type DiscordBotStatus,
   type DiscordChannelSeen,
   type DiscordGuildSeen,
@@ -104,7 +107,14 @@ export interface DiscordSupervisorDeps {
   gatewayUrl: string;
   // The member's bots changed (status, a connect, a removal).
   emitStatus(userId: string, bots: DiscordBot[]): void;
+  // A page to the bot's member when the bot goes dead (slice 2). The key is
+  // stable per (member, bot, reason), so one dead state raises one page.
+  pager?: DiscordPager;
   hooks?: DiscordHooks;
+}
+
+export interface DiscordPager {
+  raise(userId: string, key: string, title: string, body: string): void;
 }
 
 export type DiscordConnectResult =
@@ -134,6 +144,10 @@ export interface DiscordSupervisor {
   view(userId: string, botId: string): DiscordBotView | null;
   // The text with every stored token removed.
   redact(text: string): string;
+  // Discord refused the bot's token on a REST call (401): the bot goes dead
+  // token_invalid, its child stops with no restart, and one page is raised.
+  // Idempotent with the gateway's own 4004 path.
+  tokenRefused(userId: string, botId: string): void;
 }
 
 // The only environment keys a gateway child gets.
@@ -169,9 +183,22 @@ interface BotRecord {
   botUserId: string;
   // A disconnect, a replacement or a shutdown ends the child: no restart.
   removed: boolean;
+  // Dead with no restart until the member connects the bot again: Discord
+  // refused the token on a REST call.
+  halted: boolean;
 }
 
 const recordKey = (userId: string, botId: string) => `${userId}\n${botId}`;
+
+const INTEGRATIONS_HINT = "To connect it again, open Integrations › Messaging.";
+
+// The page body's first sentence per reason, for the bot `name`.
+const DEAD_TEXT: Record<DiscordBotReason, (name: string) => string> = {
+  token_invalid: (name) => `Discord refused the token of the bot ${name}.`,
+  intent_off: (name) =>
+    `The bot ${name} needs the Message Content intent: turn it on in the Discord Developer Portal.`,
+  crash_loop: (name) => `The connection of the bot ${name} kept failing.`,
+};
 
 export function createDiscordSupervisor(
   deps: DiscordSupervisorDeps,
@@ -218,6 +245,26 @@ export function createDiscordSupervisor(
     emit(r.userId);
   }
 
+  // The bot goes dead for `reason`, with one page per dead state: a bot
+  // that is dead for this reason already raises none.
+  function die(r: BotRecord, reason: DiscordBotReason): void {
+    const again = r.status.state === "dead" && r.status.reason === reason;
+    setStatus(r, { state: "dead", reason });
+    if (again) return;
+    const pager = deps.pager;
+    if (!pager) return;
+    try {
+      pager.raise(
+        r.userId,
+        `discord:${r.userId}:${r.stored.id}:${reason}`,
+        "Discord bot stopped",
+        `${DEAD_TEXT[reason](JSON.stringify(r.stored.name))} ${INTEGRATIONS_HINT}`,
+      );
+    } catch {
+      console.error("[discord] a Discord page was not raised");
+    }
+  }
+
   function hook(what: string, run: (hooks: DiscordHooks) => void): void {
     const hooks = deps.hooks;
     if (hooks) guard(what, () => run(hooks));
@@ -233,7 +280,7 @@ export function createDiscordSupervisor(
   }
 
   function start(r: BotRecord): void {
-    if (r.removed || shuttingDown || r.child) return;
+    if (r.removed || r.halted || shuttingDown || r.child) return;
     let child: GatewayChild;
     try {
       child = deps.spawner({
@@ -357,14 +404,14 @@ export function createDiscordSupervisor(
     for (const w of rec.exitWaiters.splice(0)) guard("a stop", w);
     if (r.child !== rec) return;
     r.child = null;
-    if (r.removed || shuttingDown) return;
+    if (r.removed || r.halted || shuttingDown) return;
     void code;
     if (rec.closeCode === GATEWAY_CLOSE.authenticationFailed) {
-      setStatus(r, { state: "dead", reason: "token_invalid" });
+      die(r, "token_invalid");
       return;
     }
     if (rec.closeCode === GATEWAY_CLOSE.disallowedIntents) {
-      setStatus(r, { state: "dead", reason: "intent_off" });
+      die(r, "intent_off");
       return;
     }
     fail(r);
@@ -373,14 +420,13 @@ export function createDiscordSupervisor(
   // A failure: restart with a backoff; too many in the window is dead, and
   // it keeps trying at the longest backoff.
   function fail(r: BotRecord): void {
-    if (r.removed || shuttingDown) return;
+    if (r.removed || r.halted || shuttingDown) return;
     const now = clock.now();
     r.failures = r.failures.filter((t) => now - t < DISCORD_FAILURE_WINDOW_MS);
     r.failures.push(now);
     let wait: number;
     if (r.failures.length >= DISCORD_MAX_FAILURES) {
-      if (r.status.state !== "dead")
-        setStatus(r, { state: "dead", reason: "crash_loop" });
+      if (r.status.state !== "dead") die(r, "crash_loop");
       wait = DISCORD_BACKOFF_MAX_MS;
     } else {
       if (r.status.state !== "connecting")
@@ -437,6 +483,7 @@ export function createDiscordSupervisor(
       guilds: null,
       botUserId: stored.id,
       removed: false,
+      halted: false,
     };
     bots.set(recordKey(userId, stored.id), r);
     refreshPatterns();
@@ -485,6 +532,10 @@ export function createDiscordSupervisor(
         };
       },
       textChannels: (route) => textChannels(guilds().get(route.guildId), route),
+      kindOf: (guildId, channelId) =>
+        guilds()
+          .get(guildId)
+          ?.guild.channels.find((c) => c.id === channelId)?.kind ?? null,
     };
   }
 
@@ -532,6 +583,7 @@ export function createDiscordSupervisor(
         if (bots.get(recordKey(userId, me.id)) !== existing)
           return { ok: false, status: 409, error: "the bot was disconnected" };
         existing.removed = false;
+        existing.halted = false;
         existing.child = null;
         existing.failures = [];
         existing.stored = { ...existing.stored, token, name: me.name };
@@ -605,5 +657,15 @@ export function createDiscordSupervisor(
     },
 
     redact,
+
+    tokenRefused(userId, botId) {
+      guard("a refused token", () => {
+        const r = bots.get(recordKey(userId, botId));
+        if (!r || r.removed || shuttingDown) return;
+        r.halted = true;
+        die(r, "token_invalid");
+        void stopChild(r);
+      });
+    },
   };
 }

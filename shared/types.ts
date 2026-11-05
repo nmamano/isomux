@@ -1590,7 +1590,15 @@ export interface AskEntry {
   // A reply draft to a messaging contact (task d03a61d8): the text that goes
   // out through `app` when the row's member answers Send. Fixed after
   // create: the agent cannot edit or simplify the ask, only withdraw it.
-  messaging?: { app: string; routeId: string; text: string };
+  // Discord's draft also keeps where it goes (channelId) and what it
+  // answers (replyTo).
+  messaging?: {
+    app: string;
+    routeId: string;
+    text: string;
+    channelId?: string;
+    replyTo?: string;
+  };
 }
 
 // A file an ask shows. A copy is an Attachment in the agent's files dir. A

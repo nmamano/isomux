@@ -870,6 +870,35 @@ describe("/mcp for an agent below Standard", () => {
     });
     expect(refused.isError).toBe(true);
     expect((await asMember(o, "GET", "/api/asks")).body).toHaveLength(1);
+
+    // Discord's fields (task 7fd44c30, slice 2): optional in the tool, and
+    // passed on, so the WhatsApp row refuses them and nothing opens.
+    const tool = (await client.listTools()).tools.find(
+      (t) => t.name === "messaging_reply",
+    );
+    const schema = tool?.inputSchema as {
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    expect(Object.keys(schema.properties ?? {}).sort()).toEqual([
+      "channelId",
+      "replyTo",
+      "routeId",
+      "text",
+    ]);
+    expect([...(schema.required ?? [])].sort()).toEqual(["routeId", "text"]);
+    for (const extra of [
+      { channelId: "1300000000000000002" },
+      { replyTo: "1700000000000000001" },
+    ]) {
+      const res = await call(client, "messaging_reply", {
+        routeId: "r1",
+        text: "see you at 6",
+        ...extra,
+      });
+      expect({ extra, isError: res.isError }).toEqual({ extra, isError: true });
+    }
+    expect((await asMember(o, "GET", "/api/asks")).body).toHaveLength(1);
   });
 
   it("creates a marked task, refuses another's, opens an ask the member sees, and sends a message as itself", async () => {

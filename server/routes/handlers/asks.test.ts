@@ -16,7 +16,7 @@ import {
   APP_CAPABILITIES,
   USER_CAPABILITIES,
 } from "../../identity/index.ts";
-import type { WhatsAppAnswerResult } from "../../whatsapp/replies.ts";
+import type { MessagingAnswerResult } from "../../messaging/replies.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
   ASK_SIMPLIFY_TEXT,
@@ -745,7 +745,8 @@ describe("an app's own asks", () => {
 
 // A WhatsApp reply draft (task d03a61d8, slice 2b): only the row's member,
 // signed in, answers it, and the answer goes to the replies module before the
-// agent is told. What each answer sends is server/whatsapp/replies.test.ts;
+// agent is told. The dispatch by app is server/messaging/replies.test.ts; what
+// each answer sends is server/whatsapp/replies.test.ts;
 // here the module is a fake whose results the test picks.
 describe("a WhatsApp reply draft", () => {
   const DRAFT = { app: "whatsapp", routeId: "r1", text: "see you at 5" };
@@ -787,11 +788,12 @@ describe("a WhatsApp reply draft", () => {
       dismissed: boolean;
       text: string | undefined;
     }[] = [];
-    const results: Array<WhatsAppAnswerResult | Promise<WhatsAppAnswerResult>> =
-      [];
+    const results: Array<
+      MessagingAnswerResult | Promise<MessagingAnswerResult>
+    > = [];
     const t = rig({
       isOfficeOwner: (userId) => userId === "u-owner",
-      whatsapp: {
+      messaging: {
         answer: async (entry, input) => {
           calls.push({ askId: entry.id, ...input });
           return (
@@ -935,7 +937,7 @@ describe("a WhatsApp reply draft", () => {
 
   it("a second answer while the first is with WhatsApp is 409 ask_busy: one send", async () => {
     const t = draftRig();
-    let release!: (r: WhatsAppAnswerResult) => void;
+    let release!: (r: MessagingAnswerResult) => void;
     t.results.push(new Promise((r) => (release = r)));
     const first = t.outcome(
       t.handlers["asks.reply"](as(member, t, t.draft.id, "Send")),

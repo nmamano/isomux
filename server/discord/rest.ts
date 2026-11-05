@@ -1,5 +1,6 @@
 // The Discord REST calls the server makes itself (task 7fd44c30): the token
-// check at connect and the catch-up reads. Each call answers a result and
+// check at connect, the catch-up reads, and (slice 2) a post as the bot and
+// a reaction. Each call answers a result and
 // never throws; an error text passes through `redact` before it is returned,
 // so no token reaches a log.
 
@@ -42,8 +43,51 @@ export type DiscordThreadsPage =
   | { ok: true; threads: { id: string; parentId: string }[] }
   | DiscordRestFailure;
 
+// A post or a reaction (slice 2). unauthorized: 401 (the token is refused).
+// forbidden: 403 (no permission). not_found: 404 (the channel or message is
+// gone). rejected: another 4xx, for example an archived or locked thread.
+// rate_limited: 429 after the retries. failed: a 5xx or a body it cannot
+// read. unknown: a network error or a timeout, so the post may have gone out.
+export type DiscordWriteFailure = {
+  ok: false;
+  reason:
+    | "unauthorized"
+    | "forbidden"
+    | "not_found"
+    | "rejected"
+    | "rate_limited"
+    | "failed"
+    | "unknown";
+  error: string;
+};
+
+export type DiscordPostResult = { ok: true; id: string } | DiscordWriteFailure;
+export type DiscordReactResult = { ok: true } | DiscordWriteFailure;
+
+// A post as the bot: allowed_mentions parse [] and replied_user false, so it
+// pings nobody; the nonce with enforce_nonce, so a retry posts once within
+// Discord's window. replyTo becomes a message_reference that does not fail
+// when the message is gone.
+export interface DiscordPostReq {
+  content: string;
+  replyTo?: string;
+  nonce: string;
+}
+
 export interface DiscordRest {
   me(token: string): Promise<DiscordMe>;
+  postMessage(
+    token: string,
+    channelId: string,
+    req: DiscordPostReq,
+  ): Promise<DiscordPostResult>;
+  // PUT /channels/:channelId/messages/:messageId/reactions/:emoji/@me.
+  addReaction(
+    token: string,
+    channelId: string,
+    messageId: string,
+    emoji: string,
+  ): Promise<DiscordReactResult>;
   messages(
     token: string,
     req: {
@@ -117,6 +161,81 @@ export function createDiscordRest(deps: DiscordRestDeps): DiscordRest {
     }
   }
 
+  const writeFailure = (
+    reason: DiscordWriteFailure["reason"],
+    error: string,
+  ): DiscordWriteFailure => ({ ok: false, reason, error: deps.redact(error) });
+
+  // One POST or PUT with the bot token, a 429 waited out at most
+  // DISCORD_RATE_LIMIT_RETRIES times with the same body. A thrown fetch is
+  // unknown: the request may have reached Discord. The parsed body (undefined
+  // when there is none), or a failure.
+  async function write(
+    token: string,
+    method: "POST" | "PUT",
+    path: string,
+    json?: unknown,
+  ): Promise<{ ok: true; body: unknown } | DiscordWriteFailure> {
+    const body = json === undefined ? undefined : JSON.stringify(json);
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      try {
+        res = await deps.fetch(`${deps.baseUrl}${path}`, {
+          method,
+          headers: {
+            authorization: `Bot ${token}`,
+            ...(body !== undefined
+              ? { "content-type": "application/json" }
+              : {}),
+          },
+          ...(body !== undefined ? { body } : {}),
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch (err) {
+        return writeFailure(
+          "unknown",
+          `Discord did not answer: ${String(err)}`,
+        );
+      }
+      let parsed: unknown;
+      try {
+        parsed = await res.json();
+      } catch {
+        parsed = undefined;
+      }
+      if (res.status === 429) {
+        const after =
+          isObj(parsed) && typeof parsed.retry_after === "number"
+            ? parsed.retry_after * 1000
+            : DISCORD_RATE_LIMIT_WAIT_MAX_MS + 1;
+        if (
+          attempt >= DISCORD_RATE_LIMIT_RETRIES ||
+          !(after >= 0) ||
+          after > DISCORD_RATE_LIMIT_WAIT_MAX_MS
+        )
+          return writeFailure("rate_limited", "Discord rate limit");
+        await deps.sleep(Math.ceil(after));
+        continue;
+      }
+      if (res.ok) return { ok: true, body: parsed };
+      const message =
+        isObj(parsed) && typeof parsed.message === "string"
+          ? parsed.message
+          : "";
+      const reason: DiscordWriteFailure["reason"] =
+        res.status === 401
+          ? "unauthorized"
+          : res.status === 403
+            ? "forbidden"
+            : res.status === 404
+              ? "not_found"
+              : res.status >= 400 && res.status < 500
+                ? "rejected"
+                : "failed";
+      return writeFailure(reason, `Discord answered ${res.status} ${message}`);
+    }
+  }
+
   return {
     async me(token) {
       const res = await get(token, "/users/@me");
@@ -152,6 +271,44 @@ export function createDiscordRest(deps: DiscordRestDeps): DiscordRest {
         if (msg) messages.push(msg);
       }
       return { ok: true, messages };
+    },
+
+    async postMessage(token, channelId, req) {
+      const res = await write(
+        token,
+        "POST",
+        `/channels/${encodeURIComponent(channelId)}/messages`,
+        {
+          content: req.content,
+          nonce: req.nonce,
+          enforce_nonce: true,
+          allowed_mentions: { parse: [], replied_user: false },
+          ...(req.replyTo !== undefined
+            ? {
+                message_reference: {
+                  message_id: req.replyTo,
+                  fail_if_not_exists: false,
+                },
+              }
+            : {}),
+        },
+      );
+      if (!res.ok) return res;
+      if (!isObj(res.body) || typeof res.body.id !== "string")
+        return writeFailure(
+          "failed",
+          "Discord answered an unknown message shape",
+        );
+      return { ok: true, id: res.body.id };
+    },
+
+    async addReaction(token, channelId, messageId, emoji) {
+      const res = await write(
+        token,
+        "PUT",
+        `/channels/${encodeURIComponent(channelId)}/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(emoji)}/@me`,
+      );
+      return res.ok ? { ok: true } : res;
     },
 
     async activeThreads(token, guildId) {

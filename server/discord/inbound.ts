@@ -22,6 +22,13 @@
 // catch-up runs its burst does not flush, so a live message cannot move the
 // cursor past a message read late. A 429 waits and tries again (rest.ts). When
 // the page cap or the age limit left messages unread, the delivery says so.
+//
+// Slice 2: each line carries the channel or thread it was posted in and its
+// id, which a reply names (channelId, replyTo). A route that is not a channel
+// route on a text channel needs that channelId, and its head says so. On a
+// route with react, after a delivery the agent took, the bot reacts 👀 to
+// the newest DISCORD_REACTIONS_MAX lines that counted, one at a time; a
+// failure stops them with one log line and never touches the delivery.
 
 import { formatMessagingSenderPrefix } from "../../shared/identity.ts";
 import {
@@ -30,6 +37,7 @@ import {
   isSnowflake,
   maxSnowflake,
   snowflakeFromTime,
+  type DiscordChannelKind,
   type DiscordRoute,
   type DiscordRouteDead,
 } from "../../shared/discord.ts";
@@ -45,6 +53,8 @@ export const DISCORD_CONTEXT_MAX = 10;
 export const DISCORD_MAX_AGE_MS = 24 * 60 * 60_000;
 export const DISCORD_CATCHUP_PAGES = 3;
 export const DISCORD_CATCHUP_PAGE_SIZE = 100;
+export const DISCORD_REACTIONS_MAX = 10;
+export const DISCORD_REACTION = "👀";
 
 // What the inbound path knows of a bot from its gateway session.
 export interface DiscordBotView {
@@ -61,6 +71,8 @@ export interface DiscordBotView {
     guildId: string,
     channelId: string,
   ): (DiscordMessagePlace & { channelName: string }) | null;
+  // The kind of a channel the bot sees (not a thread); null when unknown.
+  kindOf(guildId: string, channelId: string): DiscordChannelKind | null;
   // The text channels a route covers (a channel route: its channel when it
   // is text; a category: its text channels; a server: every text channel).
   textChannels(route: DiscordRoute): string[];
@@ -184,6 +196,34 @@ export function createDiscordInbound(deps: DiscordInboundDeps): DiscordInbound {
     return { cursor, all: maxSnowflake(cursor, aged) };
   }
 
+  // One reaction at a time, after the delivery. The first failure ends
+  // them with one log line that carries no error text (it may hold the
+  // token).
+  async function react(
+    token: string,
+    channelId: string,
+    messageIds: string[],
+  ): Promise<void> {
+    for (const messageId of messageIds) {
+      let failed: string | null = null;
+      try {
+        const res = await deps.rest.addReaction(
+          token,
+          channelId,
+          messageId,
+          DISCORD_REACTION,
+        );
+        if (!res.ok) failed = res.reason;
+      } catch {
+        failed = "error";
+      }
+      if (failed !== null) {
+        console.warn(`[discord] a reaction was not added (${failed})`);
+        return;
+      }
+    }
+  }
+
   function schedule(key: string, p: Pending): void {
     if (p.firstAt === null) {
       p.firstAt = clock.now();
@@ -224,6 +264,8 @@ export function createDiscordInbound(deps: DiscordInboundDeps): DiscordInbound {
         from: msg.author.name,
         authorId: msg.author.id,
         channel: channelName,
+        channelId: msg.channelId,
+        messageId: msg.id,
         link: `https://discord.com/channels/${msg.guildId}/${msg.channelId}/${msg.id}`,
         text: msg.content,
         attachments: msg.attachments,
@@ -273,12 +315,17 @@ export function createDiscordInbound(deps: DiscordInboundDeps): DiscordInbound {
         context.slice(0, Math.max(0, context.length - DISCORD_CONTEXT_MAX)),
       );
       const lines = sorted.filter((l) => !drop.has(l));
+      const channelRequired = !(
+        route.scope === "channel" &&
+        view?.kindOf(route.guildId, route.targetId) === "text"
+      );
       const text = buildDiscordBlock({
         routeId: route.id,
         routeName: route.name,
         memberName: deps.memberName(p.userId),
         replyMode: route.replyMode,
         ...(p.gap ? { gap: true } : {}),
+        ...(channelRequired ? { channelRequired: true } : {}),
         lines: lines.map((l) => l.line),
         reservedChars:
           formatMessagingSenderPrefix(DISCORD_APP, route.name).length + 1,
@@ -293,6 +340,13 @@ export function createDiscordInbound(deps: DiscordInboundDeps): DiscordInbound {
       cursors[p.channelId] =
         stored && isSnowflake(stored) ? maxSnowflake(stored, newest) : newest;
       deps.writeCursors(p.userId, p.botId, cursors);
+      if (route.react === true && view) {
+        const counted = lines
+          .filter((l) => !l.line.context)
+          .slice(-DISCORD_REACTIONS_MAX)
+          .map((l) => l.id);
+        void react(view.token, p.channelId, counted);
+      }
     } catch {
       console.error("[discord] a Discord delivery failed");
     }

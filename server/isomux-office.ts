@@ -211,6 +211,7 @@ import { integrationChangesHandlers } from "./routes/handlers/integration-change
 import { voiceHandlers } from "./routes/handlers/voice.ts";
 import { whatsappHandlers } from "./routes/handlers/whatsapp.ts";
 import { discordHandlers } from "./routes/handlers/discord.ts";
+import { messagingHandlers } from "./routes/handlers/messaging.ts";
 import { voiceKeyForUserId } from "./voice-key.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
@@ -456,9 +457,9 @@ import {
   webPushDelivery,
   whatsappSupervisor,
   whatsappRoutes,
-  whatsappReplies,
   discordSupervisor,
   discordRoutes,
+  messagingReplies,
   githubLinks,
   githubSync,
   uiBuildTracker,
@@ -2851,7 +2852,7 @@ function buildExecutorDeps(
         }),
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,
-      whatsapp: whatsappReplies,
+      messaging: messagingReplies,
     }),
   );
 
@@ -2866,9 +2867,10 @@ function buildExecutorDeps(
     whatsappHandlers({
       supervisor: whatsappSupervisor,
       routes: whatsappRoutes,
-      replies: whatsappReplies,
     }),
   );
+
+  register(messagingHandlers({ replies: messagingReplies }));
 
   register(
     discordHandlers({ supervisor: discordSupervisor, routes: discordRoutes }),
