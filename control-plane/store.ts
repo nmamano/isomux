@@ -983,6 +983,33 @@ export class RedactedDatabaseError extends Error {
   }
 }
 
+/**
+ * The code a RedactedDatabaseError carries when the pool gave up waiting for a
+ * connection: a new connection that did not finish its handshake, or a checkout
+ * that waited in the queue. Both are the driver's own errors and carry no code.
+ */
+export const CONNECT_TIMEOUT_CODE = "connect-timeout";
+
+/** The driver's fixed messages for those two timeouts (pg-pool 3). */
+const CONNECT_TIMEOUT_MESSAGES = new Set([
+  "timeout exceeded when trying to connect",
+  "Connection terminated due to connection timeout",
+]);
+
+/**
+ * A statement or a transaction asked for a connection after `close()` began.
+ *
+ * Its own class rather than a RedactedDatabaseError: the database was never
+ * asked, so nothing about it is known. In a test, this is a body that kept
+ * running after its timeout, past the teardown that closed its store.
+ */
+export class StoreClosedError extends Error {
+  constructor() {
+    super("the store was closed before this statement ran");
+    this.name = "StoreClosedError";
+  }
+}
+
 /** The structured fields a Postgres error carries that are OURS by
  * construction - a table, a column, a constraint are literals in this file.
  * `schema` is deliberately absent: it can be the search_path out of `options`,
@@ -1038,15 +1065,26 @@ export function redactConnectionDetails(err: unknown, url: string): Error {
       : null;
 
   const rawCode = (err as { code?: string } | null)?.code;
-  const code = safe(rawCode) ?? undefined;
+  // The pool's two timeouts carry no code, and without one they would read as
+  // any other unreachable database. Their messages are the driver's own fixed
+  // text, so matching them reads no connection detail.
+  const timedOut =
+    rawCode === undefined &&
+    err instanceof Error &&
+    CONNECT_TIMEOUT_MESSAGES.has(err.message);
+  const code = timedOut ? CONNECT_TIMEOUT_CODE : (safe(rawCode) ?? undefined);
   // A SQLSTATE is five characters of the engine's own vocabulary; anything else
   // (ECONNREFUSED, ENOTFOUND, a TLS code, nothing at all) came from the socket.
   const isStatement = code !== undefined && /^[0-9A-Z]{5}$/.test(code);
   const parts = [
     isStatement
       ? `the database refused a statement (SQLSTATE ${code})`
-      : `${DATABASE_NAME} could not be reached` +
-        (code === undefined ? "" : ` (${code})`),
+      : timedOut
+        ? // A checkout can time out while every connection is busy, with the
+          // database itself fine.
+          `no connection to ${DATABASE_NAME} was ready in time (${code})`
+        : `${DATABASE_NAME} could not be reached` +
+          (code === undefined ? "" : ` (${code})`),
   ];
   for (const field of SAFE_FIELDS) {
     const value = safe((err as Record<string, unknown> | null)?.[field]);
@@ -1078,6 +1116,11 @@ export function redactConnectionDetails(err: unknown, url: string): Error {
 
 export class Store {
   private closed = false;
+  /** Set when close() begins, and never cleared: from then on a new checkout
+   * is refused (StoreClosedError). */
+  private closeBegan = false;
+  /** The close in progress, which a second close() awaits. */
+  private closing: Promise<void> | null = null;
 
   /** Inert on purpose: it assigns fields and touches nothing. Opening is
    * `Store.open`, so there is no path to a Store that skipped the schema
@@ -1269,11 +1312,27 @@ export class Store {
    * `finally` and again in a test's teardown, and under a pool the second call
    * would reject rather than being harmless. Only a close AFTER A SUCCESSFUL
    * one is a no-op - a first close that fails is reported, and leaves the store
-   * closeable again.
+   * closeable again. A close() during another one awaits the same close.
+   *
+   * A statement queued before close() began is served first: `pool.end()`
+   * leaves the pool's queue unserved, and an item there would wait out its
+   * connect timeout and fail as one, with the database fine.
    */
   async close(): Promise<void> {
     if (this.closed) return;
-    await this.pool.end();
+    this.closeBegan = true;
+    this.closing ??= (async () => {
+      while (this.pool.waitingCount > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      await this.pool.end();
+    })();
+    try {
+      await this.closing;
+    } catch (err) {
+      this.closing = null;
+      throw err;
+    }
     this.closed = true;
   }
 
@@ -1296,6 +1355,9 @@ export class Store {
 
   private async query<T>(sql: string, args: SqlArgs): Promise<T[]> {
     const frame = this.frame();
+    // A transaction's own client stays usable while close() waits for it; only
+    // a new checkout from a closing pool is refused.
+    if (!frame && this.closeBegan) throw new StoreClosedError();
     const on: Pick<PoolClient, "query"> = frame?.client ?? this.pool;
     // Arguments are passed ONLY when there are some. A parameter list, even an
     // empty one, puts the driver on the extended protocol, which refuses more
@@ -1678,6 +1740,7 @@ export class Store {
     if (this.frame()) throw new Error("nested transaction");
     // The second seam: a checkout is where a CONNECT failure surfaces, and a
     // connect failure is the one that carries the address and the role.
+    if (this.closeBegan) throw new StoreClosedError();
     let client: PoolClient;
     try {
       client = await this.pool.connect();

@@ -266,6 +266,8 @@ function dsnFor(schema: string): string {
     );
   }
   url.searchParams.set("options", `-c search_path=${schema}`);
+  // Tags this test's sessions in pg_stat_activity, for `inFlightReport`.
+  url.searchParams.set("application_name", schema);
   return url.toString();
 }
 
@@ -403,6 +405,83 @@ export const PG_TEST_HOOK_TIMEOUT_MS = 30_000;
 // 3.3 s for all of them with the engine idle.
 export const PG_DROP_DATABASE_HOOK_TIMEOUT_MS = 4 * PG_TEST_HOOK_TIMEOUT_MS;
 
+interface InFlight {
+  pid: number;
+  state: string | null;
+  wait: string | null;
+  seconds: number | null;
+  query: string | null;
+  blockers: {
+    pid: number;
+    app: string | null;
+    state: string | null;
+    query: string | null;
+  }[];
+}
+
+/**
+ * What the engine says about this test's sessions that are not idle, or null
+ * when there are none.
+ *
+ * For a test that timed out: the statement still running, what it waits on,
+ * and the sessions that block it, which may belong to another test file. Never
+ * throws: a report that cannot be read must not fail the teardown.
+ */
+async function inFlightReport(): Promise<string | null> {
+  if (held.length === 0) return null;
+  let rows: InFlight[];
+  try {
+    const client = await admin.connect();
+    // A failed query leaves the transaction aborted: that client is destroyed,
+    // never given back to the shared admin pool.
+    let failed = false;
+    try {
+      await client.query("begin");
+      await client.query("set local statement_timeout = '2s'");
+      rows = (
+        await client.query<InFlight>(
+          "select a.pid, a.state, " +
+            "a.wait_event_type || '/' || a.wait_event as wait, " +
+            "round(extract(epoch from now() - a.query_start)::numeric, 1)::float8 as seconds, " +
+            "left(a.query, 300) as query, " +
+            "(select coalesce(json_agg(json_build_object('pid', b.pid, " +
+            "'app', b.application_name, 'state', b.state, " +
+            "'query', left(b.query, 300))), '[]') " +
+            "from pg_stat_activity b " +
+            "where b.pid = any(pg_blocking_pids(a.pid))) as blockers " +
+            "from pg_stat_activity a " +
+            "where a.application_name = any($1) and a.state <> 'idle' " +
+            "and a.pid <> pg_backend_pid() order by a.pid",
+          [held],
+        )
+      ).rows;
+      await client.query("commit");
+    } catch (err) {
+      failed = true;
+      throw err;
+    } finally {
+      client.release(failed);
+    }
+  } catch {
+    return null;
+  }
+  if (rows.length === 0) return null;
+  const lines = ["sessions of this test that were not idle at its teardown:"];
+  for (const row of rows) {
+    const wait = row.wait ? `, waiting on ${row.wait}` : "";
+    lines.push(
+      `  pid ${row.pid} (${row.state}${wait}, ${row.seconds} s): ${row.query}`,
+    );
+    for (const b of row.blockers) {
+      lines.push(
+        `    blocked by pid ${b.pid} (${b.app || "no application_name"}, ` +
+          `${b.state}): ${b.query}`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
 /**
  * Close every store this test opened and give its schemas back.
  *
@@ -411,6 +490,10 @@ export const PG_DROP_DATABASE_HOOK_TIMEOUT_MS = 4 * PG_TEST_HOOK_TIMEOUT_MS;
  * connection to the next test's rows.
  */
 export async function releaseTestStores(): Promise<void> {
+  // Before the close: close() waits for a busy session, and a statement stuck
+  // at a timeout is still visible only now.
+  const report = await inFlightReport();
+  if (report) console.error(report);
   for (const store of stores.splice(0)) await store.close();
   for (const schema of held.splice(0)) {
     if (disposable.delete(schema)) {

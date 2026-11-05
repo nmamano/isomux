@@ -4,11 +4,15 @@
 // read that would serialise them.
 
 import { afterEach, describe, expect, test } from "bun:test";
+import pg from "pg";
 import {
+  CONNECT_TIMEOUT_CODE,
   DATABASE_NAME,
   isUniqueViolation,
+  RedactedDatabaseError,
   redactConnectionDetails,
   Store,
+  StoreClosedError,
   withGovernedOptions,
 } from "./store.ts";
 import {
@@ -53,6 +57,16 @@ async function seedOp(store: Store, instance: string, kind = "run_installer") {
     inactivity_deadline_at: store.now() + 60_000,
     absolute_deadline_at: store.now() + 600_000,
   });
+}
+
+/** What a promise rejected with, or the string "resolved". */
+async function rejection(p: Promise<unknown>): Promise<unknown> {
+  try {
+    await p;
+    return "resolved";
+  } catch (err) {
+    return err;
+  }
 }
 
 afterEach(async () => {
@@ -502,8 +516,77 @@ describe("the connection settings are on the wire, not just in the config", () =
     // The engine handle used to throw here. A pool is closed by whoever gets
     // there first, and the second caller is not the one with a problem.
     await store.close();
-    // And it really is closed.
-    expect(store.getInstance("inst-1")).rejects.toThrow();
+    // And it really is closed, and says so. The database was never asked, so
+    // the error must not read as "could not be reached" (task 022bfd2b: a test
+    // body that ran past its timeout got exactly that from its torn-down store).
+    expect(await rejection(store.getInstance("inst-1"))).toBeInstanceOf(
+      StoreClosedError,
+    );
+    expect(
+      await rejection(store.tx(() => store.getInstance("inst-1"))),
+    ).toBeInstanceOf(StoreClosedError);
+  });
+
+  // close() waits for every checked-out connection, so a transaction that is
+  // open when the teardown starts must still be able to finish on its own
+  // connection. Only a statement that would need the POOL is refused.
+  test("while close() waits for an open transaction, that transaction finishes and a pool statement is refused", async () => {
+    const dsn = await testDsn();
+    const store = await openTestStoreOn(dsn);
+    const inst = await seedInstance(store);
+    let entered = () => {};
+    const inside = new Promise<void>((r) => {
+      entered = r;
+    });
+    let proceed = () => {};
+    const go = new Promise<void>((r) => {
+      proceed = r;
+    });
+    const body = store.tx(async () => {
+      await store.casInstance(inst, 1, { service_state: "live" });
+      entered();
+      await go;
+      // close() has begun: this statement runs on the transaction's own client.
+      await store.casInstance(inst, 2, { service_state: "suspended" });
+      return "committed";
+    });
+    await inside;
+    let closeDone = false;
+    const closing = store.close().then(() => {
+      closeDone = true;
+    });
+    const outside = await rejection(store.getInstance(inst));
+    // The enabling condition: the pool statement was refused WHILE close() was
+    // still waiting, which is the window a timed-out test body runs in.
+    expect(closeDone).toBe(false);
+    proceed();
+    expect(await body).toBe("committed");
+    await closing;
+    expect(outside).toBeInstanceOf(StoreClosedError);
+    const reader = await openTestStoreOn(dsn);
+    expect((await reader.getInstance(inst))?.service_state).toBe("suspended");
+  });
+
+  // The other half of the route rule: the check is made BEFORE a statement is
+  // sent, never by asking the pool in the catch arm. A statement already sent
+  // when close() starts keeps the database's own answer; in CI that answer was
+  // a connect timeout, and "closed" would have hidden it again.
+  test("a pool statement sent before close() began keeps its own error", async () => {
+    const store = await tempStore();
+    // Division by zero at execution, so the refusal comes back from the wire.
+    const sent = rejection(
+      store.sqlGet("select 1 / (count(*) - count(*)) from (select 1) s"),
+    );
+    const closing = store.close();
+    // Bounded, so that a statement the close dropped fails here, by name, and
+    // not as a test timeout.
+    const err = await Promise.race([
+      sent,
+      Bun.sleep(1_000).then(() => "still pending 1 s after close() began"),
+    ]);
+    await closing;
+    expect(err).toBeInstanceOf(RedactedDatabaseError);
+    expect((err as RedactedDatabaseError).code).toBe("22012");
   });
 });
 
@@ -1258,6 +1341,80 @@ describe("connection details on the error path", () => {
     expect(err.message).not.toContain("password authentication failed");
     expect(err.message).not.toContain("therole");
     expect(err.message).toContain("could not be reached");
+    // Not every error without a code is a connect timeout.
+    expect((err as RedactedDatabaseError).code).toBeUndefined();
+  });
+
+  // pg-pool's two connect timeouts carry no code, so they used to read exactly
+  // like a refused connection and like a pool closed under a statement (task
+  // 022bfd2b). The errors here are the driver's REAL ones, so a pg upgrade that
+  // rewords them turns this red instead of silently losing the label.
+  test("both of the pool's connect timeouts carry the timeout code; a refused connection keeps its own", async () => {
+    // Accepts the TCP connection and never answers the startup message.
+    const silent = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: { data() {} },
+    });
+    // A port nothing listens on.
+    const gone = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: { data() {} },
+    });
+    const gonePort = gone.port;
+    gone.stop(true);
+    const pools: pg.Pool[] = [];
+    const pool = (
+      connectionString: string,
+      max = 10,
+      connectionTimeoutMillis = 100,
+    ): pg.Pool => {
+      const p = new pg.Pool({ connectionString, max, connectionTimeoutMillis });
+      p.on("error", () => {});
+      pools.push(p);
+      return p;
+    };
+    try {
+      // A new connection whose handshake never finishes.
+      const handshake = await rejection(
+        pool(`postgres://u:p@127.0.0.1:${silent.port}/db`).connect(),
+      );
+      // A checkout that waits in the queue behind the only connection. That
+      // connection is a real one, so it gets the product's 5 s to connect: at
+      // 100 ms a loaded box failed it 1 run in 20. The short budget is set only
+      // for the checkout that is meant to time out (pg-pool reads it per call).
+      const queue = pool(await testDsn(), 1, 5_000);
+      const only = await queue.connect();
+      queue.options.connectionTimeoutMillis = 100;
+      const queued = await rejection(queue.connect());
+      only.release();
+      const refused = await rejection(
+        pool(`postgres://u:p@127.0.0.1:${gonePort}/db`).connect(),
+      );
+
+      // The enabling conditions: two different driver errors, neither with a
+      // code of its own, and a refusal that does have one.
+      for (const err of [handshake, queued, refused]) {
+        expect(err).toBeInstanceOf(Error);
+      }
+      expect((handshake as Error).message).not.toBe((queued as Error).message);
+      expect((handshake as { code?: string }).code).toBeUndefined();
+      expect((queued as { code?: string }).code).toBeUndefined();
+      expect((refused as { code?: string }).code).toBe("ECONNREFUSED");
+
+      const codeOf = (err: unknown): string | undefined => {
+        const out = redactConnectionDetails(err, dsn);
+        expect(out).toBeInstanceOf(RedactedDatabaseError);
+        return (out as RedactedDatabaseError).code;
+      };
+      expect(codeOf(handshake)).toBe(CONNECT_TIMEOUT_CODE);
+      expect(codeOf(queued)).toBe(CONNECT_TIMEOUT_CODE);
+      expect(codeOf(refused)).toBe("ECONNREFUSED");
+    } finally {
+      for (const p of pools) await p.end().catch(() => {});
+      silent.stop(true);
+    }
   });
 
   // Every component, INCLUDING the ones a length filter used to skip and the
@@ -1352,5 +1509,166 @@ describe("connection details on the error path", () => {
     expect(store.describe()).toBe(DATABASE_NAME);
     expect(store.describe()).not.toContain("postgres");
     expect(store.describe()).not.toContain("5433");
+  });
+});
+
+// Task 022bfd2b. A test that times out leaves its body running, and the CI log
+// then shows only the teardown's consequence. releaseTestStores reports, BEFORE
+// it closes anything, what this test's sessions are still doing in the engine.
+// Driven through releaseTestStores itself, since that report in the afterEach
+// is the only thing a reader of a red CI log gets.
+describe("the teardown names a statement that is still in flight", () => {
+  /** Everything written to stderr while `run` is pending. */
+  function captureStderr(): { text: () => string; stop: () => void } {
+    const chunks: string[] = [];
+    const write = process.stderr.write.bind(process.stderr);
+    const error = console.error;
+    process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
+      chunks.push(String(chunk));
+      return (write as (...a: unknown[]) => boolean)(chunk, ...rest);
+    }) as typeof process.stderr.write;
+    console.error = (...args: unknown[]) => {
+      chunks.push(args.map(String).join(" "));
+      error(...args);
+    };
+    return {
+      text: () => chunks.join("\n"),
+      stop: () => {
+        process.stderr.write = write as typeof process.stderr.write;
+        console.error = error;
+      },
+    };
+  }
+
+  const pidIn = (text: string, pid: number) =>
+    new RegExp(`\\b${pid}\\b`).test(text);
+
+  test("it reports the lock waiter and its blocker, only for this test's sessions, and is silent when idle", async () => {
+    // Silent: a store whose connections sit idle in its pool is not in flight.
+    const idle = await openTestStore();
+    await seedInstance(idle, "inst-idle");
+    const quiet = captureStderr();
+    try {
+      await releaseTestStores();
+    } finally {
+      quiet.stop();
+    }
+    expect(quiet.text()).toBe("");
+
+    const dsn = await testDsn();
+    const holder = await openTestStoreOn(dsn);
+    const waiter = await openTestStoreOn(dsn);
+    const inst = await seedInstance(holder);
+    // Untagged sessions: an observer, and an outsider that is busy too. Their
+    // DSN lacks the test's application_name, as another test file's would.
+    const untagged = new URL(dsn);
+    untagged.searchParams.delete("application_name");
+    const observer = new pg.Client({ connectionString: untagged.toString() });
+    const outsider = new pg.Client({ connectionString: untagged.toString() });
+    observer.on("error", () => {});
+    outsider.on("error", () => {});
+    await observer.connect();
+    await outsider.connect();
+    const pidOf = async (c: pg.Client) =>
+      (await c.query<{ pid: number }>("select pg_backend_pid() as pid"))
+        .rows[0]!.pid;
+    const outsiderPid = await pidOf(outsider);
+
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    let locked = () => {};
+    const rowIsLocked = new Promise<void>((r) => {
+      locked = r;
+    });
+    let holderPid = 0;
+    const held = holder.tx(async () => {
+      holderPid = (await holder.sqlGet<{ pid: number }>(
+        "select pg_backend_pid() as pid",
+      ))!.pid;
+      await holder.casInstance(inst, 1, { service_state: "live" });
+      locked();
+      await gate;
+    });
+    let waiterPid = 0;
+    let stderr: ReturnType<typeof captureStderr> | null = null;
+    let releasing: Promise<void> | null = null;
+    let busy: Promise<unknown> | null = null;
+    let blocked: Promise<unknown> | null = null;
+    try {
+      await rowIsLocked;
+      blocked = rejection(
+        waiter.tx(async () => {
+          await waiter.sqlRun("set local statement_timeout = '5s'");
+          waiterPid = (await waiter.sqlGet<{ pid: number }>(
+            "select pg_backend_pid() as pid",
+          ))!.pid;
+          // The marker leads, so a truncated query text still carries it.
+          await waiter.sqlRun(
+            "/* in-flight-marker */ update instances set goal = goal where id = $1",
+            [inst],
+          );
+        }),
+      );
+      busy = rejection(outsider.query("select pg_sleep(5)"));
+
+      // The enabling condition, read by an untagged session so that it does not
+      // depend on the report: the waiter is waiting on a lock, and the outsider
+      // is active.
+      const deadline = Date.now() + 2_000;
+      for (;;) {
+        const rows = (
+          await observer.query<{ pid: number; wait: string | null }>(
+            "select pid, wait_event_type as wait from pg_stat_activity " +
+              "where pid = any($1::int[]) and state = 'active'",
+            [[waiterPid, outsiderPid]],
+          )
+        ).rows;
+        const waiting = rows.some(
+          (r) => r.pid === waiterPid && r.wait === "Lock",
+        );
+        const active = rows.some((r) => r.pid === outsiderPid);
+        if (waiterPid !== 0 && waiting && active) break;
+        if (Date.now() > deadline) {
+          throw new Error(
+            `setup: waiter never blocked (${JSON.stringify(rows)})`,
+          );
+        }
+        await Bun.sleep(20);
+      }
+
+      // The teardown of a timed-out test: close() waits for the blocked
+      // statement, so the report must come out BEFORE it, while the holder
+      // still holds the row.
+      stderr = captureStderr();
+      releasing = releaseTestStores();
+      const until = Date.now() + 2_000;
+      while (!pidIn(stderr.text(), waiterPid) && Date.now() < until) {
+        await Bun.sleep(20);
+      }
+      const report = stderr.text();
+      stderr.stop();
+      stderr = null;
+
+      expect(pidIn(report, waiterPid)).toBe(true);
+      // The engine's own vocabulary: what it waits on, and the statement.
+      expect(report).toContain("Lock");
+      expect(report).toContain("in-flight-marker");
+      // Who blocks it.
+      expect(pidIn(report, holderPid)).toBe(true);
+      // An untagged session is not this test's, however busy.
+      expect(pidIn(report, outsiderPid)).toBe(false);
+    } finally {
+      stderr?.stop();
+      release();
+      await held;
+      await blocked;
+      await releasing;
+      await observer.query("select pg_cancel_backend($1)", [outsiderPid]);
+      await busy;
+      await observer.end();
+      await outsider.end();
+    }
   });
 });
