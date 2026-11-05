@@ -30,6 +30,25 @@ const CODE_STYLE = {
   color: "var(--text-dim)",
 };
 
+// A parsed link still has an untrusted destination. Accept web and email URLs
+// only, including marked's normalized bare www. links.
+function isSafeHref(href: string): boolean {
+  try {
+    return ["https:", "http:", "mailto:"].includes(new URL(href).protocol);
+  } catch {
+    // Keep an invalid destination as literal text.
+    return false;
+  }
+}
+
+function lexInline(content: string, colors: boolean): Token[] {
+  return Lexer.lexInline(content, {
+    ...(colors ? colorMarkupOptions : defaults),
+    gfm: true,
+    breaks: false,
+  });
+}
+
 function renderTokens(tokens: Token[], grammar: Grammar): ReactNode[] {
   // The colour markup is the one extension; every other token is built in.
   return (tokens as (MarkedToken | ColorToken)[]).map((token, index) => {
@@ -66,17 +85,9 @@ function renderTokens(tokens: Token[], grammar: Grammar): ReactNode[] {
       );
     if (token.type === "link" && token.tokens) {
       const linkGrammar = { ...grammar, tasks: undefined };
-      // A parsed link still has an untrusted destination. Accept web and email URLs
-      // only, including marked's normalized bare www. links. Without links, a
-      // safe link draws as its text; an unsafe one stays raw markdown either way.
-      let safe = false;
-      try {
-        safe = ["https:", "http:", "mailto:"].includes(
-          new URL(token.href).protocol,
-        );
-      } catch {
-        /* Keep an invalid destination as literal text. */
-      }
+      // Without links, a safe link draws as its text; an unsafe one stays raw
+      // markdown either way.
+      const safe = isSafeHref(token.href);
       if (safe && !grammar.links)
         return (
           <span key={index}>{renderTokens(token.tokens, linkGrammar)}</span>
@@ -122,21 +133,36 @@ export function InlineMarkdown({
 }) {
   const nodes = useMemo(
     () =>
-      renderTokens(
-        Lexer.lexInline(content, {
-          ...(colors ? colorMarkupOptions : defaults),
-          gfm: true,
-          breaks: false,
-        }),
-        {
-          code,
-          links,
-          ...(tasks && onOpenTask
-            ? { tasks: { map: tasks, onOpen: onOpenTask } }
-            : {}),
-        },
-      ),
+      renderTokens(lexInline(content, colors), {
+        code,
+        links,
+        ...(tasks && onOpenTask
+          ? { tasks: { map: tasks, onOpen: onOpenTask } }
+          : {}),
+      }),
     [content, code, links, colors, tasks, onOpenTask],
   );
   return <span style={{ whiteSpace }}>{nodes}</span>;
+}
+
+/** The text of inline markup without its markers (bold, code, links and
+ * colour markup), for a plain-text surface such as a chip label. */
+export function inlinePlainText(content: string): string {
+  return plainTokens(lexInline(content, true));
+}
+
+// The same token cases as renderTokens, with text in place of elements.
+function plainTokens(tokens: Token[]): string {
+  return (tokens as (MarkedToken | ColorToken)[])
+    .map((token) => {
+      if (token.type === "color") return plainTokens(token.tokens);
+      if ((token.type === "strong" || token.type === "em") && token.tokens)
+        return plainTokens(token.tokens);
+      if (token.type === "codespan" || token.type === "escape")
+        return token.text;
+      if (token.type === "link" && token.tokens && isSafeHref(token.href))
+        return plainTokens(token.tokens);
+      return token.raw;
+    })
+    .join("");
 }

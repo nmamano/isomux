@@ -19,6 +19,7 @@ import {
 import { useAppState, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { asksFor, openAsks } from "../asks-sync.ts";
+import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { AskCard } from "./AskCard.tsx";
 import { AskResultCard } from "./AskResultCard.tsx";
 import { sudoAskTitle } from "./SudoAskCard.tsx";
@@ -235,11 +236,19 @@ export function AsksStack({
                 textOverflow: "ellipsis",
               }}
             >
-              {entries[0].secret
-                ? valueAskTitle(t, entries[0].secret)
-                : entries[0].sudo
-                  ? sudoAskTitle(t)
-                  : entries[0].prompt.replace(/\s+/g, " ")}
+              {entries[0].secret ? (
+                valueAskTitle(t, entries[0].secret)
+              ) : entries[0].sudo ? (
+                sudoAskTitle(t)
+              ) : (
+                <InlineMarkdown
+                  content={entries[0].prompt.replace(/\s+/g, " ")}
+                  code
+                  colors
+                  links={false}
+                  whiteSpace="nowrap"
+                />
+              )}
             </span>
           </button>
         </div>

@@ -190,7 +190,7 @@ export function SudoAskCard({
         </code>
       </p>
       <p style={hintStyle} {...noTranslate()}>
-        <InlineMarkdown content={entry.prompt} code />
+        <InlineMarkdown content={entry.prompt} code colors />
       </p>
       <form
         onSubmit={(event) => {

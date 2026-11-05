@@ -283,3 +283,38 @@ it("chips an ask id in a user bubble once it resolves; a click opens the ask", (
   expect(resolved.open).toHaveBeenCalledWith(ASK.id);
   expect(onOpenTask).not.toHaveBeenCalled();
 });
+
+// A chip's title and label are plain text (task b2f055c6): the prompt's
+// inline markup (colour, bold, code, a link) gives its text only, in
+// Markdown and in a user bubble alike, and the label's first words are
+// counted on that text.
+it("draws a marked-up prompt's title and label as its plain text, in Markdown and in a user bubble", () => {
+  const marked: ResolvedAsk = {
+    ...ASK,
+    prompt:
+      ":blue[**Quick action**] Run `bun test` on [main](https://example.com) now?\nThe tests are green.",
+  };
+  const value = refs({ [ASK.id]: marked });
+  const content = `See ${ASK.id} first.`;
+  for (const surface of [
+    <Markdown content={content} tasks={new Map()} onOpenTask={() => {}} />,
+    <PlainTaskText content={content} tasks={new Map()} onOpen={() => {}} />,
+  ]) {
+    const view = render(withRefs(value, surface));
+    const chips = askChips(view.container);
+    expect(chips.length).toBe(1);
+    const label = chips[0].getAttribute("data-task-label") ?? "";
+    expect({
+      title: chips[0].getAttribute("title"),
+      words: label.includes("Quick action Run bun"),
+      past: label.includes("test"),
+      raw: /:blue\[|\*\*|`|\]\(/.test(label),
+    }).toEqual({
+      title: "Quick action Run bun test on main now?",
+      words: true,
+      past: false,
+      raw: false,
+    });
+    view.unmount();
+  }
+});

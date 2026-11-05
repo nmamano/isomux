@@ -294,7 +294,7 @@ export function SecretAskCard({
         </div>
       </div>
       <p style={hintStyle} {...noTranslate()}>
-        <InlineMarkdown content={secret.reason} code />
+        <InlineMarkdown content={secret.reason} code colors />
       </p>
       {!known ? (
         // A kind from a later release: only the decline is offered here.

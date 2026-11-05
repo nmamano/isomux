@@ -1430,6 +1430,94 @@ it("renders an open card prompt with code and keeps its links live", async () =>
   view.unmount();
 });
 
+// Colour markup on every kind of ask (task b2f055c6): agents open an ask with
+// a coloured kind label, and a sudo or secret card draws it as a plain ask's
+// card does. The collapsed bar draws the newest plain ask's first line with
+// its markup too.
+const KIND_LABEL = ":blue[**Quick action**]";
+const LABELED: AskEntry[] = [
+  entry("cdef0101", "c1", `${KIND_LABEL} Ship it?`, 1),
+  {
+    ...entry("cdef0102", "c1", `${KIND_LABEL} Restart the service.`, 2),
+    sudo: {
+      requestId: "sudo-1",
+      command: "systemctl restart isomux",
+      cwd: "/w",
+    },
+  },
+  {
+    ...entry("cdef0103", "c1", `${KIND_LABEL} To open the pull request.`, 3),
+    secret: {
+      requestId: "req-2",
+      scope: "personal",
+      name: "GH_TOKEN",
+      hosts: ["api.github.com"],
+      form: { kind: "authorization" },
+      reason: `${KIND_LABEL} To open the pull request.`,
+    },
+  },
+];
+function SeedLabeled({ children }: { children?: React.ReactNode }) {
+  const dispatch = useDispatch();
+  useEffect(() => {
+    dispatch({ type: "asks_loaded", entries: LABELED, revision: 0 });
+  }, [dispatch]);
+  return <>{children}</>;
+}
+const mountLabeled = (isMobile: boolean) =>
+  render(
+    <StoreProvider>
+      <SeedLabeled>
+        <AsksStack agentId="c1" isMobile={isMobile} />
+      </SeedLabeled>
+    </StoreProvider>,
+  );
+// The label as drawn: its colour, its bold text, and whether any of the
+// markup's own characters are left in the text.
+const drawnLabel = (root: HTMLElement | null) => ({
+  color: root?.querySelector<HTMLElement>("[data-color]")?.dataset.color,
+  bold: root?.querySelector("[data-color] strong")?.textContent,
+  raw: /:blue\[|\*\*/.test(root?.textContent ?? ""),
+});
+const LABEL_DRAWN = { color: "blue", bold: "Quick action", raw: false };
+
+it("draws an ask's colour markup on a plain, a sudo and a secret card", async () => {
+  const ids = LABELED.map((e) => e.id);
+  const view = mountLabeled(false);
+  await waitFor(() => expect(cards(view.container)).toEqual(ids));
+  const card = (id: string) =>
+    view.container.querySelector<HTMLElement>(`[data-ask="${id}"]`)!;
+  // The sudo and secret cards are the kinds the test is about.
+  expect(
+    ids.map((id) => ({
+      id,
+      sudo: card(id).dataset.sudoRequest ?? null,
+      secret: card(id).dataset.secretRequest ?? null,
+      ...drawnLabel(card(id)),
+    })),
+  ).toEqual([
+    { id: ids[0], sudo: null, secret: null, ...LABEL_DRAWN },
+    { id: ids[1], sudo: "sudo-1", secret: null, ...LABEL_DRAWN },
+    { id: ids[2], sudo: null, secret: "req-2", ...LABEL_DRAWN },
+  ]);
+  view.unmount();
+});
+
+it("draws the newest plain ask's colour markup on the collapsed bar", async () => {
+  const view = mountLabeled(true);
+  await waitFor(() =>
+    expect(
+      view.container.querySelector("[data-asks-stack=collapsed] button"),
+    ).not.toBe(null),
+  );
+  const bar = view.container.querySelector<HTMLElement>(
+    "[data-asks-stack=collapsed] button",
+  )!;
+  expect(bar.textContent).toContain("Ship it?");
+  expect(drawnLabel(bar)).toEqual(LABEL_DRAWN);
+  view.unmount();
+});
+
 // A simplify request (task 30915188): the member asks the agent to rewrite
 // the ask, which stays open.
 const inCard = (root: HTMLElement, id: string, selector: string) =>

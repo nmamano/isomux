@@ -50,7 +50,7 @@ export function SecretRequestCard({
         {t("cards.secretRequest.title", { name: payload.name })}
       </div>
       <p style={hintStyle} {...noTranslate()}>
-        <InlineMarkdown content={payload.reason} code />
+        <InlineMarkdown content={payload.reason} code colors />
       </p>
       <p style={hintStyle}>
         {payload.scope === "office"

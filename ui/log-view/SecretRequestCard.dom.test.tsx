@@ -89,3 +89,19 @@ it("a URL in the reason is a link that opens in a new tab; a javascript: link is
   expect(bad.container.textContent).toContain("javascript:alert(1)");
   bad.unmount();
 });
+
+// The reason draws colour markup as the secret ask's card does (task
+// b2f055c6), so one request reads the same on both cards.
+it("draws colour markup in the reason", () => {
+  const view = card(new Map(), {
+    ...PAYLOAD,
+    reason: ":blue[**Quick action**] To open the pull request.",
+  });
+  const span = view.container.querySelector<HTMLElement>("[data-color]");
+  expect({
+    color: span?.dataset.color,
+    bold: span?.querySelector("strong")?.textContent,
+    raw: /:blue\[|\*\*/.test(view.container.textContent ?? ""),
+  }).toEqual({ color: "blue", bold: "Quick action", raw: false });
+  view.unmount();
+});
