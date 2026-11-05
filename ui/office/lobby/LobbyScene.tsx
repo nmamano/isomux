@@ -46,6 +46,7 @@ import { toggleJukebox, useJukebox } from "./jukebox.ts";
 import { REPO_URL } from "./props-starjar.tsx";
 import { LobbyLiveCtx } from "./live.ts";
 import { RECEPTIONIST_FOCUS } from "../receptionist-geometry.ts";
+import { ReceptionistPlaceholder } from "../ReceptionistFigure.tsx";
 import {
   LOBBY_LAYOUTS,
   type LobbyLayoutId,
@@ -105,8 +106,9 @@ export interface LobbySceneProps {
   // The star jar on the counter, which links to the repo. Only the live
   // desktop lobby sets it; the phone lobby leaves it out.
   starJar?: boolean;
-  // The office state is still loading: the scene draws as it will, and
-  // nothing in it takes a click or keyboard focus.
+  // The office state is still loading: the scene draws as it will, with
+  // placeholders for what the state fills in (placeholder.tsx), and nothing
+  // in it takes a click or keyboard focus.
   loading?: boolean;
 }
 
@@ -166,8 +168,11 @@ export function LobbyScene({
           receptionist: receptionistAt ?? base?.receptionist ?? { a: 5, b: 5 },
         }
       : base;
+  const shownReceptionist: LobbyReceptionist | undefined =
+    receptionist ??
+    (loading ? { node: <ReceptionistPlaceholder /> } : undefined);
   // The props layer and its keyboard buttons draw the same placements.
-  const propsShown = spec && (decorateScene || receptionist);
+  const propsShown = spec && (decorateScene || shownReceptionist);
   const shownPlacements = spec && decorateScene ? spec.placements : [];
   return (
     <LobbyLiveCtx.Provider value={!loading}>
@@ -184,6 +189,7 @@ export function LobbyScene({
             ...rightDoor,
             onClick: live(rightDoor.onClick),
             passCount: rightDoorUses,
+            loading,
           }}
         />
       )}
@@ -199,8 +205,8 @@ export function LobbyScene({
           onOpenElevator={live(onOpenElevator)}
           starJar={starJar}
           receptionist={
-            receptionist
-              ? { ...spec.receptionist, node: receptionist.node }
+            shownReceptionist
+              ? { ...spec.receptionist, node: shownReceptionist.node }
               : undefined
           }
         />

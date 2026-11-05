@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { AgentOutfit } from "../../../shared/types.ts";
-import { EmployeePlaque } from "./props-plaque.tsx";
+import { PlaqueSlot } from "./props-plaque.tsx";
 import { Elevator, ELEVATOR_BOX } from "./props-elevator.tsx";
 import {
   SofaBoxy,
@@ -398,12 +398,7 @@ export const LOBBY_PROPS: PropFamily[] = [
       {
         id: "framed",
         label: "Framed portrait",
-        Component: ({ wall, star }) =>
-          star ? (
-            <EmployeePlaque wall={wall} name={star.name} outfit={star.outfit} />
-          ) : (
-            <g />
-          ),
+        Component: ({ wall, star }) => <PlaqueSlot wall={wall} star={star} />,
         wall: true,
         noFlip: true,
         height: 70,

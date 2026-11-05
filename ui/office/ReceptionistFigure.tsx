@@ -5,7 +5,7 @@
 // full label, as desk tags do. The group opts back into pointer events.
 import { useI18n } from "../i18n.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
-import { CHARACTER_GEOMETRY } from "./Character.tsx";
+import { Character, CHARACTER_GEOMETRY } from "./Character.tsx";
 import {
   RECEPTIONIST_HIT,
   RECEPTIONIST_PILL_Y,
@@ -14,6 +14,7 @@ import {
 import { LiveCharacter } from "./LiveCharacter.tsx";
 import { styleForModel } from "../model-styles.ts";
 import { noTranslate } from "../no-translate.ts";
+import { PLACEHOLDER_OUTFIT, Silhouette } from "./lobby/placeholder.tsx";
 
 const STATE_COLORS: Record<string, string> = {
   thinking: "var(--green)",
@@ -26,6 +27,8 @@ const SCALE = RECEPTIONIST_SCALE;
 const FEET_Y = CHARACTER_GEOMETRY.feetY;
 const HALF_W = CHARACTER_GEOMETRY.width / 2;
 const PILL_Y = RECEPTIONIST_PILL_Y;
+// About the width of a tag with a short name.
+const PLACEHOLDER_TAG_W = 100;
 
 export function ReceptionistFigure({
   agent,
@@ -124,6 +127,31 @@ export function ReceptionistFigure({
           </div>
         </div>
       </foreignObject>
+    </g>
+  );
+}
+
+// The receptionist while the office state loads: the figure and its tag in
+// one flat tone, at the same place and size, with nothing to press.
+export function ReceptionistPlaceholder() {
+  return (
+    <g>
+      <Silhouette color="#000" opacity={0.22}>
+        <g
+          transform={`translate(${-HALF_W * SCALE} ${-FEET_Y * SCALE}) scale(${SCALE})`}
+        >
+          <Character state="idle" outfit={PLACEHOLDER_OUTFIT} portrait />
+        </g>
+      </Silhouette>
+      <rect
+        x={-PLACEHOLDER_TAG_W / 2}
+        y={PILL_Y - 10}
+        width={PLACEHOLDER_TAG_W}
+        height={20}
+        rx={10}
+        fill="#000"
+        opacity={0.22}
+      />
     </g>
   );
 }

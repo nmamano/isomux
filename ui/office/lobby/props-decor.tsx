@@ -1,4 +1,7 @@
+import { useContext } from "react";
 import { useI18n } from "../../i18n.tsx";
+import { LobbyLiveCtx } from "./live.ts";
+import { TextBar } from "./placeholder.tsx";
 import { IsoBox, iso, poly, shade, wallTransform } from "./iso.tsx";
 import { CornerPlant } from "../plants.tsx";
 import { noTranslate } from "../../no-translate.ts";
@@ -463,6 +466,23 @@ export interface DirectoryRoom {
   name: string;
 }
 
+// While the office state loads, a directory lists a full board of placeholder
+// rows, one bar width per row so they read as names.
+const PLACEHOLDER_ROW_WIDTHS = [30, 22, 34, 26, 18, 28];
+
+function useDirectoryRows(rooms: DirectoryRoom[], max: number) {
+  const live = useContext(LobbyLiveCtx);
+  // A row with a width is a placeholder.
+  const rows: Array<DirectoryRoom & { width?: number }> = live
+    ? rooms.slice(0, max)
+    : PLACEHOLDER_ROW_WIDTHS.slice(0, max).map((width, i) => ({
+        id: `placeholder-${i}`,
+        name: "",
+        width,
+      }));
+  return { live, rows };
+}
+
 export function DirectoryBoard({
   wall,
   rooms,
@@ -473,7 +493,7 @@ export function DirectoryBoard({
   officeName: string;
 }) {
   const { t } = useI18n();
-  const rows = rooms.slice(0, 6);
+  const { live, rows } = useDirectoryRows(rooms, 6);
   const h = 34 + rows.length * 9;
   return (
     <g transform={wallTransform(wall, 0, 0)}>
@@ -491,16 +511,28 @@ export function DirectoryBoard({
       >
         {t("lobby.directory")}
       </text>
-      <text
-        x="0"
-        y={-h + 16}
-        textAnchor="middle"
-        fontSize="4.5"
-        style={{ fontFamily: "var(--font-ui)" }}
-        fill="#a08a6a"
-      >
-        {officeName}
-      </text>
+      {live ? (
+        <text
+          x="0"
+          y={-h + 16}
+          textAnchor="middle"
+          fontSize="4.5"
+          style={{ fontFamily: "var(--font-ui)" }}
+          fill="#a08a6a"
+        >
+          {officeName}
+        </text>
+      ) : (
+        <TextBar
+          x={0}
+          y={-h + 16}
+          width={24}
+          size={4.5}
+          anchor="middle"
+          color="#a08a6a"
+          opacity={0.4}
+        />
+      )}
       <line
         x1="-26"
         y1={-h + 19}
@@ -511,16 +543,27 @@ export function DirectoryBoard({
       />
       {rows.map((r, i) => (
         <g key={r.id} transform={`translate(0 ${-h + 28 + i * 9})`}>
-          <text
-            {...noTranslate()}
-            x="-25"
-            y="0"
-            fontSize="5.2"
-            style={{ fontFamily: "var(--font-ui)" }}
-            fill="#3a2818"
-          >
-            {r.name}
-          </text>
+          {r.width !== undefined ? (
+            <TextBar
+              x={-25}
+              y={0}
+              width={r.width}
+              size={5.2}
+              color="#3a2818"
+              opacity={0.18}
+            />
+          ) : (
+            <text
+              {...noTranslate()}
+              x="-25"
+              y="0"
+              fontSize="5.2"
+              style={{ fontFamily: "var(--font-ui)" }}
+              fill="#3a2818"
+            >
+              {r.name}
+            </text>
+          )}
           <path
             d="M20 -2 L24 -2 M22.5 -3.5 L24 -2 L22.5 -0.5"
             fill="none"
@@ -545,7 +588,7 @@ export function DirectorySign({
   rooms: DirectoryRoom[];
   officeName: string;
 }) {
-  const rows = rooms.slice(0, 4);
+  const { live, rows } = useDirectoryRows(rooms, 4);
   // A real A-frame: two boards hinged at an apex over the origin, splayed to
   // the floor front and back along b. The old one skewed a flat card with the
   // LEFT wall's matrix and propped a leg behind it with the right wall's, so
@@ -602,9 +645,21 @@ export function DirectorySign({
         fill="#f6f1e6"
         style={{ fontFamily: "var(--font-ui)" }}
       >
-        <text x="0" y="11" textAnchor="middle" fontSize="6" fontWeight="700">
-          {officeName}
-        </text>
+        {live ? (
+          <text x="0" y="11" textAnchor="middle" fontSize="6" fontWeight="700">
+            {officeName}
+          </text>
+        ) : (
+          <TextBar
+            x={0}
+            y={11}
+            width={24}
+            size={6}
+            anchor="middle"
+            color="#f6f1e6"
+            opacity={0.3}
+          />
+        )}
         <line
           x1="-9"
           y1="14.5"
@@ -623,15 +678,26 @@ export function DirectorySign({
               strokeWidth="0.5"
               strokeLinecap="round"
             />
-            <text
-              {...noTranslate()}
-              x="-6"
-              y={21 + i * 6}
-              fontSize="4.4"
-              fill="#e8e1d2"
-            >
-              {r.name}
-            </text>
+            {r.width !== undefined ? (
+              <TextBar
+                x={-6}
+                y={21 + i * 6}
+                width={r.width * 0.6}
+                size={4.4}
+                color="#e8e1d2"
+                opacity={0.3}
+              />
+            ) : (
+              <text
+                {...noTranslate()}
+                x="-6"
+                y={21 + i * 6}
+                fontSize="4.4"
+                fill="#e8e1d2"
+              >
+                {r.name}
+              </text>
+            )}
           </g>
         ))}
       </g>

@@ -37,6 +37,7 @@ import {
 import { noTranslate } from "../no-translate.ts";
 import { useI18n } from "../i18n.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
+import { TextBar } from "./lobby/placeholder.tsx";
 
 const NEON_COLORS = [
   "#ff6ec7", // hot pink (original)
@@ -625,6 +626,8 @@ interface DoorProps {
   label: string;
   // Absent: the door is drawn with no control (a lobby that is loading).
   onClick?: () => void;
+  // The office state is loading: the label is a placeholder bar.
+  loading?: boolean;
   dragOver?: boolean;
   reject?: boolean;
   // Counts ghosts that have passed through this door. A rise seen by a
@@ -934,6 +937,17 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
             fontWeight="600"
             style={{ fontFamily: "var(--font-ui)" }}
           />
+          {door.loading && (
+            <TextBar
+              x={0}
+              y={-98}
+              width={50}
+              size={DOOR_LABEL_SIZE}
+              anchor="middle"
+              color="var(--text-dim)"
+              opacity={0.35}
+            />
+          )}
           <text
             y={-98 - (labelFit.lines.length - 1) * labelLineHeight}
             textAnchor="middle"

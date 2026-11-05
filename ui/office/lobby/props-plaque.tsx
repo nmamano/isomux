@@ -1,11 +1,16 @@
+import { useContext } from "react";
 import { useI18n } from "../../i18n.tsx";
+import { LobbyLiveCtx } from "./live.ts";
 import type { AgentOutfit } from "../../../shared/types.ts";
 import { Character } from "../Character.tsx";
 import { wallTransform } from "./iso.tsx";
+import { PLACEHOLDER_OUTFIT, Silhouette, TextBar } from "./placeholder.tsx";
 
 // The Employee of the Minute plaque, framed-portrait design (Nil's pick,
 // 2026-09-05; the gold cameo alternative stays at git tag eotm-plaque). Drawn
 // flat, 52 by 68, bottom centre at the origin, then sheared onto its wall.
+// With no star (the office state is loading) the portrait and the name are
+// placeholders.
 
 const PLAQUE_NAME_MAX = 13;
 function plaqueName(name: string): string {
@@ -14,14 +19,26 @@ function plaqueName(name: string): string {
     : name;
 }
 
-export function EmployeePlaque({
+// The plaque's wall slot: the winner, a placeholder while the office state
+// loads, or nothing when the office has no winner.
+export function PlaqueSlot({
   wall,
-  name,
-  outfit,
+  star,
 }: {
   wall: "left" | "right";
-  name: string;
-  outfit: AgentOutfit;
+  star: { name: string; outfit: AgentOutfit } | null;
+}) {
+  const live = useContext(LobbyLiveCtx);
+  if (!star && live) return null;
+  return <EmployeePlaque wall={wall} star={star} />;
+}
+
+function EmployeePlaque({
+  wall,
+  star,
+}: {
+  wall: "left" | "right";
+  star: { name: string; outfit: AgentOutfit } | null;
 }) {
   const { t } = useI18n();
   return (
@@ -104,7 +121,18 @@ export function EmployeePlaque({
           lifts the bust into the mat rather than shrinking it. */}
       <g clipPath="url(#lobby-eotm-mat)">
         <g transform="translate(-15.3, -19)">
-          <Character state="idle" outfit={outfit} portrait height={40} />
+          {star ? (
+            <Character state="idle" outfit={star.outfit} portrait height={40} />
+          ) : (
+            <Silhouette color="#6B4E28" opacity={0.22}>
+              <Character
+                state="idle"
+                outfit={PLACEHOLDER_OUTFIT}
+                portrait
+                height={40}
+              />
+            </Silhouette>
+          )}
         </g>
       </g>
       {/* Engraved brass name strip */}
@@ -118,16 +146,28 @@ export function EmployeePlaque({
         stroke="#8E7440"
         strokeWidth="0.4"
       />
-      <text
-        y="24.2"
-        fill="#2E2417"
-        fontFamily="monospace"
-        fontWeight="bold"
-        fontSize="5.6"
-        textAnchor="middle"
-      >
-        {plaqueName(name)}
-      </text>
+      {star ? (
+        <text
+          y="24.2"
+          fill="#2E2417"
+          fontFamily="monospace"
+          fontWeight="bold"
+          fontSize="5.6"
+          textAnchor="middle"
+        >
+          {plaqueName(star.name)}
+        </text>
+      ) : (
+        <TextBar
+          x={0}
+          y={24.2}
+          width={24}
+          size={5.6}
+          anchor="middle"
+          color="#2E2417"
+          opacity={0.3}
+        />
+      )}
     </g>
   );
 }
