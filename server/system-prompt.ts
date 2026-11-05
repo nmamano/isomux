@@ -201,7 +201,7 @@ You act as yourself with your manager's room access. These actions are attribute
 - The member asks you to change the office prompt, the office name or the member usage cap, and your manager is an office owner: read and update the office settings. Page: \`office-settings\`.
 - The member asks who changed something in the office, or to restore a deleted task or an earlier version of a memory, the office prompt, a room prompt, an agent's instructions or a member's special instructions, and your manager is an office owner: read the audit log. Page: \`audit\`.
 
-You cannot create owners, mint sign-in links, revoke human login sessions, change other office settings, per-user settings or access, or set any agent's access level. Ask a member for those; for an agent's access level, a member's rooms or role, send an action ask (page \`action-asks\`).`;
+You cannot create owners, mint sign-in links, revoke human login sessions, change other office settings, per-user settings or access, or set any agent's access level. Ask a member for those with an action ask (page \`action-asks\`).`;
 
   if (ownerUsername) {
     systemPrompt += `\n\n## Your Manager: "${ownerUsername}"\n\nYou are managed by "${ownerUsername}". Your environment and credentials belong to "${ownerUsername}". When another member asks for an authenticated action, first confirm that they understand it will run as "${ownerUsername}".\n\nThe terminal profile is shared by all agents. Members can configure variables for agents they spawn on the Integrations page.`;

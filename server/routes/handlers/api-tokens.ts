@@ -60,6 +60,76 @@ export interface ApiTokenDeps {
   echoToAgent(agentId: string, tokenName: string, text: string): void;
 }
 
+// A token mint's body, checked: the name trimmed, an offered expiry, and the
+// limits with rooms the member may limit a token to (read only when the
+// limits name rooms). apiTokens.mint and the api-token action ask
+// (server/step-asks.ts) both take a body through it.
+export function parseApiTokenCreate(
+  raw: unknown,
+  limitableRoomIds: () => ReadonlySet<string>,
+):
+  | {
+      ok: true;
+      req: {
+        name: string;
+        expiresInDays: ApiTokenCreateReq["expiresInDays"];
+        limits?: ApiTokenLimits;
+      };
+    }
+  | {
+      ok: false;
+      code: "invalid_name" | "invalid_expiry" | "invalid_limits";
+      message: string;
+    } {
+  const body = (
+    typeof raw === "object" && raw !== null ? raw : {}
+  ) as Partial<ApiTokenCreateReq>;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name || name.length > 64)
+    return {
+      ok: false,
+      code: "invalid_name",
+      message: "name must be between 1 and 64 characters",
+    };
+  if (
+    body.expiresInDays === undefined ||
+    !(API_TOKEN_EXPIRY_DAYS as readonly (number | null)[]).includes(
+      body.expiresInDays,
+    )
+  )
+    return {
+      ok: false,
+      code: "invalid_expiry",
+      message:
+        "expiresInDays must be 30, 365, or null for a token that does not expire",
+    };
+  // Absent = full access. Fixed at mint.
+  let limits: ApiTokenLimits | undefined;
+  if (body.limits !== undefined) {
+    const parsed = parseApiTokenLimits(body.limits);
+    const limitable = parsed?.rooms ? limitableRoomIds() : null;
+    if (
+      !parsed ||
+      (limitable && !parsed.rooms!.every((id) => limitable.has(id)))
+    )
+      return {
+        ok: false,
+        code: "invalid_limits",
+        message:
+          'limits must be {areas?: {<area>: "read" | "write"}, rooms?: [<room id>]} with at least one of them, known areas, and rooms you can access',
+      };
+    limits = parsed;
+  }
+  return {
+    ok: true,
+    req: {
+      name,
+      expiresInDays: body.expiresInDays,
+      ...(limits ? { limits } : {}),
+    },
+  };
+}
+
 // The same 404 the sibling /api/users/:username routes give.
 function memberNotFound(username: string) {
   return fail(404, "not_found", `User ${username} not found`);
@@ -77,52 +147,11 @@ export function apiTokenHandlers(
     "apiTokens.mint": async (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user");
-      const body = (ctx.body ?? {}) as Partial<ApiTokenCreateReq>;
-      const name = typeof body.name === "string" ? body.name.trim() : "";
-      if (!name || name.length > 64) {
-        return fail(
-          422,
-          "invalid_name",
-          "name must be between 1 and 64 characters",
-        );
-      }
-      if (
-        body.expiresInDays === undefined ||
-        !(API_TOKEN_EXPIRY_DAYS as readonly (number | null)[]).includes(
-          body.expiresInDays,
-        )
-      ) {
-        return fail(
-          422,
-          "invalid_expiry",
-          "expiresInDays must be 30, 365, or null for a token that does not expire",
-        );
-      }
-      // Absent = full access. Fixed at mint.
-      let limits: ApiTokenLimits | undefined;
-      if (body.limits !== undefined) {
-        const parsed = parseApiTokenLimits(body.limits);
-        const limitable = parsed?.rooms ? deps.limitableRoomIds(userId) : null;
-        if (
-          !parsed ||
-          (limitable && !parsed.rooms!.every((id) => limitable.has(id)))
-        ) {
-          return fail(
-            422,
-            "invalid_limits",
-            'limits must be {areas?: {<area>: "read" | "write"}, rooms?: [<room id>]} with at least one of them, known areas, and rooms you can access',
-          );
-        }
-        limits = parsed;
-      }
-      return created(
-        await deps.mint({
-          userId,
-          name,
-          expiresInDays: body.expiresInDays,
-          ...(limits ? { limits } : {}),
-        }),
+      const parsed = parseApiTokenCreate(ctx.body, () =>
+        deps.limitableRoomIds(userId),
       );
+      if (!parsed.ok) return fail(422, parsed.code, parsed.message);
+      return created(await deps.mint({ userId, ...parsed.req }));
     },
     "apiTokens.revoke": async (ctx) => {
       const userId = ctx.identity.userId;

@@ -45,3 +45,33 @@ export function isHostedOfficeOrigin(origin: string | null): boolean {
   const url = hostedUrl(origin);
   return url !== null && /^[^.]+\.isomux\.app$/.test(url.host);
 }
+
+// What Hosted Isomux allows an access save on this office (`current` as
+// office.getAccess reports it, `origin` normalised): "managed" for a change
+// it refuses, "kept" for its own address saved again (nothing to write), and
+// null when the save goes ahead: a self-hosted office, or the installer's
+// first enable to the office's isomux.app address. The access save and the
+// office-access action ask both ask it.
+export function hostedAccessRule(
+  current: {
+    hosted: boolean;
+    externalAccess: boolean;
+    publicOrigin: string | null;
+  },
+  externalAccess: boolean,
+  origin: string | null,
+): "managed" | "kept" | null {
+  if (!current.hosted) return null;
+  const firstEnable =
+    !current.externalAccess &&
+    current.publicOrigin === null &&
+    externalAccess &&
+    isHostedOfficeOrigin(origin);
+  if (firstEnable) return null;
+  return current.externalAccess &&
+    externalAccess &&
+    origin !== null &&
+    origin === current.publicOrigin
+    ? "kept"
+    : "managed";
+}

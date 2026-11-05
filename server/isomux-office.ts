@@ -46,7 +46,7 @@ import {
 import {
   INSTALL_KIND,
   isHostedAccess,
-  isHostedOfficeOrigin,
+  hostedAccessRule,
   type InstallKind,
 } from "./install-kind.ts";
 import type { Server, ServerWebSocket } from "bun";
@@ -789,6 +789,7 @@ function registerBootHooks(): void {
     emitSessionsList();
     recheckOpenAppSockets();
     extensionService?.revalidate();
+    stepsChanged();
   });
 
   // The one owner of "a change to a user's room access re-projects their live
@@ -1402,6 +1403,8 @@ function emitInvitesList(): void {
     seen.add(uid);
     emitInvitesListForUser(uid);
   }
+  // A link made or taken back may be the change a step ask waits for.
+  stepsChanged();
 }
 
 // The removed members, to every owner (task 321e7b8e).
@@ -1540,27 +1543,16 @@ async function applyAccessSettings(
   const rawOrigin = publicOrigin.trim();
   const origin = rawOrigin ? normalizePublicOrigin(rawOrigin) : null;
   const current = computeAccessSettings(installKind);
-  const hostedFirstEnable =
-    current.hosted &&
-    !current.externalAccess &&
-    current.publicOrigin === null &&
-    externalAccess &&
-    isHostedOfficeOrigin(origin);
-  if (current.hosted && !hostedFirstEnable) {
-    if (
-      !current.externalAccess ||
-      !externalAccess ||
-      !origin ||
-      origin !== current.publicOrigin
-    ) {
-      return {
-        ok: false,
-        status: 403,
-        code: "hosted_access_managed",
-        error:
-          "Hosted Isomux manages this office's address; it cannot be changed.",
-      };
-    }
+  const hosted = hostedAccessRule(current, externalAccess, origin);
+  if (hosted === "managed")
+    return {
+      ok: false,
+      status: 403,
+      code: "hosted_access_managed",
+      error:
+        "Hosted Isomux manages this office's address; it cannot be changed.",
+    };
+  if (hosted === "kept")
     return {
       ok: true,
       externalAccess: true,
@@ -1568,7 +1560,6 @@ async function applyAccessSettings(
       signInUrl: null,
       restartRequired: false,
     };
-  }
   if (rawOrigin && !origin) {
     return {
       ok: false,
@@ -2056,6 +2047,20 @@ function accessibleRoomIdsFor(
     return new Set(agentManager.getOrdinaryRooms().map((r) => r.id));
   }
   return new Set(allowedRoomsOverride ?? user.allowedRooms);
+}
+
+// The rooms a member may limit an API token to: the live rooms they reach,
+// not the lobby. The token mint and the api-token action ask both read it.
+function tokenLimitableRoomIds(userId: string): Set<string> {
+  const user = getUserById(userId);
+  if (!user) return new Set<string>();
+  const accessible = accessibleRoomIdsFor(user);
+  return new Set(
+    agentManager
+      .getOrdinaryRooms()
+      .map((room) => room.id)
+      .filter((id) => accessible.has(id)),
+  );
 }
 
 // Boot: the skill folders of members that are gone go, and (once) the links
@@ -2742,6 +2747,8 @@ function buildExecutorDeps(
       officeSettings: officeSettingsNow,
       accessibleRoomIdsFor,
       accessChangeRefusal,
+      officeAccess: () => computeAccessSettings(installKind),
+      tokenLimitableRoomIds,
     }),
   });
   register(
@@ -2752,7 +2759,8 @@ function buildExecutorDeps(
       history: officeAskHistory(),
       steps: stepAsks,
       stepRuns: {
-        routeOf: (step, memberUserId) => stepAsks!.routeOf(step, memberUserId),
+        routeOf: (step, memberUserId, callerSessionIdHash) =>
+          stepAsks!.routeOf(step, memberUserId, callerSessionIdHash),
         dispatch: (identity, route, opts) =>
           dispatchInProcess(identity, route.method, route.path, route.body, {
             via: "ask",
@@ -3599,6 +3607,7 @@ function buildExecutorDeps(
           identity.userId,
           installKind,
         );
+        if (r.ok) stepsChanged();
         return r.ok
           ? {
               ok: true,
@@ -4636,19 +4645,18 @@ function buildExecutorDeps(
   register(
     apiTokenHandlers({
       list: (userId) => listApiTokens(userId),
-      mint: (input) => mintApiToken(input),
-      revoke: (userId, id) => revokeApiToken(userId, id),
-      limitableRoomIds: (userId) => {
-        const user = getUserById(userId);
-        if (!user) return new Set<string>();
-        const accessible = accessibleRoomIdsFor(user);
-        return new Set(
-          agentManager
-            .getOrdinaryRooms()
-            .map((room) => room.id)
-            .filter((id) => accessible.has(id)),
-        );
+      // A token made or revoked may be the change a step ask waits for.
+      mint: async (input) => {
+        const minted = await mintApiToken(input);
+        stepsChanged();
+        return minted;
       },
+      revoke: async (userId, id) => {
+        const revoked = await revokeApiToken(userId, id);
+        if (revoked) stepsChanged();
+        return revoked;
+      },
+      limitableRoomIds: tokenLimitableRoomIds,
       userIdForUsername: (username) => getUser(username)?.id ?? null,
       sendToInbox: async (input) => {
         const result = await enqueueApiTokenInboxMessage(input);

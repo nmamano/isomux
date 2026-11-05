@@ -11,7 +11,12 @@ import {
   dialogSaveBtn,
   disabledLook,
 } from "./dialog-styles.ts";
-import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
+import {
+  MintedSecretBox,
+  cardStyle,
+  hint,
+  sectionHeader,
+} from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
 import { RoomPicker } from "./RoomPicker.tsx";
 import { AREA_LABEL, AreaLevelsGrid, LEVEL_LABEL } from "./AreaLevelsGrid.tsx";
@@ -84,7 +89,6 @@ export function ApiTokensPane() {
   const [pickedRooms, setPickedRooms] = useState<string[]>([]);
   const memberRooms = useMemberRooms();
   const [rawToken, setRawToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,7 +115,6 @@ export function ApiTokensPane() {
     setPending(true);
     setError(null);
     setRawToken(null);
-    setCopied(false);
     apiFetch<ApiTokenCreateRes>("POST", "/api/me/api-tokens", {
       name: name.trim(),
       expiresInDays,
@@ -338,37 +341,13 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
       </div>
 
       {rawToken && (
-        <div style={{ ...cardStyle, marginTop: 12 }}>
-          <strong style={{ fontSize: 12 }}>
-            {t("settings.apiTokens.copyNow")}
-          </strong>
-          <p style={hint}>{t("settings.apiTokens.shownOnce")}</p>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <code
-              style={{
-                flex: 1,
-                minWidth: 0,
-                overflowWrap: "anywhere",
-                userSelect: "all",
-              }}
-            >
-              {rawToken}
-            </code>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(rawToken).then(
-                  () => {
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                  },
-                  () => {},
-                );
-              }}
-              style={{ ...dialogSaveBtn, flexShrink: 0 }}
-            >
-              {copied ? t("common.copied") : t("common.copy")}
-            </button>
-          </div>
+        <div style={{ marginTop: 12 }}>
+          <MintedSecretBox
+            value={rawToken}
+            label={t("settings.apiTokens.copyNow")}
+            hint={t("settings.apiTokens.shownOnce")}
+            blocked={t("settings.apiTokens.clipboardBlocked")}
+          />
         </div>
       )}
 
@@ -440,7 +419,7 @@ function mintLimits(
 
 // What a token card says about its rooms: every room, or the rooms it names.
 // A room the viewer cannot name (closed, or out of reach) counts as "other".
-function roomsSummary(
+export function roomsSummary(
   t: ReturnType<typeof useI18n>["t"],
   tn: ReturnType<typeof useI18n>["tn"],
   language: string,
@@ -461,7 +440,7 @@ function roomsSummary(
 
 // What a token card says about its access: the preset name, or for custom
 // each area with its level.
-function accessSummary(
+export function accessSummary(
   t: ReturnType<typeof useI18n>["t"],
   language: string,
   limits: ApiTokenLimits | undefined,

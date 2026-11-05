@@ -10,10 +10,16 @@
 // (member-pack), the member's own preferences (member-preferences) and room
 // lists (member-view), and the office and backup settings (office-settings,
 // backup-settings). A kind that sets several keys draws one row per key.
+// Part 4: a member's sign-in link (sign-in-link), their sign-out on every
+// device (member-sessions), their unused links taken back
+// (sign-in-links-revoke), a personal API token (api-token), a token revoked
+// (api-token-revoke) and the office's outside access (office-access). A link
+// or token the Apply makes goes to the store's askResults, which outlive this
+// card: the ask closes as it is made, often before the Apply answers.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
-import { useAppState } from "../store.tsx";
+import { useAppState, useDispatch, type AskResult } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { AGENT_PACK_AREAS, agentAccessOf } from "../../shared/agent-access.ts";
@@ -24,9 +30,14 @@ import {
   type RoomViewLevel,
 } from "../../shared/room-view-level.ts";
 import type {
+  AccessSettings,
   AccessibleRoomWire,
+  ApiTokenListRes,
   BackupStatusWire,
 } from "../../shared/contract-shapes.ts";
+import type { InviteWire, SessionWire } from "../../shared/types.ts";
+import { formatDateTime } from "../../shared/i18n/time.ts";
+import { accessSummary, roomsSummary } from "../components/ApiTokensPane.tsx";
 import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
 import { DEFAULT_VOICE_NAME } from "../../shared/voice.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
@@ -64,10 +75,12 @@ interface Row {
 
 // What a kind draws: the target's name, the value now (undefined when the
 // state does not hold it), the value asked for or one row per key, the lines
-// under them, the data-* marks, and whether the target is gone.
+// under them, the data-* marks, and whether the target is gone. `loading`:
+// the value now is still being read, so a placeholder holds its place.
 interface ActionView {
   name: string;
   current?: Value;
+  loading?: boolean;
   requested?: Value;
   rows?: Row[];
   lines: ReactNode[];
@@ -149,11 +162,32 @@ export function AskActionBlock({
   step: ActionStepRequest;
   isMobile: boolean;
 }) {
-  const { t } = useI18n();
-  const { agents, users, rooms, allRooms, office } = useAppState();
+  const { t, tn, language } = useI18n();
+  const {
+    agents,
+    users,
+    rooms,
+    allRooms,
+    office,
+    activeSessions,
+    activeSessionsLoaded,
+    invitesList,
+    invitesLoaded,
+  } = useAppState();
+  const dispatch = useDispatch();
+  // A member's tokens: the member's own list, or an owner's view of another
+  // member's (null until the member list names them).
+  function tokensPath(userId: string): string | null {
+    if (userId === memberUserId) return "/api/me/api-tokens";
+    const owner = [...users.values()].find((u) => u.id === userId);
+    return owner
+      ? `/api/users/${encodeURIComponent(owner.name)}/api-tokens`
+      : null;
+  }
   // The settings the state does not carry, read when the card shows: the
   // office settings (again on each office settings change), the backup
-  // settings, and the member's rooms, hidden ones included.
+  // settings, the member's rooms, hidden ones included, the access settings,
+  // and the tokens of a token's owner.
   const read =
     step.kind === "office-settings"
       ? "/api/office/settings"
@@ -161,7 +195,11 @@ export function AskActionBlock({
         ? "/api/backup/status"
         : step.kind === "member-view"
           ? "/api/me/rooms"
-          : null;
+          : step.kind === "office-access"
+            ? "/api/office/access"
+            : step.kind === "api-token-revoke"
+              ? tokensPath(step.userId)
+              : null;
   const [fetched, setFetched] = useState<unknown>(undefined);
   useEffect(() => {
     if (!read) return;
@@ -175,6 +213,26 @@ export function AskActionBlock({
       live = false;
     };
   }, [read, office]);
+  // A sign-out or a links revoke counts the member's sessions or links from
+  // the lists the office keeps live; seeded here when no page has yet.
+  const needs =
+    step.kind === "member-sessions"
+      ? "sessions"
+      : step.kind === "sign-in-links-revoke"
+        ? "invites"
+        : null;
+  useEffect(() => {
+    if (needs === "sessions" && !activeSessionsLoaded)
+      apiFetch<{ sessions: SessionWire[] }>("GET", "/api/sessions")
+        .then((r) =>
+          dispatch({ type: "sessions_active_list", sessions: r.sessions }),
+        )
+        .catch(() => {});
+    if (needs === "invites" && !invitesLoaded)
+      apiFetch<{ invites: InviteWire[] }>("GET", "/api/invites")
+        .then((r) => dispatch({ type: "invites_list", invites: r.invites }))
+        .catch(() => {});
+  }, [needs, activeSessionsLoaded, invitesLoaded, dispatch]);
   // "running" while the POST is out, "ran" after a 2xx.
   const [phase, setPhase] = useState<"idle" | "running" | "ran">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -190,7 +248,11 @@ export function AskActionBlock({
     setPhase("running");
     setError(null);
     try {
-      await apiFetch("POST", `/api/asks/${askId}/action`);
+      const body = await apiFetch<unknown>("POST", `/api/asks/${askId}/action`);
+      // Through the store, as this card may be gone: the ask closed as the
+      // link or token was made.
+      const result = resultOf(body);
+      if (result) dispatch({ type: "ask_result_shown", askId, result });
       setPhase("ran");
     } catch (err) {
       running.current = false;
@@ -201,6 +263,45 @@ export function AskActionBlock({
 
   const memberById = (userId: string) =>
     [...users.values()].find((u) => u.id === userId);
+
+  // The sign-in link or token in a run's answer, or null. Read once, here:
+  // the server keeps neither.
+  function resultOf(body: unknown): AskResult | null {
+    const b = (body ?? {}) as Record<string, unknown>;
+    const memberName = (userId: string | undefined) =>
+      (userId && memberById(userId)?.name) || "";
+    // The member who applies is the one the ask is for: their own link is
+    // for their device, another member's is to send on.
+    const link = (value: unknown, userId: string | undefined) =>
+      typeof value === "string" && value
+        ? {
+            kind: "sign-in-link" as const,
+            agentId: askingAgentId,
+            target: memberName(userId),
+            value,
+            forSelf: userId === memberUserId,
+          }
+        : null;
+    switch (step.kind) {
+      case "sign-in-link":
+        return link(b.url, step.userId);
+      // The link for the new address is always the member's own.
+      case "office-access":
+        return link(b.signInUrl, memberUserId);
+      case "api-token":
+        return typeof b.token === "string" && b.token
+          ? {
+              kind: "api-token",
+              agentId: askingAgentId,
+              target: step.name,
+              value: b.token,
+              forSelf: false,
+            }
+          : null;
+      default:
+        return null;
+    }
+  }
   // The asking agent's manager: a change that widens their reach widens the
   // agent's too.
   const managerUserId = agents.find((a) => a.id === askingAgentId)?.userId;
@@ -350,6 +451,10 @@ export function AskActionBlock({
     };
   }
 
+  const onOff = (on: boolean): Value => ({
+    value: on ? "on" : "off",
+    label: t(on ? "asks.action.on" : "asks.action.off"),
+  });
   const setting = (value: unknown): Value => ({
     value: String(value),
     label:
@@ -569,6 +674,7 @@ export function AskActionBlock({
           ...(hint ? { hint: t(hint) } : {}),
         };
       }),
+      loading: now === null,
       lines: [],
       marks: {},
       gone: null,
@@ -602,6 +708,7 @@ export function AskActionBlock({
         ...(now ? { current: valueOf(key, now[key]) } : {}),
         requested: valueOf(key, value),
       })),
+      loading: now === null,
       lines: [
         movesFolder && (
           <div key="holds" style={muted}>
@@ -610,6 +717,184 @@ export function AskActionBlock({
         ),
       ],
       marks: movesFolder ? { "data-ask-action-backup-holds": "" } : {},
+      gone: null,
+    };
+  }
+
+  function signInLinkView(s: Step<"sign-in-link">): ActionView {
+    const member = memberById(s.userId);
+    return {
+      name: member?.name ?? s.userId,
+      requested: { value: "link", label: t("asks.action.signInLink") },
+      lines: [
+        <div key="hint" style={muted}>
+          {t(
+            s.userId === memberUserId
+              ? "asks.action.signInLinkHintSelf"
+              : "asks.action.signInLinkHint",
+          )}
+        </div>,
+      ],
+      marks: {},
+      gone: member ? null : t("asks.action.memberGone"),
+    };
+  }
+
+  function memberSessionsView(s: Step<"member-sessions">): ActionView {
+    const member = memberById(s.userId);
+    const live = activeSessions.filter((v) => v.userId === s.userId).length;
+    const here = s.userId === memberUserId;
+    return {
+      name: member?.name ?? s.userId,
+      ...(activeSessionsLoaded
+        ? {
+            current: {
+              value: String(live),
+              label: tn("asks.action.devicesSignedIn", live),
+            },
+          }
+        : {}),
+      loading: !activeSessionsLoaded,
+      requested: { value: "0", label: t("asks.action.signedOut") },
+      lines: [
+        <div key="hint" style={muted}>
+          {t("asks.action.signOutHint")}
+        </div>,
+        here && (
+          <div key="here" style={{ fontSize: small }}>
+            {t("asks.action.signsYouOut")}
+          </div>
+        ),
+      ],
+      marks: here ? { "data-ask-action-signs-you-out": "" } : {},
+      gone: member ? null : t("asks.action.memberGone"),
+    };
+  }
+
+  function linksRevokeView(s: Step<"sign-in-links-revoke">): ActionView {
+    const member = memberById(s.userId);
+    const pending = member
+      ? invitesList.filter((i) => i.username === member.name).length
+      : 0;
+    return {
+      name: member?.name ?? s.userId,
+      ...(invitesLoaded && member
+        ? {
+            current: {
+              value: String(pending),
+              label: tn("asks.action.unusedLinks", pending),
+            },
+          }
+        : {}),
+      loading: !invitesLoaded,
+      requested: { value: "0", label: t("asks.action.linksTakenBack") },
+      lines: [],
+      marks: {},
+      gone: member ? null : t("asks.action.memberGone"),
+    };
+  }
+
+  function apiTokenView(s: Step<"api-token">): ActionView {
+    return {
+      name: s.name,
+      requested: {
+        value: String(s.expiresInDays),
+        label:
+          s.expiresInDays === null
+            ? t("asks.action.tokenNeverExpires")
+            : t("asks.action.tokenExpires", { days: s.expiresInDays }),
+      },
+      lines: [
+        <div key="access" style={muted}>
+          {t("settings.apiTokens.accessLine", {
+            access: accessSummary(t, language, s.limits),
+          })}
+        </div>,
+        <div key="rooms" style={muted}>
+          {t("settings.apiTokens.roomsLine", {
+            rooms: roomsSummary(t, tn, language, s.limits, rooms),
+          })}
+        </div>,
+        <div key="hint" style={muted}>
+          {t("asks.action.tokenHint")}
+        </div>,
+      ],
+      marks: {},
+      gone: null,
+    };
+  }
+
+  function apiTokenRevokeView(s: Step<"api-token-revoke">): ActionView {
+    const token = (fetched as ApiTokenListRes | undefined)?.apiTokens?.find(
+      (row) => row.id === s.tokenId,
+    );
+    const owner = s.userId === memberUserId ? null : memberById(s.userId);
+    return {
+      name: token?.name ?? s.tokenId,
+      requested: { value: "revoked", label: t("asks.action.tokenRevoked") },
+      lines: [
+        owner && (
+          <div key="owner" style={{ fontSize: small }}>
+            {t("asks.action.tokenOwner", { member: owner.name })}
+          </div>
+        ),
+        token && (
+          <div key="used" style={muted}>
+            {t("settings.apiTokens.lastRequest", {
+              when: token.lastUsedAt
+                ? t("settings.apiTokens.about", {
+                    date: formatDateTime(
+                      language,
+                      token.lastUsedAt,
+                      "dateTimeSeconds",
+                    ),
+                  })
+                : t("settings.apiTokens.never"),
+            })}
+          </div>
+        ),
+        <div key="hint" style={muted}>
+          {t("asks.action.tokenRevokeHint")}
+        </div>,
+      ],
+      marks: {},
+      gone: null,
+    };
+  }
+
+  function officeAccessView(s: Step<"office-access">): ActionView {
+    const now = fetched as AccessSettings | undefined;
+    const address = (origin: string | null) =>
+      origin || t("asks.action.accessNoAddress");
+    return {
+      name: t("settings.externalAccess.title"),
+      ...(now ? { current: onOff(now.externalAccess) } : {}),
+      loading: !now,
+      requested: onOff(s.externalAccess),
+      rows: [
+        {
+          key: "publicOrigin",
+          label: t("settings.externalAccess.publicUrl"),
+          ...(now
+            ? {
+                current: {
+                  value: now.publicOrigin ?? "",
+                  label: address(now.publicOrigin),
+                },
+              }
+            : {}),
+          requested: {
+            value: s.publicOrigin,
+            label: address(s.publicOrigin),
+          },
+        },
+      ],
+      lines: [
+        <div key="restart" style={muted}>
+          {t("asks.action.accessRestart")}
+        </div>,
+      ],
+      marks: {},
       gone: null,
     };
   }
@@ -632,8 +917,37 @@ export function AskActionBlock({
         return officeSettingsView(step);
       case "backup-settings":
         return backupSettingsView(step);
+      case "sign-in-link":
+        return signInLinkView(step);
+      case "member-sessions":
+        return memberSessionsView(step);
+      case "sign-in-links-revoke":
+        return linksRevokeView(step);
+      case "api-token":
+        return apiTokenView(step);
+      case "api-token-revoke":
+        return apiTokenRevokeView(step);
+      case "office-access":
+        return officeAccessView(step);
     }
   })();
+
+  // The value now while it loads: a dimmed block where its label goes, so the
+  // row keeps its layout.
+  const placeholder = (
+    <span
+      data-ask-action-loading=""
+      aria-hidden="true"
+      style={{
+        display: "inline-block",
+        width: "4em",
+        height: "0.9em",
+        borderRadius: 4,
+        background: "var(--bg-surface)",
+        alignSelf: "center",
+      }}
+    />
+  );
 
   return (
     <div
@@ -667,12 +981,16 @@ export function AskActionBlock({
         <span {...noTranslate()} style={{ fontWeight: 600 }}>
           {view.name}
         </span>
-        {view.current && (
+        {view.current ? (
           <span data-ask-action-from="" style={{ color: "var(--text-muted)" }}>
             {view.current.label}
           </span>
+        ) : (
+          view.requested && view.loading && placeholder
         )}
-        {view.current && <span aria-hidden="true">→</span>}
+        {(view.current || (view.requested && view.loading)) && (
+          <span aria-hidden="true">→</span>
+        )}
         {view.requested && (
           <span data-ask-action-to="" style={{ fontWeight: 600 }}>
             {view.requested.label}
@@ -698,15 +1016,17 @@ export function AskActionBlock({
             }}
           >
             <span>{row.label}</span>
-            {row.current && (
+            {row.current ? (
               <span
                 {...noTranslate()}
                 style={{ color: "var(--text-muted)", overflowWrap: "anywhere" }}
               >
                 {row.current.label}
               </span>
+            ) : (
+              view.loading && placeholder
             )}
-            {row.current && <span aria-hidden="true">→</span>}
+            {(row.current || view.loading) && <span aria-hidden="true">→</span>}
             <span
               {...noTranslate()}
               style={{ fontWeight: 600, overflowWrap: "anywhere" }}

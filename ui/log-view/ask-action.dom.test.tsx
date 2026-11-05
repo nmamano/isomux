@@ -897,3 +897,208 @@ it("an office-settings card reads the settings again when any office setting cha
   );
   view.unmount();
 });
+
+// Part 4: the credential actions. A sign-in link or a token an Apply made is
+// in the run's answer only; the ask closes as it is made, and the socket's
+// ask_removed can come before that answer. The stack draws the result where
+// the ask was until the member closes it.
+const CRED_ACCESS = {
+  hosted: false,
+  externalAccess: false,
+  publicOrigin: null,
+  boundLoopback: true,
+};
+const credAsk = memberAsk;
+const results = (view: { container: HTMLElement }) =>
+  [...view.container.querySelectorAll<HTMLElement>("[data-ask-result]")].map(
+    (el) => el.dataset.askResult,
+  );
+
+it.each([
+  [
+    "sign-in-link",
+    { kind: "sign-in-link", userId: "u2" },
+    { url: "https://office.example/i/RAWLINK1", invite: {} },
+    "https://office.example/i/RAWLINK1",
+    // Casey's link, made by Morgan: for Casey's device, not this one.
+    false,
+  ],
+  [
+    "api-token",
+    { kind: "api-token", name: "deploy", expiresInDays: 30 },
+    { token: "isx_RAWTOKEN1", apiToken: { id: "t1", name: "deploy" } },
+    "isx_RAWTOKEN1",
+    null,
+  ],
+  [
+    "office-access",
+    {
+      kind: "office-access",
+      externalAccess: true,
+      publicOrigin: "https://office.example",
+    },
+    { signInUrl: "https://office.example/i/RAWLINK2", restartRequired: true },
+    "https://office.example/i/RAWLINK2",
+    // Morgan's own link at the new address.
+    true,
+  ],
+] as const)(
+  "a %s Apply whose answer comes after the ask closed: the stack shows the result until Close",
+  async (_kind, step, body, value, forSelf) => {
+    read = (path) => (path === "/api/office/access" ? CRED_ACCESS : undefined);
+    let release: () => void = () => {};
+    answer = () => new Promise((resolve) => (release = () => resolve(body)));
+    const { view, apply } = await mount([credAsk("cred0001", step)]);
+    await waitFor(() => expect(apply("cred0001")).not.toBe(null));
+    await act(async () => {
+      fireEvent.click(apply("cred0001")!);
+    });
+    expect(posts).toEqual(["/api/asks/cred0001/action"]);
+    // The server closed the ask as the link was made.
+    await act(async () => {
+      seeded({ type: "ask_removed", id: "cred0001" });
+    });
+    expect(view.container.querySelector('[data-ask="cred0001"]')).toBe(null);
+    expect(results(view)).toEqual([]);
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(results(view)).toEqual(["cred0001"]);
+    const card = view.container.querySelector<HTMLElement>(
+      '[data-ask-result="cred0001"]',
+    )!;
+    expect(card.textContent).toContain(value);
+    // A link says whose device it is for.
+    if (forSelf !== null)
+      expect(card.hasAttribute("data-ask-result-for-self")).toBe(forSelf);
+    await act(async () => {
+      fireEvent.click(
+        card.querySelector<HTMLButtonElement>("[data-ask-result-close]")!,
+      );
+    });
+    expect(results(view)).toEqual([]);
+    view.unmount();
+  },
+);
+
+// The other order: the answer first, then the socket closes the ask.
+it("a credential Apply whose answer comes before the ask closed: the result stays after the close", async () => {
+  answer = async () => ({
+    token: "isx_RAWTOKEN3",
+    apiToken: { id: "t3", name: "deploy" },
+  });
+  const { view, apply } = await mount([
+    credAsk("cred0006", {
+      kind: "api-token",
+      name: "deploy",
+      expiresInDays: 30,
+    }),
+  ]);
+  await act(async () => {
+    fireEvent.click(apply("cred0006")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(results(view)).toEqual(["cred0006"]);
+  await act(async () => {
+    seeded({ type: "ask_removed", id: "cred0006" });
+  });
+  expect(view.container.querySelector('[data-ask="cred0006"]')).toBe(null);
+  expect(results(view)).toEqual(["cred0006"]);
+  view.unmount();
+});
+
+it("a refused credential Apply shows no result", async () => {
+  answer = async () => {
+    throw new ApiError(403, "forbidden", "No.");
+  };
+  const { view, apply } = await mount([
+    credAsk("cred0002", { kind: "api-token", name: "x", expiresInDays: 30 }),
+  ]);
+  await act(async () => {
+    fireEvent.click(apply("cred0002")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts).toEqual(["/api/asks/cred0002/action"]);
+  expect(results(view)).toEqual([]);
+  view.unmount();
+});
+
+it("a member-sessions card says Apply signs the member out here too only when the member is the one the ask is for", async () => {
+  const { view, block } = await mount([
+    // Morgan (u1) is the member the asks are for.
+    credAsk("cred0003", { kind: "member-sessions", userId: "u1" }),
+    credAsk("cred0004", { kind: "member-sessions", userId: "u2" }),
+  ]);
+  expect(
+    ["cred0003", "cred0004"].map((id) =>
+      block(id)!.hasAttribute("data-ask-action-signs-you-out"),
+    ),
+  ).toEqual([true, false]);
+  view.unmount();
+});
+
+it("an office-access card shows the address asked for in full", async () => {
+  read = (path) => (path === "/api/office/access" ? CRED_ACCESS : undefined);
+  const origin = "https://office.example.co.uk:8443";
+  const { view, block } = await mount([
+    credAsk("cred0005", {
+      kind: "office-access",
+      externalAccess: true,
+      publicOrigin: origin,
+    }),
+  ]);
+  await waitFor(() => expect(block("cred0005")!.textContent).toContain(origin));
+  view.unmount();
+});
+
+it("an api-token-revoke card names the token and its owner, for the member's own token and for another member's", async () => {
+  read = (path) =>
+    path === "/api/me/api-tokens"
+      ? {
+          apiTokens: [
+            {
+              id: "aaaa000000000001",
+              name: "morgans-ci",
+              tokenPrefix: "isx_aaaa",
+              createdAt: NOW,
+              expiresAt: null,
+              lastUsedAt: null,
+            },
+          ],
+        }
+      : path === "/api/users/Casey/api-tokens"
+        ? {
+            apiTokens: [
+              {
+                id: "bbbb000000000002",
+                name: "caseys-laptop",
+                tokenPrefix: "isx_bbbb",
+                createdAt: NOW,
+                expiresAt: null,
+                lastUsedAt: null,
+              },
+            ],
+          }
+        : undefined;
+  const { view, block } = await mount([
+    credAsk("cred0007", {
+      kind: "api-token-revoke",
+      tokenId: "aaaa000000000001",
+      userId: "u1",
+    }),
+    credAsk("cred0008", {
+      kind: "api-token-revoke",
+      tokenId: "bbbb000000000002",
+      userId: "u2",
+    }),
+  ]);
+  await waitFor(() =>
+    expect(block("cred0008")!.textContent).toContain("caseys-laptop"),
+  );
+  expect(block("cred0008")!.textContent).toContain("Casey");
+  await waitFor(() =>
+    expect(block("cred0007")!.textContent).toContain("morgans-ci"),
+  );
+  view.unmount();
+});

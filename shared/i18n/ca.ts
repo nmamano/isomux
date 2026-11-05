@@ -937,6 +937,8 @@ Coses que pots fer per ell:
   "settings.apiTokens.create": "Crea el token",
   "settings.apiTokens.copyNow": "Copia aquest token ara",
   "settings.apiTokens.shownOnce": "No es tornarà a mostrar.",
+  "settings.apiTokens.clipboardBlocked":
+    "Porta-retalls bloquejat. El token de dalt està seleccionat: copia'l a mà.",
   "settings.apiTokens.empty": "No hi ha tokens d'API.",
   "settings.apiTokens.neverExpires": "no caduca mai",
   "settings.apiTokens.expiresOn": "caduca el {date}",
@@ -1955,6 +1957,34 @@ Coses que pots fer per ell:
     "Una còpia de seguretat conté els xats i l'historial de totes les sales. Els secrets desats i els inicis de sessió en queden fora.",
   "asks.action.backupDefaultFolder": "Carpeta per defecte",
   "asks.action.roomGone": "Aquesta sala ja no és a l'oficina.",
+  "asks.action.signInLink": "Nou enllaç d'inici de sessió",
+  "asks.action.signInLinkHint":
+    "L'enllaç apareix aquí després d'Aplica. El seu enllaç anterior sense fer servir deixa de funcionar.",
+  "asks.action.signInLinkHintSelf":
+    "L'enllaç apareix aquí després d'Aplica. El teu enllaç anterior sense fer servir deixa de funcionar.",
+  "asks.action.devicesSignedIn.one": "Sessió iniciada en {count} dispositiu",
+  "asks.action.devicesSignedIn.other": "Sessió iniciada en {count} dispositius",
+  "asks.action.signedOut": "Sessió tancada",
+  "asks.action.signOutHint": "A tots els dispositius.",
+  "asks.action.signsYouOut": "També tanca la teva sessió aquí.",
+  "asks.action.unusedLinks.one":
+    "{count} enllaç d'inici de sessió sense fer servir",
+  "asks.action.unusedLinks.other":
+    "{count} enllaços d'inici de sessió sense fer servir",
+  "asks.action.linksTakenBack": "Cap enllaç sense fer servir",
+  "asks.action.tokenExpires": "Caduca als {days} dies",
+  "asks.action.tokenNeverExpires": "No caduca",
+  "asks.action.tokenHint":
+    "El token apareix aquí una vegada, després d'Aplica.",
+  "asks.action.tokenRevoked": "Revocat",
+  "asks.action.tokenOwner": "És de {member}",
+  "asks.action.tokenRevokeHint":
+    "Els scripts que fan servir aquest token deixen de funcionar.",
+  "asks.action.accessNoAddress": "Cap",
+  "asks.action.accessRestart":
+    "S'aplica quan reiniciïs Isomux. Aplicar no el reinicia.",
+  "asks.result.signInLink": "Enllaç d'inici de sessió per a {member}",
+  "asks.result.apiToken": "Token d'API {name}",
   "asks.viewInInbox": "Mostra a la safata d'entrada",
   "asks.pinnedMissing": "No pots veure aquesta petició, o no existeix.",
   "asks.stillOpen": "Encara oberta",
@@ -3339,6 +3369,15 @@ Coses que pots fer per ell:
     "Configuració de l'oficina canviada.",
   "systemEntries.stepAsk.backupSettingsSet":
     "Configuració de les còpies de seguretat canviada.",
+  "systemEntries.stepAsk.signInLinkMade":
+    "Enllaç d'inici de sessió creat per a {member}.",
+  "systemEntries.stepAsk.memberSignedOut":
+    "Sessió de {member} tancada a tots els dispositius.",
+  "systemEntries.stepAsk.signInLinksRevoked":
+    "Enllaços d'inici de sessió de {member} retirats.",
+  "systemEntries.stepAsk.apiTokenMade": "Token d'API {name} creat.",
+  "systemEntries.stepAsk.apiTokenRevoked": "Token d'API revocat.",
+  "systemEntries.stepAsk.officeAccessSet": "Accés extern configurat.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
   "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
   "systemEntries.sudoRequest.exited":

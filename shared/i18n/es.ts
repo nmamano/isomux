@@ -942,6 +942,8 @@ Cosas que puedes hacer por él:
   "settings.apiTokens.create": "Crear el token",
   "settings.apiTokens.copyNow": "Copia este token ahora",
   "settings.apiTokens.shownOnce": "No se volverá a mostrar.",
+  "settings.apiTokens.clipboardBlocked":
+    "Portapapeles bloqueado. El token de arriba está seleccionado: cópialo a mano.",
   "settings.apiTokens.empty": "No hay tokens de API.",
   "settings.apiTokens.neverExpires": "no caduca nunca",
   "settings.apiTokens.expiresOn": "caduca el {date}",
@@ -1951,6 +1953,33 @@ Cosas que puedes hacer por él:
     "Una copia de seguridad contiene los chats y el historial de todas las salas. Los secretos guardados y los inicios de sesión quedan fuera.",
   "asks.action.backupDefaultFolder": "Carpeta predeterminada",
   "asks.action.roomGone": "Esta sala ya no está en la oficina.",
+  "asks.action.signInLink": "Nuevo enlace de inicio de sesión",
+  "asks.action.signInLinkHint":
+    "El enlace aparece aquí después de Aplicar. Su enlace anterior sin usar deja de funcionar.",
+  "asks.action.signInLinkHintSelf":
+    "El enlace aparece aquí después de Aplicar. Tu enlace anterior sin usar deja de funcionar.",
+  "asks.action.devicesSignedIn.one": "Sesión iniciada en {count} dispositivo",
+  "asks.action.devicesSignedIn.other":
+    "Sesión iniciada en {count} dispositivos",
+  "asks.action.signedOut": "Sesión cerrada",
+  "asks.action.signOutHint": "En todos los dispositivos.",
+  "asks.action.signsYouOut": "También cierra tu sesión aquí.",
+  "asks.action.unusedLinks.one": "{count} enlace de inicio de sesión sin usar",
+  "asks.action.unusedLinks.other":
+    "{count} enlaces de inicio de sesión sin usar",
+  "asks.action.linksTakenBack": "Ningún enlace sin usar",
+  "asks.action.tokenExpires": "Caduca a los {days} días",
+  "asks.action.tokenNeverExpires": "No caduca",
+  "asks.action.tokenHint": "El token aparece aquí una vez, después de Aplicar.",
+  "asks.action.tokenRevoked": "Revocado",
+  "asks.action.tokenOwner": "Es de {member}",
+  "asks.action.tokenRevokeHint":
+    "Los scripts que usan este token dejan de funcionar.",
+  "asks.action.accessNoAddress": "Ninguna",
+  "asks.action.accessRestart":
+    "Se aplica cuando reinicies Isomux. Aplicar no lo reinicia.",
+  "asks.result.signInLink": "Enlace de inicio de sesión para {member}",
+  "asks.result.apiToken": "Token de API {name}",
   "asks.viewInInbox": "Ver en la bandeja de entrada",
   "asks.pinnedMissing": "No puedes ver esta petición, o no existe.",
   "asks.stillOpen": "Sigue abierta",
@@ -3335,6 +3364,15 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.officeSettingsSet": "Ajustes de la oficina cambiados.",
   "systemEntries.stepAsk.backupSettingsSet":
     "Ajustes de las copias de seguridad cambiados.",
+  "systemEntries.stepAsk.signInLinkMade":
+    "Enlace de inicio de sesión creado para {member}.",
+  "systemEntries.stepAsk.memberSignedOut":
+    "Sesión de {member} cerrada en todos los dispositivos.",
+  "systemEntries.stepAsk.signInLinksRevoked":
+    "Enlaces de inicio de sesión de {member} retirados.",
+  "systemEntries.stepAsk.apiTokenMade": "Token de API {name} creado.",
+  "systemEntries.stepAsk.apiTokenRevoked": "Token de API revocado.",
+  "systemEntries.stepAsk.officeAccessSet": "Acceso externo configurado.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":

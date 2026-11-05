@@ -1060,7 +1060,7 @@ describe("an action step run from the card", () => {
     const t = rig({
       stepRuns: {
         routeOf: (step) =>
-          step.kind === "agent-access" ? { ok: true, route: ROUTE } : null,
+          step.kind === "agent-access" ? { ok: true, routes: [ROUTE] } : null,
         dispatch: (identity, route, opts) => {
           dispatched.push({ identity, route, opts });
           return new Promise((resolve, reject) =>

@@ -146,8 +146,13 @@ export interface AsksDeps {
   // step with a link, and its in-process run through the executor as the
   // caller. Absent in leaf tests: no step runs.
   stepRuns?: {
-    // `memberUserId`: the member the ask is for, who runs it.
-    routeOf(step: AskStep, memberUserId: string): StepRun | null;
+    // `memberUserId`: the member the ask is for, who runs it;
+    // `callerSessionIdHash` their session, which a sign-out ends last.
+    routeOf(
+      step: AskStep,
+      memberUserId: string,
+      callerSessionIdHash?: string,
+    ): StepRun | null;
     dispatch(
       identity: Identity,
       route: StepRoute,
@@ -1108,20 +1113,28 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       return notFound();
     const runs = deps.stepRuns;
     const run =
-      entry.step && runs ? runs.routeOf(entry.step, entry.memberUserId) : null;
+      entry.step && runs
+        ? runs.routeOf(entry.step, entry.memberUserId, ctx.callerSessionIdHash)
+        : null;
     if (!runs || !run)
       return fail(409, "not_runnable", "This ask has no action to run.");
     if (!run.ok) return fail(run.status, run.code, run.message);
-    const { route } = run;
     // Claimed before the first await.
     if (running.has(id))
       return fail(409, "action_in_flight", "This action is running.");
     running.add(id);
     try {
-      const res = await runs.dispatch(ctx.identity, route, {
-        askId: id,
-        callerSessionIdHash: ctx.callerSessionIdHash,
-      });
+      // The routes in order, to the end of the list even when the change
+      // closes the ask on the way; the first refusal stops the run and
+      // answers. The last route's answer is the run's.
+      let res: { status: number; body: unknown } = { status: 204, body: null };
+      for (const route of run.routes) {
+        res = await runs.dispatch(ctx.identity, route, {
+          askId: id,
+          callerSessionIdHash: ctx.callerSessionIdHash,
+        });
+        if (res.status >= 400) break;
+      }
       if (res.status < 400)
         return res.status === 204 ? noContent() : ok(res.body, res.status);
       const error =

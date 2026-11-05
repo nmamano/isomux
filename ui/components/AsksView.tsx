@@ -35,6 +35,7 @@ import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { asksFor, visibleAsks } from "../asks-sync.ts";
 import { AskCard, AskUndoHost } from "../log-view/AskCard.tsx";
+import { AskResultCard } from "../log-view/AskResultCard.tsx";
 import { PinnedAsk } from "./PinnedAsk.tsx";
 import {
   ASKS_SORTS,
@@ -273,6 +274,7 @@ export function AsksView({
     asks,
     othersAsks,
     answeredAsks,
+    askResults,
     agents,
     rooms,
     isMobile,
@@ -757,6 +759,16 @@ export function AsksView({
         )}
         <AskUndoHost.Provider value={undoHost}>
           <div data-asks-list="" style={{ maxWidth: 760, margin: "0 auto" }}>
+            {/* A sign-in link or token an Apply made, until Close: its ask
+                closed as it was made. */}
+            {[...askResults].map(([askId, result]) => (
+              <AskResultCard
+                key={`result:${askId}`}
+                askId={askId}
+                result={result}
+                isMobile={isMobile}
+              />
+            ))}
             {groups.length === 0 && !anyOpen ? (
               // The pinned card is the one open ask: no "No open asks" under it.
               pinnedEntry ? null : (

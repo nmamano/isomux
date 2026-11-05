@@ -556,6 +556,16 @@ export function isLiveApiTokenOwnedBy(
   return !!record && record.userId === userId && isLive(record, now);
 }
 
+// The member a live token belongs to, or null for an unknown or expired one.
+export function liveApiTokenOwner(
+  tokenId: string,
+  now = Date.now(),
+): string | null {
+  ensureLoaded();
+  const record = tokens!.get(tokenId);
+  return record && isLive(record, now) ? record.userId : null;
+}
+
 // The rooms a live token is limited to, or null for a token without a room
 // limit (and for an unknown one: the ownership check refuses it first).
 export function apiTokenRoomsById(tokenId: string): readonly string[] | null {

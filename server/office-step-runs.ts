@@ -10,7 +10,14 @@ import {
   type UserRecord,
 } from "../shared/types.ts";
 import type { SpawnAccessRefusal } from "./agent-manager.ts";
-import { buildPublicOrigin } from "./auth.ts";
+import {
+  buildPublicOrigin,
+  listActiveSessionsForUserId,
+  listInvitesForUser,
+  sessionPrefixOfHash,
+  wouldRemovingOwnerStrandOffice,
+} from "./auth.ts";
+import { listApiTokens, liveApiTokenOwner } from "./api-tokens.ts";
 import type { GuardDeps } from "./identity/guards.ts";
 import { identityFromSession, type Identity } from "./identity/index.ts";
 import { withMemberPack } from "./identity/member-pack.ts";
@@ -70,6 +77,8 @@ export function officeStepRuns(deps: {
     agent: AgentInfo,
     access: AgentAccess,
   ) => SpawnAccessRefusal | null;
+  officeAccess: StepRunDeps["officeAccess"];
+  tokenLimitableRoomIds: StepRunDeps["tokenLimitableRoomIds"];
 }): StepRunDeps {
   // The asking agent's reach, as its token has it: its manager's rooms,
   // narrowed to its pack's rooms below Standard.
@@ -143,6 +152,39 @@ export function officeStepRuns(deps: {
         ? { code: refusal.refused, message: refusal.message }
         : null;
     },
+    memberSessions: (userId, callerSessionIdHash) => {
+      const current = callerSessionIdHash
+        ? sessionPrefixOfHash(callerSessionIdHash)
+        : null;
+      return listActiveSessionsForUserId(userId).map((v) => ({
+        prefix: v.sessionPrefix,
+        createdAt: v.createdAt,
+        current: v.sessionPrefix === current,
+      }));
+    },
+    memberInvites: (userId) => {
+      const user = getUserById(userId);
+      return user
+        ? listInvitesForUser(user).map((i) => ({
+            prefix: i.tokenPrefix,
+            createdAt: i.createdAt,
+          }))
+        : [];
+    },
+    memberApiTokens: (userId) => {
+      const now = Date.now();
+      return listApiTokens(userId)
+        .filter((t) => t.expiresAt === null || t.expiresAt > now)
+        .map((t) => ({ id: t.id, name: t.name, createdAt: t.createdAt }));
+    },
+    apiToken: (tokenId) => {
+      const userId = liveApiTokenOwner(tokenId);
+      return userId ? { userId } : null;
+    },
+    tokenLimitableRoomIds: deps.tokenLimitableRoomIds,
+    officeAccess: deps.officeAccess,
+    // A verdict at the create; the revoke checks again inside the auth mutex.
+    signOutStrandsOffice: wouldRemovingOwnerStrandOffice,
     // The member as their session would be, judged on the route. Runs
     // nothing.
     authorizeAs: (memberUserId, route) => {

@@ -18,4 +18,12 @@ Your manager's own preferences: `step` is `{"kind": "member-preferences", "set":
 
 The office settings: `step` is `{"kind": "office-settings", "set": {...}}`, with the keys `PUT /api/office/settings` takes, less `version`. The backup settings: `step` is `{"kind": "backup-settings", "set": {...}}`, with the keys `PUT /api/backup/settings` takes. Only an office owner can apply them. A backup step refuses 409 `backup_dir_from_env` for a folder change while `ISOMUX_BACKUP_DIR` sets the folder. Each `set` takes only the keys and values its route takes, else 400.
 
+A sign-in link for a member: `step` is `{"kind": "sign-in-link", "username": "<member>"}`. Signing a member out on every device: `{"kind": "member-sessions", "username": "<member>"}`. Taking back a member's unused sign-in links: `{"kind": "sign-in-links-revoke", "username": "<member>"}`. An office owner can apply these for any member, a member only for themself. A sign-out refuses 409 `would_strand_office` when it would end the last owner sessions.
+
+A personal API token for the member: `step` is `{"kind": "api-token", "name": "<name>", "expiresInDays": 30}`, with the fields `POST /api/me/api-tokens` takes. Revoking a token: `{"kind": "api-token-revoke", "tokenId": "<id>"}`. It refuses 422 `unknown_token` for a token that is gone or that the member cannot revoke.
+
+The office's external access: `step` is `{"kind": "office-access", "externalAccess": true, "publicOrigin": "https://<host>"}`, as `PUT /api/office/access` takes it. Only an office owner can apply it. It refuses 403 `hosted_access_managed` on a Hosted Isomux office.
+
+A sign-in link or token that Apply makes shows only on the member's card. You never get it.
+
 There is an action step for each setting that no agent can change. For a setting a privileged agent can change, ask for the privileged level with `agent-access` instead.

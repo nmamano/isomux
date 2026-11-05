@@ -4,7 +4,7 @@
 // whose step is not done. The office wiring and the hooks run end to end in
 // server/test-support/routes-step-asks.test.ts.
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -562,5 +562,77 @@ describe("the reconcile", () => {
     await next.steps.reconcile();
     expect(t.settled).toEqual([]);
     expect(next.asks.listAll()).toHaveLength(2);
+  });
+});
+
+// Part 4 (task e3d1bc63): the create waits until the clock passes the newest
+// link, session or token it splits by the ask's age. A stored time ahead of
+// the clock (the clock was set back since) must not hold the request.
+describe("a credential step's create and the clock", () => {
+  afterEach(() => setSystemTime());
+
+  // Owner Morgan's agent asks for Bob's sign-in link; Bob has one link,
+  // made at `linkAt`.
+  function linkSteps(linkAt: number) {
+    const root = mkdtempSync(join(tmpdir(), "isomux-step-asks-"));
+    roots.push(root);
+    const asks = createAskStore({
+      persistence: createAskFilePersistence(join(root, "asks.json")),
+    });
+    const runs = {
+      memberIdByName: (name: string) => (name === "bob" ? BOB : null),
+      member: (userId: string) =>
+        userId === BOB
+          ? { name: "bob", role: "member" as const, allowedRooms: [] }
+          : null,
+      memberInvites: () => [{ prefix: "abcd1234", createdAt: linkAt }],
+      authorizeAs: () => null,
+    } as unknown as NonNullable<Parameters<typeof createStepAsks>[0]["runs"]>;
+    const steps = createStepAsks({
+      asks,
+      isOfficeOwner: (userId) => userId === OWNER,
+      providerConnected: async () => false,
+      mcpServer: () => null,
+      browserPaired: () => false,
+      roomLinked: () => false,
+      settled: () => {},
+      runs,
+    });
+    return steps.check({
+      step: { kind: "sign-in-link", username: "bob" },
+      agentId: "a1",
+      roomId: "r1",
+      managerUserId: OWNER,
+      memberUserId: OWNER,
+      memberNamed: false,
+    });
+  }
+  const opened = {
+    ok: true,
+    step: { kind: "sign-in-link", userId: BOB },
+  } as const;
+
+  it("waits while the clock is still at the millisecond of the member's newest link, so the ask opens after it", async () => {
+    const at = Date.now();
+    setSystemTime(new Date(at));
+    let answered = false;
+    const answer = linkSteps(at).then((a) => {
+      answered = true;
+      return a;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(answered).toBe(false);
+    setSystemTime(new Date(at + 1));
+    expect(await answer).toEqual(opened);
+  });
+
+  it("answers at once when a member's link is stamped an hour ahead of the clock", async () => {
+    const started = Date.now();
+    const answer = await Promise.race([
+      linkSteps(started + 60 * 60 * 1000),
+      new Promise<"held">((resolve) => setTimeout(() => resolve("held"), 500)),
+    ]);
+    expect(answer).toEqual(opened);
+    expect(Date.now() - started).toBeLessThan(500);
   });
 });

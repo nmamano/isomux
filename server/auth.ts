@@ -1415,6 +1415,12 @@ export function listInvitesForUser(user: {
   return result.sort((a, b) => b.createdAt - a.createdAt);
 }
 
+// The display prefix of a stored session, or null. A read only.
+export function sessionPrefixOfHash(sessionIdHash: string): string | null {
+  ensureLoaded();
+  return sessions!.get(sessionIdHash)?.sessionPrefix ?? null;
+}
+
 export function listActiveSessions(): SessionWire[] {
   ensureLoaded();
   const now = Date.now();

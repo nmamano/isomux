@@ -121,6 +121,18 @@ export interface MembersChatState {
   unread: number;
 }
 
+// What an action ask's Apply made (task e3d1bc63, part 4): a sign-in link
+// for a member, or a personal API token. `target` names it: the member, or
+// the token's name. `agentId` is the agent that asked. `forSelf`: a link for
+// the device of the member who made it, not one to send to someone else.
+export interface AskResult {
+  kind: "sign-in-link" | "api-token";
+  agentId: string;
+  target: string;
+  value: string;
+  forSelf: boolean;
+}
+
 export interface AppState {
   agents: AgentInfo[];
   logs: Map<string, LogEntry[]>; // streamId → entries (streamId = agentId or cronrun-<runId>)
@@ -284,6 +296,11 @@ export interface AppState {
   // askId → the raw message of the last answer that failed to send. The card
   // draws it (translated at render), so it outlives the card that sent it.
   askErrors: Map<string, string>;
+  // askId → a sign-in link or API token an action ask's Apply made (task
+  // e3d1bc63, part 4). The result card draws it where the ask was until the
+  // member closes it: the ask closes as the link is made, often before the
+  // Apply answers. Memory only: never stored, sent or logged.
+  askResults: Map<string, AskResult>;
   // Bumped by every delta; a snapshot issued before one is refused and read
   // again, as for the pager.
   asksRevision: number;
@@ -570,6 +587,9 @@ type Action =
   // the slice.
   | { type: "ask_answered"; id: string; phase: "undo" | "sending" }
   | { type: "ask_undone"; id: string }
+  // An Apply made a sign-in link or a token; the member closed its card.
+  | { type: "ask_result_shown"; askId: string; result: AskResult }
+  | { type: "ask_result_closed"; askId: string }
   // A send failed: the ask is open again, with the raw error. No-op for an ask
   // not in the slice.
   | { type: "ask_answer_failed"; id: string; error: string }
@@ -1655,6 +1675,13 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "ask_undone":
       return { ...state, answeredAsks: without(state.answeredAsks, action.id) };
+    case "ask_result_shown": {
+      const askResults = new Map(state.askResults);
+      askResults.set(action.askId, action.result);
+      return { ...state, askResults };
+    }
+    case "ask_result_closed":
+      return { ...state, askResults: without(state.askResults, action.askId) };
     case "ask_answer_failed": {
       if (!isOpenAsk(state, action.id)) return state;
       const askErrors = new Map(state.askErrors);
@@ -2044,6 +2071,7 @@ export const initialState: AppState = {
   asks: [],
   answeredAsks: new Map(),
   askErrors: new Map(),
+  askResults: new Map(),
   asksRevision: 0,
   asksFetchSeq: 0,
   othersAsks: [],

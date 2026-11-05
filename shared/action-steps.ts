@@ -38,7 +38,27 @@ export type ActionStepRequest =
   // Office settings: each key set to its value.
   | { kind: "office-settings"; set: OfficeSettingsSet }
   // The backup settings: each key set to its value.
-  | { kind: "backup-settings"; set: BackupSettingsSet };
+  | { kind: "backup-settings"; set: BackupSettingsSet }
+  // A sign-in link for a member (part 4). The card shows the link; the
+  // server never stores it.
+  | { kind: "sign-in-link"; userId: string }
+  // A member signed out on every device.
+  | { kind: "member-sessions"; userId: string }
+  // Every pending sign-in link of a member taken back.
+  | { kind: "sign-in-links-revoke"; userId: string }
+  // A personal API token for the member the ask is for, as
+  // POST /api/me/api-tokens takes it. The card shows the token.
+  | {
+      kind: "api-token";
+      name: string;
+      expiresInDays: 30 | 365 | null;
+      limits?: ApiTokenLimits;
+    }
+  // One API token revoked. The server stores the token's owner, so the card
+  // can name them.
+  | { kind: "api-token-revoke"; tokenId: string; userId: string }
+  // The office's outside access and its address.
+  | { kind: "office-access"; externalAccess: boolean; publicOrigin: string };
 
 export type MemberViewList = "shown" | "tucked" | "notif" | "push";
 
@@ -59,6 +79,12 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "member-view",
   "office-settings",
   "backup-settings",
+  "sign-in-link",
+  "member-sessions",
+  "sign-in-links-revoke",
+  "api-token",
+  "api-token-revoke",
+  "office-access",
 ]);
 
 // Whether a step is one the member runs from the card.

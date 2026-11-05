@@ -6,6 +6,8 @@
 // (ui/view-persistence.ts) until an ask that was not open at the fold arrives.
 // Beside the open stack's toggle, "View in Inbox" opens the Inbox's Asks tab
 // filtered to this agent (task 586ebfe1), where a long ask reads better.
+// Above it, a sign-in link or token an Apply on this agent's ask made
+// (AskResultCard) stays until the member closes it, though its ask closed.
 
 import {
   useContext,
@@ -18,6 +20,7 @@ import { useAppState, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { asksFor, openAsks } from "../asks-sync.ts";
 import { AskCard } from "./AskCard.tsx";
+import { AskResultCard } from "./AskResultCard.tsx";
 import { sudoAskTitle } from "./SudoAskCard.tsx";
 import { valueAskTitle } from "./SecretAskCard.tsx";
 import { loadFoldedAsks, saveFoldedAsks } from "../view-persistence.ts";
@@ -85,7 +88,7 @@ export function AsksStack({
   maxHeight?: number;
 }) {
   const { t } = useI18n();
-  const { asks, answeredAsks, sessionContext } = useAppState();
+  const { asks, answeredAsks, askResults, sessionContext } = useAppState();
   const openLink = useContext(OfficeLinkOpener);
   // Newest first, so the ask the agent just opened is the one in view.
   const entries = asksFor(openAsks(asks, answeredAsks), agentId).reverse();
@@ -172,7 +175,23 @@ export function AsksStack({
     return () => observer.disconnect();
   }, [bodyShown]);
 
-  if (entries.length === 0) return null;
+  const results = [...askResults].filter(
+    ([, result]) => result.agentId === agentId,
+  );
+  const resultCards =
+    results.length > 0 ? (
+      <div data-ask-results="" style={{ flexShrink: 0 }}>
+        {results.map(([askId, result]) => (
+          <AskResultCard
+            key={askId}
+            askId={askId}
+            result={result}
+            isMobile={isMobile}
+          />
+        ))}
+      </div>
+    ) : null;
+  if (entries.length === 0) return resultCards;
   const toggleStyle = {
     display: "flex",
     alignItems: "center",
@@ -182,128 +201,134 @@ export function AsksStack({
 
   if (collapsed)
     return (
-      <div data-asks-stack="collapsed" style={{ marginBottom: 10 }}>
-        <button
-          type="button"
-          aria-expanded={false}
-          onClick={() => setCollapsed(false)}
-          style={{
-            ...toggleStyle,
-            gap: 7,
-            width: "100%",
-            padding: isMobile ? "9px 10px" : "6px 10px",
-            borderRadius: 8,
-            background: "var(--bg-subtle)",
-            border: "1px solid var(--border-light)",
-            borderLeft: "3px solid var(--orange)",
-            color: "var(--text-secondary)",
-            fontSize: isMobile ? 13 : 12,
-            textAlign: "left",
-          }}
-        >
-          <span style={{ color: "var(--text-muted)", display: "flex" }}>
-            <Chevron open={false} size={isMobile ? 12 : 10} />
-          </span>
-          <CountPill count={entries.length} isMobile={isMobile} />
-          <span
+      <>
+        {resultCards}
+        <div data-asks-stack="collapsed" style={{ marginBottom: 10 }}>
+          <button
+            type="button"
+            aria-expanded={false}
+            onClick={() => setCollapsed(false)}
             style={{
-              flex: 1,
-              minWidth: 0,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
+              ...toggleStyle,
+              gap: 7,
+              width: "100%",
+              padding: isMobile ? "9px 10px" : "6px 10px",
+              borderRadius: 8,
+              background: "var(--bg-subtle)",
+              border: "1px solid var(--border-light)",
+              borderLeft: "3px solid var(--orange)",
+              color: "var(--text-secondary)",
+              fontSize: isMobile ? 13 : 12,
+              textAlign: "left",
             }}
           >
-            {entries[0].secret
-              ? valueAskTitle(t, entries[0].secret)
-              : entries[0].sudo
-                ? sudoAskTitle(t)
-                : entries[0].prompt.replace(/\s+/g, " ")}
-          </span>
-        </button>
-      </div>
+            <span style={{ color: "var(--text-muted)", display: "flex" }}>
+              <Chevron open={false} size={isMobile ? 12 : 10} />
+            </span>
+            <CountPill count={entries.length} isMobile={isMobile} />
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {entries[0].secret
+                ? valueAskTitle(t, entries[0].secret)
+                : entries[0].sudo
+                  ? sudoAskTitle(t)
+                  : entries[0].prompt.replace(/\s+/g, " ")}
+            </span>
+          </button>
+        </div>
+      </>
     );
 
   const fade =
     "linear-gradient(to bottom, black calc(100% - 28px), transparent)";
   return (
-    <div
-      data-asks-stack="open"
-      style={{
-        marginBottom: 10,
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-      }}
-    >
+    <>
+      {resultCards}
       <div
+        data-asks-stack="open"
         style={{
+          marginBottom: 10,
           display: "flex",
-          alignItems: "center",
-          gap: 12,
-          flexShrink: 0,
-          padding: "0 0 6px 2px",
+          flexDirection: "column",
+          minHeight: 0,
         }}
       >
-        <button
-          type="button"
-          aria-expanded={true}
-          onClick={() => setCollapsed(true)}
+        <div
           style={{
-            ...toggleStyle,
-            gap: 6,
-            background: "none",
-            border: "none",
-            padding: 0,
-            color: "var(--text-muted)",
-            fontSize: isMobile ? 12 : 11,
-            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexShrink: 0,
+            padding: "0 0 6px 2px",
           }}
         >
-          <Chevron open size={isMobile ? 12 : 10} />
-          <span>{t("asks.title")}</span>
-          <CountPill count={entries.length} isMobile={isMobile} />
-        </button>
-        {openLink && (
           <button
             type="button"
-            data-asks-view-inbox=""
-            onClick={() => openLink({ page: "asks", onlyAgent: agentId })}
+            aria-expanded={true}
+            onClick={() => setCollapsed(true)}
             style={{
+              ...toggleStyle,
+              gap: 6,
               background: "none",
               border: "none",
               padding: 0,
-              color: "var(--accent-text)",
-              fontFamily: "var(--font-ui)",
+              color: "var(--text-muted)",
               fontSize: isMobile ? 12 : 11,
               fontWeight: 600,
-              cursor: "pointer",
             }}
           >
-            {t("asks.viewInInbox")}
+            <Chevron open size={isMobile ? 12 : 10} />
+            <span>{t("asks.title")}</span>
+            <CountPill count={entries.length} isMobile={isMobile} />
           </button>
-        )}
+          {openLink && (
+            <button
+              type="button"
+              data-asks-view-inbox=""
+              onClick={() => openLink({ page: "asks", onlyAgent: agentId })}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                color: "var(--accent-text)",
+                fontFamily: "var(--font-ui)",
+                fontSize: isMobile ? 12 : 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {t("asks.viewInInbox")}
+            </button>
+          )}
+        </div>
+        <div
+          ref={bodyRef}
+          onScroll={onScroll}
+          data-asks-body=""
+          data-asks-list=""
+          style={{
+            maxHeight: isMobile
+              ? maxHeight !== undefined
+                ? `${maxHeight}px`
+                : MAX_HEIGHT_MOBILE
+              : MAX_HEIGHT_DESKTOP,
+            minHeight: 0,
+            overflowY: "auto",
+            ...(moreBelow ? { maskImage: fade, WebkitMaskImage: fade } : {}),
+          }}
+        >
+          {entries.map((entry) => (
+            <AskCard key={entry.id} entry={entry} isMobile={isMobile} />
+          ))}
+        </div>
       </div>
-      <div
-        ref={bodyRef}
-        onScroll={onScroll}
-        data-asks-body=""
-        data-asks-list=""
-        style={{
-          maxHeight: isMobile
-            ? maxHeight !== undefined
-              ? `${maxHeight}px`
-              : MAX_HEIGHT_MOBILE
-            : MAX_HEIGHT_DESKTOP,
-          minHeight: 0,
-          overflowY: "auto",
-          ...(moreBelow ? { maskImage: fade, WebkitMaskImage: fade } : {}),
-        }}
-      >
-        {entries.map((entry) => (
-          <AskCard key={entry.id} entry={entry} isMobile={isMobile} />
-        ))}
-      </div>
-    </div>
+    </>
   );
 }

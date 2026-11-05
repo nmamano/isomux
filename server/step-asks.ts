@@ -50,12 +50,15 @@ import {
 } from "../shared/voice.ts";
 import type { AskStore } from "./asks.ts";
 import { backupSettingsShapeError } from "./backup.ts";
+import { hostedAccessRule } from "./install-kind.ts";
+import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import {
   OFFICE_NAME_MAX,
   OFFICE_SETTINGS_SWITCHES,
   officeSettingsFieldError,
 } from "./routes/handlers/office-settings.ts";
 import { parsePreferenceChange } from "./routes/handlers/preferences.ts";
+import { parseApiTokenCreate } from "./routes/handlers/api-tokens.ts";
 import type { SecretScope } from "./secret-store.ts";
 
 export interface StepAskDeps {
@@ -135,6 +138,31 @@ export interface StepRunDeps {
     agentId: string,
     grant: AgentAccessGrant,
   ): { code: string; message: string } | null;
+  // Part 4: the member's live sessions and pending sign-in links, each with
+  // its prefix (the path a revoke takes) and when it was made, and whether
+  // the session is the one of `sessionIdHash`.
+  memberSessions(
+    userId: string,
+    callerSessionIdHash?: string,
+  ): { prefix: string; createdAt: number; current: boolean }[];
+  memberInvites(userId: string): { prefix: string; createdAt: number }[];
+  // The member's live API tokens.
+  memberApiTokens(
+    userId: string,
+  ): { id: string; name: string; createdAt: number }[];
+  // A live API token's owner, or null.
+  apiToken(tokenId: string): { userId: string } | null;
+  // The rooms the member may limit a token to, as the mint reads them.
+  tokenLimitableRoomIds(userId: string): ReadonlySet<string>;
+  // The saved access settings, and whether Hosted Isomux manages them.
+  officeAccess(): {
+    hosted: boolean;
+    externalAccess: boolean;
+    publicOrigin: string | null;
+  };
+  // Whether ending every live session of this member leaves the office with
+  // no live owner session.
+  signOutStrandsOffice(userId: string): boolean;
   // Whether the member passes the route's own authorization, as from the
   // page: the refusal, or null. Runs nothing.
   authorizeAs(
@@ -171,9 +199,10 @@ export type StepCheck =
   | { ok: true; step: AskStep; link?: string }
   | StepFailure;
 
-// The route an action step runs now, or why it cannot run (its target is
-// gone).
-export type StepRun = { ok: true; route: StepRoute } | StepFailure;
+// The routes an action step runs now, in order, or why it cannot run (its
+// target is gone). The run stops at the first refusal; the routes are read
+// from the state when it runs, so a retry does the rest.
+export type StepRun = { ok: true; routes: StepRoute[] } | StepFailure;
 
 const STEP_LINKS: Record<StepAskRequest["kind"], string> = {
   "provider-sign-in": "/integrations/providers",
@@ -205,9 +234,18 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "member-view": ["kind", "list", "roomId", "on"],
   "office-settings": ["kind", "set"],
   "backup-settings": ["kind", "set"],
+  "sign-in-link": ["kind", "username"],
+  "member-sessions": ["kind", "username"],
+  "sign-in-links-revoke": ["kind", "username"],
+  "api-token": ["kind", "name", "expiresInDays", "limits"],
+  "api-token-revoke": ["kind", "tokenId"],
+  "office-access": ["kind", "externalAccess", "publicOrigin"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
+
+// The longest a create waits for the clock to pass a stored stamp.
+const MAX_CLOCK_WAIT_MS = 5;
 
 const invalid = (message: string): StepFailure => ({
   ok: false,
@@ -273,6 +311,20 @@ function doneLine(step: AskStep, target: string): LogMessage {
       return msg("systemEntries.stepAsk.officeSettingsSet");
     case "backup-settings":
       return msg("systemEntries.stepAsk.backupSettingsSet");
+    case "sign-in-link":
+      return msg("systemEntries.stepAsk.signInLinkMade", { member: target });
+    case "member-sessions":
+      return msg("systemEntries.stepAsk.memberSignedOut", { member: target });
+    case "sign-in-links-revoke":
+      return msg("systemEntries.stepAsk.signInLinksRevoked", {
+        member: target,
+      });
+    case "api-token":
+      return msg("systemEntries.stepAsk.apiTokenMade", { name: step.name });
+    case "api-token-revoke":
+      return msg("systemEntries.stepAsk.apiTokenRevoked");
+    case "office-access":
+      return msg("systemEntries.stepAsk.officeAccessSet");
   }
 }
 
@@ -323,9 +375,15 @@ const allSet = (set: object, now: Record<string, unknown>): boolean =>
   Object.entries(set).every(([key, value]) => now[key] === value);
 
 export function createStepAsks(deps: StepAskDeps) {
-  // Whether the step is done now, for the member the ask is for. A kind
-  // from a later release is never done here.
-  async function isDone(step: AskStep, memberUserId: string): Promise<boolean> {
+  // Whether the step is done now, for the member the ask is for. `since` is
+  // when the ask opened, null at the create: nothing is made since an ask
+  // that is not open, and every live session or link is from before it. A
+  // kind from a later release is never done here.
+  async function isDone(
+    step: AskStep,
+    memberUserId: string,
+    since: number | null,
+  ): Promise<boolean> {
     if (!isKnownKind(step.kind)) return false;
     switch (step.kind) {
       case "provider-sign-in":
@@ -371,6 +429,50 @@ export function createStepAsks(deps: StepAskDeps) {
         const now = deps.runs?.backupSettings();
         return !!now && allSet(step.set, now);
       }
+      // A link or token made since the ask opened, by the card or by hand.
+      case "sign-in-link":
+        return (
+          since !== null &&
+          !!deps.runs
+            ?.memberInvites(step.userId)
+            .some((i) => i.createdAt >= since)
+        );
+      case "api-token":
+        return (
+          since !== null &&
+          !!deps.runs
+            ?.memberApiTokens(memberUserId)
+            .some((t) => t.name === step.name && t.createdAt >= since)
+        );
+      // None of the sessions or links live when the ask opened is left.
+      case "member-sessions": {
+        const runs = deps.runs;
+        return (
+          !!runs &&
+          !runs
+            .memberSessions(step.userId)
+            .some((v) => since === null || v.createdAt < since)
+        );
+      }
+      case "sign-in-links-revoke": {
+        const runs = deps.runs;
+        return (
+          !!runs &&
+          !runs
+            .memberInvites(step.userId)
+            .some((i) => since === null || i.createdAt < since)
+        );
+      }
+      case "api-token-revoke":
+        return !!deps.runs && deps.runs.apiToken(step.tokenId) === null;
+      case "office-access": {
+        const now = deps.runs?.officeAccess();
+        return (
+          !!now &&
+          now.externalAccess === step.externalAccess &&
+          (now.publicOrigin ?? "") === step.publicOrigin
+        );
+      }
     }
   }
 
@@ -392,6 +494,13 @@ export function createStepAsks(deps: StepAskDeps) {
     status: 422,
     code: "owner_has_all_rooms",
     message: "an office owner reaches every room",
+  });
+  // A token that is gone and one the member may not revoke answer alike.
+  const unknownToken = (): StepFailure => ({
+    ok: false,
+    status: 422,
+    code: "unknown_token",
+    message: "no live API token with this id that this member can revoke",
   });
   const ownerHasNoPack = (): StepFailure => ({
     ok: false,
@@ -453,19 +562,27 @@ export function createStepAsks(deps: StepAskDeps) {
   // reconcile closes the ask as done.
   // A step on the member's own record (their preferences, their room lists)
   // runs on the record of `memberUserId`, the member the ask is for.
-  function routeOf(step: AskStep, memberUserId: string): StepRun | null {
+  // A sign-out ends the session of `callerSessionIdHash` (the member's own)
+  // last.
+  function routeOf(
+    step: AskStep,
+    memberUserId: string,
+    callerSessionIdHash?: string,
+  ): StepRun | null {
     switch (step.kind) {
       case "agent-access":
         return {
           ok: true,
-          route: {
-            method: "PUT",
-            path: `/api/agents/${encodeURIComponent(step.agentId)}/access`,
-            body: {
-              access: step.access,
-              ...(step.pack ? { pack: step.pack } : {}),
+          routes: [
+            {
+              method: "PUT",
+              path: `/api/agents/${encodeURIComponent(step.agentId)}/access`,
+              body: {
+                access: step.access,
+                ...(step.pack ? { pack: step.pack } : {}),
+              },
             },
-          },
+          ],
         };
       case "member-room": {
         const member = deps.runs?.member(step.userId);
@@ -478,13 +595,15 @@ export function createStepAsks(deps: StepAskDeps) {
         const rooms = member.allowedRooms.filter((id) => id !== step.roomId);
         return {
           ok: true,
-          route: {
-            method: "PUT",
-            path: `/api/users/${encodeURIComponent(member.name)}/access`,
-            body: {
-              allowedRooms: step.grant ? [...rooms, step.roomId] : rooms,
+          routes: [
+            {
+              method: "PUT",
+              path: `/api/users/${encodeURIComponent(member.name)}/access`,
+              body: {
+                allowedRooms: step.grant ? [...rooms, step.roomId] : rooms,
+              },
             },
-          },
+          ],
         };
       }
       case "member-role": {
@@ -492,11 +611,13 @@ export function createStepAsks(deps: StepAskDeps) {
         if (!member) return unknownMember();
         return {
           ok: true,
-          route: {
-            method: "PATCH",
-            path: `/api/users/${encodeURIComponent(member.name)}`,
-            body: { role: step.role },
-          },
+          routes: [
+            {
+              method: "PATCH",
+              path: `/api/users/${encodeURIComponent(member.name)}`,
+              body: { role: step.role },
+            },
+          ],
         };
       }
       case "member-pack": {
@@ -505,13 +626,15 @@ export function createStepAsks(deps: StepAskDeps) {
         if (member.role === "owner") return ownerHasNoPack();
         return {
           ok: true,
-          route: {
-            method: "PUT",
-            path: `/api/users/${encodeURIComponent(member.name)}/access`,
-            // The rooms now, so a room given since the create stays; null
-            // clears the pack (an absent one would keep it).
-            body: { allowedRooms: [...member.allowedRooms], pack: step.pack },
-          },
+          routes: [
+            {
+              method: "PUT",
+              path: `/api/users/${encodeURIComponent(member.name)}/access`,
+              // The rooms now, so a room given since the create stays; null
+              // clears the pack (an absent one would keep it).
+              body: { allowedRooms: [...member.allowedRooms], pack: step.pack },
+            },
+          ],
         };
       }
       case "office-settings": {
@@ -519,31 +642,37 @@ export function createStepAsks(deps: StepAskDeps) {
         if (!now) return invalid("this office runs no action steps");
         return {
           ok: true,
-          route: {
-            method: "PUT",
-            path: "/api/office/settings",
-            // The version now: an omitted setting keeps its value.
-            body: { version: now.version, ...step.set },
-          },
+          routes: [
+            {
+              method: "PUT",
+              path: "/api/office/settings",
+              // The version now: an omitted setting keeps its value.
+              body: { version: now.version, ...step.set },
+            },
+          ],
         };
       }
       case "backup-settings":
         return {
           ok: true,
-          route: {
-            method: "PUT",
-            path: "/api/backup/settings",
-            body: step.set,
-          },
+          routes: [
+            {
+              method: "PUT",
+              path: "/api/backup/settings",
+              body: step.set,
+            },
+          ],
         };
       case "member-preferences":
         return {
           ok: true,
-          route: {
-            method: "PATCH",
-            path: "/api/me/preferences",
-            body: step.set,
-          },
+          routes: [
+            {
+              method: "PATCH",
+              path: "/api/me/preferences",
+              body: step.set,
+            },
+          ],
         };
       case "member-view": {
         const member = deps.runs?.memberSettings(memberUserId);
@@ -559,13 +688,108 @@ export function createStepAsks(deps: StepAskDeps) {
         }[step.list];
         return {
           ok: true,
-          route: {
-            method: "PUT",
-            path: `/api/me/view/${path}`,
-            body: { [field]: rooms },
-          },
+          routes: [
+            {
+              method: "PUT",
+              path: `/api/me/view/${path}`,
+              body: { [field]: rooms },
+            },
+          ],
         };
       }
+      case "sign-in-link": {
+        const member = deps.runs?.member(step.userId);
+        if (!member) return unknownMember();
+        return {
+          ok: true,
+          routes: [
+            step.userId === memberUserId
+              ? { method: "POST", path: "/api/invites/self" }
+              : {
+                  method: "POST",
+                  path: "/api/invites",
+                  body: { userId: step.userId },
+                },
+          ],
+        };
+      }
+      // Every session or link live now, so one made after the ask opened
+      // goes too; the member's own session last.
+      case "member-sessions": {
+        if (!deps.runs?.member(step.userId)) return unknownMember();
+        const live = deps.runs.memberSessions(step.userId, callerSessionIdHash);
+        const ordered = [
+          ...live.filter((v) => !v.current),
+          ...live.filter((v) => v.current),
+        ];
+        return {
+          ok: true,
+          routes: ordered.map((v) => ({
+            method: "DELETE",
+            path: `/api/sessions/${encodeURIComponent(v.prefix)}`,
+          })),
+        };
+      }
+      case "sign-in-links-revoke": {
+        if (!deps.runs?.member(step.userId)) return unknownMember();
+        return {
+          ok: true,
+          routes: deps.runs.memberInvites(step.userId).map((i) => ({
+            method: "DELETE",
+            path: `/api/invites/${encodeURIComponent(i.prefix)}`,
+          })),
+        };
+      }
+      case "api-token":
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "POST",
+              path: "/api/me/api-tokens",
+              body: {
+                name: step.name,
+                expiresInDays: step.expiresInDays,
+                ...(step.limits ? { limits: step.limits } : {}),
+              },
+            },
+          ],
+        };
+      case "api-token-revoke": {
+        const token = deps.runs?.apiToken(step.tokenId);
+        if (!token) return unknownToken();
+        const id = encodeURIComponent(step.tokenId);
+        if (token.userId === memberUserId)
+          return {
+            ok: true,
+            routes: [{ method: "DELETE", path: `/api/me/api-tokens/${id}` }],
+          };
+        const owner = deps.runs!.member(token.userId);
+        if (!owner) return unknownToken();
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "DELETE",
+              path: `/api/users/${encodeURIComponent(owner.name)}/api-tokens/${id}`,
+            },
+          ],
+        };
+      }
+      case "office-access":
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "PUT",
+              path: "/api/office/access",
+              body: {
+                externalAccess: step.externalAccess,
+                publicOrigin: step.publicOrigin,
+              },
+            },
+          ],
+        };
       default:
         return null;
     }
@@ -760,6 +984,64 @@ export function createStepAsks(deps: StepAskDeps) {
         }
         return { ok: true, step: { kind, set } };
       }
+      case "sign-in-link":
+      case "member-sessions":
+      case "sign-in-links-revoke": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const userId = deps.runs.memberIdByName(body.username);
+        if (!userId) return unknownMember();
+        return { ok: true, step: { kind, userId } };
+      }
+      // The token as POST /api/me/api-tokens takes it, for the member the ask
+      // is for: through the route's own parser.
+      case "api-token": {
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const runs = deps.runs;
+        const parsed = parseApiTokenCreate(body, () =>
+          runs.tokenLimitableRoomIds(memberUserId),
+        );
+        if (!parsed.ok) return invalid(`step: ${parsed.message}`);
+        return { ok: true, step: { kind, ...parsed.req } };
+      }
+      // The token's owner is stored with it. A token that is gone answers as
+      // one the member may not revoke (actionRefusal).
+      case "api-token-revoke": {
+        if (typeof body.tokenId !== "string" || body.tokenId === "")
+          return invalid("step.tokenId is an API token id");
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const token = deps.runs.apiToken(body.tokenId);
+        if (!token) return unknownToken();
+        return {
+          ok: true,
+          step: { kind, tokenId: body.tokenId, userId: token.userId },
+        };
+      }
+      // The address as the save stores it: trimmed and normalised, "" for
+      // none.
+      case "office-access": {
+        if (typeof body.externalAccess !== "boolean")
+          return invalid("step.externalAccess is true or false");
+        if (typeof body.publicOrigin !== "string")
+          return invalid('step.publicOrigin is an address, or "" for none');
+        const raw = body.publicOrigin.trim();
+        const origin = raw ? normalizePublicOrigin(raw) : null;
+        if (raw && !origin)
+          return invalid(
+            "step.publicOrigin is https://<host> or http://localhost (no path, query, or fragment)",
+          );
+        if (body.externalAccess && !origin)
+          return invalid("outside access needs step.publicOrigin");
+        return {
+          ok: true,
+          step: {
+            kind,
+            externalAccess: body.externalAccess,
+            publicOrigin: origin ?? "",
+          },
+        };
+      }
       case "member-room":
       case "member-role": {
         if (typeof body.username !== "string" || body.username === "")
@@ -820,6 +1102,9 @@ export function createStepAsks(deps: StepAskDeps) {
       case "member-room":
       case "member-role":
       case "member-pack":
+      case "sign-in-link":
+      case "member-sessions":
+      case "sign-in-links-revoke":
         return deps.runs?.member(step.userId)?.name ?? step.userId;
       case "member-view":
         return deps.runs?.roomName(step.roomId) ?? step.roomId;
@@ -947,14 +1232,101 @@ export function createStepAsks(deps: StepAskDeps) {
             }
           : null;
       }
+      case "sign-in-link":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("only an office owner can make another member's link")
+          : null;
+      // An owner for anyone, a member for themself: the routes' own
+      // preconditions, which authorization alone does not run.
+      case "member-sessions":
+      case "sign-in-links-revoke": {
+        const path =
+          step.kind === "member-sessions"
+            ? "/api/sessions/-"
+            : "/api/invites/-";
+        if (
+          (step.userId !== memberUserId && !deps.isOfficeOwner(memberUserId)) ||
+          runs.authorizeAs(memberUserId, { method: "DELETE", path })
+        )
+          return notAllowed(
+            step.kind === "member-sessions"
+              ? "only an office owner can sign out another member"
+              : "only an office owner can take back another member's links",
+          );
+        return step.kind === "member-sessions" &&
+          runs.signOutStrandsOffice(step.userId)
+          ? {
+              ok: false,
+              status: 409,
+              code: "would_strand_office",
+              message:
+                "these are the office's last owner sessions: another office owner must be signed in",
+            }
+          : null;
+      }
+      case "api-token":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("this member cannot make an API token")
+          : null;
+      // A token the member may not revoke answers as a missing one.
+      case "api-token-revoke": {
+        const token = runs.apiToken(step.tokenId);
+        if (
+          !token ||
+          (token.userId !== memberUserId && !deps.isOfficeOwner(memberUserId))
+        )
+          return unknownToken();
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? unknownToken()
+          : null;
+      }
+      // Hosted Isomux keeps the address, as the save does.
+      case "office-access": {
+        if (runs.authorizeAs(memberUserId, runRoute(step, memberUserId)))
+          return notAllowed("only an office owner can change outside access");
+        const rule = hostedAccessRule(
+          runs.officeAccess(),
+          step.externalAccess,
+          step.publicOrigin || null,
+        );
+        return rule === "managed"
+          ? {
+              ok: false,
+              status: 403,
+              code: "hosted_access_managed",
+              message:
+                "Hosted Isomux manages this office's address; it cannot be changed.",
+            }
+          : null;
+      }
     }
   }
 
-  // The route of an action step whose target the create found.
+  // When each link, session or token a step's predicate reads by the ask's
+  // age was made; none for the other kinds.
+  function stateTimes(step: AskStep, memberUserId: string): number[] {
+    const runs = deps.runs;
+    if (!runs) return [];
+    switch (step.kind) {
+      case "sign-in-link":
+      case "sign-in-links-revoke":
+        return runs.memberInvites(step.userId).map((i) => i.createdAt);
+      case "member-sessions":
+        return runs.memberSessions(step.userId).map((v) => v.createdAt);
+      case "api-token":
+        return runs.memberApiTokens(memberUserId).map((t) => t.createdAt);
+      default:
+        return [];
+    }
+  }
+
+  // The first route of an action step whose target the create found: the
+  // one the member's authorization is judged on.
   function runRoute(step: ActionStepRequest, memberUserId: string): StepRoute {
     const run = routeOf(step, memberUserId);
-    if (!run?.ok) throw new Error(`step ${step.kind}: no route`);
-    return run.route;
+    if (!run?.ok || run.routes.length === 0)
+      throw new Error(`step ${step.kind}: no route`);
+    return run.routes[0];
   }
 
   return {
@@ -996,13 +1368,21 @@ export function createStepAsks(deps: StepAskDeps) {
         const refused = actionRefusal(step, input.agentId, input.memberUserId);
         if (refused) return refused;
       }
-      if (await isDone(step, input.memberUserId))
+      if (await isDone(step, input.memberUserId, null))
         return {
           ok: false,
           status: 409,
           code: "step_done",
           message: "this step is done",
         };
+      // The ask's age splits the links, sessions and tokens into those from
+      // before it and those made since, by the millisecond: so none from
+      // before shares the ask's, the create waits past the newest. A stamp
+      // more than a few ms ahead comes from a clock set back: no wait.
+      const newest = Math.max(0, ...stateTimes(step, input.memberUserId));
+      if (newest - Date.now() < MAX_CLOCK_WAIT_MS)
+        while (Date.now() <= newest)
+          await new Promise((resolve) => setTimeout(resolve, 1));
       return { ok: true, step, link: stepLink(step) };
     },
 
@@ -1013,7 +1393,7 @@ export function createStepAsks(deps: StepAskDeps) {
     // Whether the step of an open ask is done now.
     isStepDone(entry: StepEntry): Promise<boolean> {
       return entry.memberUserId
-        ? isDone(entry.step, entry.memberUserId)
+        ? isDone(entry.step, entry.memberUserId, entry.createdAt)
         : Promise.resolve(false);
     },
 
@@ -1032,7 +1412,8 @@ export function createStepAsks(deps: StepAskDeps) {
         open.map(async (entry) => {
           try {
             if (!entry.memberUserId) return;
-            if (await isDone(entry.step, entry.memberUserId)) close(entry);
+            if (await isDone(entry.step, entry.memberUserId, entry.createdAt))
+              close(entry);
           } catch {
             console.error(
               `[step-asks] ask ${entry.id}: the step could not be read`,

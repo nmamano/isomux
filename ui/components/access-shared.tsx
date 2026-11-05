@@ -69,17 +69,24 @@ export function renderListSection<T>(
   return <p style={hint}>{i18n.t("settings.access.none")}</p>;
 }
 
-// Surfaces a freshly-minted invite URL with a working copy button and
-// visible feedback. Falls back to a hidden-textarea + execCommand path
-// when navigator.clipboard rejects (mobile, focus quirks, permissions);
-// final fallback selects the URL so the user can copy manually. `forSelf`
-// marks a link for the member's own device: no invitee to send it to.
-export function MintedUrlBox({
-  url,
-  forSelf = false,
+// Surfaces a freshly-minted secret (an invite URL, an API token) with a
+// working copy button and visible feedback. Falls back to a hidden-textarea +
+// execCommand path when navigator.clipboard rejects (mobile, focus quirks,
+// permissions); final fallback selects the value so the user can copy
+// manually, and `blocked` says so. Shown once: a failed copy must not be
+// silent.
+export function MintedSecretBox({
+  value,
+  label,
+  hint: hintText,
+  blocked,
+  copyTitle,
 }: {
-  url: string;
-  forSelf?: boolean;
+  value: string;
+  label: string;
+  hint: string;
+  blocked: string;
+  copyTitle?: string;
 }) {
   const { t } = useI18n();
   const { isMobile } = useAppState();
@@ -110,7 +117,7 @@ export function MintedUrlBox({
     // Path 1: modern clipboard API.
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
+        await navigator.clipboard.writeText(value);
         flashFeedback("ok");
         return;
       }
@@ -122,7 +129,7 @@ export function MintedUrlBox({
     // is removed in `finally` so a thrown exception inside `select()` /
     // `execCommand()` can't leak an invisible DOM node into the page.
     const ta = document.createElement("textarea");
-    ta.value = url;
+    ta.value = value;
     ta.style.position = "fixed";
     ta.style.opacity = "0";
     document.body.appendChild(ta);
@@ -138,7 +145,7 @@ export function MintedUrlBox({
     } finally {
       document.body.removeChild(ta);
     }
-    // Path 3: highlight the URL so the user can ctrl-c / long-press / copy.
+    // Path 3: highlight the value so the user can ctrl-c / long-press / copy.
     const node = codeRef.current;
     if (node) {
       const range = document.createRange();
@@ -152,25 +159,23 @@ export function MintedUrlBox({
 
   return (
     <div style={mintedBox}>
-      <div style={{ ...subLabel, marginTop: 0 }}>
-        {t(forSelf ? "settings.access.signInUrl" : "settings.access.inviteUrl")}
-      </div>
+      <div style={{ ...subLabel, marginTop: 0 }}>{label}</div>
       <div style={mintedRow}>
-        <code ref={codeRef} style={codeStyle}>
-          {url}
+        <code ref={codeRef} {...noTranslate()} style={codeStyle}>
+          {value}
         </code>
         <button
           onClick={() => {
             void handleCopy();
           }}
-          // The URL is shown once and copying it is the only action here,
+          // The value is shown once and copying it is the only action here,
           // so the button is the primary one, with a larger label on a phone.
           style={{
             ...dialogSaveBtn,
             flexShrink: 0,
             ...(isMobile ? { padding: "7px 12px", fontSize: 14 } : null),
           }}
-          title={t("settings.access.copyUrl")}
+          {...(copyTitle ? { title: copyTitle } : {})}
         >
           {copyState === "ok" || copyState === "fallback"
             ? t("settings.access.urlCopied")
@@ -179,13 +184,36 @@ export function MintedUrlBox({
       </div>
       {copyState === "fail" && (
         <p style={{ ...hint, color: "var(--red-text)", marginTop: 4 }}>
-          {t("settings.access.clipboardBlocked")}
+          {blocked}
         </p>
       )}
-      <p style={hint}>
-        {t(forSelf ? "settings.access.openUrlSelf" : "settings.access.sendUrl")}
-      </p>
+      <p style={hint}>{hintText}</p>
     </div>
+  );
+}
+
+// A freshly-minted sign-in URL. `forSelf` marks a link for the member's own
+// device: no invitee to send it to.
+export function MintedUrlBox({
+  url,
+  forSelf = false,
+}: {
+  url: string;
+  forSelf?: boolean;
+}) {
+  const { t } = useI18n();
+  return (
+    <MintedSecretBox
+      value={url}
+      label={t(
+        forSelf ? "settings.access.signInUrl" : "settings.access.inviteUrl",
+      )}
+      hint={t(
+        forSelf ? "settings.access.openUrlSelf" : "settings.access.sendUrl",
+      )}
+      blocked={t("settings.access.clipboardBlocked")}
+      copyTitle={t("settings.access.copyUrl")}
+    />
   );
 }
 
