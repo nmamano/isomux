@@ -9,6 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "fs";
+import { open } from "fs/promises";
 import { basename, dirname, join } from "path";
 import { randomUUID } from "crypto";
 import { errMessage } from "../../../shared/errors.ts";
@@ -85,10 +86,25 @@ let preparation: Promise<PreparedArtifact> | null = null;
 let hookWriter = false;
 let trustMeasurement: Promise<string> | null = null;
 
+const HASH_CHUNK_BYTES = 1024 * 1024;
+
+// The hook is about 100 MB and every Codex start hashes it. One chunk per
+// event-loop turn: hashing the whole file in one turn froze the server for
+// seconds (task d3131a4c).
 async function sha256File(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
-  const stream = Bun.file(path).stream();
-  for await (const chunk of stream) hasher.update(chunk);
+  const file = await open(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(HASH_CHUNK_BYTES);
+    for (;;) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      hasher.update(buffer.subarray(0, bytesRead));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  } finally {
+    await file.close();
+  }
   return hasher.digest("hex");
 }
 
@@ -682,7 +698,8 @@ export async function ensureCodexSafetyHook(
     try {
       installedHash = await sha256File(CODEX_SAFETY_HOOK_PATH);
     } catch {}
-    if (installedHash !== artifact.sha256) {
+    const repaired = installedHash !== artifact.sha256;
+    if (repaired) {
       console.error(
         `[codex safety] content mismatch: expected ${artifact.sha256}, received ${installedHash ?? "<missing>"}; repairing`,
       );
@@ -696,11 +713,14 @@ export async function ensureCodexSafetyHook(
       }
     }
     try {
-      const repairedHash = await sha256File(CODEX_SAFETY_HOOK_PATH);
-      if (repairedHash !== artifact.sha256) {
-        throw new Error(
-          `expected ${artifact.sha256}, received ${repairedHash}`,
-        );
+      // The no-repair path hashed this file just above.
+      if (repaired) {
+        const repairedHash = await sha256File(CODEX_SAFETY_HOOK_PATH);
+        if (repairedHash !== artifact.sha256) {
+          throw new Error(
+            `expected ${artifact.sha256}, received ${repairedHash}`,
+          );
+        }
       }
       chmodSync(CODEX_SAFETY_HOOK_PATH, INSTALLED_HOOK_MODE);
     } catch (err) {
@@ -731,4 +751,5 @@ export const _test = {
   },
   goldenPath: GOLDEN_HOOK_PATH,
   trustSentinel: TRUST_SENTINEL,
+  sha256File,
 };

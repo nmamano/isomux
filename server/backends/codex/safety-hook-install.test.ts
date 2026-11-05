@@ -806,3 +806,73 @@ describe("Codex safety hook in a process other than the office server", () => {
     );
   });
 });
+
+// Every Codex start hashes the installed hook, a binary of about 100 MB. One
+// hash used to run as a single block, and every request waited behind it
+// (task d3131a4c).
+describe("hashing a file", () => {
+  // Four whole 1 MiB reads and a partial one.
+  async function withFile(run: (path: string) => Promise<void>) {
+    const dir = join(STATE_ROOT, "hash-file");
+    assertTestStatePath(dir);
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, "data.bin");
+    const bytes = Buffer.alloc(4 * 1024 * 1024 + 4097);
+    for (let i = 0; i < bytes.length; i++)
+      bytes[i] = (i * 7 + (i >>> 13)) & 0xff;
+    writeFileSync(path, bytes);
+    try {
+      await run(path);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  }
+
+  it("gives the hash of the whole file", async () => {
+    await withFile(async (path) => {
+      expect(await _test.sha256File(path)).toBe(sha256(path));
+    });
+  });
+
+  it("lets the event loop run between the chunks it hashes", async () => {
+    await withFile(async (path) => {
+      const events: string[] = [];
+      const proto = Bun.CryptoHasher.prototype;
+      const update = proto.update;
+      proto.update = function (
+        this: Bun.CryptoHasher,
+        ...args: Parameters<typeof update>
+      ) {
+        events.push("update");
+        return update.apply(this, args);
+      } as typeof update;
+      let running = true;
+      const turn = () => {
+        if (!running) return;
+        events.push("turn");
+        setImmediate(turn);
+      };
+      setImmediate(turn);
+      try {
+        await _test.sha256File(path);
+      } finally {
+        running = false;
+        proto.update = update;
+      }
+
+      // Loop turns between each two consecutive updates.
+      const turnsBetween: number[] = [];
+      let count: number | null = null;
+      for (const event of events) {
+        if (event === "turn") {
+          if (count !== null) count++;
+        } else {
+          if (count !== null) turnsBetween.push(count);
+          count = 0;
+        }
+      }
+      expect(turnsBetween.length).toBeGreaterThanOrEqual(1);
+      expect(turnsBetween).not.toContain(0);
+    });
+  });
+});
