@@ -7,7 +7,8 @@
 // An action step (task e3d1bc63) is a human-only action the member runs from
 // the card: it has a route (routeOf) and no link. The create refuses one the
 // member could not run (the route's own authorization, verdict only), and
-// the run (asks.runAction) dispatches that route as the member.
+// the run (asks.runAction) dispatches that route as the member. The route is
+// built from the state when it runs: a member's rooms and name now.
 //
 // One predicate per kind (isStepDone) reads the current state. The create
 // refuses a step that is done (409 step_done), and every hook that may have
@@ -20,6 +21,7 @@ import {
   type AgentAccessGrant,
 } from "../shared/agent-access.ts";
 import {
+  LOBBY_ROOM_ID,
   isActionStep,
   type ActionStepRequest,
   type AskEntry,
@@ -74,6 +76,20 @@ export interface StepRunDeps {
   agent(agentId: string): { name: string; grant: AgentAccessGrant } | null;
   // Whether the asking agent reaches the target agent's room.
   agentReaches(askingAgentId: string, targetAgentId: string): boolean;
+  // The member's name, role and rooms now, or null when they are gone.
+  member(userId: string): {
+    name: string;
+    role: "owner" | "member";
+    allowedRooms: readonly string[];
+  } | null;
+  // The id of the member with this username, or null.
+  memberIdByName(username: string): string | null;
+  // Whether the room is open now: the lobby or a live room.
+  roomOpen(roomId: string): boolean;
+  // Whether the asking agent reaches the room, as its token does.
+  agentReachesRoom(askingAgentId: string, roomId: string): boolean;
+  // Whether this member is the only office owner.
+  lastOwner(userId: string): boolean;
   // The refusal agents.setAccess gives past its guards (the folder rule, the
   // engine), or null.
   accessRefusal(
@@ -88,18 +104,23 @@ export interface StepRunDeps {
   ): { status: 403 | 404 | 422; code: string; message: string } | null;
 }
 
+// A step refused at create or at run.
+export interface StepFailure {
+  ok: false;
+  status: 400 | 403 | 404 | 409 | 422;
+  code: string;
+  message: string;
+}
+
 // A step with a link opens an Integrations tab; a step with a route has none:
 // the member runs it from the card.
 export type StepCheck =
   | { ok: true; step: AskStep; link?: string }
-  | {
-      ok: false;
-      status: 400 | 403 | 404 | 409 | 422;
-      code: string;
-      message: string;
-    };
+  | StepFailure;
 
-type StepFailure = Extract<StepCheck, { ok: false }>;
+// The route an action step runs now, or why it cannot run (its target is
+// gone).
+export type StepRun = { ok: true; route: StepRoute } | StepFailure;
 
 const STEP_LINKS: Record<StepAskRequest["kind"], string> = {
   "provider-sign-in": "/integrations/providers",
@@ -116,14 +137,16 @@ export function stepLink(step: AskStep): string | undefined {
     : undefined;
 }
 
-// The fields an agent may send, per kind. The server fills ownerUserId and
-// roomId.
+// The fields an agent may send, per kind. The server fills ownerUserId,
+// roomId, and the userId of a member step from its username.
 const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "provider-sign-in": ["kind", "provider", "scope"],
   "mcp-sign-in": ["kind", "name", "scope"],
   "browser-pairing": ["kind"],
   "github-link": ["kind"],
   "agent-access": ["kind", "agentId", "access", "pack"],
+  "member-room": ["kind", "username", "roomId", "grant"],
+  "member-role": ["kind", "username", "role"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -158,9 +181,9 @@ function mcpScope(
   return step.ownerUserId ? { kind: "user", userId: step.ownerUserId } : null;
 }
 
-// What the agent reads when the step is done. `agentName` names the target
-// of an action step.
-function doneLine(step: AskStep, agentName: string): LogMessage {
+// What the agent reads when the step is done. `target` names the agent or
+// member an action step changes.
+function doneLine(step: AskStep, target: string): LogMessage {
   switch (step.kind) {
     case "provider-sign-in":
       return step.scope === "office"
@@ -177,24 +200,11 @@ function doneLine(step: AskStep, agentName: string): LogMessage {
     case "github-link":
       return msg("systemEntries.stepAsk.githubLinked");
     case "agent-access":
-      return msg("systemEntries.stepAsk.agentAccessSet", { agent: agentName });
-  }
-}
-
-// The route an action step runs, or null for a step with a link.
-function stepRoute(step: AskStep): StepRoute | null {
-  switch (step.kind) {
-    case "agent-access":
-      return {
-        method: "PUT",
-        path: `/api/agents/${encodeURIComponent(step.agentId)}/access`,
-        body: {
-          access: step.access,
-          ...(step.pack ? { pack: step.pack } : {}),
-        },
-      };
-    default:
-      return null;
+      return msg("systemEntries.stepAsk.agentAccessSet", { agent: target });
+    case "member-room":
+      return msg("systemEntries.stepAsk.memberRoomSet", { member: target });
+    case "member-role":
+      return msg("systemEntries.stepAsk.memberRoleSet", { member: target });
   }
 }
 
@@ -218,6 +228,91 @@ export function createStepAsks(deps: StepAskDeps) {
         const agent = deps.runs?.agent(step.agentId);
         return !!agent && sameAccessGrant(agent.grant, step);
       }
+      case "member-room": {
+        const member = deps.runs?.member(step.userId);
+        if (!member) return false;
+        // An owner reaches every room by rule.
+        if (step.grant && member.role === "owner") return true;
+        return member.allowedRooms.includes(step.roomId) === step.grant;
+      }
+      case "member-role":
+        return deps.runs?.member(step.userId)?.role === step.role;
+    }
+  }
+
+  const unknownMember = (): StepFailure => ({
+    ok: false,
+    status: 422,
+    code: "unknown_member",
+    message: "no member with this username",
+  });
+  const unknownRoom = (): StepFailure => ({
+    ok: false,
+    status: 422,
+    code: "unknown_room",
+    message: "no room with this id that you can reach",
+  });
+
+  const ownerHasAllRooms = (): StepFailure => ({
+    ok: false,
+    status: 422,
+    code: "owner_has_all_rooms",
+    message: "an office owner reaches every room",
+  });
+
+  // The route an action step runs now, or null for a step with a link. A
+  // member step reads the member when it runs: their name for the path, their
+  // rooms for the new room list. A removal on a room closed since the create
+  // never gets here in practice: the close takes the room from the member and
+  // reconcile closes the ask as done.
+  function routeOf(step: AskStep): StepRun | null {
+    switch (step.kind) {
+      case "agent-access":
+        return {
+          ok: true,
+          route: {
+            method: "PUT",
+            path: `/api/agents/${encodeURIComponent(step.agentId)}/access`,
+            body: {
+              access: step.access,
+              ...(step.pack ? { pack: step.pack } : {}),
+            },
+          },
+        };
+      case "member-room": {
+        const member = deps.runs?.member(step.userId);
+        if (!member) return unknownMember();
+        // A member made an owner since the create reaches every room: a
+        // removal would write a list that changes nothing they reach.
+        if (member.role === "owner") return ownerHasAllRooms();
+        if (step.grant && !deps.runs!.roomOpen(step.roomId))
+          return unknownRoom();
+        const rooms = member.allowedRooms.filter((id) => id !== step.roomId);
+        return {
+          ok: true,
+          route: {
+            method: "PUT",
+            path: `/api/users/${encodeURIComponent(member.name)}/access`,
+            body: {
+              allowedRooms: step.grant ? [...rooms, step.roomId] : rooms,
+            },
+          },
+        };
+      }
+      case "member-role": {
+        const member = deps.runs?.member(step.userId);
+        if (!member) return unknownMember();
+        return {
+          ok: true,
+          route: {
+            method: "PATCH",
+            path: `/api/users/${encodeURIComponent(member.name)}`,
+            body: { role: step.role },
+          },
+        };
+      }
+      default:
+        return null;
     }
   }
 
@@ -328,6 +423,35 @@ export function createStepAsks(deps: StepAskDeps) {
           },
         };
       }
+      case "member-room":
+      case "member-role": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        if (kind === "member-room") {
+          if (typeof body.roomId !== "string" || body.roomId === "")
+            return invalid("step.roomId is one room id");
+          if (typeof body.grant !== "boolean")
+            return invalid(
+              "step.grant is true (give the room) or false (take it)",
+            );
+        } else if (body.role !== "owner" && body.role !== "member")
+          return invalid("step.role is owner or member");
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const userId = deps.runs.memberIdByName(body.username);
+        if (!userId) return unknownMember();
+        return {
+          ok: true,
+          step:
+            kind === "member-room"
+              ? {
+                  kind,
+                  userId,
+                  roomId: body.roomId as string,
+                  grant: body.grant as boolean,
+                }
+              : { kind, userId, role: body.role as "owner" | "member" },
+        };
+      }
     }
   }
 
@@ -343,22 +467,31 @@ export function createStepAsks(deps: StepAskDeps) {
       return;
     }
     if (!removed || !removed.memberUserId) return;
-    const target =
-      entry.step.kind === "agent-access" ? entry.step.agentId : null;
     deps.settled(
       entry.agentId,
       entry.id,
-      doneLine(
-        entry.step,
-        target ? (deps.runs?.agent(target)?.name ?? target) : "",
-      ),
+      doneLine(entry.step, targetName(entry.step)),
       removed.memberUserId,
     );
   }
 
+  // The name of the agent or member an action step changes, else "".
+  function targetName(step: AskStep): string {
+    switch (step.kind) {
+      case "agent-access":
+        return deps.runs?.agent(step.agentId)?.name ?? step.agentId;
+      case "member-room":
+      case "member-role":
+        return deps.runs?.member(step.userId)?.name ?? step.userId;
+      default:
+        return "";
+    }
+  }
+
   // Why the member could not run an action step, or null. A target the
   // asking agent cannot reach answers as a missing one, before any other
-  // check, so the answer tells the agent nothing about it.
+  // check, so the answer tells the agent nothing about it. A member is not
+  // hidden: every agent reads the member list.
   function actionRefusal(
     step: ActionStepRequest,
     askingAgentId: string | undefined,
@@ -366,23 +499,76 @@ export function createStepAsks(deps: StepAskDeps) {
   ): StepFailure | null {
     const runs = deps.runs;
     if (!runs) return invalid("this office runs no action steps");
-    if (
-      !askingAgentId ||
-      !runs.agent(step.agentId) ||
-      !runs.agentReaches(askingAgentId, step.agentId)
-    )
-      return {
-        ok: false,
-        status: 422,
-        code: "unknown_agent",
-        message: "no agent with this id in a room you can reach",
-      };
-    if (runs.authorizeAs(memberUserId, stepRoute(step)!))
-      return notAllowed("this member cannot change that agent's access");
-    const refusal = runs.accessRefusal(step.agentId, step);
-    return refusal
-      ? { ok: false, status: 422, code: refusal.code, message: refusal.message }
-      : null;
+    switch (step.kind) {
+      case "agent-access": {
+        if (
+          !askingAgentId ||
+          !runs.agent(step.agentId) ||
+          !runs.agentReaches(askingAgentId, step.agentId)
+        )
+          return {
+            ok: false,
+            status: 422,
+            code: "unknown_agent",
+            message: "no agent with this id in a room you can reach",
+          };
+        if (runs.authorizeAs(memberUserId, runRoute(step)))
+          return notAllowed("this member cannot change that agent's access");
+        const refusal = runs.accessRefusal(step.agentId, step);
+        return refusal
+          ? {
+              ok: false,
+              status: 422,
+              code: refusal.code,
+              message: refusal.message,
+            }
+          : null;
+      }
+      case "member-room": {
+        if (
+          !askingAgentId ||
+          !runs.roomOpen(step.roomId) ||
+          !runs.agentReachesRoom(askingAgentId, step.roomId)
+        )
+          return unknownRoom();
+        if (step.roomId === LOBBY_ROOM_ID)
+          return {
+            ok: false,
+            status: 422,
+            code: "lobby_open_to_all",
+            message: "every member reaches the lobby",
+          };
+        if (runs.member(step.userId)?.role === "owner")
+          return ownerHasAllRooms();
+        return runs.authorizeAs(memberUserId, runRoute(step))
+          ? notAllowed("this member cannot change a member's room access")
+          : null;
+      }
+      case "member-role": {
+        // The page lets a member edit their own record, and its handler
+        // refuses the role: only an owner changes one.
+        if (
+          !deps.isOfficeOwner(memberUserId) ||
+          runs.authorizeAs(memberUserId, runRoute(step))
+        )
+          return notAllowed("only an office owner can change a member's role");
+        return step.role === "member" && runs.lastOwner(step.userId)
+          ? {
+              ok: false,
+              status: 409,
+              code: "last_owner",
+              message: "the office must have at least one office owner",
+            }
+          : null;
+      }
+    }
+  }
+
+  // The route of an action step whose target the create found.
+  function runRoute(step: ActionStepRequest): StepRoute {
+    const run = routeOf(step);
+    if (!run?.ok) throw new Error(`step ${step.kind}: no route`);
+    return run.route;
   }
 
   return {
@@ -434,8 +620,9 @@ export function createStepAsks(deps: StepAskDeps) {
       return { ok: true, step, link: stepLink(step) };
     },
 
-    // The route the member runs for a step, or null for a step with a link.
-    routeOf: stepRoute,
+    // The route the member runs for a step now, or why it cannot run; null
+    // for a step with a link.
+    routeOf,
 
     // Whether the step of an open ask is done now.
     isStepDone(entry: StepEntry): Promise<boolean> {

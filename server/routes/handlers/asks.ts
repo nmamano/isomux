@@ -19,7 +19,12 @@
 // The store emits the per-recipient events on commit, so these handlers never
 // emit directly. LEAF over the executor, the store and shared types.
 
-import type { StepAsks, StepCheck, StepRoute } from "../../step-asks.ts";
+import type {
+  StepAsks,
+  StepCheck,
+  StepRoute,
+  StepRun,
+} from "../../step-asks.ts";
 import type { WhatsAppReplies } from "../../whatsapp/replies.ts";
 import {
   ASK_HISTORY_LIMIT_DEFAULT,
@@ -137,10 +142,11 @@ export interface AsksDeps {
   // Step asks (task c71cb60f): the check of a create's `step`.
   steps: Pick<StepAsks, "check">;
   // The action of a step the member runs from the card (task e3d1bc63): the
-  // step's route, or null for a step with a link, and its in-process run
-  // through the executor as the caller. Absent in leaf tests: no step runs.
+  // step's route now (or why it cannot run: its target is gone), null for a
+  // step with a link, and its in-process run through the executor as the
+  // caller. Absent in leaf tests: no step runs.
   stepRuns?: {
-    routeOf(step: AskStep): StepRoute | null;
+    routeOf(step: AskStep): StepRun | null;
     dispatch(
       identity: Identity,
       route: StepRoute,
@@ -1100,9 +1106,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     )
       return notFound();
     const runs = deps.stepRuns;
-    const route = entry.step && runs ? runs.routeOf(entry.step) : null;
-    if (!runs || !route)
+    const run = entry.step && runs ? runs.routeOf(entry.step) : null;
+    if (!runs || !run)
       return fail(409, "not_runnable", "This ask has no action to run.");
+    if (!run.ok) return fail(run.status, run.code, run.message);
+    const { route } = run;
     // Claimed before the first await.
     if (running.has(id))
       return fail(409, "action_in_flight", "This action is running.");

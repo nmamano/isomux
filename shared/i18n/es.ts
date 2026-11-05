@@ -1912,6 +1912,18 @@ Cosas que puedes hacer por él:
   "asks.action.apply": "Aplicar",
   "asks.action.self": "Es el agente que lo pide.",
   "asks.action.gone": "Ya no puedes acceder a este agente.",
+  "asks.action.memberGone": "Este miembro ya no está en la oficina.",
+  "asks.action.roomGranted": "Acceso",
+  "asks.action.roomRemoved": "Sin acceso",
+  "asks.action.roomGrantHint": "Puede ver esta sala y trabajar en ella.",
+  "asks.action.roomRemoveHint": "Ya no puede ver esta sala.",
+  "asks.action.roleOwner": "Propietario de la oficina",
+  "asks.action.roleMember": "Miembro",
+  "asks.action.roleMemberHint":
+    "Solo puede acceder a las salas que un propietario de la oficina permite.",
+  "asks.action.manager":
+    "Este miembro gestiona el agente que lo pide, así que el agente también obtiene este acceso.",
+  "asks.action.selfDemote": "Dejarás de ser propietario de la oficina.",
   "asks.viewInInbox": "Ver en la bandeja de entrada",
   "asks.pinnedMissing": "No puedes ver esta petición, o no existe.",
   "asks.stillOpen": "Sigue abierta",
@@ -3285,6 +3297,9 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.browserPaired": "Chrome vinculado.",
   "systemEntries.stepAsk.githubLinked": "Sala enlazada con GitHub.",
   "systemEntries.stepAsk.agentAccessSet": "Acceso cambiado para {agent}.",
+  "systemEntries.stepAsk.memberRoomSet":
+    "Acceso a salas cambiado para {member}.",
+  "systemEntries.stepAsk.memberRoleSet": "Rol cambiado para {member}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":

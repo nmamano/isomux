@@ -921,6 +921,7 @@ function ReplyAskCard({
         <AskActionBlock
           askId={entry.id}
           askingAgentId={entry.agentId}
+          memberUserId={entry.memberUserId}
           step={entry.step}
           isMobile={isMobile}
         />

@@ -1182,12 +1182,17 @@ export type StepAskRequest =
 export type ActionStepRequest =
   // An agent's stop on the access slider, with its pack at office, folder
   // and web.
-  {
-    kind: "agent-access";
-    agentId: string;
-    access: AgentAccess;
-    pack?: ApiTokenLimits;
-  };
+  | {
+      kind: "agent-access";
+      agentId: string;
+      access: AgentAccess;
+      pack?: ApiTokenLimits;
+    }
+  // One room of a member's room access, granted or removed. The agent names
+  // the member by username; the server stores the id.
+  | { kind: "member-room"; userId: string; roomId: string; grant: boolean }
+  // A member made an office owner, or an owner made a member.
+  | { kind: "member-role"; userId: string; role: "owner" | "member" };
 
 // The `step` of an ask: one the member does on a page, or one they run from
 // the card.
@@ -1195,7 +1200,7 @@ export type AskStep = StepAskRequest | ActionStepRequest;
 
 const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   ActionStepRequest["kind"]
->(["agent-access"]);
+>(["agent-access", "member-room", "member-role"]);
 
 // Whether a step is one the member runs from the card.
 export function isActionStep(step: AskStep): step is ActionStepRequest {

@@ -1916,6 +1916,18 @@ Coses que pots fer per ell:
   "asks.action.apply": "Aplica",
   "asks.action.self": "És l'agent que ho demana.",
   "asks.action.gone": "Ja no pots accedir a aquest agent.",
+  "asks.action.memberGone": "Aquest membre ja no és a l'oficina.",
+  "asks.action.roomGranted": "Accés",
+  "asks.action.roomRemoved": "Sense accés",
+  "asks.action.roomGrantHint": "Pot veure aquesta sala i treballar-hi.",
+  "asks.action.roomRemoveHint": "Ja no pot veure aquesta sala.",
+  "asks.action.roleOwner": "Propietari de l'oficina",
+  "asks.action.roleMember": "Membre",
+  "asks.action.roleMemberHint":
+    "Només pot accedir a les sales que un propietari de l'oficina permet.",
+  "asks.action.manager":
+    "Aquest membre gestiona l'agent que ho demana, així que l'agent també obté aquest accés.",
+  "asks.action.selfDemote": "Deixaràs de ser propietari de l'oficina.",
   "asks.viewInInbox": "Mostra a la safata d'entrada",
   "asks.pinnedMissing": "No pots veure aquesta petició, o no existeix.",
   "asks.stillOpen": "Encara oberta",
@@ -3288,6 +3300,9 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.browserPaired": "Chrome vinculat.",
   "systemEntries.stepAsk.githubLinked": "Sala enllaçada amb GitHub.",
   "systemEntries.stepAsk.agentAccessSet": "Accés canviat per a {agent}.",
+  "systemEntries.stepAsk.memberRoomSet":
+    "Accés a sales canviat per a {member}.",
+  "systemEntries.stepAsk.memberRoleSet": "Rol canviat per a {member}.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
   "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
   "systemEntries.sudoRequest.exited":

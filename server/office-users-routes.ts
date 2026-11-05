@@ -641,6 +641,8 @@ export function createUsersRoutes(
       // sanitizes currentRoomId.
       // The re-projection itself (rooms, board, cronjobs) already ran through
       // the users.ts access hook inside updateUserById.
+      // The row names the member by id too, so it survives a rename.
+      noteAuditTarget(result.user.id);
       emitPrivateUserRecord(result.user);
       const presenceTouched = refreshPresenceForUser(
         result.user.id,

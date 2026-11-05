@@ -14,7 +14,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
+import { getUserById, getUserByName } from "../users.ts";
 import { officeAuditStore } from "../audit-store.ts";
 import { FOLDER_NOT_ALLOWED } from "../../shared/agent-access.ts";
 import type { AgentInfo, AskEntry } from "../../shared/types.ts";
@@ -617,5 +617,587 @@ describe("an agent-access ask from /mcp", () => {
       async () => !(await memberAsks()).some((a) => a.id === opened.id),
       "the ask closes",
     );
+  });
+});
+
+// Part 2: a member's room access (member-room) and role (member-role). The
+// office of these cases adds Dana, a member with no room, and a room Other
+// that only an owner's agents reach.
+async function membersOffice() {
+  const o = await office();
+  const dana = await o.srv.seedMember("Dana");
+  const other = o.srv.agentManager.createRoom("Other");
+  return {
+    ...o,
+    other,
+    dana: dana.rawSessionId,
+    danaName: dana.username,
+    danaId: getUserByName(dana.username)!.id,
+  };
+}
+type MembersOffice = Awaited<ReturnType<typeof membersOffice>>;
+
+const roomStep = (username: string, roomId: string, grant: boolean) => ({
+  kind: "member-room",
+  username,
+  roomId,
+  grant,
+});
+const roleStep = (username: string, role: string) => ({
+  kind: "member-role",
+  username,
+  role,
+});
+
+const roomsOf = (userId: string) => [...getUserById(userId)!.allowedRooms];
+const roleOf = (userId: string) => getUserById(userId)!.role;
+
+async function closesDone(o: Office, askerId: string, askId: string) {
+  await waitUntil(
+    async () => (await askStatus(o, askerId, askId)) === "done",
+    "the ask closes",
+  );
+}
+
+describe("a member-room ask at create", () => {
+  it("opens for an owner with the member stored by id, no link, nothing run, even for a member who shares no room with the asking agent", async () => {
+    const o = await membersOffice();
+    // Casey's agent reaches only the first room; Dana reaches none.
+    const asker = await spawn(o, "Asker", { manager: "Casey" });
+    const entry = await opened(
+      o,
+      asker.id,
+      roomStep(o.danaName, o.room, true),
+      o.morganName,
+    );
+    expect([entry.step, entry.link, entry.memberUserId]).toEqual([
+      { kind: "member-room", userId: o.danaId, roomId: o.room, grant: true },
+      undefined,
+      o.morganId,
+    ]);
+    expect(roomsOf(o.danaId)).toEqual([]);
+  });
+
+  it("refuses a step that is not one room for one member: 400", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const bad: [string, Record<string, unknown>][] = [
+      [
+        "grant not a boolean",
+        { ...roomStep(o.danaName, o.room, true), grant: "yes" },
+      ],
+      ["no room", { kind: "member-room", username: o.danaName, grant: true }],
+      ["no member", { kind: "member-room", roomId: o.room, grant: true }],
+      [
+        "several rooms",
+        { ...roomStep(o.danaName, o.room, true), roomId: [o.room, o.other] },
+      ],
+      [
+        "an extra key",
+        { ...roomStep(o.danaName, o.room, true), pack: TASKS_READ },
+      ],
+      [
+        "a stored field",
+        { ...roomStep(o.danaName, o.room, true), userId: o.danaId },
+      ],
+    ];
+    for (const [label, step] of bad)
+      expect({ label, ...outcome(await ask(o, asker.id, step)) }).toEqual({
+        label,
+        status: 400,
+        code: "invalid_request",
+      });
+  });
+
+  it("answers a room the asking agent cannot reach exactly as a missing one, before the owner, member and done checks", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker", { manager: "Casey" });
+    const missingId = "no-such-room";
+    const missing = await ask(
+      o,
+      asker.id,
+      roomStep(o.danaName, missingId, true),
+      o.morganName,
+    );
+    expect(outcome(missing)).toEqual({ status: 422, code: "unknown_room" });
+    const answer = (res: Res, id: string) => ({
+      status: res.status,
+      body: JSON.stringify(res.body).replaceAll(id, "<id>"),
+    });
+    // Other: Morgan is an owner (owner_has_all_rooms if checked first),
+    // Casey may not run it (403), Dana lacks it already (409).
+    const cases: [string, Record<string, unknown>, string][] = [
+      ["an owner", roomStep(o.morganName, o.other, true), o.morganName],
+      [
+        "a member who cannot run it",
+        roomStep(o.danaName, o.other, true),
+        o.caseyName,
+      ],
+      ["done", roomStep(o.danaName, o.other, false), o.morganName],
+    ];
+    for (const [label, step, member] of cases)
+      expect({
+        label,
+        ...answer(await ask(o, asker.id, step, member), o.other),
+      }).toEqual({
+        label,
+        ...answer(missing, missingId),
+      });
+  });
+
+  it("refuses a member that does not exist (422 unknown_member), the lobby, an owner, a member who cannot run it, and a grant that is done, in that order", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const at = async (step: Record<string, unknown>, member?: string) =>
+      outcome(await ask(o, asker.id, step, member));
+    expect(await at(roomStep("nobody", o.room, true))).toEqual({
+      status: 422,
+      code: "unknown_member",
+    });
+    // Unknown member before the lobby.
+    expect(await at(roomStep("nobody", "lobby", true))).toEqual({
+      status: 422,
+      code: "unknown_member",
+    });
+    expect(await at(roomStep(o.danaName, "lobby", true))).toEqual({
+      status: 422,
+      code: "lobby_open_to_all",
+    });
+    // The lobby before the owner rule.
+    expect(await at(roomStep(o.morganName, "lobby", true))).toEqual({
+      status: 422,
+      code: "lobby_open_to_all",
+    });
+    expect(await at(roomStep(o.morganName, o.room, true))).toEqual({
+      status: 422,
+      code: "owner_has_all_rooms",
+    });
+    // Casey is not an office owner; Casey has the room already (409 if
+    // checked first).
+    expect(await at(roomStep(o.caseyName, o.room, true), o.caseyName)).toEqual({
+      status: 403,
+      code: "member_not_allowed",
+    });
+    expect(await at(roomStep(o.caseyName, o.room, true))).toEqual({
+      status: 409,
+      code: "step_done",
+    });
+    expect(await at(roomStep(o.danaName, o.room, false))).toEqual({
+      status: 409,
+      code: "step_done",
+    });
+    // The other direction of each is open.
+    await opened(o, asker.id, roomStep(o.caseyName, o.room, false));
+    await opened(o, asker.id, roomStep(o.danaName, o.room, true));
+  });
+});
+
+describe("a member-room ask run from the card", () => {
+  it("grants the room with the owner's session, keeps the member's other rooms, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roomStep(o.danaName, o.room, true));
+    // A room granted by hand after the create is kept: the run reads the
+    // member's rooms when it runs.
+    const byHand = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/users/${o.danaName}/access`,
+      { allowedRooms: [o.other] },
+    );
+    expect(byHand.status).toBe(200);
+    const res = await run(o, o.morgan, entry.id);
+    expect(res.status).toBe(200);
+    expect(roomsOf(o.danaId).sort()).toEqual([o.room, o.other].sort());
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toEqual([
+      "systemEntries.stepAsk.memberRoomSet",
+    ]);
+    const rows = officeAuditStore().list({
+      operation: "users.setAccess",
+    }).items;
+    // The by-hand row has no ask; the run's names Dana and the ask.
+    expect(
+      rows.map((r) => ({
+        actor: [r.actor.kind, r.actor.id],
+        dana: r.targets.includes(o.danaId),
+        ask: r.targets.includes(entry.id),
+      })),
+    ).toContainEqual({ actor: ["member", o.morganId], dana: true, ask: true });
+    expect(rows.filter((r) => r.targets.includes(entry.id))).toHaveLength(1);
+  });
+
+  it("two asks for one member, run one after the other, give both rooms", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const first = await opened(o, asker.id, roomStep(o.danaName, o.room, true));
+    const second = await opened(
+      o,
+      asker.id,
+      roomStep(o.danaName, o.other, true),
+    );
+    expect((await run(o, o.morgan, first.id)).status).toBe(200);
+    expect((await run(o, o.morgan, second.id)).status).toBe(200);
+    expect(roomsOf(o.danaId).sort()).toEqual([o.room, o.other].sort());
+    await closesDone(o, asker.id, first.id);
+    await closesDone(o, asker.id, second.id);
+  });
+
+  it("removes the room and leaves the others", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const both = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/users/${o.caseyName}/access`,
+      { allowedRooms: [o.room, o.other] },
+    );
+    expect(both.status).toBe(200);
+    const entry = await opened(
+      o,
+      asker.id,
+      roomStep(o.caseyName, o.room, false),
+    );
+    expect((await run(o, o.morgan, entry.id)).status).toBe(200);
+    expect(roomsOf(o.caseyId)).toEqual([o.other]);
+    await closesDone(o, asker.id, entry.id);
+  });
+
+  it("runs only for the member the ask is for: another member 404, nothing changed", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roomStep(o.danaName, o.room, true));
+    expect(outcome(await run(o, o.casey, entry.id))).toEqual({
+      status: 404,
+      code: "not_found",
+    });
+    expect(roomsOf(o.danaId)).toEqual([]);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+  });
+
+  it("a member gone since the create: 422 unknown_member, the ask stays open", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roomStep(o.danaName, o.room, true));
+    const removed = await asSession(
+      o,
+      o.morgan,
+      "DELETE",
+      `/api/users/${o.danaName}`,
+    );
+    expect(removed.status).toBeLessThan(300);
+    expect(outcome(await run(o, o.morgan, entry.id))).toEqual({
+      status: 422,
+      code: "unknown_member",
+    });
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+  });
+
+  it("a room closed since the create: a grant is refused (422 unknown_room) and stays open; a removal closes as done", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const casey = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/users/${o.caseyName}/access`,
+      { allowedRooms: [o.room, o.other] },
+    );
+    expect(casey.status).toBe(200);
+    const grant = await opened(
+      o,
+      asker.id,
+      roomStep(o.danaName, o.other, true),
+    );
+    const removal = await opened(
+      o,
+      asker.id,
+      roomStep(o.caseyName, o.other, false),
+    );
+    const closed = await asSession(
+      o,
+      o.morgan,
+      "DELETE",
+      `/api/rooms/${o.other}`,
+    );
+    expect(closed.status).toBeLessThan(300);
+    await closesDone(o, asker.id, removal.id);
+    expect(outcome(await run(o, o.morgan, grant.id))).toEqual({
+      status: 422,
+      code: "unknown_room",
+    });
+    expect(roomsOf(o.danaId)).toEqual([]);
+    expect(await askStatus(o, asker.id, grant.id)).toBe("open");
+  });
+
+  it("a grant closes as done when the member is made an owner, who reaches every room", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roomStep(o.danaName, o.room, true));
+    const promoted = await asSession(
+      o,
+      o.morgan,
+      "PATCH",
+      `/api/users/${o.danaName}`,
+      { role: "owner" },
+    );
+    expect(promoted.status).toBe(200);
+    expect(roomsOf(o.danaId)).toEqual([]);
+    await closesDone(o, asker.id, entry.id);
+  });
+
+  it("a removal for a member made an owner since the create: 422 owner_has_all_rooms at the run, nothing written, the ask stays open", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(
+      o,
+      asker.id,
+      roomStep(o.caseyName, o.room, false),
+    );
+    const promoted = await asSession(
+      o,
+      o.morgan,
+      "PATCH",
+      `/api/users/${o.caseyName}`,
+      { role: "owner" },
+    );
+    expect(promoted.status).toBe(200);
+    const before = roomsOf(o.caseyId);
+    expect(outcome(await run(o, o.morgan, entry.id))).toEqual({
+      status: 422,
+      code: "owner_has_all_rooms",
+    });
+    expect(roomsOf(o.caseyId)).toEqual(before);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+    expect(stepLines(o, asker.id)).toEqual([]);
+  });
+
+  it("a change by hand on the page closes it; a change to another room does not", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roomStep(o.danaName, o.room, true));
+    const set = (rooms: string[]) =>
+      asSession(o, o.morgan, "PUT", `/api/users/${o.danaName}/access`, {
+        allowedRooms: rooms,
+      });
+    expect((await set([o.other])).status).toBe(200);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+    expect((await set([o.other, o.room])).status).toBe(200);
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toEqual([
+      "systemEntries.stepAsk.memberRoomSet",
+    ]);
+  });
+});
+
+describe("a member-role ask at create", () => {
+  it("opens for an owner with the member stored by id and nothing run", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker", { manager: "Casey" });
+    const entry = await opened(
+      o,
+      asker.id,
+      roleStep(o.danaName, "owner"),
+      o.morganName,
+    );
+    expect([entry.step, entry.link]).toEqual([
+      { kind: "member-role", userId: o.danaId, role: "owner" },
+      undefined,
+    ]);
+    expect(roleOf(o.danaId)).toBe("member");
+  });
+
+  it("refuses a role that is not member or owner, and extra keys: 400", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    for (const step of [
+      roleStep(o.danaName, "admin"),
+      { kind: "member-role", role: "owner" },
+      { ...roleStep(o.danaName, "owner"), roomId: o.room },
+    ])
+      expect(outcome(await ask(o, asker.id, step))).toEqual({
+        status: 400,
+        code: "invalid_request",
+      });
+  });
+
+  it("refuses an unknown member (422), a member who is not an owner (403, before done, and for their own role too), the last owner (409 last_owner), and a role the member has (409 step_done)", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const at = async (step: Record<string, unknown>, member?: string) =>
+      outcome(await ask(o, asker.id, step, member));
+    expect(await at(roleStep("nobody", "owner"))).toEqual({
+      status: 422,
+      code: "unknown_member",
+    });
+    // Casey may edit her own record on the page, but not her role.
+    expect(await at(roleStep(o.caseyName, "owner"), o.caseyName)).toEqual({
+      status: 403,
+      code: "member_not_allowed",
+    });
+    expect(await at(roleStep(o.danaName, "owner"), o.caseyName)).toEqual({
+      status: 403,
+      code: "member_not_allowed",
+    });
+    // Casey is a member already (409 if checked first).
+    expect(await at(roleStep(o.caseyName, "member"), o.caseyName)).toEqual({
+      status: 403,
+      code: "member_not_allowed",
+    });
+    expect(await at(roleStep(o.morganName, "member"))).toEqual({
+      status: 409,
+      code: "last_owner",
+    });
+    expect(await at(roleStep(o.morganName, "owner"))).toEqual({
+      status: 409,
+      code: "step_done",
+    });
+    expect(await at(roleStep(o.danaName, "member"))).toEqual({
+      status: 409,
+      code: "step_done",
+    });
+  });
+});
+
+describe("a member-role ask run from the card", () => {
+  it("makes the member an owner with the owner's session, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roleStep(o.danaName, "owner"));
+    const res = await run(o, o.morgan, entry.id);
+    expect(res.status).toBe(200);
+    expect(roleOf(o.danaId)).toBe("owner");
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toEqual([
+      "systemEntries.stepAsk.memberRoleSet",
+    ]);
+    const rows = officeAuditStore()
+      .list({ operation: "users.update" })
+      .items.filter((r) => r.targets.includes(entry.id));
+    expect(
+      rows.map((r) => ({
+        actor: [r.actor.kind, r.actor.id],
+        dana: r.targets.includes(o.danaId),
+      })),
+    ).toEqual([{ actor: ["member", o.morganId], dana: true }]);
+  });
+
+  it("runs on the member's name now: a rename after the create does not break it", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roleStep(o.danaName, "owner"));
+    const renamed = await asSession(
+      o,
+      o.morgan,
+      "PATCH",
+      `/api/users/${o.danaName}`,
+      { name: "Drew" },
+    );
+    expect(renamed.status).toBe(200);
+    expect((await run(o, o.morgan, entry.id)).status).toBe(200);
+    expect(roleOf(o.danaId)).toBe("owner");
+    await closesDone(o, asker.id, entry.id);
+  });
+
+  it("an owner demotes themselves from the card when another owner is left", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const promoted = await asSession(
+      o,
+      o.morgan,
+      "PATCH",
+      `/api/users/${o.danaName}`,
+      { role: "owner" },
+    );
+    expect(promoted.status).toBe(200);
+    const entry = await opened(o, asker.id, roleStep(o.morganName, "member"));
+    expect((await run(o, o.morgan, entry.id)).status).toBe(200);
+    expect(roleOf(o.morganId)).toBe("member");
+    await closesDone(o, asker.id, entry.id);
+  });
+
+  it("a member gone since the create: 422 unknown_member, the ask stays open", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roleStep(o.danaName, "owner"));
+    const removed = await asSession(
+      o,
+      o.morgan,
+      "DELETE",
+      `/api/users/${o.danaName}`,
+    );
+    expect(removed.status).toBeLessThan(300);
+    expect(outcome(await run(o, o.morgan, entry.id))).toEqual({
+      status: 422,
+      code: "unknown_member",
+    });
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+  });
+
+  it("a role change by hand closes it", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, roleStep(o.danaName, "owner"));
+    const set = await asSession(
+      o,
+      o.morgan,
+      "PATCH",
+      `/api/users/${o.danaName}`,
+      { role: "owner" },
+    );
+    expect(set.status).toBe(200);
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toEqual([
+      "systemEntries.stepAsk.memberRoleSet",
+    ]);
+  });
+});
+
+describe("member asks from /mcp", () => {
+  it("open_ask takes a member-room and a member-role step", async () => {
+    const o: MembersOffice = await membersOffice();
+    const agent = await spawn(o, "Triage");
+    // /mcp takes an agent below Standard.
+    const lowered = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/agents/${agent.id}/access`,
+      { access: "office", pack: { areas: { asks: "write" } } },
+    );
+    expect(lowered.status).toBe(200);
+    const client = new Client({ name: "action-asks-test", version: "0.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`${o.srv.baseUrl}/mcp`), {
+        requestInit: {
+          headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)}` },
+        },
+      }),
+    );
+    clients.push(client);
+    for (const [step, stored] of [
+      [
+        roomStep(o.danaName, o.room, true),
+        { kind: "member-room", userId: o.danaId, roomId: o.room, grant: true },
+      ],
+      [
+        roleStep(o.danaName, "owner"),
+        { kind: "member-role", userId: o.danaId, role: "owner" },
+      ],
+    ] as const) {
+      const result = (await client.callTool({
+        name: "open_ask",
+        arguments: { prompt: "Please change this.", step },
+      })) as { isError?: boolean; content?: Array<{ text?: string }> };
+      expect({ kind: step.kind, error: result.isError ?? false }).toEqual({
+        kind: step.kind,
+        error: false,
+      });
+      const entry = JSON.parse(result.content?.[0]?.text ?? "{}") as AskEntry;
+      expect(entry.step as unknown).toEqual(stored);
+    }
   });
 });

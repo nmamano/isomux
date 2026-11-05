@@ -1,10 +1,10 @@
 // The office side of action asks (task e3d1bc63): the reads server/step-asks.ts
-// checks an action step with at create, and the in-process run of an office
+// checks and builds an action step with, and the in-process run of an office
 // route as a caller, shared by a member's Apply and the /mcp tool calls.
 
 import { accessGrantOf, belowStandard } from "../shared/agent-access.ts";
 import type { AgentAccess } from "../shared/agent-access.ts";
-import type { AgentInfo } from "../shared/types.ts";
+import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
 import type { SpawnAccessRefusal } from "./agent-manager.ts";
 import { buildPublicOrigin } from "./auth.ts";
 import type { GuardDeps } from "./identity/guards.ts";
@@ -19,7 +19,7 @@ import {
 import { matchRoute } from "./routes/match.ts";
 import { API_ROUTES } from "./routes/table.ts";
 import type { StepRunDeps } from "./step-asks.ts";
-import { getUserById } from "./users.ts";
+import { getUser, getUserById, wouldDeleteLeaveNoOwner } from "./users.ts";
 
 // Runs one office route in process as `identity`, through the executor, so
 // the route's guards, preconditions, events and audit row apply.
@@ -63,31 +63,47 @@ export function officeStepRuns(deps: {
     access: AgentAccess,
   ) => SpawnAccessRefusal | null;
 }): StepRunDeps {
+  // The asking agent's reach, as its token has it: its manager's rooms,
+  // narrowed to its pack's rooms below Standard.
+  function agentReachesRoom(askingAgentId: string, roomId: string): boolean {
+    const asker = agentManager.getAgent(askingAgentId);
+    if (!asker?.userId) return false;
+    const { access, pack } = accessGrantOf(asker);
+    const rooms = belowStandard(access) ? pack?.rooms : undefined;
+    return deps.guardDeps().hasRoomAccess(
+      {
+        scope: "agent",
+        userId: asker.userId,
+        agentId: asker.id,
+        role: "member",
+        capabilities: [],
+        ...(rooms ? { apiTokenLimits: { rooms } } : {}),
+      },
+      roomId,
+    );
+  }
+
   return {
     agent: (agentId) => {
       const agent = agentManager.getAgent(agentId);
       return agent ? { name: agent.name, grant: accessGrantOf(agent) } : null;
     },
-    // The asking agent's reach, as its token has it: its manager's rooms,
-    // narrowed to its pack's rooms below Standard.
     agentReaches: (askingAgentId, targetAgentId) => {
-      const asker = agentManager.getAgent(askingAgentId);
       const target = agentManager.getAgent(targetAgentId);
-      if (!asker?.userId || !target) return false;
-      const { access, pack } = accessGrantOf(asker);
-      const rooms = belowStandard(access) ? pack?.rooms : undefined;
-      return deps.guardDeps().hasRoomAccess(
-        {
-          scope: "agent",
-          userId: asker.userId,
-          agentId: asker.id,
-          role: "member",
-          capabilities: [],
-          ...(rooms ? { apiTokenLimits: { rooms } } : {}),
-        },
-        target.roomId,
-      );
+      return !!target && agentReachesRoom(askingAgentId, target.roomId);
     },
+    member: (userId) => {
+      const user = getUserById(userId);
+      return user
+        ? { name: user.name, role: user.role, allowedRooms: user.allowedRooms }
+        : null;
+    },
+    memberIdByName: (username) => getUser(username)?.id ?? null,
+    roomOpen: (roomId) =>
+      roomId === LOBBY_ROOM_ID ||
+      agentManager.getOrdinaryRooms().some((room) => room.id === roomId),
+    agentReachesRoom,
+    lastOwner: wouldDeleteLeaveNoOwner,
     accessRefusal: (agentId, grant) => {
       const agent = agentManager.getAgent(agentId);
       const refusal = agent

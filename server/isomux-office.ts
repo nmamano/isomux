@@ -779,8 +779,15 @@ function registerBootHooks(): void {
   // (users.setAccess, users.update, the rooms.create creator grant, the
   // rooms.close strip, bootstrap promotion and its rollback). The other source
   // of access change is the live room set itself, which owners reach by rule;
-  // rooms.close re-projects that for everyone.
-  setOnUserAccessChanged(onUserAccessChanged);
+  // rooms.close re-projects that for everyone. A member's room access or
+  // role may also be the change a step ask waits for.
+  setOnUserAccessChanged((userId, changed) => {
+    try {
+      onUserAccessChanged(userId, changed);
+    } finally {
+      stepsChanged();
+    }
+  });
   seedWelcomeAgentsForFirstOwner = seedFirstOwner;
   // An app's owner agent, live: killed agents are gone from the manager.
   setAppOwnerAgentResolver((agentId) => {
