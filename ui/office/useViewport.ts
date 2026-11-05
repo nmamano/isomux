@@ -192,6 +192,46 @@ export function computeRestView(
   };
 }
 
+/**
+ * The smallest scale the user can zoom out to: MIN_SCALE, or lower when the
+ * container is too small for the whole painted scene at MIN_SCALE, so that the
+ * full zoom-out always shows every wall, door and desk.
+ */
+export function minZoomScale(cw: number, ch: number, art: Bounds): number {
+  const aw = art.right - art.left;
+  const ah = art.bottom - art.top;
+  if (!(cw > 0 && ch > 0 && aw > 0 && ah > 0)) {
+    return VIEWPORT.MIN_SCALE;
+  }
+  return Math.min(
+    VIEWPORT.MIN_SCALE,
+    (cw - 2 * VIEWPORT.FIT_MARGIN) / aw,
+    (ch - 2 * VIEWPORT.FIT_MARGIN) / ah,
+  );
+}
+
+/**
+ * One axis of keepInView: the translation, nearest to `t`, that keeps the
+ * painted span lo..hi inside a container of `size` at `scale`. Only acts when
+ * the span fits; a span larger than the container is left to the pan clamp.
+ */
+function keepAxisInView(
+  t: number,
+  size: number,
+  scale: number,
+  lo: number,
+  hi: number,
+) {
+  const slack = size - scale * (hi - lo);
+  if (slack < 0) {
+    return t;
+  }
+  const margin = Math.min(VIEWPORT.FIT_MARGIN, slack / 2);
+  const min = margin - scale * lo;
+  const max = size - margin - scale * hi;
+  return Math.max(min, Math.min(max, t));
+}
+
 /** The painted scene box, derived from the measured layout box. */
 export function artBounds(b: Bounds): Bounds {
   const w = b.right - b.left;
@@ -466,14 +506,58 @@ export function useViewport(
     applyTransform(animate);
   }
 
+  /** The lowest zoom for this container: see minZoomScale. */
+  function zoomFloor() {
+    const container = containerRef.current;
+    const b = sceneBounds.current;
+    if (!container || !b) {
+      return VIEWPORT.MIN_SCALE;
+    }
+    return minZoomScale(
+      container.clientWidth,
+      container.clientHeight,
+      artBounds(b),
+    );
+  }
+
+  /**
+   * After a zoom: on each axis where the painted scene now fits, move it the
+   * least amount that shows all of it, so zooming out ends on the whole room
+   * and not on a part of it pushed off the edge.
+   */
+  function keepInView() {
+    const container = containerRef.current;
+    const b = sceneBounds.current;
+    if (!container || !b) {
+      return;
+    }
+    const art = artBounds(b);
+    const s = state.current;
+    s.x = keepAxisInView(
+      s.x,
+      container.clientWidth,
+      s.scale,
+      art.left,
+      art.right,
+    );
+    s.y = keepAxisInView(
+      s.y,
+      container.clientHeight,
+      s.scale,
+      art.top,
+      art.bottom,
+    );
+  }
+
   function zoomAt(cx: number, cy: number, newScale: number) {
     const s = state.current;
-    const clamped = clampScale(newScale);
+    const clamped = clampScale(newScale, zoomFloor());
     const ratio = clamped / s.scale;
     s.x = cx - ratio * (cx - s.x);
     s.y = cy - ratio * (cy - s.y);
     s.scale = clamped;
     clampPan();
+    keepInView();
     applyTransform();
   }
 
@@ -792,7 +876,7 @@ export function useViewport(
         const newMidY = (t1.clientY + t2.clientY) / 2 - rect.top;
 
         const newScale = g.initial.scale * (dist / g.startDist);
-        const clamped = clampScale(newScale);
+        const clamped = clampScale(newScale, zoomFloor());
         const scaleRatio = clamped / g.initial.scale;
 
         // Zoom anchored at the current midpoint, pinning the scene point that
@@ -802,6 +886,7 @@ export function useViewport(
         state.current.y = newMidY - scaleRatio * (g.initialMidY - g.initial.y);
         state.current.scale = clamped;
         clampPan();
+        keepInView();
         applyTransform();
         return;
       }

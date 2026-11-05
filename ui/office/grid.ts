@@ -8,9 +8,10 @@ export const VB_X = -355,
   VB_Y = -100;
 
 // The scene's scale on a phone: it fills the screen's width less 200 units,
-// so the wall ends crop.
+// so the wall ends crop. A narrow desktop window also gets the mobile layout,
+// and there the window, not the much wider screen, sets the width.
 export function mobileSceneScale(): number {
-  return screen.width / (SCENE_W - 200);
+  return Math.min(screen.width, window.innerWidth) / (SCENE_W - 200);
 }
 
 // The floor tile grid: N x N tiles from the back corner, where the two walls

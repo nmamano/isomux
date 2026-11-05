@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { computeRestView, artBounds, type Bounds } from "./useViewport.ts";
+import {
+  computeRestView,
+  artBounds,
+  minZoomScale,
+  type Bounds,
+} from "./useViewport.ts";
 
 // The scene's layout box is 950x700 and it is centred in the container, so its
 // layer-local box follows from the container size alone. These helpers rebuild
@@ -154,4 +159,25 @@ test("a container with no size falls back to the authored view", () => {
     y: 0,
     scale: 1,
   });
+});
+
+test("full zoom-out fits the whole painted scene in any container", () => {
+  // A narrow portrait window, a short wide one and a phone: at the floor the
+  // painted box is inside the container on both axes, with FIT_MARGIN to spare.
+  for (const [cw, ch, s] of [
+    [717, 545, 0.956],
+    [1400, 220, 1],
+    [390, 700, 0.52],
+  ]) {
+    const art = artBounds(layoutBox(cw, ch, s));
+    const floor = minZoomScale(cw, ch, art);
+    expect(floor * (art.right - art.left)).toBeLessThanOrEqual(
+      cw - 2 * FIT_MARGIN + 1e-6,
+    );
+    expect(floor * (art.bottom - art.top)).toBeLessThanOrEqual(
+      ch - 2 * FIT_MARGIN + 1e-6,
+    );
+  }
+  // A container with room to spare keeps the usual floor of 0.5.
+  expect(minZoomScale(1920, 941, artBounds(layoutBox(1920, 941)))).toBe(0.5);
 });
