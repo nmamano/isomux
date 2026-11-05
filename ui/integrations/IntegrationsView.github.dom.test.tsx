@@ -23,7 +23,8 @@ const { RoomPane } = await import("../components/RoomPane.tsx");
 const { onLanguage, stateWithSelfUser } =
   await import("../test-support/language-fixture.tsx");
 const { LOBBY_ROOM } = await import("../../shared/types.ts");
-const { getGithubLayout } = await import("../device-settings.ts");
+const { getGithubLayout, setGithubLayout } =
+  await import("../device-settings.ts");
 type RoomWire = import("../../shared/types.ts").RoomWire;
 type GithubLinkWire = import("../../shared/types.ts").GithubLinkWire;
 afterAll(() => setApiShim(null));
@@ -426,6 +427,16 @@ const live = (root: Element, selector: string) =>
   [...root.querySelectorAll(selector)].filter(
     (el) => el.closest("[data-reserved]") === null,
   );
+// A held block paints the real form grayed out, not an empty box (task
+// a10fd923, Nil at the sign-off of eeec205a).
+function paints(block: Element) {
+  const style = (block as HTMLElement).style;
+  expect(style.visibility).not.toBe("hidden");
+  expect(Number(style.opacity)).toBeGreaterThan(0);
+  expect(Number(style.opacity)).toBeLessThan(1);
+}
+const shownText = (select: HTMLSelectElement) =>
+  (select.selectedOptions[0]?.textContent ?? "").trim();
 
 it("holds the card while the reads are out, then shows the live one", async () => {
   const release = fake.hold("/api/office/secrets");
@@ -439,6 +450,10 @@ it("holds the card while the reads are out, then shows the live one", async () =
   expect(live(held!, "select, input, button")).toHaveLength(0);
   // No link remembered: the held form is a new link's.
   expect(held!.querySelector("[data-github-link-unlink]")).toBeNull();
+  for (const block of heldBlocks(held!)) paints(block);
+  // No link remembered: the live form opens on the first room, so the held
+  // one does too.
+  expect(roomSelect(view).value).toBe("r1");
 
   await act(async () => release());
   expect(heldBlocks(card(view)!)).toHaveLength(0);
@@ -460,6 +475,63 @@ it("remembers whether the room it opens on is linked, and the next load holds th
   expect(live(card(view)!, "button")).toHaveLength(0);
   await act(async () => release());
   expect(heldBlocks(card(view)!)).toHaveLength(0);
+});
+
+// A remembered link names no room, repo, secret or status: the held form
+// shows none of them until the reads answer, and a bar for the status.
+it("a held linked form paints with no room, repo, labels, secret or status it does not know", async () => {
+  links = { r2: saved("r2", "Acme/Widgets") };
+  setGithubLayout({ linked: true, secret: true });
+  const release = fake.hold("/api/office/secrets");
+  const view = await open(withRooms(OWNER), { request: { tab: "github" } });
+  const held = card(view)!;
+  const blocks = heldBlocks(held);
+  expect(blocks).toHaveLength(1);
+  paints(blocks[0]);
+  // The held form is a linked one.
+  expect(
+    held.querySelectorAll("[data-reserved] [data-github-link-unlink]"),
+  ).toHaveLength(1);
+  // Which room opens is not known: the select shows none, and its choices
+  // are the room names alone.
+  expect(roomSelect(view).value).toBe("");
+  expect(shownText(roomSelect(view))).toBe("");
+  const names = new Set(["", "Alpha", "Beta"]);
+  for (const option of roomSelect(view).options)
+    expect(names.has(option.textContent!.trim())).toBe(true);
+  expect(q<HTMLInputElement>(view, "[data-github-link-repo]").value).toBe("");
+  expect(q<HTMLInputElement>(view, "[data-github-link-labels]").value).toBe("");
+  // No secret name, and not the prompt to pick one either.
+  expect(secretSelect(view).value).toBe("");
+  expect(shownText(secretSelect(view))).toBe("");
+  // The status line holds its place with a bar and claims no state.
+  const status = held.querySelectorAll(
+    "[data-reserved] [data-github-link-status]",
+  );
+  expect(status).toHaveLength(1);
+  expect(status[0].textContent!.trim()).toBe("");
+  expect(status[0].hasAttribute("data-kind")).toBe(false);
+  expect(status[0].querySelectorAll("[data-placeholder]")).toHaveLength(1);
+  expect(live(held, "select, input, button")).toHaveLength(0);
+
+  await act(async () => release());
+  expect(heldBlocks(card(view)!)).toHaveLength(0);
+  expect(roomSelect(view).value).toBe("r2");
+});
+
+it("a held linked form opens on the room a GitHub step names", async () => {
+  // The step names a room other than the first one.
+  links = { r1: saved("r1", "Acme/Widgets") };
+  setGithubLayout({ linked: true, secret: true });
+  const release = fake.hold("/api/office/secrets");
+  const view = await open(withRooms(OWNER), {
+    request: { tab: "github", focus: { kind: "github-link", roomId: "r2" } },
+  });
+  expect(heldBlocks(card(view)!)).toHaveLength(1);
+  expect(roomSelect(view).value).toBe("r2");
+  expect(shownText(roomSelect(view))).toBe("Beta");
+  await act(async () => release());
+  expect(roomSelect(view).value).toBe("r2");
 });
 
 it("a save or an unlink rewrites the remembered layout", async () => {

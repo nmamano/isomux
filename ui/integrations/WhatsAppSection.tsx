@@ -34,6 +34,7 @@ import {
   ItemRow,
   Logo,
   Pill,
+  Placeholder,
   card,
   errorText,
   hintText,
@@ -53,25 +54,19 @@ const ERROR: Record<number, PlainMessageKey> = {
   429: "integrations.whatsapp.error.tooSoon",
 };
 
-// What a held card draws in place of the answers it waits for.
-const HELD_LINKED = {
-  state: "linked",
-  phone: "447700900000",
-  linkedAt: 0,
-  connected: true,
-} as const;
+// The rows a held card draws: a bar for each chat it does not know yet.
 const heldRoutes = (n: number): WhatsAppRoute[] =>
   Array.from({ length: n }, (_, i) => ({
     id: `held-${i}`,
-    chat: "447700900000@s.whatsapp.net",
+    chat: "",
     group: false,
-    name: "WhatsApp",
+    name: "",
     agentId: "",
     createdAt: 0,
   }));
 
 export function WhatsAppSection() {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const { whatsappStatus: status } = useAppState();
   const dispatch = useDispatch();
   // A pack that gives environment at read shows the link, not its changes.
@@ -201,7 +196,8 @@ export function WhatsAppSection() {
         </p>
       </>
     );
-  const linkedLine = (linked: { phone: string; connected: boolean }) => (
+  // `linked` null: a held card, with bars for the number and the connection.
+  const linkedLine = (linked: { phone: string; connected: boolean } | null) => (
     <div
       style={{
         display: "flex",
@@ -211,16 +207,24 @@ export function WhatsAppSection() {
       }}
     >
       <span style={{ fontSize: 13 }}>
-        {t("integrations.whatsapp.linkedAs", { phone: `+${linked.phone}` })}
+        {rich("integrations.whatsapp.linkedAs", {
+          phone: linked ? `+${linked.phone}` : <Placeholder width="7em" />,
+        })}
       </span>
-      <Pill
-        tone={linked.connected ? "green" : "neutral"}
-        data-whatsapp-connected={String(linked.connected)}
-      >
-        {linked.connected
-          ? t("integrations.whatsapp.connected")
-          : t("integrations.whatsapp.connecting")}
-      </Pill>
+      {linked ? (
+        <Pill
+          tone={linked.connected ? "green" : "neutral"}
+          data-whatsapp-connected={String(linked.connected)}
+        >
+          {linked.connected
+            ? t("integrations.whatsapp.connected")
+            : t("integrations.whatsapp.connecting")}
+        </Pill>
+      ) : (
+        <Pill tone="neutral">
+          <Placeholder width="4em" />
+        </Pill>
+      )}
       {environmentWrite && (
         <Btn
           kind="danger"
@@ -326,10 +330,10 @@ export function WhatsAppSection() {
       )}
       {!status && !error && (
         // The layout this device last saw, until the status answers.
-        <Reserved>
+        <Reserved dim>
           {held.linked ? (
             <>
-              {linkedLine(HELD_LINKED)}
+              {linkedLine(null)}
               <WhatsAppRows holdRows={held.rows} />
             </>
           ) : (
@@ -475,7 +479,8 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
     agent !== null &&
     (chat !== BY_NUMBER || phone.trim() !== "");
 
-  const list = (shown: WhatsAppRoute[]) => (
+  // `held`: bars for each row's chat.
+  const list = (shown: WhatsAppRoute[], held = false) => (
     <>
       {shown.length === 0 && (
         <Empty>{t("integrations.whatsapp.rows.empty")}</Empty>
@@ -484,14 +489,20 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
         <ItemRow
           key={r.id}
           data-whatsapp-row={r.id}
-          title={r.name}
-          detail={[
-            r.group
-              ? t("integrations.whatsapp.rows.group")
-              : (chatNumber(r.chat) ?? r.chat.split("@")[0]),
-            ...(agentName(r.agentId) ? [`→ ${agentName(r.agentId)}`] : []),
-            ...(r.group && r.trigger ? [t(TRIGGER[r.trigger])] : []),
-          ].join(" · ")}
+          title={held ? <Placeholder /> : r.name}
+          detail={
+            held ? (
+              <Placeholder width="10em" />
+            ) : (
+              [
+                r.group
+                  ? t("integrations.whatsapp.rows.group")
+                  : (chatNumber(r.chat) ?? r.chat.split("@")[0]),
+                ...(agentName(r.agentId) ? [`→ ${agentName(r.agentId)}`] : []),
+                ...(r.group && r.trigger ? [t(TRIGGER[r.trigger])] : []),
+              ].join(" · ")
+            )
+          }
           status={
             r.dead && (
               <Pill tone="red" data-whatsapp-row-dead={r.dead}>
@@ -533,14 +544,14 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
       </p>
       {holdRows !== undefined ? (
         <>
-          {list(heldRoutes(holdRows))}
+          {list(heldRoutes(holdRows), true)}
           {addRow}
         </>
       ) : routes === null ? (
         // The last row count, until the rows answer.
         !error && (
-          <Reserved>
-            {list(heldRoutes(heldRows))}
+          <Reserved dim>
+            {list(heldRoutes(heldRows), true)}
             {addRow}
           </Reserved>
         )

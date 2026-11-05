@@ -623,3 +623,22 @@ export function AddRow({
     </div>
   );
 }
+
+// Stands for a value a held card does not know yet (task a10fd923): a bar
+// in the text color, about one line high.
+export function Placeholder({ width = "6em" }: { width?: string }) {
+  return (
+    <span
+      data-placeholder=""
+      style={{
+        display: "inline-block",
+        width,
+        height: "0.8em",
+        verticalAlign: "-0.05em",
+        borderRadius: 3,
+        background: "currentColor",
+        opacity: 0.25,
+      }}
+    />
+  );
+}

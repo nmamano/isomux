@@ -23,7 +23,7 @@ import {
   dialogSaveBtn,
   disabledLook,
 } from "../components/dialog-styles.ts";
-import { Btn, card, hintText, input } from "./kit.tsx";
+import { Btn, Placeholder, card, hintText, input } from "./kit.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import type { GithubLinkStatus, GithubLinkWire } from "../../shared/types.ts";
 import type { SecretListRes } from "../../shared/contract-shapes.ts";
@@ -59,14 +59,15 @@ function statusKey(status: GithubLinkStatus): PlainMessageKey {
   );
 }
 
-// What a held card's form shows for a linked room.
+// What a held card's form shows for a linked room: no repo, labels or secret
+// it does not know yet.
 const HELD_LINK: GithubLinkWire = {
   id: "held",
   roomId: "held",
-  repo: "owner/repo",
+  repo: "",
   labels: [],
   collaboratorsOnly: false,
-  secretName: DEFAULT_GITHUB_SYNC_SECRET,
+  secretName: "",
   createdByUserId: "",
   createdAt: 0,
   status: { kind: "ok" },
@@ -176,12 +177,15 @@ export function GithubSection({
         </p>
       </section>
     );
-  // The room select and its form; a held card draws them from placeholders.
+  // The room select and its form. A held card (`waiting`) draws them from
+  // placeholders: room names without repos, and no room when it does not
+  // know which one opens ("").
   const body = (
     roomId: string,
     shown: Record<string, GithubLinkWire>,
+    saved: GithubLinkWire | null,
     names: string[],
-    live = true,
+    waiting = false,
   ) => (
     <>
       <label style={dialogLabel}>{t("integrations.github.room")}</label>
@@ -191,6 +195,7 @@ export function GithubSection({
         onChange={(e) => setPicked(e.target.value)}
         style={input}
       >
+        {roomId === "" && <option value="" />}
         {choices.map((room) => (
           <option key={room.id} value={room.id}>
             {shown[room.id]
@@ -199,12 +204,13 @@ export function GithubSection({
           </option>
         ))}
       </select>
-      <StepMark active={live && roomId === focusRoomId} kind="github-link">
+      <StepMark active={!waiting && roomId === focusRoomId} kind="github-link">
         <RoomGithubLink
           key={roomId}
           roomId={roomId}
-          saved={shown[roomId] ?? null}
+          saved={saved}
           usable={names}
+          waiting={waiting}
           onSecrets={onSecrets}
           onSaved={(link) =>
             setLinks((prev) => {
@@ -220,15 +226,23 @@ export function GithubSection({
   );
 
   if (!links || !picked || !usable) {
-    const first = choices[0].id;
+    // The room the live form opens on (above), as far as it is known: a
+    // remembered link opens on a linked room, but not which one.
+    const opens =
+      focusRoomId && choices.some((room) => room.id === focusRoomId)
+        ? focusRoomId
+        : held.linked
+          ? ""
+          : choices[0].id;
     return (
       <section data-integrations-card="github" style={card}>
-        <Reserved>
+        <Reserved dim>
           {body(
-            first,
-            held.linked ? { [first]: HELD_LINK } : {},
+            opens,
+            {},
+            held.linked ? HELD_LINK : null,
             held.secret ? [DEFAULT_GITHUB_SYNC_SECRET] : [],
-            false,
+            true,
           )}
         </Reserved>
       </section>
@@ -239,22 +253,25 @@ export function GithubSection({
     : choices[0].id;
   return (
     <section data-integrations-card="github" style={card}>
-      {body(roomId, links, usable)}
+      {body(roomId, links, links[roomId] ?? null, usable)}
     </section>
   );
 }
 
 // One room's link: the saved link and its status, Save and Unlink.
+// `waiting`: a held form, with no secret picked and a bar for the status.
 function RoomGithubLink({
   roomId,
   saved,
   usable,
+  waiting,
   onSecrets,
   onSaved,
 }: {
   roomId: string;
   saved: GithubLinkWire | null;
   usable: string[];
+  waiting: boolean;
   onSecrets: () => void;
   onSaved: (link: GithubLinkWire | null) => void;
 }) {
@@ -281,7 +298,7 @@ function RoomGithubLink({
 
   // The choices keep the saved and the picked secret even when the office
   // no longer offers them, so the select always shows what Save sends.
-  const secretName = pickedSecret || defaultSecret(usable);
+  const secretName = waiting ? "" : pickedSecret || defaultSecret(usable);
   const choices = [...usable];
   for (const name of [link?.secretName, secretName])
     if (name && !choices.includes(name)) choices.push(name);
@@ -377,7 +394,7 @@ function RoomGithubLink({
             style={dialogInput}
           >
             <option value="" disabled>
-              {t("integrations.github.pickSecret")}
+              {!waiting && t("integrations.github.pickSecret")}
             </option>
             {choices.map((name) => (
               <option key={name} value={name}>
@@ -400,7 +417,12 @@ function RoomGithubLink({
           })}
         </p>
       )}
-      {link && (
+      {link && waiting && (
+        <p data-github-link-status style={{ ...dialogHint, marginTop: 10 }}>
+          <Placeholder width="8em" />
+        </p>
+      )}
+      {link && !waiting && (
         <p
           data-github-link-status
           data-kind={link.status.kind}

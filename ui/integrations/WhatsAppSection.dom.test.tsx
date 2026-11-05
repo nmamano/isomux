@@ -520,6 +520,81 @@ it("with the status known, the rows hold the last row count until they answer, a
   expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 1 });
 });
 
+// A held block paints the real layout grayed out, not an empty box, and
+// shows no value it does not know yet: a bar stands in for it (task
+// a10fd923, Nil at the sign-off of eeec205a).
+function paints(block: Element) {
+  const style = (block as HTMLElement).style;
+  expect(style.visibility).not.toBe("hidden");
+  expect(Number(style.opacity)).toBeGreaterThan(0);
+  expect(Number(style.opacity)).toBeLessThan(1);
+}
+// A row's own text, without its buttons.
+function rowText(row: Element): string {
+  const copy = row.cloneNode(true) as Element;
+  for (const button of copy.querySelectorAll("button")) button.remove();
+  return copy.textContent!.trim();
+}
+const bars = (root: Element) => root.querySelectorAll("[data-placeholder]");
+
+it("a held linked card paints its line and rows with bars for the number, the connection and each chat", async () => {
+  current = LINKED;
+  rows = routesOf(2);
+  const first = await show({ agents: AGENTS });
+  const connected = live(section(first), "[data-whatsapp-connected]")[0]
+    .textContent!;
+  expect(connected).not.toBe("");
+  first.view.unmount();
+
+  statusGate = gate()[0];
+  const s = await show({ agents: AGENTS });
+  expect(s.card()).toBe("loading");
+  const blocks = heldBlocks(section(s));
+  expect(blocks).toHaveLength(1);
+  const block = blocks[0];
+  paints(block);
+  const heldRows = [...block.querySelectorAll("[data-whatsapp-row]")];
+  expect(heldRows).toHaveLength(2);
+  // No number, chat name or connection state it does not know.
+  expect(block.textContent).not.toMatch(/[0-9]/);
+  expect(block.textContent).not.toContain(connected);
+  expect(block.querySelector("[data-whatsapp-connected]")).toBeNull();
+  for (const row of heldRows) {
+    expect(rowText(row)).toBe("");
+    expect(bars(row).length).toBeGreaterThan(0);
+  }
+  // The linked line: a bar for the number and one for the connection.
+  const outsideRows = [...bars(block)].filter(
+    (bar) => bar.closest("[data-whatsapp-row]") === null,
+  );
+  expect(outsideRows).toHaveLength(2);
+  // The real controls are there, grayed out and out of reach.
+  expect(inHeld(section(s), "[data-whatsapp-unlink]")).toBe(1);
+  expect(inHeld(section(s), "[data-whatsapp-row-delete]")).toBe(2);
+  expect(inHeld(section(s), "[data-integrations-add]")).toBe(1);
+  expect(live(section(s), "button")).toHaveLength(0);
+});
+
+it("held rows of a known link paint with a bar for each chat", async () => {
+  current = LINKED;
+  setWhatsAppLayout({ linked: true, rows: 2 });
+  routesGate = gate()[0];
+  const s = await show({ agents: AGENTS, whatsappStatus: LINKED });
+  const block = s.q("[data-whatsapp-rows]")!;
+  const blocks = heldBlocks(block);
+  expect(blocks).toHaveLength(1);
+  paints(blocks[0]);
+  const heldRows = [...blocks[0].querySelectorAll("[data-whatsapp-row]")];
+  expect(heldRows).toHaveLength(2);
+  expect(blocks[0].textContent).not.toMatch(/[0-9]/);
+  for (const row of heldRows) {
+    expect(rowText(row)).toBe("");
+    expect(bars(row).length).toBeGreaterThan(0);
+  }
+  expect(inHeld(block, "[data-whatsapp-row-delete]")).toBe(2);
+  expect(live(block, "button")).toHaveLength(0);
+});
+
 it("a held layout keeps at most the row cap", async () => {
   current = LINKED;
   rows = routesOf(WHATSAPP_HELD_ROWS_MAX + 5);
