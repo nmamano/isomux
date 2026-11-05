@@ -972,7 +972,7 @@ it("keeps Enter as a new line on a touch screen, where Reply sends", async () =>
   });
 });
 
-it("puts Reply, Dismiss and file-as-task in one row under the field on a phone, and in the form's row on a desktop", async () => {
+it("puts Reply, Dismiss and file-as-task in one row under the field, on a phone and on a desktop", async () => {
   for (const isMobile of [true, false]) {
     const view = mount(isMobile);
     await waitFor(() =>
@@ -1007,23 +1007,19 @@ it("puts Reply, Dismiss and file-as-task in one row under the field on a phone, 
           0,
       ),
       column: form.style.flexDirection === "column",
+      oneRow: buttons.map((b) => b.parentElement === row),
+      rowHoldsField: row.contains(input),
+      rowIsColumn: row.style.flexDirection === "column",
     }).toEqual({
       isMobile,
       inForm: [true, true, true],
       afterField: [true, true, true],
-      column: isMobile,
+      // The field takes the form's width, the buttons a row of their own.
+      column: true,
+      oneRow: [true, true, true],
+      rowHoldsField: false,
+      rowIsColumn: false,
     });
-    // On a phone the buttons are one row of their own, the field above it.
-    if (isMobile)
-      expect({
-        oneRow: buttons.map((b) => b.parentElement === row),
-        rowHoldsField: row.contains(input),
-        rowIsColumn: row.style.flexDirection === "column",
-      }).toEqual({
-        oneRow: [true, true, true],
-        rowHoldsField: false,
-        rowIsColumn: false,
-      });
     view.unmount();
   }
 });

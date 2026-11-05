@@ -689,7 +689,7 @@ function ReplyAskCard({
     );
   }
   // Reply, Dismiss, filing as a task, Discuss in chat and Simplify: one group
-  // that wraps, beside the field on a desktop when it fits, else under it.
+  // that wraps, under the field, which takes the card's width.
   const replyButtons = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       <button
@@ -1077,11 +1077,9 @@ function ReplyAskCard({
           }}
           style={{
             display: "flex",
-            flexDirection: isMobile ? "column" : "row",
-            flexWrap: isMobile ? undefined : "wrap",
+            flexDirection: "column",
             gap: 6,
             marginTop: 7,
-            alignItems: isMobile ? "stretch" : "flex-end",
           }}
         >
           <textarea
@@ -1108,9 +1106,7 @@ function ReplyAskCard({
             onKeyDown={onReplyKeyDown}
             aria-label={t("asks.reply")}
             style={{
-              flex: isMobile ? undefined : "1 1 160px",
               minWidth: 0,
-              maxWidth: isMobile ? undefined : 460,
               boxSizing: "border-box",
               padding: isMobile ? "8px 10px" : "5px 10px",
               background: "var(--bg-input)",
