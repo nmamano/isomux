@@ -38,6 +38,13 @@ Look at UI changes instead of assuming them. A box set up by `deploy/install.sh`
 
 Claude Code, Codex and OpenCode agents are all first class. A change to a surface an agent uses (system prompt, skills, environment, office routes, session lifecycle) names in its hand-off the engines it was checked on, and the reviewer checks that line. `bun run test:conformance` runs office work on each engine.
 
+## UI rules
+
+Nil's rules for every UI change. A diff that breaks one does not pass review or sign-off.
+
+- Every button has a background. A button is never bare text or an outline only. "Buttons without background should not be a thing anywhere in isomux." Nil, 2026-10-31.
+- A view keeps its layout while it loads: draw the real controls, disabled and dimmed (or a placeholder of the same shape), until the data arrives. Never an empty box or a panel that grows. Nil, 2026-11-05.
+
 ## Formatting and linting
 
 Run prettier ONLY AFTER final human approval for commit. Do NOT format changes before human review. In particular, only run `prettier --write` after final approval; it changes files in disk which corrupts agent context and triggers file re-reads.
