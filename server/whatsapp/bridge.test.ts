@@ -46,8 +46,18 @@ export const normalizeMessageContent = (m) => m;
 // As Baileys: content, and not a protocol message, a reaction or a poll vote.
 export const isRealMessage = (m) => !!m.message && !m.message.protocolMessage && !m.message.reactionMessage && !m.message.pollUpdateMessage;
 const qr = (ref) => "https://wa.me/settings/linked_devices#" + ref + ",NOISE,IDENT,OLD,1";
+// As WAProto.
+const HistorySyncType = { INITIAL_BOOTSTRAP: 0, INITIAL_STATUS_V3: 1, FULL: 2, RECENT: 3, PUSH_NAME: 4, NON_BLOCKING_DATA: 5, ON_DEMAND: 6 };
+export const proto = { HistorySync: { HistorySyncType } };
+// A scenario's {long: n} is a protobuf Long, as Baileys gives int64 fields.
+const longs = (chats) => chats.map((c) => c.conversationTimestamp?.long === undefined ? c : { ...c, conversationTimestamp: { low: c.conversationTimestamp.long, high: 0, unsigned: true, toNumber: () => c.conversationTimestamp.long } });
 export default function makeSocket(config) {
   seen.version = config.version ?? "none";
+  // Which history syncs the bridge asks Baileys to process.
+  seen.sync = {
+    full: config.syncFullHistory,
+    types: Object.fromEntries(Object.entries(HistorySyncType).map(([k, v]) => [k, config.shouldSyncHistoryMessage?.({ syncType: v }) === true])),
+  };
   note();
   const ws = new EventEmitter();
   const ev = new EventEmitter();
@@ -63,6 +73,8 @@ export default function makeSocket(config) {
     // both forms of its id.
     me: () => { creds.me = { id: "447700900123:4@s.whatsapp.net", lid: "999:4@lid" }; },
     contacts: () => ev.emit("contacts.upsert", s.contacts),
+    // As Baileys 7.0.0-rc14 emits the first sync (Utils/history.js).
+    history: () => ev.emit("messaging-history.set", { ...s.history, chats: longs(s.history.chats), lidPnMappings: [], syncType: HistorySyncType.INITIAL_BOOTSTRAP, progress: 100, isLatest: true }),
     close: () => ev.emit("connection.update", { connection: "close", lastDisconnect: { error: { message: "QR refs attempts ended", output: { statusCode: 408 } } } }),
   };
   let i = 0;
@@ -97,6 +109,8 @@ type Scenario = {
   // For the messages step: the batch, the LID -> PN lookup, the routed chats.
   messages?: unknown[];
   contacts?: unknown[];
+  // For the history step: messaging-history.set's chats, contacts, messages.
+  history?: { chats: unknown[]; contacts: unknown[]; messages: unknown[] };
   lids?: Record<string, string>;
   routes?: string[];
 };
@@ -106,7 +120,14 @@ let n = 0;
 async function run(
   scenario: Scenario,
   link: Record<string, unknown>,
-): Promise<{ events: Ev[]; seen: { saved: string[]; version: unknown } }> {
+): Promise<{
+  events: Ev[];
+  seen: {
+    saved: string[];
+    version: unknown;
+    sync: { full: unknown; types: Record<string, boolean> };
+  };
+}> {
   const base = join(root, String(++n));
   const runtime = join(base, "runtime");
   const member = join(base, "member");
@@ -420,5 +441,220 @@ describe("whatsapp bridge", () => {
       ["M1", SELF_PN, true, "note to self"],
       ["M2", SELF_PN, true, "by number"],
     ]);
+  });
+
+  // Task b86d1502: WhatsApp's first sync after a link carries each chat's
+  // last-activity time, so the Add picker can sort chats with no message
+  // since the link. The sync's messages never leave the bridge.
+  test("the first sync gives each chat's time under each id the chat is known by, and no message", async () => {
+    const T = 1_700_000_000;
+    const PN = "447700900123@s.whatsapp.net";
+    // Baileys keeps the newest message of each chat on the chat itself.
+    const last = (chat: string, n: number) => ({
+      key: { id: `H${n}`, remoteJid: chat, participant: PN },
+      messageTimestamp: T + n,
+      message: { conversation: "history secret" },
+    });
+    const chat = (
+      id: string,
+      conversationTimestamp?: number | { long: number },
+      extra: Record<string, unknown> = {},
+    ) => ({
+      id,
+      ...(conversationTimestamp === undefined ? {} : { conversationTimestamp }),
+      messages: [{ message: last(id, 0) }],
+      ...extra,
+    });
+    const { events, seen } = await run(
+      {
+        steps: ["history"],
+        versionLatest: true,
+        routes: ["routed@g.us", "447700900444@s.whatsapp.net"],
+        lids: { "222@lid": "447700900222@s.whatsapp.net" },
+        history: {
+          chats: [
+            chat("g1@g.us", T + 1),
+            // A PN chat: one id only.
+            chat("447700900444@s.whatsapp.net", T + 2),
+            // A LID chat whose PN comes with the chat.
+            chat("111@lid", T + 3, { pnJid: "447700900111@s.whatsapp.net" }),
+            // A LID chat whose PN comes from the LID lookup.
+            chat("222@lid", T + 4),
+            // A protobuf Long.
+            chat("g2@g.us", { long: T + 5 }),
+            // Not a chat the picker lists.
+            chat("status@broadcast", T + 6),
+            chat("120363000000000000@newsletter", T + 7),
+            // No time: no activity, not "now".
+            chat("g3@g.us"),
+            chat("g4@g.us", 0),
+            // A routed chat: its time goes, its history does not.
+            chat("routed@g.us", T + 8),
+          ],
+          contacts: [],
+          messages: [
+            last("routed@g.us", 8),
+            last("447700900444@s.whatsapp.net", 2),
+            last("g1@g.us", 1),
+          ],
+        },
+      },
+      { method: "qr" },
+    );
+    const ms = (n: number) => (T + n) * 1000;
+    const activity = events
+      .filter((e) => e.ev === "activity")
+      .map((e) => [e.chat, e.at] as const)
+      .sort(([a], [b]) => String(a).localeCompare(String(b)));
+    expect(activity).toStrictEqual(
+      (
+        [
+          ["g1@g.us", ms(1)],
+          ["447700900444@s.whatsapp.net", ms(2)],
+          ["111@lid", ms(3)],
+          ["447700900111@s.whatsapp.net", ms(3)],
+          ["222@lid", ms(4)],
+          ["447700900222@s.whatsapp.net", ms(4)],
+          ["g2@g.us", ms(5)],
+          ["routed@g.us", ms(8)],
+        ] as [string, number][]
+      ).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    // Only times: no message, routed or not, and no text anywhere.
+    expect(
+      events.filter((e) => e.ev === "message" || e.ev === "chat"),
+    ).toStrictEqual([]);
+    expect(events.map((e) => JSON.stringify(e)).join("\n")).not.toContain(
+      "history secret",
+    );
+    // The first sync and its recent part only: never the full history.
+    expect(seen.sync).toStrictEqual({
+      full: false,
+      types: {
+        INITIAL_BOOTSTRAP: true,
+        INITIAL_STATUS_V3: false,
+        FULL: false,
+        RECENT: true,
+        PUSH_NAME: false,
+        NON_BLOCKING_DATA: false,
+        ON_DEMAND: false,
+      },
+    });
+  });
+
+  // An agent never sees a contact's own WhatsApp name
+  // (docs/security-audit.md 4.8). The first sync names each chat with
+  // fields of unknown meaning (displayName, name) or the contact's own
+  // username; the member's saved name reaches a contact of that sync only
+  // when Baileys merges it in, and then it differs from all three.
+  test("of the first sync's contacts, only a name the member saved names a chat; never a group, never the contact's own name", async () => {
+    const T = 1_700_000_000;
+    const ANA = "447700900555@s.whatsapp.net";
+    const BO = "447700900666@s.whatsapp.net";
+    const CY = "447700900777@s.whatsapp.net";
+    const DEE = "447700900888@s.whatsapp.net";
+    const EVE = "447700900999@s.whatsapp.net";
+    const ZED = "447700900321@s.whatsapp.net";
+    const say = (n: number, from: string) => ({
+      key: { id: `M${n}`, remoteJid: "routed@g.us", participant: from },
+      messageTimestamp: T + 100 + n,
+      message: { conversation: `hi ${n}` },
+    });
+    const sendersOf = (events: Ev[]) =>
+      events.filter((e) => e.ev === "message").map((e) => [e.id, e.senderName]);
+    const chatsOf = (events: Ev[]) =>
+      events
+        .filter((e) => e.ev === "chat")
+        .map((e) => [e.chat, e.name, e.group])
+        .sort(([a], [b]) => String(a).localeCompare(String(b)));
+    const [history, upsert] = await Promise.all([
+      run(
+        {
+          steps: ["history", "messages"],
+          versionLatest: true,
+          routes: ["routed@g.us"],
+          history: {
+            chats: [
+              {
+                id: ANA,
+                conversationTimestamp: T + 1,
+                displayName: "Ana WA",
+                username: "ana_wa",
+              },
+              { id: BO, conversationTimestamp: T + 2, username: "bo_own" },
+              { id: CY, conversationTimestamp: T + 3, displayName: "Cy WA" },
+              { id: DEE, conversationTimestamp: T + 4, name: "Dee WA" },
+              {
+                id: "g1@g.us",
+                conversationTimestamp: T + 5,
+                name: "Group One",
+              },
+            ],
+            contacts: [
+              // Saved: the name differs from each of its chat's names.
+              { id: ANA, name: "Ana Saved", username: "ana_wa" },
+              // Each a name of the chat itself.
+              { id: BO, name: "bo_own", username: "bo_own" },
+              { id: CY, name: "Cy WA" },
+              { id: DEE, name: "Dee WA" },
+              // A group: never announced as a contact's chat.
+              { id: "g1@g.us", name: "Group Saved" },
+              // No chat in the sync: the name can only be a saved one.
+              { id: EVE, name: "Eve Saved" },
+            ],
+            messages: [],
+          },
+          messages: [
+            say(1, ANA),
+            say(2, BO),
+            say(3, CY),
+            say(4, DEE),
+            say(5, EVE),
+          ],
+        },
+        { method: "qr" },
+      ),
+      // A contact Baileys names by its own username (a saved contact with
+      // no name of the member's): no name, as for any unsaved contact.
+      run(
+        {
+          steps: ["contacts", "messages"],
+          versionLatest: true,
+          routes: ["routed@g.us"],
+          contacts: [
+            { id: ZED, name: "zed_own", username: "zed_own" },
+            { id: EVE, name: "Eve Saved", username: "eve_own" },
+          ],
+          messages: [say(1, ZED), say(2, EVE)],
+        },
+        { method: "qr" },
+      ),
+    ]);
+    expect({
+      chats: chatsOf(history.events),
+      senders: sendersOf(history.events),
+    }).toStrictEqual({
+      chats: [
+        [ANA, "Ana Saved", false],
+        [EVE, "Eve Saved", false],
+      ],
+      senders: [
+        ["M1", "Ana Saved"],
+        ["M2", null],
+        ["M3", null],
+        ["M4", null],
+        ["M5", "Eve Saved"],
+      ],
+    });
+    expect({
+      chats: chatsOf(upsert.events),
+      senders: sendersOf(upsert.events),
+    }).toStrictEqual({
+      chats: [[EVE, "Eve Saved", false]],
+      senders: [
+        ["M1", null],
+        ["M2", "Eve Saved"],
+      ],
+    });
   });
 });

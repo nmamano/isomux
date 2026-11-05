@@ -11,7 +11,9 @@
 //
 // What it writes to stdout is all the server sees: no message text and no
 // contact number goes into a log line. Of a chat that is not routed, only its
-// id, its name and the time of its messages leave this process.
+// id, its name and the time of its messages leave this process. Of the
+// history WhatsApp sends after a link, only each chat's time and the names
+// the member saved leave it.
 
 import { randomBytes } from "crypto";
 import { createInterface } from "readline";
@@ -68,7 +70,10 @@ interface Contact {
   lid?: string;
   phoneNumber?: string;
   // The name the member saved. notify is the contact's own name: never used.
+  // Baileys falls back to the contact's own username when the member saved
+  // no name.
   name?: string;
+  username?: string;
 }
 interface MessageKey {
   id?: string | null;
@@ -93,6 +98,17 @@ interface WAMessage {
   key: MessageKey;
   message?: MessageContent | null;
   messageTimestamp?: number | { toNumber(): number } | null;
+}
+type Long = { toNumber(): number };
+// A chat of the history sync. displayName, name and username are the
+// chat's names in that sync: not known to be names the member saved.
+interface HistoryChat {
+  id?: string | null;
+  pnJid?: string | null;
+  conversationTimestamp?: number | Long | null;
+  displayName?: string | null;
+  name?: string | null;
+  username?: string | null;
 }
 interface Group {
   id: string;
@@ -129,6 +145,10 @@ interface Socket {
       event: "messages.upsert",
       fn: (u: { messages: WAMessage[] }) => void,
     ): void;
+    on(
+      event: "messaging-history.set",
+      fn: (h: { chats: HistoryChat[]; contacts: Contact[] }) => void,
+    ): void;
   };
   signalRepository: {
     lidMapping: { getPNForLID(lid: string): Promise<string | null> };
@@ -159,6 +179,11 @@ interface Baileys {
   // reaction or a poll vote.
   isRealMessage(m: WAMessage): boolean;
   areJidsSameUser(a: string | undefined, b: string | undefined): boolean;
+  proto: {
+    HistorySync: {
+      HistorySyncType: { INITIAL_BOOTSTRAP: number; RECENT: number };
+    };
+  };
 }
 
 const [memberDir, runtimeDir] = process.argv.slice(2);
@@ -214,6 +239,8 @@ const baileys = (await import(
 const { state, saveCreds } = await baileys.useMultiFileAuthState(
   join(memberDir, "auth"),
 );
+
+const { HistorySyncType } = baileys.proto.HistorySync;
 
 // "447700900123:12@s.whatsapp.net" -> "447700900123"
 const phoneOf = (jid: string) => jid.split("@")[0].split(":")[0];
@@ -297,7 +324,8 @@ function announceChat(chat: string, name: string, group: boolean): void {
 
 function onContacts(contacts: Contact[]): void {
   for (const c of contacts) {
-    if (!c.name) continue;
+    // A name that is the contact's own username is not one the member saved.
+    if (!c.name || c.name === c.username) continue;
     const ids = [c.id, c.lid, c.phoneNumber].filter(
       (id): id is string => typeof id === "string" && id.length > 0,
     );
@@ -336,6 +364,46 @@ async function pnOf(
   } catch {
     return null;
   }
+}
+
+// The history sync after a link (task b86d1502): the time of each chat's
+// last message, for the Add picker's order, and the member's saved names.
+// Its messages are never read. A contact's name passes only when it is none
+// of its chat's names in the sync: then the member's saved name replaced it.
+async function onHistory(
+  chats: HistoryChat[],
+  contacts: Contact[],
+  s: Socket,
+): Promise<void> {
+  const chatNames = new Map<string, (string | null | undefined)[]>();
+  for (const c of chats) {
+    if (!c.id) continue;
+    chatNames.set(c.id, [c.displayName, c.name, c.username]);
+    const raw = c.id;
+    const group = raw.endsWith("@g.us");
+    const chat = baileys.jidNormalizedUser(raw);
+    if (!group && !chat.endsWith("@s.whatsapp.net") && !chat.endsWith("@lid"))
+      continue;
+    const t = c.conversationTimestamp;
+    const seconds =
+      typeof t === "number"
+        ? t
+        : t && typeof t.toNumber === "function"
+          ? t.toNumber()
+          : 0;
+    if (!(seconds > 0)) continue;
+    const pn = group ? null : await pnOf(chat, c.pnJid ?? undefined, s);
+    for (const id of new Set([chat, pn ?? chat]))
+      send({ ev: "activity", chat: id, at: seconds * 1000 });
+  }
+  onContacts(
+    contacts.filter(
+      (c) =>
+        !!c.id &&
+        !c.id.endsWith("@g.us") &&
+        !(chatNames.get(c.id) ?? []).includes(c.name),
+    ),
+  );
 }
 
 const timestampMs = (t: WAMessage["messageTimestamp"]): number => {
@@ -465,8 +533,12 @@ async function start(): Promise<void> {
     browser: baileys.Browsers.ubuntu("Isomux"),
     // Online presence would stop the phone's push notifications.
     markOnlineOnConnect: false,
+    // The first sync and its recent part only, for each chat's time
+    // (onHistory): never the full history.
     syncFullHistory: false,
-    shouldSyncHistoryMessage: () => false,
+    shouldSyncHistoryMessage: ({ syncType }: { syncType?: number | null }) =>
+      syncType === HistorySyncType.INITIAL_BOOTSTRAP ||
+      syncType === HistorySyncType.RECENT,
   });
   sock = socket;
   let codeAsked = false;
@@ -510,8 +582,12 @@ async function start(): Promise<void> {
   socket.ev.on("contacts.update", (c) => onContacts(c));
   socket.ev.on("groups.upsert", onGroups);
   socket.ev.on("groups.update", onGroups);
-  // Live and offline messages; the history sync (messaging-history.set) is
-  // not read.
+  socket.ev.on("messaging-history.set", ({ chats, contacts }) => {
+    reading = reading
+      .then(() => onHistory(chats ?? [], contacts ?? [], socket))
+      .catch(() => log("the chat history was not read"));
+  });
+  // Live and offline messages. The history sync's messages are not read.
   socket.ev.on("messages.upsert", ({ messages }) => {
     // One at a time: a LID lookup must not let a later message leave first.
     for (const m of messages)
