@@ -2738,8 +2738,7 @@ describe("CronjobManager: a schedule that messages an agent", () => {
       expect(calls).toHaveLength(3);
       expect(nextOf()).toBe(at(4, 30, 9));
     } finally {
-      if (savedZone === undefined) delete process.env.TZ;
-      else process.env.TZ = savedZone;
+      process.env.TZ = savedZone;
     }
   });
 

@@ -16,8 +16,7 @@ beforeAll(() => {
   process.env.TZ = ZONE;
 });
 afterAll(() => {
-  if (savedZone === undefined) delete process.env.TZ;
-  else process.env.TZ = savedZone;
+  process.env.TZ = savedZone;
 });
 
 // A local wall-clock time in ZONE (month is 1-12).

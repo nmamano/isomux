@@ -89,9 +89,7 @@ it("reads task-scoped history and renders changed values", async () => {
   expect(text).not.toContain("createdByAgentId");
 });
 it("maps roster IDs and local minute bounds, keeps filters when paging, and clears the cursor", async () => {
-  // bun test runs in UTC with TZ unset, and deleting TZ falls back to the
-  // system zone, so restore the zone the process actually had.
-  const previousZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const previousZone = process.env.TZ;
   process.env.TZ = "America/Los_Angeles";
   try {
     expect(new Date(2026, 9, 10, 14, 30).getTimezoneOffset()).not.toBe(0);

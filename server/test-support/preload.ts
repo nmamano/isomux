@@ -197,6 +197,11 @@ for (const [name, dir] of [
 }
 
 process.env.TMPDIR = tempRoot;
+
+// bun test starts with TZ unset. A file that restored an unset TZ by deleting
+// it moved the rest of the process to the system zone, while Intl formatters
+// cached before kept the old one. Pinned, every restore puts back this zone.
+process.env.TZ ??= Intl.DateTimeFormat().resolvedOptions().timeZone;
 // removeStateDir would refuse the folder itself: by then tmpdir() is the
 // folder. The sentinel stops only after the folder is gone: a closed sentinel
 // tells other runs' sweeps that this run is over.
