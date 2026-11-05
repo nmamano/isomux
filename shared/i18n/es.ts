@@ -2201,7 +2201,7 @@ Cosas que puedes hacer por él:
   "cards.sudoRequest.cwd": "En",
   "cards.sudoRequest.password": "Contraseña para sudo",
   "cards.sudoRequest.hint":
-    "La contraseña va solo a sudo: no se guarda y el agente nunca la ve. El agente recibe el código de salida y la salida. Un reinicio del servidor detiene el comando.",
+    "La contraseña va solo a sudo: no se guarda y el agente nunca la ve. El agente recibe el código de salida y la salida.",
   "cards.sudoRequest.run": "Ejecutar",
   "cards.sudoRequest.running": "Ejecutando…",
   "cards.sudoRequest.runFailed": "No se pudo ejecutar el comando.",

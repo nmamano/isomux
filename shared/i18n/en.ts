@@ -2148,7 +2148,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.sudoRequest.cwd": "In",
   "cards.sudoRequest.password": "Password for sudo",
   "cards.sudoRequest.hint":
-    "The password goes only to sudo: it is not saved, and the agent never sees it. The agent gets the exit code and the output. A server restart stops the command.",
+    "The password goes only to sudo: it is not saved, and the agent never sees it. The agent gets the exit code and the output.",
   "cards.sudoRequest.run": "Run",
   "cards.sudoRequest.running": "Running…",
   "cards.sudoRequest.runFailed": "Could not run the command.",

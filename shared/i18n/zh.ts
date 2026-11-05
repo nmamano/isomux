@@ -1971,7 +1971,7 @@ App 的一些原则：
   "cards.sudoRequest.cwd": "目录",
   "cards.sudoRequest.password": "sudo 密码",
   "cards.sudoRequest.hint":
-    "密码只交给 sudo：不会保存，智能体也永远看不到。智能体会收到退出码和输出。服务器重启会中止此命令。",
+    "密码只交给 sudo：不会保存，智能体也永远看不到。智能体会收到退出码和输出。",
   "cards.sudoRequest.run": "运行",
   "cards.sudoRequest.running": "正在运行…",
   "cards.sudoRequest.runFailed": "无法运行此命令。",

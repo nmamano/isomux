@@ -2203,7 +2203,7 @@ Coses que pots fer per ell:
   "cards.sudoRequest.cwd": "A",
   "cards.sudoRequest.password": "Contrasenya per a sudo",
   "cards.sudoRequest.hint":
-    "La contrasenya va només a sudo: no es desa i l'agent no la veu mai. L'agent rep el codi de sortida i la sortida. Un reinici del servidor atura l'ordre.",
+    "La contrasenya va només a sudo: no es desa i l'agent no la veu mai. L'agent rep el codi de sortida i la sortida.",
   "cards.sudoRequest.run": "Executar",
   "cards.sudoRequest.running": "S'està executant…",
   "cards.sudoRequest.runFailed": "No s'ha pogut executar l'ordre.",
