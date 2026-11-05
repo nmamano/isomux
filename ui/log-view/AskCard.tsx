@@ -17,7 +17,7 @@
 // option puts it in the field (focused with a mouse; on a touch screen the
 // keyboard would move the buttons), and the button now sends. The button
 // that sends is filled, with a send arrow; the others are outlined, with a
-// fill mark of the same size, so a fill moves no button. The field starts
+// pencil of the same size, so a fill moves no button. The field starts
 // with the option the agent recommends (marked on its button), with the
 // only option of a one-option ask, empty for other options, and with the
 // catalog's "done" for an ask without options. An ask's files, editor files and commands are the
@@ -147,8 +147,8 @@ function tabToReplyField(e: KeyboardEvent<HTMLTextAreaElement>) {
 }
 
 // What an option button does: a send arrow on the option the reply field
-// holds, a fill mark (into the field) on the others. One size for both, so a
-// fill moves no button. SVG, not a glyph: iOS Safari draws arrows through the
+// holds, a pencil on the others (a tap puts the option in the field to
+// edit). One size for both, so a fill moves no button. SVG, not a glyph: iOS Safari draws arrows through the
 // emoji font. The button's text says the option; the mark is decoration.
 function OptionMark({ sends, size }: { sends: boolean; size: number }) {
   return (
@@ -167,7 +167,7 @@ function OptionMark({ sends, size }: { sends: boolean; size: number }) {
       {sends ? (
         <path d="M4 12h15M13 6l6 6-6 6" />
       ) : (
-        <path d="M12 3v11M7 9l5 5 5-5M4 20h16" />
+        <path d="M4 20h4L20 8l-4-4L4 16v4zM14 6l4 4" />
       )}
     </svg>
   );
