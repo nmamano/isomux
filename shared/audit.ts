@@ -18,6 +18,10 @@ export const AUDIT_ACTOR_KINDS = [
   // The GitHub issue sync (task 7fc83592): id is the link, name the repo,
   // ownerId the owner who made the link.
   "github_sync",
+  // The updater (scripts/update.sh), for each finished update attempt
+  // (operation office.update). The server writes the entry from the
+  // updater's progress record.
+  "updater",
 ] as const;
 export type AuditActorKind = (typeof AUDIT_ACTOR_KINDS)[number];
 export interface AuditActor {
@@ -46,6 +50,21 @@ export interface AuditEntry {
   // A write to a member's integrations (/api/users/:username/...): whose, and
   // the variable, secret or MCP server name. Never a value.
   member?: { userId: string; item?: string };
+  // office.update: one finished update attempt.
+  update?: UpdateAudit;
+}
+export interface UpdateAudit {
+  attempt: string;
+  // The release tag the attempt went to.
+  target: string;
+  result: "ok" | "failed";
+  // Epoch ms. ended is null when the updater died before it wrote a result.
+  started: number;
+  ended: number | null;
+  // In the order the updater entered them. A phase lasts until the next one
+  // starts; the last lasts until ended, and its seconds are null when ended
+  // is null.
+  phases: { phase: string; seconds: number | null }[];
 }
 export interface AuditFilter {
   actorKind?: AuditActorKind;

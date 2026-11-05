@@ -2678,6 +2678,9 @@ export interface UpdateProgressWire {
   // A phase name from scripts/update.sh; null while requested.
   phase: string | null;
   result: "requested" | "running" | "ok" | "failed";
+  // When the updater started this attempt, epoch ms. Null or absent while
+  // requested, and for a record from an older updater.
+  started?: number | null;
 }
 
 export type UpdateApply =

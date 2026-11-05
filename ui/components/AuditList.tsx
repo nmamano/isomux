@@ -17,6 +17,7 @@ import type {
   AuditEntry,
   AuditPage,
   TaskHistory,
+  UpdateAudit,
 } from "../../shared/audit.ts";
 import { groupAgentsByRoom } from "../agent-groups.ts";
 
@@ -37,6 +38,7 @@ const ACTOR_KIND_LABEL: Record<AuditActorKind, PlainMessageKey> = {
   secret_proxy: "audit.kind.secretProxy",
   auto_handoff: "audit.kind.autoHandoff",
   github_sync: "audit.kind.githubSync",
+  updater: "audit.kind.updater",
 };
 // Keyed by the scope in a memory:<scope>:<id> target. Rows written before
 // task f41c93e9 name the member scope "boss".
@@ -76,6 +78,20 @@ function targetName(
       );
   }
   return id;
+}
+
+// The result in words, with the total time when the updater wrote an end.
+function updateResult(update: UpdateAudit, t: Translator["t"]): string {
+  const ok = update.result === "ok";
+  if (typeof update.ended !== "number" || typeof update.started !== "number")
+    return t(ok ? "audit.update.ok" : "audit.update.failed");
+  const seconds = Math.max(
+    0,
+    Math.round((update.ended - update.started) / 1000),
+  );
+  return t(ok ? "audit.update.okIn" : "audit.update.failedAfter", {
+    seconds,
+  });
 }
 
 function AuditRows({
@@ -134,6 +150,18 @@ function AuditRows({
                   {entry.secretUse.path}
                 </div>
               )}
+            {Array.isArray(entry.update?.phases) && (
+              <div style={HINT}>
+                {updateResult(entry.update, t)} ·{" "}
+                {entry.update.phases
+                  .map(({ phase, seconds }) =>
+                    typeof seconds === "number"
+                      ? t("audit.update.phaseTime", { phase, seconds })
+                      : phase,
+                  )
+                  .join(", ")}
+              </div>
+            )}
             {entry.memoryContent !== undefined && (
               <pre style={{ whiteSpace: "pre-wrap" }}>
                 {entry.memoryContent}

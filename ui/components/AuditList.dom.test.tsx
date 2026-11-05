@@ -240,6 +240,73 @@ it("shows each row's payload, and survives a wrong-shaped secret use", async () 
   expect(rows[2].querySelector("pre")?.textContent).toBe("Line one\nLine two");
   expect(rows[3].querySelector("pre")?.textContent).toBe("- note\n");
 });
+// The updater's row: each phase's time, so a slow phase stands out. Phase names are the updater's protocol ids.
+it("shows a finished update's phases with their seconds", async () => {
+  const update = (attempt: string, ended: number | null) => ({
+    attempt,
+    target: "v2026.11.5",
+    result: ended === null ? "failed" : "ok",
+    started: 1_800_000_000_000,
+    ended,
+    phases: [
+      { phase: "fetch", seconds: 7 },
+      { phase: "deps", seconds: 187 },
+      { phase: "readiness", seconds: ended === null ? null : 35 },
+    ],
+  });
+  setApiShim(async () => ({
+    items: [
+      {
+        sequence: 2,
+        time: 2,
+        actor: { kind: "updater", id: "updater", name: "" },
+        operation: "office.update",
+        targets: ["v2026.11.5", `update:${"a".repeat(32)}`],
+        fields: [],
+        update: update("a".repeat(32), 1_800_000_240_000),
+      },
+      {
+        sequence: 1,
+        time: 1,
+        actor: { kind: "updater", id: "updater", name: "" },
+        operation: "office.update",
+        targets: ["v2026.11.5", `update:${"b".repeat(32)}`],
+        fields: [],
+        update: update("b".repeat(32), null),
+      },
+    ],
+    nextBefore: null,
+  }));
+  const view = render(<AuditPane />);
+  await act(async () => {});
+  const rows = view.container.querySelectorAll("li");
+  expect(rows).toHaveLength(2);
+  for (const row of rows) {
+    const text = row.textContent ?? "";
+    expect(text).toMatch(/\bdeps\b[^0-9]*\b187\b/);
+    expect(text).toMatch(/\bfetch\b[^0-9]*\b7\b/);
+  }
+  expect(rows[0].textContent).toMatch(/\breadiness\b[^0-9]*\b35\b/);
+  // The result in this member's language, with the total time when the
+  // updater wrote an end (ended - started), and without it when it did not.
+  const hints = [...rows].map(
+    (row) =>
+      [...row.querySelectorAll("div")]
+        .find((d) => /\bdeps\b/.test(d.textContent ?? ""))
+        ?.textContent?.trim() ?? "",
+  );
+  expect(hints[0].startsWith(t("audit.update.okIn", { seconds: 240 }))).toBe(
+    true,
+  );
+  expect(hints[1].startsWith(t("audit.update.failed"))).toBe(true);
+  expect(hints[1].split("fetch")[0]).not.toMatch(/\d/);
+  // An updater that died in its last phase: that phase shows its name and
+  // nothing after it.
+  const hint = [...rows[1].querySelectorAll("div")].find((d) =>
+    /\bdeps\b/.test(d.textContent ?? ""),
+  );
+  expect(hint?.textContent?.trim()).toMatch(/\breadiness[^\p{L}\p{N}]*$/u);
+});
 // Member-memory rows were written as memory:boss:<id> before task f41c93e9 and
 // as memory:member:<id> after it: both read as the same member memory.
 it("labels member-memory rows of both target names alike", async () => {

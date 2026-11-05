@@ -116,6 +116,7 @@ export const AUDIT_OPERATIONS = [
   "office.setInstructions",
   "office.setSettings",
   "office.triggerUpdate",
+  "office.update",
   "officeEnv.remove",
   "officeEnv.replace",
   "officeEnv.set",

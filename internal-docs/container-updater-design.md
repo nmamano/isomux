@@ -57,6 +57,9 @@ unavailable, and neither systemd-nspawn nor QEMU is installed (2026-09-23).
   `UPDATER_PATH=/usr/local/sbin/isomux-update`. Container paths and image repository
   are constants. Git mode remains the default for existing configs.
 - `/run/isomux-update` is root:root 0755; `request.sock` is root:root 0666.
+  The updater also publishes `progress.json` (0644) there, so the office in
+  the container can follow the update (internal-docs/release-design.md,
+  Progress).
   systemd creates it through `isomux-container-update.socket` with `Accept=yes`.
   Each connection starts `isomux-container-update@.service`, running the Python
   helper as root with socket stdin/stdout and a bounded service timeout.

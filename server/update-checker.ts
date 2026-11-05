@@ -64,7 +64,10 @@ import {
   PUBLIC_PROGRESS_DIR,
   readText,
   UpdateProgressWatcher,
+  type ProgressRecord,
 } from "./update-progress.ts";
+import { officeAuditStore, type AuditStore } from "./audit-store.ts";
+import type { UpdateAudit } from "../shared/audit.ts";
 
 // Commit-mode drift target and the image-mode release channel. Host release
 // mode derives owner/repo from the conf's REPO_URL instead, so forks keep a
@@ -677,6 +680,43 @@ function readUpdateOutcome(running: string | null): UpdateOutcomeWire | null {
   return typeof raw === "string" ? parseUpdateOutcome(raw, running) : null;
 }
 
+// One office.update audit entry per finished attempt (actor updater), from
+// the updater's progress record. A record without a started time (an older
+// updater) writes none; an attempt already in the log writes none.
+export function auditFinishedUpdate(
+  rec: ProgressRecord,
+  store: AuditStore,
+): void {
+  const { started, target } = rec;
+  if (started === undefined || target === undefined) return;
+  if (rec.result === "running") return;
+  const attemptTarget = `update:${rec.attempt}`;
+  if (store.list({ targetId: attemptTarget, limit: 1 }).items.length > 0) {
+    return;
+  }
+  const ended = rec.ended ?? null;
+  const phases = rec.phases ?? [];
+  const update: UpdateAudit = {
+    attempt: rec.attempt,
+    target,
+    result: rec.result,
+    started: started * 1000,
+    ended: ended === null ? null : ended * 1000,
+    // A phase lasts until the next one starts, the last until the end.
+    phases: phases.map(([phase, at], i) => {
+      const next = i + 1 < phases.length ? phases[i + 1][1] : ended;
+      return { phase, seconds: next === null ? null : next - at };
+    }),
+  };
+  store.append({
+    actor: { kind: "updater", id: "updater", name: "" },
+    operation: "office.update",
+    targets: [target, attemptTarget],
+    fields: [],
+    update,
+  });
+}
+
 // The update route wraps its launch in these two: the attempt on file is
 // noted before the launch, and an accepted launch shows as requested.
 export function beforeUpdateTrigger(): ReturnType<
@@ -737,6 +777,13 @@ export function startUpdateChecker() {
     progressWatcher = new UpdateProgressWatcher(
       progressPathFor(conf),
       setUpdateProgress,
+      readText,
+      {
+        updaterInOtherPidNamespace:
+          conf.state === "parsed" &&
+          conf.values.DEPLOYMENT_KIND === "container",
+        onFinished: (rec) => auditFinishedUpdate(rec, officeAuditStore()),
+      },
     );
     progressWatcher.start();
     const ownerRepo =

@@ -1,7 +1,8 @@
 // What the update screen (components/UpdateOverlay.tsx) shows, as pure state
 // transitions over the update_status events this tab receives and its
 // connection state. The server's `progress` field (server/update-progress.ts)
-// is the evidence: nothing here reads a clock.
+// is the evidence: nothing here reads a clock (the screen counts the elapsed
+// time itself, from watchedStart).
 //
 // A tab WATCHES one attempt at a time. It adopts a requested or running
 // attempt from any member's launch, and any attempt that first appears while
@@ -81,7 +82,8 @@ const STEPS: Record<string, UpdateStep> = {
   init: "prepare",
   validate: "prepare",
   fetch: "prepare",
-  deps: "prepare",
+  // System packages and Bun: the long part of a host update.
+  deps: "install",
   image: "prepare",
   assets: "prepare",
   checkout: "install",
@@ -204,6 +206,18 @@ export function updateScreen(
       : done();
   }
   return { kind: "running", step: stepOf(rec.phase) };
+}
+
+// When the updater started the watched attempt (epoch ms), from the same
+// record updateScreen reads; null while requested or from an older updater.
+export function watchedStart(
+  w: UpdateWatch,
+  s: UpdateStatusWire | null,
+): number | null {
+  if (w.key === null || w.key === REQUESTED) return null;
+  const p = progressOf(s);
+  const rec = p === null ? w.last : p.attempt === w.key ? p : null;
+  return rec?.started ?? null;
 }
 
 export function visibleScreen(

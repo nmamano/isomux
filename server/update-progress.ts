@@ -11,11 +11,18 @@
 // mismatched identity proves death; a read the server is not allowed to make
 // proves nothing, and the record stays running.
 //
-// Where the file is, from update.conf: system kind uses a fixed directory the
-// service user can read and not write (/var/lib/isomux-update-public, also
-// home to install.sh's outcome.json); user kind uses STATUS_DIR, which belongs
-// to the service user. A container office reads its update.conf too, but the
-// host's file does not reach it, so it never sees progress.
+// Updaters since task 12dc3a75 also write the target tag and epoch-second
+// times: the attempt's start, each phase's start, and the end. The server
+// sends the start to the tabs and writes one audit entry per finished attempt
+// (server/update-checker.ts auditFinishedUpdate).
+//
+// Where the file is, from update.conf: a container office reads
+// /run/isomux-update, which the host mounts into it read only; system kind
+// uses a fixed directory the service user can read and not write
+// (/var/lib/isomux-update-public, also home to install.sh's outcome.json);
+// user kind uses STATUS_DIR, which belongs to the service user. A container
+// office cannot see the host updater's pid, so there only the boot id can
+// prove the updater dead.
 //
 // "requested": the trigger route reports an accepted launch before the
 // updater writes its first phase. It lasts until the file names a different
@@ -26,8 +33,11 @@
 import { readFileSync } from "fs";
 import type { UpdateProgressWire } from "../shared/types.ts";
 import type { UpdateConfRead } from "./update-conf.ts";
+import { CALVER_RELEASE_RE } from "./version.ts";
 
 export const PUBLIC_PROGRESS_DIR = "/var/lib/isomux-update-public";
+export const CONTAINER_PROGRESS_DIR = "/run/isomux-update";
+const MAX_PHASES = 64;
 const POLL_MS = 1000;
 
 // Every phase name scripts/update.sh can publish.
@@ -58,10 +68,29 @@ export interface ProgressRecord {
   pid: number;
   pidStart: string;
   boot: string;
+  // Written by updaters since task 12dc3a75; an older updater writes none.
+  // The release tag, and epoch seconds: the attempt's start, each phase's
+  // start in the order entered, and the end (with result ok or failed).
+  target?: string;
+  started?: number;
+  phases?: [UpdatePhase, number][];
+  ended?: number;
+}
+
+export interface WatcherOptions {
+  // A container office: the updater runs on the host, in another pid
+  // namespace, so only the boot id can prove it dead.
+  updaterInOtherPidNamespace?: boolean;
+  // Called once per attempt id when a record with a started time finishes
+  // (ok, failed, or a running record whose updater is dead).
+  onFinished?: (rec: ProgressRecord) => void;
 }
 
 export function progressPathFor(conf: UpdateConfRead): string | null {
   if (conf.state !== "parsed") return null;
+  if (conf.values.DEPLOYMENT_KIND === "container") {
+    return `${CONTAINER_PROGRESS_DIR}/progress.json`;
+  }
   if (conf.values.SERVICE_KIND === "system") {
     return `${PUBLIC_PROGRESS_DIR}/progress.json`;
   }
@@ -102,7 +131,7 @@ export function parseProgress(raw: string): ProgressRecord | null {
   if (typeof r.boot !== "string" || !/^[a-f0-9-]{36}$/.test(r.boot)) {
     return null;
   }
-  return {
+  const rec: ProgressRecord = {
     attempt: r.attempt,
     phase: r.phase as UpdatePhase,
     result: r.result,
@@ -110,6 +139,41 @@ export function parseProgress(raw: string): ProgressRecord | null {
     pidStart: r.pidStart,
     boot: r.boot,
   };
+  // The times are optional (an older updater writes none) and strict when
+  // present.
+  if (r.target !== undefined) {
+    if (typeof r.target !== "string" || !CALVER_RELEASE_RE.test(r.target)) {
+      return null;
+    }
+    rec.target = r.target;
+  }
+  for (const key of ["started", "ended"] as const) {
+    if (r[key] === undefined) continue;
+    if (!isSeconds(r[key])) return null;
+    rec[key] = r[key];
+  }
+  if (r.phases !== undefined) {
+    if (!Array.isArray(r.phases) || r.phases.length > MAX_PHASES) return null;
+    const phases: [UpdatePhase, number][] = [];
+    for (const entry of r.phases as unknown[]) {
+      if (!Array.isArray(entry) || entry.length !== 2) return null;
+      const [name, at] = entry as unknown[];
+      if (
+        typeof name !== "string" ||
+        !(UPDATE_PHASES as readonly string[]).includes(name) ||
+        !isSeconds(at)
+      ) {
+        return null;
+      }
+      phases.push([name as UpdatePhase, at]);
+    }
+    rec.phases = phases;
+  }
+  return rec;
+}
+
+function isSeconds(v: unknown): v is number {
+  return typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 }
 
 // A read result: the text, or the errno code that stopped it.
@@ -157,6 +221,17 @@ function updaterLiveness(
   return ticks === rec.pidStart ? "alive" : "dead";
 }
 
+function updaterLivenessIn(
+  rec: ProgressRecord,
+  read: ReadText,
+  pidVisible: boolean,
+): Liveness {
+  if (pidVisible) return updaterLiveness(rec, read);
+  const boot = read("/proc/sys/kernel/random/boot_id");
+  if (typeof boot !== "string") return "unknown";
+  return boot.trim() === rec.boot ? "unknown" : "dead";
+}
+
 // What the tabs see. `requested` holds the attempt the file
 // named before the launch (null: no record then).
 function progressWire(
@@ -165,12 +240,24 @@ function progressWire(
   requested: { priorAttempt: string | null } | null,
 ): UpdateProgressWire | null {
   if (requested && (rec === null || rec.attempt === requested.priorAttempt)) {
-    return { attempt: null, phase: null, result: "requested" };
+    return { attempt: null, phase: null, result: "requested", started: null };
   }
   if (!rec) return null;
-  const result =
-    rec.result === "running" && liveness === "dead" ? "failed" : rec.result;
-  return { attempt: rec.attempt, phase: rec.phase, result };
+  return {
+    attempt: rec.attempt,
+    phase: rec.phase,
+    result: resultOf(rec, liveness),
+    started: rec.started === undefined ? null : rec.started * 1000,
+  };
+}
+
+function resultOf(
+  rec: ProgressRecord,
+  liveness: Liveness,
+): ProgressRecord["result"] {
+  return rec.result === "running" && liveness === "dead"
+    ? "failed"
+    : rec.result;
 }
 
 export class UpdateProgressWatcher {
@@ -179,11 +266,14 @@ export class UpdateProgressWatcher {
   private requested: { priorAttempt: string | null } | null = null;
   private wire: UpdateProgressWire | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  // The last attempt reported to onFinished.
+  private reported: string | null = null;
 
   constructor(
     private readonly path: string | null,
     private readonly onChange: (p: UpdateProgressWire | null) => void,
     private readonly read: ReadText = readText,
+    private readonly options: WatcherOptions = {},
   ) {}
 
   current(): UpdateProgressWire | null {
@@ -201,7 +291,11 @@ export class UpdateProgressWatcher {
     this.rec = rec;
     this.liveness =
       rec && rec.result === "running"
-        ? updaterLiveness(rec, this.read)
+        ? updaterLivenessIn(
+            rec,
+            this.read,
+            !this.options.updaterInOtherPidNamespace,
+          )
         : "unknown";
     // Only a new attempt ends the request. A missing, unreadable or
     // malformed file is no attempt at all.
@@ -209,6 +303,25 @@ export class UpdateProgressWatcher {
       this.requested = null;
     }
     this.publish();
+    this.reportFinished();
+  }
+
+  // Runs in the poll timer, where a throw would end the server: a failed
+  // report is logged and not retried.
+  private reportFinished(): void {
+    const rec = this.rec;
+    if (!rec || rec.started === undefined || !this.options.onFinished) return;
+    const result = resultOf(rec, this.liveness);
+    if (result === "running" || this.reported === rec.attempt) return;
+    this.reported = rec.attempt;
+    try {
+      this.options.onFinished({ ...rec, result });
+    } catch (err) {
+      console.error(
+        "[update-progress] could not report a finished update",
+        err,
+      );
+    }
   }
 
   // Call BEFORE the launch: a fast updater could otherwise write its own

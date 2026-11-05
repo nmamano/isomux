@@ -223,6 +223,7 @@ case $1 in
   install) [[ -e BREAK_INSTALL ]] && { echo "install broken" >&2; exit 1; } ;;
   run)
     [[ $2 == build:ui && -e BREAK_BUILD ]] && { echo "build broken" >&2; exit 1; }
+    if [[ $2 == build:ui && -n \${BUILD_SLEEP:-} ]]; then sleep "$BUILD_SLEEP"; fi
     if [[ $2 == build:ui && -n \${BUILD_GATE:-} ]]; then
       until [[ -e $BUILD_GATE ]]; do sleep 0.05; done
     fi
@@ -342,6 +343,17 @@ interface Progress {
   pid: number;
   pidStart: string;
   boot: string;
+  target?: string;
+  started?: number;
+  phases?: [string, number][];
+  ended?: number;
+}
+
+// The phases this run's log entered ("--- <phase>" lines), in order.
+function loggedPhases(out: string): string[] {
+  return [...out.matchAll(/^\[isomux-update\] --- ([a-z-]+)$/gm)].map(
+    (m) => m[1],
+  );
 }
 
 function progressPath(): string {
@@ -431,7 +443,12 @@ describe("update.sh happy path", () => {
   });
 
   it("publishes each phase of one attempt to the progress file, ending ok", async () => {
+    // The build takes over a second, so its phase and the next one start in
+    // different seconds.
+    fx.env.BUILD_SLEEP = "1.2";
+    const t0 = Math.floor(Date.now() / 1000);
     const r = await runUpdate(["v2026.7.20"]);
+    const t1 = Math.ceil(Date.now() / 1000);
     expect(r.code).toBe(0);
     const seen = progressAtCalls();
     const at = (call: string) => seen.find((s) => s.call.startsWith(call));
@@ -455,10 +472,53 @@ describe("update.sh happy path", () => {
     expect(last.boot).toBe(
       readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim(),
     );
-    // Only the safe fields: no message, target, path or version text.
+    // Only generated fields: no message, path or free text. The target is
+    // the validated CalVer tag.
     expect(Object.keys(last).sort()).toEqual(
-      ["attempt", "boot", "phase", "pid", "pidStart", "result"].sort(),
+      [
+        "attempt",
+        "boot",
+        "phase",
+        "pid",
+        "pidStart",
+        "result",
+        "target",
+        "started",
+        "phases",
+        "ended",
+      ].sort(),
     );
+    expect(last.target).toBe("v2026.7.20");
+
+    // The times, in epoch seconds: the start, each phase as it was entered,
+    // and the end.
+    const started = last.started!;
+    expect(Number.isInteger(started)).toBe(true);
+    expect(started).toBeGreaterThanOrEqual(t0);
+    expect(started).toBeLessThanOrEqual(t1);
+    const phases = last.phases!;
+    expect(phases.map(([p]) => p)).toEqual(loggedPhases(r.out));
+    expect(phases.map(([p]) => p)).toContain("build");
+    let prev = started;
+    for (const [p, at] of phases) {
+      expect([p, Number.isInteger(at)]).toEqual([p, true]);
+      expect([p, at >= prev]).toEqual([p, true]);
+      prev = at;
+    }
+    const ended = last.ended!;
+    expect(Number.isInteger(ended)).toBe(true);
+    expect(ended).toBeGreaterThanOrEqual(prev);
+    expect(ended).toBeLessThanOrEqual(t1);
+    const phaseAt = (p: string) => phases.find(([q]) => q === p)![1];
+    expect(phaseAt("stop") - phaseAt("build")).toBeGreaterThanOrEqual(1);
+    // While it runs, the record carries the same start and the phases so
+    // far, and no end.
+    const atStop = seen.find((s) =>
+      s.call.startsWith("systemctl --user stop"),
+    )!.progress;
+    expect(atStop.started).toBe(started);
+    expect(atStop.phases?.at(-1)?.[0]).toBe("stop");
+    expect(atStop).not.toHaveProperty("ended");
     // A no-dot temp file is all that may remain.
     expect(
       readdirSync(fx.statusDir).filter((f) => f.startsWith(".progress.")),
@@ -559,6 +619,10 @@ exec /usr/bin/mktemp "$@"
     expect(progress().result).toBe("failed");
     expect(status().result).toBe("failed");
     expect(status().message).toContain("stopped during build");
+    // A stopped attempt still ends, in the phase it stopped in.
+    const last = progress();
+    expect(last.phases?.at(-1)?.[0]).toBe("build");
+    expect(last.ended).toBeGreaterThanOrEqual(last.phases!.at(-1)![1]);
   });
 
   it("no-op when already on the target tag, as a new attempt", async () => {
@@ -1113,6 +1177,12 @@ describe("update.sh failure ladders", () => {
     expect(await head()).toBe(fx.oldCommit);
     expect(stubCalls().filter((l) => / (stop|start) /.test(l))).toEqual([]);
     expect(status().result).toBe("failed");
+    // The failed attempt ends, with every phase it entered.
+    const last = progress();
+    expect(last.result).toBe("failed");
+    expect(last.phases?.map(([p]) => p)).toEqual(loggedPhases(r.out));
+    expect(last.phases?.map(([p]) => p)).toContain("build");
+    expect(last.ended).toBeGreaterThanOrEqual(last.phases!.at(-1)![1]);
   });
 
   it("failed readiness: rolls back the code only and starts it", async () => {
@@ -1157,6 +1227,9 @@ describe("update.sh failure ladders", () => {
     expect(r.out).toContain("rollback did not come up");
     expect(status().phase).toBe("recovery-failed");
     expect(progress().result).toBe("failed");
+    // The failed rollback is a phase of its own, after the one that failed.
+    const names = progress().phases?.map(([p]) => p) ?? [];
+    expect(names.slice(-2)).toEqual(["readiness", "recovery-failed"]);
   });
 });
 

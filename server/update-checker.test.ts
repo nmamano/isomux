@@ -5,8 +5,16 @@
 // zero network, zero LLM. The commit-mode COPY per state is asserted in
 // shared/update-notice.test.ts (the signed-off matrix).
 
-import { describe, it, expect } from "bun:test";
+import { afterEach, describe, it, expect } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Database } from "bun:sqlite";
+import { createAuditStore, openOfficeDatabase } from "./audit-store.ts";
+import { removeStateDir } from "./test-support/temp-state.ts";
+import type { ProgressRecord } from "./update-progress.ts";
 import {
+  auditFinishedUpdate,
   compareCalver,
   computeCommitStatus,
   computeImageLineageStatus,
@@ -757,5 +765,131 @@ describe("update outcome", () => {
       "unknown",
     );
     expect(withProgress(commit, progress, note)).toEqual(commit);
+  });
+});
+
+// One office.update entry per finished attempt, so a slow or stuck update is
+// visible in the office audit log without touching the box. Both the server
+// that sees a failure before the stop and the new server after the restart
+// can see the same record, and so can every boot after it: the log itself
+// says whether the attempt is in it.
+describe("auditFinishedUpdate", () => {
+  const roots: string[] = [];
+  const handles: Database[] = [];
+  afterEach(() => {
+    for (const db of handles.splice(0)) db.close();
+    for (const root of roots.splice(0)) removeStateDir(root);
+  });
+  function store() {
+    const root = mkdtempSync(join(tmpdir(), "update-audit-test-"));
+    roots.push(root);
+    const db = openOfficeDatabase(join(root, "office.sqlite"));
+    handles.push(db);
+    return createAuditStore(db);
+  }
+  const T0 = 1_800_000_000;
+  const A1 = "a".repeat(32);
+  const A2 = "b".repeat(32);
+  const finished = (over: Partial<ProgressRecord> = {}): ProgressRecord => ({
+    attempt: A1,
+    phase: "finalize",
+    result: "ok",
+    pid: 4242,
+    pidStart: "777",
+    boot: "0f0e0d0c-0b0a-0908-0706-050403020100",
+    target: "v2026.11.5",
+    started: T0,
+    phases: [
+      ["validate", T0],
+      ["fetch", T0 + 3],
+      ["deps", T0 + 10],
+      ["checkout", T0 + 130],
+      ["stop", T0 + 200],
+      ["start", T0 + 202],
+      ["readiness", T0 + 203],
+      ["finalize", T0 + 238],
+    ],
+    ended: T0 + 240,
+    ...over,
+  });
+  const updates = (audit: ReturnType<typeof store>) =>
+    audit.list({ operation: "office.update" }).items;
+
+  it("records the attempt, its result and each phase's seconds", () => {
+    const audit = store();
+    auditFinishedUpdate(finished(), audit);
+    const items = updates(audit);
+    expect(items).toHaveLength(1);
+    const [entry] = items;
+    expect(entry.actor.kind).toBe("updater");
+    expect(entry.targets).toContain("v2026.11.5");
+    expect(entry.update).toEqual({
+      attempt: A1,
+      target: "v2026.11.5",
+      result: "ok",
+      started: T0 * 1000,
+      ended: (T0 + 240) * 1000,
+      phases: [
+        { phase: "validate", seconds: 3 },
+        { phase: "fetch", seconds: 7 },
+        { phase: "deps", seconds: 120 },
+        { phase: "checkout", seconds: 70 },
+        { phase: "stop", seconds: 2 },
+        { phase: "start", seconds: 1 },
+        { phase: "readiness", seconds: 35 },
+        { phase: "finalize", seconds: 2 },
+      ],
+    });
+    // Findable by its attempt: the entry is the attempt's record.
+    expect(audit.list({ targetId: `update:${A1}` }).items).toHaveLength(1);
+  });
+
+  it("an attempt already in the log is not recorded again", () => {
+    const audit = store();
+    auditFinishedUpdate(finished({ result: "failed", ended: T0 + 900 }), audit);
+    auditFinishedUpdate(finished({ result: "failed", ended: T0 + 900 }), audit);
+    // A later boot reads the same file again.
+    auditFinishedUpdate(finished({ result: "failed", ended: T0 + 900 }), audit);
+    expect(updates(audit)).toHaveLength(1);
+    auditFinishedUpdate(finished({ attempt: A2 }), audit);
+    expect(updates(audit).map((e) => e.update?.attempt)).toEqual([A2, A1]);
+  });
+
+  it("an updater that died before its end leaves the last phase open", () => {
+    const audit = store();
+    const rec = finished({ result: "failed", phase: "build" });
+    delete rec.ended;
+    rec.phases = [
+      ["validate", T0],
+      ["build", T0 + 50],
+    ];
+    auditFinishedUpdate(rec, audit);
+    expect(updates(audit)[0]?.update).toEqual({
+      attempt: A1,
+      target: "v2026.11.5",
+      result: "failed",
+      started: T0 * 1000,
+      ended: null,
+      phases: [
+        { phase: "validate", seconds: 50 },
+        { phase: "build", seconds: null },
+      ],
+    });
+  });
+
+  it("an older updater's record or an unfinished one is not recorded", () => {
+    const audit = store();
+    const older = finished();
+    delete older.started;
+    delete older.phases;
+    delete older.ended;
+    delete older.target;
+    auditFinishedUpdate(older, audit);
+    auditFinishedUpdate(finished({ attempt: A2, result: "running" }), audit);
+    expect(updates(audit)).toEqual([]);
+    // The same store records a finished attempt, so the case above is a
+    // refusal, not a broken store.
+    auditFinishedUpdate(finished(), audit);
+    expect(updates(audit)).toHaveLength(1);
   });
 });

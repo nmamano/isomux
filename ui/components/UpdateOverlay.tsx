@@ -5,13 +5,14 @@
 // installer left notes to read (UpdateStatusWire.outcome); other tabs get a
 // Reload button.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { reloadBrowser } from "../reload-browser.ts";
 import {
   updateScreen,
   visibleScreen,
+  watchedStart,
   type UpdateStep,
 } from "../update-watch.ts";
 
@@ -55,6 +56,23 @@ function Dots() {
         />
       ))}
     </div>
+  );
+}
+
+// m:ss since the updater started, by this browser's clock. A box clock ahead
+// of it shows 0:00, never a negative time.
+function Elapsed({ started }: { started: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const total = Math.max(0, Math.floor((now - started) / 1000));
+  const seconds = String(total % 60).padStart(2, "0");
+  return (
+    <span style={{ fontVariantNumeric: "tabular-nums" }}>
+      {Math.floor(total / 60)}:{seconds}
+    </span>
   );
 }
 
@@ -109,6 +127,8 @@ export function UpdateOverlay() {
   const version = (v: string | null) =>
     v ?? t("settings.update.unknownVersion");
   const busy = shown.kind === "running" || shown.kind === "requested";
+  const started =
+    shown.kind === "running" ? watchedStart(updateWatch, updateInfo) : null;
 
   return (
     <div
@@ -167,6 +187,24 @@ export function UpdateOverlay() {
                     version: version(shown.version),
                   })}
         </p>
+        {busy && (
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--text-dim)",
+              lineHeight: 1.6,
+              margin: "4px 0 0",
+            }}
+          >
+            {started !== null && (
+              <>
+                <Elapsed started={started} />
+                {" · "}
+              </>
+            )}
+            {t("update.screen.hint")}
+          </p>
+        )}
         {shown.kind === "done" && notes && (
           <UpdateOutcomeNotes
             title={t("update.outcome.title")}

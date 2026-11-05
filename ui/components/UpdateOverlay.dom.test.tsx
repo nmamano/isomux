@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, describe, expect, it, jest, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
@@ -66,6 +66,7 @@ let reload: ReturnType<typeof spyOn<typeof browser, "reloadBrowser">> | null =
 afterEach(() => {
   reload?.mockRestore();
   reload = null;
+  jest.useRealTimers();
 });
 
 // Renders the overlay over a live reducer, so Hide works end to end.
@@ -169,5 +170,52 @@ describe("update screen", () => {
     expect(
       view.queryByRole("button", { name: t("update.screen.reload") }),
     ).toBeNull();
+  });
+});
+
+// The busy screen counts the time since the updater started, from the
+// attempt's own start (the server sends it), so a member can see an update
+// that takes long.
+describe("update screen elapsed time", () => {
+  const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
+  const startedAt = (started: number | null): Progress => ({
+    ...running("build"),
+    started,
+  });
+  // m:ss as a whole token of the screen's text.
+  const shows = (view: ReturnType<typeof show>, time: string) =>
+    new RegExp(`(^|\\D)${time}(\\D|$)`).test(
+      view.getByRole("dialog").textContent ?? "",
+    );
+  const anyTime = (view: ReturnType<typeof show>) =>
+    /\d+:\d\d/.test(view.getByRole("dialog").textContent ?? "");
+
+  it("shows the time since the start and counts on", async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(NOW));
+    const p = startedAt(NOW - 65_000);
+    const view = show(watching(false), status(OLD, p));
+    expect(shows(view, "1:05")).toBe(true);
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(shows(view, "1:06")).toBe(true);
+    expect(shows(view, "1:05")).toBe(false);
+  });
+
+  it("a box clock ahead of this browser shows 0:00, not a negative time", () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(NOW));
+    const view = show(watching(false), status(OLD, startedAt(NOW + 30_000)));
+    expect(shows(view, "0:00")).toBe(true);
+  });
+
+  it("no start, no time: an older updater or a request not yet running", () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(NOW));
+    const view = show(watching(false), status(OLD, startedAt(null)));
+    // The screen is up, with its step.
+    expect(view.queryByText(t("update.screen.install"))).not.toBeNull();
+    expect(anyTime(view)).toBe(false);
   });
 });

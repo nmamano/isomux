@@ -183,3 +183,23 @@ test("a refused image removal does not fail a finished update", async () => {
   ]);
   expect(result.output).toContain(`RECORDED v2099.1.2 ${NEW_IMAGE}`);
 });
+
+// The host's updater publishes progress where the container office reads it:
+// /run/isomux-update, which the container mounts at the same path (pinned in
+// deploy/install-container.test.ts; the server side in
+// server/update-progress.test.ts). A git box on the same kind keeps the
+// public directory.
+test("a container update publishes its progress into the directory the container mounts", async () => {
+  const container = await fixture(`
+SERVICE_KIND=system
+printf '<%s>' "$(progress_path)"
+`);
+  expect(container.code).toBe(0);
+  expect(container.output).toContain("</run/isomux-update/progress.json>");
+  const git = await fixture(`
+DEPLOYMENT_KIND=git
+SERVICE_KIND=system
+printf '<%s>' "$(progress_path)"
+`);
+  expect(git.output).toContain("</var/lib/isomux-update-public/progress.json>");
+});

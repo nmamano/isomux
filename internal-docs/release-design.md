@@ -399,17 +399,29 @@ changes them (`server/migrations.ts`), and the daily backup covers the rest.
 only full copy of the state. They are up to 24h stale and date-only-named.
 
 **Progress.** The lock holder writes `progress.json` at every phase: a
-random attempt id, the phase name, the result, and its own pid, start ticks
-and boot id. A system-kind updater writes it to
-`/var/lib/isomux-update-public` (root-owned, readable by the office
-service), a user-kind one to `STATUS_DIR`. The office server polls it
-(`server/update-progress.ts`), turns a running record whose process is gone
-into a failure, and puts attempt, phase and result on `update_status`.
-After an accepted launch the server reports "requested" until the file names
-a new attempt. Every open tab follows that to a full-screen update screen
-(`ui/update-watch.ts`). A container office never sees the host's file: its
-tabs show "requested" until the restart, and the version they come back to
-decides done or failed.
+random attempt id, the phase name, the result, its own pid, start ticks
+and boot id, the target tag, and epoch-second times (the start, each phase's
+start, and the end once finished). A container updater writes it to
+`/run/isomux-update`, which the office container mounts read only; another
+system-kind updater to `/var/lib/isomux-update-public` (root-owned, readable
+by the office service); a user-kind one to `STATUS_DIR`. The office server
+polls it (`server/update-progress.ts`), turns a running record whose process
+is gone into a failure (in a container only a new boot id proves that: the
+host pid is in another pid namespace), and puts attempt, phase, result and
+start on `update_status`. After an accepted launch the server reports
+"requested" until the file names a new attempt. Every open tab follows that
+to a full-screen update screen with the elapsed time (`ui/update-watch.ts`).
+An older container updater writes the file where the container cannot
+see it: the office's tabs show "requested" until the restart,
+and the version they come back to decides done or failed.
+
+The server writes one `office.update` audit entry (actor `updater`) per
+finished attempt with times: target, result, start, end and each phase's
+seconds. A rollback enters no phase of its own, so its time counts in the
+phase that failed (a failed rollback then enters `recovery-failed`). Whichever server first sees the finished record writes it (the old
+one for a failure before the stop, the new one after the restart); the
+attempt id in the entry's targets keeps it to one. A stuck update shows as an
+`office.triggerUpdate` with no `office.update` after it.
 
 ## Update trigger: three options
 

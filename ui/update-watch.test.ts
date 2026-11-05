@@ -82,10 +82,12 @@ function feed(
 
 describe("phases map to three steps", () => {
   it("prepare, install, and everything from the stop on is restart", () => {
-    for (const p of ["validate", "fetch", "deps", "image", "assets"]) {
+    for (const p of ["validate", "fetch", "image", "assets"]) {
       expect(stepOf(p)).toBe("prepare");
     }
-    for (const p of ["checkout", "install", "build"]) {
+    // deps installs the release's system packages and Bun: the long part of
+    // a host update, so it is not shown as preparing.
+    for (const p of ["deps", "checkout", "install", "build"]) {
       expect(stepOf(p)).toBe("install");
     }
     for (const p of ["stop", "start", "readiness", "finalize", "publish"]) {

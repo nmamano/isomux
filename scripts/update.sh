@@ -61,8 +61,8 @@
 #
 # Progress and the final result are written to $STATUS_DIR/status.json. The
 # lock holder also publishes a safe-fields-only copy (attempt, phase, result,
-# and the updater's process identity) for the office server to read: see
-# publish_progress.
+# the updater's process identity, the target tag and the times) for the
+# office server to read: see publish_progress.
 #
 # update.conf keys (Git deployment keys below; container keys follow):
 #   DEPLOYMENT_KIND (optional, default git): git | container
@@ -105,7 +105,16 @@ DEPS_WARNING=""
 # System kind: the office service user can read this directory but not write
 # it. install.sh publishes outcome.json in the same directory.
 PROGRESS_PUBLIC_DIR=/var/lib/isomux-update-public
+# Container kind: the host directory the office container mounts read only at
+# the same path (root:root 0755, beside the update socket).
+CONTAINER_PROGRESS_DIR=/run/isomux-update
 PROGRESS_FILE=""
+# Epoch seconds of the attempt's start, and the phases entered so far as JSON
+# [name, epoch seconds] pairs. Kept in this shell: publish_progress runs in a
+# subshell, which cannot add to them.
+PROGRESS_STARTED=""
+PROGRESS_PHASES=""
+PROGRESS_PHASE_COUNT=0
 ATTEMPT=""
 PROC_START=""
 BOOT_ID=""
@@ -141,11 +150,15 @@ write_status() {
 # show every open tab what the update is doing. Only the lock holder writes
 # it, so a second invocation that loses the flock cannot overwrite the live
 # attempt. Every field is generated here: the attempt id, a phase name from
-# this script, the result, and pid + start ticks + boot id so the server can
-# tell a dead updater from a running one. Publication is best effort: it runs
-# in a subshell with no ERR trap, so no failure in it changes the update.
+# this script, the result, pid + start ticks + boot id so the server can tell
+# a dead updater from a running one, the validated target tag, and the times
+# (start, each phase's start, and the end once the result is ok or failed).
+# Publication is best effort: it runs in a subshell with no ERR trap, so no
+# failure in it changes the update.
 progress_path() {
-  if [[ $SERVICE_KIND == system ]]; then
+  if [[ ${DEPLOYMENT_KIND:-git} == container ]]; then
+    printf '%s/progress.json' "$CONTAINER_PROGRESS_DIR"
+  elif [[ $SERVICE_KIND == system ]]; then
     printf '%s/progress.json' "$PROGRESS_PUBLIC_DIR"
   else
     printf '%s/progress.json' "$STATUS_DIR"
@@ -164,7 +177,9 @@ init_progress() {
   read -r -a fields <<<"$line"
   PROC_START=${fields[19]:-}
   ATTEMPT=${uuid//-/}
+  printf -v PROGRESS_STARTED '%(%s)T' -1
   [[ $ATTEMPT =~ ^[a-f0-9]{32}$ && $PROC_START =~ ^[0-9]+$ && $BOOT_ID =~ ^[a-f0-9-]{36}$ ]] || return 0
+  [[ $PROGRESS_STARTED =~ ^[0-9]+$ && $TARGET_TAG =~ $CALVER_RE ]] || return 0
   PROGRESS_FILE=$(progress_path)
 }
 
@@ -181,9 +196,14 @@ publish_progress() {
       [[ -d $dir && ! -L $dir && $(stat -c %u "$dir") == 0 ]] || exit 0
       (((8#$(stat -c %a "$dir") & 8#022) == 0)) || exit 0
     fi
+    ended=""
+    if [[ $result != running ]]; then
+      printf -v ended ',"ended":%(%s)T' -1
+    fi
     tmp=$(mktemp "$dir/.progress.XXXXXXXXXX") || exit 0
-    if printf '{"attempt":"%s","phase":"%s","result":"%s","pid":%s,"pidStart":"%s","boot":"%s"}\n' \
-      "$ATTEMPT" "$PHASE" "$result" "$$" "$PROC_START" "$BOOT_ID" >"$tmp" &&
+    if printf '{"attempt":"%s","phase":"%s","result":"%s","pid":%s,"pidStart":"%s","boot":"%s","target":"%s","started":%s,"phases":[%s]%s}\n' \
+      "$ATTEMPT" "$PHASE" "$result" "$$" "$PROC_START" "$BOOT_ID" \
+      "$TARGET_TAG" "$PROGRESS_STARTED" "$PROGRESS_PHASES" "$ended" >"$tmp" &&
       chmod 644 "$tmp" && mv -f "$tmp" "$PROGRESS_FILE"; then
       exit 0
     fi
@@ -191,8 +211,21 @@ publish_progress() {
   ) 2>/dev/null || true
 }
 
-phase() {
+# Sets PHASE and notes when it started. A rollback enters no phase of its
+# own: its time counts in the phase that failed, until recovery-failed.
+enter_phase() {
   PHASE=$1
+  # The server reads at most 64 phases; an attempt enters about a dozen.
+  if ((PROGRESS_PHASE_COUNT < 64)); then
+    local now
+    printf -v now '%(%s)T' -1
+    PROGRESS_PHASES+="${PROGRESS_PHASES:+,}[\"$1\",$now]"
+    PROGRESS_PHASE_COUNT=$((PROGRESS_PHASE_COUNT + 1))
+  fi
+}
+
+phase() {
+  enter_phase "$1"
   log "--- $1"
   write_status running ""
 }
@@ -598,7 +631,7 @@ fail_build() {
   if restore_old_code; then
     die "update to $TARGET_TAG failed during install/build; old version restored, service untouched"
   else
-    PHASE=recovery-failed
+    enter_phase recovery-failed
     die "update to $TARGET_TAG failed during install/build AND restoring $OLD_DESC failed; the checkout at $REPO_DIR needs manual attention"
   fi
 }
@@ -608,13 +641,13 @@ fail_ready() {
   log "$TARGET_TAG did not become ready; rolling back the code"
   svc stop "$SERVICE_NAME" || true
   if ! wait_inactive; then
-    PHASE=recovery-failed
+    enter_phase recovery-failed
     die "rollback: service would not stop; NOT rebuilding the old version under a live process. Manual attention required."
   fi
   if restore_old_code && svc start "$SERVICE_NAME" && ready_poll "$READY_TIMEOUT_S"; then
     die "update to $TARGET_TAG failed readiness; rolled the code back to $OLD_DESC and it is running"
   else
-    PHASE=recovery-failed
+    enter_phase recovery-failed
     die "update to $TARGET_TAG failed readiness AND the rollback did not come up; manual attention required"
   fi
 }
@@ -727,7 +760,7 @@ git_prepare() {
       local failed_phase=$PHASE
       trap - ERR
       if ! restore_repair_tag; then
-        PHASE=recovery-failed
+        enter_phase recovery-failed
         die "the $TARGET_TAG repair failed during $failed_phase AND its provisional tag could not be restored; the checkout at $REPO_DIR needs manual attention"
       fi
       PHASE=$failed_phase
