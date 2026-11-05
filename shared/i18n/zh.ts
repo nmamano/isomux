@@ -2081,7 +2081,7 @@ App 的一些原则：
   "apiCall.apps.unarchive": "取消归档 App",
   "apiCall.webhooks.list": "列出 Webhook",
   "apiCall.webhooks.create": "创建 Webhook",
-  "apiCall.messaging.reply": "起草联系人回复",
+  "apiCall.messaging.reply": "在消息应用中回复",
   "apiCall.webhooks.read": "读取 Webhook",
   "apiCall.webhooks.update": "更新 Webhook",
   "apiCall.webhooks.delete": "删除 Webhook",

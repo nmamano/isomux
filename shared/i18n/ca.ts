@@ -2334,7 +2334,7 @@ Coses que pots fer per ell:
   "apiCall.apps.unarchive": "Desarxivar l'app",
   "apiCall.webhooks.list": "Llistar els webhooks",
   "apiCall.webhooks.create": "Crear un webhook",
-  "apiCall.messaging.reply": "Redactar resposta a contacte",
+  "apiCall.messaging.reply": "Respondre en una app de missatgeria",
   "apiCall.webhooks.read": "Llegir un webhook",
   "apiCall.webhooks.update": "Actualitzar el webhook",
   "apiCall.webhooks.delete": "Eliminar el webhook",

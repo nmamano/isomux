@@ -163,6 +163,18 @@ A member can link their own WhatsApp as a linked device and send chosen chats to
 - **Retries.** The ask id goes with each send, so a retry of a send that went out does not send it twice, also after a restart of the server. A bridge that stops in the middle of a send can still send that reply twice. A reply in a chat without the Send step has no ask: an agent that tries again after a timeout sends it again.
 - **Member packs.** Linking and the chat rows need the environment area of a member pack; a reply needs asks.
 
+### 4.9 Discord
+
+A member can connect their own Discord bot by its token and send a channel, a category or a whole server to an agent they manage. Only that member, from a browser session, connects a bot, sees its servers and changes its routes: no agent, API token or office owner can.
+
+- **The token.** Isomux checks the token with Discord, then keeps it in `discord/<user>/bots.json` (0600, a credential store left out of backups). It never goes back to a browser. Each bot has its own gateway child, with only `PATH`, `HOME`, `TZ` and `LANG` from the server's environment. Isomux removes each token, raw, URL-encoded and base64, from every text of a child, of Discord and of an error before it reaches a log. As for every file in the state directory, an agent with a shell can read the token (section 3.2).
+- **Only routed places.** The gateway child sends the server every message the bot sees. The server drops a message that no live route covers, the bot's own posts, and posts by bots and webhooks unless the route lets them in.
+- **What reaches the agent.** The messages arrive in a data block, built as for webhooks (section 4.7), with the label `[Discord "<name>"]`. Anyone who can post in a routed channel can write text that the model follows; on a public server that is anyone. An agent with a shell runs commands with its manager's environment, and the route form warns the member when they pick such an agent.
+- **Replies.** The member picks one of three modes per route. By default the agent posts at once as the bot, at most 20 posts per route in 10 minutes. A post goes only to a text channel or a thread that the route covers when it goes out, and it mentions nobody (`allowed_mentions` with no parse). "Read only" gives the agent no reply. "Replies wait for my Send" opens an ask, as for WhatsApp (section 4.8), and Send checks the route, the agent and the channel again before it posts. The reply route uses the asks area of a pack.
+- **Retries.** A Send posts with a nonce made from the ask id, and Isomux records each ask whose reply went out, so a second Send posts nothing, also after a restart. A post at once has a new nonce each time: an agent that tries again after a timeout can post twice.
+- **A refused token.** When Discord refuses the token on a post, Isomux stops the bot until the member connects it again, and pages the member once.
+- **Member packs.** Connecting a bot and the routes need the environment area of a member pack; a reply needs asks.
+
 ## 5. Personal API tokens
 
 ### 5.1 Reach

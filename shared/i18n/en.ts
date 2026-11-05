@@ -2265,7 +2265,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.apps.unarchive": "Unarchive app",
   "apiCall.webhooks.list": "List webhooks",
   "apiCall.webhooks.create": "Create webhook",
-  "apiCall.messaging.reply": "Draft reply to contact",
+  "apiCall.messaging.reply": "Reply in a messaging app",
   "apiCall.webhooks.read": "Read webhook",
   "apiCall.webhooks.update": "Update webhook",
   "apiCall.webhooks.delete": "Delete webhook",
