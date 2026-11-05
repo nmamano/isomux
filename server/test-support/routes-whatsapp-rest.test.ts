@@ -309,3 +309,65 @@ describe("send at once (task 70fae82c)", () => {
     expect((await api(srv, "/api/asks", owner.rawSessionId)).body).toEqual([]);
   });
 });
+
+// Own messages (task 610f7756): a chat setting like the others, set only by
+// the member's browser session.
+describe("own messages (task 610f7756)", () => {
+  it("the member's session turns own messages on and off; the row's agent cannot", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    const ownerId = getUserByName(owner.username)!.id;
+    const room = srv.agentManager.getRooms()[0].id;
+    const helper = await srv.agentManager.spawn(
+      "Helper",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      room,
+      undefined,
+      undefined,
+      undefined,
+      owner.username,
+      "claude",
+      undefined,
+      ownerId,
+    );
+    if (!helper) throw new Error("spawn failed");
+    const row = {
+      id: "r1",
+      chat: "447700900111@s.whatsapp.net",
+      group: false,
+      name: "+447700900111",
+      agentId: helper.id,
+      createdAt: 1,
+    };
+    writeRoutes(srv.stateRoot, ownerId, {
+      phone: "447700900111",
+      routes: [row],
+    });
+    const byAgent = await srv.http("/api/whatsapp/routes/r1", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${mintAgentToken(helper.id, ownerId)}`,
+      },
+      body: JSON.stringify({ ownMessages: true }),
+    });
+    expect(byAgent.status >= 400).toBe(true);
+    expect(readRoutes(srv.stateRoot, ownerId).routes).toEqual([row]);
+
+    const patch = (ownMessages: unknown) =>
+      api(srv, "/api/whatsapp/routes/r1", owner.rawSessionId, {
+        method: "PATCH",
+        body: { ownMessages },
+      });
+    expect((await patch(true)).status).toBe(200);
+    expect(readRoutes(srv.stateRoot, ownerId).routes).toEqual([
+      { ...row, ownMessages: true },
+    ]);
+    expect((await patch("yes")).status).toBe(400);
+    expect((await patch(false)).status).toBe(200);
+    expect(readRoutes(srv.stateRoot, ownerId).routes).toEqual([row]);
+  });
+});

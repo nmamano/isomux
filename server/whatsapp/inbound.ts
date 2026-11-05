@@ -2,12 +2,14 @@
 //
 // A message is dropped when its chat has no live row, its id was delivered
 // before, it is older than the link or than WHATSAPP_MAX_AGE_MS, or it is an
-// agent's own send. The member's own phone text, and in a group with trigger
-// "mention" every message that neither mentions the linked account nor
-// answers an agent's message, is context: it goes with the next delivery,
-// never alone. Messages that count, in one chat, make one delivery
-// WHATSAPP_BURST_QUIET_MS after the last, or WHATSAPP_BURST_MAX_MS after the
-// first. A message id is marked seen when it is delivered.
+// agent's own send, also one whose id the bridge reports after the message
+// itself (it is dropped at the delivery). The member's own phone text, unless
+// the row has ownMessages, and in a group with trigger "mention" every other
+// message that neither mentions the linked account nor answers an agent's
+// message, is context: it goes with the next delivery, never alone. Messages
+// that count, in one chat, make one delivery WHATSAPP_BURST_QUIET_MS after
+// the last, or WHATSAPP_BURST_MAX_MS after the first. A message id is marked
+// seen when it is delivered.
 
 import { formatMessagingSenderPrefix } from "../../shared/identity.ts";
 import {
@@ -94,7 +96,8 @@ export function createWhatsAppInbound(
     route: WhatsAppRoute,
     msg: BridgeMessage,
   ): boolean {
-    if (msg.fromMe) return false;
+    // The member opted in per row: the group trigger is for the others.
+    if (msg.fromMe) return route.ownMessages === true;
     if (!msg.group || route.trigger === "all") return true;
     return (
       msg.mentionsMe ||
@@ -115,6 +118,15 @@ export function createWhatsAppInbound(
     clearTimers(p);
     pending.delete(key);
     try {
+      // An agent's own send whose id came after the message: never delivered.
+      const sent = deps.sent(p.userId);
+      p.lines = p.lines.filter((l) => !sent.has(l.id));
+      if (!p.lines.some((l) => !l.line.context)) {
+        // Nothing counts: the context waits for the next line that does.
+        p.firstAt = null;
+        if (p.lines.length > 0) pending.set(key, p);
+        return;
+      }
       const route = deps.route(p.userId, p.chat);
       if (!route || deps.check(p.userId, route) !== null) return;
       const now = clock.now();

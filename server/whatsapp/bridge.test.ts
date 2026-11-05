@@ -331,8 +331,9 @@ describe("whatsapp bridge", () => {
     expect(text).not.toContain("secret text");
   });
 
-  // The picker leaves out the member's own chat: inbound drops every message
-  // the member sent, so a row for it would never reach the agent.
+  // The bridge never announces the member's own chat: the Add picker lists it
+  // itself, first, from the linked number (task 610f7756), so an
+  // announcement would show it twice.
   test("the linked account's own chat is never announced, under its number or its LID; other chats are", async () => {
     const SELF_PN = "447700900123@s.whatsapp.net";
     const msg = (n: number, key: Record<string, unknown>) => ({
@@ -385,5 +386,39 @@ describe("whatsapp bridge", () => {
       contacts: ["447700900555@s.whatsapp.net", "888@lid"],
       messages: ["447700900666@s.whatsapp.net", "447700900777@s.whatsapp.net"],
     });
+  });
+  // The member's own chat can be a row ("(Myself)" in the picker, task
+  // 610f7756). WhatsApp may name it by the account's own LID, with no PN on
+  // the message and none in the LID mapping: the bridge knows its own pair.
+  test("a message in the own chat under the account's own LID reaches the own chat's row by its number", async () => {
+    const SELF_PN = "447700900123@s.whatsapp.net";
+    const { events } = await run(
+      {
+        steps: ["me", "messages"],
+        versionLatest: true,
+        routes: [SELF_PN],
+        messages: [
+          {
+            key: { id: "M1", remoteJid: "999@lid", fromMe: true },
+            messageTimestamp: 1_700_000_001,
+            message: { conversation: "note to self" },
+          },
+          {
+            key: { id: "M2", remoteJid: SELF_PN, fromMe: true },
+            messageTimestamp: 1_700_000_002,
+            message: { conversation: "by number" },
+          },
+        ],
+      },
+      { method: "qr" },
+    );
+    expect(
+      events
+        .filter((e) => e.ev === "message")
+        .map((e) => [e.id, e.chat, e.fromMe, e.text]),
+    ).toEqual([
+      ["M1", SELF_PN, true, "note to self"],
+      ["M2", SELF_PN, true, "by number"],
+    ]);
   });
 });

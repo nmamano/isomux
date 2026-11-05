@@ -66,18 +66,20 @@ function isRoute(v: unknown): v is WhatsAppRoute {
   );
 }
 
-// The optional fields as they are valid: sendDirect only when exactly true,
-// and a prefix only when it passes normaliseWhatsAppPrefix and is not blank.
-// Anything else is dropped, so a damaged file never makes a row send at once.
+// The optional fields as they are valid: sendDirect and ownMessages only when
+// exactly true, and a prefix only when it passes normaliseWhatsAppPrefix and
+// is not blank. Anything else is dropped, so a damaged file never makes a row
+// send at once.
 function cleanRoute(route: WhatsAppRoute): WhatsAppRoute {
-  const { sendDirect, prefix, ...rest } = route as WhatsAppRoute &
-    Record<"sendDirect" | "prefix", unknown>;
+  const { sendDirect, prefix, ownMessages, ...rest } = route as WhatsAppRoute &
+    Record<"sendDirect" | "prefix" | "ownMessages", unknown>;
   const cleanPrefix =
     typeof prefix === "string" ? normaliseWhatsAppPrefix(prefix) : null;
   return {
     ...rest,
     ...(sendDirect === true ? { sendDirect } : {}),
     ...(cleanPrefix ? { prefix: cleanPrefix } : {}),
+    ...(ownMessages === true ? { ownMessages } : {}),
   };
 }
 

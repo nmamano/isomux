@@ -279,8 +279,8 @@ function sendReply(cmd: Extract<Command, { op: "send" }>): void {
 // The messages in arrival order.
 let reading: Promise<void> = Promise.resolve();
 
-// Never the linked account's own chat: every message there is the member's
-// own, so a row for it would never reach an agent.
+// Never the linked account's own chat: the Add picker lists it itself, first,
+// under the linked number.
 function announceChat(chat: string, name: string, group: boolean): void {
   const me = state.creds.me;
   if (
@@ -316,7 +316,8 @@ function onGroups(groups: Partial<Group>[]): void {
   }
 }
 
-// A LID ("<digits>@lid") to its PN form when WhatsApp told us; else null.
+// A LID ("<digits>@lid") to its PN form when WhatsApp told us, or when it is
+// the linked account's own; else null.
 async function pnOf(
   jid: string,
   alt: string | undefined,
@@ -325,6 +326,10 @@ async function pnOf(
   if (jid.endsWith("@s.whatsapp.net")) return jid;
   if (alt?.endsWith("@s.whatsapp.net")) return baileys.jidNormalizedUser(alt);
   if (!jid.endsWith("@lid")) return null;
+  // The mapping need not hold the account's own LID.
+  const me = state.creds.me;
+  if (me?.lid && baileys.areJidsSameUser(jid, me.lid))
+    return `${phoneOf(me.id)}@s.whatsapp.net`;
   try {
     const pn = await s.signalRepository.lidMapping.getPNForLID(jid);
     return pn ? baileys.jidNormalizedUser(pn) : null;

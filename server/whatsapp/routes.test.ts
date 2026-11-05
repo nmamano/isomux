@@ -434,3 +434,88 @@ describe("whatsapp rows: send at once and the prefix", () => {
     }
   });
 });
+
+// Whether the member's own messages in a chat reach the agent (task
+// 610f7756): stored only when on, as send-at-once.
+describe("whatsapp rows: own messages", () => {
+  const base = {
+    id: "r1",
+    chat: MOM,
+    group: false,
+    name: "Mom",
+    agentId: "agent-a",
+    createdAt: 1_800_000_000_000,
+  };
+
+  it("on is stored, off is no key; an update turns it on and off and other updates keep it", () => {
+    const { routes } = harness();
+    expect(routes.create(U, { ...mom, ownMessages: true })).toEqual({
+      ok: true,
+      route: { ...base, ownMessages: true },
+    });
+    expect(
+      routes.create(U, {
+        phone: "+44 7700 900124",
+        name: "Dad",
+        agentId: "agent-a",
+        ownMessages: false,
+      }),
+    ).toEqual({
+      ok: true,
+      route: {
+        ...base,
+        id: "r2",
+        chat: "447700900124@s.whatsapp.net",
+        name: "Dad",
+      },
+    });
+    expect(routes.update(U, "r1", { name: "Mum" })).toEqual({
+      ok: true,
+      route: { ...base, name: "Mum", ownMessages: true },
+    });
+    expect(routes.update(U, "r1", { ownMessages: false })).toEqual({
+      ok: true,
+      route: { ...base, name: "Mum" },
+    });
+    expect(routes.update(U, "r1", { ownMessages: true })).toEqual({
+      ok: true,
+      route: { ...base, name: "Mum", ownMessages: true },
+    });
+  });
+
+  it("a value that is not a boolean is 400 and writes nothing; a stored value that is not exactly true is dropped", () => {
+    const h = harness();
+    for (const value of ["yes", 1, null, {}]) {
+      const r = h.routes.create(U, { ...mom, ownMessages: value } as never);
+      expect([value, r.ok === false && r.status]).toEqual([value, 400]);
+    }
+    expect(h.routes.list(U)).toEqual([]);
+    h.routes.create(U, mom);
+    for (const value of ["yes", 1, null, {}]) {
+      const r = h.routes.update(U, "r1", { ownMessages: value } as never);
+      expect([value, r.ok === false && r.status]).toEqual([value, 400]);
+    }
+    expect(h.routes.get(U, "r1")).toEqual(base);
+
+    for (const value of ["yes", "true", 1, {}]) {
+      writeFileSync(
+        join(memberDir(h.root, U), "routes.json"),
+        JSON.stringify({
+          phone: PHONE,
+          routes: [{ ...base, ownMessages: value }],
+        }),
+      );
+      expect([value, harness(h.root).routes.get(U, "r1")?.ownMessages]).toEqual(
+        [value, undefined],
+      );
+    }
+    writeFileSync(
+      join(memberDir(h.root, U), "routes.json"),
+      JSON.stringify({
+        phone: PHONE,
+        routes: [{ ...base, ownMessages: true }],
+      }),
+    );
+    expect(harness(h.root).routes.get(U, "r1")?.ownMessages).toBe(true);
+  });
+});

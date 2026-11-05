@@ -422,3 +422,113 @@ describe("whatsapp inbound: the reply mode", () => {
     expect(h.heads).toEqual([headOf(false), headOf(true)]);
   });
 });
+
+// A row can let the member's own messages reach the agent (task 610f7756).
+// The agent's own sends come back as the member's messages too, and the
+// bridge can report one before its id reaches the sent ring.
+describe("whatsapp inbound: own messages", () => {
+  it("on a row with own messages, the member's text counts, from the member's name; without, the same text stays context", () => {
+    const { h, inbound, msg } = harness();
+    h.routes[MOM] = { ...ROUTES[MOM], ownMessages: true };
+    inbound.onMessage(U, msg({ fromMe: true, text: "note to my agent" }));
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(h.deliveries.map((d) => d.lines)).toEqual([
+      [{ from: "Morgan", text: "note to my agent" }],
+    ]);
+
+    // The condition: the same text on the default row delivers nothing.
+    h.routes[MOM] = { ...ROUTES[MOM] };
+    inbound.onMessage(U, msg({ fromMe: true, text: "only context" }));
+    h.clock.advance(WHATSAPP_BURST_MAX_MS);
+    expect(h.deliveries).toHaveLength(1);
+  });
+
+  it("in a group with the mention trigger, the member's own text counts without a mention; other members still need one", () => {
+    const { h, inbound, groupMsg } = harness();
+    h.routes[FAMILY] = { ...ROUTES[FAMILY], ownMessages: true };
+    inbound.onMessage(U, groupMsg({ text: "who is cooking?" }));
+    inbound.onMessage(U, groupMsg({ fromMe: true, text: "agent, plan it" }));
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(
+      h.deliveries.map((d) => d.lines.map((l) => [l.text, !!l.context])),
+    ).toEqual([
+      [
+        ["who is cooking?", true],
+        ["agent, plan it", false],
+      ],
+    ]);
+  });
+
+  it("an agent's send whose id reaches the sent ring after it arrived is not delivered; alone, it delivers nothing and the context waits for the next line that counts", () => {
+    const { h, inbound, groupMsg } = harness();
+    h.routes[FAMILY] = { ...ROUTES[FAMILY], ownMessages: true };
+    inbound.onMessage(U, groupMsg({ id: "m-ctx", text: "who is cooking?" }));
+    // The echo of the agent's own send, before the bridge's "sent" event.
+    inbound.onMessage(
+      U,
+      groupMsg({ id: "m-echo", fromMe: true, text: "I will plan it" }),
+    );
+    h.sent.add("m-echo");
+    h.clock.advance(WHATSAPP_BURST_MAX_MS);
+    expect(h.deliveries).toEqual([]);
+    // No timer runs for it any more: much later, still nothing.
+    h.clock.advance(10 * WHATSAPP_BURST_MAX_MS);
+    expect(h.deliveries).toEqual([]);
+
+    inbound.onMessage(
+      U,
+      groupMsg({ id: "m-go", text: "@me thanks", mentionsMe: true }),
+    );
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(
+      h.deliveries.map((d) => d.lines.map((l) => [l.text, !!l.context])),
+    ).toEqual([
+      [
+        ["who is cooking?", true],
+        ["@me thanks", false],
+      ],
+    ]);
+  });
+
+  it("after a burst of context and an echo, a chat that never goes quiet is still delivered at the longest wait", () => {
+    const { h, inbound, groupMsg } = harness();
+    h.routes[FAMILY] = { ...ROUTES[FAMILY], ownMessages: true };
+    inbound.onMessage(U, groupMsg({ text: "who is cooking?" }));
+    inbound.onMessage(
+      U,
+      groupMsg({ id: "m-echo", fromMe: true, text: "I will plan it" }),
+    );
+    h.sent.add("m-echo");
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(h.deliveries).toEqual([]);
+
+    const step = WHATSAPP_BURST_QUIET_MS - 1_000;
+    const start = h.clock.now();
+    while (
+      h.deliveries.length === 0 &&
+      h.clock.now() - start < 2 * WHATSAPP_BURST_MAX_MS
+    ) {
+      inbound.onMessage(U, groupMsg({ mentionsMe: true }));
+      h.clock.advance(step);
+    }
+    expect(h.deliveries).toHaveLength(1);
+    expect(h.clock.now() - start).toBeLessThanOrEqual(
+      WHATSAPP_BURST_MAX_MS + step,
+    );
+  });
+
+  it("an echo in a burst with the member's own text: the member's text goes, the echo does not", () => {
+    const { h, inbound, msg } = harness();
+    h.routes[MOM] = { ...ROUTES[MOM], ownMessages: true };
+    inbound.onMessage(U, msg({ id: "m-own", fromMe: true, text: "remind me" }));
+    inbound.onMessage(
+      U,
+      msg({ id: "m-echo", fromMe: true, text: "Reminder set" }),
+    );
+    h.sent.add("m-echo");
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(h.deliveries.map((d) => d.lines)).toEqual([
+      [{ from: "Morgan", text: "remind me" }],
+    ]);
+  });
+});

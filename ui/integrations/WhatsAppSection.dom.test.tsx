@@ -321,10 +321,11 @@ it("the chat picker opens on a disabled prompt and Add waits for a pick; people 
   );
   expect(saveDisabled(form)).toBe(true);
 
-  // By number: its own top-level option, after the prompt and before the
-  // groups; it shows the number field, and a number makes Add ready.
+  // By number: its own top-level option, after the prompt and the member's
+  // own number (task 610f7756) and before the groups; it shows the number
+  // field, and a number makes Add ready.
   const top = [...picker.children].map((c) => c.tagName);
-  expect(top).toEqual(["OPTION", "OPTION", "OPTGROUP", "OPTGROUP"]);
+  expect(top).toEqual(["OPTION", "OPTION", "OPTION", "OPTGROUP", "OPTGROUP"]);
   expect(byNumber(form).disabled).toBe(false);
   expect(byNumber(form).parentElement?.tagName).toBe("SELECT");
   await change(picker, byNumber(form).value);
@@ -849,13 +850,13 @@ async function toggle(el: HTMLInputElement) {
 }
 const patches = () => calls.filter((c) => c.method === "PATCH");
 
-it("Add: replies wait for Send by default, with no warning and no new field sent; unticked, a warning shows and the row sends at once with its prefix", async () => {
+it("Add: replies wait for Send by default, with no hint and no new field sent; unticked, a hint shows and the row sends at once with its prefix", async () => {
   current = LINKED;
   const s = await show({ agents: AGENTS });
   let form = await openAdd(s);
   const wait = checkbox(form, "whatsappRowWaitForSend");
   expect(wait.checked).toBe(true);
-  expect(s.q("[data-whatsapp-direct-warning]")).toBeNull();
+  expect(s.q("[data-whatsapp-direct-hint]")).toBeNull();
   expect((field(form, "whatsappRowPrefix") as HTMLInputElement).value).toBe("");
   await change(field(form, "whatsappChat"), byNumber(form).value);
   await change(field(form, "whatsappRowPhone"), "+44 7700 900124");
@@ -886,7 +887,7 @@ it("Add: replies wait for Send by default, with no warning and no new field sent
   await change(field(form, "whatsappRowName"), "Sis");
   await toggle(checkbox(form, "whatsappRowWaitForSend"));
   expect(checkbox(form, "whatsappRowWaitForSend").checked).toBe(false);
-  expect(s.q("[data-whatsapp-direct-warning]")).not.toBeNull();
+  expect(s.q("[data-whatsapp-direct-hint]")).not.toBeNull();
   await change(field(form, "whatsappRowPrefix"), "[Agent]:");
   await s.click("[data-whatsapp-add-form] [data-panel-save]");
   expect(posts().at(-1)?.body).toEqual({
@@ -933,13 +934,13 @@ it("Edit opens the form on the row as it is, with no chat picker; Save sends one
     "a-std",
   );
   expect(checkbox(form, "whatsappRowWaitForSend").checked).toBe(false);
-  expect(s.q("[data-whatsapp-direct-warning]")).not.toBeNull();
+  expect(s.q("[data-whatsapp-direct-hint]")).not.toBeNull();
   expect((field(form, "whatsappRowPrefix") as HTMLInputElement).value).toBe(
     "Bot:",
   );
 
   await toggle(checkbox(form, "whatsappRowWaitForSend"));
-  expect(s.q("[data-whatsapp-direct-warning]")).toBeNull();
+  expect(s.q("[data-whatsapp-direct-hint]")).toBeNull();
   await change(field(form, "whatsappRowPrefix"), "");
   await change(field(form, "whatsappRowName"), "Mum");
   await s.click("[data-whatsapp-add-form] [data-panel-save]");
@@ -979,4 +980,164 @@ it("a refused edit keeps the form open with its line", async () => {
   expect(patches()).toHaveLength(1);
   expect(s.q("[data-whatsapp-add-form]")).not.toBeNull();
   expect(s.q('[role="alert"]')).not.toBeNull();
+});
+
+// The member's own chat first in the picker, and whether the member's own
+// messages reach the agent (task 610f7756).
+const myself = (form: Element) => {
+  const el = form.querySelector("option[data-whatsapp-myself]");
+  return el instanceof HTMLOptionElement ? el : null;
+};
+const OWN = "447700900111@s.whatsapp.net";
+
+it("the picker lists the member's own number first, at the top level, above the by-number choice and the seen chats", async () => {
+  current = LINKED;
+  seenChats = [
+    { chat: "447700900124@s.whatsapp.net", name: "Dad", group: false },
+    { chat: FAMILY, name: "Family chat", group: true },
+  ];
+  const s = await show({ agents: AGENTS });
+  const form = await openAdd(s);
+  const picker = field(form, "whatsappChat") as HTMLSelectElement;
+  const own = myself(form);
+  expect(own?.value).toBe(OWN);
+  expect(own?.textContent).toContain("447700900111");
+  // The first choice after the disabled prompt.
+  const values = [...picker.options].map((o) => o.value);
+  expect(picker.options[0].disabled).toBe(true);
+  expect(values.indexOf(OWN)).toBe(1);
+  expect(groupOf(picker, OWN)).toBe(-1);
+  expect(values.indexOf(OWN)).toBeLessThan(
+    values.indexOf(byNumber(form).value),
+  );
+  // Listed once.
+  expect(values.filter((v) => v === OWN)).toHaveLength(1);
+});
+
+it("the own number is left out once a row has that chat", async () => {
+  current = LINKED;
+  rows = [
+    {
+      id: "r1",
+      chat: OWN,
+      group: false,
+      name: "+447700900111",
+      agentId: "a-office",
+      createdAt: 1,
+    },
+  ];
+  const s = await show({ agents: AGENTS });
+  const form = await openAdd(s);
+  expect(myself(form)).toBeNull();
+  const values = [
+    ...(field(form, "whatsappChat") as HTMLSelectElement).options,
+  ].map((o) => o.value);
+  expect(values).not.toContain(OWN);
+});
+
+it("picking the own number fills the name with the number and turns own messages on; the add sends it", async () => {
+  current = LINKED;
+  const s = await show({ agents: AGENTS });
+  const form = await openAdd(s);
+  expect(checkbox(form, "whatsappRowOwnMessages").checked).toBe(false);
+  await change(field(form, "whatsappChat"), OWN);
+  expect((field(form, "whatsappRowName") as HTMLInputElement).value).toBe(
+    "+447700900111",
+  );
+  expect(checkbox(form, "whatsappRowOwnMessages").checked).toBe(true);
+  rowAnswer = async (body) => {
+    rows = [
+      ...rows,
+      {
+        id: "r1",
+        group: false,
+        createdAt: 2,
+        ...(body as object),
+      } as WhatsAppRoute,
+    ];
+    return rows.at(-1);
+  };
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  expect(posts().map((c) => c.body)).toEqual([
+    {
+      chat: OWN,
+      name: "+447700900111",
+      agentId: "a-office",
+      ownMessages: true,
+    },
+  ]);
+});
+
+it("a pick of another chat after the own number undoes what the own pick filled in", async () => {
+  current = LINKED;
+  seenChats = [
+    { chat: "447700900124@s.whatsapp.net", name: "Dad", group: false },
+  ];
+  const s = await show({ agents: AGENTS });
+  const form = await openAdd(s);
+  await change(field(form, "whatsappChat"), OWN);
+  expect(checkbox(form, "whatsappRowOwnMessages").checked).toBe(true);
+  await change(field(form, "whatsappChat"), "447700900124@s.whatsapp.net");
+  expect((field(form, "whatsappRowName") as HTMLInputElement).value).toBe(
+    "Dad",
+  );
+  expect(checkbox(form, "whatsappRowOwnMessages").checked).toBe(false);
+});
+
+it("own messages: off by default and not sent; ticked on another chat it is sent; Edit shows it and sends it on and off", async () => {
+  current = LINKED;
+  rows = [
+    {
+      id: "r1",
+      chat: MOM,
+      group: false,
+      name: "Mom",
+      agentId: "a-office",
+      createdAt: 1,
+      ownMessages: true,
+    },
+  ];
+  rowAnswer = async (body) => {
+    rows = [
+      ...rows,
+      {
+        id: `r${rows.length + 1}`,
+        chat: "447700900124@s.whatsapp.net",
+        group: false,
+        createdAt: 2,
+        ...(body as object),
+      } as WhatsAppRoute,
+    ];
+    return rows.at(-1);
+  };
+  const s = await show({ agents: AGENTS });
+  let form = await openAdd(s);
+  await change(field(form, "whatsappChat"), byNumber(form).value);
+  await change(field(form, "whatsappRowPhone"), "+44 7700 900124");
+  await change(field(form, "whatsappRowName"), "Dad");
+  await toggle(checkbox(form, "whatsappRowOwnMessages"));
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  expect(posts().map((c) => c.body)).toEqual([
+    {
+      phone: "+44 7700 900124",
+      name: "Dad",
+      agentId: "a-office",
+      ownMessages: true,
+    },
+  ]);
+
+  await s.click('[data-whatsapp-row-edit="r1"]');
+  form = s.q("[data-whatsapp-add-form]") as HTMLElement;
+  expect(checkbox(form, "whatsappRowOwnMessages").checked).toBe(true);
+  await toggle(checkbox(form, "whatsappRowOwnMessages"));
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  expect(patches().at(-1)?.body).toMatchObject({ ownMessages: false });
+
+  await s.click('[data-whatsapp-row-edit="r1"]');
+  form = s.q("[data-whatsapp-add-form]") as HTMLElement;
+  expect(checkbox(form, "whatsappRowOwnMessages").checked).toBe(false);
+  await toggle(checkbox(form, "whatsappRowOwnMessages"));
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  expect(patches().at(-1)?.body).toMatchObject({ ownMessages: true });
+  expect(patches()).toHaveLength(2);
 });

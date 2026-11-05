@@ -1203,8 +1203,12 @@ Coses que pots fer per ell:
     "Aquest agent té una shell. Qualsevol persona d’aquest xat li pot demanar que executi ordres.",
   "integrations.whatsapp.rows.waitForSend":
     "Les respostes esperen que toqui Send",
-  "integrations.whatsapp.rows.directWarning":
-    "Les respostes surten del teu WhatsApp a l’instant. Qualsevol persona d’aquest xat pot escriure text que l’agent segueixi.",
+  "integrations.whatsapp.rows.directHint":
+    "Les respostes surten del teu WhatsApp tan bon punt l’agent les escriu.",
+  "integrations.whatsapp.rows.ownMessages": "Els meus missatges van a l’agent",
+  "integrations.whatsapp.rows.ownMessagesHint":
+    "Si està desactivat, l’agent veu els teus missatges només quan algú altre escriu.",
+  "integrations.whatsapp.rows.myself": "{phone} (Jo)",
   "integrations.whatsapp.rows.prefix": "Prefix",
   "integrations.whatsapp.rows.prefixHint":
     'Text abans de cada resposta, com ara "[Agent]:". Si és buit, les respostes comencen amb el nom de l’agent en negreta.',

@@ -75,6 +75,9 @@ export interface WhatsAppRoute {
   // Text put before each reply in place of the agent's name line
   // (normaliseWhatsAppPrefix). Absent means no prefix.
   prefix?: string;
+  // The member's own messages in the chat reach the agent (task 610f7756).
+  // Stored only when true; absent means they go only as context.
+  ownMessages?: true;
 }
 
 // A chat the linked WhatsApp saw since the link, for the Add picker. Kept in
@@ -93,6 +96,7 @@ export type WhatsAppRouteCreateReq =
       trigger?: WhatsAppRouteTrigger;
       sendDirect?: boolean;
       prefix?: string;
+      ownMessages?: boolean;
     }
   // A contact added by number (normaliseWhatsAppPhone).
   | {
@@ -101,15 +105,17 @@ export type WhatsAppRouteCreateReq =
       agentId: string;
       sendDirect?: boolean;
       prefix?: string;
+      ownMessages?: boolean;
     };
 
-// sendDirect false and prefix "" clear the field.
+// sendDirect false, ownMessages false and prefix "" clear the field.
 export interface WhatsAppRouteUpdateReq {
   name?: string;
   agentId?: string;
   trigger?: WhatsAppRouteTrigger;
   sendDirect?: boolean;
   prefix?: string;
+  ownMessages?: boolean;
 }
 
 // An agent's reply (slice 2b) and the route's answer: a draft that waits for

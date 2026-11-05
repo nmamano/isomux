@@ -13,8 +13,9 @@ export interface WhatsAppBlockLine {
   // phone text. Never the contact's own WhatsApp name.
   from: string;
   text: string;
-  // A line that did not wake the agent: the member's own phone text, or a
-  // group message that did not mention or answer it.
+  // A line that did not wake the agent: the member's own phone text on a row
+  // without ownMessages, or a group message that did not mention or answer
+  // it.
   context?: true;
 }
 

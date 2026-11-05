@@ -72,20 +72,25 @@ const refuse = (status: 400 | 404 | 409, error: string): Refusal => ({
 // The reply settings of a create or an update, checked: the keys to set and
 // the keys to delete (false and a blank prefix are the default, stored as no
 // key), or a refusal.
-function replySettings(req: { sendDirect?: unknown; prefix?: unknown }):
+function replySettings(req: {
+  sendDirect?: unknown;
+  prefix?: unknown;
+  ownMessages?: unknown;
+}):
   | {
       ok: true;
       set: Partial<WhatsAppRoute>;
-      clear: ("sendDirect" | "prefix")[];
+      clear: ("sendDirect" | "prefix" | "ownMessages")[];
     }
   | Refusal {
   const set: Partial<WhatsAppRoute> = {};
-  const clear: ("sendDirect" | "prefix")[] = [];
-  if (req.sendDirect !== undefined) {
-    if (typeof req.sendDirect !== "boolean")
-      return refuse(400, "sendDirect must be true or false");
-    if (req.sendDirect) set.sendDirect = true;
-    else clear.push("sendDirect");
+  const clear: ("sendDirect" | "prefix" | "ownMessages")[] = [];
+  for (const key of ["sendDirect", "ownMessages"] as const) {
+    if (req[key] === undefined) continue;
+    if (typeof req[key] !== "boolean")
+      return refuse(400, `${key} must be true or false`);
+    if (req[key]) set[key] = true;
+    else clear.push(key);
   }
   if (req.prefix !== undefined) {
     const prefix =

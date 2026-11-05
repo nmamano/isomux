@@ -1202,8 +1202,12 @@ Cosas que puedes hacer por él:
     "Este agente tiene una shell. Cualquiera en este chat puede pedirle que ejecute comandos.",
   "integrations.whatsapp.rows.waitForSend":
     "Las respuestas esperan a que toque Send",
-  "integrations.whatsapp.rows.directWarning":
-    "Las respuestas salen de tu WhatsApp al instante. Cualquiera en este chat puede escribir texto que el agente siga.",
+  "integrations.whatsapp.rows.directHint":
+    "Las respuestas salen de tu WhatsApp en cuanto el agente las escribe.",
+  "integrations.whatsapp.rows.ownMessages": "Mis mensajes van al agente",
+  "integrations.whatsapp.rows.ownMessagesHint":
+    "Si está desactivado, el agente ve tus mensajes solo cuando otra persona escribe.",
+  "integrations.whatsapp.rows.myself": "{phone} (Yo)",
   "integrations.whatsapp.rows.prefix": "Prefijo",
   "integrations.whatsapp.rows.prefixHint":
     'Texto antes de cada respuesta, como "[Agent]:". Si está vacío, las respuestas empiezan con el nombre del agente en negrita.',

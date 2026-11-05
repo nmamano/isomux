@@ -327,7 +327,7 @@ export function WhatsAppSection() {
       {status?.state === "linked" && (
         <>
           {linkedLine(status)}
-          <WhatsAppRows />
+          <WhatsAppRows selfPhone={status.phone} />
         </>
       )}
       {!status && !error && (
@@ -373,12 +373,27 @@ function chatNumber(chat: string): string | null {
 // The picker's prompt (nothing picked yet) and its "by number" choice. A
 // chat id always holds "@", so neither is a chat.
 const NO_CHAT = "";
+const checkLabel = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 12,
+  color: "var(--text-primary)",
+  marginTop: 12,
+} as const;
 const BY_NUMBER = "#number";
 
 // The contact rows of a linked member: which WhatsApp chats reach which of
 // their agents. `holdRows`: a held card's copy, with that many placeholder
-// rows and no reads.
-function WhatsAppRows({ holdRows }: { holdRows?: number }) {
+// rows and no reads. `selfPhone`: the linked number, whose own chat the Add
+// picker lists first.
+function WhatsAppRows({
+  holdRows,
+  selfPhone,
+}: {
+  holdRows?: number;
+  selfPhone?: string;
+}) {
   const { t } = useI18n();
   const { agents, rooms, sessionContext } = useAppState();
   const environmentWrite = useCan("environment", "write");
@@ -397,6 +412,7 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const [trigger, setTrigger] = useState<WhatsAppRouteTrigger>("mention");
   const [waitForSend, setWaitForSend] = useState(true);
   const [prefix, setPrefix] = useState("");
+  const [ownMessages, setOwnMessages] = useState(false);
   const [heldRows] = useState(() => getWhatsAppLayout().rows);
 
   // Agents that can reply: the member's own, above Chat stop.
@@ -422,6 +438,10 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const group = editing ? editing.group : (picked?.group ?? false);
   const routed = new Set(routes?.map((r) => r.chat));
   const free = chats.filter((c) => !routed.has(c.chat));
+  const selfChat =
+    selfPhone && !routed.has(`${selfPhone}@s.whatsapp.net`)
+      ? `${selfPhone}@s.whatsapp.net`
+      : null;
   const people = free.filter((c) => !c.group);
   const groups = free.filter((c) => c.group);
   const agent = mine.find((a) => a.id === agentId) ?? null;
@@ -455,6 +475,7 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
     setTrigger("mention");
     setWaitForSend(true);
     setPrefix("");
+    setOwnMessages(false);
     apiFetch<WhatsAppChatSeen[]>("GET", "/api/whatsapp/chats")
       .then(setChats)
       .catch(() => setChats([]));
@@ -470,12 +491,27 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
     setTrigger(route.trigger ?? "mention");
     setWaitForSend(route.sendDirect !== true);
     setPrefix(route.prefix ?? "");
+    setOwnMessages(route.ownMessages === true);
   }
 
   function pick(next: string) {
     setChat(next);
+    const ownName = `+${selfPhone}`;
+    // Every message in the member's own chat is theirs.
+    if (next === selfChat) {
+      if (!name.trim()) setName(ownName);
+      setOwnMessages(true);
+      return;
+    }
+    // Away from the own chat: undo what its pick filled in.
+    let current = name;
+    if (chat === selfChat) {
+      setOwnMessages(false);
+      if (name === ownName) current = "";
+    }
     const seen = chats.find((c) => c.chat === next);
-    if (seen && !name.trim()) setName(seen.name);
+    if (seen && !current.trim()) current = seen.name;
+    setName(current);
   }
 
   async function run(work: () => Promise<unknown>, byNumber = false) {
@@ -508,6 +544,7 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
         ...(group ? { trigger } : {}),
         sendDirect: !waitForSend,
         prefix,
+        ownMessages,
       };
       const done = await run(() =>
         apiFetch("PATCH", `/api/whatsapp/routes/${editing.id}`, update),
@@ -522,6 +559,7 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
     const settings = {
       ...(waitForSend ? {} : { sendDirect: true }),
       ...(prefix.trim() ? { prefix } : {}),
+      ...(ownMessages ? { ownMessages: true } : {}),
     };
     const req: WhatsAppRouteCreateReq =
       chat === BY_NUMBER
@@ -671,6 +709,13 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
                 <option value={NO_CHAT} disabled>
                   {t("integrations.whatsapp.rows.chatPrompt")}
                 </option>
+                {selfChat && (
+                  <option value={selfChat} data-whatsapp-myself="">
+                    {t("integrations.whatsapp.rows.myself", {
+                      phone: `+${selfPhone}`,
+                    })}
+                  </option>
+                )}
                 <option value={BY_NUMBER} data-whatsapp-by-number="">
                   {t("integrations.whatsapp.rows.byNumber")}
                 </option>
@@ -772,16 +817,24 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
               {t("integrations.whatsapp.rows.shellWarning")}
             </p>
           )}
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: 12,
-              color: "var(--text-primary)",
-              marginTop: 12,
-            }}
-          >
+          <label style={checkLabel}>
+            <input
+              type="checkbox"
+              name="whatsappRowOwnMessages"
+              checked={ownMessages}
+              onChange={() => setOwnMessages(!ownMessages)}
+            />
+            {t("integrations.whatsapp.rows.ownMessages")}
+          </label>
+          {!ownMessages && (
+            <p
+              data-whatsapp-own-hint=""
+              style={{ ...hintText, margin: "6px 0 0" }}
+            >
+              {t("integrations.whatsapp.rows.ownMessagesHint")}
+            </p>
+          )}
+          <label style={checkLabel}>
             <input
               type="checkbox"
               name="whatsappRowWaitForSend"
@@ -792,14 +845,10 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
           </label>
           {!waitForSend && (
             <p
-              data-whatsapp-direct-warning=""
-              style={{
-                ...hintText,
-                color: "var(--orange-text)",
-                margin: "6px 0 0",
-              }}
+              data-whatsapp-direct-hint=""
+              style={{ ...hintText, margin: "6px 0 0" }}
             >
-              {t("integrations.whatsapp.rows.directWarning")}
+              {t("integrations.whatsapp.rows.directHint")}
             </p>
           )}
           <Field

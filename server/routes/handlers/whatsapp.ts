@@ -43,12 +43,24 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 function parseCreateReq(body: unknown): WhatsAppRouteCreateReq | null {
   if (!isObject(body)) return null;
-  const { chat, phone, name, agentId, trigger, sendDirect, prefix } = body;
+  const {
+    chat,
+    phone,
+    name,
+    agentId,
+    trigger,
+    sendDirect,
+    prefix,
+    ownMessages,
+  } = body;
   if (typeof name !== "string" || typeof agentId !== "string") return null;
   // Passed on as they came: the routes check their types.
   const settings = {
     ...(sendDirect !== undefined ? { sendDirect: sendDirect as boolean } : {}),
     ...(prefix !== undefined ? { prefix: prefix as string } : {}),
+    ...(ownMessages !== undefined
+      ? { ownMessages: ownMessages as boolean }
+      : {}),
   };
   if (typeof phone === "string" && chat === undefined)
     return { phone, name, agentId, ...settings };
@@ -137,6 +149,8 @@ export function whatsappHandlers(
       if (body.sendDirect !== undefined)
         req.sendDirect = body.sendDirect as boolean;
       if (body.prefix !== undefined) req.prefix = body.prefix as string;
+      if (body.ownMessages !== undefined)
+        req.ownMessages = body.ownMessages as boolean;
       return routeResult(deps.routes.update(userId, ctx.params.routeId, req));
     },
     "whatsappRoutes.delete": (ctx) => {
