@@ -19,8 +19,6 @@
 // server it signed in to, and a request that names a tab. On a phone the list
 // shows first, like Settings, unless the open names a tab.
 
-import { StepFocus, StepMark } from "./step-focus.tsx";
-import type { StepAskRequest } from "../../shared/types.ts";
 import {
   useEffect,
   useRef,
@@ -71,9 +69,6 @@ export type IntegrationsRequest = {
   signIn?: string;
   // The tab to open on, for a door that names one.
   tab?: IntegrationsTab;
-  // A step ask's step (task c71cb60f): the tab shows the setting the step
-  // is done in and marks it (data-step-focus).
-  focus?: StepAskRequest;
 };
 
 export type { IntegrationsTab };
@@ -232,55 +227,6 @@ function IntegrationsPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A step ask's step (task c71cb60f), from the open or from a later ask
-  // link while the page is open: its tab, the card of the member it is for,
-  // and the setting marked.
-  const [focus, setFocus] = useState<StepAskRequest | null>(
-    () => initial?.focus ?? null,
-  );
-  const stepFocus = request?.focus ?? null;
-  // Applied while rendering, once per step (the step that was applied last).
-  const [applied, setApplied] = useState<StepAskRequest | null>(null);
-  if (stepFocus && stepFocus !== applied) {
-    setApplied(stepFocus);
-    setFocus(stepFocus);
-    if (request?.tab && tabs.includes(request.tab)) setTabState(request.tab);
-    setGone(null);
-    if (stepFocus.kind === "provider-sign-in" && stepFocus.scope === "personal")
-      setMember(null);
-    if (stepFocus.kind === "mcp-sign-in" && stepFocus.scope === "personal") {
-      const owner = [...users.values()].find(
-        (user) => user.id === stepFocus.ownerUserId,
-      );
-      setMember(
-        role === "owner" && owner && owner.id !== sessionContext?.userId
-          ? owner.name
-          : null,
-      );
-    }
-  }
-  useEffect(() => {
-    if (stepFocus) onRequestHandled?.();
-    // Each new step, once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepFocus]);
-  // The step, on the card it belongs to.
-  const focusFor = (target: Target): StepAskRequest | null => {
-    if (focus?.kind === "provider-sign-in")
-      return target.kind !== "member" &&
-        (focus.scope === "office") === (target.kind === "office")
-        ? focus
-        : null;
-    if (focus?.kind === "mcp-sign-in") {
-      if (focus.scope === "office")
-        return target.kind === "office" ? focus : null;
-      return target.kind !== "office" && userIdOf(target) === focus.ownerUserId
-        ? focus
-        : null;
-    }
-    return null;
-  };
-
   // A member who leaves the office (or is renamed) while picked: back to You.
   // Before the roster arrives nobody is known yet, which is not the same.
   const memberKnown =
@@ -425,9 +371,7 @@ function IntegrationsPage({
       agentScope={!MEMBER_TABS.includes(tab)}
     >
       {personal.kind === "self" && <ChangedForYou tab={tab} items={changes} />}
-      <StepFocus.Provider value={focusFor(personal)}>
-        {section(personal)}
-      </StepFocus.Provider>
+      {section(personal)}
     </PersonalCard>
   );
 
@@ -636,21 +580,9 @@ function IntegrationsPage({
                 personalCard
               ) : tab === "browser" ? (
                 // Only a session has its own Chrome to pair.
-                sessionContext && (
-                  <StepMark
-                    active={focus?.kind === "browser-pairing"}
-                    kind="browser-pairing"
-                  >
-                    <BrowserPane />
-                  </StepMark>
-                )
+                sessionContext && <BrowserPane />
               ) : tab === "github" ? (
-                <GithubSection
-                  onSecrets={() => setTab("secrets")}
-                  {...(focus?.kind === "github-link"
-                    ? { focusRoomId: focus.roomId }
-                    : {})}
-                />
+                <GithubSection onSecrets={() => setTab("secrets")} />
               ) : tab === "api-tokens" ? (
                 sessionContext && <ApiTokensPane />
               ) : tab === "messaging" ? (
@@ -686,9 +618,7 @@ function IntegrationsPage({
                         ) : undefined
                       }
                     />
-                    <StepFocus.Provider value={focusFor(office)}>
-                      {section(office)}
-                    </StepFocus.Provider>
+                    {section(office)}
                   </section>
 
                   {personalCard}

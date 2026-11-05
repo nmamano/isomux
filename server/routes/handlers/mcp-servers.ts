@@ -35,6 +35,7 @@ import type {
   OfficeMcpServerSummaryWire,
 } from "../../../shared/contract-shapes.ts";
 import { mcpServerHost } from "../../../shared/mcp-servers.ts";
+import { askIdForSegment } from "../../../shared/office-links.ts";
 import { mcpServerFailure, writeMcpServer } from "../../connection-writes.ts";
 import { callerIsIntegrationOwner, memberSubject } from "./member-subject.ts";
 import {
@@ -202,15 +203,27 @@ function scopedHandlers(
     },
     // The authorization URL for the browser of the person who starts the
     // flow (the member, or an owner for a member's server); no token in it.
-    // That person, the caller, finishes it.
+    // That person, the caller, finishes it. An {askId} sends the browser
+    // back to that ask card (task e3d1bc63); the id goes into the landing
+    // page, so it must have an ask id's shape.
     signIn: async (ctx) => {
       if (!ctx.identity.userId) return fail(403, "forbidden");
+      const body = ctx.body ?? {};
+      if (typeof body !== "object" || Array.isArray(body))
+        return invalidRequest();
+      const { askId } = body as { askId?: unknown };
+      if (
+        askId !== undefined &&
+        (typeof askId !== "string" || !askIdForSegment(askId))
+      )
+        return invalidRequest();
       const scope = scopeOf(ctx);
       if (!scope) return fail(404, "not_found");
       const result = await deps.oauth.startSignIn(
         scope,
         ctx.params.name ?? "",
         ctx.identity.userId,
+        askId,
       );
       if (result.ok) return ok({ authorizationUrl: result.authorizationUrl });
       if (result.reason === "not_found") return fail(404, "not_found");
@@ -224,10 +237,13 @@ function scopedHandlers(
   };
 }
 
-// Where the callback sends the browser back: the integrations page, with a
-// fixed code the page reads. Never the authorization server's own text.
-function backToIntegrations(flag: string): HandlerResult {
-  const target = `/integrations?mcpSignIn=${encodeURIComponent(flag)}`;
+// Where the callback sends the browser back: the ask card the sign-in
+// started from, else the integrations page, with a fixed code the page
+// reads. Never the authorization server's own text. The ask id has an ask
+// id's shape (checked at the start), so it is safe in the attribute.
+function backToIntegrations(flag: string, askId?: string): HandlerResult {
+  const page = askId ? `/inbox/asks/${askId}` : "/integrations";
+  const target = `${page}?mcpSignIn=${encodeURIComponent(flag)}`;
   const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${target}"><a href="${target}">Isomux</a>\n`;
   return bytes(new TextEncoder().encode(html), "text/html; charset=utf-8", {
     "Cache-Control": "no-store",
@@ -246,7 +262,7 @@ function callbackHandler(deps: McpServersDeps): RouteHandler {
         ? true
         : deps.isOfficeOwnerUserId(userId),
     );
-    if (!result.ok) return backToIntegrations(result.reason);
+    if (!result.ok) return backToIntegrations(result.reason, result.askId);
     // The row names the scope: "office", or the member's username, as the
     // other member routes do.
     const subject =
@@ -258,7 +274,7 @@ function callbackHandler(deps: McpServersDeps): RouteHandler {
     // take them as after a save. The redirect carries no field.
     pushOpenCodeSettings(deps.pushOpenCodeSettings, result.scope);
     deps.signedIn?.();
-    return backToIntegrations("ok");
+    return backToIntegrations("ok", result.askId);
   };
 }
 

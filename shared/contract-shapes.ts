@@ -1436,6 +1436,11 @@ export interface McpServerUpdateReq {
 export interface McpServerRes {
   server: McpServerWire;
 }
+// The ask card a sign-in starts from (task e3d1bc63): the callback goes back
+// to it.
+export interface McpServerSignInReq {
+  askId?: string;
+}
 export interface McpServerSignInRes {
   authorizationUrl: string;
 }

@@ -182,6 +182,7 @@ import type {
   McpServerRes,
   AgentMcpServerListRes,
   AgentMcpServerRes,
+  McpServerSignInReq,
   McpServerSignInRes,
   ConnectionTestRes,
   McpServerUpdateReq,
@@ -2230,7 +2231,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // The MCP authorization flow (integrations A2b): the authorization URL
   // for the member's browser. user:env, so no agent starts it.
-  defineRoute<void, McpServerSignInRes>({
+  defineRoute<McpServerSignInReq, McpServerSignInRes>({
     opId: "mcpServers.signIn",
     audit: { owner: "executor", targets: resourceTargets },
     method: "POST",
@@ -2288,7 +2289,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
-  defineRoute<void, McpServerSignInRes>({
+  defineRoute<McpServerSignInReq, McpServerSignInRes>({
     opId: "officeMcpServers.signIn",
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",

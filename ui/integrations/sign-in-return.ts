@@ -53,15 +53,19 @@ export function takeSignIn(now = Date.now()): SignInNote | null {
 
 // Start the sign-in to a server of `target`: the browser leaves for the
 // authorization server. A caller that unmounts meanwhile (an ask card that
-// the save closed) still gets the redirect; a refusal rejects.
+// the save closed) still gets the redirect; a refusal rejects. With `askId`,
+// the browser comes back to that ask card (task e3d1bc63), which knows its
+// server, so no note is left for the Integrations page.
 export async function startMcpSignIn(
   target: Target,
   server: string,
+  askId?: string,
 ): Promise<void> {
   const { authorizationUrl } = await apiFetch<McpServerSignInRes>(
     "POST",
     `${basePath(target)}/mcp-servers/${encodeURIComponent(server)}/sign-in`,
+    askId ? { askId } : undefined,
   );
-  rememberSignIn({ server, target });
+  if (!askId) rememberSignIn({ server, target });
   window.location.assign(authorizationUrl);
 }

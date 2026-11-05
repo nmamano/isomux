@@ -393,24 +393,6 @@ it("Room settings no longer carry the link, for an owner", async () => {
   view.unmount();
 });
 
-// A step ask's link (task c71cb60f): the tab opens on the step's room, not
-// the first linked one, with its link form open and marked.
-it("opens on the room a GitHub step names, with its form marked", async () => {
-  links = { r1: saved("r1", "Acme/Widgets") };
-  const view = await open(withRooms(OWNER), {
-    request: { tab: "github", focus: { kind: "github-link", roomId: "r2" } },
-  });
-  await act(async () => {});
-  expect(selectedTab(view)).toBe("github");
-  expect(roomSelect(view).value).toBe("r2");
-  const marked = [...view.container.querySelectorAll("[data-step-focus]")];
-  expect(marked.map((el) => el.getAttribute("data-step-focus"))).toEqual([
-    "github-link",
-  ]);
-  const form = q(view, "[data-github-link]");
-  expect(marked[0] === form || marked[0].contains(form)).toBe(true);
-});
-
 // While the reads are out, the card holds the layout this device last saw, so
 // the tab does not grow when they answer (task eeec205a).
 const card = (view: View) =>
@@ -516,21 +498,6 @@ it("a held linked form paints with no room, repo, labels, secret or status it do
 
   await act(async () => release());
   expect(heldBlocks(card(view)!)).toHaveLength(0);
-  expect(roomSelect(view).value).toBe("r2");
-});
-
-it("a held linked form opens on the room a GitHub step names", async () => {
-  // The step names a room other than the first one.
-  links = { r1: saved("r1", "Acme/Widgets") };
-  setGithubLayout({ linked: true, secret: true });
-  const release = fake.hold("/api/office/secrets");
-  const view = await open(withRooms(OWNER), {
-    request: { tab: "github", focus: { kind: "github-link", roomId: "r2" } },
-  });
-  expect(heldBlocks(card(view)!)).toHaveLength(1);
-  expect(roomSelect(view).value).toBe("r2");
-  expect(shownText(roomSelect(view))).toBe("Beta");
-  await act(async () => release());
   expect(roomSelect(view).value).toBe("r2");
 });
 

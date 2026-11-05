@@ -1720,6 +1720,8 @@ App 的一些原则：
   "asks.chip": "请示：{words}",
   "asks.openAsk": "打开请示 {id}",
   "asks.action.apply": "应用",
+  "asks.step.others": "只有 {member} 能完成这一步。",
+  "asks.step.othersUnknown": "只有这条请示的成员能完成这一步。",
   "asks.action.self": "这就是发出请示的智能体。",
   "asks.action.gone": "你已无法访问这个智能体。",
   "asks.action.memberGone": "这位成员已不在办公室中。",

@@ -1934,6 +1934,9 @@ Coses que pots fer per ell:
   "asks.chip": "petició: {words}",
   "asks.openAsk": "Obre la petició {id}",
   "asks.action.apply": "Aplica",
+  "asks.step.others": "Només {member} pot fer aquest pas.",
+  "asks.step.othersUnknown":
+    "Només el membre d’aquesta petició pot fer aquest pas.",
   "asks.action.self": "És l'agent que ho demana.",
   "asks.action.gone": "Ja no pots accedir a aquest agent.",
   "asks.action.memberGone": "Aquest membre ja no és a l'oficina.",

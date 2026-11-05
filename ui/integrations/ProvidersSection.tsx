@@ -9,7 +9,6 @@
 // the paid ones is the OPENCODE_API_KEY variable. So its block shows whether
 // that variable is set, from the variable names the page already reads.
 
-import { StepMark, useStepFocus } from "./step-focus.tsx";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type {
   MemberProviderStatus,
@@ -155,8 +154,6 @@ export function ProvidersSection({
   onVariables: () => void;
 }) {
   const list = useMyConnections();
-  // The sign-in a step ask names (task c71cb60f), on this card.
-  const focus = useStepFocus();
   if (target.kind === "member")
     return (
       <MemberProviders
@@ -175,26 +172,19 @@ export function ProvidersSection({
         </p>
       )}
       {(["codex", "claude"] as const).map((provider) => (
-        <StepMark
+        <ProviderSignInCard
           key={provider}
-          active={
-            focus?.kind === "provider-sign-in" && focus.provider === provider
-          }
-          kind="provider-sign-in"
-        >
-          <ProviderSignInCard
-            provider={provider}
-            accounts={accounts.accounts}
-            loaded={accounts.loaded}
-            canCancelSharedLogin={role === "owner"}
-            canChangeOffice={role === "owner"}
-            onAccounts={accounts.update}
-            scopes={scopes}
-            onGoToOtherHalf={onGoToOtherCard}
-            style={flat}
-            pageLook
-          />
-        </StepMark>
+          provider={provider}
+          accounts={accounts.accounts}
+          loaded={accounts.loaded}
+          canCancelSharedLogin={role === "owner"}
+          canChangeOffice={role === "owner"}
+          onAccounts={accounts.update}
+          scopes={scopes}
+          onGoToOtherHalf={onGoToOtherCard}
+          style={flat}
+          pageLook
+        />
       ))}
       <OpenCodeBlock
         office={target.kind === "office"}

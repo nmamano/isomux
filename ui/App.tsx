@@ -77,6 +77,7 @@ import {
   type Page,
 } from "./routes.ts";
 import { OfficeLinkOpener } from "./office-link.tsx";
+import { AskSignInResult, type AskSignIn } from "./log-view/ask-sign-in.ts";
 import { TaskOpener } from "./log-view/task-links.tsx";
 import { AskRefsProvider } from "./log-view/ask-refs.tsx";
 import type { OfficeLink } from "../shared/office-links.ts";
@@ -193,7 +194,10 @@ export function App({ routing = true }: { routing?: boolean }) {
   // takes it on mount and clears it.
   const [integrationsRequest, setIntegrationsRequest] =
     useState<IntegrationsRequest | null>(() => {
-      const signIn = mcpSignInForSearch(window.location.search);
+      // A sign-in that came back to an ask is that ask's (askSignIn below).
+      const signIn = askIdForPath(window.location.pathname)
+        ? null
+        : mcpSignInForSearch(window.location.search);
       const tab = integrationsTabForPath(window.location.pathname);
       if (signIn === null && tab === null) return null;
       return {
@@ -226,6 +230,18 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
   if (!asksOpen && askFocus !== null) setAskFocus(null);
   const clearAskFocus = useCallback(() => setAskFocus(null), []);
+  // One-shot: the result of an MCP sign-in started in an ask card, which came
+  // back to /inbox/asks/<askId>?mcpSignIn=<code> (task e3d1bc63). That ask's
+  // card takes it.
+  const [askSignIn, setAskSignIn] = useState<AskSignIn | null>(() => {
+    const askId = askIdForPath(window.location.pathname);
+    const code = mcpSignInForSearch(window.location.search);
+    return askId && code !== null ? { askId, code } : null;
+  });
+  const askSignInResult = useMemo(
+    () => ({ result: askSignIn, take: () => setAskSignIn(null) }),
+    [askSignIn],
+  );
   // The agent the Asks tab filters to once (a chat stack's View in Inbox,
   // task 586ebfe1). It goes when the Asks tab closes, like the pin.
   const [askAgentFilter, setAskAgentFilter] = useState<string | null>(null);
@@ -691,11 +707,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         return;
       }
       pageState[link.page].clear();
-      if (link.tab)
-        setIntegrationsRequest({
-          tab: link.tab,
-          ...(link.focus ? { focus: link.focus } : {}),
-        });
+      if (link.tab) setIntegrationsRequest({ tab: link.tab });
       if (link.askId) setAskFocus(link.askId);
       if (link.onlyAgent) setAskAgentFilter(link.onlyAgent);
       if (link.page === "pager" || link.page === "asks")
@@ -1151,163 +1163,167 @@ export function App({ routing = true }: { routing?: boolean }) {
 
   return (
     <OfficeLinkOpener.Provider value={openOfficeLink}>
-      <TaskOpener.Provider value={openTask}>
-        <AskRefsProvider open={openAsk}>
-          <style>{CSS}</style>
-          <ConnectionBanner />
-          <UpdateOverlay />
-          <UiBuildNotice />
-          {page === "settings" ? (
-            <UserSettingsView
-              initialUserId={editingUserId}
-              initialTarget={settingsTarget}
-              onSwitchUser={(name) => setUsername(name)}
-              onClose={closePage}
-            />
-          ) : page === "tasks" ? (
-            <TaskView
-              onClose={closeTasks}
-              openTaskRequest={taskOpenRequest}
-              onTaskOpenRequestHandled={() => setTaskOpenRequest(null)}
-              onFocusAgent={openAgentChat}
-            />
-          ) : page === "cronjobs" ? (
-            <CronjobsView onClose={closePage} onFocusAgent={openAgentChat} />
-          ) : page === "apps" ? (
-            <AppsView onClose={closePage} onFocusAgent={openAgentChat} />
-          ) : page === "skills" ? (
-            <SkillsView onClose={closePage} />
-          ) : page === "integrations" ? (
-            <IntegrationsView
-              onClose={closePage}
-              request={integrationsRequest}
-              onRequestHandled={clearIntegrationsRequest}
-            />
-          ) : page === "pager" || page === "asks" ? (
-            <InboxView
-              tab={page}
-              onSelectTab={openInboxTab}
-              onClose={closePage}
-            >
-              {page === "pager" ? (
-                <PagerView
-                  selectRequest={pagerSelectRequest}
-                  onSelectRequestHandled={clearPagerSelectRequest}
-                  onFocusAgent={openAgentChat}
-                  onOpenPagerSettings={() => openIntegrations({ tab: "pager" })}
-                />
-              ) : (
-                <AsksView
-                  onFocusAgent={openAgentChat}
-                  onChatAgent={setInboxChat}
-                  focusAskId={askFocus}
-                  onClearFocus={clearAskFocus}
-                  filterAgentId={askAgentFilter}
-                  onFilterAgentHandled={clearAskAgentFilter}
-                />
-              )}
-              {inboxChat && (
-                <AgentChatPanel
-                  agentId={inboxChat}
-                  onSelectAgent={setInboxChat}
-                  onClose={() => setInboxChat(null)}
-                  onOpenFullChat={openAgentChat}
-                />
-              )}
-            </InboxView>
-          ) : focusedAgent ? (
-            <LogView
-              key={focusedAgent.id}
-              agent={focusedAgent}
-              logs={logs.get(focusedAgent.id) ?? []}
-              onBack={closeLog}
-              onEditAgent={() => setEditAgent(focusedAgent)}
-              onOpenTasks={openTasks}
-              onOpenTask={openTask}
-              onOpenInbox={openInboxTab}
-              onSwipeLeft={swipeAgentNext}
-              onSwipeRight={swipeAgentPrev}
-            />
-          ) : (
-            <OfficeView
-              onSpawn={(desk) => {
-                if (canSpawn) setSpawnPickerDesk(desk);
-              }}
-              onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-              onOpenBackRoom={() => setBackRoomOpen(true)}
-              backRoomOpen={backRoomOpen}
-              onCloseBackRoom={goHome}
-              onSpawnBack={() => {
-                if (canSpawn) setSpawnBackOpen(true);
-              }}
-              onOpenSettings={() => openSettings(null)}
-              onOpenUserSettingsForUser={(userId) => {
-                setEditingUserId(userId);
-                openSettings(null);
-              }}
-              onEditOfficePrompt={() =>
-                openSettings({ kind: "section", section: "office" })
-              }
-              onEditRoomSettings={(roomId) =>
-                openSettings({ kind: "room", roomId })
-              }
-              onOpenThemePicker={() =>
-                openSettings({ kind: "section", section: "theme" })
-              }
-              onOpenTasks={openTasks}
-              onOpenCronjobs={() => setCronjobsOpen(true)}
-              onOpenApps={() => setAppsOpen(true)}
-              onOpenSkills={() => setSkillsOpen(true)}
-              onOpenIntegrations={() => openIntegrations()}
-              onOpenInbox={openInboxTab}
-              onOpenUpdate={() =>
-                openSettings({ kind: "section", section: "updates" })
-              }
-              onSwipeLeft={swipeRoomNext}
-              onSwipeRight={swipeRoomPrev}
-              viewportControlsRef={viewportControlsRef}
-            />
-          )}
-          {spawnBackOpen && currentRoomId && (
-            <EditAgentDialog
-              deskIndex={null}
-              defaultCwd={newAgentCwd}
-              spawnAgentType="claude"
-              roomId={currentRoomId}
-              onClose={() => setSpawnBackOpen(false)}
-            />
-          )}
-          {spawnPickerDesk !== null && currentRoomId && (
-            <EditAgentDialog
-              deskIndex={spawnPickerDesk}
-              defaultCwd={newAgentCwd}
-              spawnAgentType="claude"
-              roomId={currentRoomId}
-              onClose={() => setSpawnPickerDesk(null)}
-            />
-          )}
-          {ctxMenu && (
-            <ContextMenu
-              x={ctxMenu.x}
-              y={ctxMenu.y}
-              agent={ctxMenu.agent}
-              onClose={() => setCtxMenu(null)}
-              onEdit={(agent) => {
-                setEditAgent(agent);
-                setCtxMenu(null);
-              }}
-            />
-          )}
-          {editAgent && (
-            <EditAgentDialog
-              // The live record, so a change the server sends while the dialog
-              // is open (limitedClaudeFamilies after a variables save) reaches it.
-              agent={agents.find((a) => a.id === editAgent.id) ?? editAgent}
-              onClose={() => setEditAgent(null)}
-            />
-          )}
-        </AskRefsProvider>
-      </TaskOpener.Provider>
+      <AskSignInResult.Provider value={askSignInResult}>
+        <TaskOpener.Provider value={openTask}>
+          <AskRefsProvider open={openAsk}>
+            <style>{CSS}</style>
+            <ConnectionBanner />
+            <UpdateOverlay />
+            <UiBuildNotice />
+            {page === "settings" ? (
+              <UserSettingsView
+                initialUserId={editingUserId}
+                initialTarget={settingsTarget}
+                onSwitchUser={(name) => setUsername(name)}
+                onClose={closePage}
+              />
+            ) : page === "tasks" ? (
+              <TaskView
+                onClose={closeTasks}
+                openTaskRequest={taskOpenRequest}
+                onTaskOpenRequestHandled={() => setTaskOpenRequest(null)}
+                onFocusAgent={openAgentChat}
+              />
+            ) : page === "cronjobs" ? (
+              <CronjobsView onClose={closePage} onFocusAgent={openAgentChat} />
+            ) : page === "apps" ? (
+              <AppsView onClose={closePage} onFocusAgent={openAgentChat} />
+            ) : page === "skills" ? (
+              <SkillsView onClose={closePage} />
+            ) : page === "integrations" ? (
+              <IntegrationsView
+                onClose={closePage}
+                request={integrationsRequest}
+                onRequestHandled={clearIntegrationsRequest}
+              />
+            ) : page === "pager" || page === "asks" ? (
+              <InboxView
+                tab={page}
+                onSelectTab={openInboxTab}
+                onClose={closePage}
+              >
+                {page === "pager" ? (
+                  <PagerView
+                    selectRequest={pagerSelectRequest}
+                    onSelectRequestHandled={clearPagerSelectRequest}
+                    onFocusAgent={openAgentChat}
+                    onOpenPagerSettings={() =>
+                      openIntegrations({ tab: "pager" })
+                    }
+                  />
+                ) : (
+                  <AsksView
+                    onFocusAgent={openAgentChat}
+                    onChatAgent={setInboxChat}
+                    focusAskId={askFocus}
+                    onClearFocus={clearAskFocus}
+                    filterAgentId={askAgentFilter}
+                    onFilterAgentHandled={clearAskAgentFilter}
+                  />
+                )}
+                {inboxChat && (
+                  <AgentChatPanel
+                    agentId={inboxChat}
+                    onSelectAgent={setInboxChat}
+                    onClose={() => setInboxChat(null)}
+                    onOpenFullChat={openAgentChat}
+                  />
+                )}
+              </InboxView>
+            ) : focusedAgent ? (
+              <LogView
+                key={focusedAgent.id}
+                agent={focusedAgent}
+                logs={logs.get(focusedAgent.id) ?? []}
+                onBack={closeLog}
+                onEditAgent={() => setEditAgent(focusedAgent)}
+                onOpenTasks={openTasks}
+                onOpenTask={openTask}
+                onOpenInbox={openInboxTab}
+                onSwipeLeft={swipeAgentNext}
+                onSwipeRight={swipeAgentPrev}
+              />
+            ) : (
+              <OfficeView
+                onSpawn={(desk) => {
+                  if (canSpawn) setSpawnPickerDesk(desk);
+                }}
+                onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+                onOpenBackRoom={() => setBackRoomOpen(true)}
+                backRoomOpen={backRoomOpen}
+                onCloseBackRoom={goHome}
+                onSpawnBack={() => {
+                  if (canSpawn) setSpawnBackOpen(true);
+                }}
+                onOpenSettings={() => openSettings(null)}
+                onOpenUserSettingsForUser={(userId) => {
+                  setEditingUserId(userId);
+                  openSettings(null);
+                }}
+                onEditOfficePrompt={() =>
+                  openSettings({ kind: "section", section: "office" })
+                }
+                onEditRoomSettings={(roomId) =>
+                  openSettings({ kind: "room", roomId })
+                }
+                onOpenThemePicker={() =>
+                  openSettings({ kind: "section", section: "theme" })
+                }
+                onOpenTasks={openTasks}
+                onOpenCronjobs={() => setCronjobsOpen(true)}
+                onOpenApps={() => setAppsOpen(true)}
+                onOpenSkills={() => setSkillsOpen(true)}
+                onOpenIntegrations={() => openIntegrations()}
+                onOpenInbox={openInboxTab}
+                onOpenUpdate={() =>
+                  openSettings({ kind: "section", section: "updates" })
+                }
+                onSwipeLeft={swipeRoomNext}
+                onSwipeRight={swipeRoomPrev}
+                viewportControlsRef={viewportControlsRef}
+              />
+            )}
+            {spawnBackOpen && currentRoomId && (
+              <EditAgentDialog
+                deskIndex={null}
+                defaultCwd={newAgentCwd}
+                spawnAgentType="claude"
+                roomId={currentRoomId}
+                onClose={() => setSpawnBackOpen(false)}
+              />
+            )}
+            {spawnPickerDesk !== null && currentRoomId && (
+              <EditAgentDialog
+                deskIndex={spawnPickerDesk}
+                defaultCwd={newAgentCwd}
+                spawnAgentType="claude"
+                roomId={currentRoomId}
+                onClose={() => setSpawnPickerDesk(null)}
+              />
+            )}
+            {ctxMenu && (
+              <ContextMenu
+                x={ctxMenu.x}
+                y={ctxMenu.y}
+                agent={ctxMenu.agent}
+                onClose={() => setCtxMenu(null)}
+                onEdit={(agent) => {
+                  setEditAgent(agent);
+                  setCtxMenu(null);
+                }}
+              />
+            )}
+            {editAgent && (
+              <EditAgentDialog
+                // The live record, so a change the server sends while the dialog
+                // is open (limitedClaudeFamilies after a variables save) reaches it.
+                agent={agents.find((a) => a.id === editAgent.id) ?? editAgent}
+                onClose={() => setEditAgent(null)}
+              />
+            )}
+          </AskRefsProvider>
+        </TaskOpener.Provider>
+      </AskSignInResult.Provider>
     </OfficeLinkOpener.Provider>
   );
 }

@@ -1930,6 +1930,9 @@ Cosas que puedes hacer por él:
   "asks.chip": "petición: {words}",
   "asks.openAsk": "Abrir la petición {id}",
   "asks.action.apply": "Aplicar",
+  "asks.step.others": "Solo {member} puede hacer este paso.",
+  "asks.step.othersUnknown":
+    "Solo el miembro de esta petición puede hacer este paso.",
   "asks.action.self": "Es el agente que lo pide.",
   "asks.action.gone": "Ya no puedes acceder a este agente.",
   "asks.action.memberGone": "Este miembro ya no está en la oficina.",

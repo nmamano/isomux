@@ -39,7 +39,7 @@ Errors: 400 `invalid_request` for a field the kind does not take, a variable nam
 
 ## Asking for a step
 
-Some settings are not a value: a Claude or Codex sign-in, an MCP server's OAuth sign-in, pairing your manager's Chrome, and a room's GitHub issue link. Ask the member for one with an ask (see the asks page) whose JSON body has `step`. The card's button opens the Integrations tab with the setting marked. The ask closes itself when the step is done, and an Isomux notice tells you; until then the member can also reply or dismiss it.
+Some settings are not a value: a Claude or Codex sign-in, an MCP server's OAuth sign-in, pairing your manager's Chrome, and a room's GitHub issue link. Ask the member for one with an ask (see the asks page) whose JSON body has `step`. The member does it in the card. The ask closes itself when the step is done, and an Isomux notice tells you; until then the member can also reply or dismiss it.
 
 - `{kind:"provider-sign-in",provider,scope?}`: `provider` is `claude` or `codex`; `scope` is `personal` (the default: your manager's own sign-in) or `office` (an office owner).
 - `{kind:"mcp-sign-in",name,scope?}`: an MCP server that signs in with OAuth, your manager's (`personal`, the default) or the office's.

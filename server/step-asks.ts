@@ -1,8 +1,9 @@
 // Step asks (task c71cb60f): an agent asks the member to do a step on the
 // Integrations page that is not a typed value (a provider sign-in, an MCP
 // OAuth sign-in, a browser pairing, a room's GitHub link). The ask is a
-// plain ask with a `step` and a link the server sets, so the member can
-// still reply, dismiss or file it. It closes itself when the step is done.
+// plain ask with a `step` and a link the server sets (for older clients: the
+// card draws the step's control), so the member can still reply, dismiss or
+// file it. It closes itself when the step is done.
 //
 // An action step (task e3d1bc63) is a human-only action the member runs from
 // the card: it has a route (routeOf) and no link. The create refuses one the

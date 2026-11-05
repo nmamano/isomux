@@ -94,6 +94,7 @@ import { EditRequestCard } from "./EditRequestCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskActionBlock } from "./AskActionBlock.tsx";
+import { AskStepBlock, useStepView } from "./AskStepBlock.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
@@ -372,8 +373,11 @@ function ReplyAskCard({
   const promptRef = useRef<HTMLDivElement>(null);
   const openLink = useContext(OfficeLinkOpener);
   // A link this UI does not know is not drawn, nor one to an agent the store
-  // does not have.
-  const link = askLinkFor(entry.link);
+  // does not have. A step on the Integrations page that the card draws
+  // (AskStepBlock) is done there, so its link, kept for older clients, is
+  // not drawn.
+  const stepView = useStepView(entry.step, entry.memberUserId);
+  const link = stepView ? null : askLinkFor(entry.link);
   const linkLabel = !link
     ? null
     : "agentId" in link
@@ -839,16 +843,7 @@ function ReplyAskCard({
                 <button
                   type="button"
                   data-ask-office-link={entry.link}
-                  onClick={() =>
-                    // A step ask's tab marks the setting of its step.
-                    openLink(
-                      entry.step &&
-                        !isActionStep(entry.step) &&
-                        !("agentId" in link)
-                        ? { ...link, focus: entry.step }
-                        : link,
-                    )
-                  }
+                  onClick={() => openLink(link)}
                   style={{
                     background: "none",
                     border: "none",
@@ -945,6 +940,9 @@ function ReplyAskCard({
           {isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
         </div>
       </div>
+      {stepView && (
+        <AskStepBlock askId={entry.id} view={stepView} isMobile={isMobile} />
+      )}
       {entry.step && isActionStep(entry.step) && (
         <AskActionBlock
           askId={entry.id}

@@ -1154,8 +1154,9 @@ export type SecretAskRequest =
   | McpServerValueRequest;
 
 // A step ask (task c71cb60f): a step on the Integrations page that is not a
-// typed value. The ask's link opens the step's tab, and the ask closes itself
-// when the server sees the step done (server/step-asks.ts). The agent sends
+// typed value. The member does it in the card (ui/log-view/AskStepBlock.tsx);
+// the ask's link to the step's tab is for older clients. The ask closes
+// itself when the server sees the step done (server/step-asks.ts). The agent sends
 // the kind and its own fields; the server fills the rest at create.
 export type StepAskRequest =
   // The member's own account (personal), or the office's.

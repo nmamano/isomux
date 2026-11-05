@@ -488,6 +488,9 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
     verifier: string;
     redirectUri: string;
     expiresAt: number;
+    // The ask card the sign-in started from (task e3d1bc63): the callback
+    // goes back to it.
+    askId?: string;
   }
   const pending = new Map<string, Pending>();
 
@@ -641,11 +644,13 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
   }
 
   // Step 1: discovery, the client, PKCE and state. The URL goes to the
-  // member's browser only: it carries no token.
+  // member's browser only: it carries no token. `askId`, a checked ask id,
+  // is the ask card the sign-in starts from.
   async function startSignIn(
     scope: SecretScope,
     name: string,
     userId: string,
+    askId?: string,
   ): Promise<
     | { ok: true; authorizationUrl: string }
     | { ok: false; reason: McpOAuthReason }
@@ -762,6 +767,7 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
         verifier,
         redirectUri,
         expiresAt: now() + MCP_OAUTH_PENDING_MS,
+        ...(askId ? { askId } : {}),
       });
       const authorize = new URL(oauth.authorizationEndpoint);
       authorize.searchParams.set("response_type", "code");
@@ -782,31 +788,33 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
   // Step 2, the callback: the member who started the flow brings the code
   // back; Isomux exchanges it and keeps the tokens.
   // `mayUse` re-checks the scope (an office flow: the member is still an
-  // owner) before the code is spent.
+  // owner) before the code is spent. The flow's askId comes back only to the
+  // member who may finish it.
   async function finishSignIn(
     userId: string,
     query: URLSearchParams,
     mayUse: (scope: SecretScope) => boolean,
   ): Promise<
-    | { ok: true; scope: SecretScope; name: string }
-    | { ok: false; reason: McpOAuthReason; name?: string }
+    | { ok: true; scope: SecretScope; name: string; askId?: string }
+    | { ok: false; reason: McpOAuthReason; name?: string; askId?: string }
   > {
     const state = query.get("state") ?? "";
     const flow = pending.get(state);
     if (!flow) return { ok: false, reason: "state_unknown" };
+    const starter = flow.userId === userId && mayUse(flow.scope);
+    const ask = starter && flow.askId ? { askId: flow.askId } : {};
     if (flow.expiresAt <= now()) {
       pending.delete(state);
-      return { ok: false, reason: "state_expired", name: flow.name };
+      return { ok: false, reason: "state_expired", name: flow.name, ...ask };
     }
     // Another member's browser: the flow stays for the member who started it.
-    if (flow.userId !== userId || !mayUse(flow.scope))
-      return { ok: false, reason: "wrong_member" };
+    if (!starter) return { ok: false, reason: "wrong_member" };
     pending.delete(state);
     const code = query.get("code");
-    if (!code) return { ok: false, reason: "denied", name: flow.name };
+    if (!code) return { ok: false, reason: "denied", name: flow.name, ...ask };
     const stored = deps.servers.oauthOf(flow.scope, flow.name);
     if (!stored || stored.url !== flow.url)
-      return { ok: false, reason: "changed", name: flow.name };
+      return { ok: false, reason: "changed", name: flow.name, ...ask };
     const result = await withTimeout(async (signal) => {
       const oauth = { ...stored.oauth };
       const token = await tokenRequest(
@@ -846,8 +854,8 @@ export function createMcpOAuth(deps: McpOAuthDeps) {
       });
     });
     return result.ok
-      ? { ok: true, scope: flow.scope, name: flow.name }
-      : { ok: false, reason: result.reason, name: flow.name };
+      ? { ok: true, scope: flow.scope, name: flow.name, ...ask }
+      : { ok: false, reason: result.reason, name: flow.name, ...ask };
   }
 
   const inFlight = new Map<string, Promise<void>>();

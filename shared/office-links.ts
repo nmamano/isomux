@@ -12,8 +12,6 @@
 // same way: it opens that chat and the address bar shows "/" (agentIdForPath,
 // task 680747d8).
 
-import type { StepAskRequest } from "./types.ts";
-
 export const OFFICE_PAGES = [
   "tasks",
   "cronjobs",
@@ -58,8 +56,6 @@ export interface PageLink {
   tab?: IntegrationsTab;
   // The ask an /inbox/asks/<askId> link opens in the Asks tab (task 84aadfab).
   askId?: string;
-  // A step ask's step, which the Integrations tab marks (task c71cb60f).
-  focus?: StepAskRequest;
   // The agent the Asks tab filters to (the chat's ask stack, task 586ebfe1).
   // The UI sets it; no ask link does.
   onlyAgent?: string;

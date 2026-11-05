@@ -6,7 +6,6 @@
 // the sync will send to GitHub (task edcc3e34). While the reads are out, the
 // card holds the form this device last opened on (task eeec205a).
 
-import { StepMark } from "./step-focus.tsx";
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
@@ -73,43 +72,11 @@ const HELD_LINK: GithubLinkWire = {
   status: { kind: "ok" },
 };
 
-// onSecrets switches the page to the Secrets tab.
-export function GithubSection({
-  onSecrets,
-  focusRoomId,
-}: {
-  onSecrets: () => void;
-  // The room a step ask names (task c71cb60f): the tab opens on it, with
-  // its form marked.
-  focusRoomId?: string;
-}) {
-  const { t } = useI18n();
-  const { rooms, allRooms } = useAppState();
-  const choices = (allRooms.length > 0 ? allRooms : rooms).filter(
-    (room) => room.type !== "lobby",
-  );
-  const ids = choices.map((room) => room.id).join(",");
-  // The saved link of each room, by room id; null until every room answered.
-  const [links, setLinks] = useState<Record<string, GithubLinkWire> | null>(
-    null,
-  );
-  const [picked, setPicked] = useState<string | null>(null);
-  // The names of the office secrets the sync may send to GitHub; null until
-  // the list answered. A failed load offers none.
+// The names of the office secrets the sync may send to GitHub; null until
+// the list answered. A failed load offers none. Also the ask card's (task
+// e3d1bc63).
+export function useGithubSecrets(): string[] | null {
   const [usable, setUsable] = useState<string[] | null>(null);
-  const [held] = useState(getGithubLayout);
-
-  // The next load opens on a linked room when there is one (below), so that
-  // is the form it holds. Each answer, each save or unlink, and each change
-  // to the secrets.
-  useEffect(() => {
-    if (links && usable)
-      setGithubLayout({
-        linked: Object.keys(links).length > 0,
-        secret: usable.length > 0,
-      });
-  }, [links, usable]);
-
   useEffect(() => {
     let alive = true;
     // Only the newest load may set the list: an older answer can come last.
@@ -135,6 +102,35 @@ export function GithubSection({
       stop();
     };
   }, []);
+  return usable;
+}
+
+// onSecrets switches the page to the Secrets tab.
+export function GithubSection({ onSecrets }: { onSecrets: () => void }) {
+  const { t } = useI18n();
+  const { rooms, allRooms } = useAppState();
+  const choices = (allRooms.length > 0 ? allRooms : rooms).filter(
+    (room) => room.type !== "lobby",
+  );
+  const ids = choices.map((room) => room.id).join(",");
+  // The saved link of each room, by room id; null until every room answered.
+  const [links, setLinks] = useState<Record<string, GithubLinkWire> | null>(
+    null,
+  );
+  const [picked, setPicked] = useState<string | null>(null);
+  const usable = useGithubSecrets();
+  const [held] = useState(getGithubLayout);
+
+  // The next load opens on a linked room when there is one (below), so that
+  // is the form it holds. Each answer, each save or unlink, and each change
+  // to the secrets.
+  useEffect(() => {
+    if (links && usable)
+      setGithubLayout({
+        linked: Object.keys(links).length > 0,
+        secret: usable.length > 0,
+      });
+  }, [links, usable]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,21 +149,16 @@ export function GithubSection({
       const next: Record<string, GithubLinkWire> = {};
       for (const link of found) if (link) next[link.roomId] = link;
       setLinks(next);
-      // Open on the room a step names, else the first linked room, else
-      // the first room.
+      // Open on the first linked room, else the first room.
       setPicked(
         (prev) =>
-          prev ??
-          (focusRoomId && roomIds.includes(focusRoomId) ? focusRoomId : null) ??
-          roomIds.find((roomId) => next[roomId]) ??
-          roomIds[0] ??
-          null,
+          prev ?? roomIds.find((roomId) => next[roomId]) ?? roomIds[0] ?? null,
       );
     });
     return () => {
       cancelled = true;
     };
-  }, [ids, focusRoomId]);
+  }, [ids]);
 
   if (choices.length === 0)
     return (
@@ -204,36 +195,29 @@ export function GithubSection({
           </option>
         ))}
       </select>
-      <StepMark active={!waiting && roomId === focusRoomId} kind="github-link">
-        <RoomGithubLink
-          key={roomId}
-          roomId={roomId}
-          saved={saved}
-          usable={names}
-          waiting={waiting}
-          onSecrets={onSecrets}
-          onSaved={(link) =>
-            setLinks((prev) => {
-              const next = { ...prev };
-              if (link) next[roomId] = link;
-              else delete next[roomId];
-              return next;
-            })
-          }
-        />
-      </StepMark>
+      <RoomGithubLink
+        key={roomId}
+        roomId={roomId}
+        saved={saved}
+        usable={names}
+        waiting={waiting}
+        onSecrets={onSecrets}
+        onSaved={(link) =>
+          setLinks((prev) => {
+            const next = { ...prev };
+            if (link) next[roomId] = link;
+            else delete next[roomId];
+            return next;
+          })
+        }
+      />
     </>
   );
 
   if (!links || !picked || !usable) {
     // The room the live form opens on (above), as far as it is known: a
     // remembered link opens on a linked room, but not which one.
-    const opens =
-      focusRoomId && choices.some((room) => room.id === focusRoomId)
-        ? focusRoomId
-        : held.linked
-          ? ""
-          : choices[0].id;
+    const opens = held.linked ? "" : choices[0].id;
     return (
       <section data-integrations-card="github" style={card}>
         <Reserved dim>
@@ -260,7 +244,8 @@ export function GithubSection({
 
 // One room's link: the saved link and its status, Save and Unlink.
 // `waiting`: a held form, with no secret picked and a bar for the status.
-function RoomGithubLink({
+// Also the form of a GitHub link step ask (task e3d1bc63).
+export function RoomGithubLink({
   roomId,
   saved,
   usable,

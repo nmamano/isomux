@@ -1896,6 +1896,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.chip": "ask: {words}",
   "asks.openAsk": "Open ask {id}",
   "asks.action.apply": "Apply",
+  "asks.step.others": "Only {member} can do this step.",
+  "asks.step.othersUnknown":
+    "Only the member this ask is for can do this step.",
   "asks.action.self": "This is the agent that asks.",
   "asks.action.gone": "You can no longer reach this agent.",
   "asks.action.memberGone": "This member is no longer in the office.",
