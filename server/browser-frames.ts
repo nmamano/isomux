@@ -133,7 +133,7 @@ export async function readBrowserFrames(
       append(
         action === "text"
           ? await body.innerText(options)
-          : await snapshotWithEditableText(
+          : await snapshotWithSupplements(
               frame,
               body,
               options.timeout,
@@ -149,9 +149,9 @@ export async function readBrowserFrames(
   return output;
 }
 
-// Playwright omits contenteditable textbox children from the ARIA tree. Add
-// only rendered values from visible, accessibility-present textboxes in scope.
-async function snapshotWithEditableText(
+// Two parts of the page that Playwright's ARIA tree leaves out follow the
+// tree: the text of editable textboxes and the options in a select's groups.
+async function snapshotWithSupplements(
   frame: Frame,
   scope: Locator,
   timeout: number,
@@ -165,9 +165,34 @@ async function snapshotWithEditableText(
   const passwords = [...before, ...(await readPasswordValues(frame, deadline))];
   if (snapshot.length >= limit || Date.now() >= deadline)
     return maskPasswordValues(snapshot, passwords);
-  // A blank tree has no accessible textbox to supplement.
+  // A blank tree has no accessible textbox or select to supplement.
   if (!snapshot.trim())
     return (await hidesTree(scope, deadline)) ? HIDDEN_TREE_MARKER : snapshot;
+  const editable = await editableTextSection(
+    frame,
+    scope,
+    snapshot,
+    deadline,
+    limit - snapshot.length,
+  );
+  const grouped = await groupedOptionsSection(
+    frame,
+    scope,
+    deadline,
+    limit - snapshot.length - editable.length,
+  );
+  return maskPasswordValues(snapshot + editable + grouped, passwords);
+}
+
+// Playwright omits contenteditable textbox children from the ARIA tree. Add
+// only rendered values from visible, accessibility-present textboxes in scope.
+async function editableTextSection(
+  frame: Frame,
+  scope: Locator,
+  snapshot: string,
+  deadline: number,
+  limit: number,
+): Promise<string> {
   // Public locator reads use Playwright's utility world. Page evaluation needs
   // a main-world context that may not be announced again when an All grant
   // changes clients without detaching Chrome's debugger.
@@ -196,14 +221,51 @@ async function snapshotWithEditableText(
       !normalized.includes(value.replace(/\s+/g, " ")) &&
       !snapshot.includes(JSON.stringify(value)),
   );
-  return maskPasswordValues(
-    missing.length
-      ? snapshot +
-          "\n\n--- Editable textbox text ---\n" +
-          missing.map((value) => "- " + JSON.stringify(value)).join("\n")
-      : snapshot,
-    passwords,
-  );
+  return missing.length
+    ? "\n\n--- Editable textbox text ---\n" +
+        missing.map((value) => "- " + JSON.stringify(value)).join("\n")
+    : "";
+}
+
+const GROUPED_OPTIONS_HEADING = "\n\n--- Grouped select options ---\n";
+const GROUPED_OPTIONS_UNREAD = "[grouped select options not read]";
+
+// Playwright's ARIA tree drops every option inside an <optgroup> of a
+// combobox <select>, so a grouped list reads as empty. Its ai mode lists them
+// all, without the group labels. A listbox select already shows its groups.
+// A failed or late read leaves a note: a gap would read as a list with no
+// options.
+async function groupedOptionsSection(
+  frame: Frame,
+  scope: Locator,
+  deadline: number,
+  limit: number,
+): Promise<string> {
+  // getByRole leaves out the selects that the tree leaves out.
+  const selects = scope
+    .locator(":scope, :scope *")
+    .and(frame.getByRole("combobox"))
+    .and(frame.locator("select:has(optgroup option)"));
+  const blocks: string[] = [];
+  let length = 0;
+  try {
+    // count() has no timeout of its own.
+    const count = await withinDeadline(selects.count(), deadline - Date.now());
+    for (let index = 0; index < count && length < limit; index++) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error("deadline");
+      const block = (
+        await selects
+          .nth(index)
+          .ariaSnapshot({ mode: "ai", timeout: remaining })
+      ).replace(/ \[ref=[^\]]+\]/g, "");
+      blocks.push(block);
+      length += block.length + 1;
+    }
+  } catch {
+    blocks.push(GROUPED_OPTIONS_UNREAD);
+  }
+  return blocks.length ? GROUPED_OPTIONS_HEADING + blocks.join("\n") : "";
 }
 
 const HIDDEN_TREE_MARKER =

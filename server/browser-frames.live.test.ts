@@ -183,3 +183,118 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   },
   30_000,
 );
+
+// Task 95ae0c65: Chrome's ARIA snapshot drops every option inside an
+// <optgroup> of a combobox <select>, so an agent read a grouped Channel list
+// as empty. The snapshot lists them after the tree, per combobox. A select
+// that the tree leaves out (aria-hidden, display:none) adds nothing, and a
+// listbox select already shows its groups.
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "a snapshot lists the options in a combobox select's groups, per select, in scope and frame",
+  async () => {
+    const browser = await chromium.launch({
+      executablePath: "/usr/bin/google-chrome",
+      args: ["--no-sandbox"],
+    });
+    try {
+      const page = await browser.newPage();
+      const root = page.mainFrame();
+      const grouped = (name: string, options: string, style = "") =>
+        `<label>${name} <select style="${style}"><optgroup label="Group ${name}">${options}</optgroup></select></label>`;
+      await page.setContent(`<section id="discord">
+          <label>Channel <select id="channel">
+            <option value="" disabled>Choose a channel</option>
+            <optgroup label="Text Channels"><option>general</option><option>isomux-chat</option></optgroup>
+            <optgroup label="Info"><option disabled>rules</option></optgroup>
+            <option>loose</option>
+          </select></label>
+          ${grouped("Zero", "<option>zeta-one</option>", "width:0;height:0;border:0;padding:0")}
+        </section>
+        <section id="other">
+          <label>Plain <select><option>plain-one</option></select></label>
+          <label>Multi <select multiple><optgroup label="M"><option>multi-one</option></optgroup></select></label>
+        </section>
+        <div aria-hidden="true">${grouped("Hidden", "<option>hidden-one</option>")}</div>
+        ${grouped("Gone", "<option>gone-one</option>", "display:none")}
+        <input type="password" aria-label="Password" id="pw">
+        ${grouped("Secrets", "<option>hunter-secret-9</option>")}
+        <iframe srcdoc='${grouped("Inner", "<option>frame-one</option>")}'></iframe>`);
+      await page.selectOption("#channel", { label: "isomux-chat" });
+      await page.fill("#pw", "hunter-secret-9");
+      const inner = page.frames()[1];
+      await inner.waitForSelector("select");
+
+      // The premise, read straight from Chrome: the tree shows each combobox
+      // and its loose options, but no option in a group, while a listbox
+      // select shows its groups.
+      const tree = await root.locator("body").ariaSnapshot();
+      for (const name of ["Channel", "Zero", "Plain", "Secrets"])
+        expect(tree).toContain(`- combobox "${name}"`);
+      expect(tree).toContain('- option "loose"');
+      expect(tree).toContain('- option "multi-one"');
+      for (const option of ["general", "isomux-chat", "rules", "zeta-one"])
+        expect(tree).not.toContain(`"${option}"`);
+      expect(await inner.locator("body").ariaSnapshot()).not.toContain(
+        "frame-one",
+      );
+
+      const read = await readBrowserFrames(root, "snapshot", 20_000, 5000);
+      const [main, child] = read.split("--- Frame framePath=[0] ---");
+      expect(child).toBeDefined();
+      expect(read).not.toContain("[ref=");
+      // The password value is masked, also where it is an option name.
+      expect(read).not.toContain("hunter-secret-9");
+      // The tree itself is unchanged; what follows lists each combobox select
+      // that has groups, with all its options and their states.
+      const masked = tree.replace("hunter-secret-9", PASSWORD_MASK);
+      expect(main.startsWith(masked.slice(0, masked.indexOf("- iframe")))).toBe(
+        true,
+      );
+      const listed = main.slice(main.indexOf("- iframe"));
+      const blocks = new Map(
+        listed
+          .split(/^(?=- combobox )/m)
+          .slice(1)
+          .map((block) => [block.slice(0, block.indexOf("\n")), block]),
+      );
+      const block = (name: string) =>
+        [...blocks].find(([head]) =>
+          head.startsWith(`- combobox "${name}"`),
+        )?.[1] ?? "";
+      expect([...blocks.keys()].map((head) => head.split('"')[1])).toEqual([
+        "Channel",
+        "Zero",
+        "Secrets",
+      ]);
+      const channel = block("Channel");
+      expect(channel).toMatch(/- option "Choose a channel" \[disabled\]/);
+      expect(channel).toContain('- option "general"\n');
+      expect(channel).toMatch(/- option "isomux-chat" \[selected\]/);
+      expect(channel).toMatch(/- option "rules" \[disabled\]/);
+      expect(channel).toContain('- option "loose"');
+      expect(channel).not.toContain("zeta-one");
+      expect(block("Zero")).toContain('- option "zeta-one"');
+      expect(block("Secrets")).toContain(`- option "${PASSWORD_MASK}"`);
+      for (const absent of ["hidden-one", "gone-one", "frame-one"])
+        expect(main).not.toContain(absent);
+      expect(child).toContain('- option "frame-one"');
+
+      // A scoped read lists the selects in its scope, the scope element too.
+      const scoped = (selector: string) =>
+        readBrowserFrames(root, "snapshot", 20_000, 5000, { selector });
+      expect(await scoped("#other")).toBe(
+        await root.locator("#other").ariaSnapshot(),
+      );
+      expect(await scoped("#channel")).toContain('- option "general"');
+      expect(await scoped("#discord")).toContain('- option "zeta-one"');
+      expect(
+        await readBrowserFrames(root, "snapshot", 20_000, 5000, {
+          framePath: [0],
+        }),
+      ).toContain('- option "frame-one"');
+    } finally {
+      await browser.close();
+    }
+  },
+  30_000,
+);

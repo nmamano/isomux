@@ -23,9 +23,20 @@ const noPasswordFields = {
   },
 };
 
+// The candidates of the snapshot supplements: the editable textboxes are
+// `boxes`; the fakes have no select with groups (role combobox).
+function candidates(boxes: object, grouped = false): object {
+  return {
+    and: (other: { role?: string }) =>
+      candidates(boxes, grouped || other.role === "combobox"),
+    filter: () => candidates(boxes, grouped),
+    ...(grouped ? { count: async () => 0 } : boxes),
+  };
+}
+
 function frame(text: string, children: Frame[] = [], detached = false): Frame {
   return {
-    getByRole: () => ({}),
+    getByRole: (role: string) => ({ role }),
     childFrames: () => children,
     isDetached: () => detached,
     locator: (selector: string) =>
@@ -38,11 +49,7 @@ function frame(text: string, children: Frame[] = [], detached = false): Frame {
             waitFor: async () => {},
             innerText: async () => text,
             ariaSnapshot: async () => `- text: ${text}`,
-            locator: () => ({
-              and: () => ({
-                and: () => ({ filter: () => ({ count: async () => 0 }) }),
-              }),
-            }),
+            locator: () => candidates({ count: async () => 0 }),
           },
   } as unknown as Frame;
 }
@@ -277,16 +284,14 @@ function editableFrame(
   return {
     childFrames: () => [],
     isDetached: () => false,
-    getByRole: () => ({}),
+    getByRole: (role: string) => ({ role }),
     locator: (selector: string) =>
       selector === PASSWORD_FIELDS
         ? noPasswordFields
         : {
             ariaSnapshot: async ({ timeout }: { timeout: number }) =>
               snapshot(timeout),
-            locator: () => ({
-              and: () => ({ and: () => ({ filter: () => boxes }) }),
-            }),
+            locator: () => candidates(boxes),
           },
   } as unknown as Frame;
 }
@@ -420,7 +425,7 @@ function passwordFrame(options: {
   return {
     childFrames: () => options.children ?? [],
     isDetached: () => false,
-    getByRole: () => ({}),
+    getByRole: (role: string) => ({ role }),
     locator: (selector: string) =>
       selector === PASSWORD_FIELDS
         ? {
@@ -446,9 +451,7 @@ function passwordFrame(options: {
               phase = "after";
               return snapshot;
             },
-            locator: () => ({
-              and: () => ({ and: () => ({ filter: () => boxes }) }),
-            }),
+            locator: () => candidates(boxes),
           },
   } as unknown as Frame;
 }
@@ -635,7 +638,7 @@ test("the mask covers the editable text section and runs before the output limit
 function stalledFrame(where: "password" | "editable"): Frame {
   const never = () => new Promise<number>(() => {});
   return {
-    getByRole: () => ({}),
+    getByRole: (role: string) => ({ role }),
     childFrames: () => [],
     isDetached: () => false,
     locator: (selector: string) =>
@@ -646,11 +649,7 @@ function stalledFrame(where: "password" | "editable"): Frame {
         : {
             innerText: async () => "",
             ariaSnapshot: async () => "- textbox",
-            locator: () => ({
-              and: () => ({
-                and: () => ({ filter: () => ({ count: never }) }),
-              }),
-            }),
+            locator: () => candidates({ count: never }),
           },
   } as unknown as Frame;
 }
@@ -805,4 +804,88 @@ for (const mode of ["throws", "rejects", "stalls"] as const)
       { value: "" },
       { value: "- text: Shell\n\n--- Frame framePath=[0] ---\n" },
     ]);
+  });
+
+// Task 95ae0c65: the list of options in a combobox select's groups is added
+// after the tree. When that listing fails or runs out of time, the read keeps
+// the tree and adds a note in place of the list: an error would lose a good
+// read, and a silent gap reads as a select with no options. The note carries no
+// error content. A call with a timeout honours it; count() has none.
+type GroupedFailure = "throws" | "rejects" | "stalls" | "times out";
+function groupedFrame(failure: GroupedFailure): Frame {
+  const fail = (options?: { timeout?: number }) => {
+    if (failure === "throws") throw new Error("private probe content");
+    if (failure === "rejects")
+      return Promise.reject(new Error("private probe content"));
+    if (typeof options?.timeout !== "number") return new Promise(() => {});
+    return Bun.sleep(options.timeout).then(() => {
+      throw new errors.TimeoutError("private probe content");
+    });
+  };
+  // Records what each locator stands for, so the fake can tell the grouped
+  // select candidates from the editable textbox ones.
+  const chain = (parts: string[]): object => {
+    const grouped = parts.some((part) => /select|combobox/.test(part));
+    return {
+      parts,
+      locator: (selector: string) => chain([...parts, selector]),
+      and: (other: { parts: string[] }) => chain([...parts, ...other.parts]),
+      filter: () => chain(parts),
+      first: () => chain(parts),
+      nth: () => chain(parts),
+      waitFor: async () => {},
+      innerText: async () => "",
+      count: (options?: { timeout?: number }) =>
+        !grouped
+          ? Promise.resolve(0)
+          : failure === "times out"
+            ? Promise.resolve(1)
+            : fail(options),
+      ariaSnapshot: (options?: { timeout?: number }) =>
+        parts.length === 1
+          ? Promise.resolve('- combobox "Channel"')
+          : fail(options),
+    };
+  };
+  return {
+    childFrames: () => [],
+    isDetached: () => false,
+    getByRole: (role: string) => chain([`role=${role}`]),
+    locator: (selector: string) =>
+      selector === PASSWORD_FIELDS ? noPasswordFields : chain([selector]),
+  } as unknown as Frame;
+}
+
+for (const failure of [
+  "throws",
+  "rejects",
+  "stalls",
+  "times out",
+] as const satisfies readonly GroupedFailure[])
+  test(`a grouped-options listing that ${failure} keeps the tree and notes the gap`, async () => {
+    const reads = [
+      readBrowserFrames(groupedFrame(failure), "snapshot", 20_000, 300),
+      readBrowserFrames(
+        frame("Shell", [groupedFrame(failure)]),
+        "snapshot",
+        20_000,
+        300,
+      ),
+    ];
+    const outcomes = await Promise.all(
+      reads.map((read) => settledWithin(read, 2500)),
+    );
+    const [main, nested] = outcomes.map((outcome) => {
+      expect(outcome).not.toBe(HUNG);
+      expect(outcome).not.toHaveProperty("error");
+      return (outcome as { value: string }).value;
+    });
+    expect(main).toStartWith('- combobox "Channel"\n');
+    expect(main.length).toBeGreaterThan('- combobox "Channel"\n'.length);
+    expect(main).not.toContain("private probe content");
+    // In a child frame the note stays in that frame's section, which is read,
+    // not marked unread.
+    expect(nested).toBe(
+      "- text: Shell\n\n--- Frame framePath=[0] ---\n" + main,
+    );
   });
