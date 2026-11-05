@@ -177,12 +177,14 @@ for review again.
 The first listing is done once in the dashboard: texts, screenshots, the
 privacy tab and the reviewer notes. Single purpose: let the member's own Isomux
 office agents act in Chrome tabs that the member offers, or that agents open
-when the member turns on Open their own tabs. Per permission: `debugger` runs Chrome DevTools Protocol
+when the member turns on Open their own tabs, and send them pages the member
+shares. Per permission: `debugger` runs Chrome DevTools Protocol
 commands on those tabs only, attached at the member's offer or when an agent
 opens a tab the member allows, and detached at Off, expiry or the end of
 control; `webNavigation` takes popup ownership from `sourceTabId` only and
 collects no history; `activeTab`
-lets the popup offer the current tab; `storage`; `alarms` wakes the worker to
+lets the popup offer or share the current tab; `scripting` reads the selected
+text of the page the member shares (no install warning); `storage`; `alarms` wakes the worker to
 reconnect. Remote code: the office's CDP runs in the page
 (`Runtime.evaluate`), never in the extension context. Data use: website
 content, sent only to the member's own office; Isomux LLC receives nothing.
@@ -774,3 +776,36 @@ An agent reads a page; it never needs the sound (Nil, 2026-11-02, after an agent
 **End.** An opened tab stays muted when it is kept. An offered tab is the member's: at the agent's first mute the extension notes whether the tab was muted already, and when the grant ends (Off, revoke, the office's detach, Disconnect, expiry; not a connection loss that resumes) it unmutes the root and its popups only when the root had sound before and its `mutedInfo` still says reason `extension` with this extension's id, so a mute or unmute of the member's since then wins. The resume entry keeps both flags (`muted`, `restoreSound`), so an office restart and a worker restart keep them; an entry from before 0.8.0 has none, and an opened one counts as muted. An offer that ends while it waits to resume (Off or Disconnect during an outage) gives the root its sound back by the same rule. Popups from before a connection loss are not tracked after it, so they keep the mute.
 
 **Unmute.** Chrome's tab menu has only Mute site / Unmute site, a site content setting that does not undo an extension's tab mute. The popup, opened on a tab whose `mutedInfo` is this extension's mute, shows **Unmute tab** in every state, paired or not, and calls `chrome.tabs.update({muted:false})` itself. `mutedInfo` needs no `tabs` permission.
+
+## Share page with agent (extension 0.9.0, task 68da3968)
+
+The popup's **Share page with agent** sends the page of its tab to one agent as
+the member's message. The agent gets no grant of the tab. `ready` carries
+`share: true` (capability flag, no protocol bump), and `metadata.shareAgents`
+lists every agent the member reaches (`mayReach`) as `{id, name, room}`, by
+room name, then agent name. The popup groups them by room and keeps the last
+pick in `chrome.storage.local` (`shareAgent`, with the office origin).
+
+The popup reads the tab's URL and title (`activeTab`) and its main frame's
+selection with `chrome.scripting.executeScript`; a page that takes no script
+shares without a selection, and a page that is not http(s) cannot be shared.
+The background sends `{kind:"share", generation, id, agentId, url, title,
+selection?}` only to an office whose `ready` had `share`, with the title and
+the selection cut one code point over the office's cut, so a select-all on a
+long page never makes a frame over the socket cap. It answers the popup
+with the office's `{kind:"shareResult", generation, id, error?}`, or with
+`unanswered` after 10 seconds or at once when the connection ends (the message
+may have arrived).
+
+The bridge answers every share with an id and never ends the connection for
+one: `invalid_share` (not an http(s) URL, a user name or password in it, over
+4096 characters once parsed, or a field of the wrong type), `agent_unavailable`
+(an agent the member does not reach), or the delivery's refusal code. It
+delivers the parsed URL through `formatSharedPage` (`shared/browser-share.ts`,
+for the later phone share target too): the URL, the title on one line (cut at
+300 characters) and each selected line quoted with `> ` (cut at 4000
+characters), with every page line that could pass for a sender label defused.
+The office sends it as the member's message with device `Browser share` and
+`refusePromptAnswer`, so a share never answers a pending prompt or menu
+(`awaits_member_answer`). Audit operation `browserExtension.share`, target the
+agent, no page fields.

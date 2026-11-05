@@ -48,6 +48,7 @@ test("packaged extension has exact root entries, valid CRCs and no stale build f
       "storage",
       "alarms",
       "webNavigation",
+      "scripting",
     ]);
     for (const file of EXTENSION_ENTRIES)
       expect(

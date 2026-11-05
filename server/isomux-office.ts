@@ -179,6 +179,7 @@ import {
   type WsPushKind,
 } from "./ws-push-area.ts";
 import { lowercaseKey } from "../shared/identity.ts";
+import { BROWSER_SHARE_DEVICE } from "../shared/browser-share.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 import { startSplitMode } from "./split/start.ts";
 import {
@@ -737,6 +738,24 @@ export function mayReachExtension(member: string, agentId: string): boolean {
     deps.hasRoomAccess(identity, agent.roomId) &&
     identityFitsAgent(identity, agentId, deps)
   );
+}
+
+// A page the member shared from the browser extension (task 68da3968): the
+// member's own message, which never answers a pending prompt.
+async function shareWithAgent(
+  member: string,
+  agentId: string,
+  text: string,
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  const result = await sendMemberMessage(
+    agentId,
+    text,
+    getUserById(member)?.name,
+    BROWSER_SHARE_DEVICE,
+    undefined,
+    { refusePromptAnswer: true },
+  );
+  return result.ok ? { ok: true } : { ok: false, code: result.code };
 }
 
 let seedWelcomeAgentsForFirstOwner:
@@ -5524,6 +5543,7 @@ export async function startServer(
     stepsChanged,
     mayUseExtension,
     mayReachExtension,
+    shareWithAgent,
     deliverCronjobToAgent,
     ordinaryScheduleMaker,
     pushAskChange,

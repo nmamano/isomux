@@ -220,8 +220,56 @@ export interface BrowserDisplay {
   id: string;
   name: string;
 }
+// An agent the member can share a page with, and its room's name.
+export interface ShareAgent extends BrowserDisplay {
+  room: string;
+}
+// The extension shares the page of its popup's tab with an agent, on an
+// office whose ready had share: true (task 68da3968).
+export interface BrowserShareMessage {
+  kind: "share";
+  generation: string;
+  id: string;
+  agentId: string;
+  url: string;
+  title: string;
+  selection?: string;
+}
+// Why the office did not deliver a share. awaits_member_answer and any other
+// refusal of the member message pass through as their code.
+export type BrowserShareError =
+  | "agent_unavailable"
+  | "invalid_share"
+  | "awaits_member_answer"
+  | (string & {});
+// The longest shared URL the office takes, after parsing.
+export const SHARE_URL_MAX = 4096;
+// The URL a share sends, parsed: an http(s) page with no user name or
+// password, at most SHARE_URL_MAX characters. Else undefined.
+export function shareableUrl(value: unknown): string | undefined {
+  if (typeof value !== "string") return;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
+  if (url.username || url.password || url.href.length > SHARE_URL_MAX) return;
+  return url.href;
+}
+// The office's answer to a share: no error when the agent has the message.
+export interface BrowserShareResult {
+  kind: "shareResult";
+  generation: string;
+  id: string;
+  error?: BrowserShareError;
+}
 export interface BrowserMetadata {
   agents: BrowserDisplay[];
+  // The agents the member can share a page with, by room. Absent from an
+  // office without share.
+  shareAgents?: ShareAgent[];
   // Members other than this one who manage an agent the member can reach,
   // and every picked member. Absent from an older office.
   members?: BrowserDisplay[];
@@ -333,6 +381,13 @@ export interface ExtensionUIState {
   members: BrowserDisplay[];
   // The office takes access messages and "shared" offers.
   sharedAccess?: boolean;
+  // The office takes shares; shareAgents lists who can get one.
+  share?: boolean;
+  shareAgents?: ShareAgent[];
+  // The answer to the popup's share: "sent", "unanswered" (no answer before
+  // the deadline or the connection ended; it may have arrived), or why the
+  // share was not delivered.
+  shareResult?: string;
   currentTab?: { id: number; eligible: boolean };
   assignments: {
     id: string;

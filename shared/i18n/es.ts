@@ -78,6 +78,16 @@ export const es: Catalog = {
   "browser.agentTabOf": "{agent} · {member}",
   "browser.closeTab": "Cerrar pestaña",
   "browser.unmuteTab": "Activar sonido de la pestaña",
+  "browser.shareSection": "Compartir página con un agente",
+  "browser.share": "Compartir",
+  "browser.sharePick": "Elige un agente",
+  "browser.shareSent": "Enviada a {name}.",
+  "browser.shareWaits":
+    "{name} espera tu respuesta. Respóndela en la oficina y vuelve a compartir.",
+  "browser.shareUnanswered":
+    "La oficina no ha respondido. Revisa el chat del agente antes de volver a compartir.",
+  "browser.shareFailed": "No se ha enviado. Inténtalo de nuevo.",
+  "browser.shareIneligible": "Solo puedes compartir páginas HTTP(S).",
   "browser.agentTabsSetting": "Los agentes pueden abrir pestañas: {scope}",
   "browser.tabShared": "Los agentes pueden usar esta pestaña.",
   "browser.assigned": "{name} usa esta pestaña.",

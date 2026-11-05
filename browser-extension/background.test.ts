@@ -4365,3 +4365,150 @@ test("an offered tab the agent muted gets its sound back at Off after Chrome sto
   for (let i = 0; i < 3; i++) await settle();
   expect(muted(later, 7)).toBe(false);
 });
+
+// Share page with agent (task 68da3968): the popup hands the page to the
+// background, which sends it on an office whose ready offers share and
+// answers the popup with the office's answer.
+const SHARE = {
+  action: "share",
+  agentId: "a",
+  url: "https://example.com/post",
+  title: "A post",
+  selection: "Read this",
+};
+const SHARE_AGENTS = [
+  { id: "a", name: "Agent", room: "Room" },
+  { id: "b", name: "Other", room: "Room" },
+];
+async function shareHarness() {
+  const h = await harness(true, true, { access: true, ready: { share: true } });
+  h.socket.receive({
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [],
+    shareAgents: SHARE_AGENTS,
+    assignments: [],
+  });
+  await settle();
+  // Sends a share from the popup; returns its frame and the popup's answer.
+  const share = async () => {
+    let answered: Record<string, unknown> | undefined;
+    const reply = h.ui(SHARE).then((value) => (answered = value));
+    await settle();
+    const frame = h.socket.sent.findLast((m) => m.kind === "share");
+    return { frame, reply, answered: () => answered };
+  };
+  return { ...h, share };
+}
+
+test("the background sends a share on an office that takes it and answers the popup with the office's answer", async () => {
+  const h = await shareHarness();
+  const state = await h.ui({ action: "state" });
+  expect(state.share).toBe(true);
+  expect(state.shareAgents).toEqual(SHARE_AGENTS);
+
+  const sent = await h.share();
+  expect(sent.frame).toMatchObject({
+    kind: "share",
+    generation: "generation-1",
+    agentId: "a",
+    url: SHARE.url,
+    title: SHARE.title,
+    selection: SHARE.selection,
+  });
+  expect(typeof sent.frame!.id).toBe("string");
+  // An answer to another share, or from another generation, settles nothing.
+  h.socket.receive({
+    kind: "shareResult",
+    generation: "generation-1",
+    id: "x",
+  });
+  h.socket.receive({
+    kind: "shareResult",
+    generation: "generation-0",
+    id: sent.frame!.id,
+  });
+  await settle();
+  expect(sent.answered()).toBeUndefined();
+  h.socket.receive({
+    kind: "shareResult",
+    generation: "generation-1",
+    id: sent.frame!.id,
+  });
+  expect((await sent.reply).shareResult).toBe("sent");
+
+  const refused = await h.share();
+  expect(refused.frame!.id).not.toBe(sent.frame!.id);
+  h.socket.receive({
+    kind: "shareResult",
+    generation: "generation-1",
+    id: refused.frame!.id,
+    error: "awaits_member_answer",
+  });
+  expect((await refused.reply).shareResult).toBe("awaits_member_answer");
+});
+
+test("a share the office does not answer settles at the deadline, and at once when the socket closes", async () => {
+  const h = await shareHarness();
+  const late = await h.share();
+  expect(late.frame).toBeDefined();
+  // The enabling condition: the share waits on its own 10 s deadline.
+  expect(h.pendingTimers(10_000)).toBe(1);
+  await settle();
+  expect(late.answered()).toBeUndefined();
+  h.fire(10_000);
+  expect((await late.reply).shareResult).toBe("unanswered");
+  // A late answer changes nothing and throws nothing.
+  h.socket.receive({
+    kind: "shareResult",
+    generation: "generation-1",
+    id: late.frame!.id,
+  });
+  await settle();
+
+  const cut = await h.share();
+  expect(cut.frame).toBeDefined();
+  h.socket.close();
+  await settle();
+  expect(cut.answered()?.shareResult).toBe("unanswered");
+});
+
+test("an office without share gets no share frame, and the popup hears that the share was not sent", async () => {
+  const h = await harness(true, true, { access: true });
+  const state = await h.ui({ action: "state" });
+  expect(state.share).toBeFalsy();
+  const answer = await h.ui(SHARE);
+  expect(typeof answer.shareResult).toBe("string");
+  expect(answer.shareResult).not.toBe("sent");
+  expect(answer.shareResult).not.toBe("unanswered");
+  expect(h.socket.sent.filter((m) => m.kind === "share")).toEqual([]);
+  // The enabling condition: the socket is up and took the access setting.
+  expect(h.socket.sent.some((m) => m.kind === "access")).toBe(true);
+});
+
+test("a selection over the frame cap goes out cut, long enough for the office to mark the cut", async () => {
+  const h = await shareHarness();
+  // Select-all on a long page: over EXTENSION_MAX_BYTES as UTF-8.
+  const huge = "\u{1F600}".repeat(EXTENSION_MAX_BYTES / 4 + 1);
+  let answered: Record<string, unknown> | undefined;
+  void h.ui({ ...SHARE, selection: huge }).then((value) => (answered = value));
+  await settle();
+  const frame = h.socket.sent.findLast((m) => m.kind === "share")!;
+  expect(frame).toBeDefined();
+  expect(Math.max(...h.frames)).toBeLessThanOrEqual(EXTENSION_MAX_BYTES);
+  const sent = String(frame.selection);
+  // Whole characters from the start, and more than the office keeps (4000).
+  expect(huge.startsWith(sent)).toBe(true);
+  // No half of a surrogate pair at the end.
+  expect(sent.length % 2).toBe(0);
+  expect([...sent].length).toBeGreaterThan(4000);
+  expect([...sent].length).toBeLessThan(10_000);
+  h.socket.receive({
+    kind: "shareResult",
+    generation: "generation-1",
+    id: frame.id,
+  });
+  await settle();
+  expect(answered?.shareResult).toBe("sent");
+});

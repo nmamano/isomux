@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Isomux Browser",
-  "version": "0.8.1",
-  "description": "Offer Chrome tabs to agents in an Isomux office.",
+  "version": "0.9.0",
+  "description": "Offer Chrome tabs and share pages with agents in an Isomux office.",
   "minimum_chrome_version": "125",
   "permissions": [
     "debugger",
     "activeTab",
     "storage",
     "alarms",
-    "webNavigation"
+    "webNavigation",
+    "scripting"
   ],
   "background": {
     "service_worker": "background.js",

@@ -92,6 +92,16 @@ export const en = {
   "browser.agentTabOf": "{agent} · {member}",
   "browser.closeTab": "Close tab",
   "browser.unmuteTab": "Unmute tab",
+  "browser.shareSection": "Share page with agent",
+  "browser.share": "Share",
+  "browser.sharePick": "Choose an agent",
+  "browser.shareSent": "Sent to {name}.",
+  "browser.shareWaits":
+    "{name} is waiting for your answer. Answer it in the office, then share again.",
+  "browser.shareUnanswered":
+    "The office did not answer. Check the agent's chat before you share again.",
+  "browser.shareFailed": "Not sent. Try again.",
+  "browser.shareIneligible": "You can share only HTTP(S) pages.",
   "browser.agentTabsSetting": "Agents may open tabs: {scope}",
   "browser.tabShared": "Agents can use this tab.",
   "browser.assigned": "{name} uses this tab.",

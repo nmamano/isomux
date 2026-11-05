@@ -62,7 +62,8 @@ button:focus-visible {
   border-left: 3px solid #93b4ff;
   padding-left: 9px;
 }
-#tab-control {
+#tab-control,
+#share-section {
   margin: 14px 0;
   padding: 12px;
   background: #242b38;
@@ -70,6 +71,15 @@ button:focus-visible {
 }
 #tab-control p {
   margin: 0;
+}
+#share-section > label {
+  margin-top: 0;
+}
+#share-status {
+  margin: 8px 0 0;
+}
+#share-status:empty {
+  display: none;
 }
 #tab-control > label:first-child {
   margin-top: 0;

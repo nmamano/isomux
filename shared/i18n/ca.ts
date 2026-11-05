@@ -78,6 +78,16 @@ export const ca: Catalog = {
   "browser.agentTabOf": "{agent} · {member}",
   "browser.closeTab": "Tanca la pestanya",
   "browser.unmuteTab": "Activa el so de la pestanya",
+  "browser.shareSection": "Comparteix la pàgina amb un agent",
+  "browser.share": "Comparteix",
+  "browser.sharePick": "Tria un agent",
+  "browser.shareSent": "Enviada a {name}.",
+  "browser.shareWaits":
+    "{name} espera la teva resposta. Respon-la a l’oficina i torna a compartir.",
+  "browser.shareUnanswered":
+    "L’oficina no ha respost. Revisa el xat de l’agent abans de tornar a compartir.",
+  "browser.shareFailed": "No s’ha enviat. Torna-ho a provar.",
+  "browser.shareIneligible": "Només pots compartir pàgines HTTP(S).",
   "browser.agentTabsSetting": "Els agents poden obrir pestanyes: {scope}",
   "browser.tabShared": "Els agents poden fer servir aquesta pestanya.",
   "browser.assigned": "{name} fa servir aquesta pestanya.",

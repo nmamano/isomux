@@ -25,7 +25,10 @@ import {
   validBrowserAccess,
   validAgentTabsScope,
   validExtensionPackage,
+  shareableUrl,
+  type ShareAgent,
 } from "../shared/browser-extension-protocol";
+import { formatSharedPage } from "../shared/browser-share";
 export { EXTENSION_MAX_BYTES };
 import {
   OFFICE_MARKER_HEADER,
@@ -225,6 +228,14 @@ export class BrowserExtensionBridge {
       officeOrigins?(): string[];
       // The extension's store listing, sent in ready when there is one.
       storeUrl?: string | null;
+      // The name of the agent's room, for the share picker.
+      agentRoom?(agent: string): string;
+      // Delivers a shared page to the agent as the member's message.
+      share?(
+        member: string,
+        agentId: string,
+        text: string,
+      ): Promise<{ ok: true } | { ok: false; code: string }>;
     },
     private clock: GrantClock = grantClock,
   ) {
@@ -266,6 +277,12 @@ export class BrowserExtensionBridge {
       this.access.memberDisplay
         ? (other) => this.access.memberDisplay!(other)
         : undefined,
+      this.access.share
+        ? {
+            room: (agent) => this.access.agentRoom?.(agent) ?? "",
+            deliver: (agent, text) => this.access.share!(member, agent, text),
+          }
+        : undefined,
     );
     this.live.set(hash, connection);
     try {
@@ -283,6 +300,8 @@ export class BrowserExtensionBridge {
         access: true,
         // The extension sends {kind:"files"} and takes {kind:"reload"}.
         reload: true,
+        // The extension sends {kind:"share"} (task 68da3968).
+        ...(this.access.share ? { share: true } : {}),
         // The office's extension package, so an older extension can say so.
         package: manifest.version,
         // An unpacked extension links the store listing.
@@ -617,6 +636,15 @@ export class ExtensionConnection {
     private managerOf: (agentId: string) => string | undefined = () =>
       undefined,
     private otherMemberDisplay?: (member: string) => BrowserDisplay,
+    // The office takes shares: the agent's room name, and the delivery of
+    // the message as the member's.
+    private shares?: {
+      room(agent: string): string;
+      deliver(
+        agent: string,
+        text: string,
+      ): Promise<{ ok: true } | { ok: false; code: string }>;
+    },
   ) {
     // A new office origin can refuse a page that committed before it was known.
     this.stopLearning = offices.onLearn(() => {
@@ -1492,6 +1520,7 @@ export class ExtensionConnection {
         .filter((agent) => this.authorize(agent))
         .map((agent) => this.agentDisplay!(agent)),
       members: this.pickable(),
+      ...(this.shares ? { shareAgents: this.shareAgents() } : {}),
       assignments: [...this.assignments.values()]
         .filter((a) => a.target && this.authorized(a))
         .map((a) => ({
@@ -1504,6 +1533,63 @@ export class ExtensionConnection {
           expiresAt: a.expiresAt,
         })),
     });
+  }
+
+  // The agents the member can share a page with: every agent they reach, by
+  // room name, then agent name.
+  private shareAgents(): ShareAgent[] {
+    return this.agents()
+      .filter((agent) => this.reach(agent))
+      .map((agent) => ({
+        ...this.agentDisplay!(agent),
+        room: this.shares!.room(agent),
+      }))
+      .sort(
+        (a, b) => a.room.localeCompare(b.room) || a.name.localeCompare(b.name),
+      );
+  }
+
+  // Delivers a shared page to an agent the member reaches, and answers the
+  // extension. The agent gets the message only, never the tab.
+  private async share(msg: Fields): Promise<void> {
+    const id = msg.id as string;
+    let error: string | undefined;
+    const url = shareableUrl(msg.url);
+    if (
+      typeof msg.agentId !== "string" ||
+      url === undefined ||
+      typeof msg.title !== "string" ||
+      (msg.selection !== undefined && typeof msg.selection !== "string")
+    )
+      error = "invalid_share";
+    else if (!this.reach(msg.agentId)) error = "agent_unavailable";
+    else
+      try {
+        const result = await this.shares!.deliver(
+          msg.agentId,
+          formatSharedPage({
+            url,
+            title: msg.title,
+            ...(msg.selection === undefined
+              ? {}
+              : { selection: msg.selection }),
+          }),
+        );
+        if (!result.ok) error = result.code;
+      } catch {
+        error = "share_failed";
+      }
+    if (!this.active) return;
+    try {
+      this.peer.send({
+        kind: "shareResult",
+        generation: this.generation,
+        id,
+        ...(error === undefined ? {} : { error }),
+      });
+    } catch {
+      // The connection ends on its own; the popup's deadline answers.
+    }
   }
 
   // The members the member may pick: those who manage an agent the member
@@ -1881,6 +1967,16 @@ export class ExtensionConnection {
         if (!validBrowserAccess(msg.access))
           throw new Error("Invalid access setting");
         this.setAccess(msg.access);
+        return;
+      }
+      if (msg.kind === "share") {
+        // A share with no id cannot be answered; the popup's deadline does.
+        if (
+          this.shares &&
+          typeof msg.id === "string" &&
+          /^[\w-]{1,64}$/.test(msg.id)
+        )
+          void this.share(msg);
         return;
       }
       if (msg.kind === "files") {

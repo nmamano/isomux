@@ -21,7 +21,16 @@ type SocketData = {
 // A port and credential from an earlier fixture model an office restart: a new
 // bridge with no state, where the paired extension reconnects.
 export function browserExtensionFixture(
-  opts: { port?: number; credential?: string } = {},
+  opts: {
+    port?: number;
+    credential?: string;
+    // Records or refuses the shares the extension sends.
+    share?(
+      member: string,
+      agentId: string,
+      text: string,
+    ): Promise<{ ok: true } | { ok: false; code: string }>;
+  } = {},
 ) {
   const credential =
     opts.credential ?? crypto.randomUUID() + crypto.randomUUID();
@@ -34,6 +43,10 @@ export function browserExtensionFixture(
     agents: () => ["fixture-agent"],
     memberDisplay: () => ({ id: "fixture-member", name: "Fixture member" }),
     agentDisplay: () => ({ id: "fixture-agent", name: "Fixture agent" }),
+    mayReach: (member, agent) =>
+      member === "fixture-member" && agent === "fixture-agent",
+    agentRoom: () => "Fixture room",
+    ...(opts.share ? { share: opts.share } : {}),
   });
   let starts = 0;
   const server = Bun.serve<SocketData>({

@@ -37,6 +37,7 @@ import {
   validBrowserAccess,
 } from "../shared/browser-extension-protocol";
 import { confirmPairedCode } from "./pairing-draft";
+import { SELECTION_MAX, TITLE_MAX } from "../shared/browser-share";
 
 // A protocol version the extension speaks. Offices back to v2026.9.22 speak
 // only EXTENSION_MIN_PROTOCOL; a later one answers in the highest version the
@@ -110,8 +111,12 @@ type Connection = {
   // in flight.
   filesSent?: string;
   filesReading?: boolean;
+  // The office takes shares, from ready.
+  share?: boolean;
   metadata?: BrowserMetadata;
   offers: Map<string, (ok: boolean) => void>;
+  // The shares waiting for the office's answer, by id.
+  shares: Map<string, (result: string) => void>;
   unpairResult?: (ok: boolean) => void;
 };
 let current: Connection | undefined;
@@ -593,6 +598,9 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
     ...(online && c.officeScope ? { officeScope: true } : {}),
     ...(online && c.agentTabs ? { agentTabs: true } : {}),
     ...(online && c.access ? { sharedAccess: true } : {}),
+    ...(online && c.share
+      ? { share: true, shareAgents: c.metadata?.shareAgents ?? [] }
+      : {}),
     ...(online ? { access } : {}),
     ...(online &&
     c.officePackage &&
@@ -686,6 +694,9 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
   } else if (msg.action === "access") {
     if (!validBrowserAccess(msg.access)) throw new Error();
     await setAccess(msg.access);
+  } else if (msg.action === "share") {
+    const shareResult = await requestShare(msg);
+    return { ...(await uiState(msg.tabId)), shareResult };
   } else {
     const c = current;
     if (!c) throw new Error();
@@ -788,6 +799,59 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   );
   return true;
 });
+
+// The first max code points of text, read no further: a selection can be
+// a whole long page.
+function firstPoints(text: string, max: number): string {
+  let end = 0;
+  let count = 0;
+  for (const point of text) {
+    if (count++ === max) break;
+    end += point.length;
+  }
+  return text.slice(0, end);
+}
+
+// Sends the popup's page to an agent. Resolves with "sent", the office's
+// error, "unanswered" when the office does not answer in 10 s or the
+// connection ends first, or "not_sent" when the office takes no share.
+function requestShare(msg: Fields): Promise<string> {
+  const c = current;
+  if (!c || c.closed || !c.generation || !c.share)
+    return Promise.resolve("not_sent");
+  if (
+    typeof msg.agentId !== "string" ||
+    typeof msg.url !== "string" ||
+    typeof msg.title !== "string" ||
+    (msg.selection !== undefined && typeof msg.selection !== "string")
+  )
+    return Promise.resolve("invalid_share");
+  // One code point over the office's cut, so the frame stays far under the
+  // socket cap and the office still marks the text as cut.
+  const title = firstPoints(msg.title, TITLE_MAX + 1);
+  const selection = msg.selection
+    ? firstPoints(msg.selection, SELECTION_MAX + 1)
+    : "";
+  const id = crypto.randomUUID();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => settle("unanswered"), 10_000);
+    const settle = (result: string) => {
+      clearTimeout(timer);
+      c.shares.delete(id);
+      resolve(result);
+    };
+    c.shares.set(id, settle);
+    send(c, {
+      kind: "share",
+      generation: c.generation,
+      id,
+      agentId: msg.agentId,
+      url: msg.url,
+      title,
+      ...(selection ? { selection } : {}),
+    });
+  });
+}
 
 // Sends an offer of tab. Resolves with the office's answer, or with false when
 // the connection ends first.
@@ -998,6 +1062,9 @@ function close(c: Connection): void {
   c.offers.clear();
   c.unpairResult?.(false);
   c.unpairResult = undefined;
+  // A share may have arrived before the connection ended.
+  for (const resolve of c.shares.values()) resolve("unanswered");
+  c.shares.clear();
   clearTimeout(c.watchdog);
   if (current === c) current = undefined;
   c.ws.close();
@@ -1310,6 +1377,7 @@ async function configure(reset = true): Promise<void> {
       ws,
       tabs: new Map(),
       offers: new Map(),
+      shares: new Map(),
       creating: new Set(),
       closed: false,
     };
@@ -1399,6 +1467,7 @@ async function configure(reset = true): Promise<void> {
           if (validExtensionPackage(msg.package)) c.officePackage = msg.package;
           if (validStoreUrl(msg.storeUrl)) c.storeUrl = msg.storeUrl;
           c.reload = msg.reload === true;
+          c.share = msg.share === true;
           // The setting goes first, so the office takes the opened tabs that
           // resume.
           sendAccess(c);
@@ -1440,11 +1509,24 @@ async function configure(reset = true): Promise<void> {
             });
           if (msg.members !== undefined && !Array.isArray(msg.members))
             throw new Error();
+          if (msg.shareAgents !== undefined && !Array.isArray(msg.shareAgents))
+            throw new Error();
           c.metadata = {
             member: { id: member.id, name: member.name },
             agents: displays(msg.agents),
             // An older office sends no members.
             members: displays(msg.members ?? []),
+            // An office without share sends no share agents.
+            shareAgents: (msg.shareAgents ?? []).map((value: unknown) => {
+              const item = fields(value);
+              if (
+                typeof item.id !== "string" ||
+                typeof item.name !== "string" ||
+                typeof item.room !== "string"
+              )
+                throw new Error();
+              return { id: item.id, name: item.name, room: item.room };
+            }),
             assignments: msg.assignments.map((value) => {
               const a = fields(value);
               if (!validGrantScope(a.scope)) throw new Error();
@@ -1492,6 +1574,16 @@ async function configure(reset = true): Promise<void> {
             )
               void revoke(c, id, "metadata");
           }
+          return;
+        }
+        if (msg.kind === "shareResult" && typeof msg.id === "string") {
+          c.shares.get(msg.id)?.(
+            msg.error === undefined
+              ? "sent"
+              : typeof msg.error === "string" && msg.error
+                ? msg.error
+                : "share_failed",
+          );
           return;
         }
         if (msg.kind === "offered" && typeof msg.assignment === "string") {

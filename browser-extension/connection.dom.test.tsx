@@ -36,6 +36,24 @@ const sessionOn = (map: Map<string, unknown>) => ({
   },
 });
 
+// chrome.storage.local backed by `map`: get takes a key, a list of keys or
+// null, as Chrome's does.
+const localOn = (map: Map<string, unknown>) => ({
+  get: async (keys?: string | string[] | null) =>
+    Object.fromEntries(
+      (keys == null ? [...map.keys()] : [keys].flat())
+        .filter((key) => map.has(key))
+        .map((key) => [key, structuredClone(map.get(key))]),
+    ),
+  set: async (value: Record<string, unknown>) => {
+    for (const [key, item] of Object.entries(value))
+      map.set(key, structuredClone(item));
+  },
+  remove: async (keys: string | string[]) => {
+    for (const key of [keys].flat()) map.delete(key);
+  },
+});
+
 // Masking does not depend on the language; one locale is enough.
 test("pairing code stays masked unless explicitly shown, including replacement and failed submit", async () => {
   document.body.innerHTML = popupHTML;
@@ -639,15 +657,26 @@ async function openPopup(
   tab: {
     mutedInfo?: Record<string, unknown>;
     update?: () => Promise<void>;
+    // The page the popup opened on, and its selected text; "refused": the
+    // page takes no script (chrome://, the web store).
+    url?: string;
+    title?: string;
+    selection?: string | "refused";
+    // chrome.storage.local, kept across popup opens.
+    local?: Map<string, unknown>;
   } = {},
 ) {
   document.body.innerHTML = popupHTML;
   let state = structuredClone(initial);
   const messages: Record<string, unknown>[] = [];
   const tabUpdates: Array<[number, Record<string, unknown>]> = [];
+  const scripts: Record<string, unknown>[] = [];
+  const local = tab.local ?? new Map<string, unknown>();
   const invocationTab = {
     id: 7,
     windowId: 1,
+    url: tab.url ?? "https://example.com/post",
+    title: tab.title ?? "A post",
     ...(tab.mutedInfo ? { mutedInfo: tab.mutedInfo } : {}),
   };
   let poll!: () => void;
@@ -657,7 +686,15 @@ async function openPopup(
     navigator: { language: "en" },
     Date,
     chrome: {
-      storage: { session: noDraft },
+      storage: { session: noDraft, local: localOn(local) },
+      scripting: {
+        executeScript: async (injection: Record<string, unknown>) => {
+          scripts.push(injection);
+          if (tab.selection === "refused")
+            throw new Error("Cannot access a chrome:// URL");
+          return [{ frameId: 0, result: tab.selection ?? "" }];
+        },
+      },
       tabs: {
         query: async () => [structuredClone(invocationTab)],
         get: async () => structuredClone(invocationTab),
@@ -689,6 +726,8 @@ async function openPopup(
   return {
     messages,
     tabUpdates,
+    scripts,
+    local,
     sent: (action: string) => messages.filter((m) => m.action === action),
     set: (next: PopupState) => {
       state = structuredClone(next);
@@ -719,9 +758,11 @@ test("the popup has one Agents picker for both switches: it sends the access at 
   const p = await openPopup(connected);
   try {
     // One picker in the whole popup, and no expiry choice.
-    expect([...document.querySelectorAll("select")].map((s) => s.id)).toEqual([
-      "agents",
-    ]);
+    expect(
+      [...document.querySelectorAll("select")]
+        .map((s) => s.id)
+        .filter((id) => id !== "share-agent"),
+    ).toEqual(["agents"]);
     expect(document.getElementById("expiry")).toBeNull();
     expect(optionValues(p.picker)).toEqual(["mine", "members", "office"]);
     const labels = [...p.picker.options].map((o) => o.textContent.trim());
@@ -1096,5 +1137,177 @@ test("the popup offers Unmute tab only on a tab this extension muted; it unmutes
     expect(shown(button)).toBe(true);
   } finally {
     window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+// Share page with agent (task 68da3968): a picker of the agents the member
+// reaches, grouped by room, that keeps the last pick per office, and a Share
+// button that sends the popup's page.
+const SHARING: PopupState = {
+  ...connected,
+  share: true,
+  shareAgents: [
+    { id: "far", name: "Far", room: "Alpha" },
+    { id: "zed", name: "Zed", room: "Beta" },
+    { id: "ann", name: "Ann", room: "Beta" },
+  ],
+};
+const shareParts = () => ({
+  section: document.getElementById("share-section"),
+  picker: document.getElementById("share-agent") as HTMLSelectElement,
+  button: document.getElementById("share") as HTMLButtonElement,
+  status: document.getElementById("share-status")!,
+});
+
+test("the share picker groups the agents by room, starts with no pick, and keeps the last pick for its office", async () => {
+  const local = new Map<string, unknown>();
+  const p = await openPopup(SHARING, undefined, { local });
+  try {
+    const ui = shareParts();
+    expect(shown(ui.section)).toBe(true);
+    expect(
+      [...ui.picker.querySelectorAll("optgroup")].map((group) => [
+        group.label,
+        [...group.querySelectorAll("option")].map((o) => o.value),
+      ]),
+    ).toEqual([
+      ["Alpha", ["far"]],
+      ["Beta", ["zed", "ann"]],
+    ]);
+    expect(ui.picker.textContent).toContain("Ann");
+    expect(ui.picker.value).toBe("");
+    expect(ui.button.disabled).toBe(true);
+    await choose(ui.picker, "ann");
+    expect(ui.button.disabled).toBe(false);
+    // A poll keeps the pick.
+    await p.poll();
+    expect(shareParts().picker.value).toBe("ann");
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+  const reopens: Array<[PopupState, string]> = [
+    [SHARING, "ann"],
+    // Another office: the pick was for the first one.
+    [{ ...SHARING, office: "https://other.example" }, ""],
+    // The agent is no longer in the list.
+    [
+      {
+        ...SHARING,
+        shareAgents: (SHARING.shareAgents as { id: string }[]).filter(
+          (agent) => agent.id !== "ann",
+        ),
+      },
+      "",
+    ],
+  ];
+  for (const [state, value] of reopens) {
+    await openPopup(state, undefined, { local });
+    try {
+      const ui = shareParts();
+      expect([state.office, ui.picker.value]).toEqual([state.office, value]);
+      expect(ui.button.disabled).toBe(value === "");
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+    }
+  }
+});
+
+test("Share sends the popup's page, its selected text and the pick, waits while pending, and says how each share ended", async () => {
+  let finish!: (value: unknown) => void;
+  const p = await openPopup(
+    SHARING,
+    (message) =>
+      message.action === "share"
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : undefined,
+    { selection: "Read this" },
+  );
+  try {
+    const ui = shareParts();
+    await choose(ui.picker, "ann");
+    const statuses: string[] = [];
+    for (const result of ["sent", "awaits_member_answer", "unanswered"]) {
+      ui.button.click();
+      await settleDom();
+      expect(p.sent("share").at(-1)).toMatchObject({
+        agentId: "ann",
+        url: "https://example.com/post",
+        title: "A post",
+        selection: "Read this",
+      });
+      // No second share while one waits.
+      expect(ui.button.disabled).toBe(true);
+      const count = p.sent("share").length;
+      ui.button.click();
+      await settleDom();
+      expect(p.sent("share")).toHaveLength(count);
+      finish({ ...structuredClone(SHARING), shareResult: result });
+      await settleDom();
+      expect(ui.button.disabled).toBe(false);
+      statuses.push(ui.status.textContent.trim());
+    }
+    expect(p.sent("share")).toHaveLength(3);
+    // The selection is read from the popup's tab, main frame only.
+    const target = p.scripts[0].target as Record<string, unknown>;
+    expect(target.tabId).toBe(7);
+    expect(target.allFrames).toBeFalsy();
+    // Sent names the agent; each ending reads differently.
+    expect(statuses[0]).toContain("Ann");
+    expect(statuses.every(Boolean)).toBe(true);
+    expect(new Set(statuses).size).toBe(3);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("a page that takes no script shares its link and title with no selected text", async () => {
+  const p = await openPopup(SHARING, undefined, {
+    url: "https://chromewebstore.google.com/detail/x",
+    title: "Store page",
+    selection: "refused",
+  });
+  try {
+    const ui = shareParts();
+    await choose(ui.picker, "far");
+    ui.button.click();
+    await settleDom();
+    expect(p.scripts).toHaveLength(1);
+    const share = p.sent("share").at(-1)!;
+    expect([share.url, share.title, share.agentId]).toEqual([
+      "https://chromewebstore.google.com/detail/x",
+      "Store page",
+      "far",
+    ]);
+    expect(share.selection).toBeFalsy();
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("Share shows only on a connected office that takes it, and a page that is not http(s) cannot be shared", async () => {
+  for (const state of [connected, { ...UNPAIRED, share: true }]) {
+    await openPopup(state);
+    try {
+      expect(shown(shareParts().section)).toBe(false);
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+    }
+  }
+  for (const url of ["chrome://extensions/", "file:///home/a.html"]) {
+    const p = await openPopup(SHARING, undefined, { url });
+    try {
+      const ui = shareParts();
+      expect(shown(ui.section)).toBe(true);
+      await choose(ui.picker, "far");
+      expect(ui.button.disabled).toBe(true);
+      expect(ui.status.textContent.trim()).not.toBe("");
+      ui.button.click();
+      await settleDom();
+      expect(p.sent("share")).toEqual([]);
+    } finally {
+      window.dispatchEvent(new Event("pagehide"));
+    }
   }
 });

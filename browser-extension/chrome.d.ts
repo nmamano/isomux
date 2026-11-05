@@ -90,6 +90,12 @@ declare const chrome: {
       ): void;
     };
   };
+  scripting: {
+    executeScript<T>(injection: {
+      target: { tabId: number; allFrames?: boolean };
+      func: () => T;
+    }): Promise<{ frameId: number; result?: T }[]>;
+  };
   webNavigation: {
     onCreatedNavigationTarget: {
       addListener(
@@ -107,6 +113,7 @@ declare const chrome: {
       {
         id?: number;
         url?: string;
+        title?: string;
         active?: boolean;
         windowId?: number;
         mutedInfo?: ChromeMutedInfo;

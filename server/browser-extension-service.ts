@@ -83,6 +83,14 @@ export class BrowserExtensionService {
       officeOrigins?(): string[];
       // A member paired a browser (step asks, task c71cb60f).
       paired?(member: string): void;
+      // The name of the agent's room, for the share picker.
+      agentRoom?(agent: string): string;
+      // Delivers a shared page to the agent as the member's message.
+      share?(
+        member: string,
+        agentId: string,
+        text: string,
+      ): Promise<{ ok: true } | { ok: false; code: string }>;
     },
     // Tests only: the store listing, which is CHROME_WEB_STORE_URL in
     // production.
@@ -103,6 +111,29 @@ export class BrowserExtensionService {
       managerOf: (agent) => access.managerOf?.(agent),
       officeOrigins: () => access.officeOrigins?.() ?? [],
       storeUrl: this.storeUrl,
+      ...(access.agentRoom
+        ? { agentRoom: (agent: string) => access.agentRoom!(agent) }
+        : {}),
+      ...(access.share
+        ? {
+            // Audited without the page: the target is the agent.
+            share: async (member: string, agentId: string, text: string) => {
+              const result = await access.share!(member, agentId, text);
+              if (result.ok)
+                recordAudit({
+                  actor: {
+                    kind: "member",
+                    id: member,
+                    name: access.memberName?.(member) ?? member,
+                  },
+                  operation: "browserExtension.share",
+                  targets: [agentId],
+                  fields: [],
+                });
+              return result;
+            },
+          }
+        : {}),
       ...(access.memberName && access.agentName
         ? {
             memberDisplay: (member: string) =>

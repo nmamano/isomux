@@ -1,5 +1,5 @@
 ---
-description: Let agents use a tab in your desktop Chrome. Install and pair the Isomux Browser extension, offer a tab or let agents open their own, unpair a browser and update the extension.
+description: Let agents use a tab in your desktop Chrome. Install and pair the Isomux Browser extension, offer a tab or let agents open their own, share a page, unpair a browser and update the extension.
 ---
 
 # Browser use
@@ -19,6 +19,10 @@ Open an HTTP(S) tab and turn on **Use this tab** in the extension popup. **Agent
 ## Let agents open tabs
 
 In the extension popup, turn on **Open their own tabs**. The agents that **Agents** chooses then open their own tabs in a separate Agents window when they need one, without asking you to offer a tab. The popup lists the open agent tabs, with **Show tab** and **Close tab**. Agent tabs start muted: to hear one, open the popup on it and click **Unmute tab**. An agent can also mute a tab you offer; it gets its sound back when you stop offering it. When you turn the switch off, agents lose control of their tabs, and the tabs stay open.
+
+## Share a page
+
+In the extension popup, choose an agent under **Share page with agent** and click **Share**. The agent gets the page's link, its title and the text you selected, as a message from you. It gets no control of the tab. The popup keeps your last pick.
 
 ## Unpair a browser
 

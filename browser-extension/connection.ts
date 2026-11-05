@@ -1,8 +1,9 @@
 import { language, t } from "./i18n";
 import type { ExtensionPlainKey } from "./i18n";
-import type {
-  BrowserAccess,
-  ExtensionUIState,
+import {
+  fields,
+  type BrowserAccess,
+  type ExtensionUIState,
 } from "../shared/browser-extension-protocol";
 import {
   pairedCode,
@@ -65,6 +66,8 @@ const labels: Record<string, ExtensionPlainKey> = {
   "allow-label": "browser.useTab",
   "open-tabs-label": "browser.openTabs",
   "unmute-tab": "browser.unmuteTab",
+  "share-label": "browser.shareSection",
+  share: "browser.share",
 };
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
@@ -221,6 +224,7 @@ function render(next: typeof state) {
       ? t("browser.tabIneligible")
       : "";
   renderAgentTabs();
+  renderShare();
 }
 // The member's access setting: one picker for both switches. On an office
 // without shared access, a members pick works as My agents and is kept.
@@ -321,6 +325,120 @@ function renderAgentTabs() {
     }),
   );
 }
+// Share page with agent: the agents the member reaches, by room. The last
+// pick is kept per office in chrome.storage.local.
+const sharePicker = element("share-agent") as HTMLSelectElement;
+const shareButton = element("share") as HTMLButtonElement;
+const shareStatus = element("share-status");
+let saved: { office?: unknown; agentId?: unknown } | undefined;
+try {
+  saved = fields((await chrome.storage.local.get("shareAgent")).shareAgent);
+} catch {}
+let sharePick: { office: string; agentId: string } | undefined =
+  typeof saved?.office === "string" && typeof saved.agentId === "string"
+    ? { office: saved.office, agentId: saved.agentId }
+    : undefined;
+let shareRows = "";
+let sharing = false;
+// The last share's ending, shown until the next share.
+let shareNote = "";
+// An http(s) page; the office checks the rest of the URL.
+const shareUrl = /^https?:\/\//i.test(invocationTab?.url ?? "")
+  ? invocationTab?.url
+  : undefined;
+function renderShare() {
+  const section = element("share-section");
+  section.hidden = state.state !== "connected" || !state.share;
+  if (section.hidden) return;
+  const agents = state.shareAgents ?? [];
+  const signature = JSON.stringify(agents);
+  if (signature !== shareRows) {
+    shareRows = signature;
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = t("browser.sharePick");
+    const groups = new Map<string, HTMLOptGroupElement>();
+    for (const agent of agents) {
+      let group = groups.get(agent.room);
+      if (!group) {
+        group = document.createElement("optgroup");
+        group.label = agent.room;
+        groups.set(agent.room, group);
+      }
+      const option = document.createElement("option");
+      option.value = agent.id;
+      option.textContent = agent.name;
+      group.append(option);
+    }
+    sharePicker.replaceChildren(placeholder, ...groups.values());
+  }
+  const picked =
+    sharePick?.office === state.office &&
+    agents.some((agent) => agent.id === sharePick!.agentId)
+      ? sharePick.agentId
+      : "";
+  sharePicker.value = picked;
+  shareButton.disabled = !picked || sharing || !shareUrl;
+  shareStatus.textContent = shareUrl ? shareNote : t("browser.shareIneligible");
+}
+sharePicker.addEventListener("change", () => {
+  sharePick = { office: state.office, agentId: sharePicker.value };
+  void Promise.resolve()
+    .then(() => chrome.storage.local.set({ shareAgent: sharePick }))
+    .catch(() => {});
+  shareNote = "";
+  render(state);
+});
+// The selected text of the popup's tab, main frame only; "" on a page that
+// takes no script.
+async function selectedText(): Promise<string> {
+  if (invocationTab?.id === undefined) return "";
+  try {
+    const [frame] = await chrome.scripting.executeScript({
+      target: { tabId: invocationTab.id },
+      func: () => getSelection()?.toString() ?? "",
+    });
+    return typeof frame?.result === "string" ? frame.result : "";
+  } catch {
+    return "";
+  }
+}
+shareButton.addEventListener("click", () => {
+  const agent = state.shareAgents?.find((a) => a.id === sharePicker.value);
+  if (sharing || !agent || !shareUrl) return;
+  sharing = true;
+  shareNote = "";
+  render(state);
+  void (async () => {
+    let result: string | undefined;
+    try {
+      const selection = await selectedText();
+      const answer = (await chrome.runtime.sendMessage({
+        action: "share",
+        generation: state.generation,
+        tabId: invocationTab?.id,
+        agentId: agent.id,
+        url: shareUrl,
+        title: invocationTab?.title ?? "",
+        ...(selection ? { selection } : {}),
+      })) as (typeof state & { error?: string }) | undefined;
+      if (answer && !answer.error) {
+        result = answer.shareResult;
+        state = answer;
+      }
+    } catch {}
+    sharing = false;
+    shareNote =
+      result === "sent"
+        ? t("browser.shareSent", { name: agent.name })
+        : result === "unanswered"
+          ? t("browser.shareUnanswered")
+          : result === "awaits_member_answer"
+            ? t("browser.shareWaits", { name: agent.name })
+            : t("browser.shareFailed");
+    render(state);
+  })();
+});
 element("replace").addEventListener("click", () => {
   revealCode(false);
   showPair = true;

@@ -171,6 +171,12 @@ export interface ManagersDeps {
   stepsChanged: () => void;
   mayUseExtension: (member: string, agentId: string) => boolean;
   mayReachExtension: (member: string, agentId: string) => boolean;
+  // Delivers a page the member shared from the browser extension.
+  shareWithAgent: (
+    member: string,
+    agentId: string,
+    text: string,
+  ) => Promise<{ ok: true } | { ok: false; code: string }>;
   deliverCronjobToAgent: NonNullable<CronjobManagerDeps["deliverToAgent"]>;
   ordinaryScheduleMaker: (agentId: string) => AgentInfo | null;
   pushAskChange: (change: AskChange) => void;
@@ -268,6 +274,7 @@ export function createManagers(
     stepsChanged,
     mayUseExtension,
     mayReachExtension,
+    shareWithAgent,
     deliverCronjobToAgent,
     ordinaryScheduleMaker,
     pushAskChange,
@@ -367,6 +374,8 @@ export function createManagers(
       agents: () => agentManager.getAllAgents().map((agent) => agent.id),
       memberName: (member) => getUserById(member)?.name ?? "",
       agentName: (agent) => agentManager.getAgent(agent)?.name ?? "",
+      agentRoom: (agent) => agentManager.getAgentDisplay(agent)?.roomName ?? "",
+      share: shareWithAgent,
       officeOrigins: () => [buildPublicOrigin().origin],
     },
   );

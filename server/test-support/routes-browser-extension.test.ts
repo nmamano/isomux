@@ -18,6 +18,8 @@ import { afterEach, test, expect } from "bun:test";
 import { startTestServer, type TestServer } from "./harness";
 import { getAgentTokenRaw } from "../identity/tokens";
 import { extensionUpgradeAllowed } from "../browser-extension-service";
+import { formatSharedPage } from "../../shared/browser-share";
+import { isRepliesOnlyDevice } from "../../shared/identity";
 
 let server: TestServer | undefined;
 afterEach(async () => {
@@ -653,4 +655,93 @@ test("a member reloads a browser whose extension has newer files in place", asyn
   files(desk, "not a version");
   await until(async () => desk.socket.closed());
   await until(async () => !(await browsers())[1].online);
+});
+
+// Share page with agent (task 68da3968): the office delivers a share as the
+// member's own message, marked by a device that is not the data marker, never
+// as an answer to a prompt, and audits it without the page.
+test("a share from a paired browser reaches the agent as the member's message, answers no prompt, and is audited without the page", async () => {
+  server = await startTestServer();
+  const owner = await server.seedOwner("Morgan");
+  const agent = await ownedAgent(server, owner, "dispatcher");
+  const { code } = await (
+    await memberRequest(server, owner, "POST", "/api/me/browser/pair", {})
+  ).json();
+  const socket = await extensionSocket(server, {
+    kind: "hello",
+    version: 4,
+    code,
+  });
+  const ready = await socket.wait("ready");
+  expect(ready.share).toBe(true);
+  const page = {
+    url: "https://example.com/issues/12",
+    title: "Crash on boot",
+    selection: "Steps to reproduce",
+  };
+  const answer = async (id: string) => {
+    socket.ws.send(
+      JSON.stringify({
+        kind: "share",
+        generation: ready.generation,
+        id,
+        agentId: agent.id,
+        ...page,
+      }),
+    );
+    for (let i = 0; i < 400; i++) {
+      const found = socket.messages.find(
+        (m) => m.kind === "shareResult" && m.id === id,
+      );
+      if (found) return found;
+      await Bun.sleep(5);
+    }
+    throw new Error("No answer to share " + id);
+  };
+  const sent = () =>
+    server!.fakeBackend.sessionForAgent(agent.id)?.sent.map((m) => m.text) ??
+    [];
+
+  expect((await answer("first")).error).toBeUndefined();
+  const body = formatSharedPage(page);
+  for (let i = 0; i < 400 && !sent().some((t) => t.includes(body)); i++)
+    await Bun.sleep(5);
+  const text = sent().find((t) => t.includes(body));
+  expect(text).toBeDefined();
+  // The member's label, with a device, right before the body.
+  const label = text!.slice(0, text!.indexOf(body));
+  const device = /\[Morgan \(([^)]+)\)\] $/.exec(label)?.[1];
+  expect(device).toBeDefined();
+  expect(isRepliesOnlyDevice(device)).toBe(false);
+
+  // A menu waits for the member: a share does not answer it.
+  const opened = await memberRequest(
+    server,
+    owner,
+    "POST",
+    `/api/agents/${agent.id}/messages`,
+    { text: "/model" },
+  );
+  expect(opened.status).toBe(200);
+  const pending = () =>
+    server!.agentManager
+      .getPendingInteractions()
+      .filter((item) => item.agentId === agent.id);
+  expect(pending()).toHaveLength(1);
+  const before = sent().length;
+  expect((await answer("second")).error).toBe("awaits_member_answer");
+  expect(pending()).toHaveLength(1);
+  expect(sent()).toHaveLength(before);
+
+  const audit = await memberRequest(server, owner, "GET", "/api/audit-log");
+  const auditText = await audit.text();
+  const rows = (
+    JSON.parse(auditText) as {
+      items: { operation: string; targets: string[] }[];
+    }
+  ).items.filter((row) => row.operation === "browserExtension.share");
+  expect(rows.map((row) => row.targets)).toEqual([[agent.id]]);
+  for (const value of Object.values(page))
+    expect(auditText).not.toContain(value);
+  socket.ws.close();
 });
