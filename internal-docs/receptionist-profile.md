@@ -20,7 +20,7 @@ an agent moved to an ordinary room uses the ordinary desk figure.
 | Spawn, move, revive, swap | All; target room determines capacity |
 | Manifest room numbers | Ordinary order; lobby occupant keeps `room: null` |
 | Usage report | All; no synthetic lobby append |
-| Close protection | Lobby and first ordinary room protected |
+| Close protection | Lobby protected; any other room closes when empty |
 | Default new-room number and omitted spawn target | Ordinary |
 | Task scope validation, materialized task access set | Ordinary; lobby callers default to office-global |
 | Room memory scope validation and settings editor | Ordinary; lobby settings omit the memory editor |
@@ -115,6 +115,6 @@ The owner can create a fresh agent from the profile to get the current text.
 The rebase onto `0a7e8815` preserves the new-room door and its create-ACK /
 broadcast de-duplication, members-chat controls and lobby ghosts. OfficeView
 keeps those controls and derives door destinations from ordinary rooms. A door
-opened from a canonical lobby with no ordinary rooms creates the protected
-first ordinary room. The earlier null-presence assertion is retired in favor
+opened from a canonical lobby with no ordinary rooms creates the first
+ordinary room. The earlier null-presence assertion is retired in favor
 of main's lobby-presence suite.

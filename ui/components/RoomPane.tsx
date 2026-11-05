@@ -58,11 +58,9 @@ export function RoomPane({
   const { agents, rooms, users, sessionContext } = useAppState();
   const { t } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
-  // Protection is server-authoritative and carried explicitly on the wire:
-  // room.canCloseWhenEmpty protects the lobby and the first ordinary room
-  // (derived from ordinary room order, independent of this viewer's order), so
-  // it's correct even under a custom room order. Emptiness stays a client-side
-  // reactive check; the server stays authoritative on the close.
+  // Protection is server-authoritative and carried on the wire:
+  // room.canCloseWhenEmpty is false only for the lobby. Emptiness stays a
+  // client-side reactive check; the server stays authoritative on the close.
   const canDeleteRoom =
     (room?.canCloseWhenEmpty ?? false) &&
     agents.every((agent) => agent.roomId !== roomId);

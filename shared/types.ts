@@ -2277,8 +2277,8 @@ export interface RoomWire {
   id: string; // 8-char hex, stable
   name: string; // display name
   prompt: string | null;
-  // Derived from ordinary room order: the first office room and every lobby
-  // are protected. Other rooms can close only when empty. Never persisted.
+  // Derived from the room type: false only for the lobby. Any other room can
+  // close when empty. Never persisted.
   canCloseWhenEmpty: boolean;
   // The pet this room keeps. Optional, and absent means exactly what null
   // means: nobody has chosen, so the room draws DEFAULT_ROOM_PET. Optional

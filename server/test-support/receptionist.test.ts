@@ -127,13 +127,16 @@ describe("receptionist profile and lobby", () => {
     expect(r.userId).toBeTruthy();
     expect(r.customInstructions).toContain(ISOMUX_KNOWLEDGE);
     expect(r.customInstructions).toContain(JSON.stringify("Morgan"));
-    expect(srv.agentManager.getOrdinaryRooms()[0].canCloseWhenEmpty).toBe(
-      false,
-    );
+    // Only the lobby is protected (Nil, 2026-11-05): the first ordinary room
+    // closes once it is empty, like any other.
     expect(
-      srv.agentManager.getRooms().find((r) => r.type === "lobby")
-        ?.canCloseWhenEmpty,
-    ).toBe(false);
+      srv.agentManager
+        .getRooms()
+        .map((r) => [r.type ?? "office", r.canCloseWhenEmpty]),
+    ).toEqual([
+      ["office", true],
+      ["lobby", false],
+    ]);
     const rooms = JSON.parse(
       readFileSync(join(srv.stateRoot, "agents.json"), "utf8"),
     );
@@ -856,23 +859,133 @@ describe("receptionist profile and lobby", () => {
     expect(errCode(response.body)).toBe("room_not_found");
   });
 
-  it("protects the first ordinary room even with lobby-first storage", () => {
+  // Mutants: the old position rule (the first ordinary room protected) in
+  // setRooms, in createRoom or in the default room; closeRoom without the
+  // no-room guard.
+  it("closes any empty room but the lobby, first and last included; never an occupied one", () => {
     const state = new OfficeState({
-      rooms: [LOBBY_ROOM, { id: "ordinary", name: "Room 1", prompt: null }],
+      rooms: [
+        LOBBY_ROOM,
+        { id: "first", name: "Room 1", prompt: null },
+        { id: "second", name: "Room 2", prompt: null },
+      ],
     });
-    expect(state.rooms.map((r) => r.canCloseWhenEmpty)).toEqual([false, false]);
-    expect(state.closeRoom("ordinary")).toEqual([]);
+    expect(state.rooms.map((r) => [r.id, r.canCloseWhenEmpty])).toEqual([
+      ["lobby", false],
+      ["first", true],
+      ["second", true],
+    ]);
+    const agent = state.spawn({
+      name: "A",
+      cwd: "/tmp",
+      permissionMode: "default",
+      roomId: "second",
+    })!.agent;
     expect(state.closeRoom("lobby")).toEqual([]);
-    // A room created when the lobby is the only room is the first ordinary
-    // room, and is protected; the next one is not.
-    const lobbyOnly = new OfficeState({ rooms: [LOBBY_ROOM] });
-    lobbyOnly.createRoom();
-    lobbyOnly.createRoom();
-    expect(lobbyOnly.rooms.map((r) => r.canCloseWhenEmpty)).toEqual([
-      false,
+    expect(state.closeRoom("second")).toEqual([]);
+    expect(state.closeRoom("first")).toEqual([
+      { type: "room_closed", roomId: "first" },
+    ]);
+    // The last ordinary room closes once it is empty; the lobby stays.
+    state.kill(agent.id);
+    expect(state.closeRoom("second")).toEqual([
+      { type: "room_closed", roomId: "second" },
+    ]);
+    expect(state.rooms.map((r) => r.id)).toEqual(["lobby"]);
+
+    // A room created when the lobby is the only room closes too.
+    state.createRoom();
+    state.createRoom();
+    expect(state.rooms.map((r) => r.canCloseWhenEmpty)).toEqual([
       false,
       true,
+      true,
     ]);
+    const created = state.rooms[1].id;
+    expect(state.closeRoom(created)).toEqual([
+      { type: "room_closed", roomId: created },
+    ]);
+  });
+
+  // Before the first claim an office has no lobby, and closing its only room
+  // would leave no room at all. Both the default room and a restored one.
+  it("keeps the only room of an office with no lobby yet, and closes it once the lobby exists", () => {
+    const restored = new OfficeState({
+      rooms: [
+        { id: "only", name: "Room 1", prompt: null },
+        { id: "extra", name: "Room 2", prompt: null },
+      ],
+    });
+    expect(restored.closeRoom("extra")).toEqual([
+      { type: "room_closed", roomId: "extra" },
+    ]);
+    for (const state of [new OfficeState(), restored]) {
+      expect(state.rooms).toHaveLength(1);
+      const only = state.rooms[0].id;
+      expect(state.closeRoom(only)).toEqual([]);
+      expect(state.rooms.map((r) => r.id)).toEqual([only]);
+      state.ensureLobby();
+      expect(state.closeRoom(only)).toEqual([
+        { type: "room_closed", roomId: only },
+      ]);
+      expect(state.rooms.map((r) => r.id)).toEqual(["lobby"]);
+    }
+  });
+
+  // Nil's report: a member could not remove the default room once it was
+  // empty. Through the route, and past a restart: the boot must not seed a
+  // room back into a lobby-only office.
+  it("an owner gets 409 room_not_closable for an occupied room or the lobby, closes the default room once it is empty, and the office stays lobby-only after a restart", async () => {
+    let srv = (server = await startTestServer());
+    const cookie = await claimOwner(srv, "Morgan");
+    const ordinary = srv.agentManager.getOrdinaryRooms();
+    expect(ordinary).toHaveLength(1);
+    const room = ordinary[0].id;
+    const welcome = srv.agentManager
+      .getAllAgents()
+      .filter((a) => a.roomId === room);
+    expect(welcome.length).toBeGreaterThan(0);
+    // A refused close of a real room names the refusal, not a missing room:
+    // the occupied default room, and the lobby (with or without its agent).
+    for (const target of [room, LOBBY_ROOM_ID]) {
+      const refused = await api(srv, "DELETE", `/api/rooms/${target}`, {
+        rawSessionId: cookie,
+      });
+      expect({
+        target,
+        status: refused.status,
+        code: errCode(refused.body),
+      }).toEqual({ target, status: 409, code: "room_not_closable" });
+    }
+    expect(srv.agentManager.getRooms()).toHaveLength(2);
+    for (const a of welcome)
+      expect(
+        (
+          await api(srv, "DELETE", `/api/agents/${a.id}`, {
+            rawSessionId: cookie,
+          })
+        ).status,
+      ).toBeLessThan(300);
+    const close = await api(srv, "DELETE", `/api/rooms/${room}`, {
+      rawSessionId: cookie,
+    });
+    expect(close.status).toBe(204);
+    expect(srv.agentManager.getRooms().map((r) => r.id)).toEqual([
+      LOBBY_ROOM_ID,
+    ]);
+    // A room that no longer exists is still the 404.
+    const gone = await api(srv, "DELETE", `/api/rooms/${room}`, {
+      rawSessionId: cookie,
+    });
+    expect({ status: gone.status, code: errCode(gone.body) }).toEqual({
+      status: 404,
+      code: "room_not_found",
+    });
+    srv = server = await srv.restart();
+    expect(srv.agentManager.getRooms().map((r) => r.id)).toEqual([
+      LOBBY_ROOM_ID,
+    ]);
+    expect(receptionistOf(srv).roomId).toBe(LOBBY_ROOM_ID);
   });
 
   it("allows name/cwd edits, move out and in, kill and revive; persists empty lobby", async () => {

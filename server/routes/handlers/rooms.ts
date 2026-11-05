@@ -136,10 +136,18 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       return created({ room });
     },
 
-    "rooms.close": (ctx) =>
-      deps.close(ctx.params.roomId)
-        ? noContent()
-        : fail(404, "room_not_found", "Room not found"),
+    // A room that exists but stays (the lobby, a room with agents, the only
+    // room of an office with no lobby yet) is a 409, not a missing room.
+    "rooms.close": (ctx) => {
+      if (deps.close(ctx.params.roomId)) return noContent();
+      return deps.takesSkin(ctx.params.roomId) === "unknown"
+        ? fail(404, "room_not_found", "Room not found")
+        : fail(
+            409,
+            "room_not_closable",
+            "Only an empty room other than the lobby can be closed.",
+          );
+    },
 
     // PATCH is a PARTIAL update over three independent fields, so the old
     // `if (!name) 422` guard could not simply grow a pet branch: a body of

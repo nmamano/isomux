@@ -80,8 +80,9 @@ export interface OfficeStateData {
 }
 
 // Canonical room input - a RoomWire without the derived `canCloseWhenEmpty`
-// capability, which OfficeState stamps from room order at materialization. Boot
-// and persistence supply this shape (they store room identity, not the flag).
+// capability, which OfficeState stamps from the room type at materialization.
+// Boot and persistence supply this shape (they store room identity, not the
+// flag).
 type RoomInput = Omit<RoomWire, "canCloseWhenEmpty">;
 
 export class OfficeState {
@@ -91,7 +92,7 @@ export class OfficeState {
       id: generateRoomId(),
       name: "Room 1",
       prompt: null,
-      canCloseWhenEmpty: false, // protected canonical first room
+      canCloseWhenEmpty: true,
     },
   ];
   private _office: OfficeSettings = {
@@ -178,15 +179,14 @@ export class OfficeState {
       rooms.length > 0
         ? rooms.map((r) => ({
             ...r,
-            canCloseWhenEmpty:
-              r.type !== "lobby" && r.id !== ordinaryRooms(rooms)[0]?.id,
+            canCloseWhenEmpty: r.type !== "lobby",
           }))
         : [
             {
               id: generateRoomId(),
               name: "Room 1",
               prompt: null,
-              canCloseWhenEmpty: false,
+              canCloseWhenEmpty: true,
             },
           ];
   }
@@ -548,8 +548,7 @@ export class OfficeState {
       id: generateRoomId(existingIds),
       name: displayName,
       prompt: null,
-      // The first ordinary room stays protected even when the lobby came first.
-      canCloseWhenEmpty: this.ordinaryRooms.length > 0,
+      canCloseWhenEmpty: true,
       ...(skin ? { skin } : {}),
     };
     this._rooms.push(room);
@@ -565,14 +564,14 @@ export class OfficeState {
       (a) => a.roomId === roomId,
     );
     if (roomAgents.length > 0) return [];
+    // An office with no lobby yet keeps its only room.
+    if (this._rooms.length === 1) return [];
 
     this._rooms.splice(room, 1);
     // Closing a room no longer shifts any wire index. Agents
     // carry a stable roomId and rooms carry a stable id, so a visible close is
     // just the room's removal and a non-visible close is a client no-op - the
-    // pre-cut per-agent `room--` agent_updated churn is gone. Splicing a non-zero
-    // index also can't change which room is index 0, so every remaining room's
-    // derived canCloseWhenEmpty stays correct without a re-stamp.
+    // pre-cut per-agent `room--` agent_updated churn is gone.
     const events: OfficeEvent[] = [{ type: "room_closed", roomId }];
     this.emitEvents(events);
     return events;

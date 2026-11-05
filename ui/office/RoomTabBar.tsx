@@ -726,10 +726,9 @@ export function RoomTabBar({
                     </span>
                   )}
                   {/* Close button: closeable-when-empty rooms only.
-                room.canCloseWhenEmpty is the server-authoritative
-                protected-first-room signal (false only for the canonical first
-                room, derived from canonical order - correct even under a custom
-                view order). Emptiness stays a client-side reactive check. */}
+                room.canCloseWhenEmpty is the server-authoritative signal
+                (false only for the lobby). Emptiness stays a client-side
+                reactive check. */}
                   {room.canCloseWhenEmpty && isEmpty && (
                     <button
                       onClick={(e) => {
