@@ -788,7 +788,7 @@ export function ReceptionCounter({
         top="#f3e8d3"
       />
       {/* Bell */}
-      <g transform={`translate(${iso(-20 * fb, fb * -2, h).join(" ")})`}>
+      <g transform={`translate(${iso(15 * fb, fb * 5, h).join(" ")})`}>
         <ellipse cx="0" cy="0" rx="4.5" ry="2" fill="#a88a3c" />
         <path d="M-4 -1 A4 4 0 0 1 4 -1 L4 0 L-4 0 Z" fill="#e2c15a" />
         <circle cx="0" cy="-5" r="1" fill="#e2c15a" />
@@ -801,7 +801,7 @@ export function ReceptionCounter({
         />
       </g>
       {/* Vase with tulips */}
-      <g transform={`translate(${iso(22 * fb, fb * -3, h).join(" ")})`}>
+      <g transform={`translate(${iso(38 * fb, fb * -4, h).join(" ")})`}>
         <path d="M-3 0 L3 0 L2.4 -8 Q0 -10 -2.4 -8 Z" fill="#7fb3c8" />
         <path
           d="M-1 -8 q-3 -6 -5 -12 M0 -8 q0 -7 1 -13 M1 -8 q3 -5 5 -11"
@@ -816,7 +816,7 @@ export function ReceptionCounter({
       {/* The isomux cube from ui/icon.svg, as a desk ornament: same eight
           faces at 0.6 scale, standing on its bottom vertex. */}
       <g
-        transform={`translate(${iso(7 * fb, fb * -3, h).join(" ")}) scale(0.6) translate(-16 -30)`}
+        transform={`translate(${iso(25 * fb, fb * -4, h).join(" ")}) scale(0.6) translate(-16 -30)`}
       >
         <polygon points="2,10 16,18 16,30 2,22" fill="#209050" />
         <polygon points="30,10 16,18 16,30 30,22" fill="#186840" />
@@ -840,10 +840,10 @@ export function ReceptionCounter({
       {/* A stack of papers */}
       <path
         d={poly([
-          [4 * fb, fb * 2, h],
-          [16 * fb, fb * 2, h],
-          [16 * fb, fb * 10, h],
-          [4 * fb, fb * 10, h],
+          [26 * fb, fb * 2, h],
+          [38 * fb, fb * 2, h],
+          [38 * fb, fb * 10, h],
+          [26 * fb, fb * 10, h],
         ])}
         fill="#f4efe4"
         stroke="#c9c1b4"
@@ -851,10 +851,10 @@ export function ReceptionCounter({
       />
       <path
         d={poly([
-          [5 * fb, fb * 3, h + 1],
-          [17 * fb, fb * 3, h + 1],
-          [17 * fb, fb * 11, h + 1],
-          [5 * fb, fb * 11, h + 1],
+          [27 * fb, fb * 3, h + 1],
+          [39 * fb, fb * 3, h + 1],
+          [39 * fb, fb * 11, h + 1],
+          [27 * fb, fb * 11, h + 1],
         ])}
         fill="#fbf8f1"
         stroke="#c9c1b4"

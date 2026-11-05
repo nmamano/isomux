@@ -51,8 +51,10 @@ export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
     id: "nilo",
     label: "nilo",
     blurb: "Nil's saved lobby layout.",
+    // Moved by hand from the saved profile: the receptionist looks centred
+    // along the counter (Nil, 2026-11-05).
     receptionist: {
-      a: 3.0752409282483546,
+      a: 3.74,
       b: 0.437621427837171,
     },
     ghostSpots: [
