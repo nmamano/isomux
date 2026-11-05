@@ -506,6 +506,10 @@ describe("a systemd stop of the office", () => {
           `ISOMUX_BACKUP_DIR=${join(dir, "backups")}`,
           "-E",
           `XDG_CONFIG_HOME=${join(home, ".config")}`,
+          // The stop can land while the boot's Codex preparation runs; the
+          // scratch dirs it leaves go with this test's dir.
+          "-E",
+          `TMPDIR=${dir}`,
           "-E",
           "PORT=0",
           "-E",

@@ -5656,19 +5656,20 @@ export async function runOfficeMain(): Promise<void> {
   } catch {
     console.error("[secret-proxy] could not start the secrets proxy");
   }
-  try {
-    await prepareCodexSafetyHookArtifact();
-  } catch (err) {
-    // Codex preflight is deliberately fail-open. Keep the office available;
-    // every later Codex spawn retries preparation and emits the loud safety
-    // warning if the artifact is still unavailable.
-    console.error("[codex safety] artifact unavailable at boot:", err);
-  }
   // Each agent in its own PID namespace (task 8db21c8b): the probe ends
   // before the restore starts any agent, through the agent host that spawns.
   // A wrapped spawn that fails its bwrap setup probes again.
   setIsolationSetupFailureListener(() => void reportIsolationSetupFailure());
   await runProcessIsolationProbe();
+  // The Codex hook build and trust probe take seconds, so the boot does not
+  // wait for them: a Codex spawn that starts before they end waits for them.
+  // After the isolation probe, so the trust probe sees its result. Codex
+  // preflight is deliberately fail-open. Keep the office available; every
+  // later Codex spawn retries preparation and emits the loud safety warning
+  // if the artifact is still unavailable.
+  void prepareCodexSafetyHookArtifact().catch((err) => {
+    console.error("[codex safety] artifact unavailable at boot:", err);
+  });
   const handle = await startServer();
   // Idle-eviction sweep: every minute, demote agents idle past the threshold to
   // lazy so they release their ~165MB subprocess. (Boot already lazy-restores
