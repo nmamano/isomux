@@ -1418,6 +1418,13 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["agent:converse"],
     emits: ["agent_updated", "ask_removed", "others_ask_removed", "log_entry"],
   },
+  // The member runs one of the ask's commands (task c3b91695): terminal
+  // panel users only. The run's end, and a close on success, come after the
+  // 202.
+  "asks.runCommand": {
+    caps: ["terminal:use"],
+    emits: ["ask_upserted", "others_ask_upserted"],
+  },
   // Any agent's ask by its id (task 03f5c534): the reach of its logs,
   // checked in the handler against the ask's agent.
   "asks.get": { caps: ["log:read"], emits: [] },

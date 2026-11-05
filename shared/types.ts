@@ -1570,6 +1570,10 @@ export interface AskEntry {
   commands?: string[];
   editFiles?: FilePayload[];
   readFiles?: AskReadFile[];
+  // The member's Run of a command (task c3b91695): the latest run of each
+  // command, in the order they ran. An edit that drops a command drops its
+  // run. Set by the server only.
+  runs?: AskCommandRun[];
   // The agent's session when it opened the ask. The reply note names it when
   // the reply reaches a later session.
   sessionId?: string;
@@ -1606,6 +1610,23 @@ export interface AskEntry {
 // served from by GET /api/asks/:askId/files/:filename; its filename is a
 // fresh name with the original extension, never in the files dir.
 export type AskReadFile = Attachment & { path?: string };
+
+// One Run of an ask's command (POST /api/asks/:askId/run): the command as
+// the card showed it, in the agent's terminal environment, with no input and
+// no terminal. `output` is the last characters of stdout and stderr, secrets
+// masked. "lost": the server restarted during the run.
+export interface AskCommandRun {
+  command: string;
+  // The member who tapped Run.
+  by: string;
+  startedAt: number;
+  state: "running" | "done" | "lost";
+  exitCode?: number | null;
+  signal?: string | null;
+  timedOut?: true;
+  durationMs?: number;
+  output?: string;
+}
 
 // An ask as a route or push sends it: the opening session stays server-side.
 export type AskMemberWire = Omit<AskEntry, "sessionId">;

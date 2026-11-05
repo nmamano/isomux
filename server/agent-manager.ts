@@ -182,8 +182,10 @@ import {
   restartTerminal as restartTerminalImpl,
   terminalStatus as terminalStatusImpl,
   killSidecar,
+  terminalEnv,
   type TerminalDeps,
 } from "./terminal.ts";
+import { startAskRun, type AskRunResult } from "./ask-command-runner.ts";
 import { createCommandHandling } from "./command-handlers.ts";
 import { createUsageReadings } from "./usage-readings.ts";
 import { createAgentAuth } from "./agent-auth.ts";
@@ -777,6 +779,7 @@ export function createAgentManager(deps: ManagerDeps) {
     emitAgentTerminalCommand,
     emitAgentSecretRequestSettled,
     emitAgentSudoRequestReport,
+    emitAgentAskRunReport,
     emitAgentStepAskDone,
     copyAskReadFile,
     emitAgentReadFile,
@@ -9185,6 +9188,23 @@ export function createAgentManager(deps: ManagerDeps) {
     return openTerminalImpl(agentId, terminalDeps, actor);
   }
 
+  // An ask's command, run for the member who tapped Run (task c3b91695):
+  // the terminal panel's shell, environment and cwd, no terminal.
+  async function runAskCommand(
+    agentId: string,
+    command: string,
+  ): Promise<{ done: Promise<AskRunResult> }> {
+    const managed = agents.get(agentId);
+    if (!managed) throw new Error("no such agent");
+    const { shell, env } = terminalEnv(managed, terminalDeps);
+    return startAskRun({
+      command,
+      cwd: managed.info.cwd,
+      env: { ...env, TERM: "dumb" },
+      shell,
+    });
+  }
+
   function getTerminalBuffer(agentId: string): string | null {
     return getTerminalBufferImpl(agentId, terminalDeps);
   }
@@ -9436,6 +9456,7 @@ export function createAgentManager(deps: ManagerDeps) {
     emitAgentTerminalCommand,
     emitAgentSecretRequestSettled,
     emitAgentSudoRequestReport,
+    emitAgentAskRunReport,
     emitAgentStepAskDone,
     emitAgentReadFile,
     copyAskReadFile,
@@ -9473,6 +9494,7 @@ export function createAgentManager(deps: ManagerDeps) {
     setTopic,
     resetTopic,
     openTerminal,
+    runAskCommand,
     getTerminalBuffer,
     readTerminal,
     terminalInput,

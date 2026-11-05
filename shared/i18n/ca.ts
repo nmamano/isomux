@@ -2111,6 +2111,7 @@ Coses que pots fer per ell:
   "asks.action.olderThanDays.other": "De més de {count} dies",
   "asks.result.signInLink": "Enllaç d'inici de sessió per a {member}",
   "asks.result.apiToken": "Token d'API {name}",
+  "asks.result.commandRun": "Executat des de la petició",
   "asks.viewInInbox": "Mostra a la safata d'entrada",
   "asks.pinnedMissing": "No pots veure aquesta petició, o no existeix.",
   "asks.stillOpen": "Encara oberta",
@@ -2461,6 +2462,25 @@ Coses que pots fer per ell:
   "cards.tool.morePaths": "{path} +{count} més",
   "cards.terminalCommand.copyHint":
     "Obre el plafó de la terminal i escriu aquesta ordre al prompt (no s'executa sola)",
+  "cards.terminalCommand.run": "Executa",
+  "cards.terminalCommand.running": "S'està executant…",
+  "cards.terminalCommand.runHint":
+    "Executa l'ordre ara a la carpeta de l'agent. Per a una ordre que demana dades, fes servir Copia a la terminal.",
+  "cards.terminalCommand.exited": "Codi de sortida {code} · {duration}",
+  "cards.terminalCommand.timedOut": "Aturada després de 10 minuts",
+  "cards.terminalCommand.killed": "Acabada per {signal}",
+  "cards.terminalCommand.lost":
+    "Resultat desconegut: Isomux s'ha reiniciat durant l'execució",
+  "cards.terminalCommand.runChanged": "L'agent ha canviat aquesta ordre.",
+  "cards.terminalCommand.runInProgress":
+    "S'està executant una altra ordre d'aquesta petició.",
+  "cards.terminalCommand.runLimited":
+    "Executa està desactivat per als agents per sota de l'accés Estàndard.",
+  "cards.terminalCommand.runForbidden":
+    "No pots fer servir la terminal d'aquest agent.",
+  "cards.terminalCommand.runHidden":
+    "Aquesta ordre té caràcters que no es veuen, així que no té Executa.",
+  "cards.terminalCommand.runFailed": "No s'ha pogut executar l'ordre.",
   "cards.markdown.mermaidError": "Error de Mermaid",
   "cards.markdown.mermaidLoadFailed": "No s'ha pogut carregar mermaid",
   "cards.diff.status.added": "afegit",
@@ -3519,6 +3539,14 @@ Coses que pots fer per ell:
     "Aturat després de 30 minuts: {command}",
   "systemEntries.sudoRequest.killed": "Acabat per {signal}: {command}",
   "systemEntries.sudoRequest.lost": "Resultat desconegut: {command}",
+  "systemEntries.askRun.exited":
+    "Executat des de la petició, codi de sortida {code}: {command}",
+  "systemEntries.askRun.timedOut":
+    "Executat des de la petició, aturat després de 10 minuts: {command}",
+  "systemEntries.askRun.killed":
+    "Executat des de la petició, acabat per {signal}: {command}",
+  "systemEntries.askRun.lost":
+    "Executat des de la petició, resultat desconegut: {command}",
   "systemEntries.sudoRequest.lockedOut":
     "Sol·licitud sudo tancada després de {attempts} intents rebutjats: {command}",
   "systemEntries.sudoRequest.declined": "Sol·licitud sudo rebutjada: {command}",

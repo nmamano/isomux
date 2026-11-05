@@ -32,6 +32,7 @@ import {
   generateAskId,
   isValidPriority,
   type AskCloseInput,
+  type AskCommandRun,
   type AskEditableKey,
   type AskEntry,
   type AskEvent,
@@ -179,6 +180,24 @@ const isAttachment = (v: unknown) =>
   typeof v.size === "number";
 // A copy, or a reference: the route serves whatever `path` names, so only an
 // absolute path loads.
+const RUN_STATES: readonly string[] = ["running", "done", "lost"];
+const isAskCommandRun = (v: unknown) =>
+  isObject(v) &&
+  typeof v.command === "string" &&
+  typeof v.by === "string" &&
+  typeof v.startedAt === "number" &&
+  typeof v.state === "string" &&
+  RUN_STATES.includes(v.state) &&
+  (v.exitCode === undefined ||
+    v.exitCode === null ||
+    typeof v.exitCode === "number") &&
+  (v.signal === undefined ||
+    v.signal === null ||
+    typeof v.signal === "string") &&
+  (v.timedOut === undefined || v.timedOut === true) &&
+  (v.durationMs === undefined || typeof v.durationMs === "number") &&
+  (v.output === undefined || typeof v.output === "string");
+
 const isAskReadFile = (v: unknown) =>
   isAttachment(v) &&
   isObject(v) &&
@@ -256,6 +275,7 @@ function isAskEntry(v: unknown): v is AskEntry {
     (r.readFiles !== undefined && !isListOf(r.readFiles, isAskReadFile))
   )
     return false;
+  if (r.runs !== undefined && !isListOf(r.runs, isAskCommandRun)) return false;
   if (
     (r.simplifyRequestedAt !== undefined &&
       typeof r.simplifyRequestedAt !== "number") ||
@@ -517,6 +537,17 @@ export interface AskStore {
   // withdrew it. Null, with nothing written, when the entry is gone or has no
   // mark (the agent's rewrite cleared it first).
   cancelSimplify(id: string, byUserId?: string): AskEntry | null;
+  // Writes the run of `command` (task c3b91695), in place of the command's
+  // earlier run; null removes it. Null, with nothing written, when the entry
+  // is gone or no longer lists the command.
+  setRun(
+    id: string,
+    command: string,
+    run: AskCommandRun | null,
+  ): AskEntry | null;
+  // At boot: every run still "running" becomes "lost" (the server's restart
+  // ended it). Returns each entry it changed, with the run.
+  markLostRuns(): { entry: AskEntry; run: AskCommandRun }[];
   // Closes the entry and records how (`close`).
   remove(id: string, close: AskCloseInput): AskEntry | null;
   // Every entry of a removed agent, each recorded as agent_removed. Returns
@@ -707,6 +738,14 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       const { commands, editFiles, readFiles } = affordances;
       if (commands === null) delete entry.commands;
       else if (commands !== undefined) entry.commands = commands;
+      // A run goes with its command.
+      if (entry.runs) {
+        const runs = entry.runs.filter((r) =>
+          entry.commands?.includes(r.command),
+        );
+        if (runs.length > 0) entry.runs = runs;
+        else delete entry.runs;
+      }
       if (editFiles === null) delete entry.editFiles;
       else if (editFiles !== undefined) entry.editFiles = editFiles;
       if (readFiles === null) delete entry.readFiles;
@@ -768,6 +807,53 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(byUserId !== undefined ? { byUserId } : {}),
       });
       return { ...entry };
+    },
+    setRun(id, command, run) {
+      check();
+      const prev = entries.find((e) => e.id === id);
+      if (!prev?.commands?.includes(command)) return null;
+      const runs = (prev.runs ?? []).filter((r) => r.command !== command);
+      if (run) runs.push({ ...run, command });
+      const entry: AskEntry = { ...prev };
+      if (runs.length > 0) entry.runs = runs;
+      else delete entry.runs;
+      if (!isAskEntry(entry)) throw new Error("not a valid ask");
+      commit(
+        entries.map((e) => (e.id === id ? entry : e)),
+        [{ kind: "upserted", entry }],
+      );
+      return { ...entry };
+    },
+    markLostRuns() {
+      check();
+      const marked: { entry: AskEntry; run: AskCommandRun }[] = [];
+      const next = entries.map((prev) => {
+        if (!prev.runs?.some((r) => r.state === "running")) return prev;
+        const lost: AskCommandRun[] = [];
+        const entry: AskEntry = {
+          ...prev,
+          runs: prev.runs.map((r) => {
+            if (r.state !== "running") return r;
+            const run = { ...r, state: "lost" as const };
+            lost.push(run);
+            return run;
+          }),
+        };
+        for (const run of lost) marked.push({ entry, run });
+        return entry;
+      });
+      if (marked.length === 0) return [];
+      commit(
+        next,
+        [...new Set(marked.map((m) => m.entry))].map((entry) => ({
+          kind: "upserted" as const,
+          entry,
+        })),
+      );
+      return marked.map(({ entry, run }) => ({
+        entry: { ...entry },
+        run: { ...run },
+      }));
     },
     remove(id, close) {
       check();

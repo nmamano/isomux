@@ -50,6 +50,31 @@ function endSession(managed: ManagedAgent) {
   managed.ptyMembers = new Set();
 }
 
+// The terminal panel's shell and environment, which an ask's Run
+// (ask-command-runner.ts) uses too. The shell runs as the agent user, so its
+// HOME, USER and PATH come from the host, never from the server's own
+// environment in split mode. Throws when the manager's variables cannot be
+// read. TERM is the caller's.
+export function terminalEnv(
+  managed: ManagedAgent,
+  deps: Pick<TerminalDeps, "buildEnvForUserId" | "host">,
+): { shell: string; env: Record<string, string> } {
+  const managedEnv = deps.buildEnvForUserId(managed.info.userId);
+  const host = deps.host ?? getAgentHost();
+  const hostEnv = host.baseEnv();
+  const shell = hostEnv.SHELL || "/bin/bash";
+  const env: Record<string, string> = {
+    ...((managedEnv ?? hostEnv) as Record<string, string>),
+    SHELL: shell,
+    HOME: host.home(),
+    USER: hostEnv.USER || host.username(),
+    LANG: hostEnv.LANG || "en_US.UTF-8",
+    PATH: hostEnv.PATH || "/usr/local/bin:/usr/bin:/bin",
+  };
+  delete env.TERM;
+  return { shell, env };
+}
+
 export function openTerminal(
   agentId: string,
   deps: TerminalDeps,
@@ -77,29 +102,20 @@ export function openTerminal(
     return true;
   }
 
-  let managedEnv: Record<string, string | undefined> | undefined;
+  let env: { shell: string; env: Record<string, string> };
   try {
-    managedEnv = deps.buildEnvForUserId(managed.info.userId);
+    env = terminalEnv(managed, deps);
   } catch (error) {
     console.warn(`[terminal] cannot open PTY for ${agentId}:`, error);
     deps.emit({ type: "terminal_exit", agentId, exitCode: 1 });
     return false;
   }
-
-  // The shell runs as the agent user, so its HOME, USER and PATH come from
-  // the host, never from the server's own environment in split mode.
-  const host = deps.host ?? getAgentHost();
-  const hostEnv = host.baseEnv();
-  const shell = hostEnv.SHELL || "/bin/bash";
+  const { shell } = env;
   const ptyEnv: Record<string, string> = {
-    ...((managedEnv ?? hostEnv) as Record<string, string>),
+    ...env.env,
     TERM: "xterm-256color",
-    SHELL: shell,
-    HOME: host.home(),
-    USER: hostEnv.USER || host.username(),
-    LANG: hostEnv.LANG || "en_US.UTF-8",
-    PATH: hostEnv.PATH || "/usr/local/bin:/usr/bin:/bin",
   };
+  const host = deps.host ?? getAgentHost();
 
   const bunPath = host.bunPath();
   const sidecar = host.spawnPipe([bunPath, PTY_SIDECAR_PATH]);

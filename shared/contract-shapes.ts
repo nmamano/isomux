@@ -934,6 +934,11 @@ export interface AskReplyReq {
   // The member's device label, as on a chat message (user sessions only).
   device?: string;
 }
+// The member's Run of an ask's command (task c3b91695): the command as the
+// card shows it, byte for byte.
+export interface AskRunCommandReq {
+  command: string;
+}
 export interface AskDismissReq {
   // What the member typed, sent as the dismissal's reason. Blank or absent:
   // the agent reads "Dismissed".

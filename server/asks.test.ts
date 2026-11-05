@@ -5,7 +5,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { AskEntry } from "../shared/types.ts";
+import type { AskCommandRun, AskEntry } from "../shared/types.ts";
 import {
   ASK_TASK_TITLE_MAX,
   askReplyNote,
@@ -13,6 +13,7 @@ import {
   askVisibleTo,
   checkOptions,
   type AskAudienceDeps,
+  type AskChange,
   createAskFilePersistence,
   createAskStore,
   type AskPersistence,
@@ -724,5 +725,105 @@ describe("the task an ask is filed as", () => {
     expect(bare.split("\n").filter((l) => l.trim() !== "")).toHaveLength(2);
     // The note does not change the title.
     expect(noted.title).toBe("Ship it?");
+  });
+});
+
+describe("the member's runs of an ask's commands (task c3b91695)", () => {
+  const run = (
+    command: string,
+    over: Partial<AskCommandRun> = {},
+  ): AskCommandRun => ({
+    command,
+    by: "u1",
+    startedAt: 1,
+    state: "running",
+    ...over,
+  });
+  function storeWith(commands: string[]) {
+    const { path } = fileIn();
+    const changes: AskChange[] = [];
+    const store = createAskStore({
+      persistence: createAskFilePersistence(path),
+      onChange: (c) => changes.push(c),
+    });
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Run the checks?",
+      affordances: { commands },
+    });
+    if (!made.ok) throw new Error("create failed");
+    const reopen = () =>
+      createAskStore({ persistence: createAskFilePersistence(path) });
+    return { store, id: made.entry.id, changes, reopen };
+  }
+
+  it("keeps one run per command, persists it and pushes the entry", () => {
+    const { store, id, changes, reopen } = storeWith(["bun test", "bun lint"]);
+    changes.length = 0;
+    expect(store.setRun(id, "bun test", run("bun test"))).not.toBeNull();
+    store.setRun(id, "bun lint", run("bun lint"));
+    const done = run("bun test", {
+      state: "done",
+      exitCode: 0,
+      output: "ok\n",
+    });
+    store.setRun(id, "bun test", done);
+    const runs = store.get(id)!.runs ?? [];
+    expect(runs.filter((r) => r.command === "bun test")).toEqual([done]);
+    expect(runs.map((r) => r.command).sort()).toEqual(["bun lint", "bun test"]);
+    expect(changes.map((c) => c.kind)).toEqual([
+      "upserted",
+      "upserted",
+      "upserted",
+    ]);
+    expect(changes.at(-1)!.entry.runs).toEqual(runs);
+    expect(reopen().get(id)!.runs).toEqual(runs);
+
+    // Null takes the command's run back; the other stays.
+    store.setRun(id, "bun test", null);
+    expect(store.get(id)!.runs?.map((r) => r.command)).toEqual(["bun lint"]);
+  });
+
+  it("writes nothing for a command the ask does not list, or an ask that is gone", () => {
+    const { store, id, changes } = storeWith(["bun test"]);
+    changes.length = 0;
+    expect(store.setRun(id, "rm -rf ~", run("rm -rf ~"))).toBeNull();
+    expect(store.setRun("nosuchid", "bun test", run("bun test"))).toBeNull();
+    expect(store.get(id)!.runs ?? []).toEqual([]);
+    expect(changes).toEqual([]);
+  });
+
+  it("an agent edit that drops a command drops its run, and keeps the others", () => {
+    const { store, id } = storeWith(["bun test", "bun lint"]);
+    store.setRun(
+      id,
+      "bun test",
+      run("bun test", { state: "done", exitCode: 1 }),
+    );
+    store.setRun(id, "bun lint", run("bun lint"));
+    store.edit(id, "Run the lint?", undefined, undefined, {
+      commands: ["bun lint", "bun typecheck"],
+    });
+    expect(store.get(id)!.runs?.map((r) => r.command)).toEqual(["bun lint"]);
+    // A prompt-only edit keeps every run.
+    store.edit(id, "Run it now?");
+    expect(store.get(id)!.runs?.map((r) => r.command)).toEqual(["bun lint"]);
+  });
+
+  it("at boot, marks each running run lost, leaves a finished one, and persists it", () => {
+    const { store, id, reopen } = storeWith(["bun test", "bun lint"]);
+    const finished = run("bun lint", { state: "done", exitCode: 0 });
+    store.setRun(id, "bun test", run("bun test"));
+    store.setRun(id, "bun lint", finished);
+    const booted = reopen();
+    const marked = booted.markLostRuns();
+    expect(marked.map((m) => [m.entry.id, m.run.command, m.run.state])).toEqual(
+      [[id, "bun test", "lost"]],
+    );
+    const runs = booted.get(id)!.runs ?? [];
+    expect(runs.find((r) => r.command === "bun test")?.state).toBe("lost");
+    expect(runs.find((r) => r.command === "bun lint")).toEqual(finished);
+    expect(reopen().markLostRuns()).toEqual([]);
   });
 });

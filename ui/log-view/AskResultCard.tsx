@@ -5,12 +5,14 @@
 // keeps it. A link for another member says to send it to them; only the
 // member's own link says to open it on their device. Part 5: what a storage
 // prune or compress did, in the page's words: the member's only receipt.
+// Task c3b91695: the output of the commands whose Run closed the ask.
 
 import { useDispatch, type AskResult } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { MintedSecretBox, MintedUrlBox } from "../components/access-shared.tsx";
 import { categoryLabel, sizeText } from "../components/StoragePane.tsx";
 import { formatNumber } from "../../shared/i18n/number.ts";
+import { AskRunResult } from "./AskRunResult.tsx";
 
 export function AskResultCard({
   askId,
@@ -76,6 +78,37 @@ export function AskResultCard({
           </>
         );
       }
+      case "command-run":
+        return (
+          <>
+            <div style={{ fontWeight: 600 }}>{t("asks.result.commandRun")}</div>
+            {result.runs.map((run) => (
+              <div
+                key={run.command}
+                style={{
+                  margin: "6px 0",
+                  borderRadius: 8,
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-subtle)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    padding: "6px 12px",
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: 12,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {run.command}
+                </div>
+                <AskRunResult run={run} isMobile={isMobile} />
+              </div>
+            ))}
+          </>
+        );
       case "storage-compress": {
         const { applied } = result;
         return (

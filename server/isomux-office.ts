@@ -284,6 +284,7 @@ import { createSecretRequests } from "./secret-requests.ts";
 import { sudoRequestHandlers } from "./routes/handlers/sudo-requests.ts";
 import { createSudoRequests, type SudoRequests } from "./sudo-requests.ts";
 import { probeSudo, startSudo } from "./sudo-runner.ts";
+import { askRunLine, askRunLostNotice } from "./ask-command-runner.ts";
 import { createSudoRunStore } from "./sudo-run-store.ts";
 import { createConnectionWrites } from "./connection-writes.ts";
 import { createStepAsks, type StepAsks } from "./step-asks.ts";
@@ -2812,6 +2813,32 @@ function buildExecutorDeps(
       },
       memberName: (userId) => getUserById(userId)?.name ?? null,
       memberCanSeeRoom: askAudience.canSeeRoom,
+      // The terminal panel's gate (terminalAllowed), then the agent's access.
+      commandRuns: {
+        refusal: (identity, agentId) => {
+          const agent = agentManager.getAgent(agentId);
+          const user = identity.userId ? getUserById(identity.userId) : null;
+          if (
+            !agent ||
+            !user ||
+            user.pack ||
+            !buildLiveGuardDeps().hasRoomAccess(identity, agent.roomId)
+          )
+            return "terminal_forbidden";
+          return belowStandard(agentAccessOf(agent)) ? "agent_limited" : null;
+        },
+        start: (agentId, command) =>
+          agentManager.runAskCommand(agentId, command),
+        notify: (agentId, text, from) =>
+          agentManager.emitAgentAskRunReport(
+            agentId,
+            from.askId,
+            from.line,
+            from.memberUserId,
+            text,
+          ),
+        now: () => Date.now(),
+      },
       recordMemberHeardFrom: (userId, agentId) =>
         agentManager.recordMemberHeardFrom(userId, agentId),
       isOfficeOwner: askAudience.isOfficeOwner,
@@ -5210,6 +5237,24 @@ function runBackgroundBoot(
     // A sudo run in progress when the server stopped: its agent hears now
     // that the result is unknown.
     sudoRequests?.recover();
+    // An ask's Run in progress when the server stopped (task c3b91695): the
+    // card shows it lost, and its agent hears that the result is unknown.
+    try {
+      for (const { entry, run } of askStore?.markLostRuns() ?? [])
+        agentManager.emitAgentAskRunReport(
+          entry.agentId,
+          entry.id,
+          askRunLine(run),
+          run.by,
+          askRunLostNotice(
+            entry.id,
+            getUserById(run.by)?.name ?? "A member",
+            run,
+          ),
+        );
+    } catch (err) {
+      console.warn("[bootstrap] the lost ask runs could not be marked:", err);
+    }
     try {
       backfillOfficeFreeModelMarks();
     } catch (err) {

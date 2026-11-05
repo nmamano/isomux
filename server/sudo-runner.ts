@@ -10,6 +10,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 
+import { createOutputTail, superviseProcess } from "./command-supervisor.ts";
+
 export const SUDO_PATH = "/usr/bin/sudo";
 export const SUDO_OUTPUT_TAIL = 4000;
 export const SUDO_TIMEOUT_MS = 30 * 60_000;
@@ -113,9 +115,6 @@ export async function probeSudo(opts?: {
 // The command is an argument, never part of this script.
 const WRAPPER = `printf %s "$1" >&2; exec /bin/sh -c "$2"`;
 
-// How long the runner reads the output after sudo exits: a background child
-// can keep the pipes open for as long as it runs.
-const DRAIN_MS = 300;
 // Before the start marker, stderr holds only sudo's own lines.
 const PRE_START_MAX = 64 * 1024;
 
@@ -162,85 +161,42 @@ export async function startSudo(opts: SudoStartOptions): Promise<SudoStart> {
 
   let started = false;
   let pre = "";
-  let tail = "";
   const strip = (text: string) =>
     text.replaceAll(prompt, "").replaceAll(marker, "");
-  const append = (text: string) => {
-    tail = strip(tail + text);
-    if (tail.length > 2 * SUDO_OUTPUT_TAIL)
-      tail = tail.slice(-SUDO_OUTPUT_TAIL - marker.length);
-  };
+  const tail = createOutputTail(SUDO_OUTPUT_TAIL, {
+    slack: marker.length,
+    normalize: strip,
+  });
   let onStart: () => void = () => {};
   const startSeen = new Promise<void>((resolve) => (onStart = resolve));
 
-  const read = async (
-    stream: ReadableStream<Uint8Array>,
-    isStderr: boolean,
-    stop: Promise<void>,
-  ) => {
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    const stopped = stop.then(() => null);
-    try {
-      for (;;) {
-        const chunk = await Promise.race([reader.read(), stopped]);
-        if (chunk === null || chunk.done) break;
-        const text = decoder.decode(chunk.value, { stream: true });
-        if (!isStderr || started) {
-          append(text);
-          continue;
-        }
-        pre += text;
-        const at = pre.indexOf(marker);
-        if (at >= 0) {
-          started = true;
-          append(pre.slice(at + marker.length));
-          pre = "";
-          onStart();
-        } else if (pre.length > PRE_START_MAX) {
-          pre = pre.slice(-PRE_START_MAX);
-        }
-      }
-    } catch {
-      // A read error ends this stream's output.
-    } finally {
-      reader.cancel().catch(() => {});
+  // stdout is stream 0, stderr stream 1.
+  const onText = (text: string, stream: number) => {
+    if (stream === 0 || started) {
+      tail.append(text);
+      return;
+    }
+    pre += text;
+    const at = pre.indexOf(marker);
+    if (at >= 0) {
+      started = true;
+      tail.append(pre.slice(at + marker.length));
+      pre = "";
+      onStart();
+    } else if (pre.length > PRE_START_MAX) {
+      pre = pre.slice(-PRE_START_MAX);
     }
   };
 
-  let timedOut = false;
-  let killTimer: ReturnType<typeof setTimeout> | null = null;
-  const timeoutTimer = setTimeout(() => {
-    try {
-      timedOut = true;
-      proc.kill("SIGTERM");
-      killTimer = setTimeout(() => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          // gone already
-        }
-      }, killGraceMs);
-    } catch {
-      // gone already
-    }
-  }, timeoutMs);
-
-  // The readers stop DRAIN_MS after sudo exits.
-  let stopReading: () => void = () => {};
-  const stop = new Promise<void>((resolve) => (stopReading = resolve));
-  const reading = Promise.all([
-    read(proc.stdout, false, stop),
-    read(proc.stderr, true, stop),
-  ]);
-  const ended = (async () => {
-    await proc.exited;
-    clearTimeout(timeoutTimer);
-    if (killTimer) clearTimeout(killTimer);
-    const drained = setTimeout(() => stopReading(), DRAIN_MS);
-    await reading;
-    clearTimeout(drained);
-  })();
+  const supervision = superviseProcess(
+    {
+      streams: [proc.stdout, proc.stderr],
+      exited: proc.exited,
+      terminate: (signal) => proc.kill(signal),
+    },
+    { timeoutMs, killGraceMs, onText },
+  );
+  const ended = supervision.ended;
 
   const first = await Promise.race([
     startSeen.then(() => "started" as const),
@@ -258,9 +214,9 @@ export async function startSudo(opts: SudoStartOptions): Promise<SudoStart> {
     (): SudoRunResult => ({
       exitCode: proc.exitCode,
       signal: proc.signalCode ?? null,
-      timedOut,
+      timedOut: supervision.timedOut(),
       durationMs: Date.now() - t0,
-      output: strip(tail).slice(-SUDO_OUTPUT_TAIL),
+      output: tail.value(),
     }),
   );
   return { kind: "started", done };

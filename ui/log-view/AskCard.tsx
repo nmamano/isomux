@@ -92,6 +92,8 @@ import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
+import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
+import { isRunnableCommand } from "../../shared/runnable-command.ts";
 import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskActionBlock } from "./AskActionBlock.tsx";
 import { AskStepBlock, useStepView } from "./AskStepBlock.tsx";
@@ -260,6 +262,25 @@ function PlainAffordance({ text }: { text: string }) {
   );
 }
 
+// A refused Run, in the member's words.
+function runErrorText(t: ReturnType<typeof useI18n>["t"], err: unknown) {
+  const code = err instanceof ApiError ? err.code : null;
+  switch (code) {
+    case "command_changed":
+      return t("cards.terminalCommand.runChanged");
+    case "run_in_progress":
+      return t("cards.terminalCommand.runInProgress");
+    case "agent_limited":
+      return t("cards.terminalCommand.runLimited");
+    case "terminal_forbidden":
+      return t("cards.terminalCommand.runForbidden");
+    case "command_not_runnable":
+      return t("cards.terminalCommand.runHidden");
+    default:
+      return t("cards.terminalCommand.runFailed");
+  }
+}
+
 function AskAffordances({
   entry,
   isMobile,
@@ -271,8 +292,43 @@ function AskAffordances({
 }) {
   const dispatch = useDispatch();
   const features = useFeatures();
+  const { t } = useI18n();
+  const { agents } = useAppState();
+  // The member's Run (task c3b91695): the taps whose answer is due, and the
+  // refusal of the last tap, per command.
+  const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
+  const [runErrors, setRunErrors] = useState<ReadonlyMap<string, string>>(
+    new Map(),
+  );
   const { agentId, editFiles, commands } = entry;
   if (!entry.readFiles && !editFiles && !commands) return null;
+  const agent = agents.find((a) => a.id === agentId);
+  // As the server: terminal panels on, an agent at Standard or above (one
+  // below reads text from strangers), a command that shows as it runs.
+  const canRun = (command: string) =>
+    features.terminal &&
+    !!agent &&
+    !belowStandard(agentAccessOf(agent)) &&
+    isRunnableCommand(command);
+  const runCommand = async (command: string) => {
+    setPending((prev) => new Set(prev).add(command));
+    setRunErrors((prev) => {
+      const next = new Map(prev);
+      next.delete(command);
+      return next;
+    });
+    try {
+      await apiFetch("POST", `/api/asks/${entry.id}/run`, { command });
+    } catch (err) {
+      setRunErrors((prev) => new Map(prev).set(command, runErrorText(t, err)));
+    } finally {
+      setPending((prev) => {
+        const next = new Set(prev);
+        next.delete(command);
+        return next;
+      });
+    }
+  };
   // The prompt shows the files it places.
   const readFiles = entry.readFiles
     ? unplacedAskFiles(entry.prompt, entry.readFiles)
@@ -310,6 +366,15 @@ function AskAffordances({
             <TerminalCommandCard
               payload={{ command }}
               onCopy={copyToTerminal}
+              isMobile={isMobile}
+              {...(canRun(command)
+                ? {
+                    onRun: (c: string) => void runCommand(c),
+                    run: entry.runs?.find((r) => r.command === command),
+                    runError: runErrors.get(command) ?? null,
+                    pending: pending.has(command),
+                  }
+                : {})}
             />
           ) : (
             <PlainAffordance text={command} />

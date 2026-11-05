@@ -113,6 +113,7 @@ import type {
   UpdateStatusWire,
   MembersChatMessage,
   AskMemberWire,
+  AskCommandRun,
   GithubLinkWire,
 } from "../../shared/types.ts";
 import type { GithubLinkInput } from "../github-sync.ts";
@@ -193,6 +194,7 @@ import type {
   AskCreateReq,
   AskEditReq,
   AskReplyReq,
+  AskRunCommandReq,
   AskDismissReq,
   AskSimplifyReq,
   AskFileTaskReq,
@@ -1242,6 +1244,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:converse", userScope),
     tokenArea: { area: "asks", level: "write" },
     emits: ["agent_updated", "ask_removed", "others_ask_removed", "log_entry"],
+  }),
+  // The member runs one of the ask's commands (task c3b91695) in the agent's
+  // terminal environment. The tap is the authorization: a signed-in member
+  // only, who may use that agent's terminal panel. Answers 202 at the start;
+  // the run's end comes as an ask_upserted, and a success of every command
+  // closes the ask.
+  defineRoute<AskRunCommandReq, AskCommandRun>({
+    opId: "asks.runCommand",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/asks/:askId/run",
+    auth: cap("terminal:use", userScope),
+    tokenArea: { area: "asks", level: "write" },
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   // A file an ask references in place (a video or audio file), for the
   // member the ask is for.

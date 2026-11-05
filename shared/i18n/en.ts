@@ -2060,6 +2060,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.action.olderThanDays.other": "Older than {count} days",
   "asks.result.signInLink": "Sign-in link for {member}",
   "asks.result.apiToken": "API token {name}",
+  "asks.result.commandRun": "Ran from the ask",
   "asks.viewInInbox": "View in Inbox",
   "asks.pinnedMissing": "You cannot see this ask, or it does not exist.",
   "asks.stillOpen": "Still open",
@@ -2387,6 +2388,24 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.tool.morePaths": "{path} +{count} more",
   "cards.terminalCommand.copyHint":
     "Open the terminal panel and type this command at the prompt (not auto-executed)",
+  "cards.terminalCommand.run": "Run",
+  "cards.terminalCommand.running": "Running…",
+  "cards.terminalCommand.runHint":
+    "Run the command now in the agent's folder. For a command that asks for input, use Copy to terminal.",
+  "cards.terminalCommand.exited": "Exit code {code} · {duration}",
+  "cards.terminalCommand.timedOut": "Stopped after 10 minutes",
+  "cards.terminalCommand.killed": "Ended by {signal}",
+  "cards.terminalCommand.lost":
+    "Result unknown: Isomux restarted during the run",
+  "cards.terminalCommand.runChanged": "The agent changed this command.",
+  "cards.terminalCommand.runInProgress":
+    "Another command of this ask is running.",
+  "cards.terminalCommand.runLimited":
+    "Run is off for agents below Standard access.",
+  "cards.terminalCommand.runForbidden": "You cannot use this agent's terminal.",
+  "cards.terminalCommand.runHidden":
+    "This command has characters that do not show, so it has no Run.",
+  "cards.terminalCommand.runFailed": "Could not run the command.",
   "cards.markdown.mermaidError": "Mermaid error",
   "cards.markdown.mermaidLoadFailed": "Failed to load mermaid",
   "cards.diff.status.added": "added",
@@ -3448,6 +3467,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.sudoRequest.timedOut": "Stopped after 30 minutes: {command}",
   "systemEntries.sudoRequest.killed": "Ended by {signal}: {command}",
   "systemEntries.sudoRequest.lost": "Result unknown: {command}",
+  "systemEntries.askRun.exited":
+    "Ran from the ask, exit code {code}: {command}",
+  "systemEntries.askRun.timedOut":
+    "Ran from the ask, stopped after 10 minutes: {command}",
+  "systemEntries.askRun.killed":
+    "Ran from the ask, ended by {signal}: {command}",
+  "systemEntries.askRun.lost": "Ran from the ask, result unknown: {command}",
   "systemEntries.sudoRequest.lockedOut":
     "Sudo request closed after {attempts} refused attempts: {command}",
   "systemEntries.sudoRequest.declined": "Sudo request declined: {command}",

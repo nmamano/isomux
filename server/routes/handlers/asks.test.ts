@@ -18,6 +18,7 @@ import {
 } from "../../identity/index.ts";
 import type { MessagingAnswerResult } from "../../messaging/replies.ts";
 import type { UserSendAcceptance } from "../../internal-types.ts";
+import type { AskRunResult } from "../../ask-command-runner.ts";
 import {
   ASK_SIMPLIFY_TEXT,
   ASK_SIMPLIFY_UNDO_TEXT,
@@ -1159,5 +1160,302 @@ describe("an action step run from the card", () => {
     const plain = t.open();
     expect(await t.outcome(t.run(plain))).toBe("409 not_runnable");
     expect(t.dispatched).toEqual([]);
+  });
+});
+
+describe("a command run from the card (task c3b91695)", () => {
+  type Done = {
+    resolve: (r: AskRunResult) => void;
+    reject: (err: Error) => void;
+  };
+  const OK: AskRunResult = {
+    exitCode: 0,
+    signal: null,
+    timedOut: false,
+    durationMs: 2100,
+    output: "all green\n",
+  };
+  function runRig(
+    opts: {
+      refusal?: "terminal_forbidden" | "agent_limited" | null;
+      startFails?: boolean;
+    } = {},
+  ) {
+    const started: Array<{ agentId: string; command: string }> = [];
+    const runs: Done[] = [];
+    const notices: Array<{ agentId: string; text: string }> = [];
+    const t = rig({
+      commandRuns: {
+        refusal: () => opts.refusal ?? null,
+        start: async (agentId, command) => {
+          started.push({ agentId, command });
+          if (opts.startFails) throw new Error("spawn ENOENT");
+          return {
+            done: new Promise<AskRunResult>((resolve, reject) =>
+              runs.push({ resolve, reject }),
+            ),
+          };
+        },
+        notify: (agentId, text) => notices.push({ agentId, text }),
+        now: () => 1000,
+      },
+    });
+    const open = (commands: string[], memberUserId = "u1") => {
+      const made = t.store.create({
+        agentId: "a1",
+        memberUserId,
+        prompt: "Run the checks?",
+        affordances: { commands },
+      });
+      if (!made.ok) throw new Error(made.code);
+      return made.entry.id;
+    };
+    const run = (askId: string, command: string, identity: Identity = member) =>
+      t.handlers["asks.runCommand"]({
+        identity,
+        params: { askId },
+        body: { command },
+        rawBody: "",
+        query: new URLSearchParams(),
+        req: new Request("http://localhost/"),
+      });
+    const reply = (askId: string, text: string) =>
+      t.handlers["asks.reply"]({
+        identity: member,
+        params: { askId },
+        body: { text },
+        rawBody: "",
+        query: new URLSearchParams(),
+        req: new Request("http://localhost/"),
+      });
+    const runOf = (askId: string, command: string) =>
+      t.store.get(askId)?.runs?.find((r) => r.command === command);
+    return { ...t, started, runs, notices, open, run, reply, runOf };
+  }
+  // Until the run's end has gone through the store and the delivery.
+  async function settle(pred: () => boolean, label: string) {
+    const deadline = Date.now() + 2000;
+    while (!pred()) {
+      if (Date.now() > deadline) throw new Error(`settle timed out: ${label}`);
+      await new Promise((r) => setTimeout(r, 1));
+    }
+  }
+
+  it("answers 202 with the running run, started once with the agent and the exact command", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test"]);
+    const r = await t.run(askId, "bun test");
+    expect(r).toMatchObject({
+      kind: "json",
+      status: 202,
+      body: { command: "bun test", by: "u1", state: "running" },
+    });
+    expect(t.started).toEqual([{ agentId: "a1", command: "bun test" }]);
+    expect(t.runOf(askId, "bun test")?.state).toBe("running");
+  });
+
+  it("refuses, with nothing started: 404 for another member or an unknown ask, before the caller's refusal", async () => {
+    const t = runRig({ refusal: "terminal_forbidden" });
+    const askId = t.open(["bun test"]);
+    const other: Identity = { ...member, userId: "u2" };
+    expect(await t.outcome(t.run(askId, "bun test", other))).toBe(
+      "404 not_found",
+    );
+    expect(await t.outcome(t.run("nope", "bun test"))).toBe("404 not_found");
+    expect(await t.outcome(t.run(askId, "bun test"))).toBe(
+      "403 terminal_forbidden",
+    );
+    expect(t.started).toEqual([]);
+  });
+
+  it("refuses an agent below Standard access", async () => {
+    const t = runRig({ refusal: "agent_limited" });
+    const askId = t.open(["bun test"]);
+    expect(await t.outcome(t.run(askId, "bun test"))).toBe("403 agent_limited");
+    expect(t.started).toEqual([]);
+  });
+
+  it("runs only a command the ask lists, byte for byte, and only one that shows as it runs", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test", "ls \u001b[8mrm -rf ~\u001b[0m"]);
+    for (const command of ["bun test ", "bun  test", "bun lint", ""])
+      expect({
+        command,
+        outcome: await t.outcome(t.run(askId, command)),
+      }).toEqual({ command, outcome: "409 command_changed" });
+    const hidden = await t.outcome(
+      t.run(askId, "ls \u001b[8mrm -rf ~\u001b[0m"),
+    );
+    expect(hidden.startsWith("409 ")).toBe(true);
+    expect(hidden).not.toBe("409 command_changed");
+    expect(t.started).toEqual([]);
+  });
+
+  it("refuses a second run of the ask while one runs, and runs again once it ended", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test", "bun lint"]);
+    // No await between the taps: the claim comes before the first await.
+    const first = t.outcome(t.run(askId, "bun test"));
+    const again = t.outcome(t.run(askId, "bun lint"));
+    expect(await again).toBe("409 run_in_progress");
+    expect(await first).toBe("json 202");
+    expect(t.started).toHaveLength(1);
+    t.runs[0].resolve({ ...OK, exitCode: 1 });
+    await settle(() => t.runOf(askId, "bun test")?.state === "done", "done");
+    expect(await t.outcome(t.run(askId, "bun lint"))).toBe("json 202");
+    expect(t.started).toHaveLength(2);
+  });
+
+  it("a start that fails answers 500 and leaves no running run", async () => {
+    const t = runRig({ startFails: true });
+    const askId = t.open(["bun test"]);
+    expect(await t.outcome(t.run(askId, "bun test"))).toBe("500 run_failed");
+    expect(t.runOf(askId, "bun test")).toBeUndefined();
+    expect(t.store.get(askId)).not.toBeNull();
+  });
+
+  it("a success writes the done run, then answers the ask as the member with the command and its output, and closes it", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test"]);
+    await t.run(askId, "bun test");
+    t.runs[0].resolve(OK);
+    await settle(() => t.delivered.length === 1, "the reply");
+    // The run is on the entry before the agent is answered.
+    expect(t.runOf(askId, "bun test")).toMatchObject({
+      state: "done",
+      exitCode: 0,
+      output: "all green\n",
+      durationMs: 2100,
+    });
+    expect(t.delivered[0]).toContain("bun test");
+    expect(t.delivered[0]).toContain("all green");
+    expect(t.deliveredFlags[0].dismissed).toBe(false);
+    // A member reply while the run's answer is delivered: one answer. The
+    // reply would deliver at once, before its first await.
+    const busy = t.outcome(t.reply(askId, "Done"));
+    expect(t.delivered).toHaveLength(1);
+    expect(await busy).toBe("409 ask_busy");
+    t.held[0].resolve({ ok: true });
+    await settle(() => t.store.get(askId) === null, "the close");
+    expect(t.delivered).toHaveLength(1);
+    expect(t.notices).toEqual([]);
+  });
+
+  it("a refused answer leaves the ask open with its done run", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test"]);
+    await t.run(askId, "bun test");
+    t.runs[0].resolve(OK);
+    await settle(() => t.held.length === 1, "the reply");
+    t.held[0].resolve({
+      ok: false,
+      status: 429,
+      code: "usage_cap",
+      message: "capped",
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(t.store.get(askId)).not.toBeNull();
+    expect(t.runOf(askId, "bun test")).toMatchObject({
+      state: "done",
+      exitCode: 0,
+    });
+  });
+
+  it("a failure keeps the ask open, and the agent gets a notice with the command, how it ended and the output", async () => {
+    for (const [name, result] of [
+      ["exit 3", { ...OK, exitCode: 3, output: "3 failed\n" }],
+      [
+        "signal",
+        { ...OK, exitCode: null, signal: "SIGKILL", output: "3 failed\n" },
+      ],
+      [
+        "timeout",
+        {
+          ...OK,
+          exitCode: null,
+          signal: "SIGTERM",
+          timedOut: true,
+          output: "3 failed\n",
+        },
+      ],
+    ] as const) {
+      const t = runRig();
+      const askId = t.open(["bun test"]);
+      await t.run(askId, "bun test");
+      t.runs[0].resolve(result);
+      await settle(() => t.notices.length === 1, `${name}: the notice`);
+      expect({ name, agent: t.notices[0].agentId }).toEqual({
+        name,
+        agent: "a1",
+      });
+      expect(t.notices[0].text).toContain("bun test");
+      expect(t.notices[0].text).toContain("3 failed");
+      expect(t.delivered).toEqual([]);
+      expect(t.store.get(askId)).not.toBeNull();
+      expect({ name, run: t.runOf(askId, "bun test") }).toMatchObject({
+        name,
+        run: {
+          state: "done",
+          exitCode: result.exitCode,
+          signal: result.signal,
+          ...(result.timedOut ? { timedOut: true } : {}),
+        },
+      });
+    }
+  });
+
+  it("closes only when every command succeeded, with each command in the answer", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test", "bun lint"]);
+    await t.run(askId, "bun test");
+    t.runs[0].resolve(OK);
+    await settle(() => t.notices.length === 1, "the first notice");
+    expect(t.delivered).toEqual([]);
+    expect(t.store.get(askId)).not.toBeNull();
+    await t.run(askId, "bun lint");
+    t.runs[1].resolve({ ...OK, output: "no lint\n" });
+    await settle(() => t.delivered.length === 1, "the reply");
+    expect(t.delivered[0]).toContain("bun test");
+    expect(t.delivered[0]).toContain("bun lint");
+    t.held[0].resolve({ ok: true });
+    await settle(() => t.store.get(askId) === null, "the close");
+  });
+
+  it("a run that ends after the ask closed: the agent gets the notice, nothing is answered or written", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test"]);
+    await t.run(askId, "bun test");
+    const dismiss = t.handlers["asks.dismiss"]({
+      identity: member,
+      params: { askId },
+      body: {},
+      rawBody: "",
+      query: new URLSearchParams(),
+      req: new Request("http://localhost/"),
+    });
+    await settle(() => t.held.length === 1, "the dismiss");
+    t.held[0].resolve({ ok: true });
+    await dismiss;
+    expect(t.store.get(askId)).toBeNull();
+    t.runs[0].resolve(OK);
+    await settle(() => t.notices.length === 1, "the notice");
+    expect(t.notices[0].text).toContain("bun test");
+    expect(t.delivered).toHaveLength(1);
+    expect(t.store.get(askId)).toBeNull();
+  });
+
+  it("a run whose command the agent dropped meanwhile: the notice, and the run is not written back", async () => {
+    const t = runRig();
+    const askId = t.open(["bun test"]);
+    await t.run(askId, "bun test");
+    t.store.edit(askId, "Run the lint?", undefined, undefined, {
+      commands: ["bun lint"],
+    });
+    expect(t.runOf(askId, "bun test")).toBeUndefined();
+    t.runs[0].resolve(OK);
+    await settle(() => t.notices.length === 1, "the notice");
+    expect(t.runOf(askId, "bun test")).toBeUndefined();
+    expect(t.delivered).toEqual([]);
+    expect(t.store.get(askId)).not.toBeNull();
   });
 });

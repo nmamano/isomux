@@ -26,6 +26,14 @@ import type {
   StepRun,
 } from "../../step-asks.ts";
 import type { MessagingAppReplies } from "../../messaging/replies.ts";
+import type { LogMessage } from "../../../shared/i18n/log-message.ts";
+import {
+  askRunLine,
+  askRunNotice,
+  askRunReply,
+  type AskRunResult,
+} from "../../ask-command-runner.ts";
+import { isRunnableCommand } from "../../../shared/runnable-command.ts";
 import {
   ASK_HISTORY_LIMIT_DEFAULT,
   ASK_HISTORY_LIMIT_MAX,
@@ -54,6 +62,7 @@ import {
   ASK_SIMPLIFY_UNDO_TEXT,
   isValidPriority,
   type AskCloseInput,
+  type AskCommandRun,
   type AskEntry,
   type AskEvent,
   type AskReadFile,
@@ -158,6 +167,32 @@ export interface AsksDeps {
       route: StepRoute,
       opts: { askId: string; callerSessionIdHash?: string },
     ): Promise<{ status: number; body: unknown }>;
+  };
+  // The member's Run of an ask's command (task c3b91695). Absent in leaf
+  // tests that do not run commands: the route answers 409 not_runnable.
+  commandRuns?: {
+    // Why the caller may not run the agent's commands now, or null:
+    // terminal_forbidden where the terminal panel would refuse the caller
+    // (a member pack, an agent the caller cannot see), agent_limited for an
+    // agent below Standard access.
+    refusal(
+      identity: Identity,
+      agentId: string,
+    ): "terminal_forbidden" | "agent_limited" | null;
+    // Starts the command in the agent's terminal environment; rejects when
+    // it cannot start.
+    start(
+      agentId: string,
+      command: string,
+    ): Promise<{ done: Promise<AskRunResult> }>;
+    // An office notice to the agent from the member who ran the command, as
+    // a sudo run's result is told, and `line` in the agent's chat.
+    notify(
+      agentId: string,
+      text: string,
+      from: { askId: string; memberUserId: string; line: LogMessage },
+    ): void;
+    now(): number;
   };
   // An ask's chat affordances: the chat's checks, paths against the agent's
   // cwd, and the copy of a read file. Null when the agent is gone.
@@ -313,6 +348,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   // Reply and dismiss in flight, so a second click (or a second browser)
   // cannot send the message twice.
   const delivering = new Set<string>();
+  // Asks with a command run in flight (task c3b91695): one at a time.
+  const commandRunning = new Set<string>();
 
   const wire = (entry: AskEntry): AskAgentWire =>
     askAgentWire(entry, (userId) => deps.memberName(userId));
@@ -1151,8 +1188,148 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
   };
 
+  // The member's Run of one of the ask's commands (task c3b91695). The run
+  // starts here and ends in finishRun; the route answers at the start.
+  const runCommand: RouteHandler = async (ctx) => {
+    const runs = deps.commandRuns;
+    const entry = readableBy(ctx.identity, ctx.params.askId);
+    if (!entry || !deps.agent(entry.agentId) || !ctx.identity.userId)
+      return notFound();
+    if (!runs || entry.secret || entry.sudo || entry.messaging)
+      return fail(409, "not_runnable", "This ask has no command to run.");
+    const refusal = runs.refusal(ctx.identity, entry.agentId);
+    if (refusal === "terminal_forbidden")
+      return fail(
+        403,
+        refusal,
+        "You cannot use this agent's terminal, so you cannot run its commands.",
+      );
+    if (refusal === "agent_limited")
+      return fail(403, refusal, "Run is off for agents below Standard access.");
+    const command = (ctx.body as { command?: unknown } | null)?.command;
+    if (typeof command !== "string" || !entry.commands?.includes(command))
+      return fail(
+        409,
+        "command_changed",
+        "The ask no longer has this command. Read it again.",
+      );
+    if (!isRunnableCommand(command))
+      return fail(
+        409,
+        "command_not_runnable",
+        "This command has characters that do not show, so it has no Run.",
+      );
+    // Claimed before the first await, until the run's end is handled.
+    if (commandRunning.has(entry.id))
+      return fail(409, "run_in_progress", "A command of this ask is running.");
+    commandRunning.add(entry.id);
+    const run: AskCommandRun = {
+      command,
+      by: ctx.identity.userId,
+      startedAt: runs.now(),
+      state: "running",
+    };
+    let started: { done: Promise<AskRunResult> };
+    try {
+      store.setRun(entry.id, command, run);
+      started = await runs.start(entry.agentId, command);
+    } catch (err) {
+      commandRunning.delete(entry.id);
+      try {
+        store.setRun(entry.id, command, null);
+      } catch (cleanup) {
+        console.error(
+          `[asks] ${entry.id}: a failed run stays running:`,
+          cleanup,
+        );
+      }
+      if (err instanceof AsksUnavailableError) throw err;
+      console.error(`[asks] ${entry.id}: the command could not start:`, err);
+      return fail(500, "run_failed", "The command could not start.");
+    }
+    const identity = ctx.identity;
+    void started.done
+      .then(
+        (result) => finishRun(entry.id, entry.agentId, identity, run, result),
+        (err: unknown) =>
+          finishRun(entry.id, entry.agentId, identity, run, {
+            exitCode: null,
+            signal: null,
+            timedOut: false,
+            durationMs: runs.now() - run.startedAt,
+            output: `The run failed: ${err instanceof Error ? err.message : String(err)}`,
+          }),
+      )
+      .catch((err: unknown) =>
+        console.error(`[asks] ${entry.id}: the end of a run failed:`, err),
+      )
+      .finally(() => commandRunning.delete(entry.id));
+    return ok(run, 202);
+  };
+
+  // The end of a run. The store is read again: the ask can have closed, or
+  // the agent can have dropped the command, while it ran. Then the agent
+  // hears it: the ask's answer when every command of the ask has now
+  // succeeded, else a notice.
+  const finishRun = async (
+    askId: string,
+    agentId: string,
+    identity: Identity,
+    run: AskCommandRun,
+    result: AskRunResult,
+  ) => {
+    const runs = deps.commandRuns!;
+    const done: AskCommandRun = {
+      ...run,
+      state: "done",
+      exitCode: result.exitCode,
+      signal: result.signal,
+      ...(result.timedOut ? { timedOut: true as const } : {}),
+      durationMs: result.durationMs,
+      output: result.output,
+    };
+    const member = deps.memberName(identity.userId ?? "") ?? "A member";
+    const notice = () =>
+      runs.notify(agentId, askRunNotice(askId, member, done), {
+        askId,
+        memberUserId: run.by,
+        line: askRunLine(done),
+      });
+    const entry = store.get(askId);
+    const written =
+      entry && entry.commands?.includes(run.command)
+        ? store.setRun(askId, run.command, done)
+        : null;
+    if (!written) return notice();
+    const allSucceeded = (written.commands ?? []).every((command) =>
+      written.runs?.some(
+        (r) => r.command === command && r.state === "done" && r.exitCode === 0,
+      ),
+    );
+    if (!allSucceeded || delivering.has(askId) || !readableBy(identity, askId))
+      return notice();
+    const text = askRunReply(written);
+    delivering.add(askId);
+    try {
+      const accepted = await deps.deliver(identity, written, text, {
+        dismissed: false,
+        device: undefined,
+      });
+      if (!accepted.ok) {
+        console.warn(
+          `[asks] ${askId}: the run's answer was refused (${accepted.code}); the ask stays open`,
+        );
+        return;
+      }
+      close(written, { outcome: "replied", ...answeredBy(identity, text) });
+    } finally {
+      delivering.delete(askId);
+    }
+  };
+
   return {
     "asks.runAction": guarded(runAction),
+    "asks.runCommand": guarded(runCommand),
     "agents.createAsk": guarded((ctx) =>
       create((ctx.body ?? {}) as Record<string, unknown>, () => {
         const agent = deps.agent(ctx.params.id);

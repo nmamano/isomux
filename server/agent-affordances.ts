@@ -313,6 +313,19 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     emitAgentAskOutcome(agentId, line, { stepAskDone: askId }, memberUserId);
   }
 
+  // The end of a member's Run of an ask's command (task c3b91695) that did
+  // not answer the ask: the system entry, and `notice` to the agent from the
+  // member who ran it.
+  function emitAgentAskRunReport(
+    agentId: string,
+    askId: string,
+    line: LogMessage,
+    memberUserId: string,
+    notice: string,
+  ): void {
+    emitAgentAskOutcome(agentId, line, { askRun: askId }, memberUserId, notice);
+  }
+
   // An ask's outcome the agent did not see happen: a system line in its
   // chat (with `metadata`), and the same line to the agent as an office
   // notice from `member`, whose turn and usage cap it is.
@@ -610,6 +623,7 @@ export function createAgentAffordances(deps: AgentAffordancesDeps) {
     emitAgentTerminalCommand,
     emitAgentSecretRequestSettled,
     emitAgentSudoRequestReport,
+    emitAgentAskRunReport,
     emitAgentStepAskDone,
     copyAskReadFile,
     emitAgentReadFile,

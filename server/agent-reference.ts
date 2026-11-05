@@ -41,6 +41,7 @@ export const AGENT_REFERENCE_TOPICS = {
   "sudo-requests": "You need to run a command as root",
   "action-asks":
     "Only a member can make a change you need, such as an agent's access level",
+  "ask-commands": "The member runs your ask's command from the card",
   "messaging-apps": "Replies to the member's contacts in messaging apps",
 } as const;
 
@@ -58,6 +59,7 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "browser-failures": "browser",
   "sudo-requests": "asks",
   "action-asks": "asks",
+  "ask-commands": "asks",
   "messaging-apps": "messaging",
 };
 

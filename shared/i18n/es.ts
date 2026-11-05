@@ -2104,6 +2104,7 @@ Cosas que puedes hacer por él:
   "asks.action.olderThanDays.other": "Con más de {count} días",
   "asks.result.signInLink": "Enlace de inicio de sesión para {member}",
   "asks.result.apiToken": "Token de API {name}",
+  "asks.result.commandRun": "Ejecutado desde la petición",
   "asks.viewInInbox": "Ver en la bandeja de entrada",
   "asks.pinnedMissing": "No puedes ver esta petición, o no existe.",
   "asks.stillOpen": "Sigue abierta",
@@ -2455,6 +2456,25 @@ Cosas que puedes hacer por él:
   "cards.tool.morePaths": "{path} +{count} más",
   "cards.terminalCommand.copyHint":
     "Abre el panel de la terminal y escribe este comando en el prompt (no se ejecuta solo)",
+  "cards.terminalCommand.run": "Ejecutar",
+  "cards.terminalCommand.running": "Ejecutando…",
+  "cards.terminalCommand.runHint":
+    "Ejecuta el comando ahora en la carpeta del agente. Para un comando que pide datos, usa Copiar en la terminal.",
+  "cards.terminalCommand.exited": "Código de salida {code} · {duration}",
+  "cards.terminalCommand.timedOut": "Detenido tras 10 minutos",
+  "cards.terminalCommand.killed": "Terminado por {signal}",
+  "cards.terminalCommand.lost":
+    "Resultado desconocido: Isomux se reinició durante la ejecución",
+  "cards.terminalCommand.runChanged": "El agente cambió este comando.",
+  "cards.terminalCommand.runInProgress":
+    "Se está ejecutando otro comando de esta petición.",
+  "cards.terminalCommand.runLimited":
+    "Ejecutar está desactivado para los agentes por debajo del acceso Estándar.",
+  "cards.terminalCommand.runForbidden":
+    "No puedes usar la terminal de este agente.",
+  "cards.terminalCommand.runHidden":
+    "Este comando tiene caracteres que no se ven, así que no tiene Ejecutar.",
+  "cards.terminalCommand.runFailed": "No se pudo ejecutar el comando.",
   "cards.markdown.mermaidError": "Error de Mermaid",
   "cards.markdown.mermaidLoadFailed": "No se ha podido cargar mermaid",
   "cards.diff.status.added": "añadido",
@@ -3513,6 +3533,14 @@ Cosas que puedes hacer por él:
   "systemEntries.sudoRequest.timedOut": "Detenido tras 30 minutos: {command}",
   "systemEntries.sudoRequest.killed": "Terminado por {signal}: {command}",
   "systemEntries.sudoRequest.lost": "Resultado desconocido: {command}",
+  "systemEntries.askRun.exited":
+    "Ejecutado desde la petición, código de salida {code}: {command}",
+  "systemEntries.askRun.timedOut":
+    "Ejecutado desde la petición, detenido tras 10 minutos: {command}",
+  "systemEntries.askRun.killed":
+    "Ejecutado desde la petición, terminado por {signal}: {command}",
+  "systemEntries.askRun.lost":
+    "Ejecutado desde la petición, resultado desconocido: {command}",
   "systemEntries.sudoRequest.lockedOut":
     "Solicitud sudo cerrada tras {attempts} intentos rechazados: {command}",
   "systemEntries.sudoRequest.declined": "Solicitud sudo rechazada: {command}",

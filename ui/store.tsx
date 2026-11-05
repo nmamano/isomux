@@ -53,6 +53,7 @@ import type {
   AppListWire,
   PagerEntry,
   AskMemberWire,
+  AskCommandRun,
   OfficeSettings,
   OfficeWire,
   RoomWire,
@@ -144,7 +145,27 @@ export type AskResult =
       target: PruneTarget;
       applied: PruneResultWire;
     }
-  | { kind: "storage-compress"; agentId: string; applied: CompressResultWire };
+  | { kind: "storage-compress"; agentId: string; applied: CompressResultWire }
+  // The runs of an ask that closed on their success (task c3b91695): the
+  // output and exit codes stay on screen until Close.
+  | { kind: "command-run"; agentId: string; runs: AskCommandRun[] };
+
+// An ask that closed with every command run and succeeded (task c3b91695):
+// the result that keeps the output on screen.
+function commandRunResult(entry: AskMemberWire | undefined): AskResult | null {
+  const commands = entry?.commands ?? [];
+  if (!entry || commands.length === 0) return null;
+  const runs = commands.map((command) =>
+    entry.runs?.find((r) => r.command === command),
+  );
+  return runs.every((r) => r?.state === "done" && r.exitCode === 0)
+    ? {
+        kind: "command-run",
+        agentId: entry.agentId,
+        runs: runs as AskCommandRun[],
+      }
+    : null;
+}
 
 export interface AppState {
   agents: AgentInfo[];
@@ -1627,8 +1648,12 @@ export function reducer(state: AppState, action: Action): AppState {
     // it is refused.
     case "ask_removed": {
       const wasOthers = state.othersAsks.some((e) => e.id === action.id);
+      const ran = commandRunResult(state.asks.find((e) => e.id === action.id));
       return {
         ...state,
+        ...(ran
+          ? { askResults: new Map(state.askResults).set(action.id, ran) }
+          : {}),
         asks: state.asks.filter((e) => e.id !== action.id),
         askDrafts: without(state.askDrafts, action.id),
         answeredAsks: without(state.answeredAsks, action.id),
