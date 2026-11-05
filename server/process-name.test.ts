@@ -90,6 +90,9 @@ describe("setProcessName", () => {
 function officeEnv(stateDir: string): Record<string, string | undefined> {
   return {
     ...process.env,
+    // A test office never reaps the cgroup of the service that runs the tests
+    // (server/stop-reap.ts).
+    SYSTEMD_EXEC_PID: undefined,
     HOME: stateDir,
     ISOMUX_HOME: stateDir,
     ISOMUX_BACKUP_DIR: stateDir,

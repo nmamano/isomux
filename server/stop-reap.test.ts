@@ -171,6 +171,26 @@ describe("stopReapCgroup: which office reaps", () => {
     ).toBeNull();
   });
 
+  test("an office under another service (a GitHub Actions runner): not armed", () => {
+    // The job inherits the runner unit's exec pid and group, and no process
+    // on the walk is named isomux: only the unit name tells it apart.
+    const runner = table({
+      [SELF]: { ppid: 3999, comm: "bun" },
+      3999: { ppid: 3998, comm: "bun" },
+      3998: { ppid: 3997, comm: "bash" },
+      3997: { ppid: 3990, comm: "Runner.Worker" },
+      3990: { ppid: 1, comm: "Runner.Listener" },
+    });
+    const env = { SYSTEMD_EXEC_PID: "3990" };
+    const runnerUnit = "/system.slice/actions.runner.org-repo.runner-1.service";
+    expect(stopReapCgroup(env, SELF, `0::${runnerUnit}\n`, runner)).toBeNull();
+    // The same tree in the office's unit arms: the unit name is what decides.
+    expect(stopReapCgroup(env, SELF, CGROUP, runner)).toEqual({
+      dir: UNIT_DIR,
+      keep: [SELF, 3999, 3998, 3997, 3990],
+    });
+  });
+
   test("not a systemd service on cgroup v2: not armed", () => {
     const self = table({ [SELF]: { ppid: 1035, comm: "isomux" } });
     const env = { SYSTEMD_EXEC_PID: String(SELF) };

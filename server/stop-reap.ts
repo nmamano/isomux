@@ -14,6 +14,12 @@
 // tree passes a process named `isomux` on the way up) and the inherited
 // ISOMUX_OFFICE_PID marker. The walk works even under an office that predates
 // the marker.
+//
+// The unit must also be an Isomux one (isomux.service, or a name that starts
+// with isomux-). An office started under another service (a CI runner, a
+// process supervisor) inherits that service's systemd variables and group,
+// and would end all of it: on GitHub Actions, a test that stopped a real
+// office ended the runner's job.
 
 import { readdirSync, readFileSync } from "fs";
 import { join } from "path";
@@ -23,6 +29,9 @@ import { setStopFinalStep } from "./server-stop.ts";
 
 /** Set by the office for every process it starts: "an office is above you". */
 export const OFFICE_PID_ENV = "ISOMUX_OFFICE_PID";
+
+// install.sh and the self-hosting docs name the office's unit isomux.service.
+const OFFICE_UNIT = /^isomux(-[^/]*)?\.service$/;
 
 /** How long after the stop signal leftovers get before SIGKILL. */
 export const STOP_REAP_GRACE_MS = 5_000;
@@ -50,9 +59,9 @@ export interface StopReapTarget {
  * `procSelfCgroup` is the text of /proc/self/cgroup.
  *
  * Armed only when systemd started this tree as a service (SYSTEMD_EXEC_PID),
- * this process is in that service's own cgroup v2 group, no office marked the
- * environment, and the walk up from this process reaches the exec pid without
- * passing another office.
+ * this process is in that service's own cgroup v2 group, the service is an
+ * Isomux unit, no office marked the environment, and the walk up from this
+ * process reaches the exec pid without passing another office.
  */
 export function stopReapCgroup(
   env: Record<string, string | undefined>,
@@ -66,7 +75,7 @@ export function stopReapCgroup(
   const line = procSelfCgroup.split("\n").find((l) => l.startsWith("0::"));
   if (!line) return null;
   const path = line.slice("0::".length).trim();
-  if (!path.split("/").pop()?.endsWith(".service")) return null;
+  if (!OFFICE_UNIT.test(path.split("/").pop() ?? "")) return null;
 
   const keep = [pid];
   let current = pid;
