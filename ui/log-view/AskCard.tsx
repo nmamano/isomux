@@ -13,11 +13,14 @@
 // that says a rewrite is coming takes the place of the options and the reply
 // area, with Undo, which withdraws the request; then the card keeps the first
 // prompt behind "Show original". An ask with options has a button for
-// each; a tap puts it in the reply field, focused, for the member to edit and
-// send, except that the only option of a one-option ask is sent at once, with
-// a typed note after it (sendOption). The field starts with the option the
-// agent recommends (marked on its button), empty for options without one, and
-// with the catalog's "done" for an ask without options. An ask's files, editor files and commands are the
+// each. A tap on the option the reply field holds sends it; a tap on any other
+// option puts it in the field (focused with a mouse; on a touch screen the
+// keyboard would move the buttons), and the button now sends. The button
+// that sends is filled, with a send arrow; the others are outlined, with a
+// fill mark of the same size, so a fill moves no button. The field starts
+// with the option the agent recommends (marked on its button), with the
+// only option of a one-option ask, empty for other options, and with the
+// catalog's "done" for an ask without options. An ask's files, editor files and commands are the
 // chat's own cards, in that order, except that a file a reference line of the
 // prompt names shows there (ui/log-view/ask-prompt-diff.ts); their buttons open this agent's panel
 // through the store, as in chat (on the Inbox they also open the agent's
@@ -140,16 +143,46 @@ function tabToReplyField(e: KeyboardEvent<HTMLTextAreaElement>) {
   next.focus();
 }
 
+// What an option button does: a send arrow on the option the reply field
+// holds, a fill mark (into the field) on the others. One size for both, so a
+// fill moves no button. SVG, not a glyph: iOS Safari draws arrows through the
+// emoji font. The button's text says the option; the mark is decoration.
+function OptionMark({ sends, size }: { sends: boolean; size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.4}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0, display: "block" }}
+    >
+      {sends ? (
+        <path d="M4 12h15M13 6l6 6-6 6" />
+      ) : (
+        <path d="M12 3v11M7 9l5 5 5-5M4 20h16" />
+      )}
+    </svg>
+  );
+}
+
 // The reply field's starting value. A mark that names no option is ignored.
-// An action ask starts empty: Apply makes the change, and a "done" sent as it
-// stands would close the ask with nothing changed.
+// The only option of a one-option ask ("do this, then tell me") starts there,
+// so one tap sends it. An action ask starts empty: Apply makes the change, and
+// a "done" sent as it stands would close the ask with nothing changed.
 function replyDefault(entry: AskMemberWire, done: string): string {
   if (!entry.options?.length)
     return entry.step && isActionStep(entry.step) ? "" : done;
-  return entry.recommended !== undefined &&
+  if (
+    entry.recommended !== undefined &&
     entry.options.includes(entry.recommended)
-    ? entry.recommended
-    : "";
+  )
+    return entry.recommended;
+  return entry.options.length === 1 ? entry.options[0] : "";
 }
 
 // One ask, of either kind. `onFocusAgent` is set where the ask's chat is not
@@ -356,16 +389,11 @@ function ReplyAskCard({
     el.setSelectionRange(el.value.length, el.value.length);
   });
 
+  // On a touch screen the focus opens the keyboard, which moves the option
+  // the member taps next to send.
   function fillOption(option: string) {
-    pendingFocus.current = true;
+    if (!touchPrimary) pendingFocus.current = true;
     dispatch({ type: "set_ask_draft", askId: entry.id, text: option });
-  }
-
-  // The only option of a one-option ask ("do this, then tell me") is the
-  // reply: a tap sends it, with a typed note after it.
-  function sendOption(option: string) {
-    const note = dismissReason()?.trim();
-    answer("reply", note && note !== option ? `${option}\n\n${note}` : option);
   }
 
   // The field grows with its text, an option tap, a restored draft and Undo
@@ -442,7 +470,7 @@ function ReplyAskCard({
     }
   }
 
-  // `text` is a reply other than the field's, as from a one-option tap.
+  // `text` is a reply other than the field's, as the option a tap sends.
   function answer(kind: AnswerKind, text: string = reply) {
     if (sending.current) return;
     if (kind === "reply" && text.trim() === "") return;
@@ -983,8 +1011,11 @@ function ReplyAskCard({
         >
           {entry.options.map((option, i) => {
             const recommended = option === entry.recommended;
+            // Options come trimmed from the server, and no two are the same.
+            const sends = reply.trim() === option;
             const marks = {
               "data-ask-option": "",
+              ...(sends ? { "data-ask-option-sends": "" } : {}),
               ...(recommended
                 ? {
                     "data-ask-option-recommended": "",
@@ -993,6 +1024,9 @@ function ReplyAskCard({
                 : {}),
             };
             const style: React.CSSProperties = {
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
               maxWidth: "100%",
               boxSizing: "border-box",
               padding: buttonPad,
@@ -1000,9 +1034,10 @@ function ReplyAskCard({
               ...(recommended ? { paddingLeft: 10 } : {}),
               borderRadius: 8,
               border: "1px solid var(--accent-text)",
-              // Every option is filled; the recommended one more strongly.
-              background: `color-mix(in srgb, var(--accent-text) ${recommended ? 24 : 12}%, transparent)`,
-              color: "var(--accent-text)",
+              // The option that sends is the Reply button's colours; the
+              // others are outlined.
+              background: sends ? "var(--accent-text)" : "transparent",
+              color: sends ? "var(--bg-base)" : "var(--accent-text)",
               fontFamily: "var(--font-ui)",
               fontSize: isMobile ? 14 : 12,
               fontWeight: 600,
@@ -1010,13 +1045,6 @@ function ReplyAskCard({
               textAlign: "left",
               overflowWrap: "anywhere",
             };
-            const label = (
-              <>
-                {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}
-                {/* The agent's words; the recommended mark stays translatable. */}
-                <span {...noTranslate()}>{option}</span>
-              </>
-            );
             return (
               <button
                 key={i}
@@ -1024,9 +1052,7 @@ function ReplyAskCard({
                 {...marks}
                 disabled={busy}
                 onClick={() =>
-                  entry.options!.length === 1
-                    ? sendOption(option)
-                    : fillOption(option)
+                  sends ? answer("reply", option) : fillOption(option)
                 }
                 style={{
                   ...style,
@@ -1034,7 +1060,12 @@ function ReplyAskCard({
                   opacity: busy ? 0.6 : 1,
                 }}
               >
-                {label}
+                <span style={{ minWidth: 0 }}>
+                  {recommended && <RecommendedStar size={isMobile ? 13 : 11} />}
+                  {/* The agent's words; the recommended mark stays translatable. */}
+                  <span {...noTranslate()}>{option}</span>
+                </span>
+                <OptionMark sends={sends} size={isMobile ? 14 : 12} />
               </button>
             );
           })}

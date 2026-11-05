@@ -480,7 +480,13 @@ const focused = () => {
   return `${el?.closest<HTMLElement>("[data-ask]")?.dataset.ask}/${el?.hasAttribute("data-ask-reply-input") ? "field" : el?.tagName}`;
 };
 
-it("draws a button per option above the reply field, and a tap fills the field for the member to edit and send", async () => {
+// The options marked as the one a tap sends: the option the field holds.
+const sendsMarks = (card: HTMLElement) =>
+  optionButtons(card)
+    .filter((b) => b.hasAttribute("data-ask-option-sends"))
+    .map((b) => b.textContent);
+
+it("draws a button per option above the reply field: a tap fills the field, and a tap on the option the field holds sends it", async () => {
   let release: () => void = () => {};
   answer = () => new Promise((resolve) => (release = () => resolve(undefined)));
   const view = mount(true, "a4");
@@ -506,10 +512,13 @@ it("draws a button per option above the reply field, and a tap fills the field f
     row.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   const input = field(view.container, "ffff0006");
+  // No mark: the field starts empty, so no option sends yet.
+  expect(input.value).toBe("");
+  expect(sendsMarks(card)).toEqual([]);
   expect(focused()).not.toBe("ffff0006/field");
 
-  // A tap sends nothing: the field holds the option, focused, with the caret
-  // at the end, so typing adds to it.
+  // A tap sends nothing: the field holds the option, focused (a mouse), with
+  // the caret at the end, and that option is now the one that sends.
   await act(async () => {
     fireEvent.click(optionButtons(card)[1]);
   });
@@ -517,34 +526,42 @@ it("draws a button per option above the reply field, and a tap fills the field f
   expect(input.value).toBe("Dwight");
   expect(focused()).toBe("ffff0006/field");
   expect(selection(input)).toEqual([6, 6]);
+  expect(sendsMarks(card)).toEqual(["Dwight"]);
 
-  // A tap on the option the field already holds focuses it again.
-  act(() => input.blur());
-  await act(async () => {
-    fireEvent.click(optionButtons(card)[1]);
-  });
-  expect(focused()).toBe("ffff0006/field");
-  expect(selection(input)).toEqual([6, 6]);
-
-  // Another tap replaces what the member typed.
-  fireEvent.change(input, { target: { value: "Dwight, with a speech" } });
+  // A tap on another option replaces the field, and the mark moves with it.
   await act(async () => {
     fireEvent.click(optionButtons(card)[0]);
   });
-  expect(input.value).toBe("Jim");
-  expect(selection(input)).toEqual([3, 3]);
   expect(posts).toEqual([]);
+  expect(input.value).toBe("Jim");
+  expect(sendsMarks(card)).toEqual(["Jim"]);
 
-  // The member edits it and sends the field's text.
+  // An edit that no longer matches takes the mark away, and a tap fills again.
   fireEvent.change(input, { target: { value: "Jim, briefly" } });
+  expect(sendsMarks(card)).toEqual([]);
   await act(async () => {
-    fireEvent.submit(form);
+    fireEvent.click(optionButtons(card)[0]);
+  });
+  expect(posts).toEqual([]);
+  expect(input.value).toBe("Jim");
+
+  // Space around the text still matches; the tap sends the option as the
+  // agent wrote it.
+  fireEvent.change(input, { target: { value: "  Jim\n" } });
+  expect(sendsMarks(card)).toEqual(["Jim"]);
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[0]);
   });
   expect(posts).toEqual([
-    { path: "/api/asks/ffff0006/reply", body: { text: "Jim, briefly" } },
+    { path: "/api/asks/ffff0006/reply", body: { text: "Jim" } },
   ]);
-  // Every option waits while the answer is in flight.
+  // Every option waits while the answer is in flight; another tap sends
+  // nothing more.
   expect(optionButtons(card).map((b) => b.disabled)).toEqual([true, true]);
+  await act(async () => {
+    fireEvent.click(optionButtons(card)[0]);
+  });
+  expect(posts).toHaveLength(1);
   await act(async () => {
     release();
     await new Promise((r) => setTimeout(r, 0));
@@ -562,6 +579,9 @@ it("sends a one-option ask's option as the reply on a tap, and closes the card o
     '[data-ask="uuuu0021"]',
   )!;
   expect(optionButtons(card).map((b) => b.textContent)).toEqual(["Done"]);
+  // With no mark, the field starts with the only option, so it sends.
+  expect(field(view.container, "uuuu0021").value).toBe("Done");
+  expect(sendsMarks(card)).toEqual(["Done"]);
   await act(async () => {
     fireEvent.click(optionButtons(card)[0]);
   });
@@ -684,12 +704,14 @@ it("starts an ask with options and no recommendation empty, and Reply waits for 
   view.unmount();
 });
 
-it("sends no dismiss reason for the recommended default, tapped or typed again, and sends another option or typed text", async () => {
+it("sends no dismiss reason for the recommended default, filled or typed again, and sends another option or typed text", async () => {
+  // A tap on the option the field holds sends it, so the recommendation
+  // comes back into the field by a tap after another option.
   for (const [label, step, body] of [
     ["untouched", null, {}],
-    ["tapped the recommendation", { tap: 1 }, {}],
+    ["filled the recommendation again", { taps: [0, 1] }, {}],
     ["typed the recommendation again", { type: "No" }, {}],
-    ["tapped the other option", { tap: 0 }, { text: "Yes" }],
+    ["tapped the other option", { taps: [0] }, { text: "Yes" }],
     ["typed a reason", { type: "not now" }, { text: "not now" }],
   ] as const) {
     posts = [];
@@ -699,10 +721,13 @@ it("sends no dismiss reason for the recommended default, tapped or typed again, 
       '[data-ask="mmmm0013"]',
     )!;
     const input = field(view.container, "mmmm0013");
-    if (step && "tap" in step)
-      await act(async () => {
-        fireEvent.click(optionButtons(card)[step.tap]);
-      });
+    if (step && "taps" in step)
+      for (const tap of step.taps)
+        await act(async () => {
+          fireEvent.click(optionButtons(card)[tap]);
+        });
+    // Every tap filled: nothing was sent before the dismiss.
+    expect([label, posts]).toEqual([label, []]);
     if (step && "type" in step) {
       fireEvent.change(input, { target: { value: "" } });
       fireEvent.change(input, { target: { value: step.type } });
