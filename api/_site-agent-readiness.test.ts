@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import chat from "./chat.ts";
+import chat, { ISOMUX_KNOWLEDGE } from "./chat.ts";
 import notFound from "./not-found.ts";
 import middleware, { negotiate } from "../middleware.ts";
 import { STATIC_PATHS, rewriteMarkdownLinks } from "../scripts/build-docs.ts";
@@ -286,7 +286,7 @@ describe("isomux.com agent readiness", () => {
     }
   });
 
-  it("offers the software and the Hosted plans at the published prices", async () => {
+  it("offers the software, the Hosted plans and the commercial license at the published prices", async () => {
     const hosted = await Bun.file("site/hosted.html").text();
     const plans = [
       ...hosted.matchAll(
@@ -335,6 +335,33 @@ describe("isomux.com agent readiness", () => {
       expect(free.length, file).toBe(1);
       expect(free[0]["@type"]).toBe("Offer");
       expect(free[0].description, file).toContain(limit);
+    }
+
+    // The commercial license price is published once, in the first paragraph
+    // of the enterprise page's pricing section; every other surface that lists
+    // prices states the same amounts.
+    const enterprise = await Bun.file("site/enterprise.html").text();
+    const section = enterprise.match(
+      /<section id="pricing">([\s\S]*?)<\/section>/,
+    );
+    expect(section, "enterprise.html has section#pricing").not.toBeNull();
+    const priceLine = section![1].match(/<p>([\s\S]*?)<\/p>/)![1];
+    const amounts = [...priceLine.matchAll(/\$\d+/g)].map(([amount]) => amount);
+    expect(amounts.length).toBeGreaterThan(0);
+
+    const pricingRow = about.match(
+      /<th scope="row">Pricing<\/th> <td>(.*?)<\/td>/,
+    )![1];
+    const llms = await Bun.file("site/llms.txt").text();
+    const surfaces: [string, string][] = [
+      ["about.html Pricing row", pricingRow],
+      ["llms.txt", llms],
+      ["ISOMUX_KNOWLEDGE", ISOMUX_KNOWLEDGE],
+    ];
+    for (const [name, text] of surfaces) {
+      for (const amount of amounts) {
+        expect(text, `${name} states ${amount}`).toContain(amount);
+      }
     }
   });
 

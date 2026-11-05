@@ -24,10 +24,10 @@
 ## Company
 
 - [About Isomux](https://isomux.com/about): Who builds Isomux, licensing, enterprise use, and key facts
-- [Isomux for Enterprise](https://isomux.com/enterprise): Why a company uses Isomux, where it can run, the commercial license, and how to start
+- [Isomux for Enterprise](https://isomux.com/enterprise): Why a company uses Isomux, where it can run, the commercial license, its price and terms, and how to start
 - [AI instructions](https://isomux.com/ai-instructions): How AI assistants should describe Isomux
 - [Contact](https://isomux.com/contact): Email, Discord, GitHub issues, security reports, and commercial licenses
-- [Pricing](https://isomux.com/hosted#plans): Hosted Isomux plans. The software is free for personal use and for organizations of up to 10 people; larger organizations need a commercial license
+- [Pricing](https://isomux.com/hosted#plans): Hosted Isomux plans. The software is free for personal use and for organizations of up to 10 people; larger organizations need a commercial license, at $25 per seat per month or $20 paid yearly (https://isomux.com/enterprise#pricing)
 
 ## Documentation
 
