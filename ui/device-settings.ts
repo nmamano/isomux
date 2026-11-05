@@ -634,6 +634,36 @@ export function setWhatsAppLayout(layout: WhatsAppLayout): void {
   });
 }
 
+// Integrations → Messaging: how many Discord bots and routes the card
+// showed (each at most DISCORD_HELD_MAX).
+export const DISCORD_HELD_MAX = 20;
+
+export type DiscordLayout = { bots: number; rows: number };
+
+const KEY_DISCORD_LAYOUT = "isomux-discord-layout";
+
+const heldCount = (n: unknown): n is number =>
+  Number.isInteger(n) &&
+  (n as number) >= 0 &&
+  (n as number) <= DISCORD_HELD_MAX;
+
+// A first visit is most likely a member with no bot.
+export function getDiscordLayout(): DiscordLayout {
+  return getHeldLayout(
+    KEY_DISCORD_LAYOUT,
+    ({ bots, rows }) =>
+      heldCount(bots) && heldCount(rows) ? { bots, rows } : null,
+    { bots: 0, rows: 0 },
+  );
+}
+
+export function setDiscordLayout(layout: DiscordLayout): void {
+  setHeldLayout(KEY_DISCORD_LAYOUT, {
+    bots: Math.min(layout.bots, DISCORD_HELD_MAX),
+    rows: Math.min(layout.rows, DISCORD_HELD_MAX),
+  });
+}
+
 // Integrations → GitHub issues: whether the room the card opens on was
 // linked, and whether an office secret could sign the sync (a select, not the
 // "no secret" line). A first visit is an owner who has not set it up.

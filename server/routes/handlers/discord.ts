@@ -82,12 +82,7 @@ export function discordHandlers(
       if (typeof token !== "string" || token.trim() === "")
         return fail(400, "invalid_request", 'send {"token": "<bot token>"}');
       const res = await deps.supervisor.connect(userId, token);
-      if (!res.ok)
-        return fail(
-          res.status,
-          res.status === 400 ? "invalid_request" : "conflict",
-          res.error,
-        );
+      if (!res.ok) return fail(res.status, res.code, res.error);
       return ok(res.bot);
     },
 

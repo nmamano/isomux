@@ -53,6 +53,9 @@ const {
   getGithubLayout,
   setGithubLayout,
   WHATSAPP_HELD_ROWS_MAX,
+  getDiscordLayout,
+  setDiscordLayout,
+  DISCORD_HELD_MAX,
 } = await import("./device-settings.ts");
 const { FILTER_PRIORITIES } = await import("./task-priority.ts");
 type PriorityFilterValue = import("./task-priority.ts").PriorityFilterValue;
@@ -463,6 +466,7 @@ describe("integrations held layouts", () => {
   beforeEach(() => {
     store.delete("isomux-whatsapp-layout");
     store.delete("isomux-github-layout");
+    store.delete("isomux-discord-layout");
   });
 
   it("keeps what was saved, and holds the unlinked card before a first save", () => {
@@ -504,5 +508,34 @@ describe("integrations held layouts", () => {
   ])("reads the stored GitHub value %s as no link and no secret", (raw) => {
     store.set("isomux-github-layout", raw);
     expect(getGithubLayout()).toEqual({ linked: false, secret: false });
+  });
+
+  it("keeps the Discord bot and route counts, each capped, and holds no bot before a first save", () => {
+    expect(getDiscordLayout()).toEqual({ bots: 0, rows: 0 });
+    setDiscordLayout({ bots: 2, rows: 3 });
+    expect(getDiscordLayout()).toEqual({ bots: 2, rows: 3 });
+    setDiscordLayout({
+      bots: DISCORD_HELD_MAX + 5,
+      rows: DISCORD_HELD_MAX + 1,
+    });
+    expect(getDiscordLayout()).toEqual({
+      bots: DISCORD_HELD_MAX,
+      rows: DISCORD_HELD_MAX,
+    });
+  });
+
+  it.each([
+    "junk",
+    "[]",
+    "null",
+    "{}",
+    '{"bots":1}',
+    '{"bots":-1,"rows":0}',
+    '{"bots":1.5,"rows":0}',
+    '{"bots":"2","rows":0}',
+    `{"bots":0,"rows":${DISCORD_HELD_MAX + 1}}`,
+  ])("reads the stored Discord value %s as no bot", (raw) => {
+    store.set("isomux-discord-layout", raw);
+    expect(getDiscordLayout()).toEqual({ bots: 0, rows: 0 });
   });
 });

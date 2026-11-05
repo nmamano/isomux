@@ -194,6 +194,7 @@ const LOGO_COLORS: Record<string, string> = {
   Stripe: "#635bff",
   Fly: "#8b5cf6",
   WhatsApp: "#25d366",
+  Discord: "#5865f2",
 };
 
 export function Logo({ label, size = 28 }: { label: string; size?: number }) {

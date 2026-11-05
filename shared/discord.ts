@@ -35,6 +35,39 @@ export interface DiscordConnectReq {
   token: string;
 }
 
+// Why a connect failed, as the error code of POST /api/discord/bots. A
+// code, never copy: the card words it.
+//   token_refused - Discord refused the token (400)
+//   not_a_bot     - the token is a user's, not a bot's (400)
+//   check_failed  - Discord did not answer the check (400)
+//   bot_taken     - another member connected this bot (409)
+//   bots_max      - the member has DISCORD_BOTS_MAX bots (409)
+//   disconnected  - the bot was disconnected while it connected again (409)
+export type DiscordConnectCode =
+  | "token_refused"
+  | "not_a_bot"
+  | "check_failed"
+  | "bot_taken"
+  | "bots_max"
+  | "disconnected";
+
+// The permissions the invite link asks for: View Channels, Send Messages,
+// Send Messages in Threads, Read Message History and Add Reactions. The
+// gateway intents are in server/discord/gateway.ts (DISCORD_INTENTS).
+export const DISCORD_INVITE_PERMISSIONS =
+  (1n << 10n) | (1n << 11n) | (1n << 38n) | (1n << 16n) | (1n << 6n);
+
+// The link that adds a bot to a server: a bot's application id is its user
+// id.
+export function discordInviteUrl(botId: string): string {
+  const query = new URLSearchParams({
+    client_id: botId,
+    scope: "bot",
+    permissions: String(DISCORD_INVITE_PERMISSIONS),
+  });
+  return `https://discord.com/oauth2/authorize?${query}`;
+}
+
 export type DiscordChannelKind = "text" | "forum" | "category";
 
 // A channel the bot can see, for the Add form. Kept in memory only.

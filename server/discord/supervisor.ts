@@ -23,6 +23,7 @@ import {
   DISCORD_BOTS_MAX,
   type DiscordBot,
   type DiscordBotReason,
+  type DiscordConnectCode,
   type DiscordBotStatus,
   type DiscordChannelSeen,
   type DiscordGuildSeen,
@@ -119,7 +120,7 @@ export interface DiscordPager {
 
 export type DiscordConnectResult =
   | { ok: true; bot: DiscordBot }
-  | { ok: false; status: 400 | 409; error: string };
+  | { ok: false; status: 400 | 409; code: DiscordConnectCode; error: string };
 
 export interface DiscordSupervisor {
   // Starts a child for each stored bot.
@@ -551,20 +552,31 @@ export function createDiscordSupervisor(
 
     async connect(userId, token) {
       if (typeof token !== "string" || token.trim() === "")
-        return { ok: false, status: 400, error: "token is required" };
+        return {
+          ok: false,
+          status: 400,
+          code: "token_refused",
+          error: "token is required",
+        };
       token = token.trim();
       const me = await deps.rest.me(token);
       if (!me.ok)
         return {
           ok: false,
           status: 400,
+          code: me.reason === "unauthorized" ? "token_refused" : "check_failed",
           error:
             me.reason === "unauthorized"
               ? "Discord refused this token"
               : "Discord could not check this token; try again",
         };
       if (!me.bot)
-        return { ok: false, status: 400, error: "this is not a bot token" };
+        return {
+          ok: false,
+          status: 400,
+          code: "not_a_bot",
+          error: "this is not a bot token",
+        };
       const others = [...bots.values()].find(
         (r) => r.stored.id === me.id && r.userId !== userId,
       );
@@ -572,6 +584,7 @@ export function createDiscordSupervisor(
         return {
           ok: false,
           status: 409,
+          code: "bot_taken",
           error: "another member has connected this bot",
         };
       const existing = bots.get(recordKey(userId, me.id));
@@ -581,7 +594,12 @@ export function createDiscordSupervisor(
         await stopChild(existing);
         // A disconnect while the old child stopped: nothing to restart.
         if (bots.get(recordKey(userId, me.id)) !== existing)
-          return { ok: false, status: 409, error: "the bot was disconnected" };
+          return {
+            ok: false,
+            status: 409,
+            code: "disconnected",
+            error: "the bot was disconnected",
+          };
         existing.removed = false;
         existing.halted = false;
         existing.child = null;
@@ -597,6 +615,7 @@ export function createDiscordSupervisor(
         return {
           ok: false,
           status: 409,
+          code: "bots_max",
           error: `at most ${DISCORD_BOTS_MAX} bots`,
         };
       const r = track(userId, {

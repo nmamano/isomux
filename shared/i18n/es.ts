@@ -1218,6 +1218,70 @@ Cosas que puedes hacer por él:
     "El agente tiene acceso Chat",
   "integrations.whatsapp.rows.error.taken":
     "Este chat ya está en la lista, o la lista está llena.",
+  "integrations.discord.token": "Token del bot",
+  "integrations.discord.connect": "Conectar bot",
+  "integrations.discord.steps":
+    "En el Discord Developer Portal, crea una aplicación, activa el intent Message Content de su bot y copia aquí el token del bot.",
+  "integrations.discord.connectAnother": "Conectar otro bot",
+  "integrations.discord.state.connected": "Conectado",
+  "integrations.discord.state.connecting": "Conectando",
+  "integrations.discord.state.dead": "Detenido",
+  "integrations.discord.reason.tokenInvalid":
+    "Discord rechazó el token del bot. Restablece el token en el Developer Portal y haz clic en Conectar de nuevo.",
+  "integrations.discord.reason.intentOff":
+    "El intent Message Content del bot está desactivado. Actívalo en el Developer Portal y haz clic en Conectar de nuevo.",
+  "integrations.discord.reason.crashLoop":
+    "La conexión sigue fallando. Isomux sigue intentándolo y el bot vuelve por sí solo.",
+  "integrations.discord.disconnect": "Desconectar",
+  "integrations.discord.reconnect": "Conectar de nuevo",
+  "integrations.discord.invite": "Añadir a un servidor",
+  "integrations.discord.error.tokenRefused": "Discord rechazó este token.",
+  "integrations.discord.error.notABot": "Este no es un token de bot.",
+  "integrations.discord.error.checkFailed":
+    "Discord no pudo comprobar este token. Inténtalo de nuevo.",
+  "integrations.discord.error.botTaken": "Otro miembro conectó este bot.",
+  "integrations.discord.error.botsMax":
+    "Puedes conectar como máximo {max} bots.",
+  "integrations.discord.routes.title": "Rutas",
+  "integrations.discord.routes.hint":
+    "Los mensajes de estos lugares van al agente que elijas.",
+  "integrations.discord.routes.empty": "Aún no hay rutas.",
+  "integrations.discord.routes.add": "Añadir una ruta",
+  "integrations.discord.routes.save": "Añadir",
+  "integrations.discord.routes.bot": "Bot",
+  "integrations.discord.routes.guild": "Servidor",
+  "integrations.discord.routes.guildPrompt": "Elige un servidor",
+  "integrations.discord.routes.scope": "Lugar",
+  "integrations.discord.routes.scope.channel": "Canal",
+  "integrations.discord.routes.scope.category": "Categoría",
+  "integrations.discord.routes.scope.server": "Todo el servidor",
+  "integrations.discord.routes.channelPrompt": "Elige un canal",
+  "integrations.discord.routes.categoryPrompt": "Elige una categoría",
+  "integrations.discord.routes.noCategory": "Sin categoría",
+  "integrations.discord.routes.forum": "{name} (foro)",
+  "integrations.discord.routes.inCategory": "Categoría {name}",
+  "integrations.discord.routes.notConnected":
+    "El bot aún no está conectado. Espera a que muestre Conectado.",
+  "integrations.discord.routes.noGuild":
+    "El bot aún no está en ningún servidor.",
+  "integrations.discord.routes.trigger": "Mensajes",
+  "integrations.discord.routes.trigger.mention": "Solo menciones del bot",
+  "integrations.discord.routes.trigger.all": "Todos",
+  "integrations.discord.routes.replies": "Respuestas",
+  "integrations.discord.routes.replies.bot": "Leer y responder como el bot",
+  "integrations.discord.routes.replies.read": "Solo lectura",
+  "integrations.discord.routes.replies.ask": "Las respuestas esperan mi Enviar",
+  "integrations.discord.routes.waits": "Espera mi Enviar",
+  "integrations.discord.routes.prefixHint":
+    'Texto antes de cada respuesta, como "[Agente]:".',
+  "integrations.discord.routes.includeBots":
+    "Los mensajes de bots y webhooks van al agente",
+  "integrations.discord.routes.react":
+    "Reaccionar con 👀 cuando el agente recibe un mensaje",
+  "integrations.discord.routes.shellWarning":
+    "Este agente tiene una shell. Cualquiera que pueda publicar aquí puede pedirle que ejecute comandos.",
+  "integrations.discord.routes.error.taken":
+    "Este lugar ya tiene una ruta, o la lista está llena.",
   "integrations.tabs.voice": "Voz",
   "integrations.tabs.github": "Incidencias de GitHub",
   "integrations.tabIntro.providers":

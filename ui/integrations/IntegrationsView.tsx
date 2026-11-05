@@ -42,6 +42,7 @@ import { SecretsSection } from "./SecretsSection.tsx";
 import { VariablesSection } from "./VariablesSection.tsx";
 import { VoiceSection } from "./VoiceSection.tsx";
 import { WhatsAppSection } from "./WhatsAppSection.tsx";
+import { DiscordSection } from "./DiscordSection.tsx";
 import { ChangedForYou, useIntegrationChanges } from "./ChangedForYou.tsx";
 import { GithubSection } from "./GithubSection.tsx";
 import { ConnectorList, EngineMcpList } from "./ClaudeLists.tsx";
@@ -585,8 +586,14 @@ function IntegrationsPage({
               ) : tab === "api-tokens" ? (
                 sessionContext && <ApiTokensPane />
               ) : tab === "messaging" ? (
-                // The viewer's own phone: never on another member's card.
-                sessionContext && <WhatsAppSection />
+                // The viewer's own phone and bots: never on another member's
+                // card.
+                sessionContext && (
+                  <>
+                    <WhatsAppSection />
+                    <DiscordSection />
+                  </>
+                )
               ) : CARD_TABS.includes(tab) ? (
                 <>
                   <section

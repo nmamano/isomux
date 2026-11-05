@@ -1218,6 +1218,72 @@ Coses que pots fer per ell:
   "integrations.whatsapp.rows.dead.agentChatOnly": "L’agent té accés Xat",
   "integrations.whatsapp.rows.error.taken":
     "Aquest xat ja és a la llista, o la llista és plena.",
+  "integrations.discord.token": "Token del bot",
+  "integrations.discord.connect": "Connectar bot",
+  "integrations.discord.steps":
+    "Al Discord Developer Portal, crea una aplicació, activa l'intent Message Content del seu bot i copia aquí el token del bot.",
+  "integrations.discord.connectAnother": "Connectar un altre bot",
+  "integrations.discord.state.connected": "Connectat",
+  "integrations.discord.state.connecting": "Connectant",
+  "integrations.discord.state.dead": "Aturat",
+  "integrations.discord.reason.tokenInvalid":
+    "Discord ha rebutjat el token del bot. Restableix el token al Developer Portal i fes clic a Connecta de nou.",
+  "integrations.discord.reason.intentOff":
+    "L'intent Message Content del bot està desactivat. Activa'l al Developer Portal i fes clic a Connecta de nou.",
+  "integrations.discord.reason.crashLoop":
+    "La connexió continua fallant. Isomux continua provant-ho i el bot torna tot sol.",
+  "integrations.discord.disconnect": "Desconnecta",
+  "integrations.discord.reconnect": "Connecta de nou",
+  "integrations.discord.invite": "Afegeix a un servidor",
+  "integrations.discord.error.tokenRefused":
+    "Discord ha rebutjat aquest token.",
+  "integrations.discord.error.notABot": "Aquest no és un token de bot.",
+  "integrations.discord.error.checkFailed":
+    "Discord no ha pogut comprovar aquest token. Torna-ho a provar.",
+  "integrations.discord.error.botTaken":
+    "Un altre membre ha connectat aquest bot.",
+  "integrations.discord.error.botsMax":
+    "Pots connectar com a màxim {max} bots.",
+  "integrations.discord.routes.title": "Rutes",
+  "integrations.discord.routes.hint":
+    "Els missatges d'aquests llocs van a l'agent que triïs.",
+  "integrations.discord.routes.empty": "Encara no hi ha rutes.",
+  "integrations.discord.routes.add": "Afegeix una ruta",
+  "integrations.discord.routes.save": "Afegeix",
+  "integrations.discord.routes.bot": "Bot",
+  "integrations.discord.routes.guild": "Servidor",
+  "integrations.discord.routes.guildPrompt": "Tria un servidor",
+  "integrations.discord.routes.scope": "Lloc",
+  "integrations.discord.routes.scope.channel": "Canal",
+  "integrations.discord.routes.scope.category": "Categoria",
+  "integrations.discord.routes.scope.server": "Tot el servidor",
+  "integrations.discord.routes.channelPrompt": "Tria un canal",
+  "integrations.discord.routes.categoryPrompt": "Tria una categoria",
+  "integrations.discord.routes.noCategory": "Sense categoria",
+  "integrations.discord.routes.forum": "{name} (fòrum)",
+  "integrations.discord.routes.inCategory": "Categoria {name}",
+  "integrations.discord.routes.notConnected":
+    "El bot encara no està connectat. Espera que mostri Connectat.",
+  "integrations.discord.routes.noGuild": "El bot encara no és a cap servidor.",
+  "integrations.discord.routes.trigger": "Missatges",
+  "integrations.discord.routes.trigger.mention": "Només mencions del bot",
+  "integrations.discord.routes.trigger.all": "Tots",
+  "integrations.discord.routes.replies": "Respostes",
+  "integrations.discord.routes.replies.bot": "Llegeix i respon com el bot",
+  "integrations.discord.routes.replies.read": "Només lectura",
+  "integrations.discord.routes.replies.ask":
+    "Les respostes esperen el meu Envia",
+  "integrations.discord.routes.waits": "Espera el meu Envia",
+  "integrations.discord.routes.prefixHint":
+    'Text abans de cada resposta, com ara "[Agent]:".',
+  "integrations.discord.routes.includeBots":
+    "Els missatges de bots i webhooks van a l'agent",
+  "integrations.discord.routes.react":
+    "Reacciona amb 👀 quan l'agent rep un missatge",
+  "integrations.discord.routes.shellWarning":
+    "Aquest agent té una shell. Qualsevol que pugui publicar aquí li pot demanar que executi ordres.",
+  "integrations.discord.routes.error.taken":
+    "Aquest lloc ja té una ruta, o la llista és plena.",
   "integrations.tabs.voice": "Veu",
   "integrations.tabs.github": "Incidències de GitHub",
   "integrations.tabIntro.providers":

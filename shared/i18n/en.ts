@@ -1197,6 +1197,68 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.whatsapp.rows.dead.agentChatOnly": "Agent has Chat access",
   "integrations.whatsapp.rows.error.taken":
     "This chat is already on the list, or the list is full.",
+  "integrations.discord.token": "Bot token",
+  "integrations.discord.connect": "Connect bot",
+  "integrations.discord.steps":
+    "In the Discord Developer Portal, create an application, turn on the Message Content intent of its bot, and copy the bot's token here.",
+  "integrations.discord.connectAnother": "Connect another bot",
+  "integrations.discord.state.connected": "Connected",
+  "integrations.discord.state.connecting": "Connecting",
+  "integrations.discord.state.dead": "Stopped",
+  "integrations.discord.reason.tokenInvalid":
+    "Discord refused the bot's token. Reset the token in the Developer Portal, then click Connect again.",
+  "integrations.discord.reason.intentOff":
+    "The bot's Message Content intent is off. Turn it on in the Developer Portal, then click Connect again.",
+  "integrations.discord.reason.crashLoop":
+    "The connection keeps failing. Isomux keeps trying, and the bot comes back by itself.",
+  "integrations.discord.disconnect": "Disconnect",
+  "integrations.discord.reconnect": "Connect again",
+  "integrations.discord.invite": "Add to a server",
+  "integrations.discord.error.tokenRefused": "Discord refused this token.",
+  "integrations.discord.error.notABot": "This is not a bot token.",
+  "integrations.discord.error.checkFailed":
+    "Discord could not check this token. Try again.",
+  "integrations.discord.error.botTaken": "Another member connected this bot.",
+  "integrations.discord.error.botsMax": "You can connect at most {max} bots.",
+  "integrations.discord.routes.title": "Routes",
+  "integrations.discord.routes.hint":
+    "Messages in these places go to the agent you pick.",
+  "integrations.discord.routes.empty": "No routes yet.",
+  "integrations.discord.routes.add": "Add a route",
+  "integrations.discord.routes.save": "Add",
+  "integrations.discord.routes.bot": "Bot",
+  "integrations.discord.routes.guild": "Server",
+  "integrations.discord.routes.guildPrompt": "Choose a server",
+  "integrations.discord.routes.scope": "Place",
+  "integrations.discord.routes.scope.channel": "Channel",
+  "integrations.discord.routes.scope.category": "Category",
+  "integrations.discord.routes.scope.server": "Whole server",
+  "integrations.discord.routes.channelPrompt": "Choose a channel",
+  "integrations.discord.routes.categoryPrompt": "Choose a category",
+  "integrations.discord.routes.noCategory": "No category",
+  "integrations.discord.routes.forum": "{name} (forum)",
+  "integrations.discord.routes.inCategory": "Category {name}",
+  "integrations.discord.routes.notConnected":
+    "The bot is not connected yet. Wait until it shows Connected.",
+  "integrations.discord.routes.noGuild": "The bot is in no server yet.",
+  "integrations.discord.routes.trigger": "Messages",
+  "integrations.discord.routes.trigger.mention": "Only mentions of the bot",
+  "integrations.discord.routes.trigger.all": "All",
+  "integrations.discord.routes.replies": "Replies",
+  "integrations.discord.routes.replies.bot": "Read and reply as the bot",
+  "integrations.discord.routes.replies.read": "Read only",
+  "integrations.discord.routes.replies.ask": "Replies wait for my Send",
+  "integrations.discord.routes.waits": "Waits for my Send",
+  "integrations.discord.routes.prefixHint":
+    'Text before each reply, such as "[Agent]:".',
+  "integrations.discord.routes.includeBots":
+    "Messages from bots and webhooks go to the agent",
+  "integrations.discord.routes.react":
+    "React with 👀 when the agent gets a message",
+  "integrations.discord.routes.shellWarning":
+    "This agent has a shell. Anyone who can post here can ask it to run commands.",
+  "integrations.discord.routes.error.taken":
+    "This place already has a route, or the list is full.",
   "integrations.tabs.voice": "Voice",
   "integrations.tabs.github": "GitHub issues",
   "integrations.tabIntro.providers":

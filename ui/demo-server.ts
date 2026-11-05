@@ -3196,6 +3196,13 @@ export async function demoApi(
     case "GET /api/whatsapp/chats":
     case "GET /api/whatsapp/routes":
       return [];
+    // The Discord card: the demo has no bot, and Discord cannot check a
+    // token from it.
+    case "GET /api/discord":
+    case "GET /api/discord/routes":
+      return [];
+    case "POST /api/discord/bots":
+      throw new ApiError(400, "check_failed", "no Discord in the demo");
     // "Changed for you": nobody changes the visitor's settings in the demo.
     case "GET /api/me/integration-changes":
       return { items: [] };

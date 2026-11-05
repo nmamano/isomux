@@ -387,6 +387,17 @@ describe("demo fixture data", () => {
   });
 });
 
+describe("demo Discord card", () => {
+  it("has no bot and no route, and a connect is refused with a code the card words", async () => {
+    expect(await demoApi("GET", "/api/discord")).toEqual([]);
+    expect(await demoApi("GET", "/api/discord/routes")).toEqual([]);
+    await expect(
+      demoApi("POST", "/api/discord/bots", { token: "x" }),
+    ).rejects.toMatchObject({ status: 400, code: "check_failed" });
+    expect(await demoApi("GET", "/api/discord")).toEqual([]);
+  });
+});
+
 describe("demo members chat", () => {
   it("keeps pin mutations and the served strip consistent", async () => {
     const message = (await demoApi("POST", "/api/members-chat", {

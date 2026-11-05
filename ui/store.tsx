@@ -32,6 +32,7 @@ import {
 import { selfTuckedRooms } from "./office/room-cycle.ts";
 import { KILLED_AGENT_CHIP_CAP, ordinaryRooms } from "../shared/types.ts";
 import type { WhatsAppStatus } from "../shared/whatsapp.ts";
+import type { DiscordBot } from "../shared/discord.ts";
 import type { Floor } from "../shared/floors.ts";
 import {
   ATTENTION_STATES,
@@ -418,6 +419,8 @@ export interface AppState {
   providerAccounts: ProviderAccountWire[];
   // Null until the WhatsApp card reads it or the server pushes it.
   whatsappStatus: WhatsAppStatus | null;
+  // Null until the Discord card reads them or the server pushes them.
+  discordBots: DiscordBot[] | null;
   // Engines the office host cannot run (full_state). The engine and model
   // pickers show them as unavailable with the reason.
   unavailableEngines: UnavailableEngines;
@@ -627,6 +630,8 @@ type Action =
   | { type: "provider_accounts_updated"; accounts: ProviderAccountWire[] }
   // The member's own WhatsApp link (task d03a61d8), live and from a read.
   | { type: "whatsapp_status"; status: WhatsAppStatus }
+  // The member's own Discord bots (task 7fd44c30), live and from a read.
+  | { type: "discord_status"; bots: DiscordBot[] }
   | { type: "session_context"; context: SessionContext }
   | {
       type: "presence_list";
@@ -1881,6 +1886,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, providerAccounts: action.accounts };
     case "whatsapp_status":
       return { ...state, whatsappStatus: action.status };
+    case "discord_status":
+      return { ...state, discordBots: action.bots };
     case "presence_list":
       return {
         ...state,
@@ -2123,6 +2130,7 @@ export const initialState: AppState = {
   interactions: [],
   providerAccounts: [],
   whatsappStatus: null,
+  discordBots: null,
   unavailableEngines: {},
   unavailableFeatures: {},
 };
