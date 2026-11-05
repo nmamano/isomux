@@ -71,6 +71,22 @@
           </div>
         </div>
       </section>
+      <section id="visit-control">
+        <div id="share-section" hidden>
+          <label id="share-label" for="share-agent"></label>
+          <select id="share-agent"></select>
+          <button id="share" type="button" disabled></button>
+          <p id="share-status" role="status"></p>
+        </div>
+        <label class="control-switch"
+          ><span id="allow-label"></span
+          ><input type="checkbox" id="allow" role="switch" disabled /><span
+            class="switch-track"
+            aria-hidden="true"
+          ></span
+        ></label>
+        <p id="tab-state" role="status"></p>
+      </section>
       <section id="tab-control">
         <label id="agents-label" for="agents"></label>
         <select id="agents" disabled>
@@ -82,14 +98,6 @@
           <ul id="members-list"></ul>
           <p id="members-none"></p>
         </div>
-        <label class="control-switch"
-          ><span id="allow-label"></span
-          ><input type="checkbox" id="allow" role="switch" disabled /><span
-            class="switch-track"
-            aria-hidden="true"
-          ></span
-        ></label>
-        <p id="tab-state" role="status"></p>
         <div id="agent-tabs" hidden>
           <label class="control-switch"
             ><span id="open-tabs-label"></span
@@ -100,12 +108,6 @@
           ></label>
           <ul id="agent-tabs-list"></ul>
         </div>
-      </section>
-      <section id="share-section" hidden>
-        <label id="share-label" for="share-agent"></label>
-        <select id="share-agent"></select>
-        <button id="share" type="button" disabled></button>
-        <p id="share-status" role="status"></p>
       </section>
       <p id="retained"></p>
       <p id="error" role="alert"></p>
