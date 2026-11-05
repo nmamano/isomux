@@ -1631,6 +1631,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apiTokens.adminList": { caps: ["user:admin"], emits: [] },
   "apiTokens.adminRevoke": { caps: ["user:admin"], emits: [] },
   "providerAccounts.list": { caps: ["user:self"], emits: [] },
+  "openCode.status": { caps: ["user:self"], emits: [] },
   "connections.list": { caps: ["user:self"], emits: [] },
   "agentConnections.list": { caps: [], emits: [] },
   "providerAccounts.start": {

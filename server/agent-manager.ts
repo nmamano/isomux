@@ -211,6 +211,10 @@ import {
   type FallbackProvider,
   type ProviderFallback,
 } from "./provider-fallback.ts";
+import {
+  createOpenCodeFreeLimit,
+  type OpenCodeFreeLimit,
+} from "./opencode-free-limit.ts";
 import { OpenCodeFreeLimitError } from "./backends/opencode/errors.ts";
 import {
   BackendNotConfiguredError,
@@ -404,6 +408,9 @@ export interface ManagerDeps {
   // The clock and timers of the resume after a usage limit
   // (server/limit-resume.ts). Defaults to the real ones; tests move time.
   limitResumeClock?: LimitResumeClock;
+  // OpenCode's free usage limit, office-wide (server/opencode-free-limit.ts).
+  // Defaults to one on limitResumeClock.
+  openCodeFreeLimit?: OpenCodeFreeLimit;
   // The clock and timers of the wake after a server restart
   // (server/restart-wake.ts). Defaults to the real ones; tests move time.
   restartWakeClock?: LimitResumeClock;
@@ -883,6 +890,8 @@ export function createAgentManager(deps: ManagerDeps) {
     clearTimeout: (handle) =>
       clearTimeout(handle as ReturnType<typeof setTimeout>),
   };
+  const openCodeFreeLimit =
+    deps.openCodeFreeLimit ?? createOpenCodeFreeLimit(limitResumeClock);
   // A member's /handoff, the automatic handoff, limit resume and restart
   // wake (server/handoff-and-wake.ts). Built as early as its deps exist.
   const {
@@ -2832,8 +2841,10 @@ export function createAgentManager(deps: ManagerDeps) {
       if (managed.sessionManager.sessionId)
         persistSessionTopic(agentId, managed.sessionManager.sessionId, topic);
     } catch (err) {
-      if (err instanceof OpenCodeFreeLimitError)
+      if (err instanceof OpenCodeFreeLimitError) {
         managed.openCodeFreeLimitAt = limitResumeClock.now();
+        openCodeFreeLimit.record();
+      }
       const text = errMessage(err);
       // Auth-error topic-gen failures are expected when the agent is in the
       // not-yet-signed-in state - the user already sees the auth card in
@@ -3626,7 +3637,10 @@ export function createAgentManager(deps: ManagerDeps) {
         // Read at the turn's end (turn_completed above).
         const managed = agents.get(agentId);
         if (!managed) break;
-        if (ev.freeLimit) managed.openCodeFreeLimitAt = limitResumeClock.now();
+        if (ev.freeLimit) {
+          managed.openCodeFreeLimitAt = limitResumeClock.now();
+          openCodeFreeLimit.record();
+        }
         const resumeAt = fallbackStop(managed, ev);
         if (resumeAt !== null) managed.limitStopResetsAtMs = resumeAt;
         // OpenCode's free usage limit on an agent with no key: a notice in
@@ -9439,6 +9453,7 @@ export function createAgentManager(deps: ManagerDeps) {
     setOfficeFreeModel,
     setRefusedFreeModelReplacer,
     cancelFreeModelSearches,
+    openCodeFreeLimit,
     oneShotForUser,
     addApiTokenOutbound,
     addAgentOutbound,

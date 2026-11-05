@@ -40,6 +40,7 @@ import {
   type ProviderFallback,
 } from "../provider-fallback.ts";
 import { LIMIT_RESUME_DELAY_MS, LIMIT_RESUME_TEXT } from "../limit-resume.ts";
+import { OpenCodeFreeLimitError } from "../backends/opencode/errors.ts";
 import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
@@ -1305,6 +1306,42 @@ describe("OpenCode free usage limit", () => {
       const before = asked.count;
       await answeredTurn(h, info.id, "again");
       await waitUntil(() => asked.count === before + 1, "topic asked again");
+    });
+  });
+
+  // Task a1e5ea01: the limit is per network, so one refusal on any agent is
+  // the office's (server/opencode-free-limit.ts), read by the Model providers
+  // tab. The record's own window rules are in server/opencode-free-limit.test.ts.
+  describe("the office-wide record", () => {
+    it("records a turn's refusal, with or without a key, at the manager's clock", async () => {
+      for (const keyless of [true, false]) {
+        const h = openCodeHarness();
+        const info = await spawn(h, "opencode", { modelFamily: FREE });
+        expect(h.mgr.openCodeFreeLimit.since()).toBeNull();
+        await h.office.clock.advance(5 * 60 * 1000);
+        const at = h.office.clock.now();
+        await refusedTurn(h, info.id, keyless);
+        expect({ keyless, since: h.mgr.openCodeFreeLimit.since() }).toEqual({
+          keyless,
+          since: at,
+        });
+      }
+    });
+
+    it("records a refusal of the topic's one-shot", async () => {
+      const h = openCodeHarness((prompt) => {
+        if (prompt.includes("topic label")) throw new OpenCodeFreeLimitError();
+        return "";
+      });
+      const info = await spawn(h, "opencode", { modelFamily: FREE });
+      expect(h.mgr.openCodeFreeLimit.since()).toBeNull();
+      const s = await memberTurn(h, info.id, "work", "claude", false);
+      await endTurn(h, info.id, s);
+      await waitUntil(
+        () => h.mgr.openCodeFreeLimit.since() !== null,
+        "topic refusal recorded",
+      );
+      expect(h.mgr.openCodeFreeLimit.since()).toBe(h.office.clock.now());
     });
   });
 });

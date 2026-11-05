@@ -1304,7 +1304,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.dialog.remove.member": "Remove {member}'s {name}?",
   "integrations.dialog.remove.office": "Remove the office-wide {name}?",
   "integrations.providers.apiKeys":
-    "Using an API key instead? Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> or <code>OPENCODE_API_KEY</code> in <link>Variables</link>.",
+    "Using an API key instead? Add <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> in <link>Variables</link>.",
   "integrations.providers.memberSignsIn":
     "Members sign in to their own accounts.",
   "integrations.status.connected": "Connected",
@@ -1360,14 +1360,45 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.providers.noPersonal": "No personal sign-in",
   "integrations.signIn.office": "Sign in for every agent in this office",
   "integrations.signIn.personal": "Sign in for agents I spawn",
-  "integrations.providers.opencode.bundled":
-    "Ships with Isomux. Free models need no account or key.",
-  "integrations.providers.opencode.keySet":
-    "<code>OPENCODE_API_KEY</code> is set, for paid models.",
-  "integrations.providers.opencode.noKeyOffice":
-    "No <code>OPENCODE_API_KEY</code>. Paid models need one in <link>Variables</link>.",
-  "integrations.providers.opencode.noKeyPersonal":
-    "No <code>OPENCODE_API_KEY</code>. To add one, go to <link>Variables</link>.",
+  "integrations.providers.opencode.pill.freeLimit": "Free limit reached",
+  "integrations.providers.opencode.pill.keySet": "Key set",
+  "integrations.providers.opencode.pill.freeOnly": "Free models only",
+  "integrations.providers.opencode.pill.noKey": "No key",
+  "integrations.providers.opencode.free.title": "Free models",
+  "integrations.providers.opencode.free.bundled":
+    "Ship with Isomux. No account or key needed.",
+  "integrations.providers.opencode.freeLimit.keyless":
+    "Free limit reached {time}. Add a key.",
+  "integrations.providers.opencode.freeLimit.keyed":
+    "Free limit reached {time}. Pick a paid model.",
+  "integrations.providers.opencode.paid.title": "Paid models",
+  "integrations.providers.opencode.key.none": "Need an OpenCode key.",
+  "integrations.providers.opencode.key.officeCard":
+    "Agents without their own key use this one.",
+  "integrations.providers.opencode.key.member": "Your agents use your key.",
+  "integrations.providers.opencode.key.officeVariable":
+    "Your agents use the office key.",
+  "integrations.providers.opencode.key.office":
+    "Your agents use the office key.",
+  "integrations.providers.opencode.key.server":
+    "Your agents use the key set on the server.",
+  "integrations.providers.opencode.paidCount.one": "{count} paid model",
+  "integrations.providers.opencode.paidCount.other": "{count} paid models",
+  "integrations.providers.opencode.addKey": "Add key",
+  "integrations.providers.opencode.replaceKey": "Replace key",
+  "integrations.providers.opencode.keyHeading.self": "Your OpenCode key",
+  "integrations.providers.opencode.keyHeading.member":
+    "{member}'s OpenCode key",
+  "integrations.providers.opencode.keyHeading.office":
+    "The office-wide OpenCode key",
+  "integrations.providers.opencode.keyLabel": "OpenCode API key",
+  "integrations.providers.opencode.ownServer.title": "Your own model server",
+  "integrations.providers.opencode.ownServer.text":
+    "Run models on a server you host, such as Ollama. <link>Set it up</link>",
+  "integrations.providers.opencode.ownServer.listed": "Listed now: {models}",
+  "integrations.providers.opencode.ownServer.none": "Listed now: none",
+  "integrations.providers.opencode.freeLimit.about":
+    "OpenCode's free limit is per network. It resets later.",
   "integrations.providers.testSignedOut": "Not signed in.",
   "integrations.connectionsFailed":
     "Could not load the claude.ai connectors and the servers set in Claude's files.",
@@ -2054,6 +2085,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.apiTokens.create": "Create API token",
   "apiCall.apiTokens.revoke": "Revoke API token",
   "apiCall.providerAccounts.check": "Check provider accounts",
+  "apiCall.openCode.status": "Check OpenCode",
   "apiCall.providerAccounts.signInStart": "Start provider sign-in",
   "apiCall.providerAccounts.signInCancel": "Cancel provider sign-in",
   "apiCall.providerAccounts.signOut": "Sign out provider account",

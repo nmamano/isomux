@@ -277,7 +277,6 @@ function IntegrationsPage({
             role={role}
             accounts={accounts}
             onGone={memberGone}
-            onVariables={() => setTab("variables")}
             onGoToOtherCard={
               target.kind === "office"
                 ? () =>

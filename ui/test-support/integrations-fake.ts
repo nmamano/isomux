@@ -15,7 +15,11 @@ import type {
   MemberProviderStatus,
   SecretWire,
 } from "../../shared/contract-shapes.ts";
-import type { ProviderAccountWire } from "../../shared/types.ts";
+import type {
+  BackendModelWire,
+  EnvVariableSource,
+  ProviderAccountWire,
+} from "../../shared/types.ts";
 import { DEFAULT_VOICE_NAME } from "../../shared/voice.ts";
 
 export type Call = { method: ApiMethod; path: string; body: unknown };
@@ -104,6 +108,18 @@ export class IntegrationsFake {
   pagers = new Map<string, Record<string, unknown>>();
   // GET /api/me/integration-changes: the viewer's own "changed for you" list.
   changes: Record<string, unknown>[] = [];
+  // GET /api/me/opencode: the office's free limit and where the viewer's
+  // agents get OPENCODE_API_KEY.
+  openCode: {
+    freeLimitAt: number | null;
+    keySource: EnvVariableSource | null;
+  } = { freeLimitAt: null, keySource: null };
+  // GET /api/me/opencode answers 500 while this is set.
+  openCodeFails = false;
+  // POST /api/backends/opencode/models: what the viewer's agents can pick,
+  // or the route's failed answer (200 with no models and an error).
+  openCodeModels: BackendModelWire[] = [];
+  openCodeModelsError: { error: string; authError: boolean } | null = null;
   private holds = new Map<string, Promise<void>>();
 
   constructor(
@@ -204,6 +220,15 @@ export class IntegrationsFake {
       return { apiTokens: this.apiTokens };
     if (path === "/api/me/integration-changes" && method === "GET")
       return { items: this.changes };
+    if (path === "/api/me/opencode" && method === "GET") {
+      if (this.openCodeFails)
+        throw new ApiError(500, "internal_error", "Internal error");
+      return this.openCode;
+    }
+    if (path === "/api/backends/opencode/models" && method === "POST")
+      return this.openCodeModelsError
+        ? { models: [], ...this.openCodeModelsError }
+        : { models: this.openCodeModels };
     // A member's voice and pager settings: the member, or an owner.
     const setting = path.match(
       /^\/api\/users\/([^/]+)\/(voice|pager-settings)$/,

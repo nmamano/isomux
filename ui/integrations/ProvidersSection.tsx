@@ -6,10 +6,9 @@
 //
 // OpenCode has no sign-in here: it ships with Isomux, its free models need
 // no key (the default model, OPENCODE_DEFAULT_MODEL, is one), and a key for
-// the paid ones is the OPENCODE_API_KEY variable. So its block shows whether
-// that variable is set, from the variable names the page already reads.
+// the paid ones is the OPENCODE_API_KEY variable (OpenCodeSection.tsx).
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type {
   MemberProviderStatus,
   UserEnvNamesRes,
@@ -24,16 +23,8 @@ import { useI18n } from "../i18n.tsx";
 import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 import { ProviderMark } from "../components/ProviderMark.tsx";
 import { MemberUsageCard } from "../components/MemberUsageCard.tsx";
-import { Reserved } from "../components/Reserved.tsx";
-import {
-  Btn,
-  Data,
-  Empty,
-  ItemRow,
-  Pill,
-  errorText,
-  hintText,
-} from "./kit.tsx";
+import { OpenCodeSection } from "./OpenCodeSection.tsx";
+import { Empty, ItemRow, Pill, errorText } from "./kit.tsx";
 import { useMyConnections } from "./my-connections.tsx";
 import {
   onConnectionsChanged,
@@ -65,6 +56,8 @@ export function useProviderAccounts(enabled: boolean) {
     providerAccounts.length > 0 ? "loaded" : "loading",
   );
   const [refreshing, setRefreshing] = useState(false);
+  // Counts Refresh clicks, so the OpenCode section reads again too.
+  const [refreshes, setRefreshes] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   // The state starts as "loading", so the mount read sets nothing before its
@@ -97,6 +90,7 @@ export function useProviderAccounts(enabled: boolean) {
       });
 
   function refresh() {
+    setRefreshes((n) => n + 1);
     setRefreshing(true);
     setState("loading");
     setError(null);
@@ -127,6 +121,7 @@ export function useProviderAccounts(enabled: boolean) {
     accounts: providerAccounts,
     loaded: state !== "loading",
     refreshing,
+    refreshes,
     error,
     refresh,
     update: (next: ProviderAccountWire[]) =>
@@ -142,7 +137,6 @@ export function ProvidersSection({
   accounts,
   onGoToOtherCard,
   onGone,
-  onVariables,
 }: {
   target: Target;
   role: Role;
@@ -150,18 +144,10 @@ export function ProvidersSection({
   onGoToOtherCard?: () => void;
   // The member left the office while the card showed them.
   onGone?: () => void;
-  // Opens the Variables tab on the same member.
-  onVariables: () => void;
 }) {
   const list = useMyConnections();
   if (target.kind === "member")
-    return (
-      <MemberProviders
-        target={target}
-        onGone={onGone}
-        onVariables={onVariables}
-      />
-    );
+    return <MemberProviders target={target} role={role} onGone={onGone} />;
   const scope = target.kind === "office" ? "office" : "personal";
   const scopes = [scope] as const;
   return (
@@ -186,8 +172,10 @@ export function ProvidersSection({
           pageLook
         />
       ))}
-      <OpenCodeBlock
-        office={target.kind === "office"}
+      <OpenCodeSection
+        target={target}
+        role={role}
+        refreshes={accounts.refreshes}
         keySet={
           list
             ? list.variables.some(
@@ -196,7 +184,6 @@ export function ProvidersSection({
               )
             : null
         }
-        onVariables={onVariables}
       />
       {target.kind === "office" && role === "owner" && (
         <MemberUsageCard style={flat} />
@@ -205,19 +192,20 @@ export function ProvidersSection({
   );
 }
 
-// A member's Claude and Codex status, for an owner: whether the member has
+// A member's Claude and Codex status, for an owner, and their OpenCode key
+// (OpenCodeSection.tsx): whether the member has
 // their own sign-in (the same probe as their own sign-in card), never the
 // account. Read from the owner-only names route. Without a personal sign-in
 // the member's agents use an API key variable or the office account, which
 // this route cannot tell apart, so the row says only what it knows.
 function MemberProviders({
   target,
+  role,
   onGone,
-  onVariables,
 }: {
   target: Target & { kind: "member" };
+  role: Role;
   onGone?: () => void;
-  onVariables: () => void;
 }) {
   const username = target.username;
   const { t } = useI18n();
@@ -299,86 +287,13 @@ function MemberProviders({
           />
         );
       })}
-      <Empty>{t("integrations.providers.memberSignsIn")}</Empty>
-      <OpenCodeBlock
-        office={false}
+      <OpenCodeSection
+        target={target}
+        role={role}
+        refreshes={0}
         keySet={providers ? names.includes(OPENCODE_KEY) : null}
-        onVariables={onVariables}
       />
+      <Empty>{t("integrations.providers.memberSignsIn")}</Empty>
     </div>
-  );
-}
-
-// OpenCode on one card: that it ships with Isomux (the office card), and
-// whether the card's OPENCODE_API_KEY is set. `keySet` null: the names are
-// not read (yet), so the block says nothing about the key and holds the
-// space of the line.
-function OpenCodeBlock({
-  office,
-  keySet,
-  onVariables,
-}: {
-  office: boolean;
-  keySet: boolean | null;
-  onVariables: () => void;
-}) {
-  const { t, rich } = useI18n();
-  const { unavailableEngines } = useAppState();
-  const unavailable = unavailableEngines.opencode !== undefined;
-  const variablesLink = (chunk: ReactNode) => (
-    <Btn kind="link" onClick={onVariables} data-go-variables>
-      {chunk}
-    </Btn>
-  );
-  const keyLine = (set: boolean | null) => (
-    <p
-      data-opencode-key={set === null ? undefined : set ? "set" : "none"}
-      style={{ ...hintText, margin: 0 }}
-    >
-      {set
-        ? rich("integrations.providers.opencode.keySet", {
-            code: (chunk) => <Data>{chunk}</Data>,
-          })
-        : office
-          ? rich("integrations.providers.opencode.noKeyOffice", {
-              code: (chunk) => <Data>{chunk}</Data>,
-              link: variablesLink,
-            })
-          : rich("integrations.providers.opencode.noKeyPersonal", {
-              code: (chunk) => <Data>{chunk}</Data>,
-              link: variablesLink,
-            })}
-    </p>
-  );
-  return (
-    <section data-provider-block="opencode" style={{ ...flat, marginTop: 14 }}>
-      <h5
-        style={{
-          margin: "0 0 8px",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <ProviderMark provider="opencode" />
-        OpenCode
-        {unavailable && (
-          <Pill tone="orange" data-opencode-unavailable="">
-            {t("dialogs.agent.engineNeedsLinux")}
-          </Pill>
-        )}
-      </h5>
-      {office && (
-        <p style={{ ...hintText, margin: "0 0 4px" }}>
-          {t("integrations.providers.opencode.bundled")}
-        </p>
-      )}
-      {keySet === null ? (
-        // The no-key line, the usual one.
-        <Reserved>{keyLine(null)}</Reserved>
-      ) : (
-        keyLine(keySet)
-      )}
-    </section>
   );
 }

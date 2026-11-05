@@ -1193,7 +1193,7 @@ App 的一些原则：
   "integrations.dialog.remove.member": "移除 {member} 的 {name}？",
   "integrations.dialog.remove.office": "移除办公室通用的 {name}？",
   "integrations.providers.apiKeys":
-    "想改用 API 密钥？请在<link>变量</link>中添加 <code>ANTHROPIC_API_KEY</code>、<code>OPENAI_API_KEY</code> 或 <code>OPENCODE_API_KEY</code>。",
+    "想改用 API 密钥？请在<link>变量</link>中添加 <code>ANTHROPIC_API_KEY</code> 或 <code>OPENAI_API_KEY</code>。",
   "integrations.providers.memberSignsIn": "成员登录自己的账号。",
   "integrations.status.connected": "已连接",
   "integrations.status.pending": "等待中",
@@ -1247,14 +1247,44 @@ App 的一些原则：
   "integrations.providers.noPersonal": "没有个人登录",
   "integrations.signIn.office": "为此办公室中的所有智能体登录",
   "integrations.signIn.personal": "为我创建的智能体登录",
-  "integrations.providers.opencode.bundled":
-    "随 Isomux 一起提供。免费模型不需要账号或密钥。",
-  "integrations.providers.opencode.keySet":
-    "已设置 <code>OPENCODE_API_KEY</code>，用于付费模型。",
-  "integrations.providers.opencode.noKeyOffice":
-    "没有 <code>OPENCODE_API_KEY</code>。付费模型需要在<link>变量</link>中添加一个。",
-  "integrations.providers.opencode.noKeyPersonal":
-    "没有 <code>OPENCODE_API_KEY</code>。要添加，请前往<link>变量</link>。",
+  "integrations.providers.opencode.pill.freeLimit": "已达免费额度上限",
+  "integrations.providers.opencode.pill.keySet": "已设置密钥",
+  "integrations.providers.opencode.pill.freeOnly": "仅免费模型",
+  "integrations.providers.opencode.pill.noKey": "无密钥",
+  "integrations.providers.opencode.free.title": "免费模型",
+  "integrations.providers.opencode.free.bundled":
+    "随 Isomux 提供。无需账号或密钥。",
+  "integrations.providers.opencode.freeLimit.keyless":
+    "免费额度已于{time}用完。请添加密钥。",
+  "integrations.providers.opencode.freeLimit.keyed":
+    "免费额度已于{time}用完。请选择付费模型。",
+  "integrations.providers.opencode.paid.title": "付费模型",
+  "integrations.providers.opencode.key.none": "需要 OpenCode 密钥。",
+  "integrations.providers.opencode.key.officeCard":
+    "没有自己密钥的智能体使用此密钥。",
+  "integrations.providers.opencode.key.member": "你的智能体使用你的密钥。",
+  "integrations.providers.opencode.key.officeVariable":
+    "你的智能体使用办公室的密钥。",
+  "integrations.providers.opencode.key.office": "你的智能体使用办公室的密钥。",
+  "integrations.providers.opencode.key.server":
+    "你的智能体使用服务器上设置的密钥。",
+  "integrations.providers.opencode.paidCount.one": "{count} 个付费模型",
+  "integrations.providers.opencode.paidCount.other": "{count} 个付费模型",
+  "integrations.providers.opencode.addKey": "添加密钥",
+  "integrations.providers.opencode.replaceKey": "替换密钥",
+  "integrations.providers.opencode.keyHeading.self": "你的 OpenCode 密钥",
+  "integrations.providers.opencode.keyHeading.member":
+    "{member} 的 OpenCode 密钥",
+  "integrations.providers.opencode.keyHeading.office":
+    "全办公室的 OpenCode 密钥",
+  "integrations.providers.opencode.keyLabel": "OpenCode API 密钥",
+  "integrations.providers.opencode.ownServer.title": "你自己的模型服务器",
+  "integrations.providers.opencode.ownServer.text":
+    "在你自己托管的服务器上运行模型，例如 Ollama。<link>设置方法</link>",
+  "integrations.providers.opencode.ownServer.listed": "当前列出：{models}",
+  "integrations.providers.opencode.ownServer.none": "当前列出：无",
+  "integrations.providers.opencode.freeLimit.about":
+    "OpenCode 的免费额度按网络计算，稍后会恢复。",
   "integrations.providers.testSignedOut": "未登录。",
   "integrations.connectionsFailed":
     "无法加载 claude.ai 连接器和在 Claude 文件中设置的服务器。",
@@ -1874,6 +1904,7 @@ App 的一些原则：
   "apiCall.apiTokens.create": "创建 API 令牌",
   "apiCall.apiTokens.revoke": "撤销 API 令牌",
   "apiCall.providerAccounts.check": "检查提供方账户",
+  "apiCall.openCode.status": "检查 OpenCode",
   "apiCall.providerAccounts.signInStart": "开始提供方登录",
   "apiCall.providerAccounts.signInCancel": "取消提供方登录",
   "apiCall.providerAccounts.signOut": "退出提供方账户",

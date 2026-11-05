@@ -1327,7 +1327,7 @@ Coses que pots fer per ell:
   "integrations.dialog.remove.member": "Vols treure {name} de {member}?",
   "integrations.dialog.remove.office": "Vols treure {name} de tota l'oficina?",
   "integrations.providers.apiKeys":
-    "Prefereixes una clau d'API? Afegeix <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> o <code>OPENCODE_API_KEY</code> a <link>Variables</link>.",
+    "Prefereixes una clau d'API? Afegeix <code>ANTHROPIC_API_KEY</code> o <code>OPENAI_API_KEY</code> a <link>Variables</link>.",
   "integrations.providers.memberSignsIn":
     "Els membres inicien la sessió als seus propis comptes.",
   "integrations.status.connected": "Connectat",
@@ -1387,14 +1387,49 @@ Coses que pots fer per ell:
   "integrations.signIn.office":
     "Inicia la sessió per a cada agent d'aquesta oficina",
   "integrations.signIn.personal": "Inicia la sessió per als agents que creo",
-  "integrations.providers.opencode.bundled":
-    "Ve amb Isomux. Els models gratuïts no necessiten compte ni clau.",
-  "integrations.providers.opencode.keySet":
-    "<code>OPENCODE_API_KEY</code> està configurada, per als models de pagament.",
-  "integrations.providers.opencode.noKeyOffice":
-    "No hi ha <code>OPENCODE_API_KEY</code>. Els models de pagament en necessiten una a <link>Variables</link>.",
-  "integrations.providers.opencode.noKeyPersonal":
-    "No hi ha cap <code>OPENCODE_API_KEY</code>. Per afegir-ne una, ves a <link>Variables</link>.",
+  "integrations.providers.opencode.pill.freeLimit": "Límit gratuït assolit",
+  "integrations.providers.opencode.pill.keySet": "Clau configurada",
+  "integrations.providers.opencode.pill.freeOnly": "Només models gratuïts",
+  "integrations.providers.opencode.pill.noKey": "Sense clau",
+  "integrations.providers.opencode.free.title": "Models gratuïts",
+  "integrations.providers.opencode.free.bundled":
+    "Venen amb Isomux. No cal compte ni clau.",
+  "integrations.providers.opencode.freeLimit.keyless":
+    "Límit gratuït assolit {time}. Afegeix una clau.",
+  "integrations.providers.opencode.freeLimit.keyed":
+    "Límit gratuït esgotat {time}. Usa un model de pagament.",
+  "integrations.providers.opencode.paid.title": "Models de pagament",
+  "integrations.providers.opencode.key.none": "Necessiten una clau d'OpenCode.",
+  "integrations.providers.opencode.key.officeCard":
+    "Els agents sense clau pròpia fan servir aquesta.",
+  "integrations.providers.opencode.key.member":
+    "Els teus agents fan servir la teva clau.",
+  "integrations.providers.opencode.key.officeVariable":
+    "Els teus agents fan servir la clau de l'oficina.",
+  "integrations.providers.opencode.key.office":
+    "Els teus agents fan servir la clau de l'oficina.",
+  "integrations.providers.opencode.key.server":
+    "Els teus agents fan servir la clau configurada al servidor.",
+  "integrations.providers.opencode.paidCount.one": "{count} model de pagament",
+  "integrations.providers.opencode.paidCount.other":
+    "{count} models de pagament",
+  "integrations.providers.opencode.addKey": "Afegeix una clau",
+  "integrations.providers.opencode.replaceKey": "Substitueix la clau",
+  "integrations.providers.opencode.keyHeading.self": "La teva clau d'OpenCode",
+  "integrations.providers.opencode.keyHeading.member":
+    "La clau d'OpenCode de {member}",
+  "integrations.providers.opencode.keyHeading.office":
+    "La clau d'OpenCode de tota l'oficina",
+  "integrations.providers.opencode.keyLabel": "Clau d'API d'OpenCode",
+  "integrations.providers.opencode.ownServer.title":
+    "El teu propi servidor de models",
+  "integrations.providers.opencode.ownServer.text":
+    "Executa models en un servidor teu, com Ollama. <link>Configura'l</link>",
+  "integrations.providers.opencode.ownServer.listed":
+    "Disponibles ara: {models}",
+  "integrations.providers.opencode.ownServer.none": "Disponibles ara: cap",
+  "integrations.providers.opencode.freeLimit.about":
+    "El límit gratuït d'OpenCode és per xarxa. Es restableix més endavant.",
   "integrations.providers.testSignedOut": "No hi ha cap sessió iniciada.",
   "integrations.connectionsFailed":
     "No s'han pogut carregar els connectors de claude.ai ni els servidors configurats als fitxers de Claude.",
@@ -2107,6 +2142,7 @@ Coses que pots fer per ell:
   "apiCall.apiTokens.create": "Crear un token d'API",
   "apiCall.apiTokens.revoke": "Revocar un token d'API",
   "apiCall.providerAccounts.check": "Consultar els comptes de proveïdor",
+  "apiCall.openCode.status": "Consultar OpenCode",
   "apiCall.providerAccounts.signInStart":
     "Començar l'inici de sessió amb el proveïdor",
   "apiCall.providerAccounts.signInCancel":

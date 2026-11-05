@@ -17,7 +17,12 @@ import type {
   UserEnvNamesRes,
   UserEnvRes,
 } from "../../shared/contract-shapes.ts";
-import { apiFetch, ApiError } from "../api.ts";
+import { apiFetch } from "../api.ts";
+import {
+  deleteEnvVariable,
+  envErrorText,
+  putEnvVariable,
+} from "./env-write.ts";
 import { useI18n } from "../i18n.tsx";
 import { useCan } from "../hooks/useCan.ts";
 import { notifyManagedEnvSaved } from "../connections-events.ts";
@@ -92,14 +97,6 @@ function fromNames(
   return null;
 }
 
-// A variable route's refusal: the server's own sentence, as the old editor
-// showed it.
-function envErrorText(caught: unknown, fallback: string): string {
-  return caught instanceof ApiError && caught.message
-    ? caught.message
-    : fallback;
-}
-
 export function VariablesSection({
   target,
   role,
@@ -165,17 +162,16 @@ export function VariablesSection({
     next: { value: string; note: string } | null,
     from?: string,
   ): Promise<void> {
-    const path = (n: string) => `${base}/env/${encodeURIComponent(n)}`;
     if (!next) {
-      await apiFetch("DELETE", path(name));
+      await deleteEnvVariable(target, name);
       return;
     }
-    await apiFetch("PUT", path(name), {
+    await putEnvVariable(target, name, {
       value: next.value,
       note: next.note.trim() ? next.note.trim() : null,
     });
     // A rename: the new name is saved first, so a failure loses nothing.
-    if (from && from !== name) await apiFetch("DELETE", path(from));
+    if (from && from !== name) await deleteEnvVariable(target, from);
   }
 
   // Nothing can be changed until the read has succeeded.

@@ -44,6 +44,7 @@ import type {
   AskEvent,
   AskClosure,
   AskOutcome,
+  EnvVariableSource,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
@@ -1102,6 +1103,15 @@ export type UserEnvNamesRes = {
   // A name with no note has no key.
   notes: Record<string, string>;
   providers: MemberProviderStatus[];
+};
+
+// GET /api/me/opencode: OpenCode's state for the caller's agents. freeLimitAt:
+// when an agent of this office last met OpenCode's free usage limit, which is
+// per network, while that is younger than OPENCODE_FALLBACK_RETRY_MS; else
+// null. keySource: where the caller's agents get OPENCODE_API_KEY, or null.
+export type OpenCodeStatusRes = {
+  freeLimitAt: number | null;
+  keySource: EnvVariableSource | null;
 };
 
 // GET /api/office/env/names: the office variables' names and notes, for

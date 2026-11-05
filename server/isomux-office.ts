@@ -319,6 +319,7 @@ import {
 import { connectionTestsHandlers } from "./routes/handlers/connection-tests.ts";
 import {
   claudeFamilyModelsForUserId,
+  envSourceForUserId,
   limitedClaudeFamiliesForUserId,
   readOfficeEnvFile,
   setOfficeEnvFileProvider,
@@ -331,6 +332,7 @@ import {
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
+import { openCodeHandlers } from "./routes/handlers/opencode.ts";
 import { buildConnectionsList } from "./connections-list.ts";
 import { buildAgentConnections } from "./agent-connections.ts";
 import { connectionsHandlers } from "./routes/handlers/connections.ts";
@@ -748,7 +750,10 @@ const {
   ensureReceptionistAtBoot,
   seedWelcomeAgentsForFirstOwner: seedFirstOwner,
   configureWelcomeModelTiming,
-} = createOfficeOnboarding({ listBackendModels });
+} = createOfficeOnboarding({
+  listBackendModels,
+  recordOpenCodeFreeLimit: () => agentManager.openCodeFreeLimit.record(),
+});
 
 // registerBootHooks: install the auth.ts callbacks (room-snapshot provider,
 // invite/session change fanout, first-owner welcome-agent seed) against the
@@ -4600,6 +4605,14 @@ function buildExecutorDeps(
         providerAccountManager.cancel(userId, provider, scope, allowForeign),
       disconnect: (userId, provider, scope) =>
         providerAccountManager.disconnect(userId, provider, scope),
+    }),
+  );
+  register(
+    openCodeHandlers({
+      status: (userId) => ({
+        freeLimitAt: agentManager.openCodeFreeLimit.since(),
+        keySource: envSourceForUserId(userId, "OPENCODE_API_KEY"),
+      }),
     }),
   );
   register(

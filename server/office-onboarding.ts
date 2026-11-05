@@ -62,6 +62,8 @@ export interface OfficeOnboardingDeps {
     | { ok: true; models: BackendModelWire[] }
     | { ok: false; error: string; authError: boolean }
   >;
+  // The boot check met OpenCode's free usage limit (server/opencode-free-limit.ts).
+  recordOpenCodeFreeLimit?: () => void;
 }
 
 export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
@@ -246,10 +248,12 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
       console.warn(
         `[bootstrap] no free OpenCode model answered a check; seeding ${result.model}`,
       );
-    if (check.kind === "free_limit")
+    if (check.kind === "free_limit") {
+      deps.recordOpenCodeFreeLimit?.();
       console.warn(
         `[bootstrap] OpenCode's free usage limit is used up on this network; seeding ${result.model}`,
       );
+    }
     return {
       model: check.kind === "answered" ? check.model : result.model,
       fromFallback: false,

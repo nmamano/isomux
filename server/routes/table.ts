@@ -165,6 +165,7 @@ import type {
   UserUpdateReq,
   SetAccessReq,
   UserEnvNamesRes,
+  OpenCodeStatusRes,
   OfficeEnvNamesRes,
   AgentConnectionsRes,
   ConnectionsListRes,
@@ -2490,6 +2491,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "environment", level: "read" },
     method: "GET",
     path: "/api/me/provider-accounts",
+    auth: cap("user:self", userScope),
+    emits: [],
+  }),
+  // OpenCode on the Model providers tab: the office's free-limit state and
+  // where the caller's OPENCODE_API_KEY comes from. Same gate as
+  // providerAccounts.list.
+  defineRoute<void, OpenCodeStatusRes>({
+    opId: "openCode.status",
+    tokenArea: { area: "environment", level: "read" },
+    method: "GET",
+    path: "/api/me/opencode",
     auth: cap("user:self", userScope),
     emits: [],
   }),

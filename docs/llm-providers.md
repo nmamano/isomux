@@ -20,6 +20,8 @@ OPENAI_API_KEY=sk-...
 OPENCODE_API_KEY=sk-...
 ```
 
+The OpenCode section of the `Model providers` tab also sets `OPENCODE_API_KEY`.
+
 Codex agents use `OPENAI_API_KEY` only when the Codex sign-in they use, personal or office-wide, is not connected. The `Model providers` tab shows when agents use the key and where it comes from.
 
 Isomux stores personal and office-wide variables in managed files under `~/.isomux/`. Personal variables override office-wide variables. Other per-user variables work the same way: for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials.

@@ -1,6 +1,6 @@
 // Nil's feedback on the live page (2026-10-13): the last tab is remembered,
-// the Secrets tab says where model keys go, each sign-in has a Test, OpenCode
-// shows on Model providers.
+// the Secrets tab says where model keys go, each sign-in has a Test. OpenCode
+// on Model providers is in IntegrationsView.opencode.dom.test.tsx.
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -9,10 +9,10 @@ setUpDomTestFile();
 
 const { act } = await import("@testing-library/react");
 const { setApiShim } = await import("../api.ts");
-const { IntegrationsFake, EMPTY_CONNECTIONS } =
+const { IntegrationsFake } =
   await import("../test-support/integrations-fake.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
-const { OWNER, card, click, open, pick, selectedTab, tab } =
+const { OWNER, card, click, open, selectedTab, tab } =
   await import("../test-support/integrations-page-fixture.ts");
 afterAll(() => setApiShim(null));
 
@@ -27,7 +27,6 @@ beforeEach(() => {
   ]).install();
 });
 
-type View = Awaited<ReturnType<typeof open>>;
 const selected = selectedTab;
 
 describe("the last tab", () => {
@@ -168,59 +167,5 @@ describe("a Test on each sign-in", () => {
     expect(
       office.querySelector('[data-sign-in-test-result="works"]')!.textContent,
     ).toContain("morgan@example.com");
-  });
-});
-
-describe("OpenCode on Model providers", () => {
-  const block = (view: View, which: "office" | "personal") =>
-    card(view, which).querySelector('[data-provider-block="opencode"]')!;
-
-  it("says whether each card's OPENCODE_API_KEY is set", async () => {
-    fake.connections = {
-      ...EMPTY_CONNECTIONS,
-      variables: [{ scope: "office", name: "OPENCODE_API_KEY", note: null }],
-    };
-    const view = await open();
-    expect(block(view, "office").textContent).toContain(
-      t("integrations.providers.opencode.bundled"),
-    );
-    expect(
-      block(view, "office")
-        .querySelector("[data-opencode-key]")!
-        .getAttribute("data-opencode-key"),
-    ).toBe("set");
-    const mine = block(view, "personal");
-    expect(mine.textContent).not.toContain(
-      t("integrations.providers.opencode.bundled"),
-    );
-    expect(
-      mine
-        .querySelector("[data-opencode-key]")!
-        .getAttribute("data-opencode-key"),
-    ).toBe("none");
-    await click(mine.querySelector("[data-go-variables]"));
-    expect(selected(view)).toBe("variables");
-  });
-
-  it("reads a member's key from their variable names", async () => {
-    fake.scope("Stephen").values = { OPENCODE_API_KEY: "x" };
-    const view = await open();
-    await pick(view, "Stephen");
-    expect(
-      block(view, "personal")
-        .querySelector("[data-opencode-key]")!
-        .getAttribute("data-opencode-key"),
-    ).toBe("set");
-  });
-
-  it("says when this host cannot run it", async () => {
-    const view = await open({
-      ...OWNER,
-      unavailableEngines: { opencode: "needs_linux" },
-    });
-    expect(
-      block(view, "office").querySelector("[data-opencode-unavailable]")!
-        .textContent,
-    ).toBe(t("dialogs.agent.engineNeedsLinux"));
   });
 });

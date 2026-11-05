@@ -3228,6 +3228,21 @@ export async function demoApi(
         engineMcpServers: [],
       };
     }
+    // OpenCode on the Model providers tab: no free limit met, and the key
+    // from the demo variables, personal over office.
+    case "GET /api/me/opencode": {
+      const selfId = sessionContext?.userId ?? null;
+      const key = "OPENCODE_API_KEY";
+      return {
+        freeLimitAt: null,
+        keySource:
+          selfId && demoManagedEnv[selfId]?.[key]
+            ? "member_variable"
+            : demoManagedOfficeEnv[key]
+              ? "office_variable"
+              : null,
+      };
+    }
     case "GET /api/me/provider-accounts":
       return {
         accounts: [

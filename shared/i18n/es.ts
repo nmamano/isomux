@@ -1325,7 +1325,7 @@ Cosas que puedes hacer por él:
   "integrations.dialog.remove.member": "¿Quitar {name} de {member}?",
   "integrations.dialog.remove.office": "¿Quitar {name} de toda la oficina?",
   "integrations.providers.apiKeys":
-    "¿Prefieres una clave de API? Añade <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> u <code>OPENCODE_API_KEY</code> en <link>Variables</link>.",
+    "¿Prefieres una clave de API? Añade <code>ANTHROPIC_API_KEY</code> u <code>OPENAI_API_KEY</code> en <link>Variables</link>.",
   "integrations.providers.memberSignsIn":
     "Los miembros inician sesión en sus propias cuentas.",
   "integrations.status.connected": "Conectado",
@@ -1384,14 +1384,49 @@ Cosas que puedes hacer por él:
   "integrations.signIn.office":
     "Inicia sesión para cada agente de esta oficina",
   "integrations.signIn.personal": "Inicia sesión para los agentes que creo",
-  "integrations.providers.opencode.bundled":
-    "Viene con Isomux. Los modelos gratuitos no necesitan cuenta ni clave.",
-  "integrations.providers.opencode.keySet":
-    "<code>OPENCODE_API_KEY</code> está configurada, para los modelos de pago.",
-  "integrations.providers.opencode.noKeyOffice":
-    "No hay <code>OPENCODE_API_KEY</code>. Los modelos de pago necesitan una en <link>Variables</link>.",
-  "integrations.providers.opencode.noKeyPersonal":
-    "No hay <code>OPENCODE_API_KEY</code>. Para añadir una, ve a <link>Variables</link>.",
+  "integrations.providers.opencode.pill.freeLimit": "Límite gratuito alcanzado",
+  "integrations.providers.opencode.pill.keySet": "Clave configurada",
+  "integrations.providers.opencode.pill.freeOnly": "Solo modelos gratuitos",
+  "integrations.providers.opencode.pill.noKey": "Sin clave",
+  "integrations.providers.opencode.free.title": "Modelos gratuitos",
+  "integrations.providers.opencode.free.bundled":
+    "Vienen con Isomux. No hace falta cuenta ni clave.",
+  "integrations.providers.opencode.freeLimit.keyless":
+    "Límite gratuito alcanzado {time}. Añade una clave.",
+  "integrations.providers.opencode.freeLimit.keyed":
+    "Límite gratis agotado {time}. Usa un modelo de pago.",
+  "integrations.providers.opencode.paid.title": "Modelos de pago",
+  "integrations.providers.opencode.key.none":
+    "Necesitan una clave de OpenCode.",
+  "integrations.providers.opencode.key.officeCard":
+    "Los agentes sin clave propia usan esta.",
+  "integrations.providers.opencode.key.member": "Tus agentes usan tu clave.",
+  "integrations.providers.opencode.key.officeVariable":
+    "Tus agentes usan la clave de la oficina.",
+  "integrations.providers.opencode.key.office":
+    "Tus agentes usan la clave de la oficina.",
+  "integrations.providers.opencode.key.server":
+    "Tus agentes usan la clave configurada en el servidor.",
+  "integrations.providers.opencode.paidCount.one": "{count} modelo de pago",
+  "integrations.providers.opencode.paidCount.other": "{count} modelos de pago",
+  "integrations.providers.opencode.addKey": "Añadir clave",
+  "integrations.providers.opencode.replaceKey": "Reemplazar clave",
+  "integrations.providers.opencode.keyHeading.self": "Tu clave de OpenCode",
+  "integrations.providers.opencode.keyHeading.member":
+    "La clave de OpenCode de {member}",
+  "integrations.providers.opencode.keyHeading.office":
+    "La clave de OpenCode de toda la oficina",
+  "integrations.providers.opencode.keyLabel": "Clave de API de OpenCode",
+  "integrations.providers.opencode.ownServer.title":
+    "Tu propio servidor de modelos",
+  "integrations.providers.opencode.ownServer.text":
+    "Ejecuta modelos en un servidor tuyo, como Ollama. <link>Configúralo</link>",
+  "integrations.providers.opencode.ownServer.listed":
+    "Disponibles ahora: {models}",
+  "integrations.providers.opencode.ownServer.none":
+    "Disponibles ahora: ninguno",
+  "integrations.providers.opencode.freeLimit.about":
+    "El límite gratuito de OpenCode es por red. Se restablece más adelante.",
   "integrations.providers.testSignedOut": "No hay sesión iniciada.",
   "integrations.connectionsFailed":
     "No se pudieron cargar los conectores de claude.ai ni los servidores configurados en los archivos de Claude.",
@@ -2102,6 +2137,7 @@ Cosas que puedes hacer por él:
   "apiCall.apiTokens.create": "Crear un token de API",
   "apiCall.apiTokens.revoke": "Revocar un token de API",
   "apiCall.providerAccounts.check": "Consultar las cuentas de proveedor",
+  "apiCall.openCode.status": "Consultar OpenCode",
   "apiCall.providerAccounts.signInStart":
     "Empezar el inicio de sesión con el proveedor",
   "apiCall.providerAccounts.signInCancel":

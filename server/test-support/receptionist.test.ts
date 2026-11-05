@@ -571,13 +571,23 @@ describe("receptionist profile and lobby", () => {
         fakeBackend: fake,
         startServer: { discoverWelcomeOpenCodeModels: async () => listed },
       }));
-      await claimOwner(srv, "Morgan");
+      const before = Date.now();
+      const cookie = await claimOwner(srv, "Morgan");
       expect(state.probed).toEqual([OPENCODE_DEFAULT_MODEL]);
       for (const agent of [receptionistOf(srv), freeWelcomeOf(srv)])
         expect([agent.modelFamily, agent.officeFreeModel]).toEqual([
           OPENCODE_DEFAULT_MODEL,
           OPENCODE_DEFAULT_MODEL,
         ]);
+      // Task a1e5ea01: the check's refusal is the office's record, which
+      // the Model providers tab reads.
+      const status = await api(srv, "GET", "/api/me/opencode", {
+        rawSessionId: cookie,
+      });
+      expect(status.status).toBe(200);
+      const at = (status.body as { freeLimitAt: number | null }).freeLimitAt;
+      expect(typeof at).toBe("number");
+      expect(at!).toBeGreaterThanOrEqual(before);
     });
 
     // Task a5c551e4: in place of OpenCode's error, the office's notice, with

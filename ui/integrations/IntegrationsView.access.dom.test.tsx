@@ -177,17 +177,17 @@ describe("an owner on another member's card", () => {
     expect(
       theirs.querySelector('[data-member-provider="codex"]')!.textContent,
     ).toContain(t("integrations.providers.noPersonal"));
-    // No sign-in control: the only buttons go back to yours and, from the
-    // OpenCode block, to the member's variables.
+    // No sign-in control: the only buttons go back to yours and add the
+    // member's OpenCode key.
     expect(
       [...theirs.querySelectorAll("button")].map((button) =>
         button.hasAttribute("data-back-to-yours")
           ? "back"
-          : button.hasAttribute("data-go-variables")
-            ? "variables"
+          : button.hasAttribute("data-opencode-key-edit")
+            ? "opencode-key"
             : button.outerHTML,
       ),
-    ).toEqual(["back", "variables"]);
+    ).toEqual(["back", "opencode-key"]);
     expect(fake.requests("GET", "/api/users/Stephen/env/names")).toHaveLength(
       1,
     );
