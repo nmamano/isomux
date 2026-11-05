@@ -1061,7 +1061,12 @@ App 的一些原则：
   "integrations.whatsapp.rows.add": "添加聊天",
   "integrations.whatsapp.rows.save": "添加",
   "integrations.whatsapp.rows.chat": "聊天",
-  "integrations.whatsapp.rows.byNumber": "输入号码",
+  "integrations.whatsapp.rows.chatPrompt": "选择聊天",
+  "integrations.whatsapp.rows.chatHint":
+    "你或对方发送消息后，对方会显示在这里。",
+  "integrations.whatsapp.rows.byNumber": "按电话号码添加联系人",
+  "integrations.whatsapp.rows.people": "联系人",
+  "integrations.whatsapp.rows.groups": "群组",
   "integrations.whatsapp.rows.number": "号码",
   "integrations.whatsapp.rows.name": "名称",
   "integrations.whatsapp.rows.nameHint": "智能体看到的是这个名称。",

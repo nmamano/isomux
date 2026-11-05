@@ -279,7 +279,17 @@ function sendReply(cmd: Extract<Command, { op: "send" }>): void {
 // The messages in arrival order.
 let reading: Promise<void> = Promise.resolve();
 
+// Never the linked account's own chat: every message there is the member's
+// own, so a row for it would never reach an agent.
 function announceChat(chat: string, name: string, group: boolean): void {
+  const me = state.creds.me;
+  if (
+    !group &&
+    me &&
+    (baileys.areJidsSameUser(chat, me.id) ||
+      (!!me.lid && baileys.areJidsSameUser(chat, me.lid)))
+  )
+    return;
   if (announcedChats.get(chat) === name) return;
   announcedChats.set(chat, name);
   send({ ev: "chat", chat, name, group });

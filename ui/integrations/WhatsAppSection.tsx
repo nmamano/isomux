@@ -368,15 +368,17 @@ function chatNumber(chat: string): string | null {
   return m ? `+${m[1]}` : null;
 }
 
-// The picker's "by number" choice.
-const BY_NUMBER = "";
+// The picker's prompt (nothing picked yet) and its "by number" choice. A
+// chat id always holds "@", so neither is a chat.
+const NO_CHAT = "";
+const BY_NUMBER = "#number";
 
 // The contact rows of a linked member: which WhatsApp chats reach which of
 // their agents. `holdRows`: a held card's copy, with that many placeholder
 // rows and no reads.
 function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const { t } = useI18n();
-  const { agents, sessionContext } = useAppState();
+  const { agents, rooms, sessionContext } = useAppState();
   const environmentWrite = useCan("environment", "write");
   const selfId = sessionContext?.userId ?? null;
   const [routes, setRoutes] = useState<WhatsAppRoute[] | null>(null);
@@ -384,7 +386,7 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<PlainMessageKey | null>(null);
-  const [chat, setChat] = useState(BY_NUMBER);
+  const [chat, setChat] = useState(NO_CHAT);
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [agentId, setAgentId] = useState("");
@@ -396,11 +398,26 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
     (a) =>
       selfId !== null && a.userId === selfId && agentAccessOf(a) !== "chat",
   );
+  // The agent picker: by room in office order, desk order inside one; an
+  // agent in a room this member does not see comes last, ungrouped.
+  const byRoom = rooms
+    .map((room) => ({
+      room,
+      agents: mine
+        .filter((a) => a.roomId === room.id)
+        .sort((a, b) => a.desk - b.desk),
+    }))
+    .filter((g) => g.agents.length > 0);
+  const roomless = mine.filter((a) => !rooms.some((r) => r.id === a.roomId));
+  const agentChoices = [...byRoom.flatMap((g) => g.agents), ...roomless];
   const agentName = (id: string) =>
     agents.find((a) => a.id === id)?.name ?? null;
   const picked = chats.find((c) => c.chat === chat) ?? null;
   const group = picked?.group ?? false;
   const routed = new Set(routes?.map((r) => r.chat));
+  const free = chats.filter((c) => !routed.has(c.chat));
+  const people = free.filter((c) => !c.group);
+  const groups = free.filter((c) => c.group);
   const agent = mine.find((a) => a.id === agentId) ?? null;
 
   const load = () =>
@@ -424,10 +441,10 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   function openForm() {
     setAdding(true);
     setError(null);
-    setChat(BY_NUMBER);
+    setChat(NO_CHAT);
     setPhone("");
     setName("");
-    setAgentId(mine[0]?.id ?? "");
+    setAgentId(agentChoices[0]?.id ?? "");
     setTrigger("mention");
     apiFetch<WhatsAppChatSeen[]>("GET", "/api/whatsapp/chats")
       .then(setChats)
@@ -475,6 +492,7 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   }
 
   const ready =
+    chat !== NO_CHAT &&
     name.trim() !== "" &&
     agent !== null &&
     (chat !== BY_NUMBER || phone.trim() !== "");
@@ -568,25 +586,39 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
           }}
           style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 4 }}
         >
-          <Field label={t("integrations.whatsapp.rows.chat")}>
+          <Field
+            label={t("integrations.whatsapp.rows.chat")}
+            hint={t("integrations.whatsapp.rows.chatHint")}
+          >
             <select
               name="whatsappChat"
               value={chat}
               onChange={(e) => pick(e.target.value)}
               style={{ ...input, width: "100%" }}
             >
-              <option value={BY_NUMBER}>
+              <option value={NO_CHAT} disabled>
+                {t("integrations.whatsapp.rows.chatPrompt")}
+              </option>
+              <option value={BY_NUMBER} data-whatsapp-by-number="">
                 {t("integrations.whatsapp.rows.byNumber")}
               </option>
-              {chats
-                .filter((c) => !routed.has(c.chat))
-                .map((c) => (
-                  <option key={c.chat} value={c.chat}>
-                    {c.group
-                      ? `${c.name} · ${t("integrations.whatsapp.rows.group")}`
-                      : c.name}
-                  </option>
-                ))}
+              {(
+                [
+                  ["integrations.whatsapp.rows.people", people],
+                  ["integrations.whatsapp.rows.groups", groups],
+                ] as const
+              ).map(
+                ([label, list]) =>
+                  list.length > 0 && (
+                    <optgroup key={label} label={t(label)}>
+                      {list.map((c) => (
+                        <option key={c.chat} value={c.chat}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ),
+              )}
             </select>
           </Field>
           {chat === BY_NUMBER && (
@@ -625,7 +657,16 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
                 onChange={(e) => setAgentId(e.target.value)}
                 style={{ ...input, width: "100%" }}
               >
-                {mine.map((a) => (
+                {byRoom.map(({ room, agents: inRoom }) => (
+                  <optgroup key={room.id} label={room.name}>
+                    {inRoom.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                {roomless.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>

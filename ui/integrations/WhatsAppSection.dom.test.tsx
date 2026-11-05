@@ -23,6 +23,7 @@ type WhatsAppRoute = import("../../shared/whatsapp.ts").WhatsAppRoute;
 type WhatsAppChatSeen = import("../../shared/whatsapp.ts").WhatsAppChatSeen;
 type AppState = import("../store.tsx").AppState;
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
+type RoomWire = import("../../shared/types.ts").RoomWire;
 
 let current: WhatsAppStatus = { state: "unlinked" };
 let calls: { method: string; path: string; body: unknown }[] = [];
@@ -255,6 +256,148 @@ async function change(el: HTMLInputElement | HTMLSelectElement, value: string) {
 }
 const posts = () =>
   calls.filter((c) => c.method === "POST" && c.path === "/api/whatsapp/routes");
+// The picker's "add a person by phone number" choice.
+const byNumber = (form: Element) => {
+  const el = form.querySelector("option[data-whatsapp-by-number]");
+  if (!(el instanceof HTMLOptionElement))
+    throw new Error("no by-number option");
+  return el;
+};
+const saveDisabled = (form: Element) =>
+  (form.querySelector("[data-panel-save]") as HTMLButtonElement).disabled;
+// Where an option sits: the index of its optgroup in the select, or -1 at
+// the top level.
+const groupOf = (select: HTMLSelectElement, value: string) => {
+  const opt = [...select.options].find((o) => o.value === value);
+  if (!opt) throw new Error(`no option ${value}`);
+  const parent = opt.parentElement;
+  return parent instanceof HTMLOptGroupElement
+    ? [...select.querySelectorAll("optgroup")].indexOf(parent)
+    : -1;
+};
+const groupValues = (select: HTMLSelectElement) =>
+  [...select.querySelectorAll("optgroup")].map((g) =>
+    [...g.querySelectorAll("option")].map((o) => o.value),
+  );
+
+it("the chat picker opens on a disabled prompt and Add waits for a pick; people and groups each have their own group in the server's order, by number above them", async () => {
+  current = LINKED;
+  const DAD = "447700900124@s.whatsapp.net";
+  const WORK = "120363000000000002@g.us";
+  // Newest first, people and groups mixed, as the server sends them.
+  seenChats = [
+    { chat: FAMILY, name: "Family", group: true },
+    { chat: MOM, name: "Mom", group: false },
+    { chat: WORK, name: "Work", group: true },
+    { chat: DAD, name: "Dad", group: false },
+  ];
+  const s = await show({ agents: AGENTS });
+  const form = await openAdd(s);
+  const picker = field(form, "whatsappChat") as HTMLSelectElement;
+
+  // Nothing picked: the selected option is a disabled prompt, no number
+  // field, and Add stays disabled even with a name and an agent.
+  expect(picker.selectedOptions[0]?.disabled).toBe(true);
+  expect(groupOf(picker, picker.value)).toBe(-1);
+  expect(form.querySelector('[name="whatsappRowPhone"]')).toBeNull();
+  await change(field(form, "whatsappRowName"), "Someone");
+  expect((field(form, "whatsappRowAgent") as HTMLSelectElement).value).not.toBe(
+    "",
+  );
+  expect(saveDisabled(form)).toBe(true);
+
+  // By number: its own top-level option, after the prompt and before the
+  // groups; it shows the number field, and a number makes Add ready.
+  const top = [...picker.children].map((c) => c.tagName);
+  expect(top).toEqual(["OPTION", "OPTION", "OPTGROUP", "OPTGROUP"]);
+  expect(byNumber(form).disabled).toBe(false);
+  expect(byNumber(form).parentElement?.tagName).toBe("SELECT");
+  await change(picker, byNumber(form).value);
+  expect(saveDisabled(form)).toBe(true);
+  await change(field(form, "whatsappRowPhone"), "+44 7700 900125");
+  expect(saveDisabled(form)).toBe(false);
+
+  // People first, then groups; each in the server's order.
+  expect(groupValues(picker)).toEqual([
+    [MOM, DAD],
+    [FAMILY, WORK],
+  ]);
+  // A pick from the list needs no number.
+  await change(picker, WORK);
+  expect(form.querySelector('[name="whatsappRowPhone"]')).toBeNull();
+  expect(saveDisabled(form)).toBe(false);
+});
+
+it("the chat picker leaves out an empty group, and opens on the prompt again after a pick", async () => {
+  current = LINKED;
+  seenChats = [{ chat: FAMILY, name: "Family", group: true }];
+  const s = await show({ agents: AGENTS });
+  let form = await openAdd(s);
+  let picker = field(form, "whatsappChat") as HTMLSelectElement;
+  expect(groupValues(picker)).toEqual([[FAMILY]]);
+  expect(groupOf(picker, FAMILY)).toBe(0);
+
+  await change(picker, FAMILY);
+  expect(picker.value).toBe(FAMILY);
+  // Cancel: the button before Save.
+  const cancel =
+    form.querySelector("[data-panel-save]")?.previousElementSibling;
+  if (!(cancel instanceof HTMLButtonElement)) throw new Error("no cancel");
+  await act(async () => {
+    fireEvent.click(cancel);
+  });
+  expect(s.q("[data-whatsapp-add-form]")).toBeNull();
+  form = await openAdd(s);
+  picker = field(form, "whatsappChat") as HTMLSelectElement;
+  expect(picker.selectedOptions[0]?.disabled).toBe(true);
+  expect(saveDisabled(form)).toBe(true);
+});
+
+it("the agent picker groups the member's agents by room, in the office's room order and desk order, and starts on the first", async () => {
+  current = LINKED;
+  const room = (id: string, name: string) =>
+    ({ id, name, prompt: null, canCloseWhenEmpty: true }) as RoomWire;
+  const placed = (
+    id: string,
+    roomId: string,
+    desk: number,
+    userId = "u1",
+    access = "office",
+  ) => ({ ...agent(id, id, userId, access), roomId, desk }) as AgentInfo;
+  const s = await show({
+    // Office order: Beta before Alpha; Empty holds none of the member's.
+    rooms: [room("rb", "Beta"), room("rx", "Empty"), room("ra", "Alpha")],
+    agents: [
+      placed("a1", "ra", 0),
+      placed("b2", "rb", 3),
+      placed("b1", "rb", 1),
+      placed("a-talk", "ra", 2, "u1", "chat"),
+      placed("x-other", "rx", 0, "u2"),
+    ],
+  });
+  const form = await openAdd(s);
+  const select = field(form, "whatsappRowAgent") as HTMLSelectElement;
+  expect(groupValues(select)).toEqual([["b1", "b2"], ["a1"]]);
+  expect(select.value).toBe("b1");
+});
+
+it("an agent whose room the member does not see is still a choice", async () => {
+  current = LINKED;
+  const s = await show({
+    rooms: [],
+    agents: [
+      {
+        ...agent("lost", "Lost", "u1", "office"),
+        roomId: "gone",
+        desk: 0,
+      } as AgentInfo,
+    ],
+  });
+  const form = await openAdd(s);
+  const select = field(form, "whatsappRowAgent") as HTMLSelectElement;
+  expect([...select.options].map((o) => o.value)).toEqual(["lost"]);
+  expect(select.value).toBe("lost");
+});
 
 it("lists the rows with their number or group, agent, trigger and a dead marker; Delete removes one", async () => {
   current = LINKED;
@@ -361,6 +504,7 @@ it("adds a contact by number: one POST with the number; a refused number and a t
   current = LINKED;
   const s = await show({ agents: AGENTS });
   const form = await openAdd(s);
+  await change(field(form, "whatsappChat"), byNumber(form).value);
   await change(field(form, "whatsappRowPhone"), "+44 7700 900124");
   await change(field(form, "whatsappRowName"), "Dad");
   const lineFor = async (status: number, code: string) => {

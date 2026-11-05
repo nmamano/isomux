@@ -1161,7 +1161,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.whatsapp.rows.add": "Add a chat",
   "integrations.whatsapp.rows.save": "Add",
   "integrations.whatsapp.rows.chat": "Chat",
-  "integrations.whatsapp.rows.byNumber": "Enter a number",
+  "integrations.whatsapp.rows.chatPrompt": "Choose a chat",
+  "integrations.whatsapp.rows.chatHint":
+    "A person shows here after you or they send a message.",
+  "integrations.whatsapp.rows.byNumber": "Add a person by phone number",
+  "integrations.whatsapp.rows.people": "People",
+  "integrations.whatsapp.rows.groups": "Groups",
   "integrations.whatsapp.rows.number": "Number",
   "integrations.whatsapp.rows.name": "Name",
   "integrations.whatsapp.rows.nameHint": "The agent sees this name.",

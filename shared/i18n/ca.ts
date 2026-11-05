@@ -1180,7 +1180,13 @@ Coses que pots fer per ell:
   "integrations.whatsapp.rows.add": "Afegeix un xat",
   "integrations.whatsapp.rows.save": "Afegeix",
   "integrations.whatsapp.rows.chat": "Xat",
-  "integrations.whatsapp.rows.byNumber": "Escriu un número",
+  "integrations.whatsapp.rows.chatPrompt": "Tria un xat",
+  "integrations.whatsapp.rows.chatHint":
+    "Una persona apareix aquí quan un dels dos envia un missatge.",
+  "integrations.whatsapp.rows.byNumber":
+    "Afegeix una persona pel número de telèfon",
+  "integrations.whatsapp.rows.people": "Persones",
+  "integrations.whatsapp.rows.groups": "Grups",
   "integrations.whatsapp.rows.number": "Número",
   "integrations.whatsapp.rows.name": "Nom",
   "integrations.whatsapp.rows.nameHint": "L’agent veu aquest nom.",

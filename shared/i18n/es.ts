@@ -1179,7 +1179,13 @@ Cosas que puedes hacer por él:
   "integrations.whatsapp.rows.add": "Añadir un chat",
   "integrations.whatsapp.rows.save": "Añadir",
   "integrations.whatsapp.rows.chat": "Chat",
-  "integrations.whatsapp.rows.byNumber": "Escribir un número",
+  "integrations.whatsapp.rows.chatPrompt": "Elige un chat",
+  "integrations.whatsapp.rows.chatHint":
+    "Una persona aparece aquí cuando uno de los dos envía un mensaje.",
+  "integrations.whatsapp.rows.byNumber":
+    "Añadir una persona por número de teléfono",
+  "integrations.whatsapp.rows.people": "Personas",
+  "integrations.whatsapp.rows.groups": "Grupos",
   "integrations.whatsapp.rows.number": "Número",
   "integrations.whatsapp.rows.name": "Nombre",
   "integrations.whatsapp.rows.nameHint": "El agente ve este nombre.",

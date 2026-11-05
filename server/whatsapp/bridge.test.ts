@@ -39,7 +39,9 @@ export async function fetchLatestWaWebVersion() {
 }
 export const Browsers = { ubuntu: (n) => ["Ubuntu", n, "1"] };
 export const jidNormalizedUser = (j) => j;
-export const areJidsSameUser = (a, b) => a === b;
+// As Baileys: the user part only, without the device or the server.
+const userOf = (j) => (typeof j === "string" ? j.split("@")[0].split(":")[0].split("_")[0] : undefined);
+export const areJidsSameUser = (a, b) => userOf(a) === userOf(b);
 export const normalizeMessageContent = (m) => m;
 // As Baileys: content, and not a protocol message, a reaction or a poll vote.
 export const isRealMessage = (m) => !!m.message && !m.message.protocolMessage && !m.message.reactionMessage && !m.message.pollUpdateMessage;
@@ -57,6 +59,10 @@ export default function makeSocket(config) {
     oddRefresh: () => ws.emit("CB:notification,type:companion_reg_refresh", { tag: "notification", attrs: {}, content: [{ tag: "other", attrs: {} }] }),
     paired: () => { creds.me = { id: "447700900123:4@s.whatsapp.net" }; creds.account = {}; ev.emit("creds.update", creds); },
     messages: () => ev.emit("messages.upsert", { messages: s.messages, type: "notify" }),
+    // The linked account, as a linked device sees itself: a device suffix on
+    // both forms of its id.
+    me: () => { creds.me = { id: "447700900123:4@s.whatsapp.net", lid: "999:4@lid" }; },
+    contacts: () => ev.emit("contacts.upsert", s.contacts),
     close: () => ev.emit("connection.update", { connection: "close", lastDisconnect: { error: { message: "QR refs attempts ended", output: { statusCode: 408 } } } }),
   };
   let i = 0;
@@ -90,6 +96,7 @@ type Scenario = {
   codeFails?: boolean;
   // For the messages step: the batch, the LID -> PN lookup, the routed chats.
   messages?: unknown[];
+  contacts?: unknown[];
   lids?: Record<string, string>;
   routes?: string[];
 };
@@ -322,5 +329,61 @@ describe("whatsapp bridge", () => {
       .map((e) => JSON.stringify(e))
       .join("\n");
     expect(text).not.toContain("secret text");
+  });
+
+  // The picker leaves out the member's own chat: inbound drops every message
+  // the member sent, so a row for it would never reach the agent.
+  test("the linked account's own chat is never announced, under its number or its LID; other chats are", async () => {
+    const SELF_PN = "447700900123@s.whatsapp.net";
+    const msg = (n: number, key: Record<string, unknown>) => ({
+      key: { id: `M${n}`, ...key },
+      messageTimestamp: 1_700_000_000 + n,
+      message: { conversation: "hi" },
+    });
+    const chatsOf = (events: Ev[]) =>
+      events
+        .filter((e) => e.ev === "chat")
+        .map((e) => String(e.chat))
+        .sort();
+    const [contacts, messages] = await Promise.all([
+      run(
+        {
+          steps: ["me", "contacts"],
+          versionLatest: true,
+          contacts: [
+            { id: SELF_PN, name: "Me" },
+            { id: "999@lid", name: "Me too" },
+            { id: "447700900555@s.whatsapp.net", name: "Ana" },
+            { id: "888@lid", name: "Bo" },
+          ],
+        },
+        { method: "qr" },
+      ),
+      // No saved names: each chat with a message shows as its number.
+      run(
+        {
+          steps: ["me", "messages"],
+          versionLatest: true,
+          lids: {
+            "999@lid": SELF_PN,
+            "777@lid": "447700900777@s.whatsapp.net",
+          },
+          messages: [
+            msg(1, { remoteJid: SELF_PN, fromMe: true }),
+            msg(2, { remoteJid: "999@lid", fromMe: true }),
+            msg(3, { remoteJid: "447700900666@s.whatsapp.net" }),
+            msg(4, { remoteJid: "777@lid" }),
+          ],
+        },
+        { method: "qr" },
+      ),
+    ]);
+    expect({
+      contacts: chatsOf(contacts.events),
+      messages: chatsOf(messages.events),
+    }).toEqual({
+      contacts: ["447700900555@s.whatsapp.net", "888@lid"],
+      messages: ["447700900666@s.whatsapp.net", "447700900777@s.whatsapp.net"],
+    });
   });
 });
