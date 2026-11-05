@@ -17,6 +17,7 @@ import { claudeProjectDir } from "../cwd-utils.ts";
 import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 import { createAgentManager, type LimitResumeClock } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
+import { english } from "../i18n.ts";
 import {
   getSessionClaudeConfigDir,
   loadAgents,
@@ -56,6 +57,7 @@ import {
   DEFAULT_AGENT_CAPABILITIES,
   type AgentCapabilities,
   type AgentInfo,
+  type BackgroundTask,
   type LogEntry,
   type RoomWire,
 } from "../../shared/types.ts";
@@ -686,6 +688,88 @@ describe("the member's other agents", () => {
       await endTurn(h, b.id, moved);
     });
   }
+
+  // Background work (task 28093a03): the move closes the process, so the
+  // agent is told which work it ended.
+  const TASKS: BackgroundTask[] = [
+    { id: "b1", kind: "command", label: "npm run build" },
+    { id: "a1", kind: "agent", label: "Review the diff" },
+  ];
+  async function setBackground(h: Harness, id: string, s: FakeSession) {
+    s.push({ kind: "background_tasks", tasks: TASKS });
+    await waitUntil(
+      () => (h.mgr.getAgent(id)?.backgroundTasks?.length ?? 0) === TASKS.length,
+      "background list set",
+    );
+  }
+  const namesEnded = (text: string) =>
+    TASKS.every((task) => text.includes(task.label));
+  const ENV_LINE = english.t("systemEntries.wake.env");
+
+  it("a move that ends background work names it to the agent", async () => {
+    const h = makeHarness();
+    const { b, s } = await onOwnSignIn(h);
+    await setBackground(h, b.id, s);
+    await stopA(h);
+
+    void h.mgr.sendMessage(b.id, "from Alice", "Alice");
+    await waitUntil(
+      () => !!sessionWith(h, b.id, (t) => t.includes("from Alice")),
+      "B's turn sent",
+    );
+    const moved = sessionWith(h, b.id, (t) => t.includes("from Alice"))!;
+    expect(s.closed).toBe(true);
+    expect(accountOf(moved)).toBe(officeDir("claude"));
+    expect(
+      namesEnded(texts(moved).find((t) => t.includes("from Alice"))!),
+    ).toBe(true);
+    await endTurn(h, b.id, moved);
+  });
+
+  it("a move of an agent an environment change marked: the agent is told both, and the next turn stays on the moved process", async () => {
+    const h = makeHarness();
+    const { b, s } = await onOwnSignIn(h);
+    await setBackground(h, b.id, s);
+    // Background work holds the mark: no release yet.
+    h.mgr.envChanged([{ kind: "user", userId: aliceId() }]);
+    await settle();
+    expect(s.closed).toBe(false);
+    await stopA(h);
+
+    // A queued message: the flush moves the account before it looks at the
+    // mark.
+    expect(
+      h.mgr.enqueueMessage(b.id, { sender: OTHER, text: "from Other" }).ok,
+    ).toBe(true);
+    await waitUntil(
+      () => !!sessionWith(h, b.id, (t) => t.includes("from Other")),
+      "B's turn sent",
+    );
+    const moved = sessionWith(h, b.id, (t) => t.includes("from Other"))!;
+    expect(s.closed).toBe(true);
+    expect(accountOf(moved)).toBe(officeDir("claude"));
+    const first = texts(moved).find((t) => t.includes("from Other"))!;
+    expect(first).toContain(ENV_LINE);
+    expect(namesEnded(first)).toBe(true);
+    await endTurn(h, b.id, moved);
+
+    // The moved process started with the current environment.
+    const count = sessionsOf(h, b.id).length;
+    expect(
+      h.mgr.enqueueMessage(b.id, { sender: OTHER, text: "second from Other" })
+        .ok,
+    ).toBe(true);
+    await waitUntil(
+      () => !!sessionWith(h, b.id, (t) => t.includes("second from Other")),
+      "second turn sent",
+    );
+    expect(
+      sessionWith(h, b.id, (t) => t.includes("second from Other")) === moved,
+    ).toBe(true);
+    expect(sessionsOf(h, b.id)).toHaveLength(count);
+    expect(moved.closed).toBe(false);
+    await endTurn(h, b.id, moved);
+  });
 
   it("a stop of one model family's weekly limit moves only that family's agents", async () => {
     const h = makeHarness();

@@ -9,7 +9,7 @@ import { join } from "path";
 
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
-import type { RoomWire } from "../../shared/types.ts";
+import type { BackgroundTask, RoomWire } from "../../shared/types.ts";
 import { english } from "../i18n.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
@@ -242,6 +242,194 @@ describe("when the release happens", () => {
     expect(busySession.sent.some((m) => m.text.includes("queued-next"))).toBe(
       false,
     );
+  });
+});
+
+// Background work (task 28093a03): a change does not end it while the agent
+// is idle. The mark waits for the next turn, which starts on a new process and
+// tells the agent which work the release ended, or for the idle release at the
+// background cap. A background list that clears releases nothing by itself:
+// the engine's own turn with the result runs right then.
+describe("an agent with background work", () => {
+  const TASKS: BackgroundTask[] = [
+    { id: "b1", kind: "command", label: "npm run build" },
+    { id: "a1", kind: "agent", label: "Review the diff" },
+  ];
+
+  async function setBackground(
+    mgr: Manager,
+    fake: FakeBackend,
+    id: string,
+    tasks: BackgroundTask[],
+  ) {
+    fake.sessionForAgent(id)!.push({ kind: "background_tasks", tasks });
+    await waitUntil(
+      () => (mgr.getAgent(id)?.backgroundTasks?.length ?? 0) === tasks.length,
+      "background list set",
+    );
+  }
+
+  // Sends one message, waits for its turn to end, and returns the session it
+  // ran on and its text.
+  async function turn(
+    mgr: Manager,
+    fake: FakeBackend,
+    id: string,
+    text: string,
+    how: "queued" | "direct" = "queued",
+  ) {
+    if (how === "queued") send(mgr, id, text);
+    else void mgr.sendMessage(id, text, "tester");
+    const ranOn = () =>
+      fake.sessions.find(
+        (s) =>
+          s.opts.agentId === id && s.sent.some((m) => m.text.includes(text)),
+      );
+    await waitUntil(
+      () =>
+        !!ranOn() &&
+        ["idle", "waiting_for_response"].includes(mgr.getAgent(id)!.state),
+      `turn "${text}" ran`,
+    );
+    const session = ranOn()!;
+    return {
+      session,
+      text: session.sent.find((m) => m.text.includes(text))!.text,
+    };
+  }
+
+  const envLine = english.t("systemEntries.wake.env");
+  const namesEnded = (text: string) =>
+    TASKS.every((task) => text.includes(task.label));
+  const namesAnyEnded = (text: string) =>
+    TASKS.some((task) => text.includes(task.label));
+
+  it("an idle agent keeps its process; the list clearing does not release it; the next turn runs on a new process, told of the change only", async () => {
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnLive(mgr, "Builder", "u-alice");
+    await setBackground(mgr, fake, id, TASKS);
+    const first = fake.sessionForAgent(id)!;
+
+    mgr.envChanged([{ kind: "user", userId: "u-alice" }]);
+    await sleep(100);
+    expect(dormant(mgr, id)).toBe(false);
+    expect(first.closed).toBe(false);
+
+    // The work ends. The engine starts its own turn with the result now, so
+    // the process stays.
+    first.push({ kind: "background_tasks", tasks: [] });
+    await waitUntil(
+      () => (mgr.getAgent(id)?.backgroundTasks ?? null) === null,
+      "background list cleared",
+    );
+    await sleep(100);
+    expect(dormant(mgr, id)).toBe(false);
+    expect(first.closed).toBe(false);
+
+    // The next turn: the mark still holds, so it starts a new process.
+    const next = await turn(mgr, fake, id, "after-build");
+    expect(next.session === first).toBe(false);
+    expect(first.closed).toBe(true);
+    expect(first.sent.some((m) => m.text.includes("after-build"))).toBe(false);
+    expect(next.text).toContain(envLine);
+    expect(namesAnyEnded(next.text)).toBe(false);
+  });
+
+  it("a busy agent whose turn starts background work keeps its process when the turn ends", async () => {
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnLive(mgr, "BusyBuilder", "u-alice");
+    send(mgr, id, "hold");
+    await waitUntil(
+      () => fake.sessionForAgent(id)!.sent.some((m) => m.text.includes("hold")),
+      "busy",
+    );
+    const first = fake.sessionForAgent(id)!;
+    mgr.envChanged([{ kind: "user", userId: "u-alice" }]);
+    await setBackground(mgr, fake, id, TASKS);
+    first.completeTurn({ text: "started the build" });
+    await waitUntil(
+      () => mgr.getAgent(id)?.state === "waiting_for_response",
+      "turn ended",
+    );
+    await sleep(100);
+    expect(dormant(mgr, id)).toBe(false);
+    expect(first.closed).toBe(false);
+
+    // The mark held: the work ends, and the next turn starts a new process.
+    first.push({ kind: "background_tasks", tasks: [] });
+    await waitUntil(
+      () => (mgr.getAgent(id)?.backgroundTasks ?? null) === null,
+      "background list cleared",
+    );
+    const next = await turn(mgr, fake, id, "after-build");
+    expect(next.session === first).toBe(false);
+    expect(next.text).toContain(envLine);
+  });
+
+  // Both turn starts: a queued message (the flush) and a member's message
+  // (sendMessage).
+  for (const how of ["queued", "direct"] as const) {
+    it(`a turn that starts while the work runs starts on a new process, and the agent is told the change and the work it ended: ${how}`, async () => {
+      setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
+      const fake = makeFake();
+      const mgr = makeManager(fake);
+      const id = await spawnLive(mgr, "Interrupted", "u-alice");
+      await setBackground(mgr, fake, id, TASKS);
+      const first = fake.sessionForAgent(id)!;
+      mgr.envChanged([{ kind: "office" }]);
+
+      const next = await turn(mgr, fake, id, "secret saved", how);
+      expect(next.session === first).toBe(false);
+      expect(first.closed).toBe(true);
+      expect(first.sent.some((m) => m.text.includes("secret saved"))).toBe(
+        false,
+      );
+      expect(next.text).toContain(envLine);
+      expect(namesEnded(next.text)).toBe(true);
+      // The member's transcript says it too.
+      const logs = mgr
+        .getAgentLogs(id)
+        .map((e) => String(e.content ?? ""))
+        .join("\n");
+      expect(namesEnded(logs)).toBe(true);
+    });
+  }
+
+  it("the idle release at the background cap releases a marked agent once: the wake names the change and the ended work, and the next turn stays on that process", async () => {
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnLive(mgr, "Capped", "u-alice");
+    await setBackground(mgr, fake, id, TASKS);
+    const first = fake.sessionForAgent(id)!;
+    mgr.envChanged([{ kind: "user", userId: "u-alice" }]);
+    await sleep(100);
+    expect(dormant(mgr, id)).toBe(false);
+
+    // Under the cap: held. At the cap: released.
+    expect(await mgr.sweepIdleAgents(0, 60_000)).toBe(0);
+    expect(first.closed).toBe(false);
+    expect(await mgr.sweepIdleAgents(0, 0)).toBe(1);
+    expect(dormant(mgr, id)).toBe(true);
+
+    const woke = await turn(mgr, fake, id, "wake-up-turn");
+    expect(woke.session === first).toBe(false);
+    expect(woke.text).toContain(envLine);
+    expect(namesEnded(woke.text)).toBe(true);
+    seedSession(mgr, id);
+
+    // The new process has the current environment: no second release, at
+    // the end of the wake turn or at the next turn.
+    await sleep(50);
+    expect(woke.session.closed).toBe(false);
+    const again = await turn(mgr, fake, id, "again");
+    expect(again.session === woke.session).toBe(true);
+    expect(woke.session.closed).toBe(false);
+    expect(again.text).not.toContain(envLine);
   });
 });
 

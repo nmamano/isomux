@@ -27,6 +27,7 @@ import {
   limitedClaudeFamiliesForUserId,
 } from "./env-loader.ts";
 import { getAgentTokenRaw } from "./identity/tokens.ts";
+import { prepareRelease } from "./idle-release.ts";
 import {
   inMultiStepFlow,
   type AgentEvent,
@@ -102,6 +103,12 @@ export interface SessionAccountsDeps {
   limitResumeClock: LimitResumeClock;
   providerFallback: ManagerDeps["providerFallback"];
   fallbackOfficeAccount: ManagerDeps["fallbackOfficeAccount"];
+  // After the switch installs the new process: what its close carried (an
+  // environment change, ended background work) reaches the agent.
+  noteSwitchRelease: (
+    managed: ManagedAgent,
+    reason: ManagedAgent["dormantReason"],
+  ) => void;
 }
 
 export function createSessionAccounts(deps: SessionAccountsDeps) {
@@ -414,7 +421,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     if (accountSwitchBlocked(managed)) return "same";
     const sessionId = sm.sessionId;
     if (liveMoves) {
-      managed.dormantReason = "idle";
+      prepareRelease(managed, "idle");
       await sm.closeAndDrainSession(managed);
     }
     // Claude and Codex keep the conversation in the account folder.
@@ -501,16 +508,20 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
   }
 
   // The check closed the live session: the conversation resumes at once,
-  // with no wake line. A failure leaves no session; the wake that follows
-  // reports it.
+  // with no wake line unless the close carried an environment change or
+  // ended background work (noteSwitchRelease). A failure leaves no session;
+  // the wake that follows reports it.
   function reinstallAfterAccountCheck(managed: ManagedAgent): void {
     if (managed.sessionManager.session) return;
     try {
       const sessionId = pickAutoResumeSessionId(managed);
+      // Read before installSession clears it.
+      const reason = managed.dormantReason;
       managed.sessionManager.installSession(
         managed,
         sessionId ? createSession(managed, sessionId) : createSession(managed),
       );
+      deps.noteSwitchRelease(managed, reason);
     } catch (err) {
       console.error(
         `[provider-fallback] ${managed.info.id}: no session after the account check:`,

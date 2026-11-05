@@ -381,9 +381,10 @@ export interface ManagedAgent {
   // The members who opened this terminal session, for the one terminal.join
   // audit row per member. Reset when the session ends.
   ptyMembers?: Set<string>;
-  // The same change, while the agent's process was busy: the process is
-  // released when its turn ends, so the next turn starts with the current
-  // secrets and variables.
+  // The same change, while the agent's process was busy or ran background
+  // work: the process is released when its turn ends (busy) or before its
+  // next turn starts, so that turn has the current secrets and variables.
+  // A new process clears it (installSession).
   envStale?: boolean;
   // /isomux-usage tracking. The SDK's `result` reports session-cumulative totals,
   // which are written to sessions.json on every turn (`usage` field) along
@@ -475,8 +476,9 @@ export interface ManagedAgent {
   // consumer released
   // the dead session pointer. Null while live. In-memory only.
   dormantReason: DormantReason;
-  // The background work an idle release ended (sweepIdleAgents past
-  // BACKGROUND_HOLD_MS), else null. Set at every idle release; the wake
+  // The background work a release ended (the idle sweep past
+  // BACKGROUND_HOLD_MS, an environment change at a turn start, an account
+  // switch), else null. Set at every such release (prepareRelease); the wake
   // after it names the tasks to the agent, which would otherwise wait for
   // completion notices that never come. In-memory only.
   releasedBackgroundTasks: BackgroundTask[] | null;

@@ -2,7 +2,11 @@ import type { AuditActor } from "../shared/audit.ts";
 import type { PagerStore } from "./pager-store.ts";
 import { createTaskStore } from "./task-store.ts";
 import { claudeConfigRoot } from "./claude-session-root.ts";
-import { BACKGROUND_HOLD_MS, IDLE_EVICT_MS } from "./idle-release.ts";
+import {
+  BACKGROUND_HOLD_MS,
+  IDLE_EVICT_MS,
+  prepareRelease,
+} from "./idle-release.ts";
 import {
   claudeConnectorGeneration,
   forgetClaudeEngineServers,
@@ -17,6 +21,7 @@ import type {
   AgentOutfit,
   AgentState,
   Attachment,
+  BackgroundTask,
   EffortLevel,
   LogEntry,
   OfficeSettings,
@@ -966,6 +971,7 @@ export function createAgentManager(deps: ManagerDeps) {
     limitResumeClock,
     providerFallback: deps.providerFallback,
     fallbackOfficeAccount: deps.fallbackOfficeAccount,
+    noteSwitchRelease: (managed, reason) => noteSwitchRelease(managed, reason),
   });
   // Skill menus, member skill folders and the OpenCode server environment
   // (server/agent-skills.ts). Built as early as its deps exist.
@@ -2484,8 +2490,8 @@ export function createAgentManager(deps: ManagerDeps) {
     }
 
     // A process that an environment change marked while it was busy is released
-    // at the end of its turn. A queued message does not wait for this: the
-    // flush releases it itself before it sends.
+    // at the end of its turn, unless it runs background work. A queued message
+    // does not wait for this: the flush releases it itself before it sends.
     if (state !== prev && isQueueIdleState(state) && managed.envStale)
       releaseForEnv(agentId);
 
@@ -4092,6 +4098,31 @@ export function createAgentManager(deps: ManagerDeps) {
   // dormant; this sweep re-demotes agents that woke and then went quiet again.
   let demoteCount = 0;
 
+  function backgroundEndedLine(ended: BackgroundTask[]): LogText {
+    return msg("systemEntries.wake.backgroundEnded", {
+      tasks: ended.map((t) => t.label).join("; "),
+    });
+  }
+
+  // An account switch resumes the conversation on a new process at once,
+  // with no wake (session-accounts.ts). When the close carried an
+  // environment change or ended background work, the member and the agent
+  // hear of it as they would at a wake; a plain switch stays silent.
+  function noteSwitchRelease(
+    managed: ManagedAgent,
+    reason: ManagedAgent["dormantReason"],
+  ): void {
+    const ended = managed.releasedBackgroundTasks;
+    managed.releasedBackgroundTasks = null;
+    const parts: LogText[] = [];
+    if (reason === "env") parts.push(msg("systemEntries.wake.env"));
+    if (ended) parts.push(backgroundEndedLine(ended));
+    if (parts.length === 0) return;
+    const log = joinLogText(parts, " ");
+    managed.wakeNotice = renderLogText(english, log);
+    addLogEntry(managed.info.id, "system", log);
+  }
+
   // Wake-message wording, accurate to WHY the agent was dormant: a sweep-demoted
   // agent was released for idleness; a lazy-restored one was released by a
   // server (re)start. A genuine crash uses each wake path's own wording.
@@ -4136,7 +4167,10 @@ export function createAgentManager(deps: ManagerDeps) {
     // variables.
     if (reason === "env") {
       const env = msg("systemEntries.wake.env");
-      return { log: env, note: renderLogText(english, env) };
+      const log = ended
+        ? joinLogText([env, backgroundEndedLine(ended)], " ")
+        : env;
+      return { log, note: renderLogText(english, log) };
     }
     if (reason !== "boot" && reason !== "stream-ended") {
       // Its transcript still calls the work running, and no completion
@@ -4144,12 +4178,7 @@ export function createAgentManager(deps: ManagerDeps) {
       if (reason !== "idle" || !ended)
         return { log: msg("systemEntries.wake.idle"), note: null };
       const log = joinLogText(
-        [
-          msg("systemEntries.wake.idle"),
-          msg("systemEntries.wake.backgroundEnded", {
-            tasks: ended.map((t) => t.label).join("; "),
-          }),
-        ],
+        [msg("systemEntries.wake.idle"), backgroundEndedLine(ended)],
         " ",
       );
       return { log, note: renderLogText(english, log) };
@@ -4246,12 +4275,8 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (!managed) return false;
     if (!canDemote(managed)) return false;
-    managed.dormantReason = "idle";
-    // Read before the close, which clears the list.
-    const ended = managed.info.backgroundTasks?.length
-      ? managed.info.backgroundTasks
-      : null;
-    managed.releasedBackgroundTasks = ended;
+    prepareRelease(managed, "idle");
+    const ended = managed.releasedBackgroundTasks;
     await managed.sessionManager.closeAndDrainSession(managed);
     demoteCount++;
     console.log(
@@ -4293,12 +4318,22 @@ export function createAgentManager(deps: ManagerDeps) {
   // Releases a marked process now, if it may be released. closeAndDrainSession
   // nulls the session synchronously, so the send that follows wakes a new
   // process with the current environment and resumes the same conversation.
-  // Called right before a turn would start (flushQueue, sendMessage), so no
-  // turn starts on a marked process.
-  function releaseForEnvNow(agentId: string, managed: ManagedAgent): void {
+  // Called with `force` right before a turn would start (flushQueue,
+  // sendMessage), so no turn starts on a marked process; that release ends
+  // running background work, and the wake names it. Without `force` (the
+  // agent is idle) a process with background work keeps it: the mark waits
+  // for the next turn, or for the idle sweep, whose hold caps the wait. Not
+  // when the list clears: the engine then starts a turn of its own to report
+  // the work's end, and a release would cut it.
+  function releaseForEnvNow(
+    agentId: string,
+    managed: ManagedAgent,
+    opts: { force?: boolean } = {},
+  ): void {
     if (!managed.envStale || !canReleaseForEnv(managed)) return;
+    if (!opts.force && managed.info.backgroundTasks?.length) return;
+    prepareRelease(managed, "env");
     managed.envStale = false;
-    managed.dormantReason = "env";
     void managed.sessionManager
       .closeAndDrainSession(managed)
       .catch((err: unknown) =>
@@ -4334,7 +4369,8 @@ export function createAgentManager(deps: ManagerDeps) {
       const pinned = getSessionClaudeConfigDir(agentId, sessionId);
       if (!pinned || resolve(pinned) !== root) continue;
       managed.envStale = true;
-      // Idle now: release now. Busy: the end of the turn releases it.
+      // Idle now: release now. Busy: the end of the turn releases it. With
+      // background work running: the next turn start (releaseForEnvNow).
       if (isQueueIdleState(managed.info.state)) releaseForEnv(agentId);
     }
   }
@@ -4352,7 +4388,8 @@ export function createAgentManager(deps: ManagerDeps) {
       }
       if (!managed.sessionManager.session) continue;
       managed.envStale = true;
-      // Idle now: release now. Busy: the end of the turn releases it.
+      // Idle now: release now. Busy: the end of the turn releases it. With
+      // background work running: the next turn start (releaseForEnvNow).
       if (isQueueIdleState(managed.info.state)) releaseForEnv(agentId);
     }
   }
@@ -5454,7 +5491,7 @@ export function createAgentManager(deps: ManagerDeps) {
       }
       // A process marked by an environment change is released here, so the
       // branch below wakes a new one.
-      releaseForEnvNow(agentId, managed);
+      releaseForEnvNow(agentId, managed, { force: true });
       if (!managed.sessionManager.session && !signedOutProvider(managed)) {
         // A session swap is mid-drain (replaceSession's closeAndDrainSession
         // nulls the session before awaiting the old consumer). Don't race it
@@ -6275,7 +6312,8 @@ export function createAgentManager(deps: ManagerDeps) {
 
     // A process marked by an environment change is released before this message
     // uses it; the wake below starts a new one.
-    if (!claimedChoice && !isSlash) releaseForEnvNow(agentId, managed);
+    if (!claimedChoice && !isSlash)
+      releaseForEnvNow(agentId, managed, { force: true });
 
     // If the prior session ended owing a response, write the gap breadcrumb
     // before any new entries land. Parity with the SDK's lazy synthetic

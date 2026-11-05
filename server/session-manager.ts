@@ -83,6 +83,9 @@ export interface SessionHost {
   toolCallTimestamps: { clear(): void };
   lastActiveAt: number;
   dormantReason: DormantReason;
+  // An environment change waiting for a release; a new process has the
+  // current environment, so installSession clears it.
+  envStale?: boolean;
   messageQueue: { readonly length: number };
   // The live process's plugin list; it goes with the process.
   reportedPlugins?: EnginePlugin[] | null;
@@ -308,6 +311,9 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     // (already non-dormant) don't emit a redundant agent_updated.
     host.lastActiveAt = Date.now();
     host.dormantReason = null;
+    // Whatever closed the old process (an idle release, an account switch, a
+    // stream end), this one starts with the current secrets and variables.
+    host.envStale = false;
     if (host.info.dormant) {
       for (const event of this.deps.updateAgent(this.agentId, {
         dormant: false,
