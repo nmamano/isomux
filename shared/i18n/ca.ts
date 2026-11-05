@@ -1199,6 +1199,14 @@ Coses que pots fer per ell:
   "integrations.whatsapp.rows.group": "Grup",
   "integrations.whatsapp.rows.shellWarning":
     "Aquest agent té una shell. Qualsevol persona d’aquest xat li pot demanar que executi ordres.",
+  "integrations.whatsapp.rows.waitForSend":
+    "Les respostes esperen que toqui Send",
+  "integrations.whatsapp.rows.directWarning":
+    "Les respostes surten del teu WhatsApp a l’instant. Qualsevol persona d’aquest xat pot escriure text que l’agent segueixi.",
+  "integrations.whatsapp.rows.prefix": "Prefix",
+  "integrations.whatsapp.rows.prefixHint":
+    'Text abans de cada resposta, com ara "[Agent]:". Si és buit, les respostes comencen amb el nom de l’agent en negreta.',
+  "integrations.whatsapp.rows.direct": "Envia a l’instant",
   "integrations.whatsapp.rows.dead.agentGone": "Agent eliminat",
   "integrations.whatsapp.rows.dead.agentNotYours": "Ja no és el teu agent",
   "integrations.whatsapp.rows.dead.agentChatOnly": "L’agent té accés Xat",

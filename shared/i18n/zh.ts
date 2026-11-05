@@ -1079,6 +1079,13 @@ App 的一些原则：
   "integrations.whatsapp.rows.group": "群组",
   "integrations.whatsapp.rows.shellWarning":
     "这个智能体有 shell。这个聊天中的任何人都可以让它运行命令。",
+  "integrations.whatsapp.rows.waitForSend": "回复等我点 Send",
+  "integrations.whatsapp.rows.directWarning":
+    "回复会立即从你的 WhatsApp 发出。这个聊天中的任何人都可以写下让智能体照做的文字。",
+  "integrations.whatsapp.rows.prefix": "前缀",
+  "integrations.whatsapp.rows.prefixHint":
+    "每条回复前的文字，例如“[Agent]:”。留空时，回复以加粗的智能体名称开头。",
+  "integrations.whatsapp.rows.direct": "立即发送",
   "integrations.whatsapp.rows.dead.agentGone": "智能体已删除",
   "integrations.whatsapp.rows.dead.agentNotYours": "已不是你的智能体",
   "integrations.whatsapp.rows.dead.agentChatOnly": "智能体只有“聊天”权限",

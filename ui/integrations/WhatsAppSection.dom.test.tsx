@@ -32,6 +32,18 @@ let linkAnswer: () => Promise<unknown> = async () => current;
 let rows: WhatsAppRoute[] = [];
 let seenChats: WhatsAppChatSeen[] = [];
 let rowAnswer: (body: unknown) => Promise<unknown> = async () => ({});
+// An edit (task 70fae82c): the server's answer to a PATCH of a row.
+let patchAnswer: (path: string, body: unknown) => Promise<unknown> = async (
+  path,
+  body,
+) => {
+  const id = path.split("/").at(-1);
+  rows = rows.map((r) =>
+    r.id === id ? ({ ...r, ...(body as object) } as WhatsAppRoute) : r,
+  );
+  return rows.find((r) => r.id === id);
+};
+const defaultPatchAnswer = patchAnswer;
 // The held layout (task eeec205a): a read held open until its release, and a
 // read that fails.
 let statusGate: Promise<void> | null = null;
@@ -51,6 +63,7 @@ beforeEach(() => {
   rows = [];
   seenChats = [];
   rowAnswer = async () => ({});
+  patchAnswer = defaultPatchAnswer;
   setApiShim(async (method, path, body) => {
     calls.push({ method, path, body });
     if (method === "GET" && path === "/api/whatsapp/routes") {
@@ -61,6 +74,8 @@ beforeEach(() => {
     if (method === "GET" && path === "/api/whatsapp/chats") return seenChats;
     if (method === "POST" && path === "/api/whatsapp/routes")
       return rowAnswer(body);
+    if (method === "PATCH" && path.startsWith("/api/whatsapp/routes/"))
+      return patchAnswer(path, body);
     if (method === "DELETE" && path.startsWith("/api/whatsapp/routes/")) {
       rows = rows.filter((r) => !path.endsWith(`/${r.id}`));
       return undefined;
@@ -816,4 +831,152 @@ it("at environment read, the held card holds what the live one shows: no buttons
   const linked = await show(over);
   expect(inHeld(section(linked), "[data-whatsapp-row]")).toBe(2);
   expect(inHeld(section(linked), "button")).toBe(0);
+});
+
+// The Send step is optional per row, and a row can carry a prefix
+// (task 70fae82c).
+const checkbox = (root: Element, name: string) => {
+  const el = root.querySelector(`input[name="${name}"]`);
+  if (!(el instanceof HTMLInputElement) || el.type !== "checkbox")
+    throw new Error(`no checkbox ${name}`);
+  return el;
+};
+async function toggle(el: HTMLInputElement) {
+  await act(async () => {
+    fireEvent.click(el);
+  });
+  await settle();
+}
+const patches = () => calls.filter((c) => c.method === "PATCH");
+
+it("Add: replies wait for Send by default, with no warning and no new field sent; unticked, a warning shows and the row sends at once with its prefix", async () => {
+  current = LINKED;
+  const s = await show({ agents: AGENTS });
+  let form = await openAdd(s);
+  const wait = checkbox(form, "whatsappRowWaitForSend");
+  expect(wait.checked).toBe(true);
+  expect(s.q("[data-whatsapp-direct-warning]")).toBeNull();
+  expect((field(form, "whatsappRowPrefix") as HTMLInputElement).value).toBe("");
+  await change(field(form, "whatsappChat"), byNumber(form).value);
+  await change(field(form, "whatsappRowPhone"), "+44 7700 900124");
+  await change(field(form, "whatsappRowName"), "Dad");
+  rowAnswer = async (body) => {
+    rows = [
+      ...rows,
+      {
+        id: `r${rows.length + 1}`,
+        chat: "447700900124@s.whatsapp.net",
+        group: false,
+        createdAt: 2,
+        ...(body as object),
+      } as WhatsAppRoute,
+    ];
+    return rows.at(-1);
+  };
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  // The default is today's row: the body carries neither field.
+  expect(posts().map((c) => c.body)).toEqual([
+    { phone: "+44 7700 900124", name: "Dad", agentId: "a-office" },
+  ]);
+  expect(s.q('[data-whatsapp-row="r1"] [data-whatsapp-row-direct]')).toBeNull();
+
+  form = await openAdd(s);
+  await change(field(form, "whatsappChat"), byNumber(form).value);
+  await change(field(form, "whatsappRowPhone"), "+44 7700 900125");
+  await change(field(form, "whatsappRowName"), "Sis");
+  await toggle(checkbox(form, "whatsappRowWaitForSend"));
+  expect(checkbox(form, "whatsappRowWaitForSend").checked).toBe(false);
+  expect(s.q("[data-whatsapp-direct-warning]")).not.toBeNull();
+  await change(field(form, "whatsappRowPrefix"), "[Agent]:");
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  expect(posts().at(-1)?.body).toEqual({
+    phone: "+44 7700 900125",
+    name: "Sis",
+    agentId: "a-office",
+    sendDirect: true,
+    prefix: "[Agent]:",
+  });
+  // The row says it sends at once; the other does not.
+  expect(
+    s.q('[data-whatsapp-row="r2"] [data-whatsapp-row-direct]'),
+  ).not.toBeNull();
+  expect(s.q('[data-whatsapp-row="r1"] [data-whatsapp-row-direct]')).toBeNull();
+});
+
+it("Edit opens the form on the row as it is, with no chat picker; Save sends one PATCH with the fields, and false and an empty prefix clear them", async () => {
+  current = LINKED;
+  rows = [
+    {
+      id: "r1",
+      chat: MOM,
+      group: false,
+      name: "Mom",
+      agentId: "a-std",
+      createdAt: 1,
+      sendDirect: true,
+      prefix: "Bot:",
+    },
+  ];
+  const s = await show({ agents: AGENTS });
+  expect(
+    s.q('[data-whatsapp-row="r1"] [data-whatsapp-row-direct]'),
+  ).not.toBeNull();
+  await s.click('[data-whatsapp-row-edit="r1"]');
+  const form = s.q("[data-whatsapp-add-form]");
+  if (!(form instanceof HTMLElement)) throw new Error("no edit form");
+  // The chat cannot change: no picker, and the form names the row.
+  expect(form.querySelector('[name="whatsappChat"]')).toBeNull();
+  expect((field(form, "whatsappRowName") as HTMLInputElement).value).toBe(
+    "Mom",
+  );
+  expect((field(form, "whatsappRowAgent") as HTMLSelectElement).value).toBe(
+    "a-std",
+  );
+  expect(checkbox(form, "whatsappRowWaitForSend").checked).toBe(false);
+  expect(s.q("[data-whatsapp-direct-warning]")).not.toBeNull();
+  expect((field(form, "whatsappRowPrefix") as HTMLInputElement).value).toBe(
+    "Bot:",
+  );
+
+  await toggle(checkbox(form, "whatsappRowWaitForSend"));
+  expect(s.q("[data-whatsapp-direct-warning]")).toBeNull();
+  await change(field(form, "whatsappRowPrefix"), "");
+  await change(field(form, "whatsappRowName"), "Mum");
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  expect(posts()).toEqual([]);
+  expect(patches().map((c) => c.path)).toEqual(["/api/whatsapp/routes/r1"]);
+  const body = patches()[0].body as Record<string, unknown>;
+  expect(body).toMatchObject({
+    name: "Mum",
+    agentId: "a-std",
+    sendDirect: false,
+    prefix: "",
+  });
+  expect("chat" in body).toBe(false);
+  expect(s.q("[data-whatsapp-add-form]")).toBeNull();
+  expect(s.q('[data-whatsapp-row="r1"]')?.textContent).toContain("Mum");
+  expect(s.q('[data-whatsapp-row="r1"] [data-whatsapp-row-direct]')).toBeNull();
+});
+
+it("a refused edit keeps the form open with its line", async () => {
+  current = LINKED;
+  rows = [
+    {
+      id: "r1",
+      chat: MOM,
+      group: false,
+      name: "Mom",
+      agentId: "a-office",
+      createdAt: 1,
+    },
+  ];
+  patchAnswer = async () => {
+    throw new ApiError(400, "invalid_request", "refused");
+  };
+  const s = await show({ agents: AGENTS });
+  await s.click('[data-whatsapp-row-edit="r1"]');
+  await s.click("[data-whatsapp-add-form] [data-panel-save]");
+  expect(patches()).toHaveLength(1);
+  expect(s.q("[data-whatsapp-add-form]")).not.toBeNull();
+  expect(s.q('[role="alert"]')).not.toBeNull();
 });

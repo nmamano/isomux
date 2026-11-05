@@ -133,6 +133,7 @@ export function createWhatsAppInbound(
         routeId: route.id,
         routeName: route.name,
         memberName: deps.memberName(p.userId),
+        direct: route.sendDirect === true,
         lines: lines.map((l) => l.line),
         reservedChars:
           formatMessagingSenderPrefix(WHATSAPP_APP, route.name).length + 1,

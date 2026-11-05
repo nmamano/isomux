@@ -3,8 +3,10 @@
 
 import { describe, expect, it } from "bun:test";
 import {
+  WHATSAPP_PREFIX_MAX,
   WHATSAPP_ROUTE_NAME_MAX,
   normaliseWhatsAppPhone,
+  normaliseWhatsAppPrefix,
   normaliseWhatsAppRouteName,
 } from "./whatsapp.ts";
 
@@ -59,5 +61,35 @@ describe("normaliseWhatsAppRouteName", () => {
         raw,
         name: null,
       });
+  });
+});
+
+// A row's prefix goes in front of each reply the agent sends (task 70fae82c).
+describe("normaliseWhatsAppPrefix", () => {
+  it("trims a prefix of 0 to the maximum characters; blank is no prefix", () => {
+    expect(normaliseWhatsAppPrefix("  [Agent]:  ")).toBe("[Agent]:");
+    expect(normaliseWhatsAppPrefix("")).toBe("");
+    expect(normaliseWhatsAppPrefix("   ")).toBe("");
+    // Characters, not UTF-16 units: an emoji counts once.
+    const longest = "🤖".repeat(WHATSAPP_PREFIX_MAX);
+    expect(normaliseWhatsAppPrefix(longest)).toBe(longest);
+  });
+  it("refuses a long prefix, a line break, a control or a bidi character", () => {
+    for (const raw of [
+      "x".repeat(WHATSAPP_PREFIX_MAX + 1),
+      "🤖".repeat(WHATSAPP_PREFIX_MAX + 1),
+      "[Agent]:\n",
+      "[Agent]\r",
+      "[A]\u2028x",
+      "[A]\u0000",
+      "[A]\u001b[31m",
+      "[A]\u0085",
+      "[A]\u202ex",
+      "[A]\u2066x",
+    ])
+      expect([JSON.stringify(raw), normaliseWhatsAppPrefix(raw)]).toEqual([
+        JSON.stringify(raw),
+        null,
+      ]);
   });
 });

@@ -1179,6 +1179,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.whatsapp.rows.group": "Group",
   "integrations.whatsapp.rows.shellWarning":
     "This agent has a shell. Anyone in this chat can ask it to run commands.",
+  "integrations.whatsapp.rows.waitForSend": "Replies wait for my Send",
+  "integrations.whatsapp.rows.directWarning":
+    "Replies go out from your WhatsApp at once. Anyone in this chat can write text that the agent follows.",
+  "integrations.whatsapp.rows.prefix": "Prefix",
+  "integrations.whatsapp.rows.prefixHint":
+    'Text before each reply, such as "[Agent]:". If empty, replies start with the agent\'s name in bold.',
+  "integrations.whatsapp.rows.direct": "Sends at once",
   "integrations.whatsapp.rows.dead.agentGone": "Agent deleted",
   "integrations.whatsapp.rows.dead.agentNotYours": "No longer your agent",
   "integrations.whatsapp.rows.dead.agentChatOnly": "Agent has Chat access",

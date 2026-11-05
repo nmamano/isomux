@@ -21,7 +21,7 @@ import type {
 export interface WhatsAppDeps {
   supervisor: WhatsAppSupervisor;
   routes: WhatsAppRoutes;
-  replies: Pick<WhatsAppReplies, "draft">;
+  replies: Pick<WhatsAppReplies, "reply">;
 }
 
 const ERROR_CODES = {
@@ -43,10 +43,15 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 function parseCreateReq(body: unknown): WhatsAppRouteCreateReq | null {
   if (!isObject(body)) return null;
-  const { chat, phone, name, agentId, trigger } = body;
+  const { chat, phone, name, agentId, trigger, sendDirect, prefix } = body;
   if (typeof name !== "string" || typeof agentId !== "string") return null;
+  // Passed on as they came: the routes check their types.
+  const settings = {
+    ...(sendDirect !== undefined ? { sendDirect: sendDirect as boolean } : {}),
+    ...(prefix !== undefined ? { prefix: prefix as string } : {}),
+  };
   if (typeof phone === "string" && chat === undefined)
-    return { phone, name, agentId };
+    return { phone, name, agentId, ...settings };
   if (typeof chat !== "string") return null;
   return {
     chat,
@@ -55,6 +60,7 @@ function parseCreateReq(body: unknown): WhatsAppRouteCreateReq | null {
     ...(trigger !== undefined
       ? { trigger: trigger as WhatsAppRouteTrigger }
       : {}),
+    ...settings,
   };
 }
 
@@ -128,6 +134,9 @@ export function whatsappHandlers(
       if (body.agentId !== undefined) req.agentId = body.agentId as string;
       if (body.trigger !== undefined)
         req.trigger = body.trigger as WhatsAppRouteTrigger;
+      if (body.sendDirect !== undefined)
+        req.sendDirect = body.sendDirect as boolean;
+      if (body.prefix !== undefined) req.prefix = body.prefix as string;
       return routeResult(deps.routes.update(userId, ctx.params.routeId, req));
     },
     "whatsappRoutes.delete": (ctx) => {
@@ -138,16 +147,18 @@ export function whatsappHandlers(
         : fail(404, "not_found", "no such row");
     },
 
-    // An agent's reply draft to its row (slice 2b): an ask to the member.
-    // The route id names a WhatsApp row: see WhatsAppReplies.draft for the
-    // id space a second messaging app shares.
-    "messaging.reply": (ctx) => {
+    // An agent's reply to its row (slice 2b): an ask to the member, or, on a
+    // row that sends at once, the message itself (task 70fae82c). The route
+    // id names a WhatsApp row: see WhatsAppReplies.reply for the id space a
+    // second messaging app shares.
+    "messaging.reply": async (ctx) => {
       const agentId = ctx.identity.agentId;
       if (ctx.identity.scope !== "agent" || !agentId)
         return fail(403, "forbidden");
       const text = isObject(ctx.body) ? ctx.body.text : undefined;
-      const res = deps.replies.draft(agentId, ctx.params.routeId, text);
+      const res = await deps.replies.reply(agentId, ctx.params.routeId, text);
       if (!res.ok) return fail(res.status, res.code, res.error);
+      if ("sent" in res) return ok({ status: "sent" });
       return ok({ askId: res.askId, status: "waiting_for_member" }, 202);
     },
 

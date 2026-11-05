@@ -13,15 +13,17 @@ import { useAppState, useDispatch } from "../store.tsx";
 import { Reserved } from "../components/Reserved.tsx";
 import { getWhatsAppLayout, setWhatsAppLayout } from "../device-settings.ts";
 import { agentAccessOf, belowStandard } from "../../shared/agent-access.ts";
-import type {
-  WhatsAppChatSeen,
-  WhatsAppLinkReq,
-  WhatsAppReason,
-  WhatsAppRoute,
-  WhatsAppRouteCreateReq,
-  WhatsAppRouteDead,
-  WhatsAppRouteTrigger,
-  WhatsAppStatus,
+import {
+  WHATSAPP_PREFIX_MAX,
+  type WhatsAppChatSeen,
+  type WhatsAppLinkReq,
+  type WhatsAppReason,
+  type WhatsAppRoute,
+  type WhatsAppRouteCreateReq,
+  type WhatsAppRouteDead,
+  type WhatsAppRouteTrigger,
+  type WhatsAppRouteUpdateReq,
+  type WhatsAppStatus,
 } from "../../shared/whatsapp.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import {
@@ -384,6 +386,8 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const [routes, setRoutes] = useState<WhatsAppRoute[] | null>(null);
   const [chats, setChats] = useState<WhatsAppChatSeen[]>([]);
   const [adding, setAdding] = useState(false);
+  // The row the form edits, or null when it adds one.
+  const [editing, setEditing] = useState<WhatsAppRoute | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<PlainMessageKey | null>(null);
   const [chat, setChat] = useState(NO_CHAT);
@@ -391,6 +395,8 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const [name, setName] = useState("");
   const [agentId, setAgentId] = useState("");
   const [trigger, setTrigger] = useState<WhatsAppRouteTrigger>("mention");
+  const [waitForSend, setWaitForSend] = useState(true);
+  const [prefix, setPrefix] = useState("");
   const [heldRows] = useState(() => getWhatsAppLayout().rows);
 
   // Agents that can reply: the member's own, above Chat stop.
@@ -413,7 +419,7 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   const agentName = (id: string) =>
     agents.find((a) => a.id === id)?.name ?? null;
   const picked = chats.find((c) => c.chat === chat) ?? null;
-  const group = picked?.group ?? false;
+  const group = editing ? editing.group : (picked?.group ?? false);
   const routed = new Set(routes?.map((r) => r.chat));
   const free = chats.filter((c) => !routed.has(c.chat));
   const people = free.filter((c) => !c.group);
@@ -440,15 +446,30 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
 
   function openForm() {
     setAdding(true);
+    setEditing(null);
     setError(null);
     setChat(NO_CHAT);
     setPhone("");
     setName("");
     setAgentId(agentChoices[0]?.id ?? "");
     setTrigger("mention");
+    setWaitForSend(true);
+    setPrefix("");
     apiFetch<WhatsAppChatSeen[]>("GET", "/api/whatsapp/chats")
       .then(setChats)
       .catch(() => setChats([]));
+  }
+
+  // The same form on a row as it is; its chat cannot change.
+  function openEdit(route: WhatsAppRoute) {
+    setAdding(true);
+    setEditing(route);
+    setError(null);
+    setName(route.name);
+    setAgentId(route.agentId);
+    setTrigger(route.trigger ?? "mention");
+    setWaitForSend(route.sendDirect !== true);
+    setPrefix(route.prefix ?? "");
   }
 
   function pick(next: string) {
@@ -480,10 +501,32 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   }
 
   async function save() {
+    if (editing) {
+      const update: WhatsAppRouteUpdateReq = {
+        name,
+        agentId,
+        ...(group ? { trigger } : {}),
+        sendDirect: !waitForSend,
+        prefix,
+      };
+      const done = await run(() =>
+        apiFetch("PATCH", `/api/whatsapp/routes/${editing.id}`, update),
+      );
+      if (done) {
+        setAdding(false);
+        setEditing(null);
+      }
+      return;
+    }
+    // A new row sends a setting only when it is not the default.
+    const settings = {
+      ...(waitForSend ? {} : { sendDirect: true }),
+      ...(prefix.trim() ? { prefix } : {}),
+    };
     const req: WhatsAppRouteCreateReq =
       chat === BY_NUMBER
-        ? { phone, name, agentId }
-        : { chat, name, agentId, ...(group ? { trigger } : {}) };
+        ? { phone, name, agentId, ...settings }
+        : { chat, name, agentId, ...(group ? { trigger } : {}), ...settings };
     const done = await run(
       () => apiFetch("POST", "/api/whatsapp/routes", req),
       chat === BY_NUMBER,
@@ -492,10 +535,10 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
   }
 
   const ready =
-    chat !== NO_CHAT &&
+    (editing !== null || chat !== NO_CHAT) &&
     name.trim() !== "" &&
     agent !== null &&
-    (chat !== BY_NUMBER || phone.trim() !== "");
+    (editing !== null || chat !== BY_NUMBER || phone.trim() !== "");
 
   // `held`: bars for each row's chat.
   const list = (shown: WhatsAppRoute[], held = false) => (
@@ -522,26 +565,46 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
             )
           }
           status={
-            r.dead && (
-              <Pill tone="red" data-whatsapp-row-dead={r.dead}>
-                {t(DEAD[r.dead])}
-              </Pill>
+            !held &&
+            (r.dead || r.sendDirect) && (
+              <>
+                {r.sendDirect && (
+                  <Pill tone="orange" data-whatsapp-row-direct="">
+                    {t("integrations.whatsapp.rows.direct")}
+                  </Pill>
+                )}
+                {r.dead && (
+                  <Pill tone="red" data-whatsapp-row-dead={r.dead}>
+                    {t(DEAD[r.dead])}
+                  </Pill>
+                )}
+              </>
             )
           }
           actions={
             environmentWrite && (
-              <Btn
-                small
-                disabled={busy}
-                onClick={() =>
-                  void run(() =>
-                    apiFetch("DELETE", `/api/whatsapp/routes/${r.id}`),
-                  )
-                }
-                data-whatsapp-row-delete={r.id}
-              >
-                {t("common.delete")}
-              </Btn>
+              <>
+                <Btn
+                  small
+                  disabled={busy}
+                  onClick={() => openEdit(r)}
+                  data-whatsapp-row-edit={r.id}
+                >
+                  {t("common.edit")}
+                </Btn>
+                <Btn
+                  small
+                  disabled={busy}
+                  onClick={() =>
+                    void run(() =>
+                      apiFetch("DELETE", `/api/whatsapp/routes/${r.id}`),
+                    )
+                  }
+                  data-whatsapp-row-delete={r.id}
+                >
+                  {t("common.delete")}
+                </Btn>
+              </>
             )
           }
         />
@@ -586,42 +649,52 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
           }}
           style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 4 }}
         >
-          <Field
-            label={t("integrations.whatsapp.rows.chat")}
-            hint={t("integrations.whatsapp.rows.chatHint")}
-          >
-            <select
-              name="whatsappChat"
-              value={chat}
-              onChange={(e) => pick(e.target.value)}
-              style={{ ...input, width: "100%" }}
+          {editing ? (
+            <Field label={t("integrations.whatsapp.rows.chat")}>
+              <span style={{ fontSize: 12.5 }}>
+                {editing.group
+                  ? t("integrations.whatsapp.rows.group")
+                  : (chatNumber(editing.chat) ?? editing.chat.split("@")[0])}
+              </span>
+            </Field>
+          ) : (
+            <Field
+              label={t("integrations.whatsapp.rows.chat")}
+              hint={t("integrations.whatsapp.rows.chatHint")}
             >
-              <option value={NO_CHAT} disabled>
-                {t("integrations.whatsapp.rows.chatPrompt")}
-              </option>
-              <option value={BY_NUMBER} data-whatsapp-by-number="">
-                {t("integrations.whatsapp.rows.byNumber")}
-              </option>
-              {(
-                [
-                  ["integrations.whatsapp.rows.people", people],
-                  ["integrations.whatsapp.rows.groups", groups],
-                ] as const
-              ).map(
-                ([label, list]) =>
-                  list.length > 0 && (
-                    <optgroup key={label} label={t(label)}>
-                      {list.map((c) => (
-                        <option key={c.chat} value={c.chat}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ),
-              )}
-            </select>
-          </Field>
-          {chat === BY_NUMBER && (
+              <select
+                name="whatsappChat"
+                value={chat}
+                onChange={(e) => pick(e.target.value)}
+                style={{ ...input, width: "100%" }}
+              >
+                <option value={NO_CHAT} disabled>
+                  {t("integrations.whatsapp.rows.chatPrompt")}
+                </option>
+                <option value={BY_NUMBER} data-whatsapp-by-number="">
+                  {t("integrations.whatsapp.rows.byNumber")}
+                </option>
+                {(
+                  [
+                    ["integrations.whatsapp.rows.people", people],
+                    ["integrations.whatsapp.rows.groups", groups],
+                  ] as const
+                ).map(
+                  ([label, list]) =>
+                    list.length > 0 && (
+                      <optgroup key={label} label={t(label)}>
+                        {list.map((c) => (
+                          <option key={c.chat} value={c.chat}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ),
+                )}
+              </select>
+            </Field>
+          )}
+          {!editing && chat === BY_NUMBER && (
             <Field label={t("integrations.whatsapp.rows.number")}>
               <input
                 type="tel"
@@ -699,12 +772,59 @@ function WhatsAppRows({ holdRows }: { holdRows?: number }) {
               {t("integrations.whatsapp.rows.shellWarning")}
             </p>
           )}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12,
+              color: "var(--text-primary)",
+              marginTop: 12,
+            }}
+          >
+            <input
+              type="checkbox"
+              name="whatsappRowWaitForSend"
+              checked={waitForSend}
+              onChange={() => setWaitForSend(!waitForSend)}
+            />
+            {t("integrations.whatsapp.rows.waitForSend")}
+          </label>
+          {!waitForSend && (
+            <p
+              data-whatsapp-direct-warning=""
+              style={{
+                ...hintText,
+                color: "var(--orange-text)",
+                margin: "6px 0 0",
+              }}
+            >
+              {t("integrations.whatsapp.rows.directWarning")}
+            </p>
+          )}
+          <Field
+            label={t("integrations.whatsapp.rows.prefix")}
+            hint={t("integrations.whatsapp.rows.prefixHint")}
+          >
+            <input
+              name="whatsappRowPrefix"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value)}
+              maxLength={WHATSAPP_PREFIX_MAX}
+              style={{ ...input, width: "100%" }}
+            />
+          </Field>
           <FormButtons
             ready={ready}
             busy={busy}
-            onCancel={() => setAdding(false)}
+            onCancel={() => {
+              setAdding(false);
+              setEditing(null);
+            }}
             onSave={save}
-            saveLabel={t("integrations.whatsapp.rows.save")}
+            saveLabel={t(
+              editing ? "common.save" : "integrations.whatsapp.rows.save",
+            )}
           />
         </form>
       ) : (

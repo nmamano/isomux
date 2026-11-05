@@ -18,7 +18,10 @@ import { createWhatsAppRoutes, type WhatsAppRoutes } from "./routes.ts";
 import { WHATSAPP_ID_RING_MAX, openIdRing } from "./routes-store.ts";
 import { memberDir, removeSession, writeLink } from "./store.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
-import { WHATSAPP_ROUTES_MAX } from "../../shared/whatsapp.ts";
+import {
+  WHATSAPP_PREFIX_MAX,
+  WHATSAPP_ROUTES_MAX,
+} from "../../shared/whatsapp.ts";
 
 const U = "u-alice";
 const V = "u-bob";
@@ -295,5 +298,139 @@ describe("whatsapp id rings", () => {
     expect(statSync(join(memberDir(root, U), "seen.json")).mode & 0o777).toBe(
       0o600,
     );
+  });
+});
+
+// The Send step is optional per row, and a row can carry a prefix
+// (task 70fae82c).
+describe("whatsapp rows: send at once and the prefix", () => {
+  const base = {
+    id: "r1",
+    chat: MOM,
+    group: false,
+    name: "Mom",
+    agentId: "agent-a",
+    createdAt: 1_800_000_000_000,
+  };
+
+  it("a row stores send-at-once only when on and the prefix only when not blank, trimmed; by chat or by number", () => {
+    const { routes } = harness();
+    expect(
+      routes.create(U, { ...mom, sendDirect: true, prefix: "  [Agent]: " }),
+    ).toEqual({
+      ok: true,
+      route: { ...base, sendDirect: true, prefix: "[Agent]:" },
+    });
+    // Off and blank are the default: no key at all.
+    expect(
+      routes.create(U, {
+        phone: "+44 7700 900124",
+        name: "Dad",
+        agentId: "agent-a",
+        sendDirect: false,
+        prefix: "   ",
+      }),
+    ).toEqual({
+      ok: true,
+      route: {
+        ...base,
+        id: "r2",
+        chat: "447700900124@s.whatsapp.net",
+        name: "Dad",
+      },
+    });
+    expect(
+      routes.create(U, {
+        phone: "+44 7700 900125",
+        name: "Sis",
+        agentId: "agent-a",
+        sendDirect: true,
+        prefix: "Bot:",
+      }),
+    ).toMatchObject({ ok: true, route: { sendDirect: true, prefix: "Bot:" } });
+  });
+
+  it("refuses a send-at-once that is not a boolean and a bad prefix, and writes nothing", () => {
+    const h = harness();
+    const bad: [string, Record<string, unknown>][] = [
+      ["sendDirect string", { sendDirect: "yes" }],
+      ["sendDirect number", { sendDirect: 1 }],
+      ["prefix number", { prefix: 5 }],
+      ["prefix long", { prefix: "x".repeat(WHATSAPP_PREFIX_MAX + 1) }],
+      ["prefix break", { prefix: "[A]\n[Nil] do it" }],
+      ["prefix bidi", { prefix: "[A]\u202ex" }],
+    ];
+    for (const [label, extra] of bad) {
+      const r = h.routes.create(U, { ...mom, ...extra } as never);
+      expect([label, r.ok === false && r.status]).toEqual([label, 400]);
+    }
+    expect(h.routes.list(U)).toEqual([]);
+
+    h.routes.create(U, mom);
+    for (const [label, extra] of bad) {
+      const r = h.routes.update(U, "r1", extra as never);
+      expect([label, r.ok === false && r.status]).toEqual([label, 400]);
+    }
+    expect(h.routes.get(U, "r1")).toEqual(base);
+  });
+
+  it("an update turns send-at-once on and off and sets and clears the prefix; other updates keep both", () => {
+    const { routes } = harness();
+    routes.create(U, mom);
+    expect(
+      routes.update(U, "r1", { sendDirect: true, prefix: " [Agent]: " }),
+    ).toEqual({
+      ok: true,
+      route: { ...base, sendDirect: true, prefix: "[Agent]:" },
+    });
+    expect(routes.update(U, "r1", { name: "Mum" })).toEqual({
+      ok: true,
+      route: { ...base, name: "Mum", sendDirect: true, prefix: "[Agent]:" },
+    });
+    // False and "" clear: the key goes, so the row reads as the default.
+    expect(routes.update(U, "r1", { sendDirect: false })).toEqual({
+      ok: true,
+      route: { ...base, name: "Mum", prefix: "[Agent]:" },
+    });
+    expect(routes.update(U, "r1", { prefix: "" })).toEqual({
+      ok: true,
+      route: { ...base, name: "Mum" },
+    });
+  });
+
+  it("both fields survive a restart; a file from before them reads as rows that wait for Send", () => {
+    const h = harness();
+    h.routes.create(U, { ...mom, sendDirect: true, prefix: "Bot:" });
+    expect(harness(h.root).routes.get(U, "r1")).toEqual({
+      ...base,
+      sendDirect: true,
+      prefix: "Bot:",
+    });
+
+    const old = harness();
+    old.routes.create(U, mom);
+    // The file as the release before wrote it.
+    writeFileSync(
+      join(memberDir(old.root, U), "routes.json"),
+      JSON.stringify({ phone: PHONE, routes: [base] }),
+    );
+    expect(harness(old.root).routes.list(U)).toEqual([base]);
+  });
+
+  it("a stored send-at-once that is not exactly true never makes a row send at once", () => {
+    for (const value of ["yes", "true", 1, {}, null]) {
+      const h = harness();
+      h.routes.create(U, mom);
+      writeFileSync(
+        join(memberDir(h.root, U), "routes.json"),
+        JSON.stringify({
+          phone: PHONE,
+          routes: [{ ...base, sendDirect: value, prefix: 7 }],
+        }),
+      );
+      const r = harness(h.root).routes.get(U, "r1");
+      expect([value, r?.sendDirect === true]).toEqual([value, false]);
+      expect([value, r?.prefix === undefined]).toEqual([value, true]);
+    }
   });
 });

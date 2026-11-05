@@ -12,7 +12,7 @@ import {
   WHATSAPP_MAX_AGE_MS,
   createWhatsAppInbound,
 } from "./inbound.ts";
-import { WHATSAPP_UNKNOWN_SENDER } from "./block.ts";
+import { WHATSAPP_UNKNOWN_SENDER, buildWhatsAppBlock } from "./block.ts";
 import type { BridgeMessage } from "./protocol.ts";
 import type { IdRing } from "./routes-store.ts";
 import type {
@@ -98,7 +98,13 @@ function harness() {
     dead: null as WhatsAppRouteDead | null,
     linkedAt: LINKED_AT as number | null,
     deliverThrows: false,
-    deliveries: [] as { userId: string; routeId: string; lines: Line[] }[],
+    deliveries: [] as {
+      userId: string;
+      routeId: string;
+      lines: Line[];
+    }[],
+    // Every delivery's text before the data block, in order.
+    heads: [] as string[],
     checks: 0,
   };
   const inbound = createWhatsAppInbound({
@@ -114,6 +120,7 @@ function harness() {
     memberName: () => "Morgan",
     deliver: (userId, route, text) => {
       if (h.deliverThrows) throw new Error("queue full");
+      h.heads.push(text.split("<messaging-data>")[0]);
       const json = text
         .split("<messaging-data>\n")[1]
         .split("\n</messaging-data>")[0];
@@ -388,5 +395,30 @@ describe("whatsapp inbound: the row and the office", () => {
     expect(h.deliveries.map((d) => d.lines.map((l) => l.text))).toEqual([
       ["next"],
     ]);
+  });
+});
+
+// The head of a delivery follows the row's Send step (task 70fae82c).
+describe("whatsapp inbound: the reply mode", () => {
+  it("a row that sends at once is delivered with the send-at-once head, as the row is at delivery", () => {
+    const { h, inbound, msg } = harness();
+    const headOf = (direct: boolean) =>
+      buildWhatsAppBlock({
+        routeId: "r-mom",
+        routeName: "Mom",
+        memberName: "Morgan",
+        direct,
+        lines: [],
+        reservedChars: 0,
+      }).split("<messaging-data>")[0];
+    // The condition: the two heads differ.
+    expect(headOf(true)).not.toBe(headOf(false));
+
+    inbound.onMessage(U, msg());
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    h.routes[MOM] = { ...ROUTES[MOM], sendDirect: true };
+    inbound.onMessage(U, msg());
+    h.clock.advance(WHATSAPP_BURST_QUIET_MS);
+    expect(h.heads).toEqual([headOf(false), headOf(true)]);
   });
 });

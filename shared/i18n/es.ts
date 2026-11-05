@@ -1198,6 +1198,14 @@ Cosas que puedes hacer por él:
   "integrations.whatsapp.rows.group": "Grupo",
   "integrations.whatsapp.rows.shellWarning":
     "Este agente tiene una shell. Cualquiera en este chat puede pedirle que ejecute comandos.",
+  "integrations.whatsapp.rows.waitForSend":
+    "Las respuestas esperan a que toque Send",
+  "integrations.whatsapp.rows.directWarning":
+    "Las respuestas salen de tu WhatsApp al instante. Cualquiera en este chat puede escribir texto que el agente siga.",
+  "integrations.whatsapp.rows.prefix": "Prefijo",
+  "integrations.whatsapp.rows.prefixHint":
+    'Texto antes de cada respuesta, como "[Agent]:". Si está vacío, las respuestas empiezan con el nombre del agente en negrita.',
+  "integrations.whatsapp.rows.direct": "Envía al instante",
   "integrations.whatsapp.rows.dead.agentGone": "Agente eliminado",
   "integrations.whatsapp.rows.dead.agentNotYours": "Ya no es tu agente",
   "integrations.whatsapp.rows.dead.agentChatOnly":

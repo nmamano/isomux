@@ -280,7 +280,7 @@ function buildServer(
       "messaging_reply",
       {
         description:
-          "Draft a reply to a contact of your manager in a messaging app (WhatsApp). routeId is in the message's label line. Your manager approves it in their Inbox before it goes out; the answer comes to your chat.",
+          "Reply to a contact of your manager in a messaging app (WhatsApp). routeId is in the message's label line. Per chat, the reply waits for your manager's Send in their Inbox (the answer comes to your chat) or goes out at once (status sent). After a 504, the message may have gone out: do not send it again.",
         inputSchema: {
           routeId: z.string().min(1),
           text: z.string().min(1),

@@ -69,6 +69,12 @@ export interface WhatsAppRoute {
   trigger?: WhatsAppRouteTrigger;
   createdAt: number;
   dead?: WhatsAppRouteDead;
+  // The agent's replies go out at once, with no Send step (task 70fae82c).
+  // Stored only when true; absent means each reply waits for the member.
+  sendDirect?: true;
+  // Text put before each reply in place of the agent's name line
+  // (normaliseWhatsAppPrefix). Absent means no prefix.
+  prefix?: string;
 }
 
 // A chat the linked WhatsApp saw since the link, for the Add picker. Kept in
@@ -85,36 +91,58 @@ export type WhatsAppRouteCreateReq =
       name: string;
       agentId: string;
       trigger?: WhatsAppRouteTrigger;
+      sendDirect?: boolean;
+      prefix?: string;
     }
   // A contact added by number (normaliseWhatsAppPhone).
-  | { phone: string; name: string; agentId: string };
+  | {
+      phone: string;
+      name: string;
+      agentId: string;
+      sendDirect?: boolean;
+      prefix?: string;
+    };
 
+// sendDirect false and prefix "" clear the field.
 export interface WhatsAppRouteUpdateReq {
   name?: string;
   agentId?: string;
   trigger?: WhatsAppRouteTrigger;
+  sendDirect?: boolean;
+  prefix?: string;
 }
 
-// An agent's reply draft (slice 2b) and the route's answer.
+// An agent's reply (slice 2b) and the route's answer: a draft that waits for
+// the member's Send, or, on a row with sendDirect, the message sent.
 export interface WhatsAppReplyReq {
   text: string;
 }
-export interface WhatsAppReplyAccepted {
-  askId: string;
-  status: "waiting_for_member";
-}
+export type WhatsAppReplyAccepted =
+  | { askId: string; status: "waiting_for_member" }
+  | { status: "sent" };
 
 export const WHATSAPP_ROUTE_NAME_MAX = 60;
 export const WHATSAPP_ROUTES_MAX = 50;
+export const WHATSAPP_PREFIX_MAX = 40;
+
+// Controls (C0, C1), line and paragraph separators, and bidi overrides.
+const UNSAFE_CHARS_RE = /[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]/u;
 
 // A row name: 1 to WHATSAPP_ROUTE_NAME_MAX characters after trimming, with no
 // control character or line break. The trimmed name, or null.
 export function normaliseWhatsAppRouteName(raw: string): string | null {
-  // Controls (C0, C1), line and paragraph separators, and bidi overrides,
-  // anywhere: trimming would hide a trailing line break.
-  if (/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]/u.test(raw)) return null;
+  // Anywhere: trimming would hide a trailing line break.
+  if (UNSAFE_CHARS_RE.test(raw)) return null;
   const name = raw.trim();
   const length = [...name].length;
   if (length === 0 || length > WHATSAPP_ROUTE_NAME_MAX) return null;
   return name;
+}
+
+// A row prefix: 0 to WHATSAPP_PREFIX_MAX characters after trimming, with the
+// row name's refusals. The trimmed prefix ("" for none), or null.
+export function normaliseWhatsAppPrefix(raw: string): string | null {
+  if (UNSAFE_CHARS_RE.test(raw)) return null;
+  const prefix = raw.trim();
+  return [...prefix].length > WHATSAPP_PREFIX_MAX ? null : prefix;
 }

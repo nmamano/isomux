@@ -1868,9 +1868,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
-  // An agent drafts a reply to its row in a messaging app; the row's member
-  // approves it in their Inbox (slice 2b). Only the row's agent: any other
-  // agent gets 404. The path is generic: WhatsApp is the only app today.
+  // An agent replies to its row in a messaging app: the row's member approves
+  // it in their Inbox (slice 2b), unless they turned that step off for the row
+  // (task 70fae82c). Only the row's agent: any other agent gets 404. The path
+  // is generic: WhatsApp is the only app today.
   defineRoute<WhatsAppReplyReq, WhatsAppReplyAccepted>({
     opId: "messaging.reply",
     audit: {

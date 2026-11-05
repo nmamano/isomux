@@ -12,7 +12,10 @@
 
 import { readFileSync, renameSync, writeFileSync } from "fs";
 import { join } from "path";
-import type { WhatsAppRoute } from "../../shared/whatsapp.ts";
+import {
+  normaliseWhatsAppPrefix,
+  type WhatsAppRoute,
+} from "../../shared/whatsapp.ts";
 import { ensureMemberDir, memberDir } from "./store.ts";
 
 export const WHATSAPP_ID_RING_MAX = 500;
@@ -63,6 +66,21 @@ function isRoute(v: unknown): v is WhatsAppRoute {
   );
 }
 
+// The optional fields as they are valid: sendDirect only when exactly true,
+// and a prefix only when it passes normaliseWhatsAppPrefix and is not blank.
+// Anything else is dropped, so a damaged file never makes a row send at once.
+function cleanRoute(route: WhatsAppRoute): WhatsAppRoute {
+  const { sendDirect, prefix, ...rest } = route as WhatsAppRoute &
+    Record<"sendDirect" | "prefix", unknown>;
+  const cleanPrefix =
+    typeof prefix === "string" ? normaliseWhatsAppPrefix(prefix) : null;
+  return {
+    ...rest,
+    ...(sendDirect === true ? { sendDirect } : {}),
+    ...(cleanPrefix ? { prefix: cleanPrefix } : {}),
+  };
+}
+
 // A file that does not parse reads as no rows.
 export function readRoutes(stateRoot: string, userId: string): RoutesFile {
   const raw = readJson(join(memberDir(stateRoot, userId), ROUTES_FILE));
@@ -71,7 +89,7 @@ export function readRoutes(stateRoot: string, userId: string): RoutesFile {
   const { phone, routes } = raw as Record<string, unknown>;
   return {
     phone: typeof phone === "string" ? phone : null,
-    routes: Array.isArray(routes) ? routes.filter(isRoute) : [],
+    routes: Array.isArray(routes) ? routes.filter(isRoute).map(cleanRoute) : [],
   };
 }
 

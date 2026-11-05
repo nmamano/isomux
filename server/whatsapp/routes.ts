@@ -5,8 +5,10 @@
 
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import {
+  WHATSAPP_PREFIX_MAX,
   WHATSAPP_ROUTES_MAX,
   normaliseWhatsAppPhone,
+  normaliseWhatsAppPrefix,
   normaliseWhatsAppRouteName,
   type WhatsAppRoute,
   type WhatsAppRouteCreateReq,
@@ -60,11 +62,46 @@ const isTrigger = (v: unknown): v is WhatsAppRouteTrigger =>
   v === "mention" || v === "all";
 
 type Refusal = { ok: false; status: 400 | 404 | 409; error: string };
+
 const refuse = (status: 400 | 404 | 409, error: string): Refusal => ({
   ok: false,
   status,
   error,
 });
+
+// The reply settings of a create or an update, checked: the keys to set and
+// the keys to delete (false and a blank prefix are the default, stored as no
+// key), or a refusal.
+function replySettings(req: { sendDirect?: unknown; prefix?: unknown }):
+  | {
+      ok: true;
+      set: Partial<WhatsAppRoute>;
+      clear: ("sendDirect" | "prefix")[];
+    }
+  | Refusal {
+  const set: Partial<WhatsAppRoute> = {};
+  const clear: ("sendDirect" | "prefix")[] = [];
+  if (req.sendDirect !== undefined) {
+    if (typeof req.sendDirect !== "boolean")
+      return refuse(400, "sendDirect must be true or false");
+    if (req.sendDirect) set.sendDirect = true;
+    else clear.push("sendDirect");
+  }
+  if (req.prefix !== undefined) {
+    const prefix =
+      typeof req.prefix === "string"
+        ? normaliseWhatsAppPrefix(req.prefix)
+        : null;
+    if (prefix === null)
+      return refuse(
+        400,
+        `prefix must be at most ${WHATSAPP_PREFIX_MAX} characters on one line`,
+      );
+    if (prefix) set.prefix = prefix;
+    else clear.push("prefix");
+  }
+  return { ok: true, set, clear };
+}
 
 // The rows are read from disk at each call: the files are small, and an
 // unlink deletes the directory under any cache.
@@ -129,6 +166,8 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
       const trigger = "trigger" in req ? req.trigger : undefined;
       if (trigger !== undefined && (!group || !isTrigger(trigger)))
         return refuse(400, "a trigger is for a group only: mention or all");
+      const settings = replySettings(req);
+      if (!settings.ok) return settings;
       const problem = agentProblem(userId, req.agentId);
       if (problem) return refuse(400, AGENT_ERRORS[problem]);
       const file = read(userId);
@@ -144,6 +183,7 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
         agentId: req.agentId,
         ...(group ? { trigger: trigger ?? "mention" } : {}),
         createdAt: deps.now(),
+        ...settings.set,
       };
       write(userId, { phone, routes: [...file.routes, route] });
       deps.onChange(userId);
@@ -174,6 +214,10 @@ export function createWhatsAppRoutes(deps: WhatsAppRoutesDeps): WhatsAppRoutes {
           return refuse(400, "no such agent");
         next.agentId = req.agentId;
       }
+      const settings = replySettings(req);
+      if (!settings.ok) return settings;
+      Object.assign(next, settings.set);
+      for (const key of settings.clear) delete next[key];
       const problem = agentProblem(userId, next.agentId);
       if (problem) return refuse(400, AGENT_ERRORS[problem]);
       // A row that passes the checks again is live again.

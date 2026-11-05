@@ -593,6 +593,7 @@ export function createManagers(
     asks: askStore,
     supervisor: whatsappSupervisor,
     sent: (userId) => openIdRing(STATE_ROOT, userId, "sent"),
+    now: () => Date.now(),
   });
   turnEndWatch = createTurnEndWatch({
     agent: (agentId) => {

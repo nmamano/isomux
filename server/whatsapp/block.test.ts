@@ -124,3 +124,27 @@ describe("buildWhatsAppBlock", () => {
     expect(cut.isWellFormed()).toBe(true);
   });
 });
+
+// The head tells the agent whether its reply waits for the member's Send or
+// goes out at once (task 70fae82c). The words are copy; the rule is that the
+// two modes read differently and both still name the row and the route.
+describe("buildWhatsAppBlock: the reply mode", () => {
+  const head = (direct: boolean | undefined) =>
+    buildWhatsAppBlock(input({ direct })).split(OPEN)[0];
+
+  it("a row that sends at once gets another head than one that waits for Send; absent is the wait", () => {
+    expect(head(undefined)).toBe(head(false));
+    expect(head(true)).not.toBe(head(false));
+    for (const direct of [true, false])
+      for (const part of ["Mom", "Morgan", "r_3f9a0c1d"])
+        expect({ direct, part, inHead: head(direct).includes(part) }).toEqual({
+          direct,
+          part,
+          inHead: true,
+        });
+    // Only the head changes: the data block is the same.
+    expect(buildWhatsAppBlock(input({ direct: true })).split(OPEN)[1]).toBe(
+      buildWhatsAppBlock(input({ direct: false })).split(OPEN)[1],
+    );
+  });
+});

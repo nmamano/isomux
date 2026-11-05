@@ -1,9 +1,11 @@
-// WhatsApp replies (task d03a61d8, slice 2b): an agent drafts a reply to a
-// contact row, the draft is an ask to the row's member, and only the member's
-// Send answer sends it. Nothing goes out without that tap.
+// WhatsApp replies (task d03a61d8, slice 2b): an agent replies to a contact
+// row. By default the reply is a draft, an ask to the row's member, and only
+// the member's Send answer sends it. On a row where the member turned the Send
+// step off (sendDirect, task 70fae82c), the reply goes out at once.
 
 import type { AskEntry } from "../../shared/types.ts";
 import { WHATSAPP_APP } from "../../shared/whatsapp.ts";
+import { randomUUID } from "crypto";
 import type { AskStore } from "../asks.ts";
 import type { IdRing } from "./routes-store.ts";
 import type { WhatsAppRoutes } from "./routes.ts";
@@ -12,6 +14,10 @@ import type { WhatsAppSupervisor } from "./supervisor.ts";
 export const WHATSAPP_REPLY_MAX_CHARS = 4000;
 // Open drafts per row: a sixth gets 429 until the member answers one.
 export const WHATSAPP_DRAFTS_PER_ROUTE_MAX = 5;
+// Direct sends per row (sendDirect): at most this many in the window, so a
+// reply loop with a bot cannot flood the member's number. In memory only.
+export const WHATSAPP_DIRECT_SENDS_MAX = 20;
+export const WHATSAPP_DIRECT_SENDS_WINDOW_MS = 10 * 60_000;
 export const WHATSAPP_SEND_OPTION = "Send";
 export const WHATSAPP_DONT_SEND_OPTION = "Don't send";
 
@@ -24,13 +30,16 @@ export interface WhatsAppRepliesDeps {
   // The ids the agents sent, per member (the own-send filter and the quote
   // trigger of inbound.ts).
   sent(userId: string): IdRing;
+  now(): number;
 }
 
-export type WhatsAppDraftResult =
+// A draft that waits for the member (askId), or a direct send that went out.
+export type WhatsAppReplyResult =
   | { ok: true; askId: string }
+  | { ok: true; sent: true }
   | {
       ok: false;
-      status: 400 | 404 | 409 | 429;
+      status: 400 | 404 | 409 | 429 | 502 | 504;
       code: string;
       error: string;
     };
@@ -55,7 +64,11 @@ export interface WhatsAppReplies {
   // route id space is shared by every messaging app of a member: today it
   // holds WhatsApp rows only, so the id names a WhatsApp row. A second app
   // either keeps its ids unique per member or the path gains the app.
-  draft(agentId: string, routeId: string, text: unknown): WhatsAppDraftResult;
+  reply(
+    agentId: string,
+    routeId: string,
+    text: unknown,
+  ): Promise<WhatsAppReplyResult>;
   // The row's member answered the draft `entry` (entry.messaging is set).
   answer(
     entry: AskEntry,
@@ -71,8 +84,14 @@ export function isWhatsAppSendAnswer(text: string): boolean {
 }
 
 // A6: the message as it goes out: the agent's name in bold on its own line,
-// then the text. The name loses * _ ~ and line breaks.
-export function whatsappOutgoingText(agentName: string, text: string): string {
+// then the text. The name loses * _ ~ and line breaks. A row's prefix takes
+// the place of the name line.
+export function whatsappOutgoingText(
+  agentName: string,
+  text: string,
+  prefix?: string,
+): string {
+  if (prefix) return `${prefix} ${text}`;
   return `*${agentName.replace(/[*_~\r\n]/g, "")}*\n${text}`;
 }
 
@@ -95,6 +114,41 @@ const noteAfterFirstLine = (text: string) =>
 // later Send (after a refused notice, or a restart) sends nothing more.
 const sentAskKey = (askId: string) => `ask:${askId}`;
 
+type SendFailure = { ok: false; reason: "not_linked" | "failed" | "unknown" };
+
+// A failed send as the route answers it.
+function sendError(
+  reason: SendFailure["reason"],
+  what: "reply" | "message",
+): { status: 502 | 504; code: string; error: string } {
+  if (reason === "unknown")
+    return {
+      status: 504,
+      code: "messaging_send_unknown",
+      error:
+        what === "reply"
+          ? "WhatsApp did not answer in time, so the reply may have gone out. Check your phone before you send it again."
+          : "WhatsApp did not answer in time, so the message may have gone out. Do not send it again.",
+    };
+  if (reason === "not_linked")
+    return {
+      status: 502,
+      code: "messaging_not_linked",
+      error:
+        what === "reply"
+          ? "WhatsApp is not connected. Check Integrations › Messaging, then send again."
+          : "WhatsApp is not connected right now. Try again in a few minutes, and tell the member if it still fails.",
+    };
+  return {
+    status: 502,
+    code: "messaging_send_failed",
+    error:
+      what === "reply"
+        ? "WhatsApp did not send the reply. Try again."
+        : "WhatsApp did not send the message. Try again.",
+  };
+}
+
 export function createWhatsAppReplies(
   deps: WhatsAppRepliesDeps,
 ): WhatsAppReplies {
@@ -106,13 +160,16 @@ export function createWhatsAppReplies(
     code: "not_found",
     error: "no such row",
   };
+  // The times of each row's recent direct sends, by member and row id.
+  const directSends = new Map<string, number[]>();
 
   return {
-    draft(agentId, routeId, text) {
+    async reply(agentId, routeId, text) {
       const agent = deps.agent(agentId);
       const userId = agent?.userId ?? null;
       const route = userId ? deps.routes.get(userId, routeId) : null;
-      if (!userId || !route || route.agentId !== agentId) return notFound;
+      if (!agent || !userId || !route || route.agentId !== agentId)
+        return notFound;
       if (
         typeof text !== "string" ||
         text.trim() === "" ||
@@ -132,6 +189,39 @@ export function createWhatsAppReplies(
           error:
             "this row no longer delivers; the member must fix it on the Integrations page",
         };
+      if (route.sendDirect === true) {
+        const key = `${userId}\n${routeId}`;
+        const now = deps.now();
+        const recent = (directSends.get(key) ?? []).filter(
+          (t) => now - t < WHATSAPP_DIRECT_SENDS_WINDOW_MS,
+        );
+        directSends.set(key, recent);
+        if (recent.length >= WHATSAPP_DIRECT_SENDS_MAX)
+          return {
+            ok: false,
+            status: 429,
+            code: "too_many_sends",
+            error: `at most ${WHATSAPP_DIRECT_SENDS_MAX} messages to one row in ${WHATSAPP_DIRECT_SENDS_WINDOW_MS / 60_000} minutes; wait before you send again`,
+          };
+        // A try counts: one that failed may still have gone out. Not linked
+        // is the exception: that answer comes before the bridge.
+        recent.push(now);
+        const result = await deps.supervisor.send(userId, {
+          requestId: randomUUID(),
+          chat: route.chat,
+          text: whatsappOutgoingText(agent.name, text, route.prefix),
+        });
+        if (!result.ok) {
+          // The map's list: another call may have pruned it meanwhile.
+          const times = directSends.get(key) ?? [];
+          const at = times.lastIndexOf(now);
+          if (result.reason === "not_linked" && at >= 0) times.splice(at, 1);
+          return { ok: false, ...sendError(result.reason, "message") };
+        }
+        // The own-send filter and the quote trigger (A7).
+        deps.sent(userId).add(result.id);
+        return { ok: true, sent: true };
+      }
       const open = deps.asks
         .listForAgent(agentId)
         .filter(
@@ -226,30 +316,10 @@ export function createWhatsAppReplies(
       const result = await deps.supervisor.send(userId, {
         requestId: entry.id,
         chat: route.chat,
-        text: whatsappOutgoingText(agent.name, draft.text),
+        text: whatsappOutgoingText(agent.name, draft.text, route.prefix),
       });
-      if (!result.ok) {
-        if (result.reason === "unknown")
-          return {
-            kind: "fail",
-            status: 504,
-            code: "messaging_send_unknown",
-            error:
-              "WhatsApp did not answer in time, so the reply may have gone out. Check your phone before you send it again.",
-          };
-        return {
-          kind: "fail",
-          status: 502,
-          code:
-            result.reason === "not_linked"
-              ? "messaging_not_linked"
-              : "messaging_send_failed",
-          error:
-            result.reason === "not_linked"
-              ? "WhatsApp is not connected. Check Integrations › Messaging, then send again."
-              : "WhatsApp did not send the reply. Try again.",
-        };
-      }
+      if (!result.ok)
+        return { kind: "fail", ...sendError(result.reason, "reply") };
       // The ask key first: it is the guard against a second send. The
       // message id feeds the own-send filter and the quote trigger (A7).
       ring.add(sentAskKey(entry.id));
