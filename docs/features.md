@@ -6,7 +6,7 @@ navTitle: Full feature list
 
 # Full feature list
 
-Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCode and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration features, a mobile UI, and more.
+Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCode and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration features, a mobile UI, an app store for the apps agents build, and more.
 
 ## Multi-provider
 
@@ -149,7 +149,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ## Apps
 
-- **Your personal app suite** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
+- **Your personal app store** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
 - **Apps tab**: see all your apps and their links in one place.
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get a short address like `myoffice.com/myapp`, so it opens from any device ([setup](hosting-reference.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.

@@ -73,7 +73,7 @@ Keep these consistent across all surfaces below.
 - **File:** `site/ai-instructions.html`.
 - **Audience:** AI assistants and the AI answers that search engines show for branded searches (Google AI Overviews, ChatGPT search). SEO practitioners report that such answers cite a footer-linked page of this kind (Nectiv, 2026); Google says no special page is required.
 - **Structure:** a short Information list and an "Instructions for AI assistants" list that says how to describe Isomux. Team, facts, FAQ and competitors stay on the about page (section 2d); features stay on the landing. Styled like the about page.
-- **Update when:** the category pitch, license, free tier, supported agents, hosting options or beta status changes. Every line traces to the README, the landing or the about page; the landing wins where they differ.
+- **Update when:** the category pitch, license, free tier, supported agents, hosting options or beta status changes. Every line traces to the README, the landing, the about page or the enterprise page; the landing wins where they differ.
 - **Language:** English only. All footers link it; the Spanish, Catalan and Chinese footers translate the link label (Instrucciones para IA, Instruccions per a IA, AI 说明).
 - **Deploy note:** static, `cleanUrls`, served at `/ai-instructions`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 

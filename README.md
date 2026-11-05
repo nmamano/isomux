@@ -46,6 +46,7 @@ free for small teams · source-available · no account needed · works with your
 - [**Layered context**](https://x.com/Nil053/status/2050130563915534346): office-wide and per-room instructions and memory, so you don't repeat yourself
 - **Every desk comes stocked**: built-in [terminal](https://x.com/Nil053/status/2039504957184090281), [editor](site/built-in-editor.jpeg), [diff viewer](https://x.com/Nil053/status/2047917731874557983), diagram viewer, and URL screenshotter
 - **A skills page**: browse, edit and create the skills all your agents share
+- **A built-in app store**: ask an agent for an app, and it gets a clean, readable link that works for other office members
 - [**Schedules**](https://x.com/Nil053/status/2048308972072079753): recurring work runs on its own
 - **A pager**: agents page you on Discord or with a phone notification when something needs you, and keep paging until you ack
 - [**Cute**](https://x.com/Nil053/status/2039027360117506399): [six themes](https://x.com/Nil053/status/2054709610519638506), and the room is clickable (the moon for dark mode, the door to change rooms, the clock for scheduled tasks...)
