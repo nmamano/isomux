@@ -1,8 +1,8 @@
 // Background work an idle agent's session still runs (task daa9dbef): the
 // backend's background_tasks event replaces AgentInfo.backgroundTasks and
 // reaches the browser, but it is never turn activity. It moves no state, writes
-// no log entry and no agents.json, and does not keep the session from its idle
-// release, which ends the work and clears the list.
+// no log entry and no agents.json. A release past the background hold ends the
+// work and clears the list.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { statSync } from "fs";
@@ -95,11 +95,11 @@ describe("background work", () => {
     expect(srv.agentManager.getAgentLogs(id)).toHaveLength(logCount);
     expect(statSync(agentsFile).mtimeMs).toBe(writtenAt);
 
-    // Background work is not activity: the idle release still takes the
-    // session, and its end clears the list.
+    // A release past the background hold takes the session, and its end
+    // clears the list.
     session.push({ kind: "background_tasks", tasks: TASKS });
     await waitUntil(() => updates().length === 3, "list sent again");
-    expect(await srv.agentManager.sweepIdleAgents(50)).toBe(1);
+    expect(await srv.agentManager.sweepIdleAgents(50, 0)).toBe(1);
     await waitUntil(() => updates().length === 4, "release cleared");
     expect(updates()[3].changes.backgroundTasks).toBeNull();
     expect(agent().backgroundTasks ?? null).toBeNull();

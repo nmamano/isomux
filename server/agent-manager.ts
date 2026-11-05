@@ -2,6 +2,7 @@ import type { AuditActor } from "../shared/audit.ts";
 import type { PagerStore } from "./pager-store.ts";
 import { createTaskStore } from "./task-store.ts";
 import { claudeConfigRoot } from "./claude-session-root.ts";
+import { BACKGROUND_HOLD_MS, IDLE_EVICT_MS } from "./idle-release.ts";
 import {
   claudeConnectorGeneration,
   forgetClaudeEngineServers,
@@ -3020,8 +3021,9 @@ export function createAgentManager(deps: ManagerDeps) {
   function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     const eventManaged = agents.get(agentId);
     // Background work is not turn activity: it moves no state, stamps no
-    // liveness or idle clock (the idle release still ends it) and writes no
-    // log entry. An equal list sends nothing; an empty one clears with null.
+    // liveness or idle clock (so it holds the idle release only until
+    // BACKGROUND_HOLD_MS after the last turn, never longer) and writes no log
+    // entry. An equal list sends nothing; an empty one clears with null.
     if (ev.kind === "background_tasks") {
       if (!eventManaged) return;
       const next = ev.tasks.length > 0 ? ev.tasks : null;
@@ -4066,18 +4068,11 @@ export function createAgentManager(deps: ManagerDeps) {
   let consumerDrainTimeoutMs = CONSUMER_DRAIN_TIMEOUT_MS;
 
   // A live backend subprocess holds ~165MB resident even when idle. After
-  // IDLE_EVICT_MS of inactivity an agent is demoted to lazy (subprocess closed,
-  // session resumable on disk); the next message wakes it via flushQueue's
-  // !session branch. lazy-restore at boot starts everyone dormant; this sweep
-  // re-demotes agents that woke and then went quiet again.
-  //
-  // 1 h: the Claude prompt cache lasts at most 1 h, so a session idle longer
-  // pays a full prompt read on its next message, live or not. A resume costs
-  // little on top: over 21 days of logs (2026-11-05), the first output after
-  // a wake from eviction came a median 6.1 s after the message, against 5.7 s
-  // for a live session idle 65-115 min. The sweep runs every minute
-  // (isomux-office.ts), so an agent goes 60-61 min after its last activity.
-  const IDLE_EVICT_MS = 60 * 60_000;
+  // IDLE_EVICT_MS of inactivity (BACKGROUND_HOLD_MS while it runs background
+  // work; both in idle-release.ts) an agent is demoted to lazy (subprocess
+  // closed, session resumable on disk); the next message wakes it via
+  // flushQueue's !session branch. lazy-restore at boot starts everyone
+  // dormant; this sweep re-demotes agents that woke and then went quiet again.
   let demoteCount = 0;
 
   // Wake-message wording, accurate to WHY the agent was dormant: a sweep-demoted
@@ -4105,7 +4100,8 @@ export function createAgentManager(deps: ManagerDeps) {
   // entries are never fed back into a prompt, so a log-only message would miss
   // every occurrence this task exists to fix - the agent is the one holding the
   // false rejection. The calm idle wording has nothing to warn about, so it
-  // carries note: null and costs the agent no context.
+  // carries note: null and costs the agent no context, unless the release
+  // ended background work (task 539db6a4).
   //
   // The two surfaces are built from the same keys: the log line is a message
   // each member words in their language, the agent always gets English
@@ -4115,14 +4111,32 @@ export function createAgentManager(deps: ManagerDeps) {
     reason: ManagedAgent["dormantReason"],
     sessionId: string,
   ): { log: LogText; note: string | null } {
+    // Read once: only the wake right after the release that ended the work
+    // names it.
+    const ended = managed.releasedBackgroundTasks;
+    managed.releasedBackgroundTasks = null;
     // The agent hears of it too: its environment has the current secrets and
     // variables.
     if (reason === "env") {
       const env = msg("systemEntries.wake.env");
       return { log: env, note: renderLogText(english, env) };
     }
-    if (reason !== "boot" && reason !== "stream-ended")
-      return { log: msg("systemEntries.wake.idle"), note: null };
+    if (reason !== "boot" && reason !== "stream-ended") {
+      // Its transcript still calls the work running, and no completion
+      // notice comes: say it ended.
+      if (reason !== "idle" || !ended)
+        return { log: msg("systemEntries.wake.idle"), note: null };
+      const log = joinLogText(
+        [
+          msg("systemEntries.wake.idle"),
+          msg("systemEntries.wake.backgroundEnded", {
+            tasks: ended.map((t) => t.label).join("; "),
+          }),
+        ],
+        " ",
+      );
+      return { log, note: renderLogText(english, log) };
+    }
     const clause = shutdownRejectionClause(managed, sessionId);
     const parts: LogText[] = [
       reason === "boot"
@@ -4216,10 +4230,15 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!managed) return false;
     if (!canDemote(managed)) return false;
     managed.dormantReason = "idle";
+    // Read before the close, which clears the list.
+    const ended = managed.info.backgroundTasks?.length
+      ? managed.info.backgroundTasks
+      : null;
+    managed.releasedBackgroundTasks = ended;
     await managed.sessionManager.closeAndDrainSession(managed);
     demoteCount++;
     console.log(
-      `[idle-evict] demoted ${managed.info.name} (${agentId}) to lazy (total ${demoteCount})`,
+      `[idle-evict] demoted ${managed.info.name} (${agentId}) to lazy (total ${demoteCount})${ended ? `, ended ${ended.length} background task(s)` : ""}`,
     );
     return true;
   }
@@ -4321,17 +4340,22 @@ export function createAgentManager(deps: ManagerDeps) {
     }
   }
 
-  // Periodic sweep: demote every live agent idle past `idleMs`. Snapshots the
+  // Periodic sweep: demote every live agent idle past `idleMs`, or past
+  // `backgroundHoldMs` while it runs background work. Snapshots the
   // map first (demoteToLazy awaits and the map can change between iterations).
   // Returns the count demoted.
   async function sweepIdleAgents(
     idleMs: number = IDLE_EVICT_MS,
+    backgroundHoldMs: number = BACKGROUND_HOLD_MS,
   ): Promise<number> {
     const now = Date.now();
     let demoted = 0;
     for (const [agentId, managed] of [...agents.entries()]) {
       if (managed.sessionManager.session === null) continue;
-      if (now - managed.lastActiveAt < idleMs) continue;
+      const idle = now - managed.lastActiveAt;
+      if (idle < idleMs) continue;
+      if (managed.info.backgroundTasks?.length && idle < backgroundHoldMs)
+        continue;
       if (!canDemote(managed)) continue;
       if (await demoteToLazy(agentId)) demoted++;
     }
@@ -5158,6 +5182,7 @@ export function createAgentManager(deps: ManagerDeps) {
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
       dormantReason: null,
+      releasedBackgroundTasks: null,
     };
     agents.set(id, managed);
     // Mint the agent's bearer token before the first createSession (deferred to
@@ -7994,6 +8019,7 @@ export function createAgentManager(deps: ManagerDeps) {
       summarizeEndedSession(agentId, managed.sessionManager.sessionId);
       managed.sessionManager.sessionId = null;
       managed.dormantReason = "fresh";
+      managed.releasedBackgroundTasks = null;
       managed.topicGenToken++;
       setTopicGenerating(agentId, false);
       // /clear and engine switches both land here: a blank conversation has no

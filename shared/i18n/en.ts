@@ -3385,6 +3385,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.interrupted": "Agent interrupted.",
   "systemEntries.wake.idle":
     "Resumed your session (it was released while idle to save memory).",
+  "systemEntries.wake.backgroundEnded":
+    "The release ended your background work: {tasks}.",
   "systemEntries.wake.env":
     "Resumed your session with the current secrets and variables.",
   "systemEntries.wake.afterRestart":

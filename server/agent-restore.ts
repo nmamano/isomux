@@ -475,6 +475,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
           ? "boot"
           : "fresh"
         : null,
+      releasedBackgroundTasks: null,
     };
     // Re-seed the durable queue + dedupe window
     // persisted by the previous run so a restart doesn't drop queued messages

@@ -1,6 +1,7 @@
 import type {
   AgentInfo,
   AgentChoiceInteraction,
+  BackgroundTask,
   KilledAgentSummary,
   LogEntry,
   PendingPromptKind,
@@ -474,6 +475,11 @@ export interface ManagedAgent {
   // consumer released
   // the dead session pointer. Null while live. In-memory only.
   dormantReason: DormantReason;
+  // The background work an idle release ended (sweepIdleAgents past
+  // BACKGROUND_HOLD_MS), else null. Set at every idle release; the wake
+  // after it names the tasks to the agent, which would otherwise wait for
+  // completion notices that never come. In-memory only.
+  releasedBackgroundTasks: BackgroundTask[] | null;
 }
 
 export type AgentEvent =

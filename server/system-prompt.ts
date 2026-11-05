@@ -17,6 +17,7 @@ import {
 } from "../shared/identity.ts";
 import { appHostingUnsupportedReason } from "./app-hosting.ts";
 import type { IsolationForm } from "./process-isolation.ts";
+import { BACKGROUND_HOLD_MS, IDLE_EVICT_MS } from "./idle-release.ts";
 import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
   openCodeAuthoritySocketPath,
@@ -25,6 +26,12 @@ import {
 const PORT = process.env.PORT || "4000";
 export const HOSTED_IDENTITY_COPY =
   "This office is a Hosted Isomux instance at <hostname>. Its owner is an Isomux customer, and the server is theirs to do anything with. The owner gets root by SSH from their own device with the administrator key they saved at signup: `ssh -i <key file> root@<hostname>`. That key stays off this server: never ask for it. Agents and the office terminal run as the isomux user without root, so a key added to its authorized_keys does not give root.";
+
+// A whole number of hours, worded for the prompt.
+function hours(ms: number): string {
+  const n = Math.round(ms / 3_600_000);
+  return n === 1 ? "1 hour" : `${n} hours`;
+}
 
 export function hostedIdentityNote(
   installKind: InstallKind,
@@ -177,7 +184,7 @@ In chat, text between two dollar signs can render as LaTeX math. To show a liter
     systemPrompt += `
 
 Claude harness notes:
-- A background wait and its children die when the office releases an idle session. Your transcript can still call such a watcher running. Use a scheduled self-message for a wait that can outlast your idle window.
+- The office releases an idle session after ${hours(IDLE_EVICT_MS)}, or ${hours(BACKGROUND_HOLD_MS)} while background work runs; that work dies with it. Your transcript can still call it running. Use a scheduled self-message for a longer wait.
 - CronCreate can downgrade durable jobs to session-only jobs. Read its result; use an Isomux scheduled message or ask for an Isomux schedule when work must survive release.
 - A process backgrounded inside one Bash call dies when that call returns. Use the tool's background mode only within the turn${appHostingClaudeCaveatTail(appsUnsupported)}.
 - A background completion notice reports the wrapper status. Record and read the command's own exit code.`;

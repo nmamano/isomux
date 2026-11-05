@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
-import type { RoomWire } from "../../shared/types.ts";
+import type { BackgroundTask, RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
@@ -1098,5 +1098,114 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
     await waitUntil(() => woken.sent.length === 2, "second textarea message");
     expect(woken.sent[1].text).not.toContain(WAKE_BLOCK_OPEN);
     woken.close();
+  });
+});
+
+describe("idle eviction - background hold (task 539db6a4)", () => {
+  const TASKS: BackgroundTask[] = [
+    { id: "b1", kind: "command", label: "npm run build" },
+    { id: "a1", kind: "agent", label: "Review the diff" },
+  ];
+
+  async function startBackground(
+    mgr: ReturnType<typeof createAgentManager>,
+    fake: FakeBackend,
+    id: string,
+    tasks: BackgroundTask[],
+  ): Promise<void> {
+    fake.lastSession!.push({ kind: "background_tasks", tasks });
+    await waitUntil(
+      () => (mgr.getAgent(id)?.backgroundTasks?.length ?? 0) === tasks.length,
+      "background list set",
+    );
+  }
+
+  // Wakes a dormant agent with one message and returns what the new session
+  // was sent first.
+  async function wakeAndReadFirstSend(
+    mgr: ReturnType<typeof createAgentManager>,
+    fake: FakeBackend,
+    id: string,
+  ): Promise<string> {
+    const dead = fake.lastSession!;
+    const r = mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "back",
+    });
+    if (!r.ok) throw new Error("wake enqueue failed");
+    await waitUntil(() => fake.lastSession !== dead, "woke on a new session");
+    const woken = fake.lastSession!;
+    await waitUntil(() => woken.sent.length >= 1, "wake message sent");
+    await waitUntil(
+      () => isLiveAndDemotable(mgr, id),
+      "woken agent idle again",
+    );
+    return woken.sent[0].text;
+  }
+
+  it("holds a session with background work past the idle release, until the cap", async () => {
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    await startBackground(mgr, fake, id, TASKS);
+    expect(isLiveAndDemotable(mgr, id)).toBe(true);
+    // Idle past the release, under the hold: the work keeps its process.
+    expect(await mgr.sweepIdleAgents(0, 60_000)).toBe(0);
+    expect(isLiveAndDemotable(mgr, id)).toBe(true);
+    expect(fake.lastSession!.closed).toBe(false);
+    // Past the hold: released like any idle session.
+    expect(await mgr.sweepIdleAgents(0, 0)).toBe(1);
+    expect(mgr.getAgent(id)?.dormant).toBe(true);
+  });
+
+  it("a cleared background list no longer holds the session", async () => {
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    await startBackground(mgr, fake, id, TASKS);
+    fake.lastSession!.push({ kind: "background_tasks", tasks: [] });
+    await waitUntil(
+      () => (mgr.getAgent(id)?.backgroundTasks ?? null) === null,
+      "background list cleared",
+    );
+    expect(await mgr.sweepIdleAgents(0, 60_000)).toBe(1);
+    expect(mgr.getAgent(id)?.dormant).toBe(true);
+  });
+
+  it("background events do not extend the hold: it counts from the last turn", async () => {
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    // The last turn ended at least 250 ms ago; the list arrives just now.
+    await sleep(250);
+    await startBackground(mgr, fake, id, TASKS);
+    expect(isLiveAndDemotable(mgr, id)).toBe(true);
+    expect(await mgr.sweepIdleAgents(0, 200)).toBe(1);
+    expect(mgr.getAgent(id)?.dormant).toBe(true);
+  });
+
+  it("the wake after a release names the background work it ended, and only that release", async () => {
+    wireClaudeConfigDir();
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    seedClaudeSession(STATE_ROOT, mgr.getCurrentSessionId(id)!);
+    await startBackground(mgr, fake, id, TASKS);
+    expect(await mgr.sweepIdleAgents(0, 0)).toBe(1);
+
+    const first = await wakeAndReadFirstSend(mgr, fake, id);
+    expect(first).toContain(WAKE_BLOCK_OPEN);
+    for (const task of TASKS) {
+      expect(first).toContain(task.label);
+      expect(logText(mgr, id)).toContain(task.label);
+    }
+
+    // The next release ends no background work: its wake is calm again.
+    expect(mgr.getAgent(id)?.backgroundTasks ?? null).toBeNull();
+    expect(await mgr.sweepIdleAgents(0, 0)).toBe(1);
+    const second = await wakeAndReadFirstSend(mgr, fake, id);
+    expect(second).not.toContain(WAKE_BLOCK_OPEN);
+    for (const task of TASKS) expect(second).not.toContain(task.label);
+    fake.lastSession?.close();
   });
 });
