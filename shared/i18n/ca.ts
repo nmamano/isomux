@@ -1987,6 +1987,17 @@ Coses que pots fer per ell:
   "asks.action.accessNoAddress": "Cap",
   "asks.action.accessRestart":
     "S'aplica quan reiniciïs Isomux. Aplicar no el reinicia.",
+  "asks.action.removed": "Eliminat",
+  "asks.action.removePasses":
+    "Els seus agents, programacions i webhooks passen al propietari de l'oficina més antic.",
+  "asks.action.removesYou": "Això t'elimina i tanca la teva sessió.",
+  "asks.action.restored": "Restaurat",
+  "asks.action.restoreKeepsAgents":
+    "Els seus agents, programacions i webhooks es queden amb {heir}.",
+  "asks.action.purged": "Esborrat per sempre",
+  "asks.action.notRemoved": "Aquest membre ja no és a Membres eliminats.",
+  "asks.action.olderThanDays.one": "De més de {count} dia",
+  "asks.action.olderThanDays.other": "De més de {count} dies",
   "asks.result.signInLink": "Enllaç d'inici de sessió per a {member}",
   "asks.result.apiToken": "Token d'API {name}",
   "asks.viewInInbox": "Mostra a la safata d'entrada",
@@ -3382,6 +3393,12 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.apiTokenMade": "Token d'API {name} creat.",
   "systemEntries.stepAsk.apiTokenRevoked": "Token d'API revocat.",
   "systemEntries.stepAsk.officeAccessSet": "Accés extern configurat.",
+  "systemEntries.stepAsk.memberRemoved": "{member} eliminat.",
+  "systemEntries.stepAsk.memberRestored": "{member} restaurat.",
+  "systemEntries.stepAsk.memberPurged": "Membre eliminat esborrat per sempre.",
+  "systemEntries.stepAsk.officeUpdated": "Oficina actualitzada a {release}.",
+  "systemEntries.stepAsk.storagePruned": "Fitxers antics esborrats.",
+  "systemEntries.stepAsk.storageCompressed": "Converses antigues comprimides.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
   "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
   "systemEntries.sudoRequest.exited":

@@ -48,10 +48,90 @@ const TARGETS: readonly PruneTarget[] = [
 
 // A prune that could reach today's files is not a retention policy, it is a
 // wipe. The floor is a guard rail, not a recommendation.
-const MIN_OLDER_THAN_DAYS = 1;
+export const MIN_OLDER_THAN_DAYS = 1;
 
 function isPositiveInt(value: unknown, min: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= min;
+}
+
+// The body of a prune, as the route takes it: the route and an action ask
+// (server/step-asks.ts) read it here, so both refuse alike. `forApply`: the
+// action ask always applies, so it needs what an apply needs.
+export function parsePruneRequest(
+  body: unknown,
+  forApply = false,
+):
+  | {
+      ok: true;
+      req: {
+        target: PruneTarget;
+        olderThanDays: number;
+        keepPerAgent?: number;
+        apply?: boolean;
+      };
+    }
+  | { ok: false; code: string; message: string } {
+  const b = (body ?? {}) as {
+    target?: unknown;
+    olderThanDays?: unknown;
+    keepPerAgent?: unknown;
+    apply?: unknown;
+  };
+  const target = b.target;
+  if (typeof target !== "string" || !TARGETS.includes(target as PruneTarget)) {
+    return {
+      ok: false,
+      code: "invalid_target",
+      message: `target must be one of: ${TARGETS.join(", ")}`,
+    };
+  }
+  if (!isPositiveInt(b.olderThanDays, MIN_OLDER_THAN_DAYS)) {
+    return {
+      ok: false,
+      code: "invalid_older_than_days",
+      message: `olderThanDays must be an integer of at least ${MIN_OLDER_THAN_DAYS}`,
+    };
+  }
+  // Absent keepPerAgent means "keep nothing on recency alone"; it is only
+  // meaningful for transcripts, and an explicit value must still be sane.
+  if (b.keepPerAgent !== undefined && !isPositiveInt(b.keepPerAgent, 0)) {
+    return {
+      ok: false,
+      code: "invalid_keep_per_agent",
+      message: "keepPerAgent must be a non-negative integer",
+    };
+  }
+  if (b.apply !== undefined && typeof b.apply !== "boolean") {
+    return {
+      ok: false,
+      code: "invalid_apply",
+      message: "apply must be a boolean",
+    };
+  }
+  // keepPerAgent defaults to 0, which is the sharpest setting there is:
+  // "spare nothing on recency". Fine to explore with on a dry run, not fine
+  // to inherit silently on a delete - a real transcript apply must say it.
+  if (
+    (forApply || b.apply === true) &&
+    target === "transcripts" &&
+    b.keepPerAgent === undefined
+  ) {
+    return {
+      ok: false,
+      code: "keep_per_agent_required",
+      message:
+        "keepPerAgent must be stated explicitly when applying a transcript prune (0 keeps nothing on recency alone)",
+    };
+  }
+  return {
+    ok: true,
+    req: {
+      target: target as PruneTarget,
+      olderThanDays: b.olderThanDays,
+      ...(b.keepPerAgent !== undefined ? { keepPerAgent: b.keepPerAgent } : {}),
+      ...(b.apply !== undefined ? { apply: b.apply } : {}),
+    },
+  };
 }
 
 export function storageHandlers(
@@ -66,68 +146,20 @@ export function storageHandlers(
     },
 
     "storage.prune": (ctx) => {
-      const b = (ctx.body ?? {}) as {
-        target?: unknown;
-        olderThanDays?: unknown;
-        keepPerAgent?: unknown;
-        apply?: unknown;
-      };
-      const target = b.target;
-      if (
-        typeof target !== "string" ||
-        !TARGETS.includes(target as PruneTarget)
-      ) {
-        return fail(
-          400,
-          "invalid_target",
-          `target must be one of: ${TARGETS.join(", ")}`,
-        );
-      }
-      if (!isPositiveInt(b.olderThanDays, MIN_OLDER_THAN_DAYS)) {
-        return fail(
-          400,
-          "invalid_older_than_days",
-          `olderThanDays must be an integer of at least ${MIN_OLDER_THAN_DAYS}`,
-        );
-      }
-      // Absent keepPerAgent means "keep nothing on recency alone"; it is only
-      // meaningful for transcripts, and an explicit value must still be sane.
-      if (b.keepPerAgent !== undefined && !isPositiveInt(b.keepPerAgent, 0)) {
-        return fail(
-          400,
-          "invalid_keep_per_agent",
-          "keepPerAgent must be a non-negative integer",
-        );
-      }
-      if (b.apply !== undefined && typeof b.apply !== "boolean") {
-        return fail(400, "invalid_apply", "apply must be a boolean");
-      }
-      // keepPerAgent defaults to 0, which is the sharpest setting there is:
-      // "spare nothing on recency". Fine to explore with on a dry run, not fine
-      // to inherit silently on a delete - a real transcript apply must say it.
-      if (
-        b.apply === true &&
-        target === "transcripts" &&
-        b.keepPerAgent === undefined
-      ) {
-        return fail(
-          400,
-          "keep_per_agent_required",
-          "keepPerAgent must be stated explicitly when applying a transcript prune (0 keeps nothing on recency alone)",
-        );
-      }
-
+      const parsed = parsePruneRequest(ctx.body);
+      if (!parsed.ok) return fail(400, parsed.code, parsed.message);
+      const { target, apply } = parsed.req;
       const policy: PrunePolicy = {
-        olderThanDays: b.olderThanDays,
-        keepPerAgent: b.keepPerAgent ?? 0,
+        olderThanDays: parsed.req.olderThanDays,
+        keepPerAgent: parsed.req.keepPerAgent ?? 0,
       };
-      const plan = deps.planPrune(target as PruneTarget, policy);
+      const plan = deps.planPrune(target, policy);
       // Fail closed, loudly. When the durable message queue could not be read,
       // the planner has already spared everything - so an apply would be a
       // harmless no-op, and that is exactly the problem: it would report
       // "deleted 0" as if there were nothing to prune. Say why instead.
       if (
-        b.apply === true &&
+        apply === true &&
         plan.skipped.some((s) => s.reason === QUEUE_STATE_UNKNOWN)
       ) {
         return fail(
@@ -139,7 +171,7 @@ export function storageHandlers(
       // Dry run unless the caller explicitly opted in. `applied: null` is the
       // signal that nothing was touched - never an empty result object, which
       // would read like a prune that found nothing to do.
-      const applied = b.apply === true ? deps.applyPrune(plan) : null;
+      const applied = apply === true ? deps.applyPrune(plan) : null;
       return ok({ plan, applied });
     },
 

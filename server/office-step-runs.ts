@@ -32,6 +32,9 @@ import { API_ROUTES } from "./routes/table.ts";
 import type { StepRunDeps } from "./step-asks.ts";
 import { loadBackupSettings } from "./backup.ts";
 import { getUser, getUserById, wouldDeleteLeaveNoOwner } from "./users.ts";
+import { getRemovedMember, listRemovedMembers } from "./removed-members.ts";
+import { getUpdateStatus } from "./update-checker.ts";
+import type { StorageOps } from "./office-storage-routes.ts";
 
 // Runs one office route in process as `identity`, through the executor, so
 // the route's guards, preconditions, events and audit row apply.
@@ -79,6 +82,7 @@ export function officeStepRuns(deps: {
   ) => SpawnAccessRefusal | null;
   officeAccess: StepRunDeps["officeAccess"];
   tokenLimitableRoomIds: StepRunDeps["tokenLimitableRoomIds"];
+  storage: StorageOps;
 }): StepRunDeps {
   // The asking agent's reach, as its token has it: its manager's rooms,
   // narrowed to its pack's rooms below Standard.
@@ -183,6 +187,21 @@ export function officeStepRuns(deps: {
     },
     tokenLimitableRoomIds: deps.tokenLimitableRoomIds,
     officeAccess: deps.officeAccess,
+    removedMember: (userId) => {
+      const removed = getRemovedMember(userId);
+      return removed ? { name: removed.user.name } : null;
+    },
+    removedMemberIdByName: (username) =>
+      listRemovedMembers().find((m) => m.user.name === username)?.user.id ??
+      null,
+    updateStatus: getUpdateStatus,
+    pruneCandidates: (target, olderThanDays, keepPerAgent) =>
+      deps.storage.planPrune(target, { olderThanDays, keepPerAgent }).candidates
+        .length,
+    compressCandidates: (olderThanDays) =>
+      deps.storage.planCompress(olderThanDays).candidates.length,
+    lastPrune: (target) => deps.storage.lastPrune(target),
+    lastCompress: () => deps.storage.lastCompress(),
     // A verdict at the create; the revoke checks again inside the auth mutex.
     signOutStrandsOffice: wouldRemovingOwnerStrandOffice,
     // The member as their session would be, judged on the route. Runs

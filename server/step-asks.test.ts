@@ -636,3 +636,149 @@ describe("a credential step's create and the clock", () => {
     expect(Date.now() - started).toBeLessThan(500);
   });
 });
+
+// Part 5: the office update. The kind takes no tag: the create stores the
+// latest release the update checker knows, and the ask closes when the office
+// runs that release or a later one (the run restarts the server, and the
+// boot's reconcile reads the new version). Only on a box whose updater the
+// page offers (release mode, applied by the host).
+describe("an office-update step", () => {
+  type Status = import("../shared/types.ts").UpdateStatusWire;
+  const release = (
+    running: string | null,
+    latest: string | null,
+    apply: "host" | "image" = "host",
+  ): Status => ({
+    mode: "release",
+    updateAvailable: latest !== null && latest !== running,
+    current: { release: running, version: running },
+    latest: latest ? { tag: latest, publishedAt: null, url: null } : null,
+    securityUpdate: null,
+    apply:
+      apply === "host"
+        ? { kind: "host" }
+        : { kind: "image", guide: "container" },
+  });
+
+  function updateSteps(initial: Status) {
+    const root = mkdtempSync(join(tmpdir(), "isomux-step-asks-"));
+    roots.push(root);
+    const asks = createAskStore({
+      persistence: createAskFilePersistence(join(root, "asks.json")),
+    });
+    const box = { status: initial };
+    const settled: Settled[] = [];
+    const runs = {
+      updateStatus: () => box.status,
+      // The route is owner-only.
+      authorizeAs: (userId: string) =>
+        userId === OWNER
+          ? null
+          : { status: 403, code: "forbidden", message: "owner only" },
+    } as unknown as NonNullable<Parameters<typeof createStepAsks>[0]["runs"]>;
+    const steps = createStepAsks({
+      asks,
+      isOfficeOwner: (userId) => userId === OWNER,
+      providerConnected: async () => false,
+      mcpServer: () => null,
+      browserPaired: () => false,
+      roomLinked: () => false,
+      settled: (agentId, askId, line, memberUserId) =>
+        settled.push({ agentId, askId, line, memberUserId }),
+      runs,
+    });
+    const check = (step: unknown, memberUserId = OWNER) =>
+      steps.check({
+        step,
+        agentId: "a1",
+        roomId: "r1",
+        managerUserId: memberUserId,
+        memberUserId,
+        memberNamed: false,
+      });
+    async function open(): Promise<AskEntry> {
+      const checked = await check({ kind: "office-update" });
+      if (!checked.ok) throw new Error(`check refused: ${checked.code}`);
+      const made = asks.create({
+        agentId: "a1",
+        memberUserId: OWNER,
+        prompt: "Please update.",
+        link: checked.link,
+        step: checked.step,
+      });
+      if (!made.ok) throw new Error("create refused");
+      return made.entry;
+    }
+    return { asks, steps, box, settled, check, open };
+  }
+
+  it("stores the latest release the checker knows, with no link, and runs the update route with it", async () => {
+    const u = updateSteps(release("v2026.10.1", "v2026.11.2"));
+    expect(await u.check({ kind: "office-update" })).toEqual({
+      ok: true,
+      step: { kind: "office-update", tag: "v2026.11.2" },
+    });
+    const entry = await u.open();
+    expect(u.steps.routeOf(entry.step!, OWNER)).toEqual({
+      ok: true,
+      routes: [
+        {
+          method: "POST",
+          path: "/api/office/update",
+          body: { tag: "v2026.11.2" },
+        },
+      ],
+    });
+  });
+
+  it("refuses a tag (400), a member (403), a box with no updater to run (409 not_managed), no known release (409 no_release), and an office on the latest already (409 step_done)", async () => {
+    const u = updateSteps(release("v2026.10.1", "v2026.11.2"));
+    expect(
+      answer(await u.check({ kind: "office-update", tag: "v2026.11.2" })),
+    ).toBe("400 invalid_request");
+    expect(answer(await u.check({ kind: "office-update" }, BOB))).toBe(
+      "403 member_not_allowed",
+    );
+    for (const [status, code] of [
+      [release("v2026.10.1", "v2026.11.2", "image"), "409 not_managed"],
+      [
+        {
+          mode: "commit",
+          updateAvailable: true,
+          current: { release: null, sha: "abc" },
+          latest: { tag: "v2026.11.2", url: null },
+          releaseStanding: "behind",
+          mainAhead: 3,
+        } as Status,
+        "409 not_managed",
+      ],
+      [release("v2026.10.1", null), "409 no_release"],
+      [release("v2026.11.2", "v2026.11.2"), "409 step_done"],
+      // Ahead of the latest: a build cut since the check.
+      [release("v2026.11.3", "v2026.11.2"), "409 step_done"],
+    ] as const) {
+      u.box.status = status;
+      expect([code, answer(await u.check({ kind: "office-update" }))]).toEqual([
+        code,
+        code,
+      ]);
+    }
+  });
+
+  it("closes once the office runs the stored release or a later one; a newer latest while it is open does not move it, and a failed update leaves it open", async () => {
+    const u = updateSteps(release("v2026.10.1", "v2026.11.2"));
+    const entry = await u.open();
+    // A newer release comes out while the ask is open: still the stored one.
+    u.box.status = release("v2026.10.1", "v2026.11.9");
+    expect(u.steps.routeOf(entry.step!, OWNER)).toMatchObject({
+      routes: [{ body: { tag: "v2026.11.2" } }],
+    });
+    // The update failed and rolled back: the same release runs.
+    await u.steps.reconcile();
+    expect(openIds(u)).toEqual([entry.id]);
+    u.box.status = release("v2026.11.9", "v2026.11.9");
+    await u.steps.reconcile();
+    expect(openIds(u)).toEqual([]);
+    expect(u.settled.map((s) => s.askId)).toEqual([entry.id]);
+  });
+});

@@ -430,7 +430,10 @@ import { createFrontDoor, PORT, UI_DIST } from "./office-front-door.ts";
 import { createAccessPolicy } from "./office-access-policy.ts";
 import { createEventFanout } from "./office-event-fanout.ts";
 import { createSessionProjection } from "./office-session-projection.ts";
-import { createStorageRoutes } from "./office-storage-routes.ts";
+import {
+  createStorageOps,
+  createStorageRoutes,
+} from "./office-storage-routes.ts";
 import { createEditorRoutes } from "./office-editor-routes.ts";
 import { createAgentsRoutes } from "./office-agents-routes.ts";
 import { createUsersRoutes } from "./office-users-routes.ts";
@@ -1428,10 +1431,12 @@ function purgeRemovedMember(userId: string): void {
 }
 
 // Boot and the minute sweep: the members removed 30 days ago or more go.
-function purgeExpiredMembers(): void {
+// How many went.
+function purgeExpiredMembers(): number {
   const purged = purgeExpiredRemovedMembers(Date.now());
   for (const id of purged) purgeRemovedMember(id);
   if (purged.length > 0) emitRemovedMembers();
+  return purged.length;
 }
 
 // Boot: the live record wins (an unfinished removal or a finished restore),
@@ -2553,6 +2558,9 @@ function buildExecutorDeps(
   sudoPath?: string,
 ): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
+  // The storage planners and appliers, shared by the storage routes and the
+  // action asks. An apply may be the change a step ask waits for.
+  const storage = createStorageOps(stepsChanged);
   const preconditions = new Map<RoutePrecondition, PreconditionFn>();
   const register = (hs: Record<string, RouteHandler>): void => {
     for (const [opId, handler] of Object.entries(hs)) {
@@ -2749,6 +2757,7 @@ function buildExecutorDeps(
       accessChangeRefusal,
       officeAccess: () => computeAccessSettings(installKind),
       tokenLimitableRoomIds,
+      storage,
     }),
   });
   register(
@@ -3939,7 +3948,12 @@ function buildExecutorDeps(
       clampViewFields,
       emitInvitesList,
       emitPrivateUserRecord,
-      emitRemovedMembers,
+      // A removal, restore or delete for good may be the change a step ask
+      // waits for.
+      emitRemovedMembers: () => {
+        emitRemovedMembers();
+        stepsChanged();
+      },
       emitUserUpdated,
       emitUsersList,
       mcpSources,
@@ -4720,7 +4734,7 @@ function buildExecutorDeps(
       getVersion: () => getVersionInfo(),
     }),
   );
-  register(createStorageRoutes());
+  register(createStorageRoutes(storage));
   register(
     usageHandlers({
       getUserById,
@@ -5639,7 +5653,9 @@ export async function runOfficeMain(): Promise<void> {
       .sweepIdleAgents()
       .catch((err) => console.error("[idle-evict] sweep failed:", err));
     try {
-      purgeExpiredMembers();
+      // A delete for good may be the change a step ask waits for. At boot,
+      // the reconcile after the agents' restore reads it.
+      if (purgeExpiredMembers() > 0) stepsChanged();
     } catch (err) {
       console.error("[users] the removed-member purge failed:", err);
     }

@@ -1982,6 +1982,17 @@ Cosas que puedes hacer por él:
   "asks.action.accessNoAddress": "Ninguna",
   "asks.action.accessRestart":
     "Se aplica cuando reinicies Isomux. Aplicar no lo reinicia.",
+  "asks.action.removed": "Eliminado",
+  "asks.action.removePasses":
+    "Sus agentes, programaciones y webhooks pasan al propietario de la oficina más antiguo.",
+  "asks.action.removesYou": "Esto te elimina y cierra tu sesión.",
+  "asks.action.restored": "Restaurado",
+  "asks.action.restoreKeepsAgents":
+    "Sus agentes, programaciones y webhooks se quedan con {heir}.",
+  "asks.action.purged": "Borrado para siempre",
+  "asks.action.notRemoved": "Este miembro ya no está en Miembros eliminados.",
+  "asks.action.olderThanDays.one": "Con más de {count} día",
+  "asks.action.olderThanDays.other": "Con más de {count} días",
   "asks.result.signInLink": "Enlace de inicio de sesión para {member}",
   "asks.result.apiToken": "Token de API {name}",
   "asks.viewInInbox": "Ver en la bandeja de entrada",
@@ -3377,6 +3388,14 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.apiTokenMade": "Token de API {name} creado.",
   "systemEntries.stepAsk.apiTokenRevoked": "Token de API revocado.",
   "systemEntries.stepAsk.officeAccessSet": "Acceso externo configurado.",
+  "systemEntries.stepAsk.memberRemoved": "{member} eliminado.",
+  "systemEntries.stepAsk.memberRestored": "{member} restaurado.",
+  "systemEntries.stepAsk.memberPurged":
+    "Miembro eliminado borrado para siempre.",
+  "systemEntries.stepAsk.officeUpdated": "Oficina actualizada a {release}.",
+  "systemEntries.stepAsk.storagePruned": "Archivos antiguos borrados.",
+  "systemEntries.stepAsk.storageCompressed":
+    "Conversaciones antiguas comprimidas.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":

@@ -5,6 +5,7 @@ import type {
   BackupSettingsReq,
   OfficeSettingsReq,
   PreferencesReq,
+  PruneTarget,
 } from "./contract-shapes.ts";
 import type { AgentAccess } from "./agent-access.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
@@ -58,7 +59,25 @@ export type ActionStepRequest =
   // can name them.
   | { kind: "api-token-revoke"; tokenId: string; userId: string }
   // The office's outside access and its address.
-  | { kind: "office-access"; externalAccess: boolean; publicOrigin: string };
+  | { kind: "office-access"; externalAccess: boolean; publicOrigin: string }
+  // Part 5. A member removed: they go to Removed members for 30 days.
+  | { kind: "member-remove"; userId: string }
+  // A removed member back; `agents` moves back what passed to the heir.
+  | { kind: "member-restore"; userId: string; agents: boolean }
+  // A removed member deleted for good.
+  | { kind: "member-purge"; userId: string }
+  // The office updated to the latest release the update checker knew at the
+  // create.
+  | { kind: "office-update"; tag: string }
+  // Old files deleted for good, as POST /api/storage/prune applies them.
+  | {
+      kind: "storage-prune";
+      target: PruneTarget;
+      olderThanDays: number;
+      keepPerAgent?: number;
+    }
+  // Old transcripts gzipped, as POST /api/storage/compress applies it.
+  | { kind: "storage-compress"; olderThanDays: number };
 
 export type MemberViewList = "shown" | "tucked" | "notif" | "push";
 
@@ -85,6 +104,12 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "api-token",
   "api-token-revoke",
   "office-access",
+  "member-remove",
+  "member-restore",
+  "member-purge",
+  "office-update",
+  "storage-prune",
+  "storage-compress",
 ]);
 
 // Whether a step is one the member runs from the card.

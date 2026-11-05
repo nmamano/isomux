@@ -494,7 +494,7 @@ function registerAskTools(
       "open_ask",
       {
         description:
-          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat. step asks for a change only the member can make: an agent's access level (agent-access), one room of a member's room access (member-room; grant true gives it, false takes it), a member's role (member-role), a member's permission pack (member-pack; pack null for none), your manager's own preferences (member-preferences) or room lists (member-view; list shown, tucked, notif or push), the office settings (office-settings), the backup settings (backup-settings), a member's sign-in link (sign-in-link), a member's sign-out on every device (member-sessions), a member's pending sign-in links taken back (sign-in-links-revoke), a personal API token for the member (api-token), an API token revoked (api-token-revoke) or the office's outside access (office-access); set holds the keys to change. The card has an Apply button, and the ask closes when the change is made. A sign-in link or token shows only on the member's card, never to you. pack (token limits with areas) goes only with access office, folder or web.",
+          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat. step asks for a change only the member can make: an agent's access level (agent-access), one room of a member's room access (member-room; grant true gives it, false takes it), a member's role (member-role), a member's permission pack (member-pack; pack null for none), your manager's own preferences (member-preferences) or room lists (member-view; list shown, tucked, notif or push), the office settings (office-settings), the backup settings (backup-settings), a member's sign-in link (sign-in-link), a member's sign-out on every device (member-sessions), a member's pending sign-in links taken back (sign-in-links-revoke), a personal API token for the member (api-token), an API token revoked (api-token-revoke), the office's outside access (office-access), a member removed (member-remove), restored (member-restore) or deleted for good (member-purge), the office updated to the latest release (office-update), or old files deleted (storage-prune) or compressed (storage-compress); set holds the keys to change. The card has an Apply button, and the ask closes when the change is made. A sign-in link or token shows only on the member's card, never to you. pack (token limits with areas) goes only with access office, folder or web.",
         inputSchema: {
           prompt: z.string().min(1),
           options: ASK_OPTIONS.optional(),
@@ -572,6 +572,35 @@ function registerAskTools(
                 kind: z.literal("office-access"),
                 externalAccess: z.boolean(),
                 publicOrigin: z.string(),
+              }),
+              z.object({
+                kind: z.literal("member-remove"),
+                username: z.string().min(1),
+              }),
+              z.object({
+                kind: z.literal("member-restore"),
+                username: z.string().min(1),
+                agents: z.boolean().optional(),
+              }),
+              z.object({
+                kind: z.literal("member-purge"),
+                username: z.string().min(1),
+              }),
+              z.object({ kind: z.literal("office-update") }),
+              z.object({
+                kind: z.literal("storage-prune"),
+                target: z.enum([
+                  "transcripts",
+                  "attachments",
+                  "token-logs",
+                  "terminal-recordings",
+                ]),
+                olderThanDays: z.number().int().min(1),
+                keepPerAgent: z.number().int().min(0).optional(),
+              }),
+              z.object({
+                kind: z.literal("storage-compress"),
+                olderThanDays: z.number().int().min(1),
               }),
             ])
             .optional(),

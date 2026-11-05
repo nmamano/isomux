@@ -75,7 +75,10 @@ import {
 // The category's words, by wire id. Own-property lookup like every other key
 // table (shared/i18n/translate.ts keyFrom), so an id that is not a category
 // cannot reach t() with something inherited from Object.prototype.
-function categoryLabel(t: Translator["t"], id: StorageCategoryId): string {
+export function categoryLabel(
+  t: Translator["t"],
+  id: StorageCategoryId,
+): string {
   const key = keyFrom(CATEGORY_KEYS, id);
   return key ? t(key) : id;
 }
@@ -139,7 +142,7 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  * A size for the panel, or the catalog's word for a reading that is not a size
  * (formatBytes returns null there, since shared/i18n holds no words).
  */
-function sizeText(
+export function sizeText(
   language: SupportedLanguageCode,
   t: Translator["t"],
   bytes: number,

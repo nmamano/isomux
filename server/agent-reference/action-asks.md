@@ -26,4 +26,10 @@ The office's external access: `step` is `{"kind": "office-access", "externalAcce
 
 A sign-in link or token that Apply makes shows only on the member's card. You never get it.
 
+Removing a member: `step` is `{"kind": "member-remove", "username": "<member>"}`. They stay in Removed members for 30 days. An office owner can apply it for any member but themself, a member only for themself. It refuses 403 `owner_self_delete` for an owner's own record and 409 `would_strand_office` for the last owner. Restoring a removed member: `{"kind": "member-restore", "username": "<member>", "agents": true}`; `agents` (default true) moves back their agents, schedules and webhooks. Deleting a removed member for good: `{"kind": "member-purge", "username": "<member>"}`. Both refuse 422 `unknown_member` when no removed member has that name. Only an office owner can apply them.
+
+Updating the office to the latest release: `step` is `{"kind": "office-update"}`. It refuses 409 `not_managed` when the office has no updater (it updates as its host deploys it) and 409 `no_release` when no release is known. The ask closes when the office runs that release.
+
+Deleting old files: `step` is `{"kind": "storage-prune", "target": "<target>", "olderThanDays": 90, "keepPerAgent": 2}`, with the fields `POST /api/storage/prune` takes, less `apply`. `target` is `transcripts`, `attachments`, `token-logs` or `terminal-recordings`; a transcripts prune states `keepPerAgent`. Compressing old conversations: `{"kind": "storage-compress", "olderThanDays": 30}`. Only an office owner can apply them. Both refuse 409 `step_done` when nothing matches now.
+
 There is an action step for each setting that no agent can change. For a setting a privileged agent can change, ask for the privileged level with `agent-access` instead.

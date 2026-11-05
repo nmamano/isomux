@@ -16,6 +16,10 @@
 // (api-token-revoke) and the office's outside access (office-access). A link
 // or token the Apply makes goes to the store's askResults, which outlive this
 // card: the ask closes as it is made, often before the Apply answers.
+// Part 5: a member's removal (member-remove), restore (member-restore) and
+// delete for good (member-purge), the office update (office-update), and the
+// storage prune and compress (storage-prune, storage-compress), whose results
+// go to askResults too.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { apiFetch, ApiError } from "../api.ts";
@@ -34,9 +38,15 @@ import type {
   AccessibleRoomWire,
   ApiTokenListRes,
   BackupStatusWire,
+  CompressResultWire,
+  PrunePlanWire,
+  PruneResultWire,
+  RemovedMemberListRes,
 } from "../../shared/contract-shapes.ts";
+import { categoryLabel, sizeText } from "../components/StoragePane.tsx";
 import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
+import { formatNumber } from "../../shared/i18n/number.ts";
 import { accessSummary, roomsSummary } from "../components/ApiTokensPane.tsx";
 import { SUPPORTED_LANGUAGES } from "../../shared/languages.ts";
 import { DEFAULT_VOICE_NAME } from "../../shared/voice.ts";
@@ -173,6 +183,7 @@ export function AskActionBlock({
     activeSessionsLoaded,
     invitesList,
     invitesLoaded,
+    updateInfo,
   } = useAppState();
   const dispatch = useDispatch();
   // A member's tokens: the member's own list, or an owner's view of another
@@ -199,7 +210,11 @@ export function AskActionBlock({
             ? "/api/office/access"
             : step.kind === "api-token-revoke"
               ? tokensPath(step.userId)
-              : null;
+              : step.kind === "member-restore" || step.kind === "member-purge"
+                ? "/api/removed-members"
+                : step.kind === "office-update"
+                  ? "/api/office/update"
+                  : null;
   const [fetched, setFetched] = useState<unknown>(undefined);
   useEffect(() => {
     if (!read) return;
@@ -233,17 +248,78 @@ export function AskActionBlock({
         .then((r) => dispatch({ type: "invites_list", invites: r.invites }))
         .catch(() => {});
   }, [needs, activeSessionsLoaded, invitesLoaded, dispatch]);
-  // "running" while the POST is out, "ran" after a 2xx.
-  const [phase, setPhase] = useState<"idle" | "running" | "ran">("idle");
+  // "confirming" after a first click that asks again, "running" while a POST
+  // is out, "ran" after the run's 2xx.
+  const [phase, setPhase] = useState<"idle" | "confirming" | "running" | "ran">(
+    "idle",
+  );
+  // A prune's dry run, from its first click.
+  const [preview, setPreview] = useState<PrunePlanWire | null>(null);
+  // One rule: an Apply that loses data for good asks again before it runs. A
+  // removal deletes the member's secret values and sign-ins at once, a delete
+  // for good and a prune delete for good; a prune's first click is its
+  // preview. The others run on the first click: the card already shows what
+  // they change.
+  const confirms =
+    step.kind === "member-remove" ||
+    step.kind === "member-purge" ||
+    step.kind === "storage-prune";
   const [error, setError] = useState<string | null>(null);
   // One run at a time: a second click in the same frame still sees "idle".
   const running = useRef(false);
+  // The confirm takes the focus, so the blur that ends it comes in every
+  // browser: Chrome drops the focus of the button disabled for a prune's
+  // preview with no blur, and Safari does not focus a clicked button.
+  const applyButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (phase === "confirming")
+      applyButton.current?.focus({ preventScroll: true });
+  }, [phase]);
   const fontSize = isMobile ? 13 : 12;
   const small = isMobile ? 12 : 11;
   const muted = { color: "var(--text-muted)", fontSize: small };
 
+  // The first click of a kind that asks again: a prune's preview (the page's
+  // dry run, with the step's policy), else the confirm state.
+  async function firstClick() {
+    if (step.kind !== "storage-prune") {
+      setPhase("confirming");
+      return;
+    }
+    running.current = true;
+    setPhase("running");
+    setError(null);
+    try {
+      const res = await apiFetch<{ plan: PrunePlanWire }>(
+        "POST",
+        "/api/storage/prune",
+        {
+          target: step.target,
+          olderThanDays: step.olderThanDays,
+          ...(step.keepPerAgent === undefined
+            ? {}
+            : { keepPerAgent: step.keepPerAgent }),
+        },
+      );
+      // The server refuses that apply: say why instead of offering it.
+      if (res.plan.skipped.some((v) => v.reason === "queue-state-unknown")) {
+        setError(t("settings.storage.queueUnreadable"));
+        setPhase("idle");
+      } else {
+        setPreview(res.plan);
+        setPhase("confirming");
+      }
+    } catch (err) {
+      setPhase("idle");
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      running.current = false;
+    }
+  }
+
   async function apply() {
     if (running.current) return;
+    if (confirms && phase !== "confirming") return firstClick();
     running.current = true;
     setPhase("running");
     setError(null);
@@ -257,6 +333,7 @@ export function AskActionBlock({
     } catch (err) {
       running.current = false;
       setPhase("idle");
+      setPreview(null);
       setError(err instanceof ApiError ? err.message : String(err));
     }
   }
@@ -296,6 +373,23 @@ export function AskActionBlock({
               target: step.name,
               value: b.token,
               forSelf: false,
+            }
+          : null;
+      case "storage-prune":
+        return b.applied
+          ? {
+              kind: "storage-prune",
+              agentId: askingAgentId,
+              target: step.target,
+              applied: b.applied as PruneResultWire,
+            }
+          : null;
+      case "storage-compress":
+        return b.applied
+          ? {
+              kind: "storage-compress",
+              agentId: askingAgentId,
+              applied: b.applied as CompressResultWire,
             }
           : null;
       default:
@@ -899,6 +993,190 @@ export function AskActionBlock({
     };
   }
 
+  function memberRemoveView(s: Step<"member-remove">): ActionView {
+    const member = memberById(s.userId);
+    const self = s.userId === memberUserId;
+    return {
+      name: member?.name ?? s.userId,
+      requested: { value: "removed", label: t("asks.action.removed") },
+      lines: [
+        <div key="note" style={muted}>
+          {t("settings.profile.deleteNote")}
+        </div>,
+        <div key="passes" style={muted}>
+          {t("asks.action.removePasses")}
+        </div>,
+        self && (
+          <div key="self" style={{ fontSize: small }}>
+            {t("asks.action.removesYou")}
+          </div>
+        ),
+      ],
+      marks: self ? { "data-ask-action-self": "" } : {},
+      gone: member ? null : t("asks.action.memberGone"),
+    };
+  }
+
+  // A restore or a delete for good, of a member in Removed members.
+  function removedMemberView(
+    s: Step<"member-restore"> | Step<"member-purge">,
+  ): ActionView {
+    const list = (fetched as RemovedMemberListRes | undefined)?.members;
+    const removed = list?.find((m) => m.user.id === s.userId);
+    const restore = s.kind === "member-restore";
+    const date = (at: number) => formatDateTime(language, at, "date");
+    // As the page: the agents line only when something passed to the heir.
+    const passed = removed?.passed;
+    const passedAny =
+      !!passed && passed.agents + passed.schedules + passed.webhooks > 0;
+    return {
+      name: removed?.user.name ?? s.userId,
+      requested: restore
+        ? { value: "restored", label: t("asks.action.restored") }
+        : { value: "purged", label: t("asks.action.purged") },
+      lines: [
+        removed && (
+          <div key="removed" style={muted}>
+            {t("settings.removedMembers.removedOn", {
+              date: date(removed.removedAt),
+              name: removed.removedBy,
+              expires: date(removed.expiresAt),
+            })}
+          </div>
+        ),
+        restore &&
+          removed?.heirName &&
+          passedAny &&
+          (s.agents ? (
+            <div key="agents" style={{ fontSize: small }}>
+              {t("settings.removedMembers.moveBack", {
+                heir: removed.heirName,
+              })}
+            </div>
+          ) : (
+            <div key="agents" style={{ fontSize: small }}>
+              {t("asks.action.restoreKeepsAgents", {
+                heir: removed.heirName,
+              })}
+            </div>
+          )),
+        <div key="hint" style={muted}>
+          {restore
+            ? t("settings.removedMembers.intro")
+            : t("settings.storage.cannotUndo")}
+        </div>,
+      ],
+      marks: {},
+      gone: list && !removed ? t("asks.action.notRemoved") : null,
+    };
+  }
+
+  function officeUpdateView(s: Step<"office-update">): ActionView {
+    const running = updateInfo
+      ? (updateInfo.current.release ??
+        ("version" in updateInfo.current
+          ? updateInfo.current.version
+          : updateInfo.current.sha.slice(0, 7)))
+      : null;
+    const busy = (fetched as { busyAgents?: number } | undefined)?.busyAgents;
+    const notes =
+      updateInfo?.latest?.tag === s.tag ? updateInfo.latest.url : null;
+    const started = phase === "ran";
+    return {
+      name: "Isomux",
+      ...(running ? { current: { value: running, label: running } } : {}),
+      loading: !updateInfo,
+      requested: { value: s.tag, label: s.tag },
+      lines: [
+        <div key="restart" style={{ fontSize: small }}>
+          {t("settings.update.restartWarning")}
+        </div>,
+        typeof busy === "number" && (
+          <div key="busy" style={muted}>
+            {busy === 0
+              ? t("settings.update.busyNone")
+              : tn("settings.update.busy", busy)}
+          </div>
+        ),
+        notes && (
+          <div key="notes" style={muted}>
+            <a href={notes} target="_blank" rel="noreferrer">
+              {t("settings.update.releaseNotes")}
+            </a>
+          </div>
+        ),
+        started && (
+          <div key="started" style={{ fontSize: small }}>
+            {t("update.screen.title")}
+          </div>
+        ),
+      ],
+      marks: started ? { "data-ask-action-started": "" } : {},
+      gone: null,
+    };
+  }
+
+  const olderThan = (days: number): Value => ({
+    value: String(days),
+    label: tn("asks.action.olderThanDays", days),
+  });
+
+  function storagePruneView(s: Step<"storage-prune">): ActionView {
+    return {
+      name: categoryLabel(t, s.target),
+      requested: olderThan(s.olderThanDays),
+      rows:
+        s.keepPerAgent === undefined
+          ? []
+          : [
+              {
+                key: "keepPerAgent",
+                label: t("settings.storage.keepPerAgent"),
+                requested: {
+                  value: String(s.keepPerAgent),
+                  label: String(s.keepPerAgent),
+                },
+              },
+            ],
+      lines: [
+        preview && (
+          <div key="preview" style={{ fontSize: small }}>
+            {preview.candidates.length > 0
+              ? t("settings.storage.planCount", {
+                  count: formatNumber(language, preview.candidates.length),
+                  target: categoryLabel(t, s.target).toLowerCase(),
+                  size: sizeText(language, t, preview.bytes),
+                })
+              : t("settings.storage.planEmpty", {
+                  target: categoryLabel(t, s.target).toLowerCase(),
+                })}
+          </div>
+        ),
+        <div key="undo" style={muted}>
+          {t("settings.storage.cannotUndo")}
+        </div>,
+      ],
+      marks: preview
+        ? { "data-ask-action-preview-count": String(preview.candidates.length) }
+        : {},
+      gone: null,
+    };
+  }
+
+  function storageCompressView(s: Step<"storage-compress">): ActionView {
+    return {
+      name: t("settings.storage.compressSection"),
+      requested: olderThan(s.olderThanDays),
+      lines: [
+        <div key="hint" style={muted}>
+          {t("settings.storage.compressHint")}
+        </div>,
+      ],
+      marks: {},
+      gone: null,
+    };
+  }
+
   const view = (() => {
     switch (step.kind) {
       case "agent-access":
@@ -929,6 +1207,17 @@ export function AskActionBlock({
         return apiTokenRevokeView(step);
       case "office-access":
         return officeAccessView(step);
+      case "member-remove":
+        return memberRemoveView(step);
+      case "member-restore":
+      case "member-purge":
+        return removedMemberView(step);
+      case "office-update":
+        return officeUpdateView(step);
+      case "storage-prune":
+        return storagePruneView(step);
+      case "storage-compress":
+        return storageCompressView(step);
     }
   })();
 
@@ -1044,11 +1333,21 @@ export function AskActionBlock({
       {view.lines}
       {view.gone !== null ? (
         <div style={muted}>{view.gone}</div>
-      ) : (
+      ) : step.kind === "office-update" && phase === "ran" ? null : (
         <button
           type="button"
+          ref={applyButton}
           data-ask-action-apply=""
-          disabled={phase !== "idle"}
+          {...(phase === "confirming" ? { "data-ask-action-confirm": "" } : {})}
+          disabled={phase !== "idle" && phase !== "confirming"}
+          // The confirm ends when the button loses focus, as on the pages: a
+          // click after the member moved on asks again (a prune previews
+          // again).
+          onBlur={() => {
+            if (phase !== "confirming") return;
+            setPhase("idle");
+            setPreview(null);
+          }}
           onClick={() => void apply()}
           style={{
             marginTop: 6,
@@ -1059,11 +1358,21 @@ export function AskActionBlock({
             color: "var(--bg-base)",
             fontSize: 12,
             fontWeight: 600,
-            cursor: phase === "idle" ? "pointer" : "default",
-            opacity: phase === "idle" ? 1 : 0.6,
+            cursor:
+              phase === "idle" || phase === "confirming"
+                ? "pointer"
+                : "default",
+            opacity: phase === "idle" || phase === "confirming" ? 1 : 0.6,
           }}
         >
-          {t("asks.action.apply")}
+          {phase !== "confirming"
+            ? t("asks.action.apply")
+            : preview && step.kind === "storage-prune"
+              ? t("settings.storage.deleteCount", {
+                  count: formatNumber(language, preview.candidates.length),
+                  target: categoryLabel(t, step.target).toLowerCase(),
+                })
+              : t("common.confirmQuestion")}
         </button>
       )}
       {error && (

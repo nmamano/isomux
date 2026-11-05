@@ -7,7 +7,11 @@ import { STATE_ROOT } from "./config.ts";
 import { agentManager, askStore, storageRoots } from "./office-managers.ts";
 import { loadSessionsMap, peekMessageQueuesRaw } from "./persistence.ts";
 import type { RouteHandler } from "./routes/executor.ts";
-import { storageHandlers } from "./routes/handlers/storage.ts";
+import {
+  storageHandlers,
+  type StorageDeps,
+} from "./routes/handlers/storage.ts";
+import type { PruneTarget } from "../shared/contract-shapes.ts";
 import { applyCompress, planCompress } from "./storage-compress.ts";
 import { applyPrune, planPrune, type PruneDeps } from "./storage-prune.ts";
 import { measureStorageCached } from "./storage-usage.ts";
@@ -16,7 +20,29 @@ import {
   TERMINAL_RECORDINGS_DIR,
 } from "./terminal-recorder.ts";
 
-export function createStorageRoutes(): Record<string, RouteHandler> {
+// A prune or compress applied, with when and its policy (task e3d1bc63,
+// part 5): an action ask is done when one that covers it was applied since it
+// opened. Memory only: every apply calls `applied` (the reconcile) right
+// after it, so a stamp only has to live from the apply to that reconcile, and
+// a restart loses nothing an open ask needs.
+export interface StorageApplied {
+  at: number;
+  olderThanDays: number;
+  keepPerAgent: number;
+}
+
+export type StorageOps = Pick<
+  StorageDeps,
+  "planPrune" | "applyPrune" | "planCompress" | "applyCompress"
+> & {
+  // The last prune applied to the target, and the last compress.
+  lastPrune(target: PruneTarget): StorageApplied | null;
+  lastCompress(): StorageApplied | null;
+};
+
+// The planners and appliers over the live office, shared by the routes and
+// the action asks. `applied` runs after each apply that returned a result.
+export function createStorageOps(applied: () => void): StorageOps {
   // Storage visibility + the MANUAL pruner. Nothing here is
   // scheduled: the only way anything gets deleted is an owner POSTing
   // apply:true. The three locations are resolved fresh per call by
@@ -101,18 +127,52 @@ export function createStorageRoutes(): Record<string, RouteHandler> {
         queued === null ? null : (queued.get(agentId) ?? new Set<string>()),
     };
   };
-  return storageHandlers({
-    getUsage: () => measureStorageCached(storageRoots()),
+  const prunes = new Map<PruneTarget, StorageApplied>();
+  let compress: StorageApplied | null = null;
+  return {
     planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
-    applyPrune: (plan) => applyPrune(plan, pruneDeps()),
+    // The stamp only after the apply returned, and not for one abandoned
+    // before it deleted anything: a throw or an abort sets none.
+    applyPrune: (plan) => {
+      const result = applyPrune(plan, pruneDeps());
+      if (!result.aborted) {
+        prunes.set(plan.target, { at: Date.now(), ...plan.policy });
+        applied();
+      }
+      return result;
+    },
     planCompress: (olderThanDays) => planCompress(olderThanDays, pruneDeps()),
-    applyCompress: (plan) =>
-      applyCompress(plan, {
+    applyCompress: async (plan) => {
+      const result = await applyCompress(plan, {
         ...pruneDeps(),
         isActiveNow: (sessionId) =>
           agentManager
             .getAllAgents()
             .some((a) => agentManager.getCurrentSessionId(a.id) === sessionId),
-      }),
+      });
+      if (!result.aborted) {
+        compress = {
+          at: Date.now(),
+          olderThanDays: plan.olderThanDays,
+          keepPerAgent: 0,
+        };
+        applied();
+      }
+      return result;
+    },
+    lastPrune: (target) => prunes.get(target) ?? null,
+    lastCompress: () => compress,
+  };
+}
+
+export function createStorageRoutes(
+  ops: StorageOps,
+): Record<string, RouteHandler> {
+  return storageHandlers({
+    getUsage: () => measureStorageCached(storageRoots()),
+    planPrune: ops.planPrune,
+    applyPrune: ops.applyPrune,
+    planCompress: ops.planCompress,
+    applyCompress: ops.applyCompress,
   });
 }

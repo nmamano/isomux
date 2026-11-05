@@ -83,6 +83,9 @@ import {
 import { resolveSelectedRoomId, applyRoomClose } from "./roomSelection.ts";
 import type {
   AskAgentWire,
+  CompressResultWire,
+  PruneResultWire,
+  PruneTarget,
   RemovedMemberWire,
 } from "../shared/contract-shapes.ts";
 import { connect } from "./ws.ts";
@@ -125,13 +128,22 @@ export interface MembersChatState {
 // for a member, or a personal API token. `target` names it: the member, or
 // the token's name. `agentId` is the agent that asked. `forSelf`: a link for
 // the device of the member who made it, not one to send to someone else.
-export interface AskResult {
-  kind: "sign-in-link" | "api-token";
-  agentId: string;
-  target: string;
-  value: string;
-  forSelf: boolean;
-}
+export type AskResult =
+  | {
+      kind: "sign-in-link" | "api-token";
+      agentId: string;
+      target: string;
+      value: string;
+      forSelf: boolean;
+    }
+  // What a storage cleanup did: the member's only receipt, as on the page.
+  | {
+      kind: "storage-prune";
+      agentId: string;
+      target: PruneTarget;
+      applied: PruneResultWire;
+    }
+  | { kind: "storage-compress"; agentId: string; applied: CompressResultWire };
 
 export interface AppState {
   agents: AgentInfo[];

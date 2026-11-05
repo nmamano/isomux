@@ -60,6 +60,14 @@ import {
 import { parsePreferenceChange } from "./routes/handlers/preferences.ts";
 import { parseApiTokenCreate } from "./routes/handlers/api-tokens.ts";
 import type { SecretScope } from "./secret-store.ts";
+import {
+  MIN_OLDER_THAN_DAYS,
+  parsePruneRequest,
+} from "./routes/handlers/storage.ts";
+import { compareCalver } from "./update-checker.ts";
+import type { StorageApplied } from "./office-storage-routes.ts";
+import type { UpdateStatusWire } from "../shared/types.ts";
+import type { PruneTarget } from "../shared/contract-shapes.ts";
 
 export interface StepAskDeps {
   asks: AskStore;
@@ -163,6 +171,23 @@ export interface StepRunDeps {
   // Whether ending every live session of this member leaves the office with
   // no live owner session.
   signOutStrandsOffice(userId: string): boolean;
+  // Part 5: a removed member's name, or null when no removed member has this
+  // id; and the id of the removed member with this username (a removed
+  // member's name stays reserved, so there is at most one).
+  removedMember(userId: string): { name: string } | null;
+  removedMemberIdByName(username: string): string | null;
+  // The update checker's status now.
+  updateStatus(): UpdateStatusWire;
+  // How many files a prune or compress would take now (a dry plan).
+  pruneCandidates(
+    target: PruneTarget,
+    olderThanDays: number,
+    keepPerAgent: number,
+  ): number;
+  compressCandidates(olderThanDays: number): number;
+  // The last prune applied to the target and the last compress, or null.
+  lastPrune(target: PruneTarget): StorageApplied | null;
+  lastCompress(): StorageApplied | null;
   // Whether the member passes the route's own authorization, as from the
   // page: the refusal, or null. Runs nothing.
   authorizeAs(
@@ -240,6 +265,12 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "api-token": ["kind", "name", "expiresInDays", "limits"],
   "api-token-revoke": ["kind", "tokenId"],
   "office-access": ["kind", "externalAccess", "publicOrigin"],
+  "member-remove": ["kind", "username"],
+  "member-restore": ["kind", "username", "agents"],
+  "member-purge": ["kind", "username"],
+  "office-update": ["kind"],
+  "storage-prune": ["kind", "target", "olderThanDays", "keepPerAgent"],
+  "storage-compress": ["kind", "olderThanDays"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -325,7 +356,38 @@ function doneLine(step: AskStep, target: string): LogMessage {
       return msg("systemEntries.stepAsk.apiTokenRevoked");
     case "office-access":
       return msg("systemEntries.stepAsk.officeAccessSet");
+    case "member-remove":
+      return msg("systemEntries.stepAsk.memberRemoved", { member: target });
+    case "member-restore":
+      return msg("systemEntries.stepAsk.memberRestored", { member: target });
+    // Neutral: the 30 days running out deletes them too. The name is gone
+    // with the member.
+    case "member-purge":
+      return msg("systemEntries.stepAsk.memberPurged");
+    case "office-update":
+      return msg("systemEntries.stepAsk.officeUpdated", { release: step.tag });
+    case "storage-prune":
+      return msg("systemEntries.stepAsk.storagePruned");
+    case "storage-compress":
+      return msg("systemEntries.stepAsk.storageCompressed");
   }
+}
+
+// Whether an applied prune or compress covers the step: applied since the ask
+// opened, at the step's age line or a newer one, keeping as many per agent or
+// fewer.
+function covers(
+  applied: StorageApplied | null,
+  since: number,
+  olderThanDays: number,
+  keepPerAgent: number,
+): boolean {
+  return (
+    !!applied &&
+    applied.at >= since &&
+    applied.olderThanDays <= olderThanDays &&
+    applied.keepPerAgent <= keepPerAgent
+  );
 }
 
 // The keys a settings step may set.
@@ -472,6 +534,44 @@ export function createStepAsks(deps: StepAskDeps) {
           now.externalAccess === step.externalAccess &&
           (now.publicOrigin ?? "") === step.publicOrigin
         );
+      }
+      case "member-remove":
+        return !!deps.runs && deps.runs.member(step.userId) === null;
+      case "member-restore":
+        return !!deps.runs?.member(step.userId);
+      // Neither removed nor live: a restore since the create is not done.
+      case "member-purge":
+        return (
+          !!deps.runs &&
+          deps.runs.removedMember(step.userId) === null &&
+          deps.runs.member(step.userId) === null
+        );
+      // The release asked for or a later one runs.
+      case "office-update": {
+        const running = deps.runs?.updateStatus().current.release;
+        return !!running && compareCalver(running, step.tag) >= 0;
+      }
+      // At the create: nothing to take. Then: an apply that covers the step
+      // (the office's stamp, not a plan, so reconcile walks no disk).
+      case "storage-prune": {
+        const runs = deps.runs;
+        if (!runs) return false;
+        const keep = step.keepPerAgent ?? 0;
+        return since === null
+          ? runs.pruneCandidates(step.target, step.olderThanDays, keep) === 0
+          : covers(
+              runs.lastPrune(step.target),
+              since,
+              step.olderThanDays,
+              keep,
+            );
+      }
+      case "storage-compress": {
+        const runs = deps.runs;
+        if (!runs) return false;
+        return since === null
+          ? runs.compressCandidates(step.olderThanDays) === 0
+          : covers(runs.lastCompress(), since, step.olderThanDays, 0);
       }
     }
   }
@@ -790,6 +890,79 @@ export function createStepAsks(deps: StepAskDeps) {
             },
           ],
         };
+      // The name now: a rename since the create does not lose the member.
+      case "member-remove": {
+        const member = deps.runs?.member(step.userId);
+        if (!member) return unknownMember();
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "DELETE",
+              path: `/api/users/${encodeURIComponent(member.name)}`,
+            },
+          ],
+        };
+      }
+      // A member restored or deleted since the create is not in Removed
+      // members: the run is refused and deletes nothing.
+      case "member-restore":
+      case "member-purge": {
+        if (!deps.runs?.removedMember(step.userId)) return unknownMember();
+        const path = `/api/removed-members/${encodeURIComponent(step.userId)}`;
+        return {
+          ok: true,
+          routes: [
+            step.kind === "member-restore"
+              ? {
+                  method: "POST",
+                  path: `${path}/restore`,
+                  body: { agents: step.agents },
+                }
+              : { method: "DELETE", path },
+          ],
+        };
+      }
+      case "office-update":
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "POST",
+              path: "/api/office/update",
+              body: { tag: step.tag },
+            },
+          ],
+        };
+      case "storage-prune":
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "POST",
+              path: "/api/storage/prune",
+              body: {
+                target: step.target,
+                olderThanDays: step.olderThanDays,
+                ...(step.keepPerAgent === undefined
+                  ? {}
+                  : { keepPerAgent: step.keepPerAgent }),
+                apply: true,
+              },
+            },
+          ],
+        };
+      case "storage-compress":
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "POST",
+              path: "/api/storage/compress",
+              body: { olderThanDays: step.olderThanDays, apply: true },
+            },
+          ],
+        };
       default:
         return null;
     }
@@ -1042,6 +1215,85 @@ export function createStepAsks(deps: StepAskDeps) {
           },
         };
       }
+      case "member-remove":
+      case "member-restore":
+      case "member-purge": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        if (
+          kind === "member-restore" &&
+          body.agents !== undefined &&
+          typeof body.agents !== "boolean"
+        )
+          return invalid(
+            "step.agents is true (their agents, schedules and webhooks come back) or false",
+          );
+        if (!deps.runs) return invalid("this office runs no action steps");
+        // A removal is of a live member; a restore or a delete for good, of
+        // a removed one.
+        const userId =
+          kind === "member-remove"
+            ? deps.runs.memberIdByName(body.username)
+            : deps.runs.removedMemberIdByName(body.username);
+        if (!userId) return unknownMember();
+        return {
+          ok: true,
+          step:
+            kind === "member-restore"
+              ? { kind, userId, agents: (body.agents as boolean) ?? true }
+              : { kind, userId },
+        };
+      }
+      // The latest release the checker knows, on a box whose updater the
+      // page runs (release mode, applied by the host).
+      case "office-update": {
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const status = deps.runs.updateStatus();
+        if (status.mode !== "release" || status.apply.kind !== "host")
+          return {
+            ok: false,
+            status: 409,
+            code: "not_managed",
+            message:
+              "this office has no updater to run: it updates as its host deploys it",
+          };
+        if (!status.latest)
+          return {
+            ok: false,
+            status: 409,
+            code: "no_release",
+            message: "the update checker knows no release yet",
+          };
+        return { ok: true, step: { kind, tag: status.latest.tag } };
+      }
+      // As the route parses an apply.
+      case "storage-prune": {
+        const { kind: _, ...rest } = body;
+        const parsed = parsePruneRequest(rest, true);
+        if (!parsed.ok) return invalid(`step: ${parsed.message}`);
+        const { target, olderThanDays, keepPerAgent } = parsed.req;
+        return {
+          ok: true,
+          step: {
+            kind,
+            target,
+            olderThanDays,
+            ...(keepPerAgent === undefined ? {} : { keepPerAgent }),
+          },
+        };
+      }
+      case "storage-compress": {
+        const days = body.olderThanDays;
+        if (
+          typeof days !== "number" ||
+          !Number.isInteger(days) ||
+          days < MIN_OLDER_THAN_DAYS
+        )
+          return invalid(
+            `step.olderThanDays is an integer of at least ${MIN_OLDER_THAN_DAYS}`,
+          );
+        return { ok: true, step: { kind, olderThanDays: days } };
+      }
       case "member-room":
       case "member-role": {
         if (typeof body.username !== "string" || body.username === "")
@@ -1108,6 +1360,14 @@ export function createStepAsks(deps: StepAskDeps) {
         return deps.runs?.member(step.userId)?.name ?? step.userId;
       case "member-view":
         return deps.runs?.roomName(step.roomId) ?? step.roomId;
+      // Removed now, or back.
+      case "member-remove":
+      case "member-restore":
+        return (
+          deps.runs?.member(step.userId)?.name ??
+          deps.runs?.removedMember(step.userId)?.name ??
+          step.userId
+        );
       default:
         return "";
     }
@@ -1299,6 +1559,47 @@ export function createStepAsks(deps: StepAskDeps) {
             }
           : null;
       }
+      // The route lets a member remove themself and an owner anyone but
+      // themself; the office keeps an owner record and an owner session.
+      case "member-remove": {
+        if (runs.authorizeAs(memberUserId, runRoute(step, memberUserId)))
+          return notAllowed("only an office owner can remove another member");
+        if (step.userId === memberUserId && deps.isOfficeOwner(memberUserId))
+          return {
+            ok: false,
+            status: 403,
+            code: "owner_self_delete",
+            message:
+              "An owner can't delete their own user record. Sign out from this session or transfer ownership first.",
+          };
+        return runs.lastOwner(step.userId) ||
+          runs.signOutStrandsOffice(step.userId)
+          ? {
+              ok: false,
+              status: 409,
+              code: "would_strand_office",
+              message: "the office must keep an office owner who is signed in",
+            }
+          : null;
+      }
+      case "member-restore":
+      case "member-purge":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed(
+              step.kind === "member-restore"
+                ? "only an office owner can restore a member"
+                : "only an office owner can delete a removed member",
+            )
+          : null;
+      case "office-update":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("only an office owner can update the office")
+          : null;
+      case "storage-prune":
+      case "storage-compress":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("only an office owner can clean up storage")
+          : null;
     }
   }
 
@@ -1315,6 +1616,11 @@ export function createStepAsks(deps: StepAskDeps) {
         return runs.memberSessions(step.userId).map((v) => v.createdAt);
       case "api-token":
         return runs.memberApiTokens(memberUserId).map((t) => t.createdAt);
+      // An apply from before the ask does not share its millisecond.
+      case "storage-prune":
+        return [runs.lastPrune(step.target)?.at ?? 0];
+      case "storage-compress":
+        return [runs.lastCompress()?.at ?? 0];
       default:
         return [];
     }
