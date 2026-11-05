@@ -109,20 +109,23 @@ function referenceNames(line: string): string[] | null {
   return names.length > 0 ? names : null;
 }
 
-// The first read file the name references.
-export function matchAskFile<T extends { originalName: string }>(
-  name: string,
-  files: readonly T[],
-): T | undefined {
-  return files.find((file) => file.originalName === name);
+// The first read file the name references: by the name the agent gave it, or
+// else by its copy's name, which gets a suffix when the agent's files already
+// hold that name.
+export function matchAskFile<
+  T extends { originalName: string; filename: string },
+>(name: string, files: readonly T[]): T | undefined {
+  return (
+    files.find((file) => file.originalName === name) ??
+    files.find((file) => file.filename === name)
+  );
 }
 
 // The read files no reference line of the prompt places, in their order: the
 // card shows them under the prompt.
-export function unplacedAskFiles<T extends { originalName: string }>(
-  prompt: string,
-  files: readonly T[],
-): T[] {
+export function unplacedAskFiles<
+  T extends { originalName: string; filename: string },
+>(prompt: string, files: readonly T[]): T[] {
   const placed = new Set<T>();
   for (const segment of splitAskPrompt(prompt))
     if (segment.kind === "files")

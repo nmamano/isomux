@@ -108,6 +108,18 @@ describe("matchAskFile", () => {
   it("gives nothing for a name no file has", () => {
     expect(matchAskFile("c.png", files)).toBeUndefined();
   });
+
+  // Task 7546bc99: the copy of a reused name gets a suffix, and an agent may
+  // name the copy.
+  it("gives the file whose copy has the name when no file has it", () => {
+    const copies = [file("a.png", "a.png"), file("a.png", "a_2.png")];
+    expect(matchAskFile("a_2.png", copies)?.filename).toBe("a_2.png");
+  });
+
+  it("gives the file of the name before a file whose copy has the name", () => {
+    const copies = [file("a.png", "a_2.png"), file("a_2.png", "a_2_1.png")];
+    expect(matchAskFile("a_2.png", copies)?.filename).toBe("a_2_1.png");
+  });
 });
 
 describe("unplacedAskFiles", () => {
@@ -144,5 +156,12 @@ describe("unplacedAskFiles", () => {
       "c1",
       "d1",
     ]);
+  });
+
+  it("places a file named by its copy's name", () => {
+    const files = [file("shot.png", "shot_3.png"), file("c.png", "c1")];
+    expect(
+      ids(unplacedAskFiles("See:\n![](shot_3.png)\nEnd", files)),
+    ).toStrictEqual(["c1"]);
   });
 });
