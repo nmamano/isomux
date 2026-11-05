@@ -30,6 +30,51 @@ const BUILD_ERROR = [
 
 const OK = { code: 0, signal: null, output: "✓ Compiled successfully\n" };
 
+// What `next build` printed when the tsc of its type check died of a V8 fatal
+// error on node 24.22.1 in CI (2026-11-05, task 161656cc). V8 names no file in
+// a release build. Next then prints no diagnostic and exits 1.
+const TSC_V8_FATAL = [
+  "  Running TypeScript ...",
+  "",
+  "",
+  "",
+  "#",
+  "# Fatal error in , line 0",
+  "# Check failed: has_exception().",
+  "#",
+  "#",
+  "#",
+  "#FailureMessage Object: 0x7ffe92749ef0",
+  "----- Native stack trace -----",
+  "",
+  " 1: 0x9f06c1  [node]",
+  " 2: 0x27e5c43 V8_Fatal(char const*, ...) [node]",
+  "Failed to type check.",
+  "",
+].join("\n");
+
+// The same banner with another message, from eslint on the same node
+// (2026-10-23, task 2e705692).
+const LINT_V8_FATAL = [
+  "#",
+  "# Fatal error in , line 0",
+  "# Fatal JavaScript invalid array length 0",
+  "#",
+  "#FailureMessage Object: 0x7f73453e2380",
+  "",
+].join("\n");
+
+// A real type error from the same check: tsc prints a diagnostic. This one
+// quotes the banner's first line in the middle of a line, and the next line
+// starts with "# ": only a banner at the start of a line is V8's.
+const TYPE_ERROR = [
+  "  Running TypeScript ...",
+  "app/crash.ts(2,7): error TS2322: Type '\"# Fatal error in , line 0",
+  "# Check failed\"' is not assignable to type 'number'.",
+  "Failed to type check.",
+  "",
+].join("\n");
+
 /** Runs the build as a script of endings; a run past the script fails the test. */
 async function buildWith(endings: Ending[]) {
   const lines: string[] = [];
@@ -122,6 +167,46 @@ it("fails when the build crashes on the retry too", async () => {
   ]);
   expect(workers).toStrictEqual([undefined, RETRY_BUILD_WORKERS]);
   expect(code).not.toBe(0);
+});
+
+it("tells a V8 fatal error from a type error", () => {
+  const tsc = buildCrash({ code: 1, signal: null, output: TSC_V8_FATAL });
+  expect(tsc).toContain("has_exception");
+  const lint = buildCrash({ code: 1, signal: null, output: LINT_V8_FATAL });
+  expect(lint).toContain("invalid array length");
+
+  // A diagnostic is a real failure, also when it quotes the banner's words.
+  expect(
+    buildCrash({ code: 1, signal: null, output: TYPE_ERROR }),
+  ).toBeUndefined();
+  // A banner in a run that still exited 0 is no failure to retry.
+  expect(
+    buildCrash({ code: 0, signal: null, output: TSC_V8_FATAL }),
+  ).toBeUndefined();
+});
+
+it("runs the build again once after a V8 fatal error", async () => {
+  const recovered = await buildWith([
+    { code: 1, signal: null, output: TSC_V8_FATAL },
+    OK,
+  ]);
+  expect(recovered.workers).toStrictEqual([undefined, RETRY_BUILD_WORKERS]);
+  expect(recovered.code).toBe(0);
+  expect(recovered.lines.join("\n")).toContain("has_exception");
+
+  const typeError = await buildWith([
+    { code: 1, signal: null, output: TYPE_ERROR },
+  ]);
+  expect(typeError.workers).toStrictEqual([undefined]);
+  expect(typeError.code).toBe(1);
+
+  // A second V8 fatal error fails, with no third run.
+  const again = await buildWith([
+    { code: 1, signal: null, output: TSC_V8_FATAL },
+    { code: 1, signal: null, output: TSC_V8_FATAL },
+  ]);
+  expect(again.workers).toStrictEqual([undefined, RETRY_BUILD_WORKERS]);
+  expect(again.code).toBe(1);
 });
 
 const repoRoot = path.join(import.meta.dirname, "..");

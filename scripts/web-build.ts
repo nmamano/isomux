@@ -20,6 +20,13 @@ const WEB_DIR = path.join(import.meta.dirname, "..", "control-plane", "web");
 const WORKER_SIGNAL =
   /Next\.js build worker exited with code: \S+ and signal: (SIG[A-Z0-9]+)/;
 
+// V8's banner when it aborts the process: the file is empty in a release
+// build, and the next line names the check. Next.js 16.4.5 runs its type check
+// as a tsc child process; when V8 aborts that tsc (node 24.22.1 in CI,
+// 2026-11-05, task 161656cc), Next prints "Failed to type check." with no
+// diagnostic and exits 1, so the banner is the only sign of the crash.
+const V8_FATAL = /^# Fatal error in .*, line \d+\r?\n# (.+?)\.?\r?$/m;
+
 // Bun reports a signal death as 128 plus the signal number.
 const CRASH_EXIT = 128;
 
@@ -39,7 +46,9 @@ export function buildCrash(result: {
       ? `exit ${result.code}, ${result.signal}`
       : `exit ${result.code}`;
   const worker = WORKER_SIGNAL.exec(result.output);
-  return worker ? `a build worker died of ${worker[1]}` : undefined;
+  if (worker) return `a build worker died of ${worker[1]}`;
+  const fatal = V8_FATAL.exec(result.output);
+  return fatal ? `V8 aborted: ${fatal[1]}` : undefined;
 }
 
 /** Copies a stream to `sink` as it arrives and keeps the text. */

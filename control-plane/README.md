@@ -2230,7 +2230,8 @@ measured cost of the alternative was 446 MB.
 `ci:web`, which installs the nested package from its committed lockfile with
 `--frozen-lockfile` and then builds, type-checks and lints it. The build runs
 through `scripts/web-build.ts`: when a Next.js build worker dies of a signal,
-it runs the build once more with fewer workers. A fresh clone
+or V8 aborts the type check's `tsc` with a fatal error, it runs the build once
+more with fewer workers. A fresh clone
 passes one command; the price is that the first `bun run ci` needs the network,
 where it used not to.
 
