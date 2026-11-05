@@ -2,7 +2,7 @@
 // when they must restart, and what the OpenCode profile key and revision see.
 // The proxy child is the test child, reached through no network.
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -626,28 +626,58 @@ describe("the proxy password", () => {
 });
 
 describe("failure paths", () => {
+  // A child that never listens holds a call for exactly startWaitMs. Fake
+  // timers make that exact: a wall-clock bound measured the host's load.
+  const START_WAIT_MS = 300;
+
+  // Enough microtask turns for the wait's timer to reach the caller.
+  async function flushMicrotasks() {
+    for (let i = 0; i < 100; i++) await Promise.resolve();
+  }
+
+  async function settlesAtStartWait<T>(call: () => Promise<T>): Promise<T> {
+    jest.useFakeTimers();
+    let pending: Promise<T>;
+    try {
+      let settled = false;
+      pending = call();
+      const mark = () => {
+        settled = true;
+      };
+      pending.then(mark, mark);
+      // The call is in the listen wait, and its timer is the only one.
+      expect(jest.getTimerCount()).toBe(1);
+      jest.advanceTimersByTime(START_WAIT_MS - 1);
+      await flushMicrotasks();
+      expect(settled).toBe(false);
+      jest.advanceTimersByTime(1);
+      await flushMicrotasks();
+      expect(settled).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+    return pending;
+  }
+
   test("a child that never listens does not hold boot, and agents get no proxy variables", async () => {
     await runtime.stop();
     runtime = makeRuntime({
       childEntry: join(STATE_ROOT, "no-such-proxy-entry.ts"),
-      startWaitMs: 300,
+      startWaitMs: START_WAIT_MS,
     });
     add(OFFICE, "OFFICE_KEY", OFFICE_VALUE);
-    const bootStart = Date.now();
-    await runtime.enable();
-    expect(Date.now() - bootStart).toBeLessThan(1500);
+    await settlesAtStartWait(() => runtime.enable());
     expect(logs).toContain("proxy_not_listening");
     expect(runtime.environmentFor(ALICE)).toBeNull();
     expect(buildEnvForUserId(ALICE)?.HTTPS_PROXY).toBeUndefined();
     expect(logs).toContain("no_proxy_port");
   });
 
-  // Quarantined: flaky timing budget, task cb236f6f.
-  test.skip("a child that never listens does not hold the first secret route", async () => {
+  test("a child that never listens does not hold the first secret route", async () => {
     await runtime.stop();
     runtime = makeRuntime({
       childEntry: join(STATE_ROOT, "no-such-proxy-entry.ts"),
-      startWaitMs: 300,
+      startWaitMs: START_WAIT_MS,
     });
     // No secret at boot: the first create starts the child.
     await runtime.enable();
@@ -658,27 +688,27 @@ describe("failure paths", () => {
       isOfficeOwnerUserId: () => false,
       auditReveal: () => {},
     });
-    const routeStart = Date.now();
-    const result = await handlers["secrets.create"]({
-      identity: {
-        scope: "user",
-        userId: ALICE,
-        role: "member",
-        capabilities: [],
-      },
-      params: { username: "alice" },
-      body: {
-        name: "GH_TOKEN",
-        value: ALICE_VALUE,
-        hosts: ["api.example-stub.test"],
-        form: { kind: "authorization" },
-      },
-      rawBody: "",
-      query: new URLSearchParams(),
-      req: new Request("http://localhost/"),
-    });
+    const result = await settlesAtStartWait(async () =>
+      handlers["secrets.create"]({
+        identity: {
+          scope: "user",
+          userId: ALICE,
+          role: "member",
+          capabilities: [],
+        },
+        params: { username: "alice" },
+        body: {
+          name: "GH_TOKEN",
+          value: ALICE_VALUE,
+          hosts: ["api.example-stub.test"],
+          form: { kind: "authorization" },
+        },
+        rawBody: "",
+        query: new URLSearchParams(),
+        req: new Request("http://localhost/"),
+      }),
+    );
     expect(result.kind).toBe("json");
-    expect(Date.now() - routeStart).toBeLessThan(1500);
     expect(logs).toContain("proxy_not_listening");
   });
 
