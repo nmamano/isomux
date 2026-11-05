@@ -4,7 +4,7 @@
 // backoff and give-up, the memory watchdog, unlink and member removal, the
 // boot sweep, and the child's environment.
 
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -18,6 +18,7 @@ import { tmpdir } from "os";
 import {
   WHATSAPP_BACKOFF_FIRST_MS,
   WHATSAPP_CHATS_SEEN_MAX,
+  WHATSAPP_CHAT_TIMES_FLUSH_MS,
   WHATSAPP_BACKOFF_MAX_MS,
   WHATSAPP_FAILURE_WINDOW_MS,
   WHATSAPP_LOGOUT_WAIT_MS,
@@ -33,8 +34,10 @@ import {
 } from "./supervisor.ts";
 import {
   memberDir,
+  readChatTimes,
   readLink,
   whatsappRoot,
+  writeChatTimes,
   writeLink,
   WHATSAPP_RUNTIME_DIR,
 } from "./store.ts";
@@ -190,8 +193,9 @@ afterEach(async () => {
   rmSync(h.stateRoot, { recursive: true, force: true });
 });
 
-function harness(): Harness {
-  const stateRoot = mkdtempSync(join(tmpdir(), "t-d03a61d8-sup-"));
+// A root passed in is a restart of the office on that state.
+function harness(root?: string): Harness {
+  const stateRoot = root ?? mkdtempSync(join(tmpdir(), "t-d03a61d8-sup-"));
   const clock = new FakeClock();
   let pid = 4000;
   const h: Harness = {
@@ -1082,6 +1086,208 @@ describe("whatsapp supervisor: the Add picker order (task 28774091)", () => {
     await settle();
     // u0's time, the oldest, is gone: it sorts with the chats with no message.
     expect(order(h)).toEqual(["u1", "z", "u0"]);
+  });
+});
+
+// Nil at sign-off: keep the times across server restarts (task 876d6e50).
+describe("whatsapp supervisor: the Add picker order survives a restart (task 876d6e50)", () => {
+  const MOM = "447700900123@s.whatsapp.net";
+  const chat = (id: string): BridgeEvent => ({
+    ev: "chat",
+    chat: id,
+    name: id.toUpperCase(),
+    group: false,
+  });
+  const at = (id: string, ms: number): BridgeEvent => ({
+    ev: "activity",
+    chat: id,
+    at: ms,
+  });
+  const order = (h: Harness) => h.sup.chatsSeen(U).map((c) => c.chat);
+  const saved = (h: Harness, userId = U) =>
+    Object.fromEntries(readChatTimes(h.stateRoot, userId));
+  const timesFile = (h: Harness, userId = U) =>
+    join(memberDir(h.stateRoot, userId), "chat-times.json");
+  // A directory where the file goes: every write of it fails.
+  const blockWrites = (h: Harness, userId = U) =>
+    mkdirSync(join(timesFile(h, userId), "x"), { recursive: true });
+  // The flush timers the supervisor starts. No unlink or shutdown runs while
+  // this counts: their logout wait has the same length.
+  function countFlushTimers(h: Harness): () => number {
+    const real = h.clock.setTimeout;
+    let n = 0;
+    h.clock.setTimeout = (fn, ms) => {
+      if (ms === WHATSAPP_CHAT_TIMES_FLUSH_MS) n++;
+      return real(fn, ms);
+    };
+    return () => n;
+  }
+  // A member linked in this boot, so the members are kept in link order.
+  async function linkNow(h: Harness, userId: string): Promise<FakeChild> {
+    await h.sup.link(userId, { method: "qr" });
+    const child = last(h.childOf(userId));
+    child.emit({ ev: "linked", phone: PHONE });
+    await until(() => h.sup.status(userId).state === "linked", "linked");
+    return child;
+  }
+
+  it("a new time is written once, a flush delay after it; the times that come meanwhile go in the same write", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    const flushes = countFlushTimers(h);
+    for (const id of ["a", "b", "c"]) child.emit(chat(id));
+    child.emit(at("a", 100));
+    await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS - 1_000);
+    child.emit(at("b", 200));
+    await h.clock.advance(999);
+    expect(existsSync(timesFile(h))).toBe(false);
+    await h.clock.advance(1);
+    expect(saved(h)).toEqual({ a: 100, b: 200 });
+    expect(flushes()).toBe(1);
+
+    // An older or equal time changes nothing: no write.
+    child.emit(at("a", 50));
+    child.emit(at("b", 200));
+    await settle();
+    expect(flushes()).toBe(1);
+
+    child.emit(at("c", 300));
+    await settle();
+    expect(flushes()).toBe(2);
+    await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    expect(saved(h)).toEqual({ a: 100, b: 200, c: 300 });
+  });
+
+  it("after an office restart the saved times order the chats the bridge announces again", async () => {
+    const h1 = harness();
+    const first = await bootLinked(h1);
+    for (const id of ["a", "b", "c"]) first.emit(chat(id));
+    first.emit(at("c", 300));
+    first.emit(at("a", 100));
+    await h1.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    await h1.sup.shutdown();
+
+    const h = harness(h1.stateRoot);
+    const child = await bootLinked(h);
+    for (const id of ["a", "b", "c"]) child.emit(chat(id));
+    await settle();
+    expect(order(h)).toEqual(["c", "a", "b"]);
+    // The saved times count as the newest so far: an older one does not move
+    // a chat down, a newer one moves it up.
+    child.emit(at("c", 200));
+    child.emit(at("b", 250));
+    await settle();
+    expect(order(h)).toEqual(["c", "b", "a"]);
+  });
+
+  it("boot keeps the saved times up to the cap: the oldest goes", async () => {
+    const h = harness();
+    writeLink(h.stateRoot, U, { phone: PHONE, linkedAt: 5 });
+    const times = new Map<string, number>();
+    for (let i = 0; i <= WHATSAPP_CHATS_SEEN_MAX; i++)
+      times.set(`u${i}`, 1_000 + i);
+    writeChatTimes(h.stateRoot, U, times);
+    await h.sup.boot();
+    await until(() => h.childOf(U).length === 1, "the boot spawn");
+    const child = h.childOf(U)[0];
+    for (const id of ["z", "u0", "u1"]) child.emit(chat(id));
+    await settle();
+    // u0's time, the oldest, is gone: it sorts with the chats with no message.
+    expect(order(h)).toEqual(["u1", "z", "u0"]);
+  });
+
+  it("shutdown writes the times that wait for their write, and nothing is written after it", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    child.emit(chat("a"));
+    child.emit(at("a", 100));
+    await settle();
+    // No clock moves: the flush timer has not run.
+    await h.sup.shutdown();
+    expect(saved(h)).toEqual({ a: 100 });
+    rmSync(timesFile(h));
+    await h.clock.advance(2 * WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    expect(existsSync(timesFile(h))).toBe(false);
+  });
+
+  it("a write that fails is logged without the chat, escapes neither the timer nor shutdown, and the next time is written", async () => {
+    const logged = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const h = harness();
+      const alice = await linkNow(h, U);
+      const bob = await linkNow(h, V);
+      blockWrites(h, U);
+      alice.emit(at(MOM, 100));
+      // FakeClock runs the timer inline: a throw would fail this line.
+      await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+      expect(logged).toHaveBeenCalled();
+      expect(JSON.stringify(logged.mock.calls)).not.toContain("447700900123");
+
+      rmSync(timesFile(h), { recursive: true });
+      alice.emit(at(MOM, 200));
+      await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+      expect(saved(h)).toEqual({ [MOM]: 200 });
+
+      // Alice's write fails first at shutdown; Bob's still goes.
+      rmSync(timesFile(h));
+      blockWrites(h, U);
+      alice.emit(at(MOM, 300));
+      bob.emit(at("b", 5));
+      await settle();
+      const before = logged.mock.calls.length;
+      await h.sup.shutdown();
+      expect(logged.mock.calls.length).toBeGreaterThan(before);
+      expect(saved(h)).toEqual({});
+      expect(saved(h, V)).toEqual({ b: 5 });
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it("unlink: a time that waits for its write is never written, and the directory stays gone", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    child.emit(chat("a"));
+    child.emit(at("a", 100));
+    await settle();
+    await h.sup.unlink(U);
+    expect(existsSync(memberDir(h.stateRoot, U))).toBe(false);
+    await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    expect(existsSync(memberDir(h.stateRoot, U))).toBe(false);
+  });
+
+  it("unlink then a new link at once: nothing from the old link reaches the new link's directory", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    child.emit(chat("a"));
+    child.emit(at("a", 100));
+    await settle();
+    await h.sup.unlink(U);
+    await h.sup.link(U, { method: "qr" });
+    expect(existsSync(memberDir(h.stateRoot, U))).toBe(true);
+    await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    expect(existsSync(timesFile(h))).toBe(false);
+  });
+
+  it("a new link after a dead one starts with no chat times, in memory or on disk", async () => {
+    const h = harness();
+    const old = await bootLinked(h);
+    for (const id of ["a", "b"]) old.emit(chat(id));
+    old.emit(at("a", 100));
+    await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    expect(saved(h)).toEqual({ a: 100 });
+    // One more waits for its write when the link dies.
+    old.emit(at("b", 200));
+    old.close(DISCONNECT.connectionReplaced);
+    await until(() => h.sup.status(U).state === "dead", "dead");
+
+    const child = await linkNow(h, U);
+    for (const id of ["a", "b", "n"]) child.emit(chat(id));
+    child.emit(at("n", 50));
+    await settle();
+    expect(order(h)).toEqual(["n", "a", "b"]);
+    await h.clock.advance(WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    expect(saved(h)).toEqual({ n: 50 });
   });
 });
 

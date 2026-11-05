@@ -1,7 +1,8 @@
 // A member's WhatsApp state on disk: STATE_ROOT/whatsapp/<userId>/, holding
-// the Baileys credentials (auth/) and link.json once the phone accepted the
-// link. The directory is 0700 and its files 0600: whoever reads it has full
-// access to the member's WhatsApp. STATE_ROOT/whatsapp/runtime/ holds the
+// the Baileys credentials (auth/), link.json once the phone accepted the
+// link, and chat-times.json, the time of each chat's newest message. The
+// directory is 0700 and its files 0600: whoever reads it has full access to
+// the member's WhatsApp. STATE_ROOT/whatsapp/runtime/ holds the
 // downloaded bridge package (server/whatsapp/installer.ts), not a member.
 
 import {
@@ -23,6 +24,7 @@ export interface WhatsAppLink {
 export const WHATSAPP_RUNTIME_DIR = "runtime";
 
 const LINK_FILE = "link.json";
+const CHAT_TIMES_FILE = "chat-times.json";
 
 export function whatsappRoot(stateRoot: string): string {
   return join(stateRoot, "whatsapp");
@@ -80,6 +82,45 @@ export function writeLink(
     { mode: 0o600 },
   );
   renameSync(tmp, join(dir, LINK_FILE));
+}
+
+// The time of each chat's newest message (ms), for the Add picker's order:
+// chat-times.json, a plain object of chat id to time. A missing or bad file
+// reads as no times.
+export function readChatTimes(
+  stateRoot: string,
+  userId: string,
+): Map<string, number> {
+  const times = new Map<string, number>();
+  let raw: unknown;
+  try {
+    raw = JSON.parse(
+      readFileSync(join(memberDir(stateRoot, userId), CHAT_TIMES_FILE), "utf8"),
+    );
+  } catch {
+    return times;
+  }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    return times;
+  for (const [chat, at] of Object.entries(raw))
+    if (typeof at === "number" && Number.isFinite(at)) times.set(chat, at);
+  return times;
+}
+
+// Writes the times (0600). Writes nothing when the member's directory is gone,
+// so a late write never brings back an unlinked session.
+export function writeChatTimes(
+  stateRoot: string,
+  userId: string,
+  times: Map<string, number>,
+): void {
+  const dir = memberDir(stateRoot, userId);
+  if (!existsSync(dir)) return;
+  const tmp = join(dir, CHAT_TIMES_FILE + ".tmp");
+  writeFileSync(tmp, JSON.stringify(Object.fromEntries(times)) + "\n", {
+    mode: 0o600,
+  });
+  renameSync(tmp, join(dir, CHAT_TIMES_FILE));
 }
 
 // Deletes the member's session (credentials, link, id rings) and keeps their

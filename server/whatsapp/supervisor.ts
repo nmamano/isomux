@@ -39,9 +39,11 @@ import {
   ensureMemberDir,
   listMemberDirs,
   listMemberFiles,
+  readChatTimes,
   readLink,
   removeMemberDir,
   removeSession,
+  writeChatTimes,
   writeLink,
   type WhatsAppLink,
 } from "./store.ts";
@@ -108,6 +110,8 @@ export interface WhatsAppSupervisorDeps {
 
 // The cap of the chats-seen list per member (the Add picker).
 export const WHATSAPP_CHATS_SEEN_MAX = 500;
+// How long after a new message time the member's times are written.
+export const WHATSAPP_CHAT_TIMES_FLUSH_MS = 5_000;
 
 export interface WhatsAppHooks {
   // The routed chats. Sent as the FIRST command at each spawn, before link,
@@ -223,8 +227,11 @@ export function createWhatsAppSupervisor(
   // The chats each member's WhatsApp saw since the link (memory only).
   const chats = new Map<string, Map<string, WhatsAppChatSeen>>();
   // The time of each chat's newest message since the link, for the Add
-  // picker's order (memory only). A time can come before the chat's name.
+  // picker's order, saved in the member's directory so that a restart keeps
+  // it. A time can come before the chat's name.
   const lastAt = new Map<string, Map<string, number>>();
+  // The members whose times wait for their write, with its timer.
+  const timesDue = new Map<string, unknown>();
   let runtimeDir: string | null = null;
   let shuttingDown = false;
 
@@ -295,9 +302,40 @@ export function createWhatsAppSupervisor(
     }
   }
 
+  // Writes the member's times. It runs from a timer: a failure is logged.
+  function writeTimes(userId: string): void {
+    try {
+      const times = lastAt.get(userId) ?? new Map<string, number>();
+      writeChatTimes(deps.stateRoot, userId, times);
+    } catch {
+      console.error("[whatsapp] the WhatsApp chat times were not saved");
+    }
+  }
+
+  // One write, WHATSAPP_CHAT_TIMES_FLUSH_MS after the first new time; the
+  // times that come meanwhile go in it.
+  function timesChanged(userId: string): void {
+    if (timesDue.has(userId)) return;
+    const timer = clock.setTimeout(() => {
+      timesDue.delete(userId);
+      writeTimes(userId);
+    }, WHATSAPP_CHAT_TIMES_FLUSH_MS);
+    timesDue.set(userId, timer);
+  }
+
+  // The chats and times of the member's last link go, with a write that
+  // waits: the session they came from is gone.
+  function forgetChats(userId: string): void {
+    chats.delete(userId);
+    lastAt.delete(userId);
+    if (timesDue.has(userId)) {
+      clock.clearTimeout(timesDue.get(userId));
+      timesDue.delete(userId);
+    }
+  }
+
   function unlinked(m: MemberRecord): void {
-    chats.delete(m.userId);
-    lastAt.delete(m.userId);
+    forgetChats(m.userId);
     hook("unlink", (h) => h.onUnlinked(m.userId));
   }
 
@@ -508,6 +546,7 @@ export function createWhatsAppSupervisor(
         times.set(event.chat, event.at);
         if (times.size > WHATSAPP_CHATS_SEEN_MAX)
           times.delete(oldest(times) as string);
+        timesChanged(m.userId);
         return;
       }
       case "message":
@@ -637,6 +676,17 @@ export function createWhatsAppSupervisor(
         if (!link) continue;
         const m = memberOf(d.userId);
         m.link = link;
+        // The saved times, the newest up to the cap.
+        const saved = [...readChatTimes(deps.stateRoot, d.userId)];
+        if (saved.length > 0)
+          lastAt.set(
+            d.userId,
+            new Map(
+              saved
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, WHATSAPP_CHATS_SEEN_MAX),
+            ),
+          );
         setStatus(m, {
           state: "linked",
           phone: link.phone,
@@ -727,6 +777,7 @@ export function createWhatsAppSupervisor(
         setStatus(m, { state: "unlinked", reason: "link_expired" });
         return { ok: true, status: m.status };
       }
+      forgetChats(userId);
       const installed = await deps.installer.ensure();
       if (m.gen !== gen) return { ok: true, status: m.status };
       if (!installed.ok) {
@@ -811,6 +862,12 @@ export function createWhatsAppSupervisor(
         cancelRestart(m);
       }
       await Promise.all(all.map((m) => stopChild(m, "stop")));
+      // The times that wait for their write go now.
+      for (const [userId, timer] of [...timesDue]) {
+        clock.clearTimeout(timer);
+        timesDue.delete(userId);
+        writeTimes(userId);
+      }
     },
   };
 }
