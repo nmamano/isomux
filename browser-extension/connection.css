@@ -62,8 +62,8 @@ button:focus-visible {
   border-left: 3px solid #93b4ff;
   padding-left: 9px;
 }
-#visit-control,
-#tab-control {
+#tab-control,
+#share-section {
   margin: 14px 0;
   padding: 12px;
   background: #242b38;
@@ -74,17 +74,6 @@ button:focus-visible {
 }
 #share-section > label {
   margin-top: 0;
-}
-/* Per visit: Share, then Use this tab under a rule. */
-#share-section {
-  padding-bottom: 12px;
-  border-bottom: 1px solid #3a4456;
-}
-#share-section[hidden] + .control-switch {
-  margin-top: 0;
-}
-#tab-state {
-  margin: 0;
 }
 #share-status {
   margin: 8px 0 0;
