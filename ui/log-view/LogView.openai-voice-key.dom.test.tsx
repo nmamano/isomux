@@ -22,6 +22,7 @@ const {
   settle,
   voice,
 } = await import("../test-support/openai-voice-fixture.tsx");
+const { asMember } = await import("../test-support/language-fixture.tsx");
 
 setUpOpenAIVoice();
 
@@ -288,4 +289,40 @@ it("a status line shows while recording and while transcribing", async () => {
   expect(view.queryAllByRole("status")).toHaveLength(idle);
   expect(draftOf(view.container)).toBe("done");
   view.unmount();
+});
+
+// Nil at sign-off of task a1d3fa5f (task 93191798): the mic's key line links
+// to Variables only for a member who can read it, and sends a member who
+// cannot add the key (no environment write) to an owner. The other key lines
+// follow the same link (VoiceSection.dom.test.tsx shows one keeps its text).
+it("the key line links to Variables with environment read, and names an owner without environment write", async () => {
+  installBrowser({ speechRecognition: false });
+  const lineFor = async (environment?: "read" | "write" | "none") => {
+    FakeRecorder.instances = [];
+    const view = render(page("openai", "", asMember(environment)));
+    voice.statusReplies.push(status({ keySource: null, keyName: null }));
+    fireEvent.click(micButton(view.container)!);
+    await settle();
+    const alert = view.getByRole("alert");
+    const bare = alert.cloneNode(true) as HTMLElement;
+    for (const a of bare.querySelectorAll("a")) a.remove();
+    const row = {
+      environment: environment ?? "no pack",
+      text: bare.textContent.trim(),
+      link: variablesLink(alert) !== null,
+    };
+    view.unmount();
+    return row;
+  };
+
+  const full = await lineFor();
+  const writer = await lineFor("write");
+  const reader = await lineFor("read");
+  const without = await lineFor("none");
+  expect(full.link).toBe(true);
+  expect(writer).toEqual({ ...full, environment: "write" });
+  expect(reader.link).toBe(true);
+  expect(reader.text).not.toBe(full.text);
+  expect(reader.text).toContain("OPENAI_VOICE_API_KEY");
+  expect(without).toEqual({ ...reader, environment: "none", link: false });
 });

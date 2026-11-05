@@ -9,7 +9,11 @@ import { afterAll, afterEach, beforeEach } from "bun:test";
 import { act } from "@testing-library/react";
 import { createElement, useReducer } from "react";
 import { LogView } from "../log-view/LogView.tsx";
-import { selfUserRecord, stateWithSelfUser } from "./language-fixture.tsx";
+import {
+  asMember,
+  selfUserRecord,
+  stateWithSelfUser,
+} from "./language-fixture.tsx";
 import { stubGlobal } from "./dom.ts";
 import { StateCtx, DispatchCtx, reducer } from "../store.tsx";
 import { LanguageProvider } from "../i18n.tsx";
@@ -289,9 +293,15 @@ function LiveStore({
   );
 }
 
-export function page(voiceInput: VoiceInput | undefined, draft = "") {
-  const self = { ...selfUserRecord(null), voiceInput };
+// `member` (asMember) signs in a member instead of the owner.
+export function page(
+  voiceInput: VoiceInput | undefined,
+  draft = "",
+  member?: ReturnType<typeof asMember>,
+) {
+  const self = { ...selfUserRecord(null), ...member?.record, voiceInput };
   const initial = stateWithSelfUser(null, {
+    ...member?.state,
     agents: [agent],
     users: new Map([[self.name.toLowerCase(), self]]),
     rooms: [{ id: "r1", name: "Room", prompt: null, canCloseWhenEmpty: false }],

@@ -11,6 +11,7 @@ import { useOpenAISpeech } from "../hooks/useOpenAISpeech.ts";
 import { apiFetch } from "../api.ts";
 import { DEFAULT_VOICE_NAME, type VoiceName } from "../../shared/voice.ts";
 import { VoiceVariablesLink } from "./VoiceVariablesLink.tsx";
+import { useCan } from "../hooks/useCan.ts";
 import type {
   PlainMessageKey,
   Translator,
@@ -266,6 +267,8 @@ function OpenAISpeakButton({
     speech.speaking ? "logView.voice.stop" : "logView.voice.speak",
   );
   const error = speech.error;
+  // A member whose permission pack cannot add variables asks an owner.
+  const canAddKey = useCan("environment", "write");
   return (
     <span
       data-chat-export="omit"
@@ -309,7 +312,13 @@ function OpenAISpeakButton({
             gap: 8,
           }}
         >
-          <span>{i18n.t(SPEAK_ERROR[error.kind])}</span>
+          <span>
+            {i18n.t(
+              error.kind === "keyMissing" && !canAddKey
+                ? "voice.keyMissing.askOwner"
+                : SPEAK_ERROR[error.kind],
+            )}
+          </span>
           {(error.kind === "keyMissing" || error.kind === "keyRejected") && (
             <VoiceVariablesLink />
           )}

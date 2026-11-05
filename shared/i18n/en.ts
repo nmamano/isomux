@@ -2346,6 +2346,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "voice.keyRejected": "OpenAI refused the key.",
   "voice.retry": "Retry",
   "voice.useBrowser": "Use browser voices",
+  "voice.keyMissing.askOwner":
+    "Ask an office owner to add OPENAI_VOICE_API_KEY to use OpenAI.",
   "voice.mic.keyMissing": "Add OPENAI_VOICE_API_KEY to use the OpenAI mic.",
   "voice.mic.tooLarge": "The recording is over 25 MB.",
   "voice.mic.rejected": "OpenAI could not transcribe the recording.",

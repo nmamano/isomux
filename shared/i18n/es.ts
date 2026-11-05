@@ -2405,6 +2405,8 @@ Cosas que puedes hacer por él:
   "voice.keyRejected": "OpenAI rechazó la clave.",
   "voice.retry": "Reintentar",
   "voice.useBrowser": "Usar las voces del navegador",
+  "voice.keyMissing.askOwner":
+    "Pide a un propietario de la oficina que añada OPENAI_VOICE_API_KEY para usar OpenAI.",
   "voice.mic.keyMissing":
     "Añade OPENAI_VOICE_API_KEY para usar el micrófono de OpenAI.",
   "voice.mic.tooLarge": "La grabación supera los 25 MB.",

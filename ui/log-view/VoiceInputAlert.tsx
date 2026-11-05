@@ -9,6 +9,7 @@ import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { VOICE_MAX_RECORDING_MS } from "../../shared/voice.ts";
 import type { RecordedDictation } from "../hooks/useRecordedDictation.ts";
 import { VoiceVariablesLink } from "../components/VoiceVariablesLink.tsx";
+import { useCan } from "../hooks/useCan.ts";
 
 const MESSAGE: Record<
   Exclude<
@@ -96,6 +97,8 @@ function ErrorLine({
 }) {
   const i18n = useI18n();
   const { error, hasClip } = dictation;
+  // A member whose permission pack cannot add variables asks an owner.
+  const canAddKey = useCan("environment", "write");
   if (!error) return null;
   const kind = error.kind;
   const keyProblem =
@@ -123,7 +126,9 @@ function ErrorLine({
             })
           : kind === "keySecret"
             ? i18n.t("integrations.voice.key.secret", { name: error.name })
-            : i18n.t(MESSAGE[kind])}
+            : kind === "keyMissing" && !canAddKey
+              ? i18n.t("voice.keyMissing.askOwner")
+              : i18n.t(MESSAGE[kind])}
         {failedUpload && hasClip ? ` ${i18n.t("voice.mic.kept")}` : ""}
       </span>
       {keyProblem && <VoiceVariablesLink />}

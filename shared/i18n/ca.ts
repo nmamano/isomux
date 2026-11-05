@@ -2409,6 +2409,8 @@ Coses que pots fer per ell:
   "voice.keyRejected": "OpenAI ha rebutjat la clau.",
   "voice.retry": "Torna-ho a provar",
   "voice.useBrowser": "Fes servir les veus del navegador",
+  "voice.keyMissing.askOwner":
+    "Demana a un propietari de l'oficina que afegeixi OPENAI_VOICE_API_KEY per fer servir OpenAI.",
   "voice.mic.keyMissing":
     "Afegeix OPENAI_VOICE_API_KEY per fer servir el micròfon d'OpenAI.",
   "voice.mic.tooLarge": "La gravació supera els 25 MB.",

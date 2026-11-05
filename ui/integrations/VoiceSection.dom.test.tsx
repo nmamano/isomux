@@ -8,7 +8,7 @@ setUpDomTestFile();
 
 const { fireEvent, render, act } = await import("@testing-library/react");
 const { VoiceSection } = await import("./VoiceSection.tsx");
-const { onLanguage, selfUserRecord } =
+const { asMember, onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
@@ -37,10 +37,14 @@ beforeEach(() => {
 
 afterAll(() => setApiShim(null));
 
-function page(over: Partial<UserRecord> = {}) {
+function page(
+  over: Partial<UserRecord> = {},
+  state: Partial<import("../store.tsx").AppState> = {},
+) {
   const self = { ...selfUserRecord(null), ...over };
   return onLanguage(null, createElement(VoiceSection), {
     users: new Map([[self.name.toLowerCase(), self]]),
+    ...state,
   });
 }
 
@@ -146,4 +150,57 @@ it("saves each change at once", async () => {
     { voiceOutput: "browser" },
   ]);
   view.unmount();
+});
+
+// Nil at sign-off of task a1d3fa5f (task 93191798): a member whose pack lacks
+// environment has no Variables tab, so the key line has no link to it; a pack
+// without environment write cannot add the key, so the "no key" line sends
+// the member to an owner. Each row: the line's text, and whether it links.
+it("links to Variables with environment read, and sends a member without environment write to an owner", async () => {
+  const lineFor = async (
+    source: string | null,
+    environment?: "read" | "write" | "none",
+  ) => {
+    keySource = source;
+    keyName = source ? "OPENAI_VOICE_API_KEY" : null;
+    const member = asMember(environment);
+    const view = render(page(member.record, member.state));
+    await settle();
+    const line = view.container.querySelector("[data-key-source]")!;
+    // The text without the link's own.
+    const bare = line.cloneNode(true) as HTMLElement;
+    for (const a of bare.querySelectorAll("a")) a.remove();
+    const row = {
+      environment: environment ?? "no pack",
+      text: bare.textContent.trim(),
+      link: line.querySelector('a[href="/integrations/variables"]') !== null,
+    };
+    view.unmount();
+    return row;
+  };
+
+  // No key.
+  const full = await lineFor(null);
+  const writer = await lineFor(null, "write");
+  const reader = await lineFor(null, "read");
+  const without = await lineFor(null, "none");
+  expect(full.link).toBe(true);
+  expect(writer).toEqual({ ...full, environment: "write" });
+  expect(reader.link).toBe(true);
+  expect(reader.text).not.toBe(full.text);
+  expect(reader.text).toContain("OPENAI_VOICE_API_KEY");
+  expect(without).toEqual({ ...reader, environment: "none", link: false });
+
+  // A key found: the line stays, only the link goes.
+  const found = await lineFor("member_variable");
+  expect(found.link).toBe(true);
+  expect(await lineFor("member_variable", "read")).toEqual({
+    ...found,
+    environment: "read",
+  });
+  expect(await lineFor("member_variable", "none")).toEqual({
+    ...found,
+    environment: "none",
+    link: false,
+  });
 });

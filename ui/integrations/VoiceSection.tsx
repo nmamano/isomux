@@ -8,6 +8,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
+import { canUse } from "../hooks/useCan.ts";
 import type {
   MemberVoiceReq,
   MemberVoiceRes,
@@ -155,7 +156,12 @@ export function VoiceSection({
             ? t("integrations.voice.key.noneTheirs", {
                 member: member.username,
               })
-            : t("integrations.voice.key.none");
+            : canUse(self, "environment", "write")
+              ? t("integrations.voice.key.none")
+              : t("voice.keyMissing.askOwner");
+  // A member whose permission pack hides the Variables tab gets no link to it
+  // (task 93191798). An owner on another member's card has no pack.
+  const variablesShown = canUse(self, "environment", "read");
   // Another member's choices show once read, so nothing is set on a guess.
   const loading = !!member && !theirs;
 
@@ -201,18 +207,23 @@ export function VoiceSection({
         data-key-source={source ?? "none"}
         style={{ ...hintText, margin: "14px 0 0" }}
       >
-        {keyLine}{" "}
-        <a
-          href="/integrations/variables"
-          onClick={(e) => {
-            if (!onVariables) return;
-            e.preventDefault();
-            onVariables();
-          }}
-          style={{ color: "var(--accent-text)" }}
-        >
-          {t("voice.openVariables")}
-        </a>
+        {keyLine}
+        {variablesShown && (
+          <>
+            {" "}
+            <a
+              href="/integrations/variables"
+              onClick={(e) => {
+                if (!onVariables) return;
+                e.preventDefault();
+                onVariables();
+              }}
+              style={{ color: "var(--accent-text)" }}
+            >
+              {t("voice.openVariables")}
+            </a>
+          </>
+        )}
       </p>
       <p style={{ ...hintText, margin: "6px 0 0" }}>
         {member

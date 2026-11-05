@@ -2151,6 +2151,8 @@ App 的一些原则：
   "voice.keyRejected": "OpenAI 拒绝了该密钥。",
   "voice.retry": "重试",
   "voice.useBrowser": "使用浏览器语音",
+  "voice.keyMissing.askOwner":
+    "请让办公室所有者添加 OPENAI_VOICE_API_KEY，以便使用 OpenAI。",
   "voice.mic.keyMissing":
     "添加 OPENAI_VOICE_API_KEY 后才能使用 OpenAI 麦克风。",
   "voice.mic.tooLarge": "录音超过 25 MB。",

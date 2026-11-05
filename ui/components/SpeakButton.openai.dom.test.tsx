@@ -10,7 +10,7 @@ setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { SpeakButton } = await import("./SpeakButton.tsx");
-const { onLanguage, selfUserRecord } =
+const { asMember, onLanguage, selfUserRecord } =
   await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement, Fragment } = await import("react");
@@ -156,12 +156,19 @@ afterAll(() => {
   }
 });
 
+// `member` (asMember) signs in a member instead of the owner.
 function page(
   texts: string[],
   voiceOutput: VoiceOutput | undefined,
   voiceName?: VoiceName,
+  member?: ReturnType<typeof asMember>,
 ) {
-  const self = { ...selfUserRecord(null), voiceOutput, voiceName };
+  const self = {
+    ...selfUserRecord(null),
+    ...member?.record,
+    voiceOutput,
+    voiceName,
+  };
   return onLanguage(
     null,
     createElement(
@@ -175,7 +182,7 @@ function page(
         ),
       ),
     ),
-    { users: new Map([[self.name.toLowerCase(), self]]) },
+    { ...member?.state, users: new Map([[self.name.toLowerCase(), self]]) },
   );
 }
 
@@ -366,6 +373,64 @@ it("with no key: an error line with Variables in a new tab and a switch to brows
   await settle();
   expect(patches).toEqual([{ voiceOutput: "browser" }]);
   view.unmount();
+});
+
+// Nil at sign-off of task a1d3fa5f (task 93191798): the line links to
+// Variables only for a member who can read it, and sends a member who cannot
+// add the key (no environment write) to an owner. A refused key keeps its
+// line and loses only the link.
+it("the key line links to Variables with environment read, and names an owner without environment write", async () => {
+  install({ speechSynthesis: false });
+  const lineFor = async (
+    key: "missing" | "rejected",
+    environment?: "read" | "write" | "none",
+  ) => {
+    speakCalls = [];
+    const view = render(
+      page(["Hello."], "openai", undefined, asMember(environment)),
+    );
+    fireEvent.click(buttonOf(view.container));
+    await settle();
+    await act(async () =>
+      speakCalls[0].release(
+        key === "missing"
+          ? failure(409, "voice_key_missing")
+          : failure(502, "voice_provider_failed", { keyRejected: true }),
+      ),
+    );
+    await settle();
+    const alert = view.getByRole("alert");
+    // The line itself: the switch to browser voices is there in every case.
+    const line = alert.querySelector("span")!.textContent.trim();
+    const row = {
+      environment: environment ?? "no pack",
+      text: line,
+      link: alert.querySelector('a[href="/integrations/variables"]') !== null,
+      useBrowser:
+        alert.querySelector('[data-voice-action="use-browser"]') !== null,
+    };
+    view.unmount();
+    return row;
+  };
+
+  const full = await lineFor("missing");
+  const writer = await lineFor("missing", "write");
+  const reader = await lineFor("missing", "read");
+  const without = await lineFor("missing", "none");
+  expect(full).toMatchObject({ link: true, useBrowser: true });
+  expect(writer).toEqual({ ...full, environment: "write" });
+  expect(reader.link).toBe(true);
+  expect(reader.text).not.toBe(full.text);
+  expect(reader.text).toContain("OPENAI_VOICE_API_KEY");
+  expect(without).toEqual({ ...reader, environment: "none", link: false });
+
+  const refused = await lineFor("rejected");
+  expect(refused.link).toBe(true);
+  expect(await lineFor("rejected", "none")).toEqual({
+    ...refused,
+    environment: "none",
+    link: false,
+  });
 });
 
 // What every member on OpenAI sees once the speech API is gone.

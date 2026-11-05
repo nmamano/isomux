@@ -15,6 +15,11 @@ import { StateCtx, initialState, type AppState } from "../store.tsx";
 import { LanguageProvider } from "../i18n.tsx";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import type { SessionContext, UserRecord } from "../../shared/types.ts";
+import {
+  API_TOKEN_AREAS,
+  type ApiTokenAccess,
+  type ApiTokenAreaLevels,
+} from "../../shared/api-token-limits.ts";
 
 const SELF_ID = "u1";
 
@@ -80,4 +85,29 @@ export function onLanguage(
       <LanguageProvider>{element}</LanguageProvider>
     </StateCtx.Provider>
   );
+}
+
+/**
+ * The self user as a member, for `over` of onLanguage or stateWithSelfUser,
+ * with the record fields to spread on selfUserRecord. `environment` is the
+ * environment area of a permission pack that gives every other area at write:
+ * a level, or "none" for a pack without it. undefined is no pack.
+ */
+export function asMember(environment?: ApiTokenAccess | "none"): {
+  record: Partial<UserRecord>;
+  state: Partial<AppState>;
+} {
+  let pack: UserRecord["pack"];
+  if (environment) {
+    const areas: ApiTokenAreaLevels = {};
+    for (const area of API_TOKEN_AREAS) areas[area] = "write";
+    if (environment === "none") delete areas.environment;
+    else areas.environment = environment;
+    pack = { areas, agentCeiling: "office" };
+  }
+  const session = stateWithSelfUser(null).sessionContext!;
+  return {
+    record: { role: "member", ...(pack ? { pack } : {}) },
+    state: { sessionContext: { ...session, role: "member" } },
+  };
 }
