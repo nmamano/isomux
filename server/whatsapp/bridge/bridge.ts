@@ -12,6 +12,7 @@
 // What it writes to stdout is all the server sees: no message text and no
 // contact number goes into a log line.
 
+import { randomBytes } from "crypto";
 import { createInterface } from "readline";
 import { join } from "path";
 
@@ -51,6 +52,10 @@ type Event =
 // The parts of Baileys this file uses.
 interface Creds {
   me?: { id: string; lid?: string };
+  // Set by pair-success only. A pairing code request sets me before the
+  // phone has accepted anything.
+  account?: unknown;
+  advSecretKey: string;
 }
 interface AuthState {
   creds: Creds;
@@ -94,9 +99,19 @@ interface Group {
 interface ConnectionUpdate {
   connection?: "open" | "connecting" | "close";
   qr?: string;
-  lastDisconnect?: { error?: { output?: { statusCode?: number } } };
+  lastDisconnect?: {
+    error?: { message?: string; output?: { statusCode?: number } };
+  };
 }
+interface BinaryNode {
+  tag: string;
+  attrs: Record<string, string>;
+  content?: unknown;
+}
+type WAVersion = [number, number, number];
 interface Socket {
+  // The raw stanzas, by "CB:<tag>,<attr>:<value>".
+  ws: { on(event: string, fn: (node: BinaryNode) => void): void };
   ev: {
     on(event: "creds.update", fn: () => void): void;
     on(event: "connection.update", fn: (u: ConnectionUpdate) => void): void;
@@ -131,6 +146,9 @@ interface Baileys {
     dir: string,
   ): Promise<{ state: AuthState; saveCreds: () => Promise<void> }>;
   Browsers: { ubuntu(name: string): [string, string, string] };
+  fetchLatestWaWebVersion(options: {
+    signal?: AbortSignal;
+  }): Promise<{ version: WAVersion; isLatest: boolean }>;
   normalizeMessageContent(
     m: MessageContent | null | undefined,
   ): MessageContent | undefined;
@@ -148,6 +166,22 @@ process.umask(0o077);
 
 function send(event: Event): void {
   process.stdout.write(JSON.stringify(event) + "\n");
+}
+
+function log(text: string): void {
+  send({ ev: "log", text });
+}
+
+// An error's own text for a log line, without any number long enough to be
+// a phone number or a chat id.
+function reason(err: unknown): string {
+  const text =
+    err instanceof Error
+      ? err.message
+      : typeof err === "object" && err && "message" in err
+        ? String(err.message)
+        : String(err);
+  return text.replace(/\d{6,}/g, "#").slice(0, 120);
 }
 
 function exit(code: number): void {
@@ -183,9 +217,11 @@ const phoneOf = (jid: string) => jid.split("@")[0].split(":")[0];
 let sock = null as Socket | null;
 let announced = false;
 
-// The account once pairing succeeded: sent once per process.
+// The account once pairing succeeded: sent once per process. A pairing code
+// request sets creds.me before the phone accepted the code, so only the
+// account that pair-success saves counts.
 function announceLinked(): void {
-  if (announced || !state.creds.me) return;
+  if (announced || !state.creds.me || !state.creds.account) return;
   announced = true;
   send({ ev: "linked", phone: phoneOf(state.creds.me.id) });
 }
@@ -355,10 +391,47 @@ async function onMessage(m: WAMessage, s: Socket): Promise<void> {
   });
 }
 
-function start(): void {
+// WhatsApp refuses to link a device that reports an old WA Web version
+// (Baileys issue #2679), and the version Baileys bundles goes stale between
+// its releases: the current one comes from web.whatsapp.com.
+const VERSION_TIMEOUT_MS = 10_000;
+async function waVersion(): Promise<WAVersion | undefined> {
+  try {
+    const got = await baileys.fetchLatestWaWebVersion({
+      signal: AbortSignal.timeout(VERSION_TIMEOUT_MS),
+    });
+    if (got.isLatest) {
+      log(`WA Web version ${got.version.join(".")}`);
+      return got.version;
+    }
+  } catch {
+    // The bundled version below.
+  }
+  log("the current WA Web version was not read: Baileys' bundled one is used");
+  return undefined;
+}
+
+// The QR text is "<link>#<ref>,<noise key>,<identity key>,<adv secret>,
+// <platform>". Baileys builds every QR of a flow with the adv secret of the
+// flow's start, so each one gets the current secret here.
+function withCurrentSecret(qr: string): string {
+  const hash = qr.indexOf("#");
+  const parts = qr.slice(hash + 1).split(",");
+  if (hash < 0 || parts.length < 4) return qr;
+  parts[3] = state.creds.advSecretKey;
+  return qr.slice(0, hash + 1) + parts.join(",");
+}
+
+// The two children WA Web accepts on a companion_reg_refresh notification.
+const REFRESH_CHILDREN = ["companion_reg_refresh", "pair-device-rotate-qr"];
+const CODE_TIMEOUT_MS = 30_000;
+
+async function start(): Promise<void> {
+  const version = await waVersion();
   const socket = baileys.default({
     auth: state,
     logger: silent,
+    ...(version ? { version } : {}),
     browser: baileys.Browsers.ubuntu("Isomux"),
     // Online presence would stop the phone's push notifications.
     markOnlineOnConnect: false,
@@ -367,6 +440,34 @@ function start(): void {
   });
   sock = socket;
   let codeAsked = false;
+  // The last QR Baileys made, to send again with a new secret.
+  let lastQr: string | null = null;
+
+  // Since 2026-07 WhatsApp retires the adv secret of an unpaired device
+  // after the QR scan, with this notification. Baileys 7.0.0-rc14 acks it
+  // and keeps the old secret, so the phone refuses the link (Baileys issue
+  // #2737). As WA Web does (Baileys PR #2765): a new 32-byte secret, saved,
+  // and the QR on screen sent again with it. A device with an account, or a
+  // pending pairing code, keeps its secret: its pairing is checked against it.
+  socket.ws.on("CB:notification,type:companion_reg_refresh", (node) => {
+    try {
+      if (state.creds.me) return;
+      const children = Array.isArray(node.content)
+        ? (node.content as BinaryNode[])
+        : [];
+      if (!children.some((c) => REFRESH_CHILDREN.includes(c?.tag))) {
+        log("a pairing refresh from WhatsApp was not understood");
+        return;
+      }
+      state.creds.advSecretKey = randomBytes(32).toString("base64");
+      void saveCreds().catch(() => log("the credentials were not saved"));
+      log("WhatsApp renewed the pairing secret");
+      if (lastQr && link?.method === "qr")
+        send({ ev: "qr", code: withCurrentSecret(lastQr) });
+    } catch (err) {
+      log(`the pairing refresh failed: ${reason(err)}`);
+    }
+  });
 
   socket.ev.on("creds.update", () => {
     // Pairing succeeded once the account is in the saved credentials.
@@ -391,15 +492,28 @@ function start(): void {
 
   socket.ev.on("connection.update", (u) => {
     if (u.qr && link?.op === "link") {
-      if (link.method === "qr") send({ ev: "qr", code: u.qr });
+      lastQr = u.qr;
+      if (link.method === "qr")
+        send({ ev: "qr", code: withCurrentSecret(u.qr) });
       else if (!codeAsked) {
         codeAsked = true;
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) log("the pairing code request got no answer");
+        }, CODE_TIMEOUT_MS);
         socket
           .requestPairingCode(link.phone)
-          .then((code) => send({ ev: "pairing-code", code }))
-          .catch(() =>
-            send({ ev: "log", text: "the pairing code request failed" }),
-          );
+          .then((code) => {
+            send({ ev: "pairing-code", code });
+            log("pairing code shown");
+          })
+          .catch((err) =>
+            log(`the pairing code request failed: ${reason(err)}`),
+          )
+          .finally(() => {
+            settled = true;
+            clearTimeout(timer);
+          });
       }
     }
     if (u.connection === "open") {
@@ -416,10 +530,10 @@ function start(): void {
     if (u.connection === "close") {
       open = false;
       const statusCode = u.lastDisconnect?.error?.output?.statusCode ?? null;
-      send({
-        ev: "log",
-        text: `connection closed (${statusCode ?? "no code"})`,
-      });
+      const why = u.lastDisconnect?.error;
+      log(
+        `connection closed (${statusCode ?? "no code"}${why ? `: ${reason(why)}` : ""})`,
+      );
       if (!ending) send({ ev: "closed", statusCode });
       exit(0);
     }
@@ -428,9 +542,14 @@ function start(): void {
 
 // A linked member connects once the first routes command arrived; a new
 // link waits for its method too.
+let starting = false;
 function maybeStart(): void {
-  if (sock || !allow || !startWanted) return;
-  start();
+  if (starting || !allow || !startWanted) return;
+  starting = true;
+  start().catch((err) => {
+    log(`the connection did not start: ${reason(err)}`);
+    exit(1);
+  });
 }
 if (state.creds.me) startWanted = true;
 
@@ -446,7 +565,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     allow = new Set(cmd.chats.filter((c) => typeof c === "string"));
     maybeStart();
   } else if (cmd.op === "link") {
-    if (sock) continue;
+    if (starting) continue;
     link = cmd;
     startWanted = true;
     maybeStart();
