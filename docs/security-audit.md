@@ -229,7 +229,7 @@ A privileged agent can read and edit its manager's special instructions, or any 
 
 A privileged agent can add, change, remove and test its manager's variables, secrets and MCP servers, and the office's and every member's when its manager is an owner. It never reads a value: no variable values, no Show, no MCP sign-in, and the MCP server routes give it the host in place of the URL. It cannot add a host to a saved secret: it holds the secret's placeholder and could send it to a host it controls. It cannot give a secret to an app: it could read the app's environment. An ordinary agent only reads its connections and asks for a secret.
 
-A privileged agent has the destructive reach of its member. For example, it can close a shared room. While it runs, any member or agent with a shell can act as it (section 3.2) and use that reach. Give the flag as you give your own seat.
+A privileged agent has the destructive reach of its member. For example, it can close a shared room. While it runs, any member or agent with a shell can act as it (section 3.2) and use that reach. Give the flag as you give your own seat. The spawn dialog starts a member's new agent at Privileged, or at the agent level of the member's permission pack: move the slider down for an agent that does not need it.
 
 ### 6.2a Agents below Standard
 

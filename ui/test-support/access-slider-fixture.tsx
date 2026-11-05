@@ -8,7 +8,7 @@ import { EditAgentDialog } from "../components/EditAgentDialog.tsx";
 import { ApiError, setApiShim } from "../api.ts";
 import { onLanguage, selfUserRecord } from "./language-fixture.tsx";
 import { claudeAgent, room, settle, viewer } from "./claude-limits-fixture.tsx";
-import type { AgentInfo } from "../../shared/types.ts";
+import type { AgentInfo, UserRecord } from "../../shared/types.ts";
 import type { AgentAccess } from "../../shared/agent-access.ts";
 import type { ApiTokenLimits } from "../../shared/api-token-limits.ts";
 
@@ -81,7 +81,7 @@ export function agentAt(
   };
 }
 
-function user(id: string, name: string, role: "owner" | "member") {
+export function user(id: string, name: string, role: "owner" | "member") {
   return { ...selfUserRecord(null), id, name, role, allowedRooms: [room.id] };
 }
 const users = new Map(
@@ -108,7 +108,12 @@ export function renderEdit(
   );
 }
 
-export function renderSpawn() {
+// A spawn as the viewer `sessionContext` (the owner by default), with
+// `spawner` (a full user record) added to the users the dialog reads.
+export function renderSpawn(sessionContext = viewer([]), spawner?: UserRecord) {
+  const spawnUsers = spawner
+    ? new Map([...users, [spawner.name.toLowerCase(), spawner]])
+    : users;
   return render(
     onLanguage(
       "en",
@@ -122,9 +127,9 @@ export function renderSpawn() {
       {
         rooms: [room],
         agents: [],
-        users,
+        users: spawnUsers,
         hasReceivedInitialState: true,
-        sessionContext: viewer([]),
+        sessionContext,
       },
     ),
   );

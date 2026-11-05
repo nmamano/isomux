@@ -7,6 +7,7 @@ import {
 } from "../shared/members-chat.ts";
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
+import { parseAgentAccessGrant } from "../shared/agent-access.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
 import { deskOfBackSeat, hasBackRoom } from "../shared/desks.ts";
 import { detectBrowserLanguage } from "../shared/languages.ts";
@@ -3967,6 +3968,29 @@ export async function demoApi(
       }, 4000);
     }
     return undefined;
+  }
+  // agents.setAccess (PUT /api/agents/:id/access) - the slider stop, written
+  // as the server's applyAccess writes it.
+  const accessMatch = pathname.match(/^\/api\/agents\/([^/]+)\/access$/);
+  if (method === "PUT" && accessMatch) {
+    const id = decodeURIComponent(accessMatch[1]);
+    const grant = parseAgentAccessGrant(body);
+    if (!grant)
+      throw new ApiError(
+        422,
+        "invalid_request",
+        "access must be a stop (chat, office, folder, web, standard, privileged), with a pack (token limits with areas) only at office, folder and web",
+      );
+    if (!state.getAgent(id))
+      throw new ApiError(404, "agent_not_found", "Agent not found");
+    emitEvents(
+      state.updateAgent(id, {
+        access: grant.access,
+        pack: grant.pack,
+        privileged: grant.access === "privileged",
+      }),
+    );
+    return { agent: state.getAgent(id) };
   }
   // agents.revive (POST .../revive) - unreachable in the demo (no killed agents
   // -> no chips), but demoApi throws on an unmapped route, so map it; mirror the

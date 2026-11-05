@@ -432,7 +432,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // itself. A spawn below Standard sends it in the POST; Privileged at spawn
   // is create, then PUT /access.
   // The agent ceiling of the manager's permission pack (the spawner's for a
-  // spawn): a spawn starts at it, and the slider stops there.
+  // spawn): the slider stops there. A spawn starts at it, or at Privileged
+  // without a pack: agents never spawn privileged agents, so this is the
+  // human default.
   const managerId = agent ? agent.userId : (sessionContext?.userId ?? null);
   const manager = [...users.values()].find(
     (u) => u.id === managerId && isFullUserView(u),
@@ -441,7 +443,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     manager?.role === "member" ? manager.pack?.agentCeiling : undefined;
   const savedAccess: AgentAccess = agent
     ? agentAccessOf(agent)
-    : (ceiling ?? "standard");
+    : (ceiling ?? "privileged");
   const [access, setAccess] = useState<AgentAccess>(savedAccess);
   // Below Standard a Codex model that is not proven cannot be picked
   // (engineRunsAccess).
