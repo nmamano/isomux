@@ -206,8 +206,19 @@ describe("install.sh escalation: template unit + placement", () => {
     // agent commands with user namespaces wide open.
     // Comments stripped: the step's own comment names both shortcuts in order
     // to rule them out, and the vendored profile keeps upstream's commentary.
+    // The one profile that allows everything is the canary's from
+    // deploy/bwrap-apparmor.sh (task f90a80b7): it attaches to the canary
+    // only, which runs shell builtins and nothing else.
     const code = stripComments(SRC);
-    expect(code).not.toContain("flags=(unconfined)");
+    expect(
+      code
+        .split("\n")
+        .filter((line) => line.includes("flags=(unconfined)"))
+        .map((line) => line.trim()),
+    ).toEqual([
+      'profile $CANARY_PROFILE_NAME $(quoted "$CANARY") flags=(unconfined) {',
+    ]);
+    expect(code).toMatch(/^CANARY_PROFILE_NAME=isomux-apparmor-canary$/m);
     expect(code).not.toMatch(
       /sysctl[^\n]*apparmor_restrict_unprivileged_userns/,
     );

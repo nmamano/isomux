@@ -60,6 +60,7 @@ export const EMBEDDED = [
     delimiter: "ISOMUX_VERIFY_HARDENING_SH",
   },
   { path: "deploy/oom-protect.sh", delimiter: "ISOMUX_OOM_PROTECT_SH" },
+  { path: "deploy/bwrap-apparmor.sh", delimiter: "ISOMUX_BWRAP_APPARMOR_SH" },
   // Not a script: the AppArmor profile the installer falls back to when the
   // box has no apparmor-profiles package to copy it from. Same reason it is
   // embedded, same reason it stays a real file - `apparmor_parser -Q` can

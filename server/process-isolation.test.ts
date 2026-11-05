@@ -5,11 +5,12 @@
 // a PID namespace: they check that independently, never through the probe.
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import { localAgentHost, type RunOptions } from "./agent-host.ts";
 import {
+  APPARMOR_CANARY,
   isolatedArgv,
   probeProcessIsolation,
   processIsolationStatus,
@@ -135,7 +136,13 @@ describe("process isolation probe and AppArmor", () => {
   // run (null: no such file, as on a host without AppArmor). bwrap is a script
   // that runs the probe's command without a namespace and rewrites only its
   // pid and systemctl lines, so the rest of the probe's own output is real.
-  function hostWithLabels(inside: string | null, outside: string | null) {
+  // The canary (deploy/bwrap-apparmor.sh) is a script that prints `canary`
+  // and leaves a mark when it runs (null: not installed).
+  function hostWithLabels(
+    inside: string | null,
+    outside: string | null,
+    canary: string | null = null,
+  ) {
     const file = (name: string, label: string | null) => {
       const path = join(dir, name);
       if (label !== null) writeFileSync(path, label);
@@ -143,6 +150,14 @@ describe("process isolation probe and AppArmor", () => {
     };
     const insidePath = file("inside-label", inside);
     const outsidePath = file("outside-label", outside);
+    const canaryMark = join(dir, "canary-ran");
+    const canaryPath =
+      canary === null
+        ? join(dir, "no-canary")
+        : script(
+            "canary",
+            `touch ${canaryMark}\ncat ${file("canary-label", canary)}`,
+          );
     const bwrap = script(
       "bwrap",
       `while [ "$1" != "--" ]; do shift; done; shift
@@ -151,6 +166,8 @@ exit \${PIPESTATUS[0]}`,
     );
     const runs: string[][] = [];
     return {
+      canaryRan: () => existsSync(canaryMark),
+      wrappedRuns: () => runs.filter((argv) => basename(argv[0]) === "bwrap"),
       // The runs other than the one in the namespace that read the label.
       outsideReads: () =>
         runs.filter(
@@ -171,7 +188,11 @@ exit \${PIPESTATUS[0]}`,
           runs.push(argv);
           const wrapped = basename(argv[0]) === "bwrap";
           const label = wrapped ? insidePath : outsidePath;
-          const swapped = argv.map((arg) => arg.replaceAll(LABEL_PATH, label));
+          const swapped = argv.map((arg) =>
+            arg
+              .replaceAll(LABEL_PATH, label)
+              .replaceAll(APPARMOR_CANARY, canaryPath),
+          );
           if (wrapped) swapped[0] = bwrap;
           return localAgentHost.run(swapped, options);
         },
@@ -205,6 +226,67 @@ exit \${PIPESTATUS[0]}`,
     const probe = await probeProcessIsolation(host.deps);
     expect(host.outsideReads().length).toBe(1);
     expect(probe).toMatchObject({ available: false, reason: "apparmor" });
+  });
+
+  // deploy/bwrap-apparmor.sh's rule is live: the canary, a program with its
+  // own profile, keeps the namespace's label instead of stacking its profile.
+  it("is available when the canary in the namespace keeps the namespace's label", async () => {
+    const host = hostWithLabels(UNPRIV, "unconfined\n", UNPRIV);
+    expect(await probeProcessIsolation(host.deps)).toEqual({
+      available: true,
+    });
+    expect(host.canaryRan()).toBe(true);
+  });
+
+  // The rule is not live, or the canary is not there.
+  it.each([
+    [
+      "stacks its own profile",
+      "bwrap//&isomux-apparmor-canary//&unpriv_bwrap (mixed)\n",
+    ],
+    ["prints nothing", ""],
+    ["has the label outside the namespace", "unconfined\n"],
+    ["is not installed", null],
+  ])("is not available when the canary %s", async (_case, canary) => {
+    const host = hostWithLabels(UNPRIV, "unconfined\n", canary);
+    const probe = await probeProcessIsolation(host.deps);
+    // The enabling condition: the canary ran wherever it exists.
+    expect(host.canaryRan()).toBe(canary !== null);
+    expect(probe).toMatchObject({ available: false, reason: "apparmor" });
+  });
+
+  // The detail tells an owner whether the step never ran or its rule is not
+  // live.
+  it("names a missing canary differently from one that stacks its own profile", async () => {
+    const detail = async (canary: string | null) =>
+      (
+        (await probeProcessIsolation(
+          hostWithLabels(UNPRIV, "unconfined\n", canary).deps,
+        )) as { detail: string }
+      ).detail;
+    const missing = await detail(null);
+    const stacked = await detail(
+      "bwrap//&isomux-apparmor-canary//&unpriv_bwrap (mixed)\n",
+    );
+    expect(missing).not.toBe(stacked);
+  });
+
+  // bwrap's first exec takes the bwrap profile's own transition, so a canary
+  // run as bwrap's command always keeps the pair label: it must run from the
+  // probe's shell.
+  it("runs the canary from the shell in the namespace, never as bwrap's command", async () => {
+    const host = hostWithLabels(UNPRIV, "unconfined\n", UNPRIV);
+    await probeProcessIsolation(host.deps);
+    const wrapped = host.wrappedRuns();
+    expect(wrapped.length).toBeGreaterThan(0);
+    for (const argv of wrapped) {
+      const command = argv.slice(argv.indexOf("--") + 1);
+      expect(command.slice(0, 2)).toEqual(["sh", "-c"]);
+      expect(command.filter((arg) => arg === APPARMOR_CANARY)).toEqual([]);
+    }
+    expect(wrapped.some((argv) => argv.at(-1)!.includes(APPARMOR_CANARY))).toBe(
+      true,
+    );
   });
 
   // A server that runs confined itself: bwrap adds nothing.

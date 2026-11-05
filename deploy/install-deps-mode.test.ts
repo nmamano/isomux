@@ -82,6 +82,7 @@ const STAGES = [
   "verify-hardening",
   "install_browser",
   "configure_codex_sandbox",
+  "configure_bwrap_apparmor",
   "configure_user_manager",
   "refresh_hosted_tls_renewal",
   "migrate_managed_caddyfile",
@@ -188,6 +189,7 @@ configure_oom_protection() { echo "configure_oom_protection $*"; echo "configure
 outcome_add() { echo "OUTCOME: $*"; }
 install_browser() { echo "install_browser"; }
 configure_codex_sandbox() { echo "configure_codex_sandbox"; }
+configure_bwrap_apparmor() { echo "configure_bwrap_apparmor"; }
 configure_user_manager() { echo "configure_user_manager"; }
 backfill_firewall_record() { echo "backfill_firewall_record"; }
 restore_recorded_firewall_rules() { echo "restore_recorded_firewall_rules"; }
@@ -265,6 +267,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "configure_oom_protection",
       "install_browser",
       "configure_codex_sandbox",
+      "configure_bwrap_apparmor",
       "configure_user_manager",
       "refresh_hosted_tls_renewal",
       "migrate_managed_caddyfile",
@@ -292,6 +295,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "verify-hardening",
       "install_browser",
       "configure_codex_sandbox",
+      "configure_bwrap_apparmor",
       "configure_user_manager",
       "refresh_hosted_tls_renewal",
       "migrate_managed_caddyfile",
@@ -321,6 +325,12 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
     expect(
       steps.filter((s) => !STAGES.includes(s) && !FORBIDDEN.includes(s)),
     ).toEqual([]);
+    // The bwrap AppArmor step runs after the codex sandbox step, which can
+    // load the bwrap profile it reads, in a full install too.
+    expect(steps.indexOf("configure_bwrap_apparmor")).toBeGreaterThan(
+      steps.indexOf("configure_codex_sandbox"),
+    );
+    expect(steps.indexOf("configure_codex_sandbox")).toBeGreaterThan(-1);
   });
 
   it("switches the system Bun to the release's pin after the packages are in", () => {

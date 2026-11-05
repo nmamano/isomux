@@ -43,12 +43,20 @@ export interface ProcessIsolationProbeDeps {
   run(argv: string[], options?: RunOptions): Promise<RunResult>;
 }
 
+// A program deploy/bwrap-apparmor.sh installs, with a profile that allows
+// everything and an "allow ix" rule in the unpriv_bwrap override. It prints its
+// own AppArmor label: run inside the namespace, the namespace's label means
+// the override is live; its own profile in the label means it is not.
+export const APPARMOR_CANARY = "/usr/local/lib/isomux/apparmor-canary";
+
 // The probe runs the same wrap as an agent session and reads what the command
 // sees: its own pid, the processes in /proc, whether systemctl --user works
-// when it works outside, and its AppArmor label. Any failed step leaves
-// isolation off, with bwrap's own message as the detail.
+// when it works outside, its AppArmor label and the canary's. The canary runs
+// from the shell, never as bwrap's command: bwrap's first exec takes the bwrap
+// profile's own transition, so there it would always keep the label. Any
+// failed step leaves isolation off, with bwrap's own message as the detail.
 const APPARMOR_LABEL = "/proc/self/attr/apparmor/current";
-const PROBE_SCRIPT = `echo "self=$$"; echo "pids=$(ls -d /proc/[0-9]* | wc -l)"; systemctl --user show --property=Version >/dev/null 2>&1; echo "systemctl=$?"; echo "apparmor=$(cat ${APPARMOR_LABEL} 2>/dev/null)"`;
+const PROBE_SCRIPT = `echo "self=$$"; echo "pids=$(ls -d /proc/[0-9]* | wc -l)"; systemctl --user show --property=Version >/dev/null 2>&1; echo "systemctl=$?"; echo "apparmor=$(cat ${APPARMOR_LABEL} 2>/dev/null)"; echo "canary=$(${APPARMOR_CANARY} 2>/dev/null)"`;
 // bwrap's init is pid 1 and the command pid 2; a few processes at most.
 const MAX_PROBE_PIDS = 5;
 
@@ -99,13 +107,24 @@ export async function probeProcessIsolation(
     return detail("bwrap ran the command without its own PID namespace");
   // Ubuntu's bwrap profile stacks bwrap's children onto the profile of any
   // program that has one, and in that stack Chrome and other browsers cannot
-  // open a network socket (task ffb7007c). Nothing short of root changes it.
+  // open a network socket (task ffb7007c). The rules deploy/bwrap-apparmor.sh
+  // writes as root keep such programs out of the stack; the canary keeping
+  // the namespace's label shows they are live (task f90a80b7).
   const inside = /^apparmor=(.*)$/m.exec(result.stdout)?.[1]?.trim() ?? "";
-  if (confining(inside) && (await apparmorLabel(deps)) !== inside)
+  const canary = /^canary=(.*)$/m.exec(result.stdout)?.[1]?.trim() ?? "";
+  if (
+    confining(inside) &&
+    canary !== inside &&
+    (await apparmorLabel(deps)) !== inside
+  )
     return {
       available: false,
       reason: "apparmor",
-      detail: `AppArmor confines programs in the namespace (${inside}), which blocks network access for browsers such as Chrome`,
+      detail: `AppArmor confines programs in the namespace (${inside}), which blocks network access for browsers such as Chrome. ${
+        canary === ""
+          ? "To fix it, run deploy/bwrap-apparmor.sh as root (the installer runs it on every install and update)."
+          : `deploy/bwrap-apparmor.sh has run, but its rules are not live (its canary runs as ${canary}); run it again as root.`
+      }`,
     };
   if (value("systemctl") !== "0" && (await systemctlWorks(deps)))
     return detail(
