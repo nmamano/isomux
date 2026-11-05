@@ -7,7 +7,7 @@ import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { StepSlider } from "./StepSlider.tsx";
 
-const LEVEL_NAME: Record<RoomViewLevel, PlainMessageKey> = {
+export const LEVEL_NAME: Record<RoomViewLevel, PlainMessageKey> = {
   hidden: "settings.room.viewLevel.hidden",
   tucked: "settings.room.viewLevel.tucked",
   shown: "settings.room.viewLevel.shown",
@@ -43,7 +43,7 @@ export function RoomViewLevelControl({
   );
 }
 
-const LEVEL_MEANING: Record<RoomViewLevel, PlainMessageKey> = {
+export const LEVEL_MEANING: Record<RoomViewLevel, PlainMessageKey> = {
   hidden: "settings.room.viewLevelInfo.hidden",
   tucked: "settings.room.viewLevelInfo.tucked",
   shown: "settings.room.viewLevelInfo.shown",

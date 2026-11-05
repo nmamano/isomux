@@ -15,6 +15,7 @@ const { StoreProvider, useDispatch } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
+const { en } = await import("../../shared/i18n/en.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 
 const NOW = Date.now();
@@ -615,7 +616,24 @@ it("a member-preferences card has one row per key, with the value now (the defau
   view.unmount();
 });
 
-it("a member-view card names the room, shows on or off now and asked for, and marks a change that stops the room's notifications or turns them on", async () => {
+// A member-view card in level terms (task 473aeab7): the level id on the
+// block, the level name in the from and to labels, and the meaning of the
+// level asked for. No current when the member's lists are not known.
+const viewCard = (b: HTMLElement) => ({
+  current: b.dataset.askActionCurrent,
+  requested: b.dataset.askActionRequested,
+  from: b.querySelector("[data-ask-action-from]")?.textContent,
+  to: b.querySelector("[data-ask-action-to]")?.textContent,
+});
+type Level = "hidden" | "tucked" | "shown" | "notify" | "push";
+const levelCard = (current: Level | undefined, requested: Level) => ({
+  current,
+  requested,
+  from: current && en[`settings.room.viewLevel.${current}`],
+  to: en[`settings.room.viewLevel.${requested}`],
+});
+
+it("a member-view card shows the room's view level now and the level after the step, and marks a change that stops the room's notifications or turns them on", async () => {
   const { view, block, apply } = await mountSettings();
   const views = ["set00003", "set00004", "set00005", "set00006", "set00007"];
   expect(
@@ -623,8 +641,7 @@ it("a member-view card names the room, shows on or off now and asked for, and ma
       const b = block(id)!;
       return {
         id,
-        current: b.dataset.askActionCurrent,
-        requested: b.dataset.askActionRequested,
+        ...viewCard(b),
         alertsStop: b.hasAttribute("data-ask-action-alerts-stop"),
         notifOn: b.hasAttribute("data-ask-action-notif-on"),
       };
@@ -633,50 +650,58 @@ it("a member-view card names the room, shows on or off now and asked for, and ma
     // Hiding Studio stops its notifications and pushes.
     {
       id: "set00003",
-      current: "on",
-      requested: "off",
+      ...levelCard("push", "hidden"),
       alertsStop: true,
       notifOn: false,
     },
     // Garden has none to stop.
     {
       id: "set00004",
-      current: "off",
-      requested: "on",
+      ...levelCard("shown", "tucked"),
       alertsStop: false,
       notifOn: false,
     },
     // A push for Garden turns its notifications on too.
     {
       id: "set00005",
-      current: "off",
-      requested: "on",
+      ...levelCard("shown", "push"),
       alertsStop: false,
       notifOn: true,
     },
-    // Studio's notifications off stop its pushes.
+    // Studio's notifications off stop its pushes: the server drops the push
+    // with the sound, so Studio is Shown after, not Push.
     {
       id: "set00006",
-      current: "on",
-      requested: "off",
+      ...levelCard("push", "shown"),
       alertsStop: true,
       notifOn: false,
     },
     // Studio pushes already: the step is done, nothing else moves.
     {
       id: "set00007",
-      current: "on",
-      requested: "on",
+      ...levelCard("push", "push"),
       alertsStop: false,
       notifOn: false,
     },
   ]);
+  // The meaning line explains the level asked for, not the one now, and the
+  // name of the list the step changes is not a third value on the card.
+  const hide = block("set00003")!.textContent!;
+  expect([
+    hide.includes(en["settings.room.viewLevelInfo.hidden"]),
+    hide.includes(en["settings.room.viewLevelInfo.push"]),
+  ]).toEqual([true, false]);
+  const soundOff = block("set00006")!.textContent!;
+  expect([
+    soundOff.includes(en["settings.room.viewLevelInfo.shown"]),
+    soundOff.includes(en["settings.room.viewLevel.notify"]),
+  ]).toEqual([true, false]);
   expect(block("set00003")!.textContent).toContain("Studio");
   expect(block("set00005")!.textContent).toContain("Garden");
   // A room the office state does not have: gone, no Apply.
   expect(block("set00011")!.hasAttribute("data-ask-action-gone")).toBe(true);
   expect(apply("set00011")).toBe(null);
-  // The marks read the member's lists live.
+  // The levels and marks read the member's lists live.
   await act(async () => {
     seeded({
       type: "user_admin_updated",
@@ -686,8 +711,95 @@ it("a member-view card names the room, shows on or off now and asked for, and ma
   expect(block("set00003")!.hasAttribute("data-ask-action-alerts-stop")).toBe(
     false,
   );
-  expect(block("set00006")!.dataset.askActionCurrent).toBe("off");
+  expect(viewCard(block("set00006")!)).toEqual(levelCard("shown", "shown"));
   view.unmount();
+});
+
+// Morgan hides Garden and keeps its tucked flag.
+const VIEW_ENTRIES: AskEntry[] = [
+  memberAsk("vw000001", {
+    kind: "member-view",
+    list: "shown",
+    roomId: "r2",
+    on: true,
+  }),
+  memberAsk("vw000002", {
+    kind: "member-view",
+    list: "notif",
+    roomId: "r2",
+    on: true,
+  }),
+  memberAsk("vw000003", {
+    kind: "member-view",
+    list: "tucked",
+    roomId: "r2",
+    on: false,
+  }),
+];
+
+// Asks for a member whose record the office state does not hold yet: the
+// card has no lists to read.
+const UNKNOWN_ENTRIES: AskEntry[] = (
+  [
+    ["shown", true],
+    ["shown", false],
+    ["tucked", true],
+    ["tucked", false],
+    ["notif", true],
+    ["notif", false],
+    ["push", true],
+    ["push", false],
+  ] as const
+).map(
+  ([list, on], i) =>
+    ({
+      ...memberAsk(`unk0000${i}`, {
+        kind: "member-view",
+        list,
+        roomId: "r1",
+        on,
+      }),
+      memberUserId: "u9",
+    }) as AskEntry,
+);
+
+it("a member-view card on a hidden room keeps it tucked when shown again and shows the level a refused step asks for; without the member's lists it shows the level the step names", async () => {
+  const m = await mount([...VIEW_ENTRIES, ...UNKNOWN_ENTRIES]);
+  await act(async () => {
+    seeded({
+      type: "user_admin_updated",
+      user: {
+        ...(member("u1", "Morgan", "owner", []) as object),
+        hidden: ["r2"],
+        tucked: ["r2"],
+      },
+    } as never);
+  });
+  expect(
+    ["vw000001", "vw000002", "vw000003"].map((id) => viewCard(m.block(id)!)),
+  ).toEqual([
+    levelCard("hidden", "tucked"),
+    // The server refuses sound for a hidden room: the card shows Sound, the
+    // level the step asks for, and Apply gives the refusal.
+    levelCard("hidden", "notify"),
+    // Untucking a hidden room leaves it hidden.
+    levelCard("hidden", "hidden"),
+  ]);
+  expect(UNKNOWN_ENTRIES.map((e) => viewCard(m.block(e.id)!))).toEqual(
+    (
+      [
+        "shown",
+        "hidden",
+        "tucked",
+        "shown",
+        "notify",
+        "shown",
+        "push",
+        "notify",
+      ] as const
+    ).map((level) => levelCard(undefined, level)),
+  );
+  m.view.unmount();
 });
 
 it("an office-settings card has one row per key with the office's value now, and a hint under each switch that changes what agents can do", async () => {

@@ -18,6 +18,11 @@ import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { AGENT_PACK_AREAS, agentAccessOf } from "../../shared/agent-access.ts";
 import type { ActionStepRequest } from "../../shared/types.ts";
+import type { MemberViewList } from "../../shared/action-steps.ts";
+import {
+  roomViewLevel,
+  type RoomViewLevel,
+} from "../../shared/room-view-level.ts";
 import type {
   AccessibleRoomWire,
   BackupStatusWire,
@@ -32,6 +37,10 @@ import {
   STOP_HINT,
   STOP_LABEL,
 } from "../components/AccessSlider.tsx";
+import {
+  LEVEL_MEANING,
+  LEVEL_NAME,
+} from "../components/RoomViewLevelControl.tsx";
 
 type Step<K extends ActionStepRequest["kind"]> = Extract<
   ActionStepRequest,
@@ -95,18 +104,36 @@ const BACKUP_LABEL: Record<string, PlainMessageKey> = {
   retention: "settings.storage.backupCopies",
   dir: "settings.storage.backupFolder",
 };
-const VIEW_LABEL = {
-  shown: "settings.room.viewLevel.shown",
-  tucked: "settings.room.viewLevel.tucked",
-  notif: "settings.room.viewLevel.notify",
-  push: "settings.room.viewLevel.push",
-} as const;
-const VIEW_INFO = {
-  shown: "settings.room.viewLevelInfo.shown",
-  tucked: "settings.room.viewLevelInfo.tucked",
-  notif: "settings.room.viewLevelInfo.notify",
-  push: "settings.room.viewLevelInfo.push",
-} as const;
+// The room's view level after a member-view step, from the level now
+// (undefined when the member's lists are not known) and whether the room
+// keeps its tucked flag. It mirrors clampViewFields and viewRefusal on the
+// server: a step the server refuses (sound or push for a hidden or tucked
+// room) shows the level it asks for.
+function levelAfterView(
+  list: MemberViewList,
+  on: boolean,
+  now: RoomViewLevel | undefined,
+  keepsTucked: boolean,
+): RoomViewLevel {
+  switch (list) {
+    case "shown":
+      if (!on) return "hidden";
+      if (now === undefined || now === "hidden")
+        return keepsTucked ? "tucked" : "shown";
+      return now;
+    case "tucked":
+      if (on) return now === "hidden" ? "hidden" : "tucked";
+      return now === undefined || now === "tucked" ? "shown" : now;
+    case "notif":
+      if (on) return now === "push" ? "push" : "notify";
+      return now === undefined || now === "notify" || now === "push"
+        ? "shown"
+        : now;
+    case "push":
+      if (on) return "push";
+      return now === undefined || now === "push" ? "notify" : now;
+  }
+}
 
 export function AskActionBlock({
   askId,
@@ -323,10 +350,6 @@ export function AskActionBlock({
     };
   }
 
-  const onOff = (on: boolean): Value => ({
-    value: on ? "on" : "off",
-    label: t(on ? "asks.action.on" : "asks.action.off"),
-  });
   const setting = (value: unknown): Value => ({
     value: String(value),
     label:
@@ -478,16 +501,34 @@ export function AskActionBlock({
         : s.list === "notif" && !s.on && pushed);
     const notifOn =
       on !== undefined && on !== s.on && s.list === "push" && s.on && !notified;
+    const now = lists
+      ? roomViewLevel(
+          {
+            hidden: lists.hidden,
+            tucked: lists.tucked,
+            notifRooms: lists.notif,
+            pushRooms: lists.push,
+          },
+          s.roomId,
+        )
+      : undefined;
+    const after = levelAfterView(
+      s.list,
+      s.on,
+      now,
+      !!lists?.tucked.includes(s.roomId),
+    );
+    const level = (l: RoomViewLevel): Value => ({
+      value: l,
+      label: t(LEVEL_NAME[l]),
+    });
     return {
       name: room?.name ?? s.roomId,
-      ...(on !== undefined ? { current: onOff(on) } : {}),
-      requested: onOff(s.on),
+      ...(now !== undefined ? { current: level(now) } : {}),
+      requested: level(after),
       lines: [
-        <div key="list" style={{ fontSize: small, fontWeight: 600 }}>
-          {t(VIEW_LABEL[s.list])}
-        </div>,
         <div key="info" style={muted}>
-          {t(VIEW_INFO[s.list])}
+          {t(LEVEL_MEANING[after])}
         </div>,
         alertsStop && (
           <div key="alerts" style={muted}>
