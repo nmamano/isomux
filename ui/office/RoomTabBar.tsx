@@ -752,6 +752,8 @@ export function RoomTabBar({
                         justifyContent: "center",
                         padding: 0,
                         lineHeight: 1,
+                        userSelect: "none",
+                        WebkitUserSelect: "none",
                       }}
                       title={t("office.tabs.closeEmptyRoom")}
                     >
@@ -779,6 +781,8 @@ export function RoomTabBar({
                 fontFamily: "var(--font-ui)",
                 marginLeft: 4,
                 flexShrink: 0,
+                userSelect: "none",
+                WebkitUserSelect: "none",
               }}
               title={t("office.tabs.newRoom")}
             >

@@ -173,6 +173,8 @@ export function TuckedRoomsChip({
           fontFamily: "var(--font-ui)",
           position: "relative",
           whiteSpace: "nowrap",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
       >
         {count === 0 ? t("office.tabs.tuck") : `+${count}`}
