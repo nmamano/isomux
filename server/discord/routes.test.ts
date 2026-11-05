@@ -107,7 +107,7 @@ const place = (
 });
 
 describe("discord routes: adding", () => {
-  it("a channel, a forum, a category and a whole server; reply as the bot by default; switches stored only when on", () => {
+  it("a channel, a forum, a category and a whole server; replies wait for the member's Send by default; switches stored only when on", () => {
     const { routes } = harness();
     const a = routes.create(U, general);
     expect(a).toMatchObject({
@@ -120,7 +120,7 @@ describe("discord routes: adding", () => {
         targetId: GENERAL,
         name: "general",
         agentId: "agent-a",
-        replyMode: "bot",
+        replyMode: "ask",
         createdAt: 1_800_000_000_000,
       },
     });
@@ -135,7 +135,7 @@ describe("discord routes: adding", () => {
         targetId: FORUM,
         name: "  help ",
         trigger: "mention",
-        replyMode: "ask",
+        replyMode: "bot",
         prefix: "  [Agent]: ",
         includeBots: true,
         react: true,
@@ -146,7 +146,7 @@ describe("discord routes: adding", () => {
         targetId: FORUM,
         name: "help",
         trigger: "mention",
-        replyMode: "ask",
+        replyMode: "bot",
         prefix: "[Agent]:",
         includeBots: true,
         react: true,

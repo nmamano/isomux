@@ -1280,7 +1280,6 @@ Coses que pots fer per ell:
   "integrations.discord.routes.replies.read": "Només lectura",
   "integrations.discord.routes.replies.ask":
     "Les respostes esperen el meu Envia",
-  "integrations.discord.routes.waits": "Espera el meu Envia",
   "integrations.discord.routes.prefixHint":
     'Text abans de cada resposta, com ara "[Agent]:".',
   "integrations.discord.routes.includeBots":

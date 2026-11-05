@@ -1278,7 +1278,6 @@ Cosas que puedes hacer por él:
   "integrations.discord.routes.replies.bot": "Leer y responder como el bot",
   "integrations.discord.routes.replies.read": "Solo lectura",
   "integrations.discord.routes.replies.ask": "Las respuestas esperan mi Enviar",
-  "integrations.discord.routes.waits": "Espera mi Enviar",
   "integrations.discord.routes.prefixHint":
     'Texto antes de cada respuesta, como "[Agente]:".',
   "integrations.discord.routes.includeBots":

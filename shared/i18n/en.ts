@@ -1255,7 +1255,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.discord.routes.replies.bot": "Read and reply as the bot",
   "integrations.discord.routes.replies.read": "Read only",
   "integrations.discord.routes.replies.ask": "Replies wait for my Send",
-  "integrations.discord.routes.waits": "Waits for my Send",
   "integrations.discord.routes.prefixHint":
     'Text before each reply, such as "[Agent]:".',
   "integrations.discord.routes.includeBots":

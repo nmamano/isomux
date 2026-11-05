@@ -592,13 +592,13 @@ function DiscordRoutes({
             }
             status={
               !held &&
-              (r.dead || r.replyMode !== "bot") && (
+              (r.dead || r.replyMode !== "ask") && (
                 <>
-                  {r.replyMode !== "bot" && (
+                  {r.replyMode !== "ask" && (
                     <Pill tone="orange" data-discord-route-mode={r.replyMode}>
                       {r.replyMode === "read"
                         ? t(REPLIES.read)
-                        : t("integrations.discord.routes.waits")}
+                        : t("integrations.whatsapp.rows.direct")}
                     </Pill>
                   )}
                   {r.dead && (
@@ -730,7 +730,7 @@ function RouteForm({
     editing?.trigger ?? "mention",
   );
   const [replyMode, setReplyMode] = useState<DiscordReplyMode>(
-    editing?.replyMode ?? "bot",
+    editing?.replyMode ?? "ask",
   );
   const [prefix, setPrefix] = useState(editing?.prefix ?? "");
   const [includeBots, setIncludeBots] = useState(editing?.includeBots === true);
@@ -820,7 +820,7 @@ function RouteForm({
           name,
           agentId,
           ...(trigger !== "mention" ? { trigger } : {}),
-          ...(replyMode !== "bot" ? { replyMode } : {}),
+          ...(replyMode !== "ask" ? { replyMode } : {}),
           ...(prefix.trim() ? { prefix } : {}),
           ...(includeBots ? { includeBots: true } : {}),
           ...(react ? { react: true } : {}),

@@ -488,10 +488,11 @@ it("lists each route with its place, server and agent from its bot's guilds; a d
     s
       .q(`[data-discord-route="${id}"] [data-discord-route-mode]`)
       ?.getAttribute("data-discord-route-mode") ?? null;
+  // Only the modes that are not the default ("ask") carry a pill.
   expect([modeOf("d_1"), modeOf("d_2"), modeOf("d_3")]).toEqual([
-    null,
+    "bot",
     "read",
-    "ask",
+    null,
   ]);
   expect(
     s
@@ -550,6 +551,12 @@ const saveEnabled = (form: Element) => {
 };
 const choose = async (s: Shown, group: string, value: string) =>
   s.click(`[data-discord-route-form] [${group}] [data-choice="${value}"]`);
+const checkedReplies = (form: Element) =>
+  form
+    .querySelector(
+      '[data-discord-route-replies] [data-choice][aria-checked="true"]',
+    )
+    ?.getAttribute("data-choice") ?? null;
 const routePosts = () =>
   calls.filter((c) => c.method === "POST" && c.path === "/api/discord/routes");
 
@@ -560,6 +567,7 @@ it("Add: one bot needs no bot field; the server's text and forum channels, not i
   routes = [route("d_1")];
   const s = await show();
   const form = await openAdd(s);
+  expect(checkedReplies(form)).toBe("ask");
   expect(form.querySelector('[name="discordRouteBot"]')).toBeNull();
   const guild = field(form, "discordRouteGuild") as HTMLSelectElement;
   expect(options(guild).sort()).toEqual([GUILD, GUILD2].sort());
@@ -603,7 +611,7 @@ it("Add: a category lists the categories, a whole server has no place field; the
   await change(field(form, "discordRouteName"), "Talk");
   await change(field(form, "discordRouteAgent"), "a-std");
   await choose(s, "data-discord-route-trigger", "all");
-  await choose(s, "data-discord-route-replies", "ask");
+  await choose(s, "data-discord-route-replies", "bot");
   await change(field(form, "discordRoutePrefix"), "[Helper]");
   await s.click(form.querySelector('input[name="discordRouteIncludeBots"]')!);
   await s.click(form.querySelector('input[name="discordRouteReact"]')!);
@@ -617,7 +625,7 @@ it("Add: a category lists the categories, a whole server has no place field; the
       name: "Talk",
       agentId: "a-std",
       trigger: "all",
-      replyMode: "ask",
+      replyMode: "bot",
       prefix: "[Helper]",
       includeBots: true,
       react: true,
@@ -748,7 +756,7 @@ it("Edit opens the form on the route as it is, with its place fixed; Save sends 
     route("d_1", {
       name: "General talk",
       trigger: "all",
-      replyMode: "ask",
+      replyMode: "bot",
       prefix: "[H]",
       includeBots: true,
       react: true,
@@ -778,11 +786,12 @@ it("Edit opens the form on the route as it is, with its place fixed; Save sends 
     box("discordRouteIncludeBots").checked,
     box("discordRouteReact").checked,
   ]).toEqual([true, true]);
+  expect(checkedReplies(form)).toBe("bot");
   await change(field(form, "discordRoutePrefix"), "");
   await s.click(box("discordRouteIncludeBots"));
   await s.click(box("discordRouteReact"));
   await choose(s, "data-discord-route-trigger", "mention");
-  await choose(s, "data-discord-route-replies", "bot");
+  await choose(s, "data-discord-route-replies", "ask");
   await change(field(form, "discordRouteAgent"), "a-std");
   await s.click("[data-discord-route-form] [data-panel-save]");
   expect(writes()).toEqual([
@@ -793,7 +802,7 @@ it("Edit opens the form on the route as it is, with its place fixed; Save sends 
         name: "General talk",
         agentId: "a-std",
         trigger: "mention",
-        replyMode: "bot",
+        replyMode: "ask",
         prefix: "",
         includeBots: false,
         react: false,

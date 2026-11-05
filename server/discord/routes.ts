@@ -85,9 +85,10 @@ const isReplyMode = (v: unknown): v is DiscordReplyMode =>
   v === "bot" || v === "read" || v === "ask";
 
 // A new route listens to mentions and replies only: a category or a whole
-// server on "all" would wake the agent on every message there.
+// server on "all" would wake the agent on every message there. Its replies
+// wait for the member's Send, as on WhatsApp.
 const DEFAULT_TRIGGER: DiscordRouteTrigger = "mention";
-const DEFAULT_REPLY_MODE: DiscordReplyMode = "bot";
+const DEFAULT_REPLY_MODE: DiscordReplyMode = "ask";
 
 type SettingKey = "trigger" | "replyMode" | "prefix" | "includeBots" | "react";
 

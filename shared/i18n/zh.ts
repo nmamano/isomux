@@ -1153,7 +1153,6 @@ App 的一些原则：
   "integrations.discord.routes.replies.bot": "以机器人身份阅读并回复",
   "integrations.discord.routes.replies.read": "只读",
   "integrations.discord.routes.replies.ask": "回复等待我点击“发送”",
-  "integrations.discord.routes.waits": "等待我点击“发送”",
   "integrations.discord.routes.prefixHint":
     "每条回复前的文字，例如“[智能体]:”。",
   "integrations.discord.routes.includeBots":
