@@ -78,27 +78,26 @@ export function MemberPackEditor({
   };
   return (
     <div data-member-pack="">
-      <label style={dialogLabel}>
-        {t("settings.apiTokens.access")}
-        <select
-          data-member-pack-preset=""
-          value={choice}
-          disabled={disabled}
-          onChange={(event) => choose(event.target.value as Choice)}
-          style={{
-            ...dialogInput,
-            display: "block",
-            width: "100%",
-            marginTop: 5,
-          }}
-        >
-          {CHOICES.map((c) => (
-            <option key={c} value={c}>
-              {t(CHOICE_LABEL[c])}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* The section heading above names the select, so it shows no label
+          of its own. */}
+      <select
+        data-member-pack-preset=""
+        aria-label={t("settings.apiTokens.access")}
+        value={choice}
+        disabled={disabled}
+        onChange={(event) => choose(event.target.value as Choice)}
+        style={{
+          ...dialogInput,
+          display: "block",
+          width: "100%",
+        }}
+      >
+        {CHOICES.map((c) => (
+          <option key={c} value={c}>
+            {t(CHOICE_LABEL[c])}
+          </option>
+        ))}
+      </select>
       <p style={{ ...dialogHint, margin: "6px 0 0", lineHeight: 1.4 }}>
         {t("settings.memberPack.hint")}
       </p>
