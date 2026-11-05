@@ -4,9 +4,7 @@
 // the chat input and the Asks page both draw it, so a new kind of ask shows
 // on both. The card goes when the server accepts the answer, without waiting
 // for ask_removed. An ask with a link to an office page or an agent's chat has a
-// button that opens it (ui/office-link.tsx); the ask stays open. In the chat's
-// stack (inboxLink), "View in Inbox" opens the ask on the Inbox, draft and
-// all, unless its own link does that already. Every ask
+// button that opens it (ui/office-link.tsx); the ask stays open. Every ask
 // has a "Discuss in chat" button (AskAboutButton), last but one in the bottom
 // row, that starts a chat message about it, and the ask stays open too.
 // Simplify, last in that row, asks the agent to rewrite the ask in plain
@@ -154,7 +152,6 @@ export function AskCard({
   onChatAgent,
   undoMs,
   promptLines,
-  inboxLink,
 }: {
   // `member`, set on another member's ask only, is the member it is for.
   entry: AskMemberWire & { member?: string | null };
@@ -165,8 +162,6 @@ export function AskCard({
   undoMs?: number;
   // The prompt's lines before Show more.
   promptLines?: number;
-  // Set in the chat's stack: a "View in Inbox" button opens the ask there.
-  inboxLink?: boolean;
 }) {
   return entry.secret ? (
     <SecretAskCard
@@ -192,7 +187,6 @@ export function AskCard({
       onChatAgent={onChatAgent}
       undoMs={undoMs}
       promptLines={promptLines}
-      inboxLink={inboxLink}
     />
   );
 }
@@ -290,7 +284,6 @@ function ReplyAskCard({
   onChatAgent,
   undoMs,
   promptLines = PROMPT_LINES,
-  inboxLink,
 }: {
   entry: AskMemberWire & { member?: string | null };
   isMobile: boolean;
@@ -298,7 +291,6 @@ function ReplyAskCard({
   onChatAgent?: (agentId: string) => void;
   undoMs?: number;
   promptLines?: number;
-  inboxLink?: boolean;
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
@@ -345,13 +337,6 @@ function ReplyAskCard({
     : "agentId" in link
       ? (agents.find((a) => a.id === link.agentId)?.name ?? null)
       : t(officeLinkLabel(link));
-  // In the chat's stack, a button opens this ask on the Inbox, where the long
-  // ask reads better; the draft goes with it (askDrafts). None when the ask's
-  // own link opens it there already.
-  const showInboxLink =
-    !!inboxLink &&
-    !!openLink &&
-    !(link && "askId" in link && link.askId === entry.id);
 
   useLayoutEffect(() => {
     if (!pendingFocus.current) return;
@@ -802,8 +787,7 @@ function ReplyAskCard({
                 : t("cards.toolResult.showMore")}
             </button>
           )}
-          {(showInboxLink ||
-            (link && linkLabel !== null && openLink) ||
+          {((link && linkLabel !== null && openLink) ||
             entry.originalPrompt !== undefined) && (
             <div
               style={{
@@ -814,16 +798,6 @@ function ReplyAskCard({
                 marginTop: 2,
               }}
             >
-              {showInboxLink && (
-                <button
-                  type="button"
-                  data-ask-view-inbox=""
-                  onClick={() => openLink?.({ page: "asks", askId: entry.id })}
-                  style={linkButton}
-                >
-                  {t("asks.viewInInbox")}
-                </button>
-              )}
               {link && linkLabel !== null && openLink && (
                 <button
                   type="button"

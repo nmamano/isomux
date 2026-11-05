@@ -60,6 +60,9 @@ export interface PageLink {
   askId?: string;
   // A step ask's step, which the Integrations tab marks (task c71cb60f).
   focus?: StepAskRequest;
+  // The agent the Asks tab filters to (the chat's ask stack, task 586ebfe1).
+  // The UI sets it; no ask link does.
+  onlyAgent?: string;
 }
 
 export interface AgentLink {

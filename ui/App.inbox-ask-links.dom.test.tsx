@@ -10,7 +10,10 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent, waitFor } = await import("@testing-library/react");
+const { checkedFilterValues } =
+  await import("./test-support/checkbox-filters.ts");
 const {
+  addRanger,
   ask,
   boot,
   chatFromInbox,
@@ -23,6 +26,16 @@ const {
 } = await import("./test-support/inbox-fixture.tsx");
 
 setUpInboxTests();
+
+// The Asks tab's cards, by id.
+const askIds = (view: { container: HTMLElement }) =>
+  [
+    ...view.container.querySelectorAll<HTMLElement>(
+      "[data-asks-list] [data-ask]",
+    ),
+  ]
+    .map((el) => el.dataset.ask)
+    .sort();
 
 it("opens an ask's office page over the Asks tab, and Back returns to the Asks tab", async () => {
   const view = await boot();
@@ -62,15 +75,17 @@ it("opens an ask's office page over the chat, and Back returns to the chat", asy
   expect(view.container.querySelector("[data-asks-stack]")).not.toBeNull();
 });
 
-// View in Inbox (task bc525a93): a card in the chat's stack opens its ask
-// pinned on the Asks tab, with the draft the member typed in the chat.
-it("opens a chat ask in the Inbox with its draft, draws no View in Inbox there, and Back returns to the chat", async () => {
+// View in Inbox (tasks bc525a93, 586ebfe1): the chat's ask stack opens the
+// Asks tab filtered to that agent, with the draft the member typed in the
+// chat.
+it("opens the Inbox from a chat's ask stack filtered to that agent, with the stack's draft, and Back returns to the chat", async () => {
+  addRanger();
+  setAsks([ask("q1", "a1"), ask("q2", "a1"), ask("r1", "a2")]);
   const view = await boot();
   await act(async () => fireEvent.click(inboxButton(view)!));
-  // App provides the opener (the office link is drawn), but the Inbox's own
-  // cards have no View in Inbox.
-  expect(officeLink(view, "q1")).not.toBeNull();
-  expect(view.container.querySelector("[data-ask-view-inbox]")).toBeNull();
+  // Ranger's ask shows on the Asks tab, and the tab has no View in Inbox.
+  expect(askIds(view)).toEqual(["q1", "q2", "r1"]);
+  expect(view.container.querySelector("[data-asks-view-inbox]")).toBeNull();
 
   await chatFromInbox(view, "a1");
   const inStack = (selector: string) =>
@@ -83,20 +98,23 @@ it("opens a chat ask in the Inbox with its draft, draws no View in Inbox there, 
       target: { value: draft },
     }),
   );
-  expect(inStack("[data-ask-view-inbox]")).not.toBeNull();
-  await act(async () => fireEvent.click(inStack("[data-ask-view-inbox]")!));
-  expect(window.location.pathname.startsWith("/inbox/asks")).toBe(true);
+  const link = view.container.querySelector<HTMLButtonElement>(
+    "[data-asks-stack] [data-asks-view-inbox]",
+  );
+  expect(link).not.toBeNull();
+  await act(async () => fireEvent.click(link!));
+  expect(window.location.pathname).toBe("/inbox/asks");
   expect(selectedTab(view)).toBe("asks");
   expect(view.container.querySelector("[data-asks-stack]")).toBeNull();
-  const pinned =
-    view.container.querySelector<HTMLElement>("[data-asks-pinned]");
-  expect(pinned?.getAttribute("data-asks-pinned")).toBe("q1");
+  expect(view.container.querySelector("[data-asks-pinned]")).toBeNull();
+  // Scout's asks only, Ranger's hidden by the agent filter.
+  expect(askIds(view)).toEqual(["q1", "q2"]);
+  expect(await checkedFilterValues(view.container, "agent")).toEqual(["a1"]);
   expect(
-    pinned?.querySelector<HTMLTextAreaElement>(
+    view.container.querySelector<HTMLTextAreaElement>(
       '[data-ask="q1"] [data-ask-reply-input]',
     )?.value,
   ).toBe(draft);
-  expect(pinned?.querySelector("[data-ask-view-inbox]")).toBeNull();
 
   await go("back");
   expect(window.location.pathname).toBe("/");

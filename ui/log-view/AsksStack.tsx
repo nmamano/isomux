@@ -4,8 +4,16 @@
 // maximum height and collapses to one bar: open by default on a desktop,
 // collapsed on a phone. A fold is kept per member and agent in this browser
 // (ui/view-persistence.ts) until an ask that was not open at the fold arrives.
+// Beside the open stack's toggle, "View in Inbox" opens the Inbox's Asks tab
+// filtered to this agent (task 586ebfe1), where a long ask reads better.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useAppState, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { asksFor, openAsks } from "../asks-sync.ts";
@@ -13,6 +21,7 @@ import { AskCard } from "./AskCard.tsx";
 import { sudoAskTitle } from "./SudoAskCard.tsx";
 import { valueAskTitle } from "./SecretAskCard.tsx";
 import { loadFoldedAsks, saveFoldedAsks } from "../view-persistence.ts";
+import { OfficeLinkOpener } from "../office-link.tsx";
 
 // The stack's height before it scrolls: about two and a half cards on a
 // desktop, so a cut card shows there is more. On a phone the chat passes a
@@ -77,6 +86,7 @@ export function AsksStack({
 }) {
   const { t } = useI18n();
   const { asks, answeredAsks, sessionContext } = useAppState();
+  const openLink = useContext(OfficeLinkOpener);
   // Newest first, so the ask the agent just opened is the one in view.
   const entries = asksFor(openAsks(asks, answeredAsks), agentId).reverse();
   // No name in the demo, as App's persistEnabled keeps nothing per browser
@@ -226,27 +236,54 @@ export function AsksStack({
         minHeight: 0,
       }}
     >
-      <button
-        type="button"
-        aria-expanded={true}
-        onClick={() => setCollapsed(true)}
+      <div
         style={{
-          ...toggleStyle,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
           flexShrink: 0,
-          alignSelf: "flex-start",
-          gap: 6,
-          background: "none",
-          border: "none",
           padding: "0 0 6px 2px",
-          color: "var(--text-muted)",
-          fontSize: isMobile ? 12 : 11,
-          fontWeight: 600,
         }}
       >
-        <Chevron open size={isMobile ? 12 : 10} />
-        <span>{t("asks.title")}</span>
-        <CountPill count={entries.length} isMobile={isMobile} />
-      </button>
+        <button
+          type="button"
+          aria-expanded={true}
+          onClick={() => setCollapsed(true)}
+          style={{
+            ...toggleStyle,
+            gap: 6,
+            background: "none",
+            border: "none",
+            padding: 0,
+            color: "var(--text-muted)",
+            fontSize: isMobile ? 12 : 11,
+            fontWeight: 600,
+          }}
+        >
+          <Chevron open size={isMobile ? 12 : 10} />
+          <span>{t("asks.title")}</span>
+          <CountPill count={entries.length} isMobile={isMobile} />
+        </button>
+        {openLink && (
+          <button
+            type="button"
+            data-asks-view-inbox=""
+            onClick={() => openLink({ page: "asks", onlyAgent: agentId })}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "var(--accent-text)",
+              fontFamily: "var(--font-ui)",
+              fontSize: isMobile ? 12 : 11,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {t("asks.viewInInbox")}
+          </button>
+        )}
+      </div>
       <div
         ref={bodyRef}
         onScroll={onScroll}
@@ -264,7 +301,7 @@ export function AsksStack({
         }}
       >
         {entries.map((entry) => (
-          <AskCard key={entry.id} entry={entry} isMobile={isMobile} inboxLink />
+          <AskCard key={entry.id} entry={entry} isMobile={isMobile} />
         ))}
       </div>
     </div>

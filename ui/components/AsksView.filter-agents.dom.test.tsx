@@ -37,6 +37,7 @@ const {
   setRooms,
   setPriorities,
   isOpen,
+  ALL_PRIORITIES,
 } = await import("../test-support/asks-view.ts");
 type AppState = import("../test-support/asks-view.ts").AppState;
 type View = ReturnType<typeof mount>["view"];
@@ -304,5 +305,74 @@ describe("the agent filter", () => {
     expect(filterOptions(c, "agent")).toEqual(["a2", "a1"]);
     await setAgents(view, ["a2"]);
     expect(pageOrder(view)).toEqual(["a2:abe1"]);
+  });
+
+  // The chat stack's View in Inbox (task 586ebfe1): a one-shot request to show
+  // exactly one agent's asks for this member, whatever filters were left on.
+  it("shows exactly the requested agent's own asks once, over the stored rooms, priorities and member, and remembers that", async () => {
+    const owner = {
+      sessionContext: {
+        userId: "u1",
+        username: "nil",
+        role: "owner",
+        currentSessionPrefix: "abcd1234",
+      } as AppState["sessionContext"],
+      othersAsks: [
+        { ...ask("abeA1", "a1", 10), memberUserId: "u-Abe", member: "Abe" },
+        // a5's only ask is Abe's: no agent of the member's own set.
+        { ...ask("abeA5", "a5", 12), memberUserId: "u-Abe", member: "Abe" },
+      ] as AppState["othersAsks"],
+      rooms: SORT_ROOMS,
+      agents: [
+        ...SORT_AGENTS,
+        { id: "a5", name: "Scribe", roomId: "r1" },
+        // No ask at all.
+        { id: "a6", name: "Idle", roomId: "r1" },
+      ] as AppState["agents"],
+    };
+    // Left on before: Room One (a1's room) unchecked, P1 only (a1 has none),
+    // every member's asks.
+    const before = mount(SORT_ASKS, owner);
+    await setRooms(before.view, ["r2"]);
+    await setPriorities(before.view, ["P1"]);
+    choose(before.view, "data-asks-member", "all");
+    expect(pageOrder(before.view)).toEqual(["a4:a4p1"]);
+    before.view.unmount();
+
+    const { view, latest } = mount(SORT_ASKS, owner, "a1");
+    const c = view.container;
+    // The member's own a1 asks, not Abe's.
+    expect(pageOrder(view)).toEqual(["a1:a1old,a1top"]);
+    expect(latest.handled).toBe(1);
+    expect(control(view, "data-asks-member").value).toBe("mine");
+    expect(await checkedFilterValues(c, "room")).toEqual(["r2", "r1"]);
+    expect(await checkedFilterValues(c, "priority")).toEqual(ALL_PRIORITIES);
+    expect(await checkedFilterValues(c, "agent")).toEqual(["a1"]);
+    // Unchecked: the agents the filter lists for the member's own asks; not
+    // a5 (Abe's ask only) nor a6 (no ask).
+    expect(filterOptions(c, "agent")).toEqual(BY_NAME);
+    expect(summary(view)).toContain("Scout");
+
+    // Applied once: the member's next change stands.
+    await setAgents(view, ["a1", "a2"]);
+    expect(pageOrder(view)).toEqual(["a1:a1old,a1top", "a2:a2only"]);
+    expect(latest.handled).toBe(1);
+
+    // A later request on the open page applies too.
+    await act(async () => latest.requestAgent("a4"));
+    expect(pageOrder(view)).toEqual(["a4:a4none,a4p1"]);
+    expect(latest.handled).toBe(2);
+    expect(await checkedFilterValues(c, "agent")).toEqual(["a4"]);
+    view.unmount();
+
+    // Remembered on this device like a filter the member set.
+    const again = mount(SORT_ASKS, owner);
+    expect(pageOrder(again.view)).toEqual(["a4:a4none,a4p1"]);
+    expect(control(again.view, "data-asks-member").value).toBe("mine");
+    expect(await checkedFilterValues(again.view.container, "room")).toEqual([
+      "r2",
+      "r1",
+    ]);
+    expect(again.latest.handled).toBe(0);
   });
 });

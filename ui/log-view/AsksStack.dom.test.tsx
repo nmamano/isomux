@@ -378,90 +378,86 @@ it("draws a button for an agent it knows, named for the agent, and a click opens
   view.unmount();
 });
 
-// View in Inbox (task bc525a93): the chat is not comfortable for a long ask,
-// so each reply card in the stack opens its ask in the Inbox.
-const viewInInbox = (root: HTMLElement) =>
-  [...root.querySelectorAll<HTMLElement>("[data-ask-view-inbox]")].map(
-    (b) => b.closest<HTMLElement>("[data-ask]")?.dataset.ask,
-  );
+// View in Inbox (tasks bc525a93, 586ebfe1): the open stack has one button,
+// next to its toggle, that opens the Inbox filtered to this agent. No card
+// has one.
+const headerLinks = (root: HTMLElement) => [
+  ...root.querySelectorAll<HTMLButtonElement>("[data-asks-view-inbox]"),
+];
+const cardLinks = (root: HTMLElement) =>
+  root.querySelectorAll(
+    "[data-ask] [data-asks-view-inbox], [data-ask-view-inbox]",
+  ).length;
 
 it("draws no link without an opener", async () => {
   const view = mount(false, "a3");
   await waitFor(() => expect(cards(view.container).length).toBe(2));
+  expect(
+    view.container
+      .querySelector("[data-asks-stack]")
+      ?.getAttribute("data-asks-stack"),
+  ).toBe("open");
   expect(linkButtons(view.container)).toEqual([]);
-  expect(viewInInbox(view.container)).toEqual([]);
+  expect(headerLinks(view.container)).toHaveLength(0);
   view.unmount();
 });
 
-it("draws View in Inbox on each reply card, and a click opens that ask in the Inbox", async () => {
+it("draws one View in Inbox beside the open stack's toggle; a click opens the Inbox filtered to the agent and keeps the stack open", async () => {
   const opened: OfficeLink[] = [];
-  // a1's asks have no office link and no original: the row has this button
-  // only.
-  const view = mount(false, "a1", (link) => opened.push(link));
+  // a3's asks carry office links, so the cards have link rows of their own.
+  const view = mount(false, "a3", (link) => opened.push(link));
   await waitFor(() => expect(cards(view.container).length).toBe(2));
-  expect(viewInInbox(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
-  const button = view.container.querySelector<HTMLButtonElement>(
-    '[data-ask="aaaa0001"] [data-ask-view-inbox]',
+  const c = view.container;
+  expect(linkButtons(c).length).toBeGreaterThan(0);
+  const links = headerLinks(c);
+  expect(links).toHaveLength(1);
+  expect(cardLinks(c)).toBe(0);
+  const link = links[0];
+  expect(link.tagName).toBe("BUTTON");
+  expect(link.textContent?.trim()).not.toBe("");
+  // A sibling of the toggle, not inside it and not inside the list.
+  const toggle = c.querySelector<HTMLButtonElement>(
+    "[data-asks-stack=open] button[aria-expanded]",
   )!;
-  expect(button.tagName).toBe("BUTTON");
-  expect(button.textContent?.trim()).not.toBe("");
-  fireEvent.click(button);
-  expect(opened).toEqual([{ page: "asks", askId: "aaaa0001" }]);
-  // The ask stays open in the stack, and nothing was posted.
-  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
+  expect(toggle.contains(link)).toBe(false);
+  expect(link.parentElement === toggle.parentElement).toBe(true);
+  expect(link.closest("[data-asks-body]")).toBeNull();
+
+  fireEvent.click(link);
+  expect(opened).toEqual([{ page: "asks", onlyAgent: "a3" }]);
+  expect(
+    c.querySelector("[data-asks-stack]")?.getAttribute("data-asks-stack"),
+  ).toBe("open");
+  expect(cards(c)).toEqual(["eeee0005", "dddd0004"]);
   expect(posts).toEqual([]);
+
+  // The toggle still folds the stack, and the folded bar has no link.
+  fireEvent.click(toggle);
+  expect(
+    c.querySelector("[data-asks-stack]")?.getAttribute("data-asks-stack"),
+  ).toBe("collapsed");
+  expect(headerLinks(c)).toHaveLength(0);
+  expect(opened).toHaveLength(1);
   view.unmount();
 });
 
-it("puts View in Inbox before the ask's own link and Show original", async () => {
-  const opener = () => {};
-  const linked = mount(false, "a3", opener);
-  await waitFor(() => expect(cards(linked.container).length).toBe(2));
-  const card = linked.container.querySelector<HTMLElement>(
-    '[data-ask="dddd0004"]',
-  )!;
-  const view = card.querySelector("[data-ask-view-inbox]");
-  const office = card.querySelector("[data-ask-office-link]");
-  expect([view !== null, office !== null]).toEqual([true, true]);
-  // The same row (a scalar: toBe on two nodes dumps both on a failure).
-  expect(view!.parentElement === office!.parentElement).toBe(true);
-  expect(
-    view!.compareDocumentPosition(office!) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  linked.unmount();
-
-  const rewritten = mount(false, "b1", opener);
-  await waitFor(() => expect(cards(rewritten.container).length).toBe(3));
-  const card2 = rewritten.container.querySelector<HTMLElement>(
-    '[data-ask="ssss0019"]',
-  )!;
-  const view2 = card2.querySelector("[data-ask-view-inbox]");
-  const original = card2.querySelector("[data-ask-show-original]");
-  expect([view2 !== null, original !== null]).toEqual([true, true]);
-  expect(view2!.parentElement === original!.parentElement).toBe(true);
-  expect(
-    view2!.compareDocumentPosition(original!) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  rewritten.unmount();
-});
-
-it("draws no View in Inbox on a secret request", async () => {
-  const view = mount(false, "a5", () => {});
-  await waitFor(() => expect(cards(view.container).length).toBe(3));
-  expect(viewInInbox(view.container)).toEqual(["iiii0009", "gggg0007"]);
-  view.unmount();
-});
-
-it("draws no View in Inbox on an ask whose own link opens it in the Inbox", async () => {
-  const view = mount(false, "b4", () => {});
-  await waitFor(() => expect(cards(view.container).length).toBe(2));
-  // Both links are drawn; only the ask that links elsewhere has the button.
-  expect(linkButtons(view.container)).toEqual([
-    ["abcd0023", "/inbox/asks/abcd0023"],
-    ["abcd0022", "/inbox/asks/abcd0099"],
-  ]);
-  expect(viewInInbox(view.container)).toEqual(["abcd0022"]);
+it("draws View in Inbox on a phone only once the stack is open", async () => {
+  const opened: OfficeLink[] = [];
+  const view = mount(true, "a1", (link) => opened.push(link));
+  await waitFor(() =>
+    expect(view.container.querySelector("[data-asks-stack]")).not.toBe(null),
+  );
+  expect(headerLinks(view.container)).toHaveLength(0);
+  fireEvent.click(
+    view.container.querySelector<HTMLElement>(
+      "[data-asks-stack=collapsed] button",
+    )!,
+  );
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
+  expect(headerLinks(view.container)).toHaveLength(1);
+  expect(cardLinks(view.container)).toBe(0);
+  fireEvent.click(headerLinks(view.container)[0]);
+  expect(opened).toEqual([{ page: "asks", onlyAgent: "a1" }]);
   view.unmount();
 });
 
@@ -1911,7 +1907,9 @@ it("opens a fold that a new ask ended at the top, wherever the member had scroll
     body()!.scrollTop = 50;
     fireEvent.scroll(body()!);
     fireEvent.click(
-      view.container.querySelector<HTMLElement>("[data-asks-stack] > button")!,
+      view.container.querySelector<HTMLElement>(
+        "[data-asks-stack] button[aria-expanded]",
+      )!,
     );
     expect(body()).toBe(null);
     act(() =>

@@ -253,6 +253,8 @@ export function AsksView({
   onChatAgent,
   focusAskId,
   onClearFocus,
+  filterAgentId,
+  onFilterAgentHandled,
 }: {
   onFocusAgent: (agentId: string) => void;
   // The ask pinned above the list (an ask chip or /inbox/asks/<id>), and
@@ -262,6 +264,10 @@ export function AsksView({
   // Opens the chat panel over the Inbox on an agent (AgentChatPanel); without
   // it the name opens the agent's chat.
   onChatAgent?: (agentId: string) => void;
+  // A one-shot request to show only this agent's asks (the chat stack's View
+  // in Inbox), and its clear once applied.
+  filterAgentId?: string | null;
+  onFilterAgentHandled?: () => void;
 }) {
   const {
     asks,
@@ -392,6 +398,32 @@ export function AsksView({
           (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       );
   }, [open, agents, hiddenAgents]);
+  // The chat stack's View in Inbox (task 586ebfe1) asks for one agent's asks:
+  // the member's own, every room and priority, and the other agents the
+  // agent list offers for the own asks unchecked, so an agent that asks
+  // later shows. Applied once per request; the member's next change stands.
+  useEffect(() => {
+    if (!filterAgentId) return;
+    const listedForMine = new Set(own.map((e) => e.agentId));
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setMember(MINE);
+    setAsksMember(MINE);
+    setUncheckedRooms([]);
+    setPriorities([...FILTER_PRIORITIES]);
+    setUncheckedAgents(
+      agents
+        .filter(
+          (agent) =>
+            agent.id !== filterAgentId &&
+            (listedForMine.has(agent.id) || hiddenAgents.has(agent.id)),
+        )
+        .map((agent) => agent.id),
+    );
+    /* eslint-enable react-hooks/set-state-in-effect */
+    onFilterAgentHandled?.();
+    // Only a new request applies: the lists are read as they are then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterAgentId]);
   // The pinned ask (PinnedAsk): its card, when the member answers it, is
   // drawn there and left out of the list, so one ask never has two cards.
   const pinnedEntry = useMemo(

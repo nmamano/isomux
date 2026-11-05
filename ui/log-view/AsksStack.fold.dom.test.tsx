@@ -123,7 +123,9 @@ const cards = (root: HTMLElement) =>
   );
 // The bar of a folded stack, or the header of an open one.
 const toggle = (root: HTMLElement) =>
-  root.querySelector<HTMLButtonElement>("[data-asks-stack] > button")!;
+  root.querySelector<HTMLButtonElement>(
+    "[data-asks-stack] button[aria-expanded]",
+  )!;
 const foldedIds = (user = "Nil", agentId = "a1") =>
   loadFoldedAsks(user, agentId)?.toSorted() ?? null;
 

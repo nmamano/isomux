@@ -3,7 +3,7 @@
 // imported by the test file after the DOM is set up, so this module evaluates
 // then, too: a test file that imports it statically evaluates UI code before
 // the DOM exists, which can pass and record the wrong state.
-import { createElement, useReducer, useState } from "react";
+import { createElement, useCallback, useReducer, useState } from "react";
 import { render } from "@testing-library/react";
 import { AsksView } from "../components/AsksView.tsx";
 import { StateCtx, DispatchCtx, initialState, reducer } from "../store.tsx";
@@ -35,8 +35,13 @@ export const ranked = (
 });
 
 // `place` seeds any other slice: the rooms and agents, or for an office
-// owner the session and other members' asks.
-export function mount(asks: AskEntry[], place: Partial<AppState> = {}) {
+// owner the session and other members' asks. `filterAgentId` is a one-shot
+// request to show one agent's asks, held and cleared as App holds it.
+export function mount(
+  asks: AskEntry[],
+  place: Partial<AppState> = {},
+  filterAgentId: string | null = null,
+) {
   const seeded: AppState = {
     ...initialState,
     asks,
@@ -56,14 +61,30 @@ export function mount(asks: AskEntry[], place: Partial<AppState> = {}) {
     dispatch: (action: Parameters<typeof reducer>[1]) => void;
     // Replaces the rooms and agents slices, as a full_state would.
     setPlace: (place: Pick<AppState, "rooms" | "agents">) => void;
-  } = { state: seeded, dispatch: () => {}, setPlace: () => {} };
+    // Sends a new one-shot agent filter request, as a later click would.
+    requestAgent: (agentId: string) => void;
+    // How many times AsksView reported a request handled.
+    handled: number;
+  } = {
+    state: seeded,
+    dispatch: () => {},
+    setPlace: () => {},
+    requestAgent: () => {},
+    handled: 0,
+  };
   function Harness() {
     const [reduced, dispatch] = useReducer(reducer, seeded);
     const [place, setPlace] = useState<Partial<AppState>>({});
+    const [request, setRequest] = useState<string | null>(filterAgentId);
+    const onFilterAgentHandled = useCallback(() => {
+      latest.handled++;
+      setRequest(null);
+    }, []);
     const state = { ...reduced, ...place };
     latest.state = state;
     latest.dispatch = dispatch;
     latest.setPlace = setPlace;
+    latest.requestAgent = setRequest;
     return createElement(
       StateCtx.Provider,
       { value: state },
@@ -72,6 +93,8 @@ export function mount(asks: AskEntry[], place: Partial<AppState> = {}) {
         { value: dispatch },
         createElement(AsksView, {
           onFocusAgent: (id: string) => focused.push(id),
+          filterAgentId: request,
+          onFilterAgentHandled,
         }),
       ),
     );

@@ -225,6 +225,11 @@ export function App({ routing = true }: { routing?: boolean }) {
   );
   if (!asksOpen && askFocus !== null) setAskFocus(null);
   const clearAskFocus = useCallback(() => setAskFocus(null), []);
+  // The agent the Asks tab filters to once (a chat stack's View in Inbox,
+  // task 586ebfe1). It goes when the Asks tab closes, like the pin.
+  const [askAgentFilter, setAskAgentFilter] = useState<string | null>(null);
+  if (!asksOpen && askAgentFilter !== null) setAskAgentFilter(null);
+  const clearAskAgentFilter = useCallback(() => setAskAgentFilter(null), []);
   // The Inbox's two tabs are the pager and asks pages. Every door into the
   // Inbox sets one flag and clears the other: with both set, Pages would show
   // and closing it would uncover Asks instead of what is under the Inbox.
@@ -686,6 +691,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           ...(link.focus ? { focus: link.focus } : {}),
         });
       if (link.askId) setAskFocus(link.askId);
+      if (link.onlyAgent) setAskAgentFilter(link.onlyAgent);
       if (link.page === "pager" || link.page === "asks")
         openInboxTab(link.page);
       else pageState[link.page].setOpen(true);
@@ -1190,6 +1196,8 @@ export function App({ routing = true }: { routing?: boolean }) {
                   onChatAgent={setInboxChat}
                   focusAskId={askFocus}
                   onClearFocus={clearAskFocus}
+                  filterAgentId={askAgentFilter}
+                  onFilterAgentHandled={clearAskAgentFilter}
                 />
               )}
               {inboxChat && (
