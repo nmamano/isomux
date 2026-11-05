@@ -71,14 +71,14 @@ export function resolveCodexLauncherPath(): string {
   } catch (err) {
     throw new Error(
       `Bundled @openai/codex launcher could not be resolved (${errMessage(err)}). ` +
-        `Run \`bun install\` in the isomux checkout.`,
+        `Run \`bun install\` in the Isomux checkout.`,
       { cause: err },
     );
   }
   if (!existsSync(resolved)) {
     throw new Error(
       `Bundled @openai/codex launcher missing at ${resolved}. ` +
-        `Run \`bun install\` in the isomux checkout.`,
+        `Run \`bun install\` in the Isomux checkout.`,
     );
   }
   cachedLauncherPath = resolved;

@@ -33,7 +33,7 @@ die() {
   exit 1
 }
 
-[ -S "$ADMIN_SOCK" ] || die "no admin socket at $ADMIN_SOCK; is the isomux service running?"
+[ -S "$ADMIN_SOCK" ] || die "no admin socket at $ADMIN_SOCK; is the Isomux service running?"
 [ -r "$USERS_FILE" ] || die "cannot read $USERS_FILE to find the office owner"
 
 owner=""

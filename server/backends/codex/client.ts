@@ -46,7 +46,7 @@ import {
 // handling when the bundled launcher can't be spawned. Since codex now ships
 // as an isomux runtime dep, ENOENT here means the install is corrupt, not
 // that the user forgot to install something.
-const CODEX_LAUNCH_FAILED_MESSAGE = `Isomux's bundled Codex CLI failed to launch. Run \`bun install\` in the isomux checkout, then \`/clear\` this conversation to retry.`;
+const CODEX_LAUNCH_FAILED_MESSAGE = `Isomux's bundled Codex CLI failed to launch. Run \`bun install\` in the Isomux checkout, then \`/clear\` this conversation to retry.`;
 
 // Grace period between SIGTERM and the SIGKILL escalation when closing a codex
 // subprocess group. Long enough for a healthy process to flush and exit, short

@@ -147,7 +147,7 @@ export const en = {
   "steps.labelWaitForPackageManager":
     "Waiting for the server's package manager",
   "steps.labelSetDns": "Setting your office's address",
-  "steps.labelRunInstaller": "Installing isomux",
+  "steps.labelRunInstaller": "Installing Isomux",
   "steps.labelVerifyHttps": "Checking your office over HTTPS",
   "steps.labelMintInvite": "Preparing your owner invite",
   "steps.labelRevokeAccess": "Removing our access",
@@ -276,7 +276,7 @@ export const en = {
 
   "office.restartHeading": "Restart",
   "office.restartCaveat":
-    "Restarting powers the whole server off and on, not just isomux. It interrupts every agent that is running and takes a couple of minutes.",
+    "Restarting powers the whole server off and on, not just Isomux. It interrupts every agent that is running and takes a couple of minutes.",
   "office.restart": "Restart my server",
   "office.restarting": "Restarting...",
   "office.action.restartServer": "restart your server",

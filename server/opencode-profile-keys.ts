@@ -54,7 +54,7 @@ export function readProfileKeyState(): ProfileKeyState | null {
     raw = JSON.parse(readFileSync(PROFILE_KEYS_FILE, "utf8"));
   } catch (error) {
     throw new Error(
-      `${PROFILE_KEYS_FILE} could not be read: fix or restore it, then restart isomux.`,
+      `${PROFILE_KEYS_FILE} could not be read: fix or restore it, then restart Isomux.`,
       { cause: error },
     );
   }

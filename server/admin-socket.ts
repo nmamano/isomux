@@ -105,7 +105,7 @@ export function startAdminSocket(options: AdminSocketOptions = {}): {
     }
     if (!isSocket) {
       console.error(
-        `[admin-socket] ${socketPath} exists and is not a socket; refusing to overwrite. Move it aside and restart isomux to re-enable the admin socket.`,
+        `[admin-socket] ${socketPath} exists and is not a socket; refusing to overwrite. Move it aside and restart Isomux to re-enable the admin socket.`,
       );
       return null;
     }

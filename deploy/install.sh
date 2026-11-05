@@ -1737,7 +1737,7 @@ report_fail() {
   [[ $SUDO_STATE != FAIL || -z $SUDO_DETAIL ]] || log "  $SUDO_DETAIL"
   log ""
   log "Isomux agents run as the $SERVICE_USER account, so whatever that account"
-  log "can do, an agent can do - including turning off every guardrail isomux"
+  log "can do, an agent can do - including turning off every guardrail Isomux"
   log "puts in front of them."
   report_evidence
   log ""
@@ -1783,13 +1783,13 @@ report_unknown() {
 
 report_pass() {
   if [[ -z $KEY_UNPROVEN && -z $UNIDENTIFIED ]]; then
-    log "PASSED - the isomux service account cannot log in as root over SSH"
+    log "PASSED - the Isomux service account cannot log in as root over SSH"
     log "on this box, and cannot sudo."
   else
     # Softened deliberately. With a key this check could not open, or a port
     # that never identified itself, "cannot log in" would contradict the caveat
     # printed right below it.
-    log "PASSED - no way in was found: the isomux service account could not"
+    log "PASSED - no way in was found: the Isomux service account could not"
     log "log in as root over SSH on this box, and cannot sudo."
   fi
   [[ -z $SSH_DETAIL ]] || log "  ($SSH_DETAIL)"
@@ -2516,7 +2516,7 @@ install_restamp_timer() {
   write_file "/etc/systemd/system/$RESTAMP_UNIT.service" 644 <<EOF
 # Written by isomux-oom-protect.
 [Unit]
-Description=Re-apply the isomux office kill order
+Description=Re-apply the Isomux office kill order
 
 [Service]
 Type=oneshot
@@ -2535,7 +2535,7 @@ EOF
   write_file "/etc/systemd/system/$RESTAMP_UNIT.timer" 644 <<EOF
 # Written by isomux-oom-protect.
 [Unit]
-Description=Re-apply the isomux office kill order after an office restart
+Description=Re-apply the Isomux office kill order after an office restart
 
 [Timer]
 OnBootSec=$RESTAMP_INTERVAL
@@ -3100,7 +3100,7 @@ EOF
   local waited=0
   until user_manager_reachable "$uid"; do
     ((waited < USER_MANAGER_TIMEOUT_S)) ||
-      die "the $SERVICE_USER account's systemd user manager did not become reachable within ${USER_MANAGER_TIMEOUT_S}s, so isomux could not run agents' apps. Check: loginctl show-user $SERVICE_USER (wants Linger=yes), ls -ld /run/user/$uid, systemctl status user@$uid.service"
+      die "the $SERVICE_USER account's systemd user manager did not become reachable within ${USER_MANAGER_TIMEOUT_S}s, so Isomux could not run agents' apps. Check: loginctl show-user $SERVICE_USER (wants Linger=yes), ls -ld /run/user/$uid, systemctl status user@$uid.service"
     sleep 1
     waited=$((waited + 1))
   done
@@ -3229,8 +3229,8 @@ configure_codex_sandbox() {
   fi
   # apt's exit status is not proof: the service must find bwrap itself.
   if ! bwrap_on_service_path; then
-    log "warning: bwrap is not on the isomux service's PATH ($(service_path)), so codex agents use the copy bundled with Codex and show a bubblewrap warning. Nothing else is affected."
-    outcome_add "Codex's sandbox is not ready: bwrap is not on the isomux service's PATH."
+    log "warning: bwrap is not on the Isomux service's PATH ($(service_path)), so codex agents use the copy bundled with Codex and show a bubblewrap warning. Nothing else is affected."
+    outcome_add "Codex's sandbox is not ready: bwrap is not on the Isomux service's PATH."
     return 0
   fi
   local diag
@@ -3240,7 +3240,7 @@ configure_codex_sandbox() {
   fi
   if ! userns_restricted; then
     log "warning: bwrap does not work for $SERVICE_USER, and this box does not restrict unprivileged user namespaces, so AppArmor policy is not the cause and there is nothing safe to change. Codex agents cannot use their sandbox, and agents do not run in their own process namespace, until this is fixed; nothing else is affected. bwrap said: $diag"
-    outcome_add "Codex's sandbox is not ready: bwrap does not work for the isomux service user."
+    outcome_add "Codex's sandbox is not ready: bwrap does not work for the Isomux service user."
     return 0
   fi
   if ! install_bwrap_profile; then
@@ -3251,7 +3251,7 @@ configure_codex_sandbox() {
     log "codex sandbox ready: loaded the $BWRAP_PROFILE_NAME AppArmor profile, bwrap now works for $SERVICE_USER"
   else
     log "warning: the $BWRAP_PROFILE_NAME AppArmor profile is loaded and bwrap still does not work for $SERVICE_USER, so codex agents cannot use their sandbox and agents do not run in their own process namespace. Nothing else is affected. bwrap said: $diag"
-    outcome_add "Codex's sandbox is not ready: bwrap does not work for the isomux service user."
+    outcome_add "Codex's sandbox is not ready: bwrap does not work for the Isomux service user."
   fi
 }
 
@@ -3345,7 +3345,7 @@ install_bwrap_profile() {
       log "warning: could not write the vendored $BWRAP_PROFILE_NAME AppArmor profile to $BWRAP_PROFILE, so codex agents cannot use their sandbox. Nothing else is affected. The error was: $out"
       return 1
     fi
-    log "this box ships no $BWRAP_PROFILE_NAME profile to enable, so isomux installed its vendored copy of the upstream one at $BWRAP_PROFILE"
+    log "this box ships no $BWRAP_PROFILE_NAME profile to enable, so Isomux installed its vendored copy of the upstream one at $BWRAP_PROFILE"
   fi
   if ! out=$(apparmor_parser -r "$BWRAP_PROFILE" 2>&1); then
     log "warning: could not load the AppArmor profile $BWRAP_PROFILE, so codex agents cannot use their sandbox. Nothing else is affected. apparmor_parser said: $out"
@@ -3755,10 +3755,10 @@ wait_for_server() {
   fi
   local deadline=$((SECONDS + HEALTH_TIMEOUT_S))
   until curl -fsS -o /dev/null --max-time 5 "$BASE_URL/auth/login-bg.png" 2>/dev/null; do
-    ((SECONDS < deadline)) || die "isomux did not come up within ${HEALTH_TIMEOUT_S}s; check: journalctl -u isomux"
+    ((SECONDS < deadline)) || die "Isomux did not come up within ${HEALTH_TIMEOUT_S}s; check: journalctl -u isomux"
     sleep 2
   done
-  log "isomux is answering on loopback"
+  log "Isomux is answering on loopback"
 }
 
 # True if the saved session cookie still authenticates.
@@ -3843,7 +3843,7 @@ claim_owner() {
     return 0
   fi
   log "office already claimed and no saved session; recovering via the admin socket"
-  [[ -S $ADMIN_SOCK ]] || die "office is claimed but $ADMIN_SOCK is missing; is the isomux service running as $SERVICE_USER?"
+  [[ -S $ADMIN_SOCK ]] || die "office is claimed but $ADMIN_SOCK is missing; is the Isomux service running as $SERVICE_USER?"
   local owner
   owner=$(resolve_owner_name)
   [[ $owner == "$OWNER_NAME" ]] || log "note: the office owner is named \"$owner\"; ignoring OWNER_NAME=\"$OWNER_NAME\""
@@ -3875,7 +3875,7 @@ claim_owner() {
 configure_public_access() {
   step configure-public-access
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would set publicOrigin=https://$DOMAIN, externalAccess=true, and restart isomux"
+    log "DRY-RUN: would set publicOrigin=https://$DOMAIN, externalAccess=true, and restart Isomux"
     return 0
   fi
   api_curl -o /dev/null -X PUT "$BASE_URL/api/office/access" \
@@ -4254,7 +4254,7 @@ write_loopback_bind_if_proxied() {
 # restart once more when they changed. An update restarts after its deps run.
 apply_proxy_settings() {
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would restart isomux if the proxy settings changed"
+    log "DRY-RUN: would restart Isomux if the proxy settings changed"
     return 0
   fi
   [[ $PROXY_SETTINGS_WRITTEN == 1 ]] || return 0
@@ -6171,7 +6171,7 @@ deps_only() {
   # missing that account would fail deep inside the browser step instead of
   # here. It exists on every box the updater runs on (the installer created it).
   id -u "$SERVICE_USER" >/dev/null 2>&1 ||
-    die "no $SERVICE_USER account on this box; it does not look like an isomux install"
+    die "no $SERVICE_USER account on this box; it does not look like an Isomux install"
   snapshot_caddy_state
   install_packages
   # A sync that cannot put the proxy back has failed, whatever apt reported:

@@ -790,7 +790,7 @@ async function main(): Promise<void> {
         );
         check(
           "no step claims to be done without a row",
-          text.includes("Installing isomux") && text.includes("waiting"),
+          /Installing isomux/i.test(text) && text.includes("waiting"),
         );
         // Pre-provisioning key copy is intentionally absent: the dashboard's
         // useful next action is payment or waiting, not a statement about a box

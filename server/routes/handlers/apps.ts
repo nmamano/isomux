@@ -694,7 +694,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           return fail(
             400,
             "invalid_request",
-            "an app's port cannot be changed: isomux allocates it at " +
+            "an app's port cannot be changed: Isomux allocates it at " +
               "registration and it stays with the app for its whole life",
           );
         }

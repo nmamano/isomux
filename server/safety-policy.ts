@@ -354,7 +354,7 @@ function allow(): PolicyDecision {
 
 function denyMessage(reason: string, command: string): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
+    `BLOCKED by Isomux safety hooks\n\n` +
       `Reason: ${reason}\n\n` +
       `Command: ${command}\n\n` +
       `If this operation is truly needed, ask the member for explicit ` +
@@ -1478,7 +1478,7 @@ function bashProcSearchRoot(command: string, cwd: unknown): string | null {
 
 function denyStoreSearch(target: string, tool: string): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
+    `BLOCKED by Isomux safety hooks\n\n` +
       `Reason: this search would read the office's secret store ` +
       `(${SECRET_STORE_DIR}). Agents are not allowed to read it.\n\n` +
       `${tool} target: ${target}\n\n` +
@@ -1737,7 +1737,7 @@ function searchReachesProc(root: string, cwd: unknown): boolean {
 
 function denyEnvironRead(target: string, tool: string): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
+    `BLOCKED by Isomux safety hooks\n\n` +
       `Reason: ${ENVIRON_REASON}\n\n` +
       `${tool} target: ${target}`,
   );
@@ -1745,7 +1745,7 @@ function denyEnvironRead(target: string, tool: string): PolicyDecision {
 
 function denyProcSearch(target: string, tool: string): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
+    `BLOCKED by Isomux safety hooks\n\n` +
       `Reason: ${PROC_SEARCH_REASON}\n\n` +
       `${tool} target: ${target}`,
   );
@@ -2122,7 +2122,7 @@ function isSensitiveFile(
 
 function denySecretRead(target: string, tool: string): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
+    `BLOCKED by Isomux safety hooks\n\n` +
       `Reason: "${basename(target)}" may contain secrets. Agents are not allowed ` +
       `to read sensitive files (.env, private keys, credentials, etc.).\n\n` +
       `${tool} target: ${target}\n\n` +
@@ -3509,8 +3509,8 @@ function isProtectedRelativeCandidate(filePath: string): boolean {
 
 function denyMissingCwd(toolName: string, filePath: string): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
-      `Reason: isomux could not resolve the relative path because the tool call ` +
+    `BLOCKED by Isomux safety hooks\n\n` +
+      `Reason: Isomux could not resolve the relative path because the tool call ` +
       `did not include a non-empty absolute agent cwd.\n\n` +
       `${toolName} target: ${filePath}\n\n` +
       `Tell the member that the safety hook received a missing or invalid cwd, ` +
@@ -3520,8 +3520,8 @@ function denyMissingCwd(toolName: string, filePath: string): PolicyDecision {
 
 function denyUnverifiablePath(toolName: string, rule: string): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
-      `Reason: isomux could not tell which file ${toolName} would touch, so it could not check ` +
+    `BLOCKED by Isomux safety hooks\n\n` +
+      `Reason: Isomux could not tell which file ${toolName} would touch, so it could not check ` +
       `it against ${rule}. Guarded tools are denied rather than waved through when their input ` +
       `shape isn't recognized.\n\n` +
       `Tell the member which tool and which input fields hit this, so the guard can be updated.`,
@@ -4028,10 +4028,10 @@ function unionDirectories(...sets: DirectorySet[]): DirectorySet {
 
 function denyShellPath(filePath: string, nonLiteral: boolean): PolicyDecision {
   return deny(
-    `BLOCKED by isomux safety hooks\n\n` +
+    `BLOCKED by Isomux safety hooks\n\n` +
       (nonLiteral
-        ? `Reason: isomux could not resolve the write target because it is not a literal path.\n\n`
-        : `Reason: isomux could not resolve the relative write target after a shell directory change.\n\n`) +
+        ? `Reason: Isomux could not resolve the write target because it is not a literal path.\n\n`
+        : `Reason: Isomux could not resolve the relative write target after a shell directory change.\n\n`) +
       `Bash target: ${filePath}\n\n` +
       `Tell the member which shell target could not be resolved, and use an absolute write target.`,
   );
@@ -4085,7 +4085,7 @@ function shellWriteFlow(
   });
   const denyStateRoot = () =>
     denyMessage(
-      "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
+      "Writing to ~/.isomux/ is not allowed. This directory is managed by the Isomux server. " +
         "Read operations (cat, ls, grep, etc.) are permitted. " +
         "Do not write there another way, such as through a script or a variable.",
       command,
@@ -4508,7 +4508,7 @@ function checkBashCommand(
 
   if (usesAdminSocket(command)) {
     return denyMessage(
-      `The isomux admin socket mints owner sign-in links, and an ` +
+      `The Isomux admin socket mints owner sign-in links, and an ` +
         `agent may not use it. This text check covers recognized command ` +
         `forms only.`,
       command,
@@ -4746,8 +4746,8 @@ function checkWritePaths(
     }
     if (isAtOrBelowStateRoot(resolved)) {
       return deny(
-        `BLOCKED by isomux safety hooks\n\n` +
-          `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. ` +
+        `BLOCKED by Isomux safety hooks\n\n` +
+          `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the Isomux server. ` +
           `Do not write there another way, such as through a shell command or a script.\n\n` +
           `${toolName} target: ${filePath}\n\n` +
           `If this operation is truly needed, ask the member for explicit ` +
@@ -4757,7 +4757,7 @@ function checkWritePaths(
     const systemd = protectedSystemdWrite(resolved, units);
     if (systemd !== null)
       return deny(
-        `BLOCKED by isomux safety hooks\n\n` +
+        `BLOCKED by Isomux safety hooks\n\n` +
           `Reason: ${protectedSystemdReason(systemd)}\n\n` +
           `${toolName} target: ${filePath}\n\n` +
           `If this change is truly needed, ask the member to make it.`,

@@ -670,7 +670,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.update.stepPull": "Pull the latest changes",
   "settings.update.stepInstall": "Run <code>bun install</code>",
   "settings.update.stepRestart":
-    "Restart isomux for the update to take effect. Dev: <code>bun run dev</code>. User service: <code>systemctl --user restart isomux</code>. System service: <code>sudo systemctl restart isomux</code>.",
+    "Restart Isomux for the update to take effect. Dev: <code>bun run dev</code>. User service: <code>systemctl --user restart isomux</code>. System service: <code>sudo systemctl restart isomux</code>.",
   "settings.update.tip":
     "Tip: click the copy button to copy this notice to clipboard, then ask any agent to take care of it.",
   "settings.update.stepRefresh":
@@ -700,7 +700,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.update.gotIt": "Got it",
   "settings.update.lastUpdate": "Last update, {date}",
 
-  "update.screen.title": "Updating isomux",
+  "update.screen.title": "Updating Isomux",
   "update.screen.prepare": "Preparing",
   "update.screen.install": "Installing",
   "update.screen.restart": "Restarting",
@@ -910,12 +910,12 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.externalAccess.enable": "Enable external access",
   "settings.externalAccess.publicUrl": "Public URL",
   "settings.externalAccess.urlHint":
-    "Pattern: {pattern} (the address you'll open from your laptop / phone). Saving doesn't change the running server's bind on its own - restart isomux to apply.",
+    "Pattern: {pattern} (the address you'll open from your laptop / phone). Saving doesn't change the running server's bind on its own - restart Isomux to apply.",
   "settings.externalAccess.discardPrompt":
     "Discard unsaved external-access changes?",
   "settings.externalAccess.updateFailed": "Failed to update settings",
   "settings.externalAccess.restartNote":
-    "Saved. Restart isomux for the new bind to take effect. User service: <code>systemctl --user restart isomux</code>. System service: <code>sudo systemctl restart isomux</code>.",
+    "Saved. Restart Isomux for the new bind to take effect. User service: <code>systemctl --user restart isomux</code>. System service: <code>sudo systemctl restart isomux</code>.",
   "settings.externalAccess.signInAfterRestart":
     "After the restart, open this URL on whichever device you want to use from the public address. (It expires 1 hour after minting.)",
 
@@ -2110,7 +2110,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.webhooks.deliveries": "Read webhook deliveries",
   "apiCall.webhooks.dryRun": "Test webhook rules",
   "apiCall.skillUsage.read": "Read skill-use counts",
-  "apiCall.version.check": "Check isomux version",
+  "apiCall.version.check": "Check Isomux version",
   "apiCall.storage.usage": "Check office disk usage",
   "apiCall.storage.prune": "Prune stored history",
   "apiCall.storage.compress": "Compress old conversations",

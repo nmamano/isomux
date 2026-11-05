@@ -18,7 +18,7 @@ Automated tests use loopback ACME and DNS fakes. The target validator rejects
 the production CA, Cloudflare API, or production zone in a test process even if
 the caller sets the production opt-in.
 
-The provisioning half of hosted isomux. One command turns a provider API call
+The provisioning half of Hosted Isomux. One command turns a provider API call
 into a live HTTPS office with an owner invite in hand and our key removed, with
 the removal proven by a failed reconnect using the removed key.
 
@@ -64,7 +64,7 @@ It adds nullable reservation columns with `if not exists`, so it does not
 rewrite existing reservation rows and is safe before the code deploy. The new
 runtime refuses to start until every column is present.
 
-Nothing here runs in the isomux server. It is a CLI driven by an operator, and
+Nothing here runs in the Isomux server. It is a CLI driven by an operator, and
 it holds no standing access to anything it builds.
 
 ## Commands

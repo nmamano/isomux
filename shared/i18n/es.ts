@@ -669,7 +669,7 @@ Cosas que puedes hacer por él:
   "settings.update.stepPull": "Descarga los últimos cambios",
   "settings.update.stepInstall": "Ejecuta <code>bun install</code>",
   "settings.update.stepRestart":
-    "Reinicia isomux para que la actualización se aplique. Desarrollo: <code>bun run dev</code>. Servicio de usuario: <code>systemctl --user restart isomux</code>. Servicio de sistema: <code>sudo systemctl restart isomux</code>.",
+    "Reinicia Isomux para que la actualización se aplique. Desarrollo: <code>bun run dev</code>. Servicio de usuario: <code>systemctl --user restart isomux</code>. Servicio de sistema: <code>sudo systemctl restart isomux</code>.",
   "settings.update.tip":
     "Consejo: pulsa el botón de copiar para copiar este aviso al portapapeles y luego pide a cualquier agente que se encargue.",
   "settings.update.stepRefresh":
@@ -704,7 +704,7 @@ Cosas que puedes hacer por él:
   "settings.update.gotIt": "Entendido",
   "settings.update.lastUpdate": "Última actualización, {date}",
 
-  "update.screen.title": "Actualizando isomux",
+  "update.screen.title": "Actualizando Isomux",
   "update.screen.prepare": "Preparando",
   "update.screen.install": "Instalando",
   "update.screen.restart": "Reiniciando",
@@ -922,13 +922,13 @@ Cosas que puedes hacer por él:
   "settings.externalAccess.enable": "Activar el acceso externo",
   "settings.externalAccess.publicUrl": "URL pública",
   "settings.externalAccess.urlHint":
-    "Patrón: {pattern} (la dirección que abrirás desde el portátil o el móvil). Guardar no cambia por sí solo la interfaz donde escucha el servidor - reinicia isomux para aplicarlo.",
+    "Patrón: {pattern} (la dirección que abrirás desde el portátil o el móvil). Guardar no cambia por sí solo la interfaz donde escucha el servidor - reinicia Isomux para aplicarlo.",
   "settings.externalAccess.discardPrompt":
     "¿Descartar los cambios de acceso externo sin guardar?",
   "settings.externalAccess.updateFailed":
     "No se han podido actualizar los ajustes",
   "settings.externalAccess.restartNote":
-    "Guardado. Reinicia isomux para que la nueva interfaz de escucha tenga efecto. Servicio de usuario: <code>systemctl --user restart isomux</code>. Servicio del sistema: <code>sudo systemctl restart isomux</code>.",
+    "Guardado. Reinicia Isomux para que la nueva interfaz de escucha tenga efecto. Servicio de usuario: <code>systemctl --user restart isomux</code>. Servicio del sistema: <code>sudo systemctl restart isomux</code>.",
   "settings.externalAccess.signInAfterRestart":
     "Después del reinicio, abre esta URL en el dispositivo que quieras usar desde la dirección pública. (Caduca 1 hora después de emitirla.)",
 
@@ -2162,7 +2162,7 @@ Cosas que puedes hacer por él:
   "apiCall.webhooks.deliveries": "Leer las entregas del webhook",
   "apiCall.webhooks.dryRun": "Probar las reglas del webhook",
   "apiCall.skillUsage.read": "Leer el recuento de uso de habilidades",
-  "apiCall.version.check": "Consultar la versión de isomux",
+  "apiCall.version.check": "Consultar la versión de Isomux",
   "apiCall.storage.usage": "Consultar el uso de disco de la oficina",
   "apiCall.storage.prune": "Purgar el historial almacenado",
   "apiCall.storage.compress": "Comprimir conversaciones antiguas",

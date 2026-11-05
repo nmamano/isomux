@@ -207,7 +207,7 @@ die() {
 # --- Config -----------------------------------------------------------------
 
 load_config() {
-  [[ -r $CONF ]] || die "config not readable: $CONF (is isomux installed with the updater?)"
+  [[ -r $CONF ]] || die "config not readable: $CONF (is Isomux installed with the updater?)"
   # Literal key=value parser - the file is NEVER sourced. In system mode this
   # runs as root and the config carries installer-parameter-derived values
   # (REPO_URL), so a value must stay data under all circumstances: shell

@@ -567,7 +567,7 @@ install_restamp_timer() {
   write_file "/etc/systemd/system/$RESTAMP_UNIT.service" 644 <<EOF
 # Written by isomux-oom-protect.
 [Unit]
-Description=Re-apply the isomux office kill order
+Description=Re-apply the Isomux office kill order
 
 [Service]
 Type=oneshot
@@ -586,7 +586,7 @@ EOF
   write_file "/etc/systemd/system/$RESTAMP_UNIT.timer" 644 <<EOF
 # Written by isomux-oom-protect.
 [Unit]
-Description=Re-apply the isomux office kill order after an office restart
+Description=Re-apply the Isomux office kill order after an office restart
 
 [Timer]
 OnBootSec=$RESTAMP_INTERVAL

@@ -468,7 +468,7 @@ async function ensureRow(
     // always sets the metadata, so this stays an exercise-time shape.
     const synthetic = `acct-unattributed-${input.subscription.customerId}`;
     report(
-      `subscription ${input.subscription.id} carries no isomux metadata; ` +
+      `subscription ${input.subscription.id} carries no Isomux metadata; ` +
         `caching it under an unattributed account`,
     );
     account = await ensureAccount(store, {

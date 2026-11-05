@@ -196,7 +196,7 @@ export function checkAppName(name: string): AppRegistryError | null {
   if (RESERVED_APP_NAMES.has(name)) {
     return new AppRegistryError(
       "reserved_name",
-      `"${name}" is reserved by isomux and cannot be used as an app name`,
+      `"${name}" is reserved by Isomux and cannot be used as an app name`,
     );
   }
   return null;

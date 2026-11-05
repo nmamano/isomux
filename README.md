@@ -96,8 +96,8 @@ On a Mac, Homebrew can install Isomux and run it in the background instead: [Ins
 
 Open the setup link that `bun run dev` prints.
 
-- Claude Code and Codex are bundled with isomux. You'll be prompted to sign in when you talk to an agent.
-- OpenCode is bundled with isomux. Choose a Free, Pay-as-you-go, or Subscription model.
+- Claude Code and Codex are bundled with Isomux. You'll be prompted to sign in when you talk to an agent.
+- OpenCode is bundled with Isomux. Choose a Free, Pay-as-you-go, or Subscription model.
 
 Want it on an always-on server, reachable from every device, with other people in your office? See [self-hosted setup](docs/self-hosted.md).
 

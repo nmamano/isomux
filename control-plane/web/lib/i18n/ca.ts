@@ -142,7 +142,7 @@ export const ca: Catalog = {
   "steps.labelWaitForPackageManager":
     "Esperant el gestor de paquets del servidor",
   "steps.labelSetDns": "Configurant l'adreça de la teva oficina",
-  "steps.labelRunInstaller": "Instal·lant isomux",
+  "steps.labelRunInstaller": "Instal·lant Isomux",
   "steps.labelVerifyHttps": "Comprovant la teva oficina per HTTPS",
   "steps.labelMintInvite": "Preparant la teva invitació de propietari",
   "steps.labelRevokeAccess": "Retirant el nostre accés",
@@ -274,7 +274,7 @@ export const ca: Catalog = {
 
   "office.restartHeading": "Reinici",
   "office.restartCaveat":
-    "Reiniciar apaga i encén tot el servidor, no només isomux. Interromp tots els agents que estiguin en marxa i triga un parell de minuts.",
+    "Reiniciar apaga i encén tot el servidor, no només Isomux. Interromp tots els agents que estiguin en marxa i triga un parell de minuts.",
   "office.restart": "Reinicia el meu servidor",
   "office.restarting": "Reiniciant...",
   "office.action.restartServer": "reiniciar el teu servidor",

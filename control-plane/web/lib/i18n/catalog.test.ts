@@ -37,6 +37,22 @@ test("the catalog is not empty and every language is registered", () => {
   );
 });
 
+// Nil, 2026-11-05 (AGENTS.md, UI rules): the product name is Isomux,
+// capitalized, in every string a person reads. A code span keeps the literal,
+// and so does a name inside a domain, path or unit (isomux.com).
+test("every language capitalizes Isomux outside a code span", () => {
+  const prose = (text: string) =>
+    text.replace(/`[^`]*`|<code>[\s\S]*?<\/code>/g, "");
+  const lowercase = /(?<![\w./@~-])isomux(?![\w/@-]|\.\w)/;
+  for (const [name, catalog] of Object.entries({ en, ...OTHERS }))
+    for (const key of KEYS)
+      expect(prose(catalog[key]), `${name} ${key}`).not.toMatch(lowercase);
+  // The prose is read: some value names the product outside a span.
+  expect(
+    KEYS.filter((key) => /\bIsomux\b/.test(prose(en[key]))).length,
+  ).toBeGreaterThan(0);
+});
+
 describe.each(Object.entries(OTHERS))("%s", (name, catalog) => {
   test("has exactly the English keys", () => {
     expect(Object.keys(catalog).sort()).toEqual([...KEYS].sort());

@@ -10,12 +10,12 @@ Choose a complete setup guide on the [hosting page](self-hosted.md). This page c
 
 Everything below is one script, [`deploy/install.sh`](https://github.com/nmamano/isomux/blob/main/deploy/install.sh).
 
-- Installs bun, build-essential, python3, GitHub CLI, git, Caddy, and Chrome (headless, for page-preview cards); fetches isomux and builds it.
-- Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
+- Installs bun, build-essential, python3, GitHub CLI, git, Caddy, and Chrome (headless, for page-preview cards); fetches Isomux and builds it.
+- Runs Isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Makes new files readable only by the `isomux` account. To share them, for example with a web server, set `UMask=0022` with `sudo systemctl edit isomux`, restart, and keep the files outside `/home/isomux`.
 - Sets up the `isomux` account so apps agents build keep running without anyone logged in and start again after a reboot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy keeps a size-bounded request log for 14 days and redacts invite and app sign-in credentials from URLs. Its admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
-- Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth in the general SSH settings (a `Match` rule for one user or address keeps its own setting); unattended security updates (a standard Ubuntu feature - it patches system packages, never isomux itself).
+- Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth in the general SSH settings (a `Match` rule for one user or address keeps its own setting); unattended security updates (a standard Ubuntu feature - it patches system packages, never Isomux itself).
 - Checks that the `isomux` account cannot log in as root, and stops the install if the account can. See [root access](#root-access).
 - Sets up out-of-memory protection and caps the office's memory below the box's RAM, leaving room for SSH. Boxes under 4 GB are not capped. See [running out of memory](#running-out-of-memory).
 - Makes the sandbox that Codex agents run their tools in actually work. On Ubuntu 24.04 that takes one small AppArmor policy file which the sandbox's own package doesn't ship. The installer tries the sandbox first and only acts if it is broken, so a box where it already works is left alone. If the installer still can't get the sandbox working, the install carries on and says so in the output.
@@ -27,11 +27,11 @@ On Linux, each agent session runs in its own process namespace, so an agent sees
 
 ## Root access
 
-Agents run as the `isomux` account, so anything that account can do, an agent can do. If that account can log in as root, it can turn off every guardrail isomux puts in front of it.
+Agents run as the `isomux` account, so anything that account can do, an agent can do. If that account can log in as root, it can turn off every guardrail Isomux puts in front of it.
 
 The installer checks this itself. It tries to log in as that account at every address SSH answers on, and asks what the account may do with `sudo`. It checks when the account is created and again before it prints the invite link. If it gets in, or cannot tell, the install stops. The check cannot be skipped; fix the box instead.
 
-What the check promises when it passes: the isomux service account cannot log in as root over SSH on this box, and cannot sudo. There is one deliberate exception - that account can ask root to apply an isomux release, which is what the update button in the office header runs. It can start nothing else.
+What the check promises when it passes: the Isomux service account cannot log in as root over SSH on this box, and cannot sudo. There is one deliberate exception - that account can ask root to apply an Isomux release, which is what the update button in the office header runs. It can start nothing else.
 
 The usual cause of a failure is a key file kept on the server that root accepts. The key from your own computer is fine - that file stays on your computer. A key made _on_ the box, for GitHub or a deploy script, is not: anything running there can read it and log in as root with it. When the check fails it names the file and tells you which line to remove.
 

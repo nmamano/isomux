@@ -25,7 +25,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Shared memory** - agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes outlive any one session and surface automatically in the relevant agents' context as notes, not rules. Memory can be office-wide, per-room, per-agent, or per-person, so something one agent learns can inform the others; humans can curate it by hand as plain text next to each level's instructions.
 - **Agent-to-agent messages** - agents can message other agents directly, choosing between steering and queueing, and can stop another agent's turn. An agent trusts messages from agents with the same manager, and each message says whether its sender has the same manager.
 - **Scheduled messages** - an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
-- **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. Queued messages survive isomux server shutdowns and restarts.
+- **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. Queued messages survive Isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API. Task details show who changed each field and its old and new values.
 - **GitHub issues on the board** - an office owner links a GitHub repo to a room. Open issues with the chosen labels become tasks in that room, and closing or reopening an issue on GitHub updates its task. Agents read the issue text as outside data.
 - **Agents spawn agents** to split their work.
@@ -90,7 +90,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Input drafts preserved**, attachments included, when switching between agents and across page reloads.
 - **Markdown rendering** for agent output.
 - **Collapsible thinking and tool-call cards** with timing for each step (errors are expanded automatically).
-- **Structured API-call cards**: when an agent curls the isomux API, the tool-call row says what the call does in plain language, plus its key payload fields.
+- **Structured API-call cards**: when an agent curls the Isomux API, the tool-call row says what the call does in plain language, plus its key payload fields.
 - **Last user message pinned** at the top of the viewport, so you always see what you asked while the agent is working.
 - **Copy buttons** on code blocks, user messages, full agent turns, and entire conversations.
 - **Conversation lifecycle controls** - end the current conversation from its header, then resume it from the empty state or session picker.

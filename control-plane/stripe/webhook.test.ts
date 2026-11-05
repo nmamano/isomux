@@ -570,7 +570,7 @@ describe("applying an event", () => {
     expect((await getSubscription(store, "sub_1"))?.account_id).toBe(
       "acct-unattributed-cus_1",
     );
-    expect(lines.join("\n")).toContain("no isomux metadata");
+    expect(lines.join("\n")).toMatch(/no isomux metadata/i);
   });
 });
 

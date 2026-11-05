@@ -194,6 +194,33 @@ describe("the catalogs", () => {
     ).toBeGreaterThan(0);
   });
 
+  // Nil, 2026-11-05 (AGENTS.md, UI rules): the product name is Isomux,
+  // capitalized, in every string a person reads. A code span keeps the literal
+  // (systemctl --user restart isomux), and so does a name inside a domain, path
+  // or unit (isomux.com, isomux-container).
+  it("capitalizes Isomux outside a code span", () => {
+    const prose = (text: string) =>
+      text.replace(/`[^`]*`|<code>[\s\S]*?<\/code>/g, "");
+    const lowercase = /(?<![\w./@~-])isomux(?![\w/@-]|\.\w)/;
+    for (const code of [DEFAULT_LANGUAGE, ...OTHER_LANGUAGES]) {
+      const catalog = CATALOGS[code];
+      for (const key of ENGLISH_KEYS)
+        expect(
+          prose(catalog[key as keyof typeof en]),
+          `${code} ${key}`,
+        ).not.toMatch(lowercase);
+    }
+    // The exclusion is in use, and the prose around a span is still read.
+    const values = Object.values(en) as string[];
+    expect(
+      values.filter((v) => lowercase.test(v) && !lowercase.test(prose(v)))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      values.filter((v) => /\bIsomux\b/.test(prose(v))).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("names keys by surface and meaning, never by the English text", () => {
     for (const key of ENGLISH_KEYS) {
       expect(key).toMatch(/^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/);

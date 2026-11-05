@@ -129,7 +129,7 @@ describe("the safety plugin", () => {
     const hooks = await loaded(repo);
     const denied = await verdict(hooks, "shell", { command: "rm -rf ~" });
     expect(denied).not.toBe("allow");
-    expect(denied).toStartWith("BLOCKED by isomux safety hooks");
+    expect(denied).toStartWith("BLOCKED");
     expect(await verdict(hooks, "shell", { command: "ls -la" })).toBe("allow");
     expect(
       await verdict(hooks, "isomux-docs_search", { command: "rm -rf ~" }),

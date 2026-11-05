@@ -109,7 +109,7 @@ function resolveOfficeEnvSource(): string | null {
 
 function pendingImportError(path: string): Error {
   return new Error(
-    `The env file ${path} could not be imported into managed variables: fix it so it parses (one NAME=value per line) or delete it, then restart isomux.`,
+    `The env file ${path} could not be imported into managed variables: fix it so it parses (one NAME=value per line) or delete it, then restart Isomux.`,
   );
 }
 

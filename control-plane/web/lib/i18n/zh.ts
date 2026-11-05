@@ -109,7 +109,7 @@ export const zh: Catalog = {
   "steps.labelArmRevocation": "正在设置访问权限到期定时器",
   "steps.labelWaitForPackageManager": "正在等待服务器的软件包管理器",
   "steps.labelSetDns": "正在设置办公室地址",
-  "steps.labelRunInstaller": "正在安装 isomux",
+  "steps.labelRunInstaller": "正在安装 Isomux",
   "steps.labelVerifyHttps": "正在通过 HTTPS 检查办公室",
   "steps.labelMintInvite": "正在准备所有者邀请",
   "steps.labelRevokeAccess": "正在移除我们的访问权限",
@@ -209,7 +209,7 @@ export const zh: Catalog = {
   "liveness.labelOk": "办公室正在提供服务",
   "office.restartHeading": "重启",
   "office.restartCaveat":
-    "重启会关闭并重新启动整个服务器，而不仅是 isomux。这会中断所有正在运行的智能体，需要几分钟。",
+    "重启会关闭并重新启动整个服务器，而不仅是 Isomux。这会中断所有正在运行的智能体，需要几分钟。",
   "office.restart": "重启我的服务器",
   "office.restarting": "正在重启…",
   "office.action.restartServer": "重启服务器",

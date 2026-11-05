@@ -622,7 +622,7 @@ App 的一些原则：
   "settings.update.stepPull": "拉取最新更改",
   "settings.update.stepInstall": "运行 <code>bun install</code>",
   "settings.update.stepRestart":
-    "重启 isomux 使更新生效。开发环境：<code>bun run dev</code>。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
+    "重启 Isomux 使更新生效。开发环境：<code>bun run dev</code>。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
   "settings.update.tip":
     "提示：点击复制按钮将此通知复制到剪贴板，再请任意智能体处理。",
   "settings.update.stepRefresh": "服务器重启后，请刷新浏览器。",
@@ -648,7 +648,7 @@ App 的一些原则：
   "settings.update.gotIt": "知道了",
   "settings.update.lastUpdate": "上次更新，{date}",
 
-  "update.screen.title": "正在更新 isomux",
+  "update.screen.title": "正在更新 Isomux",
   "update.screen.prepare": "正在准备",
   "update.screen.install": "正在安装",
   "update.screen.restart": "正在重启",
@@ -830,11 +830,11 @@ App 的一些原则：
   "settings.externalAccess.enable": "启用外部访问",
   "settings.externalAccess.publicUrl": "公共 URL",
   "settings.externalAccess.urlHint":
-    "格式：{pattern}（在笔记本电脑或手机上打开的地址）。保存本身不会更改当前运行的服务器的绑定地址，请重启 isomux 以应用更改。",
+    "格式：{pattern}（在笔记本电脑或手机上打开的地址）。保存本身不会更改当前运行的服务器的绑定地址，请重启 Isomux 以应用更改。",
   "settings.externalAccess.discardPrompt": "放弃未保存的外部访问更改？",
   "settings.externalAccess.updateFailed": "更新设置失败",
   "settings.externalAccess.restartNote":
-    "已保存。请重启 isomux 使新绑定生效。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
+    "已保存。请重启 Isomux 使新绑定生效。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
   "settings.externalAccess.signInAfterRestart":
     "重启后，请在需要通过公共地址访问的设备上打开此 URL。（链接在生成 1 小时后过期。）",
   "settings.apiTokens.intro":
@@ -1932,7 +1932,7 @@ App 的一些原则：
   "apiCall.webhooks.deliveries": "读取 Webhook 投递记录",
   "apiCall.webhooks.dryRun": "测试 Webhook 规则",
   "apiCall.skillUsage.read": "读取技能使用次数",
-  "apiCall.version.check": "检查 isomux 版本",
+  "apiCall.version.check": "检查 Isomux 版本",
   "apiCall.storage.usage": "检查办公室磁盘用量",
   "apiCall.storage.prune": "清理存储的历史记录",
   "apiCall.storage.compress": "压缩旧对话",

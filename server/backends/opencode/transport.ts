@@ -69,7 +69,7 @@ import { providerText } from "../provider-text.ts";
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
   "with the request, so Isomux had no way to answer it. Tell the office " +
-  "owner and check the isomux service logs.";
+  "owner and check the Isomux service logs.";
 
 export const OPENCODE_AUTH_FAILURE =
   "OpenCode authentication is not configured.";
@@ -90,10 +90,10 @@ export const OPENCODE_EVENT_STREAM_LOST_FAILURE =
   "OpenCode stopped sending updates for this turn. Send your message again.";
 
 export const OPENCODE_SAFETY_PLUGIN_MISSING_FAILURE =
-  "OpenCode did not load the Isomux safety checks for this folder, so this turn did not run. Tell the office owner and check the isomux service logs.";
+  "OpenCode did not load the Isomux safety checks for this folder, so this turn did not run. Tell the office owner and check the Isomux service logs.";
 
 export const OPENCODE_SETTINGS_MISSING_FAILURE =
-  "OpenCode did not load the Isomux settings for this folder, so this turn did not run. Tell the office owner and check the isomux service logs.";
+  "OpenCode did not load the Isomux settings for this folder, so this turn did not run. Tell the office owner and check the Isomux service logs.";
 
 export const OPENCODE_FOLDER_SETUP_NOTICE =
   "OpenCode is still setting up this folder. The first turn can take a few minutes.";

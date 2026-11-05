@@ -187,7 +187,7 @@ else
   log "install smoke green for $HEAD_SHA (Install smoke workflow completed/success)"
 fi
 
-git tag -a "$TAG" -m "isomux $TAG"
+git tag -a "$TAG" -m "Isomux $TAG"
 # The tag push skips the pre-push hook on purpose: the commit it points at
 # was pushed through that hook already and its GitHub CI was verified above,
 # so a second full run here proved nothing and cost 20 minutes per release.

@@ -231,7 +231,7 @@ function limitedAccessSection(stop: AgentAccess): string {
   const office =
     stop === "chat"
       ? "You have no tools: answer in your chat."
-      : "You reach the office only through the isomux tools, and only the parts you have access to.";
+      : "You reach the office only through the Isomux tools, and only the parts you have access to.";
   const files = stopHasFolder(stop)
     ? " Your file tools reach only your working folder."
     : stop === "chat"

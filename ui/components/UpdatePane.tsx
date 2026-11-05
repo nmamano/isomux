@@ -54,7 +54,7 @@ function buildCommitPlainText(notice: CommitNotice): string {
     "",
     "1. Pull the latest changes",
     "2. Run `bun install`",
-    `3. Restart isomux for the update to take effect. Dev: \`bun run dev\`. User service: \`systemctl --user restart isomux\`. System service: \`sudo systemctl restart isomux\`.`,
+    `3. Restart Isomux for the update to take effect. Dev: \`bun run dev\`. User service: \`systemctl --user restart isomux\`. System service: \`sudo systemctl restart isomux\`.`,
     "4. Refresh the browser after the server restarts.",
   ].join("\n");
 }

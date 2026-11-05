@@ -58,7 +58,7 @@ On 2026-10-25, the trust pin moved to Codex 0.164.0, with an API-key login. The 
 
 Codex fails open when a hook executable is missing, exits with an error, times out, or returns an invalid result. Isomux surfaces the same signed transcript warning when it detects a pre-spawn installation or trust failure, a caught checker fault, or a technical `hook/completed` failure:
 
-> Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the isomux service logs.
+> Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the Isomux service logs.
 
 The Codex session still starts after a pre-spawn failure; the only exception is the refusal of a process other than the office server described above. Isomux also writes a cause-specific server error so the office owner can distinguish artifact, repair, hook configuration, trust, and unexpected failures.
 

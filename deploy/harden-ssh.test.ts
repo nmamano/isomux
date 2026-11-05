@@ -622,8 +622,8 @@ describe.concurrent("harden-ssh.sh --check", () => {
       // ...and the headline says so too: an absolute "cannot log in" next to
       // "this port was not tested" cannot both be true.
       expect(output).toContain("no way in was found");
-      expect(output).not.toContain(
-        "PASSED - the isomux service account cannot log in",
+      expect(output).not.toMatch(
+        /PASSED - the isomux service account cannot log in/i,
       );
     } finally {
       quiet.stop(true);

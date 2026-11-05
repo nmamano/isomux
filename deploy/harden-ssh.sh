@@ -793,7 +793,7 @@ report_fail() {
   [[ $SUDO_STATE != FAIL || -z $SUDO_DETAIL ]] || log "  $SUDO_DETAIL"
   log ""
   log "Isomux agents run as the $SERVICE_USER account, so whatever that account"
-  log "can do, an agent can do - including turning off every guardrail isomux"
+  log "can do, an agent can do - including turning off every guardrail Isomux"
   log "puts in front of them."
   report_evidence
   log ""
@@ -839,13 +839,13 @@ report_unknown() {
 
 report_pass() {
   if [[ -z $KEY_UNPROVEN && -z $UNIDENTIFIED ]]; then
-    log "PASSED - the isomux service account cannot log in as root over SSH"
+    log "PASSED - the Isomux service account cannot log in as root over SSH"
     log "on this box, and cannot sudo."
   else
     # Softened deliberately. With a key this check could not open, or a port
     # that never identified itself, "cannot log in" would contradict the caveat
     # printed right below it.
-    log "PASSED - no way in was found: the isomux service account could not"
+    log "PASSED - no way in was found: the Isomux service account could not"
     log "log in as root over SSH on this box, and cannot sudo."
   fi
   [[ -z $SSH_DETAIL ]] || log "  ($SSH_DETAIL)"

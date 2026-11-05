@@ -667,7 +667,7 @@ Coses que pots fer per ell:
   "settings.update.stepPull": "Descarrega els últims canvis",
   "settings.update.stepInstall": "Executa <code>bun install</code>",
   "settings.update.stepRestart":
-    "Reinicia isomux perquè l'actualització s'apliqui. Desenvolupament: <code>bun run dev</code>. Servei d'usuari: <code>systemctl --user restart isomux</code>. Servei de sistema: <code>sudo systemctl restart isomux</code>.",
+    "Reinicia Isomux perquè l'actualització s'apliqui. Desenvolupament: <code>bun run dev</code>. Servei d'usuari: <code>systemctl --user restart isomux</code>. Servei de sistema: <code>sudo systemctl restart isomux</code>.",
   "settings.update.tip":
     "Consell: prem el botó de copiar per copiar aquest avís al porta-retalls i després demana a qualsevol agent que se n'encarregui.",
   "settings.update.stepRefresh":
@@ -699,7 +699,7 @@ Coses que pots fer per ell:
   "settings.update.gotIt": "Entesos",
   "settings.update.lastUpdate": "Darrera actualització, {date}",
 
-  "update.screen.title": "Actualitzant isomux",
+  "update.screen.title": "Actualitzant Isomux",
   "update.screen.prepare": "Preparant",
   "update.screen.install": "Instal·lant",
   "update.screen.restart": "Reiniciant",
@@ -917,13 +917,13 @@ Coses que pots fer per ell:
   "settings.externalAccess.enable": "Activa l'accés extern",
   "settings.externalAccess.publicUrl": "URL pública",
   "settings.externalAccess.urlHint":
-    "Patró: {pattern} (l'adreça que obriràs des del portàtil o el mòbil). Desar no canvia per si sol la interfície on escolta el servidor - reinicia isomux per aplicar-ho.",
+    "Patró: {pattern} (l'adreça que obriràs des del portàtil o el mòbil). Desar no canvia per si sol la interfície on escolta el servidor - reinicia Isomux per aplicar-ho.",
   "settings.externalAccess.discardPrompt":
     "Vols descartar els canvis d'accés extern sense desar?",
   "settings.externalAccess.updateFailed":
     "No s'ha pogut actualitzar la configuració",
   "settings.externalAccess.restartNote":
-    "Desat. Reinicia isomux perquè la nova interfície d'escolta tingui efecte. Servei d'usuari: <code>systemctl --user restart isomux</code>. Servei del sistema: <code>sudo systemctl restart isomux</code>.",
+    "Desat. Reinicia Isomux perquè la nova interfície d'escolta tingui efecte. Servei d'usuari: <code>systemctl --user restart isomux</code>. Servei del sistema: <code>sudo systemctl restart isomux</code>.",
   "settings.externalAccess.signInAfterRestart":
     "Després del reinici, obre aquesta URL al dispositiu que vulguis fer servir des de l'adreça pública. (Caduca 1 hora després d'emetre-la.)",
 
@@ -2164,7 +2164,7 @@ Coses que pots fer per ell:
   "apiCall.webhooks.deliveries": "Llegir les entregues del webhook",
   "apiCall.webhooks.dryRun": "Provar les regles del webhook",
   "apiCall.skillUsage.read": "Llegir el recompte d'ús d'habilitats",
-  "apiCall.version.check": "Consultar la versió d'isomux",
+  "apiCall.version.check": "Consultar la versió d'Isomux",
   "apiCall.storage.usage": "Consultar l'ús de disc de l'oficina",
   "apiCall.storage.prune": "Purgar l'historial emmagatzemat",
   "apiCall.storage.compress": "Comprimir converses antigues",

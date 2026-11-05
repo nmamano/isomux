@@ -234,7 +234,7 @@ const LABELS: Record<OperationKind, string> = {
   arm_revocation: "Setting a timer for our access to expire",
   wait_for_package_manager: "Waiting for the server's package manager",
   set_dns: "Setting your office's address",
-  run_installer: "Installing isomux",
+  run_installer: "Installing Isomux",
   verify_https: "Checking your office over HTTPS",
   mint_invite: "Preparing your owner invite",
   revoke_access: "Removing our access",

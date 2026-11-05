@@ -13,7 +13,7 @@ declare const ISOMUX_SAFETY_HOOK_SOURCE_SHA256: string | undefined;
 export const SAFETY_WARNING =
   "Isomux safety check skipped: Isomux could not run its safety check on " +
   "this tool call, so the call ran unchecked. Tell the office owner and " +
-  "check the isomux service logs.";
+  "check the Isomux service logs.";
 
 const EMBEDDED_SOURCE_SHA256 =
   typeof ISOMUX_SAFETY_HOOK_SOURCE_SHA256 === "string"

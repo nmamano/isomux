@@ -64,7 +64,7 @@ by root inside the office account.
 
 ## Re-run after an installation failure
 
-Safe after a failure: completed steps are skipped or redone harmlessly, and a fresh invite link is minted each run. A re-run recovers its owner session automatically; when the office has several owners, the `OWNER_NAME` environment variable names which one to recover. Re-running restarts the isomux service, which interrupts running agents.
+Safe after a failure: completed steps are skipped or redone harmlessly, and a fresh invite link is minted each run. A re-run recovers its owner session automatically; when the office has several owners, the `OWNER_NAME` environment variable names which one to recover. Re-running restarts the Isomux service, which interrupts running agents.
 
 <!-- include: host-update -->
 

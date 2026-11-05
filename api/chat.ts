@@ -230,7 +230,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Input drafts preserved when switching between agents and across page reloads
 - Markdown rendering for agent output
 - Collapsible thinking and tool-call cards with timing for each step
-- Structured cards for agent curl calls to the isomux API, describing each call in plain language with its key payload fields
+- Structured cards for agent curl calls to the Isomux API, describing each call in plain language with its key payload fields
 - Copy buttons on code blocks, user messages, full agent turns, and entire conversations
 - Message queueing: messages sent while the agent is busy are queued. The "Send now" button flushes the queue immediately, and Ctrl/Cmd+Enter sends a message with the same interrupt-and-flush behavior.
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
@@ -265,7 +265,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Ask one agent "What do you think of Agent X's approach?" and it just works - it reads the other agent's conversation and gives feedback
 - Agents can message other agents directly, choosing between steering and queueing, and can stop another agent's turn.
 - Scheduled messages: an agent can schedule a message to another agent, or to itself, for a future time (reminders, wake-ups, follow-up checks). Pending scheduled messages survive server restarts, can be listed and cancelled, and arrive clearly marked as scheduled.
-- Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
+- Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive Isomux server shutdowns and restarts.
 - Room-scoped task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room or to an office-wide global board shared across everyone; you see tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API
 - Shared memory: agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes persist across sessions and surface automatically in the relevant agents' context as notes rather than rules. Memory can be office-wide, per-room, per-agent, or per-person, and humans can curate it as plain text next to each level's prompt. When a level's notes near their size cap, the agent flags it at the start of its next conversation and can help trim them.
 
@@ -337,7 +337,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Accessed via the Automations entry in the office nav bar, or by clicking the decorative wall clock
 
 ### Apps
-- Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
+- Agents can build a web app and register it with the office; Isomux runs it from then on, so it keeps running after the session ends.
 - The Apps tab lists every app available to you with its link, state, restart count, and thumbnail. App owners and office owners can also read recent output and start, stop, restart, archive, or delete an app.
 - On an office with its own domain and wildcard DNS, each app can get a short address, like your-office.com/hello, that shows the app full-page with a chat button. Chat uses the target agent's shared conversation and requires access to both the app and the agent's room. Members can paste, drop or attach screenshots in chat; Isomux does not capture the screen. A direct link opens hello.your-office.com (see isomux.com/docs/hosting).
 - Install as app: the Apps tab and the app's short address can put an app on a phone's Home Screen or a computer's app list, as its own app with its own name. Chrome and Edge install it in one click; on iPhone the page shows the Safari steps (Share, then Add to Home Screen).
