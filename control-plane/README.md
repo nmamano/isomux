@@ -2228,10 +2228,12 @@ measured cost of the alternative was 446 MB.
 
 `bun run ci` still covers it. The last step of the root `ci` script is
 `ci:web`, which installs the nested package from its committed lockfile with
-`--frozen-lockfile` and then builds, type-checks and lints it. The build runs
-through `scripts/web-build.ts`: when a Next.js build worker dies of a signal,
-or V8 aborts the type check's `tsc` with a fatal error, it runs the build once
-more with fewer workers. A fresh clone
+`--frozen-lockfile` and then builds and lints it. The type check is the one
+`next build` runs (`tsc` on the whole web project). The build runs through
+`scripts/web-build.ts`: when a Next.js build worker dies of a signal, or V8
+aborts the type check's `tsc` with a fatal error, it runs the build once more
+with fewer workers. The lint runs through `scripts/lint.ts --web`, which runs
+ESLint once more when it crashes. A fresh clone
 passes one command; the price is that the first `bun run ci` needs the network,
 where it used not to.
 

@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, mock, spyOn } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { crashMarker, heapEnv, readHeapReport, runMarker } from "./heap-report";
 import {
   type EslintRun,
   type LintReport,
+  type LintTarget,
   LINT_RESERVE_BYTES,
   LINT_THREAD_BYTES,
   MAX_LINT_THREADS,
@@ -31,7 +39,11 @@ type Ending = { code: number; signal: string | null };
 const THREE_THREADS = LINT_RESERVE_BYTES + 3 * LINT_THREAD_BYTES;
 
 /** Runs ESLint as a script of endings; a run past the script fails the test. */
-async function lintWith(endings: Ending[], available = THREE_THREADS) {
+async function lintWith(
+  endings: Ending[],
+  available = THREE_THREADS,
+  target: LintTarget = "repo",
+) {
   const lines: string[] = [];
   const keep = (...args: unknown[]) => {
     lines.push(args.join(" "));
@@ -45,7 +57,7 @@ async function lintWith(endings: Ending[], available = THREE_THREADS) {
     if (!ending) throw new Error(`unexpected ESLint run ${threads.length}`);
     return ending;
   };
-  const code = await runLint(false, run, available);
+  const code = await runLint(false, run, available, undefined, target);
   return { code, threads, lines };
 }
 
@@ -140,6 +152,37 @@ it("fails after a second crash, with no third run", async () => {
   expect(lint.lines).toHaveLength(3);
   expect(lint.lines[2]).toContain("134");
   expect(lint.lines[2]).toContain("SIGABRT");
+});
+
+// ci:web lints the web app with it, on a remote gate slot of about 3 GiB
+// (task 3a48aba3): threads stay off however much memory is free.
+it("lints the web app unthreaded, and once more after a crash", async () => {
+  for (const code of [0, 1, 2]) {
+    const lint = await lintWith([{ code, signal: null }], THREE_THREADS, "web");
+    expect(lint.code).toBe(code);
+    expect(lint.threads).toEqual(["off"]);
+  }
+  const crash = await lintWith(
+    [
+      { code: 133, signal: "SIGTRAP" },
+      { code: 1, signal: null },
+    ],
+    THREE_THREADS,
+    "web",
+  );
+  expect(crash.code).toBe(1);
+  expect(crash.threads).toEqual(["off", "off"]);
+  expect(crash.lines[1]).toContain("133");
+  const twice = await lintWith(
+    [
+      { code: 134, signal: "SIGABRT" },
+      { code: 134, signal: "SIGABRT" },
+    ],
+    THREE_THREADS,
+    "web",
+  );
+  expect(twice.code).toBe(134);
+  expect(twice.threads).toEqual(["off", "off"]);
 });
 
 // The heap report (task 53a41bd9): with a report, lint.ts marks each ESLint
@@ -322,5 +365,83 @@ describe("the ESLint environment in a real Node run", () => {
     const text = readFileSync(file, "utf8");
     expect(text.trim().split("\n")).toHaveLength(2);
     expect(readHeapReport(text)).toMatchObject({ heaps: 1, lost: 0 });
+  });
+});
+
+// `bun run lint:web` as ci:web runs it (task 3a48aba3): the package script,
+// through lint.ts, with ESLint replaced by a `bun x` that ends as told.
+describe("lint:web", () => {
+  const repoRoot = join(import.meta.dirname, "..");
+  const script = (
+    JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    }
+  ).scripts["lint:web"];
+
+  /** Runs the lint:web script with `args`; each `bun x` exits the next code. */
+  async function lintWeb(codes: number[], args = "") {
+    const dir = mkdtempSync(join(tmpdir(), "lint-web-test-"));
+    roots.push(dir);
+    writeFileSync(join(dir, "codes"), codes.join("\n") + "\n");
+    writeFileSync(join(dir, "calls"), "");
+    const fake = join(dir, "bin");
+    mkdirSync(fake);
+    writeFileSync(
+      join(fake, "bun"),
+      [
+        "#!/bin/sh",
+        'if [ "$1" = x ]; then',
+        '  echo "$*" >> "$LINT_FAKE/calls"',
+        '  n=$(wc -l < "$LINT_FAKE/calls")',
+        '  exit "$(sed -n "${n}p" "$LINT_FAKE/codes")"',
+        "fi",
+        'exec "$LINT_REAL_BUN" "$@"',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(join(fake, "bun"), 0o755);
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env))
+      if (value !== undefined && key !== "ISOMUX_HEAP_REPORT") env[key] = value;
+    // No ESLint on this PATH: only the fake can answer.
+    env.PATH = `${fake}:/usr/bin:/bin`;
+    env.LINT_FAKE = dir;
+    env.LINT_REAL_BUN = process.execPath;
+    const child = Bun.spawn(["sh", "-c", `${script} ${args}`], {
+      cwd: repoRoot,
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [, , code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    const calls = readFileSync(join(dir, "calls"), "utf8")
+      .split("\n")
+      .filter(Boolean);
+    return { code, calls };
+  }
+
+  const web =
+    "x eslint --config control-plane/web/eslint.config.mjs control-plane/web";
+
+  it("lints the web app once, and once more after a crash", async () => {
+    const crash = await lintWeb([134, 0]);
+    expect(crash.calls).toEqual([
+      `${web} --concurrency=off`,
+      `${web} --concurrency=off`,
+    ]);
+    expect(crash.code).toBe(0);
+    const finding = await lintWeb([1]);
+    expect(finding.calls).toEqual([`${web} --concurrency=off`]);
+    expect(finding.code).toBe(1);
+  });
+
+  it("passes --fix on", async () => {
+    const fix = await lintWeb([0], "--fix");
+    expect(fix.calls).toEqual([`${web} --concurrency=off --fix`]);
+    expect(fix.code).toBe(0);
   });
 });

@@ -26,9 +26,9 @@
     "middleware.ts"
   ],
   // The hosted control plane's web app is its own package with its own
-  // dependencies, tsconfig and build. It is type-checked by `bun run ci:web`
-  // against Next's types, which exist only after that package is installed - so
-  // it stays out of the repository-wide check rather than making a fresh clone
-  // fail on a missing module.
+  // dependencies, tsconfig and build. Its `next build` in `bun run ci:web`
+  // type-checks it against Next's types, which exist only after that package
+  // is installed - so it stays out of the repository-wide check rather than
+  // making a fresh clone fail on a missing module.
   "exclude": ["control-plane/web"]
 }

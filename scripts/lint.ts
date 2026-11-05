@@ -41,12 +41,27 @@ export function lintConcurrency(available: number | undefined): string {
   return threads >= 2 ? String(threads) : "off";
 }
 
-export function eslintCommand(fix: boolean, concurrency = "off"): string[] {
+/**
+ * What a lint checks: the repository, or the nested web package with its own
+ * config (the root config ignores control-plane/web).
+ */
+export type LintTarget = "repo" | "web";
+
+const TARGET_ARGS: Record<LintTarget, string[]> = {
+  repo: ["."],
+  web: ["--config", "control-plane/web/eslint.config.mjs", "control-plane/web"],
+};
+
+export function eslintCommand(
+  fix: boolean,
+  concurrency = "off",
+  target: LintTarget = "repo",
+): string[] {
   return [
     "bun",
     "x",
     "eslint",
-    ".",
+    ...TARGET_ARGS[target],
     `--concurrency=${concurrency}`,
     ...(fix ? ["--fix"] : []),
   ];
@@ -104,9 +119,13 @@ function exitText(result: { code: number; signal: string | null }): string {
     : `exit ${result.code}`;
 }
 
-function spawnEslint(fix: boolean, selfReport?: string): EslintRun {
+function spawnEslint(
+  fix: boolean,
+  selfReport?: string,
+  target: LintTarget = "repo",
+): EslintRun {
   return async (concurrency) => {
-    const child = Bun.spawn(eslintCommand(fix, concurrency), {
+    const child = Bun.spawn(eslintCommand(fix, concurrency, target), {
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",
@@ -148,6 +167,7 @@ export async function runLint(
   run: EslintRun = spawnEslint(fix),
   available: number | undefined = availableMemory(),
   report?: LintReport,
+  target: LintTarget = "repo",
 ): Promise<number> {
   // Markers go in only between ESLint runs, so no write races a heap's.
   let runStart = 0;
@@ -160,17 +180,23 @@ export async function runLint(
     report
       ? heapVerdict(code, report.read().slice(runStart), report.self)
       : code;
-  const concurrency = lintConcurrency(available);
+  // The web app is linted by ci:web on a remote gate slot of about 3 GiB
+  // (scripts/ci-remote.sh), and each thread builds its own TypeScript program:
+  // no threads there, whatever this machine has.
+  const concurrency = target === "web" ? "off" : lintConcurrency(available);
   console.log(
-    `eslint threads: ${concurrency}` +
-      (available === undefined
-        ? " (available memory unknown)"
-        : ` (${(available / GIB).toFixed(1)} GiB available)`),
+    target === "web"
+      ? "eslint threads: off (web app)"
+      : `eslint threads: ${concurrency}` +
+          (available === undefined
+            ? " (available memory unknown)"
+            : ` (${(available / GIB).toFixed(1)} GiB available)`),
   );
   const first = await marked(concurrency);
   if (first.code < CRASH_EXIT) return verdict(first.code);
   console.error(
-    `eslint crashed (${exitText(first)}), not a lint finding; running it again with threads off`,
+    `eslint crashed (${exitText(first)}), not a lint finding; running it again` +
+      (concurrency === "off" ? "" : " with threads off"),
   );
   report?.append(crashMarker(exitText(first)));
   const second = await marked("off");
@@ -196,6 +222,7 @@ function fileReport(path: string, self: boolean): LintReport {
 
 if (import.meta.main) {
   const fix = process.argv.includes("--fix");
+  const target: LintTarget = process.argv.includes("--web") ? "web" : "repo";
   // CI (scripts/ci.ts) sets the report and loads the preload; otherwise, as
   // on GitHub, lint.ts loads it itself into a report of its own.
   const given = process.env.ISOMUX_HEAP_REPORT;
@@ -204,9 +231,10 @@ if (import.meta.main) {
   try {
     process.exitCode = await runLint(
       fix,
-      spawnEslint(fix, given ? undefined : path),
+      spawnEslint(fix, given ? undefined : path, target),
       availableMemory(),
       fileReport(path, !given),
+      target,
     );
   } finally {
     if (dir) rmSync(dir, { recursive: true, force: true });

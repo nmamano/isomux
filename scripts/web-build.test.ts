@@ -211,8 +211,10 @@ it("runs the build again once after a V8 fatal error", async () => {
 
 const repoRoot = path.join(import.meta.dirname, "..");
 
-/** experimental.cpus of the config Next loads, with the worker count set to `value`. */
-async function configCpus(value: string | undefined): Promise<unknown> {
+/** The config Next loads, with the worker count set to `value`. */
+async function loadConfig(
+  value: string | undefined,
+): Promise<{ cpus: unknown; ignoreBuildErrors: unknown }> {
   const env = { ...process.env };
   delete env.ISOMUX_WEB_BUILD_WORKERS;
   if (value !== undefined) env.ISOMUX_WEB_BUILD_WORKERS = value;
@@ -221,7 +223,7 @@ async function configCpus(value: string | undefined): Promise<unknown> {
       process.execPath,
       "-e",
       'const c = (await import("./control-plane/web/next.config.ts")).default;' +
-        "console.log(JSON.stringify({ cpus: c.experimental?.cpus ?? null, root: c.turbopack?.root ?? null }));",
+        "console.log(JSON.stringify({ cpus: c.experimental?.cpus ?? null, ignoreBuildErrors: c.typescript?.ignoreBuildErrors ?? null, root: c.turbopack?.root ?? null }));",
     ],
     { cwd: repoRoot, env, stdout: "pipe", stderr: "pipe" },
   );
@@ -231,15 +233,29 @@ async function configCpus(value: string | undefined): Promise<unknown> {
     child.exited,
   ]);
   if (code !== 0) throw new Error(`next.config.ts did not load: ${err}`);
-  const parsed = JSON.parse(out) as { cpus: unknown; root: unknown };
+  const parsed = JSON.parse(out) as {
+    cpus: unknown;
+    ignoreBuildErrors: unknown;
+    root: unknown;
+  };
   // The config loaded in full, not a stand-in object.
   expect(parsed.root).toBe(repoRoot);
-  return parsed.cpus;
+  return parsed;
 }
+
+const configCpus = async (value: string | undefined) =>
+  (await loadConfig(value)).cpus;
 
 it("hands Next the retry's worker count and nothing else", async () => {
   expect(await configCpus("4")).toBe(4);
   expect(await configCpus(undefined)).toBeNull();
   for (const bad of ["", "0", "-2", "2.5", "abc"])
     expect({ bad, cpus: await configCpus(bad) }).toEqual({ bad, cpus: null });
+});
+
+// ci:web has no type check of the web app beside the build's own (task
+// 3a48aba3), so a config that let the build ignore type errors would let
+// them through CI.
+it("leaves the build's type check on", async () => {
+  expect((await loadConfig(undefined)).ignoreBuildErrors).toBeNull();
 });
