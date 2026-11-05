@@ -33,7 +33,7 @@ worktree_path="$worktrees_root/$name"
 mkdir -p "$worktrees_root"
 if [[ -e $worktree_path ]]; then
   existing_root=$(git -C "$worktree_path" rev-parse --show-toplevel 2>/dev/null) || {
-    echo "Path exists and is not a Git worktree: $worktree_path" >&2
+    echo "Path exists and is not a Git worktree: $worktree_path. To remove it, run scripts/worktree-remove.sh $name." >&2
     exit 1
   }
   existing_branch=$(git -C "$worktree_path" symbolic-ref --quiet --short HEAD) || {

@@ -12,7 +12,7 @@ For UI changes, run `bun run build:ui`. Outputs to `ui/dist/`, which the server 
 
 On a fresh checkout or worktree, run `bun run build:ui` before `bun test`. Tests that serve the app shell or PWA assets need the built files.
 
-Create a ready worktree from the main checkout with `scripts/worktree-setup.sh <name>`; it installs the control-plane/web dependencies too, which root tsc needs.
+Create a ready worktree from the main checkout with `scripts/worktree-setup.sh <name>`; it installs the control-plane/web dependencies too, which root tsc needs. Remove one, or a leftover folder git no longer lists, with `scripts/worktree-remove.sh <name> [--force]`.
 
 `bun run ci` is the full CI gate, and the pre-push hook runs it. `bun run ci:remote [<rev>]` runs it for one commit on another machine when the clone's git config `isomux.ciRemote` names one; see `internal-docs/testing-guide.md`.
 
