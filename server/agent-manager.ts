@@ -246,9 +246,9 @@ import type {
   ProviderAccountReadOptions,
 } from "./provider-account-manager.ts";
 import {
+  accessGrantOf,
   agentAccessOf,
   belowStandard,
-  stopHasPack,
   stopIncludes,
   type AgentAccess,
   type AgentAccessGrant,
@@ -363,6 +363,9 @@ export interface ManagerDeps {
   // real WS-broadcast sink via onEvent() AFTER construction, because that
   // closure references broadcast helpers defined later in isomux-office.ts.
   eventSink?: EventHandler;
+  // An access stop or pack changed, by any path: an action ask may be done.
+  // Never throws (the office's listener catches).
+  onAccessChanged?: () => void;
   claudeAuthCheckTimeoutMs?: number;
   // Wait before an MCP status read that saw "pending" reads again.
   connectorRereadMs?: number;
@@ -437,18 +440,6 @@ function accessFields(src: { access?: AgentAccess; pack?: ApiTokenLimits }): {
     ...(src.access ? { access: src.access } : {}),
     ...(src.pack ? { pack: src.pack } : {}),
   };
-}
-
-// The stop and pack an agent's token is minted with.
-function accessGrantOf(src: {
-  access?: AgentAccess;
-  privileged?: boolean;
-  pack?: ApiTokenLimits;
-}): AgentAccessGrant {
-  const access = agentAccessOf(src);
-  return src.pack && stopHasPack(access)
-    ? { access, pack: src.pack }
-    : { access };
 }
 
 function backendSessionHasFixedCwd(agentType: AgentInfo["agentType"]): boolean {
@@ -3862,6 +3853,7 @@ export function createAgentManager(deps: ManagerDeps) {
       access,
     }))
       emit(event);
+    deps.onAccessChanged?.();
     // Re-mint REVOKES the old token, so a live agent MUST be swapped below or its
     // in-flight token dies mid-turn.
     mintAgentToken(agentId, tokenUserIdFor(managed.info), { access });
@@ -3957,6 +3949,7 @@ export function createAgentManager(deps: ManagerDeps) {
       privileged: grant.access === "privileged",
     }))
       emit(event);
+    deps.onAccessChanged?.();
     mintAgentToken(agentId, tokenUserIdFor(managed.info), grant);
     if (managed.sessionManager.session !== null) {
       const sessionId = pickAutoResumeSessionId(managed);
@@ -9485,6 +9478,7 @@ export function createProductionAgentManager(overrides?: {
     provider: ProviderAccountProvider,
   ) => EffectiveProviderAccountTarget;
   storageRoots?: ManagerDeps["storageRoots"];
+  onAccessChanged?: ManagerDeps["onAccessChanged"];
 }): AgentManager {
   const initialOfficeConfig = loadOfficeConfig();
   const initialLoadedAgents = loadAgents();
@@ -9516,6 +9510,7 @@ export function createProductionAgentManager(overrides?: {
     listProviderAccounts: overrides?.listProviderAccounts,
     effectiveProviderAccountTarget: overrides?.effectiveProviderAccountTarget,
     storageRoots: overrides?.storageRoots ?? (() => productionStorageRoots()),
+    onAccessChanged: overrides?.onAccessChanged,
     providerSkillSourceRoots: {
       // A getter, so an office env edit reaches discovery, linking and new
       // skills without a restart.

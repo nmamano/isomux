@@ -140,8 +140,11 @@ export interface RouteHandlerContext {
   // precondition; a route that doesn't need it simply ignores it.
   callerSessionIdHash?: string;
   // "mcp" when the request is a tool call of the /mcp endpoint
-  // (server/mcp-endpoint.ts), which dispatches each tool through this executor.
-  via?: "mcp";
+  // (server/mcp-endpoint.ts), which dispatches each tool through this executor;
+  // "ask" when a member runs an ask's action (asks.runAction), whose ask id
+  // the audit row names.
+  via?: "mcp" | "ask";
+  askId?: string;
 }
 
 export type RouteHandler = (
@@ -332,7 +335,11 @@ export async function executeRoute(
   // Per-request context the dispatch supplies alongside the identity. An options
   // object (not a positional arg) so future request-context fields extend it
   // without re-threading every call site.
-  opts?: { callerSessionIdHash?: string; via?: "mcp" },
+  opts?: {
+    callerSessionIdHash?: string;
+    via?: "mcp" | "ask";
+    askId?: string;
+  },
 ): Promise<Response> {
   const { route, params } = match;
   const method = req.method;
@@ -398,6 +405,7 @@ export async function executeRoute(
     req,
     callerSessionIdHash: opts?.callerSessionIdHash,
     via: opts?.via,
+    askId: opts?.askId,
   };
 
   const refused = authorizeRoute(route, identity, params, body, deps.guardDeps);
@@ -457,6 +465,8 @@ export async function executeRoute(
                   ...new Set([
                     ...route.audit.targets(ctx, result),
                     ...notedAuditTargets(),
+                    // A member's run of an ask's action names the ask.
+                    ...(ctx.askId !== undefined ? [ctx.askId] : []),
                   ]),
                 ],
                 fields:

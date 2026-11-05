@@ -4,16 +4,29 @@
 // plain ask with a `step` and a link the server sets, so the member can
 // still reply, dismiss or file it. It closes itself when the step is done.
 //
+// An action step (task e3d1bc63) is a human-only action the member runs from
+// the card: it has a route (routeOf) and no link. The create refuses one the
+// member could not run (the route's own authorization, verdict only), and
+// the run (asks.runAction) dispatches that route as the member.
+//
 // One predicate per kind (isStepDone) reads the current state. The create
 // refuses a step that is done (409 step_done), and every hook that may have
 // done one calls reconcile, which closes each open step ask whose predicate
 // holds. A hook says only that something changed.
 
-import type {
-  AskEntry,
-  ProviderAccountProvider,
-  ProviderAccountScope,
-  StepAskRequest,
+import {
+  parseAgentAccessGrant,
+  sameAccessGrant,
+  type AgentAccessGrant,
+} from "../shared/agent-access.ts";
+import {
+  isActionStep,
+  type ActionStepRequest,
+  type AskEntry,
+  type AskStep,
+  type ProviderAccountProvider,
+  type ProviderAccountScope,
+  type StepAskRequest,
 } from "../shared/types.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
 import type { AskStore } from "./asks.ts";
@@ -44,10 +57,41 @@ export interface StepAskDeps {
     line: LogMessage,
     memberUserId: string,
   ) => void;
+  // The reads of the steps the member runs from the card (task e3d1bc63).
+  // Absent in leaf tests: every such step is then refused at create.
+  runs?: StepRunDeps;
 }
 
+// The office route a step's action runs, as the card's Apply sends it.
+export interface StepRoute {
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  body?: unknown;
+}
+
+export interface StepRunDeps {
+  // The agent's name and grant now, or null when it is gone.
+  agent(agentId: string): { name: string; grant: AgentAccessGrant } | null;
+  // Whether the asking agent reaches the target agent's room.
+  agentReaches(askingAgentId: string, targetAgentId: string): boolean;
+  // The refusal agents.setAccess gives past its guards (the folder rule, the
+  // engine), or null.
+  accessRefusal(
+    agentId: string,
+    grant: AgentAccessGrant,
+  ): { code: string; message: string } | null;
+  // Whether the member passes the route's own authorization, as from the
+  // page: the refusal, or null. Runs nothing.
+  authorizeAs(
+    memberUserId: string,
+    route: StepRoute,
+  ): { status: 403 | 404 | 422; code: string; message: string } | null;
+}
+
+// A step with a link opens an Integrations tab; a step with a route has none:
+// the member runs it from the card.
 export type StepCheck =
-  | { ok: true; step: StepAskRequest; link: string }
+  | { ok: true; step: AskStep; link?: string }
   | {
       ok: false;
       status: 400 | 403 | 404 | 409 | 422;
@@ -64,18 +108,22 @@ const STEP_LINKS: Record<StepAskRequest["kind"], string> = {
   "github-link": "/integrations/github",
 };
 
-// The Integrations tab a step's link opens (one of OFFICE_LINK_PATHS).
-export function stepLink(step: StepAskRequest): string {
-  return STEP_LINKS[step.kind];
+// The Integrations tab a step's link opens (one of OFFICE_LINK_PATHS), or
+// undefined for a step the member runs from the card.
+export function stepLink(step: AskStep): string | undefined {
+  return Object.hasOwn(STEP_LINKS, step.kind)
+    ? STEP_LINKS[step.kind as StepAskRequest["kind"]]
+    : undefined;
 }
 
 // The fields an agent may send, per kind. The server fills ownerUserId and
 // roomId.
-const STEP_KEYS: Record<StepAskRequest["kind"], readonly string[]> = {
+const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "provider-sign-in": ["kind", "provider", "scope"],
   "mcp-sign-in": ["kind", "name", "scope"],
   "browser-pairing": ["kind"],
   "github-link": ["kind"],
+  "agent-access": ["kind", "agentId", "access", "pack"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -97,21 +145,22 @@ const notAllowed = (message: string): StepFailure => ({
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-const isKnownKind = (kind: unknown): kind is StepAskRequest["kind"] =>
+const isKnownKind = (kind: unknown): kind is AskStep["kind"] =>
   typeof kind === "string" && Object.hasOwn(STEP_KEYS, kind);
 
-type StepEntry = AskEntry & { step: StepAskRequest };
+type StepEntry = AskEntry & { step: AskStep };
 
 // The secrets scope of an MCP sign-in step.
 function mcpScope(
-  step: Extract<StepAskRequest, { kind: "mcp-sign-in" }>,
+  step: Extract<AskStep, { kind: "mcp-sign-in" }>,
 ): SecretScope | null {
   if (step.scope === "office") return { kind: "office" };
   return step.ownerUserId ? { kind: "user", userId: step.ownerUserId } : null;
 }
 
-// What the agent reads when the step is done.
-function doneLine(step: StepAskRequest): LogMessage {
+// What the agent reads when the step is done. `agentName` names the target
+// of an action step.
+function doneLine(step: AskStep, agentName: string): LogMessage {
   switch (step.kind) {
     case "provider-sign-in":
       return step.scope === "office"
@@ -127,16 +176,32 @@ function doneLine(step: StepAskRequest): LogMessage {
       return msg("systemEntries.stepAsk.browserPaired");
     case "github-link":
       return msg("systemEntries.stepAsk.githubLinked");
+    case "agent-access":
+      return msg("systemEntries.stepAsk.agentAccessSet", { agent: agentName });
+  }
+}
+
+// The route an action step runs, or null for a step with a link.
+function stepRoute(step: AskStep): StepRoute | null {
+  switch (step.kind) {
+    case "agent-access":
+      return {
+        method: "PUT",
+        path: `/api/agents/${encodeURIComponent(step.agentId)}/access`,
+        body: {
+          access: step.access,
+          ...(step.pack ? { pack: step.pack } : {}),
+        },
+      };
+    default:
+      return null;
   }
 }
 
 export function createStepAsks(deps: StepAskDeps) {
   // Whether the step is done now, for the member the ask is for. A kind
   // from a later release is never done here.
-  async function isDone(
-    step: StepAskRequest,
-    memberUserId: string,
-  ): Promise<boolean> {
+  async function isDone(step: AskStep, memberUserId: string): Promise<boolean> {
     if (!isKnownKind(step.kind)) return false;
     switch (step.kind) {
       case "provider-sign-in":
@@ -149,6 +214,10 @@ export function createStepAsks(deps: StepAskDeps) {
         return deps.browserPaired(memberUserId);
       case "github-link":
         return deps.roomLinked(step.roomId);
+      case "agent-access": {
+        const agent = deps.runs?.agent(step.agentId);
+        return !!agent && sameAccessGrant(agent.grant, step);
+      }
     }
   }
 
@@ -158,7 +227,7 @@ export function createStepAsks(deps: StepAskDeps) {
     roomId: string;
     managerUserId: string | null;
     memberUserId: string;
-  }): { ok: true; step: StepAskRequest } | StepFailure {
+  }): { ok: true; step: AskStep } | StepFailure {
     const { step: body, memberUserId, managerUserId } = input;
     if (!isObject(body)) return invalid("step must be an object");
     if (!isKnownKind(body.kind))
@@ -236,6 +305,29 @@ export function createStepAsks(deps: StepAskDeps) {
         if (!owner)
           return notAllowed("only an office owner can link a room to GitHub");
         return { ok: true, step: { kind, roomId: input.roomId } };
+      case "agent-access": {
+        if (typeof body.agentId !== "string" || body.agentId === "")
+          return invalid("step.agentId is an agent id");
+        // The stored grant is the parsed one, so the done predicate
+        // compares like with like.
+        const grant = parseAgentAccessGrant({
+          access: body.access,
+          ...("pack" in body ? { pack: body.pack } : {}),
+        });
+        if (!grant)
+          return invalid(
+            "step.access is a stop (chat, office, folder, web, standard, privileged), with step.pack (token limits with areas) only at office, folder and web",
+          );
+        return {
+          ok: true,
+          step: {
+            kind,
+            agentId: body.agentId,
+            access: grant.access,
+            ...(grant.pack ? { pack: grant.pack } : {}),
+          },
+        };
+      }
     }
   }
 
@@ -251,12 +343,46 @@ export function createStepAsks(deps: StepAskDeps) {
       return;
     }
     if (!removed || !removed.memberUserId) return;
+    const target =
+      entry.step.kind === "agent-access" ? entry.step.agentId : null;
     deps.settled(
       entry.agentId,
       entry.id,
-      doneLine(entry.step),
+      doneLine(
+        entry.step,
+        target ? (deps.runs?.agent(target)?.name ?? target) : "",
+      ),
       removed.memberUserId,
     );
+  }
+
+  // Why the member could not run an action step, or null. A target the
+  // asking agent cannot reach answers as a missing one, before any other
+  // check, so the answer tells the agent nothing about it.
+  function actionRefusal(
+    step: ActionStepRequest,
+    askingAgentId: string | undefined,
+    memberUserId: string,
+  ): StepFailure | null {
+    const runs = deps.runs;
+    if (!runs) return invalid("this office runs no action steps");
+    if (
+      !askingAgentId ||
+      !runs.agent(step.agentId) ||
+      !runs.agentReaches(askingAgentId, step.agentId)
+    )
+      return {
+        ok: false,
+        status: 422,
+        code: "unknown_agent",
+        message: "no agent with this id in a room you can reach",
+      };
+    if (runs.authorizeAs(memberUserId, stepRoute(step)!))
+      return notAllowed("this member cannot change that agent's access");
+    const refusal = runs.accessRefusal(step.agentId, step);
+    return refusal
+      ? { ok: false, status: 422, code: refusal.code, message: refusal.message }
+      : null;
   }
 
   return {
@@ -266,6 +392,8 @@ export function createStepAsks(deps: StepAskDeps) {
     // same as naming no one, so only memberUserId is read.
     async check(input: {
       step: unknown;
+      // The asking agent; a step the member runs needs it.
+      agentId?: string;
       roomId: string;
       managerUserId: string | null;
       memberUserId: string;
@@ -292,6 +420,10 @@ export function createStepAsks(deps: StepAskDeps) {
             message: "this MCP server does not sign in with OAuth",
           };
       }
+      if (isActionStep(step)) {
+        const refused = actionRefusal(step, input.agentId, input.memberUserId);
+        if (refused) return refused;
+      }
       if (await isDone(step, input.memberUserId))
         return {
           ok: false,
@@ -301,6 +433,9 @@ export function createStepAsks(deps: StepAskDeps) {
         };
       return { ok: true, step, link: stepLink(step) };
     },
+
+    // The route the member runs for a step, or null for a step with a link.
+    routeOf: stepRoute,
 
     // Whether the step of an open ask is done now.
     isStepDone(entry: StepEntry): Promise<boolean> {

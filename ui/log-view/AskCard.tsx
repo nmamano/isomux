@@ -4,7 +4,8 @@
 // the chat input and the Asks page both draw it, so a new kind of ask shows
 // on both. The card goes when the server accepts the answer, without waiting
 // for ask_removed. An ask with a link to an office page or an agent's chat has a
-// button that opens it (ui/office-link.tsx); the ask stays open. Every ask
+// button that opens it (ui/office-link.tsx); the ask stays open. An action ask
+// shows its action with Apply instead (AskActionBlock). Every ask
 // has a "Discuss in chat" button (AskAboutButton), last but one in the bottom
 // row, that starts a chat message about it, and the ask stays open too.
 // Simplify, last in that row, asks the agent to rewrite the ask in plain
@@ -66,7 +67,11 @@ import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
 import { timeSince } from "../../shared/i18n/time.ts";
-import type { AskMemberWire, AskReadFile } from "../../shared/types.ts";
+import {
+  isActionStep,
+  type AskMemberWire,
+  type AskReadFile,
+} from "../../shared/types.ts";
 import type {
   AskDismissReq,
   AskFileTaskReq,
@@ -85,6 +90,7 @@ import { FileViewCard } from "./FileViewCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 import { AskAboutButton } from "./AskAboutButton.tsx";
+import { AskActionBlock } from "./AskActionBlock.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
@@ -135,8 +141,11 @@ function tabToReplyField(e: KeyboardEvent<HTMLTextAreaElement>) {
 }
 
 // The reply field's starting value. A mark that names no option is ignored.
+// An action ask starts empty: Apply makes the change, and a "done" sent as it
+// stands would close the ask with nothing changed.
 function replyDefault(entry: AskMemberWire, done: string): string {
-  if (!entry.options?.length) return done;
+  if (!entry.options?.length)
+    return entry.step && isActionStep(entry.step) ? "" : done;
   return entry.recommended !== undefined &&
     entry.options.includes(entry.recommended)
     ? entry.recommended
@@ -805,7 +814,9 @@ function ReplyAskCard({
                   onClick={() =>
                     // A step ask's tab marks the setting of its step.
                     openLink(
-                      entry.step && !("agentId" in link)
+                      entry.step &&
+                        !isActionStep(entry.step) &&
+                        !("agentId" in link)
                         ? { ...link, focus: entry.step }
                         : link,
                     )
@@ -906,6 +917,14 @@ function ReplyAskCard({
           {isMobile && <AskIdChip id={entry.id} isMobile={isMobile} />}
         </div>
       </div>
+      {entry.step && isActionStep(entry.step) && (
+        <AskActionBlock
+          askId={entry.id}
+          askingAgentId={entry.agentId}
+          step={entry.step}
+          isMobile={isMobile}
+        />
+      )}
       <AskAffordances
         entry={entry}
         isMobile={isMobile}

@@ -1176,6 +1176,32 @@ export type StepAskRequest =
   // The GitHub issue link of the agent's room at create.
   | { kind: "github-link"; roomId: string };
 
+// An action step (task e3d1bc63): a human-only action the member runs from
+// the ask card with the Apply button. It has no link; the ask closes itself
+// when the state reaches the value, by the card or by hand.
+export type ActionStepRequest =
+  // An agent's stop on the access slider, with its pack at office, folder
+  // and web.
+  {
+    kind: "agent-access";
+    agentId: string;
+    access: AgentAccess;
+    pack?: ApiTokenLimits;
+  };
+
+// The `step` of an ask: one the member does on a page, or one they run from
+// the card.
+export type AskStep = StepAskRequest | ActionStepRequest;
+
+const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
+  ActionStepRequest["kind"]
+>(["agent-access"]);
+
+// Whether a step is one the member runs from the card.
+export function isActionStep(step: AskStep): step is ActionStepRequest {
+  return ACTION_STEP_KINDS.has(step.kind);
+}
+
 // A sudo request (task 43a28eed): the agent asks to run one command as root,
 // and the office owner it is for types the box account's password in the
 // ask. The server runs the command with it and forgets it. It holds no
@@ -1559,7 +1585,7 @@ export interface AskEntry {
   // A step ask (task c71cb60f): its link is the step's tab, set by the
   // server, and the ask closes itself when the step is done. Fixed after
   // create.
-  step?: StepAskRequest;
+  step?: AskStep;
   // The app that opened the ask (POST /api/app/asks), by registration, so a
   // later app with the same name never reaches it. agentId is that app's
   // message target when it opened the ask.

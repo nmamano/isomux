@@ -1412,6 +1412,12 @@ const SPEC_ROUTE_CONTRACT: Record<
       "tasks",
     ],
   },
+  // The member runs the step's own route from the card (task e3d1bc63); the
+  // run's change closes the ask.
+  "asks.runAction": {
+    caps: ["agent:converse"],
+    emits: ["agent_updated", "ask_removed", "others_ask_removed", "log_entry"],
+  },
   // Any agent's ask by its id (task 03f5c534): the reach of its logs,
   // checked in the handler against the ask's agent.
   "asks.get": { caps: ["log:read"], emits: [] },

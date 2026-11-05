@@ -2,19 +2,12 @@
 // manager and the system prompt reads. Moved out of buildExecutorDeps in
 // server/isomux-office.ts, which registers them and keeps their
 // reviveLastRoomAccess precondition.
-import {
-  agentAccessOf,
-  FOLDER_NOT_ALLOWED,
-  stopHasFolder,
-} from "../shared/agent-access.ts";
+import { agentAccessOf, FOLDER_NOT_ALLOWED } from "../shared/agent-access.ts";
 import { BACK_ROOM_FULL_MESSAGE, hasBackRoom } from "../shared/desks.ts";
 import { errMessage } from "../shared/errors.ts";
 import { RECEPTIONIST_PROFILE_KEY } from "../shared/receptionist-profile.ts";
 import type { AgentInfo } from "../shared/types.ts";
-import {
-  confinedFolderRefusal,
-  folderOverlapRefusal,
-} from "./agent-folder-rules.ts";
+import { folderOverlapRefusal } from "./agent-folder-rules.ts";
 import { SpawnAccessRefusedError } from "./agent-manager.ts";
 import { buildAgentSystemPrompt } from "./agent-system-prompt.ts";
 import {
@@ -38,6 +31,7 @@ import { listUsers } from "./users.ts";
 export interface AgentsRoutesDeps extends Pick<
   ReturnType<typeof createAccessPolicy>,
   | "ENGINE_BELOW_STANDARD_MESSAGE"
+  | "accessChangeRefusal"
   | "announceAppAudienceChanges"
   | "announceWebhookAudienceChanges"
   | "attributionFor"
@@ -64,6 +58,7 @@ export function createAgentsRoutes(
 ): Record<string, RouteHandler> {
   const {
     ENGINE_BELOW_STANDARD_MESSAGE,
+    accessChangeRefusal,
     announceAppAudienceChanges,
     announceWebhookAudienceChanges,
     attributionFor,
@@ -505,14 +500,8 @@ export function createAgentsRoutes(
       agentManager.setPrivileged(agentId, privileged),
     setAccess: async (agentId, grant) => {
       const agent = agentManager.getAgent(agentId);
-      if (agent && stopHasFolder(grant.access)) {
-        const refusal = confinedFolderRefusal(
-          agent,
-          agent.cwd,
-          folderRuleState(),
-        );
-        if (refusal) return { refused: FOLDER_NOT_ALLOWED, message: refusal };
-      }
+      const refusal = agent ? accessChangeRefusal(agent, grant.access) : null;
+      if (refusal) return refusal;
       const r = await agentManager.setAccess(agentId, grant);
       return r === "engine_below_standard"
         ? {

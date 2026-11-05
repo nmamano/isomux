@@ -12,6 +12,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { Identity } from "./identity/index.ts";
 import type { ApiTokenInboxDrainRes } from "../shared/contract-shapes.ts";
+import { AGENT_ACCESS_STOPS } from "../shared/agent-access.ts";
 import { routeAllowedByLimits } from "../shared/api-token-limits.ts";
 import { matchRoute } from "./routes/match.ts";
 import { API_ROUTES } from "./routes/table.ts";
@@ -493,12 +494,20 @@ function registerAskTools(
       "open_ask",
       {
         description:
-          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat.",
+          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat. step asks for a change only the member can make, such as an agent's access level: the card has an Apply button, and the ask closes when the change is made. pack (token limits with areas) goes only with access office, folder or web.",
         inputSchema: {
           prompt: z.string().min(1),
           options: ASK_OPTIONS.optional(),
           recommended: z.string().min(1).optional(),
           priority: TASK_PRIORITY.optional(),
+          step: z
+            .object({
+              kind: z.literal("agent-access"),
+              agentId: z.string().min(1),
+              access: z.enum(AGENT_ACCESS_STOPS),
+              pack: z.record(z.string(), z.unknown()).optional(),
+            })
+            .optional(),
         },
       },
       async (args) => reply(await call("POST", asksPath, args)),

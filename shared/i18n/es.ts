@@ -1909,6 +1909,9 @@ Cosas que puedes hacer por él:
   "asks.forMember": "Para {member}",
   "asks.chip": "petición: {words}",
   "asks.openAsk": "Abrir la petición {id}",
+  "asks.action.apply": "Aplicar",
+  "asks.action.self": "Es el agente que lo pide.",
+  "asks.action.gone": "Ya no puedes acceder a este agente.",
   "asks.viewInInbox": "Ver en la bandeja de entrada",
   "asks.pinnedMissing": "No puedes ver esta petición, o no existe.",
   "asks.stillOpen": "Sigue abierta",
@@ -3281,6 +3284,7 @@ Cosas que puedes hacer por él:
     "Sesión iniciada en el servidor MCP {name}.",
   "systemEntries.stepAsk.browserPaired": "Chrome vinculado.",
   "systemEntries.stepAsk.githubLinked": "Sala enlazada con GitHub.",
+  "systemEntries.stepAsk.agentAccessSet": "Acceso cambiado para {agent}.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":

@@ -21,6 +21,7 @@ import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
   ASK_SIMPLIFY_TEXT,
   ASK_SIMPLIFY_UNDO_TEXT,
+  type AskEntry,
   type TaskItem,
 } from "../../../shared/types.ts";
 
@@ -613,6 +614,7 @@ describe("a step ask", () => {
     expect(t.inputs).toEqual([
       {
         step: STEP,
+        agentId: "a1",
         roomId: "r1",
         managerUserId: "u1",
         memberUserId: "u1",
@@ -620,6 +622,7 @@ describe("a step ask", () => {
       },
       {
         step: STEP,
+        agentId: "a1",
         roomId: "r1",
         managerUserId: "u1",
         memberUserId: "u-owner",
@@ -1020,5 +1023,138 @@ describe("a WhatsApp reply draft", () => {
     ).toBe("noContent");
     expect(t.store.get(t.draft.id)).toBeNull();
     expect(t.calls).toEqual([]);
+  });
+});
+
+// An action step (task e3d1bc63): the member the ask is for runs the step's
+// own route from the card. The handler hands the route to the dispatch with
+// the caller's own identity and holds one run per ask at a time. The run
+// through the real executor and the close are
+// server/test-support/routes-action-asks.test.ts.
+describe("an action step run from the card", () => {
+  const ROUTE = {
+    method: "PUT" as const,
+    path: "/api/agents/a2/access",
+    body: { access: "privileged" },
+  };
+  // The caller as the office builds it: a session with its member pack. A
+  // run with an identity built again from the user id would lose it.
+  const caller: Identity = {
+    ...member,
+    apiTokenLimits: { areas: { asks: "write" } },
+    memberPack: {
+      pack: { areas: { asks: "write" }, agentCeiling: "standard" },
+      rooms: ["r1"],
+    },
+  };
+  function runRig() {
+    const dispatched: Array<{
+      identity: Identity;
+      route: unknown;
+      opts: unknown;
+    }> = [];
+    const held: Array<{
+      resolve: (r: { status: number; body: unknown }) => void;
+      reject: (err: Error) => void;
+    }> = [];
+    const t = rig({
+      stepRuns: {
+        routeOf: (step) => (step.kind === "agent-access" ? ROUTE : null),
+        dispatch: (identity, route, opts) => {
+          dispatched.push({ identity, route, opts });
+          return new Promise((resolve, reject) =>
+            held.push({ resolve, reject }),
+          );
+        },
+      },
+    });
+    const open = (step?: AskEntry["step"], memberUserId = "u1") => {
+      const made = t.store.create({
+        agentId: "a1",
+        memberUserId,
+        prompt: "Make Curator privileged?",
+        ...(step ? { step } : {}),
+      });
+      if (!made.ok) throw new Error(made.code);
+      return made.entry.id;
+    };
+    const run = (askId: string, identity: Identity = caller) =>
+      t.handlers["asks.runAction"]({
+        identity,
+        params: { askId },
+        body: undefined,
+        rawBody: "",
+        query: new URLSearchParams(),
+        req: new Request("http://localhost/"),
+        callerSessionIdHash: "sess-hash",
+      });
+    return { ...t, dispatched, held, open, run };
+  }
+  const ACTION = {
+    kind: "agent-access" as const,
+    agentId: "a2",
+    access: "privileged" as const,
+  };
+
+  it("dispatches the step's route once with the caller's own identity and session, the ask id, and passes the route's answer back", async () => {
+    const t = runRig();
+    const askId = t.open(ACTION);
+    const first = t.run(askId);
+    await Promise.resolve();
+    expect(t.dispatched).toEqual([
+      {
+        identity: caller,
+        route: ROUTE,
+        opts: { askId, callerSessionIdHash: "sess-hash" },
+      },
+    ]);
+    t.held[0].resolve({ status: 200, body: { agent: { id: "a2" } } });
+    const r = await first;
+    expect(r).toMatchObject({
+      kind: "json",
+      body: { agent: { id: "a2" } },
+    });
+    expect((r as { status?: number }).status ?? 200).toBe(200);
+    // The run does not close the ask: the change does, through reconcile.
+    expect(t.store.get(askId)).not.toBeNull();
+  });
+
+  it("refuses a second run while the first is in flight, and runs again once it settled or failed", async () => {
+    const t = runRig();
+    const askId = t.open(ACTION);
+    // The second run comes with no await between: the claim is made before
+    // the handler's first await, or a second dispatch is a second change.
+    const first = t.outcome(t.run(askId));
+    const again = t.outcome(t.run(askId));
+    expect(t.dispatched).toHaveLength(1);
+    expect(await again).toBe("409 action_in_flight");
+    t.held[0].resolve({
+      status: 422,
+      body: { error: { code: "engine_below_standard", message: "no" } },
+    });
+    await first;
+    const second = t.run(askId);
+    await Promise.resolve();
+    expect(t.dispatched).toHaveLength(2);
+    t.held[1].reject(new Error("dispatch broke"));
+    await Promise.resolve(second).catch(() => {});
+    const third = t.run(askId);
+    await Promise.resolve();
+    expect(t.dispatched).toHaveLength(3);
+    t.held[2].resolve({ status: 200, body: {} });
+    await third;
+  });
+
+  it("is 404 for another member and an unknown ask, and 409 not_runnable for a link step or no step, with nothing dispatched", async () => {
+    const t = runRig();
+    const askId = t.open(ACTION);
+    const other: Identity = { ...member, userId: "u2" };
+    expect(await t.outcome(t.run(askId, other))).toBe("404 not_found");
+    expect(await t.outcome(t.run("nope"))).toBe("404 not_found");
+    const linkStep = t.open({ kind: "browser-pairing" });
+    expect(await t.outcome(t.run(linkStep))).toBe("409 not_runnable");
+    const plain = t.open();
+    expect(await t.outcome(t.run(plain))).toBe("409 not_runnable");
+    expect(t.dispatched).toEqual([]);
   });
 });

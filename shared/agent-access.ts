@@ -42,6 +42,18 @@ export function agentAccessOf(info: {
   return info.privileged ? "privileged" : "standard";
 }
 
+// The stop and pack of an agent record, as its token is minted with them.
+export function accessGrantOf(info: {
+  access?: AgentAccess;
+  privileged?: boolean;
+  pack?: ApiTokenLimits;
+}): AgentAccessGrant {
+  const access = agentAccessOf(info);
+  return info.pack && stopHasPack(access)
+    ? { access, pack: info.pack }
+    : { access };
+}
+
 // Whether `access` has no shell (a stop below standard).
 export function belowStandard(access: AgentAccess): boolean {
   return (

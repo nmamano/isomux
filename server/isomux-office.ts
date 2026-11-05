@@ -190,14 +190,12 @@ import {
   reportIsolationSetupFailure,
   runProcessIsolationProbe,
 } from "./process-isolation-state.ts";
-import { matchRoute } from "./routes/match.ts";
 import { type McpEndpointDeps } from "./mcp-endpoint.ts";
 import { type FolderMcpDeps } from "./folder-mcp-endpoint.ts";
 import { runFolderFiles } from "./folder-files-host.ts";
 import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
 import {
   authorizeRoute,
-  executeRoute,
   fail,
   type ExecutorDeps,
   type RouteHandler,
@@ -287,6 +285,7 @@ import { probeSudo, startSudo } from "./sudo-runner.ts";
 import { createSudoRunStore } from "./sudo-run-store.ts";
 import { createConnectionWrites } from "./connection-writes.ts";
 import { createStepAsks, type StepAsks } from "./step-asks.ts";
+import { createInProcessDispatch, officeStepRuns } from "./office-step-runs.ts";
 import { mcpServersHandlers } from "./routes/handlers/mcp-servers.ts";
 import { createMcpOAuth, type McpOAuth } from "./mcp-oauth.ts";
 import { createMcpServerStore } from "./mcp-server-store.ts";
@@ -911,6 +910,7 @@ function wsPushAllowed(session: SessionLookup, kind: WsPushKind): boolean {
 // here, right after the last const it reads.
 const {
   ENGINE_BELOW_STANDARD_MESSAGE,
+  accessChangeRefusal,
   accessibleRoomIdsForIdentity,
   agentMayOpenApp,
   announceAppAudienceChanges,
@@ -1249,31 +1249,14 @@ function wakeTokenLogWaiters(tokenId: string): void {
   for (const wake of [...waiters]) wake();
 }
 
+// One office route run in process as a caller: the /mcp endpoint's tool
+// calls and a member's run of an ask's action.
+const dispatchInProcess = createInProcessDispatch(() => executorDeps);
+
 // The /mcp endpoint's seams into the executor and the token logs.
 const mcpEndpointDeps: McpEndpointDeps = {
-  dispatch: async (identity, method, path, body) => {
-    const url = new URL(path, buildPublicOrigin().origin);
-    const match = matchRoute(API_ROUTES, method, url.pathname);
-    if (!match || !executorDeps.handlers.has(match.route.opId))
-      return { status: 404, body: { error: { code: "not_found" } } };
-    const res = await executeRoute(
-      match,
-      new Request(url, {
-        method,
-        ...(body === undefined
-          ? {}
-          : {
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            }),
-      }),
-      identity,
-      executorDeps,
-      { via: "mcp" },
-    );
-    const text = await res.text();
-    return { status: res.status, body: text ? JSON.parse(text) : null };
-  },
+  dispatch: (identity, method, path, body) =>
+    dispatchInProcess(identity, method, path, body, { via: "mcp" }),
   waitForTokenLogEntry: (tokenId, timeoutMs, signal) =>
     new Promise<void>((resolve) => {
       let waiters = tokenLogWaiters.get(tokenId);
@@ -2728,6 +2711,11 @@ function buildExecutorDeps(
     roomLinked: (roomId) => githubLinks.get(roomId) !== null,
     settled: (agentId, askId, line, memberUserId) =>
       agentManager.emitAgentStepAskDone(agentId, askId, line, memberUserId),
+    // Action steps (task e3d1bc63).
+    runs: officeStepRuns({
+      guardDeps: buildLiveGuardDeps,
+      accessChangeRefusal,
+    }),
   });
   register(
     askHandlers({
@@ -2736,6 +2724,14 @@ function buildExecutorDeps(
         sudoRequests?.runInProgress(agentId) ?? false,
       history: officeAskHistory(),
       steps: stepAsks,
+      stepRuns: {
+        routeOf: (step) => stepAsks!.routeOf(step),
+        dispatch: (identity, route, opts) =>
+          dispatchInProcess(identity, route.method, route.path, route.body, {
+            via: "ask",
+            ...opts,
+          }),
+      },
       agent: (agentId) => {
         const agent = agentManager.getAgent(agentId);
         return agent
@@ -4150,6 +4146,7 @@ function buildExecutorDeps(
   register(
     createAgentsRoutes({
       ENGINE_BELOW_STANDARD_MESSAGE,
+      accessChangeRefusal,
       announceAppAudienceChanges,
       announceWebhookAudienceChanges,
       attributionFor,

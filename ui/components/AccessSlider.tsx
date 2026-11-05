@@ -72,7 +72,7 @@ const PRESET_LABEL: Record<AgentPackPreset | "custom", PlainMessageKey> = {
   custom: "settings.apiTokens.access.custom",
 };
 
-const AREA_LABEL: Record<AgentPackArea, PlainMessageKey> = {
+export const AREA_LABEL: Record<AgentPackArea, PlainMessageKey> = {
   agents: "settings.apiTokens.area.agents",
   logs: "settings.apiTokens.area.logs",
   tasks: "settings.apiTokens.area.tasks",
@@ -88,7 +88,7 @@ const AREA_LEVELS: Record<AgentPackArea, Array<ApiTokenAccess | "none">> = {
   asks: ["none", "write"],
 };
 
-const LEVEL_LABEL: Record<ApiTokenAccess | "none", PlainMessageKey> = {
+export const LEVEL_LABEL: Record<ApiTokenAccess | "none", PlainMessageKey> = {
   none: "settings.apiTokens.level.none",
   read: "settings.apiTokens.level.read",
   write: "settings.apiTokens.level.write",

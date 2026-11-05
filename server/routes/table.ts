@@ -1217,6 +1217,20 @@ export const API_ROUTES: readonly RouteDef[] = [
       "agent_updated",
     ],
   }),
+  // The member the ask is for runs its action step (task e3d1bc63) through
+  // the step's own route, as the caller. The click is the authorization.
+  defineRoute<void, unknown>({
+    opId: "asks.runAction",
+    audit: {
+      owner: "none",
+      reason: "The dispatched route writes the audit row, with the ask id.",
+    },
+    method: "POST",
+    path: "/api/asks/:askId/action",
+    auth: cap("agent:converse", userScope),
+    tokenArea: { area: "asks", level: "write" },
+    emits: ["agent_updated", "ask_removed", "others_ask_removed", "log_entry"],
+  }),
   // A file an ask references in place (a video or audio file), for the
   // member the ask is for.
   defineRoute<void, unknown>({

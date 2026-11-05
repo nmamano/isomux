@@ -380,6 +380,33 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
     return message ? { refused: FOLDER_NOT_ALLOWED, message } : null;
   }
 
+  // The refusal agents.setAccess gives past its guards for moving `agent` to
+  // `access`: the folder rules at a stop with the folder, then the engine and
+  // model. An action ask checks it at create (server/step-asks.ts).
+  function accessChangeRefusal(
+    agent: AgentInfo,
+    access: AgentAccess,
+  ): SpawnAccessRefusal | null {
+    if (stopHasFolder(access)) {
+      const message = confinedFolderRefusal(
+        agent,
+        agent.cwd,
+        folderRuleState(),
+      );
+      if (message) return { refused: FOLDER_NOT_ALLOWED, message };
+    }
+    return engineRunsAccessHere(
+      agent.agentType,
+      access,
+      agent.modelFamily || null,
+    )
+      ? null
+      : {
+          refused: "engine_below_standard",
+          message: ENGINE_BELOW_STANDARD_MESSAGE,
+        };
+  }
+
   // The refusal for `agent` to move to `cwd`: the folder rules when it keeps
   // its files in its folder, else the overlap with such an agent's folder.
   function cwdFolderRefusal(agent: AgentInfo, cwd: string): string | null {
@@ -826,6 +853,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
 
   return {
     ENGINE_BELOW_STANDARD_MESSAGE,
+    accessChangeRefusal,
     accessibleRoomIdsForIdentity,
     agentMayOpenApp,
     announceAppAudienceChanges,

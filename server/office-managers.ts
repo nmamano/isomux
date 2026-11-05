@@ -291,6 +291,15 @@ export function createManagers(
     agentManager?.providerAccountChanged(provider, dir);
   agentManager = createProductionAgentManager({
     runBrowserAction: (agent, body) => extensionSessions!.run(agent, body),
+    // An action ask closes when its agent reaches the grant (task e3d1bc63).
+    // A throw here would end the access change halfway.
+    onAccessChanged: () => {
+      try {
+        stepsChanged();
+      } catch (err) {
+        console.error("[step-asks] access change reconcile threw", err);
+      }
+    },
     resolveBackend: startOpts.resolveBackend,
     storageRoots: () => storageRoots(),
     listProviderAccounts: async (userId, options) => {

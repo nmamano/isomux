@@ -19,7 +19,7 @@
 // The store emits the per-recipient events on commit, so these handlers never
 // emit directly. LEAF over the executor, the store and shared types.
 
-import type { StepAsks, StepCheck } from "../../step-asks.ts";
+import type { StepAsks, StepCheck, StepRoute } from "../../step-asks.ts";
 import type { WhatsAppReplies } from "../../whatsapp/replies.ts";
 import {
   ASK_HISTORY_LIMIT_DEFAULT,
@@ -34,6 +34,7 @@ import {
   fail,
   noContent,
   file,
+  type HandlerErrorStatus,
   type RouteHandler,
 } from "../executor.ts";
 import { randomUUID } from "crypto";
@@ -51,6 +52,7 @@ import {
   type AskEntry,
   type AskEvent,
   type AskReadFile,
+  type AskStep,
   type TaskItem,
   type TaskPriority,
 } from "../../../shared/types.ts";
@@ -134,6 +136,17 @@ export interface AsksDeps {
   canReadAgentLogs(identity: Identity, agentId: string): boolean;
   // Step asks (task c71cb60f): the check of a create's `step`.
   steps: Pick<StepAsks, "check">;
+  // The action of a step the member runs from the card (task e3d1bc63): the
+  // step's route, or null for a step with a link, and its in-process run
+  // through the executor as the caller. Absent in leaf tests: no step runs.
+  stepRuns?: {
+    routeOf(step: AskStep): StepRoute | null;
+    dispatch(
+      identity: Identity,
+      route: StepRoute,
+      opts: { askId: string; callerSessionIdHash?: string },
+    ): Promise<{ status: number; body: unknown }>;
+  };
   // An ask's chat affordances: the chat's checks, paths against the agent's
   // cwd, and the copy of a read file. Null when the agent is gone.
   affordances: {
@@ -912,6 +925,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         );
       const checkedStep = await deps.steps.check({
         step: body.step,
+        agentId,
         roomId: agent.roomId,
         managerUserId: agent.managerUserId,
         memberUserId,
@@ -930,7 +944,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       memberUserId,
       prompt: checked.prompt,
       ...(body.link !== undefined ? { link: body.link as string } : {}),
-      ...(step ? { link: step.link, step: step.step } : {}),
+      ...(step?.link !== undefined ? { link: step.link } : {}),
+      ...(step ? { step: step.step } : {}),
       ...(options ? { options } : {}),
       ...(recommended !== undefined ? { recommended } : {}),
       ...(body.priority !== undefined ? { priority: body.priority } : {}),
@@ -1069,7 +1084,52 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     return entry && openedBy(entry, app) ? entry : null;
   };
 
+  // Action steps in flight, so a second Apply (or a second browser) cannot
+  // run the change twice.
+  const running = new Set<string>();
+
+  // The member the ask is for runs its action step (task e3d1bc63): the
+  // step's own route, dispatched as the caller, answers. The run does not
+  // close the ask; the change does, through reconcile.
+  const runAction: RouteHandler = async (ctx) => {
+    const id = ctx.params.askId;
+    const entry = store.get(id);
+    if (
+      !entry ||
+      !askVisibleTo(entry, ctx.identity.userId, audienceFor(ctx.identity))
+    )
+      return notFound();
+    const runs = deps.stepRuns;
+    const route = entry.step && runs ? runs.routeOf(entry.step) : null;
+    if (!runs || !route)
+      return fail(409, "not_runnable", "This ask has no action to run.");
+    // Claimed before the first await.
+    if (running.has(id))
+      return fail(409, "action_in_flight", "This action is running.");
+    running.add(id);
+    try {
+      const res = await runs.dispatch(ctx.identity, route, {
+        askId: id,
+        callerSessionIdHash: ctx.callerSessionIdHash,
+      });
+      if (res.status < 400)
+        return res.status === 204 ? noContent() : ok(res.body, res.status);
+      const error =
+        (res.body as { error?: Record<string, unknown> } | null)?.error ?? {};
+      const { code, message, ...detail } = error;
+      return fail(
+        res.status as HandlerErrorStatus,
+        typeof code === "string" ? code : "action_failed",
+        typeof message === "string" ? message : undefined,
+        Object.keys(detail).length > 0 ? detail : undefined,
+      );
+    } finally {
+      running.delete(id);
+    }
+  };
+
   return {
+    "asks.runAction": guarded(runAction),
     "agents.createAsk": guarded((ctx) =>
       create((ctx.body ?? {}) as Record<string, unknown>, () => {
         const agent = deps.agent(ctx.params.id);

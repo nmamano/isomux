@@ -41,7 +41,7 @@ import {
   type FilePayload,
   type SecretAskRequest,
   type SudoAskRequest,
-  type StepAskRequest,
+  type AskStep,
   type TaskPriority,
 } from "../shared/types.ts";
 import type { AskAgentWire } from "../shared/contract-shapes.ts";
@@ -491,7 +491,7 @@ export interface AskStore {
     priority?: TaskPriority;
     affordances?: AskAffordances;
     sessionId?: string;
-    step?: StepAskRequest;
+    step?: AskStep;
     app?: { name: string; createdAt: number };
     // A reply draft to a messaging contact (task d03a61d8).
     messaging?: { app: string; routeId: string; text: string };

@@ -1913,6 +1913,9 @@ Coses que pots fer per ell:
   "asks.forMember": "Per a {member}",
   "asks.chip": "petició: {words}",
   "asks.openAsk": "Obre la petició {id}",
+  "asks.action.apply": "Aplica",
+  "asks.action.self": "És l'agent que ho demana.",
+  "asks.action.gone": "Ja no pots accedir a aquest agent.",
   "asks.viewInInbox": "Mostra a la safata d'entrada",
   "asks.pinnedMissing": "No pots veure aquesta petició, o no existeix.",
   "asks.stillOpen": "Encara oberta",
@@ -3284,6 +3287,7 @@ Coses que pots fer per ell:
     "Sessió iniciada al servidor MCP {name}.",
   "systemEntries.stepAsk.browserPaired": "Chrome vinculat.",
   "systemEntries.stepAsk.githubLinked": "Sala enllaçada amb GitHub.",
+  "systemEntries.stepAsk.agentAccessSet": "Accés canviat per a {agent}.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
   "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
   "systemEntries.sudoRequest.exited":
