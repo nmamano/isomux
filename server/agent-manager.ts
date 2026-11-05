@@ -4070,7 +4070,14 @@ export function createAgentManager(deps: ManagerDeps) {
   // session resumable on disk); the next message wakes it via flushQueue's
   // !session branch. lazy-restore at boot starts everyone dormant; this sweep
   // re-demotes agents that woke and then went quiet again.
-  const IDLE_EVICT_MS = 2 * 60 * 60_000;
+  //
+  // 1 h: the Claude prompt cache lasts at most 1 h, so a session idle longer
+  // pays a full prompt read on its next message, live or not. A resume costs
+  // little on top: over 21 days of logs (2026-11-05), the first output after
+  // a wake from eviction came a median 6.1 s after the message, against 5.7 s
+  // for a live session idle 65-115 min. The sweep runs every minute
+  // (isomux-office.ts), so an agent goes 60-61 min after its last activity.
+  const IDLE_EVICT_MS = 60 * 60_000;
   let demoteCount = 0;
 
   // Wake-message wording, accurate to WHY the agent was dormant: a sweep-demoted
