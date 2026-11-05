@@ -62,6 +62,7 @@ import { timeSince } from "../../shared/i18n/time.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { useCan } from "../hooks/useCan.ts";
+import { groupAgentsByRoom } from "../agent-groups.ts";
 
 const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
@@ -156,7 +157,7 @@ function TaskDetailPanel({
   task?: TaskItem;
   onClose: () => void;
   mode?: "edit" | "create";
-  agents?: { name: string; id: string }[];
+  agents?: { name: string; id: string; roomId: string; desk: number }[];
   closeRef?: React.MutableRefObject<(() => void) | null>;
   fullScreen?: boolean;
   // Called when the user cancels the discard prompt, i.e. abandons a close that
@@ -181,10 +182,11 @@ function TaskDetailPanel({
     roomId
       ? (rooms.find((r) => r.id === roomId)?.name ?? t("tasks.unknownRoom"))
       : "";
-  // Most-recent agents first - the raw list is oldest-first and can be long.
-  // Capped to MAX_ASSIGNEE_SUGGESTIONS by default; a "+N more" chip expands to
-  // the full list (same recency order, so the visible chips don't reshuffle).
-  // Memoized so the chips don't re-sort on every keystroke in the form.
+  // Recency picks which agents get a chip - the raw list is oldest-first and
+  // can be long: the MAX_ASSIGNEE_SUGGESTIONS most recent by default, all of
+  // them after the "+N more" chip. The room places each chip: the chips are
+  // grouped by room (groupAgentsByRoom), so "+N more" adds chips inside the
+  // groups. Memoized so the chips don't re-sort on every keystroke in the form.
   const [showAllAgents, setShowAllAgents] = useState(false);
   const sortedAgents = useMemo(
     () => [...agents].sort((a, b) => agentSpawnMs(b.id) - agentSpawnMs(a.id)),
@@ -197,6 +199,7 @@ function TaskDetailPanel({
   const visibleAgents = showAllAgents
     ? sortedAgents
     : sortedAgents.slice(0, MAX_ASSIGNEE_SUGGESTIONS);
+  const chipGroups = groupAgentsByRoom(visibleAgents, rooms);
   const [title, setTitle] = useState(task?.title || initialTitle || "");
   const [description, setDescription] = useState(task?.description || "");
   // The description is focused on open in create mode (ExpandableTextarea
@@ -631,41 +634,69 @@ function TaskDetailPanel({
             <div
               style={{
                 display: "flex",
-                flexWrap: "wrap",
+                flexDirection: "column",
                 gap: 4,
                 marginTop: 6,
               }}
             >
-              {visibleAgents.map((a) => (
-                <button
-                  key={a.id}
-                  {...noTranslate()}
-                  onClick={() => setAssignee(a.name)}
+              {chipGroups.map(({ room, agents: inRoom }) => (
+                <div
+                  key={room?.id ?? ""}
+                  data-assignee-group={room?.id ?? ""}
                   style={{
-                    padding: "3px 8px",
-                    borderRadius: 6,
-                    border: `1px solid ${assignee === a.name ? "var(--accent)" : "var(--border)"}`,
-                    background:
-                      assignee === a.name
-                        ? "var(--accent-muted, rgba(88,166,255,0.15))"
-                        : "var(--btn-surface)",
-                    color:
-                      assignee === a.name
-                        ? "var(--accent-text)"
-                        : "var(--text-muted)",
-                    fontSize: 10,
-                    cursor: "pointer",
-                    fontFamily: "var(--font-ui)",
-                    whiteSpace: "nowrap",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: 4,
                   }}
                 >
-                  {a.name}
-                </button>
+                  {room && (
+                    <span
+                      {...noTranslate()}
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-hint)",
+                        fontFamily: "var(--font-ui)",
+                        marginRight: 2,
+                      }}
+                    >
+                      {room.name}
+                    </span>
+                  )}
+                  {inRoom.map((a) => (
+                    <button
+                      key={a.id}
+                      {...noTranslate()}
+                      onClick={() => setAssignee(a.name)}
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: 6,
+                        border: `1px solid ${assignee === a.name ? "var(--accent)" : "var(--border)"}`,
+                        background:
+                          assignee === a.name
+                            ? "var(--accent-muted, rgba(88,166,255,0.15))"
+                            : "var(--btn-surface)",
+                        color:
+                          assignee === a.name
+                            ? "var(--accent-text)"
+                            : "var(--text-muted)",
+                        fontSize: 10,
+                        cursor: "pointer",
+                        fontFamily: "var(--font-ui)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
               ))}
               {hiddenAgentCount > 0 && (
                 <button
+                  data-assignee-more=""
                   onClick={() => setShowAllAgents(!showAllAgents)}
                   style={{
+                    alignSelf: "flex-start",
                     padding: "3px 8px",
                     borderRadius: 6,
                     border: `1px dashed ${secondaryEdge}`,

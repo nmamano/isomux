@@ -1,5 +1,5 @@
 // The Asks page's agent filter (ui/components/AsksView.tsx, task b3cb0a41):
-// the agents it offers and their order, what it hides, its counts against the
+// the agents it offers and their order (by room, task 899360d3), what it hides, its counts against the
 // room and priority filters, its memory on this device, and Show all. The
 // stored shape is in ui/device-settings.test.ts ("asks filter").
 // This file is separate from the other AsksView.filter*.dom.test.tsx files
@@ -47,26 +47,28 @@ const setAgents = (view: View, ids: string[]) =>
 const summary = (view: View) =>
   filterButton(view.container, "agent").textContent ?? "";
 
-// SORT_AGENTS by name: Pathfinder (a3), Ranger (a2), Scout (a1), Tracker (a4).
-const BY_NAME = ["a3", "a2", "a1", "a4"];
+// SORT_AGENTS by room in SORT_ROOMS order, by desk inside one: Room Two's
+// Tracker (a4) and Ranger (a2), then Room One's Pathfinder (a3) and Scout (a1).
+const BY_ROOM = ["a4", "a2", "a3", "a1"];
 
 describe("the agent filter", () => {
   beforeEach(() => localStorage.clear());
 
-  it("offers each agent with an open ask, by name whatever the case, all checked, and hides an unchecked agent's run", async () => {
+  it("offers each agent with an open ask, by room, all checked, and hides an unchecked agent's run", async () => {
     const { view } = mount([...SORT_ASKS, ranked("lowAsk", "a5", 15, "P3")], {
       rooms: SORT_ROOMS,
       agents: [
         ...SORT_AGENTS,
-        // A lower-case name sorts first only when case does not count.
-        { id: "a5", name: "apex", roomId: "r2" },
+        // Room Two's last desk.
+        { id: "a5", name: "apex", roomId: "r2", desk: 5 },
         // No open ask: not offered.
         { id: "a6", name: "Idle", roomId: "r1" },
       ] as AppState["agents"],
     });
     const c = view.container;
-    expect(await checkedFilterValues(c, "agent")).toEqual(["a5", ...BY_NAME]);
-    expect(filterOptions(c, "agent")).toEqual(["a5", ...BY_NAME]);
+    const offered = ["a4", "a2", "a5", "a3", "a1"];
+    expect(await checkedFilterValues(c, "agent")).toEqual(offered);
+    expect(filterOptions(c, "agent")).toEqual(offered);
     // Agent names are not translated, in the list or on the button.
     const nameEl = (text: string, within: Element) =>
       [...within.querySelectorAll<HTMLElement>("*")].find(
@@ -109,20 +111,8 @@ describe("the agent filter", () => {
     expect(summary(view)).not.toBe(all);
     // The All box brings every agent back.
     await act(async () => fireEvent.click(await allFilterBox(c, "agent")));
-    expect(await checkedFilterValues(c, "agent")).toEqual(["a5", ...BY_NAME]);
+    expect(await checkedFilterValues(c, "agent")).toEqual(offered);
     expect(summary(view)).toBe(all);
-  });
-
-  it("orders two agents with one name by id, whatever the agents slice's order", async () => {
-    const { view } = mount([ask("y", "b2", 10), ask("x", "b1", 20)], {
-      rooms: SORT_ROOMS,
-      agents: [
-        { id: "b2", name: "Twin", roomId: "r1" },
-        { id: "b1", name: "Twin", roomId: "r2" },
-      ] as AppState["agents"],
-    });
-    await openCheckboxFilter(view.container, "agent");
-    expect(filterOptions(view.container, "agent")).toEqual(["b1", "b2"]);
   });
 
   it("counts each agent's asks under the room and priority filters, and the room and priority counts follow it", async () => {
@@ -176,12 +166,12 @@ describe("the agent filter", () => {
     const allSummary = summary(fresh.view);
     fresh.view.unmount();
     const first = mountSorted();
-    await setAgents(first.view, ["a3", "a1", "a4"]);
+    await setAgents(first.view, ["a4", "a3", "a1"]);
     first.view.unmount();
 
     const second = mountSorted();
     const c = second.view.container;
-    expect(await checkedFilterValues(c, "agent")).toEqual(["a3", "a1", "a4"]);
+    expect(await checkedFilterValues(c, "agent")).toEqual(["a4", "a3", "a1"]);
     expect(groupIds(second.view)).not.toContain("a2");
     // An agent that opens its first ask shows checked, and its ask shows.
     act(() =>
@@ -189,7 +179,7 @@ describe("the agent filter", () => {
         rooms: SORT_ROOMS,
         agents: [
           ...SORT_AGENTS,
-          { id: "a5", name: "Scribe", roomId: "r1" },
+          { id: "a5", name: "Scribe", roomId: "r1", desk: 1 },
         ] as AppState["agents"],
       }),
     );
@@ -200,10 +190,10 @@ describe("the agent filter", () => {
       }),
     );
     expect(await checkedFilterValues(c, "agent")).toEqual([
-      "a3",
-      "a1",
-      "a5",
       "a4",
+      "a3",
+      "a5",
+      "a1",
     ]);
     expect(groupIds(second.view)).toContain("a5");
     second.view.unmount();
@@ -218,9 +208,9 @@ describe("the agent filter", () => {
     );
     await openCheckboxFilter(gone.view.container, "agent");
     expect(filterOptions(gone.view.container, "agent")).toEqual([
+      "a4",
       "a3",
       "a1",
-      "a4",
     ]);
     expect(summary(gone.view)).toBe(allSummary);
     gone.view.unmount();
@@ -232,16 +222,16 @@ describe("the agent filter", () => {
       { rooms: SORT_ROOMS, agents: SORT_AGENTS },
     );
     const ic = idle.view.container;
-    expect(await checkedFilterValues(ic, "agent")).toEqual(["a3", "a1", "a4"]);
-    expect(filterOptions(ic, "agent")).toEqual(BY_NAME);
+    expect(await checkedFilterValues(ic, "agent")).toEqual(["a4", "a3", "a1"]);
+    expect(filterOptions(ic, "agent")).toEqual(BY_ROOM);
     expect((await filterCounts(ic, "agent")).a2).toBe(0);
-    await setAgents(idle.view, BY_NAME);
+    await setAgents(idle.view, BY_ROOM);
     expect(summary(idle.view)).toBe(allSummary);
     idle.view.unmount();
     // Checked back, it is remembered as checked.
     const last = mountSorted();
     expect(await checkedFilterValues(last.view.container, "agent")).toEqual(
-      BY_NAME,
+      BY_ROOM,
     );
     expect(pageOrder(last.view)).toEqual(BY_AGENT);
   });
@@ -259,7 +249,7 @@ describe("the agent filter", () => {
       ),
     );
     expect(pageOrder(first.view)).toEqual(BY_AGENT);
-    expect(await checkedFilterValues(c, "agent")).toEqual(BY_NAME);
+    expect(await checkedFilterValues(c, "agent")).toEqual(BY_ROOM);
     // Escape closes the open agent list, focus back on its button.
     expect(isOpen(first.view, "agent")).toBe("true");
     await act(async () => fireEvent.keyDown(document.body, { key: "Escape" }));
@@ -272,7 +262,7 @@ describe("the agent filter", () => {
     first.view.unmount();
     const second = mountSorted();
     expect(await checkedFilterValues(second.view.container, "agent")).toEqual(
-      BY_NAME,
+      BY_ROOM,
     );
   });
 
@@ -301,8 +291,8 @@ describe("the agent filter", () => {
     expect(filterOptions(c, "agent")).toEqual(["a1"]);
     choose(view, "data-asks-member", "all");
     await openCheckboxFilter(c, "agent");
-    // Ranger (a2), then Scout (a1).
-    expect(filterOptions(c, "agent")).toEqual(["a2", "a1"]);
+    // Room One's Scout (a1), then Room Two's Ranger (a2).
+    expect(filterOptions(c, "agent")).toEqual(["a1", "a2"]);
     await setAgents(view, ["a2"]);
     expect(pageOrder(view)).toEqual(["a2:abe1"]);
   });
@@ -350,7 +340,7 @@ describe("the agent filter", () => {
     expect(await checkedFilterValues(c, "agent")).toEqual(["a1"]);
     // Unchecked: the agents the filter lists for the member's own asks; not
     // a5 (Abe's ask only) nor a6 (no ask).
-    expect(filterOptions(c, "agent")).toEqual(BY_NAME);
+    expect(filterOptions(c, "agent")).toEqual(BY_ROOM);
     expect(summary(view)).toContain("Scout");
 
     // Applied once: the member's next change stands.

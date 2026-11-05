@@ -1,6 +1,7 @@
 // The webhook dialog: an edit sends only what changed and never the scheme,
 // a target the viewer cannot pick stays selected until the member changes
-// it, and a new hook posts only once a target is chosen.
+// it, a new hook posts only once a target is chosen, and the agent select
+// groups agents by room.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -12,6 +13,8 @@ const { setApiShim } = await import("../api.ts");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { hookWire, HOOK_ID } =
   await import("../test-support/webhook-fixture.ts");
+const { GROUP_AGENTS, GROUP_ROOMS, GROUPED_SELECT, selectGroups } =
+  await import("../test-support/agent-groups-fixture.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 
 let sent: { method: string; path: string; body: unknown }[] = [];
@@ -88,5 +91,30 @@ it("a new hook cannot be saved before a target is chosen, and then posts it", as
   const body = sent[0].body as { scheme: string; target: unknown };
   expect(body.scheme).toBe("github-hmac-sha256");
   expect(body.target).toEqual({ kind: "agent", agentId: "a1" });
+  view.unmount();
+});
+
+it("the agent select groups agents by room, after the placeholder and an unavailable target", () => {
+  const view = render(
+    onLanguage(
+      "en",
+      <WebhookDialog
+        webhook={hookWire({ target: { kind: "agent", agentId: "agent-gone" } })}
+        onClose={() => {}}
+      />,
+      {
+        rooms: GROUP_ROOMS as never,
+        agents: GROUP_AGENTS as unknown as AgentInfo[],
+      },
+    ),
+  );
+  const select = view.container.querySelector<HTMLSelectElement>(
+    '[data-field="agentId"]',
+  )!;
+  expect(select.value).toBe("agent-gone");
+  expect(selectGroups(select)).toEqual(["", "agent-gone", ...GROUPED_SELECT]);
+  // Room names are not translated.
+  for (const group of select.querySelectorAll("optgroup"))
+    expect(group.closest("[translate=no]")).not.toBeNull();
   view.unmount();
 });

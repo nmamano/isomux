@@ -31,6 +31,7 @@ import {
 } from "./dialog-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { noTranslate } from "../no-translate.ts";
+import { AgentOptions } from "./AgentOptions.tsx";
 import {
   defaultBackendModel,
   fetchBackendModels,
@@ -192,13 +193,8 @@ export function CronjobDialog({
   const isAgentTarget = targetKind === "agent";
   // A target the viewer cannot pick (gone, or out of reach) stays selected,
   // shown as unavailable, until the member picks another.
-  const agentOptions = agents.map((a) => ({ id: a.id, label: a.name }));
-  if (targetAgentId && !agentOptions.some((o) => o.id === targetAgentId)) {
-    agentOptions.unshift({
-      id: targetAgentId,
-      label: t("webhooks.target.unavailable", { id: targetAgentId }),
-    });
-  }
+  const agentGone =
+    !!targetAgentId && !agents.some((a) => a.id === targetAgentId);
 
   function clamp(n: number, lo: number, hi: number): number {
     return Math.max(lo, Math.min(hi, n));
@@ -873,11 +869,12 @@ export function CronjobDialog({
                 data-field="agentId"
               >
                 <option value="">{t("webhooks.dialog.pickAgent")}</option>
-                {agentOptions.map((o) => (
-                  <option key={o.id} value={o.id} {...noTranslate()}>
-                    {o.label}
+                {agentGone && (
+                  <option value={targetAgentId} {...noTranslate()}>
+                    {t("webhooks.target.unavailable", { id: targetAgentId })}
                   </option>
-                ))}
+                )}
+                <AgentOptions agents={agents} rooms={rooms} />
               </select>
             </>
           )}

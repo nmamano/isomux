@@ -49,6 +49,31 @@ export function toggled<T>(list: readonly T[], value: T): T[] {
     : [...list, value];
 }
 
+// A choice. A run of choices with one group is drawn under its heading; a
+// null group is the group with no name, and no group draws no heading.
+type FilterOption<T extends string> = {
+  value: T;
+  label: string;
+  count: number;
+  noTranslate?: boolean;
+  group?: { id: string; label: string } | null;
+};
+
+function optionRuns<T extends string>(
+  options: readonly FilterOption<T>[],
+): { group: FilterOption<T>["group"]; items: FilterOption<T>[] }[] {
+  const runs: { group: FilterOption<T>["group"]; items: FilterOption<T>[] }[] =
+    [];
+  const key = (group: FilterOption<T>["group"]) =>
+    group === undefined ? undefined : (group?.id ?? "");
+  for (const option of options) {
+    const last = runs.at(-1);
+    if (last && key(last.group) === key(option.group)) last.items.push(option);
+    else runs.push({ group: option.group, items: [option] });
+  }
+  return runs;
+}
+
 // The parent holds which list is open, so its Escape handler can close it
 // first; `name` marks the root (data-checkbox-filter) for that handler and for
 // tests. An option or the summary with `noTranslate` is a name, such as a
@@ -72,7 +97,7 @@ export function CheckboxFilter<T extends string>({
   label: string;
   summary: string;
   summaryNoTranslate?: boolean;
-  options: { value: T; label: string; count: number; noTranslate?: boolean }[];
+  options: FilterOption<T>[];
   checked: readonly T[];
   onToggle: (value: T) => void;
   onSet: (values: T[]) => void;
@@ -84,6 +109,63 @@ export function CheckboxFilter<T extends string>({
   const { t } = useI18n();
   const rootRef = useRef<HTMLDivElement>(null);
   const allRef = useRef<HTMLInputElement>(null);
+  // Only is beside the label, not in it: a button in a label would toggle
+  // the checkbox too.
+  const optionRow = (o: FilterOption<T>) => (
+    <div key={o.value} style={{ display: "flex", alignItems: "center" }}>
+      <label style={{ ...rowStyle, flex: 1, minWidth: 0 }}>
+        <input
+          type="checkbox"
+          value={o.value}
+          checked={checked.includes(o.value)}
+          onChange={() => onToggle(o.value)}
+          style={{ margin: 0 }}
+        />
+        <span
+          {...(o.noTranslate ? noTranslate() : {})}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {o.label}
+        </span>
+        <span
+          style={{
+            marginLeft: 12,
+            color: "var(--text-muted)",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {o.count}
+        </span>
+      </label>
+      <button
+        type="button"
+        data-checkbox-only={o.value}
+        aria-label={t("tasks.filterOnlyName", { name: o.label })}
+        onClick={() => onSet([o.value])}
+        style={{
+          alignSelf: "stretch",
+          minHeight: 24,
+          margin: "2px 0",
+          padding: "0 10px",
+          border: "none",
+          borderRadius: 6,
+          background: "var(--btn-surface)",
+          color: "var(--text-muted)",
+          fontSize: 11,
+          fontFamily: "inherit",
+          cursor: "pointer",
+          flexShrink: 0,
+        }}
+      >
+        {t("tasks.filterOnly")}
+      </button>
+    </div>
+  );
   const checkedCount = options.filter((o) => checked.includes(o.value)).length;
   const allChecked = checkedCount === options.length;
   // indeterminate is a DOM property, with no attribute to render.
@@ -190,65 +272,34 @@ export function CheckboxFilter<T extends string>({
             />
             <span style={{ flex: 1 }}>{allLabel}</span>
           </label>
-          {/* Only is beside the label, not in it: a button in a label would
-              toggle the checkbox too. */}
-          {options.map((o) => (
-            <div
-              key={o.value}
-              style={{ display: "flex", alignItems: "center" }}
-            >
-              <label style={{ ...rowStyle, flex: 1, minWidth: 0 }}>
-                <input
-                  type="checkbox"
-                  value={o.value}
-                  checked={checked.includes(o.value)}
-                  onChange={() => onToggle(o.value)}
-                  style={{ margin: 0 }}
-                />
-                <span
-                  {...(o.noTranslate ? noTranslate() : {})}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {o.label}
-                </span>
-                <span
-                  style={{
-                    marginLeft: 12,
-                    color: "var(--text-muted)",
-                    fontVariantNumeric: "tabular-nums",
-                  }}
-                >
-                  {o.count}
-                </span>
-              </label>
-              <button
-                type="button"
-                data-checkbox-only={o.value}
-                aria-label={t("tasks.filterOnlyName", { name: o.label })}
-                onClick={() => onSet([o.value])}
-                style={{
-                  alignSelf: "stretch",
-                  minHeight: 28,
-                  padding: "0 10px",
-                  border: "none",
-                  borderRadius: 6,
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  fontSize: 11,
-                  fontFamily: "inherit",
-                  cursor: "pointer",
-                  flexShrink: 0,
-                }}
+          {/* A run of options with one group (an agent list's room, task
+              899360d3) sits under a separator and the room's name; the
+              group of no known room has the separator only. */}
+          {optionRuns(options).map(({ group, items }) => {
+            const rows = items.map(optionRow);
+            if (group === undefined) return rows;
+            return (
+              <div
+                key={`group-${group?.id ?? ""}`}
+                role="group"
+                aria-label={group?.label}
+                data-checkbox-filter-group={group?.id ?? ""}
               >
-                {t("tasks.filterOnly")}
-              </button>
-            </div>
-          ))}
+                <div
+                  style={{
+                    borderTop: "1px solid var(--border-light)",
+                    margin: "4px 6px 0",
+                    padding: group ? "6px 4px 2px" : "2px 0 0",
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  {group && <span {...noTranslate()}>{group.label}</span>}
+                </div>
+                {rows}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -28,6 +28,32 @@ export function filterOptions(container: HTMLElement, which: string): string[] {
   ].map((box) => box.value);
 }
 
+// The open list's groups (data-checkbox-filter-group), in order: each group's
+// id ("" for the group with no heading), role, aria-label (null when it has
+// none) and option values.
+export function filterGroups(
+  container: HTMLElement,
+  which: string,
+): {
+  id: string;
+  role: string | null;
+  label: string | null;
+  values: string[];
+}[] {
+  return [
+    ...root(container, which).querySelectorAll<HTMLElement>(
+      "[data-checkbox-filter-group]",
+    ),
+  ].map((group) => ({
+    id: group.dataset.checkboxFilterGroup!,
+    role: group.getAttribute("role"),
+    label: group.getAttribute("aria-label"),
+    values: [...group.querySelectorAll<HTMLInputElement>(OPTION)].map(
+      (box) => box.value,
+    ),
+  }));
+}
+
 // The checked values; opens the list first when it is closed.
 export async function checkedFilterValues(
   container: HTMLElement,

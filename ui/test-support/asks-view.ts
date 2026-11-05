@@ -142,11 +142,14 @@ export const SORT_ROOMS = [
   { id: "r2", name: "Room Two" },
   { id: "r1", name: "Room One" },
 ] as AppState["rooms"];
+// Desk order is neither input nor name order: the agent filter lists Room
+// Two's Tracker (a4) and Ranger (a2), then Room One's Pathfinder (a3) and
+// Scout (a1).
 export const SORT_AGENTS = [
-  { id: "a1", name: "Scout", roomId: "r1" },
-  { id: "a2", name: "Ranger", roomId: "r2" },
-  { id: "a3", name: "Pathfinder", roomId: "r1" },
-  { id: "a4", name: "Tracker", roomId: "r2" },
+  { id: "a1", name: "Scout", roomId: "r1", desk: 2 },
+  { id: "a2", name: "Ranger", roomId: "r2", desk: 3 },
+  { id: "a3", name: "Pathfinder", roomId: "r1", desk: 0 },
+  { id: "a4", name: "Tracker", roomId: "r2", desk: 1 },
 ] as AppState["agents"];
 export const SORT_ASKS = [
   ranked("a1old", "a1", 100, "P2"),

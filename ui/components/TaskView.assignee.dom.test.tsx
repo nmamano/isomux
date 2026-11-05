@@ -1,12 +1,13 @@
 // The board's side of task 83f71be9: a task names its assignee and creator by
 // agent id first. A killed agent's name does not link to a new agent that took
-// that name, and the board marks the name as killed.
+// that name, and the board marks the name as killed. The assignee chips of
+// the task panel are grouped by room (task 899360d3).
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { fireEvent, render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
@@ -145,4 +146,97 @@ it("the creator column resolves by id too", () => {
   expect(clickAll(cell)).toEqual([]);
   expect(cell.textContent).toContain("Worker");
   expect(cell.textContent).not.toBe("Worker");
+});
+
+// Twelve agents: the ten most recently spawned get a chip, and recency does
+// not follow rooms or desks. Office order: Two, Three, One, then Four with
+// no agent; r9 is a room the member does not see.
+const CHIP_AGENTS = [
+  ["agent-1001-a", "Old1", "r1", 0],
+  ["agent-1002-b", "Old2", "r2", 0],
+  ["agent-1003-j", "J", "r9", 0],
+  ["agent-1004-f", "F", "r2", 3],
+  ["agent-1005-d", "D", "r1", 1],
+  ["agent-1006-h", "H", "r2", 5],
+  ["agent-1007-k", "K", "r3", 0],
+  ["agent-1008-l", "L", "r3", 1],
+  ["agent-1009-e", "E", "r1", 9],
+  ["agent-1010-i", "I", "r9", 1],
+  ["agent-1011-g", "G", "r2", 2],
+  ["agent-1012-c", "C", "r1", 4],
+].map(([id, name, roomId, desk]) => ({ id, name, roomId, desk }));
+
+function mountChips() {
+  const state = {
+    ...initialState,
+    tasks,
+    tasksLoaded: true,
+    currentRoomId: "r1",
+    rooms: [
+      { id: "r2", name: "Two" },
+      { id: "r3", name: "Three" },
+      { id: "r1", name: "One" },
+      { id: "r4", name: "Four" },
+    ],
+    agents: CHIP_AGENTS,
+  } as unknown as typeof initialState;
+  const view = render(
+    <StateCtx.Provider value={state}>
+      <TaskView
+        onClose={() => {}}
+        openTaskRequest={{ id: "44444444" }}
+        onTaskOpenRequestHandled={() => {}}
+      />
+    </StateCtx.Provider>,
+  );
+  // Each chip group: its room id ("" for no known room), the text of its
+  // label (null when it has none) and its chips.
+  const chipGroups = () =>
+    [
+      ...view.container.querySelectorAll<HTMLElement>("[data-assignee-group]"),
+    ].map((group) => {
+      const label = [...group.querySelectorAll<HTMLElement>("*")].find(
+        (el) =>
+          !el.closest("button") &&
+          el.children.length === 0 &&
+          (el.textContent ?? "") !== "",
+      );
+      if (label) expect(label.closest("[translate=no]")).not.toBeNull();
+      return {
+        id: group.dataset.assigneeGroup,
+        label: label?.textContent ?? null,
+        chips: [...group.querySelectorAll("button")].map(
+          (chip) => chip.textContent,
+        ),
+      };
+    });
+  return { view, chipGroups };
+}
+
+it("the assignee chips sit under their room in office order, by desk; recency picks the ten, and more adds the rest in place", async () => {
+  const { view, chipGroups } = mountChips();
+  await view.findByDisplayValue("Legacy holder");
+  // The panel shows the chips: the most recent agent's is one.
+  expect(
+    [...view.container.querySelectorAll("button")].some(
+      (b) => b.textContent === "C",
+    ),
+  ).toBe(true);
+  expect(chipGroups()).toEqual([
+    { id: "r2", label: "Two", chips: ["G", "F", "H"] },
+    { id: "r3", label: "Three", chips: ["K", "L"] },
+    { id: "r1", label: "One", chips: ["D", "C", "E"] },
+    { id: "", label: null, chips: ["I", "J"] },
+  ]);
+  const more = view.container.querySelector<HTMLElement>(
+    "[data-assignee-more]",
+  )!;
+  expect(more.closest("[data-assignee-group]")).toBeNull();
+  await act(async () => fireEvent.click(more));
+  expect(chipGroups()).toEqual([
+    { id: "r2", label: "Two", chips: ["Old2", "G", "F", "H"] },
+    { id: "r3", label: "Three", chips: ["K", "L"] },
+    { id: "r1", label: "One", chips: ["Old1", "D", "C", "E"] },
+    { id: "", label: null, chips: ["I", "J"] },
+  ]);
 });

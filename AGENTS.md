@@ -45,6 +45,7 @@ Nil's rules for every UI change. A diff that breaks one does not pass review or 
 - Every button has a background. A button is never bare text or an outline only. "Buttons without background should not be a thing anywhere in isomux." Nil, 2026-10-31.
 - A view keeps its layout while it loads: draw the real controls, disabled and dimmed (or a placeholder of the same shape), until the data arrives. Never an empty box or a panel that grows. Nil, 2026-11-05.
 - The product name is Isomux, capitalized, in every string a person reads. Lowercase only where it is a literal (a command, a path, a package, a unit or domain name: brew upgrade isomux, systemctl --user restart isomux, isomux.com). Nil, 2026-11-05.
+- An agent selector groups agents by room. Nil, 2026-11-05.
 
 ## Formatting and linting
 

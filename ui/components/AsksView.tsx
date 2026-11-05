@@ -58,6 +58,7 @@ import {
   type PriorityFilterValue,
 } from "../task-priority.ts";
 import { CheckboxFilter, prioritySummary, toggled } from "./CheckboxFilter.tsx";
+import { groupAgentsByRoom } from "../agent-groups.ts";
 import { ChevronSelect } from "./ChevronSelect.tsx";
 import {
   ordinaryRooms,
@@ -389,17 +390,23 @@ export function AsksView({
   );
   // The agent list offers the agents with an open ask in the member select's
   // set, whatever the other filters, and the unchecked agents, so one can be
-  // checked again after its asks went. By name whatever the case, then by id.
-  const filterAgents = useMemo(() => {
+  // checked again after its asks went. Grouped by room (groupAgentsByRoom);
+  // the agents of no known room by name whatever the case, then by id.
+  const agentGroups = useMemo(() => {
     const withAsk = new Set(open.map((e) => e.agentId));
-    return agents
+    const offered = agents
       .filter((agent) => withAsk.has(agent.id) || hiddenAgents.has(agent.id))
       .sort(
         (a, b) =>
           a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
           (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       );
-  }, [open, agents, hiddenAgents]);
+    return groupAgentsByRoom(offered, rooms);
+  }, [open, agents, hiddenAgents, rooms]);
+  const filterAgents = useMemo(
+    () => agentGroups.flatMap((group) => group.agents),
+    [agentGroups],
+  );
   // The chat stack's View in Inbox (task 586ebfe1) asks for one agent's asks:
   // the member's own, every room and priority, and the other agents the
   // agent list offers for the own asks unchecked, so an agent that asks
@@ -626,12 +633,15 @@ export function AsksView({
             summaryNoTranslate={
               hiddenAgents.size > 0 && checkedAgents.length > 0
             }
-            options={filterAgents.map((agent) => ({
-              value: agent.id,
-              label: agent.name,
-              count: counts.agents.get(agent.id) ?? 0,
-              noTranslate: true,
-            }))}
+            options={agentGroups.flatMap(({ room, agents: inRoom }) =>
+              inRoom.map((agent) => ({
+                value: agent.id,
+                label: agent.name,
+                count: counts.agents.get(agent.id) ?? 0,
+                noTranslate: true,
+                group: room && { id: room.id, label: room.name },
+              })),
+            )}
             checked={checkedAgents.map((agent) => agent.id)}
             onToggle={(id) =>
               setUncheckedAgents((prev) =>

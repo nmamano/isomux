@@ -26,6 +26,8 @@ import {
   type WhatsAppStatus,
 } from "../../shared/whatsapp.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
+import { groupAgentsByRoom } from "../agent-groups.ts";
+import { AgentOptions } from "../components/AgentOptions.tsx";
 import {
   AddRow,
   Btn,
@@ -420,18 +422,9 @@ function WhatsAppRows({
     (a) =>
       selfId !== null && a.userId === selfId && agentAccessOf(a) !== "chat",
   );
-  // The agent picker: by room in office order, desk order inside one; an
-  // agent in a room this member does not see comes last, ungrouped.
-  const byRoom = rooms
-    .map((room) => ({
-      room,
-      agents: mine
-        .filter((a) => a.roomId === room.id)
-        .sort((a, b) => a.desk - b.desk),
-    }))
-    .filter((g) => g.agents.length > 0);
-  const roomless = mine.filter((a) => !rooms.some((r) => r.id === a.roomId));
-  const agentChoices = [...byRoom.flatMap((g) => g.agents), ...roomless];
+  // The agent picker groups them by room (AgentOptions); the form opens on
+  // its first choice.
+  const agentChoices = groupAgentsByRoom(mine, rooms).flatMap((g) => g.agents);
   const agentName = (id: string) =>
     agents.find((a) => a.id === id)?.name ?? null;
   const picked = chats.find((c) => c.chat === chat) ?? null;
@@ -775,20 +768,7 @@ function WhatsAppRows({
                 onChange={(e) => setAgentId(e.target.value)}
                 style={{ ...input, width: "100%" }}
               >
-                {byRoom.map(({ room, agents: inRoom }) => (
-                  <optgroup key={room.id} label={room.name}>
-                    {inRoom.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-                {roomless.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
+                <AgentOptions agents={mine} rooms={rooms} />
               </select>
             )}
           </Field>

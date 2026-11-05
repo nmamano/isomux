@@ -272,3 +272,59 @@ it("labels member-memory rows of both target names alike", async () => {
   // A prototype key is not a scope: the raw target id shows.
   expect(label("memory:toString:u9")).toBe("memory:toString:u9");
 });
+
+// The actor suggestions for an agent read room by room (task 899360d3); the
+// field stays free text, for the id of an agent that is gone.
+it("suggests agent actors by room in office order, each labelled with its room", async () => {
+  const { StateCtx, initialState } = await import("../store.tsx");
+  const { GROUP_AGENTS, GROUP_ROOMS } =
+    await import("../test-support/agent-groups-fixture.ts");
+  setApiShim(async () => ({ items: [], nextBefore: null }));
+  const state = {
+    ...initialState,
+    rooms: GROUP_ROOMS,
+    agents: GROUP_AGENTS,
+  } as unknown as typeof initialState;
+  const view = render(
+    <StateCtx.Provider value={state}>
+      <AuditPane />
+    </StateCtx.Provider>,
+  );
+  await act(async () => {});
+  fireEvent.change(view.container.querySelector('[name="actorKind"]')!, {
+    target: { value: "agent" },
+  });
+  const field =
+    view.container.querySelector<HTMLInputElement>('[name="actorId"]')!;
+  expect(field.tagName).toBe("INPUT");
+  const options = [
+    ...view.container.querySelectorAll<HTMLOptionElement>(
+      `datalist[id="${field.getAttribute("list")}"] option`,
+    ),
+  ];
+  expect(options.map((o) => o.value)).toEqual([
+    "x5",
+    "x2",
+    "x7",
+    "x3",
+    "x1",
+    "x4",
+    "x6",
+  ]);
+  const roomOf = new Map([
+    ["x5", "Zeta"],
+    ["x2", "Zeta"],
+    ["x7", "Zeta"],
+    ["x3", "Alpha"],
+    ["x1", "Alpha"],
+  ]);
+  // happy-dom has no HTMLOptionElement.label: read what a browser shows.
+  for (const option of options) {
+    const label = option.getAttribute("label") ?? option.textContent ?? "";
+    const agent = GROUP_AGENTS.find((a) => a.id === option.value)!;
+    expect(label).toContain(agent.name);
+    const room = roomOf.get(option.value);
+    if (room) expect(label).toContain(room);
+    else for (const r of GROUP_ROOMS) expect(label).not.toContain(r.name);
+  }
+});

@@ -1,6 +1,7 @@
 // The Asks page's filter row (ui/components/AsksView.tsx): what the filter
 // lists and the sort select offer at open, the room names on the button, a
-// room that appears or goes while the tab is open, and the age sort's runs.
+// room that appears or goes while the tab is open, the age sort's runs, and
+// the agent list's room groups (task 899360d3).
 // The orders each sort gives are in ui/components/AsksView.test.ts.
 // This file is separate from the other AsksView.filter*.dom.test.tsx files
 // and from AsksView.dom.test.tsx only because each DOM file has a wall-time
@@ -11,9 +12,16 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 
 const { act } = await import("@testing-library/react");
-const { checkedFilterValues, filterButton, filterOptions, openCheckboxFilter } =
-  await import("../test-support/checkbox-filters.ts");
 const {
+  checkedFilterValues,
+  filterButton,
+  filterGroups,
+  filterOptions,
+  openCheckboxFilter,
+} = await import("../test-support/checkbox-filters.ts");
+const {
+  ask,
+  mount,
   ranked,
   mountSorted,
   groupIds,
@@ -157,5 +165,48 @@ describe("the filter row", () => {
     await setRooms(view, ["r2"]);
     await setRooms(view, ["r2", "r1"]);
     expect(pageOrder(view)).toEqual(BY_AGE);
+  });
+
+  it("groups the agents under their room's name in office order, by desk inside a room, and the agents of no known room last, by name", async () => {
+    const { view } = mount(
+      ["b1", "b2", "b3", "b4", "b5"].map((id, i) => ask(`k${id}`, id, i + 1)),
+      {
+        rooms: [
+          { id: "r2", name: "Room Two" },
+          { id: "r3", name: "Room Three" },
+          { id: "r1", name: "Room One" },
+        ] as AppState["rooms"],
+        agents: [
+          { id: "b1", name: "Twin", roomId: "r1", desk: 2 },
+          { id: "b2", name: "Twin", roomId: "r2", desk: 4 },
+          // A back seat: after the front desks, whatever its name.
+          { id: "b3", name: "Abe", roomId: "r2", desk: 9 },
+          // A room the member does not see.
+          { id: "b4", name: "Zed", roomId: "r9", desk: 0 },
+          { id: "b5", name: "Ace", roomId: "r9", desk: 1 },
+          // No open ask: Room Three gets no group.
+          { id: "b6", name: "Idle", roomId: "r3", desk: 0 },
+        ] as AppState["agents"],
+      },
+    );
+    const c = view.container;
+    await openCheckboxFilter(c, "agent");
+    expect(filterGroups(c, "agent")).toEqual([
+      { id: "r2", role: "group", label: "Room Two", values: ["b2", "b3"] },
+      { id: "r1", role: "group", label: "Room One", values: ["b1"] },
+      { id: "", role: "group", label: null, values: ["b5", "b4"] },
+    ]);
+    // Each room's heading shows its name, which page translation leaves alone.
+    for (const name of ["Room Two", "Room One"]) {
+      const group = c.querySelector(`[aria-label="${name}"]`)!;
+      const heading = [...group.querySelectorAll<HTMLElement>("*")].find(
+        (el) => el.children.length === 0 && el.textContent === name,
+      );
+      expect(heading?.closest("[translate=no]") ?? null).not.toBeNull();
+    }
+    // The room list has no groups.
+    await openCheckboxFilter(c, "room");
+    expect(filterOptions(c, "room")).toEqual(["r2", "r3", "r1"]);
+    expect(filterGroups(c, "room")).toEqual([]);
   });
 });

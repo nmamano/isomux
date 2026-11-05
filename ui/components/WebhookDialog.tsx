@@ -7,6 +7,7 @@ import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { AgentOptions } from "./AgentOptions.tsx";
 import {
   dialogCancelBtn,
   dialogInput,
@@ -100,7 +101,7 @@ export function WebhookDialog({
   onClose: () => void;
   onDeleted?: () => void;
 }) {
-  const { isMobile, agents, cronjobs } = useAppState();
+  const { isMobile, agents, rooms, cronjobs } = useAppState();
   const { t } = useI18n();
   const isEdit = webhook !== undefined;
 
@@ -139,13 +140,7 @@ export function WebhookDialog({
 
   // A target the viewer cannot pick (gone, or out of reach) stays selected,
   // shown as unavailable, until the member picks another.
-  const agentOptions = agents.map((a) => ({ id: a.id, label: a.name }));
-  if (agentId && !agentOptions.some((o) => o.id === agentId)) {
-    agentOptions.unshift({
-      id: agentId,
-      label: t("webhooks.target.unavailable", { id: agentId }),
-    });
-  }
+  const agentGone = !!agentId && !agents.some((a) => a.id === agentId);
   const cronjobOptions = cronjobs
     .filter((c) => c.canManage)
     .map((c) => ({ id: c.id, label: c.name }));
@@ -433,11 +428,12 @@ export function WebhookDialog({
                 data-field="agentId"
               >
                 <option value="">{t("webhooks.dialog.pickAgent")}</option>
-                {agentOptions.map((o) => (
-                  <option key={o.id} value={o.id} {...noTranslate()}>
-                    {o.label}
+                {agentGone && (
+                  <option value={agentId} {...noTranslate()}>
+                    {t("webhooks.target.unavailable", { id: agentId })}
                   </option>
-                ))}
+                )}
+                <AgentOptions agents={agents} rooms={rooms} />
               </select>
               <label style={{ ...labelStyle, marginTop: 10 }}>
                 {t("webhooks.dialog.note")}

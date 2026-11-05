@@ -2,7 +2,8 @@
 // monthly choice has a day input and saves {type:"monthly"}; "message an agent"
 // hides the session fields and saves the target; an edit sends the target only
 // when it changed, so a job whose agent is gone stays editable; and the switch
-// back to a session sends target null.
+// back to a session sends target null. The agent select groups agents by
+// room (task 899360d3).
 
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -15,6 +16,8 @@ const { CronjobDialog } = await import("./CronjobDialog.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
+const { GROUP_AGENTS, GROUP_ROOMS, GROUPED_SELECT, selectGroups } =
+  await import("../test-support/agent-groups-fixture.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type CronjobListWire = import("../../shared/types.ts").CronjobListWire;
 
@@ -150,5 +153,27 @@ it("switching an agent-target job back to a new session sends target null", asyn
   const { method, body } = await save();
   expect(method).toBe("PATCH");
   expect((body as { target?: unknown }).target).toBeNull();
+  view.unmount();
+});
+
+it("the target agent select groups agents by room, after the placeholder", () => {
+  const view = render(
+    onLanguage(null, createElement(CronjobDialog, { onClose: () => {} }), {
+      rooms: GROUP_ROOMS as never,
+      agents: GROUP_AGENTS as unknown as AgentInfo[],
+      hasReceivedInitialState: true,
+    }),
+  );
+  act(() => {
+    fireEvent.click(
+      view.container.querySelector('[data-target-kind="agent"]')!,
+    );
+  });
+  const select = view.container.querySelector<HTMLSelectElement>(
+    '[data-field="agentId"]',
+  )!;
+  expect(selectGroups(select)).toEqual(["", ...GROUPED_SELECT]);
+  for (const group of select.querySelectorAll("optgroup"))
+    expect(group.closest("[translate=no]")).not.toBeNull();
   view.unmount();
 });

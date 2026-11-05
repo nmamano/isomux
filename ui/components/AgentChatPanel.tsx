@@ -19,6 +19,7 @@ import {
   usePhonePanelBox,
 } from "../AppWidgetPage.tsx";
 import { CloseIcon } from "./install-icons.tsx";
+import { AgentOptions } from "./AgentOptions.tsx";
 
 // The panel has no dock under it, as the app page has: it sits at the bottom.
 // In the header, "Open full chat" goes under the title, so the select has the
@@ -52,24 +53,15 @@ export function AgentChatPanel({
   const agentLogs = state.logs.get(agentId);
   const logs = useMemo(() => chatVisibleEntries(agentLogs ?? []), [agentLogs]);
   const phoneBox = usePhonePanelBox(state.isMobile, true, null);
-  // The choices: each room in office order, its front-desk agents by desk.
-  // A back-room agent is a choice only while the panel is on it (its ask
+  // The choices, grouped by room (AgentOptions): the front-desk agents. A
+  // back-room agent is a choice only while the panel is on it (its ask
   // opened the panel), after its room's front desks.
-  const groups = useMemo(
+  const choices = useMemo(
     () =>
-      state.rooms
-        .map((room) => ({
-          room,
-          agents: state.agents
-            .filter(
-              (item) =>
-                item.roomId === room.id &&
-                (!isBackSeat(item.desk) || item.id === agentId),
-            )
-            .sort((a, b) => a.desk - b.desk),
-        }))
-        .filter((group) => group.agents.length > 0),
-    [state.rooms, state.agents, agentId],
+      state.agents.filter(
+        (item) => !isBackSeat(item.desk) || item.id === agentId,
+      ),
+    [state.agents, agentId],
   );
   const onDraft = useCallback(
     (text: string) => dispatch({ type: "set_draft", agentId, text }),
@@ -100,15 +92,7 @@ export function AgentChatPanel({
       value={agent.id}
       onChange={(event) => onSelectAgent(event.target.value)}
     >
-      {groups.map(({ room, agents }) => (
-        <optgroup key={room.id} label={room.name}>
-          {agents.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </optgroup>
-      ))}
+      <AgentOptions agents={choices} rooms={state.rooms} />
     </select>
   );
   return (

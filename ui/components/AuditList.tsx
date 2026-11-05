@@ -18,6 +18,7 @@ import type {
   AuditPage,
   TaskHistory,
 } from "../../shared/audit.ts";
+import { groupAgentsByRoom } from "../agent-groups.ts";
 
 // xterm loads with the first replay, not with the office.
 const TerminalReplay = lazyComponent(() =>
@@ -407,12 +408,19 @@ export function AuditPane() {
             </option>
           ))}
         </datalist>
+        {/* A datalist has no groups: the agents come room by room
+            (groupAgentsByRoom), each labelled with its room. */}
         <datalist id={`${listId}-actors`}>
-          {(filters.actorKind === "agent" ? state.agents : []).map((actor) => (
-            <option key={actor.id} value={actor.id}>
-              {actor.name}
-            </option>
-          ))}
+          {(filters.actorKind === "agent"
+            ? groupAgentsByRoom(state.agents, state.rooms)
+            : []
+          ).flatMap(({ room, agents }) =>
+            agents.map((actor) => (
+              <option key={actor.id} value={actor.id}>
+                {room ? `${room.name} · ${actor.name}` : actor.name}
+              </option>
+            )),
+          )}
         </datalist>
         <div style={{ display: "flex", gap: 8, flexBasis: "100%" }}>
           <button type="submit" style={dialogCancelBtn}>
