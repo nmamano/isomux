@@ -150,7 +150,8 @@ export interface WhatsAppSupervisor {
   // Sends the member's current allowlist to their live bridge.
   setRoutes(userId: string): void;
   // The chats seen since the link (cleared on unlink), at most
-  // WHATSAPP_CHATS_SEEN_MAX.
+  // WHATSAPP_CHATS_SEEN_MAX: newest message first, then the chats with no
+  // message in the order seen.
   chatsSeen(userId: string): WhatsAppChatSeen[];
   // Sends text to a chat through the member's open bridge (slice 2b).
   send(
@@ -198,6 +199,22 @@ interface MemberRecord {
   gen: number;
 }
 
+// The chat with the oldest time (the first on a tie).
+function oldest(times: Iterable<[string, number]>): string | undefined {
+  let pick: [string, number] | undefined;
+  for (const t of times) if (!pick || t[1] < pick[1]) pick = t;
+  return pick?.[0];
+}
+
+// The chat to drop from the chats seen at the cap: the first seen with no
+// message. There is always one: the times are capped at the same max.
+function leastRecent(
+  seen: Map<string, WhatsAppChatSeen>,
+  times: Map<string, number> = new Map(),
+): string | undefined {
+  for (const chat of seen.keys()) if (!times.has(chat)) return chat;
+}
+
 export function createWhatsAppSupervisor(
   deps: WhatsAppSupervisorDeps,
 ): WhatsAppSupervisor {
@@ -205,6 +222,9 @@ export function createWhatsAppSupervisor(
   const members = new Map<string, MemberRecord>();
   // The chats each member's WhatsApp saw since the link (memory only).
   const chats = new Map<string, Map<string, WhatsAppChatSeen>>();
+  // The time of each chat's newest message since the link, for the Add
+  // picker's order (memory only). A time can come before the chat's name.
+  const lastAt = new Map<string, Map<string, number>>();
   let runtimeDir: string | null = null;
   let shuttingDown = false;
 
@@ -277,6 +297,7 @@ export function createWhatsAppSupervisor(
 
   function unlinked(m: MemberRecord): void {
     chats.delete(m.userId);
+    lastAt.delete(m.userId);
     hook("unlink", (h) => h.onUnlinked(m.userId));
   }
 
@@ -475,7 +496,18 @@ export function createWhatsAppSupervisor(
           group: event.group,
         });
         if (seen.size > WHATSAPP_CHATS_SEEN_MAX)
-          seen.delete(seen.keys().next().value as string);
+          seen.delete(leastRecent(seen, lastAt.get(m.userId)) as string);
+        return;
+      }
+      case "activity": {
+        let times = lastAt.get(m.userId);
+        if (!times) lastAt.set(m.userId, (times = new Map<string, number>()));
+        // The newest wins: an older message (offline catch-up) never moves
+        // a chat down.
+        if ((times.get(event.chat) ?? -Infinity) >= event.at) return;
+        times.set(event.chat, event.at);
+        if (times.size > WHATSAPP_CHATS_SEEN_MAX)
+          times.delete(oldest(times) as string);
         return;
       }
       case "message":
@@ -730,7 +762,12 @@ export function createWhatsAppSupervisor(
     },
 
     chatsSeen(userId) {
-      return [...(chats.get(userId)?.values() ?? [])];
+      // Newest message first; the chats with none follow in the order seen.
+      const times = lastAt.get(userId);
+      const timeOf = (c: WhatsAppChatSeen) => times?.get(c.chat) ?? -Infinity;
+      return [...(chats.get(userId)?.values() ?? [])].sort(
+        (a, b) => timeOf(b) - timeOf(a),
+      );
     },
     send(userId, req) {
       const m = members.get(userId);

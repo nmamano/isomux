@@ -60,6 +60,7 @@ describe("whatsapp bridge protocol", () => {
       { ev: "closed", statusCode: null },
       { ev: "log", text: "connection open" },
       { ev: "chat", chat: "1203@g.us", name: "Family", group: true },
+      { ev: "activity", chat: "1203@g.us", at: 1_800_000_000_000 },
       MESSAGE,
       {
         ...MESSAGE,
@@ -103,6 +104,18 @@ describe("whatsapp bridge protocol", () => {
         }),
       ),
     ).toEqual({ ev: "send-failed", requestId: "ask-1" });
+    // An activity carries the chat and the time only.
+    expect(
+      parseBridgeEvent(
+        JSON.stringify({
+          ev: "activity",
+          chat: "1203@g.us",
+          at: 5,
+          text: "hello",
+          sender: "447700900123@s.whatsapp.net",
+        }),
+      ),
+    ).toEqual({ ev: "activity", chat: "1203@g.us", at: 5 });
   });
 
   it("drops a line that is not a valid event", () => {
@@ -125,6 +138,10 @@ describe("whatsapp bridge protocol", () => {
       '{"ev":"sent","requestId":"ask-1","id":null}',
       '{"ev":"send-failed"}',
       '{"ev":"send-failed","requestId":null}',
+      '{"ev":"activity","chat":"1203@g.us"}',
+      '{"ev":"activity","chat":"1203@g.us","at":"5"}',
+      '{"ev":"activity","chat":"1203@g.us","at":1e999}',
+      '{"ev":"activity","chat":null,"at":5}',
       ...(
         [
           ["id", 5],

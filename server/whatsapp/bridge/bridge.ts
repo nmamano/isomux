@@ -10,7 +10,8 @@
 // loads Baileys. It imports nothing from the rest of Isomux.
 //
 // What it writes to stdout is all the server sees: no message text and no
-// contact number goes into a log line.
+// contact number goes into a log line. Of a chat that is not routed, only its
+// id, its name and the time of its messages leave this process.
 
 import { randomBytes } from "crypto";
 import { createInterface } from "readline";
@@ -32,6 +33,7 @@ type Event =
   | { ev: "closed"; statusCode: number | null }
   | { ev: "log"; text: string }
   | { ev: "chat"; chat: string; name: string; group: boolean }
+  | { ev: "activity"; chat: string; at: number }
   | { ev: "sent"; requestId: string; id: string }
   | { ev: "send-failed"; requestId: string }
   | {
@@ -153,6 +155,9 @@ interface Baileys {
     m: MessageContent | null | undefined,
   ): MessageContent | undefined;
   jidNormalizedUser(jid: string | undefined): string;
+  // A message that counts as chat activity: not a protocol message, a
+  // reaction or a poll vote.
+  isRealMessage(m: WAMessage): boolean;
   areJidsSameUser(a: string | undefined, b: string | undefined): boolean;
 }
 
@@ -330,10 +335,20 @@ async function onMessage(m: WAMessage, s: Socket): Promise<void> {
   if (!key.id || !raw || !allow) return;
   const group = raw.endsWith("@g.us");
   let chat = baileys.jidNormalizedUser(raw);
+  let pn: string | null = null;
   if (!group) {
     if (!chat.endsWith("@s.whatsapp.net") && !chat.endsWith("@lid")) return;
+    pn = await pnOf(chat, key.remoteJidAlt, s);
+  }
+  // The Add picker's order: the time of each message, routed or not, under
+  // each form of the chat's id (the picker lists a contact under either).
+  if (baileys.isRealMessage(m)) {
+    const at = timestampMs(m.messageTimestamp);
+    for (const id of new Set([chat, pn ?? chat]))
+      send({ ev: "activity", chat: id, at });
+  }
+  if (!group) {
     // A row may hold either form of a contact's id; the PN form wins.
-    const pn = await pnOf(chat, key.remoteJidAlt, s);
     if (pn && !allow.has(chat)) chat = pn;
     // A contact with no saved name shows as its number.
     if (pn && !names.has(pn) && !names.has(chat))

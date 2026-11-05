@@ -41,6 +41,8 @@ export const Browsers = { ubuntu: (n) => ["Ubuntu", n, "1"] };
 export const jidNormalizedUser = (j) => j;
 export const areJidsSameUser = (a, b) => a === b;
 export const normalizeMessageContent = (m) => m;
+// As Baileys: content, and not a protocol message, a reaction or a poll vote.
+export const isRealMessage = (m) => !!m.message && !m.message.protocolMessage && !m.message.reactionMessage && !m.message.pollUpdateMessage;
 const qr = (ref) => "https://wa.me/settings/linked_devices#" + ref + ",NOISE,IDENT,OLD,1";
 export default function makeSocket(config) {
   seen.version = config.version ?? "none";
@@ -54,6 +56,7 @@ export default function makeSocket(config) {
     refresh: () => ws.emit("CB:notification,type:companion_reg_refresh", { tag: "notification", attrs: {}, content: [{ tag: "companion_reg_refresh", attrs: {} }] }),
     oddRefresh: () => ws.emit("CB:notification,type:companion_reg_refresh", { tag: "notification", attrs: {}, content: [{ tag: "other", attrs: {} }] }),
     paired: () => { creds.me = { id: "447700900123:4@s.whatsapp.net" }; creds.account = {}; ev.emit("creds.update", creds); },
+    messages: () => ev.emit("messages.upsert", { messages: s.messages, type: "notify" }),
     close: () => ev.emit("connection.update", { connection: "close", lastDisconnect: { error: { message: "QR refs attempts ended", output: { statusCode: 408 } } } }),
   };
   let i = 0;
@@ -65,7 +68,7 @@ export default function makeSocket(config) {
   setTimeout(next, 20);
   return {
     ws, ev,
-    signalRepository: { lidMapping: { getPNForLID: async () => null } },
+    signalRepository: { lidMapping: { getPNForLID: async (lid) => (s.lids ?? {})[lid] ?? null } },
     groupFetchAllParticipating: async () => ({}),
     sendMessage: async () => undefined,
     async requestPairingCode(phone) {
@@ -85,6 +88,10 @@ type Scenario = {
   versionLatest?: boolean;
   versionThrows?: boolean;
   codeFails?: boolean;
+  // For the messages step: the batch, the LID -> PN lookup, the routed chats.
+  messages?: unknown[];
+  lids?: Record<string, string>;
+  routes?: string[];
 };
 type Ev = { ev: string; [k: string]: unknown };
 
@@ -112,7 +119,9 @@ async function run(
     stdout: "pipe",
     stderr: "pipe",
   });
-  proc.stdin.write(JSON.stringify({ op: "routes", chats: [] }) + "\n");
+  proc.stdin.write(
+    JSON.stringify({ op: "routes", chats: scenario.routes ?? [] }) + "\n",
+  );
   proc.stdin.write(JSON.stringify({ op: "link", ...link }) + "\n");
   proc.stdin.flush();
   const seenFile = join(member, "seen.json");
@@ -217,5 +226,101 @@ describe("whatsapp bridge", () => {
     expect(
       closed.events.some((e) => e.ev === "closed" && e.statusCode === 408),
     ).toBe(true);
+  });
+
+  test("a real message in any chat, routed or not, gives its chat's time under each id the chat is known by, and nothing else", async () => {
+    const T = 1_700_000_000;
+    const msg = (
+      n: number,
+      key: Record<string, unknown>,
+      message: Record<string, unknown> | null = { conversation: "secret text" },
+    ) => ({
+      key: { id: `M${n}`, ...key },
+      messageTimestamp: T + n,
+      message,
+    });
+    const PN = "447700900123@s.whatsapp.net";
+    const { events } = await run(
+      {
+        steps: ["messages"],
+        versionLatest: true,
+        routes: ["routed@g.us"],
+        lids: { "222@lid": "447700900222@s.whatsapp.net" },
+        messages: [
+          // A LID chat whose PN comes with the message.
+          msg(1, { remoteJid: "111@lid", remoteJidAlt: PN }),
+          // A LID chat whose PN comes from the LID lookup.
+          msg(2, { remoteJid: "222@lid" }),
+          // A LID chat with no known PN.
+          msg(3, { remoteJid: "333@lid" }),
+          // A PN chat: one id only.
+          msg(4, { remoteJid: "447700900444@s.whatsapp.net" }),
+          // A group, a message without text, and one the member sent.
+          msg(
+            5,
+            { remoteJid: "g1@g.us", participant: PN },
+            {
+              imageMessage: {},
+            },
+          ),
+          msg(6, { remoteJid: "g2@g.us", fromMe: true }),
+          // Not a chat the picker lists.
+          msg(7, { remoteJid: "status@broadcast", participant: PN }),
+          // Not activity: a reaction, a protocol message (an edit, a
+          // delete) and a message with no content.
+          msg(
+            8,
+            { remoteJid: "react@g.us", participant: PN },
+            {
+              reactionMessage: { text: "x" },
+            },
+          ),
+          msg(
+            9,
+            { remoteJid: "proto@g.us", participant: PN },
+            {
+              protocolMessage: { type: 14 },
+            },
+          ),
+          msg(10, { remoteJid: "empty@g.us", participant: PN }, null),
+          // A routed chat: its time and its message both go.
+          msg(11, { remoteJid: "routed@g.us", participant: PN }),
+        ],
+      },
+      { method: "qr" },
+    );
+    // Only the routed chat's message leaves with its text.
+    expect(events.filter((e) => e.ev === "message").map((e) => e.chat)).toEqual(
+      ["routed@g.us"],
+    );
+    const activity = events.filter((e) => e.ev === "activity");
+    for (const e of activity)
+      expect(Object.keys(e).sort()).toEqual(["at", "chat", "ev"]);
+    const byChat = activity
+      .map((e) => [e.chat, e.at] as const)
+      .sort(([a], [b]) => String(a).localeCompare(String(b)));
+    const ms = (n: number) => (T + n) * 1000;
+    expect(byChat).toEqual(
+      (
+        [
+          ["111@lid", ms(1)],
+          [PN, ms(1)],
+          ["222@lid", ms(2)],
+          ["447700900222@s.whatsapp.net", ms(2)],
+          ["333@lid", ms(3)],
+          ["447700900444@s.whatsapp.net", ms(4)],
+          ["g1@g.us", ms(5)],
+          ["g2@g.us", ms(6)],
+          ["routed@g.us", ms(11)],
+        ] as const
+      )
+        .slice()
+        .sort(([a], [b]) => a.localeCompare(b)),
+    );
+    const text = events
+      .filter((e) => e.ev !== "message")
+      .map((e) => JSON.stringify(e))
+      .join("\n");
+    expect(text).not.toContain("secret text");
   });
 });

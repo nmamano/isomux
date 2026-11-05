@@ -964,6 +964,127 @@ describe("whatsapp supervisor: rows and inbound (slice 2)", () => {
   });
 });
 
+describe("whatsapp supervisor: the Add picker order (task 28774091)", () => {
+  const chat = (id: string): BridgeEvent => ({
+    ev: "chat",
+    chat: id,
+    name: id.toUpperCase(),
+    group: true,
+  });
+  const at = (id: string, ms: number): BridgeEvent => ({
+    ev: "activity",
+    chat: id,
+    at: ms,
+  });
+  const order = (h: Harness, userId = U) =>
+    h.sup.chatsSeen(userId).map((c) => c.chat);
+
+  it("chats with a message come first, newest first; the rest follow in the order they were seen", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    for (const id of ["a", "b", "c", "d", "e"]) child.emit(chat(id));
+    child.emit(at("c", 300));
+    child.emit(at("a", 100));
+    // An equal time keeps the order the chats were seen in.
+    child.emit(at("e", 300));
+    // The newest time wins: a later one moves the chat up, an older one
+    // (offline catch-up) never moves it down.
+    child.emit(at("a", 500));
+    child.emit(at("c", 200));
+    await settle();
+    expect(order(h)).toEqual(["a", "c", "e", "b", "d"]);
+    // The entries the picker gets are unchanged: no time leaves the server.
+    expect(h.sup.chatsSeen(U)[0]).toEqual({
+      chat: "a",
+      name: "A",
+      group: true,
+    });
+  });
+
+  it("a time that comes before the chat's name counts once the name comes; a chat with no name is not listed", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    child.emit(chat("a"));
+    child.emit(at("late", 900));
+    child.emit(at("nameless", 950));
+    child.emit(chat("b"));
+    await settle();
+    expect(order(h)).toEqual(["a", "b"]);
+    child.emit(chat("late"));
+    await settle();
+    expect(order(h)).toEqual(["late", "a", "b"]);
+  });
+
+  it("the times are kept across a bridge restart and cleared on unlink", async () => {
+    const h = harness();
+    const first = await bootLinked(h);
+    for (const id of ["a", "b", "c"]) first.emit(chat(id));
+    first.emit(at("c", 300));
+    first.emit(at("b", 200));
+    await settle();
+    expect(order(h)).toEqual(["c", "b", "a"]);
+    first.exit(1);
+    await h.clock.advance(WHATSAPP_BACKOFF_FIRST_MS);
+    expect(h.childOf(U)).toHaveLength(2);
+    // The new bridge announces its chats again; the times stay.
+    for (const id of ["a", "b", "c"]) last(h.childOf(U)).emit(chat(id));
+    await settle();
+    expect(order(h)).toEqual(["c", "b", "a"]);
+
+    await h.sup.unlink(U);
+    expect((await h.sup.link(U, { method: "qr" })).ok).toBe(true);
+    const relinked = last(h.childOf(U));
+    for (const id of ["a", "b", "c"]) relinked.emit(chat(id));
+    await settle();
+    expect(order(h)).toEqual(["a", "b", "c"]);
+  });
+
+  it("at the cap the least recent chat goes: one with no message first, in the order seen, then the oldest message", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    child.emit(chat("hot"));
+    child.emit(at("hot", 1_000));
+    for (let i = 1; i <= WHATSAPP_CHATS_SEEN_MAX; i++)
+      child.emit(chat(`q${i}`));
+    await settle();
+    let seen = order(h);
+    expect(seen).toHaveLength(WHATSAPP_CHATS_SEEN_MAX);
+    expect(seen[0]).toBe("hot");
+    expect(seen).not.toContain("q1");
+    expect(seen).toContain("q2");
+
+    // Every chat has a message: the oldest one goes, not the first seen.
+    const h2 = harness();
+    const c2 = await bootLinked(h2);
+    for (let i = 1; i <= WHATSAPP_CHATS_SEEN_MAX; i++) {
+      c2.emit(chat(`m${i}`));
+      c2.emit(at(`m${i}`, (WHATSAPP_CHATS_SEEN_MAX - i + 1) * 10));
+    }
+    c2.emit(at("new", 99_999));
+    c2.emit(chat("new"));
+    await settle();
+    seen = order(h2);
+    expect(seen).toHaveLength(WHATSAPP_CHATS_SEEN_MAX);
+    expect(seen[0]).toBe("new");
+    expect(seen).toContain("m1");
+    expect(seen).not.toContain(`m${WHATSAPP_CHATS_SEEN_MAX}`);
+  });
+
+  it("the times are capped too: the oldest goes", async () => {
+    const h = harness();
+    const child = await bootLinked(h);
+    child.emit(chat("z"));
+    // Times for chats with no name yet, one more than the cap.
+    for (let i = 0; i <= WHATSAPP_CHATS_SEEN_MAX; i++)
+      child.emit(at(`u${i}`, 1_000 + i));
+    child.emit(chat("u0"));
+    child.emit(chat("u1"));
+    await settle();
+    // u0's time, the oldest, is gone: it sorts with the chats with no message.
+    expect(order(h)).toEqual(["u1", "z", "u0"]);
+  });
+});
+
 describe("whatsapp supervisor: a reply send (slice 2b)", () => {
   const MOM = "447700900123@s.whatsapp.net";
   const req = (requestId: string) => ({

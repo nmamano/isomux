@@ -28,6 +28,9 @@ export type BridgeEvent =
   // A chat seen since the link, for the Add picker: the member's saved name
   // or the group subject, never the contact's own WhatsApp name. No text.
   | { ev: "chat"; chat: string; name: string; group: boolean }
+  // A message in a chat, routed or not, for the Add picker's order: the time
+  // it was sent (ms). No text, no sender.
+  | { ev: "activity"; chat: string; at: number }
   // The answer to a send: the WhatsApp message id, or a failure.
   | { ev: "sent"; requestId: string; id: string }
   | { ev: "send-failed"; requestId: string }
@@ -96,6 +99,12 @@ export function parseBridgeEvent(line: string): BridgeEvent | null {
         typeof e.name === "string" &&
         typeof e.group === "boolean"
         ? { ev: "chat", chat: e.chat, name: e.name, group: e.group }
+        : null;
+    case "activity":
+      return typeof e.chat === "string" &&
+        typeof e.at === "number" &&
+        Number.isFinite(e.at)
+        ? { ev: "activity", chat: e.chat, at: e.at }
         : null;
     case "sent":
       return typeof e.requestId === "string" && typeof e.id === "string"
