@@ -146,7 +146,8 @@ export interface AsksDeps {
   // step with a link, and its in-process run through the executor as the
   // caller. Absent in leaf tests: no step runs.
   stepRuns?: {
-    routeOf(step: AskStep): StepRun | null;
+    // `memberUserId`: the member the ask is for, who runs it.
+    routeOf(step: AskStep, memberUserId: string): StepRun | null;
     dispatch(
       identity: Identity,
       route: StepRoute,
@@ -1101,12 +1102,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const id = ctx.params.askId;
     const entry = store.get(id);
     if (
-      !entry ||
+      !entry?.memberUserId ||
       !askVisibleTo(entry, ctx.identity.userId, audienceFor(ctx.identity))
     )
       return notFound();
     const runs = deps.stepRuns;
-    const run = entry.step && runs ? runs.routeOf(entry.step) : null;
+    const run =
+      entry.step && runs ? runs.routeOf(entry.step, entry.memberUserId) : null;
     if (!runs || !run)
       return fail(409, "not_runnable", "This ask has no action to run.");
     if (!run.ok) return fail(run.status, run.code, run.message);

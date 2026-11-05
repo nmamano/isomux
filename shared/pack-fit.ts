@@ -45,6 +45,23 @@ export function parseMemberPack(value: unknown): MemberPack | null {
   return { areas: limits.areas, agentCeiling: agentCeiling as AgentAccess };
 }
 
+// Whether two packs give the same areas and ceiling, whatever the key order.
+export function samePack(
+  a: MemberPack | null | undefined,
+  b: MemberPack | null | undefined,
+): boolean {
+  if (!a || !b) return !a && !b;
+  const keys = new Set([...Object.keys(a.areas), ...Object.keys(b.areas)]);
+  return (
+    a.agentCeiling === b.agentCeiling &&
+    [...keys].every(
+      (k) =>
+        a.areas[k as keyof MemberPack["areas"]] ===
+        b.areas[k as keyof MemberPack["areas"]],
+    )
+  );
+}
+
 // The sender side: its areas, its rooms (absent = every room it can access)
 // and the highest stop it may reach (an agent's own stop, a token's office).
 export interface PackSender {

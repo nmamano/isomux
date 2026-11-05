@@ -192,6 +192,33 @@ function backupDirError(dir: string, stateRoot: string): string | null {
   return null;
 }
 
+// Why a settings input is refused on its shape alone, or null: the interval
+// and the count in range, the folder an absolute path or null. It touches no
+// disk, so the backup-settings ask (server/step-asks.ts) checks with it at
+// create; the save checks the folder itself after it.
+export function backupSettingsShapeError(input: {
+  intervalHours?: unknown;
+  retention?: unknown;
+  dir?: unknown;
+}): string | null {
+  if (
+    input.intervalHours !== undefined &&
+    !inRange(input.intervalHours, BACKUP_INTERVAL_HOURS_RANGE)
+  )
+    return `intervalHours must be a whole number from ${BACKUP_INTERVAL_HOURS_RANGE.min} to ${BACKUP_INTERVAL_HOURS_RANGE.max}`;
+  if (
+    input.retention !== undefined &&
+    !inRange(input.retention, BACKUP_RETENTION_RANGE)
+  )
+    return `retention must be a whole number from ${BACKUP_RETENTION_RANGE.min} to ${BACKUP_RETENTION_RANGE.max}`;
+  if (input.dir !== undefined && input.dir !== null) {
+    if (typeof input.dir !== "string") return "dir must be a path or null";
+    if (!isAbsolute(input.dir))
+      return "the backup folder must be an absolute path";
+  }
+  return null;
+}
+
 export type SaveBackupSettingsResult =
   | { ok: true; status: BackupStatus; oldBackupsDir: string | null }
   | { ok: false; error: string };
@@ -208,22 +235,11 @@ export function saveBackupSettings(
   const envDir = "envDir" in opts ? opts.envDir : process.env.ISOMUX_BACKUP_DIR;
   const current = loadBackupSettings();
   const next: BackupSettings = { ...current };
-  if (input.intervalHours !== undefined) {
-    if (!inRange(input.intervalHours, BACKUP_INTERVAL_HOURS_RANGE))
-      return {
-        ok: false,
-        error: `intervalHours must be a whole number from ${BACKUP_INTERVAL_HOURS_RANGE.min} to ${BACKUP_INTERVAL_HOURS_RANGE.max}`,
-      };
+  const shape = backupSettingsShapeError(input);
+  if (shape) return { ok: false, error: shape };
+  if (input.intervalHours !== undefined)
     next.intervalHours = input.intervalHours;
-  }
-  if (input.retention !== undefined) {
-    if (!inRange(input.retention, BACKUP_RETENTION_RANGE))
-      return {
-        ok: false,
-        error: `retention must be a whole number from ${BACKUP_RETENTION_RANGE.min} to ${BACKUP_RETENTION_RANGE.max}`,
-      };
-    next.retention = input.retention;
-  }
+  if (input.retention !== undefined) next.retention = input.retention;
   if (input.dir !== undefined && input.dir !== current.dir) {
     if (envDir)
       return {
@@ -231,8 +247,6 @@ export function saveBackupSettings(
         error: "ISOMUX_BACKUP_DIR sets the backup folder",
       };
     if (input.dir !== null) {
-      if (typeof input.dir !== "string")
-        return { ok: false, error: "dir must be a path or null" };
       const error = backupDirError(input.dir, stateRoot);
       if (error) return { ok: false, error };
     }

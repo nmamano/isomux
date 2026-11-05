@@ -62,15 +62,21 @@ export interface PreferencesDeps {
   keyStatus(userId: string): VoiceStatusRes;
 }
 
-type Parsed =
+// A preferences change, checked, or why it is refused.
+export type ParsedPreferences =
   | { ok: true; change: PreferencesReq }
-  | { ok: false; result: ReturnType<typeof fail> };
+  | { ok: false; code: string; message: string };
 
-// The one parser for both writes: `keys` is what the route accepts.
-function parsePreferences(raw: unknown, keys: readonly string[]): Parsed {
-  const refuse = (code: string, message: string): Parsed => ({
+// The one parser for both writes and the member-preferences ask
+// (server/step-asks.ts): `keys` is what the caller accepts.
+export function parsePreferenceChange(
+  raw: unknown,
+  keys: readonly string[],
+): ParsedPreferences {
+  const refuse = (code: string, message: string): ParsedPreferences => ({
     ok: false,
-    result: fail(422, code, message),
+    code,
+    message,
   });
   // Shape check FIRST. `7`, `"x"` and `true` are all legal JSON bodies, and
   // the `in` operator throws on a primitive right-hand side - a 500 where a
@@ -138,8 +144,8 @@ export function preferencesHandlers(
     "prefs.update": (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user", "preferences are per-user");
-      const parsed = parsePreferences(ctx.body ?? {}, PREFERENCE_KEYS);
-      if (!parsed.ok) return parsed.result;
+      const parsed = parsePreferenceChange(ctx.body ?? {}, PREFERENCE_KEYS);
+      if (!parsed.ok) return fail(422, parsed.code, parsed.message);
       if (!deps.applyPreferences(userId, parsed.change)) {
         return fail(404, "user_not_found");
       }
@@ -162,8 +168,11 @@ export function preferencesHandlers(
     "memberVoice.update": (ctx) => {
       const member = subject(ctx);
       if (!member) return fail(404, "not_found");
-      const parsed = parsePreferences(ctx.body ?? {}, VOICE_PREFERENCE_KEYS);
-      if (!parsed.ok) return parsed.result;
+      const parsed = parsePreferenceChange(
+        ctx.body ?? {},
+        VOICE_PREFERENCE_KEYS,
+      );
+      if (!parsed.ok) return fail(422, parsed.code, parsed.message);
       if (!deps.applyPreferences(member.userId, parsed.change)) {
         return fail(404, "not_found");
       }

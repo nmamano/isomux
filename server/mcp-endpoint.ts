@@ -494,7 +494,7 @@ function registerAskTools(
       "open_ask",
       {
         description:
-          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat. step asks for a change only the member can make: an agent's access level (agent-access), one room of a member's room access (member-room; grant true gives it, false takes it) or a member's role (member-role). The card has an Apply button, and the ask closes when the change is made. pack (token limits with areas) goes only with access office, folder or web.",
+          "Ask your manager a question in their Inbox. options are the answers they can tap, recommended is your pick (one of the options), priority is P0-P4. The answer comes to your chat. step asks for a change only the member can make: an agent's access level (agent-access), one room of a member's room access (member-room; grant true gives it, false takes it), a member's role (member-role), a member's permission pack (member-pack; pack null for none), your manager's own preferences (member-preferences) or room lists (member-view; list shown, tucked, notif or push), the office settings (office-settings) or the backup settings (backup-settings); set holds the keys to change. The card has an Apply button, and the ask closes when the change is made. pack (token limits with areas) goes only with access office, folder or web.",
         inputSchema: {
           prompt: z.string().min(1),
           options: ASK_OPTIONS.optional(),
@@ -518,6 +518,29 @@ function registerAskTools(
                 kind: z.literal("member-role"),
                 username: z.string().min(1),
                 role: z.enum(["owner", "member"]),
+              }),
+              z.object({
+                kind: z.literal("member-pack"),
+                username: z.string().min(1),
+                pack: z.record(z.string(), z.unknown()).nullable(),
+              }),
+              z.object({
+                kind: z.literal("member-preferences"),
+                set: z.record(z.string(), z.unknown()),
+              }),
+              z.object({
+                kind: z.literal("member-view"),
+                list: z.enum(["shown", "tucked", "notif", "push"]),
+                roomId: z.string().min(1),
+                on: z.boolean(),
+              }),
+              z.object({
+                kind: z.literal("office-settings"),
+                set: z.record(z.string(), z.unknown()),
+              }),
+              z.object({
+                kind: z.literal("backup-settings"),
+                set: z.record(z.string(), z.unknown()),
               }),
             ])
             .optional(),

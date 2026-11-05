@@ -3,6 +3,7 @@ import type {
   AskAgentWire,
   RemovedMemberWire,
 } from "./contract-shapes.ts";
+import type { ActionStepRequest } from "./action-steps.ts";
 import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
 import type { SecretForm } from "./secret-hosts.ts";
@@ -1176,36 +1177,18 @@ export type StepAskRequest =
   // The GitHub issue link of the agent's room at create.
   | { kind: "github-link"; roomId: string };
 
-// An action step (task e3d1bc63): a human-only action the member runs from
-// the ask card with the Apply button. It has no link; the ask closes itself
-// when the state reaches the value, by the card or by hand.
-export type ActionStepRequest =
-  // An agent's stop on the access slider, with its pack at office, folder
-  // and web.
-  | {
-      kind: "agent-access";
-      agentId: string;
-      access: AgentAccess;
-      pack?: ApiTokenLimits;
-    }
-  // One room of a member's room access, granted or removed. The agent names
-  // the member by username; the server stores the id.
-  | { kind: "member-room"; userId: string; roomId: string; grant: boolean }
-  // A member made an office owner, or an owner made a member.
-  | { kind: "member-role"; userId: string; role: "owner" | "member" };
-
 // The `step` of an ask: one the member does on a page, or one they run from
 // the card.
 export type AskStep = StepAskRequest | ActionStepRequest;
 
-const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
-  ActionStepRequest["kind"]
->(["agent-access", "member-room", "member-role"]);
-
-// Whether a step is one the member runs from the card.
-export function isActionStep(step: AskStep): step is ActionStepRequest {
-  return ACTION_STEP_KINDS.has(step.kind);
-}
+export type {
+  ActionStepRequest,
+  BackupSettingsSet,
+  MemberPreferencesSet,
+  MemberViewList,
+  OfficeSettingsSet,
+} from "./action-steps.ts";
+export { isActionStep } from "./action-steps.ts";
 
 // A sudo request (task 43a28eed): the agent asks to run one command as root,
 // and the office owner it is for types the box account's password in the

@@ -322,7 +322,10 @@ import {
   setOfficeEnvFileProvider,
   setSecretEnvironmentProvider,
 } from "./env-loader.ts";
-import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
+import {
+  OFFICE_NAME_MAX,
+  officeSettingsHandlers,
+} from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
@@ -418,6 +421,7 @@ import type {
   AccessSettings,
   BackupStatusWire,
   UserPublicWire,
+  OfficeSettingsRes,
 } from "../shared/contract-shapes.ts";
 import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
@@ -667,6 +671,20 @@ setMcpPlaceholderProvider((scope, name) =>
 let stepAsks: StepAsks | undefined;
 function stepsChanged(): void {
   void stepAsks?.reconcile();
+}
+// The office settings as office.getSettings answers them.
+function officeSettingsNow(): OfficeSettingsRes {
+  return {
+    name: agentManager.getOfficeSettings().name,
+    version: officeSettingsVersion(),
+    memberUsageCap: memberUsageCap().isEnabled(),
+    memberUsageShare: memberUsageCap().share(),
+    recordTerminals: loadRecordTerminals(),
+    providerFallback: providerFallback().isEnabled(),
+    processIsolation: loadProcessIsolation(),
+    processIsolationStatus: processIsolationStatusLine(),
+    claudeIsomuxLabel: loadClaudeIsomuxLabel(),
+  };
 }
 // Who sees and answers an ask (askVisibleTo), read live: GET /api/asks,
 // pushAskChange, the member answer routes and the secret request routes.
@@ -1682,11 +1700,11 @@ function applyOfficeSettings(
       : typeof input.name === "string" && input.name.trim()
         ? input.name.trim()
         : null;
-  if (rawName && rawName.length > 60) {
+  if (rawName && rawName.length > OFFICE_NAME_MAX) {
     return {
       ok: false,
       status: 400,
-      error: "Office name must be 60 characters or fewer",
+      error: `Office name must be ${OFFICE_NAME_MAX} characters or fewer`,
     };
   }
   agentManager.setOfficeSettings(
@@ -2721,6 +2739,8 @@ function buildExecutorDeps(
     // Action steps (task e3d1bc63).
     runs: officeStepRuns({
       guardDeps: buildLiveGuardDeps,
+      officeSettings: officeSettingsNow,
+      accessibleRoomIdsFor,
       accessChangeRefusal,
     }),
   });
@@ -2732,7 +2752,7 @@ function buildExecutorDeps(
       history: officeAskHistory(),
       steps: stepAsks,
       stepRuns: {
-        routeOf: (step) => stepAsks!.routeOf(step),
+        routeOf: (step, memberUserId) => stepAsks!.routeOf(step, memberUserId),
         dispatch: (identity, route, opts) =>
           dispatchInProcess(identity, route.method, route.path, route.body, {
             via: "ask",
@@ -3968,28 +3988,22 @@ function buildExecutorDeps(
   // agentManager.validateCwd directly; validate.env/backends share the cores.
   register(
     officeSettingsHandlers({
-      getSettings: () => ({
-        name: agentManager.getOfficeSettings().name,
-        version: officeSettingsVersion(),
-        memberUsageCap: memberUsageCap().isEnabled(),
-        memberUsageShare: memberUsageCap().share(),
-        recordTerminals: loadRecordTerminals(),
-        providerFallback: providerFallback().isEnabled(),
-        processIsolation: loadProcessIsolation(),
-        processIsolationStatus: processIsolationStatusLine(),
-        claudeIsomuxLabel: loadClaudeIsomuxLabel(),
-      }),
+      getSettings: officeSettingsNow,
       // Status reads the providers, so only while the cap is on.
       getMemberUsageStatus: async (provider) => ({
         memberUsageStatus: memberUsageCap().isEnabled()
           ? await memberUsageCap().status(provider)
           : [],
       }),
-      applySettings: (input, ctx) =>
-        applyOfficeSettings(
+      applySettings: (input, ctx) => {
+        const result = applyOfficeSettings(
           input,
           auditActor(ctx.identity, attributionFor(ctx.identity).createdBy),
-        ),
+        );
+        // A setting may be the change a step ask waits for.
+        if (result.ok) stepsChanged();
+        return result;
+      },
       readInstructions: () => agentManager.getOfficeSettings().prompt,
       applyInstructions: applyOfficeInstructions,
     }),
@@ -4497,7 +4511,11 @@ function buildExecutorDeps(
   // self-only.
   register(
     viewHandlers({
-      applyView: (userId, change) => applyViewChange(userId, change),
+      applyView: (userId, change) => {
+        const applied = applyViewChange(userId, change);
+        if (applied) stepsChanged();
+        return applied;
+      },
       // Accessible rooms (hidden included) in office order, id+name only -
       // the re-show read for the hide-rooms UI.
       listAccessibleRooms: (userId) => {
@@ -4516,8 +4534,11 @@ function buildExecutorDeps(
   // handler is a pure REST mapper and this seam owns mutate -> emit.
   register(
     preferencesHandlers({
-      applyPreferences: (userId, change) =>
-        applyPreferencesChange(userId, change),
+      applyPreferences: (userId, change) => {
+        const applied = applyPreferencesChange(userId, change);
+        if (applied) stepsChanged();
+        return applied;
+      },
       userIdForUsername: (username) =>
         buildLiveGuardDeps().userIdForUsername(username),
       userById: (userId) => getUserById(userId) ?? null,
@@ -4677,6 +4698,7 @@ function buildExecutorDeps(
       getBackupStatus: () => backupStatusWire(backupStatus()),
       setBackupSettings: (input) => {
         const result = saveBackupSettings(input);
+        if (result.ok) stepsChanged();
         return result.ok
           ? {
               ok: true,

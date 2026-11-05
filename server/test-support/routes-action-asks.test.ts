@@ -7,7 +7,7 @@
 // grant, by the card or by any other path.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -16,6 +16,11 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserById, getUserByName } from "../users.ts";
 import { officeAuditStore } from "../audit-store.ts";
+import {
+  DEFAULT_BACKUP_SETTINGS,
+  loadBackupSettings,
+  saveBackupSettings,
+} from "../backup.ts";
 import { FOLDER_NOT_ALLOWED } from "../../shared/agent-access.ts";
 import type { AgentInfo, AskEntry } from "../../shared/types.ts";
 
@@ -37,8 +42,8 @@ interface Res {
 }
 
 // Morgan owns the office; Casey is a member with its first room.
-async function office() {
-  const srv = await startTestServer({});
+async function office(opts: Parameters<typeof startTestServer>[0] = {}) {
+  const srv = await startTestServer(opts);
   server = srv;
   const morgan = await srv.seedOwner("Morgan");
   const casey = await srv.seedMember("Casey");
@@ -623,8 +628,8 @@ describe("an agent-access ask from /mcp", () => {
 // Part 2: a member's room access (member-room) and role (member-role). The
 // office of these cases adds Dana, a member with no room, and a room Other
 // that only an owner's agents reach.
-async function membersOffice() {
-  const o = await office();
+async function membersOffice(opts: Parameters<typeof startTestServer>[0] = {}) {
+  const o = await office(opts);
   const dana = await o.srv.seedMember("Dana");
   const other = o.srv.agentManager.createRoom("Other");
   return {
@@ -1187,6 +1192,832 @@ describe("member asks from /mcp", () => {
         roleStep(o.danaName, "owner"),
         { kind: "member-role", userId: o.danaId, role: "owner" },
       ],
+    ] as const) {
+      const result = (await client.callTool({
+        name: "open_ask",
+        arguments: { prompt: "Please change this.", step },
+      })) as { isError?: boolean; content?: Array<{ text?: string }> };
+      expect({ kind: step.kind, error: result.isError ?? false }).toEqual({
+        kind: step.kind,
+        error: false,
+      });
+      const entry = JSON.parse(result.content?.[0]?.text ?? "{}") as AskEntry;
+      expect(entry.step as unknown).toEqual(stored);
+    }
+  });
+});
+
+// Part 3: the settings an agent cannot change. A member's permission pack
+// (member-pack), the member's own preferences (member-preferences) and room
+// lists (member-view), the office settings (office-settings) and the backup
+// settings (backup-settings).
+const PACK = { areas: { tasks: "read" }, agentCeiling: "office" } as const;
+const packStep = (username: string, pack: unknown) => ({
+  kind: "member-pack",
+  username,
+  pack,
+});
+const packOf = (userId: string) => getUserById(userId)!.pack ?? null;
+
+// The status of a run that the route answered with success.
+const succeeded = (res: Res) => res.status >= 200 && res.status < 300;
+
+// One row of `operation` names the ask, by the member who ran it.
+function auditedOnce(operation: string, askId: string, memberId: string): void {
+  const rows = officeAuditStore()
+    .list({ operation })
+    .items.filter((r) => r.targets.includes(askId));
+  expect(rows.map((r) => [r.actor.kind, r.actor.id])).toEqual([
+    ["member", memberId],
+  ]);
+}
+
+describe("a member-pack ask at create", () => {
+  it("opens for an owner with the member stored by id and the pack, and nothing run", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, packStep(o.danaName, PACK));
+    expect([entry.step, entry.link]).toEqual([
+      { kind: "member-pack", userId: o.danaId, pack: PACK },
+      undefined,
+    ]);
+    expect(packOf(o.danaId)).toBe(null);
+  });
+
+  it("refuses a pack that does not parse, a missing pack or member, and extra keys: 400", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const bad: [string, Record<string, unknown>][] = [
+      [
+        "a ceiling above web",
+        packStep(o.danaName, { ...PACK, agentCeiling: "privileged" }),
+      ],
+      ["not an object", packStep(o.danaName, "tasks")],
+      ["no pack", { kind: "member-pack", username: o.danaName }],
+      ["no member", { kind: "member-pack", pack: PACK }],
+      ["an extra key", { ...packStep(o.danaName, PACK), roomId: o.room }],
+    ];
+    for (const [label, step] of bad)
+      expect({ label, ...outcome(await ask(o, asker.id, step)) }).toEqual({
+        label,
+        status: 400,
+        code: "invalid_request",
+      });
+  });
+
+  it("refuses an unknown member (422), an owner (422 owner_has_no_pack), a member who is not an owner (403), and a pack the member has (409 step_done)", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const at = async (step: Record<string, unknown>, member?: string) =>
+      outcome(await ask(o, asker.id, step, member));
+    expect(await at(packStep("nobody", PACK))).toEqual({
+      status: 422,
+      code: "unknown_member",
+    });
+    expect(await at(packStep(o.morganName, PACK))).toEqual({
+      status: 422,
+      code: "owner_has_no_pack",
+    });
+    expect(await at(packStep(o.danaName, PACK), o.caseyName)).toEqual({
+      status: 403,
+      code: "member_not_allowed",
+    });
+    // Dana has no pack: none is done.
+    expect(packOf(o.danaId)).toBe(null);
+    expect(await at(packStep(o.danaName, null))).toEqual({
+      status: 409,
+      code: "step_done",
+    });
+    const byHand = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/users/${o.danaName}/access`,
+      { allowedRooms: [], pack: PACK },
+    );
+    expect(byHand.status).toBe(200);
+    expect(await at(packStep(o.danaName, PACK))).toEqual({
+      status: 409,
+      code: "step_done",
+    });
+    await opened(o, asker.id, packStep(o.danaName, null));
+  });
+});
+
+describe("a member-pack ask run from the card", () => {
+  it("sets the pack with the owner's session, keeps the member's rooms now, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, packStep(o.danaName, PACK));
+    // A room granted by hand after the create is kept.
+    const byHand = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/users/${o.danaName}/access`,
+      { allowedRooms: [o.other] },
+    );
+    expect(byHand.status).toBe(200);
+    const res = await run(o, o.morgan, entry.id);
+    expect(res.status).toBe(200);
+    expect(packOf(o.danaId)).toEqual(PACK);
+    expect(roomsOf(o.danaId)).toEqual([o.other]);
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toHaveLength(1);
+    auditedOnce("users.setAccess", entry.id, o.morganId);
+  });
+
+  it("none clears the pack", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const set = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/users/${o.danaName}/access`,
+      { allowedRooms: [o.room], pack: PACK },
+    );
+    expect(set.status).toBe(200);
+    const entry = await opened(o, asker.id, packStep(o.danaName, null));
+    expect((await run(o, o.morgan, entry.id)).status).toBe(200);
+    expect(packOf(o.danaId)).toBe(null);
+    expect(roomsOf(o.danaId)).toEqual([o.room]);
+    await closesDone(o, asker.id, entry.id);
+  });
+
+  it("a member made an owner since the create: 422 owner_has_no_pack at the run, nothing written, the ask stays open", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, packStep(o.danaName, PACK));
+    const promote = await asSession(
+      o,
+      o.morgan,
+      "PATCH",
+      `/api/users/${o.danaName}`,
+      { role: "owner" },
+    );
+    expect(promote.status).toBe(200);
+    expect(outcome(await run(o, o.morgan, entry.id))).toEqual({
+      status: 422,
+      code: "owner_has_no_pack",
+    });
+    expect(packOf(o.danaId)).toBe(null);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+  });
+
+  it("a change by hand to that pack closes it; another pack does not", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, packStep(o.danaName, PACK));
+    const set = (pack: unknown) =>
+      asSession(o, o.morgan, "PUT", `/api/users/${o.danaName}/access`, {
+        allowedRooms: [],
+        pack,
+      });
+    expect(
+      (await set({ areas: { tasks: "write" }, agentCeiling: "office" })).status,
+    ).toBe(200);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+    expect((await set(PACK)).status).toBe(200);
+    await closesDone(o, asker.id, entry.id);
+  });
+});
+
+const prefsStep = (set: unknown) => ({ kind: "member-preferences", set });
+const prefsOf = (userId: string) => {
+  const u = getUserById(userId)!;
+  return {
+    language: u.language ?? null,
+    voiceInput: u.voiceInput,
+    voiceOutput: u.voiceOutput,
+    voiceName: u.voiceName,
+  };
+};
+
+describe("a member-preferences ask at create", () => {
+  it("opens for the asking agent's manager with the set as sent, and nothing run", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const before = prefsOf(o.morganId);
+    const set = { language: "es", voiceOutput: "openai" };
+    expect(before.language).not.toBe("es");
+    const entry = await opened(o, asker.id, prefsStep(set));
+    expect([entry.step as unknown, entry.link, entry.memberUserId]).toEqual([
+      { kind: "member-preferences", set },
+      undefined,
+      o.morganId,
+    ]);
+    expect(prefsOf(o.morganId)).toEqual(before);
+  });
+
+  it("refuses a member who is not the asking agent's manager: 400, nothing opened", async () => {
+    const o = await office();
+    const morgans = await spawn(o, "Asker");
+    const caseys = await spawn(o, "Helper", { manager: "Casey" });
+    for (const [asker, member] of [
+      [morgans.id, o.caseyName],
+      [caseys.id, o.morganName],
+    ] as const)
+      expect(
+        outcome(await ask(o, asker, prefsStep({ language: "es" }), member)),
+      ).toEqual({ status: 400, code: "invalid_request" });
+    for (const asker of [morgans.id, caseys.id])
+      expect(
+        (await asAgent(o, asker, "GET", `/api/agents/${asker}/asks`)).body,
+      ).toEqual([]);
+  });
+
+  it("refuses an empty set, an unknown key, a bad value and extra keys: 400", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const bad: [string, Record<string, unknown>][] = [
+      ["an empty set", prefsStep({})],
+      ["not an object", prefsStep("es")],
+      ["an unknown key", prefsStep({ langauge: "es" })],
+      ["a language it does not know", prefsStep({ language: "xx" })],
+      ["a voice input it does not know", prefsStep({ voiceInput: "loud" })],
+      ["a voice it does not know", prefsStep({ voiceName: "nobody" })],
+      ["no set", { kind: "member-preferences" }],
+      [
+        "an extra key",
+        { ...prefsStep({ language: "es" }), username: o.morganName },
+      ],
+    ];
+    for (const [label, step] of bad)
+      expect({ label, ...outcome(await ask(o, asker.id, step)) }).toEqual({
+        label,
+        status: 400,
+        code: "invalid_request",
+      });
+  });
+
+  it("refuses a set the record has, its defaults included: 409 step_done; one key that differs opens", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const now = prefsOf(o.morganId);
+    // The seeded record holds no voice values: the defaults apply.
+    expect([now.voiceInput, now.voiceOutput, now.voiceName]).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
+    for (const set of [
+      { language: now.language },
+      { voiceInput: "browser", voiceOutput: "browser", voiceName: "marin" },
+    ])
+      expect({
+        set,
+        ...outcome(await ask(o, asker.id, prefsStep(set))),
+      }).toEqual({ set, status: 409, code: "step_done" });
+    await opened(
+      o,
+      asker.id,
+      prefsStep({ voiceInput: "browser", voiceOutput: "openai" }),
+    );
+  });
+});
+
+describe("a member-preferences ask run from the card", () => {
+  it("sets each key with the member's own session, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(
+      o,
+      asker.id,
+      prefsStep({ language: "es", voiceOutput: "openai" }),
+    );
+    const res = await run(o, o.morgan, entry.id);
+    expect(res.status).toBe(204);
+    expect(prefsOf(o.morganId)).toMatchObject({
+      language: "es",
+      voiceOutput: "openai",
+    });
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toHaveLength(1);
+    auditedOnce("prefs.update", entry.id, o.morganId);
+  });
+
+  it("a change by hand to one key leaves it open; the last key closes it", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(
+      o,
+      asker.id,
+      prefsStep({ language: "es", voiceOutput: "openai" }),
+    );
+    const patch = (body: unknown) =>
+      asSession(o, o.morgan, "PATCH", "/api/me/preferences", body);
+    expect((await patch({ language: "es" })).status).toBe(204);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+    expect((await patch({ voiceOutput: "openai" })).status).toBe(204);
+    await closesDone(o, asker.id, entry.id);
+  });
+});
+
+const viewStep = (list: unknown, roomId: string, on: unknown) => ({
+  kind: "member-view",
+  list,
+  roomId,
+  on,
+});
+const viewOf = (userId: string) => {
+  const u = getUserById(userId)!;
+  return {
+    hidden: [...u.hidden].sort(),
+    tucked: [...u.tucked].sort(),
+    notifRooms: [...u.notifRooms].sort(),
+    pushRooms: [...u.pushRooms].sort(),
+  };
+};
+// Morgan's own room lists, set by hand as the page does.
+async function setView(
+  o: Office,
+  list: "shown" | "tucked" | "notif-rooms" | "push-rooms",
+  field: string,
+  rooms: string[],
+) {
+  const res = await asSession(o, o.morgan, "PUT", `/api/me/view/${list}`, {
+    [field]: rooms,
+  });
+  expect(res.status).toBe(204);
+}
+const allRooms = (o: Office) => o.srv.agentManager.getRooms().map((r) => r.id);
+// A seeded owner notifies the first room: clear it, so a notif or push step
+// on that room is not done before it opens.
+async function noNotifications(o: Office) {
+  await setView(o, "notif-rooms", "notifRooms", []);
+  expect(viewOf(o.morganId)).toMatchObject({ notifRooms: [], pushRooms: [] });
+}
+
+describe("a member-view ask at create", () => {
+  it("opens for the asking agent's manager with the room as sent, and nothing run", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const before = viewOf(o.morganId);
+    expect(before.hidden).not.toContain(o.other);
+    const entry = await opened(o, asker.id, viewStep("shown", o.other, false));
+    expect([entry.step, entry.link, entry.memberUserId]).toEqual([
+      { kind: "member-view", list: "shown", roomId: o.other, on: false },
+      undefined,
+      o.morganId,
+    ]);
+    expect(viewOf(o.morganId)).toEqual(before);
+  });
+
+  it("refuses a member who is not the asking agent's manager, a list it does not know, on not a boolean, and extra keys: 400", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const bad: [string, Record<string, unknown>, string?][] = [
+      ["another member", viewStep("notif", o.room, true), o.caseyName],
+      ["the order list", viewStep("order", o.room, true)],
+      ["on not a boolean", viewStep("notif", o.room, "yes")],
+      ["no room", { kind: "member-view", list: "notif", on: true }],
+      [
+        "an extra key",
+        { ...viewStep("notif", o.room, true), username: o.morganName },
+      ],
+    ];
+    for (const [label, step, member] of bad)
+      expect({
+        label,
+        ...outcome(await ask(o, asker.id, step, member)),
+      }).toEqual({ label, status: 400, code: "invalid_request" });
+  });
+
+  it("answers a room the asking agent cannot reach exactly as a missing one: 422 unknown_room", async () => {
+    const o = await membersOffice();
+    // Casey's agent reaches only the first room.
+    const asker = await spawn(o, "Asker", { manager: "Casey" });
+    for (const roomId of [o.other, "no-such-room"])
+      expect(
+        outcome(await ask(o, asker.id, viewStep("notif", roomId, true))),
+      ).toEqual({ status: 422, code: "unknown_room" });
+    await opened(o, asker.id, viewStep("notif", o.room, true));
+  });
+
+  it("refuses notifications or pushes for a hidden room (409 room_hidden) or a tucked room (409 room_tucked); a tuck of a hidden room opens", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    await setView(
+      o,
+      "shown",
+      "shown",
+      allRooms(o).filter((id) => id !== o.other),
+    );
+    await setView(o, "tucked", "tucked", [o.room]);
+    expect(viewOf(o.morganId)).toMatchObject({
+      hidden: [o.other],
+      tucked: [o.room],
+    });
+    for (const [list, roomId, code] of [
+      ["notif", o.other, "room_hidden"],
+      ["push", o.other, "room_hidden"],
+      ["notif", o.room, "room_tucked"],
+      ["push", o.room, "room_tucked"],
+    ] as const)
+      expect({
+        list,
+        roomId,
+        ...outcome(await ask(o, asker.id, viewStep(list, roomId, true))),
+      }).toEqual({ list, roomId, status: 409, code });
+    await opened(o, asker.id, viewStep("tucked", o.other, true));
+  });
+
+  it("refuses a state the member has: 409 step_done", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    await setView(o, "notif-rooms", "notifRooms", [o.room]);
+    for (const [list, roomId, on] of [
+      ["shown", o.room, true],
+      ["tucked", o.room, false],
+      ["notif", o.room, true],
+      ["notif", o.other, false],
+      ["push", o.room, false],
+    ] as const)
+      expect({
+        list,
+        on,
+        ...outcome(await ask(o, asker.id, viewStep(list, roomId, on))),
+      }).toEqual({ list, on, status: 409, code: "step_done" });
+  });
+});
+
+describe("a member-view ask run from the card", () => {
+  it("hides the room with the member's own session, keeps the rest of the list now, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, viewStep("shown", o.room, false));
+    // A room hidden by hand after the create stays hidden.
+    await setView(
+      o,
+      "shown",
+      "shown",
+      allRooms(o).filter((id) => id !== o.other),
+    );
+    const res = await run(o, o.morgan, entry.id);
+    expect(res.status).toBe(204);
+    expect(viewOf(o.morganId).hidden).toEqual([o.room, o.other].sort());
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toHaveLength(1);
+    auditedOnce("view.setShown", entry.id, o.morganId);
+  });
+
+  it("push on for a room with no notifications turns both on and closes the ask; notifications off then drops the push", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    await noNotifications(o);
+    const push = await opened(o, asker.id, viewStep("push", o.room, true));
+    expect(succeeded(await run(o, o.morgan, push.id))).toBe(true);
+    expect(viewOf(o.morganId)).toMatchObject({
+      notifRooms: [o.room],
+      pushRooms: [o.room],
+    });
+    await closesDone(o, asker.id, push.id);
+    const off = await opened(o, asker.id, viewStep("notif", o.room, false));
+    expect(succeeded(await run(o, o.morgan, off.id))).toBe(true);
+    expect(viewOf(o.morganId)).toMatchObject({ notifRooms: [], pushRooms: [] });
+    await closesDone(o, asker.id, off.id);
+  });
+
+  it("tucks a room and adds notifications for a room next to the ones the member has", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    await setView(o, "notif-rooms", "notifRooms", [o.room]);
+    const notif = await opened(o, asker.id, viewStep("notif", o.other, true));
+    expect(succeeded(await run(o, o.morgan, notif.id))).toBe(true);
+    expect(viewOf(o.morganId).notifRooms).toEqual([o.room, o.other].sort());
+    await closesDone(o, asker.id, notif.id);
+    const tuck = await opened(o, asker.id, viewStep("tucked", o.other, true));
+    expect(succeeded(await run(o, o.morgan, tuck.id))).toBe(true);
+    expect(viewOf(o.morganId).tucked).toEqual([o.other]);
+    await closesDone(o, asker.id, tuck.id);
+  });
+
+  it("notifications on for a room tucked since the create: 409 room_tucked at the run, nothing changed, the ask stays open", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    await noNotifications(o);
+    const entry = await opened(o, asker.id, viewStep("notif", o.room, true));
+    await setView(o, "tucked", "tucked", [o.room]);
+    const before = viewOf(o.morganId);
+    expect(outcome(await run(o, o.morgan, entry.id))).toEqual({
+      status: 409,
+      code: "room_tucked",
+    });
+    expect(viewOf(o.morganId)).toEqual(before);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+  });
+
+  it("a change by hand on the page closes it; a change to another room does not", async () => {
+    const o = await membersOffice();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, viewStep("push", o.room, true));
+    await setView(o, "push-rooms", "pushRooms", [o.other]);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+    await setView(o, "push-rooms", "pushRooms", [o.other, o.room]);
+    await closesDone(o, asker.id, entry.id);
+  });
+});
+
+const officeStep = (set: unknown) => ({ kind: "office-settings", set });
+async function settingsOf(o: Office) {
+  const res = await asSession(o, o.morgan, "GET", "/api/office/settings");
+  expect(res.status).toBe(200);
+  return res.body as {
+    version: string;
+    name: string | null;
+    memberUsageShare?: number;
+    recordTerminals?: boolean;
+  };
+}
+// A share the office does not have now.
+const otherShare = (share: number | undefined) => (share === 30 ? 40 : 30);
+
+describe("an office-settings ask at create", () => {
+  it("opens for an owner with the set as sent, and nothing run", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const before = await settingsOf(o);
+    const set = { memberUsageShare: otherShare(before.memberUsageShare) };
+    const entry = await opened(o, asker.id, officeStep(set));
+    expect([entry.step, entry.link]).toEqual([
+      { kind: "office-settings", set },
+      undefined,
+    ]);
+    expect(await settingsOf(o)).toEqual(before);
+  });
+
+  it("refuses a member who is not an owner: 403", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    expect(
+      outcome(
+        await ask(o, asker.id, officeStep({ name: "Studio" }), o.caseyName),
+      ),
+    ).toEqual({ status: 403, code: "member_not_allowed" });
+  });
+
+  it("refuses an empty set, an unknown key (the version included), a bad value and extra keys: 400", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const bad: [string, Record<string, unknown>][] = [
+      ["an empty set", officeStep({})],
+      ["the version", officeStep({ version: "v1", name: "Studio" })],
+      ["the instructions", officeStep({ prompt: "Be brief." })],
+      ["a share off the steps of 10", officeStep({ memberUsageShare: 15 })],
+      ["a share above 100", officeStep({ memberUsageShare: 110 })],
+      ["a switch not a boolean", officeStep({ recordTerminals: "yes" })],
+      ["a name not a string or null", officeStep({ name: 5 })],
+      ["an extra key", { ...officeStep({ name: "Studio" }), roomId: o.room }],
+    ];
+    for (const [label, step] of bad)
+      expect({ label, ...outcome(await ask(o, asker.id, step)) }).toEqual({
+        label,
+        status: 400,
+        code: "invalid_request",
+      });
+  });
+
+  it("refuses a set the office has: 409 step_done", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const now = await settingsOf(o);
+    expect(
+      outcome(
+        await ask(
+          o,
+          asker.id,
+          officeStep({
+            name: now.name,
+            recordTerminals: now.recordTerminals ?? false,
+          }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: "step_done" });
+  });
+});
+
+describe("an office-settings ask run from the card", () => {
+  it("sets each key with the owner's session at the version now, keeps a change made since the create, closes the ask as done, and writes one audit row with the ask", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const before = await settingsOf(o);
+    const set = {
+      memberUsageShare: otherShare(before.memberUsageShare),
+      recordTerminals: !(before.recordTerminals ?? false),
+    };
+    const entry = await opened(o, asker.id, officeStep(set));
+    // A change by hand after the create moves the version.
+    const named = await asSession(o, o.morgan, "PUT", "/api/office/settings", {
+      version: before.version,
+      name: "Studio",
+    });
+    expect(named.status).toBe(204);
+    expect((await settingsOf(o)).version).not.toBe(before.version);
+    expect((await run(o, o.morgan, entry.id)).status).toBe(204);
+    expect(await settingsOf(o)).toMatchObject({ ...set, name: "Studio" });
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toHaveLength(1);
+    auditedOnce("office.setSettings", entry.id, o.morganId);
+  });
+
+  it("a change by hand closes it", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, officeStep({ name: "Studio" }));
+    const res = await asSession(o, o.morgan, "PUT", "/api/office/settings", {
+      version: (await settingsOf(o)).version,
+      name: "Studio",
+    });
+    expect(res.status).toBe(204);
+    await closesDone(o, asker.id, entry.id);
+  });
+});
+
+const backupStep = (set: unknown) => ({ kind: "backup-settings", set });
+
+describe("backup-settings asks", () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    saveBackupSettings({ ...DEFAULT_BACKUP_SETTINGS }, { envDir: undefined });
+    for (const dir of roots.splice(0)) rmSync(dir, { recursive: true });
+  });
+  // A folder that does not exist yet, in a scratch root.
+  const freshDir = () => {
+    const root = mkdtempSync(join(tmpdir(), "action-asks-backup-"));
+    roots.push(root);
+    return join(root, "backups");
+  };
+
+  it("opens for an owner with the set as sent, makes no folder, and runs nothing", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const dir = freshDir();
+    const set = { dir, retention: 3 };
+    const entry = await opened(o, asker.id, backupStep(set));
+    expect([entry.step, entry.link]).toEqual([
+      { kind: "backup-settings", set },
+      undefined,
+    ]);
+    expect(existsSync(dir)).toBe(false);
+    expect(loadBackupSettings()).toEqual(DEFAULT_BACKUP_SETTINGS);
+  });
+
+  it("refuses a member who is not an owner (403); an empty set, an unknown key, a relative folder, a value out of range and extra keys (400); a set the office has (409 step_done)", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    expect(
+      outcome(
+        await ask(o, asker.id, backupStep({ retention: 3 }), o.caseyName),
+      ),
+    ).toEqual({ status: 403, code: "member_not_allowed" });
+    const bad: [string, Record<string, unknown>][] = [
+      ["an empty set", backupStep({})],
+      ["an unknown key", backupStep({ folder: freshDir() })],
+      ["a relative folder", backupStep({ dir: "relative/backups" })],
+      ["an interval of 0", backupStep({ intervalHours: 0 })],
+      ["an interval not whole", backupStep({ intervalHours: 1.5 })],
+      ["a retention above the range", backupStep({ retention: 1000 })],
+      ["an extra key", { ...backupStep({ retention: 3 }), roomId: o.room }],
+    ];
+    for (const [label, step] of bad)
+      expect({ label, ...outcome(await ask(o, asker.id, step)) }).toEqual({
+        label,
+        status: 400,
+        code: "invalid_request",
+      });
+    expect(
+      outcome(
+        await ask(
+          o,
+          asker.id,
+          backupStep({ retention: DEFAULT_BACKUP_SETTINGS.retention }),
+        ),
+      ),
+    ).toEqual({ status: 409, code: "step_done" });
+  });
+
+  it("refuses a folder change while ISOMUX_BACKUP_DIR sets the folder: 409 backup_dir_from_env; another key opens", async () => {
+    const envDir = freshDir();
+    const saved = process.env.ISOMUX_BACKUP_DIR;
+    process.env.ISOMUX_BACKUP_DIR = envDir;
+    try {
+      const o = await office({
+        startServer: {
+          getBackupStatus: () => ({
+            backupDir: envDir,
+            backupDirFromEnv: true,
+            retention: 7,
+            intervalHours: 24,
+            lastBackupAt: null,
+            lastBackupOk: null,
+            lastBackupError: null,
+            lastBackupFile: null,
+            running: false,
+          }),
+        },
+      });
+      const asker = await spawn(o, "Asker");
+      expect(
+        outcome(await ask(o, asker.id, backupStep({ dir: freshDir() }))),
+      ).toEqual({ status: 409, code: "backup_dir_from_env" });
+      await opened(o, asker.id, backupStep({ retention: 3 }));
+    } finally {
+      if (saved === undefined) delete process.env.ISOMUX_BACKUP_DIR;
+      else process.env.ISOMUX_BACKUP_DIR = saved;
+    }
+  });
+
+  it("Apply saves with the owner's session, makes the folder, closes the ask as done, tells the agent, and writes one audit row with the ask", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const dir = freshDir();
+    const entry = await opened(o, asker.id, backupStep({ dir, retention: 3 }));
+    expect((await run(o, o.morgan, entry.id)).status).toBe(200);
+    expect(loadBackupSettings()).toEqual({
+      ...DEFAULT_BACKUP_SETTINGS,
+      dir,
+      retention: 3,
+    });
+    expect(existsSync(dir)).toBe(true);
+    await closesDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toHaveLength(1);
+    auditedOnce("system.setBackupSettings", entry.id, o.morganId);
+  });
+
+  it("a folder the save refuses (inside the state root) opens, and the run refuses it with the save's code: nothing saved, the ask stays open", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(
+      o,
+      asker.id,
+      backupStep({ dir: join(o.srv.stateRoot, "inside-backups") }),
+    );
+    expect(outcome(await run(o, o.morgan, entry.id))).toEqual({
+      status: 400,
+      code: "invalid_backup_settings",
+    });
+    expect(loadBackupSettings()).toEqual(DEFAULT_BACKUP_SETTINGS);
+    await Bun.sleep(50);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+  });
+
+  it("a change by hand closes it", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const entry = await opened(o, asker.id, backupStep({ retention: 3 }));
+    const res = await asSession(o, o.morgan, "PUT", "/api/backup/settings", {
+      retention: 3,
+    });
+    expect(res.status).toBe(200);
+    await closesDone(o, asker.id, entry.id);
+  });
+});
+
+describe("settings asks from /mcp", () => {
+  afterEach(() => {
+    saveBackupSettings({ ...DEFAULT_BACKUP_SETTINGS }, { envDir: undefined });
+  });
+
+  it("open_ask takes each part 3 kind", async () => {
+    const o: MembersOffice = await membersOffice();
+    const agent = await spawn(o, "Triage");
+    const lowered = await asSession(
+      o,
+      o.morgan,
+      "PUT",
+      `/api/agents/${agent.id}/access`,
+      { access: "office", pack: { areas: { asks: "write" } } },
+    );
+    expect(lowered.status).toBe(200);
+    const client = new Client({ name: "action-asks-test", version: "0.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`${o.srv.baseUrl}/mcp`), {
+        requestInit: {
+          headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)}` },
+        },
+      }),
+    );
+    clients.push(client);
+    await noNotifications(o);
+    const share = otherShare((await settingsOf(o)).memberUsageShare);
+    for (const [step, stored] of [
+      [
+        packStep(o.danaName, PACK),
+        { kind: "member-pack", userId: o.danaId, pack: PACK },
+      ],
+      [prefsStep({ language: "es" }), prefsStep({ language: "es" })],
+      [viewStep("notif", o.room, true), viewStep("notif", o.room, true)],
+      [
+        officeStep({ memberUsageShare: share }),
+        officeStep({ memberUsageShare: share }),
+      ],
+      [backupStep({ retention: 3 }), backupStep({ retention: 3 })],
     ] as const) {
       const result = (await client.callTool({
         name: "open_ask",

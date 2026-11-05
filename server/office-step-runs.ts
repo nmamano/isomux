@@ -4,7 +4,11 @@
 
 import { accessGrantOf, belowStandard } from "../shared/agent-access.ts";
 import type { AgentAccess } from "../shared/agent-access.ts";
-import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
+import {
+  LOBBY_ROOM_ID,
+  type AgentInfo,
+  type UserRecord,
+} from "../shared/types.ts";
 import type { SpawnAccessRefusal } from "./agent-manager.ts";
 import { buildPublicOrigin } from "./auth.ts";
 import type { GuardDeps } from "./identity/guards.ts";
@@ -19,6 +23,7 @@ import {
 import { matchRoute } from "./routes/match.ts";
 import { API_ROUTES } from "./routes/table.ts";
 import type { StepRunDeps } from "./step-asks.ts";
+import { loadBackupSettings } from "./backup.ts";
 import { getUser, getUserById, wouldDeleteLeaveNoOwner } from "./users.ts";
 
 // Runs one office route in process as `identity`, through the executor, so
@@ -58,6 +63,9 @@ export function createInProcessDispatch(executorDeps: () => ExecutorDeps) {
 
 export function officeStepRuns(deps: {
   guardDeps: () => GuardDeps;
+  officeSettings: StepRunDeps["officeSettings"];
+  // Every room the member reaches, hidden ones included.
+  accessibleRoomIdsFor: (user: UserRecord) => ReadonlySet<string>;
   accessChangeRefusal: (
     agent: AgentInfo,
     access: AgentAccess,
@@ -98,6 +106,28 @@ export function officeStepRuns(deps: {
         ? { name: user.name, role: user.role, allowedRooms: user.allowedRooms }
         : null;
     },
+    memberSettings: (userId) => {
+      const user = getUserById(userId);
+      return user
+        ? {
+            pack: user.pack ?? null,
+            language: user.language ?? null,
+            ...(user.voiceInput ? { voiceInput: user.voiceInput } : {}),
+            ...(user.voiceOutput ? { voiceOutput: user.voiceOutput } : {}),
+            ...(user.voiceName ? { voiceName: user.voiceName } : {}),
+            accessible: [...deps.accessibleRoomIdsFor(user)],
+            hidden: user.hidden,
+            tucked: user.tucked,
+            notifRooms: user.notifRooms,
+            pushRooms: user.pushRooms,
+          }
+        : null;
+    },
+    officeSettings: deps.officeSettings,
+    backupSettings: loadBackupSettings,
+    backupDirFromEnv: () => !!process.env.ISOMUX_BACKUP_DIR,
+    roomName: (roomId) =>
+      agentManager.getRooms().find((room) => room.id === roomId)?.name ?? null,
     memberIdByName: (username) => getUser(username)?.id ?? null,
     roomOpen: (roomId) =>
       roomId === LOBBY_ROOM_ID ||

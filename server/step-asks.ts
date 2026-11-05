@@ -26,12 +26,36 @@ import {
   type ActionStepRequest,
   type AskEntry,
   type AskStep,
+  type MemberViewList,
   type ProviderAccountProvider,
   type ProviderAccountScope,
   type StepAskRequest,
 } from "../shared/types.ts";
+import {
+  PREFERENCE_KEYS,
+  type OfficeSettingsRes,
+} from "../shared/contract-shapes.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
+import {
+  parseMemberPack,
+  samePack,
+  type MemberPack,
+} from "../shared/pack-fit.ts";
+import type { SupportedLanguageCode } from "../shared/languages.ts";
+import {
+  DEFAULT_VOICE_NAME,
+  type VoiceInput,
+  type VoiceName,
+  type VoiceOutput,
+} from "../shared/voice.ts";
 import type { AskStore } from "./asks.ts";
+import { backupSettingsShapeError } from "./backup.ts";
+import {
+  OFFICE_NAME_MAX,
+  OFFICE_SETTINGS_SWITCHES,
+  officeSettingsFieldError,
+} from "./routes/handlers/office-settings.ts";
+import { parsePreferenceChange } from "./routes/handlers/preferences.ts";
 import type { SecretScope } from "./secret-store.ts";
 
 export interface StepAskDeps {
@@ -82,6 +106,21 @@ export interface StepRunDeps {
     role: "owner" | "member";
     allowedRooms: readonly string[];
   } | null;
+  // The member's pack, preferences and room lists now, or null when they
+  // are gone (task e3d1bc63, part 3).
+  memberSettings(userId: string): MemberSettings | null;
+  // The office settings now, with the version a write must carry.
+  officeSettings(): OfficeSettingsRes;
+  // The stored backup settings (dir null: the default folder).
+  backupSettings(): {
+    intervalHours: number;
+    retention: number;
+    dir: string | null;
+  };
+  // Whether ISOMUX_BACKUP_DIR sets the backup folder.
+  backupDirFromEnv(): boolean;
+  // The room's name, or null when there is no such room.
+  roomName(roomId: string): string | null;
   // The id of the member with this username, or null.
   memberIdByName(username: string): string | null;
   // Whether the room is open now: the lobby or a live room.
@@ -102,6 +141,20 @@ export interface StepRunDeps {
     memberUserId: string,
     route: StepRoute,
   ): { status: 403 | 404 | 422; code: string; message: string } | null;
+}
+
+// `accessible` is every room the member reaches, hidden ones included.
+export interface MemberSettings {
+  pack: MemberPack | null;
+  language: SupportedLanguageCode | null;
+  voiceInput?: VoiceInput;
+  voiceOutput?: VoiceOutput;
+  voiceName?: VoiceName;
+  accessible: readonly string[];
+  hidden: readonly string[];
+  tucked: readonly string[];
+  notifRooms: readonly string[];
+  pushRooms: readonly string[];
 }
 
 // A step refused at create or at run.
@@ -147,6 +200,11 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "agent-access": ["kind", "agentId", "access", "pack"],
   "member-room": ["kind", "username", "roomId", "grant"],
   "member-role": ["kind", "username", "role"],
+  "member-pack": ["kind", "username", "pack"],
+  "member-preferences": ["kind", "set"],
+  "member-view": ["kind", "list", "roomId", "on"],
+  "office-settings": ["kind", "set"],
+  "backup-settings": ["kind", "set"],
 };
 
 const PROVIDER_LABELS = { claude: "Claude", codex: "Codex" } as const;
@@ -205,8 +263,64 @@ function doneLine(step: AskStep, target: string): LogMessage {
       return msg("systemEntries.stepAsk.memberRoomSet", { member: target });
     case "member-role":
       return msg("systemEntries.stepAsk.memberRoleSet", { member: target });
+    case "member-pack":
+      return msg("systemEntries.stepAsk.memberPackSet", { member: target });
+    case "member-preferences":
+      return msg("systemEntries.stepAsk.preferencesSet");
+    case "member-view":
+      return msg("systemEntries.stepAsk.roomViewSet", { room: target });
+    case "office-settings":
+      return msg("systemEntries.stepAsk.officeSettingsSet");
+    case "backup-settings":
+      return msg("systemEntries.stepAsk.backupSettingsSet");
   }
 }
+
+// The keys a settings step may set.
+const OFFICE_SET_KEYS: readonly string[] = [
+  "name",
+  "memberUsageShare",
+  ...OFFICE_SETTINGS_SWITCHES,
+];
+const BACKUP_SET_KEYS: readonly string[] = [
+  "intervalHours",
+  "retention",
+  "dir",
+];
+const VIEW_LISTS: readonly string[] = ["shown", "tucked", "notif", "push"];
+
+// The preferences as they apply: a record with no voice value has the
+// default, and no language is null.
+function effectivePreferences(m: MemberSettings): Record<string, unknown> {
+  return {
+    language: m.language ?? null,
+    voiceInput: m.voiceInput ?? "browser",
+    voiceOutput: m.voiceOutput ?? "browser",
+    voiceName: m.voiceName ?? DEFAULT_VOICE_NAME,
+  };
+}
+
+// Whether the room is on the member's list now. A hidden room is not shown.
+function onList(
+  m: MemberSettings,
+  list: MemberViewList,
+  roomId: string,
+): boolean {
+  switch (list) {
+    case "shown":
+      return m.accessible.includes(roomId) && !m.hidden.includes(roomId);
+    case "tucked":
+      return m.tucked.includes(roomId);
+    case "notif":
+      return m.notifRooms.includes(roomId);
+    case "push":
+      return m.pushRooms.includes(roomId);
+  }
+}
+
+// Each key of `set` has its value in `now`.
+const allSet = (set: object, now: Record<string, unknown>): boolean =>
+  Object.entries(set).every(([key, value]) => now[key] === value);
 
 export function createStepAsks(deps: StepAskDeps) {
   // Whether the step is done now, for the member the ask is for. A kind
@@ -237,6 +351,26 @@ export function createStepAsks(deps: StepAskDeps) {
       }
       case "member-role":
         return deps.runs?.member(step.userId)?.role === step.role;
+      case "member-pack": {
+        const member = deps.runs?.memberSettings(step.userId);
+        return !!member && samePack(member.pack, step.pack);
+      }
+      case "member-preferences": {
+        const member = deps.runs?.memberSettings(memberUserId);
+        return !!member && allSet(step.set, effectivePreferences(member));
+      }
+      case "member-view": {
+        const member = deps.runs?.memberSettings(memberUserId);
+        return !!member && onList(member, step.list, step.roomId) === step.on;
+      }
+      case "office-settings": {
+        const now = deps.runs?.officeSettings();
+        return !!now && allSet(step.set, now);
+      }
+      case "backup-settings": {
+        const now = deps.runs?.backupSettings();
+        return !!now && allSet(step.set, now);
+      }
     }
   }
 
@@ -259,13 +393,67 @@ export function createStepAsks(deps: StepAskDeps) {
     code: "owner_has_all_rooms",
     message: "an office owner reaches every room",
   });
+  const ownerHasNoPack = (): StepFailure => ({
+    ok: false,
+    status: 422,
+    code: "owner_has_no_pack",
+    message: "an office owner cannot have a permission pack",
+  });
+
+  // Why a member-view step cannot run on the member's lists now, or null.
+  // The view core drops notifications and pushes for a hidden or tucked room
+  // without an error, so the step is refused before it runs.
+  function viewRefusal(
+    m: MemberSettings,
+    step: Extract<AskStep, { kind: "member-view" }>,
+  ): StepFailure | null {
+    if (!m.accessible.includes(step.roomId)) return unknownRoom();
+    if (!step.on || (step.list !== "notif" && step.list !== "push"))
+      return null;
+    if (m.hidden.includes(step.roomId))
+      return {
+        ok: false,
+        status: 409,
+        code: "room_hidden",
+        message: "the member hides this room: show it first",
+      };
+    if (m.tucked.includes(step.roomId))
+      return {
+        ok: false,
+        status: 409,
+        code: "room_tucked",
+        message: "the member tucked this room away: untuck it first",
+      };
+    return null;
+  }
+
+  // The member's list with the room on or off.
+  function viewList(
+    m: MemberSettings,
+    list: MemberViewList,
+    roomId: string,
+    on: boolean,
+  ): string[] {
+    const now =
+      list === "shown"
+        ? m.accessible.filter((id) => !m.hidden.includes(id))
+        : list === "tucked"
+          ? m.tucked
+          : list === "notif"
+            ? m.notifRooms
+            : m.pushRooms;
+    const rest = now.filter((id) => id !== roomId);
+    return on ? [...rest, roomId] : rest;
+  }
 
   // The route an action step runs now, or null for a step with a link. A
   // member step reads the member when it runs: their name for the path, their
   // rooms for the new room list. A removal on a room closed since the create
   // never gets here in practice: the close takes the room from the member and
   // reconcile closes the ask as done.
-  function routeOf(step: AskStep): StepRun | null {
+  // A step on the member's own record (their preferences, their room lists)
+  // runs on the record of `memberUserId`, the member the ask is for.
+  function routeOf(step: AskStep, memberUserId: string): StepRun | null {
     switch (step.kind) {
       case "agent-access":
         return {
@@ -308,6 +496,73 @@ export function createStepAsks(deps: StepAskDeps) {
             method: "PATCH",
             path: `/api/users/${encodeURIComponent(member.name)}`,
             body: { role: step.role },
+          },
+        };
+      }
+      case "member-pack": {
+        const member = deps.runs?.member(step.userId);
+        if (!member) return unknownMember();
+        if (member.role === "owner") return ownerHasNoPack();
+        return {
+          ok: true,
+          route: {
+            method: "PUT",
+            path: `/api/users/${encodeURIComponent(member.name)}/access`,
+            // The rooms now, so a room given since the create stays; null
+            // clears the pack (an absent one would keep it).
+            body: { allowedRooms: [...member.allowedRooms], pack: step.pack },
+          },
+        };
+      }
+      case "office-settings": {
+        const now = deps.runs?.officeSettings();
+        if (!now) return invalid("this office runs no action steps");
+        return {
+          ok: true,
+          route: {
+            method: "PUT",
+            path: "/api/office/settings",
+            // The version now: an omitted setting keeps its value.
+            body: { version: now.version, ...step.set },
+          },
+        };
+      }
+      case "backup-settings":
+        return {
+          ok: true,
+          route: {
+            method: "PUT",
+            path: "/api/backup/settings",
+            body: step.set,
+          },
+        };
+      case "member-preferences":
+        return {
+          ok: true,
+          route: {
+            method: "PATCH",
+            path: "/api/me/preferences",
+            body: step.set,
+          },
+        };
+      case "member-view": {
+        const member = deps.runs?.memberSettings(memberUserId);
+        if (!member) return unknownMember();
+        const refused = viewRefusal(member, step);
+        if (refused) return refused;
+        const rooms = viewList(member, step.list, step.roomId, step.on);
+        const [path, field] = {
+          shown: ["shown", "shown"],
+          tucked: ["tucked", "tucked"],
+          notif: ["notif-rooms", "notifRooms"],
+          push: ["push-rooms", "pushRooms"],
+        }[step.list];
+        return {
+          ok: true,
+          route: {
+            method: "PUT",
+            path: `/api/me/view/${path}`,
+            body: { [field]: rooms },
           },
         };
       }
@@ -423,6 +678,88 @@ export function createStepAsks(deps: StepAskDeps) {
           },
         };
       }
+      case "member-pack": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        // The stored pack is the parsed one, so the done predicate compares
+        // like with like.
+        const pack = body.pack === null ? null : parseMemberPack(body.pack);
+        if (!("pack" in body) || (pack === null && body.pack !== null))
+          return invalid(
+            "step.pack is {areas, agentCeiling}: known areas at read or write, and a ceiling of chat, office, folder or web; or null for no pack",
+          );
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const userId = deps.runs.memberIdByName(body.username);
+        if (!userId) return unknownMember();
+        return { ok: true, step: { kind, userId, pack } };
+      }
+      case "member-preferences":
+      case "member-view": {
+        // The member's own record: their agent acts for them already, and
+        // another member's preferences and lists are private.
+        if (!managerUserId || memberUserId !== managerUserId)
+          return invalid(
+            "a member's preferences and room lists are their own: ask your manager",
+          );
+        if (kind === "member-preferences") {
+          if (!isObject(body.set))
+            return invalid("step.set is an object of preferences");
+          const parsed = parsePreferenceChange(body.set, PREFERENCE_KEYS);
+          if (!parsed.ok) return invalid(`step.set: ${parsed.message}`);
+          return { ok: true, step: { kind, set: parsed.change } };
+        }
+        if (typeof body.list !== "string" || !VIEW_LISTS.includes(body.list))
+          return invalid(`step.list is one of ${VIEW_LISTS.join(", ")}`);
+        if (typeof body.roomId !== "string" || body.roomId === "")
+          return invalid("step.roomId is one room id");
+        if (typeof body.on !== "boolean")
+          return invalid("step.on is true (on the list) or false (off it)");
+        return {
+          ok: true,
+          step: {
+            kind,
+            list: body.list as MemberViewList,
+            roomId: body.roomId,
+            on: body.on,
+          },
+        };
+      }
+      case "office-settings":
+      case "backup-settings": {
+        const keys =
+          kind === "office-settings" ? OFFICE_SET_KEYS : BACKUP_SET_KEYS;
+        const set = body.set;
+        if (!isObject(set) || Object.keys(set).length === 0)
+          return invalid(
+            `step.set is an object of one or more of ${keys.join(", ")}`,
+          );
+        const unknown = Object.keys(set).filter((key) => !keys.includes(key));
+        if (unknown.length > 0)
+          return invalid(`step.set takes only ${keys.join(", ")}`);
+        if (kind === "backup-settings") {
+          const bad = backupSettingsShapeError(set);
+          if (bad) return invalid(`step.set: ${bad}`);
+          return { ok: true, step: { kind, set } };
+        }
+        if ("name" in set && set.name !== null && typeof set.name !== "string")
+          return invalid("step.set: name is a string, or null for none");
+        const bad = officeSettingsFieldError(set);
+        if (bad) return invalid(`step.set: ${bad}`);
+        if (!deps.runs) return invalid("this office runs no action steps");
+        // The name as the save stores it: trimmed, and none when empty.
+        if (typeof set.name === "string") {
+          const name = set.name.trim();
+          if (name.length > OFFICE_NAME_MAX)
+            return invalid(
+              `step.set: the office name is ${OFFICE_NAME_MAX} characters or fewer`,
+            );
+          return {
+            ok: true,
+            step: { kind, set: { ...set, name: name || null } },
+          };
+        }
+        return { ok: true, step: { kind, set } };
+      }
       case "member-room":
       case "member-role": {
         if (typeof body.username !== "string" || body.username === "")
@@ -482,7 +819,10 @@ export function createStepAsks(deps: StepAskDeps) {
         return deps.runs?.agent(step.agentId)?.name ?? step.agentId;
       case "member-room":
       case "member-role":
+      case "member-pack":
         return deps.runs?.member(step.userId)?.name ?? step.userId;
+      case "member-view":
+        return deps.runs?.roomName(step.roomId) ?? step.roomId;
       default:
         return "";
     }
@@ -512,7 +852,7 @@ export function createStepAsks(deps: StepAskDeps) {
             code: "unknown_agent",
             message: "no agent with this id in a room you can reach",
           };
-        if (runs.authorizeAs(memberUserId, runRoute(step)))
+        if (runs.authorizeAs(memberUserId, runRoute(step, memberUserId)))
           return notAllowed("this member cannot change that agent's access");
         const refusal = runs.accessRefusal(step.agentId, step);
         return refusal
@@ -540,7 +880,7 @@ export function createStepAsks(deps: StepAskDeps) {
           };
         if (runs.member(step.userId)?.role === "owner")
           return ownerHasAllRooms();
-        return runs.authorizeAs(memberUserId, runRoute(step))
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
           ? notAllowed("this member cannot change a member's room access")
           : null;
       }
@@ -549,7 +889,7 @@ export function createStepAsks(deps: StepAskDeps) {
         // refuses the role: only an owner changes one.
         if (
           !deps.isOfficeOwner(memberUserId) ||
-          runs.authorizeAs(memberUserId, runRoute(step))
+          runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
         )
           return notAllowed("only an office owner can change a member's role");
         return step.role === "member" && runs.lastOwner(step.userId)
@@ -561,12 +901,58 @@ export function createStepAsks(deps: StepAskDeps) {
             }
           : null;
       }
+      case "member-pack": {
+        if (runs.member(step.userId)?.role === "owner") return ownerHasNoPack();
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("this member cannot change a member's permission pack")
+          : null;
+      }
+      case "member-preferences":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("this member cannot change their preferences")
+          : null;
+      case "member-view": {
+        if (
+          !askingAgentId ||
+          !runs.roomOpen(step.roomId) ||
+          !runs.agentReachesRoom(askingAgentId, step.roomId)
+        )
+          return unknownRoom();
+        const member = runs.memberSettings(memberUserId);
+        if (!member) return unknownMember();
+        const refused = viewRefusal(member, step);
+        if (refused) return refused;
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("this member cannot change their room lists")
+          : null;
+      }
+      case "office-settings":
+        return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
+          ? notAllowed("only an office owner can change the office settings")
+          : null;
+      case "backup-settings": {
+        if (runs.authorizeAs(memberUserId, runRoute(step, memberUserId)))
+          return notAllowed(
+            "only an office owner can change the backup settings",
+          );
+        const dir = step.set.dir;
+        return dir !== undefined &&
+          dir !== runs.backupSettings().dir &&
+          runs.backupDirFromEnv()
+          ? {
+              ok: false,
+              status: 409,
+              code: "backup_dir_from_env",
+              message: "ISOMUX_BACKUP_DIR sets the backup folder",
+            }
+          : null;
+      }
     }
   }
 
   // The route of an action step whose target the create found.
-  function runRoute(step: ActionStepRequest): StepRoute {
-    const run = routeOf(step);
+  function runRoute(step: ActionStepRequest, memberUserId: string): StepRoute {
+    const run = routeOf(step, memberUserId);
     if (!run?.ok) throw new Error(`step ${step.kind}: no route`);
     return run.route;
   }

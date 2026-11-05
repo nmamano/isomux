@@ -99,6 +99,32 @@ export interface OfficeSettingsDeps {
   ): { ok: true; instructions: string | null } | { ok: false; version: string };
 }
 
+// The longest office name, trimmed.
+export const OFFICE_NAME_MAX = 60;
+
+// The office switches office.setSettings takes, each a boolean.
+export const OFFICE_SETTINGS_SWITCHES = [
+  "memberUsageCap",
+  "recordTerminals",
+  "providerFallback",
+  "processIsolation",
+  "claudeIsomuxLabel",
+] as const;
+
+// Why a switch or the member share of a settings write is refused, or null.
+// An omitted field is fine. Shared with the office-settings ask
+// (server/step-asks.ts).
+export function officeSettingsFieldError(
+  b: Record<string, unknown>,
+): string | null {
+  for (const key of OFFICE_SETTINGS_SWITCHES)
+    if (b[key] !== undefined && typeof b[key] !== "boolean")
+      return `${key} must be a boolean`;
+  if (b.memberUsageShare !== undefined && !validMemberShare(b.memberUsageShare))
+    return "memberUsageShare must be a multiple of 10 from 10 to 100";
+  return null;
+}
+
 export function officeSettingsHandlers(
   deps: OfficeSettingsDeps,
 ): Record<string, RouteHandler> {
@@ -161,71 +187,18 @@ export function officeSettingsHandlers(
           "version is required (from a preceding GET of the settings)",
         );
       }
-      if (
-        b.memberUsageCap !== undefined &&
-        typeof b.memberUsageCap !== "boolean"
-      ) {
-        return fail(400, "invalid_request", "memberUsageCap must be a boolean");
-      }
-      if (
-        b.recordTerminals !== undefined &&
-        typeof b.recordTerminals !== "boolean"
-      ) {
-        return fail(
-          400,
-          "invalid_request",
-          "recordTerminals must be a boolean",
-        );
-      }
-      if (
-        b.providerFallback !== undefined &&
-        typeof b.providerFallback !== "boolean"
-      ) {
-        return fail(
-          400,
-          "invalid_request",
-          "providerFallback must be a boolean",
-        );
-      }
-      if (
-        b.processIsolation !== undefined &&
-        typeof b.processIsolation !== "boolean"
-      ) {
-        return fail(
-          400,
-          "invalid_request",
-          "processIsolation must be a boolean",
-        );
-      }
-      if (
-        b.claudeIsomuxLabel !== undefined &&
-        typeof b.claudeIsomuxLabel !== "boolean"
-      ) {
-        return fail(
-          400,
-          "invalid_request",
-          "claudeIsomuxLabel must be a boolean",
-        );
-      }
-      if (
-        b.memberUsageShare !== undefined &&
-        !validMemberShare(b.memberUsageShare)
-      ) {
-        return fail(
-          400,
-          "invalid_request",
-          "memberUsageShare must be a multiple of 10 from 10 to 100",
-        );
-      }
+      const bad = officeSettingsFieldError(b);
+      if (bad) return fail(400, "invalid_request", bad);
       const r = deps.applySettings(
         {
           name,
-          memberUsageCap: b.memberUsageCap,
-          memberUsageShare: b.memberUsageShare,
-          recordTerminals: b.recordTerminals,
-          providerFallback: b.providerFallback,
-          processIsolation: b.processIsolation,
-          claudeIsomuxLabel: b.claudeIsomuxLabel,
+          // officeSettingsFieldError checked each type.
+          memberUsageCap: b.memberUsageCap as boolean | undefined,
+          memberUsageShare: b.memberUsageShare as number | undefined,
+          recordTerminals: b.recordTerminals as boolean | undefined,
+          providerFallback: b.providerFallback as boolean | undefined,
+          processIsolation: b.processIsolation as boolean | undefined,
+          claudeIsomuxLabel: b.claudeIsomuxLabel as boolean | undefined,
           expectedVersion: b.version,
         },
         ctx,

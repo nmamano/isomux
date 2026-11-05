@@ -1924,6 +1924,19 @@ Cosas que puedes hacer por él:
   "asks.action.manager":
     "Este miembro gestiona el agente que lo pide, así que el agente también obtiene este acceso.",
   "asks.action.selfDemote": "Dejarás de ser propietario de la oficina.",
+  "asks.action.on": "Activado",
+  "asks.action.off": "Desactivado",
+  "asks.action.packNone": "Sin paquete de permisos",
+  "asks.action.packCeiling": "Paquete de permisos: agentes hasta {stop}",
+  "asks.action.yourPreferences": "Tus preferencias",
+  "asks.action.languageNone": "Sin elegir",
+  "asks.action.alertsStop":
+    "Su sonido y sus notificaciones push también se detienen.",
+  "asks.action.notifOn": "Su sonido también se activa.",
+  "asks.action.backupHolds":
+    "Una copia de seguridad contiene los chats y el historial de todas las salas. Los secretos guardados y los inicios de sesión quedan fuera.",
+  "asks.action.backupDefaultFolder": "Carpeta predeterminada",
+  "asks.action.roomGone": "Esta sala ya no está en la oficina.",
   "asks.viewInInbox": "Ver en la bandeja de entrada",
   "asks.pinnedMissing": "No puedes ver esta petición, o no existe.",
   "asks.stillOpen": "Sigue abierta",
@@ -3300,6 +3313,14 @@ Cosas que puedes hacer por él:
   "systemEntries.stepAsk.memberRoomSet":
     "Acceso a salas cambiado para {member}.",
   "systemEntries.stepAsk.memberRoleSet": "Rol cambiado para {member}.",
+  "systemEntries.stepAsk.memberPackSet":
+    "Paquete de permisos cambiado para {member}.",
+  "systemEntries.stepAsk.preferencesSet": "Preferencias cambiadas.",
+  "systemEntries.stepAsk.roomViewSet":
+    "Visibilidad y notificaciones cambiadas para {room}.",
+  "systemEntries.stepAsk.officeSettingsSet": "Ajustes de la oficina cambiados.",
+  "systemEntries.stepAsk.backupSettingsSet":
+    "Ajustes de las copias de seguridad cambiados.",
   "systemEntries.secretRequest.declined": "Solicitud de {name} rechazada.",
   "systemEntries.sudoRequest.started": "Ejecutando como root: {command}",
   "systemEntries.sudoRequest.exited":

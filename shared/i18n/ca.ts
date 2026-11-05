@@ -1928,6 +1928,19 @@ Coses que pots fer per ell:
   "asks.action.manager":
     "Aquest membre gestiona l'agent que ho demana, així que l'agent també obté aquest accés.",
   "asks.action.selfDemote": "Deixaràs de ser propietari de l'oficina.",
+  "asks.action.on": "Activat",
+  "asks.action.off": "Desactivat",
+  "asks.action.packNone": "Sense paquet de permisos",
+  "asks.action.packCeiling": "Paquet de permisos: agents fins a {stop}",
+  "asks.action.yourPreferences": "Les teves preferències",
+  "asks.action.languageNone": "Sense triar",
+  "asks.action.alertsStop":
+    "El seu so i les seves notificacions push també s'aturen.",
+  "asks.action.notifOn": "El seu so també s'activa.",
+  "asks.action.backupHolds":
+    "Una còpia de seguretat conté els xats i l'historial de totes les sales. Els secrets desats i els inicis de sessió en queden fora.",
+  "asks.action.backupDefaultFolder": "Carpeta per defecte",
+  "asks.action.roomGone": "Aquesta sala ja no és a l'oficina.",
   "asks.viewInInbox": "Mostra a la safata d'entrada",
   "asks.pinnedMissing": "No pots veure aquesta petició, o no existeix.",
   "asks.stillOpen": "Encara oberta",
@@ -3303,6 +3316,15 @@ Coses que pots fer per ell:
   "systemEntries.stepAsk.memberRoomSet":
     "Accés a sales canviat per a {member}.",
   "systemEntries.stepAsk.memberRoleSet": "Rol canviat per a {member}.",
+  "systemEntries.stepAsk.memberPackSet":
+    "Paquet de permisos canviat per a {member}.",
+  "systemEntries.stepAsk.preferencesSet": "Preferències canviades.",
+  "systemEntries.stepAsk.roomViewSet":
+    "Visibilitat i notificacions canviades per a {room}.",
+  "systemEntries.stepAsk.officeSettingsSet":
+    "Configuració de l'oficina canviada.",
+  "systemEntries.stepAsk.backupSettingsSet":
+    "Configuració de les còpies de seguretat canviada.",
   "systemEntries.secretRequest.declined": "Sol·licitud de {name} rebutjada.",
   "systemEntries.sudoRequest.started": "S'executa com a root: {command}",
   "systemEntries.sudoRequest.exited":

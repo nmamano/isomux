@@ -30,7 +30,11 @@ import {
 } from "../shared/languages.ts";
 import { isVoiceInput, isVoiceName, isVoiceOutput } from "../shared/voice.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
-import { parseMemberPack, type MemberPack } from "../shared/pack-fit.ts";
+import {
+  parseMemberPack,
+  samePack,
+  type MemberPack,
+} from "../shared/pack-fit.ts";
 import { isRemovedMemberName } from "./removed-members.ts";
 import { normalizeRoomViewLists } from "../shared/room-view-level.ts";
 import {
@@ -544,23 +548,6 @@ export function setOnUserAccessChanged(
 function sameRoomSet(a: readonly string[], b: readonly string[]): boolean {
   const set = new Set(a);
   return set.size === new Set(b).size && b.every((id) => set.has(id));
-}
-
-// Whether two packs give the same areas and ceiling, whatever the key order.
-function samePack(
-  a: MemberPack | undefined,
-  b: MemberPack | undefined,
-): boolean {
-  if (!a || !b) return a === b;
-  const keys = new Set([...Object.keys(a.areas), ...Object.keys(b.areas)]);
-  return (
-    a.agentCeiling === b.agentCeiling &&
-    [...keys].every(
-      (k) =>
-        a.areas[k as keyof MemberPack["areas"]] ===
-        b.areas[k as keyof MemberPack["areas"]],
-    )
-  );
 }
 
 // Post-persist: the on-disk record is authoritative, notify the transport
