@@ -271,6 +271,7 @@ export function OfficeView({
     asks,
     answeredAsks,
     membersChatShown,
+    hasReceivedInitialState,
   } = useAppState();
   const askCountByAgent = useMemo(
     () => askCounts(openAsks(asks, answeredAsks)),
@@ -887,17 +888,22 @@ export function OfficeView({
                         : undefined
                       /* eslint-enable react-hooks/refs */
                     }
+                    loading={!hasReceivedInitialState}
                     rightDoor={
-                      tabs[0]
-                        ? {
-                            label: tabs[0].name,
-                            onClick: () =>
-                              dispatch({
-                                type: "set_current_room",
-                                roomId: tabs[0].id,
-                              }),
-                          }
-                        : newRoomDoor
+                      // While loading, the door to the first room is drawn
+                      // with no name yet.
+                      !hasReceivedInitialState
+                        ? { label: "" }
+                        : tabs[0]
+                          ? {
+                              label: tabs[0].name,
+                              onClick: () =>
+                                dispatch({
+                                  type: "set_current_room",
+                                  roomId: tabs[0].id,
+                                }),
+                            }
+                          : newRoomDoor
                     }
                     onToggleTheme={cycleTheme}
                     onOpenApps={embed ? undefined : onOpenApps}

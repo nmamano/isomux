@@ -277,4 +277,24 @@ describe("the glue", () => {
       B,
     ]);
   });
+
+  // ui/index.tsx hands this to StoreProvider: a ride opens on the lobby from
+  // the first frame (task 4843a124).
+  it("reports whether a ride brought a panel, by the address or the login page's copy", () => {
+    expect(holdArrivingPanel(NOW)).toBe(false);
+
+    history.replaceState(
+      null,
+      "",
+      `/#${encodePanelFragment(panel({ visited: [{ url: A, addedAt: 1 }] }), A)}`,
+    );
+    expect(holdArrivingPanel(NOW)).toBe(true);
+    syncPanel([], HERE, NOW);
+
+    sessionStorage.setItem(
+      PANEL_SESSION_KEY,
+      encodePanelFragment(panel({ visited: [{ url: B, addedAt: 2 }] }), B),
+    );
+    expect(holdArrivingPanel(NOW)).toBe(true);
+  });
 });

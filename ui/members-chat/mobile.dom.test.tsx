@@ -1,4 +1,4 @@
-import { afterAll, afterEach, expect, it, jest } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
@@ -12,6 +12,7 @@ const { connect, setShim } = await import("../ws.ts");
 const { LanguageProvider } = await import("../i18n.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { saveRoomView } = await import("../test-support/saved-room-view.ts");
 const en = translatorFor("en");
 let dispatch: ReturnType<typeof useDispatch>;
 // The mobile lobby as OfficeView mounts it: the chat only while the lobby is
@@ -41,6 +42,8 @@ setShim(
   () => {},
   () => {},
 );
+// Each test starts in a room and opens the lobby from its tab.
+beforeEach(saveRoomView);
 afterEach(() => jest.useRealTimers());
 afterAll(() => {
   setApiShim(null);

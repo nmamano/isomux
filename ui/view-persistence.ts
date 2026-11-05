@@ -184,6 +184,19 @@ export function loadSavedView(
   }
 }
 
+// The saved view of whoever saved last in this browser, with no owner check:
+// the only guess at the view before the session names the member.
+export function loadLastSavedView(
+  storage: StorageLike | null = defaultStorage(),
+): SavedView | null {
+  if (!storage) return null;
+  try {
+    return parseSavedView(storage.getItem(VIEW_KEY));
+  } catch {
+    return null;
+  }
+}
+
 export function saveView(
   user: string,
   view: Omit<SavedView, "user">,

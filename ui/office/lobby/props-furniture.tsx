@@ -1,5 +1,6 @@
 import { IsoBox, IsoCylinder, iso, poly, shade } from "./iso.tsx";
-import { useEffect } from "react";
+import { useContext, useEffect } from "react";
+import { LobbyLiveCtx } from "./live.ts";
 import { useI18n } from "../../i18n.tsx";
 import {
   stopJukebox,
@@ -560,17 +561,22 @@ const STYLE_KEYS = {
 function RecordPlayer({ h }: { h: number }) {
   const { t } = useI18n();
   const { playing, style } = useJukebox();
+  const live = useContext(LobbyLiveCtx);
   // Leaving the lobby stops the music.
   useEffect(() => () => stopJukebox(), []);
   const [rx, ry] = iso(PLAYER.a, PLAYER.b, h + PLAYER.h);
   return (
     <g
-      data-no-pan
-      onClick={() => toggleJukebox()}
-      onMouseDown={(event) => event.preventDefault()}
-      style={{ cursor: "pointer", pointerEvents: "auto" }}
+      {...(live && {
+        "data-no-pan": true,
+        onClick: () => toggleJukebox(),
+        onMouseDown: (event: React.MouseEvent) => event.preventDefault(),
+        style: { cursor: "pointer", pointerEvents: "auto" },
+      })}
     >
-      <title>{style ? t(STYLE_KEYS[style]) : t("lobby.jukebox.play")}</title>
+      {live && (
+        <title>{style ? t(STYLE_KEYS[style]) : t("lobby.jukebox.play")}</title>
+      )}
       <IsoBox {...PLAYER} z={h} color="#3d3a37" />
       {/* The disc is drawn as a circle and squashed into the floor plane, so
           it turns in that plane and the box stays still. */}

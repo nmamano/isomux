@@ -10,6 +10,7 @@ const { LanguageProvider } = await import("../i18n.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, shimEmit, connect } = await import("../ws.ts");
 const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
+const { saveRoomView } = await import("../test-support/saved-room-view.ts");
 
 export const room = (
   id: string,
@@ -85,6 +86,7 @@ export function mount(
   embed = false,
   creationOnly = false,
 ) {
+  saveRoomView();
   setShim(noop);
   const tree = (embed: boolean) => (
     <StoreProvider>

@@ -129,6 +129,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     sessionContext,
     hasReceivedInitialState,
     lobbyOpen,
+    rideArrival,
   } = useAppState();
   const features = useFeatures();
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
@@ -254,7 +255,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   // room, or lost access silently falls back to the normal default view (the
   // first visible room, which full_state already selected; the restore only
   // overrides it when the saved room is still valid). Without a saved view,
-  // every member starts on the lobby. Gated off in the demo
+  // every member starts on the lobby, and an elevator ride always does;
+  // StoreProvider draws that view from the first frame. Gated off in the demo
   // (llmConnected=false),
   // where restoring a previous visitor's spot would break the scripted
   // landing-page experience. `restored` is state (not a ref) on purpose: the
@@ -314,8 +316,11 @@ export function App({ routing = true }: { routing?: boolean }) {
       dispatch({ type: "set_current_room", roomId: saved.roomId });
     }
     // After the room: selecting a room closes the lobby, so the lobby flag
-    // has to land last to win.
-    if (saved.lobby) dispatch({ type: "set_lobby_open", open: true });
+    // has to land last to win. An elevator ride steps out into the lobby,
+    // with no saved chat or page over it.
+    if (saved.lobby || rideArrival)
+      dispatch({ type: "set_lobby_open", open: true });
+    if (rideArrival) return;
     if (saved.agentId && agents.some((a) => a.id === saved.agentId)) {
       dispatch({ type: "focus", agentId: saved.agentId });
     }
@@ -343,6 +348,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     persistUser,
     agents,
     rooms,
+    rideArrival,
     dispatch,
   ]);
 

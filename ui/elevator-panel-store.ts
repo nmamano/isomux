@@ -77,9 +77,11 @@ export function takeArrivingPanel(
 let arriving: { panel: Panel; from: string | null } | null = null;
 
 // Takes the arriving panel off the address before anything else reads it
-// (ui/index.tsx), and holds it for syncPanel.
-export function holdArrivingPanel(now: number = Date.now()): void {
-  arriving = takeArrivingPanel(now) ?? arriving;
+// (ui/index.tsx), and holds it for syncPanel. True when a ride brought one.
+export function holdArrivingPanel(now: number = Date.now()): boolean {
+  const taken = takeArrivingPanel(now);
+  if (taken) arriving = taken;
+  return taken !== null;
 }
 
 // This office's floors arrived (full_state, floors_updated): merges the

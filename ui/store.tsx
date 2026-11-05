@@ -91,6 +91,7 @@ import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { anyRoomSounds } from "../shared/notif-rooms.ts";
 import { createNotificationSound } from "./notification-sound.ts";
 import { syncPanel } from "./elevator-panel-store.ts";
+import { loadLastSavedView } from "./view-persistence.ts";
 import type {
   DraftAttachment,
   DraftAttachmentAction,
@@ -218,6 +219,9 @@ export interface AppState {
   // access list. Open when the viewer clicked it, or landed on it because they
   // have no visible room. Selecting a room closes it.
   lobbyOpen: boolean;
+  // This load is an elevator ride (StoreProvider's ride prop). CLIENT state,
+  // fixed for the page's life: the saved-spot restore keeps the lobby open.
+  rideArrival: boolean;
   // The desktop lobby chat panel is shown. CLIENT state: a load reads this
   // browser's last show or hide click (closed when there is none, so a new
   // member sees the lobby door), and a full_state (reconnect) keeps it.
@@ -2023,6 +2027,7 @@ export const initialState: AppState = {
   },
   floors: [],
   lobbyOpen: false,
+  rideArrival: false,
   membersChatShown: false,
   apps: [],
   appsLoaded: false,
@@ -2097,11 +2102,27 @@ function myNotifRooms(users: Map<string, UserView>): readonly string[] {
   );
 }
 
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState, (s) => ({
-    ...s,
-    membersChatShown: getMembersChatOpen(),
-  }));
+export function StoreProvider({
+  children,
+  ride = false,
+}: {
+  children: ReactNode;
+  // This load is an elevator ride (holdArrivingPanel): it opens on the lobby.
+  ride?: boolean;
+}) {
+  const { llmConnected } = useFeatures();
+  const [state, dispatch] = useReducer(reducer, initialState, (s) => {
+    // The first frame draws the view the restore will open (App.tsx), so
+    // nothing switches when the state arrives. The member is not known yet:
+    // the guess reads whoever saved last in this browser.
+    const last = llmConnected ? loadLastSavedView() : null;
+    return {
+      ...s,
+      rideArrival: ride,
+      lobbyOpen: ride || (llmConnected && (last === null || last.lobby)),
+      membersChatShown: getMembersChatOpen(),
+    };
+  });
 
   useEffect(() => {
     let legacyMigrated = false;

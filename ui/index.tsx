@@ -10,7 +10,7 @@ import { trackOfficePage } from "./home-screen-office.ts";
 import { holdArrivingPanel } from "./elevator-panel-store.ts";
 
 // First: a ride from another office's elevator left the panel in the address.
-holdArrivingPanel();
+const ride = holdArrivingPanel();
 
 const widgetMeta = document.querySelector<HTMLMetaElement>(
   'meta[name="isomux-app-widget"]',
@@ -28,7 +28,7 @@ const root = createRoot(document.getElementById("root")!);
 root.render(
   <ThemeProvider>
     <FeaturesProvider features={PRODUCTION_FEATURES}>
-      <StoreProvider>
+      <StoreProvider ride={ride}>
         <LanguageProvider>
           {widgetBoot ? <AppWidgetPage boot={widgetBoot} /> : <App />}
         </LanguageProvider>

@@ -1,4 +1,5 @@
-import { useId } from "react";
+import { useContext, useId } from "react";
+import { LobbyLiveCtx } from "./live.ts";
 import { useI18n } from "../../i18n.tsx";
 import { iso, shade } from "./iso.tsx";
 
@@ -67,6 +68,7 @@ function textWidth(text: string, size: number): number {
 
 export function StarJar() {
   const { t } = useI18n();
+  const live = useContext(LobbyLiveCtx);
   const clip = `star-jar-${useId().replace(/:/g, "")}`;
   const label = t("lobby.starJar.tag");
   const size = 3.6;
@@ -208,6 +210,7 @@ export function StarJar() {
       </g>
     </g>
   );
+  if (!live) return jar;
   // The props layer is hidden from screen readers, so the keyboard link is in
   // LobbyControls.
   return (

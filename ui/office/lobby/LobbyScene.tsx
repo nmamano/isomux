@@ -44,6 +44,7 @@ import {
 } from "./props.tsx";
 import { toggleJukebox, useJukebox } from "./jukebox.ts";
 import { REPO_URL } from "./props-starjar.tsx";
+import { LobbyLiveCtx } from "./live.ts";
 import { RECEPTIONIST_FOCUS } from "../receptionist-geometry.ts";
 import {
   LOBBY_LAYOUTS,
@@ -91,7 +92,7 @@ export interface LobbySceneProps {
   // The doorway on the right wall, which leads to the first room. The office
   // draws the same door for the room beyond; here it is the way out of the
   // lobby. Absent in the preview when no room is given.
-  rightDoor?: { label: string; onClick: () => void } | null;
+  rightDoor?: { label: string; onClick?: () => void } | null;
   onToggleTheme?: () => void;
   onOpenApps?: () => void;
   onOpenCronjobs?: () => void;
@@ -104,6 +105,9 @@ export interface LobbySceneProps {
   // The star jar on the counter, which links to the repo. Only the live
   // desktop lobby sets it; the phone lobby leaves it out.
   starJar?: boolean;
+  // The office state is still loading: the scene draws as it will, and
+  // nothing in it takes a click or keyboard focus.
+  loading?: boolean;
 }
 
 // One shared empty list: a fresh `[]` default per render reads as a presence
@@ -131,8 +135,13 @@ export function LobbyScene({
   jukebox = false,
   onOpenElevator,
   starJar = false,
+  loading = false,
 }: LobbySceneProps) {
   const { t } = useI18n();
+  // While loading, every handler is withheld; a prop with none draws the
+  // same with no control cue.
+  const live = <T,>(handler: T): T | undefined =>
+    loading ? undefined : handler;
   const c = lobbyColors(mode);
   const base = layout === "empty" ? null : LOBBY_LAYOUTS[layout];
   const naturalGhostPlacements = useMemo(
@@ -161,16 +170,22 @@ export function LobbyScene({
   const propsShown = spec && (decorateScene || receptionist);
   const shownPlacements = spec && decorateScene ? spec.placements : [];
   return (
-    <>
+    <LobbyLiveCtx.Provider value={!loading}>
       <LobbyWalls
         c={c}
-        onToggleTheme={onToggleTheme}
-        onOpenApps={onOpenApps}
-        onOpenCronjobs={onOpenCronjobs}
+        onToggleTheme={live(onToggleTheme)}
+        onOpenApps={live(onOpenApps)}
+        onOpenCronjobs={live(onOpenCronjobs)}
       />
       {decorateScene && <LobbyFloor c={c} />}
       {rightDoor && (
-        <WallDoors rightDoor={{ ...rightDoor, passCount: rightDoorUses }} />
+        <WallDoors
+          rightDoor={{
+            ...rightDoor,
+            onClick: live(rightDoor.onClick),
+            passCount: rightDoorUses,
+          }}
+        />
       )}
       {propsShown && (
         <LobbyProps
@@ -181,7 +196,7 @@ export function LobbyScene({
           mode={mode}
           star={star}
           jukebox={jukebox}
-          onOpenElevator={onOpenElevator}
+          onOpenElevator={live(onOpenElevator)}
           starJar={starJar}
           receptionist={
             receptionist
@@ -194,11 +209,11 @@ export function LobbyScene({
         <LobbyControls
           placements={shownPlacements}
           variants={variants}
-          jukebox={jukebox}
-          onOpenElevator={onOpenElevator}
-          starJar={starJar}
+          jukebox={jukebox && !loading}
+          onOpenElevator={live(onOpenElevator)}
+          starJar={starJar && !loading}
           receptionist={
-            receptionist?.button
+            receptionist?.button && !loading
               ? { ...spec.receptionist, ...receptionist.button }
               : undefined
           }
@@ -209,10 +224,10 @@ export function LobbyScene({
         naturalPlacements={naturalGhostPlacements}
         presences={presences}
         spots={base?.ghostSpots ?? []}
-        onMove={onMoveGhost}
-        onOpenUser={onOpenUser}
+        onMove={live(onMoveGhost)}
+        onOpenUser={live(onOpenUser)}
       />
-    </>
+    </LobbyLiveCtx.Provider>
   );
 }
 

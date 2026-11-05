@@ -623,7 +623,8 @@ export function WindowPlant() {
 
 interface DoorProps {
   label: string;
-  onClick: () => void;
+  // Absent: the door is drawn with no control (a lobby that is loading).
+  onClick?: () => void;
   dragOver?: boolean;
   reject?: boolean;
   // Counts ghosts that have passed through this door. A rise seen by a
@@ -770,22 +771,24 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
   const labelLineHeight = labelFit.size * 1.2;
   return (
     <g
-      data-no-pan
-      role="button"
-      tabIndex={0}
-      aria-label={door.label}
-      className="isomux-wall-door"
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={door.onClick}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          door.onClick();
-        }
-      }}
-      style={{ cursor: "pointer", pointerEvents: "auto" }}
+      {...(door.onClick && {
+        "data-no-pan": true,
+        role: "button",
+        tabIndex: 0,
+        "aria-label": door.label,
+        className: "isomux-wall-door",
+        onMouseDown: (event: React.MouseEvent) => event.preventDefault(),
+        onClick: door.onClick,
+        onKeyDown: (event: React.KeyboardEvent) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            door.onClick?.();
+          }
+        },
+        style: { cursor: "pointer", pointerEvents: "auto" },
+      })}
     >
-      <title>{door.label}</title>
+      {door.onClick && <title>{door.label}</title>}
       <style>{DOOR_FOCUS_CSS + DOOR_AJAR_CSS}</style>
       <g transform={`translate(${origin.x}, ${origin.y})`}>
         {/* The room on the other side: this room's own wall and floor

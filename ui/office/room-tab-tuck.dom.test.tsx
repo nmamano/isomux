@@ -7,6 +7,7 @@ const { act, render, fireEvent } = await import("@testing-library/react");
 const { RoomTabBar } = await import("./RoomTabBar.tsx");
 const { tuckedChipSummary } = await import("./TuckedRoomsChip.tsx");
 const { StoreProvider, FeaturesProvider } = await import("../store.tsx");
+const { saveRoomView } = await import("../test-support/saved-room-view.ts");
 const { LanguageProvider } = await import("../i18n.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, shimEmit, connect } = await import("../ws.ts");
@@ -99,6 +100,7 @@ afterAll(() => {
 });
 
 function mount(ids: string[], tucked: string[]) {
+  saveRoomView();
   setShim(noop);
   const view = render(
     <StoreProvider>
