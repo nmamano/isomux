@@ -24,6 +24,7 @@ import {
   dialogInput,
   dialogLabel,
   dialogSaveBtn,
+  disabledFieldLook,
   disabledLook,
 } from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
@@ -288,12 +289,17 @@ export function PagerSettingsPane({
               data-testid="pager-webhook"
               value={url}
               disabled={!pagerWrite}
-              placeholder="https://discord.com/api/webhooks/…"
+              placeholder={
+                pagerWrite ? "https://discord.com/api/webhooks/…" : undefined
+              }
               onChange={(e) => {
                 setUrl(e.target.value);
                 setStatus(null);
               }}
-              style={dialogInput}
+              style={{
+                ...dialogInput,
+                ...(pagerWrite ? null : disabledFieldLook),
+              }}
             />
             {loading ? (
               <Reserved>
@@ -324,7 +330,10 @@ export function PagerSettingsPane({
                 setUserId(e.target.value);
                 setStatus(null);
               }}
-              style={dialogInput}
+              style={{
+                ...dialogInput,
+                ...(pagerWrite ? null : disabledFieldLook),
+              }}
             />
 
             <div style={actionRow}>
@@ -371,7 +380,10 @@ export function PagerSettingsPane({
               value={loading ? "" : repeat}
               disabled={busy || !pagerWrite}
               onChange={(e) => void saveRepeat(e.target.value)}
-              style={selectStyle}
+              style={{
+                ...selectStyle,
+                ...(pagerWrite ? null : disabledFieldLook),
+              }}
             >
               {/* Nothing chosen until the settings arrive. */}
               {loading && <option value="" />}

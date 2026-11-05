@@ -97,6 +97,16 @@ export const disabledLook: Readonly<CSSProperties> = Object.freeze({
   cursor: "not-allowed",
 });
 
+// A disabled field (read only for this member). A fill change alone is too
+// faint in the dark themes, so the field drops its fill and its border goes
+// dashed: it does not read as a field to type in.
+export const disabledFieldLook: Readonly<CSSProperties> = Object.freeze({
+  background: "transparent",
+  border: "1px dashed var(--border-medium)",
+  color: "var(--text-hint)",
+  cursor: "not-allowed",
+});
+
 export const dialogChip: Readonly<CSSProperties> = Object.freeze({
   padding: "3px 8px",
   borderRadius: 6,
