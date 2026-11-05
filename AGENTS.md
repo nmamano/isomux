@@ -46,6 +46,7 @@ Nil's rules for every UI change. A diff that breaks one does not pass review or 
 - A view keeps its layout while it loads: draw the real controls, disabled and dimmed (or a placeholder of the same shape), until the data arrives. Never an empty box or a panel that grows. Nil, 2026-11-05.
 - The product name is Isomux, capitalized, in every string a person reads. Lowercase only where it is a literal (a command, a path, a package, a unit or domain name: brew upgrade isomux, systemctl --user restart isomux, isomux.com). Nil, 2026-11-05.
 - An agent selector groups agents by room. Nil, 2026-11-05.
+- A destructive action that cannot be undone (delete, remove, disconnect, reset, revoke, kill, clear) asks "are you sure?" before it runs. An action with an Undo does not. Use the in-page confirm the UI already has (a button that turns into "Confirm?" on the first click, or a confirm dialog), never the browser's `confirm()`. "Destructible and reversible actions should always have an "are you sure?" step." Nil, 2026-11-05.
 
 ## Formatting and linting
 
