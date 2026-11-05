@@ -65,6 +65,8 @@ const AUTH_SHAPED = [
   "Error: 401 Unauthorized",
   "invalid token provided",
   "authentication failed",
+  "request failed with status 401",
+  "HTTP 401: see the docs",
 ];
 // A 403 is the provider refusing the request, not a sign-in failure: the
 // member reads the provider's words instead of a login card (task 2bd836d5).
@@ -74,6 +76,11 @@ const BENIGN = [
   "Operation completed successfully",
   "request failed with status 403",
   "unexpected status 403 Forbidden: Request not allowed",
+  // A 401 inside a longer number, as in the microseconds of a Codex stderr
+  // timestamp, is no status code (task 81a336ae).
+  "2026-11-05T16:41:58.401255Z ERROR codex_core::tools::router: error=resources/read failed: unknown MCP server 'planted-remote'",
+  "2026-11-05T16:41:43.000401Z WARN codex_core: retrying",
+  "wrote 14012 lines",
 ];
 
 describe("detectAuthError", () => {

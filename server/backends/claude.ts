@@ -177,9 +177,10 @@ function loginCommand(env?: { [key: string]: string | undefined }): string {
 }
 
 // A 403 is the provider refusing the request, not a sign-in failure
-// (task 2bd836d5; translateSDKMessage quotes it).
+// (task 2bd836d5; translateSDKMessage quotes it). A 401 stands alone, not
+// inside a longer number such as a timestamp (task 81a336ae).
 const AUTH_ERROR_PATTERNS =
-  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|401/i;
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|\b401\b/i;
 
 // The one Claude sign-in predicate: the session's auth signals and the
 // backend's detectAuthError both use it.

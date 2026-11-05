@@ -5767,6 +5767,30 @@ describe("CodexSession provider refusals", () => {
     expectKind(await nextEvent(it, "401 stderr"), "auth_needed");
     expect(fake.interruptCount()).toBe(1);
   });
+
+  // Codex starts each stderr line with a timestamp in microseconds; one that
+  // holds 401 is no sign-in failure (task 81a336ae).
+  it("does not read a 401 in a stderr timestamp as a sign-in failure", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("go");
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-stamp" },
+    });
+    fake.fireStderr(
+      "2026-11-05T16:41:58.401255Z ERROR codex_core::tools::router: error=resources/read failed: unknown MCP server 'planted-remote'",
+    );
+    expect(
+      expectKind(await nextEvent(it, "timestamp stderr"), "system_text").text,
+    ).toContain("planted-remote");
+    expect(fake.interruptCount()).toBe(0);
+    // The auth gate was open: a 401 status in the same turn still interrupts it.
+    fake.fireStderr(
+      "2026-11-05T16:41:59.123456Z ERROR codex_api: unexpected status 401 Unauthorized",
+    );
+    expectKind(await nextEvent(it, "401 stderr"), "auth_needed");
+    expect(fake.interruptCount()).toBe(1);
+  });
 });
 
 // Codex asks Isomux to refresh a ChatGPT token, and Isomux has no token

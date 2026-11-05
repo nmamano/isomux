@@ -246,9 +246,10 @@ const BENIGN_STDERR_LINES = [
 
 // A 403 is the provider refusing the request, not a sign-in failure (task
 // 2bd836d5): Codex logs it on stderr, and a match there would interrupt the
-// turn before the refusal reaches the member.
+// turn before the refusal reaches the member. A 401 stands alone: Codex's
+// stderr timestamps ("58.401255Z") hold it by chance (task 81a336ae).
 const AUTH_ERROR_PATTERNS =
-  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|401/i;
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|\b401\b/i;
 
 // The one Codex sign-in predicate: the session's auth signals and
 // codexBackend.detectAuthError both use it.
