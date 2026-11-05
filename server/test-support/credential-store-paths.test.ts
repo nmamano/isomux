@@ -52,6 +52,8 @@ function seedStore(root: string) {
   // A member's linked WhatsApp session: full access to their WhatsApp (task
   // d03a61d8).
   const whatsapp = join(root, "whatsapp", "u-test", "auth", "creds.json");
+  // A member's Discord bot tokens (task 7fd44c30).
+  const discord = join(root, "discord", "u-test", "bots.json");
   for (const path of [
     store,
     user,
@@ -60,6 +62,7 @@ function seedStore(root: string) {
     mcpServers,
     appToken,
     whatsapp,
+    discord,
   ])
     mkdirSync(join(path, ".."), { recursive: true });
   // A one-line JSON store holds no "=": a dotenv parser would quote it.
@@ -75,6 +78,10 @@ function seedStore(root: string) {
   // line it fails on, unless the file is a credential file.
   writeFileSync(appToken, `ISOMUX_APP_TOKEN=${FAKE}\n${FAKE}\n`);
   writeFileSync(whatsapp, `{"noiseKey":{"private":"${FAKE}"}}`);
+  writeFileSync(
+    discord,
+    `[{"id":"1","name":"b","token":"${FAKE}","addedAt":1}]`,
+  );
   // The app's launcher, beside it: not a credential.
   writeFileSync(join(root, "apps", "units", "hello.sh"), "exec true\n");
   const linkDir = join(root, "linked");
@@ -91,6 +98,7 @@ function seedStore(root: string) {
     mcpServers,
     appToken,
     whatsapp,
+    discord,
     link,
     viaDirLink: join(dirLink, "office.json"),
     dotDot: join(root, "linked", "..", "secrets", "office.json"),

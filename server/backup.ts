@@ -504,6 +504,12 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
     id: "whatsapp-sessions",
     archivePatterns: (root) => rootedDirectory(root, "whatsapp"),
   },
+  // Members' Discord bot tokens, routes and cursors (task 7fd44c30). After a
+  // restore, members connect their bots again.
+  {
+    id: "discord-bots",
+    archivePatterns: (root) => rootedDirectory(root, "discord"),
+  },
   // The pager's Discord webhook URLs. After a restore, each member enters
   // theirs again.
   {

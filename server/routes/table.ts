@@ -301,6 +301,14 @@ import type {
   WhatsAppRouteUpdateReq,
   WhatsAppStatus,
 } from "../../shared/whatsapp.ts";
+import type {
+  DiscordBot,
+  DiscordConnectReq,
+  DiscordGuildSeen,
+  DiscordRoute,
+  DiscordRouteCreateReq,
+  DiscordRouteUpdateReq,
+} from "../../shared/discord.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -1891,6 +1899,79 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/whatsapp/routes/:routeId",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: [],
+  }),
+
+  // The member's Discord bots and routes (task 7fd44c30): the caller's own,
+  // by cookie only, as for WhatsApp. No agent, API token or owner acting for
+  // a member connects a bot or sees its servers.
+  defineRoute<void, DiscordBot[]>({
+    opId: "discord.list",
+    method: "GET",
+    path: "/api/discord",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "read" },
+    emits: [],
+  }),
+  defineRoute<DiscordConnectReq, DiscordBot>({
+    opId: "discord.connect",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "POST",
+    path: "/api/discord/bots",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: ["discord_status"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "discord.disconnect",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "DELETE",
+    path: "/api/discord/bots/:botId",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: ["discord_status"],
+  }),
+  defineRoute<void, DiscordGuildSeen[]>({
+    opId: "discord.guilds",
+    method: "GET",
+    path: "/api/discord/bots/:botId/guilds",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "read" },
+    emits: [],
+  }),
+  defineRoute<void, DiscordRoute[]>({
+    opId: "discordRoutes.list",
+    method: "GET",
+    path: "/api/discord/routes",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "read" },
+    emits: [],
+  }),
+  defineRoute<DiscordRouteCreateReq, DiscordRoute>({
+    opId: "discordRoutes.create",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "POST",
+    path: "/api/discord/routes",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: [],
+  }),
+  defineRoute<DiscordRouteUpdateReq, DiscordRoute>({
+    opId: "discordRoutes.update",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "PATCH",
+    path: "/api/discord/routes/:routeId",
+    auth: cap("user:self", authenticated),
+    tokenArea: { area: "environment", level: "write" },
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "discordRoutes.delete",
+    audit: { owner: "executor", targets: selectedTargets({ self: true }) },
+    method: "DELETE",
+    path: "/api/discord/routes/:routeId",
     auth: cap("user:self", authenticated),
     tokenArea: { area: "environment", level: "write" },
     emits: [],

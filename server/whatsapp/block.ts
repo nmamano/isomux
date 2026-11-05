@@ -1,11 +1,16 @@
 // The text a WhatsApp delivery puts in the agent's chat (task d03a61d8): the
-// server's own lines around one data block. As in server/webhooks/block.ts,
-// the JSON escapes <, > and &, so the block has exactly one opening and one
-// closing tag, and the whole text fits APP_MESSAGE_MAX_CHARS. A text that
-// does not fit is cut, longest first, a whole code point at a time; the JSON
-// line itself is never cut.
+// server's own lines around one data block, with the JSON rules of
+// server/messaging/block-json.ts. The whole text fits APP_MESSAGE_MAX_CHARS:
+// a text that does not fit is cut, longest first; the JSON line itself is
+// never cut.
 
 import { APP_MESSAGE_MAX_CHARS } from "../app-message-limits.ts";
+import {
+  CUT_MARKER,
+  cutTo,
+  escapedJson,
+  escapedLength,
+} from "../messaging/block-json.ts";
 
 export interface WhatsAppBlockLine {
   // The row name, the member's saved name for a group participant, its
@@ -33,37 +38,7 @@ export interface WhatsAppBlockInput {
   reservedChars: number;
 }
 
-const ANGLE_ESCAPES: Record<string, string> = {
-  "<": "\\u003c",
-  ">": "\\u003e",
-  "&": "\\u0026",
-};
-
-// JSON with every <, > and & as a \u escape: still valid, with the same values.
-function escapedJson(value: unknown): string {
-  return JSON.stringify(value).replace(/[<>&]/g, (c) => ANGLE_ESCAPES[c]);
-}
-
-// The escaped length of a string between its quotes.
-function escapedLength(text: string): number {
-  return escapedJson(text).length - 2;
-}
-
-export const WHATSAPP_CUT_MARKER = "…[cut]";
-const MARKER_COST = escapedLength(WHATSAPP_CUT_MARKER);
-
-// The longest whole-code-point prefix whose escaped text, with the marker,
-// fits `share`.
-function cutTo(text: string, share: number): string {
-  let used = MARKER_COST;
-  let units = 0;
-  for (const codePoint of text) {
-    used += escapedLength(codePoint);
-    if (used > share) break;
-    units += codePoint.length;
-  }
-  return text.slice(0, units) + WHATSAPP_CUT_MARKER;
-}
+export const WHATSAPP_CUT_MARKER = CUT_MARKER;
 
 export function buildWhatsAppBlock(input: WhatsAppBlockInput): string {
   const { routeId, routeName, memberName, direct, reservedChars } = input;

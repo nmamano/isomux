@@ -256,6 +256,11 @@ describe("verified backup publication", () => {
       "whatsapp/u-alice/link.json",
       "whatsapp/runtime/.lock-sha256",
       "whatsapp/runtime/node_modules/baileys/package.json",
+      // A member's Discord bot tokens, routes and cursors (task 7fd44c30). A
+      // restore means each member connects their bot again.
+      "discord/u-alice/bots.json",
+      "discord/u-alice/routes.json",
+      "discord/u-alice/cursors.json",
     ];
     const kept = [
       "pager.json",

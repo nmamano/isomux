@@ -43,6 +43,7 @@ export const WS_PUSH_AREA = {
   cronjob_updated: "schedules",
   cronjobs_prompt_updated: "schedules",
   cronjobs_state: "schedules",
+  discord_status: "environment",
   editor_external_change: "files",
   editor_file_deleted: "files",
   floors_updated: "office",

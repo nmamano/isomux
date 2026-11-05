@@ -210,6 +210,7 @@ import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { integrationChangesHandlers } from "./routes/handlers/integration-changes.ts";
 import { voiceHandlers } from "./routes/handlers/voice.ts";
 import { whatsappHandlers } from "./routes/handlers/whatsapp.ts";
+import { discordHandlers } from "./routes/handlers/discord.ts";
 import { voiceKeyForUserId } from "./voice-key.ts";
 import { pushDevicesHandlers } from "./routes/handlers/push-devices.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
@@ -456,6 +457,8 @@ import {
   whatsappSupervisor,
   whatsappRoutes,
   whatsappReplies,
+  discordSupervisor,
+  discordRoutes,
   githubLinks,
   githubSync,
   uiBuildTracker,
@@ -2868,6 +2871,10 @@ function buildExecutorDeps(
   );
 
   register(
+    discordHandlers({ supervisor: discordSupervisor, routes: discordRoutes }),
+  );
+
+  register(
     integrationChangesHandlers({
       memberChanges: (query) => officeAuditStore().memberChanges(query),
       userName: (userId) => getUserById(userId)?.name ?? null,
@@ -5229,6 +5236,10 @@ function runBackgroundBoot(
   void whatsappSupervisor.boot().catch(() => {
     console.error("[whatsapp] the boot of the WhatsApp bridges failed");
   });
+  // Start a gateway child for each connected Discord bot.
+  void discordSupervisor.boot().catch(() => {
+    console.error("[discord] the boot of the Discord bots failed");
+  });
 
   // Resume the repeat of open pages from their saved last attempt.
   if (!startOpts.skipSchedulers) {
@@ -5397,6 +5408,8 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   webPushDelivery?.stop();
   // Ends the bridges and keeps the links: the next start connects again.
   await whatsappSupervisor?.shutdown();
+  // Delivers the waiting Discord messages, then ends the gateway children.
+  await discordSupervisor?.shutdown();
   githubSync?.stop();
   uiBuildTracker?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);

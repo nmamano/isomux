@@ -391,6 +391,21 @@ describe("pager store: load posture", () => {
     expect(store.list()).toEqual([officeEntry]);
   });
 
+  // A later release can raise office pages about another feature (Discord,
+  // task 7fd44c30). After a rollback, this release still loads them: one
+  // unknown feature must not move every member's pages aside.
+  it("an office-source record about a feature from another release loads", () => {
+    const entries: PagerEntry[] = ["discord", "sms"].map((feature, i) => ({
+      ...valid,
+      id: `4a4b4c4${i}`,
+      source: { ...OFFICE_SRC, feature } as PagerSource,
+    }));
+    const p = memPersistence({ kind: "data", value: [valid, ...entries] });
+    const store = createTestPagerStore({ persistence: p });
+    expect(p.quarantined).toBe(0);
+    expect(store.list()).toHaveLength(3);
+  });
+
   it("a bad record or an unparsable file is moved aside; the store starts empty", () => {
     for (const loaded of [
       { kind: "data", value: [valid, { ...valid, state: "weird" }] },
@@ -407,15 +422,18 @@ describe("pager store: load posture", () => {
           { ...valid, source: { ...APP_SRC, registrationGen: undefined } },
         ],
       },
-      // An office source in a room, or about a feature the store does not
-      // know.
+      // An office source in a room, or about no feature.
       {
         kind: "data",
         value: [valid, { ...valid, source: { ...OFFICE_SRC, roomId: "r1" } }],
       },
       {
         kind: "data",
-        value: [valid, { ...valid, source: { ...OFFICE_SRC, feature: "sms" } }],
+        value: [valid, { ...valid, source: { ...OFFICE_SRC, feature: "" } }],
+      },
+      {
+        kind: "data",
+        value: [valid, { ...valid, source: { ...OFFICE_SRC, feature: 5 } }],
       },
       { kind: "data", value: { not: "an array" } },
       { kind: "corrupt" },

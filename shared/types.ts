@@ -14,6 +14,7 @@ import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
 import type { WhatsAppStatus } from "./whatsapp.ts";
+import type { DiscordBot } from "./discord.ts";
 import type { Floor } from "./floors.ts";
 import type { MemberPack } from "./pack-fit.ts";
 import type { AgentAccess } from "./agent-access.ts";
@@ -1432,10 +1433,11 @@ export type PagerSource =
       roomId: string | null;
     }
   // The office itself, about one of the member's own features (WhatsApp, task
-  // d03a61d8). No room: only the target member sees it.
+  // d03a61d8; Discord, task 7fd44c30). No room: only the target member sees
+  // it.
   | {
       kind: "office";
-      feature: "whatsapp";
+      feature: "whatsapp" | "discord";
       name: string; // the feature name, for display
       roomId: null;
     };
@@ -2879,6 +2881,7 @@ export type ServerMessage =
   | { type: "user_self_updated"; user: UserRecord; prevName?: string }
   | { type: "provider_accounts_updated"; accounts: ProviderAccountWire[] }
   | { type: "whatsapp_status"; status: WhatsAppStatus }
+  | { type: "discord_status"; bots: DiscordBot[] }
   | { type: "session_context"; context: SessionContext }
   // totalOnlineUsers counts distinct userIds across ALL live presence
   // entries (including off-scene viewMode="away" sessions whose

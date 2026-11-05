@@ -133,6 +133,17 @@ import {
   runBridgeInstall,
   spawnBridge,
 } from "./whatsapp/process.ts";
+import {
+  DISCORD_GATEWAY_URL,
+  createDiscordSupervisor,
+  type DiscordSupervisor,
+} from "./discord/supervisor.ts";
+import { createDiscordRoutes, type DiscordRoutes } from "./discord/routes.ts";
+import { createDiscordInbound } from "./discord/inbound.ts";
+import { DISCORD_API_BASE, createDiscordRest } from "./discord/rest.ts";
+import { readCursors, readBots, writeCursors } from "./discord/store.ts";
+import { DISCORD_GATEWAY_ENTRY, spawnGateway } from "./discord/process.ts";
+import { DISCORD_APP } from "../shared/discord.ts";
 import type { EmitContext } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import type { StartServerOpts } from "./isomux-office.ts";
@@ -186,6 +197,11 @@ export let webPushDelivery: WebPushDeliveryService;
 export let whatsappSupervisor: WhatsAppSupervisor;
 export let whatsappRoutes: WhatsAppRoutes;
 export let whatsappReplies: WhatsAppReplies;
+// One Discord gateway child per connected bot (server/discord/, task
+// 7fd44c30), the members' routes, and the path from a routed channel to its
+// agent.
+export let discordSupervisor: DiscordSupervisor;
+export let discordRoutes: DiscordRoutes;
 // GitHub issues into the board (task 7fc83592), in office.sqlite.
 export let githubLinks: GithubLinkStore;
 export let githubSync: GithubSync;
@@ -594,6 +610,77 @@ export function createManagers(
     supervisor: whatsappSupervisor,
     sent: (userId) => openIdRing(STATE_ROOT, userId, "sent"),
     now: () => Date.now(),
+  });
+  const discordClock = {
+    now: () => Date.now(),
+    setTimeout: (fn: () => void, ms: number): unknown => setTimeout(fn, ms),
+    clearTimeout: (handle: unknown) =>
+      clearTimeout(handle as ReturnType<typeof setTimeout>),
+  };
+  const discordRest = createDiscordRest({
+    baseUrl: DISCORD_API_BASE,
+    fetch: (url, init) => fetch(url, init),
+    sleep: (ms) => Bun.sleep(ms),
+    redact: (text) => discordSupervisor.redact(text),
+  });
+  discordRoutes = createDiscordRoutes({
+    stateRoot: STATE_ROOT,
+    now: () => Date.now(),
+    newId: () => `d_${randomBytes(4).toString("hex")}`,
+    agent: (agentId) => {
+      const info = agentManager.getAgent(agentId);
+      return info
+        ? { userId: info.userId, access: agentAccessOf(info), name: info.name }
+        : null;
+    },
+    botIds: (userId) => readBots(STATE_ROOT, userId).map((b) => b.id),
+    // A bot is one member's: connect refuses it to a second.
+    guilds: (botId) => discordSupervisor.guildsOfBot(botId),
+  });
+  const discordInbound = createDiscordInbound({
+    clock: discordClock,
+    rest: discordRest,
+    bot: (userId, botId) => discordSupervisor.view(userId, botId),
+    forPlace: (userId, place) => discordRoutes.forPlace(userId, place),
+    forBot: (userId, botId) => discordRoutes.forBot(userId, botId),
+    check: (userId, route) => discordRoutes.check(userId, route),
+    readCursors: (userId, botId) => readCursors(STATE_ROOT, userId, botId),
+    writeCursors: (userId, botId, cursors) =>
+      writeCursors(STATE_ROOT, userId, botId, cursors),
+    memberName: (userId) => getUserById(userId)?.name ?? "the member",
+    deliver: (_userId, route, text) =>
+      agentManager.enqueueMessage(route.agentId, {
+        sender: {
+          kind: "messaging",
+          app: DISCORD_APP,
+          routeId: route.id,
+          routeName: route.name,
+        },
+        text,
+      }).ok,
+  });
+  discordSupervisor = createDiscordSupervisor({
+    stateRoot: STATE_ROOT,
+    gatewayEntry: DISCORD_GATEWAY_ENTRY,
+    bunPath: process.execPath,
+    baseEnv: process.env,
+    spawner: spawnGateway,
+    clock: discordClock,
+    readRss: readProcRss,
+    rest: discordRest,
+    gatewayUrl: DISCORD_GATEWAY_URL,
+    emitStatus: (userId, bots) =>
+      liveEmit("discord_status", { bots }, { userId }),
+    hooks: {
+      onMessage: (userId, botId, msg) =>
+        discordInbound.onMessage(userId, botId, msg),
+      onReady: (userId, botId) => void discordInbound.onReady(userId, botId),
+      onBotRemoved: (userId, botId) => {
+        discordInbound.dropBot(userId, botId);
+        discordRoutes.removeBot(userId, botId);
+      },
+      onShutdown: () => discordInbound.flushAll(),
+    },
   });
   turnEndWatch = createTurnEndWatch({
     agent: (agentId) => {

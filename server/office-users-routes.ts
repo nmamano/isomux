@@ -26,6 +26,7 @@ import {
   extensionService,
   webPushStore,
   whatsappSupervisor,
+  discordSupervisor,
 } from "./office-managers.ts";
 import type { createSessionProjection } from "./office-session-projection.ts";
 import type { ProviderAccountManager } from "./provider-account-manager.ts";
@@ -768,6 +769,8 @@ export function createUsersRoutes(
         webPushStore.removeMember(target.id);
         // Logs the linked device out and deletes the WhatsApp session.
         await whatsappSupervisor.removeMember(target.id);
+        // Stops their Discord bots and deletes the tokens and routes.
+        await discordSupervisor.removeMember(target.id);
         removeMemberSkillFolders(target.id);
         // Their own Claude and Codex sign-ins (task 548d607b). Another
         // member's agent can still run a Claude session pinned to that home,

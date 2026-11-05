@@ -452,7 +452,12 @@ function isPagerSource(v: unknown): v is PagerSource {
   if (s.kind === "agent") {
     return typeof s.agentId === "string" && typeof s.roomId === "string";
   }
-  if (s.kind === "office") return s.feature === "whatsapp" && s.roomId === null;
+  // Any feature name: a page a later release raised about a feature this
+  // release does not know still loads after a rollback.
+  if (s.kind === "office")
+    return (
+      typeof s.feature === "string" && s.feature !== "" && s.roomId === null
+    );
   return (
     s.kind === "app" &&
     typeof s.appName === "string" &&

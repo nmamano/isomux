@@ -1547,6 +1547,17 @@ const SPEC_ROUTE_CONTRACT: Record<
   "whatsappRoutes.create": { caps: ["user:self"], emits: [] },
   "whatsappRoutes.update": { caps: ["user:self"], emits: [] },
   "whatsappRoutes.delete": { caps: ["user:self"], emits: [] },
+  // The member's own Discord bots and routes (task 7fd44c30): never an
+  // agent, an API token or an owner acting for them. A connect or a
+  // disconnect changes the bots the member's card shows.
+  "discord.list": { caps: ["user:self"], emits: [] },
+  "discord.connect": { caps: ["user:self"], emits: ["discord_status"] },
+  "discord.disconnect": { caps: ["user:self"], emits: ["discord_status"] },
+  "discord.guilds": { caps: ["user:self"], emits: [] },
+  "discordRoutes.list": { caps: ["user:self"], emits: [] },
+  "discordRoutes.create": { caps: ["user:self"], emits: [] },
+  "discordRoutes.update": { caps: ["user:self"], emits: [] },
+  "discordRoutes.delete": { caps: ["user:self"], emits: [] },
   // A reply draft (slice 2b): the row's own agent only, as an ask to the
   // row's member. The handler refuses every other agent with 404.
   "messaging.reply": {

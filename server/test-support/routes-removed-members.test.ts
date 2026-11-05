@@ -259,6 +259,19 @@ describe("removing a member", () => {
     expect(existsSync(dir)).toBe(false);
   });
 
+  it("deletes their Discord bots, routes and cursors (task 7fd44c30)", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Mia");
+    const dir = join(srv.stateRoot, "discord", idOf("Mia"));
+    mkdirSync(dir, { recursive: true });
+    for (const file of ["bots.json", "routes.json", "cursors.json"])
+      writeFileSync(join(dir, file), "[]");
+
+    await removeMember(srv, "Mia", owner.rawSessionId);
+    expect(existsSync(dir)).toBe(false);
+  });
+
   it("a member who removes themselves is restorable too", async () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Morgan");

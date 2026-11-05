@@ -80,6 +80,11 @@ export const AUDIT_OPERATIONS = [
   // Old opId, gone in task 744fa64a: old audit rows.
   "cron.setPrompt",
   "cron.update",
+  "discord.connect",
+  "discord.disconnect",
+  "discordRoutes.create",
+  "discordRoutes.delete",
+  "discordRoutes.update",
   "floors.add",
   "floors.remove",
   "githubSync.delete",

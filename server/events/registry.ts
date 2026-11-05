@@ -31,6 +31,7 @@ import type { RoomPet } from "../../shared/pets.ts";
 import type { RoomSkin } from "../../shared/room-skins.ts";
 import type { RoomDecor } from "../../shared/room-decor.ts";
 import type { WhatsAppStatus } from "../../shared/whatsapp.ts";
+import type { DiscordBot } from "../../shared/discord.ts";
 import type {
   LogEntry,
   AgentInfo,
@@ -207,6 +208,9 @@ export interface EventPayloads {
   // Recipient-scoped (by userId): the member's own WhatsApp link status. It
   // can carry the QR that links their WhatsApp, so only their sockets get it.
   whatsapp_status: { status: WhatsAppStatus };
+  // Recipient-scoped (by userId): the member's own Discord bots and their
+  // status (task 7fd44c30).
+  discord_status: { bots: DiscordBot[] };
   // Members chat: a post or an in-place edit (upsert by id), a deletion, and the
   // recipient's own read pointer moving on another device.
   members_chat_message: { message: MembersChatMessage; updateOnly?: boolean };
@@ -419,6 +423,10 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "userId" },
   },
   whatsapp_status: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
+  },
+  discord_status: {
     audience: "recipient-scoped",
     projectionKey: { kind: "userId" },
   },

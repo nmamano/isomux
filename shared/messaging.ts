@@ -6,6 +6,7 @@
 // write an id this one does not know (a downgrade): it has no name here.
 export const MESSAGING_APP_NAMES: Readonly<Record<string, string>> = {
   whatsapp: "WhatsApp",
+  discord: "Discord",
 };
 
 export function messagingAppName(app: string): string | undefined {
