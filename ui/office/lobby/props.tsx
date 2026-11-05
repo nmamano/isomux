@@ -37,6 +37,7 @@ import {
   ReceptionCounter,
   type DirectoryRoom,
 } from "./props-decor.tsx";
+import { STAR_JAR_BOX } from "./props-starjar.tsx";
 
 // Registry of every prop and its variants. Layouts (slice 3) place variants
 // by id; the contact sheet renders them all. Floor props anchor at their
@@ -61,6 +62,9 @@ export interface PropContext {
   jukebox?: boolean;
   // The live lobby: the elevator opens the floors dialog on a click.
   onOpenElevator?: () => void;
+  // The live desktop lobby: the counter carries the star jar, which links to
+  // the repo.
+  starJar?: boolean;
 }
 
 export interface PropVariant {
@@ -85,6 +89,8 @@ export interface PropVariant {
   // The same for the elevator, in its wall's own plane (before the wall skew),
   // so the lobby can put the elevator's keyboard button over it.
   elevatorAt?: { x: number; y: number; width: number; height: number };
+  // The same for the star jar on the counter.
+  starJarAt?: { x: number; y: number; width: number; height: number };
 }
 
 export interface PropFamily {
@@ -412,9 +418,12 @@ export const LOBBY_PROPS: PropFamily[] = [
         id: "counter",
         facings: 4,
         label: "Wood counter",
-        Component: ({ back }) => <ReceptionCounter back={back} />,
+        Component: ({ back, starJar }) => (
+          <ReceptionCounter back={back} starJar={starJar} />
+        ),
         shadow: { rx: 66, ry: 30 },
         height: 60,
+        starJarAt: STAR_JAR_BOX,
       },
     ],
   },

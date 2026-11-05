@@ -351,6 +351,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "lobby.jukebox.chip": "Chiptune - click to stop",
   "lobby.jukebox.bossa": "Bossa nova - click to stop",
   "lobby.elevator.open": "Open the elevator",
+  "lobby.starJar.tag": "Star on GitHub",
+  "lobby.starJar.open": "Star Isomux on GitHub",
   "lobby.elevator.title": "Elevator",
   "lobby.elevator.hint": "Each floor is another Isomux office.",
   "lobby.elevator.here": "You are here",

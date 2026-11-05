@@ -343,6 +343,8 @@ Coses que pots fer per ell:
   "lobby.jukebox.chip": "Chiptune - fes clic per aturar",
   "lobby.jukebox.bossa": "Bossa nova - fes clic per aturar",
   "lobby.elevator.open": "Obre l'ascensor",
+  "lobby.starJar.tag": "Estrella a GitHub",
+  "lobby.starJar.open": "Dona una estrella a Isomux a GitHub",
   "lobby.elevator.title": "Ascensor",
   "lobby.elevator.hint": "Cada planta és una altra oficina d'Isomux.",
   "lobby.elevator.here": "Ets aquí",

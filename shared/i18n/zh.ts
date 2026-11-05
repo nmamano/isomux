@@ -329,6 +329,8 @@ App 的一些原则：
   "lobby.jukebox.chip": "芯片音乐：点击停止",
   "lobby.jukebox.bossa": "波萨诺瓦：点击停止",
   "lobby.elevator.open": "打开电梯",
+  "lobby.starJar.tag": "在 GitHub 上点星",
+  "lobby.starJar.open": "在 GitHub 上为 Isomux 点星",
   "lobby.elevator.title": "电梯",
   "lobby.elevator.hint": "每一层都是另一个 Isomux 办公室。",
   "lobby.elevator.here": "你在这里",

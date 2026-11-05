@@ -2,6 +2,7 @@ import { useI18n } from "../../i18n.tsx";
 import { IsoBox, iso, poly, shade, wallTransform } from "./iso.tsx";
 import { CornerPlant } from "../plants.tsx";
 import { noTranslate } from "../../no-translate.ts";
+import { StarJar } from "./props-starjar.tsx";
 
 // Rugs, plants, wall pieces, cats, directory boards and the counter.
 
@@ -643,7 +644,15 @@ export function DirectorySign({
   );
 }
 
-export function ReceptionCounter({ back = "far" }: { back?: "far" | "near" }) {
+// `starJar` puts the star jar on the counter's left end. Only the live desktop
+// lobby sets it.
+export function ReceptionCounter({
+  back = "far",
+  starJar = false,
+}: {
+  back?: "far" | "near";
+  starJar?: boolean;
+}) {
   const w = 86,
     d = 24,
     h = 32;
@@ -851,6 +860,7 @@ export function ReceptionCounter({ back = "far" }: { back?: "far" | "near" }) {
         stroke="#c9c1b4"
         strokeWidth="0.4"
       />
+      {starJar && <StarJar />}
     </g>
   );
 }

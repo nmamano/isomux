@@ -43,6 +43,7 @@ import {
   type PropVariant,
 } from "./props.tsx";
 import { toggleJukebox, useJukebox } from "./jukebox.ts";
+import { REPO_URL } from "./props-starjar.tsx";
 import { RECEPTIONIST_FOCUS } from "../receptionist-geometry.ts";
 import {
   LOBBY_LAYOUTS,
@@ -100,6 +101,9 @@ export interface LobbySceneProps {
   // The elevator opens the floors dialog on a click. Only the live office
   // lobby sets it, not the editor or the preview.
   onOpenElevator?: () => void;
+  // The star jar on the counter, which links to the repo. Only the live
+  // desktop lobby sets it; the phone lobby leaves it out.
+  starJar?: boolean;
 }
 
 // One shared empty list: a fresh `[]` default per render reads as a presence
@@ -126,6 +130,7 @@ export function LobbyScene({
   onOpenCronjobs,
   jukebox = false,
   onOpenElevator,
+  starJar = false,
 }: LobbySceneProps) {
   const { t } = useI18n();
   const c = lobbyColors(mode);
@@ -177,6 +182,7 @@ export function LobbyScene({
           star={star}
           jukebox={jukebox}
           onOpenElevator={onOpenElevator}
+          starJar={starJar}
           receptionist={
             receptionist
               ? { ...spec.receptionist, node: receptionist.node }
@@ -190,6 +196,7 @@ export function LobbyScene({
           variants={variants}
           jukebox={jukebox}
           onOpenElevator={onOpenElevator}
+          starJar={starJar}
           receptionist={
             receptionist?.button
               ? { ...spec.receptionist, ...receptionist.button }
@@ -209,10 +216,11 @@ export function LobbyScene({
   );
 }
 
-// The props layer is hidden from screen readers, so its two clickable props
-// get keyboard buttons here: each a <g role="button"> with
-// data-lobby-control="receptionist" or "jukebox", over the drawn prop. The
-// layer takes no pointer events: a mouse click still lands on the prop.
+// The props layer is hidden from screen readers, so its clickable props get
+// keyboard controls here, over the drawn prop: a <g role="button"> with
+// data-lobby-control="receptionist", "jukebox" or "elevator", and a link with
+// data-lobby-control="star-jar". The layer takes no pointer events: a mouse
+// click still lands on the prop.
 const CONTROL_CSS = `
 .lobby-control:focus:not(:focus-visible) { outline: none; }
 .lobby-control:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
@@ -223,37 +231,45 @@ function LobbyControls({
   variants,
   jukebox,
   onOpenElevator,
+  starJar,
   receptionist,
 }: {
   placements: Placement[];
   variants?: Record<string, string>;
   jukebox: boolean;
   onOpenElevator?: () => void;
+  starJar: boolean;
   receptionist?: { a: number; b: number; name: string; onOpen: () => void };
 }) {
   const { t } = useI18n();
-  const players = jukebox
-    ? resolvePlacements(placements, variants).floor.flatMap(({ p, v }) => {
-        if (!v.recordPlayerAt) return [];
-        const { x, y, s, flip } = floorTransform(p, v);
-        const box = v.recordPlayerAt;
-        const sx = flip ? -s : s;
-        return [
-          {
-            x: x + Math.min(sx * box.x, sx * (box.x + box.width)),
-            y: y + s * box.y,
-            width: s * box.width,
-            height: s * box.height,
-          },
-        ];
-      })
-    : [];
+  const floorBoxes = (pick: (v: PropVariant) => SceneBox | undefined) =>
+    resolvePlacements(placements, variants).floor.flatMap(({ p, v }) => {
+      const box = pick(v);
+      if (!box) return [];
+      const { x, y, s, flip } = floorTransform(p, v);
+      const sx = flip ? -s : s;
+      return [
+        {
+          x: x + Math.min(sx * box.x, sx * (box.x + box.width)),
+          y: y + s * box.y,
+          width: s * box.width,
+          height: s * box.height,
+        },
+      ];
+    });
+  const players = jukebox ? floorBoxes((v) => v.recordPlayerAt) : [];
+  const jars = starJar ? floorBoxes((v) => v.starJarAt) : [];
   const elevators = onOpenElevator
     ? resolvePlacements(placements, variants).walls.flatMap(({ p, v }) =>
         v.elevatorAt ? [wallBox(p, v.elevatorAt)] : [],
       )
     : [];
-  if (!receptionist && players.length === 0 && elevators.length === 0)
+  if (
+    !receptionist &&
+    players.length === 0 &&
+    elevators.length === 0 &&
+    jars.length === 0
+  )
     return null;
   const at = receptionist && floorXY(receptionist.b, receptionist.a);
   return (
@@ -290,6 +306,20 @@ function LobbyControls({
             box={box}
           />
         ))}
+      {jars.map((box, i) => (
+        <a
+          key={`j${i}`}
+          className="lobby-control"
+          data-lobby-control="star-jar"
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          tabIndex={0}
+          aria-label={t("lobby.starJar.open")}
+        >
+          <rect {...box} fill="transparent" />
+        </a>
+      ))}
     </svg>
   );
 }
@@ -866,6 +896,7 @@ export function LobbyProps({
   star,
   jukebox = false,
   onOpenElevator,
+  starJar = false,
   receptionist,
 }: {
   placements: Placement[];
@@ -876,6 +907,7 @@ export function LobbyProps({
   star: PropStar | null;
   jukebox?: boolean;
   onOpenElevator?: () => void;
+  starJar?: boolean;
   receptionist?: { a: number; b: number; node: ReactNode };
 }) {
   const { walls, rugs, floor } = resolvePlacements(placements, variants);
@@ -1011,6 +1043,7 @@ export function LobbyProps({
                   star={star}
                   back={back}
                   jukebox={jukebox}
+                  starJar={starJar}
                 />
               </g>
             ),
