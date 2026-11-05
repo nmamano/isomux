@@ -8,7 +8,10 @@ import { describe, expect, it } from "bun:test";
 import { discordHandlers } from "./discord.ts";
 import type { RouteHandlerContext } from "../executor.ts";
 import { USER_CAPABILITIES, type Identity } from "../../identity/index.ts";
-import type { DiscordConnectCode } from "../../../shared/discord.ts";
+import {
+  discordInviteUrl,
+  type DiscordConnectCode,
+} from "../../../shared/discord.ts";
 import type { DiscordConnectResult } from "../../discord/supervisor.ts";
 import type { DiscordRoutes } from "../../discord/routes.ts";
 
@@ -88,5 +91,58 @@ describe("discord.connect", () => {
       });
       expect(t.tokens).toEqual([]);
     }
+  });
+});
+
+// An agent has no Integrations page: the list gives each bot the link that
+// adds it to a server, so the agent can hand it to the member (task
+// c92d60f4). The link is the one the page builds.
+describe("discord.list", () => {
+  it("gives each of the caller's bots its invite link", async () => {
+    const bots = ["1100000000000000001", "1100000000000000002"].map((id) => ({
+      id,
+      name: `bot ${id}`,
+      addedAt: 1,
+      status: { state: "connected" as const },
+    }));
+    const asked: string[] = [];
+    const list = discordHandlers({
+      supervisor: {
+        list: (userId) => {
+          asked.push(userId);
+          return bots;
+        },
+        connect: async () => {
+          throw new Error("not used");
+        },
+        disconnect: async () => false,
+        guilds: () => null,
+      },
+      routes: {} as DiscordRoutes,
+    })["discord.list"];
+    const res = await Promise.resolve(
+      list({
+        identity: member,
+        params: {},
+        body: undefined,
+        rawBody: "",
+        query: new URLSearchParams(),
+        req: new Request("http://localhost/"),
+      } as RouteHandlerContext),
+    );
+    expect(asked).toEqual(["u-alice"]);
+    expect(res).toMatchObject({
+      kind: "json",
+      body: bots.map((bot) => ({
+        ...bot,
+        inviteUrl: discordInviteUrl(bot.id),
+      })),
+    });
+    const [first] = (res as { body: { inviteUrl: string }[] }).body;
+    const url = new URL(first.inviteUrl);
+    expect([url.origin, url.searchParams.get("client_id")]).toEqual([
+      "https://discord.com",
+      bots[0].id,
+    ]);
   });
 });

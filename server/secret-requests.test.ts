@@ -26,6 +26,7 @@ import { createConnectionWrites } from "./connection-writes.ts";
 import { createMcpOAuth } from "./mcp-oauth.ts";
 import { createMcpServerSources } from "./mcp-servers.ts";
 import { serializeManagedUserEnv } from "./user-env.ts";
+import type { DiscordConnectResult } from "./discord/supervisor.ts";
 
 const VALUE = "ghp_FAKErequestFAKErequestFAKErequest012";
 const ASK = {
@@ -138,6 +139,14 @@ function setup(
   });
   const events: AskChange[] = [];
   const settled: Settled[] = [];
+  // The Discord connect (supervisor.connect): each call, and what it answers.
+  const discord: {
+    calls: [string, string][];
+    connect: (userId: string, token: string) => Promise<DiscordConnectResult>;
+  } = {
+    calls: [],
+    connect: () => Promise.reject(new Error("not used")),
+  };
   let changes = 0;
   // While set, the proxy push waits on it (holdChanges).
   let gate: Promise<void> | null = null;
@@ -170,6 +179,10 @@ function setup(
         Object.keys(MEMBERS).find((m) => MEMBERS[m] === userId) ?? null,
       writes,
       variableExists: (scope, name) => Object.hasOwn(variablesOf(scope), name),
+      connectDiscordBot: (userId, token) => {
+        discord.calls.push([userId, token]);
+        return discord.connect(userId, token);
+      },
       mcpServerExists: (scope, name) =>
         sources.servers.list(scope).some((s) => s.name === name),
       settled: (agentId, requestId, outcome, line, answeredBy) =>
@@ -189,6 +202,7 @@ function setup(
     audience,
     events,
     settled,
+    discord,
     boot,
     changes: () => changes,
     // Hold the next proxy push until the returned function runs.
@@ -366,6 +380,7 @@ describe("the agent's ask", () => {
       },
       variableExists: () => false,
       mcpServerExists: () => false,
+      connectDiscordBot: () => Promise.reject(new Error("not used")),
       settled: () => {},
     });
     expect(code(broken.open("a1", ASK))).toBe("request_failed");
@@ -1767,5 +1782,331 @@ describe("a request for a secret that has no value", () => {
     const requestId = opened(t.requests.open("a1", ASK));
     await t.requests.save("u-alice", "a1", requestId, { value: VALUE });
     expect(code(t.requests.open("a1", ASK))).toBe("secret_exists");
+  });
+});
+
+// A Discord bot for the agent's manager (task c92d60f4): the member types
+// the bot token in the ask, the save connects the bot (supervisor.connect),
+// and the agent hears the bot's name. The token goes to the connect and
+// nowhere else; nothing lands in the secrets, variables or MCP servers.
+describe("a Discord bot request", () => {
+  const DISCORD_ASK = {
+    kind: "discord-bot",
+    reason: "To answer on your Discord server.",
+  };
+  const BOT = {
+    id: "1100000000000000001",
+    name: "Helper Bot",
+    addedAt: 1,
+    status: { state: "connecting" },
+  } as const;
+  const connects = (t: ReturnType<typeof setup>) => {
+    t.discord.connect = async () => ({ ok: true, bot: BOT });
+  };
+  const alice = { kind: "user", userId: "u-alice" } as const;
+  const office = { kind: "office" } as const;
+  // What a value request could write besides the bot: nothing.
+  const written = (t: ReturnType<typeof setup>) => [
+    t.env.users,
+    t.env.office,
+    t.store.list(alice),
+    t.store.list(office),
+    t.servers.list(alice),
+    t.servers.list(office),
+  ];
+  const nothing = [{}, {}, [], [], [], []];
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+  // Until the save has called the connect: the save may await before it.
+  async function connecting(t: ReturnType<typeof setup>, calls: number) {
+    for (let i = 0; i < 50 && t.discord.calls.length < calls; i++)
+      await Promise.resolve();
+    expect(t.discord.calls).toHaveLength(calls);
+  }
+
+  it("opens an ask for the manager under a fixed name, with only a kind and a reason; on disk it keeps what an older server's load check needs", () => {
+    const t = setup({ a1: "u-alice", a2: "u-alice", b1: "u-bob", lone: null });
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    expect(t.asks.listAll()).toEqual([
+      expect.objectContaining({
+        agentId: "a1",
+        memberUserId: "u-alice",
+        prompt: DISCORD_ASK.reason,
+        secret: expect.objectContaining({
+          requestId,
+          kind: "discord-bot",
+          scope: "personal",
+          name: "Discord bot",
+          ownerUserId: "u-alice",
+          reason: DISCORD_ASK.reason,
+        }),
+      }),
+    ]);
+    const [stored] = JSON.parse(readFileSync(t.asksPath, "utf-8"));
+    expect(stored.secret).toMatchObject({
+      hosts: [],
+      form: { kind: "authorization" },
+    });
+
+    // The request names nothing but its reason: no name, scope, member,
+    // hosts, form, app, URL or value.
+    for (const extra of [
+      { name: "MY_BOT" },
+      { scope: "personal" },
+      { scope: "office" },
+      { member: "Bob" },
+      { hosts: [] },
+      { form: { kind: "authorization" } },
+      { app: "bot" },
+      { url: "https://discord.com" },
+      { value: VALUE },
+    ])
+      expect({
+        extra,
+        result: failure(t.requests.open("a2", { ...DISCORD_ASK, ...extra })),
+      }).toEqual({ extra, result: "400 invalid_request" });
+    expect(failure(t.requests.open("a2", { kind: "discord-bot" }))).toBe(
+      "400 invalid_request",
+    );
+    expect(failure(t.requests.open("a2", { ...DISCORD_ASK, reason: "" }))).toBe(
+      "400 invalid_request",
+    );
+    // Personal to the manager: an agent with none cannot ask.
+    expect(failure(t.requests.open("lone", DISCORD_ASK))).toBe(
+      "409 no_manager",
+    );
+    // One open request per member, whichever of their agents asks; another
+    // member's agent has its own.
+    expect(failure(t.requests.open("a1", DISCORD_ASK))).toBe(
+      "409 request_open",
+    );
+    expect(failure(t.requests.open("a2", DISCORD_ASK))).toBe(
+      "409 request_open",
+    );
+    opened(t.requests.open("b1", DISCORD_ASK));
+    expect(t.asks.listAll().map((e) => e.memberUserId)).toEqual([
+      "u-alice",
+      "u-bob",
+    ]);
+    expect(t.requests.decline("u-alice", "a1", requestId).ok).toBe(true);
+    opened(t.requests.open("a2", DISCORD_ASK));
+    expect(t.discord.calls).toEqual([]);
+  });
+
+  it("only the manager answers; the save connects the bot with the typed token, closes the ask and names the bot to the agent; the token is nowhere else", async () => {
+    const t = setup();
+    connects(t);
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    // An office owner who is not the manager, another member, no one.
+    for (const userId of ["u-owner", "u-bob", null])
+      expect({
+        userId,
+        result: code(
+          await t.requests.save(userId, "a1", requestId, { value: VALUE }),
+        ),
+      }).toEqual({ userId, result: "forbidden" });
+    expect(t.requests.decline("u-owner", "a1", requestId).ok).toBe(false);
+    expect(t.discord.calls).toEqual([]);
+
+    const { result, output } = await captureConsole(() =>
+      t.requests.save("u-alice", "a1", requestId, { value: VALUE }),
+    );
+    expect(result.ok).toBe(true);
+    expect(t.discord.calls).toEqual([["u-alice", VALUE]]);
+    expect(t.asks.listAll()).toEqual([]);
+    expect(t.events.map((e) => e.kind)).toEqual(["upserted", "removed"]);
+    expect(t.settled).toEqual([
+      {
+        agentId: "a1",
+        requestId,
+        outcome: "saved",
+        line: msg("systemEntries.secretRequest.discordBotConnected", {
+          bot: "Helper Bot",
+          member: "Alice",
+        }),
+        answeredBy: "u-alice",
+      },
+    ]);
+    expect(written(t)).toEqual(nothing);
+    expectNoValue(t, result, output, t.settled);
+    expect(
+      code(await t.requests.save("u-alice", "a1", requestId, { value: VALUE })),
+    ).toBe("not_found");
+    expect(t.discord.calls).toHaveLength(1);
+  });
+
+  it("a body with anything but the token is refused before Discord is called, and the request stays", async () => {
+    const t = setup();
+    connects(t);
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    for (const body of [
+      {},
+      { value: 5 },
+      { value: VALUE, hosts: [] },
+      { value: VALUE, form: { kind: "authorization" } },
+      { value: VALUE, name: "MY_BOT" },
+    ])
+      expect({
+        body,
+        result: failure(
+          await t.requests.save("u-alice", "a1", requestId, body),
+        ),
+      }).toEqual({ body, result: "400 invalid_request" });
+    expect([t.discord.calls, t.settled]).toEqual([[], []]);
+    expect(t.asks.listAll()).toHaveLength(1);
+    expect(written(t)).toEqual(nothing);
+  });
+
+  it("a connect Discord refuses answers its status and code and keeps the request open; the member types again and it connects", async () => {
+    const t = setup();
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    for (const [status, refusal] of [
+      [400, "token_refused"],
+      [400, "not_a_bot"],
+      [400, "check_failed"],
+      [409, "bot_taken"],
+    ] as const) {
+      t.discord.connect = async () => ({
+        ok: false,
+        status,
+        code: refusal,
+        error: "refused",
+      });
+      const { result, output } = await captureConsole(() =>
+        t.requests.save("u-alice", "a1", requestId, { value: VALUE }),
+      );
+      expect(failure(result)).toBe(`${status} ${refusal}`);
+      expectNoValue(t, result, output);
+    }
+    expect(t.settled).toEqual([]);
+    expect(t.asks.listAll()).toHaveLength(1);
+    connects(t);
+    expect(
+      (await t.requests.save("u-alice", "a1", requestId, { value: VALUE })).ok,
+    ).toBe(true);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
+    expect(t.discord.calls).toHaveLength(5);
+    expect(written(t)).toEqual(nothing);
+  });
+
+  it("a connect that throws answers check_failed, keeps the request open and frees it for the next save", async () => {
+    const t = setup();
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    t.discord.connect = async () => {
+      throw new Error(`socket hang up for ${VALUE}`);
+    };
+    const { result, output } = await captureConsole(() =>
+      t.requests.save("u-alice", "a1", requestId, { value: VALUE }),
+    );
+    expect(code(result)).toBe("check_failed");
+    expectNoValue(t, result, output);
+    expect([t.settled, t.asks.listAll().length]).toEqual([[], 1]);
+    connects(t);
+    expect(
+      (await t.requests.save("u-alice", "a1", requestId, { value: VALUE })).ok,
+    ).toBe(true);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
+  });
+
+  it("while the connect runs, a second save and a decline are request_busy; the first save settles once", async () => {
+    const t = setup();
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    const pending = deferred<DiscordConnectResult>();
+    t.discord.connect = () => pending.promise;
+    const saving = t.requests.save("u-alice", "a1", requestId, {
+      value: VALUE,
+    });
+    await connecting(t, 1);
+    // A save that reached the connect would wait on it: it must not.
+    const again = t.requests.save("u-alice", "a1", requestId, {
+      value: VALUE,
+    });
+    const answer = await Promise.race([
+      again.then(failure),
+      new Promise((resolve) => setTimeout(() => resolve("still waiting"), 0)),
+    ]);
+    expect(answer).toBe("409 request_busy");
+    expect(failure(t.requests.decline("u-alice", "a1", requestId))).toBe(
+      "409 request_busy",
+    );
+    expect([t.discord.calls.length, t.asks.listAll().length]).toEqual([1, 1]);
+    pending.resolve({ ok: true, bot: BOT });
+    expect((await saving).ok).toBe(true);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
+    expect(t.asks.listAll()).toEqual([]);
+
+    // A refused connect frees the request too: the next save is not busy.
+    const second = opened(t.requests.open("a1", DISCORD_ASK));
+    const refused = deferred<DiscordConnectResult>();
+    t.discord.connect = () => refused.promise;
+    const first = t.requests.save("u-alice", "a1", second, { value: VALUE });
+    await connecting(t, 2);
+    refused.resolve({
+      ok: false,
+      status: 400,
+      code: "token_refused",
+      error: "refused",
+    });
+    expect(failure(await first)).toBe("400 token_refused");
+    expect(t.requests.decline("u-alice", "a1", second).ok).toBe(true);
+  });
+
+  it("the agent withdraws its ask while the connect runs: the bot stays connected, the save succeeds and the agent hears of it", async () => {
+    const t = setup();
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    const [entry] = t.asks.listAll();
+    const pending = deferred<DiscordConnectResult>();
+    t.discord.connect = () => pending.promise;
+    const saving = t.requests.save("u-alice", "a1", requestId, {
+      value: VALUE,
+    });
+    await connecting(t, 1);
+    expect(t.asks.remove(entry.id, { outcome: "withdrawn" })).not.toBeNull();
+    pending.resolve({ ok: true, bot: BOT });
+    expect((await saving).ok).toBe(true);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
+    expect(t.asks.listAll()).toEqual([]);
+
+    // Withdrawn, then refused: the member hears the refusal; nothing throws.
+    const next = opened(t.requests.open("a1", DISCORD_ASK));
+    const [nextEntry] = t.asks.listAll();
+    const refused = deferred<DiscordConnectResult>();
+    t.discord.connect = () => refused.promise;
+    const failing = t.requests.save("u-alice", "a1", next, { value: VALUE });
+    await connecting(t, 2);
+    expect(
+      t.asks.remove(nextEntry.id, { outcome: "withdrawn" }),
+    ).not.toBeNull();
+    refused.resolve({
+      ok: false,
+      status: 400,
+      code: "token_refused",
+      error: "refused",
+    });
+    expect(failure(await failing)).toBe("400 token_refused");
+    expect(t.settled).toHaveLength(1);
+    // Nothing is left busy: the agent can ask again.
+    opened(t.requests.open("a1", DISCORD_ASK));
+  });
+
+  it("survives a restart: the next boot's save connects the bot", async () => {
+    const t = setup();
+    const requestId = opened(t.requests.open("a1", DISCORD_ASK));
+    const next = t.boot();
+    connects(t);
+    expect(
+      (await next.requests.save("u-alice", "a1", requestId, { value: VALUE }))
+        .ok,
+    ).toBe(true);
+    expect(t.discord.calls).toEqual([["u-alice", VALUE]]);
+    expect(outcomes(t)).toEqual([["a1", requestId, "saved", "u-alice"]]);
+    expect(written(t)).toEqual(nothing);
   });
 });

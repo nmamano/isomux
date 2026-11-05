@@ -10,8 +10,11 @@ import type {
   SecretRequestFailure,
   SecretRequests,
 } from "../../secret-requests.ts";
-import type { Identity } from "../../identity/index.ts";
+import { identityHasCapability, type Identity } from "../../identity/index.ts";
 import type { AskAudienceDeps } from "../../asks.ts";
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
 function failed(result: SecretRequestFailure) {
   return fail(result.status, result.code, result.message, result.detail);
@@ -25,6 +28,18 @@ export function secretRequestHandlers(
 ): Record<string, RouteHandler> {
   return {
     "agents.secretRequest": (ctx) => {
+      // A Discord bot is for an agent that can then route it (task
+      // c92d60f4): refused before the member types a token for nothing.
+      if (
+        isObject(ctx.body) &&
+        ctx.body.kind === "discord-bot" &&
+        !identityHasCapability(ctx.identity, "integration:manage")
+      )
+        return fail(
+          403,
+          "forbidden",
+          "only a privileged agent can connect a Discord bot: it lists the bot's servers and adds its routes",
+        );
       const result = requests.open(ctx.params.id, ctx.body);
       return result.ok ? ok({ requestId: result.requestId }) : failed(result);
     },

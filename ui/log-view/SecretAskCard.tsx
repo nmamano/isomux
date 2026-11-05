@@ -1,5 +1,6 @@
 // An agent's request for a value, as an ask (server/secret-requests.ts): a
-// secret, a variable or an MCP server (task c71cb60f). For a secret the
+// secret, a variable or an MCP server (task c71cb60f), or a Discord bot
+// token (task c92d60f4), whose save connects the bot. For a secret the
 // member types the value in a masked field here, so it never enters the
 // chat, and can edit the hosts. A request for an app has no hosts: the app
 // reads the value from its environment. A variable's field is masked when
@@ -24,6 +25,8 @@ import { isModelKeySecretName } from "../../shared/secret-hosts.ts";
 import { mcpServerHost } from "../../shared/mcp-servers.ts";
 import { looksLikeKey } from "../integrations/VariablesSection.tsx";
 import { useMcpErrorText } from "../integrations/McpSection.tsx";
+import { DISCORD_CONNECT_ERROR } from "../integrations/DiscordSection.tsx";
+import { DISCORD_BOTS_MAX } from "../../shared/discord.ts";
 import { Choice } from "../integrations/kit.tsx";
 import { startMcpSignIn } from "../integrations/sign-in-return.ts";
 import type { Target } from "../integrations/target.ts";
@@ -52,6 +55,8 @@ export function valueAskTitle(
     return t("cards.secretRequest.variableTitle", { name });
   if (secret.kind === "mcp-server")
     return t("cards.secretRequest.mcpServerTitle", { name });
+  if (secret.kind === "discord-bot")
+    return t("cards.secretRequest.discordBotTitle");
   return t("cards.secretRequest.title", { name });
 }
 
@@ -165,6 +170,18 @@ export function SecretAskCard({
   function errorText(caught: unknown, kind: "save" | "decline"): string {
     if (kind === "save" && secret.kind === "mcp-server")
       return mcpErrorText(caught);
+    if (kind === "save" && secret.kind === "discord-bot") {
+      if (!(caught instanceof ApiError))
+        return t("settings.secrets.saveFailed");
+      if (caught.code === "forbidden")
+        return t("cards.secretRequest.forbidden");
+      if (caught.code === "bots_max")
+        return t("integrations.discord.error.botsMax", {
+          max: DISCORD_BOTS_MAX,
+        });
+      const key = DISCORD_CONNECT_ERROR[caught.code];
+      return key ? t(key) : t("settings.secrets.saveFailed");
+    }
     if (kind === "save" && secret.kind === "variable")
       return caught instanceof ApiError && caught.code === "variable_exists"
         ? t("integrations.variables.exists")
@@ -193,7 +210,8 @@ export function SecretAskCard({
   }
 
   function saveBody(): Record<string, unknown> {
-    if (secret.kind === "variable") return { value: value.trim() };
+    if (secret.kind === "variable" || secret.kind === "discord-bot")
+      return { value: value.trim() };
     if (secret.kind === "mcp-server")
       return auth === "oauth"
         ? { url: url.trim(), secret: null, oauth: true }
@@ -328,6 +346,19 @@ export function SecretAskCard({
             )}
           </label>
           <p style={hintStyle}>{t("cards.secretRequest.variableHint")}</p>
+        </>
+      ) : secret.kind === "discord-bot" ? (
+        <>
+          <p style={hintStyle}>{t("integrations.discord.steps")}</p>
+          <label style={{ display: "block", marginBottom: 8 }}>
+            <span style={dialogLabel}>{t("integrations.discord.token")}</span>
+            <MaskedInput
+              value={value}
+              style={dialogInput}
+              onChange={(event) => setValue(event.target.value)}
+            />
+          </label>
+          <p style={hintStyle}>{t("cards.secretRequest.discordBotHint")}</p>
         </>
       ) : secret.kind === "mcp-server" ? (
         <>

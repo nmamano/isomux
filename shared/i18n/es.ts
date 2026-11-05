@@ -2349,6 +2349,13 @@ Cosas que puedes hacer por él:
   "apiCall.webhooks.list": "Listar los webhooks",
   "apiCall.webhooks.create": "Crear un webhook",
   "apiCall.messaging.reply": "Responder en una app de mensajería",
+  "apiCall.messaging.discordList": "Listar bots de Discord",
+  "apiCall.messaging.discordDisconnect": "Desconectar bot de Discord",
+  "apiCall.messaging.discordGuilds": "Listar servidores de Discord",
+  "apiCall.messaging.discordRoutesList": "Listar rutas de Discord",
+  "apiCall.messaging.discordRoutesCreate": "Añadir ruta de Discord",
+  "apiCall.messaging.discordRoutesUpdate": "Cambiar ruta de Discord",
+  "apiCall.messaging.discordRoutesDelete": "Quitar ruta de Discord",
   "apiCall.webhooks.read": "Leer un webhook",
   "apiCall.webhooks.update": "Actualizar el webhook",
   "apiCall.webhooks.delete": "Eliminar el webhook",
@@ -2434,6 +2441,9 @@ Cosas que puedes hacer por él:
     "Variable de la oficina: la guarda un propietario de la oficina.",
   "cards.secretRequest.variableHint":
     "El valor no entra en el chat. Los agentes reciben la variable en su próximo inicio.",
+  "cards.secretRequest.discordBotTitle": "Solicitud de bot de Discord",
+  "cards.secretRequest.discordBotHint":
+    "El token no entra en el chat. El agente recibe el bot, no el token.",
   "cards.secretRequest.mcpServerTitle": "Solicitud de servidor MCP: {name}",
   "cards.secretRequest.mcpServerPersonal":
     "Se añade a los servidores MCP del responsable de este agente.",
@@ -3501,6 +3511,8 @@ Cosas que puedes hacer por él:
     "Servidor MCP {name} añadido como servidor MCP de la oficina.",
   "systemEntries.secretRequest.mcpServerSavedPersonal":
     "Servidor MCP {name} añadido a los servidores MCP de {member}.",
+  "systemEntries.secretRequest.discordBotConnected":
+    "Bot de Discord {bot} conectado para {member}.",
   "systemEntries.stepAsk.providerSignedIn": "Sesión iniciada en {provider}.",
   "systemEntries.stepAsk.providerSignedInOffice":
     "Sesión iniciada en la cuenta de {provider} de la oficina.",

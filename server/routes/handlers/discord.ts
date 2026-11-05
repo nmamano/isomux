@@ -1,8 +1,9 @@
 // Discord handlers (task 7fd44c30). The caller's own bots and routes only:
-// the route table passes a signed-in member (user:self), never an agent or an
-// owner acting for a member.
+// the route table passes the member by cookie, or their privileged agent
+// acting for them (task c92d60f4; discord.connect stays the member's), never
+// an API token or an owner acting for a member.
 //
-//   discord.list          GET    /api/discord                   -> DiscordBot[]
+//   discord.list          GET    /api/discord                   -> DiscordBotListed[]
 //   discord.connect       POST   /api/discord/bots              {token} -> DiscordBot
 //   discord.disconnect    DELETE /api/discord/bots/:botId       -> 204
 //   discord.guilds        GET    /api/discord/bots/:botId/guilds -> DiscordGuildSeen[]
@@ -14,9 +15,10 @@
 // LEAF over the executor, the supervisor and the routes.
 
 import { fail, noContent, ok, type RouteHandler } from "../executor.ts";
-import type {
-  DiscordRouteCreateReq,
-  DiscordRouteUpdateReq,
+import {
+  discordInviteUrl,
+  type DiscordRouteCreateReq,
+  type DiscordRouteUpdateReq,
 } from "../../../shared/discord.ts";
 import type {
   DiscordRouteResult,
@@ -72,7 +74,11 @@ export function discordHandlers(
     "discord.list": (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(403, "forbidden");
-      return ok(deps.supervisor.list(userId));
+      return ok(
+        deps.supervisor
+          .list(userId)
+          .map((bot) => ({ ...bot, inviteUrl: discordInviteUrl(bot.id) })),
+      );
     },
 
     "discord.connect": async (ctx) => {

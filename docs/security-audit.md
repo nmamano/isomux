@@ -165,7 +165,7 @@ A member can link their own WhatsApp as a linked device and send chosen chats to
 
 ### 4.9 Discord
 
-A member can connect their own Discord bot by its token and send a channel, a category or a whole server to an agent they manage. Only that member, from a browser session, connects a bot, sees its servers and changes its routes: no agent, API token or office owner can.
+A member can connect their own Discord bot by its token and send a channel, a category or a whole server to an agent they manage. The member, from a browser session, or a privileged agent of theirs sees the bots and their servers, changes the routes and disconnects a bot. No API token or office owner can act for the member. An agent connects a bot only through an ask in which the member types the token, so the token never reaches the agent. A standard agent cannot open that ask. A privileged agent can add a route whose replies post at once as the bot.
 
 - **The token.** Isomux checks the token with Discord, then keeps it in `discord/<user>/bots.json` (0600, a credential store left out of backups). It never goes back to a browser. Each bot has its own gateway child, with only `PATH`, `HOME`, `TZ` and `LANG` from the server's environment. Isomux removes each token, raw, URL-encoded and base64, from every text of a child, of Discord and of an error before it reaches a log. As for every file in the state directory, an agent with a shell can read the token (section 3.2).
 - **Only routed places.** The gateway child sends the server every message the bot sees. The server drops a message that no live route covers, the bot's own posts, and posts by bots and webhooks unless the route lets them in.

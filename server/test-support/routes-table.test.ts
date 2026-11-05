@@ -1311,7 +1311,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "secretRequests.save": {
     caps: ["user:env"],
-    emits: ["log_entry", "ask_removed"],
+    emits: ["log_entry", "ask_removed", "discord_status"],
   },
   "secretRequests.decline": {
     caps: ["user:env"],
@@ -1557,14 +1557,17 @@ const SPEC_ROUTE_CONTRACT: Record<
   // The member's own Discord bots and routes (task 7fd44c30): never an
   // agent, an API token or an owner acting for them. A connect or a
   // disconnect changes the bots the member's card shows.
-  "discord.list": { caps: ["user:self"], emits: [] },
+  "discord.list": { caps: ["integration:manage"], emits: [] },
   "discord.connect": { caps: ["user:self"], emits: ["discord_status"] },
-  "discord.disconnect": { caps: ["user:self"], emits: ["discord_status"] },
-  "discord.guilds": { caps: ["user:self"], emits: [] },
-  "discordRoutes.list": { caps: ["user:self"], emits: [] },
-  "discordRoutes.create": { caps: ["user:self"], emits: [] },
-  "discordRoutes.update": { caps: ["user:self"], emits: [] },
-  "discordRoutes.delete": { caps: ["user:self"], emits: [] },
+  "discord.disconnect": {
+    caps: ["integration:manage"],
+    emits: ["discord_status"],
+  },
+  "discord.guilds": { caps: ["integration:manage"], emits: [] },
+  "discordRoutes.list": { caps: ["integration:manage"], emits: [] },
+  "discordRoutes.create": { caps: ["integration:manage"], emits: [] },
+  "discordRoutes.update": { caps: ["integration:manage"], emits: [] },
+  "discordRoutes.delete": { caps: ["integration:manage"], emits: [] },
   // A reply draft (slice 2b): the row's own agent only, as an ask to the
   // row's member. The handler refuses every other agent with 404.
   "messaging.reply": {

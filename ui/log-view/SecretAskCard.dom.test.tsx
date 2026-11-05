@@ -633,3 +633,73 @@ it("a request of a kind this release does not know: no form and no save, the nam
   expect(card(view)).toBeNull();
   view.unmount();
 });
+
+// A Discord bot request (task c92d60f4): the member types the bot token,
+// and the save connects the bot. One masked field; the save sends the token
+// alone; a connect Discord refused keeps the card and says why.
+const DISCORD_ASK: AskEntry = {
+  ...SECRET_ASK,
+  prompt: "To answer on your Discord server.",
+  secret: {
+    requestId: "req-1",
+    kind: "discord-bot",
+    scope: "personal",
+    name: "Discord bot",
+    hosts: [],
+    form: { kind: "authorization" },
+    reason: "To answer on your Discord server.",
+    ownerUserId: "u1",
+  },
+};
+
+it("a Discord bot request: one masked token field, no hosts, and the save sends the token alone", async () => {
+  answer = async () => ({ name: "Discord bot" });
+  const view = await mount(false, DISCORD_ASK);
+  expect(view.queryByLabelText(t("settings.secrets.hosts"))).toBeNull();
+  expect(card(view)!.querySelectorAll("input, textarea, select").length).toBe(
+    1,
+  );
+  expectMasked(valueInput(view));
+  expect(saveButton(view).disabled).toBe(true);
+  fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(posts).toEqual([
+    {
+      path: "/api/agents/a%201/secret-requests/req-1/save",
+      body: { value: FAKE },
+    },
+  ]);
+  expect(card(view)).toBeNull();
+  expect(view.container.innerHTML).not.toContain(FAKE);
+  view.unmount();
+});
+
+it("a Discord connect refused keeps the card and the token, and says why: each refusal its own reason, none the bare failure", async () => {
+  const shown: string[] = [];
+  for (const [status, code] of [
+    [400, "token_refused"],
+    [400, "not_a_bot"],
+    [400, "check_failed"],
+    [409, "bot_taken"],
+  ] as const) {
+    answer = async () => {
+      throw new ApiError(status, code, "refused");
+    };
+    const view = await mount(false, DISCORD_ASK);
+    expectMasked(valueInput(view));
+    fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+    await act(async () => {
+      fireEvent.click(saveButton(view));
+    });
+    const alert = view.getByRole("alert").textContent ?? "";
+    expect({ code, empty: alert.length === 0 }).toEqual({ code, empty: false });
+    expect(alert).not.toBe(t("settings.secrets.saveFailed"));
+    expect(card(view)).not.toBeNull();
+    expect(valueInput(view)!.value).toBe(FAKE);
+    shown.push(alert);
+    view.unmount();
+  }
+  expect(new Set(shown).size).toBe(shown.length);
+});

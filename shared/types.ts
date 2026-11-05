@@ -1149,10 +1149,16 @@ export interface McpServerValueRequest
   oauth?: true;
 }
 
+export interface DiscordBotValueRequest
+  extends ValueAskRequestBase, OlderLoaderFields {
+  kind: "discord-bot";
+}
+
 export type SecretAskRequest =
   | SecretValueRequest
   | VariableValueRequest
-  | McpServerValueRequest;
+  | McpServerValueRequest
+  | DiscordBotValueRequest;
 
 // A step ask (task c71cb60f): a step on the Integrations page that is not a
 // typed value. The member does it in the card (ui/log-view/AskStepBlock.tsx);
@@ -1202,12 +1208,12 @@ export interface SudoAskRequest {
   cwd: string;
 }
 
-// Whether this release knows the request's kind. The asks file also loads a
-// kind from a later release (server/asks.ts); such a request can only be
-// declined here.
+// Whether this release knows the request's kind. A kind from a later release
+// loads (server/asks.ts), but can only be declined here.
 export function knownValueRequest(request: SecretAskRequest): boolean {
-  const kind: unknown = request.kind;
-  return kind === undefined || kind === "variable" || kind === "mcp-server";
+  return [undefined, "variable", "mcp-server", "discord-bot"].includes(
+    request.kind,
+  );
 }
 
 // Structured payload attached to LogEntry when kind === "secret-request".

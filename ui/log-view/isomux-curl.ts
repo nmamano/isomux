@@ -983,6 +983,13 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/webhooks/*/deliveries", "apiCall.webhooks.deliveries"],
   ["POST", "/api/webhooks/*/dry-run", "apiCall.webhooks.dryRun"],
   ["POST", "/api/messaging/routes/*/messages", "apiCall.messaging.reply"],
+  ["GET", "/api/discord", "apiCall.messaging.discordList"],
+  ["DELETE", "/api/discord/bots/*", "apiCall.messaging.discordDisconnect"],
+  ["GET", "/api/discord/bots/*/guilds", "apiCall.messaging.discordGuilds"],
+  ["GET", "/api/discord/routes", "apiCall.messaging.discordRoutesList"],
+  ["POST", "/api/discord/routes", "apiCall.messaging.discordRoutesCreate"],
+  ["PATCH", "/api/discord/routes/*", "apiCall.messaging.discordRoutesUpdate"],
+  ["DELETE", "/api/discord/routes/*", "apiCall.messaging.discordRoutesDelete"],
   // Per-user Sk-menu counters (reachable by privileged agent tokens).
   ["GET", "/api/skill-usage", "apiCall.skillUsage.read"],
   // The Skills page routes (server/agent-reference/skills.md).

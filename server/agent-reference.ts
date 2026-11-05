@@ -42,7 +42,8 @@ export const AGENT_REFERENCE_TOPICS = {
   "action-asks":
     "Only a member can make a change you need, such as an agent's access level",
   "ask-commands": "The member runs your ask's command from the card",
-  "messaging-apps": "Replies to the member's contacts in messaging apps",
+  "messaging-apps":
+    "Replies to the member's contacts in messaging apps, or you set up Discord for your manager",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -169,6 +170,13 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.sudoRequest": "sudo-requests",
   "asks.get": "asks-history",
   "messaging.reply": "messaging-apps",
+  "discord.list": "messaging-apps",
+  "discord.disconnect": "messaging-apps",
+  "discord.guilds": "messaging-apps",
+  "discordRoutes.list": "messaging-apps",
+  "discordRoutes.create": "messaging-apps",
+  "discordRoutes.update": "messaging-apps",
+  "discordRoutes.delete": "messaging-apps",
   "pager.raise": "pager",
   "pager.list": "pager",
   "pager.get": "pager",

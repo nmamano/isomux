@@ -2099,6 +2099,13 @@ App 的一些原则：
   "apiCall.webhooks.list": "列出 Webhook",
   "apiCall.webhooks.create": "创建 Webhook",
   "apiCall.messaging.reply": "在消息应用中回复",
+  "apiCall.messaging.discordList": "列出 Discord 机器人",
+  "apiCall.messaging.discordDisconnect": "断开 Discord 机器人",
+  "apiCall.messaging.discordGuilds": "列出 Discord 服务器",
+  "apiCall.messaging.discordRoutesList": "列出 Discord 路由",
+  "apiCall.messaging.discordRoutesCreate": "添加 Discord 路由",
+  "apiCall.messaging.discordRoutesUpdate": "更改 Discord 路由",
+  "apiCall.messaging.discordRoutesDelete": "移除 Discord 路由",
   "apiCall.webhooks.read": "读取 Webhook",
   "apiCall.webhooks.update": "更新 Webhook",
   "apiCall.webhooks.delete": "删除 Webhook",
@@ -2177,6 +2184,9 @@ App 的一些原则：
   "cards.secretRequest.variableOffice": "办公室变量：由办公室所有者保存。",
   "cards.secretRequest.variableHint":
     "值不会进入聊天。智能体在下次启动时获得该变量。",
+  "cards.secretRequest.discordBotTitle": "Discord 机器人请求",
+  "cards.secretRequest.discordBotHint":
+    "令牌不会进入聊天。智能体拿到的是机器人，不是令牌。",
   "cards.secretRequest.mcpServerTitle": "MCP 服务器请求：{name}",
   "cards.secretRequest.mcpServerPersonal":
     "添加到此智能体负责人的 MCP 服务器中。",
@@ -3150,6 +3160,8 @@ App 的一些原则：
     "MCP 服务器 {name} 已添加为办公室 MCP 服务器。",
   "systemEntries.secretRequest.mcpServerSavedPersonal":
     "MCP 服务器 {name} 已添加到 {member} 的 MCP 服务器中。",
+  "systemEntries.secretRequest.discordBotConnected":
+    "已为 {member} 连接 Discord 机器人 {bot}。",
   "systemEntries.stepAsk.providerSignedIn": "已登录 {provider}。",
   "systemEntries.stepAsk.providerSignedInOffice":
     "已登录办公室的 {provider} 账号。",

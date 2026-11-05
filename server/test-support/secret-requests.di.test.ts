@@ -152,6 +152,7 @@ async function world() {
     },
     variableExists: () => false,
     mcpServerExists: () => false,
+    connectDiscordBot: () => Promise.reject(new Error("not used")),
     settled: (agentId, requestId, outcome, line, answeredBy) =>
       mgr.emitAgentSecretRequestSettled(
         agentId,

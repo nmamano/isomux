@@ -58,6 +58,7 @@ import {
   type SecretScope,
   type SecretStore,
 } from "./secret-store.ts";
+import type { DiscordConnectResult } from "./discord/supervisor.ts";
 
 export const SECRET_REQUEST_REASON_MAX = 500;
 // A sanity bound, not a quota: one agent rarely has more than one open.
@@ -91,6 +92,11 @@ export interface SecretRequestDeps {
   // Whether the scope has a variable, or an MCP server, with this name.
   variableExists: (scope: SecretScope, name: string) => boolean;
   mcpServerExists: (scope: SecretScope, name: string) => boolean;
+  // Connects a Discord bot for the member (supervisor.connect).
+  connectDiscordBot: (
+    userId: string,
+    token: string,
+  ) => Promise<DiscordConnectResult>;
   // The outcome: a system line in the agent's chat, and the same line to the
   // agent as an office notice from the member who answered.
   settled: (
@@ -209,6 +215,7 @@ const KIND_NOUN = {
   secret: "secret",
   variable: "variable",
   "mcp-server": "MCP server",
+  "discord-bot": "Discord bot",
 } as const;
 
 // The body keys an open takes, per kind.
@@ -225,7 +232,12 @@ const OPEN_KEYS = {
     "scope",
     "member",
   ],
+  // The manager's own bot: only the manager answers (task c92d60f4).
+  "discord-bot": ["kind", "reason"],
 } as const satisfies Record<string, readonly string[]>;
+
+// A Discord bot request's fixed name: one open request per member.
+const DISCORD_BOT_NAME = "Discord bot";
 
 // What an older server's load check requires of every request, on the kinds
 // it does not know (shared/types.ts).
@@ -257,6 +269,10 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         : updated;
     return deps.store.rotate(scope, name, value);
   }
+
+  // The Discord bot requests whose connect runs now: a second save or a
+  // decline waits for it (request_busy).
+  const connecting = new Set<string>();
 
   const openRequests = (): SecretAsk[] =>
     deps.asks.listAll().filter((e): e is SecretAsk => e.secret !== undefined);
@@ -345,6 +361,65 @@ export function createSecretRequests(deps: SecretRequestDeps) {
     }
   }
 
+  // A Discord bot request's save: the token goes to the connect only. The
+  // connect awaits Discord, so the request is busy until it ends. On a
+  // refusal the ask stays for the member to type again. The ask may be gone
+  // when the connect ends (the agent withdrew it): the bot is connected, and
+  // the agent still hears of it.
+  async function connectBot(
+    entry: SecretAsk,
+    userId: string,
+    ownerId: string,
+    body: Record<string, unknown>,
+  ): Promise<SecretRequestResult<{ name: string }>> {
+    if (!Object.keys(body).every((k) => k === "value"))
+      return invalidRequest("the body takes only value");
+    if (typeof body.value !== "string" || body.value.trim() === "")
+      return invalidRequest("value is required");
+    const { requestId, name } = entry.secret;
+    connecting.add(requestId);
+    let result: DiscordConnectResult;
+    try {
+      result = await deps.connectDiscordBot(ownerId, body.value);
+    } catch {
+      console.error("[secret-requests] a Discord bot connect failed");
+      result = {
+        ok: false,
+        status: 400,
+        code: "check_failed",
+        error: "Discord could not check this token; try again",
+      };
+    } finally {
+      connecting.delete(requestId);
+    }
+    if (!result.ok)
+      return {
+        ok: false,
+        status: result.status,
+        code: result.code,
+        message: result.error,
+      };
+    closeSaved(entry, userId);
+    deps.settled(
+      entry.agentId,
+      requestId,
+      "saved",
+      msg("systemEntries.secretRequest.discordBotConnected", {
+        bot: result.bot.name,
+        member: deps.memberName(ownerId) ?? ownerId,
+      }),
+      userId,
+    );
+    return { ok: true, name };
+  }
+
+  const busy: SecretRequestFailure = {
+    ok: false,
+    status: 409,
+    code: "request_busy",
+    message: "a save of this request is running; wait for its answer",
+  };
+
   // A variable request's save: the value alone, never over a variable set
   // since the open. No answer or log holds the value.
   function writeVariable(
@@ -424,14 +499,28 @@ export function createSecretRequests(deps: SecretRequestDeps) {
   ): SecretRequestResult<{ requestId: string }> {
     if (!isObject(body)) return invalidRequest("the body must be an object");
     const kind = body.kind === undefined ? "secret" : body.kind;
-    if (kind !== "secret" && kind !== "variable" && kind !== "mcp-server")
-      return invalidRequest("kind is secret, variable or mcp-server");
+    if (
+      kind !== "secret" &&
+      kind !== "variable" &&
+      kind !== "mcp-server" &&
+      kind !== "discord-bot"
+    )
+      return invalidRequest(
+        "kind is secret, variable, mcp-server or discord-bot",
+      );
     const allowed: readonly string[] = OPEN_KEYS[kind];
     if (!Object.keys(body).every((key) => allowed.includes(key)))
       return invalidRequest(`the body takes only ${allowed.join(", ")}`);
     const managerId = deps.agentUserId(agentId);
     if (managerId === undefined)
       return { ok: false, status: 404, code: "not_found" };
+    if (kind === "discord-bot" && !managerId)
+      return {
+        ok: false,
+        status: 409,
+        code: "no_manager",
+        message: "this agent has no manager to connect a Discord bot for",
+      };
     const scopeName = body.scope ?? "personal";
     if (scopeName !== "personal" && scopeName !== "office")
       return invalidRequest("scope is personal or office");
@@ -593,6 +682,13 @@ export function createSecretRequests(deps: SecretRequestDeps) {
         return invalidRequest("name must be a variable name");
       if (deps.variableExists(scope, name)) return variableExists;
       secret = { ...base, kind, name, ...OLDER_LOADER_FIELDS };
+    } else if (kind === "discord-bot") {
+      secret = {
+        ...base,
+        kind,
+        name: DISCORD_BOT_NAME,
+        ...OLDER_LOADER_FIELDS,
+      };
     } else {
       const nameError = checkMcpServerName(body.name);
       if (nameError)
@@ -694,13 +790,16 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       audience?: AskAudienceDeps,
     ): Promise<SecretRequestResult<{ name: string }>> {
       // From the check to the ask's removal nothing awaits, so a decline,
-      // a second save or the agent's withdraw cannot slip in between.
+      // a second save or the agent's withdraw cannot slip in between. The
+      // one exception is a Discord bot's connect, which marks the request
+      // busy until it ends (connectBot).
       const found = guarded(() =>
         answerable(userId, agentId, requestId, audience),
       );
       if (!found.ok) return found;
       if (!isObject(body)) return invalidRequest("the body must be an object");
       const { entry, scope } = found;
+      if (connecting.has(requestId)) return busy;
       // A removed member's request waits for their restore (task
       // 321e7b8e): a value saved now would come back with them, set by
       // someone else.
@@ -719,6 +818,10 @@ export function createSecretRequests(deps: SecretRequestDeps) {
           code: "request_unsupported",
           message: "this server cannot save this request; decline it",
         };
+      if (request.kind === "discord-bot")
+        return scope.kind === "user"
+          ? connectBot(entry, userId as string, scope.userId, body)
+          : invalidRequest("a Discord bot request is personal");
       if (request.kind !== undefined) {
         const written =
           request.kind === "variable"
@@ -808,6 +911,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       return guarded(() => {
         const found = answerable(userId, agentId, requestId, audience);
         if (!found.ok) return found;
+        if (connecting.has(requestId)) return busy;
         const { name } = found.entry.secret;
         try {
           deps.asks.remove(found.entry.id, {

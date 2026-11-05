@@ -859,6 +859,15 @@ describe("privileged agents", () => {
           "pagerSettings.get",
           "pagerSettings.update",
           "pagerSettings.test",
+          // The member's own Discord bots and routes (task c92d60f4); the
+          // raw-token connect stays on user:self.
+          "discord.list",
+          "discord.disconnect",
+          "discord.guilds",
+          "discordRoutes.list",
+          "discordRoutes.create",
+          "discordRoutes.update",
+          "discordRoutes.delete",
         ].sort(),
       );
     });

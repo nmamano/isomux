@@ -56,6 +56,7 @@ import {
   integrationOfficeOwner,
   integrationOfficeReader,
   integrationSelfOrOwner,
+  discordSelf,
   ownerProxyMemberCreate,
   userScope,
   memberScope,
@@ -308,6 +309,7 @@ import type {
 } from "../../shared/messaging.ts";
 import type {
   DiscordBot,
+  DiscordBotListed,
   DiscordConnectReq,
   DiscordGuildSeen,
   DiscordRoute,
@@ -1008,7 +1010,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/secret-requests/:requestId/save",
     auth: cap("user:env", memberScope),
     tokenArea: { area: "environment", level: "write" },
-    emits: ["log_entry", "ask_removed"],
+    // discord_status: a discord-bot request's save connects the bot.
+    emits: ["log_entry", "ask_removed", "discord_status"],
   }),
   defineRoute<void, SecretRequestAnswerRes>({
     opId: "secretRequests.decline",
@@ -1922,14 +1925,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // The member's Discord bots and routes (task 7fd44c30): the caller's own,
-  // by cookie only, as for WhatsApp. No agent, API token or owner acting for
-  // a member connects a bot or sees its servers.
-  defineRoute<void, DiscordBot[]>({
+  // The member's Discord bots and routes (task 7fd44c30): the caller's own.
+  // The member by cookie, or their privileged agent acting for them (task
+  // c92d60f4); no API token, and no owner acting for another member. Only the
+  // member connects a bot with a raw token: an agent asks for one with a
+  // discord-bot value request.
+  defineRoute<void, DiscordBotListed[]>({
     opId: "discord.list",
     method: "GET",
     path: "/api/discord",
-    auth: cap("user:self", authenticated),
+    auth: cap("integration:manage", discordSelf),
     tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
@@ -1947,7 +1952,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/discord/bots/:botId",
-    auth: cap("user:self", authenticated),
+    auth: cap("integration:manage", discordSelf),
     tokenArea: { area: "environment", level: "write" },
     emits: ["discord_status"],
   }),
@@ -1955,7 +1960,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "discord.guilds",
     method: "GET",
     path: "/api/discord/bots/:botId/guilds",
-    auth: cap("user:self", authenticated),
+    auth: cap("integration:manage", discordSelf),
     tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
@@ -1963,7 +1968,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "discordRoutes.list",
     method: "GET",
     path: "/api/discord/routes",
-    auth: cap("user:self", authenticated),
+    auth: cap("integration:manage", discordSelf),
     tokenArea: { area: "environment", level: "read" },
     emits: [],
   }),
@@ -1972,7 +1977,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "POST",
     path: "/api/discord/routes",
-    auth: cap("user:self", authenticated),
+    auth: cap("integration:manage", discordSelf),
     tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
@@ -1981,7 +1986,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "PATCH",
     path: "/api/discord/routes/:routeId",
-    auth: cap("user:self", authenticated),
+    auth: cap("integration:manage", discordSelf),
     tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),
@@ -1990,7 +1995,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ self: true }) },
     method: "DELETE",
     path: "/api/discord/routes/:routeId",
-    auth: cap("user:self", authenticated),
+    auth: cap("integration:manage", discordSelf),
     tokenArea: { area: "environment", level: "write" },
     emits: [],
   }),

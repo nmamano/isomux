@@ -2285,6 +2285,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.webhooks.list": "List webhooks",
   "apiCall.webhooks.create": "Create webhook",
   "apiCall.messaging.reply": "Reply in a messaging app",
+  "apiCall.messaging.discordList": "List Discord bots",
+  "apiCall.messaging.discordDisconnect": "Disconnect Discord bot",
+  "apiCall.messaging.discordGuilds": "List Discord servers",
+  "apiCall.messaging.discordRoutesList": "List Discord routes",
+  "apiCall.messaging.discordRoutesCreate": "Add Discord route",
+  "apiCall.messaging.discordRoutesUpdate": "Change Discord route",
+  "apiCall.messaging.discordRoutesDelete": "Remove Discord route",
   "apiCall.webhooks.read": "Read webhook",
   "apiCall.webhooks.update": "Update webhook",
   "apiCall.webhooks.delete": "Delete webhook",
@@ -2367,6 +2374,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Office variable: an office owner saves it.",
   "cards.secretRequest.variableHint":
     "The value stays out of the chat. Agents get the variable at their next start.",
+  "cards.secretRequest.discordBotTitle": "Discord bot request",
+  "cards.secretRequest.discordBotHint":
+    "The token stays out of the chat. The agent gets the bot, not the token.",
   "cards.secretRequest.mcpServerTitle": "MCP server request: {name}",
   "cards.secretRequest.mcpServerPersonal":
     "Added to the MCP servers of this agent's manager.",
@@ -3444,6 +3454,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "MCP server {name} added as an office MCP server.",
   "systemEntries.secretRequest.mcpServerSavedPersonal":
     "MCP server {name} added to {member}'s MCP servers.",
+  "systemEntries.secretRequest.discordBotConnected":
+    "Discord bot {bot} connected for {member}.",
   "systemEntries.stepAsk.providerSignedIn": "Signed in to {provider}.",
   "systemEntries.stepAsk.providerSignedInOffice":
     "Signed in to the office {provider} account.",

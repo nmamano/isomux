@@ -145,14 +145,15 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
         typeof r.app.createdAt === "number")) &&
     (r.ownerUserId === undefined || typeof r.ownerUserId === "string") &&
     (r.answerUserId === undefined || typeof r.answerUserId === "string") &&
-    // The kind (task c71cb60f): absent for a secret. Only a secret names an
-    // app; only an MCP server request proposes a URL and a sign-in. Any other
+    // The kind (task c71cb60f; discord-bot, task c92d60f4): absent for a
+    // secret. Only a secret names an app; only an MCP server request
+    // proposes a URL and a sign-in. Any other
     // non-empty kind loads, as a link does: a kind from a later release
     // cannot fail the file after a rollback (the request cannot be saved
     // here, only declined).
     (r.kind === undefined
       ? r.url === undefined && r.secret === undefined
-      : r.kind === "variable"
+      : r.kind === "variable" || r.kind === "discord-bot"
         ? r.app === undefined && r.url === undefined && r.secret === undefined
         : r.kind === "mcp-server"
           ? r.app === undefined &&

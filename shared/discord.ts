@@ -31,6 +31,12 @@ export interface DiscordBot {
   status: DiscordBotStatus;
 }
 
+// GET /api/discord: a bot with its invite link, so an agent can hand the
+// member the link that adds the bot to a server (task c92d60f4).
+export interface DiscordBotListed extends DiscordBot {
+  inviteUrl: string;
+}
+
 export interface DiscordConnectReq {
   token: string;
 }

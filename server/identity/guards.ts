@@ -458,7 +458,8 @@ export const selfOrEnvOwner: Guard = (ctx) =>
 export const officeEnvReader: Guard = userOrApi;
 
 // The integration:manage routes: changes, lists, names and Test, never a
-// value. They admit an agent too, with its manager's reach (Nil, 2026-10-14).
+// value. They admit an agent too, with its manager's reach (Nil, 2026-10-14),
+// and they reach the manager's Discord bots and routes (discordSelf).
 // These guards do not check the privileged flag: stage 1 does, because only
 // the PRIVILEGED agent set holds integration:manage. They are separate from
 // the env guards above, which also guard the value routes and admit no agent.
@@ -487,6 +488,14 @@ export const integrationSelfOrOwner: Guard = (ctx) => {
     return ALLOW;
   return integrationOfficeOwner(ctx);
 };
+
+// The member's own Discord bots and routes (task c92d60f4): the member by
+// cookie, or their privileged agent acting for them. No API token, and no
+// owner's reach: the handlers use the caller's own user id.
+export const discordSelf: Guard = ({ identity }) =>
+  (identity.scope === "user" || actsForAgent(identity)) && identity.userId
+    ? ALLOW
+    : FORBIDDEN;
 
 // The office lists: any member. The handler gives a non-owner names, hosts
 // and notes only.

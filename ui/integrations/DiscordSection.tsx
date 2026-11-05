@@ -76,8 +76,9 @@ const STATE_TONE = {
 } as const;
 
 // A refused connect, by its code; any other failure is the generic line
-// (bots_max names the cap, so it is worded apart).
-const CONNECT_ERROR: Record<string, PlainMessageKey> = {
+// (bots_max names the cap, so it is worded apart). The Discord bot request
+// card words a refused save with it too.
+export const DISCORD_CONNECT_ERROR: Record<string, PlainMessageKey> = {
   token_refused: "integrations.discord.error.tokenRefused",
   not_a_bot: "integrations.discord.error.notABot",
   check_failed: "integrations.discord.error.checkFailed",
@@ -176,7 +177,8 @@ function ConnectForm({
       setError(
         code === "bots_max"
           ? "bots_max"
-          : (CONNECT_ERROR[code] ?? "integrations.whatsapp.error.failed"),
+          : (DISCORD_CONNECT_ERROR[code] ??
+              "integrations.whatsapp.error.failed"),
       );
     } finally {
       setBusy(false);

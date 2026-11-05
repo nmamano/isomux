@@ -3905,6 +3905,8 @@ function buildExecutorDeps(
           ),
         mcpServerExists: (scope, name) =>
           mcpSources.servers.list(scope).some((server) => server.name === name),
+        connectDiscordBot: (userId, token) =>
+          discordSupervisor.connect(userId, token),
         settled: (agentId, requestId, outcome, line, answeredBy) =>
           agentManager.emitAgentSecretRequestSettled(
             agentId,

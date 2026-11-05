@@ -2354,6 +2354,13 @@ Coses que pots fer per ell:
   "apiCall.webhooks.list": "Llistar els webhooks",
   "apiCall.webhooks.create": "Crear un webhook",
   "apiCall.messaging.reply": "Respondre en una app de missatgeria",
+  "apiCall.messaging.discordList": "Llistar bots de Discord",
+  "apiCall.messaging.discordDisconnect": "Desconnectar bot de Discord",
+  "apiCall.messaging.discordGuilds": "Llistar servidors de Discord",
+  "apiCall.messaging.discordRoutesList": "Llistar rutes de Discord",
+  "apiCall.messaging.discordRoutesCreate": "Afegir ruta de Discord",
+  "apiCall.messaging.discordRoutesUpdate": "Canviar ruta de Discord",
+  "apiCall.messaging.discordRoutesDelete": "Treure ruta de Discord",
   "apiCall.webhooks.read": "Llegir un webhook",
   "apiCall.webhooks.update": "Actualitzar el webhook",
   "apiCall.webhooks.delete": "Eliminar el webhook",
@@ -2439,6 +2446,9 @@ Coses que pots fer per ell:
     "Variable de l'oficina: la desa un propietari de l'oficina.",
   "cards.secretRequest.variableHint":
     "El valor no entra al xat. Els agents reben la variable al pròxim inici.",
+  "cards.secretRequest.discordBotTitle": "Sol·licitud de bot de Discord",
+  "cards.secretRequest.discordBotHint":
+    "El token no entra al xat. L'agent rep el bot, no el token.",
   "cards.secretRequest.mcpServerTitle": "Sol·licitud de servidor MCP: {name}",
   "cards.secretRequest.mcpServerPersonal":
     "S'afegeix als servidors MCP del responsable d'aquest agent.",
@@ -3507,6 +3517,8 @@ Coses que pots fer per ell:
     "Servidor MCP {name} afegit com a servidor MCP de l'oficina.",
   "systemEntries.secretRequest.mcpServerSavedPersonal":
     "Servidor MCP {name} afegit als servidors MCP del membre {member}.",
+  "systemEntries.secretRequest.discordBotConnected":
+    "Bot de Discord {bot} connectat per al membre {member}.",
   "systemEntries.stepAsk.providerSignedIn": "Sessió iniciada a {provider}.",
   "systemEntries.stepAsk.providerSignedInOffice":
     "Sessió iniciada al compte de {provider} de l'oficina.",
