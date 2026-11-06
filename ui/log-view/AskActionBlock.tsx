@@ -27,7 +27,7 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useAppState, useDispatch, type AskResult } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
-import { AGENT_PACK_AREAS, agentAccessOf } from "../../shared/agent-access.ts";
+import { agentAccessOf } from "../../shared/agent-access.ts";
 import type { ActionStepRequest } from "../../shared/types.ts";
 import type { MemberViewList } from "../../shared/action-steps.ts";
 import {
@@ -55,7 +55,6 @@ import { DEFAULT_VOICE_NAME } from "../../shared/voice.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import { AREA_LABEL as PACK_AREA_LABEL } from "../components/AreaLevelsGrid.tsx";
 import {
-  AREA_LABEL,
   LEVEL_LABEL,
   STOP_HINT,
   STOP_LABEL,
@@ -422,8 +421,9 @@ export function AskActionBlock({
   function agentAccessView(s: Step<"agent-access">): ActionView {
     const target = agents.find((a) => a.id === s.agentId);
     const current = target ? agentAccessOf(target) : null;
+    // Every area and the rooms: Apply sends the pack whole.
     const areas = s.pack?.areas
-      ? AGENT_PACK_AREAS.filter((area) => s.pack?.areas?.[area])
+      ? (Object.keys(s.pack.areas) as (keyof typeof PACK_AREA_LABEL)[])
       : [];
     const self = s.agentId === askingAgentId;
     return {
@@ -454,12 +454,19 @@ export function AskActionBlock({
                   fontSize: small,
                 }}
               >
-                <span>{t(AREA_LABEL[area])}</span>
+                <span>{t(PACK_AREA_LABEL[area])}</span>
                 <span style={{ color: "var(--text-muted)" }}>
                   {t(LEVEL_LABEL[s.pack!.areas![area]!])}
                 </span>
               </span>
             ))}
+          </div>
+        ),
+        s.pack && (
+          <div key="rooms" data-ask-action-rooms="" style={muted}>
+            {t("settings.apiTokens.roomsLine", {
+              rooms: roomsSummary(t, tn, language, s.pack, rooms),
+            })}
           </div>
         ),
         self && (

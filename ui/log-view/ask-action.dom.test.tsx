@@ -16,6 +16,8 @@ const { setApiShim, ApiError } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
+const { AREA_LABEL: PACK_AREA_LABEL } =
+  await import("../components/AreaLevelsGrid.tsx");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 
 const NOW = Date.now();
@@ -273,6 +275,44 @@ it("starts the reply field empty on an action ask", async () => {
   );
   expect(field).not.toBe(null);
   expect(field!.value).toBe("");
+  view.unmount();
+});
+
+// Task 0fb79ed4: Apply sends the whole pack, so the card shows every area of
+// it, also one the slider cannot set (an ask stored before the create refused
+// those), and the rooms the pack reaches.
+it("an agent-access card shows every area of the pack and its rooms line; no rooms line without a pack", async () => {
+  const hidden = {
+    areas: { agents: "write", asks: "write", memory: "write" },
+  };
+  const scoped = { areas: { tasks: "read" }, rooms: ["r1"] };
+  const { view, block } = await mount([
+    action("pak00001", "a1", "web", hidden),
+    action("pak00002", "t1", "office", scoped),
+    action("pak00003", "t1", "privileged"),
+  ]);
+  const chips = (id: string) =>
+    block(id)!.querySelectorAll("[data-ask-action-pack] > span").length;
+  const rooms = (id: string) =>
+    block(id)!.querySelector<HTMLElement>("[data-ask-action-rooms]");
+  expect({
+    hiddenChips: chips("pak00001"),
+    memory: block("pak00001")!
+      .querySelector("[data-ask-action-pack]")!
+      .textContent!.includes(en[PACK_AREA_LABEL.memory]),
+    scopedChips: chips("pak00002"),
+  }).toEqual({ hiddenChips: 3, memory: true, scopedChips: 1 });
+  // No rooms axis: every room. A rooms axis: the rooms it names.
+  const all = rooms("pak00001");
+  const some = rooms("pak00002");
+  expect({
+    all: all?.textContent?.includes(en["settings.apiTokens.allRooms"]),
+    allNames: ["Studio", "Garden"].filter((n) => all?.textContent?.includes(n)),
+    someNames: ["Studio", "Garden"].filter((n) =>
+      some?.textContent?.includes(n),
+    ),
+    noPack: rooms("pak00003"),
+  }).toEqual({ all: true, allNames: [], someNames: ["Studio"], noPack: null });
   view.unmount();
 });
 

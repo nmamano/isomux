@@ -21,7 +21,12 @@ import {
   loadBackupSettings,
   saveBackupSettings,
 } from "../backup.ts";
-import { FOLDER_NOT_ALLOWED } from "../../shared/agent-access.ts";
+import {
+  AGENT_PACK_AREAS,
+  FOLDER_NOT_ALLOWED,
+  parseAgentPack,
+} from "../../shared/agent-access.ts";
+import { API_TOKEN_AREAS } from "../../shared/api-token-limits.ts";
 import type { AgentInfo, AskEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -293,6 +298,51 @@ describe("an agent-access ask at create", () => {
       `/api/agents/${asker.id}/asks`,
     );
     expect(JSON.stringify(open.body)).not.toContain(target.id);
+  });
+
+  // Task 0fb79ed4: the card and the slider show only the agent pack areas,
+  // so a pack with any other area would grant what the member did not see.
+  it("refuses a pack with an area outside the agent pack areas: 400, nothing opened; the agent pack areas and rooms open", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const target = await spawn(o, "Curator");
+    const base = { agents: "write", asks: "write" };
+    const outside = API_TOKEN_AREAS.filter(
+      (area) => !(AGENT_PACK_AREAS as readonly string[]).includes(area),
+    );
+    expect(outside.length).toBeGreaterThan(0);
+    for (const area of outside)
+      for (const level of ["read", "write"]) {
+        const pack = { areas: { ...base, [area]: level } };
+        // The parser takes it: only the agent pack rule refuses it.
+        expect({ area, parsed: parseAgentPack(pack) !== null }).toEqual({
+          area,
+          parsed: true,
+        });
+        expect({
+          area,
+          level,
+          ...outcome(
+            await ask(o, asker.id, accessStep(target.id, "web", pack)),
+          ),
+        }).toEqual({ area, level, status: 400, code: "invalid_request" });
+      }
+    const open = await asAgent(
+      o,
+      asker.id,
+      "GET",
+      `/api/agents/${asker.id}/asks`,
+    );
+    expect(JSON.stringify(open.body)).not.toContain(target.id);
+    // Every agent pack area, with a rooms axis, opens as asked.
+    const full = {
+      areas: Object.fromEntries(
+        AGENT_PACK_AREAS.map((area) => [area, "write"]),
+      ),
+      rooms: [o.room],
+    };
+    const up = await opened(o, asker.id, accessStep(target.id, "web", full));
+    expect(up.step as unknown).toEqual(accessStep(target.id, "web", full));
   });
 
   it("answers a target the asking agent cannot reach exactly as a missing one, before the member's verdict and the done check", async () => {

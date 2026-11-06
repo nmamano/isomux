@@ -17,6 +17,7 @@
 // holds. A hook says only that something changed.
 
 import {
+  AGENT_PACK_AREAS,
   parseAgentAccessGrant,
   sameAccessGrant,
   type AgentAccessGrant,
@@ -1097,6 +1098,18 @@ export function createStepAsks(deps: StepAskDeps) {
         if (!grant)
           return invalid(
             "step.access is a stop (chat, office, folder, web, standard, privileged), with step.pack (token limits with areas) only at office, folder and web",
+          );
+        // The card shows only what the dialog can set, so the step may
+        // name no other area: Apply sends the stored pack whole.
+        const packAreas: readonly string[] = AGENT_PACK_AREAS;
+        if (
+          grant.pack &&
+          Object.keys(grant.pack.areas ?? {}).some(
+            (area) => !packAreas.includes(area),
+          )
+        )
+          return invalid(
+            "step.pack.areas names only agents, logs, tasks and asks",
           );
         return {
           ok: true,
