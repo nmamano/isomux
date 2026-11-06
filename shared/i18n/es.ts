@@ -2063,6 +2063,8 @@ Cosas que puedes hacer por él:
   "asks.badge.other": "{count} peticiones",
   "asks.answerFailed": "No enviado: {error}",
   "asks.empty": "No hay peticiones abiertas.",
+  "asks.loadFailed": "No se pudieron cargar las peticiones.",
+  "asks.retry": "Reintentar",
   "asks.sort": "Ordenar",
   "asks.sortAgent": "Ordenar por agente",
   "asks.sortRoom": "Ordenar por sala",

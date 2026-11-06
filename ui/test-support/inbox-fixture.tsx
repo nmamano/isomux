@@ -104,6 +104,25 @@ export function addBackRoom() {
 export function setAsks(next: AskMemberWire[]) {
   asks = next;
 }
+// The answers to GET /api/asks and GET /api/asks/others (task e2a2513b):
+// the list above and an empty list unless a test sets its own, and how many
+// reads each had.
+const ownAsksGet = async (): Promise<unknown> => asks;
+const noOthersAsks = async (): Promise<unknown> => [];
+let asksGet: () => Promise<unknown> = ownAsksGet;
+let othersAsksGet: () => Promise<unknown> = noOthersAsks;
+export const asksGets = { own: 0, others: 0 };
+export function setAsksGet(next: () => Promise<unknown>) {
+  asksGet = next;
+}
+export function setOthersAsksGet(next: () => Promise<unknown>) {
+  othersAsksGet = next;
+}
+// The member's role in session_context; "member" unless a test sets "owner".
+let role: "member" | "owner" = "member";
+export function setRole(next: "member" | "owner") {
+  role = next;
+}
 // The answer to an ask's POST (reply, dismiss, file as a task); {} at once
 // unless a test sets its own.
 let answerPost: (path: string) => Promise<unknown> = async () => ({});
@@ -138,7 +157,14 @@ export const pushCount = () => pushState?.mock.calls.length ?? 0;
 
 export function setUpInboxTests() {
   setApiShim(async (method, path, body) => {
-    if (path === "/api/asks") return asks;
+    if (path === "/api/asks") {
+      asksGets.own++;
+      return asksGet();
+    }
+    if (path === "/api/asks/others") {
+      asksGets.others++;
+      return othersAsksGet();
+    }
     const read = /^\/api\/asks\/([0-9a-f]{8,64})$/.exec(path);
     if (method === "GET" && read) {
       askReads.push(read[1]);
@@ -185,6 +211,11 @@ export function setUpInboxTests() {
     pageAsks = {};
     pageReads.length = 0;
     asks = ASKS;
+    asksGet = ownAsksGet;
+    othersAsksGet = noOthersAsks;
+    asksGets.own = 0;
+    asksGets.others = 0;
+    role = "member";
     agents = [agent];
     answerPost = async () => ({});
     askReads.length = 0;
@@ -196,6 +227,27 @@ export function setUpInboxTests() {
     pushState = spyOn(window.history, "pushState");
   });
   afterEach(() => pushState?.mockRestore());
+}
+
+// The office's full_state, as at boot. A second one is a reconnect: it bumps
+// hydrationEpoch, and the asks are read again.
+export function emitFullState() {
+  shimEmit({
+    type: "full_state",
+    agents,
+    rooms: [
+      {
+        id: "r1",
+        name: "First room",
+        prompt: null,
+        canCloseWhenEmpty: true,
+      },
+    ],
+    office: { name: "Test Office" },
+    recentCwds: [],
+    killedAgents: [],
+    interactions: [],
+  } as never);
 }
 
 // `features` is the office the App runs in: production unless a test passes
@@ -211,24 +263,9 @@ export async function boot(path = "/", features = PRODUCTION_FEATURES) {
     () => {
       shimEmit({
         type: "session_context",
-        context: { username: "member", userId: "u1", role: "member" },
+        context: { username: "member", userId: "u1", role },
       } as never);
-      shimEmit({
-        type: "full_state",
-        agents,
-        rooms: [
-          {
-            id: "r1",
-            name: "First room",
-            prompt: null,
-            canCloseWhenEmpty: true,
-          },
-        ],
-        office: { name: "Test Office" },
-        recentCwds: [],
-        killedAgents: [],
-        interactions: [],
-      } as never);
+      emitFullState();
       hydrated();
     },
   );

@@ -11,7 +11,8 @@ import type { AskAgentWire } from "../shared/contract-shapes.ts";
  * Keep the store's asks slice filled. Mounted once, by App. Keyed on
  * hydrationEpoch for the reason usePagerSync is: every reconnect may have
  * missed deltas. A snapshot that a delta overtook is refused by the reducer,
- * which bumps asksFetchSeq and so re-runs this effect.
+ * which bumps asksFetchSeq and so re-runs this effect. A failed read sets
+ * asksLoadFailed; the Asks tab's Try again bumps asksFetchSeq.
  */
 export function useAsksSync(): void {
   const { hydrationEpoch, asksFetchSeq, asksRevision } = useAppState();
@@ -22,10 +23,13 @@ export function useAsksSync(): void {
     let cancelled = false;
     apiFetch<AskMemberWire[]>("GET", "/api/asks").then(
       (entries) => {
-        if (cancelled || !Array.isArray(entries)) return;
-        dispatch({ type: "asks_loaded", entries, revision });
+        if (cancelled) return;
+        if (!Array.isArray(entries)) dispatch({ type: "asks_load_failed" });
+        else dispatch({ type: "asks_loaded", entries, revision });
       },
-      () => {},
+      () => {
+        if (!cancelled) dispatch({ type: "asks_load_failed" });
+      },
     );
     return () => {
       cancelled = true;
@@ -56,10 +60,14 @@ export function useOthersAsksSync(): void {
     let cancelled = false;
     apiFetch<AskAgentWire[]>("GET", "/api/asks/others").then(
       (entries) => {
-        if (cancelled || !Array.isArray(entries)) return;
-        dispatch({ type: "others_asks_loaded", entries, revision });
+        if (cancelled) return;
+        if (!Array.isArray(entries))
+          dispatch({ type: "others_asks_load_failed" });
+        else dispatch({ type: "others_asks_loaded", entries, revision });
       },
-      () => {},
+      () => {
+        if (!cancelled) dispatch({ type: "others_asks_load_failed" });
+      },
     );
     return () => {
       cancelled = true;

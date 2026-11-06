@@ -310,6 +310,9 @@ export interface AppState {
   // again.
   asksRevision: number;
   asksFetchSeq: number;
+  // The last GET /api/asks failed and no load has landed since: the Asks
+  // tab shows a notice with Try again instead of "No open asks".
+  asksLoadFailed: boolean;
   // Other members' open asks, for an office owner to read and answer on the
   // Asks tab. useOthersAsksSync reads GET /api/asks/others on every
   // hydrationEpoch; others_ask_upserted and others_ask_removed keep it live.
@@ -318,6 +321,8 @@ export interface AppState {
   othersAsks: AskAgentWire[];
   othersAsksRevision: number;
   othersAsksFetchSeq: number;
+  // As asksLoadFailed, for GET /api/asks/others.
+  othersAsksLoadFailed: boolean;
   // The webhooks this viewer may see: its own, those in its rooms, or every
   // hook for an office owner. Fetched by the Webhooks tab (and by a webhook run's view, which
   // links to its hook) and kept fresh by the webhook_upserted /
@@ -559,12 +564,16 @@ type Action =
   | { type: "app_deleted"; name: string }
   // CLIENT-LOCAL (not a ServerMessage): useAsksSync's snapshot.
   | { type: "asks_loaded"; entries: AskMemberWire[]; revision: number }
+  | { type: "asks_load_failed" }
+  // CLIENT-LOCAL: the Asks tab's Try again. Reads again each list that failed.
+  | { type: "asks_load_retry" }
   | { type: "ask_upserted"; entry: AskMemberWire }
   // `by`: the member who answered it, from the push or from a refused answer
   // (409 ask_closed).
   | { type: "ask_removed"; id: string; by?: string }
   // CLIENT-LOCAL: useOthersAsksSync's snapshot.
   | { type: "others_asks_loaded"; entries: AskAgentWire[]; revision: number }
+  | { type: "others_asks_load_failed" }
   | { type: "others_ask_upserted"; entry: AskAgentWire }
   | { type: "others_ask_removed"; id: string }
   // The ask's answer starts: clears its error. The chat stack, which sends at
@@ -1489,6 +1498,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         asks: action.entries,
+        asksLoadFailed: false,
         askDrafts: keepOpenAsks(
           state.askDrafts,
           action.entries,
@@ -1552,12 +1562,31 @@ export function reducer(state: AppState, action: Action): AppState {
           : {}),
       };
     }
+    // The flag stays set until a load lands, so a retry in flight does not
+    // show "No open asks".
+    case "asks_load_failed":
+      return state.asksLoadFailed ? state : { ...state, asksLoadFailed: true };
+    case "others_asks_load_failed":
+      return state.othersAsksLoadFailed
+        ? state
+        : { ...state, othersAsksLoadFailed: true };
+    case "asks_load_retry":
+      return {
+        ...state,
+        ...(state.asksLoadFailed
+          ? { asksFetchSeq: state.asksFetchSeq + 1 }
+          : {}),
+        ...(state.othersAsksLoadFailed
+          ? { othersAsksFetchSeq: state.othersAsksFetchSeq + 1 }
+          : {}),
+      };
     case "others_asks_loaded":
       if (action.revision !== state.othersAsksRevision)
         return { ...state, othersAsksFetchSeq: state.othersAsksFetchSeq + 1 };
       return {
         ...state,
         othersAsks: action.entries,
+        othersAsksLoadFailed: false,
         askDrafts: keepOpenAsks(state.askDrafts, state.asks, action.entries),
         answeredAsks: keepOpenAsks(
           state.answeredAsks,
@@ -2004,9 +2033,11 @@ export const initialState: AppState = {
   askResults: new Map(),
   asksRevision: 0,
   asksFetchSeq: 0,
+  asksLoadFailed: false,
   othersAsks: [],
   othersAsksRevision: 0,
   othersAsksFetchSeq: 0,
+  othersAsksLoadFailed: false,
   webhooks: [],
   webhooksLoaded: false,
   webhooksRevision: 0,

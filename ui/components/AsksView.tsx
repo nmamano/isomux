@@ -30,7 +30,7 @@
 // InboxView draws the header and the tabs around it.
 
 import { useEffect, useMemo, useState } from "react";
-import { useAppState } from "../store.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { asksFor, visibleAsks } from "../asks-sync.ts";
@@ -311,12 +311,20 @@ export function AsksView({
     rooms,
     isMobile,
     sessionContext,
+    asksLoadFailed,
+    othersAsksLoadFailed,
   } = useAppState();
+  const dispatch = useDispatch();
   // Read only while the member is an owner, so a demotion hides them at once.
   const isOwner = sessionContext?.role === "owner";
   const [member, setMember] = useState<AsksMember>(getAsksMember);
   const whose = isOwner ? member : MINE;
   const { t } = useI18n();
+  // A list the member filter shows did not load: the page cannot say that
+  // no ask is open.
+  const loadFailed =
+    (whose.kind !== "member" && asksLoadFailed) ||
+    (whose.kind !== "mine" && othersAsksLoadFailed);
   // The filters and the sort are remembered on this device. The Inbox badge
   // counts the asks not yet shown here, whatever the filters, so a filter
   // left on hides no new ask (task a930c9d6).
@@ -567,6 +575,17 @@ export function AsksView({
     fontSize: 13,
     fontFamily: "var(--font-ui)",
   };
+  // The button under an empty-list line: Show all, Try again.
+  const emptyButtonStyle: React.CSSProperties = {
+    marginTop: 10,
+    padding: "6px 12px",
+    borderRadius: 6,
+    border: "1px solid var(--border-medium)",
+    background: "var(--btn-surface)",
+    color: "var(--text-primary)",
+    fontSize: 12,
+    cursor: "pointer",
+  };
 
   // The runs that show a card, and among them the runs that go on the run
   // before (two runs of one agent around held cards, as under the age sort):
@@ -814,9 +833,23 @@ export function AsksView({
                 isMobile={isMobile}
               />
             ))}
+            {loadFailed && (
+              <div data-asks-load-failed="" role="alert" style={emptyStyle}>
+                <div>{t("asks.loadFailed")}</div>
+                <button
+                  type="button"
+                  data-asks-retry=""
+                  onClick={() => dispatch({ type: "asks_load_retry" })}
+                  style={emptyButtonStyle}
+                >
+                  {t("asks.retry")}
+                </button>
+              </div>
+            )}
             {groups.length === 0 && !anyOpen ? (
-              // The pinned card is the one open ask: no "No open asks" under it.
-              pinnedEntry ? null : (
+              // The pinned card is the one open ask: no "No open asks" under
+              // it. A failed load cannot tell that none is open.
+              pinnedEntry || loadFailed ? null : (
                 <div data-asks-empty="" style={emptyStyle}>
                   {t("asks.empty")}
                 </div>
@@ -828,16 +861,7 @@ export function AsksView({
                   type="button"
                   data-asks-show-all=""
                   onClick={showAll}
-                  style={{
-                    marginTop: 10,
-                    padding: "6px 12px",
-                    borderRadius: 6,
-                    border: "1px solid var(--border-medium)",
-                    background: "var(--btn-surface)",
-                    color: "var(--text-primary)",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
+                  style={emptyButtonStyle}
                 >
                   {t("asks.showAll")}
                 </button>

@@ -2021,6 +2021,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.badge.other": "{count} asks",
   "asks.answerFailed": "Not sent: {error}",
   "asks.empty": "No open asks.",
+  "asks.loadFailed": "Could not load asks.",
+  "asks.retry": "Try again",
   "asks.sort": "Sort",
   "asks.sortAgent": "Sort by agent",
   "asks.sortRoom": "Sort by room",

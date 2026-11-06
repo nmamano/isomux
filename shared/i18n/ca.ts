@@ -2069,6 +2069,8 @@ Coses que pots fer per ell:
   "asks.badge.other": "{count} peticions",
   "asks.answerFailed": "No enviat: {error}",
   "asks.empty": "No hi ha peticions obertes.",
+  "asks.loadFailed": "No s'han pogut carregar les peticions.",
+  "asks.retry": "Torna-ho a provar",
   "asks.sort": "Ordena",
   "asks.sortAgent": "Ordena per agent",
   "asks.sortRoom": "Ordena per sala",

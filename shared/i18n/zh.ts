@@ -1832,6 +1832,8 @@ App 的一些原则：
   "asks.badge.other": "{count} 条请示",
   "asks.answerFailed": "未发送：{error}",
   "asks.empty": "没有待处理的请示。",
+  "asks.loadFailed": "无法加载请示。",
+  "asks.retry": "重试",
   "asks.sort": "排序",
   "asks.sortAgent": "按智能体排序",
   "asks.sortRoom": "按房间排序",
