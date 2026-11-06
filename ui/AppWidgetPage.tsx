@@ -70,6 +70,10 @@ import {
   type AppWidgetBoot,
 } from "./app-widget-state.ts";
 import { isTouchPrimary } from "./touch-primary.ts";
+import { useComposerVoice } from "./hooks/useComposerVoice.ts";
+import { joinSpoken } from "./spoken-punctuation.ts";
+import { MicIcon } from "./components/MicIcon.tsx";
+import { VoiceInputAlert } from "./log-view/VoiceInputAlert.tsx";
 import { visibleArea } from "./visible-area.ts";
 
 // The chat panel (WidgetChat in its section), on the app page and over the
@@ -108,6 +112,10 @@ export const CHAT_PANEL_CSS = `
 .app-widget-hint { flex:1; min-width:0; font-size:12px; color:var(--text-secondary); margin:0; }
 .app-widget-queue { display:inline-block; margin-bottom:8px; padding:3px 10px; border:1px solid var(--accent); border-radius:999px; color:var(--accent-text); font-size:13px; font-weight:600; }
 .app-widget-status { font-size:12px; color:var(--text-secondary); }
+.app-widget-panel .app-widget-mic { display:flex; align-items:center; justify-content:center; padding:9px 11px; color:var(--text-secondary); }
+.app-widget-panel .app-widget-mic[aria-pressed="true"] { border-color:var(--red); background:rgba(255,50,50,0.15); color:var(--red-text); animation:mic-pulse 1.5s ease-in-out infinite; }
+.app-widget-panel .app-widget-mic[aria-busy="true"] { cursor:progress; }
+.app-widget-voice-error { margin:0 0 8px; font-size:12px; color:var(--red-text); }
 `;
 
 // The app page around the panel: the frame, the dock and the install popover.
@@ -1007,6 +1015,7 @@ export function WidgetChat({
   onFocusRequestHandled?: () => void;
 }) {
   const { t, rich } = useI18n();
+  const { agents, isMobile } = useAppState();
   const transcript = useChatTranscript(
     logs,
     agent.state === "thinking" || agent.state === "tool_executing",
@@ -1041,6 +1050,12 @@ export function WidgetChat({
     });
   const { sending, failed } = draft;
   const text = textDraft ? textDraft.text : draft.text;
+  // The latest text and send state, for dictation and a send in flight.
+  const textRef = useRef(text);
+  useLayoutEffect(() => {
+    textRef.current = text;
+  });
+  const sendingRef = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -1218,47 +1233,101 @@ export function WidgetChat({
     ? uploadedOnly(sentItems)
     : draft.images.map((image) => image.attachment!);
   const busy = agent.state === "thinking" || agent.state === "tool_executing";
-  const send = async () => {
+  // The text leaves the composer when the send starts, as in the full chat,
+  // so words dictated while it is in flight stay. A failed send puts the
+  // text back before them; alone, it keeps its message id, so a retry is the
+  // same message. True when the send started.
+  const send = (opts?: { text?: string; keepListening?: boolean }) => {
+    const sentText = opts?.text ?? text;
     if (
       draft.key !== key ||
-      (!text.trim() && attachments.length === 0) ||
+      (!sentText.trim() && attachments.length === 0) ||
       pendingImages ||
-      sending ||
+      sendingRef.current ||
       !connected
     )
-      return;
-    setDraft({ ...draft, sending: true, failed: false });
-    try {
-      await apiFetch("POST", `/api/agents/${agent.id}/messages`, {
-        text,
-        clientMessageId: draft.clientMessageId,
-        ...(boot && {
-          appContext: currentView ? { ...boot, view: currentView() } : boot,
-        }),
-        attachments,
-      });
-      textDraft?.onChange("");
-      attachmentsDraft?.remove(sentItems.map((item) => item.id));
-      const next = {
-        key,
-        text: "",
-        clientMessageId: crypto.randomUUID(),
-        images: [],
-        sending: false,
-        failed: false,
-      };
-      setDraft((current) => (current.key === key ? next : current));
-      follow.current = true;
-      scrollToEnd();
-    } catch {
-      setDraft((current) =>
-        current.key === key
-          ? { ...current, sending: false, failed: true }
-          : current,
-      );
-      onRecheck?.();
-    }
+      return false;
+    const clientMessageId =
+      sentText === draft.text ? draft.clientMessageId : crypto.randomUUID();
+    const sentImages = new Set(draft.images.map((image) => image.id));
+    sendingRef.current = true;
+    textDraft?.onChange("");
+    setDraft((current) => ({
+      ...current,
+      text: "",
+      clientMessageId: crypto.randomUUID(),
+      sending: true,
+      failed: false,
+    }));
+    if (!opts?.keepListening) voice.stop(true);
+    void apiFetch("POST", `/api/agents/${agent.id}/messages`, {
+      text: sentText,
+      clientMessageId,
+      ...(boot && {
+        appContext: currentView ? { ...boot, view: currentView() } : boot,
+      }),
+      attachments,
+    }).then(
+      () => {
+        sendingRef.current = false;
+        attachmentsDraft?.remove(sentItems.map((item) => item.id));
+        setDraft((current) =>
+          current.key === key
+            ? {
+                ...current,
+                images: current.images.filter(
+                  (image) => !sentImages.has(image.id),
+                ),
+                sending: false,
+              }
+            : current,
+        );
+        follow.current = true;
+        scrollToEnd();
+      },
+      () => {
+        sendingRef.current = false;
+        const later = textRef.current;
+        const restored = voice.reconcileEdit(
+          later ? joinSpoken(sentText, later) : sentText,
+        );
+        textDraft?.onChange(restored);
+        setDraft((current) =>
+          current.key === key
+            ? {
+                ...current,
+                text: restored,
+                clientMessageId: later ? crypto.randomUUID() : clientMessageId,
+                sending: false,
+                failed: true,
+              }
+            : current,
+        );
+        onRecheck?.();
+      },
+    );
+    return true;
   };
+  const voice = useComposerVoice({
+    keywords: agents.map((item) => item.name),
+    draft: () => textRef.current,
+    setDraft: update,
+    send: (o) => send(o),
+    onDictated: () => {
+      const ta = textarea.current;
+      if (ta) ta.scrollTop = ta.scrollHeight;
+    },
+    pushToTalk: open,
+  });
+  // A closed panel stops the mic. Stop, not discard: the last words still
+  // reach the draft, which the app page keeps for the session.
+  const stopVoice = useRef(voice.stop);
+  useLayoutEffect(() => {
+    stopVoice.current = voice.stop;
+  });
+  useEffect(() => {
+    if (!open) stopVoice.current();
+  }, [open]);
   const queued = chatVisibleQueue(agent.queue).length;
   return (
     <div
@@ -1359,7 +1428,7 @@ export function WidgetChat({
         className="app-widget-compose"
         onSubmit={(event) => {
           event.preventDefault();
-          void send();
+          send();
         }}
       >
         {queued ? (
@@ -1367,6 +1436,15 @@ export function WidgetChat({
             {t("logView.queue.count", { count: queued })}
           </div>
         ) : null}
+        {voice.voiceInput === "openai" ? (
+          <VoiceInputAlert dictation={voice.recorded} isMobile={isMobile} />
+        ) : (
+          voice.error && (
+            <p className="app-widget-voice-error" role="alert">
+              {voice.error}
+            </p>
+          )
+        )}
         <div className="app-widget-images">
           {images.map((image) => (
             <figure className="app-widget-image" key={image.id}>
@@ -1401,7 +1479,7 @@ export function WidgetChat({
           value={text}
           disabled={sending}
           onChange={(event) => {
-            update(event.target.value);
+            update(voice.reconcileEdit(event.target.value));
           }}
           onKeyDown={(event) => {
             if (
@@ -1411,7 +1489,7 @@ export function WidgetChat({
               !isTouchPrimary()
             ) {
               event.preventDefault();
-              void send();
+              send();
             }
           }}
         />
@@ -1424,6 +1502,27 @@ export function WidgetChat({
             >
               {t("appWidget.attach")}
             </button>
+            {voice.micShown && (
+              <button
+                type="button"
+                className="app-widget-mic"
+                aria-pressed={voice.listening}
+                aria-busy={voice.transcribing || undefined}
+                aria-label={t(
+                  voice.transcribing
+                    ? "voice.mic.transcribing"
+                    : "logView.voice.talkHint",
+                )}
+                title={t(
+                  voice.transcribing
+                    ? "voice.mic.transcribing"
+                    : "logView.voice.talkHint",
+                )}
+                onClick={voice.toggle}
+              >
+                <MicIcon />
+              </button>
+            )}
             <p className="app-widget-hint">
               {t(
                 screenshotHint(
