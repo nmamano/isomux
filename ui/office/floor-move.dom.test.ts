@@ -1,7 +1,9 @@
 // The floor move through the trap door and up the ladder (task c996e4a9):
 // it runs for a fixed time, only on a commit to the click's own target, and
-// every way it ends leaves only the live view, unmoved.
-// requestAnimationFrame is a manual queue, so frames run at chosen times.
+// every way it ends leaves only the live view, unmoved. The two rooms move as
+// one building, the back room under the front floor (task 28aa0955).
+// requestAnimationFrame and setTimeout are manual queues, so frames and
+// timers run at chosen times.
 import { beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile, stubGlobal } from "../test-support/dom.ts";
 
@@ -10,6 +12,7 @@ const { beginFloorMove, finishFloorMove, cancelFloorMove, FLOOR_MOVE_MS } =
   await import("./floor-move.ts");
 const { beginRoomTurn, finishRoomTurn, cancelRoomTurn } =
   await import("./room-turn.ts");
+const { SLAB_H, WALL_H } = await import("./back-room/geometry.ts");
 
 let frames = new Map<number, FrameRequestCallback>();
 let nextFrame = 1;
@@ -19,6 +22,14 @@ stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
   return nextFrame++;
 });
 stubGlobal("cancelAnimationFrame", (id: number) => void frames.delete(id));
+let timers = new Map<number, { at: number; cb: () => void }>();
+let nextTimer = 1;
+let clock = 0;
+stubGlobal("setTimeout", (cb: () => void, ms = 0) => {
+  timers.set(nextTimer, { at: clock + ms, cb });
+  return nextTimer++;
+});
+stubGlobal("clearTimeout", (id: number) => void timers.delete(id));
 stubGlobal("matchMedia", (query: string) => ({
   matches: reduce && query.includes("reduce"),
   media: query,
@@ -26,12 +37,22 @@ stubGlobal("matchMedia", (query: string) => ({
   removeEventListener() {},
 }));
 
-/** Runs the frames queued so far, as if `ms` passed since now. */
+/** Runs the frames queued so far, as if `ms` passed since a move's first
+ * frame. */
 function flush(ms = 0) {
   const due = [...frames.values()];
   frames = new Map();
-  const now = performance.now() + ms;
-  for (const cb of due) cb(now);
+  for (const cb of due) cb(1000 + ms);
+}
+
+/** Lets `ms` pass for the timers. */
+function advance(ms: number) {
+  clock += ms;
+  for (const [id, t] of [...timers])
+    if (t.at <= clock) {
+      timers.delete(id);
+      t.cb();
+    }
 }
 
 // happy-dom lays nothing out: give the floor and its views a real size.
@@ -63,6 +84,7 @@ beforeEach(() => {
   cancelFloorMove();
   cancelRoomTurn();
   frames = new Map();
+  timers = new Map();
   reduce = false;
   document.body.innerHTML = "";
   floor = sized(document.createElement("div"));
@@ -97,6 +119,23 @@ function dy(el: HTMLElement): number {
   )
     sum += ownDy(at);
   return sum;
+}
+
+/** How far the element is moved, [x, y] in px, by the translate of its own
+ * style and its ancestors' up to the floor. */
+function shift(el: HTMLElement): [number, number] {
+  let x = 0,
+    y = 0;
+  for (
+    let at: HTMLElement | null = el;
+    at && at !== floor;
+    at = at.parentElement
+  ) {
+    const [tx = "0", ty = "0"] = at.style.translate.trim().split(/\s+/);
+    x += parseFloat(tx) || 0;
+    y += parseFloat(ty) || 0;
+  }
+  return [x, y];
 }
 
 /** The vertical offset in px a style moves the element by: the translate
@@ -135,7 +174,39 @@ function expectAtRest(live: HTMLElement) {
   expect(live.style.transform).toBe("");
   expect(live.style.clipPath).toBe("");
   expect(live.style.opacity).toBe("");
+  for (const el of live.querySelectorAll<HTMLElement>("[data-floor-chrome]"))
+    expect(el.style.opacity).toBe("");
   expect(floor.style.overflow).toBe("");
+}
+
+/** An element's opacity as a number: 1 when its style sets none. */
+const opacity = (el: HTMLElement) =>
+  el.style.opacity === "" ? 1 : parseFloat(el.style.opacity);
+
+/** Gives a view its 950x700 scene box at (left, top) on screen, drawn at
+ * scale s, and returns the box's back corner on screen: scene point
+ * (475, 140), where the building's two walls meet its floor. */
+function scene(
+  el: HTMLElement,
+  left: number,
+  top: number,
+  s: number,
+): [number, number] {
+  const box = document.createElement("div");
+  box.setAttribute("data-floor-scene", "");
+  box.getBoundingClientRect = () => new DOMRect(left, top, 950 * s, 700 * s);
+  el.append(box);
+  return [left + 475 * s, top + 140 * s];
+}
+
+/** Gives a view a control that stays on the screen while the building
+ * moves. */
+function chrome(el: HTMLElement): HTMLElement {
+  const c = document.createElement("div");
+  c.setAttribute("data-floor-chrome", "");
+  c.setAttribute("data-name", `chrome-${el.getAttribute("data-name")}`);
+  el.append(c);
+  return c;
 }
 
 /** Clicks, commits the target and runs the first frame: the move is on. */
@@ -167,9 +238,56 @@ describe("a floor move", () => {
     expectAtRest(back);
   });
 
-  it("moves the camera down through the hatch and up the ladder", () => {
-    // Down: the old view leaves upward, the new one rises from below.
+  it("moves the two rooms as one building, the back room's wall tops under the front floor's slab", () => {
+    // A different place and zoom on each floor: the joint is still exact.
+    const sf = 1,
+      sb = 0.8;
+    const frontCorner = scene(front, 10, 20, sf);
+    const backCorner = scene(back, 40, -30, sb);
+    const joint = SLAB_H * sf + WALL_H * sb;
+    // Where the back room's corner is on screen, less where the building
+    // says it must be: under the front room's corner, `joint` lower.
+    const gap = (frontEl: HTMLElement, backEl: HTMLElement) => {
+      const [fx, fy] = shift(frontEl);
+      const [bx, by] = shift(backEl);
+      return [
+        backCorner[0] + bx - (frontCorner[0] + fx),
+        backCorner[1] + by - (frontCorner[1] + fy) - joint,
+      ];
+    };
+
+    // Down: the old front room starts where it was, the back room hangs
+    // under it, and both move together.
     start("down");
+    expect(shift(oldCopy("front"))).toEqual([0, 0]);
+    for (const ms of [0, FLOOR_MOVE_MS / 2]) {
+      flush(ms);
+      const [gx, gy] = gap(oldCopy("front"), back);
+      expect(gx).toBeCloseTo(0, 6);
+      expect(gy).toBeCloseTo(0, 6);
+    }
+    expect(shift(oldCopy("front"))[1]).toBeLessThan(0);
+    flush(FLOOR_MOVE_MS + 50);
+    expectAtRest(back);
+
+    // Up: the old back room starts where it was, under the front room.
+    start("up");
+    expect(shift(oldCopy("back"))).toEqual([0, 0]);
+    for (const ms of [0, FLOOR_MOVE_MS / 2]) {
+      flush(ms);
+      const [gx, gy] = gap(front, oldCopy("back"));
+      expect(gx).toBeCloseTo(0, 6);
+      expect(gy).toBeCloseTo(0, 6);
+    }
+    expect(shift(oldCopy("back"))[1]).toBeGreaterThan(0);
+    flush(FLOOR_MOVE_MS + 50);
+    expectAtRest(front);
+  });
+
+  it("without scene boxes, the new view comes from a whole view height away", () => {
+    // Down: the new view starts a view height below and rises.
+    start("down");
+    expect(dy(back)).toBeCloseTo(H, 6);
     flush(FLOOR_MOVE_MS / 2);
     expect(dy(oldCopy("front"))).toBeLessThan(-H / 4);
     expect(dy(back)).toBeGreaterThan(H / 4);
@@ -178,11 +296,69 @@ describe("a floor move", () => {
 
     // Up: the mirror.
     start("up");
+    expect(dy(front)).toBeCloseTo(-H, 6);
     flush(FLOOR_MOVE_MS / 2);
     expect(dy(oldCopy("back"))).toBeGreaterThan(H / 4);
     expect(dy(front)).toBeLessThan(-H / 4);
     flush(FLOOR_MOVE_MS + 50);
     expectAtRest(front);
+  });
+
+  it("paints the front room over the back room, and fades the room the camera leaves or nears through the floor", () => {
+    const names = () =>
+      [...floor.children].map((el) => el.getAttribute("data-name"));
+    const end = 0.98 * FLOOR_MOVE_MS;
+
+    // Down: the front copy is over the back room. The back room is not
+    // seen at the click and is all there at the end; the front room is the
+    // reverse.
+    start("down");
+    expect(names()).toEqual(["back", null, "chat"]);
+    expect(opacity(oldCopy("front"))).toBe(1);
+    expect(opacity(back)).toBe(0);
+    flush(end);
+    expect(opacity(oldCopy("front"))).toBe(0);
+    expect(opacity(back)).toBe(1);
+    flush(FLOOR_MOVE_MS + 50);
+    expectAtRest(back);
+
+    // Up: the live front room is over the back copy. It is not seen at the
+    // click and is all there at the end; the back room fades away before its
+    // copy goes.
+    start("up");
+    expect(names()).toEqual([null, "front", "chat"]);
+    expect(opacity(front)).toBe(0);
+    expect(opacity(oldCopy("back"))).toBe(1);
+    flush(end);
+    expect(opacity(front)).toBe(1);
+    expect(opacity(oldCopy("back"))).toBeLessThan(0.1);
+    flush(FLOOR_MOVE_MS + 50);
+    expectAtRest(front);
+  });
+
+  it("fades the old view's controls out and the new view's in, so no control rides across the screen", () => {
+    chrome(front);
+    const live = chrome(back);
+    const copied = () =>
+      added()[0].querySelector<HTMLElement>('[data-name="chrome-front"]')!;
+    start("down");
+    expect(opacity(copied())).toBe(1);
+    expect(opacity(live)).toBe(0);
+    flush(FLOOR_MOVE_MS / 2);
+    expect(opacity(copied())).toBe(0);
+    expect(opacity(live)).toBe(0);
+    flush(0.98 * FLOOR_MOVE_MS);
+    expect(opacity(live)).toBeGreaterThan(0.8);
+    flush(FLOOR_MOVE_MS + 50);
+    expectAtRest(back);
+
+    // A cancel in the middle gives the live controls back too.
+    commit(front);
+    start("down");
+    flush(FLOOR_MOVE_MS / 2);
+    expect(opacity(live)).toBe(0);
+    cancelFloorMove();
+    expectAtRest(back);
   });
 
   it("does nothing when the system asks for reduced motion", () => {
@@ -230,9 +406,24 @@ describe("a floor move", () => {
     }
   });
 
-  it("drops a click whose switch committed nothing, so a later switch does not move", () => {
+  it("waits for a switch that commits frames after the click, but drops a click that committed nothing", () => {
+    // Up the ladder can go back in the browser history: the switch commits
+    // on the popstate event, after the next frame.
+    commit(back);
+    beginFloorMove(floor, "up", "r1");
+    flush();
+    advance(100);
+    commit(front);
+    finishFloorMove("r1", false);
+    flush();
+    expect(added()).toHaveLength(1);
+    flush(FLOOR_MOVE_MS + 50);
+    expectAtRest(front);
+
+    // A click whose switch never came: a later switch does not move.
     beginFloorMove(floor, "down", "r1");
-    flush(); // the frame after the click: no layout effect claimed it
+    flush();
+    advance(1000);
     commit(back);
     finishFloorMove("r1", true); // e.g. the "b" key later
     flush();

@@ -96,6 +96,7 @@ export function ZoomControls({
   return (
     <div
       data-no-pan
+      data-floor-chrome
       style={{
         position: "absolute",
         bottom: 12,

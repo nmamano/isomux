@@ -1017,6 +1017,7 @@ export function BackRoomScreen({
       {/* The bar floats over the room, so the room's view is the front's
           size and the building fits it as the front's does. */}
       <div
+        data-floor-chrome
         style={{
           position: "absolute",
           top: 0,
@@ -1090,6 +1091,7 @@ export function BackRoomScreen({
         >
           <div
             ref={attachRoom}
+            data-floor-scene
             className="back-room-still"
             // The front scene's centring and phone scale (OfficeView).
             style={{

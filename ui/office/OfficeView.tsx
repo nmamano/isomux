@@ -835,6 +835,7 @@ export function OfficeView({
                   viewport.setContent(el);
                   contentEl.current = el;
                 }}
+                data-floor-scene
                 style={{
                   // Custom properties are legal in an inline style but absent
                   // from CSSProperties, the same cast Ghost.tsx makes.
