@@ -1197,6 +1197,98 @@ describe("the task an ask is filed as", () => {
     expect(title).toBe("Ship the build?");
   });
 
+  // Task 3f5ce667: the title is plain text from the first line that says
+  // what the ask is about. A colour span that leads a line is a label, known
+  // from the markup alone (no label words): a line of only a label is
+  // skipped, and a label before text on its line gives way to that text.
+  it("takes a plain-text title past a leading colour label", () => {
+    const titleOf = (prompt: string) =>
+      askTaskFields(ask({ prompt }), "Asker").title;
+    const cases: [string, string][] = [
+      // A line of only a label is skipped, its inner markup too.
+      [
+        ":green[**Quick stamp**]\nShip the build?\nCI is green.",
+        "Ship the build?",
+      ],
+      [":green[A]\n\n:orange[B]\nShip the build?", "Ship the build?"],
+      // A retired colour name is markup too, so it is a label.
+      [":blue[Decide]\nShip the build?", "Ship the build?"],
+      // A label before text on its line: the text, past the separators.
+      [":green[Quick stamp] Ship X?", "Ship X?"],
+      [":green[Quick stamp] - Ship X?", "Ship X?"],
+      [":green[Quick stamp] — Ship X?", "Ship X?"],
+      [":red[Decide]: Ship X?", "Ship X?"],
+      [":purple[Decide] · Ship X?", "Ship X?"],
+      [":purple[Decide] | Ship X?", "Ship X?"],
+      ["  :green[Decide] Ship X?", "Ship X?"],
+      // A colour span later on the line is part of the subject.
+      ["The build is :red[broken] on main", "The build is broken on main"],
+      ["Ship :green[now]", "Ship now"],
+      // Other inline markup gives its text.
+      [
+        "**Merge** `t-3f5ce667` into [main](https://example.com)?",
+        "Merge t-3f5ce667 into main?",
+      ],
+      // A name that is no colour is not markup: it stays as typed, and its
+      // line is the subject (a second line shows it was not skipped).
+      [":foo[Quick stamp] Ship X?\nCI is green.", ":foo[Quick stamp] Ship X?"],
+      // With no label, a line's leading marks are its own text.
+      [
+        "-5 degrees on the box. Ship anyway?",
+        "-5 degrees on the box. Ship anyway?",
+      ],
+      ["...and then it hung?", "...and then it hung?"],
+      // A prompt of only labels: the first label's text, never its markup.
+      [":green[**Quick stamp**]\n\n:red[Decide]", "Quick stamp"],
+    ];
+    expect(cases.map(([prompt]) => [prompt, titleOf(prompt)])).toEqual(cases);
+  });
+
+  it("gives a prompt with no text a plain title that names the ask", () => {
+    const markup = /[[\]()*`!:]/;
+    const fromAgent = askTaskFields(
+      ask({ prompt: "![chart](/api/files/x.png)" }),
+      "Asker",
+    ).title;
+    const fromApp = askTaskFields(
+      ask({
+        prompt: "\n![chart](/api/files/x.png)\n",
+        app: { name: "deploy-bot", createdAt: 1 },
+      }),
+      "Asker",
+    ).title;
+    expect({
+      agent: [fromAgent.includes("abcd1234"), fromAgent.includes("Asker")],
+      app: [fromApp.includes("abcd1234"), fromApp.includes("deploy-bot")],
+      markup: [markup.test(fromAgent), markup.test(fromApp)],
+    }).toEqual({
+      agent: [true, true],
+      app: [true, true],
+      markup: [false, false],
+    });
+  });
+
+  it("cuts the plain text, not the markup", () => {
+    // The markup takes the line past the limit; its text fits, so it is
+    // whole.
+    const fits = "a".repeat(ASK_TASK_TITLE_MAX - 2);
+    expect(
+      askTaskFields(ask({ prompt: `:green[Label] **${fits}**` }), "Asker")
+        .title,
+    ).toBe(fits);
+    // Text past the limit is cut to it, with no markup left.
+    const long = "a".repeat(ASK_TASK_TITLE_MAX + 5);
+    const { title } = askTaskFields(
+      ask({ prompt: `:green[Label] **${long}**` }),
+      "Asker",
+    );
+    expect({
+      points: codePoints(title),
+      head: title.startsWith("a".repeat(ASK_TASK_TITLE_MAX - 1)),
+      markup: /[*:[\]]/.test(title),
+    }).toEqual({ points: ASK_TASK_TITLE_MAX, head: true, markup: false });
+  });
+
   it("cuts a long first line by code points, never through a character", () => {
     // An exact fit stays whole.
     const fits = "a".repeat(ASK_TASK_TITLE_MAX);

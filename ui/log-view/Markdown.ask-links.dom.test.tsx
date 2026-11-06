@@ -287,7 +287,8 @@ it("chips an ask id in a user bubble once it resolves; a click opens the ask", (
 // A chip's title and label are plain text (task b2f055c6): the prompt's
 // inline markup (colour, bold, code, a link) gives its text only, in
 // Markdown and in a user bubble alike, and the label's first words are
-// counted on that text.
+// counted on that text. A colour span that leads the line is a label, not
+// the subject (task 3f5ce667), so the title starts past it.
 it("draws a marked-up prompt's title and label as its plain text, in Markdown and in a user bubble", () => {
   const marked: ResolvedAsk = {
     ...ASK,
@@ -306,17 +307,44 @@ it("draws a marked-up prompt's title and label as its plain text, in Markdown an
     const label = chips[0].getAttribute("data-task-label") ?? "";
     expect({
       title: chips[0].getAttribute("title"),
-      words: label.includes("Quick action Run bun"),
-      past: label.includes("test"),
+      words: label.includes("Run bun test on"),
+      past: label.includes("main"),
       raw: /:purple\[|\*\*|`|\]\(/.test(label),
     }).toEqual({
-      title: "Quick action Run bun test on main now?",
+      title: "Run bun test on main now?",
       words: true,
       past: false,
       raw: false,
     });
     view.unmount();
   }
+});
+
+// A first line of only a colour label is skipped (task 3f5ce667).
+it("takes the title from the line after a line of only a colour label", () => {
+  const marked: ResolvedAsk = {
+    ...ASK,
+    prompt:
+      ":green[**Quick stamp**]\nShip the build now?\nThe tests are green.",
+  };
+  const view = render(
+    withRefs(
+      refs({ [ASK.id]: marked }),
+      <Markdown
+        content={`See ${ASK.id} first.`}
+        tasks={new Map()}
+        onOpenTask={() => {}}
+      />,
+    ),
+  );
+  const chips = askChips(view.container);
+  expect(chips.length).toBe(1);
+  const label = chips[0].getAttribute("data-task-label") ?? "";
+  expect({
+    title: chips[0].getAttribute("title"),
+    words: label.includes("Ship the build now?"),
+  }).toEqual({ title: "Ship the build now?", words: true });
+  view.unmount();
 });
 
 // The chip is the third one-line view of an ask (task 198af893): a prompt

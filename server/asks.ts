@@ -20,6 +20,7 @@
 import { readFileSync, renameSync } from "fs";
 import { isAbsolute } from "path";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { askSubject } from "../ui/members-chat/one-line-text.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   tokenRooms,
@@ -1467,8 +1468,9 @@ export function askAgentWire(
   };
 }
 
-// The task a member files an ask as: the title is the prompt's first
-// non-blank line, cut to ASK_TASK_TITLE_MAX code points; the description
+// The task a member files an ask as: the title is the ask's subject line in
+// plain text (askSubject), or the ask's id and source for a prompt with no
+// text, cut to ASK_TASK_TITLE_MAX code points; the description
 // holds the whole prompt, the options (the recommended one marked), the link,
 // the commands and files, the member's note when they typed one, and the
 // agent and ask it came from.
@@ -1478,8 +1480,12 @@ export function askTaskFields(
   agentName: string,
   note?: string,
 ): { title: string; description: string } {
-  const firstLine = entry.prompt.split("\n").find((l) => l.trim() !== "");
-  const line = Array.from((firstLine ?? "").trim().replace(/\s+/g, " "));
+  const line = Array.from(
+    askSubject(entry.prompt) ||
+      (entry.app
+        ? `Ask ${entry.id} from app ${entry.app.name}`
+        : `Ask ${entry.id} from ${agentName}`),
+  );
   const title =
     line.length > ASK_TASK_TITLE_MAX
       ? `${line.slice(0, ASK_TASK_TITLE_MAX - 1).join("")}…`

@@ -2,7 +2,7 @@
 // card puts in front of the chat draft (AskAboutButton): one line, at most
 // EXCERPT_POINTS code points, cut at a word where the language has spaces.
 
-import { oneLinePlainText } from "../members-chat/InlineMarkdown.tsx";
+import { oneLinePlainText } from "../members-chat/one-line-text.ts";
 
 const EXCERPT_POINTS = 40;
 // A cut backs off to a space only past this point; a hard cut is better than
