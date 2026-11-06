@@ -1410,6 +1410,12 @@ export function AskActionBlock({
             setPhase("idle");
             setPreview(null);
           }}
+          // Keep the focus on the armed button: Safari clears the focus on a
+          // mousedown on a button, and that blur would end the confirm before
+          // the second click lands.
+          onMouseDown={(e) => {
+            if (phase === "confirming") e.preventDefault();
+          }}
           onClick={() => void apply()}
           style={{
             marginTop: 6,

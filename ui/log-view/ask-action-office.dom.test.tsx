@@ -10,7 +10,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, render, fireEvent, waitFor } =
+const { act, render, fireEvent, createEvent, waitFor } =
   await import("@testing-library/react");
 const { useEffect } = await import("react");
 const { StoreProvider, useDispatch } = await import("../store.tsx");
@@ -275,14 +275,28 @@ it("a room grant and a promote run on the first click", async () => {
 // takes the focus: a click does not focus a button in every browser (Safari),
 // and a prune's button is disabled during its preview, which drops the focus
 // with no blur (Chrome, seen with a real mouse). Without the focus, no blur
-// ever ends the confirm.
-it("each confirm takes the focus and ends when the Apply button loses it: the next click asks again and runs nothing", async () => {
+// ever ends the confirm. The armed button's mousedown keeps that focus:
+// Safari clears the focus on a mousedown on a button, and that blur would end
+// the confirm before the second click lands (task 418887d8).
+it("each confirm takes the focus, keeps it on a mousedown on Apply, and ends when the Apply button loses it: the next click asks again and runs nothing", async () => {
   read = readRemoved;
   answer = async () => PREVIEW;
   const steps = [...ASKS_AGAIN, ["con00009", PRUNE_STEP]] as const;
   const { view, apply } = await mountSteps(steps);
+  // Whether the mousedown keeps the focus where it is.
+  const keepsFocus = (button: HTMLButtonElement) => {
+    const ev = createEvent.mouseDown(button);
+    fireEvent(button, ev);
+    return ev.defaultPrevented;
+  };
   for (const [id] of steps) {
     await waitFor(() => expect(apply(id), id).not.toBe(null));
+    // Not armed: the mousedown does what a browser does.
+    expect([id, isConfirm(apply(id)), keepsFocus(apply(id)!)]).toEqual([
+      id,
+      false,
+      false,
+    ]);
     await act(async () => {
       fireEvent.click(apply(id)!);
       await new Promise((r) => setTimeout(r, 0));
@@ -296,6 +310,11 @@ it("each confirm takes the focus and ends when the Apply button loses it: the ne
       document.activeElement?.hasAttribute("data-ask-action-apply"),
       id,
     ).toBe(true);
+    expect([id, keepsFocus(apply(id)!), isConfirm(apply(id))]).toEqual([
+      id,
+      true,
+      true,
+    ]);
     await act(async () => {
       fireEvent.blur(apply(id)!);
     });
