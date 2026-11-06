@@ -72,6 +72,11 @@ export type Capability =
   // an owner, or a token or agent whose user is an office owner. office:admin
   // keeps the other owner routes (access, update, storage).
   | "office:settings"
+  // Lock the office and start an owner export from inside it (task cdd7883d).
+  // Held by USER and the AGENT baseline (so the PRIVILEGED set too); absent
+  // from API, RUN and APP. Its guard admits an owner, or an agent whose
+  // manager is an office owner. The export's download stays office:admin.
+  | "office:rescue"
   | "invite:manage"
   // Show a saved secret's value: the member's own, or an office one for an
   // owner. Held by USER and API only; no agent, run or app set holds it, so
@@ -225,6 +230,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "user:admin",
   "office:admin",
   "office:settings",
+  "office:rescue",
   "invite:manage",
   "secret:show",
   "session:manage",
@@ -274,6 +280,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
   "pager:read",
   "pager:write",
   "voice:use",
+  "office:rescue",
 ];
 
 // PRIVILEGED AGENT set: the baseline AGENT set PLUS a curated allowlist of the
@@ -392,6 +399,7 @@ export const APP_NEVER_INHERITED: readonly Capability[] = [
   "agent:send-to-api-token",
   "chat:members",
   "secret:show",
+  "office:rescue",
 ];
 
 // An app's set when its owner agent holds ownerSet: the owner's set minus

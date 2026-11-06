@@ -53,6 +53,7 @@ import {
   userOrApi,
   selfOrEnvOwner,
   officeOwner,
+  officeOwnerOrOwnersAgent,
   officeSettingsOwner,
   auditOwner,
   officeEnvOwner,
@@ -443,6 +444,12 @@ const bodyRoom = (name: string): Guard =>
   requiresRoomAccess({ kind: "bodyRoomId", name });
 
 type NoContent = void;
+interface OfficeExportStatusRes {
+  state: "running" | "ready" | "failed";
+  bytes?: number;
+  error?: string;
+  expiresAt?: number;
+}
 type MessageAck = { messageId: string };
 // agents.sendMessage's own ack. `queued` answers the question the
 // sender cannot otherwise see: true = the message is parked behind the receiver's
@@ -2938,6 +2945,46 @@ export const API_ROUTES: readonly RouteDef[] = [
     audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
     method: "POST",
     path: "/api/office/update",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+
+  // The rescue kit inside the office (task cdd7883d; Nil, 2026-11-06: owners
+  // and their agents). Lockdown writes its own audit row with the reason,
+  // like the host command's. The guard refuses an agent with a permission
+  // pack; the token areas are for the route contract.
+  defineRoute<{ reason: string }, { locked: true }>({
+    opId: "office.lockdown",
+    audit: { owner: "store" },
+    method: "POST",
+    path: "/api/office/lockdown",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
+  defineRoute<void, { id: string }>({
+    opId: "office.startExport",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/exports",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
+  }),
+  defineRoute<void, OfficeExportStatusRes>({
+    opId: "office.exportStatus",
+    method: "GET",
+    path: "/api/office/exports/:id",
+    auth: cap("office:rescue", officeOwnerOrOwnersAgent),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  // The bytes go to an owner's browser session only: an owner's agent can
+  // start an export and hand the owner this link, but never reads it.
+  defineRoute<void, void>({
+    opId: "office.downloadExport",
+    method: "GET",
+    path: "/api/office/exports/:id/download",
     auth: cap("office:admin", officeOwner),
     emits: [],
   }),

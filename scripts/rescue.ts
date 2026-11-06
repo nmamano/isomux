@@ -54,12 +54,18 @@ import { RESCUE_ACTOR, recordLockAudit } from "../server/lockdown-audit.ts";
 import { exportOffice } from "../server/office-export.ts";
 import { buildIncidentReport } from "../server/office-report.ts";
 import { CALVER_RELEASE_RE } from "../server/version.ts";
-import { OFFICE_PID_ENV } from "../server/stop-reap.ts";
+import {
+  endLeftovers,
+  findLeftovers,
+  readProcesses,
+  type ProcessInfo,
+} from "../server/office-leftovers.ts";
+
+export { findLeftovers, type ProcessInfo };
 
 const UPDATE_CONF = "/etc/isomux/update.conf";
 const STOP_TIMEOUT_MS = 60_000;
 const READY_TIMEOUT_MS = 90_000;
-const KILL_GRACE_MS = 2_000;
 const REPORT_JOURNAL_LINES = 200;
 
 export interface RescueConfig {
@@ -111,14 +117,6 @@ export function loadRescueConfig(
   };
 }
 
-export interface ProcessInfo {
-  pid: number;
-  ppid: number;
-  uid: number;
-  /** Empty when the environment cannot be read. */
-  env: Record<string, string>;
-}
-
 /** What rescue does to the host. Tests pass a fake. */
 export interface RescueHost {
   systemctl(args: string[]): { code: number; stdout: string };
@@ -160,29 +158,6 @@ export function insideOfficeUnit(
     .some((line) =>
       line.split(":").slice(2).join(":").split("/").includes(unit),
     );
-}
-
-/** The office processes left after the unit stopped: they carry
- *  ISOMUX_OFFICE_PID equal to the unit's main pid and run as one of `uids`.
- *  Never `selfPid` or one of its ancestors. */
-export function findLeftovers(
-  procs: ProcessInfo[],
-  opts: { officePid: number; uids: number[]; selfPid: number },
-): number[] {
-  const byPid = new Map(procs.map((p) => [p.pid, p]));
-  const keep = new Set<number>();
-  for (let pid = opts.selfPid; pid > 0 && !keep.has(pid); ) {
-    keep.add(pid);
-    pid = byPid.get(pid)?.ppid ?? 0;
-  }
-  return procs
-    .filter(
-      (p) =>
-        !keep.has(p.pid) &&
-        opts.uids.includes(p.uid) &&
-        p.env[OFFICE_PID_ENV] === String(opts.officePid),
-    )
-    .map((p) => p.pid);
 }
 
 interface Args {
@@ -361,27 +336,14 @@ class Rescue {
   private async killLeftovers(): Promise<number[]> {
     const uids = [this.host.officeUid];
     if (this.host.splitAgentUid !== null) uids.push(this.host.splitAgentUid);
-    const opts = {
+    return await endLeftovers({
       officePid: this.officePid(),
       uids,
       selfPid: this.host.selfPid,
-    };
-    if (opts.officePid <= 0) return [];
-    const first = findLeftovers(this.host.processes(), opts);
-    for (const pid of first) this.tryKill(pid, "SIGTERM");
-    if (first.length === 0) return [];
-    await this.host.sleep(KILL_GRACE_MS);
-    for (const pid of findLeftovers(this.host.processes(), opts))
-      this.tryKill(pid, "SIGKILL");
-    return first;
-  }
-
-  private tryKill(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
-    try {
-      this.host.kill(pid, signal);
-    } catch {
-      // Gone already.
-    }
+      processes: () => this.host.processes(),
+      kill: (pid, signal) => this.host.kill(pid, signal),
+      sleep: (ms) => this.host.sleep(ms),
+    });
   }
 
   async lockdown(args: Args): Promise<number> {
@@ -784,33 +746,6 @@ function newestBackup(stateRoot: string): string | null {
   } catch {
     return null;
   }
-}
-
-function readProcesses(): ProcessInfo[] {
-  const procs: ProcessInfo[] = [];
-  for (const name of readdirSync("/proc")) {
-    if (!/^\d+$/.test(name)) continue;
-    try {
-      const status = readFileSync(`/proc/${name}/status`, "utf8");
-      const ppid = Number(/^PPid:\s+(\d+)/m.exec(status)?.[1] ?? 0);
-      const uid = Number(/^Uid:\s+(\d+)/m.exec(status)?.[1] ?? -1);
-      const env: Record<string, string> = {};
-      try {
-        for (const entry of readFileSync(`/proc/${name}/environ`, "utf8").split(
-          "\0",
-        )) {
-          const eq = entry.indexOf("=");
-          if (eq > 0) env[entry.slice(0, eq)] = entry.slice(eq + 1);
-        }
-      } catch {
-        // Another user's process: no environment.
-      }
-      procs.push({ pid: Number(name), ppid, uid, env });
-    } catch {
-      // Exited while we read it.
-    }
-  }
-  return procs;
 }
 
 function splitAgentUid(stateRoot: string): number | null {

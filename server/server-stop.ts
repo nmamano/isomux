@@ -59,6 +59,13 @@ export function setStopFinalStep(
   finalStep = step;
 }
 
+/** The final step setStopFinalStep set, or null. */
+export function getStopFinalStep():
+  | ((signalAt: number) => Promise<unknown>)
+  | null {
+  return finalStep;
+}
+
 function dieBy(signal: StopSignal): void {
   process.off("SIGINT", onSigint);
   process.off("SIGTERM", onSigterm);

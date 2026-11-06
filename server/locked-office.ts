@@ -19,6 +19,7 @@ import {
   stopAppsForLock,
   type LockdownApps,
 } from "./lockdown.ts";
+import { sweepExportFiles } from "./office-export-jobs.ts";
 
 export interface LockedOfficeOpts {
   stateRoot: string;
@@ -26,6 +27,9 @@ export interface LockedOfficeOpts {
   /** "127.0.0.1" for a loopback bind; undefined binds every interface. */
   hostname?: string;
   apps: LockdownApps;
+  /** The backup folder, whose exports/ the lock empties; null when it cannot
+   *  be read. */
+  exportBaseDir: string | null;
 }
 
 export interface LockedOfficeHandle {
@@ -98,7 +102,8 @@ function escapeHtml(s: string): string {
 }
 
 /** Moves credential files aside (a safety net: the host command already did
- *  it unless it could not), stops apps, and binds the locked listener. */
+ *  it unless it could not), deletes owner exports, stops apps, and binds the
+ *  locked listener. */
 export async function startLockedOffice(
   opts: LockedOfficeOpts,
 ): Promise<LockedOfficeHandle> {
@@ -106,6 +111,8 @@ export async function startLockedOffice(
   const moved = quarantineCredentials(opts.stateRoot, new Date());
   if (moved.dir)
     console.log(`[lockdown] moved ${moved.moved.join(", ")} to ${moved.dir}`);
+  // No owner export survives a lock (task cdd7883d, slice 4).
+  if (opts.exportBaseDir) sweepExportFiles(opts.exportBaseDir);
   try {
     const stopped = stopAppsForLock(opts.stateRoot, opts.apps);
     if (stopped.length > 0)

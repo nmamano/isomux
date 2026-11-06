@@ -317,6 +317,10 @@ async function bootTestServer(
         backupDir: TEST_BACKUP_DIR,
         snapshotDir: null,
       }),
+      // Never the host's backup dir: the boot deletes what is left in its
+      // exports folder, and an agent shell inherits ISOMUX_BACKUP_DIR. A test
+      // that passes its own rescue seams names its own folder.
+      rescue: { exportBaseDir: TEST_BACKUP_DIR },
       // Never the host's /etc/isomux/install-kind marker.
       installKind: "self-hosted",
       // Never the host's sudo: a path that does not exist, so sudo requests

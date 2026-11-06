@@ -51,6 +51,12 @@ import {
   type SessionLookup,
 } from "./auth.ts";
 import { matchRoute } from "./routes/match.ts";
+import {
+  officeLockedNow,
+  trackOfficeSocket,
+  untrackOfficeSocket,
+} from "./office-lock-gate.ts";
+import { lockedResponse } from "./locked-office.ts";
 import { handleMcpRequest, type McpEndpointDeps } from "./mcp-endpoint.ts";
 import {
   FOLDER_FILES_MCP_PATH,
@@ -287,6 +293,9 @@ export function createFrontDoor(deps: FrontDoorDeps) {
       maxRequestBodySize: 512 * 1024 * 1024, // 512MB
       ...(BIND_LOOPBACK_ONLY ? { hostname: "127.0.0.1" } : {}),
       async fetch(req, server) {
+        // Locked by the lockdown route (task cdd7883d): ahead of everything,
+        // app hosts, webhooks, MCP, static files and upgrades included.
+        if (officeLockedNow()) return lockedResponse(req);
         // Where the request comes from, decided once (server/proxy-trust.ts):
         // whether it is on-box, and the client address the rate limits key on.
         // Read on first use, because an app-host request that is not relayed
@@ -891,6 +900,11 @@ export function createFrontDoor(deps: FrontDoorDeps) {
         // `ws.data` is discriminated, but `ServerWebSocket<T>` is invariant in T,
         // so the runtime check is what makes it sound.
         open(socket) {
+          if (officeLockedNow()) {
+            socket.close(1012, "office locked");
+            return;
+          }
+          trackOfficeSocket(socket);
           if (socket.data.kind === "extension") {
             extensionService!.open(socket as ServerWebSocket<ExtensionWsData>);
             return;
@@ -1060,6 +1074,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           sendPresenceListTo(ws);
         },
         message(socket, data) {
+          if (officeLockedNow()) return;
           if (socket.data.kind === "extension") {
             extensionService!.message(
               socket as ServerWebSocket<ExtensionWsData>,
@@ -1103,6 +1118,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
           outboxes.get(socket as ServerWebSocket<OfficeWsData>)?.drain();
         },
         close(socket, code, reason) {
+          untrackOfficeSocket(socket);
           if (socket.data.kind === "extension") {
             extensionService!.close(
               socket as ServerWebSocket<ExtensionWsData>,

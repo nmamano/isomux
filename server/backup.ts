@@ -133,6 +133,11 @@ export function loadBackupSettings(): BackupSettings {
   };
 }
 
+/** The backup folder now: the owner export keeps its files in it. */
+export function currentBackupDir(): string {
+  return currentBackupConfig().backupDir;
+}
+
 // A snapshot of the settings for one run. A save during a run never changes
 // the folder or the count the run already holds.
 function currentBackupConfig(

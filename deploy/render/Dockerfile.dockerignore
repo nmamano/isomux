@@ -15,6 +15,7 @@
 !scripts/stamp-ui-build.ts
 !scripts/build-browser-extension.ts
 !scripts/extension-zip.ts
+!scripts/rescue.ts
 !deploy/container/**
 !deploy/render/Dockerfile
 !deploy/render/Dockerfile.dockerignore

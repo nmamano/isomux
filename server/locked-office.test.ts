@@ -27,6 +27,7 @@ import {
   LOCKDOWN_DIR_PREFIX,
   QUARANTINED_FILES,
 } from "./lockdown.ts";
+import { EXPORTS_SUBDIR } from "./office-export-jobs.ts";
 
 const REPO = join(import.meta.dir, "..");
 const ENTRY = join(import.meta.dir, "isomux-office.ts");
@@ -82,7 +83,7 @@ async function rawRequest(
   });
 }
 
-test("a state root with the lock marker boots the locked office: /readyz says locked, every other request gets the locked 503, and the credential files are moved aside", async () => {
+test("a state root with the lock marker boots the locked office: /readyz says locked, every other request gets the locked 503, the credential files are moved aside, and no owner export is left", async () => {
   dir = mkdtempSync(join(tmpdir(), "locked-office-"));
   const home = join(dir, "home");
   const stateRoot = join(home, ".isomux");
@@ -103,6 +104,11 @@ test("a state root with the lock marker boots the locked office: /readyz says lo
       stateRoot,
     }),
   );
+  // An owner export a lock must not leave downloadable on the next unlock
+  // (slice 4): the locked boot empties the exports folder of the backup folder.
+  const strayExport = join(dir, "backups", EXPORTS_SUBDIR, "office.tar.gz");
+  mkdirSync(join(dir, "backups", EXPORTS_SUBDIR), { recursive: true });
+  writeFileSync(strayExport, "the office, packed");
   const port = await freePort();
   office = Bun.spawn([process.execPath, ENTRY], {
     cwd: REPO,
@@ -198,6 +204,7 @@ test("a state root with the lock marker boots the locked office: /readyz says lo
   // The safety net ran before the listener answered.
   for (const name of QUARANTINED_FILES)
     expect(existsSync(join(stateRoot, name))).toBe(false);
+  expect(existsSync(strayExport)).toBe(false);
   const moved = readdirSync(stateRoot).filter((n) =>
     n.startsWith(LOCKDOWN_DIR_PREFIX),
   );

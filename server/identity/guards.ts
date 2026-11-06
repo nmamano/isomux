@@ -329,6 +329,21 @@ export const isOfficeOwnerIdentity = (identity: Identity): boolean =>
 export const officeOwner: Guard = ({ identity }) =>
   isOfficeOwnerIdentity(identity) ? ALLOW : FORBIDDEN;
 
+// Lock the office or start an owner export from inside it (task cdd7883d;
+// Nil, 2026-11-06: owners and their agents). An owner's browser session, or
+// an agent whose manager is an office owner by the live record, with no
+// permission pack: an agent below Standard may read text from strangers. Not
+// an owner's API token, a cron run or an app, so not hasOfficeOwnerReach.
+export const officeOwnerOrOwnersAgent: Guard = ({ identity, deps }) => {
+  if (isOfficeOwnerIdentity(identity)) return ALLOW;
+  return identity.scope === "agent" &&
+    identity.apiTokenLimits === undefined &&
+    identity.userId !== null &&
+    deps.isOfficeOwnerUserId(identity.userId)
+    ? ALLOW
+    : FORBIDDEN;
+};
+
 // An office owner's reach, the one answer for every guard that gives it: an
 // owner by session role, or an agent (an app with a live owner agent counts as
 // that agent) or API token whose user is an office owner by the live record,

@@ -10,6 +10,8 @@ Resolve your page with `POST /api/pager/:id/resolve` when the problem is gone: t
 
 An app you built can page its owner from its server code with its `ISOMUX_APP_TOKEN`: `POST /api/app/pager` with the same fields, and `POST /api/app/pager/resolve` with `{id}` or `{key}` to resolve its own open or acked page. The page's room is the room of the agent that registered the app, or none when that agent is gone.
 
+When the office itself may be under attack, or a member needs its content out of it, the `rescue` page tells how to export or lock it.
+
 Safe example: `GET /api/pager`.
 
 ## Route contract

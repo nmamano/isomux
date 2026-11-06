@@ -119,6 +119,7 @@ export const AUDIT_OPERATIONS = [
   "office.setAccess",
   "office.setInstructions",
   "office.setSettings",
+  "office.startExport",
   "office.triggerUpdate",
   "office.unlock",
   "office.update",

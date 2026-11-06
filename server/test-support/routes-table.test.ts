@@ -1741,6 +1741,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   // update_status event is fed by the checker, never by these routes.
   "office.updateInfo": { caps: ["office:admin"], emits: [] },
   "office.triggerUpdate": { caps: ["office:admin"], emits: [] },
+  // The rescue kit inside the office (task cdd7883d): owners and their agents
+  // lock and start an export; only an owner's session downloads it.
+  "office.lockdown": { caps: ["office:rescue"], emits: [] },
+  "office.startExport": { caps: ["office:rescue"], emits: [] },
+  "office.exportStatus": { caps: ["office:rescue"], emits: [] },
+  "office.downloadExport": { caps: ["office:admin"], emits: [] },
   // Office settings, validation, backends
   "office.getSettings": { caps: ["office:settings"], emits: [] },
   "office.getMemberUsageStatus": { caps: ["office:settings"], emits: [] },
@@ -2191,6 +2197,11 @@ const APP_REFUSED_OPIDS = [
   "chatFiles.upload",
   "chatFiles.get",
   "chatFiles.getImage",
+  // App code serves strangers: it neither locks the office nor starts an
+  // export of it (task cdd7883d).
+  "office.lockdown",
+  "office.startExport",
+  "office.exportStatus",
 ];
 
 // An ORDINARY agent may also clear its own conversation, and take back its own

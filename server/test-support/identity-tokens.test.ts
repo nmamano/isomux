@@ -75,6 +75,9 @@ const AGENT_EXACT: Capability[] = [
   // Spawn agents, and kill the ones this agent spawned (task eb98cff1). The
   // child limits live in the spawn handler; members spawn through agent:manage.
   "agent:spawn",
+  // Lock the office and start an owner export from inside it (task cdd7883d).
+  // The officeOwnerOrOwnersAgent guard admits only an owner's agent.
+  "office:rescue",
 ];
 const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
   ["AGENT", AGENT_CAPABILITIES, AGENT_EXACT],
@@ -138,6 +141,7 @@ const EXACT_SETS: Array<[string, readonly Capability[], Capability[]]> = [
       "user:admin",
       "office:admin",
       "office:settings",
+      "office:rescue",
       "invite:manage",
       "secret:show",
       "session:manage",

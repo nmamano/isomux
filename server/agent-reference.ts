@@ -44,6 +44,8 @@ export const AGENT_REFERENCE_TOPICS = {
   "ask-commands": "The member runs your ask's command from the card",
   "messaging-apps":
     "Replies to the member's contacts in messaging apps, or you set up Discord for your manager",
+  rescue:
+    "The office may be under attack, or a member needs its content out: export or lock it",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -62,6 +64,7 @@ export const AGENT_REFERENCE_SUBPAGES: Readonly<
   "action-asks": "asks",
   "ask-commands": "asks",
   "messaging-apps": "messaging",
+  rescue: "pager",
 };
 
 // Pages only a privileged agent sees.
@@ -144,6 +147,9 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "office.setSettings": "office-settings",
   "office.readInstructions": "office-settings",
   "office.setInstructions": "office-settings",
+  "office.lockdown": "rescue",
+  "office.startExport": "rescue",
+  "office.exportStatus": "rescue",
   "apiTokenInbox.send": "messaging",
   "audit.list": "audit",
   "terminalRecordings.list": "audit",

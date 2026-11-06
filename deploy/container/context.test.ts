@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -8,7 +9,8 @@ import {
   symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { shipsToImage } from "../../control-plane/deploy/build-context.ts";
 import { spawnSync } from "node:child_process";
 
 const exporter = new URL("./context.py", import.meta.url).pathname;
@@ -91,4 +93,51 @@ test("legacy Render build has the same image and context contract", () => {
       readFileSync(new URL(`../render/${name}`, import.meta.url), "utf8"),
     ).toBe(readFileSync(new URL(`./${name}`, import.meta.url), "utf8"));
   }
+});
+
+// The container's rescue command runs scripts/rescue.ts inside the office
+// container (install-update-support.sh), and the owner export route runs
+// server/office-export-main.ts (task cdd7883d). Each, and every file it
+// imports, must be in the image by both build paths: the production context
+// (context.py's allowed()) and the Dockerfile's own rules.
+test("the image holds the rescue command and the export child, with every file they import", () => {
+  const repo = new URL("../..", import.meta.url).pathname;
+  // The relative-import closure of the two entries.
+  const transpiler = new Bun.Transpiler({ loader: "ts" });
+  const seen = new Set<string>();
+  const queue = ["scripts/rescue.ts", "server/office-export-main.ts"];
+  while (queue.length > 0) {
+    const file = queue.pop()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const source = readFileSync(join(repo, file), "utf8");
+    for (const { path } of transpiler.scanImports(source)) {
+      if (!path.startsWith(".")) continue;
+      const target = relative(repo, resolve(repo, dirname(file), path));
+      queue.push(existsSync(join(repo, target)) ? target : `${target}.ts`);
+    }
+  }
+  const files = [...seen].sort();
+  expect(files.length).toBeGreaterThan(2);
+
+  const refused = spawnSync(
+    "python3",
+    [
+      "-c",
+      "import json, sys; sys.path.insert(0, sys.argv[1]); import context; " +
+        "print(json.dumps([p for p in json.loads(sys.argv[2]) if not context.allowed(p)]))",
+      dirname(exporter),
+      JSON.stringify(files),
+    ],
+    { encoding: "utf8" },
+  );
+  expect(refused.status).toBe(0);
+  const rules = readFileSync(
+    new URL("./Dockerfile.dockerignore", import.meta.url),
+    "utf8",
+  ).split("\n");
+  expect({
+    contextPy: JSON.parse(refused.stdout),
+    dockerignore: files.filter((file) => !shipsToImage(rules, file)),
+  }).toEqual({ contextPy: [], dockerignore: [] });
 });

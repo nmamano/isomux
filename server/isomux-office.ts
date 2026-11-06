@@ -71,6 +71,7 @@ import type { EnqueueResult } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
 import { armStopReap } from "./stop-reap.ts";
+import { runAtServerStop } from "./server-stop.ts";
 import { normalizeBunRunPath } from "./bun-run-path.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
 import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
@@ -102,6 +103,7 @@ import {
 } from "./update-checker.ts";
 import {
   startBackupScheduler,
+  currentBackupDir,
   getBackupStatus,
   saveBackupSettings,
   type BackupStatus,
@@ -333,6 +335,15 @@ import {
   officeSettingsHandlers,
 } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
+import { rescueHandlers } from "./routes/handlers/rescue.ts";
+import {
+  createOfficeExportJobs,
+  spawnExportChildProcess,
+  type OfficeExportJobs,
+  type OfficeExportJobsDeps,
+} from "./office-export-jobs.ts";
+import { requestStopForLock } from "./office-lockdown-route.ts";
+import { closeOfficeSockets, resetOfficeLockGate } from "./office-lock-gate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
 import { openCodeHandlers } from "./routes/handlers/opencode.ts";
@@ -2590,6 +2601,21 @@ function backupStatusWire(s: BackupStatus): BackupStatusWire {
   };
 }
 
+// The owner export's jobs (task cdd7883d), for the boot sweep and the stop.
+let officeExportJobs: OfficeExportJobs | null = null;
+
+// The lock marker's `by` (task cdd7883d): the member's name, or the agent's
+// name and its manager's.
+function lockdownByName(identity: Identity): string {
+  const user = identity.userId ? getUserById(identity.userId) : undefined;
+  const member = user?.name ?? identity.userId ?? "unknown";
+  if (identity.scope === "agent" && identity.agentId) {
+    const agent = agentManager.getAgentDisplay(identity.agentId);
+    return `${agent?.name ?? identity.agentId} for ${member}`;
+  }
+  return member;
+}
+
 // Assemble the executor deps for the migrated /api surface. Called from
 // startServer once the managers exist. Each resource slice registers its
 // handlers (and any precondition enforcers) here over its own slim deps bundle;
@@ -2600,6 +2626,7 @@ function buildExecutorDeps(
   connectionTestFetch: ConnectionTestFetch = (url, init) => fetch(url, init),
   officeProbe: OfficeProbeOptions = {},
   sudoPath?: string,
+  rescue: RescueSeams = {},
 ): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
   // The storage planners and appliers, shared by the storage routes and the
@@ -2613,6 +2640,36 @@ function buildExecutorDeps(
   };
 
   register(agentReferenceHandlers());
+  register(
+    rescueHandlers({
+      lockdown: {
+        stateRoot: STATE_ROOT,
+        closeSockets: closeOfficeSockets,
+        audit: ({ actor, reason }) =>
+          recordAudit({
+            actor,
+            operation: "office.lockdown",
+            targets: ["office"],
+            fields: [],
+            lockdown: { reason },
+          }),
+        requestStop:
+          rescue.requestStop ??
+          (() =>
+            console.log(
+              "[lockdown] locked; no stop wired in this process (harness)",
+            )),
+        now: () => new Date(),
+      },
+      exports: (officeExportJobs = createOfficeExportJobs({
+        stateRoot: STATE_ROOT,
+        baseDir: () => rescue.exportBaseDir ?? currentBackupDir(),
+        spawnChild: rescue.spawnExportChild ?? spawnExportChildProcess,
+        now: () => Date.now(),
+      })),
+      byName: lockdownByName,
+    }),
+  );
   register(
     agentDirectoryHandlers({
       originAllowed: checkOrigin,
@@ -5405,6 +5462,13 @@ function runBackgroundBoot(
 // process, or the prior listener leaks. The test harness (startTestServer)
 // enforces this with a process-global lock; a direct caller must self-manage.
 
+export interface RescueSeams {
+  requestStop?: () => void;
+  spawnExportChild?: OfficeExportJobsDeps["spawnChild"];
+  /** The folder exports/ goes in. Default: the backup folder. */
+  exportBaseDir?: string;
+}
+
 export interface StartServerOpts {
   // Isolated browser-action deadline seam; production uses 30 seconds.
   browserExtensionActionDeadline?: () => number;
@@ -5467,6 +5531,10 @@ export interface StartServerOpts {
   // network (update checker), no daily backup, and no admin socket.
   skipSchedulers?: boolean;
   skipBackups?: boolean;
+  // The rescue routes' seams (task cdd7883d). Only the production main passes
+  // requestStop (requestStopForLock); without it a lock only logs, so no test
+  // can SIGTERM its own process. Tests pass a fake export child and folder.
+  rescue?: RescueSeams;
   skipAdminSocket?: boolean;
   skipUpdateChecker?: boolean;
   // Internal backup status provider. The in-process harness supplies a fresh
@@ -5514,6 +5582,7 @@ function resetServerModuleState(): void {
   apiTokenSockets.clear();
   connectionIdCounter = 0;
   idempotencyCache._reset();
+  resetOfficeLockGate();
 }
 
 async function stopServer(server: Server<WsData>): Promise<void> {
@@ -5532,6 +5601,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   await discordSupervisor?.shutdown();
   githubSync?.stop();
   uiBuildTracker?.stop();
+  officeExportJobs?.stop();
   if (mcpOAuthTimer) clearInterval(mcpOAuthTimer);
   mcpOAuthTimer = null;
   await server.stop(true);
@@ -5665,7 +5735,11 @@ export async function startServer(
     opts.connectionTestFetch,
     opts.officeProbe,
     opts.sudoPath,
+    opts.rescue,
   );
+  // What a crash or an earlier run left in the exports folder: no owner
+  // export outlives the office that made it.
+  officeExportJobs?.sweep();
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The
   // `| undefined` in the type is for unix-socket servers, which we never create.
@@ -5718,8 +5792,15 @@ async function startLockedOfficeFromBoot(): Promise<void> {
   const external = cfg.externalAccess ?? cfg.publicOrigin !== null;
   const loopback = cfg.networkBind === "loopback" || !external;
   const supervisor = defaultAppSupervisor(process.platform);
+  let exportBaseDir: string | null = null;
+  try {
+    exportBaseDir = currentBackupDir();
+  } catch (err) {
+    console.error("[lockdown] could not read the backup folder:", err);
+  }
   await startLockedOffice({
     stateRoot: STATE_ROOT,
+    exportBaseDir,
     port: PORT,
     ...(loopback ? { hostname: "127.0.0.1" } : {}),
     apps: {
@@ -5806,7 +5887,11 @@ export async function runOfficeMain(): Promise<void> {
   void prepareCodexSafetyHookArtifact().catch((err) => {
     console.error("[codex safety] artifact unavailable at boot:", err);
   });
-  const handle = await startServer();
+  const handle = await startServer({
+    rescue: { requestStop: requestStopForLock },
+  });
+  // An owner export's child ends with the office.
+  runAtServerStop(async () => officeExportJobs?.stop());
   // Idle-eviction sweep: every minute, demote agents idle past the threshold to
   // lazy so they release their ~165MB subprocess. (Boot already lazy-restores
   // everyone; this re-demotes agents that woke and then went quiet again.) Lives
