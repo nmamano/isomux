@@ -453,6 +453,27 @@ describe("the office page's layout", () => {
     );
   });
 
+  test("the plan card names the plan once, with or without a subscription", () => {
+    // The subscription line sits under the plan's own name, so it does not
+    // repeat it. Both of its branches: a subscription, and none yet.
+    for (const [state, view] of [
+      ["subscribed", liveView],
+      ["no subscription", { ...liveView, subscription: null }],
+    ] as const) {
+      const card = byId(page(view), "office-tier");
+      const line = card.querySelector('[data-testid="subscription"]');
+      // The enabling condition: the line is drawn and says something.
+      expect([state, (line?.textContent ?? "").length > 0]).toEqual([
+        state,
+        true,
+      ]);
+      expect([
+        state,
+        card.textContent.split(view.tier.label).length - 1,
+      ]).toEqual([state, 1]);
+    }
+  });
+
   test("an office being built: Progress before Getting in, nothing to open", () => {
     const box = page({ ...liveView, ready: false });
     expect(byId(box, "office-header").querySelector(OPEN)).toBeNull();

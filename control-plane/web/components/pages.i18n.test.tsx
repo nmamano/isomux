@@ -339,8 +339,8 @@ describe("the office page", () => {
     };
     const ca = office("ca", view);
     const en = office("en", view);
-    // Stripe's own status word, next to the plan name, is data (ruling 11).
-    expectTranslated(ca, en, [...OFFICE_DATA.slice(0, 3), "Entry - active,"]);
+    // Stripe's own status word, which opens the plan line, is data (ruling 11).
+    expectTranslated(ca, en, [...OFFICE_DATA.slice(0, 3), "active,"]);
     // The ISO date is data too: the scheduled-end sentence carries it, and
     // every text that carries it on English carries it on Catalan.
     const scheduledEnd = (html: string) =>

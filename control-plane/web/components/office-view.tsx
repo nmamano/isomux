@@ -1034,7 +1034,9 @@ export function OfficeView({
             {customerPriceLine(language, view.tier.customerPrice) && (
               <p>{customerPriceLine(language, view.tier.customerPrice)}</p>
             )}
-            <p data-testid="subscription">{planLine(i18n, view)}</p>
+            <p className="plan-line" data-testid="subscription">
+              {planLine(i18n, view)}
+            </p>
             <CancelPanel
               i18n={i18n}
               view={view}
@@ -1415,12 +1417,11 @@ function RefundNotice({ i18n }: { i18n: WebTranslator }) {
  */
 function planLine(i18n: WebTranslator, view: ProgressView) {
   const sub = view.subscription;
-  // The tier label is the plan's own name and `sub.status` is Stripe's own
-  // status word: both are data, not copy (ruling 11).
-  if (!sub) {
-    return `${view.tier.label} - ${i18n.t("office.plan.waitingForPayment")}`;
-  }
-  const head = `${view.tier.label} - ${sub.status}${sub.comped ? i18n.t("office.plan.noCharge") : ""}`;
+  // The plan's name is on its own line above, so this line leaves it out.
+  // `sub.status` is Stripe's own status word: data, not copy (ruling 11). The
+  // line starts lowercase; .plan-line capitalises its first letter on screen.
+  if (!sub) return i18n.t("office.plan.waitingForPayment");
+  const head = `${sub.status}${sub.comped ? i18n.t("office.plan.noCharge") : ""}`;
   // Ended: the period end is history, so it is not shown at all. The
   // cancellation panel below is where the remaining dates live.
   if (sub.endedAt !== null) return head;

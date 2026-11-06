@@ -2,8 +2,9 @@
 //
 // It names the document's own language, offers only the others, and a choice
 // is saved in the cookie before the page reloads. Before its first reading of
-// the document the name is hidden, so a page in another language never shows
-// the default's name while it hydrates.
+// the document it shows the globe alone, so a page in another language never
+// shows the default's name while it hydrates, and the pill is never an empty
+// box.
 //
 // happy-dom is registered in this file's body and removed when it ends: the
 // rest of the suite shares this process and needs Bun's own globals. Every
@@ -18,7 +19,7 @@ GlobalRegistrator.register({ url: "http://localhost:3999/signin" });
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const { act, createElement } = await import("react");
-const { createRoot } = await import("react-dom/client");
+const { createRoot, hydrateRoot } = await import("react-dom/client");
 const { renderToString } = await import("react-dom/server");
 const { LanguageSwitch } = await import("./language-switch");
 const { LANGUAGE_COOKIE, SUPPORTED_LANGUAGES } = await import("./languages");
@@ -35,14 +36,53 @@ const offered = (root: HTMLElement) =>
     button.getAttribute("lang"),
   );
 
-test("the server render hides the name it cannot know yet", () => {
+test("the server render shows the globe alone, and hydration adds the name", async () => {
+  const other = codes.find((code) => code !== "en")!;
+  document.documentElement.lang = other;
   const html = renderToString(createElement(LanguageSwitch));
   const box = document.createElement("div");
   box.innerHTML = html;
-  const current = box.querySelector<HTMLElement>(
-    '[data-testid="language-current"]',
-  )!;
-  expect(current.style.visibility).toBe("hidden");
+  const summary = () => box.querySelector("summary");
+  // The enabling condition: the server drew the pill.
+  expect(summary()?.tagName ?? null).toBe("SUMMARY");
+  // No name slot and no chevron: only the globe, which is not an empty box.
+  expect(
+    box.querySelector('[data-testid="language-current"]')?.tagName ?? null,
+  ).toBeNull();
+  expect(box.querySelector(".language-chevron")?.tagName ?? null).toBeNull();
+  expect(summary()!.querySelectorAll("svg").length).toBe(1);
+
+  // The browser hydrates that same markup with no mismatch, then reads the
+  // document and names its language.
+  document.body.append(box);
+  const errors: string[] = [];
+  const consoleError = spyOn(console, "error").mockImplementation(
+    (...args: unknown[]) => {
+      errors.push(args.map(String).join(" "));
+    },
+  );
+  let root: ReturnType<typeof hydrateRoot> | null = null;
+  try {
+    await act(async () => {
+      root = hydrateRoot(box, createElement(LanguageSwitch), {
+        onRecoverableError: (error) => errors.push(String(error)),
+      });
+    });
+    expect(errors).toEqual([]);
+    expect(
+      box.querySelector('[data-testid="language-current"]')?.textContent ??
+        null,
+    ).toBe(labelOf(other));
+    expect(
+      box.querySelector(".language-chevron")?.tagName ?? null,
+    ).not.toBeNull();
+  } finally {
+    consoleError.mockRestore();
+    await act(async () => {
+      root?.unmount();
+    });
+    box.remove();
+  }
 });
 
 test("the menu names the document's language, offers the others, and saves a choice", async () => {

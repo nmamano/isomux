@@ -28,7 +28,6 @@ import {
   lifecycleOperationId,
 } from "../../lifecycle.ts";
 import { setOperator } from "../../operator-admin.ts";
-import { ENTRY_PLAN } from "../../plans.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { Store } from "../../store.ts";
 import { releaseTestStores, testDsn } from "../../testing/pg.ts";
@@ -246,8 +245,20 @@ async function main(): Promise<void> {
     say(`S1 plan: ${planS1}`);
     check(
       "S1 calls the date a NEXT INVOICE, because there is one",
-      planS1 === `${ENTRY_PLAN.label} - active, next invoice 2027-01-31`,
+      planS1 === "active, next invoice 2027-01-31",
       planS1,
+    );
+    // The line no longer follows the plan name, so it starts the line: Stripe's
+    // status word stays as it is, and the page draws its first letter as a
+    // capital.
+    const planS1FirstLetter = await page.$eval(
+      '[data-testid="subscription"]',
+      (node) => getComputedStyle(node, "::first-letter").textTransform,
+    );
+    check(
+      "S1 draws the plan line with a capital first letter",
+      planS1FirstLetter === "uppercase",
+      planS1FirstLetter,
     );
 
     // ---- S3: Stripe has confirmed a SCHEDULED cancellation
@@ -281,7 +292,7 @@ async function main(): Promise<void> {
     say(`S3 plan: ${planS3}`);
     check(
       "S3 calls the date a PERIOD END, not a next invoice",
-      planS3 === `${ENTRY_PLAN.label} - active, period ends 2027-01-31`,
+      planS3 === "active, period ends 2027-01-31",
       planS3,
     );
     say(`S3 keep caveat: ${await textOf(page, "uncancel-caveat")}`);
@@ -310,7 +321,7 @@ async function main(): Promise<void> {
     say(`S5 plan: ${planS5}`);
     check(
       "S5 shows NO date at all, because a past next invoice is a lie",
-      planS5 === `${ENTRY_PLAN.label} - canceled`,
+      planS5 === "canceled",
       planS5,
     );
     say(`S8: ${await textOf(page, "cancel-restart-refused")}`);
@@ -351,11 +362,7 @@ async function main(): Promise<void> {
       !suspended.includes("deleted"),
     );
     const planS6 = await textOf(page, "subscription");
-    check(
-      "S6 still shows no invoice date",
-      planS6 === `${ENTRY_PLAN.label} - canceled`,
-      planS6,
-    );
+    check("S6 still shows no invoice date", planS6 === "canceled", planS6);
     check(
       "S6 offers reinstatement of the retained office",
       (await page.$('[data-testid="reinstate-button"]')) !== null,

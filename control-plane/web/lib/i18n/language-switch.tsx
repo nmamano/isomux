@@ -43,9 +43,11 @@ export function hidesLanguageSwitch(pathname: string | null): boolean {
  * for the two prerendered pages - and a switch that resolved a third time could
  * disagree with the page it sits above. `DocumentLanguage` is the one writer of
  * that attribute, so following it is the only reading that cannot drift. Until
- * the first reading the summary's name is invisible but keeps its place: the
- * prerender cannot know the language, and a Spanish page must not show
- * "English" in its topbar while it hydrates.
+ * the first reading the summary shows the globe alone, as below 640 px: the
+ * prerender cannot know the language, a Spanish page must not show "English" in
+ * its topbar while it hydrates, and an empty slot for the name would show a
+ * picker with no language. The server render and the first client render both
+ * come from `active === null`, so hydration matches.
  *
  * Choosing writes the cookie and RELOADS. A reload is what a server-rendered
  * page needs to come back in the new language, and it costs a prerendered page
@@ -101,24 +103,23 @@ export function LanguageSwitch() {
             <path d="M2 12h20" />
             <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
           </svg>
-          <span
-            data-testid="language-current"
-            style={active === null ? { visibility: "hidden" } : undefined}
-          >
-            {currentLabel}
-          </span>
-          <svg
-            className="language-chevron"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
+          {active !== null && (
+            <>
+              <span data-testid="language-current">{currentLabel}</span>
+              <svg
+                className="language-chevron"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </>
+          )}
         </summary>
         <div className="language-menu">
           {SUPPORTED_LANGUAGES.filter((option) => option.code !== current).map(

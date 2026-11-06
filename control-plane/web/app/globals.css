@@ -661,6 +661,12 @@ p.callout-danger {
   color: var(--danger);
 }
 
+/* The plan line starts with Stripe's lowercase status word or a lowercase
+   catalog phrase; on screen it reads as a sentence. */
+.plan-line::first-letter {
+  text-transform: uppercase;
+}
+
 /* ---------- Rows ---------- */
 
 /* The docs stylesheet's table treatment, applied to the lists this
