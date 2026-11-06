@@ -6,6 +6,7 @@ import {
   type SupportedLanguageCode,
 } from "../../shared/languages.ts";
 import { useI18n } from "../i18n.tsx";
+import { currentRedactor } from "../recording-mode.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
 import { useOpenAISpeech } from "../hooks/useOpenAISpeech.ts";
 import { apiFetch } from "../api.ts";
@@ -78,6 +79,13 @@ const STOP_ICON = (
     />
   </svg>
 );
+
+// What is read aloud: the text as the screen shows it, so recording mode's
+// stand-ins are spoken in place of what they hide.
+function spokenText(getText: () => string): string {
+  const text = stripMarkdown(getText());
+  return currentRedactor()?.(text) ?? text;
+}
 
 /** Strip markdown syntax to get plain text for speech */
 function stripMarkdown(md: string): string {
@@ -201,7 +209,7 @@ function BrowserSpeakButton({
     }
     if (noVoiceForLanguage) return;
 
-    const text = stripMarkdown(getText());
+    const text = spokenText(getText);
     if (!text) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
@@ -279,7 +287,7 @@ function OpenAISpeakButton({
           onClick={(e) => {
             if (speech.speaking) speech.stop();
             else {
-              const text = stripMarkdown(getText());
+              const text = spokenText(getText);
               if (text) speech.speak(text, voice);
             }
             (e.target as HTMLElement).blur();

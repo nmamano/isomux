@@ -307,10 +307,14 @@ function fromBase64Url(value: string): string | null {
   }
 }
 
-function fragmentOf(panel: Panel, from: string): string {
+// `rec`: recording mode was on where the ride started (ui/recording-mode.ts),
+// so the next office turns it on before its first render. It rides inside
+// the panel part because the login page keeps only that part.
+function fragmentOf(panel: Panel, from: string, recording: boolean): string {
   const body = {
     v: 1,
     from,
+    ...(recording ? { rec: true } : {}),
     visited: panel.visited,
     removed: panel.removed,
     snapshots: panel.snapshots,
@@ -321,12 +325,16 @@ function fragmentOf(panel: Panel, from: string): string {
 // "isomux-panel=<base64url JSON>", at most MAX_PANEL_FRAGMENT_CHARS long.
 // Over the cap it drops the oldest snapshot whole, again and again, then the
 // oldest removals, and the oldest visits only when nothing else is left.
-export function encodePanelFragment(panel: Panel, from: string): string {
+export function encodePanelFragment(
+  panel: Panel,
+  from: string,
+  recording = false,
+): string {
   const snapshots = [...panel.snapshots].sort(snapshotOrder);
   const removed = [...panel.removed].sort(removalOrder);
   const visited = [...panel.visited].sort(visitOrder);
   const fits = (p: Panel) =>
-    fragmentOf(p, from).length <= MAX_PANEL_FRAGMENT_CHARS;
+    fragmentOf(p, from, recording).length <= MAX_PANEL_FRAGMENT_CHARS;
   const at = (s: number, r: number, v: number): Panel => ({
     visited: visited.slice(v),
     removed: removed.slice(r),
@@ -344,22 +352,25 @@ export function encodePanelFragment(panel: Panel, from: string): string {
     }
     return lo;
   };
-  if (fits(at(0, 0, 0))) return fragmentOf(at(0, 0, 0), from);
+  if (fits(at(0, 0, 0))) return fragmentOf(at(0, 0, 0), from, recording);
   const s = fewest(snapshots.length, (k) => fits(at(k, 0, 0)));
-  if (s < snapshots.length) return fragmentOf(at(s, 0, 0), from);
+  if (s < snapshots.length) return fragmentOf(at(s, 0, 0), from, recording);
   const r = fewest(removed.length, (k) => fits(at(s, k, 0)));
-  if (r < removed.length) return fragmentOf(at(s, r, 0), from);
+  if (r < removed.length) return fragmentOf(at(s, r, 0), from, recording);
   const v = fewest(visited.length, (k) => fits(at(s, r, k)));
-  return fragmentOf(at(s, r, v), from);
+  return fragmentOf(at(s, r, v), from, recording);
 }
 
 // `hash` is location.hash, with or without its "#". Null when the hash has no
 // isomux-panel part. `panel` is null when the first such part is refused (too
 // long, not base64url JSON, not v 1); `rest` is the hash without any of them
 // either way.
-export function readPanelFragment(
-  hash: string,
-): { panel: unknown; from: string | null; rest: string } | null {
+export function readPanelFragment(hash: string): {
+  panel: unknown;
+  from: string | null;
+  rest: string;
+  recording: boolean;
+} | null {
   const parts = hash.replace(/^#/, "").split("&");
   const prefix = `${PANEL_HASH_KEY}=`;
   const ours = parts.filter((part) => part.startsWith(prefix));
@@ -367,7 +378,7 @@ export function readPanelFragment(
   // Every part under our key leaves the address; the first is read.
   const part = ours[0];
   const rest = parts.filter((p) => !p.startsWith(prefix)).join("&");
-  const refused = { panel: null, from: null, rest };
+  const refused = { panel: null, from: null, rest, recording: false };
   if (part.length > MAX_PANEL_FRAGMENT_CHARS) return refused;
   const text = fromBase64Url(part.slice(prefix.length));
   if (text === null) return refused;
@@ -379,5 +390,10 @@ export function readPanelFragment(
   }
   const f = fieldsOf(raw);
   if (f.v !== 1) return refused;
-  return { panel: raw, from: isOrigin(f.from) ? f.from : null, rest };
+  return {
+    panel: raw,
+    from: isOrigin(f.from) ? f.from : null,
+    rest,
+    recording: f.rec === true,
+  };
 }

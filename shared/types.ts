@@ -12,6 +12,7 @@ import type { RoomDecor } from "./room-decor.ts";
 
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
+import type { RecordingWord } from "./recording-redact.ts";
 import type { VoiceInput, VoiceName, VoiceOutput } from "./voice.ts";
 import type { WhatsAppStatus } from "./whatsapp.ts";
 import type { DiscordBot } from "./discord.ts";
@@ -2405,6 +2406,10 @@ export interface UserRecord {
   // `voiceName`: the OpenAI voice; absent means DEFAULT_VOICE_NAME.
   voiceOutput?: VoiceOutput;
   voiceName?: VoiceName;
+  // `recordingWords`: the member's words and their stand-ins for recording
+  // mode (shared/recording-redact.ts). Absent means never saved: the
+  // default list (the office name) applies.
+  recordingWords?: RecordingWord[];
   // Set when an owner creates the member (users.create); removed by the
   // member's first accepted sign-in link. Absent on every other record,
   // legacy ones included: absent means "has signed in".

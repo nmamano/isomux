@@ -16,6 +16,7 @@ import {
   normaliseFloorUrl,
   type Floor,
 } from "../shared/floors.ts";
+import { RECORDING_STORAGE_KEY, isRecording } from "./recording-mode.ts";
 
 export const PANEL_STORAGE_KEY = "isomux-elevator-panel";
 export const PANEL_NAMES_STORAGE_KEY = "isomux-elevator-names";
@@ -51,7 +52,7 @@ function storageRemove(storage: Storage, key: string): void {
 // The departure office is the one the address names, else the copy's.
 export function takeArrivingPanel(
   now: number = Date.now(),
-): { panel: Panel; from: string | null } | null {
+): { panel: Panel; from: string | null; recording: boolean } | null {
   const fromHash = readPanelFragment(location.hash);
   if (fromHash) {
     const hash = fromHash.rest ? `#${fromHash.rest}` : "";
@@ -70,7 +71,11 @@ export function takeArrivingPanel(
     sanitisePanel(fromCopy?.panel, now),
     now,
   );
-  return { panel, from: fromHash?.from ?? fromCopy?.from ?? null };
+  return {
+    panel,
+    from: fromHash?.from ?? fromCopy?.from ?? null,
+    recording: !!(fromHash?.recording || fromCopy?.recording),
+  };
 }
 
 // The panel the ride to this page brought, until the office sends its floors.
@@ -81,6 +86,9 @@ let arriving: { panel: Panel; from: string | null } | null = null;
 export function holdArrivingPanel(now: number = Date.now()): boolean {
   const taken = takeArrivingPanel(now);
   if (taken) arriving = taken;
+  // Recording mode was on where the ride started: on here too, before the
+  // boot reads the flag. A ride never turns it off.
+  if (taken?.recording) storageSet(localStorage, RECORDING_STORAGE_KEY, "1");
   return taken !== null;
 }
 
@@ -123,7 +131,7 @@ export function rideFragment(
       }),
     now,
   );
-  return encodePanelFragment(panel, here);
+  return encodePanelFragment(panel, here, isRecording());
 }
 
 function parseJson(text: string | null): unknown {

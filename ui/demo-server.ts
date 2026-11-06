@@ -3160,7 +3160,8 @@ export async function demoApi(
     // prefs.update - personal preferences DO round-trip in the demo (unlike the
     // view prefs above): the Preferences pane reads them straight back off the
     // user record, so a no-op would leave the visitor's pick snapping back and
-    // looking broken. The language pick reaches the demo's speech surfaces.
+    // looking broken. The language pick reaches the demo's speech surfaces,
+    // and the recording mode word list reaches the demo's recording mode.
     case "PATCH /api/me/preferences": {
       const b = (body ?? {}) as PreferencesReq;
       const selfId = sessionContext?.userId ?? null;
@@ -3174,6 +3175,9 @@ export async function demoApi(
         ...(b.voiceInput !== undefined ? { voiceInput: b.voiceInput } : {}),
         ...(b.voiceOutput !== undefined ? { voiceOutput: b.voiceOutput } : {}),
         ...(b.voiceName !== undefined ? { voiceName: b.voiceName } : {}),
+        ...(b.recordingWords !== undefined
+          ? { recordingWords: b.recordingWords }
+          : {}),
       };
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_updated", user: updated });

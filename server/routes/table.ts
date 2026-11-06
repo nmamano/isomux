@@ -213,6 +213,7 @@ import type {
   PagerSettingsReq,
   MemberVoiceReq,
   MemberVoiceRes,
+  MemberRecordingWordsRes,
   IntegrationChangesRes,
   PagerSettingsRes,
   PagerTestRes,
@@ -2009,6 +2010,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/users/:username/voice",
     auth: cap("integration:manage", integrationSelfOrOwner),
     tokenArea: { area: "voice", level: "read" },
+    emits: [],
+  }),
+  // A member's recording mode word list (task 6e08239a), for the OCR check
+  // of a demo video: the same gate as memberVoice.get.
+  defineRoute<void, MemberRecordingWordsRes>({
+    opId: "memberRecordingWords.get",
+    method: "GET",
+    path: "/api/users/:username/recording-words",
+    auth: cap("integration:manage", integrationSelfOrOwner),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   defineRoute<MemberVoiceReq, NoContent>({

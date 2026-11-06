@@ -28,6 +28,10 @@ import {
   isSupportedLanguage,
   type SupportedLanguageCode,
 } from "../shared/languages.ts";
+import {
+  isRecordingWordList,
+  recordingWordsProblem,
+} from "../shared/recording-redact.ts";
 import { isVoiceInput, isVoiceName, isVoiceOutput } from "../shared/voice.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import {
@@ -131,6 +135,17 @@ function voicePreferences(
       ? { voiceOutput: value.voiceOutput }
       : {}),
     ...(isVoiceName(value.voiceName) ? { voiceName: value.voiceName } : {}),
+  };
+}
+
+// The recording mode word list (task 6e08239a): absent means never saved
+// (the default row applies), and [] is a choice. A hand-edited list the
+// route would refuse reads as never saved.
+function recordingWordsOf(value: unknown): Pick<UserRecord, "recordingWords"> {
+  if (!isRecordingWordList(value) || recordingWordsProblem(value) !== null)
+    return {};
+  return {
+    recordingWords: value.map(({ word, standIn }) => ({ word, standIn })),
   };
 }
 
@@ -259,6 +274,7 @@ function load(): Record<string, UserRecord> {
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
         language: normalizeLanguage(value.language),
         ...voicePreferences(value),
+        ...recordingWordsOf(value.recordingWords),
         ...(value.pendingSignIn === true
           ? { pendingSignIn: true as const }
           : {}),
@@ -684,6 +700,7 @@ export function updateUserById(
       | "voiceInput"
       | "voiceOutput"
       | "voiceName"
+      | "recordingWords"
     >
   > & { allowedRooms?: string[]; pack?: MemberPack | null },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
@@ -768,6 +785,7 @@ export function updateUserById(
       voiceOutput: changes.voiceOutput ?? existing.voiceOutput,
       voiceName: changes.voiceName ?? existing.voiceName,
     }),
+    ...recordingWordsOf(changes.recordingWords ?? existing.recordingWords),
     ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
   // A pack is a member's only: a promotion to owner drops it. The caller

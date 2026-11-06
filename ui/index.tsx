@@ -8,9 +8,13 @@ import { LanguageProvider } from "./i18n.tsx";
 import { captureInstallPrompt } from "./app-install.ts";
 import { trackOfficePage } from "./home-screen-office.ts";
 import { holdArrivingPanel } from "./elevator-panel-store.ts";
+import { startRecordingMode } from "./recording-mode.ts";
 
 // First: a ride from another office's elevator left the panel in the address.
 const ride = holdArrivingPanel();
+// Then recording mode, which the ride may have turned on: before the first
+// render, so nothing it hides is ever painted.
+startRecordingMode();
 
 const widgetMeta = document.querySelector<HTMLMetaElement>(
   'meta[name="isomux-app-widget"]',

@@ -61,6 +61,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Open from your phone** - same server URL (VPN or public), touch-optimized UI.
 - **Install as app** - put the office on a phone or computer, no app store.
 - **Real-time updates** - every connected device (laptop, phone, others) sees the same conversations and the same filesystem in real time via WebSocket; no syncing headaches.
+- **Recording mode** - record a demo or stream your office: on screen, office addresses, other office names, emails, phone numbers, keys and your own list of words show as stand-ins, and pictures stay blurred until you click them. Turn it on per browser in Settings or with Alt+Shift+R. The browser's address bar and tabs still show the real address.
 
 ## Cute in a useful way
 

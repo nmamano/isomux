@@ -48,6 +48,7 @@ import type {
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
+import type { RecordingWord } from "./recording-redact.ts";
 import type { ApiTokenLimits } from "./api-token-limits.ts";
 import type { AgentAccess, AgentAccessGrant } from "./agent-access.ts";
 import type { MemberPack } from "./pack-fit.ts";
@@ -777,6 +778,7 @@ export type PreferencesReq = Partial<{
   voiceInput: VoiceInput;
   voiceOutput: VoiceOutput;
   voiceName: VoiceName;
+  recordingWords: RecordingWord[];
 }>;
 
 // The writable preference keys, as VALUES, so the handler can reject an unknown
@@ -787,7 +789,23 @@ export const PREFERENCE_KEYS = [
   "voiceInput",
   "voiceOutput",
   "voiceName",
+  "recordingWords",
 ] as const;
+
+// The keys a member-preferences ask may set: every preference but the
+// recording mode word list. That list holds the names the member hides on
+// video, and an ask card shows the values it sets.
+export const ASK_PREFERENCE_KEYS = PREFERENCE_KEYS.filter(
+  (k): k is Exclude<(typeof PREFERENCE_KEYS)[number], "recordingWords"> =>
+    k !== "recordingWords",
+);
+
+// memberRecordingWords.get (GET /api/users/:username/recording-words): the
+// member's recording mode word list, the default row filled in when the
+// member never saved one. The OCR check of a demo video reads it.
+export interface MemberRecordingWordsRes {
+  words: RecordingWord[];
+}
 
 // memberVoice.update (PATCH /api/users/:username/voice): the voice part of
 // the preferences, which an owner may set for a member (task 7a3b4114).

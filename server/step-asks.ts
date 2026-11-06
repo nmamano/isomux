@@ -33,7 +33,7 @@ import {
   type StepAskRequest,
 } from "../shared/types.ts";
 import {
-  PREFERENCE_KEYS,
+  ASK_PREFERENCE_KEYS,
   type OfficeSettingsRes,
 } from "../shared/contract-shapes.ts";
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
@@ -1102,9 +1102,11 @@ export function createStepAsks(deps: StepAskDeps) {
         if (kind === "member-preferences") {
           if (!isObject(body.set))
             return invalid("step.set is an object of preferences");
-          const parsed = parsePreferenceChange(body.set, PREFERENCE_KEYS);
+          const parsed = parsePreferenceChange(body.set, ASK_PREFERENCE_KEYS);
           if (!parsed.ok) return invalid(`step.set: ${parsed.message}`);
-          return { ok: true, step: { kind, set: parsed.change } };
+          // ASK_PREFERENCE_KEYS refuses the word list, so this drops nothing.
+          const { recordingWords: _refused, ...set } = parsed.change;
+          return { ok: true, step: { kind, set } };
         }
         if (typeof body.list !== "string" || !VIEW_LISTS.includes(body.list))
           return invalid(`step.list is one of ${VIEW_LISTS.join(", ")}`);

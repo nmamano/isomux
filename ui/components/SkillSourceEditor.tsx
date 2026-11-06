@@ -10,6 +10,7 @@ import {
   keymap,
   lineNumbers,
 } from "@codemirror/view";
+import { recordingRedaction } from "./recording-codemirror.ts";
 import {
   defaultKeymap,
   history,
@@ -74,6 +75,7 @@ export function SkillSourceEditor({
       state: EditorState.create({
         doc: value,
         extensions: [
+          recordingRedaction(),
           ...(mobile ? [] : [lineNumbers()]),
           highlightActiveLine(),
           history(),

@@ -1453,6 +1453,33 @@ describe("a member-preferences ask at create", () => {
       });
   });
 
+  it("refuses the recording word list, alone or beside a key it takes: 400, nothing opened", async () => {
+    // The list holds the names the member hides on video, and a card shows
+    // the current and requested values: an ask must not carry it.
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const words = [{ word: "Acme Corp", standIn: "Client A" }];
+    for (const set of [
+      { recordingWords: words },
+      { language: "es", recordingWords: words },
+    ])
+      expect({
+        set,
+        ...outcome(await ask(o, asker.id, prefsStep(set))),
+      }).toEqual({ set, status: 400, code: "invalid_request" });
+    expect(
+      (await asAgent(o, asker.id, "GET", `/api/agents/${asker.id}/asks`)).body,
+    ).toEqual([]);
+    // The list itself is valid: the member's own write takes it.
+    expect(
+      (
+        await asSession(o, o.morgan, "PATCH", "/api/me/preferences", {
+          recordingWords: words,
+        })
+      ).status,
+    ).toBe(204);
+  });
+
   it("refuses a set the record has, its defaults included: 409 step_done; one key that differs opens", async () => {
     const o = await office();
     const asker = await spawn(o, "Asker");

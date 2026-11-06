@@ -856,6 +856,9 @@ describe("privileged agents", () => {
           // Every Integrations setting of a member (task 7a3b4114).
           "memberVoice.get",
           "memberVoice.update",
+          // The member's recording mode words: names of customers and
+          // people, behind the same gate (task 6e08239a).
+          "memberRecordingWords.get",
           "pagerSettings.get",
           "pagerSettings.update",
           "pagerSettings.test",

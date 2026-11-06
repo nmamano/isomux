@@ -476,6 +476,28 @@ Coses que pots fer per ell:
   "preferences.saved": "Desat.",
   "preferences.saveFailed": "No s'ha pogut desar",
 
+  "recording.intro":
+    "Mentre enregistres o emets, l'oficina mostra substituts de les adreces de l'oficina, els noms d'altres oficines, correus, telèfons, adreces IP, claus i les teves paraules, i difumina les imatges i les pàgines incrustades fins que hi fas clic. La barra d'adreces del navegador continua mostrant l'adreça real.",
+  "recording.switch": "Activat en aquest navegador",
+  "recording.switchHint":
+    "{keys} l'activa o el desactiva a qualsevol pàgina. La pestanya mostra ● REC i un punt vermell mentre està activat.",
+  "recording.words": "Les teves paraules",
+  "recording.wordsHint":
+    "Noms de clients, persones o projectes, i què cal mostrar en lloc seu. La llista et segueix a tots els dispositius.",
+  "recording.word": "Paraula",
+  "recording.standIn": "Es mostra com",
+  "recording.add": "Afegeix una paraula",
+  "recording.remove": "Treu",
+  "recording.problem.emptyWord": "Cada fila necessita una paraula.",
+  "recording.problem.emptyStandIn":
+    "Cada paraula necessita alguna cosa per mostrar en lloc seu.",
+  "recording.problem.duplicateWord": "Una paraula és dues vegades a la llista.",
+  "recording.problem.standInIsAWord":
+    "Un substitut no pot contenir una paraula de la llista.",
+  "recording.problem.tooMany": "La llista admet com a màxim {max} paraules.",
+  "recording.problem.tooLong":
+    "Les paraules i els substituts tenen com a màxim {max} caràcters.",
+
   "settings.selectHint": "Tria una opció de la llista",
   "settings.profilesNote":
     "Els perfils d'membre es desen al servidor. Les teves notificacions i credencials et segueixen entre dispositius.",
@@ -488,6 +510,7 @@ Coses que pots fer per ell:
   "settings.sidebar.usage": "Ús",
   "settings.sidebar.storage": "Emmagatzematge",
   "settings.sidebar.language": "Idioma",
+  "settings.sidebar.recording": "Mode d'enregistrament",
   "settings.sidebar.housekeeping": "Manteniment",
   "settings.sidebar.updates": "Actualitzacions",
   "settings.sidebar.profile": "Perfil",

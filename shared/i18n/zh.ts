@@ -450,6 +450,25 @@ App 的一些原则：
     "界面、智能体所写内容以及语音输入和播放使用的语言。智能体会在重启或开始新对话时采用此设置。",
   "preferences.saved": "已保存。",
   "preferences.saveFailed": "无法保存",
+
+  "recording.intro":
+    "录制或直播时，办公室会用替代内容显示办公室地址、其他办公室名称、邮箱、电话号码、IP 地址、密钥和你的词语，并模糊图片和嵌入页面，直到你点击它们。浏览器地址栏仍显示真实地址。",
+  "recording.switch": "在此浏览器中开启",
+  "recording.switchHint":
+    "在任意页面按 {keys} 开启或关闭。开启时，标签页显示 ● REC 和一个红点。",
+  "recording.words": "你的词语",
+  "recording.wordsHint":
+    "客户、人员或项目的名称，以及要显示的替代内容。此列表会跟随你到每台设备。",
+  "recording.word": "词语",
+  "recording.standIn": "显示为",
+  "recording.add": "添加词语",
+  "recording.remove": "移除",
+  "recording.problem.emptyWord": "每行都需要一个词语。",
+  "recording.problem.emptyStandIn": "每个词语都需要替代内容。",
+  "recording.problem.duplicateWord": "某个词语在列表中出现了两次。",
+  "recording.problem.standInIsAWord": "替代内容不能包含列表中的词语。",
+  "recording.problem.tooMany": "列表最多 {max} 个词语。",
+  "recording.problem.tooLong": "词语和替代内容最多 {max} 个字符。",
   "settings.selectHint": "从列表中选择一项设置",
   "settings.profilesNote":
     "成员的个人资料存储在服务器上。通知和凭据会在设备间同步。",
@@ -462,6 +481,7 @@ App 的一些原则：
   "settings.sidebar.usage": "用量",
   "settings.sidebar.storage": "存储",
   "settings.sidebar.language": "语言",
+  "settings.sidebar.recording": "录制模式",
   "settings.sidebar.housekeeping": "维护",
   "settings.sidebar.updates": "更新",
   "settings.sidebar.profile": "个人资料",

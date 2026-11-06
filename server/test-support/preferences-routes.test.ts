@@ -21,6 +21,9 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { getUserByName } from "../users.ts";
+import { mintApiToken } from "../api-tokens.ts";
+import { mintAgentToken } from "../identity/tokens.ts";
+import { defaultRecordingWords } from "../../shared/recording-redact.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -80,6 +83,31 @@ describe("prefs.update - persistence", () => {
       rec.voiceOutput,
       rec.voiceName,
     ]).toEqual(["es", "browser", "browser", "cedar"]);
+  });
+
+  // Recording mode (task 6e08239a): the word list follows the member to
+  // every device, so it lives on their record and must survive a restart.
+  it("round-trips the recording mode word list through a cold restart, and leaves the other preferences alone", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Morgan");
+    await putPrefs(server, owner.rawSessionId, { language: "es" });
+    const words = [
+      { word: "Acme", standIn: "Client" },
+      { word: "Jo Park", standIn: "Sam" },
+    ];
+    expect(
+      await putPrefs(server, owner.rawSessionId, { recordingWords: words }),
+    ).toBe(204);
+    server = await server.restart();
+    const rec = getUserByName("Morgan")!;
+    expect(rec.recordingWords).toEqual(words);
+    expect(rec.language).toBe("es");
+    // An empty list is a choice too (the member removed the office row), not
+    // "never saved".
+    expect(
+      await putPrefs(server, owner.rawSessionId, { recordingWords: [] }),
+    ).toBe(204);
+    expect(getUserByName("Morgan")!.recordingWords).toEqual([]);
   });
 
   it("language: null clears an earlier pick", async () => {
@@ -190,6 +218,64 @@ describe("prefs.update - value validation", () => {
   });
 });
 
+describe("prefs.update - recording mode words", () => {
+  async function putWords(
+    srv: TestServer,
+    rawSessionId: string,
+    recordingWords: unknown,
+  ) {
+    const resp = await srv.http("/api/me/preferences", {
+      method: "PATCH",
+      rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordingWords }),
+    });
+    const body = (await resp.json().catch(() => null)) as {
+      error?: { code?: string };
+    } | null;
+    return { status: resp.status, code: body?.error?.code };
+  }
+
+  // The same check as the Settings card (recordingWordsProblem): a chain or
+  // a duplicate the browser refuses must not land through the API either.
+  it("refuses a bad shape or a bad list with invalid_recording_words, and writes nothing", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Morgan");
+    const saved = [{ word: "Acme", standIn: "Client" }];
+    expect((await putWords(server, owner.rawSessionId, saved)).status).toBe(
+      204,
+    );
+    for (const recordingWords of [
+      "Acme",
+      null,
+      [{ word: "Acme" }],
+      [{ word: 1, standIn: "Client" }],
+      [["Acme", "Client"]],
+      [{ word: "", standIn: "Client" }],
+      [{ word: "Acme", standIn: "" }],
+      [
+        { word: "Acme", standIn: "Client" },
+        { word: "ACME", standIn: "Other" },
+      ],
+      [
+        { word: "Acme", standIn: "Bolt" },
+        { word: "Bolt", standIn: "Crux" },
+      ],
+      Array.from({ length: 201 }, (_, i) => ({
+        word: `w${i}`,
+        standIn: `s${i}`,
+      })),
+    ]) {
+      const got = await putWords(server, owner.rawSessionId, recordingWords);
+      expect({ recordingWords, got }).toEqual({
+        recordingWords,
+        got: { status: 422, code: "invalid_recording_words" },
+      });
+    }
+    expect(getUserByName("Morgan")!.recordingWords).toEqual(saved);
+  });
+});
+
 // The UI is event-authoritative: PreferencesPane reads the record out of the
 // store, so a write that persists but never fans out looks like a Save that
 // did nothing. These pin the audiences.
@@ -220,6 +306,7 @@ describe("prefs.update - live event contract", () => {
     for (const [field, value] of [
       ["language", "es"],
       ["voiceInput", "openai"],
+      ["recordingWords", [{ word: "Zyxquorp", standIn: "Client" }]],
     ] as const) {
       // Ignore earlier events; only events caused by this write count.
       const beforeSelf = bag(memberSock, "user_self_updated").length;
@@ -234,7 +321,7 @@ describe("prefs.update - live event contract", () => {
       // the pane authoritative on their other devices.
       const selfEvents = bag(memberSock, "user_self_updated").slice(beforeSelf);
       expect(selfEvents.length).toBe(1);
-      expect((selfEvents[0].user as Record<string, unknown>)[field]).toBe(
+      expect((selfEvents[0].user as Record<string, unknown>)[field]).toEqual(
         value,
       );
 
@@ -243,7 +330,7 @@ describe("prefs.update - live event contract", () => {
         beforeAdmin,
       );
       expect(adminEvents.length).toBe(1);
-      expect((adminEvents[0].user as Record<string, unknown>)[field]).toBe(
+      expect((adminEvents[0].user as Record<string, unknown>)[field]).toEqual(
         value,
       );
     }
@@ -256,7 +343,144 @@ describe("prefs.update - live event contract", () => {
     // users_list arrives once at connect hydration; the writes must not add one.
     expect(bag(ownerSock, "users_list").length).toBe(1);
     expect(bag(memberSock, "users_list").length).toBe(1);
+    // The word list names customers and people: a member who connects after
+    // the write sees the roster, never the list.
+    const bystander = await server.seedMember("Olly");
+    const bystanderSock = await server.connectWs(bystander.rawSessionId);
+    const roster = await bystanderSock.waitFor("users_list");
+    expect(JSON.stringify(roster)).toContain(member.username);
+    expect(JSON.stringify(roster)).not.toContain("Zyxquorp");
+    bystanderSock.close();
     ownerSock.close();
     memberSock.close();
+  });
+});
+
+// GET /api/users/:username/recording-words (task 6e08239a): the OCR check of
+// a demo video reads the member's list. The list names customers and people,
+// so it has the secrets gate of memberVoice.get: the member, an owner, and
+// their API tokens and privileged agents; nobody else.
+describe("memberRecordingWords.get", () => {
+  async function get(srv: TestServer, path: string, auth: Auth) {
+    const resp = await srv.http(path, {
+      method: "GET",
+      rawSessionId: auth.session,
+      headers: auth.bearer ? { Authorization: `Bearer ${auth.bearer}` } : {},
+    });
+    const text = await resp.text();
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // An error page.
+    }
+    return { status: resp.status, body };
+  }
+  type Auth = { session?: string; bearer?: string };
+
+  async function office() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    const member = await srv.seedMember("Mia");
+    const other = await srv.seedMember("Olly");
+    const idOf = (name: string) => getUserByName(name)!.id;
+    const api = async (name: string) =>
+      (
+        await mintApiToken({
+          userId: idOf(name),
+          name: "API",
+          expiresInDays: null,
+        })
+      ).token;
+    return {
+      srv,
+      owner,
+      member,
+      other,
+      memberApi: await api(member.username),
+      ownerApi: await api(owner.username),
+      otherApi: await api(other.username),
+      memberAgent: mintAgentToken("rec-member", idOf(member.username), true),
+      memberPlainAgent: mintAgentToken(
+        "rec-plain",
+        idOf(member.username),
+        false,
+      ),
+      ownerAgent: mintAgentToken("rec-owner", idOf(owner.username), true),
+      otherAgent: mintAgentToken("rec-other", idOf(other.username), true),
+      path: `/api/users/${member.username}/recording-words`,
+    };
+  }
+
+  async function setOfficeName(srv: TestServer, session: string, name: string) {
+    const read = await srv.http("/api/office/settings", {
+      rawSessionId: session,
+    });
+    const { version } = (await read.json()) as { version: string };
+    const put = await srv.http("/api/office/settings", {
+      method: "PUT",
+      rawSessionId: session,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version, name }),
+    });
+    expect(put.status).toBe(204);
+  }
+
+  it("gives the member's saved list to the member, an owner, and their tokens and privileged agents", async () => {
+    const o = await office();
+    const words = [{ word: "Acme", standIn: "Client" }];
+    expect(
+      await putPrefs(o.srv, o.member.rawSessionId, { recordingWords: words }),
+    ).toBe(204);
+    for (const [who, auth] of [
+      ["member cookie", { session: o.member.rawSessionId }],
+      ["member api token", { bearer: o.memberApi }],
+      ["member privileged agent", { bearer: o.memberAgent }],
+      ["owner cookie", { session: o.owner.rawSessionId }],
+      ["owner api token", { bearer: o.ownerApi }],
+      ["owner privileged agent", { bearer: o.ownerAgent }],
+    ] as const) {
+      const r = await get(o.srv, o.path, auth);
+      expect({ who, r }).toEqual({ who, r: { status: 200, body: { words } } });
+    }
+  });
+
+  it("refuses another member, their agent and an agent that is not privileged, and 404s an unknown member", async () => {
+    const o = await office();
+    expect(
+      await putPrefs(o.srv, o.member.rawSessionId, {
+        recordingWords: [{ word: "Zyxquorp", standIn: "Client" }],
+      }),
+    ).toBe(204);
+    for (const [who, auth] of [
+      ["other member cookie", { session: o.other.rawSessionId }],
+      ["other member api token", { bearer: o.otherApi }],
+      ["other member privileged agent", { bearer: o.otherAgent }],
+      ["member plain agent", { bearer: o.memberPlainAgent }],
+    ] as const) {
+      const r = await get(o.srv, o.path, auth);
+      expect({ who, status: r.status }).toEqual({ who, status: 403 });
+      expect(JSON.stringify(r.body)).not.toContain("Zyxquorp");
+    }
+    const unknown = await get(o.srv, "/api/users/Nobody/recording-words", {
+      session: o.owner.rawSessionId,
+    });
+    expect(unknown.status).toBe(404);
+  });
+
+  it("gives the default list, the office name row, to a member who never saved one", async () => {
+    const o = await office();
+    await setOfficeName(o.srv, o.owner.rawSessionId, "Quillfern Works");
+    const r = await get(o.srv, o.path, { session: o.member.rawSessionId });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ words: defaultRecordingWords("Quillfern Works") });
+    expect((r.body as { words: unknown[] }).words).toHaveLength(1);
+    // A saved empty list is not "never saved".
+    expect(
+      await putPrefs(o.srv, o.member.rawSessionId, { recordingWords: [] }),
+    ).toBe(204);
+    const after = await get(o.srv, o.path, { session: o.member.rawSessionId });
+    expect(after.body).toEqual({ words: [] });
   });
 });

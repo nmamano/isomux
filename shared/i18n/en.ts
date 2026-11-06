@@ -483,6 +483,28 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "preferences.saved": "Saved.",
   "preferences.saveFailed": "Could not save",
 
+  "recording.intro":
+    "While you record or stream, the office shows stand-ins for office addresses, other office names, emails, phone numbers, IP addresses, keys and your words, and blurs pictures and embedded pages until you click them. The browser's address bar still shows the real address.",
+  "recording.switch": "On in this browser",
+  "recording.switchHint":
+    "{keys} turns it on or off on any page. The tab shows ● REC and a red dot while it is on.",
+  "recording.words": "Your words",
+  "recording.wordsHint":
+    "Names of customers, people or projects, and what to show instead. The list follows you to every device.",
+  "recording.word": "Word",
+  "recording.standIn": "Shown as",
+  "recording.add": "Add word",
+  "recording.remove": "Remove",
+  "recording.problem.emptyWord": "Each row needs a word.",
+  "recording.problem.emptyStandIn":
+    "Each word needs something to show instead.",
+  "recording.problem.duplicateWord": "A word is on the list twice.",
+  "recording.problem.standInIsAWord":
+    "A stand-in cannot contain a word on the list.",
+  "recording.problem.tooMany": "The list holds at most {max} words.",
+  "recording.problem.tooLong":
+    "Words and stand-ins are at most {max} characters.",
+
   // The settings page shell: header, sidebar, roster, footer.
   "settings.selectHint": "Select a setting from the list",
   "settings.profilesNote":
@@ -496,6 +518,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.sidebar.usage": "Usage",
   "settings.sidebar.storage": "Storage",
   "settings.sidebar.language": "Language",
+  "settings.sidebar.recording": "Recording mode",
   // The group of rare, mostly read-only panes at the end of the Settings
   // sidebar. One string, so a rename is one line.
   "settings.sidebar.housekeeping": "Housekeeping",

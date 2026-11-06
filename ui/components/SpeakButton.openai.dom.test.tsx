@@ -16,6 +16,8 @@ const { setApiShim } = await import("../api.ts");
 const { createElement, Fragment } = await import("react");
 const { DEFAULT_VOICE_NAME, MAX_SPEAK_CHARS } =
   await import("../../shared/voice.ts");
+const { setRecording, setRecordingRules } =
+  await import("../recording-mode.ts");
 
 type VoiceOutput = import("../../shared/voice.ts").VoiceOutput;
 type VoiceName = import("../../shared/voice.ts").VoiceName;
@@ -36,6 +38,7 @@ let pauses: HTMLMediaElement[] = [];
 let created: string[] = [];
 let revoked: string[] = [];
 let browserSpoke = 0;
+let browserTexts: string[] = [];
 // When set, play() refuses a piece (not the silent unlock clip), as iOS does
 // when the tap did not unlock the element.
 let refusePieces = false;
@@ -121,8 +124,9 @@ function install(opts: { speechSynthesis: boolean }) {
     opts.speechSynthesis
       ? {
           getVoices: () => [],
-          speak() {
+          speak(u: { text: string }) {
             browserSpoke++;
+            browserTexts.push(u.text);
           },
           cancel() {},
           addEventListener() {},
@@ -140,6 +144,7 @@ beforeEach(() => {
   created = [];
   revoked = [];
   browserSpoke = 0;
+  browserTexts = [];
   refusePieces = false;
   setApiShim(async (method, path, body) => {
     if (method === "PATCH" && path === "/api/me/preferences")
@@ -518,4 +523,35 @@ it("a piece the element cannot decode ends the reading with the error line", asy
   expect(view.queryByRole("alert")).not.toBeNull();
   expect(isStopShown(button)).toBe(false);
   view.unmount();
+});
+
+// Recording mode (task 6e08239a): a demo video records the sound too, so
+// read aloud speaks the stand-ins, on OpenAI and on the browser voices.
+it("speaks the stand-ins while recording mode is on", async () => {
+  install({ speechSynthesis: true });
+  setRecordingRules({
+    officeHosts: [],
+    otherOffices: [],
+    words: [{ word: "Acme", standIn: "Client" }],
+  });
+  setRecording(true);
+  try {
+    const openai = render(page(["Acme signed today."], "openai"));
+    fireEvent.click(buttonOf(openai.container));
+    await settle();
+    expect(speakCalls).toHaveLength(1);
+    expect(speakCalls[0].text).not.toContain("Acme");
+    expect(speakCalls[0].text).toContain("Client");
+    openai.unmount();
+
+    const browser = render(page(["Acme signed today."], "browser"));
+    fireEvent.click(buttonOf(browser.container));
+    await settle();
+    expect(browserSpoke).toBeGreaterThan(0);
+    expect(browserTexts.join(" ")).not.toContain("Acme");
+    expect(browserTexts.join(" ")).toContain("Client");
+    browser.unmount();
+  } finally {
+    setRecording(false);
+  }
 });

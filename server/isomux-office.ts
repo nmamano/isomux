@@ -4635,6 +4635,7 @@ function buildExecutorDeps(
       userIdForUsername: (username) =>
         buildLiveGuardDeps().userIdForUsername(username),
       userById: (userId) => getUserById(userId) ?? null,
+      officeName: () => agentManager.getOfficeSettings().name,
       keyStatus: (userId) => {
         const found = voiceKeyForUserId(userId);
         return {

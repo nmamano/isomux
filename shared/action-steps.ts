@@ -82,8 +82,9 @@ export type ActionStepRequest =
 export type MemberViewList = "shown" | "tucked" | "notif" | "push";
 
 // What a settings step sets: the route's body, less the office settings
-// version, which the run reads.
-export type MemberPreferencesSet = PreferencesReq;
+// version, which the run reads, and less the recording word list, which an
+// ask may not set (ASK_PREFERENCE_KEYS).
+export type MemberPreferencesSet = Omit<PreferencesReq, "recordingWords">;
 export type OfficeSettingsSet = Omit<OfficeSettingsReq, "version">;
 export type BackupSettingsSet = BackupSettingsReq;
 

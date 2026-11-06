@@ -70,6 +70,7 @@ import { StoragePane } from "./StoragePane.tsx";
 import { UsagePane } from "./UsagePane.tsx";
 import { RoomPane } from "./RoomPane.tsx";
 import { ThemePane } from "./ThemePane.tsx";
+import { RecordingPane } from "./RecordingPane.tsx";
 import { UpdatePane } from "./UpdatePane.tsx";
 import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
 import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
@@ -129,7 +130,8 @@ export type SettingsSection =
   | "signInLinks"
   | "updates"
   | "deviceLabel"
-  | "theme";
+  | "theme"
+  | "recording";
 
 type SidebarRow = SharedSidebarRow<Selection>;
 type SidebarGroup = SharedSidebarGroup<Selection>;
@@ -465,6 +467,7 @@ export function UserSettingsView({
           rows: [
             sectionRow("deviceLabel", t("settings.sidebar.deviceLabel")),
             sectionRow("theme", t("common.theme")),
+            sectionRow("recording", t("settings.sidebar.recording")),
           ],
         },
         {
@@ -982,6 +985,8 @@ export function UserSettingsView({
                   <DevicePane closeRef={detailCloseRef} />
                 ) : selection.section === "theme" ? (
                   <ThemePane />
+                ) : selection.section === "recording" ? (
+                  <RecordingPane />
                 ) : null}
               </div>
             ) : selection?.kind === "room" ? (

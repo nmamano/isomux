@@ -477,6 +477,28 @@ Cosas que puedes hacer por él:
   "preferences.saved": "Guardado.",
   "preferences.saveFailed": "No se pudo guardar",
 
+  "recording.intro":
+    "Mientras grabas o retransmites, la oficina muestra sustitutos de las direcciones de la oficina, los nombres de otras oficinas, correos, teléfonos, direcciones IP, claves y tus palabras, y difumina las imágenes y las páginas incrustadas hasta que haces clic en ellas. La barra de direcciones del navegador sigue mostrando la dirección real.",
+  "recording.switch": "Activado en este navegador",
+  "recording.switchHint":
+    "{keys} lo activa o lo desactiva en cualquier página. La pestaña muestra ● REC y un punto rojo mientras está activado.",
+  "recording.words": "Tus palabras",
+  "recording.wordsHint":
+    "Nombres de clientes, personas o proyectos, y qué mostrar en su lugar. La lista te sigue a todos tus dispositivos.",
+  "recording.word": "Palabra",
+  "recording.standIn": "Se muestra como",
+  "recording.add": "Añadir palabra",
+  "recording.remove": "Quitar",
+  "recording.problem.emptyWord": "Cada fila necesita una palabra.",
+  "recording.problem.emptyStandIn":
+    "Cada palabra necesita algo que mostrar en su lugar.",
+  "recording.problem.duplicateWord": "Una palabra está dos veces en la lista.",
+  "recording.problem.standInIsAWord":
+    "Un sustituto no puede contener una palabra de la lista.",
+  "recording.problem.tooMany": "La lista admite como máximo {max} palabras.",
+  "recording.problem.tooLong":
+    "Las palabras y los sustitutos tienen como máximo {max} caracteres.",
+
   "settings.selectHint": "Elige un ajuste de la lista",
   "settings.profilesNote":
     "Los perfiles de miembro se guardan en el servidor. Tus notificaciones y credenciales te siguen entre dispositivos.",
@@ -489,6 +511,7 @@ Cosas que puedes hacer por él:
   "settings.sidebar.usage": "Uso",
   "settings.sidebar.storage": "Almacenamiento",
   "settings.sidebar.language": "Idioma",
+  "settings.sidebar.recording": "Modo grabación",
   "settings.sidebar.housekeeping": "Mantenimiento",
   "settings.sidebar.updates": "Actualizaciones",
   "settings.sidebar.profile": "Perfil",

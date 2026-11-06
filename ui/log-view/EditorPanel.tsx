@@ -7,6 +7,7 @@ import {
   lineNumbers,
   highlightActiveLine,
 } from "@codemirror/view";
+import { recordingRedaction } from "../components/recording-codemirror.ts";
 import {
   defaultKeymap,
   history,
@@ -710,6 +711,7 @@ export function EditorPanel({
       state: EditorState.create({
         doc: "",
         extensions: [
+          recordingRedaction(),
           ...(mobile ? [] : [lineNumbers()]),
           highlightActiveLine(),
           history(),

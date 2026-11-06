@@ -1,7 +1,8 @@
 // Personal-preference handlers (opIds prefs.update, memberVoice.get,
-// memberVoice.update). The write path for the settings that follow a member
-// across devices: the reply language and the voice settings (what the mic and
-// read aloud use).
+// memberVoice.update, memberRecordingWords.get). The write path for the
+// settings that follow a member across devices: the reply language, the
+// voice settings (what the mic and read aloud use) and the recording mode
+// word list.
 //
 // prefs.update is SELF-only by construction: the route table gates it with
 // user:self + authenticated and the handler acts on the CALLER's own userId,
@@ -35,6 +36,7 @@ import { noContent, fail, ok, type RouteHandler } from "../executor.ts";
 import {
   PREFERENCE_KEYS,
   VOICE_PREFERENCE_KEYS,
+  type MemberRecordingWordsRes,
   type MemberVoiceRes,
   type PreferencesReq,
 } from "../../../shared/contract-shapes.ts";
@@ -47,6 +49,12 @@ import {
   isVoiceOutput,
   type VoiceStatusRes,
 } from "../../../shared/voice.ts";
+import {
+  defaultRecordingWords,
+  isRecordingWordList,
+  recordingWordsProblem,
+  type RecordingWord,
+} from "../../../shared/recording-redact.ts";
 import { memberSubject } from "./member-subject.ts";
 import type { GuardDeps } from "../../identity/guards.ts";
 
@@ -57,7 +65,12 @@ export interface PreferencesDeps {
   userIdForUsername: GuardDeps["userIdForUsername"];
   userById(
     userId: string,
-  ): Pick<UserRecord, "voiceInput" | "voiceOutput" | "voiceName"> | null;
+  ): Pick<
+    UserRecord,
+    "voiceInput" | "voiceOutput" | "voiceName" | "recordingWords"
+  > | null;
+  // The office name, for the default recording mode word list.
+  officeName(): string | null;
   // Where the member's OpenAI voice key comes from (server/voice-key.ts).
   keyStatus(userId: string): VoiceStatusRes;
 }
@@ -108,6 +121,21 @@ export function parsePreferenceChange(
       );
     }
     change.language = value;
+  }
+  if ("recordingWords" in body) {
+    const words = body.recordingWords;
+    const problem = isRecordingWordList(words)
+      ? recordingWordsProblem(words)
+      : "invalid_shape";
+    if (problem !== null) {
+      return refuse(
+        "invalid_recording_words",
+        `recordingWords must be a list of {word, standIn} (${problem})`,
+      );
+    }
+    change.recordingWords = (words as RecordingWord[]).map(
+      ({ word, standIn }) => ({ word, standIn }),
+    );
   }
   if ("voiceInput" in body) {
     if (!isVoiceInput(body.voiceInput)) {
@@ -161,6 +189,16 @@ export function preferencesHandlers(
         voiceOutput: user.voiceOutput ?? "browser",
         voiceName: user.voiceName ?? DEFAULT_VOICE_NAME,
         ...deps.keyStatus(member.userId),
+      };
+      return ok(res);
+    },
+
+    "memberRecordingWords.get": (ctx) => {
+      const member = subject(ctx);
+      const user = member && deps.userById(member.userId);
+      if (!member || !user) return fail(404, "not_found");
+      const res: MemberRecordingWordsRes = {
+        words: user.recordingWords ?? defaultRecordingWords(deps.officeName()),
       };
       return ok(res);
     },

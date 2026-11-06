@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { startRecordingMode } from "./recording-mode.ts";
 import { StoreProvider, ThemeProvider, FeaturesProvider } from "./store.tsx";
 import { LanguageProvider, useI18n } from "./i18n.tsx";
 import { DEMO_FEATURES } from "../shared/features.ts";
@@ -114,6 +115,7 @@ function DemoApp() {
   );
 }
 
+startRecordingMode();
 const root = createRoot(document.getElementById("root")!);
 root.render(
   <ThemeProvider>

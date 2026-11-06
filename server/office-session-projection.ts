@@ -1052,7 +1052,9 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       r.user.language !== user.language ||
       r.user.voiceInput !== user.voiceInput ||
       r.user.voiceOutput !== user.voiceOutput ||
-      r.user.voiceName !== user.voiceName
+      r.user.voiceName !== user.voiceName ||
+      JSON.stringify(r.user.recordingWords) !==
+        JSON.stringify(user.recordingWords)
     ) {
       emitPrivateUserRecord(r.user);
     }
