@@ -26,7 +26,7 @@ import { ZoomControls } from "../ZoomControls.tsx";
 import { getDraggedDesk, setDraggedDesk } from "../drag-state.ts";
 import { Vignette } from "../Vignette.tsx";
 import { Cloud } from "../Floor.tsx";
-import { mobileSceneScale } from "../grid.ts";
+import { MOBILE_CROP_X, mobileSceneScale } from "../grid.ts";
 import type { ViewportControls } from "../OfficeView.tsx";
 import {
   FIGURE_SCALE,
@@ -77,6 +77,7 @@ const SIGN_H = 96;
 const SIGN_SPACING = 4;
 // The ladder's foot, in tiles from the right wall's end: it stands at the
 // right, under the trap door, which is on the right of the front floor.
+// On a phone it moves in by the crop (see phoneInset).
 const LADDER_FROM_END = 1.6;
 const LADDER_SLOPE = TILE_B / TILE_A;
 // The stencil's span on the right wall, in tiles: from near the back corner
@@ -86,8 +87,8 @@ const SIGN_LADDER_GAP = 0.35;
 // The board on the left wall (task a442aa4f): its margins from the left and
 // back corners in tiles, its top's height over the floor, and its slots. A
 // slot holds one agent on two lines (name, then topic); the columns are as
-// many as the wall holds at the smallest width, so a 3x3 room gets two
-// columns of five, and its nine seats always fit.
+// many as the board holds (two on a phone, see phoneInset), so a 3x3 room's
+// nine seats always fit.
 const BOARD_MARGIN_LEFT = 0.45;
 const BOARD_MARGIN_BACK = 0.7;
 const BOARD_TOP_H = 162;
@@ -694,7 +695,13 @@ export function BackRoomScreen({
         `sr-${r}`,
       ),
     );
-  const ladderFoot = layout.at(layout.nc - LADDER_FROM_END, 0.15);
+  // A phone crops MOBILE_CROP_X off each side of the scene (grid.ts): the
+  // ladder and the board's left end move in by that much, so both show at
+  // the default fit.
+  const phoneInset = isMobile ? MOBILE_CROP_X / TILE_A : 0;
+  const ladderFromEnd = LADDER_FROM_END + phoneInset;
+  const boardMarginLeft = BOARD_MARGIN_LEFT + phoneInset;
+  const ladderFoot = layout.at(layout.nc - ladderFromEnd, 0.15);
   const ladderTop = { x: ladderFoot.x + 26, y: ladderFoot.y - WALL_H - 70 };
   // The "BACK ROOM" stencil hangs on the right wall between the back corner
   // and the ladder, centred, and shrinks to fit a small room's wall.
@@ -702,7 +709,7 @@ export function BackRoomScreen({
   const signW =
     textWidth(signText, SIGN_FONT) + SIGN_SPACING * [...signText].length;
   const signSpan =
-    (layout.nc - LADDER_FROM_END - SIGN_LADDER_GAP - SIGN_C0) * TILE_A;
+    (layout.nc - ladderFromEnd - SIGN_LADDER_GAP - SIGN_C0) * TILE_A;
   const signScale = Math.min(1, signSpan / signW);
   const sign = up(layout.at(SIGN_C0 + signSpan / 2 / TILE_A, 0), SIGN_H);
   // The text slants down to its right: its left end is its highest point.
@@ -776,17 +783,17 @@ export function BackRoomScreen({
   // The board on the left wall, from near the left corner to short of the
   // back corner: as many columns as fit, then the slots fill down each column.
   const leftCorner = layout.at(0, layout.nr);
-  const boardW = (layout.nr - BOARD_MARGIN_LEFT - BOARD_MARGIN_BACK) * TILE_A;
+  const boardW = (layout.nr - boardMarginLeft - BOARD_MARGIN_BACK) * TILE_A;
   const boardCols = Math.max(
     1,
     Math.floor((boardW - 2 * BOARD_PAD) / BOARD_COL_MIN),
   );
   const colW = (boardW - 2 * BOARD_PAD) / boardCols;
   const boardH = BOARD_TITLE_H + BOARD_ROWS * BOARD_SLOT_H + BOARD_PAD;
-  const boardX = leftCorner.x + BOARD_MARGIN_LEFT * TILE_A;
+  const boardX = leftCorner.x + boardMarginLeft * TILE_A;
   // The wall's foot falls TILE_B per TILE_A toward the left corner.
   const boardY =
-    leftCorner.y - (BOARD_MARGIN_LEFT * TILE_A * TILE_B) / TILE_A - BOARD_TOP_H;
+    leftCorner.y - (boardMarginLeft * TILE_A * TILE_B) / TILE_A - BOARD_TOP_H;
   // The board rises to its right: its top-right corner is its highest point.
   const boardTop = boardY - (boardW * TILE_B) / TILE_A;
   // Seated agents in seat order; past the slots, the last one counts the rest.

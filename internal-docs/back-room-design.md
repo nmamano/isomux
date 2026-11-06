@@ -166,6 +166,8 @@ Approved by the Lead, 2026-10-15.
   stencil and the board, spaced evenly from the floor's left corner to the
   ladder at staggered heights, so no lamp or cord is in line with another;
   the ladder shows a focus ring for keyboard focus only (task 79c967a8).
+  A phone crops the wall ends, so there the ladder and the board's left end
+  move in by the crop and show at the default fit (task d9d919db).
 - The board fills the left wall (task a442aa4f): a line per seated agent in
   seat order, with a status dot, the name and the topic, each cut to its
   column; the full text is the line's tooltip. A click, Enter or Space on a
