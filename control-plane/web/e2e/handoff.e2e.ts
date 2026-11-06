@@ -117,8 +117,9 @@ async function main(): Promise<void> {
   say(`database: ${db}`);
   say(`instance: ${instanceId}`);
 
+  // Under Node, not `bun --bun`: see the same spawn in lifecycle.e2e.ts.
   const server = Bun.spawn(
-    ["bun", "--bun", "node_modules/.bin/next", "dev", "-p", String(PORT)],
+    ["node", "node_modules/.bin/next", "dev", "-p", String(PORT)],
     {
       cwd: WEB_DIR,
       env: {

@@ -2322,8 +2322,8 @@ is unaffected and is still how the app is developed.
 **Except from a cold start.** Measured 2026-10-03 on Next 16.3.8: a
 `bun --bun next dev` that starts with no `.next` fails its first `pg` load with
 "Failed to load external module pg-<hash>", and a restart over the `.next` it
-left works. Node passes from cold. So `e2e/lifecycle.e2e.ts` and
-`e2e/i18n.e2e.ts` spawn Next under Node.
+left worked. On Next 16.4.5 (2026-11-06) the restart fails the same way. Node
+passes from cold. So the e2e scripts spawn `next dev` under Node.
 
 The `next build` split is also why `lib/services.server.ts` reaches the control
 plane through **request-time dynamic imports** - but note that the reason has

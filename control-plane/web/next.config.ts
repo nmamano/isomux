@@ -14,11 +14,18 @@ import type { NextConfig } from "next";
  */
 const repoRoot = path.join(import.meta.dirname, "..", "..");
 
-const securityHeaders = [
+// next dev serves plain http, where upgrade-insecure-requests turns every
+// redirect a fetch follows into an https request the dev server cannot answer.
+// A production build bakes these headers with NODE_ENV=production, so it keeps
+// the directive.
+const securityHeaders = () => [
   {
     key: "Content-Security-Policy",
     value:
-      "default-src 'self'; base-uri 'self'; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+      "default-src 'self'; base-uri 'self'; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com" +
+      (process.env.NODE_ENV === "production"
+        ? "; upgrade-insecure-requests"
+        : ""),
   },
   {
     key: "Permissions-Policy",
@@ -56,7 +63,7 @@ const config: NextConfig = {
   images: { unoptimized: true, maximumDiskCacheSize: 0 },
   async headers() {
     return [
-      { source: "/(.*)", headers: securityHeaders },
+      { source: "/(.*)", headers: securityHeaders() },
       // A customer's private status link is in the path. AFTER the entry
       // above, because the later Referrer-Policy wins.
       {
