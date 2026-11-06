@@ -89,6 +89,7 @@ import type {
 import type { UserSendAcceptance } from "../../internal-types.ts";
 import {
   askAgentWire,
+  askAgentId,
   askMemberWire,
   askTaskFields,
   askAudienceFor,
@@ -666,6 +667,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const answerable = (
     ctx: Parameters<RouteHandler>[0],
     textRule: "required" | "note" | "none",
+    // A dismiss: the one answer an ask with no agent takes.
+    dismiss = false,
   ):
     | { ok: true; entry: AskEntry; text?: string; device?: string }
     | { ok: false; result: HandlerResult } => {
@@ -720,6 +723,15 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       )
     )
       return refuse(notFound());
+    // An ask with no agent (task 74e8fc07): nobody reads an answer.
+    if (askAgentId(entry) === null && !dismiss)
+      return refuse(
+        fail(
+          409,
+          "no_agent",
+          "No agent reads answers to this ask. Ack or dismiss it.",
+        ),
+      );
     if (delivering.has(entry.id))
       return refuse(
         fail(409, "ask_busy", "An answer to this ask is being sent."),
@@ -777,9 +789,21 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const answer =
     (dismissed: boolean): RouteHandler =>
     async (ctx) => {
-      const checked = answerable(ctx, dismissed ? "note" : "required");
+      const checked = answerable(
+        ctx,
+        dismissed ? "note" : "required",
+        dismissed,
+      );
       if (!checked.ok) return checked.result;
       const { entry, device } = checked;
+      // An ask with no agent closes with no message to anyone.
+      if (askAgentId(entry) === null) {
+        close(entry, {
+          outcome: "dismissed",
+          ...answeredBy(ctx.identity, checked.text),
+        });
+        return noContent();
+      }
       if (entry.messaging) {
         delivering.add(entry.id);
         try {
@@ -1539,7 +1563,20 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // of that agent's logs.
     "asks.get": guarded((ctx) => {
       const ask = read(ctx.params.askId);
-      return ask && deps.canReadAgentLogs(ctx.identity, ask.agentId)
+      if (!ask) return notFound();
+      // An ask with no agent has no logs: whoever may answer it reads it,
+      // open or closed.
+      if (askAgentId(ask) === null) {
+        const entry =
+          store.get(ask.id) ?? deps.history.getById(ask.id)?.entry ?? null;
+        const seen = audienceFor(ctx.identity);
+        return entry &&
+          (askVisibleTo(entry, ctx.identity.userId, seen) ||
+            askShownToOwnerAsOther(entry, ctx.identity.userId, seen))
+          ? ok(ask)
+          : notFound();
+      }
+      return deps.canReadAgentLogs(ctx.identity, ask.agentId)
         ? ok(ask)
         : notFound();
     }),

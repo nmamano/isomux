@@ -595,3 +595,47 @@ describe("Web Push delivery of a paged ask", () => {
     }
   });
 });
+
+// An office page (task 74e8fc07, slice 2): an ask with no agent and no room,
+// for one member. Its items name the office feature; its close sends the
+// "resolved" message (no agent can be "here").
+describe("the page items of an office page", () => {
+  function officeAsk(w: World) {
+    const made = w.asks.create({
+      agentId: "",
+      memberUserId: "u1",
+      office: { feature: "whatsapp", name: "WhatsApp" },
+      prompt: "WhatsApp stopped\n\nThe bridge exited.",
+      priority: "P1",
+      page: { recipients: ["u1"], key: "whatsapp:u1:dead" },
+    });
+    if (!made.ok) throw new Error(`create failed: ${made.code}`);
+    return made.entry;
+  }
+
+  it("one item for its member, named for the feature, with no room, linking to the ask", () => {
+    const w = world();
+    const ask = officeAsk(w);
+    expect(
+      w
+        .itemsOf(ask.id)
+        .map((i) => [i.targetUserId, i.state, i.sourceName, i.roomId, i.title]),
+    ).toEqual([["u1", "open", "WhatsApp", null, "WhatsApp stopped"]]);
+  });
+
+  it("goes to the member's webhook with the feature as the footer, and its dismiss sends the resolved message", async () => {
+    const w = world();
+    const ask = officeAsk(w);
+    await w.time.advance(0);
+    const [first] = w.callsTo("u1");
+    expect(first.body.embeds?.[0].url).toBe(askLink(ask.id));
+    expect(first.body.embeds?.[0].footer?.text).toBe("WhatsApp");
+    expect(w.callsTo("u2")).toHaveLength(0);
+    w.asks.remove(ask.id, { outcome: "dismissed", byUserId: "u1" });
+    await w.time.advance(MIN);
+    const calls = w.callsTo("u1");
+    expect(calls).toHaveLength(2);
+    expect(isResolved(calls[1], "WhatsApp stopped")).toBe(true);
+    expect(w.source.list()).toEqual([]);
+  });
+});

@@ -80,7 +80,11 @@ function ReadOnlyAsk({ ask, isMobile }: { ask: ReadAsk; isMobile: boolean }) {
       <span {...noTranslate()}>{id}</span>
     );
   };
-  const agentName = agents.find((a) => a.id === ask.agentId)?.name;
+  // An ask with no agent is named for its office feature or app.
+  const agentName =
+    agents.find((a) => a.id === ask.agentId)?.name ??
+    ask.office?.name ??
+    (ask.agentId === "" ? ask.app?.name : undefined);
   const closed = "closed" in ask ? ask : null;
   const small = { color: "var(--text-ghost)", fontSize: isMobile ? 12 : 11 };
   return (

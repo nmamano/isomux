@@ -742,6 +742,8 @@ function ReplyAskCard({
   } as const;
   const simplifyOff = busy || simplifying;
   const rewriting = entry.simplifyRequestedAt !== undefined;
+  // An ask with no agent: a page from the office or an app (task 74e8fc07).
+  const noAgent = entry.agentId === "";
   // An answer's refusal, else a simplify request's, else an ack's.
   const failure = error ?? simplifyError ?? ackError;
   const cardBox = {
@@ -820,6 +822,17 @@ function ReplyAskCard({
   }
   // Reply, Dismiss, filing as a task, Discuss in chat and Simplify: one group
   // that wraps, under the field, which takes the card's width.
+  const dismissButton = (
+    <button
+      type="button"
+      data-ask-dismiss=""
+      disabled={busy}
+      onClick={() => answer("dismiss")}
+      style={secondaryButton}
+    >
+      {t("asks.dismiss")}
+    </button>
+  );
   const replyButtons = (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
       <button
@@ -840,14 +853,7 @@ function ReplyAskCard({
       >
         {t("asks.reply")}
       </button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => answer("dismiss")}
-        style={secondaryButton}
-      >
-        {t("asks.dismiss")}
-      </button>
+      {dismissButton}
       {/* Closes the ask and files it on the board; the reply field's note
           goes with it, as with Dismiss. */}
       <button
@@ -885,6 +891,19 @@ function ReplyAskCard({
     <div data-ask={entry.id} style={cardBox}>
       <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
+          {entry.office && (
+            <div
+              data-ask-office=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {t("asks.fromOffice", { name: entry.office.name })}
+            </div>
+          )}
           {entry.app && (
             <div
               data-ask-app=""
@@ -1164,7 +1183,7 @@ function ReplyAskCard({
           </button>
         </div>
       )}
-      {!rewriting && entry.options && entry.options.length > 0 && (
+      {!rewriting && !noAgent && entry.options && entry.options.length > 0 && (
         <div
           data-ask-options=""
           style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 7 }}
@@ -1231,7 +1250,13 @@ function ReplyAskCard({
           })}
         </div>
       )}
-      {rewriting ? null : (
+      {/* An ask with no agent (task 74e8fc07): nobody reads a reply, so it
+          has only Dismiss, with Ack above while it rings. */}
+      {noAgent ? (
+        <div style={{ display: "flex", gap: 6, marginTop: 7 }}>
+          {dismissButton}
+        </div>
+      ) : rewriting ? null : (
         <form
           onSubmit={(e) => {
             e.preventDefault();

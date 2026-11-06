@@ -698,3 +698,36 @@ test("an env file it cannot parse stops the export, and the error names the file
     written: existsSync(b.outDir) ? readdirSync(b.outDir) : [],
   }).toEqual({ refused: true, names: true, quotes: false, written: [] });
 });
+
+// An ask with no agent (task 74e8fc07): its heading names the office
+// feature that paged, where an agent's ask names the agent.
+test("asks.md names an office page by its feature", async () => {
+  const b = bed();
+  seedOffice(b.stateRoot);
+  write(
+    join(b.stateRoot, "asks.json"),
+    JSON.stringify([
+      {
+        id: "ask0off1",
+        agentId: "",
+        memberUserId: "u1",
+        office: { feature: "whatsapp", name: "WhatsApp" },
+        prompt: "WhatsApp stopped",
+        createdAt: T0,
+        updatedAt: T0,
+        page: { state: "ringing", delivery: {} },
+      },
+    ]),
+  );
+  await exportOffice({
+    stateRoot: b.stateRoot,
+    outDir: b.outDir,
+    now: NOW,
+    freeBytes: PLENTY,
+  });
+  const heading = readFileSync(join(b.outDir, "asks.md"), "utf8")
+    .split("\n")
+    .find((line) => line.includes("(ask0off1)"));
+  expect(heading).toBeDefined();
+  expect(heading).toContain("WhatsApp");
+});

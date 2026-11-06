@@ -218,6 +218,12 @@ export let whatsappReplies: WhatsAppReplies;
 // 7fd44c30), the members' routes, and the path from a routed channel to its
 // agent.
 export let discordSupervisor: DiscordSupervisor;
+// What the WhatsApp and Discord supervisors page their member with: a paged
+// ask from the office itself (task 74e8fc07).
+export let officePagers: Record<
+  "whatsapp" | "discord",
+  { raise(userId: string, key: string, title: string, body: string): void }
+>;
 export let discordRoutes: DiscordRoutes;
 // An agent's reply on any messaging route, dispatched by app (slice 2).
 export let messagingReplies: MessagingAppReplies;
@@ -265,6 +271,44 @@ export function appHostingUnsupported(): string | null {
 
 export let extensionService: BrowserExtensionService | undefined;
 export let extensionSessions: ExtensionBrowserSessions | undefined;
+
+// A page about one member's own feature opens a P1 paged ask for that member
+// alone, with no agent, or re-raises the open one with the same key. The
+// supervisors call it from timers and exit handlers: it never throws.
+function officePager(
+  store: AskStore,
+  office: { feature: "whatsapp" | "discord"; name: string },
+) {
+  return {
+    raise(userId: string, key: string, title: string, body: string) {
+      const prompt = body ? `${title}\n\n${body}` : title;
+      try {
+        const open = store.openPaged(
+          { kind: "office", feature: office.feature, memberUserId: userId },
+          key,
+        );
+        if (open) {
+          store.reraise(open.id, prompt, { office: office.feature });
+          return;
+        }
+        const made = store.create({
+          agentId: "",
+          memberUserId: userId,
+          office,
+          prompt,
+          priority: "P1",
+          page: { recipients: [userId], key },
+        });
+        if (!made.ok)
+          console.error(
+            `[asks] ${office.feature} page not opened: ${made.code}`,
+          );
+      } catch {
+        console.error(`[asks] ${office.feature} page could not be opened`);
+      }
+    },
+  };
+}
 
 export function createManagers(
   startOpts: StartServerOpts,
@@ -452,7 +496,7 @@ export function createManagers(
   membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
   floors = createFloorsStore();
   const askHistory = officeAskHistory();
-  askStore = createAskStore({
+  const asks = createAskStore({
     persistence: createAskFilePersistence(join(STATE_ROOT, "asks.json")),
     onChange: (change) => pushAskChange(change),
     history: askHistory,
@@ -472,6 +516,7 @@ export function createManagers(
       }
     },
   });
+  askStore = asks;
   pagerSettings = createPagerSettingsStore(
     createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
   );
@@ -489,10 +534,14 @@ export function createManagers(
     },
   });
   agentManager.attachPagerStore(pagerStore);
+  officePagers = {
+    whatsapp: officePager(asks, { feature: "whatsapp", name: "WhatsApp" }),
+    discord: officePager(asks, { feature: "discord", name: "Discord" }),
+  };
   // What both delivery channels send: the pages and the paged asks.
   const pageItems = createPageItemSource({
     pager: pagerStore,
-    asks: askStore,
+    asks,
     audience: askAudience,
     agentName: (agentId) => agentManager.getAgent(agentId)?.name ?? null,
   });
@@ -615,20 +664,7 @@ export function createManagers(
         clearTimeout(handle as ReturnType<typeof setTimeout>),
     },
     readRss: readProcRss,
-    pager: {
-      raise: (userId, key, title, body) => {
-        pagerStore.raise({
-          source: {
-            kind: "office",
-            feature: "whatsapp",
-            name: "WhatsApp",
-            roomId: null,
-          },
-          targetUserId: userId,
-          fields: { title, body, key },
-        });
-      },
-    },
+    pager: officePagers.whatsapp,
     renderQr: (code) => renderSVG(code),
     emitStatus: (userId, status) =>
       liveEmit("whatsapp_status", { status }, { userId }),
@@ -709,20 +745,7 @@ export function createManagers(
     readRss: readProcRss,
     rest: discordRest,
     gatewayUrl: DISCORD_GATEWAY_URL,
-    pager: {
-      raise: (userId, key, title, body) => {
-        pagerStore.raise({
-          source: {
-            kind: "office",
-            feature: "discord",
-            name: "Discord",
-            roomId: null,
-          },
-          targetUserId: userId,
-          fields: { title, body, key },
-        });
-      },
-    },
+    pager: officePagers.discord,
     emitStatus: (userId, bots) =>
       liveEmit("discord_status", { bots }, { userId }),
     hooks: {

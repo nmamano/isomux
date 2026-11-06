@@ -1556,6 +1556,10 @@ export function generatePagerId(existing?: string[]): string {
 // the entry.
 export interface AskEntry {
   id: string;
+  // "" on an ask with no agent (task 74e8fc07): a paged ask from the office
+  // itself (`office`) or from an app with no message target (`app`). The
+  // same "" in memory, in asks.json and in the history, so an older release
+  // still loads the file. Read it through askAgentId (server/asks.ts).
   agentId: string;
   // The member the prompt is for: the agent's manager unless the agent named
   // another member with access to its room. Absent only on an office secret
@@ -1629,6 +1633,17 @@ export interface AskEntry {
   };
   // A paged ask (task 74e8fc07): an ask with an alarm. Fixed at create.
   page?: AskPage;
+  // The office feature that opened the ask, on an ask with no agent: a page
+  // about the member's own WhatsApp or Discord link. For that member only.
+  office?: AskOfficeSource;
+}
+
+// The office itself as an ask's source (task 74e8fc07). `feature` is any
+// non-empty name, so a feature a later release adds still loads.
+export interface AskOfficeSource {
+  feature: string;
+  // The feature's display name, for the card and the page's footer.
+  name: string;
 }
 
 // The alarm of a paged ask. While it rings, the pager delivery engines send
@@ -1639,6 +1654,9 @@ export interface AskPage {
   // Who acked and when: only with state "acked".
   ackedByUserId?: string;
   ackedAt?: number;
+  // The source's dedupe key: a re-raise with it edits this ask while it is
+  // open. Never on a wire.
+  key?: string;
   // One send record per recipient, by user id: the members the ask was for
   // at create. The set is fixed; never on a wire.
   delivery: Record<string, PagerDelivery>;
@@ -1747,6 +1765,8 @@ export type AskEvent =
       kind: "edited";
       at: number;
       app?: string;
+      // The office feature that re-raised its paged ask (task 74e8fc07).
+      office?: string;
       before: { [K in AskEditableKey]?: AskEntry[K] | null };
     }
   // The member asked the agent to simplify the ask.

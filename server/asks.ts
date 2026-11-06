@@ -42,6 +42,7 @@ import {
   type FilePayload,
   type SecretAskRequest,
   type SudoAskRequest,
+  type AskOfficeSource,
   type AskPage,
   type AskPageWire,
   type AskStep,
@@ -237,6 +238,7 @@ const isPageDelivery = (v: unknown) =>
 // Who acked and when, only on an acked page.
 function isAskPage(v: unknown): boolean {
   if (!isObject(v) || !isObject(v.delivery)) return false;
+  if (v.key !== undefined && typeof v.key !== "string") return false;
   if (!Object.values(v.delivery).every(isPageDelivery)) return false;
   if (v.state === "ringing")
     return v.ackedByUserId === undefined && v.ackedAt === undefined;
@@ -263,6 +265,39 @@ function isAskEntry(v: unknown): v is AskEntry {
     return false;
   const hasMember =
     typeof r.memberUserId === "string" && r.memberUserId.length > 0;
+  if (
+    r.office !== undefined &&
+    !(
+      isObject(r.office) &&
+      typeof r.office.feature === "string" &&
+      r.office.feature !== "" &&
+      typeof r.office.name === "string"
+    )
+  )
+    return false;
+  // An ask with no agent (task 74e8fc07): a page from the office or an app,
+  // for one member, with nothing that needs an agent to read an answer. An
+  // agent's ask never has the office source.
+  if (r.agentId === "") {
+    if (
+      !hasMember ||
+      r.page === undefined ||
+      (r.office === undefined) === (r.app === undefined) ||
+      r.room !== undefined ||
+      r.otherMemberUserIds !== undefined ||
+      r.options !== undefined ||
+      r.recommended !== undefined ||
+      r.link !== undefined ||
+      r.commands !== undefined ||
+      r.editFiles !== undefined ||
+      r.readFiles !== undefined ||
+      r.step !== undefined ||
+      r.secret !== undefined ||
+      r.sudo !== undefined ||
+      r.messaging !== undefined
+    )
+      return false;
+  } else if (r.office !== undefined) return false;
   // A shared ask (task 9461c464): named members or the room, never both, on
   // a plain ask only, and always with memberUserId for an older server.
   if (r.otherMemberUserIds !== undefined || r.room !== undefined) {
@@ -473,6 +508,8 @@ export function askVisibleTo(
   deps: AskAudienceDeps,
 ): boolean {
   if (!userId) return false;
+  // An ask with no agent has no room: its member only.
+  if (askAgentId(entry) === null) return userId === entry.memberUserId;
   const roomId = deps.agentRoomId(entry.agentId);
   if (roomId === null || !deps.canSeeRoom(userId, roomId)) return false;
   // The answerer must still be allowed to write the secrets the value goes
@@ -508,6 +545,9 @@ export function askShownToOwnerAsOther(
   )
     return false;
   if (askVisibleTo(entry, userId, deps)) return false;
+  // An app's page with no agent shows to every owner, as an app page with no
+  // room did; the office's page about a member's feature to nobody else.
+  if (askAgentId(entry) === null) return entry.app !== undefined;
   const roomId = deps.agentRoomId(entry.agentId);
   return roomId !== null && deps.canSeeRoom(userId, roomId);
 }
@@ -642,8 +682,11 @@ export interface AskStore {
     app?: { name: string; createdAt: number };
     // A reply draft to a messaging contact (task d03a61d8).
     messaging?: { app: string; routeId: string; text: string };
-    // A paged ask (task 74e8fc07): it rings for these members.
-    page?: { recipients: string[] };
+    // A paged ask (task 74e8fc07): it rings for these members. `key` is the
+    // source's dedupe key (openPaged).
+    page?: { recipients: string[]; key?: string };
+    // The office feature that opens an ask with no agent (agentId "").
+    office?: AskOfficeSource;
   }):
     | { ok: true; entry: AskEntry }
     | { ok: false; code: "too_many" | "too_many_pages" };
@@ -679,6 +722,17 @@ export interface AskStore {
   // At boot: every run still "running" becomes "lost" (the server's restart
   // ended it). Returns each entry it changed, with the run.
   markLostRuns(): { entry: AskEntry; run: AskCommandRun }[];
+  // The open paged ask of this source with this key, or null.
+  openPaged(source: AskPageSource, key: string): AskEntry | null;
+  // A re-raise of an open paged ask: its prompt becomes `prompt`, with one
+  // "edited" event naming the actor. "unchanged", with nothing written, when
+  // the prompt is the same. Never re-rings it. Null when the entry is gone or
+  // not paged.
+  reraise(
+    id: string,
+    prompt: string,
+    actor: { office: string } | { app: string },
+  ): { outcome: "changed" | "unchanged"; entry: AskEntry } | null;
   // Acks a ringing paged ask: its alarm stops, the ask stays open.
   // "unchanged" when it was acked already; null when the entry is gone or not
   // paged.
@@ -700,19 +754,54 @@ export interface AskStore {
   removeAgent(agentId: string): number;
 }
 
-// Whether an open paged ask counts toward this source's
-// ASK_PAGES_MAX_OPEN_PER_SOURCE: an app's pages by its registration, whatever
-// its target agent; an agent's own pages without an app.
-function samePageSource(
-  entry: AskEntry,
-  source: { agentId: string; app?: { name: string; createdAt: number } },
-): boolean {
-  if (source.app)
-    return (
-      entry.app?.name === source.app.name &&
-      entry.app.createdAt === source.app.createdAt
-    );
-  return entry.app === undefined && entry.agentId === source.agentId;
+// Who opened a paged ask, for its dedupe key and its cap: an agent on its
+// own, an app by registration, or an office feature for one member.
+export type AskPageSource =
+  | { kind: "agent"; agentId: string }
+  | { kind: "app"; name: string; createdAt: number }
+  | { kind: "office"; feature: string; memberUserId: string };
+
+// The source of an ask, as a paged ask counts it: an app's asks by its
+// registration, whatever its target agent; an agent's own asks without an
+// app; an office feature's asks per member.
+function askPageSource(
+  entry: Pick<AskEntry, "agentId" | "app" | "office" | "memberUserId">,
+): AskPageSource {
+  if (entry.app)
+    return {
+      kind: "app",
+      name: entry.app.name,
+      createdAt: entry.app.createdAt,
+    };
+  if (entry.office)
+    return {
+      kind: "office",
+      feature: entry.office.feature,
+      memberUserId: entry.memberUserId ?? "",
+    };
+  return { kind: "agent", agentId: entry.agentId };
+}
+
+function samePageSource(a: AskPageSource, b: AskPageSource): boolean {
+  switch (a.kind) {
+    case "agent":
+      return b.kind === "agent" && a.agentId === b.agentId;
+    case "app":
+      return (
+        b.kind === "app" && a.name === b.name && a.createdAt === b.createdAt
+      );
+    case "office":
+      return (
+        b.kind === "office" &&
+        a.feature === b.feature &&
+        a.memberUserId === b.memberUserId
+      );
+  }
+}
+
+// The ask's agent, or null for an ask with no agent (agentId "").
+export function askAgentId(entry: Pick<AskEntry, "agentId">): string | null {
+  return entry.agentId === "" ? null : entry.agentId;
 }
 
 export function createAskStore(deps: AskStoreDeps): AskStore {
@@ -846,15 +935,21 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       app,
       messaging,
       page,
+      office,
     }) {
       check();
-      const open = entries.filter((e) => e.agentId === agentId).length;
+      // An ask with no agent counts toward no agent's cap.
+      const open = entries.filter(
+        (e) => agentId !== "" && e.agentId === agentId,
+      ).length;
       if (open >= ASK_MAX_OPEN_PER_AGENT)
         return { ok: false, code: "too_many" };
+      const source = askPageSource({ agentId, app, office, memberUserId });
       if (
         page &&
-        entries.filter((e) => e.page && samePageSource(e, { agentId, app }))
-          .length >= ASK_PAGES_MAX_OPEN_PER_SOURCE
+        entries.filter(
+          (e) => e.page && samePageSource(askPageSource(e), source),
+        ).length >= ASK_PAGES_MAX_OPEN_PER_SOURCE
       )
         return { ok: false, code: "too_many_pages" };
       const at = now();
@@ -878,10 +973,12 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(step ? { step } : {}),
         ...(app ? { app } : {}),
         ...(messaging ? { messaging } : {}),
+        ...(office ? { office } : {}),
         ...(page
           ? {
               page: {
                 state: "ringing" as const,
+                ...(page.key !== undefined ? { key: page.key } : {}),
                 delivery: Object.fromEntries(
                   page.recipients.map((userId) => [
                     userId,
@@ -1073,6 +1170,35 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     },
 
     // Neither an ack nor a send record is an edit: updatedAt stays.
+    openPaged(source, key) {
+      check();
+      const entry = entries.find(
+        (e) => e.page?.key === key && samePageSource(askPageSource(e), source),
+      );
+      return entry ? { ...entry } : null;
+    },
+
+    // The new text only: the alarm, its state and its send records stay.
+    reraise(id, prompt, actor) {
+      check();
+      const prev = entries.find((e) => e.id === id);
+      if (!prev?.page) return null;
+      if (prev.prompt === prompt)
+        return { outcome: "unchanged", entry: { ...prev } };
+      const entry: AskEntry = { ...prev, prompt, updatedAt: now() };
+      commit(
+        entries.map((e) => (e.id === id ? entry : e)),
+        [{ kind: "upserted", entry }],
+      );
+      recordEvent(entry, {
+        kind: "edited",
+        at: entry.updatedAt,
+        ...actor,
+        before: { prompt: prev.prompt },
+      });
+      return { outcome: "changed", entry: { ...entry } };
+    },
+
     ack(id, byUserId) {
       check();
       const prev = entries.find((e) => e.id === id);
@@ -1083,10 +1209,10 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       const entry: AskEntry = {
         ...prev,
         page: {
+          ...prev.page,
           state: "acked",
           ackedByUserId: byUserId,
           ackedAt: at,
-          delivery: prev.page.delivery,
         },
       };
       commit(

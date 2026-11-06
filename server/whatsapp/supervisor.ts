@@ -82,8 +82,9 @@ export interface WhatsAppClock {
   clearTimeout(handle: unknown): void;
 }
 
-// A page to the member. The key is stable per (member, condition), so the
-// pager store keeps one open page per condition.
+// A page to the member: a paged ask in their Inbox (office-managers
+// officePagers). The key is stable per (member, condition), so one condition
+// keeps one open ask.
 export interface WhatsAppPager {
   raise(userId: string, key: string, title: string, body: string): void;
 }

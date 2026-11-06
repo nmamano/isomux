@@ -120,6 +120,7 @@ export function createPageItemSource(deps: PageItemSourceDeps): PageItemSource {
     const label = {
       sourceName:
         entry.app?.name ??
+        entry.office?.name ??
         deps.agentName(entry.agentId) ??
         last?.sourceName ??
         entry.agentId,
@@ -213,7 +214,8 @@ export function createPageItemSource(deps: PageItemSourceDeps): PageItemSource {
       labels.delete(entry.id);
       // While the agent is here, a recipient who no longer sees the ask
       // hears nothing more of it. After the agent's removal nobody sees it,
-      // and every recipient gets the "resolved" message.
+      // and every recipient gets the "resolved" message. An ask with no
+      // agent goes to its one member, who always sees it.
       const agentHere = deps.audience.agentRoomId(entry.agentId) !== null;
       const items = Object.entries(page.delivery)
         .filter(

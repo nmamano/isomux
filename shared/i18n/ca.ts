@@ -2039,6 +2039,7 @@ Coses que pots fer per ell:
   "asks.openLink": "Obre {page}",
   "asks.openSite": "Obre {site}",
   "asks.fromApp": "De l'app {app}",
+  "asks.fromOffice": "De {name}",
   "asks.discuss": "Comenta-ho al xat",
   "asks.copyId": "Copia l'ID de la petició",
   "asks.idCopied": "Copiat!",

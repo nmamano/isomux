@@ -1802,6 +1802,7 @@ App 的一些原则：
   "asks.openLink": "打开「{page}」",
   "asks.openSite": "打开 {site}",
   "asks.fromApp": "来自应用 {app}",
+  "asks.fromOffice": "来自 {name}",
   "asks.discuss": "在聊天中讨论",
   "asks.copyId": "复制请示 ID",
   "asks.idCopied": "已复制！",

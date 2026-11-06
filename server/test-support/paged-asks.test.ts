@@ -19,6 +19,7 @@ import type {
   AskHistoryRes,
 } from "../../shared/contract-shapes.ts";
 import { ASK_PAGES_MAX_OPEN_PER_SOURCE } from "../asks.ts";
+import * as managers from "../office-managers.ts";
 import { browserDevice, decrypt } from "./web-push-receiver.ts";
 
 let server: TestServer | null = null;
@@ -524,5 +525,165 @@ describe("a paged ask's alarm on Discord and Web Push", () => {
     const resolved = await decrypt(toPat()[1].body, pat);
     expect(resolved.renotify).toBe(false);
     expect(resolved.body).toContain("Asker");
+  });
+});
+
+// An office page (task 74e8fc07, slice 2): the office raises a page about a
+// member's own WhatsApp or Discord link (the supervisors' pager.raise), which
+// opens a paged ask with no agent for that member only. Seam: the raisers the
+// office hands its supervisors (office-managers `officePagers`), on the real
+// server.
+describe("an office page", () => {
+  const raise = (
+    feature: "whatsapp" | "discord",
+    userId: string,
+    key: string,
+    title: string,
+    body: string,
+  ) => managers.officePagers[feature].raise(userId, key, title, body);
+  const waKey = (userId: string) => `whatsapp:${userId}:dead`;
+
+  async function patsOnly(w: W) {
+    const asks = await listed(w, w.pat);
+    expect(asks).toHaveLength(1);
+    return asks[0];
+  }
+
+  it("opens a P1 paged ask for that member only, from the feature, on their list, socket and Discord", async () => {
+    const w = await world();
+    const r = await call(
+      w.srv,
+      "PATCH",
+      `/api/users/${w.pat.username}/pager-settings`,
+      w.pat.auth,
+      { json: { webhookUrl: hookOf(1), discordUserId: "1".repeat(18) } },
+    );
+    expect(r.status).toBe(200);
+    const patWs = await w.srv.connectWs(w.pat.rawSessionId);
+    const kimWs = await w.srv.connectWs(w.kim.rawSessionId);
+    const nilWs = await w.srv.connectWs(w.nil.rawSessionId);
+    raise(
+      "whatsapp",
+      w.pat.id,
+      waKey(w.pat.id),
+      "WhatsApp stopped",
+      "The bridge exited.",
+    );
+
+    const ask = await patsOnly(w);
+    expect(ask.office).toEqual({ feature: "whatsapp", name: "WhatsApp" });
+    expect(ask.page?.state).toBe("ringing");
+    expect(ask.priority).toBe("P1");
+    expect(ask.prompt.split("\n")[0]).toBe("WhatsApp stopped");
+    expect(ask.prompt).toContain("The bridge exited.");
+    expect(keysIn(ask).has("key")).toBe(false);
+    // Nobody else sees it: not a member in the room, not the owner.
+    expect(await listed(w, w.kim)).toEqual([]);
+    expect(await listed(w, w.nil)).toEqual([]);
+    const others = await call(w.srv, "GET", "/api/asks/others", w.nil.auth);
+    expect((others.body as AskAgentWire[]).map((e) => e.id)).toEqual([]);
+    const reads = await Promise.all(
+      [w.pat, w.kim, w.nil].map(
+        async (who) =>
+          (await call(w.srv, "GET", `/api/asks/${ask.id}`, who.auth)).status,
+      ),
+    );
+    expect(reads).toEqual([200, 404, 404]);
+    // The member's socket gets it; the others' do not.
+    const upserted = await patWs.waitFor("ask_upserted");
+    expect((upserted.entry as { id?: string }).id).toBe(ask.id);
+    await sleep(100);
+    for (const ws of [kimWs, nilWs])
+      expect(
+        ws.messages.some(
+          (m) => (m as { entry?: { id?: string } }).entry?.id === ask.id,
+        ),
+      ).toBe(false);
+    // Discord: the member's webhook, linking to the ask.
+    await waitUntil(() => w.discord.length === 1, "the Discord send");
+    expect(w.discord[0].url).toBe(hookOf(1));
+    expect(
+      w.discord[0].body.embeds?.[0].url.endsWith(`/inbox/asks/${ask.id}`),
+    ).toBe(true);
+    for (const ws of [patWs, kimWs, nilWs]) ws.close();
+  });
+
+  it("a raise with the same key edits the open ask and keeps an ack; after a dismiss the key opens a new one", async () => {
+    const w = await world();
+    raise("whatsapp", w.pat.id, waKey(w.pat.id), "WhatsApp stopped", "First.");
+    const first = await patsOnly(w);
+    expect((await ack(w, w.pat.auth, first.id)).status).toBe(200);
+    raise("whatsapp", w.pat.id, waKey(w.pat.id), "WhatsApp stopped", "Second.");
+    const again = await patsOnly(w);
+    expect(again.id).toBe(first.id);
+    expect(again.prompt).toContain("Second.");
+    expect(again.page?.state).toBe("acked");
+    // Another member's key, and the Discord feature, are other pages.
+    raise("whatsapp", w.kim.id, waKey(w.kim.id), "WhatsApp stopped", "Kim.");
+    raise(
+      "discord",
+      w.pat.id,
+      `discord:${w.pat.id}:b1:token`,
+      "Discord bot stopped",
+      "Bad token.",
+    );
+    const pats = await listed(w, w.pat);
+    expect(pats.map((e) => e.office?.feature).sort()).toEqual([
+      "discord",
+      "whatsapp",
+    ]);
+    expect(await listed(w, w.kim)).toHaveLength(1);
+    expect((await answer(w, w.pat, first.id, "dismiss")).status).toBe(204);
+    raise("whatsapp", w.pat.id, waKey(w.pat.id), "WhatsApp stopped", "Third.");
+    const fresh = (await listed(w, w.pat)).find(
+      (e) => e.office?.feature === "whatsapp",
+    );
+    expect(fresh?.id).toBeDefined();
+    expect(fresh?.id).not.toBe(first.id);
+    expect(fresh?.page?.state).toBe("ringing");
+  });
+
+  it("nobody can answer it: reply, simplify and file-task are 409 no_agent; dismiss closes it, and its member reads the close", async () => {
+    const w = await world();
+    raise("whatsapp", w.pat.id, waKey(w.pat.id), "WhatsApp stopped", "Gone.");
+    const ask = await patsOnly(w);
+    const outcomes: string[] = [];
+    for (const [verb, json] of [
+      ["reply", { text: "ok" }],
+      ["simplify", {}],
+      ["file-task", {}],
+    ] as const) {
+      const r = await answer(w, w.pat, ask.id, verb, json);
+      outcomes.push(`${verb}: ${r.status} ${r.code}`);
+    }
+    expect(outcomes).toEqual([
+      "reply: 409 no_agent",
+      "simplify: 409 no_agent",
+      "file-task: 409 no_agent",
+    ]);
+    expect((await patsOnly(w)).id).toBe(ask.id);
+    // Not another member's to dismiss.
+    expect((await answer(w, w.kim, ask.id, "dismiss")).status).toBe(404);
+    const patWs = await w.srv.connectWs(w.pat.rawSessionId);
+    const nilWs = await w.srv.connectWs(w.nil.rawSessionId);
+    expect((await answer(w, w.pat, ask.id, "dismiss")).status).toBe(204);
+    // The removal goes to the member's socket, and to no owner's.
+    const removed = await patWs.waitFor("ask_removed");
+    expect(removed.id).toBe(ask.id);
+    await sleep(100);
+    expect(nilWs.messages.some((m) => JSON.stringify(m).includes(ask.id))).toBe(
+      false,
+    );
+    patWs.close();
+    nilWs.close();
+    expect(await listed(w, w.pat)).toEqual([]);
+    const closed = await call(w.srv, "GET", `/api/asks/${ask.id}`, w.pat.auth);
+    expect(closed.status).toBe(200);
+    expect(
+      (closed.body as { closed?: { outcome?: string } }).closed?.outcome,
+    ).toBe("dismissed");
+    expect(
+      (await call(w.srv, "GET", `/api/asks/${ask.id}`, w.nil.auth)).status,
+    ).toBe(404);
   });
 });

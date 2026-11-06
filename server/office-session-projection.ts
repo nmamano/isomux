@@ -540,7 +540,13 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
               ...(named ? { by } : {}),
             }),
           );
-        else if (!entry.secret && !!userId && askAudience.isOfficeOwner(userId))
+        // The office's page about a member's own feature is theirs alone.
+        else if (
+          !entry.secret &&
+          !entry.office &&
+          !!userId &&
+          askAudience.isOfficeOwner(userId)
+        )
           officeSend(
             ws,
             "others_ask_removed",

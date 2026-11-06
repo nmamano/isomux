@@ -84,6 +84,8 @@ agent-reference page and a pointer in `server/system-prompt.ts`.
 
 Task 74e8fc07: an ask can carry an alarm (internal-docs/asks-design.md, "Paged asks"). Both delivery channels read page items (`server/page-items.ts`) instead of page records: one item per page, and one per recipient of a ringing or acked paged ask, whose link is the ask. A paged ask's pending "resolved" message is in memory only.
 
+The office's own pages (WhatsApp, Discord) open paged asks with no agent since slice 2; pages they raised earlier stay in `pager.json` until the slice 3 migration.
+
 ## Delivery: Discord
 
 Discord, not Web Push, because a send is one HTTPS POST with a JSON body to a

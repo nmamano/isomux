@@ -247,6 +247,30 @@ export function askGroups(
   );
 }
 
+/**
+ * The open asks with no agent (task 74e8fc07), pages from the office or an
+ * app, by their source's name, before the agents' runs. Only the priority
+ * filter applies: they have no room and no agent. Oldest first in a group,
+ * the groups by name.
+ */
+export function sourceGroups(
+  asks: readonly AskMemberWire[],
+  filter: AskFilter,
+): { name: string; entries: AskMemberWire[] }[] {
+  const byName = new Map<string, AskMemberWire[]>();
+  for (const entry of asks) {
+    if (entry.agentId !== "" || !passesPriority(filter, entry)) continue;
+    const name = entry.office?.name ?? entry.app?.name ?? "";
+    byName.set(name, [...(byName.get(name) ?? []), entry]);
+  }
+  return [...byName]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, entries]) => ({
+      name,
+      entries: entries.sort((a, b) => a.createdAt - b.createdAt),
+    }));
+}
+
 // How long an answer waits before it is sent, so the member can undo it.
 export const ASK_UNDO_MS = 5000;
 
@@ -456,6 +480,7 @@ export function AsksView({
     () => askGroups(listed, agents, filterRooms, filter, sort, dir),
     [listed, agents, filterRooms, filter, sort, dir],
   );
+  const sources = useMemo(() => sourceGroups(listed, filter), [listed, filter]);
   const counts = useMemo(
     () => filterCounts(open, agents, filter),
     [open, agents, filter],
@@ -487,7 +512,9 @@ export function AsksView({
   // Whether any ask would show with every filter on all, so an empty list
   // can tell "no open asks" from "the filters hide them".
   const anyOpen = useMemo(
-    () => agents.some((agent) => listed.some((e) => e.agentId === agent.id)),
+    () =>
+      listed.some((e) => e.agentId === "") ||
+      agents.some((agent) => listed.some((e) => e.agentId === agent.id)),
     [listed, agents],
   );
   // The toasts of the held answers in the list.
@@ -540,7 +567,8 @@ export function AsksView({
   // their name shows once, as it will when the held cards go.
   const held = (id: string) => answeredAsks.get(id) === "undo";
   const shownRuns: { first: boolean; joined: boolean }[] = [];
-  let lastShown: string | null = null;
+  // The asks with no agent come first: then no agent's run is the first.
+  let lastShown: string | null = sources.length > 0 ? "" : null;
   for (const { agent, entries } of groups) {
     const shows = entries.some((e) => !held(e.id));
     shownRuns.push({
@@ -779,14 +807,41 @@ export function AsksView({
                 isMobile={isMobile}
               />
             ))}
-            {groups.length === 0 && !anyOpen ? (
+            {sources.flatMap(({ name, entries }, i) => [
+              <div
+                key={`source:${entries[0].id}`}
+                data-asks-source={name}
+                {...noTranslate()}
+                style={{
+                  margin: `${i === 0 ? 0 : isMobile ? 16 : 20}px 0 6px 2px`,
+                  color: "var(--text-primary)",
+                  fontFamily: "var(--font-ui)",
+                  fontSize: isMobile ? 15 : 14,
+                  fontWeight: 600,
+                }}
+              >
+                {name}
+              </div>,
+              ...entries.map((entry) => (
+                <AskCard
+                  key={entry.id}
+                  entry={entry}
+                  isMobile={isMobile}
+                  onFocusAgent={onFocusAgent}
+                  onChatAgent={onChatAgent}
+                  undoMs={ASK_UNDO_MS}
+                  promptLines={INBOX_PROMPT_LINES}
+                />
+              )),
+            ])}
+            {sources.length === 0 && groups.length === 0 && !anyOpen ? (
               // The pinned card is the one open ask: no "No open asks" under it.
               pinnedEntry ? null : (
                 <div data-asks-empty="" style={emptyStyle}>
                   {t("asks.empty")}
                 </div>
               )
-            ) : groups.length === 0 ? (
+            ) : sources.length === 0 && groups.length === 0 ? (
               <div data-asks-filtered-empty="" style={emptyStyle}>
                 <div>{t("asks.filteredEmpty")}</div>
                 <button

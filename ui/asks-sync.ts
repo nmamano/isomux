@@ -91,7 +91,7 @@ export function askCounts(
 
 /**
  * The asks the Inbox's Asks tab lists and counts: those whose agent is
- * in the agents slice. GET /api/asks filters on room access, but an agent in
+ * in the agents slice, and those with no agent. GET /api/asks filters on room access, but an agent in
  * a room the member hides never reaches the client, so its desk and chat
  * cannot show the ask either.
  */
@@ -100,7 +100,8 @@ export function visibleAsks<T extends AskMemberWire>(
   agents: readonly { id: string }[],
 ): T[] {
   const ids = new Set(agents.map((a) => a.id));
-  return entries.filter((e) => ids.has(e.agentId));
+  // An ask with no agent (agentId "", task 74e8fc07) is for the member alone.
+  return entries.filter((e) => e.agentId === "" || ids.has(e.agentId));
 }
 
 /**

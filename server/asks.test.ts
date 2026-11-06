@@ -2,7 +2,13 @@
 // ask, and the note the agent reads.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type {
@@ -105,6 +111,12 @@ const SECRET = {
 };
 const DRAFT = { app: "whatsapp", routeId: "r1", text: "*hi*\nsee you at 5" };
 const SUDO = { requestId: "req-2", command: "apt update", cwd: "/w" };
+const OFFICE_SRC = { feature: "whatsapp", name: "WhatsApp" };
+const APP_SRC = { name: "uptime", createdAt: 7 };
+const RINGING = {
+  state: "ringing",
+  delivery: { u1: { state: "not_delivered", sends: 0 } },
+};
 // The send records of a paged ask that rings for u1 and u2.
 const SENDS = {
   u1: { state: "not_delivered", sends: 0 },
@@ -609,6 +621,61 @@ describe("the three shapes", () => {
       { ...BASE, memberUserId: "u1", ...fields },
       loads,
     ]),
+    // An ask with no agent (task 74e8fc07, slice 2): agentId "", one member,
+    // a page, and its source: an office feature or an app.
+    ...(
+      [
+        ["office page", { office: OFFICE_SRC, page: RINGING }, true],
+        ["agentless app page", { app: APP_SRC, page: RINGING }, true],
+        ["agentless ask with no page", { office: OFFICE_SRC }, false],
+        ["agentless page with no source", { page: RINGING }, false],
+        [
+          "agentless page with both sources",
+          { office: OFFICE_SRC, app: APP_SRC, page: RINGING },
+          false,
+        ],
+        [
+          "office page for a room",
+          { office: OFFICE_SRC, room: true, page: RINGING },
+          false,
+        ],
+        [
+          "office page for a member list",
+          { office: OFFICE_SRC, otherMemberUserIds: ["u2"], page: RINGING },
+          false,
+        ],
+        [
+          "office page with options",
+          { office: OFFICE_SRC, options: ["Fix it"], page: RINGING },
+          false,
+        ],
+        [
+          "office page with a link",
+          { office: OFFICE_SRC, link: "/integrations", page: RINGING },
+          false,
+        ],
+        [
+          "office page with commands",
+          { office: OFFICE_SRC, commands: ["bun test"], page: RINGING },
+          false,
+        ],
+        [
+          "office page with no member",
+          { office: OFFICE_SRC, memberUserId: undefined, page: RINGING },
+          false,
+        ],
+      ] as [string, Record<string, unknown>, boolean][]
+    ).map(([label, fields, loads]): [string, unknown, boolean] => [
+      label,
+      { ...BASE, agentId: "", memberUserId: "u1", ...fields },
+      loads,
+    ]),
+    // The office source is for an ask with no agent only.
+    [
+      "office source on an agent's ask",
+      { ...BASE, memberUserId: "u1", office: OFFICE_SRC, page: RINGING },
+      false,
+    ],
   ];
   for (const [label, entry, loads] of shapes)
     it(`${loads ? "loads" : "moves aside"} a file with a ${label} entry`, () => {
@@ -1531,5 +1598,269 @@ describe("a paged ask (task 74e8fc07)", () => {
         `closed ${keptB.id}`,
       ].sort(),
     );
+  });
+});
+
+// An ask with no agent (task 74e8fc07, slice 2): the office itself (a page
+// about the member's own WhatsApp or Discord link) or an app with no message
+// target opens it. agentId is "" in memory and on disk, so an older release
+// still loads the file. A source's key dedupes its open paged ask; a
+// re-raise edits the prompt and never re-rings.
+describe("an ask with no agent (task 74e8fc07)", () => {
+  const WA = { feature: "whatsapp", name: "WhatsApp" };
+  const DC = { feature: "discord", name: "Discord" };
+
+  function officeStore(persistence?: AskPersistence) {
+    const { path } = fileIn();
+    const changes: AskChange[] = [];
+    const pages: string[] = [];
+    const events: { askId: string; kind: string; office?: string }[] = [];
+    let saves = 0;
+    const file = createAskFilePersistence(path);
+    const counted: AskPersistence = persistence ?? {
+      load: () => file.load(),
+      save: (entries) => {
+        saves++;
+        file.save(entries);
+      },
+      quarantine: () => file.quarantine(),
+    };
+    const history = {
+      record: () => {},
+      recordEvent: (_agentId: string, askId: string, event: AskEvent) =>
+        events.push({
+          askId,
+          kind: event.kind,
+          ...(event.kind === "edited" && event.office
+            ? { office: event.office }
+            : {}),
+        }),
+      has: () => false,
+    } as unknown as AskHistory;
+    const store = createAskStore({
+      persistence: counted,
+      history,
+      onChange: (c) => changes.push(c),
+      onPage: (entry, event) => pages.push(`${event} ${entry.id}`),
+    });
+    const open = (
+      over: {
+        memberUserId?: string;
+        office?: { feature: string; name: string };
+        key?: string;
+        prompt?: string;
+      } = {},
+    ) => {
+      const memberUserId = over.memberUserId ?? "u1";
+      const made = store.create({
+        agentId: "",
+        memberUserId,
+        office: over.office ?? WA,
+        prompt: over.prompt ?? "WhatsApp stopped\n\nThe bridge exited.",
+        priority: "P1",
+        page: { recipients: [memberUserId], key: over.key ?? "k-dead" },
+      });
+      if (!made.ok) throw new Error(`create failed: ${made.code}`);
+      return made.entry;
+    };
+    return {
+      store,
+      open,
+      path,
+      changes,
+      pages,
+      events,
+      saves: () => saves,
+      reopen: () =>
+        createAskStore({ persistence: createAskFilePersistence(path) }),
+    };
+  }
+
+  it('keeps agentId "" on disk, where a check that only asks for a string agentId and a member loads every entry', () => {
+    const { open, path, reopen } = officeStore();
+    const entry = open();
+    expect(entry.agentId).toBe("");
+    expect(entry.office).toEqual(WA);
+    const raw = JSON.parse(readFileSync(path, "utf-8")) as Record<
+      string,
+      unknown
+    >[];
+    // The first fields an older release's load check reads.
+    expect(
+      raw.every(
+        (e) =>
+          typeof e.id === "string" &&
+          typeof e.agentId === "string" &&
+          typeof e.memberUserId === "string" &&
+          typeof e.prompt === "string",
+      ),
+    ).toBe(true);
+    expect(raw[0].agentId).toBe("");
+    // The key is kept with the page, for the next raise.
+    expect((raw[0].page as { key?: string }).key).toBe("k-dead");
+    expect(reopen().get(entry.id)?.office).toEqual(WA);
+  });
+
+  it("finds a source's open paged ask by its key, and no other source's", () => {
+    const { store, open } = officeStore();
+    const waU1 = open();
+    open({ memberUserId: "u2" });
+    open({ office: DC });
+    const agentPage = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Disk full?",
+      page: { recipients: ["u1"], key: "k-dead" },
+    });
+    if (!agentPage.ok) throw new Error("create failed");
+    const appPage = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Down?",
+      app: { name: "uptime", createdAt: 7 },
+      page: { recipients: ["u1"], key: "k-dead" },
+    });
+    if (!appPage.ok) throw new Error("create failed");
+    const office = (memberUserId: string, feature = "whatsapp") =>
+      store.openPaged({ kind: "office", feature, memberUserId }, "k-dead")?.id;
+    expect(office("u1")).toBe(waU1.id);
+    expect(office("u3")).toBeUndefined();
+    expect(office("u1", "discord")).not.toBe(waU1.id);
+    expect(
+      store.openPaged(
+        { kind: "office", feature: "whatsapp", memberUserId: "u1" },
+        "k-other",
+      ),
+    ).toBeNull();
+    expect(
+      store.openPaged({ kind: "agent", agentId: "a1" }, "k-dead")?.id,
+    ).toBe(agentPage.entry.id);
+    expect(
+      store.openPaged({ kind: "app", name: "uptime", createdAt: 7 }, "k-dead")
+        ?.id,
+    ).toBe(appPage.entry.id);
+    expect(
+      store.openPaged({ kind: "app", name: "uptime", createdAt: 8 }, "k-dead"),
+    ).toBeNull();
+    // A closed ask is not open.
+    store.remove(waU1.id, { outcome: "dismissed", byUserId: "u1" });
+    expect(office("u1")).toBeUndefined();
+  });
+
+  it("a re-raise with the same text changes nothing; new text edits it once, with the office as the actor, and never re-rings", () => {
+    const { store, open, changes, pages, events, saves, reopen } =
+      officeStore();
+    const entry = open();
+    store.ack(entry.id, "u1");
+    changes.length = 0;
+    pages.length = 0;
+    events.length = 0;
+    const before = saves();
+
+    const same = store.reraise(entry.id, entry.prompt, { office: "whatsapp" });
+    expect(same?.outcome).toBe("unchanged");
+    expect(saves()).toBe(before);
+    expect([changes, pages, events]).toEqual([[], [], []]);
+
+    const text = "WhatsApp stopped\n\nThe bridge exited again.";
+    const changed = store.reraise(entry.id, text, { office: "whatsapp" });
+    expect(changed?.outcome).toBe("changed");
+    expect(changed?.entry.prompt).toBe(text);
+    // An acked page stays acked, with its send records.
+    expect(changed?.entry.page?.state).toBe("acked");
+    expect(changed?.entry.page?.delivery).toEqual(entry.page!.delivery);
+    expect(changes.map((c) => c.kind)).toEqual(["upserted"]);
+    expect(pages).toEqual([]);
+    expect(events).toEqual([
+      { askId: entry.id, kind: "edited", office: "whatsapp" },
+    ]);
+    expect(reopen().get(entry.id)?.prompt).toBe(text);
+  });
+
+  it("a re-raise of a ringing page keeps it ringing; no re-raise reaches a plain or closed ask", () => {
+    const { store, open } = officeStore();
+    const entry = open();
+    const changed = store.reraise(entry.id, "WhatsApp stopped\n\nAgain.", {
+      office: "whatsapp",
+    });
+    expect(changed?.entry.page?.state).toBe("ringing");
+    const plain = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Plain?",
+    });
+    if (!plain.ok) throw new Error("create failed");
+    expect(store.reraise(plain.entry.id, "New?", { app: "uptime" })).toBeNull();
+    store.remove(entry.id, { outcome: "dismissed", byUserId: "u1" });
+    expect(store.reraise(entry.id, "Gone?", { office: "whatsapp" })).toBeNull();
+  });
+
+  it("holds at most 50 open office pages per feature and member, and no 500-per-agent cap applies", () => {
+    const mem: AskPersistence = {
+      load: () => ({ kind: "missing" }),
+      save: () => {},
+      quarantine: () => true,
+    };
+    const { store, open } = officeStore(mem);
+    for (let i = 0; i < ASK_PAGES_MAX_OPEN_PER_SOURCE; i++)
+      open({ key: `k${i}` });
+    const over = store.create({
+      agentId: "",
+      memberUserId: "u1",
+      office: WA,
+      prompt: "One more",
+      page: { recipients: ["u1"], key: "k-more" },
+    });
+    expect(over).toEqual({ ok: false, code: "too_many_pages" });
+    expect(open({ memberUserId: "u2", key: "k-more" }).agentId).toBe("");
+    expect(open({ office: DC, key: "k-more" }).agentId).toBe("");
+    // 11 sources of 50 each: 550 open asks with agentId "".
+    for (let m = 3; m <= 11; m++)
+      for (let i = 0; i < ASK_PAGES_MAX_OPEN_PER_SOURCE; i++)
+        open({ memberUserId: `u${m}`, key: `k${i}` });
+    expect(store.listAll().length).toBeGreaterThan(500);
+  });
+});
+
+describe("who sees an ask with no agent (task 74e8fc07)", () => {
+  // No agent has a room: agentRoomId("") is null.
+  const audience: AskAudienceDeps = {
+    isOfficeOwner: (userId) => userId === "u-owner",
+    agentRoomId: (agentId) => (agentId === "a1" ? "r1" : null),
+    canSeeRoom: () => true,
+    roomHidden: () => false,
+    roomMemberIds: () => [],
+  };
+  const office: AskEntry = {
+    ...BASE,
+    agentId: "",
+    memberUserId: "u1",
+    office: { feature: "whatsapp", name: "WhatsApp" },
+    page: {
+      state: "ringing",
+      delivery: { u1: { state: "not_delivered", sends: 0 } },
+    },
+  };
+  const app: AskEntry = {
+    ...office,
+    office: undefined,
+    app: { name: "uptime", createdAt: 7 },
+  };
+
+  it("an office page: its member only, never an owner as another member's", () => {
+    expect(askMemberIds(office, audience)).toEqual(["u1"]);
+    expect(askVisibleTo(office, "u1", audience)).toBe(true);
+    expect(askVisibleTo(office, "u2", audience)).toBe(false);
+    expect(askVisibleTo(office, "u-owner", audience)).toBe(false);
+    expect(askVisibleTo(office, null, audience)).toBe(false);
+    expect(askShownToOwnerAsOther(office, "u-owner", audience)).toBe(false);
+  });
+
+  it("an app page with no agent: its member, and office owners as another member's", () => {
+    expect(askMemberIds(app, audience)).toEqual(["u1"]);
+    expect(askVisibleTo(app, "u1", audience)).toBe(true);
+    expect(askVisibleTo(app, "u2", audience)).toBe(false);
+    expect(askShownToOwnerAsOther(app, "u-owner", audience)).toBe(true);
+    expect(askShownToOwnerAsOther(app, "u2", audience)).toBe(false);
   });
 });

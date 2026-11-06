@@ -441,6 +441,14 @@ class Exporter {
     return room ? room.name : `Room ${str(id ?? "unknown")}`;
   }
 
+  // Who asked: the agent, or for an ask with no agent (agentId "") the office
+  // feature or the app that paged.
+  private askSource(ask: Record<string, unknown>): string {
+    if (ask.agentId !== "") return this.agentName(ask.agentId);
+    const source = (ask.office ?? ask.app) as { name?: unknown } | undefined;
+    return str(source?.name ?? "unknown agent");
+  }
+
   private agentName(id: unknown): string {
     return this.agentNames.get(str(id)) ?? str(id ?? "unknown agent");
   }
@@ -632,7 +640,7 @@ class Exporter {
     const lines = [`# Asks`, ``];
     const render = (ask: Record<string, unknown>) => {
       lines.push(
-        `### ${isoTime(Number(ask.createdAt))}: ${this.agentName(ask.agentId)} to ${this.userName(ask.memberUserId)} (${str(ask.id ?? "")})`,
+        `### ${isoTime(Number(ask.createdAt))}: ${this.askSource(ask)} to ${this.userName(ask.memberUserId)} (${str(ask.id ?? "")})`,
         ``,
         str(ask.prompt ?? ""),
         ``,

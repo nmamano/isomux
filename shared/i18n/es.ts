@@ -2033,6 +2033,7 @@ Cosas que puedes hacer por él:
   "asks.openLink": "Abrir {page}",
   "asks.openSite": "Abrir {site}",
   "asks.fromApp": "De la app {app}",
+  "asks.fromOffice": "De {name}",
   "asks.discuss": "Comentar en el chat",
   "asks.copyId": "Copiar el ID de la petición",
   "asks.idCopied": "¡Copiado!",
