@@ -3,7 +3,7 @@
 // most threads idle.
 //
 // Processes do not share state: the preload gives each one its own ISOMUX_HOME
-// and app port block, and control-plane/testing/pg.ts names its schemas by pid.
+// and app port block, and control-plane/testing/pg.ts names its schemas by run.
 import {
   closeSync,
   mkdtempSync,

@@ -75,8 +75,17 @@ const UNREACHABLE =
   `skip without one. Start the local one with:\n\n  ` +
   `${LOCAL_POSTGRES_COMMAND}\n`;
 
-/** Schema names this process may create, and the only shape it will quote. */
-const NAME = /^cp_test_[0-9]+_[a-z0-9]+_[0-9]+$/;
+/**
+ * Schema names this process may create, and the only shape it will quote.
+ * The number after the `r` is the run id of the run that made the schema.
+ */
+const NAME = /^cp_test_r([0-9]+)_[a-z0-9]+_[0-9]+$/;
+
+/** The largest run id: a run id is the second int4 key of its lease. */
+const MAX_RUN_ID = 0x7fffffff;
+
+/** The advisory lock class (first int4 key) a run's lease is taken in. */
+export const SCHEMA_LEASE_CLASS = 0x63707473;
 
 const admin = new pg.Pool({
   connectionString: TEST_DATABASE_URL,
@@ -97,6 +106,11 @@ const disposable = new Set<string>();
 const stores: Store[] = [];
 
 let swept = false;
+
+/** This run's id, chosen with its first lease and kept for the whole run. */
+let runId: number | null = null;
+/** The session that holds this run's lease, or null once it has ended. */
+let lease: pg.Client | null = null;
 let fkChecked = false;
 
 /**
@@ -156,51 +170,184 @@ export function quoteIdentifier(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
+/**
+ * The error to throw for a driver error.
+ *
+ * No cause on either arm: a driver error carries the address, and on a
+ * managed engine an authentication failure carries the role (measured
+ * 2026-08-11). What is left is the code, which is what a reader needs.
+ */
+function driverError(err: unknown): Error {
+  if ((err as { code?: string }).code === "ECONNREFUSED") {
+    // Ruling 8: redacted on the error path, not repaired after capture - so
+    // the cause is dropped on purpose here.
+    return new Error(UNREACHABLE);
+  }
+  return redactConnectionDetails(err, TEST_DATABASE_URL);
+}
+
 async function ask<T>(sql: string, args: unknown[] = []): Promise<T[]> {
   try {
     const result = await admin.query<T extends object ? T : never>(sql, args);
     return result.rows;
   } catch (err) {
-    // No cause on either arm: a driver error carries the address, and on a
-    // managed engine an authentication failure carries the role (measured
-    // 2026-08-11). What is left is the code, which is what a reader needs.
-    if ((err as { code?: string }).code === "ECONNREFUSED") {
-      // The driver's error carries the address it could not reach, and on a
-      // managed engine an authentication failure carries the role. Ruling 8:
-      // redacted on the error path, not repaired after capture - so the cause
-      // is dropped on purpose here.
-      // eslint-disable-next-line preserve-caught-error
-      throw new Error(UNREACHABLE);
-    }
-    throw redactConnectionDetails(err, TEST_DATABASE_URL);
+    throw driverError(err);
   }
 }
 
+/** Try to take (or probe) the lease of one run id on this session. */
+async function tryLease(client: pg.ClientBase, id: number): Promise<boolean> {
+  const result = await client.query<{ ok: boolean }>(
+    "select pg_try_advisory_lock($1::int4, $2::int4) as ok",
+    [SCHEMA_LEASE_CLASS, id],
+  );
+  return result.rows[0]?.ok === true;
+}
+
 /**
- * Drop the schemas a CRASHED earlier run left behind.
+ * Hold this run's lease, and return the run id.
  *
- * The pid is in the name and these are local processes owned by this user, so
- * "is that process still alive" is answerable, and a run that died leaves
- * nothing for a human to clean up. A LIVE process's schemas are never touched -
- * two suites can share the container.
+ * The lease is a session advisory lock on a connection of its own, held for
+ * the whole run: the engine frees it when that session ends, so a run that
+ * crashes or is killed frees its lease, and the next sweep drops its schemas.
+ *
+ * A lease session that ended under a live run (a dropped socket, a terminated
+ * backend) is taken again under the SAME run id, because the run's schemas
+ * carry it. If another session holds that id now, this refuses: another
+ * run's sweep may drop these schemas, and handing them out anyway would
+ * fail open. The next acquisition tries again.
  */
+async function holdLease(): Promise<number> {
+  if (lease !== null && runId !== null) return runId;
+  const client = new pg.Client({ connectionString: TEST_DATABASE_URL });
+  client.on("error", () => {});
+  client.on("end", () => {
+    if (lease === client) lease = null;
+  });
+  try {
+    await client.connect();
+    // The connection user can carry governed timeouts (role-suite-lock.ts).
+    // The lease session waits on nothing and stays idle for the whole run,
+    // and an idle_session_timeout would end it and free the lease.
+    await client.query(
+      "set statement_timeout = 0; set lock_timeout = 0; " +
+        "set idle_session_timeout = 0",
+    );
+  } catch (err) {
+    await client.end().catch(() => {});
+    throw driverError(err);
+  }
+  let taken: number | null = null;
+  try {
+    if (runId !== null) {
+      if (await tryLease(client, runId)) taken = runId;
+    } else {
+      for (let attempt = 0; attempt < 10 && taken === null; attempt++) {
+        const id = 1 + Math.floor(Math.random() * MAX_RUN_ID);
+        if (await tryLease(client, id)) taken = id;
+      }
+    }
+  } catch (err) {
+    await client.end().catch(() => {});
+    throw driverError(err);
+  }
+  if (taken === null) {
+    await client.end().catch(() => {});
+    throw new Error(
+      runId === null
+        ? "no free run id for this test run's schema lease after 10 tries"
+        : `this test run lost the lease on its schemas (run id ${runId}) ` +
+            `and another session holds it, so another run's sweep may drop ` +
+            `them: refusing to hand out a schema`,
+    );
+  }
+  const retaken = runId !== null;
+  runId = taken;
+  lease = client;
+  if (retaken && free.length > 0) {
+    // Without the lease, another run's sweep may have dropped some of them.
+    // If the check fails, recycle none: a new schema is always safe.
+    try {
+      const alive = new Set(
+        (
+          await ask<{ nspname: string }>(
+            "select nspname from pg_namespace where nspname = any($1)",
+            [free],
+          )
+        ).map((r) => r.nspname),
+      );
+      free.splice(0, free.length, ...free.filter((s) => alive.has(s)));
+    } catch {
+      free.length = 0;
+    }
+  }
+  return taken;
+}
+
 async function sweepAbandoned(): Promise<void> {
   if (swept) return;
   swept = true;
+  await sweepAbandonedSchemas();
+}
+
+/**
+ * Drop the schemas of runs that ended without dropping them (a crash, a kill).
+ *
+ * A run is alive while it holds its lease (`holdLease`). A pid cannot tell:
+ * two runs on one engine can sit in different PID namespaces, where a live
+ * pid of the other looks dead. So the sweep drops a run's schemas only while
+ * it holds that run's lease itself, and a live run's schemas are never
+ * touched - two suites can share the container.
+ *
+ * Names from before leases (`cp_test_<pid>_...`) stay: their liveness cannot
+ * be read, and the local container is throwaway.
+ */
+export async function sweepAbandonedSchemas(): Promise<void> {
   const rows = await ask<{ nspname: string }>(
-    "select nspname from pg_namespace where nspname like 'cp\\_test\\_%'",
+    "select nspname from pg_namespace where nspname like 'cp\\_test\\_r%'",
   );
+  const byRun = new Map<number, string[]>();
   for (const { nspname } of rows) {
-    const pid = Number(nspname.split("_")[2]);
-    if (!Number.isInteger(pid) || pid === process.pid) continue;
-    try {
-      process.kill(pid, 0);
-      continue; // alive, and its schemas are its business
-    } catch {
-      // gone
+    const match = NAME.exec(nspname);
+    if (!match) continue;
+    const id = Number(match[1]);
+    if (!(id >= 1 && id <= MAX_RUN_ID) || id === runId) continue;
+    byRun.set(id, [...(byRun.get(id) ?? []), nspname]);
+  }
+  if (byRun.size === 0) return;
+  // One session for every probe: a session lock taken through the pool stays
+  // on whichever client ran it, and its unlock could run on another.
+  let client: pg.PoolClient;
+  try {
+    client = await admin.connect();
+  } catch (err) {
+    throw driverError(err);
+  }
+  // Ending the session frees every lock it still holds.
+  let end = false;
+  try {
+    for (const [id, schemas] of byRun) {
+      if (!(await tryLease(client, id))) continue; // alive
+      try {
+        for (const schema of schemas) {
+          await client.query(`drop schema if exists ${quote(schema)} cascade`);
+        }
+      } finally {
+        await client
+          .query("select pg_advisory_unlock($1::int4, $2::int4)", [
+            SCHEMA_LEASE_CLASS,
+            id,
+          ])
+          .catch(() => {
+            end = true;
+          });
+      }
     }
-    if (NAME.test(nspname))
-      await ask(`drop schema if exists ${quote(nspname)} cascade`);
+  } catch (err) {
+    end = true;
+    throw driverError(err);
+  } finally {
+    client.release(end);
   }
 }
 
@@ -286,9 +433,10 @@ function proveTarget(): Promise<void> {
 async function acquire(fresh: boolean): Promise<string> {
   return serialise(async () => {
     await proveTarget();
+    const id = await holdLease();
     await sweepAbandoned();
     const recycled = fresh ? undefined : free.pop();
-    const schema = recycled ?? `cp_test_${process.pid}_${nonce}_${counter++}`;
+    const schema = recycled ?? `cp_test_r${id}_${nonce}_${counter++}`;
     if (recycled === undefined) {
       await ask(`create schema ${quote(schema)}`);
     } else {
