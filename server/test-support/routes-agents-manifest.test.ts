@@ -142,13 +142,15 @@ function manifestOnDisk(srv: TestServer): unknown {
 }
 
 // The endpoint's documented difference from the file: it carries the agent's
-// LIVE pendingPrompt and inFlightTurn, while the file has neither. These tests
-// have no parked/running agents, so both live values are null everywhere.
+// LIVE pendingPrompt, inFlightTurn and backgroundTasks, while the file has
+// none of them. These tests have no parked, running or background-working
+// agents, so the live values are null everywhere.
 function withLiveFields(onDisk: unknown): unknown {
   return (onDisk as Record<string, unknown>[]).map((e) => ({
     ...e,
     pendingPrompt: null,
     inFlightTurn: null,
+    backgroundTasks: null,
   }));
 }
 
@@ -255,6 +257,7 @@ describe("GET /agents (discovery manifest)", () => {
       // not waiting on a prompt.
       pendingPrompt: null,
       inFlightTurn: null,
+      backgroundTasks: null,
     });
     expect(beta.room).toBe(2);
     expect(beta.roomName).toBe("Second Room");
@@ -738,6 +741,7 @@ describe("GET /agents for an agent: one entry per back room", () => {
       agents: 3,
       busy: 0,
       pendingPrompt: 0,
+      background: 0,
     });
     expect("id" in summary).toBe(false);
     // .[] | select(.name|test("Worker")) aborts on a null name, and a summary

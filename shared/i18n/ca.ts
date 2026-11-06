@@ -3651,6 +3651,8 @@ Coses que pots fer per ell:
     "S'ha reprès la teva sessió (s'havia alliberat per inactivitat per estalviar memòria).",
   "systemEntries.wake.backgroundEnded":
     "L'alliberament va acabar la teva feina en segon pla: {tasks}.",
+  "systemEntries.wake.backgroundEndedToo":
+    "Això també va acabar la teva feina en segon pla: {tasks}.",
   "systemEntries.wake.env":
     "S'ha reprès la teva sessió amb els secrets i les variables actuals.",
   "systemEntries.wake.afterRestart":

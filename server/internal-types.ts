@@ -478,10 +478,15 @@ export interface ManagedAgent {
   dormantReason: DormantReason;
   // The background work a release ended (the idle sweep past
   // BACKGROUND_HOLD_MS, an environment change at a turn start, an account
-  // switch), else null. Set at every such release (prepareRelease); the wake
-  // after it names the tasks to the agent, which would otherwise wait for
-  // completion notices that never come. In-memory only.
+  // switch), a backend's death ended, or a restart ended (restored from the
+  // agent's record), else null. The wake after it names the tasks to the
+  // agent, which would otherwise wait for completion notices that never come.
+  // Saved with the agent until that wake reads it.
   releasedBackgroundTasks: BackgroundTask[] | null;
+  // The live background list as the agent's record saves it. It follows
+  // info.backgroundTasks, except after the stop signal: the stop's kill
+  // clears the live list, and the record must keep what the restart ends.
+  savedBackgroundTasks: BackgroundTask[] | null;
 }
 
 export type AgentEvent =

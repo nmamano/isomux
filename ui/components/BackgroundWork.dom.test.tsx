@@ -31,9 +31,9 @@ const OUTFIT = {
 };
 
 const TASKS: BackgroundTask[] = [
-  { id: "a1", kind: "agent", label: "Review the diff" },
-  { id: "b1", kind: "command", label: "npm run dev" },
-  { id: "w1", kind: "workflow", label: "Ship it" },
+  { id: "a1", kind: "agent", label: "Review the diff", startedAt: 0 },
+  { id: "b1", kind: "command", label: "npm run dev", startedAt: 0 },
+  { id: "w1", kind: "workflow", label: "Ship it", startedAt: 0 },
 ];
 
 // Static markup: ids from useId repeat across renders, so two draws compare.

@@ -3268,6 +3268,7 @@ App 的一些原则：
   "systemEntries.interrupted": "智能体已被打断。",
   "systemEntries.wake.idle": "已继续会话（此前在空闲时释放以节省内存）。",
   "systemEntries.wake.backgroundEnded": "释放会话时，后台任务已结束：{tasks}。",
+  "systemEntries.wake.backgroundEndedToo": "后台任务也随之结束：{tasks}。",
   "systemEntries.wake.env": "已使用当前密钥和变量继续会话。",
   "systemEntries.wake.afterRestart": "服务器重启后，已继续会话。",
   "systemEntries.wake.afterBackendEnded": "后端意外结束后，已继续会话。",

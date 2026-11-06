@@ -8,7 +8,11 @@ const entry = (
   name: string,
   roomId: string,
   desk: number,
-  live: { inFlightTurn?: unknown; pendingPrompt?: unknown } = {},
+  live: {
+    inFlightTurn?: unknown;
+    pendingPrompt?: unknown;
+    backgroundTasks?: unknown;
+  } = {},
 ) => ({
   name,
   roomId,
@@ -17,10 +21,11 @@ const entry = (
   desk,
   inFlightTurn: live.inFlightTurn ?? null,
   pendingPrompt: live.pendingPrompt ?? null,
+  backgroundTasks: live.backgroundTasks ?? null,
 });
 
 describe("projectBackRooms", () => {
-  it("counts busy and pending-prompt back agents per room", () => {
+  it("counts busy, pending-prompt and background-work back agents per room", () => {
     const out = projectBackRooms(
       [
         entry("Front", "r1", 0, { inFlightTurn: { startedAt: 1 } }),
@@ -29,6 +34,16 @@ describe("projectBackRooms", () => {
         }),
         entry("Asking", "r1", deskOfBackSeat({ table: 0, stool: 1 }), {
           pendingPrompt: "permission",
+          backgroundTasks: [{ kind: "command", startedAt: 1 }],
+        }),
+        entry("Pushing", "r1", deskOfBackSeat({ table: 0, stool: 2 }), {
+          backgroundTasks: [
+            { kind: "command", startedAt: 1 },
+            { kind: "agent", startedAt: 2 },
+          ],
+        }),
+        entry("Front work", "r1", 1, {
+          backgroundTasks: [{ kind: "command", startedAt: 1 }],
         }),
         entry("Elsewhere", "r2", deskOfBackSeat({ table: 0, stool: 0 }), {
           inFlightTurn: { startedAt: 1 },
@@ -39,7 +54,17 @@ describe("projectBackRooms", () => {
     );
     const r1 = out.find((e) => e.roomId === "r1" && "agents" in e);
     const r2 = out.find((e) => e.roomId === "r2" && "agents" in e);
-    expect(r1).toMatchObject({ agents: 2, busy: 1, pendingPrompt: 1 });
-    expect(r2).toMatchObject({ agents: 1, busy: 1, pendingPrompt: 1 });
+    expect(r1).toMatchObject({
+      agents: 3,
+      busy: 1,
+      pendingPrompt: 1,
+      background: 2,
+    });
+    expect(r2).toMatchObject({
+      agents: 1,
+      busy: 1,
+      pendingPrompt: 1,
+      background: 0,
+    });
   });
 });

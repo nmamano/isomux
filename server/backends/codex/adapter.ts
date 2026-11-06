@@ -75,7 +75,7 @@ import { sanitizeTaskLabel } from "../task-label.ts";
 import { effectiveCodexSandbox } from "./sandbox-probe.ts";
 import {
   CODEX_DEFAULT_SANDBOX,
-  type BackgroundTask,
+  type ReportedBackgroundTask,
   type SubagentOrigin,
 } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
@@ -1275,7 +1275,7 @@ export class CodexSession implements BackendSession {
   // last successful thread/backgroundTerminals/list reported. `backgroundSent`
   // is the list last sent, so an equal list sends nothing.
   private runningChildren = new Set<string>();
-  private backgroundTerminals: BackgroundTask[] = [];
+  private backgroundTerminals: ReportedBackgroundTask[] = [];
   private backgroundSent = "[]";
   private backgroundListInFlight = false;
   private cancelBackgroundPoll: (() => void) | null = null;
@@ -1775,7 +1775,7 @@ export class CodexSession implements BackendSession {
 
   // Sends the background work list when it differs from the last one sent.
   private sendBackgroundTasks(): void {
-    const tasks: BackgroundTask[] = [];
+    const tasks: ReportedBackgroundTask[] = [];
     for (const id of this.runningChildren) {
       const origin = this.childThreads.get(id);
       tasks.push({
@@ -1796,7 +1796,7 @@ export class CodexSession implements BackendSession {
   private async refreshBackgroundTerminals(): Promise<void> {
     if (this.closed || !this.threadId || this.backgroundListInFlight) return;
     this.backgroundListInFlight = true;
-    let terminals: BackgroundTask[] | null = [];
+    let terminals: ReportedBackgroundTask[] | null = [];
     try {
       let cursor: string | null = null;
       for (let page = 0; page < 20; page++) {

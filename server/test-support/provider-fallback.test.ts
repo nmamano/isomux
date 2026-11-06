@@ -57,7 +57,7 @@ import {
   DEFAULT_AGENT_CAPABILITIES,
   type AgentCapabilities,
   type AgentInfo,
-  type BackgroundTask,
+  type ReportedBackgroundTask,
   type LogEntry,
   type RoomWire,
 } from "../../shared/types.ts";
@@ -691,7 +691,7 @@ describe("the member's other agents", () => {
 
   // Background work (task 28093a03): the move closes the process, so the
   // agent is told which work it ended.
-  const TASKS: BackgroundTask[] = [
+  const TASKS: ReportedBackgroundTask[] = [
     { id: "b1", kind: "command", label: "npm run build" },
     { id: "a1", kind: "agent", label: "Review the diff" },
   ];

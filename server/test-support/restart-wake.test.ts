@@ -589,3 +589,144 @@ describe("wake after a restart", () => {
     expect(onDisk().cut?.restartWake).toBe(true);
   });
 });
+
+// Background work that a restart or a backend end took with it (task
+// e7fd8ddf). The office keeps the list in agents.json while it runs, so the
+// next boot knows it; the agent's first wake after that names it, once.
+describe("background work a restart ended", () => {
+  const AFTER_BACKEND_ENDED = en.t("systemEntries.wake.afterBackendEnded");
+  const WORK = [
+    { id: "b1", kind: "command" as const, label: "bun run safe-push" },
+    { id: "a1", kind: "agent" as const, label: "Review the diff" },
+  ];
+  const names = (t: string) => WORK.filter((w) => t.includes(w.label)).length;
+  // The member's next message, and the text the agent got with it.
+  async function nextTurnText(h: Harness, id: string, text: string) {
+    await memberTurn(h, id, text);
+    const sent = sentTo(h, id).find((t) => t.includes(text))!;
+    await endTurn(h, id);
+    return sent;
+  }
+  // An agent with a finished turn (so it has a conversation to resume)
+  // whose session now runs WORK.
+  async function runningWork(h: Harness, engine: Engine) {
+    const info = await spawn(h, engine);
+    await memberTurn(h, info.id, "start");
+    await endTurn(h, info.id);
+    await pastClearDelay(h);
+    const session = h.fake.sessionForAgent(info.id)!;
+    session.push({ kind: "background_tasks", tasks: WORK });
+    await waitUntil(
+      () => h.mgr.getAgent(info.id)?.backgroundTasks?.length === 2,
+      "work running",
+    );
+    return { id: info.id, session };
+  }
+
+  for (const engine of ["claude", "codex"] as const) {
+    it(`${engine}: the stop ends the work; the first wake after the restart names it, the next one does not`, async () => {
+      const h1 = makeHarness();
+      const { id, session } = await runningWork(h1, engine);
+      // The stop: the signal, then the backend reports its work gone and dies
+      // with it.
+      h1.stopping.value = true;
+      session.push({ kind: "background_tasks", tasks: [] });
+      session.failStream(new Error("process exited with code 143"));
+      await waitUntil(
+        () => (h1.mgr.getAgent(id)?.backgroundTasks ?? null) === null,
+        "live list cleared",
+      );
+      await settle();
+
+      const h2 = await restart();
+      expect(h2.mgr.getAgent(id)?.dormant).toBe(true);
+      const woken = await nextTurnText(h2, id, "after restart");
+      expect(woken).toContain(AFTER_RESTART);
+      expect(names(woken)).toBe(2);
+      // The member reads it too.
+      expect(
+        h2.logs.filter(
+          (e) =>
+            e.kind === "system" &&
+            WORK.every((w) => JSON.stringify(e).includes(w.label)),
+        ),
+      ).toHaveLength(1);
+      expect(names(await nextTurnText(h2, id, "same session"))).toBe(0);
+
+      // Named once: the next restart does not name it again.
+      const h3 = await restart();
+      const again = await nextTurnText(h3, id, "second restart");
+      expect(again).toContain(AFTER_RESTART);
+      expect(names(again)).toBe(0);
+    });
+  }
+
+  it("a backend that dies before the stop signal is seen still leaves the list for the next boot", async () => {
+    const h1 = makeHarness();
+    const { id, session } = await runningWork(h1, "claude");
+    session.endStream();
+    await waitUntil(() => h1.mgr.getAgent(id)?.dormant === true, "dormant");
+    h1.stopping.value = true;
+    await settle();
+
+    const h2 = await restart();
+    const woken = await nextTurnText(h2, id, "after restart");
+    expect(woken).toContain(AFTER_RESTART);
+    expect(names(woken)).toBe(2);
+  });
+
+  it("a crash with the work still running leaves the list for the next boot", async () => {
+    const h1 = makeHarness();
+    const { id } = await runningWork(h1, "claude");
+    // h1 is left as a crash leaves it: no stop, no clear.
+    const h2 = await restart();
+    expect(names(await nextTurnText(h2, id, "after crash"))).toBe(2);
+  });
+
+  it("work that ended before the restart is not named", async () => {
+    const h1 = makeHarness();
+    const { id, session } = await runningWork(h1, "claude");
+    session.push({ kind: "background_tasks", tasks: [] });
+    await waitUntil(
+      () => (h1.mgr.getAgent(id)?.backgroundTasks ?? null) === null,
+      "work ended",
+    );
+    await settle();
+    h1.stopping.value = true;
+    session.failStream(new Error("process exited with code 143"));
+    await settle();
+
+    const h2 = await restart();
+    const woken = await nextTurnText(h2, id, "after restart");
+    expect(woken).toContain(AFTER_RESTART);
+    expect(names(woken)).toBe(0);
+  });
+
+  it("a stream error before the stop signal is seen still leaves the list for the next boot", async () => {
+    const h1 = makeHarness();
+    const { id, session } = await runningWork(h1, "claude");
+    session.failStream(new Error("process exited with code 143"));
+    await waitUntil(
+      () => (h1.mgr.getAgent(id)?.backgroundTasks ?? null) === null,
+      "live list cleared",
+    );
+    h1.stopping.value = true;
+    await settle();
+
+    const h2 = await restart();
+    const woken = await nextTurnText(h2, id, "after restart");
+    expect(woken).toContain(AFTER_RESTART);
+    expect(names(woken)).toBe(2);
+  });
+
+  it("a backend that ends with no restart: the next wake names the work, once", async () => {
+    const h = makeHarness();
+    const { id, session } = await runningWork(h, "claude");
+    session.endStream();
+    await waitUntil(() => h.mgr.getAgent(id)?.dormant === true, "dormant");
+    const woken = await nextTurnText(h, id, "after the end");
+    expect(woken).toContain(AFTER_BACKEND_ENDED);
+    expect(names(woken)).toBe(2);
+    expect(names(await nextTurnText(h, id, "same session"))).toBe(0);
+  });
+});

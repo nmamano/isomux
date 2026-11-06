@@ -92,7 +92,7 @@ export interface SdkSessionOptions {
 }
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 
-import type { Attachment, BackgroundTask } from "../../shared/types.ts";
+import type { Attachment, ReportedBackgroundTask } from "../../shared/types.ts";
 import { errMessage } from "../../shared/errors.ts";
 import { permissionInputSummary } from "../permission-audit.ts";
 import {
@@ -1817,7 +1817,7 @@ export class ClaudeBackgroundTaskLevel {
   observe(msg: SDKMessage): NormalizedEvent[] {
     if (msg.type !== "system" || msg.subtype !== "background_tasks_changed")
       return [];
-    const tasks: BackgroundTask[] = msg.tasks
+    const tasks: ReportedBackgroundTask[] = msg.tasks
       .filter((t) => t.ambient !== true)
       .map((t) => ({
         id: t.task_id,
@@ -1834,7 +1834,7 @@ export class ClaudeBackgroundTaskLevel {
 // Task types of the bundled CLI: local_agent, remote_agent,
 // in_process_teammate, local_workflow, local_bash, monitor_*, mcp_task,
 // dream. An unknown type reads as a command.
-function backgroundTaskKind(taskType: string): BackgroundTask["kind"] {
+function backgroundTaskKind(taskType: string): ReportedBackgroundTask["kind"] {
   switch (taskType) {
     case "local_agent":
     case "remote_agent":

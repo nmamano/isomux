@@ -314,6 +314,12 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
         // manifestEntries prevents agents-summary.json from freezing a turn
         // snapshot that becomes false as soon as the turn ends.
         inFlightTurn: managed ? inFlightTurnForManifest(managed) : null,
+        // Kind and start only: a label can hold the command text.
+        backgroundTasks:
+          managed?.info.backgroundTasks?.map(({ kind, startedAt }) => ({
+            kind,
+            startedAt,
+          })) ?? null,
       };
     });
   }
@@ -351,7 +357,17 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
         ? { heardFromMembers: [...a.heardFromMembers] }
         : {}),
       ...(a.officeFallback ? { officeFallback: true as const } : {}),
+      ...persistedBackgroundTasks(a),
     };
+  }
+
+  // The work the next wake names if the process ends now: the live list,
+  // else what a release or a backend's death ended and no wake named yet.
+  function persistedBackgroundTasks(
+    a: ManagedAgent,
+  ): Pick<PersistedAgent, "backgroundTasks"> {
+    const tasks = a.savedBackgroundTasks ?? a.releasedBackgroundTasks;
+    return tasks?.length ? { backgroundTasks: tasks } : {};
   }
 
   function persistAll() {

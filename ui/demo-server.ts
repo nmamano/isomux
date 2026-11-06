@@ -677,10 +677,18 @@ const DEMO_BACKGROUND: Record<string, BackgroundTask[]> = {
       id: "bg-1",
       kind: "agent",
       label: "Find every prank in the Dundie archive",
+      startedAt: 0,
     },
-    { id: "bg-2", kind: "command", label: "bun test --watch" },
+    { id: "bg-2", kind: "command", label: "bun test --watch", startedAt: 0 },
   ],
-  Stanley: [{ id: "bg-3", kind: "agent", label: "Check crossword answers" }],
+  Stanley: [
+    {
+      id: "bg-3",
+      kind: "agent",
+      label: "Check crossword answers",
+      startedAt: 0,
+    },
+  ],
 };
 
 function seedOffice() {

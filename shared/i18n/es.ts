@@ -3645,6 +3645,8 @@ Cosas que puedes hacer por él:
     "Se retomó tu sesión (se había liberado por inactividad para ahorrar memoria).",
   "systemEntries.wake.backgroundEnded":
     "La liberación terminó tu trabajo en segundo plano: {tasks}.",
+  "systemEntries.wake.backgroundEndedToo":
+    "Eso también terminó tu trabajo en segundo plano: {tasks}.",
   "systemEntries.wake.env":
     "Se retomó tu sesión con los secretos y las variables actuales.",
   "systemEntries.wake.afterRestart":

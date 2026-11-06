@@ -19,6 +19,8 @@ export interface BackRoomSummary {
   agents: number;
   busy: number;
   pendingPrompt: number;
+  // Back agents that run background work.
+  background: number;
 }
 
 export interface ManifestLike {
@@ -28,6 +30,7 @@ export interface ManifestLike {
   room: number | null;
   inFlightTurn?: unknown;
   pendingPrompt?: unknown;
+  backgroundTasks?: unknown;
 }
 
 export const backRoomSummaryName = (agents: number) =>
@@ -62,6 +65,7 @@ export function projectBackRooms<T extends ManifestLike>(
         agents: 0,
         busy: 0,
         pendingPrompt: 0,
+        background: 0,
       };
       summaries.set(entry.roomId, summary);
       out.push(summary);
@@ -69,6 +73,7 @@ export function projectBackRooms<T extends ManifestLike>(
     summary.agents++;
     if (entry.inFlightTurn) summary.busy++;
     if (entry.pendingPrompt) summary.pendingPrompt++;
+    if (entry.backgroundTasks) summary.background++;
   }
   for (const summary of summaries.values())
     summary.name = backRoomSummaryName(summary.agents);

@@ -808,7 +808,12 @@ export interface BackgroundTask {
   id: string;
   kind: "agent" | "command" | "workflow";
   label: string;
+  // Epoch ms the office first saw the task (backends report no start time).
+  startedAt: number;
 }
+
+// A backend's report of one task; the office stamps startedAt.
+export type ReportedBackgroundTask = Omit<BackgroundTask, "startedAt">;
 
 export interface AgentInfo {
   id: string;

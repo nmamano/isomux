@@ -33,6 +33,7 @@ import { createHash } from "crypto";
 import type {
   AgentInfo,
   Attachment,
+  BackgroundTask,
   EffortLevel,
   KilledAgentSummary,
   LogEntry,
@@ -936,6 +937,9 @@ export interface PersistedAgent {
   heardFrom?: string[];
   // ManagedAgent.heardFromMembers (user ids). Absent when empty.
   heardFromMembers?: string[];
+  // Background work the next wake must name as ended: the live list at the
+  // last save, or the list a release ended. Omitted when none.
+  backgroundTasks?: BackgroundTask[];
   // The agent runs on the office sign-in because its member's own sign-in
   // reached its usage limit (server/provider-fallback.ts). Absent when not.
   officeFallback?: true;

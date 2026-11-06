@@ -330,6 +330,7 @@ import { memberPackOf } from "./identity/member-pack.ts";
 import type { CeilingAgent, CeilingClamp } from "./member-ceiling.ts";
 import { agentStopRefusal, stopName } from "./identity/agent-fit.ts";
 import { managerRoomsOf } from "../shared/pack-fit.ts";
+import { serverStopping } from "./server-stop.ts";
 // AgentManager was a singleton function-module (module-level officeState /
 // eventHandler / agents map + exported functions). It is now an instantiable
 // unit: createAgentManager(deps) owns its collaborators; the production wiring
@@ -1137,6 +1138,28 @@ export function createAgentManager(deps: ManagerDeps) {
     // Derived by the model check and failed turns (setGoneModel).
     "goneModel",
   ]);
+  // Follows a change of an agent's live background list into its saved copy,
+  // and says whether the set of tasks changed, which the record must save: a
+  // restart or a crash ends that work, and the wake after it names it. After
+  // the stop signal the saved copy stays: the stop's kill clears the live
+  // list, and the record keeps what the restart ends.
+  const isServerStopping = deps.serverStopping ?? serverStopping;
+  function backgroundSetChanged(
+    agentId: string,
+    changes: Partial<AgentInfo>,
+  ): boolean {
+    if (!("backgroundTasks" in changes) || isServerStopping()) return false;
+    const managed = agents.get(agentId);
+    if (!managed) return false;
+    const ids = (tasks: BackgroundTask[] | null | undefined) =>
+      (tasks ?? [])
+        .map((t) => t.id)
+        .sort()
+        .join("\n");
+    const before = ids(managed.savedBackgroundTasks);
+    managed.savedBackgroundTasks = changes.backgroundTasks ?? null;
+    return ids(managed.savedBackgroundTasks) !== before;
+  }
   officeState.onChange((event) => {
     if (event.type === "office_settings_updated") {
       saveOfficeConfig({
@@ -1147,10 +1170,19 @@ export function createAgentManager(deps: ManagerDeps) {
       return;
     }
     if (event.type === "tasks_changed") return;
+    // Every change of the list reaches the saved copy, whatever else the
+    // event carries.
+    const backgroundSaved =
+      event.type === "agent_updated" &&
+      backgroundSetChanged(event.agentId, event.changes);
     if (!officeStatePersistenceEnabled) return;
     if (event.type === "agent_updated") {
       const keys = Object.keys(event.changes);
-      if (keys.length > 0 && keys.every((k) => EPHEMERAL_AGENT_FIELDS.has(k)))
+      if (
+        !backgroundSaved &&
+        keys.length > 0 &&
+        keys.every((k) => EPHEMERAL_AGENT_FIELDS.has(k))
+      )
         return;
     }
     persistAll();
@@ -3043,11 +3075,19 @@ export function createAgentManager(deps: ManagerDeps) {
     // Background work is not turn activity: it moves no state, stamps no
     // liveness or idle clock (so it holds the idle release only until
     // BACKGROUND_HOLD_MS after the last turn, never longer) and writes no log
-    // entry. An equal list sends nothing; an empty one clears with null.
+    // entry. An equal list sends nothing; an empty one clears with null. A
+    // task keeps the start time of its first report.
     if (ev.kind === "background_tasks") {
       if (!eventManaged) return;
-      const next = ev.tasks.length > 0 ? ev.tasks : null;
       const prev = eventManaged.info.backgroundTasks ?? null;
+      const now = Date.now();
+      const next =
+        ev.tasks.length > 0
+          ? ev.tasks.map((t) => ({
+              ...t,
+              startedAt: prev?.find((p) => p.id === t.id)?.startedAt ?? now,
+            }))
+          : null;
       if (JSON.stringify(prev) === JSON.stringify(next)) return;
       for (const event of officeState.updateAgent(agentId, {
         backgroundTasks: next,
@@ -4098,10 +4138,22 @@ export function createAgentManager(deps: ManagerDeps) {
   // dormant; this sweep re-demotes agents that woke and then went quiet again.
   let demoteCount = 0;
 
-  function backgroundEndedLine(ended: BackgroundTask[]): LogText {
-    return msg("systemEntries.wake.backgroundEnded", {
-      tasks: ended.map((t) => t.label).join("; "),
-    });
+  function backgroundEndedLine(
+    ended: BackgroundTask[],
+    key:
+      | "systemEntries.wake.backgroundEnded"
+      | "systemEntries.wake.backgroundEndedToo" = "systemEntries.wake.backgroundEnded",
+  ): LogText {
+    return msg(key, { tasks: ended.map((t) => t.label).join("; ") });
+  }
+
+  // Read once: only the wake right after the end of the work names it. The
+  // record drops it too, so a later restart does not name it again.
+  function takeEndedBackground(managed: ManagedAgent): BackgroundTask[] | null {
+    const ended = managed.releasedBackgroundTasks;
+    managed.releasedBackgroundTasks = null;
+    if (ended && officeStatePersistenceEnabled) persistAll();
+    return ended;
   }
 
   // An account switch resumes the conversation on a new process at once,
@@ -4112,8 +4164,7 @@ export function createAgentManager(deps: ManagerDeps) {
     managed: ManagedAgent,
     reason: ManagedAgent["dormantReason"],
   ): void {
-    const ended = managed.releasedBackgroundTasks;
-    managed.releasedBackgroundTasks = null;
+    const ended = takeEndedBackground(managed);
     const parts: LogText[] = [];
     if (reason === "env") parts.push(msg("systemEntries.wake.env"));
     if (ended) parts.push(backgroundEndedLine(ended));
@@ -4159,10 +4210,7 @@ export function createAgentManager(deps: ManagerDeps) {
     reason: ManagedAgent["dormantReason"],
     sessionId: string,
   ): { log: LogText; note: string | null } {
-    // Read once: only the wake right after the release that ended the work
-    // names it.
-    const ended = managed.releasedBackgroundTasks;
-    managed.releasedBackgroundTasks = null;
+    const ended = takeEndedBackground(managed);
     // The agent hears of it too: its environment has the current secrets and
     // variables.
     if (reason === "env") {
@@ -4188,8 +4236,13 @@ export function createAgentManager(deps: ManagerDeps) {
       reason === "boot"
         ? msg("systemEntries.wake.afterRestart")
         : msg("systemEntries.wake.afterBackendEnded"),
-      msg("systemEntries.wake.inFlightWarning"),
     ];
+    // Right after the cause: the restart or the backend's death ended it.
+    if (ended)
+      parts.push(
+        backgroundEndedLine(ended, "systemEntries.wake.backgroundEndedToo"),
+      );
+    parts.push(msg("systemEntries.wake.inFlightWarning"));
     if (clause) parts.push(msg("systemEntries.wake.shutdownRejection"));
     const log = joinLogText(parts, " ");
     return { log, note: renderLogText(english, log) };
@@ -5237,6 +5290,7 @@ export function createAgentManager(deps: ManagerDeps) {
       lastActiveAt: Date.now(),
       dormantReason: null,
       releasedBackgroundTasks: null,
+      savedBackgroundTasks: null,
     };
     agents.set(id, managed);
     // Mint the agent's bearer token before the first createSession (deferred to

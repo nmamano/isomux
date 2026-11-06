@@ -12,7 +12,12 @@
 // needs arrive through `SessionManagerDeps`. Behaviour-preserving: same
 // events, same state transitions, same log lines, same timing.
 
-import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
+import type {
+  AgentInfo,
+  AgentState,
+  BackgroundTask,
+  LogEntry,
+} from "../shared/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import type {
   BackendSession,
@@ -76,7 +81,9 @@ export interface PendingTurn {
 // post-swap kick checks. ManagedAgent satisfies this structurally; unit tests
 // build a ten-line host.
 export interface SessionHost {
-  readonly info: Readonly<Pick<AgentInfo, "state" | "dormant">>;
+  readonly info: Readonly<
+    Pick<AgentInfo, "state" | "dormant" | "backgroundTasks">
+  >;
   turnStartedAt: number;
   lastNormalizedEventAt: number;
   busyTurnWatchdogObserved: boolean;
@@ -90,6 +97,17 @@ export interface SessionHost {
   // The live process's plugin list; it goes with the process.
   reportedPlugins?: EnginePlugin[] | null;
   reportedSkills?: CommandRow[] | null;
+  // The background work the next wake names as ended
+  // (ManagedAgent.releasedBackgroundTasks).
+  releasedBackgroundTasks?: BackgroundTask[] | null;
+}
+
+// The process died and took its background work with it. Keeps the list for
+// the next wake, unless a release already did, before the caller clears the
+// live one: the agent's record then saves what ended.
+function keepEndedBackground(host: SessionHost): void {
+  if (!host.releasedBackgroundTasks && host.info.backgroundTasks?.length)
+    host.releasedBackgroundTasks = host.info.backgroundTasks;
 }
 
 // What the operations need from the manager. No behaviour hides here: each
@@ -414,6 +432,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         // (it is settled via the rejection below).
         this.turnCancelToken++;
         // The background work died with the process.
+        keepEndedBackground(host);
         for (const event of this.deps.updateAgent(this.agentId, {
           dormant: true,
           backgroundTasks: null,
@@ -474,6 +493,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       this.clearLiveTurn(host);
       this.pendingTurn = null;
       // The failed stream's process took its background work with it.
+      keepEndedBackground(host);
       for (const event of this.deps.updateAgent(this.agentId, {
         backgroundTasks: null,
       }))

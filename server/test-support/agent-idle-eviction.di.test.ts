@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
-import type { BackgroundTask, RoomWire } from "../../shared/types.ts";
+import type { ReportedBackgroundTask, RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
@@ -1102,7 +1102,7 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
 });
 
 describe("idle eviction - background hold (task 539db6a4)", () => {
-  const TASKS: BackgroundTask[] = [
+  const TASKS: ReportedBackgroundTask[] = [
     { id: "b1", kind: "command", label: "npm run build" },
     { id: "a1", kind: "agent", label: "Review the diff" },
   ];
@@ -1111,7 +1111,7 @@ describe("idle eviction - background hold (task 539db6a4)", () => {
     mgr: ReturnType<typeof createAgentManager>,
     fake: FakeBackend,
     id: string,
-    tasks: BackgroundTask[],
+    tasks: ReportedBackgroundTask[],
   ): Promise<void> {
     fake.lastSession!.push({ kind: "background_tasks", tasks });
     await waitUntil(

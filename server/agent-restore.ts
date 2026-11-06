@@ -476,7 +476,12 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
           : "fresh"
         : null,
       releasedBackgroundTasks: null,
+      savedBackgroundTasks: null,
     };
+    // The work the last run's end ended: the first wake after a restart names
+    // it. A dropped conversation ("fresh") starts blank, with nothing to name.
+    if (managed.dormantReason === "boot" && p.backgroundTasks?.length)
+      managed.releasedBackgroundTasks = p.backgroundTasks;
     // Re-seed the durable queue + dedupe window
     // persisted by the previous run so a restart doesn't drop queued messages
     // (delivery order preserved; expired dedupe keys dropped). restoreAgents

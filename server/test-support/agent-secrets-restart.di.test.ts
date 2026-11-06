@@ -9,7 +9,7 @@ import { join } from "path";
 
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
-import type { BackgroundTask, RoomWire } from "../../shared/types.ts";
+import type { ReportedBackgroundTask, RoomWire } from "../../shared/types.ts";
 import { english } from "../i18n.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
@@ -251,7 +251,7 @@ describe("when the release happens", () => {
 // background cap. A background list that clears releases nothing by itself:
 // the engine's own turn with the result runs right then.
 describe("an agent with background work", () => {
-  const TASKS: BackgroundTask[] = [
+  const TASKS: ReportedBackgroundTask[] = [
     { id: "b1", kind: "command", label: "npm run build" },
     { id: "a1", kind: "agent", label: "Review the diff" },
   ];
@@ -260,7 +260,7 @@ describe("an agent with background work", () => {
     mgr: Manager,
     fake: FakeBackend,
     id: string,
-    tasks: BackgroundTask[],
+    tasks: ReportedBackgroundTask[],
   ) {
     fake.sessionForAgent(id)!.push({ kind: "background_tasks", tasks });
     await waitUntil(
