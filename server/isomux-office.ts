@@ -2387,7 +2387,7 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
     // id would still route this agent's room-ACL events to owner sockets.
     // Validate here, matching the guard-deps authz posture (pre-3c the
     // out-of-range dense index produced null at getRooms()[agent.room]?.id).
-    return agentManager.roomById(agent.roomId) ? agent.roomId : null;
+    return agentManager.liveAgentRoom(agent) ? agent.roomId : null;
   },
   deliver: (recipients, id, payload) => {
     // Room-ACL events arrive here with recipients ALREADY filtered
@@ -5067,11 +5067,9 @@ async function handleInboundMessage(
         // user record supplies avatarColor + avatarVariant.
         const user = getUserById(session.userId);
         if (!user) break;
-        // Liveness is a SILENT membership check, not roomById(): a stale inbound id
-        // (the client raced a room close) is an EXPECTED sanitize-to-null case, not
-        // server-state corruption, so it must not trip roomById's loud [3c] log the
-        // way a dangling AGENT roomId on the emit side does. canAccess first as the
-        // cheap short-circuit (a member without the grant never scans the rooms).
+        // A stale inbound id (the client raced a room close) is an expected
+        // sanitize-to-null case. canAccess first as the cheap short-circuit (a
+        // member without the grant never scans the rooms).
         const roomId =
           cmd.currentRoomId !== null &&
           canAccess(user, cmd.currentRoomId) &&

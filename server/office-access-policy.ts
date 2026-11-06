@@ -476,12 +476,12 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
         creatorLive: false,
       };
     }
-    const room = agentManager.roomById(creator.roomId);
+    const room = agentManager.liveAgentRoom(creator);
     return {
       ownerUserId: app.userId,
       createdByAgentId: app.createdByAgentId,
-      creatorLive: room !== null,
-      ...(room !== null ? { creatorRoomId: creator.roomId } : {}),
+      creatorLive: room !== undefined,
+      ...(room !== undefined ? { creatorRoomId: creator.roomId } : {}),
     };
   }
 
@@ -760,7 +760,7 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
   function viewerAppWire(app: AppWire): AppListWire | null {
     if (!app.createdByAgentId) return null;
     const creator = agentManager.getAgent(app.createdByAgentId);
-    if (!creator || !agentManager.roomById(creator.roomId)) return null;
+    if (!creator || !agentManager.liveAgentRoom(creator)) return null;
     return {
       name: app.name,
       port: app.port,

@@ -850,7 +850,7 @@ export function createAgentManager(deps: ManagerDeps) {
     emit,
     isLobbySeedPending: () => lobbySeedPending,
     globalRoomIndexOf,
-    roomById,
+    liveAgentRoom,
     unclaimedQueue,
     accessFields,
   });
@@ -1351,12 +1351,26 @@ export function createAgentManager(deps: ManagerDeps) {
     return idx;
   }
 
-  // Companion lookup for the sites that want the RoomWire object, not the index.
-  // Returns undefined on miss (globalRoomIndexOf already logged loud); callers
-  // keep their existing `if (!room)` fallback / suppression.
+  // Silent lookup: undefined on miss. Any stored or inbound id may name a
+  // room that has since closed (a killed agent's last room, a page, a cron
+  // job, a request). For a live agent's room use liveAgentRoom.
   function roomById(roomId: string): RoomWire | undefined {
-    const idx = globalRoomIndexOf(roomId);
-    return idx < 0 ? undefined : officeState.rooms[idx];
+    return officeState.rooms.find((r) => r.id === roomId);
+  }
+
+  // A live agent's room. A miss is the invariant breach globalRoomIndexOf
+  // describes: log loud, naming the agent, and return undefined.
+  function liveAgentRoom(info: {
+    id: string;
+    roomId: string;
+  }): RoomWire | undefined {
+    const room = roomById(info.roomId);
+    if (!room) {
+      console.error(
+        `[3c] liveAgentRoom: agent ${info.id} has unknown roomId "${info.roomId}" (${officeState.rooms.length} room(s))`,
+      );
+    }
+    return room;
   }
 
   // Server-controlled view of an agent's identity, used by the HTTP message
@@ -1368,7 +1382,7 @@ export function createAgentManager(deps: ManagerDeps) {
   ): { name: string; roomName: string } | null {
     const managed = agents.get(agentId);
     if (!managed) return null;
-    const room = roomById(managed.info.roomId);
+    const room = liveAgentRoom(managed.info);
     if (!room) return null;
     return { name: managed.info.name, roomName: room.name };
   }
@@ -4900,7 +4914,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // The auto-loaded memory scopes for one agent, in prompt order. Null when the
   // agent's room is gone (nothing sensible to label or measure).
   function memoryRefsFor(managed: ManagedAgent): MemoryScopeRef[] | null {
-    const room = roomById(managed.info.roomId);
+    const room = liveAgentRoom(managed.info);
     if (!room) return null;
     return [
       { scope: "office", scopeId: null, label: "Office-wide" },
@@ -5029,9 +5043,9 @@ export function createAgentManager(deps: ManagerDeps) {
           ? new Error(resumeError)
           : new LocalizedError(resumeError);
     }
-    // A live agent's roomId always resolves to a real room; roomById
+    // A live agent's roomId always resolves to a real room; liveAgentRoom
     // logs loud and we fail fast (vs silently building a prompt for room 0).
-    const room = roomById(managed.info.roomId)!;
+    const room = liveAgentRoom(managed.info)!;
     const manager = managerOf(managed.info);
     // One refs list, two consumers: the rendered layer that goes into the prompt
     // and the per-scope sizing behind the session-start memory notice. They have
@@ -7710,7 +7724,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // authoritative kill-time snapshot.
     const killedSummary = buildKilledAgentSummary(agentId, managed);
     {
-      const room = roomById(managed.info.roomId);
+      const room = liveAgentRoom(managed.info);
       if (room) {
         const history = loadAgentHistory();
         history[agentId] = {
@@ -9524,6 +9538,7 @@ export function createAgentManager(deps: ManagerDeps) {
     getRooms,
     globalRoomIndexOf,
     roomById,
+    liveAgentRoom,
     getOfficeSettings,
     getTasks,
     addTask,

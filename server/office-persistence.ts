@@ -60,7 +60,7 @@ export interface OfficePersistenceDeps {
   // The lobby seed flag, a `let` of createAgentManager.
   isLobbySeedPending: () => boolean;
   globalRoomIndexOf: (roomId: string) => number;
-  roomById: (roomId: string) => RoomWire | undefined;
+  liveAgentRoom: (info: { id: string; roomId: string }) => RoomWire | undefined;
   unclaimedQueue: ReturnType<typeof createMessageQueue>["unclaimedQueue"];
   accessFields: (src: { access?: AgentAccess; pack?: ApiTokenLimits }) => {
     access?: AgentAccess;
@@ -75,7 +75,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     emit,
     isLobbySeedPending,
     globalRoomIndexOf,
-    roomById,
+    liveAgentRoom,
     unclaimedQueue,
     accessFields,
   } = deps;
@@ -214,7 +214,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
       // The manifest's `room` number (and its room name) is a
       // derived display field, recomputed from the authoritative roomId.
       // Lobby occupants keep the manifest room:null wire contract.
-      const lobby = roomById(a.info.roomId)?.type === "lobby";
+      const lobby = liveAgentRoom(a.info)?.type === "lobby";
       const roomIdx = rooms.findIndex((r) => r.id === a.info.roomId);
       return {
         id: a.info.id,
@@ -415,7 +415,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
   function updateAgentHistory() {
     const history: AgentHistory = loadAgentHistory();
     for (const a of agents.values()) {
-      const room = roomById(a.info.roomId);
+      const room = liveAgentRoom(a.info);
       if (!room) continue;
       history[a.info.id] = {
         name: a.info.name,
@@ -453,7 +453,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     agentId: string,
     a: ManagedAgent,
   ): KilledAgentSummary | null {
-    const room = roomById(a.info.roomId);
+    const room = liveAgentRoom(a.info);
     if (!room) return null;
     return {
       id: agentId,

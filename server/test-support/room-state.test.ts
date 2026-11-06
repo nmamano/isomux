@@ -7,7 +7,7 @@
 // routes-rooms-rest.test.ts and routes-back-room.test.ts. The per-recipient
 // wire shape: projection.test.ts and presence.test.ts.
 
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, spyOn } from "bun:test";
 import { OfficeState } from "../../shared/office-state.ts";
 import { DESK_COUNT, isBackSeat } from "../../shared/desks.ts";
 import {
@@ -169,7 +169,12 @@ describe("rooms by stable id", () => {
     expect(roomOf(state, a.id)).toBe("r2");
   });
 
-  it("the AgentManager room helpers resolve a real id and miss with -1 and undefined, never room 0", () => {
+  // Task 8a1d5d6a: a stored id (a killed agent's last room, a page's room, a
+  // link) can name a closed room, so roomById misses quietly; only a LIVE
+  // agent's dangling roomId is an invariant breach, and liveAgentRoom says so.
+  // Mutants: put the console.error back in roomById; drop it from
+  // liveAgentRoom, or leave the agent id out of its line.
+  it("the AgentManager room helpers resolve a real id and miss with -1 and undefined, never room 0; only a live agent's miss logs", () => {
     const mgr = createAgentManager({
       resolveBackend: () => new FakeBackend(),
       officeState: new OfficeState({
@@ -177,11 +182,33 @@ describe("rooms by stable id", () => {
       }),
       initialRooms: [],
     });
-    expect(mgr.globalRoomIndexOf("room-c")).toBe(2);
-    expect(mgr.roomById("room-b")?.id).toBe("room-b");
-    // Logs a loud [3c] line - that is the intended tripwire, not a failure.
-    expect(mgr.globalRoomIndexOf("does-not-exist")).toBe(-1);
-    expect(mgr.roomById("does-not-exist")).toBeUndefined();
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(mgr.globalRoomIndexOf("room-c")).toBe(2);
+      const roomB = mgr.roomById("room-b");
+      expect(roomB?.id).toBe("room-b");
+      expect(mgr.roomById("does-not-exist")).toBeUndefined();
+      expect(errors).not.toHaveBeenCalled();
+
+      expect(mgr.liveAgentRoom({ id: "agent-hit", roomId: "room-b" })).toEqual(
+        roomB,
+      );
+      expect(errors).not.toHaveBeenCalled();
+
+      expect(
+        mgr.liveAgentRoom({ id: "agent-dangling", roomId: "does-not-exist" }),
+      ).toBeUndefined();
+      expect(errors).toHaveBeenCalledTimes(1);
+      const line = errors.mock.calls[0].map(String).join(" ");
+      expect(line).toContain("agent-dangling");
+      expect(line).toContain("does-not-exist");
+
+      // The index helper keeps its loud miss: its callers bucket live agents.
+      expect(mgr.globalRoomIndexOf("does-not-exist")).toBe(-1);
+      expect(errors).toHaveBeenCalledTimes(2);
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
 

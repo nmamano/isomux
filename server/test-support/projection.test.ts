@@ -51,7 +51,7 @@
 // interactive PTY path (live input/resize/close routing) stays carved into a
 // future stubbed-PTY/opt-in seam and is NOT characterized here.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import {
   startTestServer,
   type TestServer,
@@ -1126,6 +1126,47 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
           (m.agent as KilledAgentSummary).id === lk.id,
       ),
     ).toBe(false);
+  });
+
+  // Task 8a1d5d6a: an agent killed in a room that later closed is a normal
+  // state. The office journal logged one loud [3c] line per such agent on every
+  // full_state (canAccess -> isLobbyRoom -> roomById), thousands a day.
+  // Mutant: put the console.error back in roomById (agent-manager.ts).
+  it("an agent killed in a room that has since closed: the owner's roster keeps it by name, and building the rosters logs no error", async () => {
+    server = await boot();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [gone] = makeRoomsBeforeOwner(server, ["Gone"]);
+    const owner = await server.seedOwner("Morgan");
+    const member = await server.seedMember("Mia");
+    const k = await spawnIn(server, "K", gone);
+    await server.agentManager.kill(k.id);
+    expect(server.agentManager.closeRoom(gone)).toBe(true);
+    expect(server.agentManager.getRooms().map((r) => r.id)).not.toContain(gone);
+
+    const errors = spyOn(console, "error");
+    try {
+      const ownerSock = await connectSettled(server, owner.rawSessionId);
+      await setAccess(server, owner.rawSessionId, member.username, [r1]);
+      const memberSock = await connectSettled(server, member.rawSessionId);
+
+      const ownerKilled = latestFullState(ownerSock)!
+        .killedAgents as KilledAgentSummary[];
+      expect(ownerKilled.find((x) => x.id === k.id)).toMatchObject({
+        lastRoomId: gone,
+        lastRoomName: "Gone",
+      });
+      // The member has no grant for the closed room, so it is not theirs.
+      const memberKilled = latestFullState(memberSock)!
+        .killedAgents as KilledAgentSummary[];
+      expect(memberKilled.map((x) => x.id)).not.toContain(k.id);
+
+      const aboutGone = errors.mock.calls.filter((args) =>
+        args.map(String).join(" ").includes(gone),
+      );
+      expect(aboutGone).toEqual([]);
+    } finally {
+      errors.mockRestore();
+    }
   });
 
   it("revive requires access to BOTH the target room and the killed agent's lastRoomId", async () => {
