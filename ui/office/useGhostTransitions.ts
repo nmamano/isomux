@@ -17,12 +17,15 @@ export const GHOST_LOBBY_BASE_X = 600;
 export const GHOST_LOBBY_BASE_Y = 590;
 export const GHOST_LOBBY_GAP = 52;
 
-// Where a ghost stands while its member has the page of that wall item open:
-// on the floor in front of the item, in scene-container pixels.
+// Where a ghost stands while its member has the page of that wall item open,
+// in scene-container pixels: on the floor in front of the item, or beside the
+// clock and the vent, which hang above the desks.
 export const GHOST_WALL_SPOTS: Record<PresencePage, DoorCoord> = {
   tasks: { left: 310, top: 115 },
   apps: { left: 385, top: 69 },
   inbox: { left: 192, top: 172 },
+  cronjobs: { left: 640, top: -11 },
+  settings: { left: 790, top: 110 },
 };
 
 // Stack offsets for multiple members focused on the same agent. Small

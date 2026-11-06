@@ -366,15 +366,15 @@ export function presencePageFor(page: Page | null): PresencePage | null {
   switch (page) {
     case "tasks":
     case "apps":
+    case "cronjobs":
+    case "settings":
       return page;
     // The Inbox's two tabs share its tray.
     case "asks":
     case "pager":
       return "inbox";
-    case "cronjobs":
     case "skills":
     case "integrations":
-    case "settings":
     case null:
       return null;
   }

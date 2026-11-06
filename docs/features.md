@@ -47,7 +47,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Permission packs for members** - owners limit a member to some areas and a highest agent level, for example a contractor who reads tasks only.
 - **Per-member room access** - owners pick which rooms each member sees: when they create the member (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-member room display** - each member picks which of their accessible rooms actually show in their own view.
-- **Live member presence** - other members and your other devices show as ghosts next to the agent they are viewing, or by the Tasks, Apps or Inbox item on the wall while that page is open, and walk through the door when they change rooms. Click a ghost to open that member's settings.
+- **Live member presence** - other members and your other devices show as ghosts next to the agent they are viewing, and walk through the door when they change rooms. Click a ghost to open that member's settings.
 - **Members chat** - a humans-only, office-wide chat in the lobby.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **Agent managers** - an office owner can give an agent another manager in its settings.

@@ -1,6 +1,7 @@
-// A member with the Task board, App store or Inbox open stands by that item's
-// wall in the room scene (task 35bdee4d). The open page wins over the chat
-// under it, and a ghost at a wall spot is not dimmed.
+// A member with the Task board, App store, Inbox, Automations or Settings open
+// stands by that page's item on the wall of the room scene (tasks 35bdee4d,
+// b781545f). The open page wins over the chat under it, and a ghost at a wall
+// spot is not dimmed.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
@@ -13,6 +14,7 @@ const {
   GHOST_LOBBY_GAP,
 } = await import("./useGhostTransitions.ts");
 const { DESK_SLOTS } = await import("../../shared/desks.ts");
+const { SCENE_W, mobileSceneScale } = await import("./grid.ts");
 const { PRESENCE_PAGES } = await import("../../shared/presence-pages.ts");
 
 type PresenceInfo = import("../../shared/types.ts").PresenceInfo;
@@ -65,12 +67,10 @@ function place(
 
 it("puts each open page's ghost at its wall spot, undimmed, over the chat under the page", () => {
   const placed = place(
-    [
-      // Tasks open over a chat with the agent at desk 0: the page wins.
-      ghost("tasks", { viewMode: "away", focusedAgentId: "a0", page: "tasks" }),
-      ghost("apps", { viewMode: "away", page: "apps" }),
-      ghost("inbox", { viewMode: "away", page: "inbox" }),
-    ],
+    // Each page open over a chat with the agent at desk 0: the page wins.
+    PRESENCE_PAGES.map((page) =>
+      ghost(page, { viewMode: "away", focusedAgentId: "a0", page }),
+    ),
     [agentAt(0)],
   );
   for (const page of PRESENCE_PAGES) {
@@ -167,4 +167,18 @@ it("the wall spots keep a ghost's width from each other, from every desk spot an
     });
   }
   expect(near).toEqual([]);
+});
+
+it("every wall spot is inside the part of the scene a phone shows", () => {
+  // A phone fits less than the scene's width to the screen and crops both
+  // wall ends equally (mobileSceneScale). A ghost is 40 px wide (GHOST_SIZE).
+  const GHOST_W = 40;
+  const shown = Math.min(screen.width, window.innerWidth) / mobileSceneScale();
+  const crop = (SCENE_W - shown) / 2;
+  expect(crop).toBeGreaterThan(0);
+  const outside = PRESENCE_PAGES.filter((page) => {
+    const { left } = GHOST_WALL_SPOTS[page];
+    return left < crop || left + GHOST_W > SCENE_W - crop;
+  });
+  expect(outside).toEqual([]);
 });

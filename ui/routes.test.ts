@@ -599,17 +599,18 @@ describe("createLoneShiftTracker", () => {
 });
 
 describe("presencePageFor", () => {
-  // The wall item a ghost stands by while each page is open (task 35bdee4d):
-  // the corkboard, the Apps screen and the Inbox tray, whose two tabs are
-  // the pager and asks pages. A Record over Page, so a new page fails the type
-  // check here until someone picks its ghost spot.
+  // The wall item a ghost stands by while each page is open (tasks 35bdee4d,
+  // b781545f): the corkboard, the Apps screen, the clock, the vent and the
+  // Inbox tray, whose two tabs are the pager and asks pages. A Record over
+  // Page, so a new page fails the type check here until someone picks its
+  // ghost spot.
   const WALL: Record<Page, PresencePage | null> = {
     tasks: "tasks",
-    cronjobs: null,
+    cronjobs: "cronjobs",
     apps: "apps",
     skills: null,
     integrations: null,
-    settings: null,
+    settings: "settings",
     pager: "inbox",
     asks: "inbox",
   };

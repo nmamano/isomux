@@ -135,7 +135,15 @@ it("sends the shown page's wall item with the presence", async () => {
       : { messages: [], hasMore: false, readPointer: null, unread: 0 },
   );
   const seen: Record<string, unknown> = {};
-  for (const page of ["asks", "pager", "tasks", "apps", "cronjobs"] as const) {
+  for (const page of [
+    "asks",
+    "pager",
+    "tasks",
+    "apps",
+    "cronjobs",
+    "skills",
+    "integrations",
+  ] as const) {
     const view = boot(page);
     seen[page] = sentPage();
     view.unmount();
@@ -149,7 +157,7 @@ it("sends the shown page's wall item with the presence", async () => {
   seen["tasks over apps"] = sentPage();
   seen["tasks over apps path"] = window.location.pathname;
   view.unmount();
-  // Settings over Tasks: Settings shows, and it has no wall item.
+  // Settings over Tasks: Settings shows, with its own wall item.
   view = boot("tasks");
   await press("s");
   seen["settings over tasks"] = sentPage();
@@ -166,10 +174,12 @@ it("sends the shown page's wall item with the presence", async () => {
     pager: "inbox",
     tasks: "tasks",
     apps: "apps",
-    cronjobs: null,
+    cronjobs: "cronjobs",
+    skills: null,
+    integrations: null,
     office: null,
     "tasks over apps": "tasks",
-    "settings over tasks": null,
+    "settings over tasks": "settings",
     // The key presses did open the page on top.
     "tasks over apps path": pathForPage("tasks"),
     "settings over tasks path": pathForPage("settings"),

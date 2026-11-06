@@ -469,6 +469,7 @@ describe("presence - the open page (task 35bdee4d)", () => {
     // Only the page changes: setPresence must count it as a change.
     await take("apps", "away", "apps");
     await take("inbox", "away", "inbox");
+    await take("settings", "away", "settings");
     await take("with log", "log", "inbox");
     await take("unknown", "away", "corkboard");
     await take("valid again", "away", "tasks");
@@ -478,6 +479,7 @@ describe("presence - the open page (task 35bdee4d)", () => {
       ["tasks", ["away", "tasks"]],
       ["apps", ["away", "apps"]],
       ["inbox", ["away", "inbox"]],
+      ["settings", ["away", "settings"]],
       ["with log", ["log", null]],
       ["unknown", ["away", null]],
       ["valid again", ["away", "tasks"]],
