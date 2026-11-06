@@ -17,10 +17,12 @@ import {
   type Floor,
 } from "../shared/floors.ts";
 import { RECORDING_STORAGE_KEY, isRecording } from "./recording-mode.ts";
+import type { FloorBrowser } from "./safari-link.ts";
 
 export const PANEL_STORAGE_KEY = "isomux-elevator-panel";
 export const PANEL_NAMES_STORAGE_KEY = "isomux-elevator-names";
 export const PANEL_NAME_TTL_MS = 24 * 60 * 60 * 1000;
+export const FLOOR_BROWSER_STORAGE_KEY = "isomux-elevator-browser";
 
 function storageGet(storage: Storage, key: string): string | null {
   try {
@@ -205,4 +207,16 @@ export function rememberName(
   for (const [o, entry] of Object.entries(names))
     if (kept.has(o)) next[o] = entry;
   storageSet(localStorage, PANEL_NAMES_STORAGE_KEY, JSON.stringify(next));
+}
+
+// The browser the elevator's rides open in from the iOS Home Screen app
+// (ui/safari-link.ts). Safari unless the member chose Chrome.
+export function readFloorBrowser(): FloorBrowser {
+  return storageGet(localStorage, FLOOR_BROWSER_STORAGE_KEY) === "chrome"
+    ? "chrome"
+    : "safari";
+}
+
+export function saveFloorBrowser(browser: FloorBrowser): void {
+  storageSet(localStorage, FLOOR_BROWSER_STORAGE_KEY, browser);
 }

@@ -350,6 +350,7 @@ App 的一些原则：
   "lobby.elevator.here": "你在这里",
   "lobby.elevator.removeMine": "从你的电梯中移除 {name}",
   "lobby.elevator.addLabel": "添加楼层",
+  "lobby.elevator.browserLabel": "楼层打开方式",
   "lobby.elevator.add": "添加",
   "lobby.elevator.adding": "正在检查…",
   "lobby.elevator.remove": "移除 {name}",

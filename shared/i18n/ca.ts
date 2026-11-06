@@ -366,6 +366,7 @@ Coses que pots fer per ell:
   "lobby.elevator.here": "Ets aquí",
   "lobby.elevator.removeMine": "Treu {name} del teu ascensor",
   "lobby.elevator.addLabel": "Afegeix una planta",
+  "lobby.elevator.browserLabel": "Les plantes s'obren a",
   "lobby.elevator.add": "Afegeix",
   "lobby.elevator.adding": "Comprovant…",
   "lobby.elevator.remove": "Treu {name}",

@@ -18,10 +18,12 @@ import {
 import {
   PANEL_NAME_TTL_MS,
   commitPanel,
+  readFloorBrowser,
   readNames,
   readPanel,
   rememberName,
   rideFragment,
+  saveFloorBrowser,
   type PanelName,
 } from "../elevator-panel-store.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
@@ -33,6 +35,13 @@ import {
 import { isConfirmArmed, useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
 import { useVisibleArea } from "../visible-area.ts";
+import {
+  floorBrowserApplies,
+  floorHref,
+  readSafariEnv,
+  type FloorBrowser,
+  type SafariEnv,
+} from "../safari-link.ts";
 
 // The lobby elevator: one button per office on this browser's panel
 // (shared/elevator-panel.ts) - the offices it rode through, their floors and
@@ -41,12 +50,13 @@ import { useVisibleArea } from "../visible-area.ts";
 // server checks the address and takes the office name from it
 // (POST /api/floors). A ride carries the panel to the next office.
 
-// `ownOrigin` and `openFloor` default to this page's origin and a same-tab
-// navigation; tests pass their own.
+// `ownOrigin`, `openFloor` and `env` default to this page's origin, a
+// same-tab navigation and this browser; tests pass their own.
 export interface ElevatorDialogProps {
   onClose: () => void;
   ownOrigin?: string;
   openFloor?: (url: string) => void;
+  env?: SafariEnv;
 }
 
 const ERROR_KEYS: Record<string, PlainMessageKey> = {
@@ -56,6 +66,12 @@ const ERROR_KEYS: Record<string, PlainMessageKey> = {
   too_many_floors: "lobby.elevator.error.full",
   invalid_request: "lobby.elevator.error.invalid",
 };
+
+// Brand names, the same in every language.
+const BROWSERS: readonly { id: FloorBrowser; name: string }[] = [
+  { id: "safari", name: "Safari" },
+  { id: "chrome", name: "Chrome" },
+];
 
 // Name lookups one open dialog has in flight; the server refuses more.
 const MAX_NAME_ASKS = 4;
@@ -72,6 +88,7 @@ export function ElevatorDialog({
   onClose,
   ownOrigin = location.origin,
   openFloor = (url) => location.assign(url),
+  env = readSafariEnv(),
 }: ElevatorDialogProps) {
   const { t } = useI18n();
   const { floors, isMobile, office } = useAppState();
@@ -81,6 +98,12 @@ export function ElevatorDialog({
     readNames(),
   );
   const buttons = panelButtons(panel, here, floors);
+  // From the iOS Home Screen app a ride leaves for the member's browser,
+  // which holds their sign-in to the other office.
+  const choosesBrowser = floorBrowserApplies(env);
+  const [browser, setBrowser] = useState<FloorBrowser>(() =>
+    readFloorBrowser(),
+  );
   const [address, setAddress] = useState("");
   const [errorKey, setErrorKey] = useState<PlainMessageKey | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -150,7 +173,12 @@ export function ElevatorDialog({
   }, [personalKey]);
 
   function ride(url: string) {
-    openFloor(`${url}/#${rideFragment(here, floors)}`);
+    openFloor(floorHref(`${url}/#${rideFragment(here, floors)}`, env, browser));
+  }
+
+  function chooseBrowser(next: FloorBrowser) {
+    setBrowser(next);
+    saveFloorBrowser(next);
   }
 
   function removePersonal(url: string) {
@@ -305,6 +333,59 @@ export function ElevatorDialog({
             />
           ))}
         </div>
+
+        {choosesBrowser && (
+          <div
+            role="group"
+            aria-labelledby="elevator-browser-label"
+            data-floor-browser
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 8,
+              marginTop: 14,
+            }}
+          >
+            <span
+              id="elevator-browser-label"
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-muted)",
+              }}
+            >
+              {t("lobby.elevator.browserLabel")}
+            </span>
+            {BROWSERS.map(({ id, name }) => {
+              const chosen = browser === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  data-floor-browser-option={id}
+                  aria-pressed={chosen ? "true" : "false"}
+                  onClick={() => chooseBrowser(id)}
+                  {...noTranslate()}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: 8,
+                    border: chosen
+                      ? "1px solid var(--accent-text)"
+                      : secondaryBorder,
+                    background: chosen ? "var(--accent-text)" : secondaryFill,
+                    color: chosen ? "var(--bg-base)" : "var(--text-dim)",
+                    fontSize: 12,
+                    fontWeight: chosen ? 600 : 400,
+                    cursor: "pointer",
+                  }}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <label
           htmlFor="elevator-address"

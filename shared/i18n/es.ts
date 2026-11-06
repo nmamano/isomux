@@ -366,6 +366,7 @@ Cosas que puedes hacer por él:
   "lobby.elevator.here": "Estás aquí",
   "lobby.elevator.removeMine": "Quitar {name} de tu ascensor",
   "lobby.elevator.addLabel": "Añadir una planta",
+  "lobby.elevator.browserLabel": "Las plantas se abren en",
   "lobby.elevator.add": "Añadir",
   "lobby.elevator.adding": "Comprobando…",
   "lobby.elevator.remove": "Quitar {name}",

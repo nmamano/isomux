@@ -374,6 +374,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "lobby.elevator.here": "You are here",
   "lobby.elevator.removeMine": "Remove {name} from your elevator",
   "lobby.elevator.addLabel": "Add a floor",
+  "lobby.elevator.browserLabel": "Floors open in",
   "lobby.elevator.add": "Add",
   "lobby.elevator.adding": "Checking…",
   "lobby.elevator.remove": "Remove {name}",

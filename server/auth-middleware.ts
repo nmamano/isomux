@@ -1138,7 +1138,11 @@ const PREAUTH_EXTRA_CSS = `
   body {
     max-width: none;
     margin: 0;
+    box-sizing: border-box;
+    /* The visible area where the browser knows it: in a phone's in-app
+       sheet, 100vh is taller than the window and the card sat too low. */
     min-height: 100vh;
+    min-height: 100dvh;
     background:
       radial-gradient(120% 80% at 50% 0%, #fbeed6 0%, #f3dfb8 55%, #e5c98f 100%);
     color: #2a2418;

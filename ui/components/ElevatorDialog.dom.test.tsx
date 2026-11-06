@@ -24,8 +24,13 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
 const { normaliseFloorUrl } = await import("../../shared/floors.ts");
 const { createElement } = await import("react");
-const { commitPanel, readPanel, rememberName, PANEL_NAME_TTL_MS } =
-  await import("../elevator-panel-store.ts");
+const {
+  commitPanel,
+  readPanel,
+  rememberName,
+  PANEL_NAME_TTL_MS,
+  FLOOR_BROWSER_STORAGE_KEY,
+} = await import("../elevator-panel-store.ts");
 const { mergePanels, panelButtons, readPanelFragment, sanitisePanel } =
   await import("../../shared/elevator-panel.ts");
 afterAll(() => setApiShim(null));
@@ -33,6 +38,7 @@ afterEach(() => localStorage.clear());
 
 import type { Floor } from "../../shared/floors.ts";
 import type { Panel } from "../../shared/elevator-panel.ts";
+import type { SafariEnv } from "../safari-link.ts";
 
 const OWN = "https://here.example.com";
 const named: Floor = {
@@ -53,6 +59,7 @@ type Call = { method: string; path: string; body: unknown };
 function open(
   floors: Floor[],
   answer: (call: Call) => Promise<unknown> = async () => ({}),
+  env?: SafariEnv,
 ) {
   const calls: Call[] = [];
   setApiShim(async (method, path, body) => {
@@ -71,6 +78,7 @@ function open(
         },
         ownOrigin: OWN,
         openFloor: (url: string) => opened.push(url),
+        ...(env ? { env } : {}),
       }),
       { floors },
     ),
@@ -717,4 +725,162 @@ describe("ElevatorDialog on a phone", () => {
       d.view.unmount();
     });
   }
+});
+
+// Floors open in the member's browser (task 67fa3634): from the iOS Home
+// Screen app a ride leaves for Safari (x-safari-https://) or, by the saved
+// choice, Chrome (googlechromes://, googlechrome:// for http). The choice is
+// a group with data-floor-browser; its buttons carry
+// data-floor-browser-option="safari" and "chrome".
+describe("ElevatorDialog floor browser", () => {
+  const HOME_SCREEN: SafariEnv = { ios: true, standalone: true, iosMajor: 17 };
+
+  const group = (view: { container: HTMLElement }) =>
+    view.container.querySelector("[data-floor-browser]") as HTMLElement | null;
+  const option = (view: { container: HTMLElement }, b: string) =>
+    view.container.querySelector(
+      `[data-floor-browser-option="${b}"]`,
+    ) as HTMLElement;
+
+  async function rideTo(d: ReturnType<typeof open>, url: string) {
+    const row = d
+      .rows()
+      .find((r) => r.textContent?.includes(new URL(url).host)) as HTMLElement;
+    await act(async () => {
+      fireEvent.click(d.action(row, "open"));
+    });
+    return d.opened[d.opened.length - 1];
+  }
+
+  // The ride's own address under the browser scheme: the scheme maps, and
+  // the host, path and panel fragment are the ride's.
+  function expectRide(opened: string, scheme: string, floorUrl: string) {
+    const plain = floorUrl.replace(/^https?:\/\//, "");
+    expect(opened.startsWith(`${scheme}${plain}/#`)).toBe(true);
+    const back = new URL("https://" + opened.slice(scheme.length));
+    expect(readPanelFragment(back.hash)?.from).toBe(OWN);
+  }
+
+  it("opens a floor in Safari from the Home Screen app by default", async () => {
+    const d = open([named], async () => ({}), HOME_SCREEN);
+    expect(group(d.view)).not.toBeNull();
+    expect(option(d.view, "safari").getAttribute("aria-pressed")).toBe("true");
+    expect(option(d.view, "chrome").getAttribute("aria-pressed")).toBe("false");
+    expectRide(await rideTo(d, named.url), "x-safari-https://", named.url);
+    d.view.unmount();
+  });
+
+  it("opens floors in Chrome after a click on Chrome, keeps the choice for the next open, and the click itself opens nothing", async () => {
+    const d = open([named, unnamed], async () => ({}), HOME_SCREEN);
+    await act(async () => {
+      fireEvent.click(option(d.view, "chrome"));
+    });
+    expect([d.opened.length, d.closes()]).toEqual([0, 0]);
+    expect(option(d.view, "chrome").getAttribute("aria-pressed")).toBe("true");
+    expect(option(d.view, "safari").getAttribute("aria-pressed")).toBe("false");
+    expectRide(await rideTo(d, named.url), "googlechromes://", named.url);
+    expectRide(await rideTo(d, unnamed.url), "googlechrome://", unnamed.url);
+    d.view.unmount();
+
+    const again = open([named], async () => ({}), HOME_SCREEN);
+    expect(option(again.view, "chrome").getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expectRide(await rideTo(again, named.url), "googlechromes://", named.url);
+    // And back: Safari is a choice too, not only the default.
+    await act(async () => {
+      fireEvent.click(option(again.view, "safari"));
+    });
+    expectRide(await rideTo(again, named.url), "x-safari-https://", named.url);
+    again.view.unmount();
+  });
+
+  it("names the choice for a screen reader", () => {
+    const d = open([named], async () => ({}), HOME_SCREEN);
+    const g = group(d.view)!;
+    expect(g.getAttribute("role")).toBe("group");
+    const labelId = g.getAttribute("aria-labelledby") ?? "";
+    const label = labelId ? document.getElementById(labelId) : null;
+    expect((label?.textContent ?? "").trim().length).toBeGreaterThan(0);
+    d.view.unmount();
+  });
+
+  it("reads an unknown stored value as Safari", async () => {
+    localStorage.setItem(FLOOR_BROWSER_STORAGE_KEY, "firefox");
+    const d = open([named], async () => ({}), HOME_SCREEN);
+    expect(option(d.view, "safari").getAttribute("aria-pressed")).toBe("true");
+    expectRide(await rideTo(d, named.url), "x-safari-https://", named.url);
+    d.view.unmount();
+  });
+
+  // Blocked storage throws on the choice's key only, so the panel keeps
+  // working and the test pins the choice's own fallback. happy-dom's Storage
+  // copies a bound method onto the instance at its first use, so a patch on
+  // the prototype is not seen after that: patch the instance.
+  function blockChoiceStorage(method: "getItem" | "setItem") {
+    const original = localStorage[method] as (...a: string[]) => unknown;
+    const calls: string[] = [];
+    const define = (value: unknown) =>
+      Object.defineProperty(localStorage, method, {
+        configurable: true,
+        writable: true,
+        value,
+      });
+    define((key: string, ...rest: string[]) => {
+      if (key === FLOOR_BROWSER_STORAGE_KEY) {
+        calls.push(key);
+        throw new DOMException("blocked", "SecurityError");
+      }
+      return original(key, ...rest);
+    });
+    return { calls, restore: () => define(original) };
+  }
+
+  it("reads as Safari when storage throws on the read", async () => {
+    localStorage.setItem(FLOOR_BROWSER_STORAGE_KEY, "chrome");
+    const blocked = blockChoiceStorage("getItem");
+    try {
+      const d = open([named], async () => ({}), HOME_SCREEN);
+      expect(blocked.calls.length).toBeGreaterThan(0);
+      expect(option(d.view, "safari").getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+      expectRide(await rideTo(d, named.url), "x-safari-https://", named.url);
+      d.view.unmount();
+    } finally {
+      blocked.restore();
+    }
+  });
+
+  it("keeps a choice it cannot save for this open", async () => {
+    const blocked = blockChoiceStorage("setItem");
+    try {
+      const d = open([named], async () => ({}), HOME_SCREEN);
+      await act(async () => {
+        fireEvent.click(option(d.view, "chrome"));
+      });
+      expect(blocked.calls.length).toBeGreaterThan(0);
+      expectRide(await rideTo(d, named.url), "googlechromes://", named.url);
+      d.view.unmount();
+    } finally {
+      blocked.restore();
+    }
+    expect(localStorage.getItem(FLOOR_BROWSER_STORAGE_KEY)).toBeNull();
+  });
+
+  it("shows no choice and opens the plain address off the Home Screen app, on iOS 16, and off iOS, whatever is saved", async () => {
+    localStorage.setItem(FLOOR_BROWSER_STORAGE_KEY, "chrome");
+    for (const env of [
+      { ...HOME_SCREEN, standalone: false },
+      { ...HOME_SCREEN, iosMajor: 16 },
+      { ios: false, standalone: true, iosMajor: null },
+      { ios: false, standalone: false, iosMajor: null },
+    ]) {
+      const d = open([named], async () => ({}), env);
+      expect(group(d.view)).toBeNull();
+      expect(option(d.view, "chrome")).toBeNull();
+      expectRide(await rideTo(d, named.url), "https://", named.url);
+      d.view.unmount();
+    }
+  });
 });
