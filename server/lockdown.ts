@@ -159,6 +159,22 @@ export function removeStateMarker(stateRoot: string): boolean {
   return true;
 }
 
+/** The unlock of the state root: when <state>/LOCKDOWN exists, moves the
+ *  credential files aside (quarantineCredentials), then removes the marker.
+ *  Nothing can mint a credential while the office is locked, so every file
+ *  present at the unlock predates the lock. No marker: nothing moves. A
+ *  quarantine that throws keeps the marker and throws. */
+export function unlockStateMarker(
+  stateRoot: string,
+  now: Date,
+): { removed: boolean; quarantineDir: string | null } {
+  if (!existsSync(join(stateRoot, LOCK_MARKER_FILE)))
+    return { removed: false, quarantineDir: null };
+  const { dir } = quarantineCredentials(stateRoot, now);
+  removeStateMarker(stateRoot);
+  return { removed: true, quarantineDir: dir };
+}
+
 /** Moves each QUARANTINED_FILES entry present in `stateRoot` into a new
  *  <stateRoot>/lockdown-<time>/ (0700). Nothing to move: no directory, a
  *  null dir. */

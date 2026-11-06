@@ -18,7 +18,7 @@
 // user only for the steps that write the state root:
 //
 //   _step state-marker --reason <text> --by <who>   write <state>/LOCKDOWN
-//   _step remove-state-marker
+//   _step remove-state-marker                       quarantine, then remove the marker
 //   _step audit lockdown|unlock [--reason <text>]   only while the unit is down
 //   _step quarantine
 //   _step report <file>|- [--journal-stdin] [--release <tag>] [--previous <tag>]
@@ -47,7 +47,7 @@ import {
   ROOT_MARKER_DIR,
   quarantineCredentials,
   readLockState,
-  removeStateMarker,
+  unlockStateMarker,
   writeStateMarker,
 } from "../server/lockdown.ts";
 import { RESCUE_ACTOR, recordLockAudit } from "../server/lockdown-audit.ts";
@@ -404,7 +404,7 @@ class Rescue {
       );
       return 1;
     }
-    removeStateMarker(stateRoot);
+    if (!this.unlockState()) return 1;
     recordLockAudit(stateRoot, "unlock", {
       actor: RESCUE_ACTOR,
       reason: "",
@@ -423,6 +423,20 @@ class Rescue {
       "Every sign-in was revoked by the lock. Owners sign in again with the owner sign-in recovery (isomux.com/docs/access-and-invites).",
     );
     return ready ? 0 : 1;
+  }
+
+  // Moves the credentials aside, then removes the state marker
+  // (unlockStateMarker). A failure keeps the marker: the office stays locked.
+  private unlockState(): boolean {
+    try {
+      unlockStateMarker(this.config.stateRoot, this.host.now());
+      return true;
+    } catch (err) {
+      this.out.err(
+        `Could not revoke the sign-ins from before the lock, so the office stays locked: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
   }
 
   async restart(): Promise<number> {
@@ -674,8 +688,7 @@ class Rescue {
         writeStateMarker(stateRoot, { reason: args.reason, by: args.by, now });
         return 0;
       case "remove-state-marker":
-        removeStateMarker(stateRoot);
-        return 0;
+        return this.unlockState() ? 0 : 1;
       case "audit":
         if (rest[1] !== "lockdown" && rest[1] !== "unlock") break;
         recordLockAudit(stateRoot, rest[1], {

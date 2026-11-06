@@ -4,7 +4,7 @@
 // what the office answers afterwards; this file owns the order of the steps,
 // the reason rules, and the stop that comes after the answer.
 
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -20,6 +20,7 @@ import { officeLockedNow, resetOfficeLockGate } from "./office-lock-gate.ts";
 import {
   LOCKDOWN_REASON_MAX,
   lockOfficeFromRoute,
+  lockStopStep,
   type OfficeLockdownDeps,
 } from "./office-lockdown-route.ts";
 
@@ -198,5 +199,66 @@ test("a marker that cannot be written is 500, with no gate, no closed socket, no
   expect({ locked: officeLockedNow(), events: b.events }).toEqual({
     locked: false,
     events: [],
+  });
+});
+
+// The route's own stop (task b1a56ba0): the lock effects run in the dying
+// office, after the stop hooks and the leftovers, so a unit that does not
+// start the office again (Restart=on-failure, or none) still leaves no
+// credential behind. Nothing may skip them.
+describe("lockStopStep", () => {
+  function stepBed(fail: { previous?: boolean; leftovers?: boolean } = {}) {
+    const events: string[] = [];
+    const step = lockStopStep({
+      previous: async (signalAt) => {
+        await Bun.sleep(1);
+        events.push(`previous ${signalAt}`);
+        if (fail.previous) throw new Error("stop-reap failed");
+      },
+      endLeftovers: async () => {
+        await Bun.sleep(1);
+        events.push("leftovers");
+        if (fail.leftovers) throw new Error("EACCES /proc");
+        return 2;
+      },
+      applyLockEffects: () => {
+        events.push("effects");
+      },
+    });
+    return { events, step };
+  }
+
+  test("runs the previous final step, then ends the leftovers, then applies the lock effects", async () => {
+    const b = stepBed();
+    await b.step(1234);
+    expect(b.events).toEqual(["previous 1234", "leftovers", "effects"]);
+  });
+
+  test("with no previous final step it still ends the leftovers and applies the effects", async () => {
+    const events: string[] = [];
+    await lockStopStep({
+      previous: null,
+      endLeftovers: async () => {
+        events.push("leftovers");
+        return 0;
+      },
+      applyLockEffects: () => {
+        events.push("effects");
+      },
+    })(1);
+    expect(events).toEqual(["leftovers", "effects"]);
+  });
+
+  test("a previous step or a leftovers end that throws still applies the effects, and the step resolves", async () => {
+    const outcomes: string[][] = [];
+    for (const fail of [{ previous: true }, { leftovers: true }]) {
+      const b = stepBed(fail);
+      await b.step(7);
+      outcomes.push(b.events);
+    }
+    expect(outcomes).toEqual([
+      ["previous 7", "leftovers", "effects"],
+      ["previous 7", "leftovers", "effects"],
+    ]);
   });
 });

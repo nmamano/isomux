@@ -32,6 +32,8 @@ import {
   writeStateMarker,
   type LockdownApps,
 } from "./lockdown.ts";
+import { applyLockEffects } from "./locked-office.ts";
+import { EXPORTS_SUBDIR } from "./office-export-jobs.ts";
 
 const NOW = new Date("2026-11-06T10:00:00.000Z");
 let dir = "";
@@ -284,5 +286,115 @@ describe("the apps a lock stops", () => {
     const later = fakeApps(["board", "chat", "idle"], []);
     expect(restartAppsAfterLock(stateRoot, later.apps, () => true)).toEqual([]);
     expect(later.calls).toEqual([]);
+  });
+});
+
+// What a lock does to the state, at the lockdown route's stop and at every
+// locked boot (task b1a56ba0). The route's stop runs it in the dying office,
+// so one failed step must not skip the others.
+describe("applyLockEffects", () => {
+  function lockBed() {
+    const { stateRoot } = bed();
+    for (const name of QUARANTINED_FILES)
+      writeFileSync(join(stateRoot, name), `before ${name}`);
+    const backup = join(dir, "backup");
+    mkdirSync(join(backup, EXPORTS_SUBDIR), { recursive: true });
+    writeFileSync(join(backup, EXPORTS_SUBDIR, "office-export.zip"), "zip");
+    // What the root held when the apps stopped: the credentials go first,
+    // so a hung app stop cannot hold them in the root.
+    const atAppStop: string[][] = [];
+    const fake = fakeApps(["board", "idle"], ["board"]);
+    const apps: LockdownApps = {
+      ...fake.apps,
+      stop: (name) => {
+        atAppStop.push(
+          QUARANTINED_FILES.filter((n) => existsSync(join(stateRoot, n))),
+        );
+        fake.apps.stop(name);
+      },
+    };
+    return { stateRoot, backup, apps, fake, atAppStop };
+  }
+
+  const inRoot = (stateRoot: string) =>
+    QUARANTINED_FILES.filter((n) => existsSync(join(stateRoot, n)));
+  const lockdownDirs = (stateRoot: string) =>
+    readdirSync(stateRoot).filter((n) => n.startsWith(LOCKDOWN_DIR_PREFIX));
+
+  test("moves the credentials aside first, empties the exports, stops what runs and records it", () => {
+    const b = lockBed();
+    applyLockEffects({
+      stateRoot: b.stateRoot,
+      apps: b.apps,
+      exportBaseDir: b.backup,
+      now: NOW,
+    });
+    const dirs = lockdownDirs(b.stateRoot);
+    expect({
+      inRoot: inRoot(b.stateRoot),
+      dirs: dirs.length,
+      moved: readdirSync(join(b.stateRoot, dirs[0] ?? "none")).sort(),
+      exports: readdirSync(join(b.backup, EXPORTS_SUBDIR)),
+      appCalls: b.fake.calls,
+      atAppStop: b.atAppStop,
+      record: JSON.parse(
+        readFileSync(join(b.stateRoot, LOCKDOWN_APPS_FILE), "utf8"),
+      ),
+    }).toEqual({
+      inRoot: [],
+      dirs: 1,
+      moved: [...QUARANTINED_FILES].sort(),
+      exports: [],
+      appCalls: ["stop board"],
+      atAppStop: [[]],
+      record: ["board"],
+    });
+  });
+
+  test("a quarantine that fails still empties the exports and stops the apps, and does not throw", () => {
+    const b = lockBed();
+    // The quarantine's directory name for NOW is taken by a dangling link:
+    // existsSync says free, mkdir fails with EEXIST.
+    const stamp = NOW.toISOString().replace(/[:.]/g, "-");
+    symlinkSync(
+      join(dir, "nowhere"),
+      join(b.stateRoot, `${LOCKDOWN_DIR_PREFIX}${stamp}`),
+    );
+    applyLockEffects({
+      stateRoot: b.stateRoot,
+      apps: b.apps,
+      exportBaseDir: b.backup,
+      now: NOW,
+    });
+    expect({
+      // The condition of this test: the quarantine did fail.
+      inRoot: inRoot(b.stateRoot).length,
+      exports: readdirSync(join(b.backup, EXPORTS_SUBDIR)),
+      appCalls: b.fake.calls,
+    }).toEqual({
+      inRoot: QUARANTINED_FILES.length,
+      exports: [],
+      appCalls: ["stop board"],
+    });
+  });
+
+  test("apps that cannot be listed do not undo the quarantine or the export sweep, and do not throw", () => {
+    const b = lockBed();
+    applyLockEffects({
+      stateRoot: b.stateRoot,
+      apps: {
+        ...b.apps,
+        list: () => {
+          throw new Error("systemctl --user: no bus");
+        },
+      },
+      exportBaseDir: b.backup,
+      now: NOW,
+    });
+    expect({
+      inRoot: inRoot(b.stateRoot),
+      dirs: lockdownDirs(b.stateRoot).length,
+      exports: readdirSync(join(b.backup, EXPORTS_SUBDIR)),
+    }).toEqual({ inRoot: [], dirs: 1, exports: [] });
   });
 });

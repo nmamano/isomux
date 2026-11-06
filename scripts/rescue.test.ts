@@ -23,6 +23,8 @@ import {
   LOCK_MARKER_FILE,
   LOCKDOWN_DIR_PREFIX,
   QUARANTINED_FILES,
+  ROOT_MARKER_FILE,
+  lockMarkerBody,
   writeStateMarker,
 } from "../server/lockdown.ts";
 import {
@@ -115,6 +117,8 @@ function bed(
     processes?: ProcessInfo[];
     /** /readyz answers while the unit is active (default: per the marker). */
     readyz?: () => { status: number; body: string } | null;
+    /** Runs at each start, before the unit is active. */
+    onStart?: () => void;
   } = {},
 ): Bed {
   dir = mkdtempSync(join(tmpdir(), "rescue-test-"));
@@ -139,6 +143,7 @@ function bed(
     unit.active = false;
   };
   const onStart = () => {
+    opts.onStart?.();
     seen.start.push({
       marker: markerNow(),
       lockdownAudits: lockdownAudits(stateRoot),
@@ -456,6 +461,176 @@ describe("unlock", () => {
       marker: false,
       atStart: [false],
       unit: { active: true, enabled: true },
+    });
+  });
+});
+
+// A lock from inside the office (POST /api/office/lockdown) writes the state
+// marker and stops the office; a unit with Restart=on-failure, or no unit,
+// leaves it stopped, so no locked boot moves the credentials aside. Unlock
+// does it (task b1a56ba0): nothing mints a credential while the office is
+// locked, so every credential file present at the unlock predates the lock.
+describe("unlock moves aside the credentials a lock left", () => {
+  const inRoot = (stateRoot: string) =>
+    QUARANTINED_FILES.filter((n) => existsSync(join(stateRoot, n)));
+  const unlockAudits = (stateRoot: string) =>
+    auditRows(stateRoot).filter((r) => r.operation === "office.unlock").length;
+  // The quarantine's directory name for NOW is taken by a dangling link:
+  // existsSync says free, mkdir fails with EEXIST. The command's clock is
+  // the host's, which is NOW until the first sleep.
+  function breakQuarantine(stateRoot: string): string {
+    const stamp = NOW.toISOString().replace(/[:.]/g, "-");
+    const link = join(stateRoot, `${LOCKDOWN_DIR_PREFIX}${stamp}`);
+    symlinkSync(join(dir, "nowhere"), link);
+    return link;
+  }
+
+  test("a lock that no locked boot followed: the credentials are moved aside before the office starts, and the marker is gone", async () => {
+    const atStart: string[][] = [];
+    const b = bed({
+      active: false,
+      onStart: () => atStart.push(inRoot(b.stateRoot)),
+    });
+    seedCredentials(b.stateRoot);
+    writeStateMarker(b.stateRoot, {
+      reason: "suspected stolen session",
+      by: "Ann",
+      now: NOW,
+    });
+    const code = await b.run(["unlock"]);
+    expect({
+      code,
+      atStart,
+      marker: existsSync(join(b.stateRoot, LOCK_MARKER_FILE)),
+      inRoot: inRoot(b.stateRoot),
+      quarantined: quarantined(b.stateRoot),
+      unit: { ...b.unit },
+    }).toEqual({
+      code: 0,
+      atStart: [[]],
+      marker: false,
+      inRoot: [],
+      quarantined: Object.fromEntries(
+        QUARANTINED_FILES.map((n) => [n, `before ${n}`]),
+      ),
+      unit: { active: true, enabled: true },
+    });
+  });
+
+  test("on an office with no lock marker, unlock moves nothing", async () => {
+    const b = bed({ active: false });
+    seedCredentials(b.stateRoot);
+    const code = await b.run(["unlock"]);
+    expect({
+      code,
+      // The condition of this test: unlock ran to the start.
+      started: b.seen.start.length,
+      inRoot: inRoot(b.stateRoot),
+      dirs: readdirSync(b.stateRoot).filter((n) =>
+        n.startsWith(LOCKDOWN_DIR_PREFIX),
+      ),
+    }).toEqual({
+      code: 0,
+      started: 1,
+      inRoot: [...QUARANTINED_FILES],
+      dirs: [],
+    });
+  });
+
+  test("a quarantine that fails keeps the marker: no unlock audit, no start, exit non-zero", async () => {
+    const b = bed({ active: false, enabled: false });
+    seedCredentials(b.stateRoot);
+    writeStateMarker(b.stateRoot, { reason: "x", by: "Ann", now: NOW });
+    breakQuarantine(b.stateRoot);
+    const code = await b.run(["unlock"]);
+    expect({
+      failed: code !== 0,
+      // The owner reads why, not a stack trace.
+      told: b.out.err.length > 0,
+      marker: existsSync(join(b.stateRoot, LOCK_MARKER_FILE)),
+      inRoot: inRoot(b.stateRoot),
+      verbs: b.verbs(),
+      unlockAudits: unlockAudits(b.stateRoot),
+      unit: { ...b.unit },
+    }).toEqual({
+      failed: true,
+      told: true,
+      marker: true,
+      inRoot: [...QUARANTINED_FILES],
+      verbs: [],
+      unlockAudits: 0,
+      unit: { active: false, enabled: false },
+    });
+  });
+
+  test("a root marker refuses the unlock before anything moves", async () => {
+    const b = bed({ active: false });
+    seedCredentials(b.stateRoot);
+    writeStateMarker(b.stateRoot, { reason: "x", by: "Ann", now: NOW });
+    writeFileSync(
+      join(b.config.rootMarkerDir, ROOT_MARKER_FILE),
+      lockMarkerBody(b.stateRoot, { reason: "x", by: "host", now: NOW }),
+    );
+    const code = await b.run(["unlock"]);
+    expect({
+      code,
+      // The condition of this test: the root marker refused it.
+      refused: b.out.err.some((l) =>
+        l.includes(join(b.config.rootMarkerDir, ROOT_MARKER_FILE)),
+      ),
+      marker: existsSync(join(b.stateRoot, LOCK_MARKER_FILE)),
+      inRoot: inRoot(b.stateRoot),
+      verbs: b.verbs(),
+    }).toEqual({
+      code: 1,
+      refused: true,
+      marker: true,
+      inRoot: [...QUARANTINED_FILES],
+      verbs: [],
+    });
+  });
+
+  // The root wrapper's unlock (both flows) calls this step before it starts
+  // the office, so the wrapper itself needs no change.
+  test("the root step remove-state-marker: no marker moves nothing; a failed quarantine keeps the marker and exits non-zero; then it moves the credentials and removes the marker", async () => {
+    const b = bed({ active: false });
+    seedCredentials(b.stateRoot);
+    const noMarker = await b.run(["_step", "remove-state-marker"]);
+    const afterNoMarker = inRoot(b.stateRoot);
+
+    writeStateMarker(b.stateRoot, { reason: "x", by: "Ann", now: NOW });
+    const link = breakQuarantine(b.stateRoot);
+    const broken = await b.run(["_step", "remove-state-marker"]);
+    const afterBroken = {
+      marker: existsSync(join(b.stateRoot, LOCK_MARKER_FILE)),
+      inRoot: inRoot(b.stateRoot),
+    };
+
+    rmSync(link);
+    const fixed = await b.run(["_step", "remove-state-marker"]);
+    expect({
+      noMarker,
+      afterNoMarker,
+      brokenFailed: broken !== 0,
+      afterBroken,
+      fixed,
+      marker: existsSync(join(b.stateRoot, LOCK_MARKER_FILE)),
+      inRoot: inRoot(b.stateRoot),
+      quarantined: quarantined(b.stateRoot),
+      // A step never touches the unit: the wrapper starts it.
+      verbs: b.verbs(),
+    }).toEqual({
+      noMarker: 0,
+      afterNoMarker: [...QUARANTINED_FILES],
+      brokenFailed: true,
+      afterBroken: { marker: true, inRoot: [...QUARANTINED_FILES] },
+      fixed: 0,
+      marker: false,
+      inRoot: [],
+      quarantined: Object.fromEntries(
+        QUARANTINED_FILES.map((n) => [n, `before ${n}`]),
+      ),
+      verbs: [],
     });
   });
 });

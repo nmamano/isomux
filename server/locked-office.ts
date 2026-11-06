@@ -101,18 +101,31 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Moves credential files aside (a safety net: the host command already did
- *  it unless it could not), deletes owner exports, stops apps, and binds the
- *  locked listener. */
-export async function startLockedOffice(
-  opts: LockedOfficeOpts,
-): Promise<LockedOfficeHandle> {
-  // Journal only: the host command or the lockdown route audited the lock.
-  const moved = quarantineCredentials(opts.stateRoot, new Date());
-  if (moved.dir)
-    console.log(`[lockdown] moved ${moved.moved.join(", ")} to ${moved.dir}`);
+/** What a lock does to the state, at the lockdown route's stop and at every
+ *  locked boot: moves the credential files aside, deletes owner exports and
+ *  stops apps, in that order. Synchronous; each step logs its own failure and
+ *  does not skip the next. */
+export function applyLockEffects(opts: {
+  stateRoot: string;
+  apps: LockdownApps;
+  /** The backup folder, whose exports/ the lock empties; null when it cannot
+   *  be read. */
+  exportBaseDir: string | null;
+  now: Date;
+}): void {
+  try {
+    const moved = quarantineCredentials(opts.stateRoot, opts.now);
+    if (moved.dir)
+      console.log(`[lockdown] moved ${moved.moved.join(", ")} to ${moved.dir}`);
+  } catch (err) {
+    console.error("[lockdown] could not move the credentials aside:", err);
+  }
   // No owner export survives a lock (task cdd7883d, slice 4).
-  if (opts.exportBaseDir) sweepExportFiles(opts.exportBaseDir);
+  try {
+    if (opts.exportBaseDir) sweepExportFiles(opts.exportBaseDir);
+  } catch (err) {
+    console.error("[lockdown] could not delete the owner exports:", err);
+  }
   try {
     const stopped = stopAppsForLock(opts.stateRoot, opts.apps);
     if (stopped.length > 0)
@@ -120,6 +133,21 @@ export async function startLockedOffice(
   } catch (err) {
     console.error("[lockdown] could not stop the apps:", err);
   }
+}
+
+/** Applies the lock effects again (a safety net: the host command and the
+ *  lockdown route's stop already did it unless they could not), and binds the
+ *  locked listener. */
+export async function startLockedOffice(
+  opts: LockedOfficeOpts,
+): Promise<LockedOfficeHandle> {
+  // Journal only: the host command or the lockdown route audited the lock.
+  applyLockEffects({
+    stateRoot: opts.stateRoot,
+    apps: opts.apps,
+    exportBaseDir: opts.exportBaseDir,
+    now: new Date(),
+  });
   const server = Bun.serve({
     port: opts.port,
     ...(opts.hostname ? { hostname: opts.hostname } : {}),

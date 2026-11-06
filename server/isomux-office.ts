@@ -451,8 +451,12 @@ import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { createFrontDoor, PORT, UI_DIST } from "./office-front-door.ts";
-import { readLockState, restartAppsAfterLock } from "./lockdown.ts";
-import { startLockedOffice } from "./locked-office.ts";
+import {
+  readLockState,
+  restartAppsAfterLock,
+  type LockdownApps,
+} from "./lockdown.ts";
+import { applyLockEffects, startLockedOffice } from "./locked-office.ts";
 import { defaultAppSupervisor } from "./app-supervisor-default.ts";
 import { createAccessPolicy } from "./office-access-policy.ts";
 import { createEventFanout } from "./office-event-fanout.ts";
@@ -5350,13 +5354,7 @@ function runBackgroundBoot(
   try {
     const started = restartAppsAfterLock(
       STATE_ROOT,
-      {
-        list: () => appRegistry.list().map((app) => app.name),
-        isActive: (name) =>
-          appSupervisor.states([name]).get(name)?.state !== "stopped",
-        stop: (name) => appSupervisor.stop(name),
-        start: (name) => appSupervisor.start(name),
-      },
+      lockdownApps(appSupervisor),
       (name) => appsMayRunFor(appRegistry.get(name)?.userId),
     );
     if (started.length > 0)
@@ -5903,27 +5901,43 @@ async function startLockedOfficeFromBoot(): Promise<void> {
   const cfg = loadServerConfig();
   const external = cfg.externalAccess ?? cfg.publicOrigin !== null;
   const loopback = cfg.networkBind === "loopback" || !external;
-  const supervisor = defaultAppSupervisor(process.platform);
-  let exportBaseDir: string | null = null;
-  try {
-    exportBaseDir = currentBackupDir();
-  } catch (err) {
-    console.error("[lockdown] could not read the backup folder:", err);
-  }
   await startLockedOffice({
     stateRoot: STATE_ROOT,
-    exportBaseDir,
+    exportBaseDir: lockExportBaseDir(),
     port: PORT,
     ...(loopback ? { hostname: "127.0.0.1" } : {}),
-    apps: {
-      list: () => appRegistry.list().map((app) => app.name),
-      // Anything not known to be stopped is stopped (fail safe).
-      isActive: (name) =>
-        supervisor.states([name]).get(name)?.state !== "stopped",
-      stop: (name) => supervisor.stop(name),
-      start: (name) => supervisor.start(name),
-    },
+    apps: lockdownApps(defaultAppSupervisor(process.platform)),
   });
+}
+
+/** The lock effects over this office's state, at the lockdown route's stop. */
+function applyOfficeLockEffects(): void {
+  applyLockEffects({
+    stateRoot: STATE_ROOT,
+    apps: lockdownApps(appSupervisor),
+    exportBaseDir: lockExportBaseDir(),
+    now: new Date(),
+  });
+}
+
+function lockdownApps(supervisor: AppSupervisor): LockdownApps {
+  return {
+    list: () => appRegistry.list().map((app) => app.name),
+    // Anything not known to be stopped is stopped (fail safe).
+    isActive: (name) =>
+      supervisor.states([name]).get(name)?.state !== "stopped",
+    stop: (name) => supervisor.stop(name),
+    start: (name) => supervisor.start(name),
+  };
+}
+
+function lockExportBaseDir(): string | null {
+  try {
+    return currentBackupDir();
+  } catch (err) {
+    console.error("[lockdown] could not read the backup folder:", err);
+    return null;
+  }
 }
 
 export async function runOfficeMain(): Promise<void> {
@@ -6000,7 +6014,7 @@ export async function runOfficeMain(): Promise<void> {
     console.error("[codex safety] artifact unavailable at boot:", err);
   });
   const handle = await startServer({
-    rescue: { requestStop: requestStopForLock },
+    rescue: { requestStop: () => requestStopForLock(applyOfficeLockEffects) },
   });
   // An owner export's child ends with the office.
   runAtServerStop(async () => officeExportJobs?.stop());
