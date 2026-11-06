@@ -108,8 +108,19 @@ function plainTokens(tokens: Token[]): string {
  * prompt of labels only gives the first label's text; one with no text,
  * "". */
 export function askSubject(prompt: string): string {
-  let labelOnly = "";
-  for (const line of prompt.split("\n")) {
+  return askSubjectLine(prompt).subject;
+}
+
+/** askSubject, with the index in prompt.split("\n") of the line it comes
+ * from: for a prompt of labels only, the first label's line; for a prompt
+ * with no text, -1. */
+export function askSubjectLine(prompt: string): {
+  subject: string;
+  line: number;
+} {
+  let labelOnly = { subject: "", line: -1 };
+  const lines = prompt.split("\n");
+  for (const [index, line] of lines.entries()) {
     const tokens = oneLineTokens(line, true);
     const start = tokens.findIndex(
       (token) => token.type !== "text" || token.raw.trim() !== "",
@@ -118,8 +129,11 @@ export function askSubject(prompt: string): string {
     const text = plainText(label ? tokens.slice(start + 1) : tokens);
     // The separator between a label and its subject goes with the label.
     const subject = label ? text.replace(LABEL_SEPARATOR_RE, "") : text;
-    if (subject) return subject;
-    labelOnly ||= plainText(tokens);
+    if (subject) return { subject, line: index };
+    if (labelOnly.line < 0) {
+      const whole = plainText(tokens);
+      if (whole) labelOnly = { subject: whole, line: index };
+    }
   }
   return labelOnly;
 }

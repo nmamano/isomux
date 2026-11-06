@@ -305,7 +305,7 @@ describe("the page items of a paged ask", () => {
     expect(items).toHaveLength(2);
   });
 
-  it("the title is the first line with text, without colour markup; the body is the rest", () => {
+  it("the title is the plain text of the subject line, past a leading label; the body is the lines after it, without colour markup", () => {
     const w = world();
     const ask = w.open({
       prompt:
@@ -313,8 +313,27 @@ describe("the page items of a paged ask", () => {
     });
     const [item] = w.itemsOf(ask.id);
     // A name that is not a colour stays as typed, as the card draws it.
-    expect(item.title).toBe("**Decide** Restart :pink[the] box?");
+    expect(item.title).toBe("Restart :pink[the] box?");
     expect(item.body?.trim()).toBe("The disk is full.\n\nIt fills at 2 GB/h.");
+
+    // A label on its own line is not the subject, and not in the body.
+    const labelLine = w.open({
+      prompt: ":green[**Quick stamp**]\n\nMerge the fix?\nMore",
+    });
+    const [labelItem] = w.itemsOf(labelLine.id);
+    expect(labelItem.title).toBe("Merge the fix?");
+    expect(labelItem.body?.trim()).toBe("More");
+
+    const heading = w.open({ prompt: "# Restart **now**?\nWhy." });
+    const [headingItem] = w.itemsOf(heading.id);
+    expect(headingItem.title).toBe("Restart now?");
+    expect(headingItem.body?.trim()).toBe("Why.");
+
+    // A prompt of labels only: the label's text is the subject.
+    const labelsOnly = w.open({ prompt: ":green[**Quick stamp**]" });
+    const [labelsOnlyItem] = w.itemsOf(labelsOnly.id);
+    expect(labelsOnlyItem.title).toBe("Quick stamp");
+    expect(labelsOnlyItem.body ?? "").toBe("");
 
     const oneLine = w.open({ prompt: "Restart the box?" });
     expect(w.itemsOf(oneLine.id)[0].body ?? "").toBe("");
@@ -327,6 +346,25 @@ describe("the page items of a paged ask", () => {
     expect(clipped.title.startsWith("t".repeat(150))).toBe(true);
     expect(clipped.body!.length).toBeLessThanOrEqual(2000);
     expect(clipped.body!.startsWith("b".repeat(1500))).toBe(true);
+  });
+
+  it("a prompt with no text: the title names the source, not the markup or the ask id, and there is no body", () => {
+    const w = world();
+    const agentAsk = w.open({ prompt: "![](x.png)" });
+    const appAsk = w.open({
+      prompt: "![](x.png)\n\n![](y.png)",
+      app: { name: "uptime", createdAt: 7 },
+    });
+    for (const [ask, source] of [
+      [agentAsk, "Bot"],
+      [appAsk, "uptime"],
+    ] as const) {
+      const [item] = w.itemsOf(ask.id);
+      expect(item.title).toContain(source);
+      expect(item.title).not.toContain(".png");
+      expect(item.title).not.toContain(ask.id);
+      expect(item.body ?? "").toBe("");
+    }
   });
 
   it("an app's paged ask is named for the app", () => {
@@ -505,7 +543,7 @@ describe("Web Push delivery of a paged ask", () => {
       const [call] = pushesTo(w, dev[userId]);
       const payload = await decrypt(call.body, dev[userId]);
       expect(payload.url).toBe(`/inbox/asks/${ask.id}`);
-      expect(payload.title).toBe("**Decide** Restart?");
+      expect(payload.title).toBe("Restart?");
       expect(payload.renotify).toBe(true);
     }
   });

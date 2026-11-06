@@ -13,6 +13,7 @@
 
 import type { AskEntry, PagerDelivery, PagerEntry } from "../shared/types.ts";
 import { stripColorMarkup } from "../shared/color-markup.ts";
+import { askSubjectLine } from "../ui/members-chat/one-line-text.ts";
 import { askVisibleTo, type AskAudienceDeps, type AskStore } from "./asks.ts";
 import { PAGER_BODY_MAX, PAGER_TITLE_MAX } from "./pager-compat.ts";
 import { pagerLink } from "./pager-delivery.ts";
@@ -86,17 +87,23 @@ function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
-// A page's title and body from an ask's prompt, in plain text: the first line
-// with text is the title, the rest is the body.
-function pageText(prompt: string): { title: string; body?: string } {
-  const lines = stripColorMarkup(prompt).split("\n");
-  const first = lines.findIndex((line) => line.trim() !== "");
-  if (first < 0) return { title: "" };
-  const title = clip(lines[first].trim(), PAGER_TITLE_MAX);
-  const body = lines
-    .slice(first + 1)
-    .join("\n")
-    .trim();
+// A page's title and body from an ask's prompt, in plain text: the title is
+// the ask's subject (askSubjectLine), or the fallback for a prompt with no
+// text; the body is the lines after the subject's line, colour markup
+// stripped.
+function pageText(
+  prompt: string,
+  fallback: string,
+): { title: string; body?: string } {
+  const { subject, line } = askSubjectLine(prompt);
+  const title = clip(subject || fallback, PAGER_TITLE_MAX);
+  if (line < 0) return { title };
+  const body = stripColorMarkup(
+    prompt
+      .split("\n")
+      .slice(line + 1)
+      .join("\n"),
+  ).trim();
   return body === "" ? { title } : { title, body: clip(body, PAGER_BODY_MAX) };
 }
 
@@ -136,7 +143,7 @@ export function createPageItemSource(deps: PageItemSourceDeps): PageItemSource {
   ): PageItem => ({
     id: askItemId(entry.id, userId),
     targetUserId: userId,
-    ...pageText(entry.prompt),
+    ...pageText(entry.prompt, `Ask from ${label.sourceName}`),
     state,
     delivery,
     ...label,
