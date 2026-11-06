@@ -438,7 +438,7 @@ export function SecretAskCard({
                 style={{ ...dialogInput, fontFamily: "monospace" }}
                 onChange={(event) => setPicked(event.target.value)}
               >
-                <option value="" disabled>
+                <option value="" disabled hidden>
                   {t("integrations.mcp.pickSecret")}
                 </option>
                 {secretChoices.map((name) => (

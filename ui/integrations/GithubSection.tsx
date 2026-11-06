@@ -382,7 +382,7 @@ export function RoomGithubLink({
             onChange={(e) => setPickedSecret(e.target.value)}
             style={dialogInput}
           >
-            <option value="" disabled>
+            <option value="" disabled hidden>
               {!waiting && t("integrations.github.pickSecret")}
             </option>
             {choices.map((name) => (

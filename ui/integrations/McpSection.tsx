@@ -905,7 +905,7 @@ function McpEditor({
             value={saved}
             onChange={(e) => setSaved(e.target.value)}
           >
-            <option value="" disabled>
+            <option value="" disabled hidden>
               {t("integrations.mcp.pickSecret")}
             </option>
             {savedChoices.map((choice) => (

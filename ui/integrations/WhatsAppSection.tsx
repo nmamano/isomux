@@ -729,7 +729,7 @@ function WhatsAppRows({
                 onChange={(e) => pick(e.target.value)}
                 style={{ ...input, width: "100%" }}
               >
-                <option value={NO_CHAT} disabled>
+                <option value={NO_CHAT} disabled hidden>
                   {t("integrations.whatsapp.rows.chatPrompt")}
                 </option>
                 {selfChat && (

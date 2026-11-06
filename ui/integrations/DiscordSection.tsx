@@ -980,7 +980,7 @@ function RouteForm({
                 onChange={(e) => pickGuild(e.target.value)}
                 style={{ ...input, width: "100%" }}
               >
-                <option value={NONE} disabled>
+                <option value={NONE} disabled hidden>
                   {t("integrations.discord.routes.guildPrompt")}
                 </option>
                 {seen.map((g) => (
@@ -1012,7 +1012,7 @@ function RouteForm({
                   onChange={(e) => pickTarget(e.target.value)}
                   style={{ ...input, width: "100%" }}
                 >
-                  <option value={NONE} disabled>
+                  <option value={NONE} disabled hidden>
                     {t(
                       scope === "category"
                         ? "integrations.discord.routes.categoryPrompt"
