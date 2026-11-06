@@ -20,13 +20,26 @@ export const GHOST_LOBBY_GAP = 52;
 // Where a ghost stands while its member has the page of that wall item open,
 // in scene-container pixels: on the floor in front of the item, or beside the
 // clock and the vent, which hang above the desks. The clock's ghost stands in
-// the room's back corner, left of the clock, where the wall is empty.
+// the room's back corner, left of the clock, where the wall is empty. Each
+// spot keeps the ghost and its name tag (both take clicks) off the item and
+// off the window, so a click on the item still reaches it.
 export const GHOST_WALL_SPOTS: Record<PresencePage, DoorCoord> = {
-  tasks: { left: 310, top: 115 },
-  apps: { left: 385, top: 69 },
-  inbox: { left: 192, top: 172 },
+  tasks: { left: 310, top: 128 },
+  apps: { left: 366, top: 83 },
+  inbox: { left: 168, top: 190 },
   cronjobs: { left: 470, top: -11 },
-  settings: { left: 790, top: 110 },
+  settings: { left: 772, top: 104 },
+};
+
+// The Inbox tray has no free floor in front of it, so its ghosts stand in a
+// row along the wall under the window, from the spot above away from the
+// tray. The row runs parallel to the wall (2:1) and spans `span` steps at
+// most: more ghosts than that close up the row, so no ghost reaches the tray
+// on one side or the Lobby door on the other.
+export const GHOST_WALL_ROWS: Partial<
+  Record<PresencePage, { dx: number; dy: number; span: number }>
+> = {
+  inbox: { dx: -34, dy: 17, span: 2 },
 };
 
 // Stack offsets for multiple members focused on the same agent. Small
@@ -127,17 +140,20 @@ function computeNaturalPlacements(
     if (arr) arr.push(p);
     else groups.set(key, [p]);
   }
-  const rankByConn = new Map<string, { key: string; index: number }>();
+  const rankByConn = new Map<
+    string,
+    { key: string; index: number; count: number }
+  >();
   for (const [key, group] of groups) {
     group.forEach((p, index) => {
-      rankByConn.set(p.connectionId, { key, index });
+      rankByConn.set(p.connectionId, { key, index, count: group.length });
     });
   }
   const out: GhostPlacement[] = [];
   for (const p of visible) {
     const rank = rankByConn.get(p.connectionId);
     if (!rank) continue;
-    const { key, index: i } = rank;
+    const { key, index: i, count } = rank;
     let left: number;
     let top: number;
     if (key === "lobby") {
@@ -145,8 +161,15 @@ function computeNaturalPlacements(
       top = GHOST_LOBBY_BASE_Y;
     } else if (p.page) {
       const spot = GHOST_WALL_SPOTS[p.page];
-      left = spot.left + i * GHOST_STACK_DX;
-      top = spot.top + i * GHOST_STACK_DY;
+      const row = GHOST_WALL_ROWS[p.page];
+      if (row) {
+        const step = Math.min(1, row.span / Math.max(1, count - 1));
+        left = spot.left + i * step * row.dx;
+        top = spot.top + i * step * row.dy;
+      } else {
+        left = spot.left + i * GHOST_STACK_DX;
+        top = spot.top + i * GHOST_STACK_DY;
+      }
     } else {
       const deskIndex = Number(key.slice(5));
       const slot = DESK_SLOTS[deskIndex];
