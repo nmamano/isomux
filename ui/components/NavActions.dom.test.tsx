@@ -12,7 +12,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { fireEvent, render } = await import("@testing-library/react");
+const { fireEvent, render, within } = await import("@testing-library/react");
 const { NavActions } = await import("./NavActions.tsx");
 
 function actions(onTasks: () => void) {
@@ -134,6 +134,75 @@ describe("NavActions", () => {
       <NavActions actions={actions(() => {})} viewport="mobile" />,
     );
     expect(quiet.container.querySelector(".nav-action-badge-dot")).toBeNull();
+  });
+
+  // Task 760818d5: a phone shows no title tooltip, so the overflow row shows
+  // `count` (what waits, already seen) as a neutral pill, beside the red
+  // badge (what is new). Desktop keeps its title and ignores `count`; the
+  // trigger's dot is for the badge only.
+  it("shows the count as a neutral pill beside the badge on a mobile row only", () => {
+    const row = (count: number, badge: number) => ({
+      id: "inbox",
+      icon: null,
+      label: "Inbox",
+      onClick: () => {},
+      count,
+      badge,
+    });
+    const pills = (label: string) => {
+      const el = within(document.body).getByText(label).closest("button")!;
+      const neutral = el.querySelectorAll<HTMLElement>(".nav-action-count");
+      const red = el.querySelectorAll<HTMLElement>(".nav-action-badge");
+      expect([neutral.length <= 1, red.length <= 1]).toEqual([true, true]);
+      return { neutral: neutral[0] ?? null, red: red[0] ?? null };
+    };
+    const cases: {
+      count: number;
+      badge: number;
+      neutral: string | null;
+      red: string | null;
+      dot: boolean;
+    }[] = [
+      { count: 7, badge: 0, neutral: "7", red: null, dot: false },
+      { count: 7, badge: 2, neutral: "7", red: "2", dot: true },
+      { count: 0, badge: 0, neutral: null, red: null, dot: false },
+    ];
+    for (const c of cases) {
+      const mobile = render(
+        <NavActions actions={[row(c.count, c.badge)]} viewport="mobile" />,
+      );
+      const dot =
+        mobile.container.querySelector(".nav-action-badge-dot") !== null;
+      fireEvent.click(mobile.getByRole("button"));
+      const { neutral, red } = pills("Inbox");
+      const got: (typeof cases)[number] = {
+        ...c,
+        neutral: neutral?.textContent ?? null,
+        red: red?.textContent ?? null,
+        dot,
+      };
+      expect(got).toEqual(c);
+      if (neutral) {
+        // Neutral: not the badge's red fill.
+        expect(neutral.classList.contains("nav-action-badge")).toBe(false);
+        expect(neutral.style.background).not.toContain("--red");
+      }
+      if (neutral && red) {
+        // The open count first, then the new count.
+        expect(
+          neutral.compareDocumentPosition(red) &
+            Node.DOCUMENT_POSITION_FOLLOWING,
+        ).toBeTruthy();
+      }
+      mobile.unmount();
+    }
+
+    const desktop = render(
+      <NavActions actions={[row(7, 2)]} viewport="desktop" />,
+    );
+    const button = desktop.getByText("Inbox").closest("button")!;
+    expect(button.querySelector(".nav-action-badge")?.textContent).toBe("2");
+    expect(button.querySelector(".nav-action-count")).toBeNull();
   });
 });
 

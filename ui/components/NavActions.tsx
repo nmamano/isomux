@@ -28,9 +28,14 @@ type NavActionBase = {
   // Shown but inert, for an action that exists and has nothing to act on
   // (End with no conversation running).
   disabled?: boolean;
-  // A count that needs the member, such as open pages. Zero or absent shows
-  // nothing.
+  // The new part of what needs the member, such as the new asks. Zero or
+  // absent shows nothing.
   badge?: number;
+  // Everything that waits for the member, such as the open asks; the badge is
+  // its new part. Only the phone menu shows it, as a neutral pill before the
+  // badge: desktop shows it in the title, which a phone never shows. Zero or
+  // absent shows nothing.
+  count?: number;
 };
 
 // An action runs on click, or opens a menu of choices (Copy: what to copy).
@@ -76,22 +81,39 @@ function MenuRowLabel({ item }: { item: NavMenuItem }) {
   );
 }
 
+const pillStyle: CSSProperties = {
+  minWidth: 16,
+  height: 16,
+  padding: "0 4px",
+  borderRadius: 8,
+  fontSize: 10,
+  fontWeight: 700,
+  lineHeight: "16px",
+  textAlign: "center",
+  boxSizing: "border-box",
+};
+
 function Badge({ count }: { count: number }) {
   return (
     <span
       className="nav-action-badge"
+      style={{ ...pillStyle, background: "var(--red)", color: "#fff" }}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
+function CountPill({ count }: { count: number }) {
+  return (
+    <span
+      className="nav-action-count"
       style={{
-        minWidth: 16,
-        height: 16,
-        padding: "0 4px",
-        borderRadius: 8,
-        background: "var(--red)",
-        color: "#fff",
-        fontSize: 10,
-        fontWeight: 700,
-        lineHeight: "16px",
-        textAlign: "center",
-        boxSizing: "border-box",
+        ...pillStyle,
+        background: "var(--btn-surface)",
+        border: "1px solid var(--border-medium)",
+        lineHeight: "14px",
+        color: "var(--text-dim)",
       }}
     >
       {count > 99 ? "99+" : count}
@@ -440,6 +462,7 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                       {a.icon}
                     </span>
                     <span style={{ flex: 1 }}>{a.label}</span>
+                    {a.count ? <CountPill count={a.count} /> : null}
                     {a.badge ? <Badge count={a.badge} /> : null}
                   </button>
                   {menu && isExpanded && (

@@ -77,8 +77,8 @@ export function useInboxCounts(exceptAgentId?: string): InboxCounts {
  * The Inbox entry of the office bar and the chat bar, one source so the two
  * cannot drift. The chat bar passes its agent as `exceptAgentId`, so the
  * badge counts only what is elsewhere. The badge counts the new asks; the
- * title, every open ask. Null without
- * `onOpen`, for fixtures without the Inbox.
+ * title and the count (the phone menu's neutral pill, task 760818d5), every
+ * open ask. Null without `onOpen`, for fixtures without the Inbox.
  */
 export function useInboxNavAction(
   onOpen: (() => void) | undefined,
@@ -97,5 +97,6 @@ export function useInboxNavAction(
       : i18n.t("nav.inboxShortcut"),
     onClick: () => onOpen(),
     badge: counts.newAsks,
+    count: open,
   };
 }

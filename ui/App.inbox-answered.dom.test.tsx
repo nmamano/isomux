@@ -85,8 +85,8 @@ it("leaves the tab count at once, comes back on Undo, and leaves the entry's cou
   expect(deskDot(view)).toBe("2");
   await act(async () => fireEvent.click(inboxButton(view)!));
 
-  // The Inbox has no count of its own (task 74e8fc07, slice 4): the bar's
-  // title, after the close, is the count.
+  // The bar's title, after the close, is the count; the Inbox header's
+  // count is in ui/App.inbox-phone.dom.test.tsx.
   await reply(view, "q1");
   expect(card(view, "q1")?.querySelector("[data-ask-undo]")).not.toBeNull();
   await act(async () =>

@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { useInboxCounts } from "../inbox.ts";
 import { CHAT_PANEL_RIGHT, CHAT_PANEL_WIDTH } from "../AppWidgetPage.tsx";
 import { INBOX_CHAT_PHONE_SHARE } from "./AgentChatPanel.tsx";
 
@@ -19,6 +20,9 @@ export function InboxView({
 }) {
   const { isMobile } = useAppState();
   const { t } = useI18n();
+  // Every open ask, whatever the Asks filters: the number the bar's title
+  // gives, which a phone never shows (task 760818d5).
+  const { asks: openAsks } = useInboxCounts();
   // The open chat panel sits over the bottom right corner. The content keeps
   // clear of it: on a desktop the content ends left of the panel, with a
   // 20px gap; on a phone it ends above the panel (its share of the height,
@@ -81,6 +85,14 @@ export function InboxView({
         >
           {t("nav.inbox")}
         </span>
+        {openAsks > 0 && (
+          <span
+            data-inbox-ask-count=""
+            style={{ fontSize: 13, color: "var(--text-muted)" }}
+          >
+            {openAsks}
+          </span>
+        )}
       </div>
 
       <div
