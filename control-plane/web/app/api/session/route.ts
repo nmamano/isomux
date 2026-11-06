@@ -21,11 +21,12 @@ export const dynamic = "force-dynamic";
  * That is the same test `/signin` used to make on the server, moved rather than
  * relaxed.
  *
- * The office projection is OPT-IN. The landing page needs it and asks with
- * `?offices=1`; the sign-in page's redirect guard needs only the boolean, and
- * charging it a `officesForAccount` it never reads would put a database round
- * trip in front of a redirect. The signed-out branch returns before any store
- * work at all, which is the branch nearly every request takes.
+ * The store reads are OPT-IN. The landing page needs the offices and asks with
+ * `?offices=1`; the top bar needs only the account's address and asks with
+ * `?account=1`; the sign-in page's redirect guard needs only the boolean, and
+ * charging it a store read it never uses would put a database round trip in
+ * front of a redirect. The signed-out branch returns before any store work at
+ * all, which is the branch nearly every request takes.
  */
 export async function GET(request: Request): Promise<Response> {
   const session = await auth();
@@ -33,12 +34,23 @@ export async function GET(request: Request): Promise<Response> {
   if (!accountId) return answer({ signedIn: false });
 
   const email = session.user?.email ?? null;
-  if (new URL(request.url).searchParams.get("offices") !== "1") {
+  const query = new URL(request.url).searchParams;
+  const wantsOffices = query.get("offices") === "1";
+  if (!wantsOffices && query.get("account") !== "1") {
     return answer({ signedIn: true, email, offices: null });
   }
 
-  // The dashboard shows the account's address, which an email change moves
-  // after the session was issued; the session keeps the one it signed in with.
+  // The top bar and the dashboard show the account's address, which an email
+  // change moves after the session was issued; the session keeps the one it
+  // signed in with.
+  if (!wantsOffices) {
+    const account = await accountSettings(accountId);
+    return answer({
+      signedIn: true,
+      email: account?.email ?? email,
+      offices: null,
+    });
+  }
   const offices = await officesForAccount(accountId);
   const account = await accountSettings(accountId);
   return answer({
@@ -50,6 +62,7 @@ export async function GET(request: Request): Promise<Response> {
       hostname: office.hostname,
       ready: office.ready,
       ended: office.ended,
+      plan: office.tier,
     })),
   });
 }

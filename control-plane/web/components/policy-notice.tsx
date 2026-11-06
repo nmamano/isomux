@@ -18,6 +18,30 @@ function policyLink(href: string) {
   );
 }
 
+const TERMS_URL = "https://isomux.com/hosted-terms";
+const PRIVACY_URL = "https://isomux.com/hosted-privacy";
+const REFUND_URL = "https://isomux.com/hosted-refund";
+
+/** The same three documents as a row of links under the sign-in card, with
+ * the product site after them. Their names are the documents' English titles,
+ * as above, and the site is a hostname: none of it is copy. */
+export function PolicyLinks() {
+  return (
+    <footer className="policy-links">
+      <a href={TERMS_URL} target="_blank" rel="noopener noreferrer">
+        Terms of Service
+      </a>
+      <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
+        Privacy Policy
+      </a>
+      <a href={REFUND_URL} target="_blank" rel="noopener noreferrer">
+        Refund Policy
+      </a>
+      <a href="https://isomux.com/">isomux.com</a>
+    </footer>
+  );
+}
+
 export function PolicyNotice({
   language,
 }: {
@@ -27,9 +51,9 @@ export function PolicyNotice({
   return (
     <p className="note">
       {rich("policy.notice", {
-        terms: policyLink("https://isomux.com/hosted-terms"),
-        privacy: policyLink("https://isomux.com/hosted-privacy"),
-        refund: policyLink("https://isomux.com/hosted-refund"),
+        terms: policyLink(TERMS_URL),
+        privacy: policyLink(PRIVACY_URL),
+        refund: policyLink(REFUND_URL),
       })}
     </p>
   );

@@ -1,6 +1,6 @@
 import "./globals.css";
 import Script from "next/script";
-import { LanguageSwitch } from "../lib/i18n/language-switch";
+import { TopBar } from "../components/top-bar";
 import { SignupSourceCapture } from "./signup-source-capture";
 
 const analyticsBootstrap = `
@@ -69,8 +69,9 @@ export default function RootLayout({
         <SignupSourceCapture />
         {/* The chrome lives here rather than in a wrapper component, so that no
             page has to give up its own <main> to get it. The bar carries the
-            mark and the language switch, and no words of its own: a brand
-            wordmark would be new copy, and the language names are not copy.
+            mark and the "Isomux" wordmark, the nav and the account once the
+            visitor is known to be signed in, and the language switch; the
+            operator pages get the brand alone. See components/top-bar.tsx.
 
             `lang="en"` above is the STATIC default and cannot be anything else:
             reading the request here would make every route dynamic, and `/` and
@@ -79,12 +80,7 @@ export default function RootLayout({
             `DocumentLanguage`, which moves the attribute to match the text; the
             server-rendered pages also mark their translated region with `lang`
             for a reader with no JavaScript. */}
-        <div className="topbar">
-          <div className="topbar-inner">
-            <span className="brand-mark" />
-            <LanguageSwitch />
-          </div>
-        </div>
+        <TopBar />
         {children}
       </body>
     </html>

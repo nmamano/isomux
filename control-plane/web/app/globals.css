@@ -58,6 +58,14 @@
      page. */
   --control-border: #6e7681;
 
+  /* EXTENSION - the fill of a secondary button and of the language switch.
+     It must differ from the card it sits on and from the page, so a button
+     reads as a button with no outline at all, and the label must keep its
+     contrast on it, disabled included: --text 12.48:1, --text-dim 7.97:1;
+     against --bg-card 1.17:1, --bg-surface 1.25:1. */
+  --btn-fill: #262d36;
+  --topbar-height: 56px;
+
   color-scheme: dark;
 }
 
@@ -90,6 +98,10 @@
     --danger-line: rgba(207, 34, 46, 0.35);
 
     --control-border: #767f8c;
+
+    /* --text 13.19:1, --text-dim 4.57:1; against --bg-card 1.07:1,
+       --bg-surface 1.21:1. */
+    --btn-fill: #e6eaf0;
 
     color-scheme: light;
   }
@@ -147,9 +159,10 @@ h3 {
 
 /* ---------- Top bar ---------- */
 
-/* site/docs/_styles.css .topbar. It carries the mark and the language switch:
-   this application has one page per customer and no other navigation to
-   offer. */
+/* site/docs/_styles.css .topbar. It carries the brand, the nav and the
+   account once the visitor is known to be signed in, and the language switch.
+   Its height is fixed, so the signed-in half arriving after the session probe
+   moves nothing below it. */
 .topbar {
   position: sticky;
   top: 0;
@@ -159,11 +172,125 @@ h3 {
   border-bottom: 1px solid var(--border);
 }
 .topbar-inner {
+  position: relative;
   max-width: var(--page-max-wide);
+  height: var(--topbar-height);
   margin: 0 auto;
-  padding: 12px 24px;
+  padding: 0 24px;
   display: flex;
   align-items: center;
+  gap: 22px;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  color: var(--text);
+}
+.brand:hover {
+  text-decoration: none;
+}
+.wordmark {
+  font-family:
+    "Space Grotesk",
+    -apple-system,
+    sans-serif;
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.topbar-nav {
+  display: flex;
+  gap: 20px;
+  font-size: 0.9rem;
+}
+.topbar-nav a {
+  color: var(--text-dim);
+}
+.topbar-nav a[aria-current] {
+  color: var(--text);
+}
+.topbar-end {
+  margin-left: auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.topbar-email {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+.topbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--btn-fill);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.topbar button:hover {
+  border-color: var(--control-border);
+}
+.topbar-menu-button {
+  display: none !important;
+  width: 38px;
+  padding: 0 !important;
+}
+.topbar-menu-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.topbar-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 16px;
+  z-index: 60;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+}
+.topbar-menu a {
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.topbar-menu a[aria-current] {
+  background: var(--bg-card);
+}
+.topbar-menu-email {
+  margin-top: 4px;
+  padding: 10px 12px 6px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+.topbar-menu button {
+  margin: 4px 6px 6px;
+  justify-content: flex-start;
 }
 /* The application's own favicon, as a background rather than an inline <svg>:
    the mark contains a ">_" glyph, and inline it would put those two characters
@@ -183,7 +310,6 @@ h3 {
    aligned to the right edge because it sits at the top right. The language
    NAMES are never translated, so they read the same in every language. */
 .language-switch {
-  margin-left: auto;
   position: relative;
   font-size: 0.85rem;
 }
@@ -193,9 +319,11 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  height: 32px;
+  padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
+  background: var(--btn-fill);
   color: var(--text);
   user-select: none;
 }
@@ -258,7 +386,8 @@ main {
   margin: 0 auto;
   padding: 32px 24px 64px;
 }
-main.wide {
+main.wide,
+main:has(> .office-columns) {
   max-width: var(--page-max-wide);
 }
 .back-link {
@@ -269,12 +398,11 @@ main.wide {
    sections without a box around each one, which is what these surfaces need:
    the office dashboard is one continuous read. */
 main h1 {
-  font-size: 2.1rem;
+  font-size: 2rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  margin: 0 0 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--border);
+  margin: 0 0 24px;
+  overflow-wrap: anywhere;
 }
 main h2 {
   font-size: 1.4rem;
@@ -291,6 +419,27 @@ main h2:first-of-type {
 main h1 + h2 {
   border-top: none;
   padding-top: 0;
+}
+
+/* The title row of a page: the heading, a status chip beside it, and the
+   page's one main action at the far end. */
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  margin-bottom: 24px;
+}
+.page-head h1 {
+  margin: 0;
+}
+.page-head > .btn {
+  margin-left: auto;
+}
+.btn-add::before {
+  content: "+";
+  margin-right: 6px;
+  font-size: 1.1em;
 }
 main h3 {
   font-size: 1.05rem;
@@ -333,9 +482,9 @@ main strong {
 .card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 18px 20px;
-  margin-bottom: 16px;
+  border-radius: 12px;
+  padding: 20px 22px;
+  margin-bottom: 18px;
 }
 .card > :last-child {
   margin-bottom: 0;
@@ -343,34 +492,71 @@ main strong {
 .card-narrow {
   max-width: 26rem;
 }
-.office-card-link {
-  display: block;
+/* The office list: a grid of cards, each one link to its office. */
+.office-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.office-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
   color: inherit;
+}
+.office-card:hover {
+  border-color: var(--accent);
   text-decoration: none;
 }
-.office-card-link:hover {
-  border-color: var(--accent);
+.office-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.office-card .address {
+  color: var(--text);
+  font-size: 1.02rem;
+  overflow-wrap: anywhere;
+}
+.office-card-plan span + span::before {
+  content: "\00b7";
+  margin: 0 0.5em;
+}
+.office-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 .office-card-action {
+  margin-left: auto;
   color: var(--accent);
   font-weight: 600;
+  font-size: 0.9rem;
 }
-.account-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
+/* A deleted office: no fill, a dimmed address and the plain chip. */
+.office-card[data-ended] {
+  background: transparent;
 }
-.account-actions {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
+.office-card[data-ended] .address {
+  color: var(--text-dim);
 }
+/* The back link above a page sits on that page's column. */
 .page-back {
-  max-width: 760px;
+  max-width: var(--page-max);
   margin: 24px auto 0;
-  padding: 0 20px;
+  padding: 0 24px;
+}
+.page-back:has(+ main > .office-columns) {
+  max-width: var(--page-max-wide);
+}
+.page-back + main {
+  padding-top: 12px;
 }
 /* A heading that opens a card is the card's title, so it drops the rule and
    the air the page-level heading uses to separate one section from the next. */
@@ -378,7 +564,7 @@ main strong {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
 }
 
 /* site/docs/_styles.css blockquote: a 3px accent rule, a wash of the same
@@ -397,6 +583,20 @@ main strong {
 .callout-danger {
   border-left-color: var(--danger);
   background: var(--danger-tint);
+}
+/* A callout that asks for one step: the sentences on the left, the button
+   on the right, until the line runs out. */
+.callout-action > form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.callout-action > form > div {
+  flex: 1 1 18rem;
+}
+.callout-action > form > div > :last-child {
+  margin-bottom: 0;
 }
 /* The icon is a picture and the heading beside it is the sentence: the banner
    is legible with no colour at all, which is the point of carrying both. */
@@ -571,22 +771,25 @@ main .btn {
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
-  background: var(--bg-surface);
+  background: var(--btn-fill);
   border: 1px solid var(--control-border);
   color: var(--text);
+  text-decoration: none;
   transition:
     background 0.15s,
     border-color 0.15s;
 }
-main button:hover:not(:disabled) {
-  background: var(--bg-card);
+main button:hover:not(:disabled),
+main .btn:hover {
+  border-color: var(--text-dim);
+  text-decoration: none;
 }
 /* A disabled button here still SAYS something - "Restarting...", "Asking for
    an invite" - so it is muted rather than faded. A blanket opacity took the
    label to 3.20:1 in the dark palette, which is a sentence the customer is
    meant to read and could not. */
 main button:disabled {
-  background: var(--bg-surface);
+  background: var(--btn-fill);
   border-color: var(--border);
   color: var(--text-dim);
   cursor: default;
@@ -596,6 +799,16 @@ main .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg);
+}
+main .btn-block {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+main .btn-block svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }
 main .btn-primary:hover:not(:disabled) {
   background: var(--accent-hover);
@@ -747,8 +960,20 @@ main .btn-primary:hover:not(:disabled) {
   border-radius: 8px;
   cursor: pointer;
 }
-.form .plan-option + .plan-option {
-  margin-top: 8px;
+.form .plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.form .plan-option:has(:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* The radio inside keeps the keyboard focus; the card shows it. */
+.form .plan-option:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .form .plan-option input {
   position: absolute;
@@ -766,12 +991,214 @@ main .btn-primary:hover:not(:disabled) {
   font-weight: 400;
 }
 
+/* ---------- Landing hero ---------- */
+
+/* site/hosted.html .hero: the same heading, the same tagline and a still of
+   the same office. */
+main.hero {
+  text-align: center;
+  padding-top: 40px;
+}
+main.hero h1 {
+  font-size: 2.6rem;
+  line-height: 1.1;
+  margin-bottom: 0;
+}
+.hero-tagline {
+  margin: 14px 0 0;
+  font-family:
+    "Space Grotesk",
+    -apple-system,
+    sans-serif;
+  font-size: 1.15rem;
+  font-weight: 500;
+}
+.hero-art {
+  display: block;
+  width: 480px;
+  max-width: 100%;
+  height: auto;
+  margin: 12px auto 8px;
+}
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* ---------- Sign-in card ---------- */
+
+main.auth-page {
+  max-width: 440px;
+  padding-top: 56px;
+}
+.auth-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 32px 28px;
+  margin-bottom: 18px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+.auth-card > .brand-mark {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 14px;
+}
+main .auth-card h1 {
+  text-align: center;
+  font-size: 1.6rem;
+  margin-bottom: 4px;
+}
+main .auth-card h2 {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  font-size: 1.1rem;
+}
+.auth-sub {
+  text-align: center;
+  font-size: 0.9rem;
+}
+main .auth-sub {
+  margin-bottom: 22px;
+}
+.auth-card .form > p {
+  margin-bottom: 14px;
+}
+main .auth-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  font-size: 0.82rem;
+}
+.auth-or::before,
+.auth-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.policy-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 22px;
+  padding: 6px 0;
+  font-size: 0.8rem;
+}
+.policy-links a {
+  color: var(--text-dim);
+}
+
+/* ---------- Office page ---------- */
+
+/* Two columns: the work on the left, the plan and the controls on the right.
+   The DOM order is the reading order, and a narrow screen stacks the two. */
+.office-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.office-columns .handoff-steps {
+  margin-top: 8px;
+}
+.office-columns .handoff-steps h3 {
+  color: var(--text);
+}
+
+/* ---------- Signup ---------- */
+
+/* Numbered cards: the number is a counter on each card's own title, so no
+   digit enters the page's text. */
+.signup-steps {
+  counter-reset: signup-step;
+}
+.signup-step {
+  counter-increment: signup-step;
+}
+.signup-step > :first-child > label:first-child,
+.signup-step > fieldset > legend,
+.signup-step > p:first-child > label:first-child {
+  font-family:
+    "Space Grotesk",
+    -apple-system,
+    sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.signup-step > :first-child > label:first-child::before,
+.signup-step > fieldset > legend::before,
+.signup-step > p:first-child > label:first-child::before {
+  content: counter(signup-step);
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-right: 10px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--bg-card);
+  font-family: Inter, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.signup-step fieldset {
+  margin-bottom: 14px;
+}
+.signup-pay {
+  margin-top: 6px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
 /* ---------- Responsive ---------- */
 
 /* The landing's breakpoint and its narrower gutter. */
+@media (max-width: 860px) {
+  .office-columns {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+
 @media (max-width: 640px) {
   .topbar-inner {
-    padding: 10px 16px;
+    padding: 0 16px;
+    gap: 10px;
+  }
+  /* The nav, the address and Sign out move into the menu; the language
+     switch keeps only its globe. */
+  .topbar-nav,
+  .topbar-email,
+  .topbar-signout {
+    display: none !important;
+  }
+  .topbar-menu-button {
+    display: inline-flex !important;
+  }
+  .language-switch [data-testid="language-current"],
+  .language-switch .language-chevron {
+    display: none;
+  }
+  .office-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .page-head > .btn {
+    margin-left: 0;
+  }
+  main.hero h1 {
+    font-size: 2rem;
+  }
+  main.auth-page {
+    padding-top: 24px;
+  }
+  .auth-card {
+    padding: 26px 20px;
   }
   main {
     padding: 24px 16px 48px;
@@ -839,4 +1266,15 @@ main .btn-primary:hover:not(:disabled) {
   font-size: 1.35rem;
   font-weight: 700;
   color: var(--text);
+}
+
+/* The menu panel is for the narrow bar only: hidden when closed, and never
+   shown on a wide screen, where the bar holds the same links. */
+.topbar-menu[hidden] {
+  display: none;
+}
+@media (min-width: 641px) {
+  .topbar-menu {
+    display: none;
+  }
 }

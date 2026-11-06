@@ -462,13 +462,12 @@ async function main(): Promise<void> {
     // on `/` with the dashboard rendered.
     await page.goto(`${BASE}/signin`, { waitUntil: "domcontentloaded" });
     await page.waitForURL((url) => url.pathname === "/", { timeout: 20_000 });
-    await page.waitForSelector('[data-testid="signed-in-as"]', {
+    await page.waitForSelector('[data-testid="dashboard"]', {
       timeout: 20_000,
     });
     check(
       "a signed-in visitor on /signin is moved to the dashboard",
-      new URL(page.url()).pathname === "/" &&
-        ((await page.textContent("body")) ?? "").includes("Signed in as"),
+      new URL(page.url()).pathname === "/",
       page.url(),
     );
 
@@ -476,7 +475,7 @@ async function main(): Promise<void> {
     // The shell paints before the session probe answers, so the signed-in body
     // is what this waits for - reading straight after `domcontentloaded` would
     // read the marketing shell.
-    await page.waitForSelector('[data-testid="signed-in-as"]', {
+    await page.waitForSelector('[data-testid="dashboard"]', {
       timeout: 20_000,
     });
     const dashboardText = (await page.textContent("body")) ?? "";

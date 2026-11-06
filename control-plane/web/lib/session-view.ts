@@ -11,8 +11,11 @@
  * today: the page renders on the server and only these fields survive into
  * HTML. Handing the whole projection to the client would widen what the browser
  * holds as a side effect of a caching change, so the route maps down to exactly
- * what the card draws.
+ * what the card draws: the address, the state and the plan (its name, figures
+ * and price, which the signup page already shows to anyone).
  */
+
+import type { PlanDisplay } from "../../plans";
 
 /** One office, as the landing page's card draws it. */
 export interface OfficeCard {
@@ -21,6 +24,7 @@ export interface OfficeCard {
   hostname: string;
   ready: boolean;
   ended: boolean;
+  plan: PlanDisplay;
 }
 
 /**

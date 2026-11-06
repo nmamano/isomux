@@ -7,6 +7,7 @@ import { DocumentLanguage } from "../../../lib/i18n/document-language";
 import { webTranslatorFor } from "../../../lib/i18n/rich";
 import { useLanguage } from "../../../lib/i18n/use-language";
 import { addressInSignInToken } from "../../../lib/signin-link-payload";
+import { PolicyLinks } from "../../../components/policy-notice";
 
 type LinkState =
   | { state: "reading" }
@@ -35,20 +36,21 @@ export function EmailLinkForm() {
   }, []);
 
   return (
-    <main>
+    <main className="auth-page">
       <DocumentLanguage language={language} />
-      <h1>{i18n.t("signIn.linkHeading")}</h1>
-      {link.state === "none" && (
-        <p className="callout callout-danger" role="alert">
-          {i18n.rich("signIn.linkInvalid", {
-            signin: (chunk) => <Link href="/signin">{chunk}</Link>,
-          })}
-        </p>
-      )}
-      {link.state === "found" && (
-        <div className="card card-narrow">
+      <div className="auth-card">
+        <span className="brand-mark" />
+        <h1>{i18n.t("signIn.linkHeading")}</h1>
+        {link.state === "none" && (
+          <p className="callout callout-danger" role="alert">
+            {i18n.rich("signIn.linkInvalid", {
+              signin: (chunk) => <Link href="/signin">{chunk}</Link>,
+            })}
+          </p>
+        )}
+        {link.state === "found" && (
           <button
-            className="btn-primary"
+            className="btn-primary btn-block"
             type="button"
             data-testid="email-link-signin"
             onClick={() =>
@@ -57,8 +59,9 @@ export function EmailLinkForm() {
           >
             {i18n.t("signIn.linkSignInAs", { email: link.email })}
           </button>
-        </div>
-      )}
+        )}
+      </div>
+      <PolicyLinks />
     </main>
   );
 }

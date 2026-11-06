@@ -185,124 +185,140 @@ export function SignupForm({
   }
 
   return (
-    <form className="form card" onSubmit={(event) => void submit(event)}>
+    <form
+      className="form signup-steps"
+      onSubmit={(event) => void submit(event)}
+    >
       <input type="hidden" name="signupIntent" value="new" />
-      <OfficeAddressPreview
-        language={language}
-        initialName={initialName}
-        domain={domain}
-      />
-      <fieldset>
-        <legend>{t("signup.choosePlan")}</legend>
-        {plans.map((plan, index) => (
-          <label key={plan.id} className="plan-option">
-            <input
-              type="radio"
-              name="plan"
-              value={plan.id}
-              defaultChecked={index === 0}
-            />
-            <strong>{plan.label}</strong>
-            <span className="note">{plan.specification}</span>
-            {customerPriceLine(language, plan.customerPrice) && (
-              <span className="note">
-                {customerPriceLine(language, plan.customerPrice)}
-              </span>
-            )}
+      {/* Three numbered cards. Each card's own label or legend is its title,
+          and the number is drawn by a CSS counter, so no digit enters the
+          page's text. */}
+      <section className="card signup-step">
+        <OfficeAddressPreview
+          language={language}
+          initialName={initialName}
+          domain={domain}
+        />
+      </section>
+      <section className="card signup-step">
+        <fieldset>
+          <legend>{t("signup.choosePlan")}</legend>
+          <div className="plan-grid">
+            {plans.map((plan, index) => (
+              <label key={plan.id} className="plan-option">
+                <input
+                  type="radio"
+                  name="plan"
+                  value={plan.id}
+                  defaultChecked={index === 0}
+                />
+                <strong>{plan.label}</strong>
+                <span className="note">{plan.specification}</span>
+                {customerPriceLine(language, plan.customerPrice) && (
+                  <span className="note">
+                    {customerPriceLine(language, plan.customerPrice)}
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+          <span className="note">{t("signup.planChangeNote")}</span>
+        </fieldset>
+        <p>
+          <label>
+            {t("signup.couponLabel")}{" "}
+            <input name="couponId" data-testid="coupon" autoComplete="off" />
           </label>
-        ))}
-        <span className="note">{t("signup.planChangeNote")}</span>
-      </fieldset>
-      <p>
-        <label>
-          {t("signup.couponLabel")}{" "}
-          <input name="couponId" data-testid="coupon" autoComplete="off" />
-        </label>
-        <span className="note">{t("signup.couponHint")}</span>
-      </p>
-      <p>
-        <label>{t("signup.keyLabel")}</label>
-        <span className="note">{t("signup.keyNote")}</span>
-        <span className="note">
-          {rich("signup.keyHowTo", {
-            label: (chunk) => <strong>{chunk}</strong>,
-          })}
-        </span>
-        <span className="key-field">
-          <textarea
-            data-testid="server-administrator-private-key"
-            rows={8}
-            readOnly
-            value={revealed ? (key?.privateKey ?? "") : ""}
-            placeholder={t("signup.keyHidden")}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            className="key-reveal"
-            type="button"
-            onClick={() => setRevealed((current) => !current)}
-            disabled={!key}
-            aria-pressed={revealed}
-          >
-            {revealed ? t("signup.keyHide") : t("signup.keyReveal")}
-          </button>
-          <button
-            className="key-copy"
-            type="button"
-            onClick={() => void copyPrivateKey()}
-            disabled={!key}
-          >
-            {t("signup.keyCopy")}
-          </button>
-          <span className="copy-status" aria-live="polite">
-            {copied ? t("signup.keyCopied") : ""}
-          </span>
-          <button
-            className="key-download"
-            type="button"
-            onClick={downloadPrivateKey}
-            disabled={!key}
-          >
-            {t("signup.keyDownload")}
-          </button>
-        </span>
-        <label className="key-confirm">
-          <input
-            type="checkbox"
-            checked={saved}
-            onChange={(event) => setSaved(event.target.checked)}
-            disabled={!key}
-          />{" "}
-          {t("signup.keySaved")}
-        </label>
-      </p>
-      <PolicyNotice language={language} />
-      {error && (
-        <p
-          ref={errorRef}
-          className="callout callout-danger"
-          data-testid="signup-error"
-          role="alert"
-        >
-          {error.kind === "key" ? t(error.key) : error.text}
+          <span className="note">{t("signup.couponHint")}</span>
         </p>
-      )}
-      <div className="action">
-        <button
-          className="btn-primary"
-          type="submit"
-          data-testid="signup-submit"
-          disabled={!key || !saved || submitting}
-          aria-describedby={
-            key && !saved ? "signup-save-key-reason" : undefined
-          }
-        >
-          {t("common.continueToPayment")}
-        </button>
-        {key && !saved && (
-          <span id="signup-save-key-reason">{t("signup.saveKeyReason")}</span>
+      </section>
+      <section className="card signup-step">
+        <p>
+          <label>{t("signup.keyLabel")}</label>
+          <span className="note">{t("signup.keyNote")}</span>
+          <span className="note">
+            {rich("signup.keyHowTo", {
+              label: (chunk) => <strong>{chunk}</strong>,
+            })}
+          </span>
+          <span className="key-field">
+            <textarea
+              data-testid="server-administrator-private-key"
+              rows={8}
+              readOnly
+              value={revealed ? (key?.privateKey ?? "") : ""}
+              placeholder={t("signup.keyHidden")}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              className="key-reveal"
+              type="button"
+              onClick={() => setRevealed((current) => !current)}
+              disabled={!key}
+              aria-pressed={revealed}
+            >
+              {revealed ? t("signup.keyHide") : t("signup.keyReveal")}
+            </button>
+            <button
+              className="key-copy"
+              type="button"
+              onClick={() => void copyPrivateKey()}
+              disabled={!key}
+            >
+              {t("signup.keyCopy")}
+            </button>
+            <span className="copy-status" aria-live="polite">
+              {copied ? t("signup.keyCopied") : ""}
+            </span>
+            <button
+              className="key-download"
+              type="button"
+              onClick={downloadPrivateKey}
+              disabled={!key}
+            >
+              {t("signup.keyDownload")}
+            </button>
+          </span>
+          <label className="key-confirm">
+            <input
+              type="checkbox"
+              checked={saved}
+              onChange={(event) => setSaved(event.target.checked)}
+              disabled={!key}
+            />{" "}
+            {t("signup.keySaved")}
+          </label>
+        </p>
+      </section>
+      <div className="signup-pay">
+        <PolicyNotice language={language} />
+        {error && (
+          <p
+            ref={errorRef}
+            className="callout callout-danger"
+            data-testid="signup-error"
+            role="alert"
+          >
+            {error.kind === "key" ? t(error.key) : error.text}
+          </p>
         )}
+        <div className="action">
+          <button
+            className="btn-primary"
+            type="submit"
+            data-testid="signup-submit"
+            disabled={!key || !saved || submitting}
+            aria-describedby={
+              key && !saved ? "signup-save-key-reason" : undefined
+            }
+          >
+            {t("common.continueToPayment")}
+          </button>
+          {key && !saved && (
+            <span id="signup-save-key-reason">{t("signup.saveKeyReason")}</span>
+          )}
+        </div>
       </div>
     </form>
   );

@@ -19,20 +19,24 @@ export const es: Catalog = {
 
   "language.label": "Idioma",
 
-  "home.signedOutLead":
-    "<signin>Inicia sesión</signin> para configurar una oficina.",
-  "home.signedInAs": "Sesión iniciada como {email}",
   "home.officeHeading": "Tu oficina",
   "home.ready": "lista",
   "home.notReady": "aún no está lista",
   "home.ended": "eliminada",
   "home.viewOffice": "Ver oficina",
-  "home.setUpAnother": "<link>Configurar otra oficina</link>.",
+  "home.setUpAnother": "Configurar otra oficina",
   "home.noOffice":
     "Todavía no tienes ninguna oficina. <link>Configura una</link>.",
+  "nav.offices": "Oficinas",
+  "nav.menu": "Menú",
+  "home.tagline":
+    "Tu oficina 24/7 en <address>yourname.isomux.app</address>, en tu servidor privado.",
+  "home.whatIsIsomux": "¿Qué es Isomux?",
 
   "signIn.heading": "Iniciar sesión",
   "signIn.google": "Continuar con Google",
+  "signIn.subheading": "para configurar o gestionar tu oficina",
+  "signIn.or": "o",
   "signIn.emailLabel": "Correo electrónico",
   "signIn.emailSubmit": "Enviarme un enlace de inicio de sesión",
   "signIn.emailSent":
@@ -171,8 +175,6 @@ export const es: Catalog = {
   "office.took": ", ha tardado {spoken}",
 
   "office.navLabel": "Navegación de la oficina",
-  "office.ready": "Tu oficina está lista.",
-  "office.notReady": "Tu oficina aún no está lista.",
   "office.completePayment":
     "Completa el pago para empezar a pedir tu servidor.",
   "office.paymentOver":

@@ -18,19 +18,23 @@ export const ca: Catalog = {
 
   "language.label": "Idioma",
 
-  "home.signedOutLead":
-    "<signin>Inicia la sessió</signin> per configurar una oficina.",
-  "home.signedInAs": "Sessió iniciada com a {email}",
   "home.officeHeading": "La teva oficina",
   "home.ready": "a punt",
   "home.notReady": "encara no està a punt",
   "home.ended": "eliminada",
   "home.viewOffice": "Vés a l'oficina",
-  "home.setUpAnother": "<link>Configura una altra oficina</link>.",
+  "home.setUpAnother": "Configura una altra oficina",
   "home.noOffice": "Encara no tens cap oficina. <link>Configura'n una</link>.",
+  "nav.offices": "Oficines",
+  "nav.menu": "Menú",
+  "home.tagline":
+    "La teva oficina 24/7 a <address>yourname.isomux.app</address>, al teu servidor privat.",
+  "home.whatIsIsomux": "Què és Isomux?",
 
   "signIn.heading": "Inicia la sessió",
   "signIn.google": "Continua amb Google",
+  "signIn.subheading": "per configurar o gestionar la teva oficina",
+  "signIn.or": "o",
   "signIn.emailLabel": "Correu electrònic",
   "signIn.emailSubmit": "Envia'm un enllaç d'inici de sessió",
   "signIn.emailSent":
@@ -170,8 +174,6 @@ export const ca: Catalog = {
   "office.took": ", ha trigat {spoken}",
 
   "office.navLabel": "Navegació de l'oficina",
-  "office.ready": "La teva oficina està a punt.",
-  "office.notReady": "La teva oficina encara no està a punt.",
   "office.completePayment":
     "Completa el pagament per començar a demanar el teu servidor.",
   "office.paymentOver":

@@ -223,14 +223,8 @@ describe("the landing page is a prerendered shell too", () => {
     );
   });
 
-  test("SIGN-OUT NAMES ITS DESTINATION with the option this version declares", () => {
-    // A server action cannot live in a client component, so the sign-out click
-    // calls Auth.js from the browser. `redirectTo` is next-auth's declared
-    // option here; `callbackUrl` is the deprecated spelling.
-    const view = code(HOME_VIEW);
-    expect(view).toMatch(/signOut\(\{\s*redirectTo:\s*"\/"\s*\}\)/);
-    expect(view).not.toMatch(/signOut\([^)]*callbackUrl/);
-  });
+  // Sign-out moved to the top bar; web/components/top-bar.dom.test.tsx clicks
+  // it and pins the exact call, signOut({ redirectTo: "/" }).
 });
 
 describe("NO REDIRECT LOOP", () => {

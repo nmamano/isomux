@@ -30,6 +30,9 @@ import {
 } from "../../testing/pg.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { setOperator } from "../../operator-admin.ts";
+import { ca } from "../lib/i18n/ca";
+import { es } from "../lib/i18n/es";
+import { zh } from "../lib/i18n/zh";
 
 const PORT = Number(process.env.E2E_PORT ?? 3313);
 const BASE = `http://localhost:${PORT}`;
@@ -60,6 +63,13 @@ async function waitForServer(url: string, timeoutMs = 90_000): Promise<void> {
     if (Date.now() > deadline) throw new Error(`${url} never came up`);
     await new Promise((r) => setTimeout(r, 500));
   }
+}
+
+/** The office status chip's word in a served page, or null. */
+function statusWord(html: string): string | null {
+  return (
+    /<[^>]*data-testid="office-status"[^>]*>([^<]*)</.exec(html)?.[1] ?? null
+  );
 }
 
 /** The root lang the BROWSER ended up with, after hydration. */
@@ -188,10 +198,12 @@ async function main(): Promise<void> {
       heading === "Inicia la sessió",
       heading,
     );
-    const googleButton = (await page.textContent(".card button")) ?? "";
+    const googleButton = (
+      (await page.textContent('[data-testid="signin-google"]')) ?? ""
+    ).trim();
     check(
       "the provider button reads Catalan and keeps the product name",
-      googleButton === "Continua amb Google",
+      googleButton === ca["signIn.google"] && googleButton.includes("Google"),
       googleButton,
     );
     await shot(page, "signin-ca");
@@ -329,7 +341,7 @@ async function main(): Promise<void> {
     check(
       "/office renders Simplified Chinese from the cookie",
       officeZh.includes('<main lang="zh">') &&
-        officeZh.includes("办公室尚未就绪。"),
+        statusWord(officeZh) === zh["home.notReady"],
     );
     const signupFr = await fetchPage("/signup", "fr-FR,fr;q=0.9", null);
     check(
@@ -362,13 +374,13 @@ async function main(): Promise<void> {
     check(
       "/office renders Catalan from the cookie",
       officeCa.includes('<main lang="ca">') &&
-        officeCa.includes("La teva oficina encara no està a punt."),
+        statusWord(officeCa) === ca["home.notReady"],
     );
     const officeEs = await fetchPage(`/office/${officeName}`, "es", null);
     check(
       "/office renders Spanish from the header",
       officeEs.includes('<main lang="es">') &&
-        officeEs.includes("Tu oficina aún no está lista."),
+        statusWord(officeEs) === es["home.notReady"],
     );
 
     // ---------------------------------------------------------------- 6
@@ -389,7 +401,7 @@ async function main(): Promise<void> {
     check(
       "the office page reads Catalan in the browser",
       (await page.textContent('[data-testid="office-status"]')) ===
-        "La teva oficina encara no està a punt.",
+        ca["home.notReady"],
     );
     check("its root lang is Catalan", (await rootLang(page)) === "ca");
     await shot(page, "office-ca");
@@ -398,7 +410,7 @@ async function main(): Promise<void> {
     // when /api/session answers, so wait for the dashboard rather than for the
     // language: the shell is Catalan too, and its heading is the product name.
     await page.goto(`${BASE}/`);
-    await page.waitForSelector('[data-testid="signed-in-as"]', {
+    await page.waitForSelector('[data-testid="dashboard"]', {
       timeout: 20_000,
     });
     check(
@@ -406,11 +418,15 @@ async function main(): Promise<void> {
       ((await page.textContent("h1")) ?? "").includes("La teva oficina"),
       (await page.textContent("h1")) ?? "",
     );
+    // The bar answers its own probe; wait for it rather than race it.
+    await page.waitForSelector('[data-testid="account-link"]', {
+      timeout: 20_000,
+    });
     check(
-      "and names the signed-in account in Catalan",
-      (
-        (await page.textContent('[data-testid="signed-in-as"]')) ?? ""
-      ).startsWith("Sessió iniciada com a"),
+      "and the top bar reads Catalan",
+      (await page.textContent('[data-testid="account-link"]'))?.trim() ===
+        ca["home.account"],
+      (await page.textContent('[data-testid="account-link"]')) ?? "",
     );
     check("its root lang is Catalan", (await rootLang(page)) === "ca");
     await shot(page, "home-ca");
@@ -464,7 +480,7 @@ async function main(): Promise<void> {
     check(
       "the office page arrived Catalan from the header, with no cookie",
       (await mixedPage.textContent('[data-testid="office-status"]')) ===
-        "La teva oficina encara no està a punt.",
+        ca["home.notReady"],
     );
     // The sentinel is what stops a full reload passing this by accident.
     await mixedPage.evaluate(() => {
@@ -485,7 +501,7 @@ async function main(): Promise<void> {
     // The dashboard replaces the shell when /api/session answers; the shell's
     // own heading is the product name, so waiting for the dashboard is what
     // makes this an assertion about language rather than about timing.
-    await mixedPage.waitForSelector('[data-testid="signed-in-as"]', {
+    await mixedPage.waitForSelector('[data-testid="dashboard"]', {
       timeout: 20_000,
     });
     check(

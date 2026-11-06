@@ -146,6 +146,29 @@ describe("the sign-in page", () => {
     expect(calls.some((c) => c.url === PROVIDERS)).toBe(true);
     expect(find("email-link-form")?.tagName ?? null).toBeNull();
     expect(calls.some((c) => c.url === REQUEST)).toBe(false);
+    // Nothing to choose between, so no "or".
+    expect(find("signin-google")?.tagName ?? null).toBe("BUTTON");
+    expect(find("signin-or")?.tagName ?? null).toBeNull();
+  });
+
+  test('with the provider an "or" stands between the email form and Google', async () => {
+    serve({ [PROVIDERS]: providers("google", "email-link") });
+    await render(createElement(SignInForm));
+    const form = find("email-link-form");
+    const or = find("signin-or");
+    expect(form?.tagName ?? null).not.toBeNull();
+    expect(or?.textContent?.trim()).toBeTruthy();
+    const google = find("signin-google");
+    expect(google?.tagName ?? null).toBe("BUTTON");
+    // Document order: the form, then "or", then Google.
+    expect(
+      form!.compareDocumentPosition(or!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      or!.compareDocumentPosition(google!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await click(google!);
+    expect(signInCalls).toEqual([["google", { callbackUrl: "/" }]]);
   });
 
   test("with the provider it asks for a link for the typed address", async () => {

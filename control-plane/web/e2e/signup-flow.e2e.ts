@@ -766,7 +766,6 @@ async function main(): Promise<void> {
           absolute_deadline_at: store.now() + 900_000,
           evidence: { probes: 3 },
         });
-        await store.close();
         await page
           .goto(`${BASE}/office/${res.name}`, { timeout: 60_000 })
           .catch((err: Error) =>
@@ -774,6 +773,7 @@ async function main(): Promise<void> {
           );
         const text = (await page.textContent("body")) ?? "";
         const instance = await store.getInstance(res.instance_id);
+        await store.close();
         if (!instance)
           throw new Error("the rendered office instance is missing");
         const officeHostname = instance.name;

@@ -29,14 +29,22 @@ export type SessionProbe =
  * signed-in visitor does not read the marketing copy first. */
 const RETRY_DELAY_MS = 1000;
 
-export function useSessionProbe(options?: { offices?: boolean }): SessionProbe {
+export function useSessionProbe(options?: {
+  offices?: boolean;
+  account?: boolean;
+}): SessionProbe {
   const wantsOffices = options?.offices === true;
+  const wantsAccount = options?.account === true;
   const [probe, setProbe] = useState<SessionProbe>({ state: "loading" });
   const answered = useRef(false);
 
   useEffect(() => {
     let live = true;
-    const url = wantsOffices ? "/api/session?offices=1" : "/api/session";
+    const url = wantsOffices
+      ? "/api/session?offices=1"
+      : wantsAccount
+        ? "/api/session?account=1"
+        : "/api/session";
 
     /** True when the route answered. `cache: "no-store"` because the browser's
      * own cache is as wrong a place to keep this as a CDN is. */
@@ -85,7 +93,7 @@ export function useSessionProbe(options?: { offices?: boolean }): SessionProbe {
       document.removeEventListener("visibilitychange", retryWhenVisible);
       window.removeEventListener("focus", retryWhenVisible);
     };
-  }, [wantsOffices]);
+  }, [wantsOffices, wantsAccount]);
 
   return probe;
 }

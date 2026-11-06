@@ -8,7 +8,7 @@
 // rest of the suite shares this process and needs Bun's own globals. Every
 // module that touches the DOM is loaded after registration.
 
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { ProgressView } from "../lib/services.server";
 import {
@@ -23,6 +23,7 @@ GlobalRegistrator.register({ url: "https://storefront.example.com/office" });
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
+const { renderToStaticMarkup } = await import("react-dom/server");
 const { OfficeView } = await import("./office-view");
 const { webTranslatorFor } = await import("../lib/i18n/rich");
 
@@ -408,4 +409,57 @@ test("a reveal poll the network drops is one missed poll: the next answer still 
   } finally {
     globalThis.setTimeout = realSetTimeout;
   }
+});
+
+// THE PAGE'S SHAPE. The head names the office, its state and, once there is a
+// way in, the link to it. A ready office puts Getting in first; while it is
+// being built, Progress comes first and Getting in waits beside it. The plan
+// and the subscription are one card. The DOM order is the order a reader and a
+// narrow screen meet, so it is asserted on the document, not on the CSS.
+describe("the office page's layout", () => {
+  const page = (view: ProgressView): HTMLElement => {
+    const box = document.createElement("div");
+    box.innerHTML = renderToStaticMarkup(
+      createElement(OfficeView, {
+        language: "en",
+        initial: view,
+        instanceId: view.instanceId,
+      }),
+    );
+    return box;
+  };
+  const byId = (box: HTMLElement, testId: string): HTMLElement => {
+    const element = box.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+    expect([testId, element?.tagName ?? null]).not.toEqual([testId, null]);
+    return element!;
+  };
+  const before = (a: HTMLElement, b: HTMLElement): boolean =>
+    (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  const OPEN = `a[href="https://${liveView.hostname}"]`;
+
+  test("a ready office: the way in is in the head, Getting in before Progress", () => {
+    const box = page(liveView);
+    const head = byId(box, "office-header");
+    for (const testId of ["office-hostname", "office-status"])
+      expect([testId, head.contains(byId(box, testId))]).toEqual([
+        testId,
+        true,
+      ]);
+    expect(head.querySelector(OPEN)?.tagName ?? null).toBe("A");
+    expect(head.contains(byId(box, "steps"))).toBe(false);
+    expect(before(byId(box, "handoff"), byId(box, "steps"))).toBe(true);
+    expect(byId(box, "office-tier").contains(byId(box, "subscription"))).toBe(
+      true,
+    );
+  });
+
+  test("an office being built: Progress before Getting in, nothing to open", () => {
+    const box = page({ ...liveView, ready: false });
+    expect(byId(box, "office-header").querySelector(OPEN)).toBeNull();
+    expect(box.querySelector(OPEN)).toBeNull();
+    expect(before(byId(box, "steps"), byId(box, "handoff"))).toBe(true);
+    expect(byId(box, "office-tier").contains(byId(box, "subscription"))).toBe(
+      true,
+    );
+  });
 });

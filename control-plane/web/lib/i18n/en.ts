@@ -21,19 +21,24 @@ export const en = {
   "language.label": "Language",
 
   // ------------------------------------------------------------- landing
-  "home.signedOutLead": "<signin>Sign in</signin> to set up an office.",
-  "home.signedInAs": "Signed in as {email}",
   "home.officeHeading": "Your office",
   "home.ready": "ready",
   "home.notReady": "not ready yet",
   "home.ended": "deleted",
   "home.viewOffice": "View office",
-  "home.setUpAnother": "<link>Set up another office</link>.",
+  "home.setUpAnother": "Set up another office",
   "home.noOffice": "You have no office yet. <link>Set one up</link>.",
+  "nav.offices": "Offices",
+  "nav.menu": "Menu",
+  "home.tagline":
+    "Your 24/7 office at <address>yourname.isomux.app</address>, on your private server.",
+  "home.whatIsIsomux": "What's Isomux?",
 
   // ------------------------------------------------------------- sign in
   "signIn.heading": "Sign in",
   "signIn.google": "Continue with Google",
+  "signIn.subheading": "to set up or manage your office",
+  "signIn.or": "or",
   "signIn.emailLabel": "Email",
   "signIn.emailSubmit": "Email me a sign-in link",
   "signIn.emailSent":
@@ -176,8 +181,6 @@ export const en = {
 
   // ------------------------------------------------------------- office page
   "office.navLabel": "Office navigation",
-  "office.ready": "Your office is ready.",
-  "office.notReady": "Your office is not ready yet.",
   "office.completePayment": "Complete payment to start ordering your server.",
   "office.paymentOver":
     "The payment page for this office expired. <link>Set up the office again</link>.",

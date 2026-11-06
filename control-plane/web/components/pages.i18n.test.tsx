@@ -77,7 +77,10 @@ describe("the prerendered shells", () => {
       renderToStaticMarkup(<SignedOut i18n={webTranslatorFor(language)} />);
     // The product name is not copy (ruling 11) and is the same in all of them.
     for (const language of ["es", "ca", "zh"] as const)
-      expectTranslated(render(language), render("en"), ["Hosted Isomux"]);
+      expectTranslated(render(language), render("en"), [
+        "Hosted Isomux",
+        "yourname.isomux.app",
+      ]);
   });
 
   test("the dashboard reads every language, and its heading follows the English split", () => {
@@ -87,12 +90,20 @@ describe("the prerendered shells", () => {
       hostname: "acme.isomux.app",
       ready: true,
       ended: false,
+      plan: {
+        label: "Entry",
+        specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
+        customerPrice: {
+          amount: 8,
+          currency: "EUR" as const,
+          billingPeriod: "month" as const,
+        },
+      },
     };
     const render = (language: Language, count: 0 | 1 | 2) =>
       renderToStaticMarkup(
         <Dashboard
           i18n={webTranslatorFor(language)}
-          email="a@example.com"
           offices={[
             office,
             { ...office, instanceId: "i-2", ready: false },
@@ -107,16 +118,14 @@ describe("the prerendered shells", () => {
     for (const language of ["en", "es", "ca", "zh"] as const) {
       for (const count of [0, 1, 2] as const) {
         const html = render(language, count);
-        expect([language, count, html.includes("a@example.com")]).toEqual([
-          language,
-          count,
-          true,
-        ]);
+        // The plan name and its figures are the product's own words (ruling 11).
         if (language !== "en")
           expectTranslated(
             html,
             render("en", count),
-            count ? ["acme.isomux.app"] : [],
+            count
+              ? ["acme.isomux.app", "Entry", "4 vCPU, 8 GB RAM, 100 GB SSD"]
+              : [],
           );
       }
       // ZERO OFFICES KEEPS THE SINGULAR, in every language: the English splits
