@@ -510,8 +510,8 @@ function isOptionalString(v: unknown): boolean {
 
 // Shape check for one persisted record. Field types only: the store does not
 // re-run the raise bounds on load, so a constant lowered later does not
-// destroy old pages.
-function isPagerEntry(v: unknown): v is PagerEntry {
+// destroy old pages. The pager migration reads both files with it.
+export function isPagerEntry(v: unknown): v is PagerEntry {
   if (typeof v !== "object" || v === null) return false;
   const e = v as Record<string, unknown>;
   const delivery = e.delivery as Record<string, unknown> | null | undefined;

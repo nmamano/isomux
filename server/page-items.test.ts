@@ -1,12 +1,12 @@
 // Paged asks through the pager delivery engines (task 74e8fc07): the page
-// items the source builds (one per recipient of a paged ask, one per page),
+// items the source builds (one per recipient of a paged ask),
 // and what Discord and Web Push send for a paged ask: the first send to each
 // recipient on their own settings, the link to the ask, repeats per
 // recipient, an ack that stops them, a lost room that stops one recipient's,
 // and the one "resolved" message at the close, also when the agent is
 // already gone or the close lands during the first send.
 //
-// Seam: the real ask store, pager store, page item source and both engines;
+// Seam: the real ask store, page item source and both engines;
 // fetch, the clock and the timers are fakes. The onPage wiring here mirrors
 // server/office-managers.ts; the server test
 // (server/test-support/paged-asks.test.ts) runs the real one.
@@ -15,7 +15,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { AskEntry, PagerDelivery, PagerEntry } from "../shared/types.ts";
+import type { AskEntry, PagerDelivery } from "../shared/types.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import {
   createAskStore,
@@ -29,10 +29,8 @@ import {
 } from "./page-items.ts";
 import {
   createPagerDelivery,
-  pagerLink,
   type PagerDeliveryService,
 } from "./pager-delivery.ts";
-import type { PagerPersistence } from "./pager-store.ts";
 import type { PagerMemberSettings } from "./pager-settings.ts";
 import {
   createWebPushDelivery,
@@ -42,7 +40,6 @@ import {
   createWebPushFilePersistence,
   createWebPushStore,
 } from "./web-push-store.ts";
-import { createTestPagerStore } from "./test-support/pager-memory-archive.ts";
 import { browserDevice, decrypt } from "./test-support/web-push-receiver.ts";
 
 const MIN = 60_000;
@@ -119,11 +116,6 @@ const memAsks = (): AskPersistence => ({
   save: () => {},
   quarantine: () => true,
 });
-const memPages = (): PagerPersistence => ({
-  load: () => ({ kind: "missing" }),
-  save: () => {},
-  quarantine: () => true,
-});
 
 const dirs: string[] = [];
 const stops: Array<() => void> = [];
@@ -192,12 +184,7 @@ function world() {
     now: time.now,
     onPage,
   });
-  const pager = createTestPagerStore({
-    persistence: memPages(),
-    now: time.now,
-  });
   source = createPageItemSource({
-    pager,
     asks,
     audience,
     agentName: (id) => agentNames.get(id) ?? null,
@@ -271,7 +258,6 @@ function world() {
     agentRooms,
     agentNames,
     asks,
-    pager,
     source,
     pushStore,
     discordCalls,
@@ -292,15 +278,8 @@ const isResolved = (call: DiscordCall, title: string) =>
   call.body.allowed_mentions.users === undefined;
 
 describe("the page items of a paged ask", () => {
-  it("one item per recipient, linking to the ask, with its agent and room; a page keeps its own item", () => {
+  it("one item per recipient, linking to the ask, with its agent and room", () => {
     const w = world();
-    const raised = w.pager.raise({
-      source: { kind: "agent", agentId: "a1", name: "Bot", roomId: "room-a" },
-      targetUserId: "u1",
-      fields: { title: "Disk full" },
-    });
-    if (raised.outcome === "too_many") throw new Error("raise failed");
-    const page: PagerEntry = raised.entry;
     const plain = w.asks.create({
       agentId: "a1",
       memberUserId: "u1",
@@ -310,14 +289,6 @@ describe("the page items of a paged ask", () => {
     const ask = w.open();
 
     const items = w.source.list();
-    expect(items.find((i) => i.id === page.id)).toMatchObject({
-      targetUserId: "u1",
-      title: "Disk full",
-      state: "open",
-      sourceName: "Bot",
-      roomId: "room-a",
-      path: pagerLink("", page.id),
-    });
     const mine = w.itemsOf(ask.id);
     expect(
       mine.map((i) => [i.targetUserId, i.state, i.sourceName, i.roomId]),
@@ -327,12 +298,11 @@ describe("the page items of a paged ask", () => {
     ]);
     for (const item of mine) {
       expect(item.delivery).toEqual(NONE);
-      expect(item.id).not.toBe(page.id);
       expect(w.source.get(item.id)).toEqual(item);
     }
     expect(new Set(mine.map((i) => i.id)).size).toBe(2);
-    // Every item is the page or the paged ask's: the plain ask has none.
-    expect(items).toHaveLength(3);
+    // Every item is the paged ask's: the plain ask has none.
+    expect(items).toHaveLength(2);
   });
 
   it("the title is the first line with text, without colour markup; the body is the rest", () => {

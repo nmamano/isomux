@@ -1,6 +1,7 @@
 // The pages the pager delivery engines send (server/pager-delivery.ts,
-// server/web-push-delivery.ts): every pager entry, and every paged ask once
-// per recipient (task 74e8fc07).
+// server/web-push-delivery.ts): every paged ask once per recipient (task
+// 74e8fc07). A page is a paged ask; pagerPageItem builds the item of an old
+// pager entry, for the delivery engines' own tests.
 //
 // A paged ask's item exists while the recipient may still see the ask
 // (askVisibleTo, read at each list and get), so a recipient who loses the
@@ -13,16 +14,13 @@
 import type { AskEntry, PagerDelivery, PagerEntry } from "../shared/types.ts";
 import { stripColorMarkup } from "../shared/color-markup.ts";
 import { askVisibleTo, type AskAudienceDeps, type AskStore } from "./asks.ts";
-import {
-  PAGER_BODY_MAX,
-  PAGER_TITLE_MAX,
-  type PagerStore,
-} from "./pager-store.ts";
+import { PAGER_BODY_MAX, PAGER_TITLE_MAX } from "./pager-store.ts";
 import { pagerLink } from "./pager-delivery.ts";
 
 // One page as the delivery engines see it.
 export interface PageItem {
-  // A page id, or "ask:<askId>:<userId>" for one recipient of a paged ask.
+  // "ask:<askId>:<userId>": one recipient of a paged ask. A pager entry's
+  // item (pagerPageItem) has the page id.
   id: string;
   targetUserId: string;
   title: string;
@@ -38,7 +36,6 @@ export interface PageItem {
 }
 
 export interface PageItemSourceDeps {
-  pager: Pick<PagerStore, "list" | "get" | "recordDelivery">;
   asks: Pick<AskStore, "listAll" | "get" | "recordPageDelivery">;
   audience: AskAudienceDeps;
   // The agent's name now, or null when it is gone.
@@ -170,7 +167,6 @@ export function createPageItemSource(deps: PageItemSourceDeps): PageItemSource {
   return {
     list() {
       return [
-        ...deps.pager.list().map(pagerPageItem),
         ...deps.asks.listAll().flatMap(openItems),
         ...[...closed.values()].map((item) => ({ ...item })),
       ];
@@ -178,10 +174,7 @@ export function createPageItemSource(deps: PageItemSourceDeps): PageItemSource {
 
     get(id) {
       const ref = parseAskItemId(id);
-      if (!ref) {
-        const entry = deps.pager.get(id);
-        return entry ? pagerPageItem(entry) : null;
-      }
+      if (!ref) return null;
       const done = closed.get(id);
       return done ? { ...done } : openItem(ref.askId, ref.userId);
     },
@@ -190,10 +183,7 @@ export function createPageItemSource(deps: PageItemSourceDeps): PageItemSource {
     // or a first send that ended after the close.
     recordDelivery(id, delivery) {
       const ref = parseAskItemId(id);
-      if (!ref) {
-        const entry = deps.pager.recordDelivery(id, delivery);
-        return entry ? pagerPageItem(entry) : null;
-      }
+      if (!ref) return null;
       const done = closed.get(id);
       if (done) {
         const next = { ...done, delivery };

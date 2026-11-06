@@ -1,7 +1,7 @@
 // The ask store's load posture, the three shapes of an entry, who sees an
 // ask, and the note the agent reads.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import {
   mkdtempSync,
   readFileSync,
@@ -17,12 +17,14 @@ import type {
   AskEvent,
   PagerDelivery,
 } from "../shared/types.ts";
-import type { AskHistory } from "./ask-history.ts";
+import { createAskHistory, type AskHistory } from "./ask-history.ts";
+import { openOfficeDatabase } from "./audit-store.ts";
 import { API_CAPABILITIES, type Identity } from "./identity/index.ts";
 import {
   ASK_PAGES_MAX_OPEN_PER_SOURCE,
   ASK_TASK_TITLE_MAX,
   askAgentWire,
+  askMemberWire,
   askAudienceFor,
   askMemberIds,
   askReplyNote,
@@ -606,6 +608,55 @@ describe("the three shapes", () => {
             messaging: DRAFT,
             page: { state: "ringing", delivery: SENDS },
           },
+          false,
+        ],
+        // Slice 3: the page id, the raise count and the last raise, each
+        // optional (a page from slice 1 or 2 has none); a migrated page acked
+        // by no member names "".
+        [
+          "page with its page id, raise count and last raise",
+          {
+            page: {
+              state: "ringing",
+              pageId: "00112233aabbccdd",
+              raiseCount: 3,
+              lastRaisedAt: 7,
+              delivery: SENDS,
+            },
+          },
+          true,
+        ],
+        [
+          "page acked by no member",
+          {
+            page: {
+              state: "acked",
+              pageId: "00112233aabbccdd",
+              ackedByUserId: "",
+              ackedAt: 5,
+              delivery: SENDS,
+            },
+          },
+          true,
+        ],
+        [
+          "page with an empty page id",
+          { page: { state: "ringing", pageId: "", delivery: SENDS } },
+          false,
+        ],
+        [
+          "page with a numeric page id",
+          { page: { state: "ringing", pageId: 7, delivery: SENDS } },
+          false,
+        ],
+        [
+          "page with a text raise count",
+          { page: { state: "ringing", raiseCount: "2", delivery: SENDS } },
+          false,
+        ],
+        [
+          "page with a text last raise",
+          { page: { state: "ringing", lastRaisedAt: "9", delivery: SENDS } },
           false,
         ],
         // The sudo row loads, so its paged twin fails on the page alone.
@@ -1354,6 +1405,8 @@ describe("a paged ask (task 74e8fc07)", () => {
             : {}),
         }),
       has: () => false,
+      recordPage: () => {},
+      pageAskId: () => null,
     } as unknown as AskHistory;
     const throwing = { onPage: false };
     const open = () =>
@@ -1407,6 +1460,7 @@ describe("a paged ask (task 74e8fc07)", () => {
     const entry = paged();
     expect(entry.page).toEqual({
       state: "ringing",
+      pageId: expect.stringMatching(/^[0-9a-f]{16}$/),
       delivery: { u1: NONE, u2: NONE },
     });
     expect(pages).toEqual([`created ${entry.id}`]);
@@ -1493,6 +1547,7 @@ describe("a paged ask (task 74e8fc07)", () => {
     expect(acked?.outcome).toBe("changed");
     expect(acked?.entry.page).toEqual({
       state: "acked",
+      pageId: entry.page!.pageId,
       ackedByUserId: "u2",
       ackedAt: now(),
       delivery: entry.page!.delivery,
@@ -1636,6 +1691,8 @@ describe("an ask with no agent (task 74e8fc07)", () => {
             : {}),
         }),
       has: () => false,
+      recordPage: () => {},
+      pageAskId: () => null,
     } as unknown as AskHistory;
     const store = createAskStore({
       persistence: counted,
@@ -1747,7 +1804,7 @@ describe("an ask with no agent (task 74e8fc07)", () => {
     expect(office("u1")).toBeUndefined();
   });
 
-  it("a re-raise with the same text changes nothing; new text edits it once, with the office as the actor, and never re-rings", () => {
+  it("a re-raise with the same text only counts the raise; new text edits it once, with the office as the actor, and never re-rings", () => {
     const { store, open, changes, pages, events, saves, reopen } =
       officeStore();
     const entry = open();
@@ -1757,10 +1814,14 @@ describe("an ask with no agent (task 74e8fc07)", () => {
     events.length = 0;
     const before = saves();
 
+    // Slice 3: the raise count goes up and is saved, with no event and no
+    // push (the count is on no ask wire).
     const same = store.reraise(entry.id, entry.prompt, { office: "whatsapp" });
     expect(same?.outcome).toBe("unchanged");
-    expect(saves()).toBe(before);
+    expect(same?.entry.page?.raiseCount).toBe(2);
+    expect(saves()).toBe(before + 1);
     expect([changes, pages, events]).toEqual([[], [], []]);
+    expect(reopen().get(entry.id)?.page?.raiseCount).toBe(2);
 
     const text = "WhatsApp stopped\n\nThe bridge exited again.";
     const changed = store.reraise(entry.id, text, { office: "whatsapp" });
@@ -1862,5 +1923,429 @@ describe("who sees an ask with no agent (task 74e8fc07)", () => {
     expect(askVisibleTo(app, "u2", audience)).toBe(false);
     expect(askShownToOwnerAsOther(app, "u-owner", audience)).toBe(true);
     expect(askShownToOwnerAsOther(app, "u2", audience)).toBe(false);
+  });
+});
+
+// Slice 3 of task 74e8fc07: every paged ask has a page id, indexed in the
+// history from its create; a re-raise counts; the migration's create.
+describe("a page id and a raise count (task 74e8fc07, slice 3)", () => {
+  const databases: { close(): void }[] = [];
+  afterEach(() => {
+    for (const db of databases.splice(0)) db.close();
+  });
+
+  // A store over a file and a real office database.
+  // `index.fail`: each page index write throws.
+  function indexed(index = { fail: false }) {
+    const { dir, path } = fileIn();
+    const db = openOfficeDatabase(join(dir, "office.sqlite"));
+    databases.push(db);
+    const real = createAskHistory(db);
+    const history: AskHistory = {
+      ...real,
+      recordPage: (pageId, askId) => {
+        if (index.fail) throw new Error("database locked");
+        real.recordPage(pageId, askId);
+      },
+    };
+    let t = 1_000;
+    let saves = 0;
+    const changes: AskChange[] = [];
+    const events: AskEvent[] = [];
+    const pages: string[] = [];
+    const file = createAskFilePersistence(path);
+    const open = () =>
+      createAskStore({
+        persistence: {
+          load: () => file.load(),
+          save: (entries) => {
+            saves++;
+            file.save(entries);
+          },
+          quarantine: () => file.quarantine(),
+        },
+        history: {
+          ...history,
+          recordEvent: (agentId, askId, event) => {
+            events.push(event);
+            history.recordEvent(agentId, askId, event);
+          },
+        },
+        now: () => t,
+        onChange: (c) => changes.push(c),
+        onPage: (entry, event) => pages.push(`${event} ${entry.id}`),
+      });
+    const store = open();
+    const paged = (over: Partial<Parameters<typeof store.create>[0]> = {}) => {
+      const made = store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Disk full",
+        page: { recipients: ["u1"] },
+        ...over,
+      });
+      if (!made.ok) throw new Error(`create failed: ${made.code}`);
+      return made.entry;
+    };
+    return {
+      store,
+      paged,
+      history: real,
+      path,
+      reopen: open,
+      changes,
+      events,
+      pages,
+      saves: () => saves,
+      tick: (ms: number) => (t += ms),
+      now: () => t,
+    };
+  }
+
+  const NO_SENDS: PagerDelivery = { state: "not_delivered", sends: 0 };
+
+  it("gives every paged ask a page id at create, indexed and kept, found by it while open; never a plain ask", () => {
+    const { store, paged, history, reopen } = indexed();
+    const agent = paged();
+    const office = paged({
+      agentId: "",
+      office: { feature: "whatsapp", name: "WhatsApp" },
+      page: { recipients: ["u1"], key: "k" },
+    });
+    const app = paged({ app: { name: "uptime", createdAt: 7 } });
+    const plain = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Go?",
+    });
+    if (!plain.ok) throw new Error("create failed");
+    expect(plain.entry.page).toBeUndefined();
+    const ids = [agent, office, app].map((e) => e.page?.pageId);
+    for (const id of ids) expect(id).toMatch(/^[0-9a-f]{16}$/);
+    expect(new Set(ids).size).toBe(3);
+    for (const e of [agent, office, app]) {
+      expect(history.pageAskId(e.page!.pageId!)).toBe(e.id);
+      expect(store.findPaged(e.page!.pageId!)?.id).toBe(e.id);
+      expect(reopen().get(e.id)?.page?.pageId).toBe(e.page!.pageId);
+    }
+    expect(store.findPaged("ffffffffffffffff")).toBeNull();
+    store.remove(agent.id, { outcome: "dismissed", byUserId: "u1" });
+    expect(store.findPaged(agent.page!.pageId!)).toBeNull();
+    expect(history.pageAskId(agent.page!.pageId!)).toBe(agent.id);
+  });
+
+  it("never gives a page id an open ask or the index already holds", () => {
+    const index = { fail: false };
+    const { paged, history } = indexed(index);
+    const real = crypto.getRandomValues.bind(crypto);
+    const draws: Uint8Array[] = [];
+    // Page ids are 8 random bytes; ask ids are 4 and stay random.
+    const spy = spyOn(crypto, "getRandomValues").mockImplementation(
+      <T extends ArrayBufferView | null>(array: T): T => {
+        if (array instanceof Uint8Array && array.length === 8 && draws.length) {
+          array.set(draws.shift()!);
+          return array;
+        }
+        return real(array as never) as T;
+      },
+    );
+    const bytes = (b: number) => new Uint8Array(8).fill(b);
+    try {
+      draws.push(bytes(0x00));
+      const first = paged();
+      // Enabling: the store's page id came from the draw.
+      expect(first.page?.pageId).toBe("0000000000000000");
+      // Taken by an open ask: the next draw.
+      draws.push(bytes(0x00), bytes(0x11));
+      expect(paged().page?.pageId).toBe("1111111111111111");
+      // Taken in the index only (a closed or migrated page).
+      history.recordPage("2222222222222222", "gone-ask");
+      draws.push(bytes(0x22), bytes(0x33));
+      expect(paged().page?.pageId).toBe("3333333333333333");
+      // Taken by an open ask whose index row did not land.
+      const errors = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        index.fail = true;
+        draws.push(bytes(0x44));
+        expect(paged().page?.pageId).toBe("4444444444444444");
+        expect(history.pageAskId("4444444444444444")).toBeNull();
+        index.fail = false;
+        draws.push(bytes(0x44), bytes(0x55));
+        expect(paged().page?.pageId).toBe("5555555555555555");
+      } finally {
+        errors.mockRestore();
+      }
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("a failed index write is logged and keeps the create; the boot backfill writes it later", () => {
+    const index = { fail: true };
+    const { paged, history, store } = indexed(index);
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const entry = paged();
+      expect(store.get(entry.id)?.page?.pageId).toBe(entry.page!.pageId);
+      expect(history.pageAskId(entry.page!.pageId!)).toBeNull();
+      expect(errors).toHaveBeenCalled();
+      index.fail = false;
+      store.backfillPages();
+      expect(history.pageAskId(entry.page!.pageId!)).toBe(entry.id);
+    } finally {
+      errors.mockRestore();
+    }
+  });
+
+  it("the boot backfill gives each open paged ask a page id with one save and indexes every one; a second run writes nothing", () => {
+    const { dir, path } = fileIn();
+    const sends = { u1: NO_SENDS };
+    const old = (id: string, page: Record<string, unknown> | undefined) => ({
+      id,
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Disk full",
+      createdAt: 1,
+      updatedAt: 1,
+      ...(page ? { page } : {}),
+    });
+    // Two pages from a slice 1 or 2 build (no page id), one whose index row
+    // never landed, and a plain ask.
+    writeFileSync(
+      path,
+      JSON.stringify([
+        old("aaaa0001", { state: "ringing", delivery: sends }),
+        old("aaaa0002", {
+          state: "acked",
+          ackedByUserId: "u1",
+          ackedAt: 3,
+          delivery: sends,
+        }),
+        old("aaaa0003", {
+          state: "ringing",
+          pageId: "4444444444444444",
+          delivery: sends,
+        }),
+        old("aaaa0004", undefined),
+      ]),
+    );
+    const db = openOfficeDatabase(join(dir, "office.sqlite"));
+    databases.push(db);
+    const history = createAskHistory(db);
+    const file = createAskFilePersistence(path);
+    let saves = 0;
+    const open = () =>
+      createAskStore({
+        persistence: {
+          load: () => file.load(),
+          save: (entries) => {
+            saves++;
+            file.save(entries);
+          },
+          quarantine: () => file.quarantine(),
+        },
+        history,
+      });
+    const store = open();
+    store.backfillPages();
+    expect(saves).toBe(1);
+    const after = open();
+    const pageIds = ["aaaa0001", "aaaa0002", "aaaa0003"].map(
+      (id) => after.get(id)?.page?.pageId,
+    );
+    expect(pageIds[2]).toBe("4444444444444444");
+    for (const p of pageIds) expect(p).toMatch(/^[0-9a-f]{16}$/);
+    expect(new Set(pageIds).size).toBe(3);
+    ["aaaa0001", "aaaa0002", "aaaa0003"].forEach((id, i) =>
+      expect(history.pageAskId(pageIds[i]!)).toBe(id),
+    );
+    // The rest of each entry is as it was.
+    expect(after.get("aaaa0002")?.page?.state).toBe("acked");
+    expect(after.get("aaaa0004")?.page).toBeUndefined();
+    after.backfillPages();
+    expect(saves).toBe(1);
+  });
+
+  it("a re-raise counts every raise and saves it; only new text is an edit, and with no actor the agent made it", () => {
+    const { store, paged, changes, events, pages, saves, tick, now, reopen } =
+      indexed();
+    const entry = paged();
+    expect(entry.page?.raiseCount ?? 1).toBe(1);
+    changes.length = 0;
+    events.length = 0;
+    pages.length = 0;
+    const before = saves();
+    tick(100);
+    const same = store.reraise(entry.id, entry.prompt);
+    expect(same?.outcome).toBe("unchanged");
+    expect(same?.entry.page).toMatchObject({
+      raiseCount: 2,
+      lastRaisedAt: now(),
+    });
+    expect(same?.entry.updatedAt).toBe(entry.updatedAt);
+    expect(saves()).toBe(before + 1);
+    expect([changes, events, pages]).toEqual([[], [], []]);
+    tick(100);
+    const changed = store.reraise(entry.id, "Disk full\n\n95%");
+    expect(changed?.outcome).toBe("changed");
+    expect(changed?.entry.page).toMatchObject({
+      raiseCount: 3,
+      lastRaisedAt: now(),
+      state: "ringing",
+      pageId: entry.page!.pageId,
+    });
+    expect(changes.map((c) => c.kind)).toEqual(["upserted"]);
+    expect(events).toEqual([
+      { kind: "edited", at: now(), before: { prompt: "Disk full" } },
+    ]);
+    expect(pages).toEqual([]);
+    expect(reopen().get(entry.id)?.page).toMatchObject({
+      raiseCount: 3,
+      lastRaisedAt: now(),
+    });
+  });
+
+  it("finds a source's keyed page for one member only when a member is named", () => {
+    const { store, paged } = indexed();
+    const forU1 = paged({ page: { recipients: ["u1"], key: "disk" } });
+    const src = { kind: "agent" as const, agentId: "a1" };
+    expect(store.openPaged(src, "disk")?.id).toBe(forU1.id);
+    expect(store.openPaged(src, "disk", "u1")?.id).toBe(forU1.id);
+    expect(store.openPaged(src, "disk", "u2")).toBeNull();
+  });
+
+  it("a migrated create keeps the page's id, times, count, send record and ack, past every cap, and rings nothing new", () => {
+    const { store, paged, history, reopen, pages } = indexed();
+    for (let i = 0; i < ASK_PAGES_MAX_OPEN_PER_SOURCE; i++) paged();
+    // Enabling: the source is at its cap for a plain create.
+    expect(
+      store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "One more",
+        page: { recipients: ["u1"] },
+      }),
+    ).toEqual({ ok: false, code: "too_many_pages" });
+    pages.length = 0;
+    const delivery: PagerDelivery = {
+      state: "delivered",
+      sends: 3,
+      lastAttemptAt: 40,
+    };
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Disk full\n\n90%",
+      priority: "P1",
+      page: { recipients: ["u1"], key: "disk" },
+      migrated: {
+        pageId: "5555555555555555",
+        createdAt: 10,
+        raiseCount: 4,
+        lastRaisedAt: 30,
+        delivery,
+        acked: { byUserId: "", at: 35 },
+      },
+    });
+    if (!made.ok) throw new Error(`create failed: ${made.code}`);
+    expect(made.entry.createdAt).toBe(10);
+    expect(made.entry.page).toEqual({
+      state: "acked",
+      pageId: "5555555555555555",
+      key: "disk",
+      raiseCount: 4,
+      lastRaisedAt: 30,
+      ackedByUserId: "",
+      ackedAt: 35,
+      delivery: { u1: delivery },
+    });
+    expect(history.pageAskId("5555555555555555")).toBe(made.entry.id);
+    // It loads again: "" is a string to the load check.
+    expect(reopen().get(made.entry.id)?.page?.ackedByUserId).toBe("");
+    // A ringing one has no ack.
+    const ringing = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Box down",
+      page: { recipients: ["u1"] },
+      migrated: {
+        pageId: "6666666666666666",
+        createdAt: 11,
+        raiseCount: 1,
+        lastRaisedAt: 11,
+        delivery: NO_SENDS,
+      },
+    });
+    if (!ringing.ok) throw new Error("create failed");
+    expect(ringing.entry.page?.state).toBe("ringing");
+    expect(ringing.entry.page?.ackedByUserId).toBeUndefined();
+    // The delivery engines arm it from its send record, not as a new page.
+    expect(pages).toEqual([]);
+  });
+
+  it("an agent's removal leaves its app pages open with no agent; every other ask of it closes", () => {
+    const { store, paged, history, changes, pages } = indexed();
+    const APP = { name: "uptime", createdAt: 7 };
+    const appPage = paged({ app: APP, sessionId: "s1" });
+    // Not a valid ask with no agent: it has options.
+    const appPageWithOptions = paged({ app: APP, options: ["Fix it"] });
+    const appPlain = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Plain?",
+      app: APP,
+    });
+    if (!appPlain.ok) throw new Error("create failed");
+    const own = paged();
+    const other = paged({ agentId: "a2" });
+    changes.length = 0;
+    pages.length = 0;
+    expect(store.removeAgent("a1")).toBe(3);
+    const kept = store.get(appPage.id);
+    expect(kept).toMatchObject({ agentId: "", app: APP, memberUserId: "u1" });
+    expect(kept?.sessionId).toBeUndefined();
+    expect(kept?.page).toEqual(appPage.page);
+    expect(history.getById(appPage.id)).toBeNull();
+    for (const gone of [appPageWithOptions.id, appPlain.entry.id, own.id]) {
+      expect(store.get(gone)).toBeNull();
+      expect(history.getById(gone)?.closure.outcome).toBe("agent_removed");
+    }
+    expect(store.get(other.id)?.agentId).toBe("a2");
+    expect(changes.map((c) => [c.kind, c.entry.id]).sort()).toEqual(
+      [
+        ["upserted", appPage.id],
+        ["removed", appPageWithOptions.id],
+        ["removed", appPlain.entry.id],
+        ["removed", own.id],
+      ].sort(),
+    );
+    expect(pages.sort()).toEqual(
+      [`closed ${appPageWithOptions.id}`, `closed ${own.id}`].sort(),
+    );
+    // It is found by its page id still, and reloads.
+    expect(store.findPaged(appPage.page!.pageId!)?.agentId).toBe("");
+  });
+
+  it("the page id is on the member and agent wires; the raise count, the last raise and the key never are", () => {
+    const { store, paged } = indexed();
+    const entry = paged({ page: { recipients: ["u1"], key: "disk" } });
+    store.reraise(entry.id, entry.prompt);
+    const now = store.get(entry.id)!;
+    const audience: AskAudienceDeps = {
+      isOfficeOwner: () => false,
+      agentRoomId: () => "r1",
+      canSeeRoom: () => true,
+      roomHidden: () => false,
+      roomMemberIds: () => [],
+    };
+    for (const wire of [
+      askMemberWire(now, () => "Uma", audience),
+      askAgentWire(now, () => "Uma", audience),
+    ]) {
+      expect(wire.page).toEqual({
+        state: "ringing",
+        pageId: entry.page!.pageId,
+      });
+    }
   });
 });

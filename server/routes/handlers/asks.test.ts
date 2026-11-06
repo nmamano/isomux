@@ -66,6 +66,10 @@ function rig(over: Partial<AsksDeps> = {}) {
       getById: () => null,
       list: () => ({ items: [], nextBefore: null }),
       listEvents: () => ({ items: [], nextBefore: null }),
+      recordPage: () => {},
+      pageAskId: () => null,
+      getByPageId: () => null,
+      listPaged: () => ({ ok: true, items: [] }),
     },
     agent: () => ({ roomId: "r1", managerUserId: "u1" }),
     // Every app registered at the same moment: only the name tells two apart.

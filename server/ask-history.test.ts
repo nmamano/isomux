@@ -14,7 +14,7 @@ import {
   type AskLogRecord,
 } from "./ask-history.ts";
 import { createAskStore, type AskChange, type AskPersistence } from "./asks.ts";
-import type { AskEvent } from "../shared/types.ts";
+import type { AskEntry, AskEvent } from "../shared/types.ts";
 
 const dirs: string[] = [];
 const dbs: Database[] = [];
@@ -721,5 +721,155 @@ describe("the office database", () => {
     const kept = createAskHistory(again).get("a1", a.id);
     expect(kept?.entry.prompt).toBe("Kept?");
     expect(kept?.events.map((e) => e.kind)).toEqual(["created"]);
+  });
+});
+
+// The page index (task 74e8fc07, slice 3): one row per page id a paged ask
+// was ever given, written at the create and by the record of a closed paged
+// ask, so the compat pager routes find an open or closed page by its id and
+// list closed pages newest close first.
+describe("the page index", () => {
+  // A paged ask for `memberUserId` from `agentId`, through the store.
+  function pagedIn(s: ReturnType<typeof storeWith>) {
+    return (agentId: string, memberUserId: string, prompt: string) => {
+      const made = s.store.create({
+        agentId,
+        memberUserId,
+        prompt,
+        page: { recipients: [memberUserId] },
+      });
+      if (!made.ok) throw new Error(made.code);
+      return made.entry;
+    };
+  }
+
+  it("names the ask of each page id from its create, open and closed; a closed one is found by its page id", () => {
+    const { history } = open();
+    const s = storeWith(history);
+    const paged = pagedIn(s);
+    const a = paged("a1", "u1", "Disk full");
+    const b = paged("a2", "u2", "Box down");
+    const plain = s.ask("a1", "u1", "Plain?");
+    expect(a.page?.pageId).toMatch(/^[0-9a-f]{16}$/);
+    expect(b.page?.pageId).toMatch(/^[0-9a-f]{16}$/);
+    expect(a.page!.pageId).not.toBe(b.page!.pageId);
+    expect(plain.page).toBeUndefined();
+    // Open: in the index, not a closed record.
+    expect(history.pageAskId(a.page!.pageId!)).toBe(a.id);
+    expect(history.getByPageId(a.page!.pageId!)).toBeNull();
+    s.at(40);
+    s.store.remove(a.id, { outcome: "dismissed", byUserId: "u1" });
+    const closed = history.getByPageId(a.page!.pageId!);
+    expect(closed?.entry.id).toBe(a.id);
+    expect(closed?.entry.page?.pageId).toBe(a.page!.pageId);
+    expect(closed?.closure).toEqual({
+      outcome: "dismissed",
+      byUserId: "u1",
+      at: 40,
+    });
+    expect(history.pageAskId(a.page!.pageId!)).toBe(a.id);
+    expect(history.pageAskId("ffffffffffffffff")).toBeNull();
+    expect(history.getByPageId("ffffffffffffffff")).toBeNull();
+  });
+
+  it("a record of a closed paged ask writes its row too; a row that exists stays, and a write that cannot land throws", () => {
+    const { history, path } = open();
+    const entry: AskEntry = {
+      id: "ab12cd34",
+      agentId: "",
+      memberUserId: "u1",
+      office: { feature: "whatsapp", name: "WhatsApp" },
+      prompt: "WhatsApp stopped",
+      createdAt: 1,
+      updatedAt: 1,
+      page: {
+        state: "ringing",
+        pageId: "00112233aabbccdd",
+        delivery: { u1: { state: "not_delivered", sends: 0 } },
+      },
+    };
+    // No recordPage first: the record alone indexes it.
+    history.record(entry, { outcome: "dismissed", at: 9 });
+    expect(history.pageAskId("00112233aabbccdd")).toBe(entry.id);
+    expect(history.getByPageId("00112233aabbccdd")?.entry).toEqual(entry);
+    history.recordPage("00112233aabbccdd", "other-ask");
+    expect(history.pageAskId("00112233aabbccdd")).toBe(entry.id);
+    // A record of a plain ask writes no row.
+    history.record(
+      {
+        ...entry,
+        id: "ee12cd34",
+        agentId: "a1",
+        office: undefined,
+        page: undefined,
+      },
+      { outcome: "withdrawn", at: 10 },
+    );
+    const peek = openOfficeDatabase(path);
+    const rows = (
+      peek.query("SELECT COUNT(*) AS n FROM ask_history_pages").get() as {
+        n: number;
+      }
+    ).n;
+    peek.close();
+    expect(rows).toBe(1);
+    // The history's own database, closed: the next write cannot land.
+    dbs.pop()!.close();
+    expect(() => history.recordPage("1122334455667788", "x")).toThrow();
+  });
+
+  it("lists closed paged asks newest close first, filtered before the limit, and continues after a page id", () => {
+    const { history } = open();
+    const s = storeWith(history);
+    const paged = pagedIn(s);
+    const mine: AskEntry[] = [];
+    const theirs: AskEntry[] = [];
+    // 5 for u1 and, closed after them, 250 for u2: a filter that keeps only
+    // u1's must read past every u2 row to fill its slice.
+    // Each closed at once: an agent holds at most 50 open paged asks.
+    let t = 100;
+    const closeNow = (e: AskEntry) => {
+      s.at(t++);
+      s.store.remove(e.id, { outcome: "dismissed", byUserId: e.memberUserId });
+      return e;
+    };
+    for (let i = 0; i < 5; i++)
+      mine.push(closeNow(paged("a1", "u1", `mine ${i}`)));
+    for (let i = 0; i < 250; i++)
+      theirs.push(closeNow(paged("a2", "u2", `theirs ${i}`)));
+    const stillOpen = paged("a1", "u1", "still open");
+    s.ask("a1", "u1", "Plain?");
+    const plain = s.store.listAll().find((e) => !e.page)!;
+    s.store.remove(plain.id, { outcome: "withdrawn" });
+    const pid = (e: AskEntry) => e.page!.pageId!;
+    const u1 = (r: { entry: AskEntry }) => r.entry.memberUserId === "u1";
+    const ids = (q: Parameters<AskHistory["listPaged"]>[0]) => {
+      const out = history.listPaged(q);
+      if (!out.ok) throw new Error("listPaged refused");
+      return out.items.map((r) => r.entry.id);
+    };
+    const newestMine = [...mine].reverse().map((e) => e.id);
+    expect(ids({ accept: u1, limit: 2 })).toEqual(newestMine.slice(0, 2));
+    expect(ids({ accept: u1, limit: 2, beforePageId: pid(mine[3]) })).toEqual(
+      newestMine.slice(2, 4),
+    );
+    expect(ids({ accept: u1, limit: 50, beforePageId: pid(mine[1]) })).toEqual([
+      mine[0].id,
+    ]);
+    // Every closed paged ask, the plain one never.
+    const every = ids({ accept: () => true, limit: 1000 });
+    expect(every).toHaveLength(255);
+    expect(every[0]).toBe(theirs[249].id);
+    expect(every).not.toContain(plain.id);
+    // A cursor the filter does not keep, an open page and an unknown id are
+    // refused alike.
+    for (const beforePageId of [
+      pid(theirs[0]),
+      pid(stillOpen),
+      "ffffffffffffffff",
+    ])
+      expect(history.listPaged({ accept: u1, limit: 2, beforePageId })).toEqual(
+        { ok: false },
+      );
   });
 });

@@ -30,6 +30,7 @@ import type { AskHistory } from "./ask-history.ts";
 import {
   ASK_EDITABLE_KEYS,
   generateAskId,
+  generatePagerId,
   isValidPriority,
   type AskCloseInput,
   type AskCommandRun,
@@ -239,6 +240,15 @@ const isPageDelivery = (v: unknown) =>
 function isAskPage(v: unknown): boolean {
   if (!isObject(v) || !isObject(v.delivery)) return false;
   if (v.key !== undefined && typeof v.key !== "string") return false;
+  if (
+    v.pageId !== undefined &&
+    (typeof v.pageId !== "string" || v.pageId.length === 0)
+  )
+    return false;
+  if (v.raiseCount !== undefined && typeof v.raiseCount !== "number")
+    return false;
+  if (v.lastRaisedAt !== undefined && typeof v.lastRaisedAt !== "number")
+    return false;
   if (!Object.values(v.delivery).every(isPageDelivery)) return false;
   if (v.state === "ringing")
     return v.ackedByUserId === undefined && v.ackedAt === undefined;
@@ -687,6 +697,17 @@ export interface AskStore {
     page?: { recipients: string[]; key?: string };
     // The office feature that opens an ask with no agent (agentId "").
     office?: AskOfficeSource;
+    // For the pager migration only (server/pager-migration.ts), with page:
+    // the old page's own id, times, raise count, send record and ack. The
+    // caps do not apply.
+    migrated?: {
+      pageId: string;
+      createdAt: number;
+      raiseCount: number;
+      lastRaisedAt: number;
+      delivery: PagerDelivery;
+      acked?: { byUserId: string; at: number };
+    };
   }):
     | { ok: true; entry: AskEntry }
     | { ok: false; code: "too_many" | "too_many_pages" };
@@ -722,17 +743,30 @@ export interface AskStore {
   // At boot: every run still "running" becomes "lost" (the server's restart
   // ended it). Returns each entry it changed, with the run.
   markLostRuns(): { entry: AskEntry; run: AskCommandRun }[];
-  // The open paged ask of this source with this key, or null.
-  openPaged(source: AskPageSource, key: string): AskEntry | null;
-  // A re-raise of an open paged ask: its prompt becomes `prompt`, with one
-  // "edited" event naming the actor. "unchanged", with nothing written, when
-  // the prompt is the same. Never re-rings it. Null when the entry is gone or
-  // not paged.
+  // The open paged ask of this source with this key, or null. With
+  // `memberUserId`, only an ask for that member (the compat agent raise: its
+  // manager now).
+  openPaged(
+    source: AskPageSource,
+    key: string,
+    memberUserId?: string,
+  ): AskEntry | null;
+  // The open paged ask with this page id, or null.
+  findPaged(pageId: string): AskEntry | null;
+  // A re-raise of an open paged ask: its prompt becomes `prompt`, its raise
+  // count goes up by one and lastRaisedAt is now, and it is saved. When the
+  // prompt changes, also one "edited" event naming the actor (absent = the
+  // agent) and "changed"; else "unchanged", with no event. Never re-rings
+  // it. Null when the entry is gone or not paged.
   reraise(
     id: string,
     prompt: string,
-    actor: { office: string } | { app: string },
+    actor?: { office: string } | { app: string },
   ): { outcome: "changed" | "unchanged"; entry: AskEntry } | null;
+  // At boot, before any create: gives a page id to each open paged ask that
+  // has none (one save), and writes the page index row of each open paged
+  // ask that has none. A row write failure is logged.
+  backfillPages(): void;
   // Acks a ringing paged ask: its alarm stops, the ask stays open.
   // "unchanged" when it was acked already; null when the entry is gone or not
   // paged.
@@ -749,8 +783,8 @@ export interface AskStore {
   ): AskEntry | null;
   // Closes the entry and records how (`close`).
   remove(id: string, close: AskCloseInput): AskEntry | null;
-  // Every entry of a removed agent, each recorded as agent_removed. Returns
-  // how many went.
+  // Every entry of a removed agent, each recorded as agent_removed, except
+  // an app's paged ask: it stays open with no agent. Returns how many went.
   removeAgent(agentId: string): number;
 }
 
@@ -876,6 +910,39 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     }
   }
 
+  // A page id no open ask holds and the history's page index does not hold.
+  // A history that cannot answer is logged and passed over, as in freshId.
+  function freshPageId(held: AskEntry[] = entries): string {
+    const open = held.flatMap((e) =>
+      e.page?.pageId !== undefined ? [e.page.pageId] : [],
+    );
+    for (;;) {
+      const id = generatePagerId(open);
+      try {
+        if (!deps.history || deps.history.pageAskId(id) === null) return id;
+      } catch (err) {
+        console.error(
+          `[asks] could not check page id ${id} against the history: ${errMessage(err)}`,
+        );
+        return id;
+      }
+    }
+  }
+
+  // Writes the page index row of a paged ask, after its commit. A failure is
+  // logged: the boot backfill writes it later.
+  function recordPageRow(entry: AskEntry): void {
+    const pageId = entry.page?.pageId;
+    if (!deps.history || pageId === undefined) return;
+    try {
+      deps.history.recordPage(pageId, entry.id);
+    } catch (err) {
+      console.error(
+        `[asks] ${entry.id} could not be indexed by its page id: ${errMessage(err)}`,
+      );
+    }
+  }
+
   // Tells the delivery engines of a paged ask's create, ack or close, after
   // the commit. A throw is logged: the change stands.
   function tellPage(
@@ -936,23 +1003,26 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       messaging,
       page,
       office,
+      migrated,
     }) {
       check();
-      // An ask with no agent counts toward no agent's cap.
+      // An ask with no agent counts toward no agent's cap. A migrated page
+      // counts toward none.
       const open = entries.filter(
         (e) => agentId !== "" && e.agentId === agentId,
       ).length;
-      if (open >= ASK_MAX_OPEN_PER_AGENT)
+      if (!migrated && open >= ASK_MAX_OPEN_PER_AGENT)
         return { ok: false, code: "too_many" };
       const source = askPageSource({ agentId, app, office, memberUserId });
       if (
         page &&
+        !migrated &&
         entries.filter(
           (e) => e.page && samePageSource(askPageSource(e), source),
         ).length >= ASK_PAGES_MAX_OPEN_PER_SOURCE
       )
         return { ok: false, code: "too_many_pages" };
-      const at = now();
+      const at = migrated?.createdAt ?? now();
       const entry: AskEntry = {
         id: freshId(),
         agentId,
@@ -977,12 +1047,27 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(page
           ? {
               page: {
-                state: "ringing" as const,
+                ...(migrated?.acked
+                  ? {
+                      state: "acked" as const,
+                      ackedByUserId: migrated.acked.byUserId,
+                      ackedAt: migrated.acked.at,
+                    }
+                  : { state: "ringing" as const }),
+                pageId: migrated?.pageId ?? freshPageId(),
                 ...(page.key !== undefined ? { key: page.key } : {}),
+                ...(migrated
+                  ? {
+                      raiseCount: migrated.raiseCount,
+                      lastRaisedAt: migrated.lastRaisedAt,
+                    }
+                  : {}),
                 delivery: Object.fromEntries(
                   page.recipients.map((userId) => [
                     userId,
-                    { state: "not_delivered" as const, sends: 0 },
+                    migrated
+                      ? { ...migrated.delivery }
+                      : { state: "not_delivered" as const, sends: 0 },
                   ]),
                 ),
               },
@@ -991,7 +1076,10 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
-      if (entry.page) tellPage(entry, "created");
+      recordPageRow(entry);
+      // A migrated page keeps its send schedule: the delivery engines arm it
+      // from its send record when they start.
+      if (entry.page && !migrated) tellPage(entry, "created");
       const ask: Partial<Pick<AskEntry, AskEditableKey>> = {};
       for (const key of ASK_EDITABLE_KEYS)
         if (entry[key] !== undefined) Object.assign(ask, { [key]: entry[key] });
@@ -1170,12 +1258,48 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     },
 
     // Neither an ack nor a send record is an edit: updatedAt stays.
-    openPaged(source, key) {
+    openPaged(source, key, memberUserId) {
       check();
       const entry = entries.find(
-        (e) => e.page?.key === key && samePageSource(askPageSource(e), source),
+        (e) =>
+          e.page?.key === key &&
+          samePageSource(askPageSource(e), source) &&
+          (memberUserId === undefined || e.memberUserId === memberUserId),
       );
       return entry ? { ...entry } : null;
+    },
+
+    findPaged(pageId) {
+      check();
+      const entry = entries.find((e) => e.page?.pageId === pageId);
+      return entry ? { ...entry } : null;
+    },
+
+    backfillPages() {
+      check();
+      // A paged ask from a build before page ids (slice 1 or 2) gets one;
+      // each id drawn is held before the next is drawn.
+      if (entries.some((e) => e.page && e.page.pageId === undefined)) {
+        const next = [...entries];
+        next.forEach((e, i) => {
+          if (e.page && e.page.pageId === undefined)
+            next[i] = { ...e, page: { ...e.page, pageId: freshPageId(next) } };
+        });
+        deps.persistence.save(next);
+        entries = next;
+      }
+      if (!deps.history) return;
+      for (const e of entries) {
+        const pageId = e.page?.pageId;
+        if (pageId === undefined) continue;
+        try {
+          if (deps.history.pageAskId(pageId) === null) recordPageRow(e);
+        } catch (err) {
+          console.error(
+            `[asks] could not check page id ${pageId} against the history: ${errMessage(err)}`,
+          );
+        }
+      }
     },
 
     // The new text only: the alarm, its state and its send records stay.
@@ -1183,9 +1307,22 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       check();
       const prev = entries.find((e) => e.id === id);
       if (!prev?.page) return null;
-      if (prev.prompt === prompt)
-        return { outcome: "unchanged", entry: { ...prev } };
-      const entry: AskEntry = { ...prev, prompt, updatedAt: now() };
+      const at = now();
+      const page = {
+        ...prev.page,
+        raiseCount: (prev.page.raiseCount ?? 1) + 1,
+        lastRaisedAt: at,
+      };
+      // The same text: only the raise is counted. The count is on no wire,
+      // so nobody is told.
+      if (prev.prompt === prompt) {
+        const entry: AskEntry = { ...prev, page };
+        const next = entries.map((e) => (e.id === id ? entry : e));
+        deps.persistence.save(next);
+        entries = next;
+        return { outcome: "unchanged", entry: { ...entry } };
+      }
+      const entry: AskEntry = { ...prev, prompt, updatedAt: at, page };
       commit(
         entries.map((e) => (e.id === id ? entry : e)),
         [{ kind: "upserted", entry }],
@@ -1245,11 +1382,29 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
 
     removeAgent(agentId) {
       check();
-      const gone = entries.filter((e) => e.agentId === agentId);
-      if (gone.length === 0) return 0;
+      const theirs = entries.filter((e) => e.agentId === agentId);
+      if (theirs.length === 0) return 0;
+      // An app's page outlives the agent its answers went to: it stays open
+      // with no agent, for the app's owner, when that is a valid ask.
+      const kept = new Map<string, AskEntry>();
+      for (const entry of theirs) {
+        if (!entry.app || !entry.page) continue;
+        const { sessionId: _session, ...rest } = entry;
+        const orphan: AskEntry = { ...rest, agentId: "" };
+        if (isAskEntry(orphan)) kept.set(entry.id, orphan);
+      }
+      const gone = theirs.filter((e) => !kept.has(e.id));
       commit(
-        entries.filter((e) => e.agentId !== agentId),
-        gone.map((entry) => ({ kind: "removed", entry })),
+        entries.flatMap((e) =>
+          e.agentId !== agentId ? [e] : (kept.get(e.id) ?? []),
+        ),
+        [
+          ...gone.map((entry) => ({ kind: "removed" as const, entry })),
+          ...[...kept.values()].map((entry) => ({
+            kind: "upserted" as const,
+            entry,
+          })),
+        ],
       );
       recordClosed(gone, { outcome: "agent_removed" });
       for (const entry of gone) if (entry.page) tellPage(entry, "closed");
@@ -1281,8 +1436,13 @@ function askPageWire(
 ): AskPageWire {
   return {
     state: page.state,
+    ...(page.pageId !== undefined ? { pageId: page.pageId } : {}),
+    // "" is a migrated ack by no member: no name.
     ...(page.ackedByUserId !== undefined
-      ? { ackedBy: memberName(page.ackedByUserId) }
+      ? {
+          ackedBy:
+            page.ackedByUserId === "" ? null : memberName(page.ackedByUserId),
+        }
       : {}),
     ...(page.ackedAt !== undefined ? { ackedAt: page.ackedAt } : {}),
   };

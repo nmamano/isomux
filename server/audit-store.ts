@@ -70,6 +70,8 @@ export function openOfficeDatabase(path: string): Database {
         agent_id TEXT NOT NULL, record TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS ask_events_ask ON ask_events(ask_id, seq);
       CREATE INDEX IF NOT EXISTS ask_events_agent ON ask_events(agent_id, seq);
+      CREATE TABLE IF NOT EXISTS ask_history_pages (
+        page_id TEXT PRIMARY KEY, ask_id TEXT NOT NULL);
       PRAGMA user_version=1;`);
     })();
     return db;

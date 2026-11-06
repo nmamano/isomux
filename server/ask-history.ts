@@ -9,6 +9,11 @@
 // event there, written with the history row in one transaction, so the
 // agent's ask log (task 302e7ea4) has every step of its asks.
 //
+// The page index (task 74e8fc07), ask_history_pages, has one row per page id
+// ever given to a paged ask, open or closed: the store writes it at the
+// create, and a record of a paged ask writes it too. The compat pager routes
+// find a page by its id through it.
+//
 // A row's `seq` orders the closes and is the list's page cursor. An ask id
 // names one ask: the store does not reuse an id that is in the history,
 // either table.
@@ -88,6 +93,25 @@ export interface AskHistory {
     agentId: string,
     query: AskEventsQuery,
   ): { items: AskLogRecord[]; nextBefore: number | null };
+  // Adds the page index row of a paged ask; a row that exists stays as it
+  // is. Durable write. MUST THROW on failure.
+  recordPage(pageId: string, askId: string): void;
+  // The ask a page id was given to, open or closed, or null.
+  pageAskId(pageId: string): string | null;
+  // The closed paged ask with this page id, or null (open, or unknown).
+  getByPageId(pageId: string): AskHistoryRecord | null;
+  // Up to `limit` closed paged asks that `accept` keeps, newest close first.
+  // With `beforePageId`, the slice starts after that page, which must be a
+  // closed one `accept` keeps; else { ok: false }.
+  listPaged(
+    query: AskPagedQuery,
+  ): { ok: true; items: AskHistoryRecord[] } | { ok: false };
+}
+
+export interface AskPagedQuery {
+  accept: (record: AskHistoryRecord) => boolean;
+  limit: number;
+  beforePageId?: string;
 }
 
 interface Row {
@@ -161,8 +185,34 @@ export function createAskHistory(db: Database): AskHistory {
         "INSERT OR IGNORE INTO ask_history_members(ask_id,user_id) VALUES (?,?)",
       );
       for (const userId of members) insertMember.run(entry.id, userId);
+      if (entry.page?.pageId !== undefined)
+        insertPage(entry.page.pageId, entry.id);
     },
   );
+
+  function insertPage(pageId: string, askId: string) {
+    db.query(
+      "INSERT OR IGNORE INTO ask_history_pages(page_id,ask_id) VALUES (?,?)",
+    ).run(pageId, askId);
+  }
+
+  const pageAskId = (pageId: string): string | null =>
+    (
+      db
+        .query("SELECT ask_id FROM ask_history_pages WHERE page_id=?")
+        .get(pageId) as { ask_id: string } | null
+    )?.ask_id ?? null;
+
+  // The newest close of an ask with this id, with its seq.
+  const closedRow = (askId: string) =>
+    db
+      .query(
+        "SELECT seq,agent_id,record FROM ask_history WHERE id=? ORDER BY seq DESC LIMIT 1",
+      )
+      .get(askId) as (Row & { agent_id: string }) | null;
+
+  // Closed paged asks per read of listPaged.
+  const PAGED_CHUNK = 100;
 
   return {
     record(entry, closure, memberUserIds) {
@@ -259,6 +309,43 @@ export function createAskHistory(db: Database): AskHistory {
         nextBefore: rows.length > limit ? items[items.length - 1].seq : null,
       };
     },
+    recordPage: insertPage,
+    pageAskId,
+    getByPageId(pageId) {
+      const askId = pageAskId(pageId);
+      const row = askId === null ? null : closedRow(askId);
+      return row ? withEvents(row.agent_id, [parse(row)])[0] : null;
+    },
+    listPaged({ accept, limit, beforePageId }) {
+      let before: number | undefined;
+      if (beforePageId !== undefined) {
+        const askId = pageAskId(beforePageId);
+        const row = askId === null ? null : closedRow(askId);
+        if (!row || !accept(parse(row))) return { ok: false };
+        before = row.seq;
+      }
+      // Closed paged asks newest close first, read in chunks until the
+      // filter has kept `limit` of them.
+      const items: AskHistoryRecord[] = [];
+      for (;;) {
+        const rows = db
+          .query(
+            `SELECT h.seq,h.agent_id,h.record FROM ask_history h JOIN ask_history_pages p ON p.ask_id=h.id${before === undefined ? "" : " WHERE h.seq<?"} ORDER BY h.seq DESC LIMIT ?`,
+          )
+          .all(
+            ...(before === undefined ? [] : [before]),
+            PAGED_CHUNK,
+          ) as (Row & { agent_id: string })[];
+        for (const row of rows) {
+          const record = parse(row);
+          if (!accept(record)) continue;
+          items.push(withEvents(row.agent_id, [record])[0]);
+          if (items.length === limit) return { ok: true, items };
+        }
+        if (rows.length < PAGED_CHUNK) return { ok: true, items };
+        before = rows[rows.length - 1].seq;
+      }
+    },
   };
 }
 
@@ -277,5 +364,9 @@ export function officeAskHistory(): AskHistory {
     getById: (id) => current().getById(id),
     list: (agentId, query) => current().list(agentId, query),
     listEvents: (agentId, query) => current().listEvents(agentId, query),
+    recordPage: (pageId, askId) => current().recordPage(pageId, askId),
+    pageAskId: (pageId) => current().pageAskId(pageId),
+    getByPageId: (pageId) => current().getByPageId(pageId),
+    listPaged: (query) => current().listPaged(query),
   };
 }

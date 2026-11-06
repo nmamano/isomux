@@ -415,10 +415,26 @@ describe("what a paged ask's wire carries", () => {
     const leaks = reads
       .filter(([, body]) => {
         const keys = keysIn(body);
-        return keys.has("delivery") || keys.has("ackedByUserId");
+        // Slice 3: nor the raise count, the last raise or the key.
+        return [
+          "delivery",
+          "ackedByUserId",
+          "raiseCount",
+          "lastRaisedAt",
+          "key",
+        ].some((k) => keys.has(k));
       })
       .map(([label]) => label);
     expect(leaks).toEqual([]);
+    // Each read of the open ask names its page id (slice 3).
+    expect(made.page?.pageId).toMatch(/^[0-9a-f]{16}$/);
+    expect(
+      reads
+        .filter(
+          ([, body]) => !JSON.stringify(body).includes(made.page!.pageId!),
+        )
+        .map(([label]) => label),
+    ).toEqual([]);
     // The ack is in the closed ask's events, by name.
     const closed = (history.body as AskHistoryRes).asks.find(
       (a) => a.id === made.id,

@@ -8,7 +8,6 @@ import type {
   AgentInfo,
   AskEntry,
   BackendModelWire,
-  PagerEntry,
   ServerMessage,
   UserRecord,
 } from "../shared/types.ts";
@@ -28,19 +27,13 @@ import {
   type ScheduledMessageManager,
 } from "./scheduled-messages.ts";
 import {
-  createPagerArchiveFile,
-  createPagerFilePersistence,
-  createPagerStore,
-  type PagerStore,
-} from "./pager-store.ts";
-import {
   createAskFilePersistence,
   createAskStore,
   type AskAudienceDeps,
   type AskChange,
   type AskStore,
 } from "./asks.ts";
-import { createPageItemSource, pagerPageItem } from "./page-items.ts";
+import { createPageItemSource } from "./page-items.ts";
 import { officeAskHistory } from "./ask-history.ts";
 import {
   createPagerSettingsFilePersistence,
@@ -181,7 +174,6 @@ export interface ManagersDeps {
   askAudienceIds: (entry: AskEntry) => string[];
   // Who sees an ask, for the paged asks' sends (server/page-items.ts).
   askAudience: AskAudienceDeps;
-  pushPagerEntryToEachWs: (entry: PagerEntry) => void;
   secretStore: SecretStore;
   broadcast: (msg: ServerMessage) => void;
   canAccess: (user: UserRecord, roomId: string) => boolean;
@@ -198,7 +190,6 @@ export let agentManager: AgentManager;
 export let cronjobManager: CronjobManager;
 
 export let scheduledMessageManager: ScheduledMessageManager;
-export let pagerStore: PagerStore;
 export let askStore: AskStore | undefined;
 // Members chat: the humans-only stream on the Lobby tab. The store is
 // month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts).
@@ -325,7 +316,6 @@ export function createManagers(
     pushAskChange,
     askAudienceIds,
     askAudience,
-    pushPagerEntryToEachWs,
     secretStore,
     broadcast,
     canAccess,
@@ -489,10 +479,10 @@ export function createManagers(
     clock: { now: () => Date.now() },
     scheduler: { setTimeout, clearTimeout, setInterval, clearInterval },
   });
-  // The pager: the store, the member settings (the Discord webhook URL is a
-  // credential and lives in its own file, never in the env injected into
-  // agents), and delivery. The store and delivery call each other through
-  // these closures.
+  // The pager: the paged asks, the member settings (the Discord webhook URL
+  // is a credential and lives in its own file, never in the env injected
+  // into agents), and delivery. The store and delivery call each other
+  // through these closures.
   membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
   floors = createFloorsStore();
   const askHistory = officeAskHistory();
@@ -520,27 +510,13 @@ export function createManagers(
   pagerSettings = createPagerSettingsStore(
     createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
   );
-  pagerStore = createPagerStore({
-    persistence: createPagerFilePersistence(join(STATE_ROOT, "pager.json")),
-    archive: createPagerArchiveFile(join(STATE_ROOT, "pager-resolved.jsonl")),
-    onChange: (entry) => pushPagerEntryToEachWs(entry),
-    onRaised: (entry, kind) => {
-      pagerDelivery.onRaised(pagerPageItem(entry), kind);
-      webPushDelivery.onRaised(pagerPageItem(entry), kind);
-    },
-    onTransitioned: (entry, to) => {
-      pagerDelivery.onTransitioned(pagerPageItem(entry), to);
-      webPushDelivery.onTransitioned(pagerPageItem(entry), to);
-    },
-  });
-  agentManager.attachPagerStore(pagerStore);
   officePagers = {
     whatsapp: officePager(asks, { feature: "whatsapp", name: "WhatsApp" }),
     discord: officePager(asks, { feature: "discord", name: "Discord" }),
   };
-  // What both delivery channels send: the pages and the paged asks.
+  // What both delivery channels send: the paged asks. A page is one; the
+  // old pager store's pages become paged asks at boot (startServer).
   const pageItems = createPageItemSource({
-    pager: pagerStore,
     asks,
     audience: askAudience,
     agentName: (agentId) => agentManager.getAgent(agentId)?.name ?? null,

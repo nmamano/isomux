@@ -1509,6 +1509,9 @@ export interface PagerEntry {
   acked?: PagerTransition;
   resolved?: PagerTransition;
   delivery: PagerDelivery;
+  // The paged ask the page is (task 74e8fc07): set on every page the compat
+  // routes build from an ask.
+  askId?: string;
 }
 
 // Generate a unique 8-char hex ID, avoiding collisions with `existing`.
@@ -1657,6 +1660,14 @@ export interface AskPage {
   // The source's dedupe key: a re-raise with it edits this ask while it is
   // open. Never on a wire.
   key?: string;
+  // The id the compat pager routes name it by: 16 hex at create, the old
+  // page id on a migrated page. A load gives one to a paged ask that has
+  // none. Each id given is also a row of the history's page index.
+  pageId?: string;
+  // Each keyed re-raise adds one; absent = 1. Never on a wire.
+  raiseCount?: number;
+  // The last raise; absent = the ask's createdAt. Never on a wire.
+  lastRaisedAt?: number;
   // One send record per recipient, by user id: the members the ask was for
   // at create. The set is fixed; never on a wire.
   delivery: Record<string, PagerDelivery>;
@@ -1666,6 +1677,7 @@ export interface AskPage {
 // gone; never the send records.
 export interface AskPageWire {
   state: AskPage["state"];
+  pageId?: string;
   ackedBy?: string | null;
   ackedAt?: number;
 }

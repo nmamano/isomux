@@ -208,6 +208,12 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { pagerHandlers } from "./routes/handlers/pager.ts";
+import {
+  pagerEntryFromAsk,
+  raisePage,
+  type PagerCompatDeps,
+} from "./pager-compat.ts";
+import { migratePagerAtBoot } from "./pager-migration.ts";
 import { askHandlers } from "./routes/handlers/asks.ts";
 import { officeAskHistory } from "./ask-history.ts";
 import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
@@ -466,7 +472,6 @@ import {
   agentManager,
   cronjobManager,
   scheduledMessageManager,
-  pagerStore,
   askStore,
   membersChat,
   floors,
@@ -511,7 +516,7 @@ import {
   type Identity,
 } from "./identity/index.ts";
 import { scheduleExceedsAgent } from "./cron-agent-limits.ts";
-import { appVisibleTo, viewerUserId } from "./app-visibility.ts";
+import { appVisibleTo } from "./app-visibility.ts";
 
 // Boot is extracted into startServer() at the end of this file. The CLI
 // fast-path (`bun run server/isomux-office.ts owner-login`) and the production
@@ -1010,7 +1015,6 @@ const {
   defaultCreateRoomIdForIdentity,
   emitUsersList,
   folderRuleState,
-  identityUserIsOfficeOwner,
   ordinaryScheduleMaker,
   ownScheduleLimitsFor,
   projectCronjobFor,
@@ -1037,6 +1041,26 @@ const {
   pushAppDeltaToEachWs,
   toPublicWire,
 });
+
+// Names and rooms as they are now, for the PagerEntry the compat pager
+// routes build from a paged ask (server/pager-compat.ts).
+const pagerCompat: PagerCompatDeps = {
+  agent: (agentId) => {
+    const agent = agentManager.getAgent(agentId);
+    return agent ? { name: agent.name, roomId: agent.roomId } : null;
+  },
+  // The app's room is its creator agent's live room, the rule that decides
+  // who sees the app (appVisibilityFacts); null without one.
+  app: (name, createdAt) => {
+    const app = appRegistry.get(name);
+    if (!app || app.createdAt !== createdAt) return null;
+    return {
+      registrationGen: appRegistrationGeneration(app),
+      roomId: appVisibilityFacts(app).creatorRoomId ?? null,
+    };
+  },
+  memberName: (userId) => getUserById(userId)?.name ?? null,
+};
 
 // The agent ceiling of member permission packs (server/member-ceiling.ts).
 const memberCeiling = createMemberCeiling({
@@ -1114,7 +1138,6 @@ const {
   pushCronjobRunEntryToEachWs,
   pushCronjobRunToEachWs,
   pushCronjobsToEachWs,
-  pushPagerEntryToEachWs,
   pushTaskDeltaToEachWs,
   pushTasksToEachWs,
   pushWebhookDeltaToEachWs,
@@ -2786,44 +2809,31 @@ function buildExecutorDeps(
 
   register(
     pagerHandlers({
-      store: pagerStore,
-      viewer: (identity) => {
-        const userId = viewerUserId(identity);
-        const user = userId ? getUserById(userId) : null;
-        return {
-          accessibleRoomIds: accessibleRoomIdsForIdentity(identity),
-          userId: user?.id ?? null,
-          isOfficeOwner: identityUserIsOfficeOwner(identity, user),
-          ...(tokenRooms(identity) !== null ? { ownNeedsRoom: true } : {}),
-        };
-      },
+      asks: askStore!,
+      history: officeAskHistory(),
+      audience: askAudience,
+      compat: pagerCompat,
+      accessibleRoomIds: accessibleRoomIdsForIdentity,
       agentSource: (agentId) => {
         const agent = agentManager.getAgent(agentId);
         return agent
           ? {
-              name: agent.name,
-              roomId: agent.roomId,
-              managerUserId: agent.userId,
+              managerUserId: agent.userId ?? null,
+              sessionId: agentManager.getCurrentSessionId(agentId),
             }
           : null;
       },
-      // The app's room is its creator agent's live room, the rule that
-      // decides who sees the app (appVisibilityFacts); null without one.
       appSource: (appName) => {
         const app = appRegistry.get(appName);
-        if (!app) return null;
-        return {
-          registrationGen: appRegistrationGeneration(app),
-          roomId: appVisibilityFacts(app).creatorRoomId ?? null,
-          ownerUserId: app.userId,
-        };
+        return app
+          ? {
+              createdAt: app.createdAt,
+              ownerUserId: app.userId,
+              targetAgentId:
+                app.messageTargetAgentId ?? app.createdByAgentId ?? null,
+            }
+          : null;
       },
-      // An app acts as itself, not as its owner: a page the app resolves
-      // reads as resolved by the app.
-      actorName: (identity) =>
-        identity.scope === "app" && identity.appName
-          ? identity.appName
-          : attributionFor(identity).createdBy,
     }),
   );
 
@@ -5345,6 +5355,7 @@ function runBackgroundBoot(
         `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
       );
     }
+    migrateOldPages(startOpts);
     // A step done while the server was down closes its ask now, once the
     // agents are back to hear it.
     stepsChanged();
@@ -5642,6 +5653,85 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setLoopbackOriginPort(null);
 }
 
+// Pages are paged asks (task 74e8fc07). The agent manager's own page (a gone
+// OpenCode model) raises one. Before any route serves, each open paged ask
+// gets its page id and its page index row.
+function bootPagedAsks(): void {
+  const asks = askStore;
+  if (!asks) return;
+  agentManager.attachPagerStore({
+    raise: ({ source, targetUserId, fields }) => {
+      const agentId = source.kind === "agent" ? source.agentId : "";
+      const result = raisePage(asks, {
+        source: { kind: "agent", agentId },
+        agentId,
+        memberUserId: targetUserId,
+        fields,
+      });
+      return result.outcome === "created" || result.outcome === "updated"
+        ? {
+            outcome: result.outcome,
+            entry: pagerEntryFromAsk(result.entry, null, pagerCompat),
+          }
+        : { outcome: "too_many" };
+    },
+  });
+  try {
+    asks.backfillPages();
+  } catch (err) {
+    console.error(`[pager] the page id backfill failed: ${errMessage(err)}`);
+  }
+}
+
+// The old pager store's pages become paged asks and closed asks
+// (server/pager-migration.ts), once the agents are back: a page whose agent
+// is not restored would close. The old files are only read. The delivery
+// engines started before it, so each migrated page is armed on its send
+// record's schedule.
+function migrateOldPages(startOpts: StartServerOpts): void {
+  const asks = askStore;
+  if (!asks) return;
+  const pages = migratePagerAtBoot(
+    {
+      pager: join(STATE_ROOT, "pager.json"),
+      archive: join(STATE_ROOT, "pager-resolved.jsonl"),
+      done: join(STATE_ROOT, "pager-migration.json"),
+    },
+    {
+      asks,
+      history: officeAskHistory(),
+      transaction: (fn) => officeAuditStore().db.transaction(fn)(),
+      now: () => Date.now(),
+      agentLive: (agentId) => agentManager.getAgent(agentId) !== undefined,
+      isMember: (userId) => getUserById(userId) !== undefined,
+      memberIdByName: (name) => getUserByName(name)?.id ?? null,
+      app: (name, registrationGen) => {
+        const app = appRegistry.get(name);
+        if (!app || appRegistrationGeneration(app) !== registrationGen)
+          return null;
+        const target = app.messageTargetAgentId ?? app.createdByAgentId;
+        return {
+          createdAt: app.createdAt,
+          targetAgentId:
+            target && agentManager.getAgent(target) ? target : null,
+        };
+      },
+    },
+  );
+  if (startOpts.skipSchedulers || pages.length === 0) return;
+  const ids = new Set(pages.map((page) => page.id));
+  const members = new Set(
+    asks
+      .listAll()
+      .filter((e) => e.page?.pageId !== undefined && ids.has(e.page.pageId))
+      .flatMap((e) => Object.keys(e.page?.delivery ?? {})),
+  );
+  for (const userId of members) {
+    pagerDelivery.rescheduleMember(userId);
+    webPushDelivery.rescheduleMember(userId);
+  }
+}
+
 export async function startServer(
   opts: StartServerOpts = {},
 ): Promise<ServerHandle> {
@@ -5658,13 +5748,13 @@ export async function startServer(
     pushAskChange,
     askAudienceIds: (entry) => askMemberIds(entry, askAudience),
     askAudience,
-    pushPagerEntryToEachWs,
     secretStore,
     broadcast,
     canAccess,
     isLobbyRoom,
     UI_DIST,
   });
+  bootPagedAsks();
   configureWelcomeModelTiming(opts);
   migrateManagedEnvAtBoot({
     office: {

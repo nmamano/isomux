@@ -381,7 +381,8 @@ describe("pager settings REST: delivery", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0].body.content).toContain(`<@${DISCORD_ID}>`);
     expect(sent[0].body.embeds![0].url).toMatch(
-      new RegExp(`^https?://[^/]+/\\?pager=${page.id}$`),
+      // A page is a paged ask (task 74e8fc07): the link opens the ask.
+      new RegExp(`^https?://[^/]+/inbox/asks/${page.askId}$`),
     );
     const got = await api(srv, `/api/pager/${page.id}`, { bearer: botToken });
     expect((got.body as PagerEntry).delivery).toMatchObject({
@@ -397,7 +398,7 @@ describe("pager settings REST: delivery", () => {
     expect(JSON.stringify(ws.messages)).not.toContain(TOKEN);
     expect(raised.text + got.text + ack.text).not.toContain(TOKEN);
     expect(
-      readFileSync(join(srv.stateRoot, "pager.json"), "utf8"),
+      readFileSync(join(srv.stateRoot, "asks.json"), "utf8"),
     ).not.toContain(TOKEN);
   });
 
