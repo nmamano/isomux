@@ -216,4 +216,40 @@ describe("terminal panel resize", () => {
       view.unmount();
     }
   });
+
+  // Another viewer restarted the exited shell: every viewer gets the new
+  // shell's status, and this tab must treat the shell as live again (task
+  // 53bb50e1).
+  it("asks first again once a status reports a new shell after an exit", async () => {
+    const { view, sent } = await mount();
+    act(() => shimEmit({ type: "terminal_exit", agentId: AGENT, exitCode: 0 }));
+    await settle();
+    const restarts = () =>
+      view.getAllByRole("button", { name: en["panels.terminal.restart"] });
+    expect(restarts()).toHaveLength(2);
+    act(() =>
+      shimEmit({
+        type: "terminal_status",
+        agentId: AGENT,
+        process: "bash",
+        shell: true,
+      }),
+    );
+    await settle();
+    // The notice is gone: only the toolbar's Restart is left.
+    expect(restarts()).toHaveLength(1);
+    const restart = restarts()[0];
+    act(() => {
+      fireEvent.click(restart);
+    });
+    expect(sent.filter((cmd) => cmd.type === "terminal_restart")).toEqual([]);
+    expect(restart.hasAttribute("data-confirm-armed")).toBe(true);
+    act(() => {
+      fireEvent.click(restart);
+    });
+    expect(sent.filter((cmd) => cmd.type === "terminal_restart")).toHaveLength(
+      1,
+    );
+    view.unmount();
+  });
 });

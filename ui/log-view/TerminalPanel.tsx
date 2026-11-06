@@ -94,6 +94,14 @@ function ensureMobileTerminalStyle() {
   document.head.appendChild(style);
 }
 
+// The terminal's shell as this tab knows it: unknown until the first status
+// (and again after this tab restarts it), running with its foreground
+// process, or exited with its code.
+type ShellState =
+  | { kind: "unknown" }
+  | { kind: "running"; process: string; shell: boolean }
+  | { kind: "exited"; code: number };
+
 type SoftKey = {
   id: string;
   /** A key cap, as printed on a keyboard: code, never translated (ruling 11). */
@@ -290,7 +298,10 @@ export function TerminalPanel({
   const scrollMovedRef = useRef<(() => boolean) | null>(null);
   const { mode } = useTheme();
   const { t } = useI18n();
-  const [exited, setExited] = useState<number | null>(null);
+  // One state for the shell, so that a status from a shell another viewer
+  // restarted also takes this tab out of "exited". Only the live shell sends
+  // a status (server/terminal.ts).
+  const [shellState, setShellState] = useState<ShellState>({ kind: "unknown" });
   // Restart kills a live shell and the processes in it, with no Undo: while
   // the shell runs, it asks first.
   const restartStep = useConfirmStep();
@@ -300,10 +311,6 @@ export function TerminalPanel({
   // The office records this terminal session (server flag): every member who
   // opens it is told.
   const [recorded, setRecorded] = useState(false);
-  const [owner, setOwner] = useState<{
-    process: string;
-    shell: boolean;
-  } | null>(null);
   const [commandIssue, setCommandIssue] = useState<CommandDeliveryIssue | null>(
     null,
   );
@@ -362,7 +369,11 @@ export function TerminalPanel({
           else termRef.current?.write(msg.data);
           advancePendingCommand({ type: "output", data: msg.data });
         } else if (msg.type === "terminal_status" && msg.agentId === agentId) {
-          setOwner({ process: msg.process, shell: msg.shell });
+          setShellState({
+            kind: "running",
+            process: msg.process,
+            shell: msg.shell,
+          });
           setEnvStale(msg.envStale === true);
           setRecorded(msg.recorded === true);
           setCommandIssue(null);
@@ -385,9 +396,8 @@ export function TerminalPanel({
               advancePendingCommand({ ...status, line: cursorLine(term) });
             });
         } else if (msg.type === "terminal_exit" && msg.agentId === agentId) {
-          setOwner(null);
+          setShellState({ kind: "exited", code: msg.exitCode });
           setEnvStale(false);
-          setExited(msg.exitCode);
           advancePendingCommand({ type: "exit" });
         }
       } catch {}
@@ -406,14 +416,14 @@ export function TerminalPanel({
       commandDeliveryRef.current = null;
       return;
     }
-    if (!owner) return;
+    if (shellState.kind !== "running") return;
     const queued = queueCommand(commandDeliveryRef.current, pendingCommand);
     commandDeliveryRef.current = queued.state;
     if (!pendingCommandAcceptedRef.current && queued.requestStatus) {
       send({ type: "terminal_status_request", agentId });
     }
     pendingCommandAcceptedRef.current = true;
-  }, [agentId, owner, pendingCommand]);
+  }, [agentId, shellState, pendingCommand]);
 
   useEffect(() => {
     if (!pendingCommand) return;
@@ -721,8 +731,7 @@ export function TerminalPanel({
   }
 
   function handleRespawn() {
-    setExited(null);
-    setOwner(null);
+    setShellState({ kind: "unknown" });
     setCommandIssue(null);
     termRef.current?.reset();
     send({ type: "terminal_restart", agentId });
@@ -820,13 +829,16 @@ export function TerminalPanel({
           {t("common.terminal")}
           <span
             style={{
-              color: owner?.shell ? "var(--green-text)" : "var(--text-muted)",
+              color:
+                shellState.kind === "running" && shellState.shell
+                  ? "var(--green-text)"
+                  : "var(--text-muted)",
             }}
           >
-            {owner
-              ? owner.shell
+            {shellState.kind === "running"
+              ? shellState.shell
                 ? t("panels.terminal.ready")
-                : t("panels.terminal.busy", { process: owner.process })
+                : t("panels.terminal.busy", { process: shellState.process })
               : ""}
           </span>
         </span>
@@ -852,7 +864,7 @@ export function TerminalPanel({
           <button
             {...restartStep.bind("restart")}
             onClick={() =>
-              exited !== null
+              shellState.kind === "exited"
                 ? handleRespawn()
                 : restartStep.confirm("restart", handleRespawn)
             }
@@ -1016,7 +1028,7 @@ export function TerminalPanel({
         )}
         {/* Exit overlay - anchored to the body so it floats above whatever
             sits below (soft-key bar on mobile, nothing on desktop). */}
-        {exited !== null && (
+        {shellState.kind === "exited" && (
           <div
             style={{
               position: "absolute",
@@ -1035,7 +1047,9 @@ export function TerminalPanel({
               boxShadow: "0 4px 12px var(--shadow)",
             }}
           >
-            <span>{t("panels.terminal.shellExited", { code: exited })}</span>
+            <span>
+              {t("panels.terminal.shellExited", { code: shellState.code })}
+            </span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
