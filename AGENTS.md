@@ -42,18 +42,18 @@ Claude Code, Codex and OpenCode agents are all first class. A change to a surfac
 
 Nil's rules for every UI change. A diff that breaks one does not pass review or sign-off.
 
-- Every button has a background. A button is never bare text or an outline only. "Buttons without background should not be a thing anywhere in isomux." Nil, 2026-10-31.
-- A view keeps its layout while it loads: draw the real controls, disabled and dimmed (or a placeholder of the same shape), until the data arrives. Never an empty box or a panel that grows. Nil, 2026-11-05.
-- The product name is Isomux, capitalized, in every string a person reads. Lowercase only where it is a literal (a command, a path, a package, a unit or domain name: brew upgrade isomux, systemctl --user restart isomux, isomux.com). Nil, 2026-11-05.
-- An agent selector groups agents by room. Nil, 2026-11-05.
-- A destructive action that cannot be undone (delete, remove, disconnect, reset, revoke, kill, clear) asks "are you sure?" before it runs. An action with an Undo does not. Use the in-page confirm the UI already has (a button that turns into "Confirm?" on the first click, or a confirm dialog), never the browser's `confirm()`. "Destructible and reversible actions should always have an "are you sure?" step." Nil, 2026-11-05.
+- Every button has a background. A button is never bare text or an outline only. "Buttons without background should not be a thing anywhere in isomux."
+- A view keeps its layout while it loads: draw the real controls, disabled and dimmed (or a placeholder of the same shape), until the data arrives. Never an empty box or a panel that grows.
+- The product name is Isomux, capitalized, in every string a person reads. Lowercase only where it is a literal (a command, a path, a package, a unit or domain name: brew upgrade isomux, systemctl --user restart isomux, isomux.com).
+- An agent selector groups agents by room.
+- A destructive action that cannot be undone (delete, remove, disconnect, reset, revoke, kill, clear) asks "are you sure?" before it runs. An action with an Undo does not. Use the in-page confirm the UI already has (a button that turns into "Confirm?" on the first click, or a confirm dialog), never the browser's `confirm()`. "Destructible and reversible actions should always have an "are you sure?" step."
 
 ## Code rules
 
 For new and changed code. A diff that breaks one does not pass review.
 
-- A process that moves through steps keeps one explicit state (one union value), not several flags that only make sense together (`internal-docs/implicit-state-machines.md`). Nil, 2026-11-06.
-- On a hot path (request, WebSocket, boot, turn start), independent async calls run in parallel, not one after another. Nil, 2026-11-06.
+- A process that moves through steps keeps one explicit state (one union value), not several flags that only make sense together (`internal-docs/implicit-state-machines.md`).
+- On a hot path (request, WebSocket, boot, turn start), independent async calls run in parallel, not one after another.
 
 ## Formatting and linting
 
@@ -76,8 +76,8 @@ ESLint warns (`max-lines`) on a file over 3,000 lines. Do not make such a file l
 - Codex integration uses the App Server, not `@openai/codex-sdk`. App Server is OpenAI's first-class integration for UI clients.
 - OpenCode integration uses the pinned bundled server. One supervised server and profile are shared by agents with the same environment-source identity.
 - React/SVG for rendering. Bun's bundler, no Vite.
-- The system prompt is identical on every turn of a session. A value that changes per turn (a handle, a nonce, a timestamp) never goes in it: a changed prompt defeats the provider's prompt cache on every turn. Nil, 2026-09-16.
-- The system prompt and the agent reference pages have byte caps, tested in `server/test-support/system-prompt.test.ts` and `server/agent-reference.test.ts`. A new prompt line pays for itself with a cut elsewhere. A page is at most 8 KB as served: cut first, then move what is left over to a sub-page. Raising either cap needs Nil. Nil, 2026-11-02 (`internal-docs/system-prompt-pointers.md`).
+- The system prompt is identical on every turn of a session. A value that changes per turn (a handle, a nonce, a timestamp) never goes in it: a changed prompt defeats the provider's prompt cache on every turn.
+- The system prompt and the agent reference pages have byte caps, tested in `server/test-support/system-prompt.test.ts` and `server/agent-reference.test.ts`. A new prompt line pays for itself with a cut elsewhere. A page is at most 8 KB as served: cut first, then move what is left over to a sub-page (`internal-docs/system-prompt-pointers.md`). Raising either cap needs Nil.
 
 ## Project layout
 
