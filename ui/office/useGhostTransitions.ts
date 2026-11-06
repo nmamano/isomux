@@ -31,16 +31,12 @@ export const GHOST_WALL_SPOTS: Record<PresencePage, DoorCoord> = {
   settings: { left: 772, top: 104 },
 };
 
-// The Inbox tray has no free floor in front of it, so its ghosts stand in a
-// row along the wall under the window, from the spot above away from the
-// tray. The row runs parallel to the wall (2:1) and spans `span` steps at
-// most: more ghosts than that close up the row, so no ghost reaches the tray
-// on one side or the Lobby door on the other.
-export const GHOST_WALL_ROWS: Partial<
-  Record<PresencePage, { dx: number; dy: number; span: number }>
-> = {
-  inbox: { dx: -34, dy: 17, span: 2 },
-};
+// The Inbox tray is right of its spot, so ghosts there stack leftward, along
+// the wall under the window, with the usual stack step mirrored. The tray
+// stays clear for clicks.
+export const GHOST_WALL_STACK_LEFT: ReadonlySet<PresencePage> = new Set([
+  "inbox",
+]);
 
 // Stack offsets for multiple members focused on the same agent. Small
 // diagonal step so the second/third ghost peeks out from behind the
@@ -140,20 +136,17 @@ function computeNaturalPlacements(
     if (arr) arr.push(p);
     else groups.set(key, [p]);
   }
-  const rankByConn = new Map<
-    string,
-    { key: string; index: number; count: number }
-  >();
+  const rankByConn = new Map<string, { key: string; index: number }>();
   for (const [key, group] of groups) {
     group.forEach((p, index) => {
-      rankByConn.set(p.connectionId, { key, index, count: group.length });
+      rankByConn.set(p.connectionId, { key, index });
     });
   }
   const out: GhostPlacement[] = [];
   for (const p of visible) {
     const rank = rankByConn.get(p.connectionId);
     if (!rank) continue;
-    const { key, index: i, count } = rank;
+    const { key, index: i } = rank;
     let left: number;
     let top: number;
     if (key === "lobby") {
@@ -161,15 +154,9 @@ function computeNaturalPlacements(
       top = GHOST_LOBBY_BASE_Y;
     } else if (p.page) {
       const spot = GHOST_WALL_SPOTS[p.page];
-      const row = GHOST_WALL_ROWS[p.page];
-      if (row) {
-        const step = Math.min(1, row.span / Math.max(1, count - 1));
-        left = spot.left + i * step * row.dx;
-        top = spot.top + i * step * row.dy;
-      } else {
-        left = spot.left + i * GHOST_STACK_DX;
-        top = spot.top + i * GHOST_STACK_DY;
-      }
+      const dir = GHOST_WALL_STACK_LEFT.has(p.page) ? -1 : 1;
+      left = spot.left + i * dir * GHOST_STACK_DX;
+      top = spot.top + i * GHOST_STACK_DY;
     } else {
       const deskIndex = Number(key.slice(5));
       const slot = DESK_SLOTS[deskIndex];
