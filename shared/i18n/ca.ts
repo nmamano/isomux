@@ -528,6 +528,8 @@ Coses que pots fer per ell:
   "settings.members.newMember": "Membre nou",
   "settings.members.create": "Crea el membre",
   "settings.members.neverSignedIn": "no ha iniciat mai la sessió",
+  "settings.members.signInLink.create":
+    "Crea un enllaç d'inici de sessió per a {name}",
   "settings.removedMembers.row": "Membres eliminats ({count})",
   "settings.removedMembers.title": "Membres eliminats",
   "settings.removedMembers.intro":

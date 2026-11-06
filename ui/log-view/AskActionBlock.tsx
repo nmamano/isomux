@@ -183,6 +183,7 @@ export function AskActionBlock({
     activeSessionsLoaded,
     invitesList,
     invitesLoaded,
+    sessionContext,
     updateInfo,
   } = useAppState();
   const dispatch = useDispatch();
@@ -229,7 +230,8 @@ export function AskActionBlock({
     };
   }, [read, office]);
   // A sign-out or a links revoke counts the member's sessions or links from
-  // the lists the office keeps live; seeded here when no page has yet.
+  // the lists the office keeps live; seeded here when no page has yet. Keyed
+  // on sessionContext too: see useAccessListsSeed.
   const needs =
     step.kind === "member-sessions"
       ? "sessions"
@@ -247,7 +249,7 @@ export function AskActionBlock({
       apiFetch<{ invites: InviteWire[] }>("GET", "/api/invites")
         .then((r) => dispatch({ type: "invites_list", invites: r.invites }))
         .catch(() => {});
-  }, [needs, activeSessionsLoaded, invitesLoaded, dispatch]);
+  }, [needs, activeSessionsLoaded, invitesLoaded, sessionContext, dispatch]);
   // "confirming" after a first click that asks again, "running" while a POST
   // is out, "ran" after the run's 2xx.
   const [phase, setPhase] = useState<"idle" | "confirming" | "running" | "ran">(

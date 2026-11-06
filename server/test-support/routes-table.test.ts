@@ -1692,7 +1692,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // are users.setInstructions.
   "users.update": {
     caps: ["user:self", "user:admin"],
-    emits: ["user_updated", "users_list", "full_state"],
+    emits: ["user_updated", "users_list", "full_state", "invites_list"],
   },
   "users.setAccess": {
     caps: ["user:admin"],

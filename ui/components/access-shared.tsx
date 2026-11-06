@@ -37,9 +37,12 @@ import { noTranslate } from "../no-translate.ts";
 // initial (and post-reconnect) snapshot. The server scopes both endpoints to
 // the caller (owners: all rows; members: own rows only), so one hook serves
 // every pane. Called once from UserSettingsView - the sidebar roster needs
-// sessions even when no account pane is open.
+// sessions even when no account pane is open. The effect also keys on
+// sessionContext: when a GET that resolves sets a flag and the next
+// session_context clears it in one render, the flag reads false before and
+// after, and only the new sessionContext makes the effect run again.
 export function useAccessListsSeed(): void {
-  const { invitesLoaded, activeSessionsLoaded } = useAppState();
+  const { invitesLoaded, activeSessionsLoaded, sessionContext } = useAppState();
   const dispatch = useDispatch();
   useEffect(() => {
     if (!invitesLoaded) {
@@ -54,7 +57,7 @@ export function useAccessListsSeed(): void {
         )
         .catch(() => {});
     }
-  }, [invitesLoaded, activeSessionsLoaded, dispatch]);
+  }, [invitesLoaded, activeSessionsLoaded, sessionContext, dispatch]);
 }
 
 // Render the cached rows whenever any are present, even while a refresh is

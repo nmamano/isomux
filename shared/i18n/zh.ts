@@ -497,6 +497,7 @@ App 的一些原则：
   "settings.members.newMember": "新成员",
   "settings.members.create": "创建成员",
   "settings.members.neverSignedIn": "从未登录",
+  "settings.members.signInLink.create": "为 {name} 创建登录链接",
   "settings.removedMembers.row": "已移除的成员（{count}）",
   "settings.removedMembers.title": "已移除的成员",
   "settings.removedMembers.intro":

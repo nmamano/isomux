@@ -529,6 +529,8 @@ Cosas que puedes hacer por él:
   "settings.members.newMember": "Nuevo miembro",
   "settings.members.create": "Crear miembro",
   "settings.members.neverSignedIn": "nunca ha iniciado sesión",
+  "settings.members.signInLink.create":
+    "Crear enlace de inicio de sesión para {name}",
   "settings.removedMembers.row": "Miembros eliminados ({count})",
   "settings.removedMembers.title": "Miembros eliminados",
   "settings.removedMembers.intro":

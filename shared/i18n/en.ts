@@ -537,6 +537,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.members.newMember": "New member",
   "settings.members.create": "Create member",
   "settings.members.neverSignedIn": "never signed in",
+  "settings.members.signInLink.create": "Create sign-in link for {name}",
   "settings.removedMembers.row": "Removed members ({count})",
   "settings.removedMembers.title": "Removed members",
   "settings.removedMembers.intro":

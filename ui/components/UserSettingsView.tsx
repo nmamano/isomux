@@ -74,7 +74,7 @@ import { RecordingPane } from "./RecordingPane.tsx";
 import { UpdatePane } from "./UpdatePane.tsx";
 import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
 import { useUnsavedChangesPrompt } from "./UnsavedChangesPrompt.tsx";
-import { InvitesPane } from "./InvitesPane.tsx";
+import { InvitesPane, PendingMemberSignInLink } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
@@ -1800,6 +1800,10 @@ function UserEditPanel({
             </span>
           )}
         </div>
+
+        {isOwner && !creating && !isMe && (
+          <PendingMemberSignInLink user={user} />
+        )}
 
         <h5 style={sectionTitleStyle}>{t("settings.profile.identity")}</h5>
         <label style={subLabelStyle}>{t("settings.profile.displayName")}</label>

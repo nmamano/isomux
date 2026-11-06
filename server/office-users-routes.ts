@@ -555,6 +555,9 @@ export function createUsersRoutes(
       if (publicChanged) {
         emitUserUpdated(user, renamed ? username : undefined);
         emitUsersList();
+        // Invite rows name a member by the current name: re-send them so the
+        // open lists match the new name.
+        if (user.name !== pre.name) emitInvitesList();
       } else {
         emitPrivateUserRecord(user);
       }

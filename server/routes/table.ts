@@ -2702,8 +2702,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap(["user:self", "user:admin"], selfOrOwner),
     // Record fields (name/role/avatar). emitUserUpdated + emitUsersList;
     // a role change also re-projects the subject's rooms (full_state) through
-    // the users.ts access hook. Access grants and view prefs are not editable here.
-    emits: ["user_updated", "users_list", "full_state"],
+    // the users.ts access hook, and a rename re-sends the invites list (its
+    // rows carry the member's current name). Access grants and view prefs are
+    // not editable here.
+    emits: ["user_updated", "users_list", "full_state", "invites_list"],
   }),
   defineRoute<SetAccessReq, { user: UserAdminWire }>({
     opId: "users.setAccess",

@@ -24,14 +24,15 @@ import {
 
 // One GET per connection; the event keeps the list current after it.
 export function useRemovedMembersSeed(isOwner: boolean): void {
-  const { removedMembersLoaded } = useAppState();
+  const { removedMembersLoaded, sessionContext } = useAppState();
   const dispatch = useDispatch();
+  // Keyed on sessionContext too: see useAccessListsSeed.
   useEffect(() => {
     if (!isOwner || removedMembersLoaded) return;
     apiFetch<RemovedMemberListRes>("GET", "/api/removed-members")
       .then((r) => dispatch({ type: "removed_members", members: r.members }))
       .catch(() => {});
-  }, [isOwner, removedMembersLoaded, dispatch]);
+  }, [isOwner, removedMembersLoaded, sessionContext, dispatch]);
 }
 
 export function RemovedMembersPane({

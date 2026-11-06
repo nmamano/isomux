@@ -612,3 +612,40 @@ describe("routes/invites REST: record-role projection (Option A) + scope/auth", 
     ).toBe(401);
   });
 });
+
+// Task 4860c373: a pending member's page hides its "Create sign-in link"
+// button while the store lists an unused link under the member's name. A
+// rename must refresh that list, or the button comes back and a click
+// replaces the link the owner already sent.
+describe("routes/invites REST: a rename refreshes the owner's invites_list", () => {
+  it("renaming a member with an unused link fans out invites_list under the new name", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Morgan");
+    await srv.seedMember("Alice");
+    const userId = getUserByName("Alice")!.id;
+    const minted = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { userId },
+    });
+    expect(minted.status).toBe(200);
+    const prefix = (minted.body as { invite: InviteWire }).invite.tokenPrefix;
+
+    const ownerSock = await srv.connectWs(owner.rawSessionId);
+    const renamed = await api(srv, "/api/users/Alice", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { name: "Alicia" },
+    });
+    expect(renamed.status).toBe(200);
+    await waitUntil(
+      () =>
+        !!lastInvitesList(ownerSock)?.some(
+          (i) => i.tokenPrefix === prefix && i.username === "Alicia",
+        ),
+      2000,
+      "invites_list under the new name",
+    );
+  });
+});

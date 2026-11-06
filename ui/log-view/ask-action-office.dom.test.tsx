@@ -515,3 +515,49 @@ it("a sign-in link result for another member: the hint names them, the title doe
   expect(text.split("Casey").length - 1).toBe(1);
   view.unmount();
 });
+
+// Task 4860c373: a card that reads the invites or the sessions list asks for
+// it again when its GET lands in the same render as session_context (which
+// clears the loaded flag), or the card's current value stays loading.
+it.each([
+  [
+    "sign-in-links-revoke",
+    "/api/invites",
+    { type: "invites_list", invites: [] },
+  ],
+  [
+    "member-sessions",
+    "/api/sessions",
+    { type: "sessions_active_list", sessions: [] },
+  ],
+] as const)(
+  "a %s card requests %s again after a load lost to session_context",
+  async (kind, path, landed) => {
+    const gets: string[] = [];
+    read = (p) => {
+      gets.push(p);
+      return new Promise(() => {});
+    };
+    const { view } = await mount([
+      memberAsk("lst00001", { kind, userId: "u2" }),
+    ]);
+    await act(async () => {});
+    expect(gets.filter((p) => p === path)).toHaveLength(1);
+    act(() => {
+      seeded(landed as never);
+      seeded({
+        type: "session_context",
+        context: {
+          userId: "u1",
+          username: "Morgan",
+          role: "owner",
+          currentSessionPrefix: "00000000",
+          connectionId: "c2",
+        },
+      });
+    });
+    await act(async () => {});
+    expect(gets.filter((p) => p === path)).toHaveLength(2);
+    view.unmount();
+  },
+);
