@@ -47,6 +47,7 @@ export const WS_PUSH_AREA = {
   editor_external_change: "files",
   editor_file_deleted: "files",
   floors_updated: "office",
+  office_enterprise_lock: "always",
   full_state: "always",
   interaction_added: "agents",
   interaction_removed: "agents",

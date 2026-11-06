@@ -567,6 +567,48 @@ App 的一些原则：
   "settings.office.claudeIsomuxLabel": "将 Claude 智能体标记为 Isomux",
   "settings.office.claudeIsomuxLabelHint":
     "只更改 Claude 智能体发送给 Anthropic 的元数据：表明它们运行在 Isomux 中，而不是 Agent SDK 中。Isomux 中的一切都不会改变。在 Isomux 的测试中，SDK 流量消耗 5 小时限额的速度约为两倍。Anthropic 尚未说明是否允许这样做，风险由每位成员的 Claude 账号承担。适用于所有成员的 Claude 智能体，在更改后开始的会话中生效。",
+  "settings.office.enterprise.label": "此办公室属于企业合同",
+  "settings.office.enterprise.hint":
+    "在超过 10 人的公司中商用 Isomux 时，必须勾选此项。<link>查看详情</link>。",
+  "settings.office.enterprise.locked": "粘贴企业密钥之前，此办公室无法使用。",
+  "settings.office.enterprise.lockedMember":
+    "所有者粘贴企业密钥之前，此办公室无法使用。",
+  "settings.office.enterprise.secret": "企业密钥",
+  "settings.office.enterprise.secretHint":
+    "从贵公司在 cloud.isomux.com 上的企业账户复制。",
+  "settings.office.enterprise.newSecret": "新密钥",
+  "settings.office.enterprise.connect": "连接",
+  "settings.office.enterprise.connecting": "正在连接…",
+  "settings.office.enterprise.replace": "替换",
+  "settings.office.enterprise.connected": "合同已连接",
+  "settings.office.enterprise.kind": "类型",
+  "settings.office.enterprise.kindStandard": "标准",
+  "settings.office.enterprise.kindNegotiated": "协商",
+  "settings.office.enterprise.account": "账户",
+  "settings.office.enterprise.seats": "席位",
+  "settings.office.enterprise.checking": "正在检查…",
+  "settings.office.enterprise.seatsUsed.one":
+    "{inUse}/{seats}，共 {count} 个办公室",
+  "settings.office.enterprise.seatsUsed.other":
+    "{inUse}/{seats}，共 {count} 个办公室",
+  "settings.office.enterprise.help": "企业帮助：{email}",
+  "settings.office.enterprise.problemBadSecret":
+    "Isomux 不再接受此密钥。请从企业账户粘贴当前密钥。",
+  "settings.office.enterprise.problemNotSigned":
+    "企业账户没有已签署的协议。签署之前无法添加新成员。",
+  "settings.office.enterprise.problemUnreachable":
+    "上次检查时无法连接 Isomux。仍可添加成员。",
+  "settings.office.enterprise.errorRejected":
+    "Isomux 未接受此密钥。请从企业账户重新复制。",
+  "settings.office.enterprise.errorNotSigned": "企业账户尚无已签署的协议。",
+  "settings.office.enterprise.errorUnreachable":
+    "无法连接 Isomux 来检查密钥。请重试。",
+  "settings.office.enterprise.errorInvalid":
+    "这不是企业密钥。请从企业账户重新复制。",
+  "settings.office.enterprise.errorRateLimited":
+    "尝试次数过多。请一分钟后重试。",
+  "settings.office.enterprise.loadFailed": "无法读取企业合同设置。",
+  "settings.office.enterprise.retry": "重试",
   "settings.office.nameHint": "（可选，显示在浏览器标签页中）",
   "settings.office.namePlaceholder": "Nil 的办公室",
   "settings.office.rulesHint": "（添加到每个智能体的系统提示词中）",
@@ -2031,6 +2073,10 @@ App 的一些原则：
   "apiCall.office.saveSettings": "更改办公室设置",
   "apiCall.office.readInstructions": "读取办公室指令",
   "apiCall.office.saveInstructions": "更改办公室指令",
+  "apiCall.office.readEnterprise": "读取企业合同",
+  "apiCall.office.setEnterprise": "开启或关闭企业合同",
+  "apiCall.office.setEnterpriseSecret": "设置企业密钥",
+  "apiCall.office.checkEnterprise": "检查企业席位",
   "apiCall.office.lockdown": "锁定办公室",
   "apiCall.office.startExport": "开始导出办公室",
   "apiCall.office.exportStatus": "查看办公室导出",
@@ -3676,6 +3722,10 @@ App 的一些原则：
     "现有成员的角色不同，无法接受此邀请。请让办公室所有者生成新邀请。",
   "preAuth.inviteError.ownerExists":
     "办公室所有者已存在。办公室被认领后，初始设置邀请不再有效。",
+  "preAuth.inviteError.seatsFull":
+    "此办公室的企业许可证没有空闲席位。请联系办公室所有者。",
+  "preAuth.inviteError.seatRefused":
+    "此办公室目前无法添加成员。请联系办公室所有者。",
   "preAuth.inviteError.generic": "此邀请已失效。",
   "preAuth.conflict.heading": "此邀请属于其他成员",
   "preAuth.conflict.body":

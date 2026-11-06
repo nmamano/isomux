@@ -8,6 +8,6 @@ Safe example: `GET /api/users/:username/instructions`.
 
 ## Route contract
 
-`POST /api/users` returns `201 {user}`. Another role, or a manager who is not an office owner, returns 403. Invalid bodies return 422.
+`POST /api/users` returns `201 {user}`. Another role, or a manager who is not an office owner, returns 403. Invalid bodies return 422. In an office with an Enterprise Contract (see office-settings), the add can be refused: 409 `seats_full` when the license has no free seat, 409 `enterprise_secret_needed` before the secret is set, 403 `enterprise_secret_rejected` or `enterprise_not_signed`, and 429 `enterprise_rate_limited`. Tell the member; IT adds seats on the enterprise account.
 
 `GET /api/users/:username/instructions` and `PUT /api/users/:username/instructions` return `{instructions,version}`. The instructions are a string or null. A missing version returns 400 `invalid_version`; a stale version returns 409 `version_conflict` with the current `error.version`. Invalid instructions return 422. A read of an unknown member returns 403. A read of a member who shares no room with you also returns 403, unless your manager is an office owner. A write by an ordinary agent, or of a member outside your reach, returns 403.

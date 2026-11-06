@@ -115,6 +115,8 @@ export const AUDIT_OPERATIONS = [
   "memory.append",
   "memory.replace",
   "messaging.reply",
+  "office.enterprise.setEnabled",
+  "office.enterprise.setSecret",
   "office.lockdown",
   "office.setAccess",
   "office.setInstructions",

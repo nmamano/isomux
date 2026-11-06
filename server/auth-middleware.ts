@@ -13,6 +13,7 @@ import {
   emitBrowserSessionDiagnostic,
   logoutBySessionHash,
   peekInvite,
+  inviteCreatesMember,
   readSessionCookie,
   readSessionCookies,
   setCookieHeader,
@@ -55,6 +56,7 @@ import { withMemberPack } from "./identity/member-pack.ts";
 import { deriveAppHostDomain } from "./app-domain.ts";
 import { ownerLoginCommand } from "./admin-cli.ts";
 import { ADMIN_SOCKET_PATH } from "./config.ts";
+import type { EnterpriseOutcome } from "./enterprise-seats.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -69,6 +71,18 @@ type OwnerCreatedCb = (opts: { username: string }) => Promise<void> | void;
 let onOwnerCreated: OwnerCreatedCb | null = null;
 export function setOnOwnerCreated(cb: OwnerCreatedCb | null): void {
   onOwnerCreated = cb;
+}
+
+// The Enterprise Contract seat gate (server/enterprise-seats.ts) for a legacy
+// new-member invite, the one accept that adds a member. `null` resets for
+// repeated test boots.
+export interface InviteSeatGate {
+  takeSeat<T>(add: () => Promise<T>): Promise<EnterpriseOutcome<T>>;
+  release(): void;
+}
+let inviteSeatGate: (() => InviteSeatGate | null) | null = null;
+export function setInviteSeatGate(gate: (() => InviteSeatGate | null) | null) {
+  inviteSeatGate = gate;
 }
 
 // Origin check. Reverse proxies are configured by the operator setting the
@@ -522,11 +536,28 @@ export async function handleAccept(
       return renderInviteIdentityConflict(i18n, conflict, officeName);
   }
   const ua = req.headers.get("user-agent");
-  const result = await acceptInvite(token, {
-    userAgent: ua,
-    chosenName: name,
-    language,
-  });
+  const accept = () =>
+    acceptInvite(token, {
+      userAgent: ua,
+      chosenName: name,
+      language,
+    });
+  const gate = inviteCreatesMember(token) ? inviteSeatGate?.() : null;
+  let result: Awaited<ReturnType<typeof acceptInvite>>;
+  if (gate) {
+    const seat = await gate.takeSeat(accept);
+    if (!seat.ok)
+      return renderInviteError(
+        i18n,
+        seat.reason === "seats_full" ? "seats_full" : "seat_refused",
+        officeName,
+      );
+    result = seat.value;
+    // The seat call counted a member the accept did not add.
+    if (!result.ok) gate.release();
+  } else {
+    result = await accept();
+  }
   if (!result.ok) {
     if (
       result.error === "needs_name" ||
@@ -1362,6 +1393,8 @@ const INVITE_ERROR_KEYS = {
   expired: "preAuth.inviteError.expired",
   role_mismatch: "preAuth.inviteError.roleMismatch",
   owner_exists: "preAuth.inviteError.ownerExists",
+  seats_full: "preAuth.inviteError.seatsFull",
+  seat_refused: "preAuth.inviteError.seatRefused",
 } as const;
 
 function renderInviteError(

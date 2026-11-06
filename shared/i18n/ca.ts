@@ -604,6 +604,52 @@ Coses que pots fer per ell:
     "Identifica els agents de Claude com a Isomux",
   "settings.office.claudeIsomuxLabelHint":
     "Canvia només les metadades que els agents de Claude envien a Anthropic: indiquen que s'executen a Isomux, no a l'Agent SDK. Res no canvia a Isomux. A les proves d'Isomux, el trànsit de l'SDK va consumir el límit de 5 hores aproximadament el doble de ràpid. Anthropic no ha dit si això està permès, i el risc recau en el compte de Claude de cada membre. S'aplica als agents de Claude de tots els membres, a les sessions que comencin després del canvi.",
+  "settings.office.enterprise.label":
+    "Aquesta oficina forma part d'un contracte Enterprise",
+  "settings.office.enterprise.hint":
+    "Cal marcar-ho quan s'utilitza Isomux comercialment en una empresa de més de 10 persones. <link>Vegeu els detalls</link>.",
+  "settings.office.enterprise.locked":
+    "L'oficina no es pot fer servir fins que enganxis el secret Enterprise.",
+  "settings.office.enterprise.lockedMember":
+    "L'oficina no es pot fer servir fins que un propietari enganxi el secret Enterprise.",
+  "settings.office.enterprise.secret": "Secret Enterprise",
+  "settings.office.enterprise.secretHint":
+    "Copia'l del compte Enterprise de la teva empresa a cloud.isomux.com.",
+  "settings.office.enterprise.newSecret": "Secret nou",
+  "settings.office.enterprise.connect": "Connecta",
+  "settings.office.enterprise.connecting": "S'està connectant…",
+  "settings.office.enterprise.replace": "Substitueix",
+  "settings.office.enterprise.connected": "Contracte connectat",
+  "settings.office.enterprise.kind": "Tipus",
+  "settings.office.enterprise.kindStandard": "Estàndard",
+  "settings.office.enterprise.kindNegotiated": "Negociat",
+  "settings.office.enterprise.account": "Compte",
+  "settings.office.enterprise.seats": "Places",
+  "settings.office.enterprise.checking": "S'està comprovant…",
+  "settings.office.enterprise.seatsUsed.one":
+    "{inUse}/{seats} en {count} oficina",
+  "settings.office.enterprise.seatsUsed.other":
+    "{inUse}/{seats} en {count} oficines",
+  "settings.office.enterprise.help": "Ajuda Enterprise: {email}",
+  "settings.office.enterprise.problemBadSecret":
+    "Isomux ja no accepta aquest secret. Enganxa l'actual des del compte Enterprise.",
+  "settings.office.enterprise.problemNotSigned":
+    "El compte Enterprise no té cap acord signat. No es poden afegir membres nous fins que se signi.",
+  "settings.office.enterprise.problemUnreachable":
+    "No s'ha pogut contactar amb Isomux a l'última comprovació. Encara es poden afegir membres.",
+  "settings.office.enterprise.errorRejected":
+    "Isomux no ha acceptat aquest secret. Torna'l a copiar del compte Enterprise.",
+  "settings.office.enterprise.errorNotSigned":
+    "El compte Enterprise encara no té cap acord signat.",
+  "settings.office.enterprise.errorUnreachable":
+    "No s'ha pogut contactar amb Isomux per comprovar el secret. Torna-ho a provar.",
+  "settings.office.enterprise.errorInvalid":
+    "Això no és un secret Enterprise. Torna'l a copiar del compte Enterprise.",
+  "settings.office.enterprise.errorRateLimited":
+    "Massa intents. Torna-ho a provar d'aquí a un minut.",
+  "settings.office.enterprise.loadFailed":
+    "No s'ha pogut llegir la configuració del contracte Enterprise.",
+  "settings.office.enterprise.retry": "Torna-ho a provar",
   "settings.office.nameHint":
     "(opcional, es mostra a la pestanya del navegador)",
   "settings.office.namePlaceholder": "Oficina del Nil",
@@ -2294,6 +2340,10 @@ Coses que pots fer per ell:
   "apiCall.office.saveSettings": "Canviar la configuració de l'oficina",
   "apiCall.office.readInstructions": "Llegir les instruccions de l'oficina",
   "apiCall.office.saveInstructions": "Canviar les instruccions de l'oficina",
+  "apiCall.office.readEnterprise": "Llegeix el contracte Enterprise",
+  "apiCall.office.setEnterprise": "Activa o desactiva el contracte Enterprise",
+  "apiCall.office.setEnterpriseSecret": "Desa el secret Enterprise",
+  "apiCall.office.checkEnterprise": "Comprova les places Enterprise",
   "apiCall.office.lockdown": "Bloquejar l'oficina",
   "apiCall.office.startExport": "Iniciar una exportació de l'oficina",
   "apiCall.office.exportStatus": "Comprovar una exportació de l'oficina",
@@ -4128,6 +4178,10 @@ Coses que pots fer per ell:
     "Aquesta invitació no es pot acceptar perquè el membre que ja existeix té un altre rol. Demana a un propietari de l'oficina que creï una invitació nova.",
   "preAuth.inviteError.ownerExists":
     "Ja existeix un propietari de l'oficina. Les invitacions inicials deixen de funcionar quan l'oficina ja està reclamada.",
+  "preAuth.inviteError.seatsFull":
+    "Aquesta oficina no té cap plaça lliure a la seva llicència Enterprise. Demana-ho a un propietari de l'oficina.",
+  "preAuth.inviteError.seatRefused":
+    "Aquesta oficina ara no pot afegir membres. Demana-ho a un propietari de l'oficina.",
   "preAuth.inviteError.generic": "Aquesta invitació ja no és vàlida.",
   "preAuth.conflict.heading": "Aquesta invitació és per a un altre membre",
   "preAuth.conflict.body":

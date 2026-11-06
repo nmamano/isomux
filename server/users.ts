@@ -464,6 +464,26 @@ export function isValidMemberName(name: string): boolean {
   return name.length <= 64 && /^[\p{L}\p{N} ._'-]+$/u.test(name);
 }
 
+// Why createMember would refuse this name, or null. The enterprise seat gate
+// checks it before it asks for a seat.
+export function memberNameRefusal(
+  rawName: string,
+): { code: "invalid_name" | "name_taken"; error: string } | null {
+  load();
+  const name = rawName.trim();
+  if (!name || !isValidMemberName(name))
+    return {
+      code: "invalid_name",
+      error:
+        "Names use letters, digits, spaces and . _ ' - (at most 64 characters).",
+    };
+  if (getUserByName(name))
+    return { code: "name_taken", error: `User "${name}" already exists` };
+  if (isRemovedMemberName(name))
+    return { code: "name_taken", error: removedNameError(name) };
+  return null;
+}
+
 // Owner-created member (users.create). Unlike claimUser this refuses an
 // existing name, and the record is marked pendingSignIn until the member
 // accepts their first sign-in link.
@@ -481,26 +501,11 @@ export function createMember(
 ):
   | { ok: true; user: UserRecord }
   | { ok: false; code: "invalid_name" | "name_taken"; error: string } {
-  load();
-  const name = rawName.trim();
-  if (!name || !isValidMemberName(name))
-    return {
-      ok: false,
-      code: "invalid_name",
-      error:
-        "Names use letters, digits, spaces and . _ ' - (at most 64 characters).",
-    };
-  if (getUserByName(name))
-    return {
-      ok: false,
-      code: "name_taken",
-      error: `User "${name}" already exists`,
-    };
-  if (isRemovedMemberName(name))
-    return { ok: false, code: "name_taken", error: removedNameError(name) };
+  const refusal = memberNameRefusal(rawName);
+  if (refusal) return { ok: false, ...refusal };
   return {
     ok: true,
-    user: claimUser(name, { ...initial, pendingSignIn: true }),
+    user: claimUser(rawName.trim(), { ...initial, pendingSignIn: true }),
   };
 }
 

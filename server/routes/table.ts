@@ -9,6 +9,9 @@ import {
 } from "../../shared/plain-text-form.ts";
 import type {
   AppWidgetStatus,
+  EnterpriseEnableReq,
+  EnterpriseSecretReq,
+  EnterpriseViewRes,
   MemberSessionWire,
 } from "../../shared/contract-shapes.ts";
 import {
@@ -3015,6 +3018,47 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:settings", officeSettingsOwner),
     tokenArea: { area: "office", level: "write" },
     emits: ["office_settings_updated"],
+  }),
+  // Enterprise seats (server/enterprise-seats.ts): the Enterprise Contract
+  // box, its secret and the seat service's answer. No route returns the
+  // secret.
+  defineRoute<void, EnterpriseViewRes>({
+    opId: "office.enterprise.get",
+    method: "GET",
+    path: "/api/office/enterprise",
+    auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "read" },
+    emits: [],
+  }),
+  defineRoute<EnterpriseEnableReq, EnterpriseViewRes>({
+    opId: "office.enterprise.setEnabled",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "PUT",
+    path: "/api/office/enterprise",
+    auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "write" },
+    emits: ["office_enterprise_lock"],
+  }),
+  defineRoute<EnterpriseSecretReq, EnterpriseViewRes>({
+    opId: "office.enterprise.setSecret",
+    audit: { owner: "executor", targets: selectedTargets({ fixed: "office" }) },
+    method: "POST",
+    path: "/api/office/enterprise/secret",
+    auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "write" },
+    emits: ["office_enterprise_lock"],
+  }),
+  defineRoute<void, EnterpriseViewRes>({
+    opId: "office.enterprise.check",
+    audit: {
+      owner: "none",
+      reason: "Asks the seat service for the count; changes only its copy.",
+    },
+    method: "POST",
+    path: "/api/office/enterprise/check",
+    auth: cap("office:settings", officeSettingsOwner),
+    tokenArea: { area: "office", level: "write" },
+    emits: [],
   }),
   // The office instructions. Their version covers the text only.
   defineRoute<void, InstructionsRes>({

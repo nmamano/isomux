@@ -47,6 +47,7 @@ import { askIdForPage } from "./inbox.ts";
 import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
+import { EnterpriseLock } from "./components/EnterpriseLock.tsx";
 import { UiBuildNotice } from "./components/UiBuildNotice.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
@@ -1085,6 +1086,7 @@ export function App({ routing = true }: { routing?: boolean }) {
             <style>{CSS}</style>
             <ConnectionBanner />
             <UpdateOverlay />
+            <EnterpriseLock />
             <UiBuildNotice />
             {page === "settings" ? (
               <UserSettingsView

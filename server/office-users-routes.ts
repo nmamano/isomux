@@ -43,11 +43,12 @@ import {
   type ArchivedConnections,
   type RemovedMember,
 } from "./removed-members.ts";
-import type { RouteHandler } from "./routes/executor.ts";
+import type { HandlerErrorStatus, RouteHandler } from "./routes/executor.ts";
 import { usersHandlers } from "./routes/handlers/users.ts";
 import { removeManagedUserEnv } from "./user-env.ts";
 import {
   createMember,
+  memberNameRefusal,
   deleteUser,
   deleteUserById,
   getUser,
@@ -59,6 +60,15 @@ import {
   wouldDeleteLeaveNoOwner,
 } from "./users.ts";
 import { webhookRegistry } from "./webhooks/registry.ts";
+import {
+  ENTERPRISE_ERROR_CODES,
+  type EnterpriseSeats,
+} from "./enterprise-seats.ts";
+import {
+  enterpriseRefusalMessage,
+  enterpriseRefusalStatus,
+  type EnterpriseRefusalOutcome,
+} from "./enterprise-seats-routes.ts";
 import { AGENTS_CANNOT_MOVE_DOWN } from "./identity/agent-fit.ts";
 
 // What the users routes read from server/isomux-office.ts.
@@ -99,6 +109,24 @@ export interface UsersRoutesDeps
   // it, and the moves and app stops after a save.
   agentsThatCannotMoveDown: (userId: string, pack: MemberPack) => AgentInfo[];
   afterMemberPackSaved: (userId: string) => void;
+  // The Enterprise Contract seats (server/enterprise-seats.ts): every add
+  // takes a seat first, a removal releases one.
+  enterpriseSeats: () => EnterpriseSeats;
+}
+
+// A refused seat as the users routes' error shape.
+function enterpriseRefusal(refusal: EnterpriseRefusalOutcome): {
+  ok: false;
+  status: HandlerErrorStatus;
+  code: string;
+  error: string;
+} {
+  return {
+    ok: false,
+    status: enterpriseRefusalStatus(refusal),
+    code: ENTERPRISE_ERROR_CODES[refusal.reason],
+    error: enterpriseRefusalMessage(refusal),
+  };
 }
 
 // The member's connections for the archive: secrets without values and MCP
@@ -227,6 +255,7 @@ export function createUsersRoutes(
     announceWebhookUpdate,
     emitUserUpdated,
     emitUsersList,
+    enterpriseSeats,
     mcpSources,
     providerAccounts,
     purgeRemovedMember,
@@ -370,18 +399,33 @@ export function createUsersRoutes(
           error: `Unknown room id: ${unknown}`,
         };
       }
-      const r = createMember(name, {
-        role,
-        memberPrompt,
-        avatarColor,
-        avatarVariant,
-        allowedRooms: grants,
-        ...(pack && role === "member" ? { pack } : {}),
-        // A new owner is notified for every room by default, like the
-        // first owner; a member for the rooms granted here.
-        ...(role === "owner" ? { notifRooms: roomIds } : {}),
-      });
+      // A name createMember would refuse costs no seat call. The check
+      // inside createMember still covers a race.
+      const nameRefusal = memberNameRefusal(name);
+      if (nameRefusal)
+        return {
+          ok: false,
+          status: nameRefusal.code === "name_taken" ? 409 : 400,
+          ...nameRefusal,
+        };
+      const seat = await enterpriseSeats().takeSeat(() =>
+        createMember(name, {
+          role,
+          memberPrompt,
+          avatarColor,
+          avatarVariant,
+          allowedRooms: grants,
+          ...(pack && role === "member" ? { pack } : {}),
+          // A new owner is notified for every room by default, like the
+          // first owner; a member for the rooms granted here.
+          ...(role === "owner" ? { notifRooms: roomIds } : {}),
+        }),
+      );
+      if (!seat.ok) return enterpriseRefusal(seat);
+      const r = seat.value;
       if (!r.ok) {
+        // The seat call counted a member that was not added.
+        enterpriseSeats().release();
         return {
           ok: false,
           status: r.code === "name_taken" ? 409 : 400,
@@ -832,6 +876,7 @@ export function createUsersRoutes(
       if (!refusal) {
         emitUsersList();
         emitRemovedMembers();
+        if (target) enterpriseSeats().release();
       }
       if (target) {
         // The proxy drops the secrets. The member's agents passed to the
@@ -870,12 +915,18 @@ export function createUsersRoutes(
           error: `User "${member.user.name}" already exists`,
         };
       // Files first, then the record, then the archive goes: the live
-      // record wins at boot, so a crash part way loses nothing.
-      const connections = readArchivedConnections(id);
-      restoreArchivedFiles(id);
-      mcpSources.secrets.importShapes(id, connections.secrets);
-      mcpSources.servers.importFromArchive(id, connections.mcpServers);
-      const restored = restoreUserRecord(member.user);
+      // record wins at boot, so a crash part way loses nothing. A refused
+      // seat moves nothing.
+      const seat = await enterpriseSeats().takeSeat(() => {
+        const connections = readArchivedConnections(id);
+        restoreArchivedFiles(id);
+        mcpSources.secrets.importShapes(id, connections.secrets);
+        mcpSources.servers.importFromArchive(id, connections.mcpServers);
+        return restoreUserRecord(member.user);
+      });
+      if (!seat.ok) return enterpriseRefusal(seat);
+      const restored = seat.value;
+      if (!restored.ok) enterpriseSeats().release();
       if (!restored.ok)
         return {
           ok: false,

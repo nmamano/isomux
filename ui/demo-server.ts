@@ -2965,6 +2965,16 @@ export async function demoApi(
         name: state.office.name,
         version: "demo-version",
       };
+    // office.enterprise.get - the demo office has no Enterprise Contract
+    // section (as on Hosted).
+    case "GET /api/office/enterprise":
+      return {
+        available: false,
+        enabled: false,
+        locked: false,
+        connected: null,
+        problem: null,
+      };
     case "GET /api/office/env":
       return {
         mode: "managed",

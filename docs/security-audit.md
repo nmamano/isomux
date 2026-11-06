@@ -337,7 +337,7 @@ Before Isomux stores a new agent, scheduled-run or token log entry, it masks val
 
 ### 8.4 Telemetry
 
-Isomux itself has no telemetry. It sends no usage data to Isomux LLC or to anyone else.
+Isomux itself has no telemetry. It sends no usage data to Isomux LLC or to anyone else. The one exception is an office whose owner turns on the Enterprise Contract box: it sends its member count to the seat service (section 8.12).
 
 The agent programs that Isomux runs have their own telemetry, which goes to their vendors.
 
@@ -408,6 +408,16 @@ The lobby elevator links to other Isomux offices. Each office answers a public c
 - **Reach.** The request goes out from the server process, so it reaches addresses on the office's own network. The caller learns which of three answers one fixed path gives at that address: a card, an older office's sign-in wall, or neither.
 - **What is stored.** The address (its origin only) and the name, in `floors.json`. No token or secret goes to the other office.
 - **The panel a member carries.** Each ride from the elevator carries the member's panel in the address fragment, which the browser never sends to a server: the addresses of the offices that browser rode through and of their floors, with no name. The office keeps it in that browser's local storage and checks every address in it. It shows no name that a ride carried: a signed-in member or a privileged agent asks the office server for the name at an address (`GET /api/floors/name`), and the server reads the card as above. The server keeps each answer for an hour, for all callers, and answers at most four of these reads at a time for one caller. So every office a member rides to learns every address on the member's panel. A crafted link can add addresses to the panel in that browser, or hide entries that only the panel holds, never the office's own floors.
+
+### 8.12 Enterprise seats
+
+An office whose owner checks "This office is part of an Enterprise Contract" in Settings -> Office and pastes the company's enterprise secret asks the seat service at `cloud.isomux.com` for a seat before each member add.
+
+- **What leaves the office.** A random office id (32 hex characters, made once per office) and the office's member count. No names, emails, agents or content. The secret goes in the `Authorization` header.
+- **When.** Before each member add (a created member, a restore from Removed members, a legacy new-member invite), after each removal, a few seconds after boot and then every hour, and once with a count of 0 when an owner turns the box off.
+- **Outbound requests.** Isomux does not follow redirects and stops a request after 10 seconds. A refusal stops the add. No answer, a 5xx or a redirect lets the add go on, and the next check-in corrects the count. Existing members are never locked out.
+- **Where the secret is.** In `secrets/enterprise-seats.key` (mode 0600) under the state root. No route returns it, and no log line or audit row holds it. Turning the box off deletes it. An agent with a shell can read the file (section 3.2).
+- **The lock.** While the box is on and no secret was accepted, every member sees a full-screen lock, and the office adds no members. Agents and schedules keep running. Hosted offices have no box.
 
 ---
 
@@ -511,7 +521,7 @@ A same-host reverse proxy or tunnel configured **before** an owner claims forwar
 - Other: `server/preview-capture.ts`, `server/browser-extension-service.ts`, `server/office-usage.ts`
 - Hosting: `deploy/install.sh`, `deploy/container/`, `deploy/kubernetes/`
 
-## Appendix: sources for the webhook, pager, connection test and floor statements
+## Appendix: sources for the webhook, pager, connection test, floor and enterprise seat statements
 
 Paths are under `server/`, except those that start with `shared/`.
 
@@ -540,4 +550,5 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 8.7, the flow and its checks: `discover`, `send`, `startSignIn` and `finishSignIn` in `mcp-oauth.ts`; the `mcpServers.signIn`, `officeMcpServers.signIn` and `mcpOAuth.callback` routes in `routes/table.ts`.
 - Section 8.7, where the tokens are: `writeOwnedSecret` in `mcp-oauth.ts`; `mcp-oauth-tokens.ts`; `mcpServerSecret` in `mcp-servers.ts`.
 - Section 8.8, what an agent reads: the `agentConnections.list` route in `routes/table.ts`; `buildAgentConnections` in `agent-connections.ts`; `server/agent-reference/connections.md`.
+- Section 8.12: `seatCall`, `headerSafeSecret` and `createEnterpriseSeats` in `enterprise-seats.ts`; `enterpriseSeatsHandlers` in `enterprise-seats-routes.ts`; the `office.enterprise.*` routes in `routes/table.ts`; the `takeSeat` calls in `office-users-routes.ts` and `auth-middleware.ts`.
 - Section 8.11, and the office card in section 4.5: `allowOfficeCardRequest` in `ready-limiter.ts`; `officeCardResponse`, `probeOffice` and `OFFICE_CARD_MAX_BYTES` in `office-card.ts`; `floorsHandlers` in `routes/handlers/floors.ts`; `createFloorsStore` in `floors-store.ts`; `createOfficeNameCache` in `office-name-cache.ts`; the panel rules in `shared/elevator-panel.ts`; the `floors.*` routes in `routes/table.ts`.

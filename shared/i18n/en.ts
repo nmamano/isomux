@@ -612,6 +612,52 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.claudeIsomuxLabel": "Label Claude agents as Isomux",
   "settings.office.claudeIsomuxLabelHint":
     "Changes only the metadata that Claude agents send to Anthropic: it says they run in Isomux, not in the Agent SDK. Nothing in Isomux changes. In Isomux's tests, SDK traffic used the 5-hour limit about twice as fast. Anthropic has not said whether this is allowed, and the risk falls on each member's Claude account. Applies to every member's Claude agents, in sessions that start after the change.",
+  "settings.office.enterprise.label":
+    "This office is part of an Enterprise Contract",
+  "settings.office.enterprise.hint":
+    "This must be checked when using Isomux commercially in a company of more than 10 people. <link>See details</link>.",
+  "settings.office.enterprise.locked":
+    "The office cannot be used until you paste the enterprise secret.",
+  "settings.office.enterprise.lockedMember":
+    "The office cannot be used until an owner pastes the enterprise secret.",
+  "settings.office.enterprise.secret": "Enterprise secret",
+  "settings.office.enterprise.secretHint":
+    "Copy it from your company's enterprise account on cloud.isomux.com.",
+  "settings.office.enterprise.newSecret": "New secret",
+  "settings.office.enterprise.connect": "Connect",
+  "settings.office.enterprise.connecting": "Connecting…",
+  "settings.office.enterprise.replace": "Replace",
+  "settings.office.enterprise.connected": "Contract connected",
+  "settings.office.enterprise.kind": "Kind",
+  "settings.office.enterprise.kindStandard": "Standard",
+  "settings.office.enterprise.kindNegotiated": "Negotiated",
+  "settings.office.enterprise.account": "Account",
+  "settings.office.enterprise.seats": "Seats",
+  "settings.office.enterprise.checking": "Checking…",
+  "settings.office.enterprise.seatsUsed.one":
+    "{inUse}/{seats} across {count} office",
+  "settings.office.enterprise.seatsUsed.other":
+    "{inUse}/{seats} across {count} offices",
+  "settings.office.enterprise.help": "Enterprise help: {email}",
+  "settings.office.enterprise.problemBadSecret":
+    "Isomux no longer accepts this secret. Paste the current one from the enterprise account.",
+  "settings.office.enterprise.problemNotSigned":
+    "The enterprise account has no signed agreement. New members cannot be added until it is signed.",
+  "settings.office.enterprise.problemUnreachable":
+    "Could not reach Isomux at the last check. Members can still be added.",
+  "settings.office.enterprise.errorRejected":
+    "Isomux did not accept this secret. Copy it again from the enterprise account.",
+  "settings.office.enterprise.errorNotSigned":
+    "The enterprise account has no signed agreement yet.",
+  "settings.office.enterprise.errorUnreachable":
+    "Could not reach Isomux to check the secret. Try again.",
+  "settings.office.enterprise.errorInvalid":
+    "This is not an enterprise secret. Copy it again from the enterprise account.",
+  "settings.office.enterprise.errorRateLimited":
+    "Too many tries. Try again in a minute.",
+  "settings.office.enterprise.loadFailed":
+    "Could not read the Enterprise Contract setting.",
+  "settings.office.enterprise.retry": "Try again",
   "settings.office.nameHint": "(optional, shown in browser tab)",
   "settings.office.namePlaceholder": "Nil's Office",
   "settings.office.rulesHint": "(added to the system prompt of every agent)",
@@ -2225,6 +2271,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.office.saveSettings": "Change office settings",
   "apiCall.office.readInstructions": "Read office instructions",
   "apiCall.office.saveInstructions": "Change office instructions",
+  "apiCall.office.readEnterprise": "Read the Enterprise Contract",
+  "apiCall.office.setEnterprise": "Turn the Enterprise Contract on or off",
+  "apiCall.office.setEnterpriseSecret": "Set the enterprise secret",
+  "apiCall.office.checkEnterprise": "Check enterprise seats",
   "apiCall.office.lockdown": "Lock the office",
   "apiCall.office.startExport": "Start an office export",
   "apiCall.office.exportStatus": "Check an office export",
@@ -4043,6 +4093,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "This invite can't be accepted because the existing member has a different role. Ask an office owner to mint a new invite.",
   "preAuth.inviteError.ownerExists":
     "An office owner already exists. Bootstrap invites stop working once the office has been claimed.",
+  "preAuth.inviteError.seatsFull":
+    "This office has no free seat on its enterprise license. Ask an office owner.",
+  "preAuth.inviteError.seatRefused":
+    "This office cannot add members right now. Ask an office owner.",
   "preAuth.inviteError.generic": "This invite is no longer valid.",
   "preAuth.conflict.heading": "This invite is for a different member",
   "preAuth.conflict.body":

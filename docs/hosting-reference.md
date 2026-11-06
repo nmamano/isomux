@@ -121,6 +121,12 @@ Run the command from a login shell on the machine, not from an office terminal o
 
 A backup taken before the lock still holds the revoked sign-ins: restoring it brings them back.
 
+## Enterprise Contract
+
+A company of more than 10 people that uses Isomux commercially needs an enterprise account at `cloud.isomux.com`. In each of its offices, an owner checks "This office is part of an Enterprise Contract" in Settings -> Office and pastes the secret from the account page. Until a secret is accepted, the office is locked for every member.
+
+The office then asks the account for a seat before it adds a member and frees the seat when it removes one. It sends only a random office id and its member count ([security audit, section 8.12](security-audit.md)). When the account has no free seat, the office refuses the add and says so; IT adds seats on the account page. Nobody is ever locked out once a secret is accepted. An account can go over its seats in two ways: an office adds members while it cannot reach Isomux (it adds them anyway and sends the count at its next hourly check-in), or a secret is pasted in an office that has more members than the account has free seats. IT sees the new count on the account page. When IT makes a new secret, paste it in each office: until then each office refuses new members. Unchecking the box frees the office's seats on the account.
+
 ## Network bind
 
 `~/.isomux/office-config.json` can set `networkBind` to `"loopback"`, `"all"`, or `"auto"`. `"auto"` binds loopback before the office has an owner or while external access is off, and all interfaces otherwise. Remove the field to use the same runtime default while allowing the installer or updater to select `"loopback"` when it verifies a local proxy. An explicit `"auto"` opts out of that automatic installer change. The loopback listener uses IPv4 `127.0.0.1`; callers that use `localhost` fall back to it on dual-stack hosts.

@@ -578,6 +578,19 @@ export function peekInvite(
   };
 }
 
+// Whether accepting this invite would add a member: a live legacy new-member
+// row (the same branch acceptInvite takes). The enterprise seat gate
+// (server/enterprise-seats.ts) asks for a seat first only then.
+export function inviteCreatesMember(rawToken: string): boolean {
+  ensureLoaded();
+  if (!rawToken) return false;
+  const hash = hashOf(rawToken);
+  const invite = invites!.get(hash);
+  if (!invite || !safeHashEq(invite.tokenHash, hash)) return false;
+  if (invite.consumed || invite.expiresAt < Date.now()) return false;
+  return !invite.bootstrap && inviteTarget(invite) === null;
+}
+
 // The member an invite row signs in as, by id only. null for the rows that
 // create a member at accept (legacy new-member and bootstrap invites). "gone"
 // when the row can no longer sign anyone in: its member was deleted.

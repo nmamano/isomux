@@ -606,6 +606,52 @@ Cosas que puedes hacer por él:
     "Identificar los agentes de Claude como Isomux",
   "settings.office.claudeIsomuxLabelHint":
     "Cambia solo los metadatos que los agentes de Claude envían a Anthropic: indican que se ejecutan en Isomux, no en el Agent SDK. Nada cambia en Isomux. En las pruebas de Isomux, el tráfico del SDK consumió el límite de 5 horas aproximadamente el doble de rápido. Anthropic no ha dicho si esto está permitido, y el riesgo recae en la cuenta de Claude de cada miembro. Se aplica a los agentes de Claude de todos los miembros, en las sesiones que empiecen después del cambio.",
+  "settings.office.enterprise.label":
+    "Esta oficina forma parte de un contrato Enterprise",
+  "settings.office.enterprise.hint":
+    "Hay que marcarlo cuando se usa Isomux comercialmente en una empresa de más de 10 personas. <link>Ver detalles</link>.",
+  "settings.office.enterprise.locked":
+    "La oficina no se puede usar hasta que pegues el secreto Enterprise.",
+  "settings.office.enterprise.lockedMember":
+    "La oficina no se puede usar hasta que un propietario pegue el secreto Enterprise.",
+  "settings.office.enterprise.secret": "Secreto Enterprise",
+  "settings.office.enterprise.secretHint":
+    "Cópialo de la cuenta Enterprise de tu empresa en cloud.isomux.com.",
+  "settings.office.enterprise.newSecret": "Secreto nuevo",
+  "settings.office.enterprise.connect": "Conectar",
+  "settings.office.enterprise.connecting": "Conectando…",
+  "settings.office.enterprise.replace": "Reemplazar",
+  "settings.office.enterprise.connected": "Contrato conectado",
+  "settings.office.enterprise.kind": "Tipo",
+  "settings.office.enterprise.kindStandard": "Estándar",
+  "settings.office.enterprise.kindNegotiated": "Negociado",
+  "settings.office.enterprise.account": "Cuenta",
+  "settings.office.enterprise.seats": "Plazas",
+  "settings.office.enterprise.checking": "Comprobando…",
+  "settings.office.enterprise.seatsUsed.one":
+    "{inUse}/{seats} en {count} oficina",
+  "settings.office.enterprise.seatsUsed.other":
+    "{inUse}/{seats} en {count} oficinas",
+  "settings.office.enterprise.help": "Ayuda Enterprise: {email}",
+  "settings.office.enterprise.problemBadSecret":
+    "Isomux ya no acepta este secreto. Pega el actual desde la cuenta Enterprise.",
+  "settings.office.enterprise.problemNotSigned":
+    "La cuenta Enterprise no tiene ningún acuerdo firmado. No se pueden añadir miembros nuevos hasta que se firme.",
+  "settings.office.enterprise.problemUnreachable":
+    "No se pudo contactar con Isomux en la última comprobación. Aún se pueden añadir miembros.",
+  "settings.office.enterprise.errorRejected":
+    "Isomux no aceptó este secreto. Cópialo de nuevo desde la cuenta Enterprise.",
+  "settings.office.enterprise.errorNotSigned":
+    "La cuenta Enterprise aún no tiene ningún acuerdo firmado.",
+  "settings.office.enterprise.errorUnreachable":
+    "No se pudo contactar con Isomux para comprobar el secreto. Inténtalo de nuevo.",
+  "settings.office.enterprise.errorInvalid":
+    "Esto no es un secreto Enterprise. Cópialo de nuevo desde la cuenta Enterprise.",
+  "settings.office.enterprise.errorRateLimited":
+    "Demasiados intentos. Inténtalo de nuevo en un minuto.",
+  "settings.office.enterprise.loadFailed":
+    "No se pudo leer la configuración del contrato Enterprise.",
+  "settings.office.enterprise.retry": "Reintentar",
   "settings.office.nameHint":
     "(opcional, se muestra en la pestaña del navegador)",
   "settings.office.namePlaceholder": "Oficina de Nil",
@@ -2287,6 +2333,10 @@ Cosas que puedes hacer por él:
   "apiCall.office.saveSettings": "Cambiar la configuración de la oficina",
   "apiCall.office.readInstructions": "Leer las instrucciones de la oficina",
   "apiCall.office.saveInstructions": "Cambiar las instrucciones de la oficina",
+  "apiCall.office.readEnterprise": "Leer el contrato Enterprise",
+  "apiCall.office.setEnterprise": "Activar o desactivar el contrato Enterprise",
+  "apiCall.office.setEnterpriseSecret": "Guardar el secreto Enterprise",
+  "apiCall.office.checkEnterprise": "Comprobar las plazas Enterprise",
   "apiCall.office.lockdown": "Bloquear la oficina",
   "apiCall.office.startExport": "Iniciar una exportación de la oficina",
   "apiCall.office.exportStatus": "Comprobar una exportación de la oficina",
@@ -4120,6 +4170,10 @@ Cosas que puedes hacer por él:
     "Esta invitación no se puede aceptar porque el miembro que ya existe tiene otro rol. Pide a un propietario de la oficina que cree una invitación nueva.",
   "preAuth.inviteError.ownerExists":
     "Ya existe un propietario de la oficina. Las invitaciones iniciales dejan de funcionar cuando la oficina ya está reclamada.",
+  "preAuth.inviteError.seatsFull":
+    "Esta oficina no tiene plazas libres en su licencia Enterprise. Pregunta a un propietario de la oficina.",
+  "preAuth.inviteError.seatRefused":
+    "Esta oficina no puede añadir miembros ahora. Pregunta a un propietario de la oficina.",
   "preAuth.inviteError.generic": "Esta invitación ya no es válida.",
   "preAuth.conflict.heading": "Esta invitación es para otro miembro",
   "preAuth.conflict.body":

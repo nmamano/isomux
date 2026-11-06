@@ -1576,6 +1576,41 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "name"> & {
   claudeIsomuxLabel?: boolean;
 };
 
+// Enterprise seats (server/enterprise-seats.ts), owner-only. What the seat
+// service on cloud.isomux.com answers on a 200.
+export interface EnterpriseSeatAnswer {
+  company: string;
+  kind: "standard" | "negotiated";
+  seats: number;
+  inUse: number;
+  offices: number;
+}
+
+// The problem Settings shows for a connected office: the service refused the
+// secret or the account, or did not answer the last call.
+export type EnterpriseProblem = "bad_secret" | "not_signed" | "unreachable";
+
+// office.enterprise.* response. It never carries the secret.
+export interface EnterpriseViewRes {
+  // false on Hosted: the section does not show and the writes are refused.
+  available: boolean;
+  enabled: boolean;
+  // The box is on and no secret was ever accepted.
+  locked: boolean;
+  connected: (EnterpriseSeatAnswer & { checkedAt: number }) | null;
+  problem: EnterpriseProblem | null;
+}
+
+// office.enterprise.setEnabled request.
+export interface EnterpriseEnableReq {
+  enabled: boolean;
+}
+
+// office.enterprise.setSecret request.
+export interface EnterpriseSecretReq {
+  secret: string;
+}
+
 // office.getMemberUsageStatus response: the member usage cap's status lines,
 // all providers or the one the query names. Empty while the cap is off.
 export type OfficeUsageStatusRes = {

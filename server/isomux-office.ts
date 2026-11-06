@@ -151,6 +151,7 @@ import {
   checkOrigin,
   untrustedFileHeaders,
   setOnOwnerCreated,
+  setInviteSeatGate,
 } from "./auth-middleware.ts";
 import { activeSetupKey, setupKeyAtBoot, setupKeyFile } from "./setup-key.ts";
 import {
@@ -341,6 +342,11 @@ import {
   officeSettingsHandlers,
 } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
+import {
+  createEnterpriseSeats,
+  type EnterpriseSeats,
+} from "./enterprise-seats.ts";
+import { enterpriseSeatsHandlers } from "./enterprise-seats-routes.ts";
 import { rescueHandlers } from "./routes/handlers/rescue.ts";
 import {
   createOfficeExportJobs,
@@ -877,6 +883,7 @@ function registerBootHooks(): void {
       ? { agentId, userId: agent.userId, privileged: agent.privileged === true }
       : null;
   });
+  setInviteSeatGate(() => enterpriseSeats);
   setOnOwnerCreated(async ({ username }) => {
     takeOwnerClaimedInThisProcess();
     await seedWelcomeAgentsForFirstOwner!(username);
@@ -1154,6 +1161,7 @@ const {
   visibleRoomProjection,
 } = createSessionProjection({
   accessibleRoomIdsFor,
+  enterpriseLocked: () => enterpriseSeats?.locked() ?? false,
   askAudience,
   attributionFor,
   browsers,
@@ -1405,6 +1413,8 @@ const folderMcpDeps: FolderMcpDeps = {
 let mcpOAuth: McpOAuth | null = null;
 let mcpOAuthTimer: ReturnType<typeof setInterval> | null = null;
 let sudoRequests: SudoRequests | null = null;
+// The Enterprise Contract seats of this boot (server/enterprise-seats.ts).
+let enterpriseSeats: EnterpriseSeats | null = null;
 const MCP_OAUTH_TICK_MS = 60_000;
 
 // Editor file watchers, keyed by connectionId -> (`${agentId}\0${absPath}` ->
@@ -2668,6 +2678,14 @@ function buildExecutorDeps(
   };
 
   register(agentReferenceHandlers());
+  register(
+    enterpriseSeatsHandlers({
+      seats: () => {
+        if (!enterpriseSeats) throw new Error("enterprise seats not started");
+        return enterpriseSeats;
+      },
+    }),
+  );
   register(
     rescueHandlers({
       lockdown: {
@@ -4093,6 +4111,10 @@ function buildExecutorDeps(
   register(
     createUsersRoutes({
       accessibleRoomIdsFor,
+      enterpriseSeats: () => {
+        if (!enterpriseSeats) throw new Error("enterprise seats not started");
+        return enterpriseSeats;
+      },
       announceAppAudienceChanges,
       announceWebhookAudienceChanges,
       // A hook edit with the same owner and target: its audience is the same.
@@ -5582,6 +5604,10 @@ export interface StartServerOpts {
   // The webhook ingress clock (dedup window, limits, row times). Tests pass a
   // fake clock; production uses Date.now.
   webhookNow?: () => number;
+  // The Enterprise Contract seat service (server/enterprise-seats.ts). Tests
+  // point it at a fake service and shorten the timeout; production uses
+  // cloud.isomux.com and 10 s.
+  enterpriseSeats?: { url?: string; timeoutMs?: number };
 }
 
 export interface ServerHandle {
@@ -5653,6 +5679,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setOnSessionsChanged(() => {});
   setOnUserAccessChanged(() => {});
   setOnOwnerCreated(async () => {});
+  setInviteSeatGate(null);
   setAppOwnerAgentResolver(() => null);
   seedWelcomeAgentsForFirstOwner = null;
   stopFallbackRepick();
@@ -5839,6 +5866,15 @@ export async function startServer(
     },
   });
   webhookIngress.recover();
+  enterpriseSeats = createEnterpriseSeats({
+    stateRoot: STATE_ROOT,
+    countMembers: () => listUsers().length,
+    installKind: opts.installKind ?? INSTALL_KIND,
+    publicOrigin: () => loadServerConfig().publicOrigin ?? null,
+    url: opts.enterpriseSeats?.url,
+    timeoutMs: opts.enterpriseSeats?.timeoutMs,
+    onLockChange: (locked) => liveEmit("office_enterprise_lock", { locked }),
+  });
   executorDeps = buildExecutorDeps(
     opts.getBackupStatus,
     opts.installKind,
@@ -6059,9 +6095,36 @@ export async function runOfficeMain(): Promise<void> {
     setInterval(modelCheck, OPENCODE_MODEL_CHECK_INTERVAL_MS).unref?.();
   }, OPENCODE_MODEL_CHECK_BOOT_DELAY_MS);
   modelCheckStart.unref?.();
+  // Enterprise seats: the office tells the seat service its member count a
+  // few seconds after boot, then every hour, so the account corrects drift.
+  // Same placement rationale as the idle sweep.
+  const enterpriseCheckIn = () => {
+    try {
+      void enterpriseSeats
+        ?.checkIn()
+        .catch((err) =>
+          console.error(
+            "[enterprise-seats] check-in failed:",
+            err instanceof Error ? err.message : "error",
+          ),
+        );
+    } catch (err) {
+      console.error(
+        "[enterprise-seats] check-in failed:",
+        err instanceof Error ? err.message : "error",
+      );
+    }
+  };
+  const enterpriseCheckInStart = setTimeout(() => {
+    enterpriseCheckIn();
+    setInterval(enterpriseCheckIn, ENTERPRISE_CHECK_IN_INTERVAL_MS).unref?.();
+  }, ENTERPRISE_CHECK_IN_BOOT_DELAY_MS);
+  enterpriseCheckInStart.unref?.();
 }
 
 const OPENCODE_MODEL_CHECK_BOOT_DELAY_MS = 2 * 60_000;
 const OPENCODE_MODEL_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
+const ENTERPRISE_CHECK_IN_BOOT_DELAY_MS = 5_000;
+const ENTERPRISE_CHECK_IN_INTERVAL_MS = 60 * 60_000;
 
 if (import.meta.main) await runOfficeMain();
