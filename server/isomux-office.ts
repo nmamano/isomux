@@ -110,7 +110,12 @@ import {
 } from "./backup.ts";
 import { getVersionInfo } from "./version.ts";
 import { setTrustedProxy } from "./proxy-trust.ts";
-import { resolveCwd, validateCwd } from "./cwd-utils.ts";
+import {
+  CLAUDE_NATIVE_BIN,
+  pathWithBundledClaude,
+  resolveCwd,
+  validateCwd,
+} from "./cwd-utils.ts";
 import { modelFamilyMismatchError } from "./agent-validators.ts";
 import type { Cronjob, CronjobTarget } from "../shared/types.ts";
 import { LOBBY_ROOM_ID, cronjobRunStreamId } from "../shared/types.ts";
@@ -6008,7 +6013,10 @@ export async function runOfficeMain(): Promise<void> {
   }
   // Before anything reads PATH: agents and terminals inherit it.
   if (process.env.PATH)
-    process.env.PATH = normalizeBunRunPath(process.env.PATH, process.cwd());
+    process.env.PATH = pathWithBundledClaude(
+      normalizeBunRunPath(process.env.PATH, process.cwd()),
+      CLAUDE_NATIVE_BIN,
+    );
   // The other half of the same protection: mark every process this office
   // starts as a better candidate for the kill than the office itself, since
   // they all inherit the server's own score otherwise (server/oom-stamp.ts).

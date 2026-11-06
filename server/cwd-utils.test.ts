@@ -6,6 +6,7 @@ import {
   cwdProblem,
   diagnoseProcessExit,
   inspectCodexStoredSession,
+  pathWithBundledClaude,
   validateCwd,
 } from "./cwd-utils.ts";
 import { renderLogText } from "../shared/i18n/log-message.ts";
@@ -137,4 +138,34 @@ describe("diagnoseProcessExit", () => {
     const english = renderLogText(translatorFor("en"), hint!);
     expect(english.split("/resume").length - 1).toBe(1);
   });
+});
+
+// Terminals and agent shells find the agents' `claude` through PATH, not a
+// link in /usr/local/bin (task 88e54847).
+describe("pathWithBundledClaude", () => {
+  const bin = "/opt/isomux/node_modules/sdk/claude";
+  const dir = "/opt/isomux/node_modules/sdk";
+  const cases: [string, string, string][] = [
+    ["appends after every entry", "/usr/bin:/bin", `/usr/bin:/bin:${dir}`],
+    [
+      "leaves a PATH that ends with it as it is",
+      `/usr/bin:${dir}`,
+      `/usr/bin:${dir}`,
+    ],
+    ["does not move it from the front", `${dir}:/usr/bin`, `${dir}:/usr/bin`],
+    ["does not add a second copy", `/a:${dir}:/b`, `/a:${dir}:/b`],
+    ["an empty PATH gets the directory alone", "", dir],
+    [
+      "a longer entry is not a match",
+      `${dir}2:${dir}/x`,
+      `${dir}2:${dir}/x:${dir}`,
+    ],
+    ["a parent entry is not a match", "/opt/isomux", `/opt/isomux:${dir}`],
+    ["keeps the other entries as they are", "/a::/b", `/a::/b:${dir}`],
+  ];
+  for (const [name, path, expected] of cases) {
+    it(name, () => {
+      expect(pathWithBundledClaude(path, bin)).toBe(expected);
+    });
+  }
 });

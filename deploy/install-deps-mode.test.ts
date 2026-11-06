@@ -19,6 +19,8 @@ import {
   existsSync,
   readFileSync,
   statSync,
+  lstatSync,
+  symlinkSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -27,6 +29,14 @@ import { spawnSync } from "child_process";
 const INSTALL_SH = new URL("./install.sh", import.meta.url).pathname;
 
 let base: string;
+
+function lstatOrNull(path: string) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
+}
 let bin: string;
 
 // systemctl stub with real state: start/stop/enable/disable move it, and
@@ -86,6 +96,8 @@ const STAGES = [
   "configure_codex_sandbox",
   "configure_bwrap_apparmor",
   "configure_user_manager",
+  // Runs for real (a fixture link path) and shows as its STEP line.
+  "unlink_bundled_claude",
   "refresh_hosted_tls_renewal",
   "migrate_managed_caddyfile",
   "write_loopback_bind_if_proxied",
@@ -105,7 +117,6 @@ const FORBIDDEN = [
   "fetch_isomux",
   "install_bun",
   "build_isomux",
-  "link_bundled_claude",
   "install_updater",
   "install_service",
   "wait_for_server",
@@ -138,12 +149,24 @@ function runDepsMode(opts: {
   markerVerifyRc?: number;
   // The rescue command cannot be written (a path no one can create).
   rescueUnwritable?: boolean;
+  // An older installer's /usr/local/bin/claude link into this install's SDK.
+  claudeLink?: boolean;
 }): Run {
   const stubLog = join(base, "stub.log");
   const activeFile = join(base, "caddy-active");
   const enabledFile = join(base, "caddy-enabled");
   const unitFile = join(base, "caddy-unit");
   const caddyfile = join(base, "Caddyfile");
+  const claudeLink = join(base, "claude-link");
+  rmSync(claudeLink, { force: true });
+  if (opts.claudeLink)
+    symlinkSync(
+      join(
+        base,
+        "install/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude",
+      ),
+      claudeLink,
+    );
   rmSync(stubLog, { force: true });
   rmSync(join(base, "sbin"), { recursive: true, force: true });
   writeFileSync(activeFile, opts.active ? "active\n" : "inactive\n");
@@ -169,6 +192,7 @@ eval "$(sed -n '/^snapshot_caddy_state()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^restore_caddy_state()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^deps_only()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^report_failure()/,/^}/p' "$INSTALL_SH")"
+eval "$(sed -n '/^unlink_bundled_claude()/,/^}/p' "$INSTALL_SH" | sed "s#/usr/local/bin/claude#$CLAUDE_LINK#g")"
 # The stage name only after a write that worked; the status stays the write's
 # (deps_only runs it inside an if, where set -e does not stop it).
 eval "$(sed -n '/^install_rescue_command()/,/^ISOMUX_RESCUE_ROOT_SH$/p' "$INSTALL_SH"; echo 'rc=$?; ((rc)) || echo install_rescue_command; return $rc; }')"
@@ -214,6 +238,7 @@ converge_bun() { echo "converge_bun $*"; ${opts.convergeFails ? "exit 1" : ":"};
 BUN_VERSION=7.7.7
 BUN_LINK=/usr/local/bin/bun
 BUN_DIR=/usr/local/lib/isomux/bun
+INSTALL_DIR=${JSON.stringify(join(base, "install"))}
 deps_only
 `;
   const res = spawnSync("bash", ["-c", script], {
@@ -225,6 +250,7 @@ deps_only
       ACTIVE_FILE: activeFile,
       ENABLED_FILE: enabledFile,
       UNIT_FILE: unitFile,
+      CLAUDE_LINK: claudeLink,
       ...(opts.failVerb ? { FAIL_VERB: opts.failVerb } : {}),
     },
     encoding: "utf8",
@@ -280,6 +306,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "configure_codex_sandbox",
       "configure_bwrap_apparmor",
       "configure_user_manager",
+      "STEP:unlink-bundled-claude",
       "refresh_hosted_tls_renewal",
       "migrate_managed_caddyfile",
       "write_loopback_bind_if_proxied",
@@ -309,6 +336,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "configure_codex_sandbox",
       "configure_bwrap_apparmor",
       "configure_user_manager",
+      "STEP:unlink-bundled-claude",
       "refresh_hosted_tls_renewal",
       "migrate_managed_caddyfile",
       "write_loopback_bind_if_proxied",
@@ -337,6 +365,15 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       ),
     );
     expect(statSync(path).mode & 0o777).toBe(0o755);
+  });
+
+  // The first update that carries this installer drops the link (task
+  // 88e54847): update.sh runs the target release's deps-only mode.
+  it("removes an older installer's claude link into this install", () => {
+    const r = runDepsMode({ active: true, enabled: true, claudeLink: true });
+    expect(r.code).toBe(0);
+    expect(r.stages).toContain("STEP:unlink-bundled-claude");
+    expect(lstatOrNull(join(base, "claude-link")) !== null).toBe(false);
   });
 
   it("warns and goes on when the rescue command cannot be written", () => {

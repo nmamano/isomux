@@ -16,6 +16,7 @@ import type {
   SpawnChildOptions,
 } from "../agent-host.ts";
 import { notifyIsolationSetupFailure } from "../agent-host.ts";
+import { CLAUDE_NATIVE_BIN, pathWithBundledClaude } from "../cwd-utils.ts";
 import type { IsomuxDiffRequest, IsomuxDiffRunResult } from "../isomux-diff.ts";
 import { ISOLATION_SETUP_FAILED } from "../process-isolation.ts";
 import {
@@ -592,6 +593,10 @@ export class RunnerAgentHost implements AgentHost {
 
   static async connect(socketPath: string): Promise<RunnerAgentHost> {
     const info = await readRunnerInfo(socketPath);
+    // Terminals and agent shells take PATH from the runner's env, as the
+    // server's own PATH does at boot.
+    if (info.env.PATH)
+      info.env.PATH = pathWithBundledClaude(info.env.PATH, CLAUDE_NATIVE_BIN);
     const probe = (await runRunnerEntry(socketPath, "bun-path", {})) as {
       path?: unknown;
     } | null;

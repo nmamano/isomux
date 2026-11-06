@@ -1,3 +1,8 @@
+// deploy/install.sh unlink_bundled_claude (task 88e54847). Older installers
+// linked /usr/local/bin/claude into $INSTALL_DIR/node_modules, which the
+// service user writes, so root's `claude` ran a binary the agents could
+// replace. The step removes only that link and creates nothing. The step is
+// extracted unmodified, except that the link path points into a fixture.
 import { afterEach, describe, expect, it } from "bun:test";
 import {
   chmodSync,
@@ -6,6 +11,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   readlinkSync,
   rmSync,
   symlinkSync,
@@ -15,195 +21,161 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const source = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
-const step = source.slice(
-  source.indexOf("link_bundled_claude() {"),
-  source.indexOf("# Root-of-trust config"),
-);
-// The probe's PATH comes from this helper, which asks the system manager.
-const helperStart = source.indexOf("\nservice_path() {") + 1;
-if (helperStart === 0) throw new Error("install.sh has no service_path()");
-const helper = source.slice(
-  helperStart,
-  source.indexOf("\n}\n", helperStart) + 3,
-);
+const start = source.indexOf("\nunlink_bundled_claude() {\n") + 1;
+if (start === 0) throw new Error("install.sh has no unlink_bundled_claude()");
+const step = source.slice(start, source.indexOf("\n}\n", start) + 3);
+const SDK = "node_modules/@anthropic-ai";
+
 const dirs: string[] = [];
 afterEach(() => {
-  for (const dir of dirs.splice(0))
+  for (const dir of dirs.splice(0)) {
+    chmodSync(join(dir, "bin"), 0o755);
     rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "isomux-claude-link-"));
+  const dir = mkdtempSync(join(tmpdir(), "isomux-claude-unlink-"));
   dirs.push(dir);
   const bin = join(dir, "bin");
-  const other = join(dir, "other-bin");
   const install = join(dir, "install");
-  const target = join(
-    install,
-    "node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude",
-  );
+  const target = join(install, SDK, "claude-agent-sdk-linux-x64/claude");
   const link = join(bin, "claude");
   mkdirSync(bin);
-  mkdirSync(other);
   mkdirSync(join(target, ".."), { recursive: true });
-  const executable = (path: string, version: string) => {
-    writeFileSync(path, `#!/bin/sh\nprintf '%s\\n' '${version}'\n`);
-    chmodSync(path, 0o755);
-  };
-  executable(target, "bundled-v1");
+  writeFileSync(target, "#!/bin/sh\necho bundled\n");
+  chmodSync(target, 0o755);
   const script = join(dir, "run.sh");
   writeFileSync(
     script,
-    `set -euo pipefail
-step() { :; }
+    `set -Eeuo pipefail
+trap 'echo ERR-TRAP' ERR
+step() { printf 'STEP:%s\\n' "$1"; }
 log() { printf '%s\\n' "$*"; }
-as_service_user() {
-  printf '%s\\n' "$*" >> "$FIXTURE/calls"
-  if [[ $1 == /usr/local/bin/bun ]]; then
-    [[ $2 == -e && $4 == "$INSTALL_DIR/server/cwd-utils.ts" ]] || return 91
-    printf '%s' "$SDK_BINARY"
-  else
-    "$@"
-  fi
-}
-# systemd's built-in default lacks both fixture directories: the service's
-# PATH reaches the probe only through the system manager.
-SYSTEMD_DEFAULT_PATH=/usr/bin:/bin
-systemctl() {
-  [[ $* == show-environment ]] || return 64
-  printf '%s\n' LANG=C.UTF-8 "PATH=${bin}:${other}:/usr/bin:/bin"
-}
-${helper}
 ${step.replaceAll("/usr/local/bin/claude", link)}
-link_bundled_claude
+unlink_bundled_claude
 printf 'continued\\n'
 `,
   );
   return {
     dir,
     bin,
-    other,
     install,
     target,
     link,
-    executable,
-    run(dry = false, sdkBinary = target) {
+    run(dry = false) {
       const result = Bun.spawnSync(["bash", script], {
-        env: {
-          ...process.env,
-          FIXTURE: dir,
-          INSTALL_DIR: install,
-          SDK_BINARY: sdkBinary,
-          DRY_RUN: dry ? "1" : "",
-        },
+        env: { ...process.env, INSTALL_DIR: install, DRY_RUN: dry ? "1" : "" },
         stdout: "pipe",
         stderr: "pipe",
       });
-      return {
+      const output = result.stdout.toString() + result.stderr.toString();
+      // The step ran, returned success and set -e never fired inside it.
+      expect({
         code: result.exitCode,
-        output: result.stdout.toString() + result.stderr.toString(),
-      };
+        reached: output.includes("STEP:unlink-bundled-claude"),
+        continued: output.includes("continued"),
+        errTrap: output.includes("ERR-TRAP"),
+      }).toEqual({ code: 0, reached: true, continued: true, errTrap: false });
+      return output;
     },
   };
 }
 
-describe("bundled Claude terminal link", () => {
-  it("creates the link through the agents' resolver and follows a replaced SDK binary", () => {
+describe("unlink_bundled_claude", () => {
+  it("removes the link into this install's SDK and leaves the binary", () => {
     const f = fixture();
-    expect(f.run().code).toBe(0);
+    symlinkSync(f.target, f.link);
+    f.run();
+    expect(readdirSync(f.bin)).toEqual([]);
+    // rm removed the link, not the file it pointed to.
+    expect(readFileSync(f.target, "utf8")).toContain("bundled");
+  });
+
+  for (const variant of ["linux-arm64", "linux-x64-musl", "linux-arm64-musl"]) {
+    it(`removes a dangling link into this install's ${variant} package`, () => {
+      const f = fixture();
+      symlinkSync(
+        join(f.install, SDK, `claude-agent-sdk-${variant}/claude`),
+        f.link,
+      );
+      f.run();
+      expect(readdirSync(f.bin)).toEqual([]);
+    });
+  }
+
+  it("creates nothing when there is no link", () => {
+    const f = fixture();
+    f.run();
+    expect(readdirSync(f.bin)).toEqual([]);
+  });
+
+  // Each kept entry is left byte for byte, and nothing is added next to it.
+  const keeps: [string, (f: ReturnType<typeof fixture>) => void][] = [
+    [
+      "a link into another install whose path starts with this one's",
+      (f) =>
+        symlinkSync(
+          join(`${f.install}2`, SDK, "claude-agent-sdk-linux-x64/claude"),
+          f.link,
+        ),
+    ],
+    [
+      "a link to an unrelated binary",
+      (f) => {
+        const other = join(f.dir, "other-claude");
+        writeFileSync(other, "#!/bin/sh\n");
+        symlinkSync(other, f.link);
+      },
+    ],
+    [
+      "a link to a link into this install's SDK (never resolved)",
+      (f) => {
+        const hop = join(f.dir, "hop");
+        symlinkSync(f.target, hop);
+        symlinkSync(hop, f.link);
+      },
+    ],
+    [
+      "a relative link that names the SDK path",
+      (f) => symlinkSync(`${SDK}/claude-agent-sdk-linux-x64/claude`, f.link),
+    ],
+    ["a regular file", (f) => writeFileSync(f.link, "reserved")],
+    ["a directory", (f) => mkdirSync(f.link)],
+  ];
+  for (const [name, make] of keeps) {
+    it(`keeps ${name}`, () => {
+      const f = fixture();
+      make(f);
+      const before = lstatSync(f.link);
+      const linkText = before.isSymbolicLink() ? readlinkSync(f.link) : null;
+      f.run();
+      expect(readdirSync(f.bin)).toEqual(["claude"]);
+      const after = lstatSync(f.link);
+      expect({
+        ino: after.ino,
+        mode: after.mode,
+        link: after.isSymbolicLink() ? readlinkSync(f.link) : null,
+      }).toEqual({ ino: before.ino, mode: before.mode, link: linkText });
+    });
+  }
+
+  it("keeps the link in a dry run", () => {
+    const f = fixture();
+    symlinkSync(f.target, f.link);
+    f.run(true);
     expect(readlinkSync(f.link)).toBe(f.target);
-    const calls = readFileSync(join(f.dir, "calls"), "utf8");
-    expect(calls).toContain(
-      `env PATH=${f.bin}:${f.other}:/usr/bin:/bin sh -c command -v claude`,
-    );
-    expect(calls).toContain("CLAUDE_NATIVE_BIN");
-    f.executable(f.target, "bundled-v2");
-    const result = Bun.spawnSync([f.link, "--version"]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.toString().trim()).toBe("bundled-v2");
   });
 
-  it("does not shadow an existing command in another service PATH directory", () => {
+  it("warns and continues when the link cannot be removed", () => {
     const f = fixture();
-    f.executable(join(f.other, "claude"), "existing");
-    expect(f.run().code).toBe(0);
-    expect(existsSync(f.link)).toBe(false);
-  });
-
-  it("leaves an existing executable file untouched", () => {
-    const f = fixture();
-    f.executable(f.link, "existing");
-    const bytes = readFileSync(f.link);
-    expect(f.run().code).toBe(0);
-    expect(lstatSync(f.link).isSymbolicLink()).toBe(false);
-    expect(readFileSync(f.link)).toEqual(bytes);
-  });
-
-  it("leaves an existing working link elsewhere untouched", () => {
-    const f = fixture();
-    const existing = join(f.dir, "existing");
-    f.executable(existing, "existing");
-    symlinkSync(existing, f.link);
-    expect(f.run().code).toBe(0);
-    expect(readlinkSync(f.link)).toBe(existing);
-  });
-
-  it("repairs a dangling link into this install's SDK packages", () => {
-    const f = fixture();
-    symlinkSync(
-      join(
-        f.install,
-        "node_modules/@anthropic-ai/claude-agent-sdk-linux-arm64/claude",
-      ),
-      f.link,
-    );
-    expect(f.run().code).toBe(0);
+    symlinkSync(f.target, f.link);
+    chmodSync(f.bin, 0o555);
+    // The enabling condition: this process cannot change the directory.
+    expect(() => writeFileSync(join(f.bin, "probe"), "")).toThrow();
+    const output = f.run();
     expect(readlinkSync(f.link)).toBe(f.target);
-  });
-
-  it("leaves a foreign dangling link untouched", () => {
-    const f = fixture();
-    const foreign = join(
-      f.dir,
-      "other-install/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude",
-    );
-    symlinkSync(foreign, f.link);
-    expect(f.run().code).toBe(0);
-    expect(readlinkSync(f.link)).toBe(foreign);
-  });
-
-  it("leaves an existing non-executable file untouched", () => {
-    const f = fixture();
-    writeFileSync(f.link, "reserved");
-    expect(f.run().code).toBe(0);
-    expect(lstatSync(f.link).isSymbolicLink()).toBe(false);
-    expect(readFileSync(f.link, "utf8")).toBe("reserved");
-  });
-
-  it("makes no link in a dry run", () => {
-    const f = fixture();
-    expect(f.run(true).code).toBe(0);
-    expect(existsSync(f.link)).toBe(false);
-  });
-
-  it("warns and continues when the resolver returns a binary outside this install", () => {
-    const f = fixture();
-    const foreign = join(f.dir, "foreign-sdk");
-    f.executable(foreign, "foreign");
-    const result = f.run(false, foreign);
-    expect(result.code).toBe(0);
-    expect(existsSync(f.link)).toBe(false);
-    expect(result.output).toMatch(/warning:/);
-    expect(result.output).toContain("continued");
-  });
-
-  it("warns and continues when the SDK binary is missing", () => {
-    const f = fixture();
-    rmSync(f.target);
-    const result = f.run();
-    expect(result.code).toBe(0);
-    expect(result.output).toMatch(/warning:/);
-    expect(result.output).toContain("continued");
-    expect(existsSync(f.link)).toBe(false);
+    expect(output).toMatch(/^warning:/m);
+    expect(existsSync(join(f.bin, "probe"))).toBe(false);
   });
 });

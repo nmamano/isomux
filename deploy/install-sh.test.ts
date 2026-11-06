@@ -325,16 +325,6 @@ describe("install.sh: main() step order", () => {
         "a sandbox warning shows early, like the browser's",
       ],
       [
-        "build_isomux",
-        "link_bundled_claude",
-        "the bundled CLI exists only after the build",
-      ],
-      [
-        "link_bundled_claude",
-        "install_service",
-        "claude is linked before the office can spawn it",
-      ],
-      [
         "configure_caddy",
         "write_loopback_bind_if_proxied",
         "networkBind goes to loopback only once Caddy proxies",
@@ -349,6 +339,12 @@ describe("install.sh: main() step order", () => {
         ordered: true,
       });
     }
+  });
+
+  // A re-run on a box an older installer set up drops its claude link, as an
+  // update does (task 88e54847; install-claude-link.test.ts owns the step).
+  it("runs the claude unlink step in a full install", () => {
+    expect(stepIndex("unlink_bundled_claude")).toBeGreaterThan(-1);
   });
 
   // The server reads networkBind and trustedProxy only at boot, so the office

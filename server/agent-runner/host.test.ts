@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import {
   localAgentHost,
   setAgentHost,
@@ -23,6 +23,7 @@ import { spawnClaudeThroughHost } from "../backends/claude/agent-spawn.ts";
 import { JsonRpcLiteClient } from "../backends/codex/client.ts";
 import { configureCodexHooks } from "../backends/codex/safety-hook-install.ts";
 import { inspectOpenCodeDatabaseInAgentSpace } from "../backends/opencode/storage.ts";
+import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 import { expectRejection } from "../test-support/expect-rejection.ts";
 import { RunnerAgentHost, RunnerProcess } from "./client.ts";
 import { STDIN_WINDOW_BYTES } from "./frames.ts";
@@ -248,6 +249,27 @@ describe("runner child", () => {
       ).toBe("unset");
     } finally {
       delete process.env.SPLIT_HOST_TEST;
+    }
+  });
+
+  // Split-mode terminals and agents take PATH from the runner's environment,
+  // not from the server's, so the bundled claude is added there too (task
+  // 88e54847).
+  it("adds the bundled Claude directory to the end of the runner's PATH", async () => {
+    const saved = process.env.PATH;
+    try {
+      process.env.PATH = "/usr/bin:/bin";
+      const fresh = await RunnerAgentHost.connect(socketPath);
+      expect(fresh.baseEnv().PATH).toBe(
+        `/usr/bin:/bin:${dirname(CLAUDE_NATIVE_BIN)}`,
+      );
+      // The runner reports no PATH: the host keeps it unset, so the callers'
+      // own fallback PATH applies.
+      delete process.env.PATH;
+      const bare = await RunnerAgentHost.connect(socketPath);
+      expect(Object.hasOwn(bare.baseEnv(), "PATH")).toBe(false);
+    } finally {
+      process.env.PATH = saved;
     }
   });
 

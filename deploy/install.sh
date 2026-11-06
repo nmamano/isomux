@@ -4486,42 +4486,26 @@ build_isomux() {
   run_as_service_user bash -c "cd $INSTALL_DIR && /usr/local/bin/bun run build:ui"
 }
 
-link_bundled_claude() {
-  step link-bundled-claude
-  local link=/usr/local/bin/claude target current
-  if as_service_user env "PATH=$(service_path)" sh -c 'command -v claude' >/dev/null 2>&1; then
-    return 0
-  fi
-  # Preserve other installs, including non-executable files and foreign links.
-  [[ ! -e $link ]] || return 0
-  if [[ -L $link ]]; then
-    current=$(readlink "$link")
-    case "$current" in
-      "$INSTALL_DIR"/node_modules/@anthropic-ai/claude-agent-sdk-linux-*/claude) ;;
-      *) return 0 ;;
-    esac
-  fi
-  if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would link the bundled Claude binary as /usr/local/bin/claude"
-    return 0
-  fi
-  # Use the agents' resolver as the service user, never run checkout code as root.
-  if ! target=$(as_service_user /usr/local/bin/bun -e \
-    'const { CLAUDE_NATIVE_BIN } = await import(process.argv[1]); process.stdout.write(CLAUDE_NATIVE_BIN)' \
-    "$INSTALL_DIR/server/cwd-utils.ts"); then
-    log "warning: could not resolve the bundled Claude binary; skipping the terminal link."
-    return 0
-  fi
-  case "$target" in
+# Remove the /usr/local/bin/claude link older installers made into this
+# install's SDK packages: the service user can replace its target.
+unlink_bundled_claude() {
+  step unlink-bundled-claude
+  local link=/usr/local/bin/claude current
+  [[ -L $link ]] || return 0
+  # The link text, never resolved: a link to another link is not ours.
+  current=$(readlink -- "$link") || return 0
+  case "$current" in
     "$INSTALL_DIR"/node_modules/@anthropic-ai/claude-agent-sdk-linux-*/claude) ;;
-    *) log "warning: bundled Claude path is outside this install; skipping the terminal link."; return 0 ;;
+    *) return 0 ;;
   esac
-  if ! as_service_user test -x "$target"; then
-    log "warning: bundled Claude binary is missing or not executable; skipping the terminal link."
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would remove $link, a link to the bundled Claude binary"
     return 0
   fi
-  if ! ln -sfnT "$target" "$link"; then
-    log "warning: could not link the bundled Claude binary; skipping the terminal link."
+  if rm -f -- "$link"; then
+    log "removed $link: it ran a binary the service user can replace"
+  else
+    log "warning: could not remove $link, which runs a binary the service user can replace. Remove it by hand."
   fi
 }
 
@@ -7696,6 +7680,7 @@ deps_only() {
   configure_codex_sandbox
   configure_bwrap_apparmor
   configure_user_manager
+  unlink_bundled_claude
   local renewal_rc=0
   set +e
   (set -Ee; refresh_hosted_tls_renewal)
@@ -7780,7 +7765,7 @@ main() {
   fetch_isomux
   install_bun
   build_isomux
-  link_bundled_claude
+  unlink_bundled_claude
   install_updater
   install_service
   wait_for_server

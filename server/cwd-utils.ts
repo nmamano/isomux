@@ -1,5 +1,5 @@
 import { msg, type LogMessage } from "../shared/i18n/log-message.ts";
-import { resolve, join } from "path";
+import { delimiter, dirname, resolve, join } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -47,6 +47,17 @@ function resolveClaudeNativeBinary(): string {
 }
 
 export const CLAUDE_NATIVE_BIN = resolveClaudeNativeBinary();
+
+// PATH with the bundled binary's directory appended, so `claude` in the
+// office's terminals and agent shells runs the agents' version. Last, so a
+// claude earlier on PATH wins.
+export function pathWithBundledClaude(path: string, bin: string): string {
+  const dir = dirname(bin);
+  if (path === "") return dir;
+  return path.split(delimiter).includes(dir)
+    ? path
+    : `${path}${delimiter}${dir}`;
+}
 
 // Resolve ~ in paths
 export function resolveCwd(cwd: string): string {
