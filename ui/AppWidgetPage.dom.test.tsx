@@ -1346,3 +1346,109 @@ it("opens the frame at the page its address names, and keeps that page through s
     window.history.replaceState(null, "", before);
   }
 });
+
+// Task 4d7a21c1: a recheck that fails for a moment (no answer, a 5xx) keeps
+// the app frame and the open chat; a definitive answer (404: removed, or no
+// access) still closes both, and a first load that fails shows unavailable.
+for (const failure of ["offline", "503", "404"] as const) {
+  it(`a failed recheck (${failure}) keeps the frame and chat only when the failure is transient`, async () => {
+    sessionStorage.clear();
+    const { StateCtx, initialState } = await import("./store.tsx");
+    const { ApiError } = await import("./api.ts");
+    const iframesOn = iframesOff();
+    let fail = false;
+    setApiShim(async () => {
+      if (fail) {
+        if (failure === "offline") throw new TypeError("Failed to fetch");
+        throw new ApiError(Number(failure), "x", "x");
+      }
+      return {
+        ...boot,
+        appUrl: "https://hello.office.example",
+        sessionExpiresAt: Date.now() + 1000000,
+        chat: { agentId: agent.id, agentName: agent.name },
+      };
+    });
+    const recheck = () =>
+      act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    let view: ReturnType<typeof render> | undefined;
+    try {
+      await act(async () => {
+        view = render(
+          <StateCtx.Provider
+            value={{ ...initialState, agents: [agent], connected: true }}
+          >
+            <AppWidgetPage boot={boot} />
+          </StateCtx.Provider>,
+        );
+      });
+      const seen = () => {
+        const frame = view!.container.querySelector("iframe");
+        return {
+          // Set on the first frame below: a new frame has no marker.
+          frame: frame?.dataset.testMark ?? (frame ? "new" : "none"),
+          src: frame?.getAttribute("src") ?? null,
+          unavailable:
+            view!.container.querySelector(".app-widget-unavailable") !== null,
+          chat:
+            view!.container
+              .querySelector(".app-widget-launcher")
+              ?.getAttribute("aria-expanded") ?? "none",
+        };
+      };
+      const src = view!.container.querySelector("iframe")!.getAttribute("src");
+      view!.container.querySelector("iframe")!.dataset.testMark = "first";
+      await act(async () => {
+        fireEvent.click(view!.container.querySelector(".app-widget-launcher")!);
+      });
+      const live = { frame: "first", src, unavailable: false, chat: "true" };
+      // The condition the cases below depend on: a live frame, chat open.
+      expect(seen()).toEqual(live);
+
+      fail = true;
+      await recheck();
+      expect(seen()).toEqual(
+        failure === "404"
+          ? { frame: "none", src: null, unavailable: true, chat: "none" }
+          : live,
+      );
+
+      fail = false;
+      await recheck();
+      // Transient: the same frame, chat still open. Definitive: a new frame,
+      // and the chat comes back closed.
+      expect(seen()).toEqual(
+        failure === "404"
+          ? { frame: "new", src, unavailable: false, chat: "false" }
+          : live,
+      );
+    } finally {
+      view?.unmount();
+      iframesOn();
+    }
+  });
+}
+
+it("a first load that fails for a moment shows unavailable", async () => {
+  sessionStorage.clear();
+  const iframesOn = iframesOff();
+  setApiShim(async () => {
+    throw new TypeError("Failed to fetch");
+  });
+  let view: ReturnType<typeof render> | undefined;
+  try {
+    await act(async () => {
+      view = render(<AppWidgetPage boot={boot} />);
+    });
+    expect({
+      unavailable:
+        view!.container.querySelector(".app-widget-unavailable") !== null,
+      frame: view!.container.querySelector("iframe") !== null,
+    }).toEqual({ unavailable: true, frame: false });
+  } finally {
+    view?.unmount();
+    iframesOn();
+  }
+});

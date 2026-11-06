@@ -17,7 +17,7 @@ import {
   uploadedOnly,
 } from "./log-view/draft-attachments.ts";
 import { AGENT_LINK_PREFIX } from "../shared/office-links.ts";
-import { apiFetch } from "./api.ts";
+import { ApiError, apiFetch } from "./api.ts";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CSS } from "./styles.ts";
@@ -264,6 +264,9 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
   const recovering = useRef(false);
   const recoveryStopped = useRef(false);
   const [status, setStatus] = useState<AppWidgetStatus | null>(null);
+  // Set while a status from the office is live: a recheck that then fails for
+  // a moment keeps the frame and the chat.
+  const hasLive = useRef(false);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [open, setOpen] = useState(false);
@@ -364,6 +367,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       if (!beginAppHandshake(sessionStorage, boot, Date.now())) {
         recoveryStopped.current = true;
         ++requestSeq.current;
+        hasLive.current = false;
         setUnavailable(true);
         setStatus(null);
         setFrameUrl(null);
@@ -414,18 +418,25 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
         next.sessionExpiresAt === null ||
         next.sessionExpiresAt <= Date.now()
       ) {
+        hasLive.current = false;
         setStatus(null);
         recover(next.appUrl);
         return;
       }
+      hasLive.current = true;
       setStatus(next);
       setUnavailable(false);
       if (lastRequest.current === undefined)
         lastRequest.current = next.reloadRequestedAt ?? 0;
       else noteRequest.current(next);
       setFrameUrl(frameStart(next.appUrl, startPath));
-    } catch {
+    } catch (error) {
       if (seq !== requestSeq.current) return;
+      // A network error or a 5xx is a blip: the next recheck tries again. A
+      // 4xx (app gone, access lost) closes the app.
+      const transient = !(error instanceof ApiError) || error.status >= 500;
+      if (transient && hasLive.current) return;
+      hasLive.current = false;
       setStatus(null);
       setFrameUrl(null);
       setUnavailable(true);
