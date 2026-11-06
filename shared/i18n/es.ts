@@ -1425,6 +1425,15 @@ Cosas que puedes hacer por él:
   "integrations.dialog.remove.self": "¿Quitar {name}?",
   "integrations.dialog.remove.member": "¿Quitar {name} de {member}?",
   "integrations.dialog.remove.office": "¿Quitar {name} de toda la oficina?",
+  "integrations.requestSupport.providers":
+    "¿Quieres soporte para otro proveedor de modelos?",
+  "integrations.requestSupport.voice":
+    "¿Quieres soporte para otro servicio de voz?",
+  "integrations.requestSupport.pager":
+    "¿Quieres soporte para otro sitio donde recibir avisos?",
+  "integrations.requestSupport.messaging":
+    "¿Quieres soporte para otra app de mensajería?",
+  "integrations.requestSupport.button": "Solicitarlo",
   "integrations.providers.apiKeys":
     "¿Prefieres una clave de API? Añade <code>ANTHROPIC_API_KEY</code> u <code>OPENAI_API_KEY</code> en <link>Variables</link>.",
   "integrations.providers.memberSignsIn":

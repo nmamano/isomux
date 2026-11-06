@@ -54,6 +54,7 @@ import { getIntegrationsTab, setIntegrationsTab } from "../device-settings.ts";
 import { BrowserPane } from "../components/BrowserPane.tsx";
 import { PagerSettingsPane } from "../components/PagerSettingsPane.tsx";
 import { TAB_LABEL } from "../office-link.tsx";
+import { hasRequestSupport, RequestSupport } from "./RequestSupport.tsx";
 import { ApiTokensPane } from "../components/ApiTokensPane.tsx";
 import { isExpandedEditorOpen } from "../components/ExpandableTextarea.tsx";
 import { isConfirmArmed } from "../hooks/useConfirmStep.ts";
@@ -640,6 +641,7 @@ function IntegrationsPage({
                   </p>
                 </>
               ) : null}
+              {hasRequestSupport(tab) && <RequestSupport tab={tab} />}
             </div>
           </div>
         )}

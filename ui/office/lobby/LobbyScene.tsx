@@ -43,7 +43,7 @@ import {
   type PropVariant,
 } from "./props.tsx";
 import { toggleJukebox, useJukebox } from "./jukebox.ts";
-import { REPO_URL } from "./props-starjar.tsx";
+import { REPO_URL } from "../../repo.ts";
 import { LobbyLiveCtx } from "./live.ts";
 import { RECEPTIONIST_FOCUS } from "../receptionist-geometry.ts";
 import { ReceptionistPlaceholder } from "../ReceptionistFigure.tsx";

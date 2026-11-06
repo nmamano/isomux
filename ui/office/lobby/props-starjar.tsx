@@ -2,12 +2,11 @@ import { useContext, useId } from "react";
 import { LobbyLiveCtx } from "./live.ts";
 import { useI18n } from "../../i18n.tsx";
 import { iso, shade } from "./iso.tsx";
+import { REPO_URL } from "../../repo.ts";
 
 // A glass tip jar of gold stars on the reception counter, with a kraft tag
 // that links to the repo. Only the words go on the tag: GitHub's brand rules
 // forbid adapting its logo or mascot.
-
-export const REPO_URL = "https://github.com/nmamano/isomux";
 
 // Where the jar stands on the counter (counter-local units) and the box that
 // holds the jar and its tag around that spot.

@@ -1402,6 +1402,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.dialog.remove.self": "Remove {name}?",
   "integrations.dialog.remove.member": "Remove {member}'s {name}?",
   "integrations.dialog.remove.office": "Remove the office-wide {name}?",
+  "integrations.requestSupport.providers":
+    "Want support for a different model provider?",
+  "integrations.requestSupport.voice":
+    "Want support for a different voice service?",
+  "integrations.requestSupport.pager":
+    "Want support for a different place to get pages?",
+  "integrations.requestSupport.messaging":
+    "Want support for a different messaging app?",
+  "integrations.requestSupport.button": "Request it",
   "integrations.providers.apiKeys":
     "Using an API key instead? Add <code>ANTHROPIC_API_KEY</code> or <code>OPENAI_API_KEY</code> in <link>Variables</link>.",
   "integrations.providers.memberSignsIn":

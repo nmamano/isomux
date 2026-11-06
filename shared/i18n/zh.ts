@@ -1283,6 +1283,11 @@ App 的一些原则：
   "integrations.dialog.remove.self": "移除 {name}？",
   "integrations.dialog.remove.member": "移除 {member} 的 {name}？",
   "integrations.dialog.remove.office": "移除办公室通用的 {name}？",
+  "integrations.requestSupport.providers": "想要支持其他模型提供商？",
+  "integrations.requestSupport.voice": "想要支持其他语音服务？",
+  "integrations.requestSupport.pager": "想要支持其他接收呼叫的地方？",
+  "integrations.requestSupport.messaging": "想要支持其他消息应用？",
+  "integrations.requestSupport.button": "提出请求",
   "integrations.providers.apiKeys":
     "想改用 API 密钥？请在<link>变量</link>中添加 <code>ANTHROPIC_API_KEY</code> 或 <code>OPENAI_API_KEY</code>。",
   "integrations.providers.memberSignsIn": "成员登录自己的账号。",

@@ -1429,6 +1429,15 @@ Coses que pots fer per ell:
   "integrations.dialog.remove.self": "Vols treure {name}?",
   "integrations.dialog.remove.member": "Vols treure {name} de {member}?",
   "integrations.dialog.remove.office": "Vols treure {name} de tota l'oficina?",
+  "integrations.requestSupport.providers":
+    "Vols suport per a un altre proveïdor de models?",
+  "integrations.requestSupport.voice":
+    "Vols suport per a un altre servei de veu?",
+  "integrations.requestSupport.pager":
+    "Vols suport per a un altre lloc on rebre avisos?",
+  "integrations.requestSupport.messaging":
+    "Vols suport per a una altra app de missatgeria?",
+  "integrations.requestSupport.button": "Sol·licita-ho",
   "integrations.providers.apiKeys":
     "Prefereixes una clau d'API? Afegeix <code>ANTHROPIC_API_KEY</code> o <code>OPENAI_API_KEY</code> a <link>Variables</link>.",
   "integrations.providers.memberSignsIn":

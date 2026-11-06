@@ -88,6 +88,7 @@ export type BtnKind = "primary" | "secondary" | "link" | "danger";
 export function Btn({
   kind = "secondary",
   onClick,
+  href,
   children,
   small,
   disabled,
@@ -97,6 +98,8 @@ export function Btn({
 }: {
   kind?: BtnKind;
   onClick?: () => void;
+  // A button that opens a page in a new tab: an anchor with the same look.
+  href?: string;
   children: ReactNode;
   small?: boolean;
   disabled?: boolean;
@@ -132,6 +135,28 @@ export function Btn({
               background: secondaryFill,
               color: "var(--text-dim)",
             };
+  const full: CSSProperties = {
+    ...btnBase,
+    ...(small && kind !== "link" ? { padding: "3px 9px", fontSize: 11 } : {}),
+    ...look,
+    ...(disabled && kind !== "link"
+      ? { ...disabledLook, cursor: "not-allowed" }
+      : {}),
+    ...style,
+  };
+  if (href !== undefined) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        {...data}
+        style={{ display: "inline-block", textDecoration: "none", ...full }}
+      >
+        {children}
+      </a>
+    );
+  }
   return (
     <button
       type="button"
@@ -139,17 +164,7 @@ export function Btn({
       disabled={disabled}
       {...data}
       {...confirmProps}
-      style={{
-        ...btnBase,
-        ...(small && kind !== "link"
-          ? { padding: "3px 9px", fontSize: 11 }
-          : {}),
-        ...look,
-        ...(disabled && kind !== "link"
-          ? { ...disabledLook, cursor: "not-allowed" }
-          : {}),
-        ...style,
-      }}
+      style={full}
     >
       {children}
     </button>
