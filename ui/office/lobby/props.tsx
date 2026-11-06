@@ -62,7 +62,7 @@ export interface PropContext {
   jukebox?: boolean;
   // The live lobby: the elevator opens the floors dialog on a click.
   onOpenElevator?: () => void;
-  // The live desktop lobby: the counter carries the star jar, which links to
+  // The live lobby: the counter carries the star jar, which links to
   // the repo.
   starJar?: boolean;
 }

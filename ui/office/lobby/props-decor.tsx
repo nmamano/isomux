@@ -710,8 +710,8 @@ export function DirectorySign({
   );
 }
 
-// `starJar` puts the star jar on the counter's left end. Only the live desktop
-// lobby sets it.
+// `starJar` puts the star jar on the counter's left end. Only the live lobby
+// sets it.
 export function ReceptionCounter({
   back = "far",
   starJar = false,

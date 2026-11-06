@@ -104,7 +104,7 @@ export interface LobbySceneProps {
   // lobby sets it, not the editor or the preview.
   onOpenElevator?: () => void;
   // The star jar on the counter, which links to the repo. Only the live
-  // desktop lobby sets it; the phone lobby leaves it out.
+  // office lobby sets it, not the editor or the preview.
   starJar?: boolean;
   // The office state is still loading: the scene draws as it will, with
   // placeholders for what the state fills in (placeholder.tsx), and nothing

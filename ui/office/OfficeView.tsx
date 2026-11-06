@@ -880,7 +880,7 @@ export function OfficeView({
                     mode={mode}
                     layout="nilo"
                     jukebox
-                    starJar={!isMobile}
+                    starJar
                     receptionist={
                       /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
                       receptionist
