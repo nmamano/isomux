@@ -2,9 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
   pageForPath,
   pathForPage,
-  pageForFlags,
-  pageUnder,
-  flagForPage,
   pageShortcut,
   backRoomShortcut,
   createLoneShiftTracker,
@@ -15,9 +12,9 @@ import {
   askIdForPath,
   presencePageFor,
   type Page,
-  type PageFlags,
   type PageShortcutInput,
 } from "./routes.ts";
+import { pageStackAfter, topPage, type PageStack } from "./page-stack.ts";
 import { INTEGRATIONS_TABS, askLinkFor } from "../shared/office-links.ts";
 import type { PresencePage } from "../shared/presence-pages.ts";
 
@@ -244,150 +241,86 @@ describe("pathForPage", () => {
   });
 });
 
-const office: PageFlags = {
-  usersOpen: false,
-  tasksOpen: false,
-  cronjobsOpen: false,
-  appsOpen: false,
-  skillsOpen: false,
-  integrationsOpen: false,
-  asksOpen: false,
-};
+// What a page key does to the page stack (task 3484f6c9). Each case applies
+// the key's action through pageStackAfter, as App does, and reads the stack.
+const office: PageStack = Object.freeze([]);
+const stackOf = (...pages: Page[]): PageStack => Object.freeze(pages);
 
-// Apply the returned setters as React does, including functional updates.
-function pressPageKey(state: PageFlags, key: string): PageFlags {
-  const update = pageShortcut({ key }, state);
-  expect(update !== null && update !== "home").toBe(true);
-  if (update === null || update === "home")
-    throw new Error("Expected page setters");
-  return {
-    ...state,
-    ...update,
-    tasksOpen:
-      typeof update.tasksOpen === "function"
-        ? update.tasksOpen(state.tasksOpen)
-        : (update.tasksOpen ?? state.tasksOpen),
-  };
+function pressPageKey(stack: PageStack, key: string): PageStack {
+  const action = pageShortcut({ key }, stack);
+  if (action === null || action === "home")
+    throw new Error(`Expected a stack action for ${key}, got ${action}`);
+  return pageStackAfter(stack, action);
 }
 
-describe("page shortcuts and rendered-page precedence", () => {
-  it("carries t/a/t/a/s through the same paths and page selection as App", () => {
-    let state = office;
-    for (const [key, path, appsVisible] of [
-      ["t", "/tasks", false],
-      ["a", "/apps", true],
-      ["t", "/tasks", false],
-      ["a", "/apps", true],
-      ["s", "/settings", false],
-    ] as const) {
-      state = pressPageKey(state, key);
-      const page = pageForFlags(state);
-      expect(pathForPage(page)).toBe(path);
-      // App uses this same selection to mount AppsView or unmount it.
-      expect(page === "apps").toBe(appsVisible);
+describe("pageShortcut", () => {
+  it("t opens Tasks on top of any page, and closes it when it shows", () => {
+    expect(pressPageKey(office, "t")).toEqual(["tasks"]);
+    expect(pressPageKey(stackOf("apps", "asks"), "t")).toEqual([
+      "apps",
+      "asks",
+      "tasks",
+    ]);
+    expect(pressPageKey(stackOf("apps", "tasks"), "t")).toEqual(["apps"]);
+    // Tasks open under the Inbox comes up; it does not close out of sight.
+    expect(pressPageKey(stackOf("tasks", "asks"), "t")).toEqual([
+      "asks",
+      "tasks",
+    ]);
+  });
+
+  // Two keydowns can come before React renders: both read the same stack,
+  // and App applies both actions in turn to the latest one.
+  it("composes two t presses read from one stack", () => {
+    for (const stack of [office, stackOf("tasks"), stackOf("apps", "tasks")]) {
+      const first = pageShortcut({ key: "t" }, stack);
+      const second = pageShortcut({ key: "t" }, stack);
+      if (
+        first === null ||
+        first === "home" ||
+        second === null ||
+        second === "home"
+      )
+        throw new Error("Expected stack actions for t");
+      expect(pageStackAfter(pageStackAfter(stack, first), second)).toEqual([
+        ...stack,
+      ]);
     }
   });
 
-  it("toggles Tasks without clearing the page flags underneath it", () => {
-    const beneath = { ...office, appsOpen: true, cronjobsOpen: true };
-    const shown = pressPageKey(beneath, "t");
-    expect(shown).toEqual({ ...beneath, tasksOpen: true });
-    expect(pageForFlags(shown)).toBe("tasks");
-    const hidden = pressPageKey(shown, "t");
-    expect(hidden).toEqual(beneath);
-    expect(pageForFlags(hidden)).toBe("cronjobs");
-  });
-
-  it("preserves two task toggles queued before a render", () => {
-    const update = pageShortcut({ key: "t" }, office);
-    expect(typeof (update && update !== "home" && update.tasksOpen)).toBe(
-      "function",
-    );
-    if (!update || update === "home" || typeof update.tasksOpen !== "function")
-      throw new Error("Expected a functional task update");
-    expect(update.tasksOpen(update.tasksOpen(false))).toBe(false);
-  });
-
-  // One order decides the page shown when flags overlap; App renders and
-  // writes history from it.
-  it("shows the pages in one precedence order", () => {
-    const ORDER: Page[] = [
-      "settings",
-      "tasks",
-      "cronjobs",
+  it("a and i open their page alone, and close it only when it shows", () => {
+    // Every page but Settings, Tasks on top.
+    const every = stackOf(
+      "asks",
       "apps",
+      "cronjobs",
       "skills",
       "integrations",
-      "asks",
-    ];
-    expect([...ORDER].sort()).toEqual([...PAGES].sort());
-    ORDER.forEach((page, i) => {
-      expect(pageForFlags({ ...office, [flagForPage(page)]: true })).toBe(page);
-      for (const lower of ORDER.slice(i + 1))
-        expect(
-          pageForFlags({
-            ...office,
-            [flagForPage(page)]: true,
-            [flagForPage(lower)]: true,
-          }),
-        ).toBe(page);
-    });
-  });
-
-  it("opens Apps on a over any page below Settings, and clears the others", () => {
-    const every = {
-      ...office,
-      tasksOpen: true,
-      cronjobsOpen: true,
-      skillsOpen: true,
-      integrationsOpen: true,
-      asksOpen: true,
-    };
-    expect(pressPageKey(every, "a")).toEqual({ ...office, appsOpen: true });
-  });
-
-  it("only closes Apps when Apps is the visible page", () => {
-    expect(pageShortcut({ key: "a" }, { ...office, appsOpen: true })).toBe(
-      "home",
+      "tasks",
     );
-    for (const covered of [{ tasksOpen: true }, { cronjobsOpen: true }]) {
-      const shown = pressPageKey(
-        { ...office, appsOpen: true, ...covered },
-        "a",
-      );
-      expect(shown).toEqual({ ...office, appsOpen: true });
-      expect(pageForFlags(shown)).toBe("apps");
+    for (const [key, page] of [
+      ["a", "apps"],
+      ["i", "asks"],
+    ] as const) {
+      expect(pressPageKey(office, key)).toEqual([page]);
+      expect(pressPageKey(every, key)).toEqual([page]);
+      expect(pageShortcut({ key }, stackOf(page))).toBe("home");
+      expect(pageShortcut({ key }, stackOf("tasks", page))).toBe("home");
+      // Covered by Tasks: the key brings the page back, alone.
+      expect(pressPageKey(stackOf(page, "tasks"), key)).toEqual([page]);
     }
   });
 
-  // "i" opens the Inbox (task d866bef9) and sets every page flag in one
-  // update, never the lone flip of "t" (task f55581c3).
-  it("opens the Inbox on i over any page below Settings, and clears the others", () => {
-    const every = {
-      ...office,
-      tasksOpen: true,
-      cronjobsOpen: true,
-      appsOpen: true,
-      skillsOpen: true,
-      integrationsOpen: true,
-    };
-    expect(pressPageKey(every, "i")).toEqual({ ...office, asksOpen: true });
+  it("s opens Settings on top of the page that shows", () => {
+    expect(pressPageKey(office, "s")).toEqual(["settings"]);
+    expect(pressPageKey(stackOf("asks", "tasks"), "s")).toEqual([
+      "asks",
+      "tasks",
+      "settings",
+    ]);
   });
 
-  it("closes the Inbox on i only when it is the page shown", () => {
-    const open = pressPageKey(office, "i");
-    expect(pageForFlags(open)).toBe("asks");
-    expect(pageShortcut({ key: "i" }, open)).toBe("home");
-    // The Inbox, then t: Tasks is on top, so i brings the Inbox back.
-    const underTasks = pressPageKey(open, "t");
-    expect(pageForFlags(underTasks)).toBe("tasks");
-    expect(pressPageKey(underTasks, "i")).toEqual({
-      ...office,
-      asksOpen: true,
-    });
-  });
-
-  it("keeps shortcuts out of inputs, modified keys, and Settings", () => {
+  it("keeps shortcuts out of inputs, modified keys, and a Settings page that shows", () => {
     for (const key of ["t", "a", "i", "s"]) {
       for (const guard of [
         "isInput",
@@ -398,98 +331,54 @@ describe("page shortcuts and rendered-page precedence", () => {
         const input: PageShortcutInput = { key, [guard]: true };
         expect(pageShortcut(input, office)).toBeNull();
       }
-      expect(pageShortcut({ key }, { ...office, usersOpen: true })).toBeNull();
+      // Settings guards its own unsaved edits, and only while it shows.
+      expect(pageShortcut({ key }, stackOf("settings"))).toBeNull();
+      expect(pageShortcut({ key }, stackOf("tasks", "settings"))).toBeNull();
     }
+    expect(pressPageKey(stackOf("settings", "apps"), "t")).toEqual([
+      "settings",
+      "apps",
+      "tasks",
+    ]);
     expect(pageShortcut({ key: "x" }, office)).toBeNull();
   });
-});
 
-describe("pageUnder", () => {
-  it("is null with no page or one page open", () => {
-    expect(pageUnder(office)).toBeNull();
-    for (const page of PAGES)
-      expect(pageUnder({ ...office, [flagForPage(page)]: true })).toBeNull();
-  });
-
-  it("names the page that shows when the top one closes", () => {
-    // t then s from a chat (task d6c09d1c): Settings closes to Tasks.
-    let state = pressPageKey(office, "t");
-    state = pressPageKey(state, "s");
-    expect(pageForFlags(state)).toBe("settings");
-    expect(pageUnder(state)).toBe("tasks");
-    // a then t: Tasks sits over Apps.
-    state = pressPageKey(pressPageKey(office, "a"), "t");
-    expect(pageForFlags(state)).toBe("tasks");
-    expect(pageUnder(state)).toBe("apps");
-    // Tasks over the Asks tab (the bar button, then t).
-    state = pressPageKey({ ...office, asksOpen: true }, "t");
-    expect(pageForFlags(state)).toBe("tasks");
-    expect(pageUnder(state)).toBe("asks");
-  });
-
-  // The invariant pageUnder rests on: every shortcut, from every flags state a
-  // member can reach, shows the page it opened on top. A key that opened its
-  // page under the one shown would make Escape close the wrong layer.
-  it("every shortcut shows the page it opens, from every reachable state", () => {
-    walkShortcuts();
-  });
-
-  function walkShortcuts() {
+  // From every stack a member reaches with the keys and Escape, a key that
+  // does not close its page shows that page: a key that opened its page
+  // under the one shown would leave the member looking at the old page.
+  it("every key shows the page it opens, from every reachable stack", () => {
     const KEY_PAGE: Record<string, Page> = {
       t: "tasks",
       a: "apps",
       i: "asks",
       s: "settings",
     };
-    const apply = (state: PageFlags, key: string): PageFlags | null => {
-      const update = pageShortcut({ key }, state);
-      if (update === null) return null;
-      const top = pageForFlags(state);
-      // "home" closes the page on top (App's closePage).
-      if (update === "home")
-        return top === null ? state : { ...state, [flagForPage(top)]: false };
-      return {
-        ...state,
-        ...update,
-        tasksOpen:
-          typeof update.tasksOpen === "function"
-            ? update.tasksOpen(state.tasksOpen)
-            : (update.tasksOpen ?? state.tasksOpen),
-      };
-    };
-    // Start from the office and from each page alone (the bar buttons, a
-    // link, a saved spot); close the top layer as Escape does.
-    const seen = new Map<string, PageFlags>();
-    const queue: PageFlags[] = [
-      office,
-      ...PAGES.map((page) => ({ ...office, [flagForPage(page)]: true })),
-    ];
+    const seen = new Set<string>();
+    const queue: PageStack[] = [office, ...PAGES.map((page) => stackOf(page))];
+    let deepest = 0;
     while (queue.length > 0) {
-      const state = queue.shift()!;
-      const id = JSON.stringify(state);
+      const stack = queue.shift()!;
+      const id = stack.join(",");
       if (seen.has(id)) continue;
-      seen.set(id, state);
-      const top = pageForFlags(state);
-      if (top !== null) queue.push({ ...state, [flagForPage(top)]: false });
-      for (const key of Object.keys(KEY_PAGE)) {
-        const next = apply(state, key);
-        if (next === null) continue;
+      seen.add(id);
+      deepest = Math.max(deepest, stack.length);
+      // Escape closes the page that shows.
+      if (stack.length > 0) queue.push(Object.freeze(stack.slice(0, -1)));
+      for (const [key, page] of Object.entries(KEY_PAGE)) {
+        const action = pageShortcut({ key }, stack);
+        if (action === null) continue;
+        if (action === "home") {
+          expect(topPage(stack)).toBe(page);
+          continue;
+        }
+        const next = pageStackAfter(stack, action);
         queue.push(next);
-        const opened =
-          pageShortcut({ key }, state) !== "home" &&
-          !(key === "t" && state.tasksOpen);
-        if (opened) expect(pageForFlags(next)).toBe(KEY_PAGE[key]);
+        if (!(key === "t" && topPage(stack) === "tasks"))
+          expect(topPage(next)).toBe(page);
       }
     }
-    // Stacks two and three deep were reached, so the walk covered layering.
-    const depths = [...seen.values()].map((state) => {
-      let depth = 0;
-      for (let s = state; pageForFlags(s) !== null; depth++)
-        s = { ...s, [flagForPage(pageForFlags(s)!)]: false };
-      return depth;
-    });
-    expect(Math.max(...depths)).toBe(3);
-  }
+    expect(deepest).toBe(3);
+  });
 });
 
 describe("backRoomShortcut", () => {

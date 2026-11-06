@@ -20,6 +20,7 @@ import {
   type Page,
 } from "../shared/office-links.ts";
 
+import { topPage, type PageStack, type PageStackAction } from "./page-stack.ts";
 import type { PresencePage } from "../shared/presence-pages.ts";
 
 // The page list lives in shared/office-links.ts, where the server reads it
@@ -147,70 +148,6 @@ export function mcpSignInForSearch(search: string): string | null {
   return code.length > 0 && code.length <= 64 ? code : null;
 }
 
-export interface PageFlags {
-  usersOpen: boolean;
-  tasksOpen: boolean;
-  cronjobsOpen: boolean;
-  appsOpen: boolean;
-  skillsOpen: boolean;
-  integrationsOpen: boolean;
-  asksOpen: boolean;
-}
-
-/** Shared by history and the rendered page switch. Flags can overlap. */
-export function pageForFlags(flags: PageFlags): Page | null {
-  return flags.usersOpen
-    ? "settings"
-    : flags.tasksOpen
-      ? "tasks"
-      : flags.cronjobsOpen
-        ? "cronjobs"
-        : flags.appsOpen
-          ? "apps"
-          : flags.skillsOpen
-            ? "skills"
-            : flags.integrationsOpen
-              ? "integrations"
-              : flags.asksOpen
-                ? "asks"
-                : null;
-}
-
-/** The flag that holds a page open. */
-export function flagForPage(page: Page): keyof PageFlags {
-  switch (page) {
-    case "settings":
-      return "usersOpen";
-    case "tasks":
-      return "tasksOpen";
-    case "cronjobs":
-      return "cronjobsOpen";
-    case "apps":
-      return "appsOpen";
-    case "skills":
-      return "skillsOpen";
-    case "integrations":
-      return "integrationsOpen";
-    case "asks":
-      return "asksOpen";
-  }
-}
-
-/** The page that shows when the page on top closes, or null when none is
- *  open under it (task d6c09d1c: layers close top first).
- *
- *  It reads open order from pageForFlags' precedence, which holds because
- *  every door opens its page on top: "s" sets only Settings, "t" is the only
- *  key that leaves lower flags set, and "a" and "i" clear every flag under
- *  Settings but their own page's. So a stack is at most Settings over Tasks over one other page.
- *  A door that opened a page UNDER the one shown would break this; the
- *  pageShortcut test in routes.test.ts goes red on such a key. */
-export function pageUnder(flags: PageFlags): Page | null {
-  const top = pageForFlags(flags);
-  if (top === null) return null;
-  return pageForFlags({ ...flags, [flagForPage(top)]: false });
-}
-
 export interface PageShortcutInput {
   key: string;
   isInput?: boolean;
@@ -223,62 +160,32 @@ export interface PageShortcutInput {
   loneShift?: boolean;
 }
 
-export interface PageShortcutUpdate {
-  tasksOpen?: boolean | ((open: boolean) => boolean);
-  cronjobsOpen?: boolean;
-  appsOpen?: boolean;
-  skillsOpen?: boolean;
-  integrationsOpen?: boolean;
-  asksOpen?: boolean;
-  usersOpen?: true;
-}
-
-/** Return only the setters the existing shortcut changes. */
+/** What a page key does to the page stack, "home" when it closes the page
+ *  that shows, or null when the key does nothing. */
 export function pageShortcut(
   input: PageShortcutInput,
-  flags: PageFlags,
-): PageShortcutUpdate | "home" | null {
+  stack: PageStack,
+): PageStackAction | "home" | null {
+  // Settings only opens; leaving it must pass its own unsaved-edit guard,
+  // which lives in the mounted page.
   if (
     input.isInput ||
-    flags.usersOpen ||
+    topPage(stack) === "settings" ||
     input.metaKey ||
     input.ctrlKey ||
     input.altKey
   )
     return null;
-  if (input.key === "t") {
-    // Keep a functional update: two keydowns can occur before React renders.
-    // Tasks deliberately leaves the other page flags set underneath it.
-    return { tasksOpen: (open) => !open };
+  // Decided by the action, not by this stack: two keydowns can come before
+  // React renders, and the second must read the first one's result.
+  if (input.key === "t") return { type: "toggle", page: "tasks" };
+  // Apps and the Inbox (task f55581c3) replace every page, and close only
+  // when they show: under Tasks they come to the front.
+  if (input.key === "a" || input.key === "i") {
+    const page = input.key === "a" ? "apps" : "asks";
+    return topPage(stack) === page ? "home" : { type: "only", page };
   }
-  if (input.key === "a") {
-    if (flags.appsOpen && !flags.tasksOpen && !flags.cronjobsOpen)
-      return "home";
-    return {
-      tasksOpen: false,
-      cronjobsOpen: false,
-      appsOpen: true,
-      skillsOpen: false,
-      integrationsOpen: false,
-      asksOpen: false,
-    };
-  }
-  // The Inbox sets every page flag in one update, unlike "t" (task
-  // f55581c3), and closes only when it is the page shown: over Tasks it
-  // comes to the front.
-  if (input.key === "i") {
-    if (pageForFlags(flags) === "asks") return "home";
-    return {
-      tasksOpen: false,
-      cronjobsOpen: false,
-      appsOpen: false,
-      skillsOpen: false,
-      integrationsOpen: false,
-      asksOpen: true,
-    };
-  }
-  // Settings only opens; leaving it must pass its own unsaved-edit guard.
-  if (input.key === "s") return { usersOpen: true };
+  if (input.key === "s") return { type: "open", page: "settings" };
   return null;
 }
 

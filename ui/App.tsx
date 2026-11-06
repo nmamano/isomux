@@ -68,14 +68,19 @@ import {
   mcpSignInForSearch,
   integrationsTabForPath,
   pathForPage,
-  pageForFlags,
-  pageUnder,
   presencePageFor,
   pageShortcut,
   backRoomShortcut,
   createLoneShiftTracker,
   type Page,
 } from "./routes.ts";
+import {
+  pageStackAfter,
+  pageUnder,
+  topPage,
+  type PageStack,
+  type PageStackAction,
+} from "./page-stack.ts";
 import { OfficeLinkOpener } from "./office-link.tsx";
 import { AskSignInResult, type AskSignIn } from "./log-view/ask-sign-in.ts";
 import { TaskOpener } from "./log-view/task-links.tsx";
@@ -160,16 +165,29 @@ export function App({ routing = true }: { routing?: boolean }) {
   // derives message attribution from the session identity (the send/edit routes
   // no longer carry a username), so the value itself is no longer read in the UI.
   const [, setUsername] = useState<string | null>(() => getUsername());
-  // The page the URL asked for, read once at mount. Every page flag below
+  // The page the URL asked for, read once at mount. The page stack below
   // starts from it, so a shared link renders its page on the FIRST paint - no
   // flash of the office, and no wait for the websocket.
   // A Discord page link (`/?pager=<id>`) opens the Inbox on that page's ask.
   const [bootPage] = useState(() =>
     pageForLocation(window.location.pathname, window.location.search),
   );
-  // Full-page Settings (like tasks/cronjobs): part of the main view
-  // switch, closed via closePage/popstate.
-  const [usersOpen, setUsersOpen] = useState(bootPage === "settings");
+  // The open full pages, bottom first (ui/page-stack.ts): the top one shows,
+  // and closing it uncovers the one it was opened over. A chat is not a page:
+  // agent chats are not routes (ruling 3), so a chat and the office share the
+  // path "/".
+  const [pageStack, setPageStack] = useState<PageStack>(() =>
+    bootPage === null ? [] : [bootPage],
+  );
+  // Every change is a functional update, so two keydowns before a render
+  // compose.
+  const changePages = useCallback(
+    (action: PageStackAction) =>
+      setPageStack((prev) => pageStackAfter(prev, action)),
+    [],
+  );
+  const page = topPage(pageStack);
+  const pageBelow = pageUnder(pageStack);
   // Live-avatars: when a ghost is clicked, the user-settings page opens
   // preopened to that user. Null = generic open (no preselection),
   // string = open with that user selected. Reset to null on close so a
@@ -182,25 +200,19 @@ export function App({ routing = true }: { routing?: boolean }) {
   const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(
     null,
   );
-  const [tasksOpen, setTasksOpen] = useState(bootPage === "tasks");
   const [taskOpenRequest, setTaskOpenRequest] =
     useState<TaskOpenRequest | null>(null);
-  const [cronjobsOpen, setCronjobsOpen] = useState(bootPage === "cronjobs");
-  const [appsOpen, setAppsOpen] = useState(bootPage === "apps");
-  const [skillsOpen, setSkillsOpen] = useState(bootPage === "skills");
-  const [integrationsOpen, setIntegrationsOpen] = useState(
-    bootPage === "integrations",
-  );
   // One-shot: what the Integrations page opens on, beyond its defaults: an
   // MCP sign-in that came back carries its result (read once, like the ask
   // id below), and a door or a URL that names a tab carries the tab. The page
   // takes it on mount and clears it.
   const [integrationsRequest, setIntegrationsRequest] =
     useState<IntegrationsRequest | null>(() => {
-      // A sign-in that came back to an ask is that ask's (askSignIn below).
-      const signIn = askIdForPath(window.location.pathname)
-        ? null
-        : mcpSignInForSearch(window.location.search);
+      // Only for an Integrations boot page: a page's one-shot state goes
+      // when the page is not open. A sign-in that came back to an ask is
+      // that ask's (askSignIn below).
+      if (bootPage !== "integrations") return null;
+      const signIn = mcpSignInForSearch(window.location.search);
       const tab = integrationsTabForPath(window.location.pathname);
       if (signIn === null && tab === null) return null;
       return {
@@ -212,7 +224,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     () => setIntegrationsRequest(null),
     [],
   );
-  const [asksOpen, setAsksOpen] = useState(bootPage === "asks");
   // The ask pinned above the Asks list (task 84aadfab): an ask chip's, an
   // ask link's or the /inbox/asks/<askId> address's, read once. It goes when
   // the Asks tab closes.
@@ -233,7 +244,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       live = false;
     };
   }, [bootPageId]);
-  if (!asksOpen && askFocus !== null) setAskFocus(null);
+  if (!pageStack.includes("asks") && askFocus !== null) setAskFocus(null);
   const clearAskFocus = useCallback(() => setAskFocus(null), []);
   // One-shot: the result of an MCP sign-in started in an ask card, which came
   // back to /inbox/asks/<askId>?mcpSignIn=<code> (task e3d1bc63). That ask's
@@ -250,9 +261,23 @@ export function App({ routing = true }: { routing?: boolean }) {
   // The agent the Asks tab filters to once (a chat stack's View in Inbox,
   // task 586ebfe1). It goes when the Asks tab closes, like the pin.
   const [askAgentFilter, setAskAgentFilter] = useState<string | null>(null);
-  if (!asksOpen && askAgentFilter !== null) setAskAgentFilter(null);
+  if (!pageStack.includes("asks") && askAgentFilter !== null)
+    setAskAgentFilter(null);
   const clearAskAgentFilter = useCallback(() => setAskAgentFilter(null), []);
-  const openInbox = useCallback(() => setAsksOpen(true), []);
+  // The other pages' one-shot state goes the same way: when its page leaves
+  // the stack, whichever action took it out.
+  if (!pageStack.includes("tasks") && taskOpenRequest !== null)
+    setTaskOpenRequest(null);
+  if (!pageStack.includes("integrations") && integrationsRequest !== null)
+    setIntegrationsRequest(null);
+  if (!pageStack.includes("settings")) {
+    if (editingUserId !== null) setEditingUserId(null);
+    if (settingsTarget !== null) setSettingsTarget(null);
+  }
+  const openInbox = useCallback(
+    () => changePages({ type: "open", page: "asks" }),
+    [changePages],
+  );
   useAsksSync();
   useOthersAsksSync();
 
@@ -336,17 +361,13 @@ export function App({ routing = true }: { routing?: boolean }) {
     // open from the first render. The saved spot still supplies room and agent
     // above, so a shared /tasks link lands on the task page over the chat the
     // reader left open.
-    if (bootPage !== null) return;
-    if (saved.panel === "tasks") setTasksOpen(true);
-    else if (saved.panel === "cronjobs") setCronjobsOpen(true);
-    else if (saved.panel === "apps") setAppsOpen(true);
-    else if (saved.panel === "skills") setSkillsOpen(true);
-    else if (saved.panel === "integrations") setIntegrationsOpen(true);
-    else if (saved.panel === "asks") setAsksOpen(true);
-    // "users" is the old name for the same page; a spot saved by an earlier
-    // build still reopens it.
-    else if (saved.panel === "settings" || saved.panel === "users")
-      setUsersOpen(true);
+    if (bootPage !== null || saved.panel === null) return;
+    // "users" is the old name for the settings page; a spot saved by an
+    // earlier build still reopens it.
+    changePages({
+      type: "open",
+      page: saved.panel === "users" ? "settings" : saved.panel,
+    });
   }, [
     bootPage,
     persistEnabled,
@@ -357,6 +378,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     rooms,
     rideArrival,
     dispatch,
+    changePages,
   ]);
 
   // Save the view spot whenever it changes (post-restore only).
@@ -366,21 +388,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       roomId: currentRoomId,
       agentId: focusedAgentId,
       lobby: lobbyOpen,
-      panel: usersOpen
-        ? "settings"
-        : tasksOpen
-          ? "tasks"
-          : cronjobsOpen
-            ? "cronjobs"
-            : appsOpen
-              ? "apps"
-              : skillsOpen
-                ? "skills"
-                : integrationsOpen
-                  ? "integrations"
-                  : asksOpen
-                    ? "asks"
-                    : null,
+      panel: page,
     });
   }, [
     persistEnabled,
@@ -388,13 +396,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     persistUser,
     currentRoomId,
     focusedAgentId,
-    tasksOpen,
-    cronjobsOpen,
-    appsOpen,
-    skillsOpen,
-    integrationsOpen,
-    asksOpen,
-    usersOpen,
+    page,
     lobbyOpen,
   ]);
 
@@ -557,66 +559,57 @@ export function App({ routing = true }: { routing?: boolean }) {
     bootPage === null ? "none" : "adopted",
   );
 
-  // Each page's open flag, and the one-shot state that belongs to it and is
-  // cleared whenever it closes. applyPage and closeTopPage both work from it.
+  // The one-shot state that belongs to each page. It goes when its page
+  // leaves the stack (the resets above); a page that stays in the stack while
+  // it is opened again needs it cleared here.
   const pageState = useMemo(
-    (): Record<
-      Page,
-      { setOpen: (open: boolean) => void; clear: () => void }
-    > => ({
+    (): Record<Page, { clear: () => void }> => ({
       settings: {
-        setOpen: setUsersOpen,
         clear: () => {
           setEditingUserId(null);
           setSettingsTarget(null);
         },
       },
-      tasks: { setOpen: setTasksOpen, clear: () => setTaskOpenRequest(null) },
-      cronjobs: { setOpen: setCronjobsOpen, clear: () => {} },
-      apps: { setOpen: setAppsOpen, clear: () => {} },
-      skills: { setOpen: setSkillsOpen, clear: () => {} },
-      integrations: {
-        setOpen: setIntegrationsOpen,
-        clear: () => setIntegrationsRequest(null),
-      },
-      asks: { setOpen: setAsksOpen, clear: () => setAskFocus(null) },
+      tasks: { clear: () => setTaskOpenRequest(null) },
+      cronjobs: { clear: () => {} },
+      apps: { clear: () => {} },
+      skills: { clear: () => {} },
+      integrations: { clear: () => setIntegrationsRequest(null) },
+      asks: { clear: () => setAskFocus(null) },
     }),
     [],
   );
 
-  // The one place a page is applied from outside the UI - boot and popstate.
-  // Exactly one flag is set and the others are cleared, so no restore can
-  // leave two pages open. The settings section and the preselected user are
-  // deliberately dropped: neither is part of a route (ruling 3), so a Forward
-  // into settings lands on the generic page instead of resurrecting whichever
-  // row was open last time.
+  // The one place the whole stack is replaced - boot, popstate, an agent's
+  // chat and the office. It leaves at most one page open. The settings
+  // section and the preselected user are deliberately dropped: neither is
+  // part of a route (ruling 3), so a Forward into settings lands on the
+  // generic page instead of resurrecting whichever row was open last time.
   const applyPage = useCallback(
     (page: Page | null) => {
-      for (const [p, { setOpen, clear }] of Object.entries(pageState)) {
-        setOpen(p === page);
-        clear();
-      }
+      changePages({ type: "only", page });
+      for (const { clear } of Object.values(pageState)) clear();
     },
-    [pageState],
+    [changePages, pageState],
   );
 
   // Open the settings page, optionally on a named row. Passing null is the
   // generic open (the bar's User button), which must CLEAR any section left
   // over from a previous visit rather than reopening it.
-  const openSettings = useCallback((target: SettingsTarget | null) => {
-    setSettingsTarget(target);
-    setUsersOpen(true);
-  }, []);
+  const openSettings = useCallback(
+    (target: SettingsTarget | null) => {
+      setSettingsTarget(target);
+      changePages({ type: "open", page: "settings" });
+    },
+    [changePages],
+  );
 
-  // Integrations replaces every open page, so the one door that opens it over
-  // another page (the Settings pointer to Browser Use, task f2d5cf9f) leaves
-  // no page stacked under it.
   const openIntegrations = useCallback(
     (request?: IntegrationsRequest) => {
-      applyPage("integrations");
       setIntegrationsRequest(request ?? null);
+      changePages({ type: "open", page: "integrations" });
     },
-    [applyPage],
+    [changePages],
   );
 
   // Opens an agent's chat from anywhere outside its desk (a page, a link):
@@ -636,11 +629,10 @@ export function App({ routing = true }: { routing?: boolean }) {
     [agents, applyPage, dispatch],
   );
 
-  // An ask's link opens its page on top of the chat or the Inbox it was
-  // clicked on, so Close and Back return there. The page's one-shot state is
-  // cleared first, so Settings opens on no stale row. The Inbox's tabs do not
-  // stack: a link to one from the other switches the tab. A link to an agent
-  // goes through openAgentChat.
+  // An ask's link opens its page on top of whatever it was clicked on - a
+  // chat, the Inbox or another page - so Close and Back return there. The
+  // page's one-shot state is cleared first, so Settings opens on no stale
+  // row. A link to an agent goes through openAgentChat.
   const openOfficeLink = useCallback(
     (link: OfficeLink) => {
       if ("agentId" in link) {
@@ -651,9 +643,9 @@ export function App({ routing = true }: { routing?: boolean }) {
       if (link.tab) setIntegrationsRequest({ tab: link.tab });
       if (link.askId) setAskFocus(link.askId);
       if (link.onlyAgent) setAskAgentFilter(link.onlyAgent);
-      pageState[link.page].setOpen(true);
+      changePages({ type: "open", page: link.page });
     },
-    [pageState, openAgentChat],
+    [pageState, changePages, openAgentChat],
   );
 
   // An agent's address (/agents/<agentId>, the app widget's link) opens that
@@ -700,21 +692,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     dispatch({ type: "focus", agentId: null });
     setBackRoomOpen(false);
   }, [applyPage, dispatch]);
-
-  // Which page is showing, in the same precedence as the view switch below. A
-  // chat is not a page: agent chats are not routes (ruling 3), so a chat and
-  // the office share the path "/".
-  const pageFlags = {
-    usersOpen,
-    tasksOpen,
-    cronjobsOpen,
-    appsOpen,
-    skillsOpen,
-    integrationsOpen,
-    asksOpen,
-  };
-  const pageBelow = pageUnder(pageFlags);
-  const page = pageForFlags(pageFlags);
 
   // Live-avatars: tell the server where this session's ghost should
   // appear. Fires whenever any of the relevant view states change, plus
@@ -768,15 +745,13 @@ export function App({ routing = true }: { routing?: boolean }) {
   const somethingUnderPage =
     page !== null && (pageBelow !== null || !!focusedAgent);
 
-  // Drop only the page on top, with the state that belongs to it. Focus and
-  // the history entry stay: we stay deep, so the sync effect replaces the
-  // entry instead of pushing, and Back from what is uncovered still lands on
-  // the office.
+  // Drop only the page on top; the state that belongs to it goes with it.
+  // Focus and the history entry stay: we stay deep, so the sync effect
+  // replaces the entry instead of pushing, and Back from what is uncovered
+  // still lands on the office.
   const closeTopPage = useCallback(() => {
-    if (page === null) return;
-    pageState[page].setOpen(false);
-    pageState[page].clear();
-  }, [page, pageState]);
+    if (page !== null) changePages({ type: "close", page });
+  }, [page, changePages]);
 
   // Every page's way out - its Close button, Escape, and a second a or i -
   // comes through here; Back takes the same decision in the popstate handler.
@@ -804,13 +779,16 @@ export function App({ routing = true }: { routing?: boolean }) {
 
   const openTasks = useCallback(() => {
     setTaskOpenRequest(null);
-    setTasksOpen(true);
-  }, []);
+    changePages({ type: "open", page: "tasks" });
+  }, [changePages]);
 
-  const openTask = useCallback((id: string) => {
-    setTaskOpenRequest({ id });
-    setTasksOpen(true);
-  }, []);
+  const openTask = useCallback(
+    (id: string) => {
+      setTaskOpenRequest({ id });
+      changePages({ type: "open", page: "tasks" });
+    },
+    [changePages],
+  );
 
   // An ask chip opens its ask pinned on the Inbox's Asks tab, as an ask's
   // link to it does.
@@ -871,7 +849,7 @@ export function App({ routing = true }: { routing?: boolean }) {
         setCtxMenu(null);
         setEditAgent(null);
       }
-      const pageUpdate = pageShortcut(
+      const pageAction = pageShortcut(
         {
           key: e.key,
           isInput,
@@ -879,41 +857,20 @@ export function App({ routing = true }: { routing?: boolean }) {
           ctrlKey: e.ctrlKey,
           altKey: e.altKey,
         },
-        {
-          usersOpen,
-          tasksOpen,
-          cronjobsOpen,
-          appsOpen,
-          skillsOpen,
-          integrationsOpen,
-          asksOpen,
-        },
+        pageStack,
       );
-      if (pageUpdate !== null) {
+      if (pageAction !== null) {
         e.preventDefault();
-        if (pageUpdate === "home") closePage();
-        else {
-          if (pageUpdate.tasksOpen !== undefined)
-            setTasksOpen(pageUpdate.tasksOpen);
-          if (pageUpdate.cronjobsOpen !== undefined)
-            setCronjobsOpen(pageUpdate.cronjobsOpen);
-          if (pageUpdate.appsOpen !== undefined)
-            setAppsOpen(pageUpdate.appsOpen);
-          if (pageUpdate.skillsOpen !== undefined)
-            setSkillsOpen(pageUpdate.skillsOpen);
-          if (pageUpdate.integrationsOpen !== undefined)
-            setIntegrationsOpen(pageUpdate.integrationsOpen);
-          if (pageUpdate.asksOpen !== undefined)
-            setAsksOpen(pageUpdate.asksOpen);
-          // "s" opens the settings of the room you are standing in; the lobby
-          // has no room row, so it opens the office row instead (Nil, 2026-09-14).
-          if (pageUpdate.usersOpen)
-            openSettings(
-              !lobbyOpen && currentRoomId
-                ? { kind: "room", roomId: currentRoomId }
-                : { kind: "section", section: "office" },
-            );
-        }
+        if (pageAction === "home") closePage();
+        // "s" opens the settings of the room you are standing in; the lobby
+        // has no room row, so it opens the office row instead (Nil, 2026-09-14).
+        else if (pageAction.page === "settings")
+          openSettings(
+            !lobbyOpen && currentRoomId
+              ? { kind: "room", roomId: currentRoomId }
+              : { kind: "section", section: "office" },
+          );
+        else changePages(pageAction);
       }
       const backRoomKey = backRoomShortcut(
         {
@@ -1036,13 +993,8 @@ export function App({ routing = true }: { routing?: boolean }) {
     currentRoomId,
     roomCount,
     swipeRoom,
-    usersOpen,
-    appsOpen,
-    skillsOpen,
-    integrationsOpen,
-    tasksOpen,
-    cronjobsOpen,
-    asksOpen,
+    pageStack,
+    changePages,
     openSettings,
     lobbyOpen,
     backRoomOpen,
@@ -1219,9 +1171,13 @@ export function App({ routing = true }: { routing?: boolean }) {
                   openSettings({ kind: "section", section: "theme" })
                 }
                 onOpenTasks={openTasks}
-                onOpenCronjobs={() => setCronjobsOpen(true)}
-                onOpenApps={() => setAppsOpen(true)}
-                onOpenSkills={() => setSkillsOpen(true)}
+                onOpenCronjobs={() =>
+                  changePages({ type: "open", page: "cronjobs" })
+                }
+                onOpenApps={() => changePages({ type: "open", page: "apps" })}
+                onOpenSkills={() =>
+                  changePages({ type: "open", page: "skills" })
+                }
                 onOpenIntegrations={() => openIntegrations()}
                 onOpenInbox={openInbox}
                 onOpenUpdate={() =>

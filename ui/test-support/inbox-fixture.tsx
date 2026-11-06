@@ -151,12 +151,22 @@ let askRead: (id: string) => Promise<unknown> = askNotFound;
 export function setAskRead(next: (id: string) => Promise<unknown>) {
   askRead = next;
 }
+// Answers for the routes of a page this fixture does not serve (the Skills
+// page's reads, task 3484f6c9); undefined passes the request on below. None
+// unless a test sets one.
+type ExtraApi = (method: string, path: string) => Promise<unknown> | undefined;
+let extraApi: ExtraApi | null = null;
+export function setExtraApi(next: ExtraApi) {
+  extraApi = next;
+}
 // App's pushes, spied afresh for each test.
 let pushState: ReturnType<typeof spyOn<History, "pushState">> | null = null;
 export const pushCount = () => pushState?.mock.calls.length ?? 0;
 
 export function setUpInboxTests() {
   setApiShim(async (method, path, body) => {
+    const extra = extraApi?.(method, path);
+    if (extra !== undefined) return extra;
     if (path === "/api/asks") {
       asksGets.own++;
       return asksGet();
@@ -210,6 +220,7 @@ export function setUpInboxTests() {
   beforeEach(() => {
     pageAsks = {};
     pageReads.length = 0;
+    extraApi = null;
     asks = ASKS;
     asksGet = ownAsksGet;
     othersAsksGet = noOthersAsks;
