@@ -2877,7 +2877,6 @@ Coses que pots fer per ell:
   "office.desk.swapBadge": "INTERCANVIA",
   "office.status.working": "treballant",
   "office.status.error": "amb error",
-  "office.status.idle": "inactius",
   "office.backRoom.tooltip.one": "Rebotiga · {count} agent",
   "office.backRoom.tooltip.other": "Rebotiga · {count} agents",
   "office.backRoom.dropBadge": "Mou a la rebotiga",

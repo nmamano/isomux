@@ -677,11 +677,6 @@ export function OfficeView({
                     c: "var(--red-text)",
                     l: "office.status.error",
                   },
-                  {
-                    n: counts.idle,
-                    c: "var(--text-muted)",
-                    l: "office.status.idle",
-                  },
                 ] as const
               )
                 .filter((s) => s.n > 0)

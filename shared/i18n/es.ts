@@ -2869,7 +2869,6 @@ Cosas que puedes hacer por él:
   "office.desk.swapBadge": "INTERCAMBIAR",
   "office.status.working": "trabajando",
   "office.status.error": "con error",
-  "office.status.idle": "inactivos",
   "office.backRoom.tooltip.one": "Trastienda · {count} agente",
   "office.backRoom.tooltip.other": "Trastienda · {count} agentes",
   "office.backRoom.dropBadge": "Mover a la trastienda",

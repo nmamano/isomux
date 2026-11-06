@@ -80,9 +80,10 @@ it("shows back agents only through the trap door", async () => {
 });
 
 // The header's counts (task 0cd2807f): on the front, working takes in the
-// back room's working agents, while error and idle stay the front's; the back
-// room's screen counts its own agents. No state but those three gets a count.
-// The phone header shows working and error only.
+// back room's working agents, while error stays the front's; the back room's
+// screen counts its own agents. Only working and error get a count, on the
+// phone and the desktop alike (task 10748724): idle and stopped agents are in
+// the fixture to prove they get none.
 const backDesk = (stool: number) => deskOfBackSeat({ table: 0, stool });
 const countedAgents = [
   agent("F0", 0, "thinking"),
@@ -115,20 +116,12 @@ const headerCases: { screen: string; mobile: boolean; want: string[] }[] = [
   {
     screen: "front",
     mobile: false,
-    want: [
-      chip(3, "office.status.working"),
-      chip(1, "office.status.error"),
-      chip(1, "office.status.idle"),
-    ],
+    want: [chip(3, "office.status.working"), chip(1, "office.status.error")],
   },
   {
     screen: "back",
     mobile: false,
-    want: [
-      chip(2, "office.status.working"),
-      chip(2, "office.status.error"),
-      chip(2, "office.status.idle"),
-    ],
+    want: [chip(2, "office.status.working"), chip(2, "office.status.error")],
   },
   {
     screen: "front",

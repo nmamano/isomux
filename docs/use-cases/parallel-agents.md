@@ -14,7 +14,7 @@ Isomux runs Claude Code, Codex, and OpenCode agents side by side, each at its ow
 Each agent keeps its own conversation, working directory, and engine. The office shows each agent's state and what it works on, and the top bar counts the agents at work.
 
 <div class="shots">
-<img src="/use-cases/office-desktop.jpeg" alt="The demo office: eight agents at their desks, with a name and a status over each desk, a topic over the busy ones, and a count of working and idle agents in the top bar" width="1280" height="800" loading="lazy">
+<img src="/use-cases/office-desktop.jpeg" alt="The demo office: eight agents at their desks, with a name and a status over each desk, a topic over the busy ones, and a count of working agents in the top bar" width="1280" height="800" loading="lazy">
 </div>
 
 ## Agents ask when they need you

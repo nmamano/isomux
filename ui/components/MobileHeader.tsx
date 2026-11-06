@@ -5,7 +5,6 @@ import type { AgentInfo } from "../../shared/types.ts";
 export type RoomCounts = {
   working: number;
   error: number;
-  idle: number;
 };
 
 export function getRoomCounts(roomAgents: AgentInfo[]): RoomCounts {
@@ -14,8 +13,6 @@ export function getRoomCounts(roomAgents: AgentInfo[]): RoomCounts {
       ["thinking", "tool_executing"].includes(a.state),
     ).length,
     error: roomAgents.filter((a) => a.state === "error").length,
-    idle: roomAgents.filter((a) => a.state === "idle" || a.state === "stopped")
-      .length,
   };
 }
 
