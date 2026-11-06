@@ -1,7 +1,6 @@
 import { ordinaryRooms } from "../shared/types.ts";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRecordingRules } from "./hooks/useRecordingRules.ts";
-import { isRecording, setRecording } from "./recording-mode.ts";
 import {
   useAppState,
   useDispatch,
@@ -895,22 +894,6 @@ export function App({ routing = true }: { routing?: boolean }) {
       );
       if (backRoomKey === "close") goHome();
     }
-    // Recording mode, from anywhere, a text field included. By key code:
-    // macOS types a character for Alt+Shift+R. In the capture phase: the
-    // terminal stops the propagation of each key it handles.
-    function toggleRecording(e: KeyboardEvent) {
-      if (
-        e.code !== "KeyR" ||
-        !e.altKey ||
-        !e.shiftKey ||
-        e.ctrlKey ||
-        e.metaKey
-      )
-        return;
-      e.preventDefault();
-      e.stopPropagation();
-      setRecording(!isRecording());
-    }
     function handleKey(e: KeyboardEvent) {
       const isInput = isInputTarget(e.target);
       if (e.key === "Escape") {
@@ -1067,14 +1050,12 @@ export function App({ routing = true }: { routing?: boolean }) {
     }
     window.addEventListener("keydown", handleKey);
     window.addEventListener("keydown", feedLoneShift, true);
-    window.addEventListener("keydown", toggleRecording, true);
     window.addEventListener("keyup", handleKeyUp, true);
     window.addEventListener("pointerdown", resetLoneShift, true);
     window.addEventListener("blur", resetLoneShift);
     return () => {
       window.removeEventListener("keydown", handleKey);
       window.removeEventListener("keydown", feedLoneShift, true);
-      window.removeEventListener("keydown", toggleRecording, true);
       window.removeEventListener("keyup", handleKeyUp, true);
       window.removeEventListener("pointerdown", resetLoneShift, true);
       window.removeEventListener("blur", resetLoneShift);

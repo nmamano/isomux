@@ -99,7 +99,7 @@ export function RecordingPane() {
           {t("recording.switch")}
         </label>
         <p style={{ ...dialogHint, margin: "6px 0 0" }}>
-          {t("recording.switchHint", { keys: "Alt+Shift+R" })}
+          {t("recording.switchHint")}
         </p>
       </div>
 

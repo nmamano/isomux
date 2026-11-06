@@ -61,7 +61,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Open from your phone** - same server URL (VPN or public), touch-optimized UI.
 - **Install as app** - put the office on a phone or computer, no app store.
 - **Real-time updates** - every connected device (laptop, phone, others) sees the same conversations and the same filesystem in real time via WebSocket; no syncing headaches.
-- **Recording mode** - record a demo or stream your office: on screen, office addresses, other office names, emails, phone numbers, keys and your own list of words show as stand-ins, and pictures stay blurred until you click them. Turn it on per browser in Settings or with Alt+Shift+R. The browser's address bar and tabs still show the real address.
 
 ## Cute in a useful way
 
@@ -177,6 +176,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Built-in safety checks (Claude, Codex, and OpenCode agents)** - blocks `rm -rf`, `git reset --hard`, recognized process-kill commands, reading secret-bearing files like `.env`, reading another process's environment, and recognized commands that open outbound tunnels. These guards are an honest-agent safety layer, not OS isolation.
 - **Secret leak prevention** - Isomux masks recognized secret patterns before they reach the logs or the chat.
+- **Recording mode** - record or stream your office with addresses, office names and your own words shown as stand-ins.
 - **Managed environment variables** - keep API tokens and other secrets out of prompts: set office-wide and personal variables on the Integrations page. Personal values override office-wide values. Values are not embedded in prompts or conversation logs.
 - **Secrets** - save a credential with the hosts that may receive it. Agents get a stand-in, not the value. An agent that reads the office's files on purpose can still find the value. Show reveals a value to its own member, and an office value to an owner.
 - **Integrations page** - everything your agents can use. The MCP tab also lists the claude.ai connectors of your Claude sign-in. Owners manage every member's items and settings there. Test one to see whether it works and which account the service sees. A note on a variable, secret or MCP server tells your agents how to use it.

@@ -454,8 +454,7 @@ App 的一些原则：
   "recording.intro":
     "录制或直播时，办公室会用替代内容显示办公室地址、其他办公室名称、邮箱、电话号码、IP 地址、密钥和你的词语，并模糊图片和嵌入页面，直到你点击它们。浏览器地址栏仍显示真实地址。",
   "recording.switch": "在此浏览器中开启",
-  "recording.switchHint":
-    "在任意页面按 {keys} 开启或关闭。开启时，标签页显示 ● REC 和一个红点。",
+  "recording.switchHint": "开启时，标签页显示 ● REC 和一个红点。",
   "recording.words": "你的词语",
   "recording.wordsHint":
     "客户、人员或项目的名称，以及要显示的替代内容。此列表会跟随你到每台设备。",

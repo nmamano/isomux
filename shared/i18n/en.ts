@@ -486,8 +486,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "recording.intro":
     "While you record or stream, the office shows stand-ins for office addresses, other office names, emails, phone numbers, IP addresses, keys and your words, and blurs pictures and embedded pages until you click them. The browser's address bar still shows the real address.",
   "recording.switch": "On in this browser",
-  "recording.switchHint":
-    "{keys} turns it on or off on any page. The tab shows ● REC and a red dot while it is on.",
+  "recording.switchHint": "The tab shows ● REC and a red dot while it is on.",
   "recording.words": "Your words",
   "recording.wordsHint":
     "Names of customers, people or projects, and what to show instead. The list follows you to every device.",

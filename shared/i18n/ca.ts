@@ -480,7 +480,7 @@ Coses que pots fer per ell:
     "Mentre enregistres o emets, l'oficina mostra substituts de les adreces de l'oficina, els noms d'altres oficines, correus, telèfons, adreces IP, claus i les teves paraules, i difumina les imatges i les pàgines incrustades fins que hi fas clic. La barra d'adreces del navegador continua mostrant l'adreça real.",
   "recording.switch": "Activat en aquest navegador",
   "recording.switchHint":
-    "{keys} l'activa o el desactiva a qualsevol pàgina. La pestanya mostra ● REC i un punt vermell mentre està activat.",
+    "La pestanya mostra ● REC i un punt vermell mentre està activat.",
   "recording.words": "Les teves paraules",
   "recording.wordsHint":
     "Noms de clients, persones o projectes, i què cal mostrar en lloc seu. La llista et segueix a tots els dispositius.",
