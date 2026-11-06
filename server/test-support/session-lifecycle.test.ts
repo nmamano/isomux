@@ -15,10 +15,9 @@
 //      swap's blocked drain waits and delivers exactly once into the post-swap
 //      session". Added here: the close/drain/install order with the dormant and
 //      sessionSwapping events, and the rejection type reaching a human turn.
-//   2. A wake that wins the drain window is kept, the replacement discarded:
-//      queue-reliability.test.ts "a human wake that wins the drain window is
-//      kept - the swap discards its own replacement instead of clobbering the
-//      live turn". Nothing added.
+//   2. A wake during a drain: since task 082ab039 a swap holds the slot, so
+//      nothing installs during its drain; pinned in "a swap holds the slot"
+//      below.
 //   3. installSession keeps a live turn on a lazy first-message wake: added
 //      here. The idle-install residue clear has no honest public path and is an
 //      S2 direct-unit obligation (ruling 8).
@@ -57,6 +56,8 @@
 // resume the same thread, as production Codex does.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   FakeBackend,
   type FakeSession,
@@ -69,6 +70,7 @@ import type { ContextUsage } from "../backends/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { listAgentSessions } from "../persistence.ts";
 
 type Manager = ReturnType<typeof createAgentManager>;
 
@@ -771,5 +773,474 @@ describe("session lifecycle: abort during a turn", () => {
       ),
     ).toBe(true);
     expect(sentTo(old, "queued-2")).toBe(false);
+  });
+});
+
+// One owner for the session slot (task 082ab039): a swap holds the slot from
+// its close until its caller's post-install steps are done. A message, a
+// skill, a second swap or a /clear that arrives meanwhile waits for it, so
+// the conversation the swap picked is the one that ends up live.
+
+// Two conversations on one agent: `older` (finished, then /clear) and
+// `current`, live and idle on `live`.
+async function twoConversations(
+  lane: Lane,
+  id: string,
+): Promise<{ older: string; current: string; live: FakeSession }> {
+  const first = await parkHumanTurn(lane, id, "first-conversation");
+  first.completeTurn();
+  await waitUntil(
+    () => stateOf(lane.mgr, id) === "waiting_for_response",
+    "first conversation idle",
+  );
+  const older = lane.mgr.getCurrentSessionId(id);
+  if (!older) throw new Error("first conversation has no id");
+  humanSend(lane.mgr, id, "/clear");
+  await waitUntil(() => first.closed, "/clear closed the first process");
+  first.endStream();
+  await waitUntil(() => agentOf(lane.mgr, id).dormant === true, "cleared");
+  const live = await parkHumanTurn(lane, id, "second-conversation");
+  live.completeTurn();
+  await waitUntil(
+    () => stateOf(lane.mgr, id) === "waiting_for_response",
+    "second conversation idle",
+  );
+  const current = lane.mgr.getCurrentSessionId(id);
+  if (!current || current === older)
+    throw new Error("second conversation has no id of its own");
+  return { older, current, live };
+}
+
+// Type /resume, pick `target`, and wait until the pick's swap drains.
+async function startResumePick(
+  lane: Lane,
+  id: string,
+  target: string,
+): Promise<void> {
+  humanSend(lane.mgr, id, "/resume");
+  await waitUntil(
+    () => lane.mgr.getPendingInteractions().some((i) => i.agentId === id),
+    "resume menu open",
+  );
+  const menu = lane.mgr.getPendingInteractions().find((i) => i.agentId === id);
+  const index = menu?.choices.findIndex((c) => c.value === target) ?? -1;
+  if (index < 0) throw new Error("the older conversation is not in the menu");
+  humanSend(lane.mgr, id, String(index + 1));
+  await waitUntil(
+    () => agentOf(lane.mgr, id).sessionSwapping === true,
+    "pick draining",
+  );
+}
+
+function openSessions(fake: FakeBackend, id: string) {
+  return sessionsFor(fake, id)
+    .filter((s) => !s.closed)
+    .map((s) => ({ resume: s.isResume, id: s.sessionId }));
+}
+
+// Topic generation skips a signed-out engine: a placeholder key makes the
+// Codex agents count as signed in for one test. No request leaves the fake.
+async function withCodexSignedIn(body: () => Promise<void>): Promise<void> {
+  const prev = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = "test-placeholder";
+  try {
+    await body();
+  } finally {
+    if (prev === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = prev;
+  }
+}
+
+// The topic sessions.json keeps for one conversation (the resume menu label).
+function topicOf(agentId: string, sessionId: string): string | null {
+  return (
+    listAgentSessions(agentId).find((s) => s.sessionId === sessionId)?.topic ??
+    null
+  );
+}
+
+function deliveries(fake: FakeBackend, id: string, needle: string): number {
+  return sessionsFor(fake, id).reduce(
+    (n, s) => n + s.sent.filter((m) => m.text.includes(needle)).length,
+    0,
+  );
+}
+
+describe("session lifecycle: a swap holds the slot", () => {
+  it("a message sent while a /resume pick drains is delivered once, on the picked conversation, after its history replay", async () => {
+    const lane = makeLane(parkingBackend({ hangOnClose: true }));
+    const agent = await spawnLazy(lane.mgr, "codex");
+    const { older, live } = await twoConversations(lane, agent.id);
+    const before = sessionsFor(lane.fake, agent.id).length;
+    await startResumePick(lane, agent.id, older);
+
+    const from = lane.events.length;
+    humanSend(lane.mgr, agent.id, "hello-picked");
+    await sleep(100);
+    live.endStream();
+    await waitUntil(
+      () => deliveries(lane.fake, agent.id, "hello-picked") > 0,
+      "message delivered",
+    );
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+      "pick settled",
+    );
+    await sleep(50);
+
+    // One process was started after the pick: the picked conversation, and it
+    // is the one left running. The old process is closed.
+    const created = sessionsFor(lane.fake, agent.id).slice(before);
+    expect({
+      created: created.map((s) => ({ resume: s.isResume, id: s.sessionId })),
+      open: openSessions(lane.fake, agent.id),
+    }).toEqual({
+      created: [{ resume: true, id: older }],
+      open: [{ resume: true, id: older }],
+    });
+    expect(live.closed).toBe(true);
+    expect(lane.mgr.getCurrentSessionId(agent.id)).toBe(older);
+    // Delivered once, as the one turn on the picked conversation.
+    expect(deliveries(lane.fake, agent.id, "hello-picked")).toBe(1);
+    expect(created[0].sent.length).toBe(1);
+    // The chat shows the picked conversation's history, then the message: the
+    // replay did not wipe it.
+    const texts = lane.mgr
+      .getAgentLogs(agent.id)
+      .filter((e) => e.kind === "user_message")
+      .map((e) => String(e.content));
+    const replayed = texts.findIndex((t) => t.includes("first-conversation"));
+    const message = texts.findIndex((t) => t.includes("hello-picked"));
+    expect({ replayed: replayed >= 0, after: message > replayed }).toEqual({
+      replayed: true,
+      after: true,
+    });
+    expect(texts.some((t) => t.includes("second-conversation"))).toBe(false);
+    // One busy span for the message: once its turn went busy, nothing set
+    // the agent idle again before it was sent (the pick's steps run before
+    // the message's turn starts, not under it).
+    const states = stateChanges(lane.events, agent.id, from);
+    const busyFrom = states.indexOf("thinking");
+    expect({
+      busy: busyFrom >= 0,
+      idleAfter: states.slice(busyFrom).filter((s) => s !== "thinking"),
+    }).toEqual({ busy: true, idleAfter: [] });
+  });
+
+  it("a message sent while a settings swap drains waits for the replacement and is sent there once, staying busy throughout", async () => {
+    const lane = makeLane(parkingBackend({ hangOnClose: true }));
+    const agent = await spawnLazy(lane.mgr, "codex");
+    const old = await wakeToIdle(lane, agent.id);
+    const swap = lane.mgr.setPrivileged(agent.id, true);
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping === true,
+      "swap draining",
+    );
+    expect(sessionsFor(lane.fake, agent.id).length).toBe(2);
+    const replacement = sessionsFor(lane.fake, agent.id)[1];
+    const from = lane.events.length;
+
+    humanSend(lane.mgr, agent.id, "hello-mid-drain");
+    await sleep(100);
+    // The message does not start a process of its own.
+    expect(sessionsFor(lane.fake, agent.id).length).toBe(2);
+
+    old.endStream();
+    await swap;
+    await waitUntil(
+      () => sentTo(replacement, "hello-mid-drain"),
+      "sent on the replacement",
+    );
+    expect(sessionsFor(lane.fake, agent.id).length).toBe(2);
+    expect(replacement.closed).toBe(false);
+    expect(deliveries(lane.fake, agent.id, "hello-mid-drain")).toBe(1);
+    expect(agentOf(lane.mgr, agent.id).privileged).toBe(true);
+    // The message's turn claimed the busy state at once, and the swap's end
+    // did not release it before the send.
+    expect(stateChanges(lane.events, agent.id, from)).toEqual(["thinking"]);
+  });
+
+  it("a skill run while a /resume pick drains runs once, on the picked conversation", async () => {
+    const skillName = "slotswapskill";
+    const skillDir = join(STATE_ROOT, "skills", skillName);
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "Do the slot thing.");
+    try {
+      const lane = makeLane(parkingBackend({ hangOnClose: true }));
+      const agent = await spawnLazy(lane.mgr, "codex");
+      const { older, live } = await twoConversations(lane, agent.id);
+      const before = sessionsFor(lane.fake, agent.id).length;
+      await startResumePick(lane, agent.id, older);
+
+      humanSend(lane.mgr, agent.id, `/${skillName}`);
+      await sleep(100);
+      live.endStream();
+      await waitUntil(
+        () => deliveries(lane.fake, agent.id, "Do the slot thing") > 0,
+        "skill sent",
+      );
+      await sleep(50);
+
+      const created = sessionsFor(lane.fake, agent.id).slice(before);
+      expect(
+        created.map((s) => ({ resume: s.isResume, id: s.sessionId })),
+      ).toEqual([{ resume: true, id: older }]);
+      expect(deliveries(lane.fake, agent.id, "Do the slot thing")).toBe(1);
+      expect(sentTo(created[0], "Do the slot thing")).toBe(true);
+    } finally {
+      rmSync(skillDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a second /resume while a pick drains waits for it: nothing installs before the old process drains, and the later pick ends up live", async () => {
+    const lane = makeLane(parkingBackend({ hangOnClose: true }));
+    const agent = await spawnLazy(lane.mgr, "codex");
+    const { older, current, live } = await twoConversations(lane, agent.id);
+    const before = sessionsFor(lane.fake, agent.id).length;
+    await startResumePick(lane, agent.id, older);
+
+    // The member resumes the current conversation again before the pick of
+    // the older one has finished.
+    const second = lane.mgr.resume(agent.id, current);
+    await sleep(100);
+    // The old process still drains, so no process may be live yet.
+    expect(agentOf(lane.mgr, agent.id).dormant).toBe(true);
+
+    live.endStream();
+    // The second swap closes what the pick installed; release that drain.
+    await waitUntil(
+      () =>
+        sessionsFor(lane.fake, agent.id)
+          .slice(before)
+          .some((s) => s.closed),
+      "the pick's process closed by the second swap",
+    );
+    for (const s of sessionsFor(lane.fake, agent.id))
+      if (s.closed) s.endStream();
+    await second;
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+      "both swaps settled",
+    );
+
+    expect({
+      open: openSessions(lane.fake, agent.id),
+      sessionId: lane.mgr.getCurrentSessionId(agent.id),
+    }).toEqual({ open: [{ resume: true, id: current }], sessionId: current });
+  });
+
+  it("a new conversation while a /resume pick drains wins: no process stays live and the next message starts a fresh conversation", async () => {
+    const lane = makeLane(parkingBackend({ hangOnClose: true }));
+    const agent = await spawnLazy(lane.mgr, "codex");
+    const { older, live } = await twoConversations(lane, agent.id);
+    const before = sessionsFor(lane.fake, agent.id).length;
+    await startResumePick(lane, agent.id, older);
+
+    // The context menu's New conversation (the route; a typed /clear also
+    // waits in sendMessage first).
+    const cleared = lane.mgr.newConversation(agent.id);
+    await sleep(100);
+    live.endStream();
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+      "pick settled",
+    );
+    await sleep(100);
+    // The reset closes what the pick installed; let that process drain.
+    for (const s of sessionsFor(lane.fake, agent.id))
+      if (s.closed) s.endStream();
+    await cleared;
+    await sleep(50);
+
+    expect({
+      open: openSessions(lane.fake, agent.id),
+      sessionId: lane.mgr.getCurrentSessionId(agent.id),
+    }).toEqual({ open: [], sessionId: null });
+    // The chat is the cleared one: the pick's history replay came first.
+    expect(
+      lane.mgr
+        .getAgentLogs(agent.id)
+        .some((e) => String(e.content).includes("first-conversation")),
+    ).toBe(false);
+
+    humanSend(lane.mgr, agent.id, "after-clear");
+    await waitUntil(
+      () => deliveries(lane.fake, agent.id, "after-clear") > 0,
+      "next message sent",
+    );
+    const target = sessionsFor(lane.fake, agent.id)
+      .slice(before)
+      .find((s) => sentTo(s, "after-clear"));
+    expect(target?.isResume).toBe(false);
+  });
+
+  it("a /resume pick whose replacement cannot be rebuilt keeps the pick: the next message resumes the picked conversation", async () => {
+    const lane = makeLane(parkingBackend({ hangOnClose: true }));
+    const agent = await spawnLazy(lane.mgr, "codex");
+    const { older, live } = await twoConversations(lane, agent.id);
+    await startResumePick(lane, agent.id, older);
+
+    // A token change during the drain makes the pick's replacement stale, and
+    // its rebuild fails.
+    const resumeSession = lane.fake.resumeSession.bind(lane.fake);
+    lane.fake.resumeSession = () => {
+      throw new Error("rebuild refused");
+    };
+    expect(await lane.mgr.setPrivileged(agent.id, true)).toMatchObject({
+      privileged: true,
+    });
+    live.endStream();
+    await waitUntil(
+      () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+      "pick settled",
+    );
+    await sleep(50);
+    lane.fake.resumeSession = resumeSession;
+
+    expect(openSessions(lane.fake, agent.id)).toEqual([]);
+    expect(agentOf(lane.mgr, agent.id).dormant).toBe(true);
+    expect(lane.mgr.getCurrentSessionId(agent.id)).toBe(older);
+
+    humanSend(lane.mgr, agent.id, "after-unbuilt");
+    await waitUntil(
+      () => deliveries(lane.fake, agent.id, "after-unbuilt") > 0,
+      "next message sent",
+    );
+    const target = sessionsFor(lane.fake, agent.id).find((s) =>
+      sentTo(s, "after-unbuilt"),
+    );
+    expect({ resume: target?.isResume, id: target?.sessionId }).toEqual({
+      resume: true,
+      id: older,
+    });
+  });
+
+  // Topic writes during a pick's drain: sessionId already names the picked
+  // conversation, so a topic for the chat still on screen must not land on it.
+  it("a topic generated for the current conversation while a /resume pick drains does not relabel the picked one", async () => {
+    await withCodexSignedIn(async () => {
+      let releaseTopic!: (topic: string) => void;
+      let calls = 0;
+      const lane = makeLane(
+        new FakeBackend({
+          storedSessionState: "durable",
+          session: {
+            onSend: (_t, _a, s) =>
+              s.push({ kind: "assistant_text", text: "..." }),
+            hangOnClose: true,
+          },
+          oneShot: () => {
+            calls++;
+            if (calls === 1) return "topic-older";
+            return new Promise<string>((resolve) => {
+              releaseTopic = resolve;
+            });
+          },
+        }),
+      );
+      const agent = await spawnLazy(lane.mgr, "codex");
+      const { older, live } = await twoConversations(lane, agent.id);
+      await waitUntil(
+        () => calls === 2,
+        "current conversation's topic pending",
+      );
+      expect(topicOf(agent.id, older)).toBe("topic-older");
+      await startResumePick(lane, agent.id, older);
+
+      releaseTopic("topic-current");
+      await sleep(50);
+      live.endStream();
+      await waitUntil(
+        () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+        "pick settled",
+      );
+      await sleep(50);
+
+      expect(topicOf(agent.id, older)).toBe("topic-older");
+      expect(agentOf(lane.mgr, agent.id).topic).toBe("topic-older");
+    });
+  });
+
+  it("an edit while a /resume pick drains runs after it: it forks nothing and does not relabel the picked conversation", async () => {
+    await withCodexSignedIn(async () => {
+      let calls = 0;
+      const lane = makeLane(
+        new FakeBackend({
+          storedSessionState: "durable",
+          session: {
+            onSend: (_t, _a, s) =>
+              s.push({ kind: "assistant_text", text: "..." }),
+            hangOnClose: true,
+          },
+          oneShot: () => (++calls === 1 ? "topic-older" : "topic-current"),
+        }),
+      );
+      const agent = await spawnLazy(lane.mgr, "codex");
+      const { older, live } = await twoConversations(lane, agent.id);
+      await waitUntil(
+        () => agentOf(lane.mgr, agent.id).topic === "topic-current",
+        "current conversation labelled",
+      );
+      const entry = lane.mgr
+        .getAgentLogs(agent.id)
+        .find(
+          (e) =>
+            e.kind === "user_message" &&
+            String(e.content).includes("second-conversation"),
+        );
+      if (!entry) throw new Error("no entry to edit");
+      await startResumePick(lane, agent.id, older);
+
+      const edit = lane.mgr
+        .editMessage(agent.id, entry.id, "edited", "tester")
+        .catch(() => {});
+      await sleep(100);
+      live.endStream();
+      await edit;
+      await waitUntil(
+        () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+        "pick settled",
+      );
+
+      expect(lane.fake.forkCount).toBe(0);
+      expect(topicOf(agent.id, older)).toBe("topic-older");
+      expect(openSessions(lane.fake, agent.id)).toEqual([
+        { resume: true, id: older },
+      ]);
+    });
+  });
+
+  it("a topic typed while a /resume pick drains does not relabel the picked conversation", async () => {
+    await withCodexSignedIn(async () => {
+      let calls = 0;
+      const lane = makeLane(
+        new FakeBackend({
+          storedSessionState: "durable",
+          session: {
+            onSend: (_t, _a, s) =>
+              s.push({ kind: "assistant_text", text: "..." }),
+            hangOnClose: true,
+          },
+          oneShot: () => (++calls === 1 ? "topic-older" : "topic-current"),
+        }),
+      );
+      const agent = await spawnLazy(lane.mgr, "codex");
+      const { older, live } = await twoConversations(lane, agent.id);
+      await waitUntil(
+        () => agentOf(lane.mgr, agent.id).topic === "topic-current",
+        "current conversation labelled",
+      );
+      await startResumePick(lane, agent.id, older);
+
+      lane.mgr.setTopic(agent.id, "typed-topic");
+      live.endStream();
+      await waitUntil(
+        () => agentOf(lane.mgr, agent.id).sessionSwapping !== true,
+        "pick settled",
+      );
+      await sleep(50);
+
+      expect(topicOf(agent.id, older)).toBe("topic-older");
+    });
   });
 });

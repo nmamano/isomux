@@ -1,9 +1,39 @@
 // Per-agent session lifecycle: the BackendSession slot, its consumer, the
 // per-turn deferred and the swap/abort bookkeeping, plus the operations that
-// move an agent between sessions (install, close-and-drain, replace). One
-// instance per managed agent, owned by `ManagedAgent.sessionManager`;
+// move an agent between sessions (install, close-and-drain, replace, kill).
+// One instance per managed agent, owned by `ManagedAgent.sessionManager`;
 // agent-manager.ts calls the operations and reads the fields through
 // getter-only views, so every write goes through this object.
+//
+// The process slot (task 082ab039) is one SessionSlot, and only the
+// operations below move it:
+//
+//                 live            swapping           released        dead
+//   install       refused         refused            -> live         refused
+//   closeAndDrain -> released     waits, then runs   -> released     no-op
+//   replaceWith   -> swapping     waits, then runs   -> swapping     closes it
+//   kill          -> dead         -> dead            -> dead         -> dead
+//   stream end    -> released     (no consumer of its own yet)  -   -
+//   adoptSessionId: writes sessionId in every kind.
+//
+// A swap leaves swapping for live when it installed, for released
+// ("unbuilt") when its rebuild failed, and stays dead when a kill came. It
+// holds the lock until its caller's `after` returned, so the wire's
+// sessionSwapping: false comes after those steps. The wire's `dormant` is a
+// function of the slot: swapping with nothing installed, or released with a
+// reason.
+//
+// A switching swap sets sessionId to its target as it starts, while the chat,
+// the topic and the context reading on screen still belong to the
+// conversation it leaves until `after` replays the target. A write about the
+// chat on screen (a topic, typed or generated) goes to chatSessionId, which
+// names that conversation; a durable log entry written during the drain goes
+// to the target's transcript and shows in its replay.
+//
+// Known residual: a skill waiting on an edit-fork's swap runs after the fork's
+// `after` steps, but can start before the fork's own turn (runAgentTurn runs
+// after the swap). Messages are queued on that swap, so only skills are
+// exposed.
 //
 // S2 of the SessionManager extraction (task 798922c1) moved the nine fields
 // and the seven swap operations here verbatim from agent-manager.ts; S3 moved
@@ -59,7 +89,62 @@ export type DormantReason =
   | "stream-ended"
   // Released because the secrets or variables in its scope changed.
   | "env"
+  // A swap closed the process and could not build its replacement.
+  | "unbuilt"
   | null;
+
+// The reasons a caller may give when it releases a live process.
+export type ReleaseReason = "idle" | "env" | "fresh";
+
+// The agent's one process slot. Every install and teardown moves it, and
+// nothing else writes it.
+//   live: a bound process. envStale: an environment change waits for its
+//     release.
+//   swapping: a swap holds the lock, from before its close until its
+//     caller's `after` returned. target: the conversation it installs (null:
+//     fresh). switches: the swap changes the conversation (adopt), so a
+//     message that arrives meanwhile is queued. chat: the conversation the
+//     chat on screen belongs to (the one the swap leaves, until `after`
+//     replays the target). installed: the replacement, once the drain ended.
+//   released: no process. reason null: not dormant either (a bad cwd at
+//     spawn, a failed restore install).
+//   dead: killed. Terminal.
+export type SessionSlot =
+  | {
+      kind: "live";
+      session: BackendSession;
+      consumer: Promise<void>;
+      envStale: boolean;
+    }
+  | {
+      kind: "swapping";
+      target: string | null;
+      switches: boolean;
+      chat: string | null;
+      installed: { session: BackendSession; consumer: Promise<void> } | null;
+      settled: Promise<void>;
+    }
+  | { kind: "released"; reason: DormantReason }
+  | { kind: "dead" };
+
+// replaceWith's options. adopt: the swap switches the conversation, and
+// sessionId becomes its target when the swap starts. after: runs after the
+// install (or the failed rebuild), while the swap still holds the lock; not
+// after a kill.
+export interface SwapOptions {
+  adopt?: boolean;
+  after?: () => void;
+}
+
+// closeAndDrainSession's options.
+export interface CloseOptions {
+  // Why the process goes: the released slot's reason.
+  reason: ReleaseReason;
+  // Stamped onto the SessionSwappedError handed to the in-flight turn, so
+  // catch sites can tell a deliberate settings-driven swap apart from other
+  // swaps without racing any external state.
+  swapReason?: SwapReason;
+}
 
 // The per-turn deferred record. `promise` is the same promise `resolve` /
 // `reject` settle. Code that must wait for the in-flight turn to end ATTACHES
@@ -89,10 +174,6 @@ export interface SessionHost {
   busyTurnWatchdogObserved: boolean;
   toolCallTimestamps: { clear(): void };
   lastActiveAt: number;
-  dormantReason: DormantReason;
-  // An environment change waiting for a release; a new process has the
-  // current environment, so installSession clears it.
-  envStale?: boolean;
   messageQueue: { readonly length: number };
   // The live process's plugin list; it goes with the process.
   reportedPlugins?: EnginePlugin[] | null;
@@ -179,13 +260,14 @@ export interface SessionManagerDeps<H extends SessionHost> {
 // proceeding. Test-overridable via _testSetConsumerDrainTimeout.
 export const CONSUMER_DRAIN_TIMEOUT_MS = 15_000;
 
+type Bound = { session: BackendSession; consumer: Promise<void> };
+type SwappingSlot = Extract<SessionSlot, { kind: "swapping" }>;
+
 export class SessionManager<H extends SessionHost = SessionHost> {
-  session: BackendSession | null = null;
-  sessionId: string | null;
-  // Persistent consumer loop iterating `session.stream()` for the session's
-  // lifetime. Without this, task_notifications buffered between turns get
-  // flushed one turn late.
-  consumerPromise: Promise<void> | null = null;
+  private current: SessionSlot;
+  // The conversation the agent resumes. It outlives the process: a released
+  // agent resumes it at its next wake.
+  private conversationId: string | null;
   // Per-turn deferred. sendMessage/executeSkill await this; the consumer
   // resolves it when the turn's `stream()` iterator ends at `result`. See
   // PendingTurn for the attach-never-replace rule.
@@ -245,8 +327,127 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     private readonly agentId: string,
     private readonly deps: SessionManagerDeps<H>,
     initialSessionId: string | null = null,
+    // Why a new agent starts without a process (lazy spawn and boot).
+    initialReason: DormantReason = null,
   ) {
-    this.sessionId = initialSessionId;
+    this.conversationId = initialSessionId;
+    this.current = { kind: "released", reason: initialReason };
+  }
+
+  get slot(): SessionSlot {
+    return this.current;
+  }
+
+  // The installed process: live, or installed by a swap that still runs its
+  // caller's `after`.
+  private bound(): Bound | null {
+    const slot = this.current;
+    if (slot.kind === "live") return slot;
+    if (slot.kind === "swapping") return slot.installed;
+    return null;
+  }
+
+  get session(): BackendSession | null {
+    return this.bound()?.session ?? null;
+  }
+
+  // Persistent consumer loop iterating `session.stream()` for the session's
+  // lifetime. Without this, task_notifications buffered between turns get
+  // flushed one turn late.
+  get consumerPromise(): Promise<void> | null {
+    return this.bound()?.consumer ?? null;
+  }
+
+  get sessionId(): string | null {
+    return this.conversationId;
+  }
+
+  // The conversation the chat on screen belongs to: sessionId, except while a
+  // switching swap has not yet replayed its target.
+  get chatSessionId(): string | null {
+    const slot = this.current;
+    return slot.kind === "swapping" && slot.switches
+      ? slot.chat
+      : this.conversationId;
+  }
+
+  get swapping(): boolean {
+    return this.current.kind === "swapping";
+  }
+
+  // A swap that switches the conversation holds the lock: a message that
+  // arrives meanwhile is queued for the conversation it installs.
+  get swapSwitches(): boolean {
+    return this.current.kind === "swapping" && this.current.switches;
+  }
+
+  // Why the agent has no process (the wake wording); null while it has one.
+  get releasedReason(): DormantReason {
+    return this.current.kind === "released" ? this.current.reason : null;
+  }
+
+  // An environment change waits for the live process's release.
+  get envStale(): boolean {
+    return this.current.kind === "live" && this.current.envStale;
+  }
+
+  // Marks the live process for a release; false when there is none.
+  markEnvStale(): boolean {
+    if (this.current.kind !== "live") return false;
+    this.current.envStale = true;
+    return true;
+  }
+
+  clearEnvStale(): void {
+    if (this.current.kind === "live") this.current.envStale = false;
+  }
+
+  // Resolves once no swap holds the lock. A caller that must act with no swap
+  // running re-checks `swapping` after it, in a loop: a new swap can start
+  // between the resolve and the caller's next step.
+  async swapSettled(): Promise<void> {
+    while (this.current.kind === "swapping") await this.current.settled;
+  }
+
+  // The plain sessionId writes (system_init, a dropped conversation, a new
+  // conversation, a restore that falls back to fresh).
+  adoptSessionId(id: string | null): void {
+    this.conversationId = id;
+  }
+
+  // The kill teardown: cancels the turn, closes the process and leaves the
+  // slot dead. Returns the old consumer, for the caller's drain. A swap that
+  // drains meanwhile finds the slot dead and closes its replacement.
+  kill(_host: H): Promise<void> | null {
+    // Any concurrent runAgentTurn that hasn't yet installed pendingTurn
+    // (pre-send notice assembly) bails on its next await checkpoint instead
+    // of calling session.send on a dying session.
+    this.turnCancelToken++;
+    const turn = this.pendingTurn;
+    this.pendingTurn = null;
+    if (turn) {
+      try {
+        turn.reject(new Error("Agent killed."));
+      } catch {}
+    }
+    const bound = this.bound();
+    try {
+      bound?.session.close();
+    } catch {}
+    this.current = { kind: "dead" };
+    return bound?.consumer ?? null;
+  }
+
+  // The wire's dormant flag for the current slot.
+  private dormantOnWire(): boolean {
+    const slot = this.current;
+    if (slot.kind === "swapping") return slot.installed === null;
+    return slot.kind === "released" && slot.reason !== null;
+  }
+
+  private emitChanges(changes: Partial<AgentInfo>): void {
+    for (const event of this.deps.updateAgent(this.agentId, changes))
+      this.deps.emit(event);
   }
 
   turnIsLive(host: H): boolean {
@@ -311,33 +512,50 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     return promise;
   }
 
-  // Install a freshly-created session and spawn its consumer. Caller is
-  // responsible for having closed/awaited any previous session first.
-  installSession(host: H, session: BackendSession): void {
+  // Install a freshly-created session and spawn its consumer. Only into a
+  // released slot: a live process, a swap that holds the slot and a killed
+  // agent refuse it, and the passed session is closed so no process outlives
+  // the refusal. Returns whether it installed.
+  installSession(host: H, session: BackendSession): boolean {
+    if (this.current.kind !== "released") {
+      try {
+        session.close();
+      } catch {}
+      this.deps.logger.warn(
+        `Agent ${this.agentId}: did not install a new session because the agent is ${this.current.kind}; closed the new session.`,
+      );
+      return false;
+    }
+    const live: Extract<SessionSlot, { kind: "live" }> = {
+      kind: "live",
+      session,
+      consumer: Promise.resolve(),
+      envStale: false,
+    };
+    this.current = live;
+    this.bind(host, live);
+    return true;
+  }
+
+  // The install steps shared by installSession and a swap. The slot already
+  // holds `record`, so the consumer finds its session bound; bind starts the
+  // consumer into it.
+  private bind(host: H, record: Bound): void {
     // A lazy first-message wake installs the session after beginTurn has
     // already claimed the pre-send window; preserve that live turn. Every
-    // replacement closes first (and closeAndDrainSession clears), while an
-    // idle install may safely discard residue.
+    // replacement closes first (and the teardown clears), while an idle
+    // install may safely discard residue.
     if (!this.turnIsLive(host)) this.clearLiveTurn(host);
-    this.session = session;
     host.reportedPlugins = null;
     host.reportedSkills = null;
-    this.consumerPromise = this.consume(host, session);
+    record.consumer = this.consume(host, record.session);
     // Stamp activity + clear dormant in lockstep with the session going live, so
     // a just-woken agent isn't immediately re-demoted and `info.dormant` can
-    // never disagree with `session !== null`. Guarded so spawn / normal swaps
-    // (already non-dormant) don't emit a redundant agent_updated.
+    // never disagree with the slot. Guarded so spawn / normal swaps (already
+    // non-dormant) don't emit a redundant agent_updated. A new process has
+    // the current secrets and variables: the live slot starts unmarked.
     host.lastActiveAt = Date.now();
-    host.dormantReason = null;
-    // Whatever closed the old process (an idle release, an account switch, a
-    // stream end), this one starts with the current secrets and variables.
-    host.envStale = false;
-    if (host.info.dormant) {
-      for (const event of this.deps.updateAgent(this.agentId, {
-        dormant: false,
-      }))
-        this.deps.emit(event);
-    }
+    if (host.info.dormant) this.emitChanges({ dormant: this.dormantOnWire() });
   }
 
   // Persistent consumer. Runs for the session's lifetime, iterating `stream()`
@@ -414,17 +632,16 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       // turn_completed before ending the stream).
       if (
         this.deps.isStillManaged(host) &&
-        this.session === boundSession &&
+        this.current.kind === "live" &&
+        this.current.session === boundSession &&
         !this.aborting
       ) {
         const turn = this.pendingTurn;
         this.clearLiveTurn(host);
         this.pendingTurn = null;
-        this.session = null;
+        this.current = { kind: "released", reason: "stream-ended" };
         host.reportedPlugins = null;
         host.reportedSkills = null;
-        this.consumerPromise = null;
-        host.dormantReason = "stream-ended";
         // Any turn still in its PRE-SEND window (notice assembly; no
         // pendingTurn installed) must bail at its next checkpoint rather than
         // send into whatever session exists by then - same mechanism
@@ -433,11 +650,10 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         this.turnCancelToken++;
         // The background work died with the process.
         keepEndedBackground(host);
-        for (const event of this.deps.updateAgent(this.agentId, {
-          dormant: true,
+        this.emitChanges({
+          dormant: this.dormantOnWire(),
           backgroundTasks: null,
-        }))
-          this.deps.emit(event);
+        });
         if (turn) {
           // Mid-turn death: settle the turn and let its OWNING caller's catch
           // (sendMessage / flushQueue) produce the normal loud error state.
@@ -587,25 +803,37 @@ export class SessionManager<H extends SessionHost = SessionHost> {
   }
 
   // Close the agent's live session and drain its consumer, leaving it dormant
-  // (session === null, no subprocess). Shared by replaceSession (installs a
-  // replacement right after) and demoteToLazy (doesn't). Bumps turnCancelToken
-  // so any concurrent pre-send turn bails, rejects the in-flight turn, sets
-  // info.dormant in lockstep with session, and awaits the old consumer (with
-  // the bounded-drain policy above) so the dying subprocess never overlaps
-  // whatever installs next. CALLERS MUST NOT
-  // mutate session-related state after this resolves without re-checking - a
-  // message arriving during the drain await may already have woken a fresh
-  // session via flushQueue.
-  async closeAndDrainSession(
+  // (released with `opts.reason`, no subprocess). Used by demoteToLazy, the
+  // environment and account releases and newConversation. A swap that holds
+  // the slot is waited for first, so the release runs against what the swap
+  // installed; with no swap running, everything up to the drain runs
+  // synchronously. Bumps turnCancelToken so any concurrent pre-send turn
+  // bails, rejects the in-flight turn, sets info.dormant in lockstep with the
+  // slot, and awaits the old consumer (with the bounded-drain policy above)
+  // so the dying subprocess never overlaps whatever installs next. CALLERS
+  // MUST NOT mutate session-related state after this resolves without
+  // re-checking - a message arriving during the drain await may already have
+  // woken a fresh session via flushQueue.
+  async closeAndDrainSession(host: H, opts: CloseOptions): Promise<void> {
+    while (this.current.kind === "swapping") await this.current.settled;
+    if (this.current.kind === "dead") return;
+    const oldConsumer = this.teardown(host, this.bound(), opts.swapReason);
+    this.current = { kind: "released", reason: opts.reason };
+    // The closed process takes its background work with it.
+    this.emitChanges({ dormant: this.dormantOnWire(), backgroundTasks: null });
+    if (oldConsumer) await this.drainConsumerBounded(oldConsumer);
+  }
+
+  // The close steps shared by a release and a swap: cancel the turn, close
+  // `bound`'s process. Returns its consumer, for the caller's drain. The
+  // caller moves the slot.
+  private teardown(
     host: H,
-    // Stamped onto the SessionSwappedError handed to the in-flight turn, so
-    // catch sites can tell a deliberate settings-driven swap apart from other
-    // swaps without racing any external state.
+    bound: Bound | null,
     swapReason?: SwapReason,
-  ): Promise<void> {
+  ): Promise<void> | null {
     this.clearLiveTurn(host);
     this.turnCancelToken++;
-    const oldConsumer = this.consumerPromise;
     const turn = this.pendingTurn;
     this.pendingTurn = null;
     if (turn) {
@@ -614,21 +842,11 @@ export class SessionManager<H extends SessionHost = SessionHost> {
       } catch {}
     }
     try {
-      this.session?.close();
+      bound?.session.close();
     } catch {}
-    this.session = null;
     host.reportedPlugins = null;
     host.reportedSkills = null;
-    this.consumerPromise = null;
-    // The closed process takes its background work with it.
-    for (const event of this.deps.updateAgent(this.agentId, {
-      dormant: true,
-      backgroundTasks: null,
-    }))
-      this.deps.emit(event);
-    if (oldConsumer) {
-      await this.drainConsumerBounded(oldConsumer);
-    }
+    return bound?.consumer ?? null;
   }
 
   // Swap the agent's session: close the current one, await its consumer to
@@ -649,75 +867,109 @@ export class SessionManager<H extends SessionHost = SessionHost> {
   private async replaceSession(
     host: H,
     newSession: BackendSession,
-    // Passed through to closeAndDrainSession - see its swapReason note.
-    swapReason?: SwapReason,
+    target: string | null,
+    // Passed through to the teardown - see CloseOptions.swapReason.
+    swapReason: SwapReason | undefined,
     // Builds the replacement again, for one gone stale during the drain.
-    rebuild?: () => BackendSession,
+    rebuild: () => BackendSession,
+    opts: SwapOptions,
   ): Promise<void> {
     // /resume, /model, /effort, edit-fork, abort's slow path,
     // setPrivileged, and the queue watchdog's forced recovery all funnel
-    // through here. closeAndDrainSession bumps the
-    // cancel token (covers concurrent pre-send turns, same as before) and flips
-    // dormant=true; installSession flips it back. The transient dormant blip is
-    // invisible (v1 renders no badge) and sessionSwapping already covers the UI
-    // for the ~3s drain window.
+    // through here. A swap holds the slot from its close until its caller's
+    // `after` returned, so nothing else installs during the drain: a wake
+    // waits for the swap (sendMessage, executeSkill) or defers to its
+    // post-swap flush kick (flushQueue), and a second swap or a release waits
+    // for it here. Only a kill preempts it.
+    while (this.current.kind === "swapping") await this.current.settled;
+    if (this.current.kind === "dead") {
+      try {
+        newSession.close();
+      } catch {}
+      return;
+    }
+    let settle!: () => void;
+    const swap: SwappingSlot = {
+      kind: "swapping",
+      target,
+      switches: opts.adopt === true,
+      chat: this.conversationId,
+      installed: null,
+      settled: new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+    };
+    const old = this.bound();
+    this.current = swap;
+    // A swap that switches the conversation adopts it as it starts: a
+    // rebuild that fails still resumes the pick at the next wake.
+    if (opts.adopt) this.conversationId = target;
+    this.emitChanges({ sessionSwapping: true });
+    // The teardown bumps the cancel token (covers concurrent pre-send turns)
+    // and the slot goes dormant until the install; sessionSwapping covers
+    // the UI for the ~3s drain window.
+    const oldConsumer = this.teardown(host, old, swapReason);
+    this.emitChanges({ dormant: this.dormantOnWire(), backgroundTasks: null });
     let installedByUs = false;
-    for (const event of this.deps.updateAgent(this.agentId, {
-      sessionSwapping: true,
-    }))
-      this.deps.emit(event);
+    let afterFailed: { err: unknown } | null = null;
     try {
-      await this.closeAndDrainSession(host, swapReason);
-      // During the drain await the
-      // session slot is null, and a concurrent installer can legitimately win
-      // it - flushQueue's wake branch defers to us via its sessionSwapping
-      // guard, but sendMessage's wakeSessionForSend does not. If someone won,
-      // do NOT clobber their live session (the old behavior left their
-      // in-flight turn sending into a foreign session); close our
-      // never-installed replacement instead. Residual race for callers that
-      // need THEIR specific session installed (/resume pick, edit-fork): the
-      // concurrent wake now wins and the pick no-ops - rarer and safer than
-      // cross-thread delivery.
-      //
-      // A kill that lands during the drain nulls the slot and drops the
-      // record, so the null check alone would install on the orphaned object
-      // and leak the replacement subprocess and its consumer (task 3e8482e2).
-      // Check for the kill first and close the replacement on that path.
-      if (!this.deps.isStillManaged(host)) {
+      if (oldConsumer) await this.drainConsumerBounded(oldConsumer);
+      // A kill that lands during the drain leaves the slot dead: close the
+      // replacement instead of installing it on the killed agent, which would
+      // leak its subprocess and its consumer (task 3e8482e2).
+      if (this.current !== swap) {
         try {
           newSession.close();
         } catch {}
-      } else if (this.session === null) {
+      } else {
         const replacement = this.currentReplacement(host, newSession, rebuild);
         if (replacement) {
-          this.installSession(host, replacement);
+          const installed: Bound = {
+            session: replacement,
+            consumer: Promise.resolve(),
+          };
+          swap.installed = installed;
+          this.bind(host, installed);
           installedByUs = true;
         }
-      } else {
+        // The caller's steps run when the rebuild failed too: the swap still
+        // switched the conversation, and the next wake resumes it. They
+        // replay the target, so the chat on screen is the target's from here.
+        swap.chat = target;
         try {
-          newSession.close();
-        } catch {}
-        this.deps.logger.warn(
-          `Agent ${this.agentId}: a concurrent wake installed a session during the swap drain; keeping it and discarding the replacement.`,
-        );
+          opts.after?.();
+        } catch (err) {
+          afterFailed = { err };
+        }
       }
     } finally {
-      for (const event of this.deps.updateAgent(this.agentId, {
-        sessionSwapping: false,
-      }))
-        this.deps.emit(event);
+      if (this.current === swap) {
+        this.current = swap.installed
+          ? {
+              kind: "live",
+              session: swap.installed.session,
+              consumer: swap.installed.consumer,
+              envStale: false,
+            }
+          : { kind: "released", reason: "unbuilt" };
+      }
+      this.emitChanges({ sessionSwapping: false });
+      settle();
     }
-    if (!this.deps.isStillManaged(host)) return; // killed during the drain
-    // Post-swap dead-turn normalization: only when WE
-    // installed (atomic with the null-check above - no await between), any
-    // pre-swap turn is provably dead (closeAndDrainSession rejected or
-    // token-cancelled it) and no new turn can exist (a wake would have
-    // installed a session, contradicting ownership), so a lingering busy
-    // state is a lie. Out-of-band swaps (setPrivileged, /model, /effort)
-    // used to strand the agent visibly "thinking" forever here.
+    // Killed during the drain (`after` did not run). The getter, not the
+    // field: the slot moved during the awaits above.
+    if (this.slot.kind === "dead" || !this.deps.isStillManaged(host)) return;
+    // Post-swap dead-turn normalization: only when WE installed, any pre-swap
+    // turn is provably dead (the teardown rejected or token-cancelled it), so
+    // a lingering busy state is a lie - unless a send claimed a new turn
+    // during the drain and waits for this swap to send it (turnIsLive: the
+    // teardown cleared the dead turn's clock, and that send set a new one).
+    // Out-of-band swaps (setPrivileged, /model, /effort) used to strand the
+    // agent visibly "thinking" forever here.
     if (
       installedByUs &&
       !this.pendingTurn &&
+      !this.turnIsLive(host) &&
       (host.info.state === "thinking" || host.info.state === "tool_executing")
     ) {
       this.deps.updateState(this.agentId, "waiting_for_response");
@@ -728,6 +980,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     // transition when the agent was already idle, so kick explicitly.
     // requestFlush owns every guard.
     this.deps.requestFlush(this.agentId, "post-swap");
+    if (afterFailed) throw afterFailed.err;
   }
   // The replacement to install after the drain: `built`, or a new one when the
   // token changed during the drain (builtOnCurrentToken). Null when the
@@ -736,10 +989,9 @@ export class SessionManager<H extends SessionHost = SessionHost> {
   private currentReplacement(
     host: H,
     built: BackendSession,
-    rebuild?: () => BackendSession,
+    rebuild: () => BackendSession,
   ): BackendSession | null {
-    if (!rebuild || (this.deps.builtOnCurrentToken?.(host, built) ?? true))
-      return built;
+    if (this.deps.builtOnCurrentToken?.(host, built) ?? true) return built;
     try {
       built.close();
     } catch {}
@@ -764,13 +1016,18 @@ export class SessionManager<H extends SessionHost = SessionHost> {
   // throw rolls back with the old session standing). An async wrapper would
   // turn that throw into a rejected promise and add an event-loop yield
   // before the caller's catch runs (ruling 9).
+  // opts.adopt: the swap switches the conversation to `resumeSessionId`
+  // (sessionId follows it as the swap starts). opts.after: the caller's steps
+  // on the installed session (chat replay, topic, state), run while the swap
+  // still holds the slot; a throw from it rejects this promise.
   replaceWith(
     host: H,
     resumeSessionId?: string | null,
     swapReason?: SwapReason,
+    opts: SwapOptions = {},
   ): Promise<void> {
-    const build = () =>
-      this.deps.createSession(host, resumeSessionId ?? undefined);
-    return this.replaceSession(host, build(), swapReason, build);
+    const target = resumeSessionId ?? null;
+    const build = () => this.deps.createSession(host, target ?? undefined);
+    return this.replaceSession(host, build(), target, swapReason, build, opts);
   }
 }

@@ -71,7 +71,11 @@ import {
   type PersistedAgent,
   type Room,
 } from "./persistence.ts";
-import { SessionManager, type SessionManagerDeps } from "./session-manager.ts";
+import {
+  SessionManager,
+  type DormantReason,
+  type SessionManagerDeps,
+} from "./session-manager.ts";
 import {
   deduplicateSkills,
   discoverBundledSkills,
@@ -386,10 +390,20 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       discoveryEnv = undefined;
     }
     const discoverySkillRoots = userSkillRootsForInfo(info, discoveryEnv);
+    // A never-started agent stays a blank conversation across a restart,
+    // and so does one whose stored session this restore dropped: its note
+    // is already in the chat (noteUnresumableSession). Mark those fresh so
+    // the first wake adds no other notice. An eager restore installs below.
+    const releasedAs: DormantReason = opts.lazy
+      ? p.lastSessionId && !droppedState
+        ? "boot"
+        : "fresh"
+      : null;
     const sessionManager = new SessionManager<ManagedAgent>(
       p.id,
       sessionManagerDeps,
       resumeSessionId,
+      releasedAs,
     );
     const managed: ManagedAgent = {
       info,
@@ -471,21 +485,12 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       recentSteers: [],
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
-      // A never-started agent stays a blank conversation across a restart,
-      // and so does one whose stored session this restore dropped: its note
-      // is already in the chat (noteUnresumableSession). Mark those fresh so
-      // the first wake adds no other notice.
-      dormantReason: opts.lazy
-        ? p.lastSessionId && !droppedState
-          ? "boot"
-          : "fresh"
-        : null,
       releasedBackgroundTasks: null,
       savedBackgroundTasks: null,
     };
     // The work the last run's end ended: the first wake after a restart names
     // it. A dropped conversation ("fresh") starts blank, with nothing to name.
-    if (managed.dormantReason === "boot" && p.backgroundTasks?.length)
+    if (releasedAs === "boot" && p.backgroundTasks?.length)
       managed.releasedBackgroundTasks = p.backgroundTasks;
     // Re-seed the durable queue + dedupe window
     // persisted by the previous run so a restart doesn't drop queued messages
@@ -554,7 +559,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
           `[revive] Resume of ${p.name} failed, falling back to fresh session: ${errMessage(err)}`,
         );
         summarizeEndedSession(p.id, managed.sessionManager.sessionId);
-        managed.sessionManager.sessionId = null;
+        managed.sessionManager.adoptSessionId(null);
         // Keep the loaded transcript in logCache so the chat view shows the
         // historical conversation (especially important for legacy revivals
         // where the SDK can never resume because cwd/project dir don't

@@ -9,7 +9,11 @@
 // the slice hand-off.
 
 import { describe, it, expect } from "bun:test";
-import { FakeBackend, FakeSession } from "./test-support/fake-backend.ts";
+import {
+  FakeBackend,
+  FakeSession,
+  type FakeSessionConfig,
+} from "./test-support/fake-backend.ts";
 import {
   SessionManager,
   type SessionHost,
@@ -40,7 +44,6 @@ function host(overrides: Partial<TestHost> = {}): TestHost {
     busyTurnWatchdogObserved: false,
     toolCallTimestamps: new Map<string, { name: string; startedAt: number }>(),
     lastActiveAt: 0,
-    dormantReason: "idle",
     messageQueue: [],
     ...overrides,
   };
@@ -136,19 +139,54 @@ function fakeDeps() {
   };
 }
 
-function fakeSession(): FakeSession {
-  const session = new FakeBackend().createSession({
+function sessionOpts() {
+  return {
     agentId: "a1",
     cwd: "/tmp",
     systemPrompt: "",
     modelFamily: "fake",
     effort: "default",
     permissionMode: "default",
-  });
+  };
+}
+
+function fakeSession(cfg?: FakeSessionConfig): FakeSession {
+  const session = new FakeBackend({ session: cfg }).createSession(
+    sessionOpts(),
+  );
   if (!(session instanceof FakeSession)) {
     throw new Error("FakeBackend did not hand back a FakeSession");
   }
   return session;
+}
+
+// A session whose stream yields one late assistant_text when the test
+// releases it, closed or not: a dying process that still emits after close().
+class GatedSession extends FakeSession {
+  private open: () => void = () => {};
+  private readonly gate = new Promise<void>((resolve) => {
+    this.open = resolve;
+  });
+  release(): void {
+    this.open();
+  }
+  override async *stream(): AsyncGenerator<NormalizedEvent, void> {
+    await this.gate;
+    yield { kind: "assistant_text", text: "late" };
+  }
+}
+
+function asFake(session: BackendSession): FakeSession {
+  if (!(session instanceof FakeSession)) throw new Error("not a FakeSession");
+  return session;
+}
+
+async function until(pred: () => boolean, label: string): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error(`timed out: ${label}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
 }
 
 // The consumer promise as installed; throws when the slot is empty so a test
@@ -188,7 +226,7 @@ describe("SessionManager.installSession", () => {
     expect(sm.session).toBe(session);
     expect(sm.consumerPromise).toBeInstanceOf(Promise);
     expect(h.lastActiveAt).toBeGreaterThanOrEqual(before);
-    expect(h.dormantReason).toBeNull();
+    expect(sm.slot.kind).toBe("live");
     expect(events).toEqual([
       { type: "agent_updated", agentId: "a1", changes: { dormant: false } },
     ]);
@@ -201,6 +239,119 @@ describe("SessionManager.installSession", () => {
       "assistant_text",
     ]);
     session.close();
+  });
+});
+
+// The slot refuses an install while a swap holds it or after a kill (task
+// 082ab039): the session handed in is closed, so no process outlives the
+// refusal, and the slot keeps what it had.
+describe("SessionManager.installSession: refused", () => {
+  function withWarnings() {
+    const d = fakeDeps();
+    const warnings: string[] = [];
+    d.deps.logger = {
+      warn: (...args: unknown[]) => warnings.push(args.map(String).join(" ")),
+      error: () => {},
+    };
+    return { ...d, warnings };
+  }
+
+  it("during a swap's drain: the passed session is closed, the swap installs its own replacement", async () => {
+    const { deps, created, warnings } = withWarnings();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host();
+    const old = fakeSession({ hangOnClose: true });
+    sm.installSession(h, old);
+    const swap = sm.replaceWith(h, "resume-1");
+    await until(() => old.closed, "swap draining");
+
+    const intruder = fakeSession();
+    const installed = sm.installSession(h, intruder);
+
+    expect({ installed, closed: intruder.closed }).toEqual({
+      installed: false,
+      closed: true,
+    });
+    expect(warnings.length).toBe(1);
+    expect(sm.slot.kind).toBe("swapping");
+    old.endStream();
+    await swap;
+    expect(sm.session).toBe(created[0]);
+    created[0].close();
+  });
+
+  it("after a kill: the passed session is closed and the slot stays dead", async () => {
+    const { deps, warnings } = withWarnings();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host();
+    const old = fakeSession();
+    sm.installSession(h, old);
+    const drain = sm.kill(h);
+    expect(old.closed).toBe(true);
+    await drain;
+
+    const late = fakeSession();
+    const installed = sm.installSession(h, late);
+
+    expect({ installed, closed: late.closed }).toEqual({
+      installed: false,
+      closed: true,
+    });
+    expect(sm.session).toBeNull();
+    expect(warnings.length).toBe(1);
+    expect(sm.slot.kind).toBe("dead");
+  });
+});
+
+// A swap holds the slot until it installed (task 082ab039): a second swap or
+// a release called during its drain waits for it, and nothing installs
+// before the old process drained.
+describe("SessionManager: a swap holds the slot", () => {
+  it("a second swap during a drain waits: the slot stays the first swap's, then the second closes what the first installed", async () => {
+    const { deps, created } = fakeDeps();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host();
+    const old = fakeSession({ hangOnClose: true });
+    sm.installSession(h, old);
+    const first = sm.replaceWith(h, "resume-1");
+    await until(() => old.closed, "first swap draining");
+
+    const second = sm.replaceWith(h, "resume-2");
+    await new Promise((r) => setTimeout(r, 20));
+    expect({ session: sm.session, slot: sm.slot.kind }).toEqual({
+      session: null,
+      slot: "swapping",
+    });
+    expect(sm.slot).toMatchObject({ target: "resume-1" });
+
+    old.endStream();
+    await first;
+    await second;
+    expect(created.length).toBe(2);
+    expect(asFake(created[0]).closed).toBe(true);
+    expect(sm.session).toBe(created[1]);
+    created[1].close();
+  });
+
+  it("a release during a drain waits: the slot stays swapping, then the release closes what the swap installed", async () => {
+    const { deps, created } = fakeDeps();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host();
+    const old = fakeSession({ hangOnClose: true });
+    sm.installSession(h, old);
+    const swap = sm.replaceWith(h, "resume-1");
+    await until(() => old.closed, "swap draining");
+
+    const release = sm.closeAndDrainSession(h, { reason: "idle" });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sm.slot.kind).toBe("swapping");
+
+    old.endStream();
+    await swap;
+    await release;
+    expect(created.length).toBe(1);
+    expect(asFake(created[0]).closed).toBe(true);
+    expect(sm.slot).toEqual({ kind: "released", reason: "idle" });
   });
 });
 
@@ -264,7 +415,7 @@ describe("SessionManager consumer: stream end", () => {
     expect(sm.pendingTurn).toBeNull();
     expect(sm.session).toBeNull();
     expect(sm.consumerPromise).toBeNull();
-    expect(h.dormantReason).toBe("stream-ended");
+    expect(sm.slot).toEqual({ kind: "released", reason: "stream-ended" });
     expect(sm.turnCancelToken).toBe(tokenBefore + 1);
     // The background work died with the process (task daa9dbef).
     expect(events).toEqual([
@@ -297,49 +448,39 @@ describe("SessionManager consumer: stream end", () => {
   });
 
   it("a stream that ends after a swap touches nothing: late events are dropped and the cleanup is skipped", async () => {
-    const { deps, events, processed, logged, stateUpdates, whenProcessed } =
+    const { deps, events, processed, logged, stateUpdates, created } =
       fakeDeps();
     const sm = new SessionManager<TestHost>("a1", deps);
-    const h = host({ info: { state: "thinking", dormant: false } });
-    const old = fakeSession();
+    const h = host();
+    // The old stream yields its late event only once the swap has closed it,
+    // so the consumer reads it after the slot moved on.
+    const old = new GatedSession(sessionOpts(), "old", false);
     sm.installSession(h, old);
     const oldConsumer = consumerOf(sm);
-    const turn = sm.createTurnDeferred();
-    let captured: unknown = undefined;
-    turn.catch((err: unknown) => {
-      captured = err;
-    });
-    // The swap's install step: the slot now points at the replacement, so the
-    // old consumer is unbound before it ever forwards an event.
-    const replacement = fakeSession();
-    sm.installSession(h, replacement);
-    const replacementConsumer = consumerOf(sm);
-    const tokenBefore = sm.turnCancelToken;
-
-    // Late events from the dying session are drained but dropped; only the
-    // replacement's system_init reaches the manager.
-    old.push({ kind: "assistant_text", text: "late" });
-    await whenProcessed(1);
-    old.endStream();
+    const swap = sm.replaceWith(h, "resume-1");
+    await until(() => old.closed, "old session closed by the swap");
+    const eventsAtClose = events.length;
+    old.release();
     await oldConsumer;
-    expect(processed.map((e) => e.kind)).toEqual(["system_init"]);
+    await swap;
+
+    // Late events from the dying session are drained but dropped.
     expect(
       processed.some((e) => e.kind === "assistant_text" && e.text === "late"),
     ).toBe(false);
-
-    // The clean-end cleanup is skipped for an unbound consumer.
-    expect(sm.session).toBe(replacement);
-    expect(sm.consumerPromise).toBe(replacementConsumer);
-    expect(sm.pendingTurn?.promise).toBe(turn);
-    expect(captured).toBeUndefined();
-    expect(h.dormantReason).toBeNull();
-    expect(sm.turnCancelToken).toBe(tokenBefore);
-    expect(events).toEqual([]);
+    // The clean-end cleanup is skipped for an unbound consumer: the
+    // replacement stays bound, and no stream-ended release, log or state
+    // change happened.
+    expect(sm.session).toBe(created[0]);
     expect(logged).toEqual([]);
     expect(stateUpdates).toEqual([]);
-
-    replacement.close();
-    await replacementConsumer;
+    expect(
+      events
+        .slice(eventsAtClose)
+        .some((e) => e.type === "agent_updated" && e.changes.dormant === true),
+    ).toBe(false);
+    expect(sm.slot.kind).toBe("live");
+    created[0].close();
   });
 });
 

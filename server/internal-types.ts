@@ -17,7 +17,7 @@ import type {
   EnginePlugin,
   NormalizedEvent,
 } from "./backends/types.ts";
-import type { DormantReason, SessionManager } from "./session-manager.ts";
+import type { SessionManager } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import type { BillingAccount } from "./member-usage-cap.ts";
 import type { AutoHandoffTrigger } from "./auto-handoff.ts";
@@ -398,11 +398,6 @@ export interface ManagedAgent {
   // The members who opened this terminal session, for the one terminal.join
   // audit row per member. Reset when the session ends.
   ptyMembers?: Set<string>;
-  // The same change, while the agent's process was busy or ran background
-  // work: the process is released when its turn ends (busy) or before its
-  // next turn starts, so that turn has the current secrets and variables.
-  // A new process clears it (installSession).
-  envStale?: boolean;
   // /isomux-usage tracking. The SDK's `result` reports session-cumulative totals,
   // which are written to sessions.json on every turn (`usage` field) along
   // with a per-turn snapshot (`usageSnapshots`). /isomux-usage reads those entries
@@ -474,16 +469,6 @@ export interface ManagedAgent {
   // once this is older than the idle threshold. In-memory only; not persisted
   // (a restart lazy-restores everyone regardless).
   lastActiveAt: number;
-  // Why the agent currently has no live subprocess, used only to word the wake
-  // message accurately: "idle" = demoted by the inactivity sweep; "boot" =
-  // lazy-restored on server (re)start; "fresh" = a blank conversation never
-  // backed by a subprocess (lazy spawn, or released by /clear) - its wake is
-  // silent because there is nothing to announce resuming; "stream-ended" = the
-  // backend's event stream ended on its own while the session was still bound
-  // (subprocess died without a proper error event) and the SessionManager
-  // consumer released
-  // the dead session pointer. Null while live. In-memory only.
-  dormantReason: DormantReason;
   // The background work a release ended (the idle sweep past
   // BACKGROUND_HOLD_MS, an environment change at a turn start, an account
   // switch), a backend's death ended, or a restart ended (restored from the

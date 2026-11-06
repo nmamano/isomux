@@ -1488,6 +1488,10 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     const accountCheck = deps.alignAccount(agentId, managed);
     if (accountCheck) await accountCheck;
+    // A swap holds the slot (a /resume pick, an edit): the skill runs on what
+    // it installs. No await between this wait and the check below.
+    while (managed.sessionManager.swapping)
+      await managed.sessionManager.swapSettled();
     // A dormant agent (lazy-spawned, idle-evicted, or released by /clear) holds
     // no live session, so the runAgentTurn below would throw "agent has no
     // session". Wake it first - this is the skill-dispatch site, reached only

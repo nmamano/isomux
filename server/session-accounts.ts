@@ -54,6 +54,7 @@ import {
   type ProviderFallback,
 } from "./provider-fallback.ts";
 import { personalProviderHome } from "./provider-homes.ts";
+import type { DormantReason } from "./session-manager.ts";
 import {
   codexHomeOfThread,
   copySessionFilesInAgentSpace,
@@ -105,10 +106,7 @@ export interface SessionAccountsDeps {
   fallbackOfficeAccount: ManagerDeps["fallbackOfficeAccount"];
   // After the switch installs the new process: what its close carried (an
   // environment change, ended background work) reaches the agent.
-  noteSwitchRelease: (
-    managed: ManagedAgent,
-    reason: ManagedAgent["dormantReason"],
-  ) => void;
+  noteSwitchRelease: (managed: ManagedAgent, reason: DormantReason) => void;
 }
 
 export function createSessionAccounts(deps: SessionAccountsDeps) {
@@ -420,10 +418,10 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     if (!liveMoves && managed.officeFallback === toOffice) return "same";
     if (accountSwitchBlocked(managed)) return "same";
     const sessionId = sm.sessionId;
-    if (liveMoves) {
-      prepareRelease(managed, "idle");
-      await sm.closeAndDrainSession(managed);
-    }
+    if (liveMoves)
+      await sm.closeAndDrainSession(managed, {
+        reason: prepareRelease(managed, "idle"),
+      });
     // Claude and Codex keep the conversation in the account folder.
     if (sessionId && "dir" in target && provider !== "opencode") {
       const from = conversationDir(managed, sessionId);
@@ -515,8 +513,8 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
     if (managed.sessionManager.session) return;
     try {
       const sessionId = pickAutoResumeSessionId(managed);
-      // Read before installSession clears it.
-      const reason = managed.dormantReason;
+      // Read before installSession moves the slot.
+      const reason = managed.sessionManager.releasedReason;
       managed.sessionManager.installSession(
         managed,
         sessionId ? createSession(managed, sessionId) : createSession(managed),

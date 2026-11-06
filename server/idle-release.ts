@@ -3,6 +3,7 @@
 // prepareRelease serves every release that closes a live session.
 
 import type { ManagedAgent } from "./internal-types.ts";
+import type { ReleaseReason } from "./session-manager.ts";
 
 // 1 h: the Claude prompt cache lasts at most 1 h, so a session idle longer
 // pays a full prompt read on its next message, live or not. A resume costs
@@ -21,19 +22,19 @@ export const IDLE_EVICT_MS = 60 * 60_000;
 export const BACKGROUND_HOLD_MS = 6 * 60 * 60_000;
 
 // Call right before a release closes a live session (the idle sweep, an
-// environment change, an account switch). The wake after it says why: an
-// environment change the process still waited on wins over `reason`, so the
-// agent hears of it. It also names the background work the close ends; read
-// it here, because the close clears the list.
+// environment change, an account switch). Returns the release reason to hand
+// the close: an environment change the process still waited on wins over
+// `reason`, so the wake after it says so. It also names the background work
+// the close ends; read it here, because the close clears the list.
 export function prepareRelease(
   managed: Pick<
     ManagedAgent,
-    "dormantReason" | "envStale" | "releasedBackgroundTasks" | "info"
+    "sessionManager" | "releasedBackgroundTasks" | "info"
   >,
   reason: "idle" | "env",
-): void {
-  managed.dormantReason = managed.envStale ? "env" : reason;
+): ReleaseReason {
   managed.releasedBackgroundTasks = managed.info.backgroundTasks?.length
     ? managed.info.backgroundTasks
     : null;
+  return managed.sessionManager.envStale ? "env" : reason;
 }

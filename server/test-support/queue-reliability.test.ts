@@ -15,9 +15,9 @@
 //     transactional acceptance, boot replay via harness restart(), dedupe
 //     across restarts, clear/kill/corrupt-file behavior;
 //   - 314ee9fb: wake-vs-swap serialization (the flush wake defers to a
-//     mid-drain swap; a wakeSessionForSend that wins the drain window is
-//     never clobbered by the swap's conditional install). The setPrivileged
-//     pre-send-cancel retry itself is pinned in queue.test.ts.
+//     mid-drain swap). A human send during a drain waits for the swap too
+//     (task 082ab039, session-lifecycle.test.ts "a swap holds the slot"). The
+//     setPrivileged pre-send-cancel retry itself is pinned in queue.test.ts.
 //
 // Seam: the WS/HTTP harness plus the FakeBackend knobs added for this bundle
 // (manualSend park/fail, hangOnClose wedge) and the manager's test hooks
@@ -1001,66 +1001,6 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
     expect(agentOf(server, recv.id).privileged).toBe(true);
     // Into the replacement, never the wedged old session.
     expect(s1.sent.some((m) => m.text.includes("mid-drain"))).toBe(false);
-  });
-
-  it("a human wake that wins the drain window is kept - the swap discards its own replacement instead of clobbering the live turn", async () => {
-    server = await startTestServer({
-      fakeBackend: parkingBackend({ hangOnClose: true }),
-    });
-    const owner = await server.seedOwner("Morgan");
-    const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
-
-    // Lazy spawn: give the receiver a live session first (see previous test).
-    await sendHuman(server, owner.rawSessionId, recv.id, "kickoff");
-    const s1 = server.fakeBackend.sessionForAgent(recv.id)!;
-    await waitUntil(() => s1.sent.length === 1, 3000, "kickoff sent");
-    s1.completeTurn();
-    await waitUntil(
-      () => stateOf(server!, recv.id) === "waiting_for_response",
-      3000,
-      "idle with live session",
-    );
-
-    const swapDone = server.agentManager.setPrivileged(recv.id, true);
-    await waitUntil(
-      () => agentOf(server!, recv.id).sessionSwapping === true,
-      3000,
-      "swap draining",
-    );
-    // The swap's replacement was created up front (session #2), then the swap
-    // parked on the drain.
-    expect(sessionsFor(server, recv.id).length).toBe(2);
-    const swapReplacement = sessionsFor(server, recv.id)[1];
-
-    // Human message mid-drain: sendMessage's wakeSessionForSend wins the
-    // window and installs session #3; the turn parks there (parking backend).
-    await sendHuman(server, owner.rawSessionId, recv.id, "hello-mid-drain");
-    await waitUntil(
-      () => sessionsFor(server!, recv.id).length === 3,
-      3000,
-      "wake session installed",
-    );
-    const wake = sessionsFor(server, recv.id)[2];
-    await waitUntil(() => wake.sent.length === 1, 3000, "wake turn sent");
-
-    // Release the drain: the swap sees the wake session installed, keeps it,
-    // and closes its own never-installed replacement.
-    s1.endStream();
-    await swapDone;
-    expect(deliveryCount(server, recv.id, "hello-mid-drain")).toBe(1);
-    expect(swapReplacement.sent.length).toBe(0);
-    expect(swapReplacement.closed).toBe(true);
-    expect(agentOf(server, recv.id).privileged).toBe(true);
-    // The wake turn is still LIVE on its own consumer: completing it flows
-    // through to the state machine (a clobbered consumer would drop it).
-    expect(stateOf(server, recv.id)).toBe("thinking");
-    wake.completeTurn({ text: "done" });
-    await waitUntil(
-      () => stateOf(server!, recv.id) === "waiting_for_response",
-      3000,
-      "wake turn completed through its consumer",
-    );
   });
 });
 

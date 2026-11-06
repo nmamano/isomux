@@ -66,6 +66,7 @@ import { isTopicSource } from "../shared/session-label.ts";
 import {
   CONSUMER_DRAIN_TIMEOUT_MS,
   SessionManager,
+  type DormantReason,
   type SessionManagerDeps,
 } from "./session-manager.ts";
 import {
@@ -2557,7 +2558,11 @@ export function createAgentManager(deps: ManagerDeps) {
     // A process that an environment change marked while it was busy is released
     // at the end of its turn, unless it runs background work. A queued message
     // does not wait for this: the flush releases it itself before it sends.
-    if (state !== prev && isQueueIdleState(state) && managed.envStale)
+    if (
+      state !== prev &&
+      isQueueIdleState(state) &&
+      managed.sessionManager.envStale
+    )
       releaseForEnv(agentId);
 
     // Trigger queue flush on transition into an idle state. Swapping into the
@@ -2900,8 +2905,10 @@ export function createAgentManager(deps: ManagerDeps) {
       if (topic === "") return;
       for (const event of officeState.setTopic(agentId, topic)) emit(event);
       // sessions.json keeps the topic for the resume list and a restore.
-      if (managed.sessionManager.sessionId)
-        persistSessionTopic(agentId, managed.sessionManager.sessionId, topic);
+      // The conversation the labelled chat belongs to (a /resume pick that
+      // drains has already moved sessionId to its target).
+      const chatSessionId = managed.sessionManager.chatSessionId;
+      if (chatSessionId) persistSessionTopic(agentId, chatSessionId, topic);
     } catch (err) {
       if (err instanceof OpenCodeFreeLimitError) {
         managed.openCodeFreeLimitAt = limitResumeClock.now();
@@ -3196,7 +3203,7 @@ export function createAgentManager(deps: ManagerDeps) {
             // resetContextUsage is idempotent-safe to repeat.
             resetContextUsage(managed);
           }
-          managed.sessionManager.sessionId = sessionId;
+          managed.sessionManager.adoptSessionId(sessionId);
           // Record the cwd this session was born in (source of truth for
           // per-session cwd). Idempotent: a fork already stamped its cwd via
           // persistSessionFork so this no-ops there; a plain fresh session
@@ -4087,7 +4094,7 @@ export function createAgentManager(deps: ManagerDeps) {
     );
     // Another member's provider accounts and variables.
     resetSubscriptionUsage(managed);
-    managed.envStale = false;
+    managed.sessionManager.clearEnvStale();
     refreshLimitedClaudeFamilies(userId);
     if (managed.ptySidecar) {
       managed.ptyEnvStale = true;
@@ -4213,7 +4220,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // hear of it as they would at a wake; a plain switch stays silent.
   function noteSwitchRelease(
     managed: ManagedAgent,
-    reason: ManagedAgent["dormantReason"],
+    reason: DormantReason,
   ): void {
     const ended = takeEndedBackground(managed);
     const parts: LogText[] = [];
@@ -4258,7 +4265,7 @@ export function createAgentManager(deps: ManagerDeps) {
   // (task c37a7365). Changing a key changes both.
   function dormantWakeMessage(
     managed: ManagedAgent,
-    reason: ManagedAgent["dormantReason"],
+    reason: DormantReason,
     sessionId: string,
   ): { log: LogText; note: string | null } {
     const ended = takeEndedBackground(managed);
@@ -4379,9 +4386,9 @@ export function createAgentManager(deps: ManagerDeps) {
     const managed = agents.get(agentId);
     if (!managed) return false;
     if (!canDemote(managed)) return false;
-    prepareRelease(managed, "idle");
+    const reason = prepareRelease(managed, "idle");
     const ended = managed.releasedBackgroundTasks;
-    await managed.sessionManager.closeAndDrainSession(managed);
+    await managed.sessionManager.closeAndDrainSession(managed, { reason });
     demoteCount++;
     console.log(
       `[idle-evict] demoted ${managed.info.name} (${agentId}) to lazy (total ${demoteCount})${ended ? `, ended ${ended.length} background task(s)` : ""}`,
@@ -4434,12 +4441,11 @@ export function createAgentManager(deps: ManagerDeps) {
     managed: ManagedAgent,
     opts: { force?: boolean } = {},
   ): void {
-    if (!managed.envStale || !canReleaseForEnv(managed)) return;
+    if (!managed.sessionManager.envStale || !canReleaseForEnv(managed)) return;
     if (!opts.force && managed.info.backgroundTasks?.length) return;
-    prepareRelease(managed, "env");
-    managed.envStale = false;
+    const reason = prepareRelease(managed, "env");
     void managed.sessionManager
-      .closeAndDrainSession(managed)
+      .closeAndDrainSession(managed, { reason })
       .catch((err: unknown) =>
         console.error(`[env] release failed for ${agentId}:`, errMessage(err)),
       );
@@ -4472,7 +4478,7 @@ export function createAgentManager(deps: ManagerDeps) {
         continue;
       const pinned = getSessionClaudeConfigDir(agentId, sessionId);
       if (!pinned || resolve(pinned) !== root) continue;
-      managed.envStale = true;
+      managed.sessionManager.markEnvStale();
       // Idle now: release now. Busy: the end of the turn releases it. With
       // background work running: the next turn start (releaseForEnvNow).
       if (isQueueIdleState(managed.info.state)) releaseForEnv(agentId);
@@ -4490,8 +4496,7 @@ export function createAgentManager(deps: ManagerDeps) {
         managed.ptyEnvStale = true;
         terminalStatus(agentId);
       }
-      if (!managed.sessionManager.session) continue;
-      managed.envStale = true;
+      if (!managed.sessionManager.markEnvStale()) continue;
       // Idle now: release now. Busy: the end of the turn releases it. With
       // background work running: the next turn start (releaseForEnvNow).
       if (isQueueIdleState(managed.info.state)) releaseForEnv(agentId);
@@ -4851,7 +4856,7 @@ export function createAgentManager(deps: ManagerDeps) {
   ): boolean {
     if (!managed.sessionManager.sessionId) return false;
     summarizeEndedSession(agentId, managed.sessionManager.sessionId);
-    managed.sessionManager.sessionId = null;
+    managed.sessionManager.adoptSessionId(null);
     // Dropping the conversation id for a fresh start is a conversation
     // boundary: the old transcript's fullness measurement doesn't describe
     // the blank conversation that follows.
@@ -5246,9 +5251,19 @@ export function createAgentManager(deps: ManagerDeps) {
       if (access.grant.pack) info.pack = access.grant.pack;
     }
 
+    // The lazy spawn's cwd check (below): a good cwd starts the agent
+    // released as a blank conversation.
+    let cwdError: string | null = null;
+    try {
+      validateCwd(resolvedCwd);
+    } catch (err) {
+      cwdError = errMessage(err);
+    }
     const sessionManager = new SessionManager<ManagedAgent>(
       id,
       sessionManagerDeps,
+      null,
+      cwdError === null ? "fresh" : null,
     );
     const initialEnv = buildEnvForUserId(info.userId);
     const initialSkillRoots = userSkillRootsForInfo(info, initialEnv);
@@ -5331,7 +5346,6 @@ export function createAgentManager(deps: ManagerDeps) {
       recentSteers: [],
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
-      dormantReason: null,
       releasedBackgroundTasks: null,
       savedBackgroundTasks: null,
     };
@@ -5356,14 +5370,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // dormant flag is set BEFORE the events emit below so the agent_added
     // broadcast already carries it (no transient not-dormant flicker); the same
     // `info` ref backs officeState's copy and the event, so they stay in sync.
-    let cwdError: string | null = null;
-    try {
-      validateCwd(resolvedCwd);
-      info.dormant = true;
-      managed.dormantReason = "fresh";
-    } catch (err) {
-      cwdError = errMessage(err);
-    }
+    if (cwdError === null) info.dormant = true;
 
     for (const event of events) emit(event);
     // A new agent shows the latest reading of its account at once.
@@ -5619,13 +5626,13 @@ export function createAgentManager(deps: ManagerDeps) {
         // by installing a wake session the swap would then have to yield to -
         // bail and let replaceSession's post-swap flush kick re-fire us
         // against the properly installed session.
-        if (managed.info.sessionSwapping) return;
+        if (managed.sessionManager.swapping) return;
         try {
           // Capture before installSession clears them: a clean wake (idle
           // eviction or restart) gets an accurate calm message; only a genuine
           // unexpected death gets the alarming one.
           const wasDormant = managed.info.dormant ?? false;
-          const dormantReason = managed.dormantReason;
+          const dormantReason = managed.sessionManager.releasedReason;
           const sessionId = pickAutoResumeSessionId(managed);
           // A dropped session gets its own note (dropUnresumableSession).
           const dropped =
@@ -6107,7 +6114,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // or restart) gets an accurate calm message; only a genuine unexpected
       // death gets the alarming one.
       const wasDormant = managed.info.dormant ?? false;
-      const dormantReason = managed.dormantReason;
+      const dormantReason = managed.sessionManager.releasedReason;
       managed.sessionManager.installSession(
         managed,
         sessionId ? createSession(managed, sessionId) : createSession(managed),
@@ -6361,8 +6368,13 @@ export function createAgentManager(deps: ManagerDeps) {
       state === "tool_executing" ||
       managed.sessionManager.pendingTurn !== null;
     // An armed automatic handoff counts as busy: the message waits in the
-    // queue for the fresh session.
-    const busy = turnRunning || managed.autoHandoffPhase !== null;
+    // queue for the fresh session. So does a swap that switches the
+    // conversation (a /resume pick, an edit): the message is delivered on the
+    // conversation it installs, after its chat replay.
+    const busy =
+      turnRunning ||
+      managed.autoHandoffPhase !== null ||
+      managed.sessionManager.swapSwitches;
     // An ask reply also waits behind a pending prompt: the flush that
     // follows the prompt delivers it, so it is never read as the answer.
     const queueIt = ask
@@ -6493,6 +6505,11 @@ export function createAgentManager(deps: ManagerDeps) {
         msg("systemEntries.permissionOutcome.priorSessionStopped"),
       );
     }
+    // A swap that started after the busy check above holds the slot: wait
+    // for it, so the check below sees what it installed. No await between
+    // this wait and the check.
+    while (managed.sessionManager.swapping)
+      await managed.sessionManager.swapSettled();
     // Skip auto-recovery for slash commands: they are control-plane actions
     // (/clear creates a fresh session, /resume picks from disk) and must stay
     // reachable when the data-plane session is broken. Auto-recovery applies the
@@ -6734,11 +6751,75 @@ export function createAgentManager(deps: ManagerDeps) {
             managed,
             picked.sessionId,
           );
+          // The pick's chat and state steps run inside the swap (its
+          // `after`), so a message, a skill or a /clear that arrives during
+          // the drain lands after them. A throw there is not a failed resume:
+          // it skips the rollback, as before.
+          const steps: { failed?: { err: unknown } } = {};
+          const pickSteps = () => {
+            if (picked.sessionId !== prevResumeSessionId) {
+              resetContextUsage(managed);
+              summarizeEndedSession(agentId, prevResumeSessionId);
+            }
+            // Record the cwd we resumed in: backfill legacy/missing, or repair a
+            // present-but-invalid value so it isn't sticky on future resumes.
+            recordResumedSessionCwd(
+              agentId,
+              picked.sessionId,
+              managed.info.cwd,
+              storedCwdInvalid,
+            );
+            managed.topicGenToken++;
+            setTopicGenerating(agentId, false);
+            // Clear and replay resumed session's logs (walks fork ancestry)
+            const history = loadLogWithAncestors(agentId, picked.sessionId);
+            logCache.set(agentId, []);
+            emit({ type: "clear_logs", agentId });
+            if (history.length > 0) {
+              logCache.set(agentId, [...history]);
+              for (const entry of history) {
+                emit({ type: "log_entry", entry });
+              }
+            }
+            // Restore topic - officeState.updateAgent fires persistAll via onChange,
+            // capturing the new sessionId set above.
+            for (const event of officeState.updateAgent(agentId, {
+              topic: picked.topic,
+            }))
+              emit(event);
+            emitEphemeralLog(
+              agentId,
+              "system",
+              msg("systemEntries.resumedSession", {
+                label: picked.topic || picked.sessionId.slice(0, 8) + "...",
+              }),
+            );
+            if (switchedSession)
+              addQueueCarriedLine(
+                agentId,
+                managed,
+                carryQueue(agentId, managed),
+              );
+            updateState(agentId, "waiting_for_response");
+            // A resumed conversation with no topic fills it now, not at the
+            // next message.
+            maybeFillTopic(agentId, managed);
+          };
           try {
             await managed.sessionManager.replaceWith(
               managed,
               picked.sessionId,
               switchedSession ? "carry" : undefined,
+              {
+                adopt: true,
+                after: () => {
+                  try {
+                    pickSteps();
+                  } catch (err) {
+                    steps.failed = { err };
+                  }
+                },
+              },
             );
           } catch (err) {
             if (switched) rollbackSessionCwd(agentId, prevCwd);
@@ -6746,50 +6827,7 @@ export function createAgentManager(deps: ManagerDeps) {
               rollbackSessionEngine(agentId, engine.prevConfig);
             throw err;
           }
-          managed.sessionManager.sessionId = picked.sessionId;
-          if (picked.sessionId !== prevResumeSessionId) {
-            resetContextUsage(managed);
-            summarizeEndedSession(agentId, prevResumeSessionId);
-          }
-          // Record the cwd we resumed in: backfill legacy/missing, or repair a
-          // present-but-invalid value so it isn't sticky on future resumes.
-          recordResumedSessionCwd(
-            agentId,
-            picked.sessionId,
-            managed.info.cwd,
-            storedCwdInvalid,
-          );
-          managed.topicGenToken++;
-          setTopicGenerating(agentId, false);
-          // Clear and replay resumed session's logs (walks fork ancestry)
-          const history = loadLogWithAncestors(agentId, picked.sessionId);
-          logCache.set(agentId, []);
-          emit({ type: "clear_logs", agentId });
-          if (history.length > 0) {
-            logCache.set(agentId, [...history]);
-            for (const entry of history) {
-              emit({ type: "log_entry", entry });
-            }
-          }
-          // Restore topic - officeState.updateAgent fires persistAll via onChange,
-          // capturing the new sessionId set above.
-          for (const event of officeState.updateAgent(agentId, {
-            topic: picked.topic,
-          }))
-            emit(event);
-          emitEphemeralLog(
-            agentId,
-            "system",
-            msg("systemEntries.resumedSession", {
-              label: picked.topic || picked.sessionId.slice(0, 8) + "...",
-            }),
-          );
-          if (switchedSession)
-            addQueueCarriedLine(agentId, managed, carryQueue(agentId, managed));
-          updateState(agentId, "waiting_for_response");
-          // A resumed conversation with no topic fills it now, not at the
-          // next message.
-          maybeFillTopic(agentId, managed);
+          if (steps.failed) throw steps.failed.err;
         } catch (err) {
           emitEphemeralLog(
             agentId,
@@ -7085,6 +7123,9 @@ export function createAgentManager(deps: ManagerDeps) {
       const accountCheck = alignAccount(agentId, managed);
       if (accountCheck) await accountCheck;
     }
+    // As above: a swap holds the slot until its caller's steps are done.
+    while (managed.sessionManager.swapping)
+      await managed.sessionManager.swapSettled();
     if (!managed.sessionManager.session && managed.info.dormant) {
       if (
         !wakeSessionForSend(agentId, managed, {
@@ -7255,13 +7296,12 @@ export function createAgentManager(deps: ManagerDeps) {
       );
   }
 
+  // The header topic belongs to the chat on screen, which a draining /resume
+  // pick has not replaced yet: chatSessionId, not sessionId.
   function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
-    if (managed.sessionManager.sessionId && managed.info.topic) {
-      persistSessionTopic(
-        agentId,
-        managed.sessionManager.sessionId,
-        managed.info.topic,
-      );
+    const chatSessionId = managed.sessionManager.chatSessionId;
+    if (chatSessionId && managed.info.topic) {
+      persistSessionTopic(agentId, chatSessionId, managed.info.topic);
     }
   }
 
@@ -7743,11 +7783,7 @@ export function createAgentManager(deps: ManagerDeps) {
         saveAgentHistory(history);
       }
     }
-    // Bump the cancel token so any concurrent runAgentTurn that hasn't yet
-    // installed pendingTurn (pre-send notice assembly) bails on its next
-    // await checkpoint instead of calling session.send on a dying session.
-    managed.sessionManager.turnCancelToken++;
-    // The backend's close() (below, via managed.sessionManager.session?.close()) resolves any
+    // The backend's close() (in sessionManager.kill below) resolves any
     // in-flight SDK approval with deny; clearing pendingPermission here just
     // drops the orchestrator's pointer so the next message path doesn't think
     // an approval is pending.
@@ -7757,18 +7793,10 @@ export function createAgentManager(deps: ManagerDeps) {
       "canceled",
       msg("systemEntries.permissionOutcome.agentKilled"),
     );
-    const turn = managed.sessionManager.pendingTurn;
-    managed.sessionManager.pendingTurn = null;
-    if (turn) {
-      try {
-        turn.reject(new Error("Agent killed."));
-      } catch {}
-    }
-    const oldConsumer = managed.sessionManager.consumerPromise;
-    try {
-      managed.sessionManager.session?.close();
-    } catch {}
-    managed.sessionManager.session = null;
+    // Cancels the turn (a pre-send turn too, through the cancel token),
+    // closes the process and leaves the slot dead, so a swap that drains
+    // meanwhile closes its replacement instead of installing it.
+    const oldConsumer = managed.sessionManager.kill(managed);
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
     forgetHeardFrom(agentId);
@@ -8084,6 +8112,14 @@ export function createAgentManager(deps: ManagerDeps) {
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    // A swap holds the slot (a /resume pick, an edit): the reset waits for it
+    // and runs against what it installed, so the pick cannot land after the
+    // clear. With no swap running, nothing below yields before the drain.
+    if (managed.sessionManager.swapping) {
+      while (managed.sessionManager.swapping)
+        await managed.sessionManager.swapSettled();
+      if (agents.get(agentId) !== managed) return;
+    }
     cancelChoiceInteraction(agentId);
     managed.pendingResumeSessions = [];
     // The queue goes to the fresh session (task df2c820b). It is held aside,
@@ -8166,8 +8202,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // idle). This inverts the old structure, which did updateState/addLogEntry
       // AFTER the session swap.
       summarizeEndedSession(agentId, managed.sessionManager.sessionId);
-      managed.sessionManager.sessionId = null;
-      managed.dormantReason = "fresh";
+      managed.sessionManager.adoptSessionId(null);
       managed.releasedBackgroundTasks = null;
       managed.topicGenToken++;
       setTopicGenerating(agentId, false);
@@ -8210,7 +8245,10 @@ export function createAgentManager(deps: ManagerDeps) {
       // agent dormant (info.dormant=true). Rejects any in-flight turn with
       // SessionSwappedError; the consumer's catch returns early on the stale
       // session so the rejected turn can't touch state after this resolves.
-      drained = managed.sessionManager.closeAndDrainSession(managed, "carry");
+      drained = managed.sessionManager.closeAndDrainSession(managed, {
+        reason: "fresh",
+        swapReason: "carry",
+      });
     } finally {
       // Back at the head even if the reset threw, so that no later persist
       // writes the queue without these items.
@@ -8649,6 +8687,12 @@ export function createAgentManager(deps: ManagerDeps) {
   async function resume(agentId: string, sessionId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    // A swap holds the slot: this resume starts after it (see newConversation).
+    if (managed.sessionManager.swapping) {
+      while (managed.sessionManager.swapping)
+        await managed.sessionManager.swapSettled();
+      if (agents.get(agentId) !== managed) return;
+    }
     cancelChoiceInteraction(agentId);
     managed.pendingResumeSessions = [];
     persistCurrentSessionTopic(agentId, managed);
@@ -8673,12 +8717,99 @@ export function createAgentManager(deps: ManagerDeps) {
       // Engine is also a property of the session: restore it before createSession
       // so the right backend is used (and rolled back below if the resume fails).
       const engine = applySessionEngineForResume(agentId, managed, sessionId);
+      // The resume's chat and state steps run inside the swap (its `after`),
+      // like the /resume pick's.
+      const steps: { failed?: { err: unknown } } = {};
+      const resumeSteps = () => {
+        if (sessionId !== prevResumeSessionId) {
+          resetContextUsage(managed);
+          summarizeEndedSession(agentId, prevResumeSessionId);
+        }
+        // Record the cwd we actually resumed in: backfill a legacy/missing value, or
+        // repair a present-but-invalid one so it isn't sticky on future resumes.
+        recordResumedSessionCwd(
+          agentId,
+          sessionId,
+          managed.info.cwd,
+          storedCwdInvalid,
+        );
+        managed.topicGenToken++;
+        setTopicGenerating(agentId, false);
+
+        // Clear and replay resumed session's logs (walks fork ancestry for branched sessions)
+        const history = loadLogWithAncestors(agentId, sessionId);
+        logCache.set(agentId, []);
+        emit({ type: "clear_logs", agentId });
+        if (history.length > 0) {
+          logCache.set(agentId, [...history]);
+          for (const entry of history) {
+            emit({ type: "log_entry", entry });
+          }
+        }
+
+        // Restore the session's topic from sessions.json.
+        const sessions = listAgentSessions(agentId);
+        const sessionEntry = sessions.find((s) => s.sessionId === sessionId);
+        const restoredTopic = sessionEntry?.topic ?? null;
+        for (const event of officeState.updateAgent(agentId, {
+          topic: restoredTopic,
+        }))
+          emit(event);
+
+        // Queued messages across a resume, only after it succeeded:
+        //   - SWITCHING to a different session carries them to it, marked so
+        //     the agent knows they were written for the other conversation.
+        //     The member's line comes after the replay, which would clear it.
+        //   - RE-RESUMING THE CURRENT session is the documented dead-backend
+        //     recovery. It is the same conversation, so the queue is exactly what
+        //     the operator ran /resume to rescue, and it stays as it is. The
+        //     error -> waiting_for_response transition below fires updateState's
+        //     flush trigger and delivers it.
+        const carried = switchedSession ? carryQueue(agentId, managed) : 0;
+        updateState(agentId, "waiting_for_response");
+        addLogEntry(
+          agentId,
+          "system",
+          msg("systemEntries.resumedSession", {
+            label: restoredTopic || sessionId.slice(0, 8) + "...",
+          }),
+        );
+        // A session born under an earlier manager still runs on that member's
+        // connections (a Claude session is pinned to its config directory). A
+        // session of an agent that had no manager ran on the office's.
+        const bornUnder = getSessionManager(agentId, sessionId)?.userId;
+        if (bornUnder && bornUnder !== managed.info.userId)
+          addLogEntry(
+            agentId,
+            "system",
+            msg("systemEntries.sessionPreviousManager", {
+              name:
+                getUserById(bornUnder)?.name ??
+                getSessionManager(agentId, sessionId)?.name ??
+                bornUnder,
+            }),
+          );
+        addQueueCarriedLine(agentId, managed, carried);
+
+        // No topic: fill it now, as the /resume two-step flow above does.
+        maybeFillTopic(agentId, managed);
+      };
       try {
         await recoverOwnedSession(agentId, managed, sessionId);
         await managed.sessionManager.replaceWith(
           managed,
           sessionId,
           switchedSession ? "carry" : undefined,
+          {
+            adopt: true,
+            after: () => {
+              try {
+                resumeSteps();
+              } catch (err) {
+                steps.failed = { err };
+              }
+            },
+          },
         );
       } catch (err) {
         if (switched) rollbackSessionCwd(agentId, prevCwd);
@@ -8686,79 +8817,7 @@ export function createAgentManager(deps: ManagerDeps) {
           rollbackSessionEngine(agentId, engine.prevConfig);
         throw err;
       }
-      managed.sessionManager.sessionId = sessionId;
-      if (sessionId !== prevResumeSessionId) {
-        resetContextUsage(managed);
-        summarizeEndedSession(agentId, prevResumeSessionId);
-      }
-      // Record the cwd we actually resumed in: backfill a legacy/missing value, or
-      // repair a present-but-invalid one so it isn't sticky on future resumes.
-      recordResumedSessionCwd(
-        agentId,
-        sessionId,
-        managed.info.cwd,
-        storedCwdInvalid,
-      );
-      managed.topicGenToken++;
-      setTopicGenerating(agentId, false);
-
-      // Clear and replay resumed session's logs (walks fork ancestry for branched sessions)
-      const history = loadLogWithAncestors(agentId, sessionId);
-      logCache.set(agentId, []);
-      emit({ type: "clear_logs", agentId });
-      if (history.length > 0) {
-        logCache.set(agentId, [...history]);
-        for (const entry of history) {
-          emit({ type: "log_entry", entry });
-        }
-      }
-
-      // Restore the session's topic from sessions.json.
-      const sessions = listAgentSessions(agentId);
-      const sessionEntry = sessions.find((s) => s.sessionId === sessionId);
-      const restoredTopic = sessionEntry?.topic ?? null;
-      for (const event of officeState.updateAgent(agentId, {
-        topic: restoredTopic,
-      }))
-        emit(event);
-
-      // Queued messages across a resume, only after it succeeded:
-      //   - SWITCHING to a different session carries them to it, marked so
-      //     the agent knows they were written for the other conversation.
-      //     The member's line comes after the replay, which would clear it.
-      //   - RE-RESUMING THE CURRENT session is the documented dead-backend
-      //     recovery. It is the same conversation, so the queue is exactly what
-      //     the operator ran /resume to rescue, and it stays as it is. The
-      //     error -> waiting_for_response transition below fires updateState's
-      //     flush trigger and delivers it.
-      const carried = switchedSession ? carryQueue(agentId, managed) : 0;
-      updateState(agentId, "waiting_for_response");
-      addLogEntry(
-        agentId,
-        "system",
-        msg("systemEntries.resumedSession", {
-          label: restoredTopic || sessionId.slice(0, 8) + "...",
-        }),
-      );
-      // A session born under an earlier manager still runs on that member's
-      // connections (a Claude session is pinned to its config directory). A
-      // session of an agent that had no manager ran on the office's.
-      const bornUnder = getSessionManager(agentId, sessionId)?.userId;
-      if (bornUnder && bornUnder !== managed.info.userId)
-        addLogEntry(
-          agentId,
-          "system",
-          msg("systemEntries.sessionPreviousManager", {
-            name:
-              getUserById(bornUnder)?.name ??
-              getSessionManager(agentId, sessionId)?.name ??
-              bornUnder,
-          }),
-        );
-      addQueueCarriedLine(agentId, managed, carried);
-
-      // No topic: fill it now, as the /resume two-step flow above does.
-      maybeFillTopic(agentId, managed);
+      if (steps.failed) throw steps.failed.err;
     } catch (err) {
       addLogEntry(
         agentId,
@@ -8782,6 +8841,13 @@ export function createAgentManager(deps: ManagerDeps) {
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    // A swap holds the slot (a /resume pick): the edit starts after it, against
+    // the conversation it installed (see newConversation).
+    if (managed.sessionManager.swapping) {
+      while (managed.sessionManager.swapping)
+        await managed.sessionManager.swapSettled();
+      if (agents.get(agentId) !== managed) return;
+    }
     // Every exit that ends the edit without the edited message in the log
     // goes through here. The error entry keeps the edited text, so the member
     // can put it back in the composer from the chat (FAILED_EDIT_TEXT_KEY).
@@ -9065,53 +9131,69 @@ export function createAgentManager(deps: ManagerDeps) {
       }
 
       // 4. Create new session from fork (or fresh session for non-linked
-      //    first-message edits), then close old.
+      //    first-message edits), then close old. The swap adopts the fork as
+      //    the conversation (null for a fresh session: its system_init sets
+      //    the id, like newConversation), and steps 5-8 run inside it (its
+      //    `after`), so a skill or a /clear that arrives during the drain
+      //    lands after them.
+      const steps: { failed?: { err: unknown } } = {};
+      const forkSteps = () => {
+        summarizeEndedSession(agentId, oldSessionId);
+        const parentEntries: LogEntry[] = [];
+        for (const entry of oldLogCache) {
+          if (entry.id === logEntryId) break;
+          parentEntries.push(entry);
+        }
+        managed.topicGenToken++;
+        setTopicGenerating(agentId, false);
+        // A fork truncates the transcript, so the parent's fullness measurement
+        // overstates the child's context. Reset; the first turn on the fork
+        // repopulates it.
+        resetContextUsage(managed);
+
+        // 6. Clear UI and replay parent entries (not persisted - ancestors are loaded
+        //    via loadLogWithAncestors on resume, avoiding log duplication on disk)
+        logCache.set(agentId, []);
+        emit({ type: "clear_logs", agentId });
+        if (parentEntries.length > 0) {
+          logCache.set(agentId, [...parentEntries]);
+          for (const entry of parentEntries) {
+            emit({ type: "log_entry", entry });
+          }
+        }
+
+        // 7. Add system log entry at branch point
+        addLogEntry(
+          agentId,
+          "system",
+          msg("systemEntries.branchedFrom", {
+            label: oldTopic || oldSessionId.slice(0, 8) + "...",
+          }),
+        );
+        addQueueCarriedLine(agentId, managed, carryQueue(agentId, managed));
+
+        // 8. Inherit parent's topic. The ↻ button relabels the fork.
+        for (const event of officeState.updateAgent(agentId, {
+          topic: oldTopic,
+        }))
+          emit(event);
+      };
       await managed.sessionManager.replaceWith(
         managed,
         isFreshSession ? null : newSessionId,
+        undefined,
+        {
+          adopt: true,
+          after: () => {
+            try {
+              forkSteps();
+            } catch (err) {
+              steps.failed = { err };
+            }
+          },
+        },
       );
-      // For fresh sessions, sessionId is set by the system/init event (like newConversation).
-      // For forks, set it now.
-      managed.sessionManager.sessionId = isFreshSession ? null : newSessionId;
-      summarizeEndedSession(agentId, oldSessionId);
-      const parentEntries: LogEntry[] = [];
-      for (const entry of oldLogCache) {
-        if (entry.id === logEntryId) break;
-        parentEntries.push(entry);
-      }
-      managed.topicGenToken++;
-      setTopicGenerating(agentId, false);
-      // A fork truncates the transcript, so the parent's fullness measurement
-      // overstates the child's context. Reset; the first turn on the fork
-      // repopulates it.
-      resetContextUsage(managed);
-
-      // 6. Clear UI and replay parent entries (not persisted - ancestors are loaded
-      //    via loadLogWithAncestors on resume, avoiding log duplication on disk)
-      logCache.set(agentId, []);
-      emit({ type: "clear_logs", agentId });
-      if (parentEntries.length > 0) {
-        logCache.set(agentId, [...parentEntries]);
-        for (const entry of parentEntries) {
-          emit({ type: "log_entry", entry });
-        }
-      }
-
-      // 7. Add system log entry at branch point
-      addLogEntry(
-        agentId,
-        "system",
-        msg("systemEntries.branchedFrom", {
-          label: oldTopic || oldSessionId.slice(0, 8) + "...",
-        }),
-      );
-      addQueueCarriedLine(agentId, managed, carryQueue(agentId, managed));
-
-      // 8. Inherit parent's topic. The ↻ button relabels the fork.
-      for (const event of officeState.updateAgent(agentId, {
-        topic: oldTopic,
-      }))
-        emit(event);
+      if (steps.failed) throw steps.failed.err;
 
       // 9. Send the edited message. The user_message log entry lands before
       // runAgentTurn so it is part of the visible timeline.
@@ -9179,8 +9261,12 @@ export function createAgentManager(deps: ManagerDeps) {
         // We switched to the fork - roll back to old session and restore UI
         let rollbackRestored = false;
         try {
-          await managed.sessionManager.replaceWith(managed, oldSessionId);
-          managed.sessionManager.sessionId = oldSessionId;
+          await managed.sessionManager.replaceWith(
+            managed,
+            oldSessionId,
+            undefined,
+            { adopt: true },
+          );
           rollbackRestored = true;
         } catch {
           // Can't restore session - the generic-error path below sets state to
@@ -9266,13 +9352,11 @@ export function createAgentManager(deps: ManagerDeps) {
         ? officeState.resetTopic(agentId)
         : officeState.setTopic(agentId, trimmed);
     for (const event of events) emit(event);
-    // Persist to sessions.json so the resume list shows the typed topic.
-    if (managed.sessionManager.sessionId) {
-      persistSessionTopic(
-        agentId,
-        managed.sessionManager.sessionId,
-        managed.info.topic,
-      );
+    // Persist to sessions.json so the resume list shows the typed topic, on
+    // the conversation whose chat is on screen.
+    const chatSessionId = managed.sessionManager.chatSessionId;
+    if (chatSessionId) {
+      persistSessionTopic(agentId, chatSessionId, managed.info.topic);
     }
     updateManifest();
   }
@@ -9411,10 +9495,8 @@ export function createAgentManager(deps: ManagerDeps) {
     return agents.get(agentId)?.lastForcedRecoveryAt;
   }
 
-  function _testDormantReason(
-    agentId: string,
-  ): ManagedAgent["dormantReason"] | undefined {
-    return agents.get(agentId)?.dormantReason;
+  function _testDormantReason(agentId: string): DormantReason | undefined {
+    return agents.get(agentId)?.sessionManager.releasedReason;
   }
 
   // Test-only: put a message in the queue with no flush trigger, the state a

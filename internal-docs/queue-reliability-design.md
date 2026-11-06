@@ -273,6 +273,12 @@ kick no-ops on empty/being-flushed queues), /clear / resume / editMessage
 (since df2c820b these hold the queue across the swap and carry it to the
 next session; at most the state gets fixed).
 
+Task 082ab039 (2026-11-06) replaced parts 2 and 3's premise: a swap now
+holds the session slot from its close until its caller's steps are done, so
+no wake installs during the drain (a send waits for the swap, or is queued
+when the swap switches the conversation) and part 2's branch is gone. Part 3
+also skips a turn a waiting send claimed during the drain.
+
 Contract change: the pinned test "an unexpected session swap in the same window
 still surfaces the 'will retry' message" (queue.test.ts ~925) currently asserts
 the item STAYS queued with no retry; it will now additionally assert the queue
