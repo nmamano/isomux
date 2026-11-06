@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   EnvVariableSource,
@@ -16,6 +16,7 @@ import {
   filledSecondaryBtn,
 } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
+import { useDispatch } from "../store.tsx";
 import { useCan } from "../hooks/useCan.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { ProviderMark } from "./ProviderMark.tsx";
@@ -59,7 +60,6 @@ export function ProviderSignInCard({
   loaded = accounts.length > 0,
   canCancelSharedLogin = false,
   canChangeOffice = false,
-  onAccounts,
   onStartNewConversation,
   showTitle = true,
   apiKeyNote = false,
@@ -74,7 +74,6 @@ export function ProviderSignInCard({
   canCancelSharedLogin?: boolean;
   // Only an owner signs the office account in or out (Nil, 2026-10-14).
   canChangeOffice?: boolean;
-  onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
   showTitle?: boolean;
   apiKeyNote?: boolean;
@@ -123,7 +122,6 @@ export function ProviderSignInCard({
           loaded={loaded}
           canCancelSharedLogin={canCancelSharedLogin}
           readOnly={scope === "office" && !canChangeOffice}
-          onAccounts={onAccounts}
           onStartNewConversation={onStartNewConversation}
           onGoToOtherHalf={onGoToOtherHalf}
           pageLook={pageLook}
@@ -178,7 +176,6 @@ function ProviderScopeConnection({
   loaded,
   canCancelSharedLogin,
   readOnly,
-  onAccounts,
   onStartNewConversation,
   onGoToOtherHalf,
   hideTopBorder = false,
@@ -191,7 +188,6 @@ function ProviderScopeConnection({
   canCancelSharedLogin: boolean;
   // Status and Test only: no sign-in, no sign-out.
   readOnly: boolean;
-  onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
   onGoToOtherHalf?: () => void;
   hideTopBorder?: boolean;
@@ -202,68 +198,44 @@ function ProviderScopeConnection({
   // A pack that gives environment at read: the status only, with no line,
   // since an owner cannot sign in for a member's own account.
   const environmentWrite = useCan("environment", "write");
-  // The action that runs: the server's push can end it on screen (a
-  // sign-out shows the Sign in button) before its own request returns.
-  const [running, setRunning] = useState<
-    "signIn" | "submit" | "cancel" | "signOut" | null
-  >(null);
+  const dispatch = useDispatch();
+  // The request this card runs, and its reason once it failed. The sign-in
+  // itself is the server's: the card draws it from account.login, which the
+  // push keeps current (task da3fcc0b). A new request replaces the last.
+  const [request, setRequest] = useState<SignInRequest | null>(null);
+  // The server's push can end an action on screen (a sign-out shows the
+  // Sign in button) before its own request returns.
+  const running =
+    request && request.failed === undefined ? request.action : null;
   const pending = running !== null;
-  const [error, setError] = useState<string | null>(null);
-  const [signInError, setSignInError] = useState<string | null>(null);
-  const [deviceCode, setDeviceCode] = useState<string | null>(null);
-  const [codeCopied, setCodeCopied] = useState(false);
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
-  const [linkCopied, setLinkCopied] = useState(false);
-  // Local mirror of "a sign-in is in flight". The wire's waiting_external
-  // can lag or never reach this card (seen live in the chat card), and the
-  // paste-code input must not depend on it.
-  const [localWaiting, setLocalWaiting] = useState(false);
-  const waitingConfirmedByWire = useRef(false);
   const [claudeCode, setClaudeCode] = useState("");
-  // Claude took the code: the card waits for the provider and does not ask
-  // for the code again.
-  const [codeSubmitted, setCodeSubmitted] = useState(false);
+  // The link or the code last copied: a new sign-in's differs, so its
+  // button says Copy again.
+  const [copied, setCopied] = useState<string | null>(null);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [test, setTest] = useState<SignInTest>({ state: "idle" });
   // A second click in the same tick still sees the old state: the ref
   // holds a running test back.
   const testing = useRef(false);
-  // The one-time code renders from local state the moment the login POST
-  // returns - gating it on the pushed account status hid it whenever that
-  // update lagged. Once the account reports connected, retire the code so
-  // it cannot linger after a later sign-out.
   const connected = account?.accountStatus === "connected";
-  useEffect(() => {
-    if (connected) {
-      setDeviceCode(null);
-      setCodeCopied(false);
-      setAuthUrl(null);
-      setLinkCopied(false);
-      setLocalWaiting(false);
-      setCodeSubmitted(false);
-    }
-  }, [connected]);
-  useEffect(() => {
-    if (account?.loginStatus === "waiting_external") {
-      waitingConfirmedByWire.current = true;
-      return;
-    }
-    if (waitingConfirmedByWire.current) {
-      waitingConfirmedByWire.current = false;
-      setLocalWaiting(false);
-      setCodeSubmitted(false);
-      // The link and the code belong to the sign-in that ended.
-      setAuthUrl(null);
-      setLinkCopied(false);
-      setDeviceCode(null);
-      setCodeCopied(false);
-    }
-  }, [account?.loginStatus]);
-  // A callback response can arrive after the successful account push.
-  // Keep sign-in failures separate so sign-out and cancel failures stay visible.
-  useEffect(() => {
-    if (connected) setSignInError(null);
-  }, [connected, signInError]);
+  // The member's own sign-in in progress; another member's shows as a queue.
+  const login = account?.loginQueue ? undefined : account?.login;
+  const authUrl = login?.phase === "waiting" ? login.authUrl : null;
+  const deviceCode =
+    login?.phase === "waiting" ? (login.userCode ?? null) : null;
+  // Claude waits for the code from its page; once it has the code, the card
+  // does not ask again.
+  const askCode = provider === "claude" && login?.phase === "waiting";
+  const failure = request?.failed;
+  const signInFailure =
+    failure && (request.action === "signIn" || request.action === "submit")
+      ? failure
+      : null;
+  const actionFailure = failure && !signInFailure ? failure : null;
+  // A sign-in that went through retires the failure of an earlier attempt,
+  // or of a request that answered after the success: it must not come back
+  // after a later sign-out.
+  if (signInFailure && connected) setRequest(null);
   const title = provider === "codex" ? "Codex" : "Claude";
   const queueMessage = account?.loginQueue
     ? sharedLoginQueueMessage(i18n, title, account.loginQueue)
@@ -289,16 +261,21 @@ function ProviderScopeConnection({
         })
       : t("settings.signIn.personalHint");
 
-  async function refresh(): Promise<void> {
-    const result = await apiFetch<ProviderAccountsWire>(
-      "POST",
-      "/api/me/provider-accounts/refresh",
+  // Ends this card's request, unless a newer one replaced it. Only the push
+  // moves the accounts: an answer can be older than a push that overtook it.
+  function settle(action: SignInRequest["action"], failed?: string) {
+    setRequest((current) =>
+      current?.action === action && current.failed === undefined
+        ? failed === undefined
+          ? null
+          : { action, failed }
+        : current,
     );
-    onAccounts?.(result.accounts);
   }
 
   // Test: the account check Refresh runs, for this sign-in only, with its
   // result stated (the account the provider sees, or that it is signed out).
+  // The route pushes the accounts it read.
   async function runTest() {
     if (testing.current) return;
     testing.current = true;
@@ -308,7 +285,6 @@ function ProviderScopeConnection({
         "POST",
         "/api/me/provider-accounts/refresh",
       );
-      onAccounts?.(result.accounts);
       const tested = result.accounts?.find(
         (entry) => entry.provider === provider && entry.scope === scope,
       );
@@ -329,13 +305,7 @@ function ProviderScopeConnection({
 
   async function connect(method: "browser" | "device") {
     const popup = window.open("about:blank", "_blank");
-    setRunning("signIn");
-    setSignInError(null);
-    setCodeSubmitted(false);
-    setDeviceCode(null);
-    setCodeCopied(false);
-    setAuthUrl(null);
-    setLinkCopied(false);
+    setRequest({ action: "signIn" });
     try {
       const result = await apiFetch<ProviderLoginStartRes>(
         "POST",
@@ -348,13 +318,14 @@ function ProviderScopeConnection({
           popup.opener = null;
         } else window.open(result.authUrl, "_blank", "noopener,noreferrer");
       } else popup?.close();
-      setDeviceCode(result.userCode ?? null);
-      setAuthUrl(result.authUrl ?? null);
-      setLocalWaiting(true);
-      await refresh();
+      // The answer draws the sign-in at once; the next step needs the member
+      // to act on its link or code, so no push can be newer.
+      dispatch({ type: "provider_login_started", account: result.account });
+      settle("signIn");
     } catch (caught) {
       popup?.close();
-      setSignInError(
+      settle(
+        "signIn",
         caught instanceof ApiError &&
           caught.code === "shared_login_in_progress" &&
           typeof caught.detail?.holderName === "string" &&
@@ -367,86 +338,62 @@ function ProviderScopeConnection({
             ? caught.message
             : t("settings.signIn.startFailed", { provider: title }),
       );
-    } finally {
-      setRunning(null);
     }
   }
 
   async function submitClaudeCode() {
-    setRunning("submit");
-    setSignInError(null);
+    setRequest({ action: "submit" });
     try {
       await apiFetch("POST", "/api/me/provider-accounts/claude/callback", {
         scope,
         code: claudeCode,
       });
       setClaudeCode("");
-      setCodeSubmitted(true);
-      setLocalWaiting(false);
-      await refresh();
+      settle("submit");
     } catch (caught) {
-      setSignInError(
+      settle(
+        "submit",
         caught instanceof ApiError
           ? caught.message
           : t("settings.signIn.submitFailed"),
       );
-      // The sign-in ended on the server and its push did not reach this
-      // card: the form follows the server, and the error stands alone.
-      if (
-        caught instanceof ApiError &&
-        caught.code === "no_login_in_progress"
-      ) {
-        setCodeSubmitted(false);
-        setLocalWaiting(false);
-        await refresh().catch(() => {});
-      }
-    } finally {
-      setRunning(null);
     }
   }
 
   async function cancel() {
-    setRunning("cancel");
-    setError(null);
+    setRequest({ action: "cancel" });
     try {
       await apiFetch("POST", `/api/me/provider-accounts/${provider}/cancel`, {
         scope,
       });
-      setDeviceCode(null);
-      setAuthUrl(null);
-      setLocalWaiting(false);
-      setCodeSubmitted(false);
-      await refresh();
+      settle("cancel");
     } catch (caught) {
-      setError(
+      settle(
+        "cancel",
         caught instanceof ApiError
           ? caught.message
           : t("settings.signIn.cancelFailed"),
       );
-    } finally {
-      setRunning(null);
     }
   }
 
   async function disconnect() {
-    setRunning("signOut");
-    setError(null);
+    setRequest({ action: "signOut" });
     try {
-      const result = await apiFetch<ProviderAccountsWire>(
+      await apiFetch(
         "POST",
         `/api/me/provider-accounts/${provider}/disconnect`,
         { scope },
       );
-      onAccounts?.(result.accounts);
       setConfirmingSignOut(false);
+      settle("signOut");
     } catch (caught) {
-      setError(
+      settle(
+        "signOut",
         caught instanceof ApiError
           ? caught.message
           : t("settings.signIn.signOutFailed", { provider: title }),
       );
-    } finally {
-      setRunning(null);
     }
   }
 
@@ -590,14 +537,14 @@ function ProviderScopeConnection({
         </p>
       )}
       {/* A refused code's reason can also arrive on the account. */}
-      {signInError && !connected && signInError !== account?.error && (
+      {signInFailure && !connected && signInFailure !== account?.error && (
         <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
-          {signInError}
+          {signInFailure}
         </p>
       )}
-      {error && (
+      {actionFailure && (
         <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
-          {error}
+          {actionFailure}
         </p>
       )}
 
@@ -632,11 +579,9 @@ function ProviderScopeConnection({
             {t("settings.signIn.askOfficeOwner")}
           </p>
         )
-      ) : (!account?.loginQueue &&
-          account?.loginStatus === "waiting_external") ||
-        (localWaiting && !connected) ? (
+      ) : login ? (
         <div data-own-login-controls style={{ margin: "12px 0" }}>
-          {provider === "claude" && !codeSubmitted && (
+          {askCode && (
             <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
               {t("settings.signIn.pasteCode")}
               <input
@@ -646,7 +591,7 @@ function ProviderScopeConnection({
               />
             </label>
           )}
-          {provider === "claude" && !codeSubmitted && (
+          {askCode && (
             <button
               style={{
                 ...dialogSaveBtn,
@@ -681,10 +626,10 @@ function ProviderScopeConnection({
             onClick={() =>
               void navigator.clipboard
                 .writeText(authUrl)
-                .then(() => setLinkCopied(true))
+                .then(() => setCopied(authUrl))
             }
           >
-            {linkCopied
+            {copied === authUrl
               ? t("settings.signIn.linkCopied")
               : t("settings.signIn.copyLink")}
           </button>
@@ -716,10 +661,10 @@ function ProviderScopeConnection({
               onClick={() =>
                 void navigator.clipboard
                   .writeText(deviceCode)
-                  .then(() => setCodeCopied(true))
+                  .then(() => setCopied(deviceCode))
               }
             >
-              {codeCopied ? t("common.copied") : t("common.copy")}
+              {copied === deviceCode ? t("common.copied") : t("common.copy")}
             </button>
           </div>
         </div>
@@ -831,6 +776,12 @@ function ProviderScopeConnection({
     </div>
   );
 }
+
+type SignInRequest = {
+  action: "signIn" | "submit" | "cancel" | "signOut";
+  // Its reason, once it failed.
+  failed?: string;
+};
 
 type SignInTest =
   | { state: "idle" }

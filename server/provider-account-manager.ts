@@ -111,24 +111,40 @@ type LoginStartOutcome =
     };
 
 // A login holds its directory from the first call to startLogin: while it is
-// "starting" it waits for running probes and has no client or URL yet.
+// "starting" it waits for running probes and has no client or URL yet. Then
+// it waits for the member (the link, the Claude code, the device code), then
+// verifies the account, then ends with an outcome that one push carries
+// before the directory is free again. The phase is the only sign-in state:
+// every wire of a running sign-in comes from activeWire.
+type LoginOutcome = {
+  loginStatus: "succeeded" | "failed" | "interrupted";
+  accountStatus: ProviderAccountWire["accountStatus"];
+  accountLabel?: string;
+  error?: string;
+};
+type LoginClient = {
+  client: AccountClient;
+  loginId?: string;
+  authUrl: string;
+  userCode?: string;
+};
+type LoginState =
+  | { phase: "starting"; started: Promise<LoginStartOutcome> }
+  | (LoginClient & { phase: "waiting" | "verifying" })
+  | {
+      phase: "ended";
+      client: AccountClient;
+      loginId?: string;
+      outcome: LoginOutcome;
+    };
 type Active = {
   userId: string;
   holderName: string;
   startedAt: number;
   target: Target;
   cacheKey: string;
-  wire: ProviderAccountWire;
-} & (
-  | { phase: "starting"; started: Promise<LoginStartOutcome> }
-  | {
-      phase: "started";
-      client: AccountClient;
-      loginId?: string;
-      authUrl: string;
-      userCode?: string;
-    }
-);
+  state: LoginState;
+};
 
 export class ProviderAccountManager {
   private active = new Map<string, Active>();
@@ -538,7 +554,7 @@ export class ProviderAccountManager {
         const cached = this.statusCache.get(this.cacheKey(userId, target));
         const wire =
           running?.userId === userId
-            ? running.wire
+            ? this.activeWire(running)
             : running
               ? this.queuedWire(running)
               : cached && Date.now() - cached.checkedAt < ACCOUNT_STATUS_TTL_MS
@@ -548,16 +564,9 @@ export class ProviderAccountManager {
           (value) => value.provider === provider && value.scope === scope,
         );
         if (!wire && !refreshed) return null;
+        // The holder's running sign-in wins over a read that began before it.
         accounts.push(
-          refreshed
-            ? {
-                ...refreshed,
-                loginStatus:
-                  running?.userId === userId
-                    ? running.wire.loginStatus
-                    : refreshed.loginStatus,
-              }
-            : wire!,
+          running?.userId === userId || !refreshed ? wire! : refreshed,
         );
       }
     }
@@ -577,9 +586,38 @@ export class ProviderAccountManager {
     };
   }
 
+  // The holder's wire of a running sign-in, built from its phase.
+  private activeWire(active: Active): ProviderAccountWire {
+    const { target, state } = active;
+    const wire: ProviderAccountWire = {
+      provider: target.provider,
+      scope: target.scope,
+      accountStatus: "not_connected",
+      loginStatus: "waiting_external",
+      shared: target.shared,
+      canBrowserLogin: true,
+      externalCli: target.externalCli,
+      explicitDirectory: target.explicitDirectory,
+    };
+    if (state.phase === "ended") return { ...wire, ...state.outcome };
+    wire.login =
+      state.phase === "waiting"
+        ? {
+            phase: "waiting",
+            authUrl: state.authUrl,
+            ...(state.userCode ? { userCode: state.userCode } : {}),
+          }
+        : { phase: state.phase };
+    return wire;
+  }
+
+  // Another member's view of a running sign-in: the holder's wire without
+  // its login, so the link and the code never leave the holder. The derived
+  // loginStatus stays, so the viewer still sees it wait.
   private queuedWire(active: Active): ProviderAccountWire {
+    const { login: _login, ...wire } = this.activeWire(active);
     return {
-      ...active.wire,
+      ...wire,
       loginQueue: {
         holderName: active.holderName,
         startedAt: active.startedAt,
@@ -645,7 +683,7 @@ export class ProviderAccountManager {
     if (running && running.userId !== userId) return this.queuedWire(running);
     // No read starts a second Claude or Codex process on a directory whose
     // login is running.
-    if (running) return running.wire;
+    if (running) return this.activeWire(running);
     const cacheKey = this.cacheKey(userId, target);
     const cacheGeneration = refresh
       ? (this.cacheGenerations.get(cacheKey) ?? 0) + 1
@@ -799,14 +837,20 @@ export class ProviderAccountManager {
         },
       };
     // A second start by the same member shares the first one's outcome.
-    if (existing?.phase === "starting") return existing.started;
+    if (existing?.state.phase === "starting") return existing.state.started;
     if (existing)
       return {
         ok: true,
         value: {
-          account: (await this.withApiKeySource(userId, [existing.wire]))[0],
-          authUrl: existing.authUrl,
-          userCode: existing.userCode,
+          account: (
+            await this.withApiKeySource(userId, [this.activeWire(existing)])
+          )[0],
+          ...(existing.state.phase === "ended"
+            ? {}
+            : {
+                authUrl: existing.state.authUrl,
+                userCode: existing.state.userCode,
+              }),
         },
       };
     // Hold the directory before any await, so no probe and no second login
@@ -819,20 +863,12 @@ export class ProviderAccountManager {
       startedAt: Date.now(),
       target,
       cacheKey: this.cacheKey(userId, target),
-      wire: {
-        provider,
-        scope,
-        accountStatus: "not_connected",
-        loginStatus: "waiting_external",
-        shared: target.shared,
-        canBrowserLogin: true,
-        externalCli: target.externalCli,
-        explicitDirectory: target.explicitDirectory,
+      state: {
+        phase: "starting",
+        started: new Promise((resolvePromise) => {
+          settle = resolvePromise;
+        }),
       },
-      phase: "starting",
-      started: new Promise((resolvePromise) => {
-        settle = resolvePromise;
-      }),
     };
     this.setActive(target.key, reservation);
     const outcome = await this.runLogin(reservation, method);
@@ -841,7 +877,7 @@ export class ProviderAccountManager {
   }
 
   private async runLogin(
-    reservation: Active & { phase: "starting" },
+    reservation: Active,
     method: "browser" | "device",
   ): Promise<LoginStartOutcome> {
     const { target } = reservation;
@@ -871,18 +907,20 @@ export class ProviderAccountManager {
         await client.close();
         return cancelled();
       }
+      const userCode = "userCode" in start ? start.userCode : undefined;
       const active: Active = {
         userId: reservation.userId,
         holderName: reservation.holderName,
         startedAt: reservation.startedAt,
         target,
         cacheKey: reservation.cacheKey,
-        wire: reservation.wire,
-        phase: "started",
-        client,
-        loginId: "loginId" in start ? start.loginId : undefined,
-        authUrl: start.authUrl,
-        userCode: "userCode" in start ? start.userCode : undefined,
+        state: {
+          phase: "waiting",
+          client,
+          loginId: "loginId" in start ? start.loginId : undefined,
+          authUrl: start.authUrl,
+          userCode,
+        },
       };
       this.setActive(key, active);
       this.emit(active.userId, await this.list(active.userId));
@@ -891,10 +929,12 @@ export class ProviderAccountManager {
         ok: true,
         value: {
           account: (
-            await this.withApiKeySource(active.userId, [active.wire])
+            await this.withApiKeySource(active.userId, [
+              this.activeWire(active),
+            ])
           )[0],
           authUrl: start.authUrl,
-          userCode: active.userCode,
+          userCode,
         },
       };
     } catch (err) {
@@ -926,33 +966,49 @@ export class ProviderAccountManager {
         "no_login_in_progress",
         "No sign-in is in progress.",
       );
-    if (active.phase === "starting")
+    const { state } = active;
+    if (state.phase === "starting")
       return this.failure(
         409,
         "no_login_in_progress",
         "No sign-in is in progress.",
       );
     try {
-      await (active.client as ClaudeAccountClient).submitCode(code);
-      return { ok: true, value: { submitted: true } };
+      await (state.client as ClaudeAccountClient).submitCode(code);
     } catch (err) {
       return this.failure(502, "provider_error", err);
     }
+    // Claude has the code. The sign-in may have ended meanwhile: only the
+    // same one, still waiting, moves on.
+    if (
+      this.active.get(target.key) === active &&
+      active.state.phase === "waiting"
+    ) {
+      active.state = { ...active.state, phase: "verifying" };
+      this.touchLogin(target.key);
+      this.emit(userId, await this.list(userId));
+    }
+    return { ok: true, value: { submitted: true } };
   }
 
   private async finish(key: string): Promise<void> {
     const active = this.active.get(key);
-    if (active?.phase !== "started") return;
+    if (active?.state.phase !== "waiting") return;
+    const { client } = active.state;
     try {
-      const done = await this.withLoginDeadline(
-        active.client.waitForCompletion(),
-      );
+      const done = await this.withLoginDeadline(client.waitForCompletion());
       if (this.active.get(key) !== active) return;
+      if (active.state.phase === "waiting") {
+        active.state = { ...active.state, phase: "verifying" };
+        this.touchLogin(key);
+        this.emit(active.userId, await this.list(active.userId));
+        if (this.active.get(key) !== active) return;
+      }
       let account;
       if (active.target.provider === "claude") {
         // accountInfo() belongs to the query initialization snapshot. Verify
         // the provider-owned credential by opening a fresh query after OAuth.
-        await active.client.close();
+        await client.close();
         const verifier = this.createClaude(active.target.env);
         try {
           await verifier.start();
@@ -961,7 +1017,7 @@ export class ProviderAccountManager {
           await verifier.close();
         }
       } else {
-        await active.client.close();
+        await client.close();
         const verifier = this.createCodex(active.target.env);
         try {
           await verifier.start();
@@ -975,17 +1031,20 @@ export class ProviderAccountManager {
       const providerSucceeded =
         active.target.provider === "claude" ||
         Boolean((done as { success?: boolean }).success);
-      active.wire = {
-        ...active.wire,
-        accountStatus: account.connected ? "connected" : "not_connected",
-        accountLabel: account.label,
-        loginStatus:
-          providerSucceeded && account.connected ? "succeeded" : "failed",
-        error:
-          providerSucceeded && account.connected
-            ? undefined
-            : ((done as { error?: string | null }).error ??
-              `${active.target.provider === "codex" ? "Codex" : "Claude"} did not report a connected account.`),
+      active.state = {
+        client,
+        phase: "ended",
+        outcome: {
+          accountStatus: account.connected ? "connected" : "not_connected",
+          accountLabel: account.label,
+          loginStatus:
+            providerSucceeded && account.connected ? "succeeded" : "failed",
+          error:
+            providerSucceeded && account.connected
+              ? undefined
+              : ((done as { error?: string | null }).error ??
+                `${active.target.provider === "codex" ? "Codex" : "Claude"} did not report a connected account.`),
+        },
       };
       this.touchLogin(key);
       if (
@@ -998,7 +1057,7 @@ export class ProviderAccountManager {
       }
       this.statusCache.set(active.cacheKey, {
         checkedAt: Date.now(),
-        wire: active.wire,
+        wire: this.activeWire(active),
       });
       // The office may now be a different account: drop the cap's reading.
       if (active.target.scope === "office")
@@ -1016,20 +1075,26 @@ export class ProviderAccountManager {
       this.emit(active.userId, await this.list(active.userId));
     } catch (err) {
       if (this.active.get(key) === active) {
-        active.wire = {
-          ...active.wire,
-          loginStatus: "interrupted",
-          error:
-            err instanceof Error
-              ? err.message
-              : "Sign-in was interrupted. Start again.",
+        const { accountStatus, accountLabel } = this.activeWire(active);
+        active.state = {
+          client,
+          phase: "ended",
+          outcome: {
+            accountStatus,
+            accountLabel,
+            loginStatus: "interrupted",
+            error:
+              err instanceof Error
+                ? err.message
+                : "Sign-in was interrupted. Start again.",
+          },
         };
         this.touchLogin(key);
         this.emit(active.userId, await this.list(active.userId));
       }
     } finally {
       if (this.active.get(key) === active) this.setActive(key, null);
-      await active.client.close();
+      await client.close();
     }
   }
 
@@ -1064,17 +1129,18 @@ export class ProviderAccountManager {
       if (active.userId !== userId)
         this.emit(active.userId, await this.list(active.userId));
     };
-    if (active.phase === "starting") {
+    const { state } = active;
+    if (state.phase === "starting") {
       // The start sees its reservation gone and closes its own client. The
       // list may probe the directory, so it waits until that client is closed.
-      void active.started.then(publish).catch(() => {});
+      void state.started.then(publish).catch(() => {});
       return true;
     }
-    if (provider === "codex" && active.loginId)
-      await (active.client as CodexAccountClient)
-        .cancel(active.loginId)
+    if (provider === "codex" && state.loginId)
+      await (state.client as CodexAccountClient)
+        .cancel(state.loginId)
         .catch(() => {});
-    await active.client.close();
+    await state.client.close();
     await publish();
     return true;
   }
@@ -1166,14 +1232,15 @@ export class ProviderAccountManager {
     for (const [key, active] of [...this.active])
       if (active.userId === userId && active.target.scope === "personal") {
         this.setActive(key, null);
-        if (active.phase === "starting") continue;
-        if (active.target.provider === "codex" && active.loginId)
+        const { state } = active;
+        if (state.phase === "starting") continue;
+        if (active.target.provider === "codex" && state.loginId)
           closing.push(
             this.bounded(
-              (active.client as CodexAccountClient).cancel(active.loginId),
+              (state.client as CodexAccountClient).cancel(state.loginId),
             ),
           );
-        closing.push(this.bounded(active.client.close()));
+        closing.push(this.bounded(state.client.close()));
       }
     await Promise.all(closing);
     providers.forEach((provider, i) => {

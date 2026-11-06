@@ -8,8 +8,20 @@ const { createElement } = await import("react");
 const { ProviderSignInCard } = await import("./ProviderSignInCard.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { StoreProvider, useAppState } = await import("../store.tsx");
+const { setShim, shimEmit } = await import("../ws.ts");
+const { useProviderAccounts } =
+  await import("../integrations/ProvidersSection.tsx");
 const t = translatorFor("en").t;
-afterAll(() => setApiShim(null));
+// No server: the store's connect() fires no message; pushes go by shimEmit.
+setShim(
+  () => {},
+  () => {},
+);
+afterAll(() => {
+  setApiShim(null);
+  setShim(null);
+});
 
 it("keeps browser sign-in available when the account check is unavailable", () => {
   const view = render(
@@ -121,7 +133,11 @@ it("composes a provider-aware queue explanation from structured 409 data", async
   expect(alert.textContent).not.toContain("Codex");
 });
 
-it("clears local waiting controls when a confirmed server slot disappears", async () => {
+// The card draws a sign-in from the account it is given, which the store
+// holds (task da3fcc0b): the login answer and the server's push both land
+// there, so the chat card, whose parent passes the store and nothing else,
+// follows the server like the Integrations page.
+function stubWindowOpen(): () => void {
   const originalOpen = window.open;
   window.open = () =>
     ({
@@ -129,98 +145,223 @@ it("clears local waiting controls when a confirmed server slot disappears", asyn
       location: { href: "" },
       opener: null,
     }) as unknown as Window;
-  try {
-    const idle = {
-      provider: "claude" as const,
-      scope: "office" as const,
-      accountStatus: "not_connected" as const,
-      loginStatus: "idle" as const,
-      canBrowserLogin: true,
-    };
-    const waiting = { ...idle, loginStatus: "waiting_external" as const };
-    const refreshed = [waiting];
-    setApiShim(async (_method, path) => {
-      if (path.endsWith("/login"))
-        return { account: waiting, authUrl: "https://example.test/login" };
-      if (path.endsWith("/refresh")) return { accounts: refreshed };
-      throw new Error(`unexpected ${path}`);
-    });
-    const card = (account: typeof idle | typeof waiting) =>
-      createElement(ProviderSignInCard, {
-        provider: "claude",
-        scopes: ["office"],
-        canChangeOffice: true,
-        accounts: [account],
-      });
-    const view = render(card(idle));
-    await act(async () => {
-      fireEvent.click(
-        view.container.querySelector("[data-start-provider-login]")!,
-      );
-    });
-    expect(
-      view.container.querySelector("[data-own-login-controls]"),
-    ).not.toBeNull();
-
-    await act(async () => view.rerender(card(waiting)));
-    await act(async () => view.rerender(card(idle)));
-    expect(
-      view.container.querySelectorAll("[data-own-login-controls]").length,
-    ).toBe(0);
-  } finally {
+  return () => {
     window.open = originalOpen;
-  }
-});
+  };
+}
 
-it("keeps local waiting controls when the server never confirms the slot", async () => {
-  const originalOpen = window.open;
-  window.open = () =>
-    ({
-      close() {},
-      location: { href: "" },
-      opener: null,
-    }) as unknown as Window;
+function renderInStore(
+  props: Omit<Parameters<typeof ProviderSignInCard>[0], "accounts">,
+) {
+  function StoreParent() {
+    const { providerAccounts } = useAppState();
+    return createElement(ProviderSignInCard, {
+      ...props,
+      accounts: providerAccounts,
+    });
+  }
+  return render(
+    createElement(StoreProvider, { children: createElement(StoreParent) }),
+  );
+}
+
+const push = (accounts: ProviderAccountWire[]) =>
+  act(async () => {
+    shimEmit({ type: "provider_accounts_updated", accounts } as never);
+  });
+
+const claudeOffice: ProviderAccountWire = {
+  provider: "claude",
+  scope: "office",
+  accountStatus: "not_connected",
+  loginStatus: "idle",
+  canBrowserLogin: true,
+};
+const claudeWaiting: ProviderAccountWire = {
+  ...claudeOffice,
+  loginStatus: "waiting_external",
+  login: { phase: "waiting", authUrl: "https://example.test/login" },
+};
+
+it("shows the code field from the login answer alone, and drops it when the server ends the sign-in", async () => {
+  const restoreOpen = stubWindowOpen();
   try {
-    const idle = {
-      provider: "claude" as const,
-      scope: "office" as const,
-      accountStatus: "not_connected" as const,
-      loginStatus: "idle" as const,
-      canBrowserLogin: true,
-    };
-    const interrupted = {
-      ...idle,
-      loginStatus: "interrupted" as const,
-    };
     setApiShim(async (_method, path) => {
       if (path.endsWith("/login"))
         return {
-          account: { ...idle, loginStatus: "waiting_external" as const },
+          account: claudeWaiting,
           authUrl: "https://example.test/login",
         };
-      if (path.endsWith("/refresh")) return { accounts: [idle] };
       throw new Error(`unexpected ${path}`);
     });
-    const card = (account: typeof idle | typeof interrupted) =>
-      createElement(ProviderSignInCard, {
-        provider: "claude",
-        scopes: ["office"],
-        canChangeOffice: true,
-        accounts: [account],
-      });
-    const view = render(card(interrupted));
+    const view = renderInStore({
+      provider: "claude",
+      scopes: ["office"],
+      canChangeOffice: true,
+    });
+    await push([claudeOffice]);
     await act(async () => {
       fireEvent.click(
         view.container.querySelector("[data-start-provider-login]")!,
       );
     });
-    await act(async () => view.rerender(card(idle)));
+    // No push yet: the answer alone draws the waiting sign-in.
+    expect(view.queryByRole("textbox")).not.toBeNull();
+    expect(
+      view.queryByRole("button", { name: t("settings.signIn.copyLink") }),
+    ).not.toBeNull();
+
+    // Another tab cancelled it, or it timed out: the server says idle.
+    await push([claudeOffice]);
     expect(
       view.container.querySelector("[data-own-login-controls]"),
+    ).toBeNull();
+    expect(view.queryByRole("textbox")).toBeNull();
+    expect(
+      view.container.querySelector("[data-start-provider-login]"),
     ).not.toBeNull();
   } finally {
-    window.open = originalOpen;
+    restoreOpen();
   }
+});
+
+it("keeps the typed code across a push while Claude waits for it, and stops asking once Claude has it", async () => {
+  const view = renderInStore({
+    provider: "claude",
+    scopes: ["office"],
+    canChangeOffice: true,
+  });
+  await push([claudeWaiting]);
+  await act(async () => {
+    fireEvent.change(view.getByRole("textbox"), {
+      target: { value: "code#state" },
+    });
+  });
+  // A refresh or another member's change pushes the same sign-in again.
+  await push([{ ...claudeWaiting }]);
+  expect((view.getByRole("textbox") as HTMLInputElement).value).toBe(
+    "code#state",
+  );
+
+  // The code went in from another tab, or this page loaded after it did.
+  await push([{ ...claudeWaiting, login: { phase: "verifying" } }]);
+  expect(view.queryByRole("textbox")).toBeNull();
+  expect(
+    view.queryByRole("button", { name: t("settings.signIn.submitCode") }),
+  ).toBeNull();
+  expect(
+    view.queryByRole("button", { name: t("settings.signIn.cancelSignIn") }),
+  ).not.toBeNull();
+  expect(
+    view.container
+      .querySelector("[data-provider-account-state]")
+      ?.getAttribute("data-provider-account-state"),
+  ).toBe("waiting");
+});
+
+// The push and an HTTP answer travel apart: an answer computed before the
+// sign-in ended can land after the push that ended it. Only the push moves
+// the card, so the late answer cannot take it back to "verifying".
+it("stays connected when an answer older than the success push lands after it", async () => {
+  const stale: Array<() => void> = [];
+  const verifying = {
+    ...claudeWaiting,
+    login: { phase: "verifying" as const },
+  };
+  setApiShim(async (_method, path) => {
+    if (path.endsWith("/callback")) return { submitted: true };
+    if (path.endsWith("/refresh"))
+      return new Promise((resolveRefresh) => {
+        stale.push(() => resolveRefresh({ accounts: [verifying] }));
+      });
+    throw new Error(`unexpected ${path}`);
+  });
+  const view = renderInStore({
+    provider: "claude",
+    scopes: ["office"],
+    canChangeOffice: true,
+    onStartNewConversation: async () => {},
+  });
+  await push([claudeWaiting]);
+  await act(async () => {
+    fireEvent.change(view.getByRole("textbox"), {
+      target: { value: "code#state" },
+    });
+  });
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: t("settings.signIn.submitCode") }),
+    );
+  });
+  await push([verifying]);
+  await push([
+    {
+      ...claudeOffice,
+      accountStatus: "connected",
+      loginStatus: "succeeded",
+      accountLabel: "owner@example.test",
+    },
+  ]);
+  await act(async () => {
+    for (const answer of stale) answer();
+  });
+  expect(
+    view.container
+      .querySelector("[data-provider-account-state]")
+      ?.getAttribute("data-provider-account-state"),
+  ).toBe("connected");
+  expect(view.queryByRole("alert")).toBeNull();
+  expect(view.container.querySelector("[data-own-login-controls]")).toBeNull();
+  expect(
+    view.queryByRole("button", {
+      name: t("settings.signIn.startConversation"),
+    }),
+  ).not.toBeNull();
+});
+
+// The Integrations page's Refresh: the route pushes its answer, and the
+// answer itself can be older than a push that overtook it.
+it("does not let a Refresh answer older than a push replace it in the store", async () => {
+  let answer!: () => void;
+  setApiShim(async (_method, path) => {
+    if (path.endsWith("/refresh"))
+      return new Promise((resolveRefresh) => {
+        answer = () => resolveRefresh({ accounts: [claudeWaiting] });
+      });
+    if (path === "/api/me/provider-accounts")
+      return { accounts: [claudeWaiting] };
+    throw new Error(`unexpected ${path}`);
+  });
+  let refresh!: () => void;
+  function Page() {
+    const accounts = useProviderAccounts(true);
+    refresh = accounts.refresh;
+    return createElement(ProviderSignInCard, {
+      provider: "claude",
+      scopes: ["office"],
+      canChangeOffice: true,
+      accounts: accounts.accounts,
+      loaded: accounts.loaded,
+    });
+  }
+  const view = render(
+    createElement(StoreProvider, { children: createElement(Page) }),
+  );
+  await act(async () => {});
+  await act(async () => refresh());
+  const connected: ProviderAccountWire = {
+    ...claudeOffice,
+    accountStatus: "connected",
+    loginStatus: "succeeded",
+    accountLabel: "owner@example.test",
+  };
+  await push([connected]);
+  await act(async () => answer());
+  expect(
+    view.container
+      .querySelector("[data-provider-account-state]")
+      ?.getAttribute("data-provider-account-state"),
+  ).toBe("connected");
 });
 
 for (const late of [false, true]) {
@@ -242,6 +383,10 @@ for (const late of [false, true]) {
       accountStatus: "not_connected" as const,
       loginStatus: "waiting_external" as const,
       canBrowserLogin: true,
+      login: {
+        phase: "waiting" as const,
+        authUrl: "https://example.test/login",
+      },
     };
     const card = (overrides: object = {}) =>
       createElement(ProviderSignInCard, {
@@ -273,6 +418,7 @@ for (const late of [false, true]) {
           accountStatus: "connected",
           loginStatus: "succeeded",
           accountLabel: "person@example.test",
+          login: undefined,
         }),
       );
     });
@@ -293,6 +439,22 @@ for (const late of [false, true]) {
         name: t("settings.signIn.startConversation"),
       }),
     ).not.toBeNull();
+    // Signed out from another tab: the old rejection must have been
+    // cleared, not merely hidden by Connected.
+    await act(async () => {
+      view.rerender(card({ loginStatus: "idle", login: undefined }));
+    });
+    expect(view.queryByText(rejection)).toBeNull();
+    await act(async () => {
+      view.rerender(
+        card({
+          accountStatus: "connected",
+          loginStatus: "succeeded",
+          accountLabel: "person@example.test",
+          login: undefined,
+        }),
+      );
+    });
     // A new operational failure must still be visible while connected.
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: t("common.signOut") }));
@@ -303,9 +465,9 @@ for (const late of [false, true]) {
       );
     });
     expect(view.getByRole("alert").textContent).toBe("Sign-out failed");
-    // The old rejection must have been cleared, not merely hidden by Connected.
+    // Nor does it come back after this card's own sign-out.
     await act(async () => {
-      view.rerender(card({ loginStatus: "idle" }));
+      view.rerender(card({ loginStatus: "idle", login: undefined }));
     });
     expect(view.queryByText(rejection)).toBeNull();
   });
@@ -390,7 +552,13 @@ it("does not say signing in while a cancel the push already ended still runs", a
       canChangeOffice: true,
       accounts: [account as typeof idle],
     });
-  const view = render(card({ ...idle, loginStatus: "waiting_external" }));
+  const view = render(
+    card({
+      ...idle,
+      loginStatus: "waiting_external",
+      login: { phase: "waiting", authUrl: "https://example.test/login" },
+    }),
+  );
   await act(async () => {
     fireEvent.click(
       view.getByRole("button", { name: t("settings.signIn.cancelSignIn") }),
@@ -751,36 +919,11 @@ it("says where Codex agents get OPENAI_API_KEY, next to each scope's sign-in", (
   expect(new Set(texts).size).toBe(sources.length);
 });
 
-// Once Claude has a code, the card waits for the provider without asking for
-// the code again; a refused code keeps the field for another paste. A code
-// that reaches no sign-in (it ended on the server and the push was lost)
-// leaves the form, so its error never sits next to a code field (task
-// 457a18a6).
+// A refused code keeps the field for another paste. A code that reaches no
+// sign-in (it ended on the server) leaves the form, so its error never sits
+// next to a code field (task 457a18a6). The card that took the code stops
+// asking for it on the server's verifying phase (the test above).
 {
-  const { useState } = await import("react");
-  const idle: ProviderAccountWire = {
-    provider: "claude",
-    scope: "office",
-    accountStatus: "not_connected",
-    loginStatus: "idle",
-    canBrowserLogin: true,
-  };
-  const waiting: ProviderAccountWire = {
-    ...idle,
-    loginStatus: "waiting_external",
-  };
-  // The parent keeps what the card's refresh hands it, as ProvidersSection
-  // does.
-  function Parent({ initial }: { initial: ProviderAccountWire }) {
-    const [accounts, setAccounts] = useState<ProviderAccountWire[]>([initial]);
-    return createElement(ProviderSignInCard, {
-      provider: "claude",
-      scopes: ["office"],
-      canChangeOffice: true,
-      accounts,
-      onAccounts: setAccounts,
-    });
-  }
   const form = (view: ReturnType<typeof render>) => ({
     field: view.queryAllByRole("textbox").length,
     submit: view.queryAllByRole("button", {
@@ -806,61 +949,58 @@ it("says where Codex agents get OPENAI_API_KEY, next to each scope's sign-in", (
     });
   }
 
-  for (const accepted of [true, false]) {
-    it(`${accepted ? "drops" : "keeps"} the code field once Claude ${accepted ? "took" : "refused"} the code`, async () => {
-      setApiShim(async (_method, path) => {
-        if (path.endsWith("/callback")) {
-          if (accepted) return { submitted: true };
-          throw new ApiError(502, "provider_error", "Refused");
-        }
-        // The provider has not finished: the wire still waits.
-        if (path.endsWith("/refresh")) return { accounts: [waiting] };
-        throw new Error(`unexpected ${path}`);
-      });
-      const view = render(createElement(Parent, { initial: waiting }));
-      expect(form(view)).toEqual({
-        field: 1,
-        submit: 1,
-        cancel: 1,
-        state: "waiting",
-      });
-      await submit(view);
-      expect(form(view)).toEqual(
-        accepted
-          ? { field: 0, submit: 0, cancel: 1, state: "waiting" }
-          : { field: 1, submit: 1, cancel: 1, state: "waiting" },
-      );
+  it("keeps the code field once Claude refused the code", async () => {
+    setApiShim(async (_method, path) => {
+      if (path.endsWith("/callback"))
+        throw new ApiError(502, "provider_error", "Refused");
+      throw new Error(`unexpected ${path}`);
     });
-  }
+    const view = renderInStore({
+      provider: "claude",
+      scopes: ["office"],
+      canChangeOffice: true,
+    });
+    await push([claudeWaiting]);
+    await submit(view);
+    expect(view.getByRole("alert").textContent).toBe("Refused");
+    expect(form(view)).toEqual({
+      field: 1,
+      submit: 1,
+      cancel: 1,
+      state: "waiting",
+    });
+  });
 
   for (const started of ["by the push", "on this card"] as const) {
     it(`leaves the form when a code reaches no sign-in started ${started}`, async () => {
-      const originalOpen = window.open;
-      window.open = () =>
-        ({
-          close() {},
-          location: { href: "" },
-          opener: null,
-        }) as unknown as Window;
+      const restoreOpen = stubWindowOpen();
       try {
+        let refuse!: () => void;
         setApiShim(async (_method, path) => {
           if (path.endsWith("/login"))
-            return { account: waiting, authUrl: "https://example.test/login" };
+            return {
+              account: claudeWaiting,
+              authUrl: "https://example.test/login",
+            };
           if (path.endsWith("/callback"))
-            throw new ApiError(
-              409,
-              "no_login_in_progress",
-              "No sign-in is in progress.",
-            );
-          // On this card, the wire never confirms the sign-in.
-          if (path.endsWith("/refresh")) return { accounts: [idle] };
+            return new Promise((_resolve, reject) => {
+              refuse = () =>
+                reject(
+                  new ApiError(
+                    409,
+                    "no_login_in_progress",
+                    "No sign-in is in progress.",
+                  ),
+                );
+            });
           throw new Error(`unexpected ${path}`);
         });
-        const view = render(
-          createElement(Parent, {
-            initial: started === "by the push" ? waiting : idle,
-          }),
-        );
+        const view = renderInStore({
+          provider: "claude",
+          scopes: ["office"],
+          canChangeOffice: true,
+        });
+        await push([started === "by the push" ? claudeWaiting : claudeOffice]);
         if (started === "on this card")
           await act(async () => {
             fireEvent.click(
@@ -871,23 +1011,28 @@ it("says where Codex agents get OPENAI_API_KEY, next to each scope's sign-in", (
           field: 1,
           submit: 1,
           cancel: 1,
-          state: started === "by the push" ? "waiting" : "not_connected",
+          state: "waiting",
         });
         await submit(view);
-        expect(view.getByRole("alert").textContent).toBe(
-          "No sign-in is in progress.",
-        );
+        // The sign-in ended on the server (a timeout, another tab) while
+        // the code was on its way.
+        await push([claudeOffice]);
         expect(form(view)).toEqual({
           field: 0,
           submit: 0,
           cancel: 0,
           state: "not_connected",
         });
+        await act(async () => refuse());
+        expect(view.getByRole("alert").textContent).toBe(
+          "No sign-in is in progress.",
+        );
+        expect(form(view).field).toBe(0);
         expect(
           view.container.querySelector("[data-start-provider-login]"),
         ).not.toBeNull();
       } finally {
-        window.open = originalOpen;
+        restoreOpen();
       }
     });
   }
@@ -909,6 +1054,7 @@ it("says a refused code's reason once when the push carries it too", async () =>
     accountStatus: "not_connected",
     loginStatus: "waiting_external",
     canBrowserLogin: true,
+    login: { phase: "waiting", authUrl: "https://example.test/login" },
   };
   const card = (overrides: Partial<ProviderAccountWire> = {}) =>
     createElement(ProviderSignInCard, {
@@ -929,70 +1075,61 @@ it("says a refused code's reason once when the push carries it too", async () =>
     );
   });
   await act(async () => {
-    view.rerender(card({ loginStatus: "interrupted", error: reason }));
+    view.rerender(
+      card({ loginStatus: "interrupted", error: reason, login: undefined }),
+    );
   });
   expect(view.getAllByRole("alert").map((alert) => alert.textContent)).toEqual([
     reason,
   ]);
 });
 
-// The sign-in link and the device code belong to one sign-in: once the
-// server says it ended, the card stops offering them (task 457a18a6).
+// The sign-in link and the device code belong to one sign-in, and they ride
+// on its wire: a card mounted while it waits (another tab, a reload) offers
+// them, and once the server says it ended the card stops offering them
+// (tasks 457a18a6, da3fcc0b).
 for (const provider of ["claude", "codex"] as const) {
-  it(`drops the ${provider === "claude" ? "sign-in link" : "device code"} once the sign-in ends`, async () => {
-    const originalOpen = window.open;
-    window.open = () =>
-      ({
-        close() {},
-        location: { href: "" },
-        opener: null,
-      }) as unknown as Window;
-    try {
-      const waiting: ProviderAccountWire = {
+  it(`offers the ${provider === "claude" ? "sign-in link" : "device code"} of a waiting sign-in from its wire, and drops it once the sign-in ends`, async () => {
+    const waiting: ProviderAccountWire = {
+      provider,
+      scope: "office",
+      accountStatus: "not_connected",
+      loginStatus: "waiting_external",
+      canBrowserLogin: true,
+      login: {
+        phase: "waiting",
+        authUrl: "https://example.test/login",
+        userCode: provider === "codex" ? "ABCD-1234" : undefined,
+      },
+    };
+    const card = (account: ProviderAccountWire) =>
+      createElement(ProviderSignInCard, {
         provider,
-        scope: "office",
-        accountStatus: "not_connected",
-        loginStatus: "waiting_external",
-        canBrowserLogin: true,
-      };
-      setApiShim(async (_method, path) => {
-        if (path.endsWith("/login"))
-          return {
-            account: waiting,
-            authUrl: "https://example.test/login",
-            userCode: provider === "codex" ? "ABCD-1234" : undefined,
-          };
-        if (path.endsWith("/refresh")) return { accounts: [waiting] };
-        throw new Error(`unexpected ${path}`);
+        scopes: ["office"],
+        canChangeOffice: true,
+        accounts: [account],
       });
-      const card = (loginStatus: ProviderAccountWire["loginStatus"]) =>
-        createElement(ProviderSignInCard, {
-          provider,
-          scopes: ["office"],
-          canChangeOffice: true,
-          accounts: [{ ...waiting, loginStatus }],
-        });
-      const offered = (view: ReturnType<typeof render>) =>
-        provider === "claude"
-          ? view.queryAllByRole("button", {
-              name: t("settings.signIn.copyLink"),
-            }).length
-          : view.queryAllByText("ABCD-1234").length;
-      const view = render(card("idle"));
-      await act(async () => {
-        fireEvent.click(
-          view.container.querySelector("[data-start-provider-login]")!,
-        );
-      });
-      await act(async () => view.rerender(card("waiting_external")));
-      expect(offered(view)).toBe(1);
-      await act(async () => view.rerender(card("interrupted")));
-      expect(
-        view.container.querySelector("[data-start-provider-login]"),
-      ).not.toBeNull();
-      expect(offered(view)).toBe(0);
-    } finally {
-      window.open = originalOpen;
-    }
+    const offered = (view: ReturnType<typeof render>) =>
+      provider === "claude"
+        ? view.queryAllByRole("button", {
+            name: t("settings.signIn.copyLink"),
+          }).length
+        : view.queryAllByText("ABCD-1234").length;
+    const view = render(card(waiting));
+    expect(offered(view)).toBe(1);
+    await act(async () =>
+      view.rerender(
+        card({
+          ...waiting,
+          loginStatus: "interrupted",
+          login: undefined,
+          error: "Sign-in timed out. Start again.",
+        }),
+      ),
+    );
+    expect(
+      view.container.querySelector("[data-start-provider-login]"),
+    ).not.toBeNull();
+    expect(offered(view)).toBe(0);
   });
 }

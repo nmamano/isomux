@@ -9,6 +9,7 @@ import {
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
+import type { ProviderLoginWire } from "../shared/types.ts";
 import { ClaudeAccountClient } from "./backends/claude/account.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 import { writeManagedUserEnv, removeManagedUserEnv } from "./user-env.ts";
@@ -1680,6 +1681,8 @@ describe("a refresh that overlaps a sign-in step", () => {
 
   function fixture() {
     const emitted: Accounts[] = [];
+    // Every push with the member it went to.
+    const pushes: Array<{ userId: string; accounts: Accounts }> = [];
     let gate: Promise<void> | null = null;
     let codexHeld = 0;
     let signedIn = false;
@@ -1687,8 +1690,13 @@ describe("a refresh that overlaps a sign-in step", () => {
     const flow = new Promise<void>((resolveFlow) => {
       complete = resolveFlow;
     });
+    // Set: the next submitCode waits for its release.
+    let submitGate: Promise<void> | null = null;
     const manager = new ProviderAccountManager(
-      (_userId, accounts) => emitted.push(accounts),
+      (userId, accounts) => {
+        pushes.push({ userId, accounts });
+        if (userId === "owner") emitted.push(accounts);
+      },
       (() => ({
         start: () => {
           if (!gate) return Promise.resolve();
@@ -1705,7 +1713,7 @@ describe("a refresh that overlaps a sign-in step", () => {
       (() => ({
         start: async () => {},
         login: async () => ({ authUrl: "https://claude.com/oauth/" }),
-        submitCode: async () => {},
+        submitCode: () => submitGate ?? Promise.resolve(),
         waitForCompletion: () => flow,
         read: async () =>
           signedIn
@@ -1716,7 +1724,7 @@ describe("a refresh that overlaps a sign-in step", () => {
       () => ({ CLAUDE_CONFIG_DIR: "/tmp/t-457a18a6-office-claude" }),
       () => ({}),
       () => ({}),
-      () => [{ id: "owner" }],
+      () => [{ id: "owner" }, { id: "member", name: "Member" }],
       personalHome,
       personalHome,
       () => false,
@@ -1728,7 +1736,19 @@ describe("a refresh that overlaps a sign-in step", () => {
     return {
       manager,
       emitted,
+      pushes,
       codexHeld: () => codexHeld,
+      // Holds the next submitCode in the provider until the release.
+      holdSubmit() {
+        let release!: () => void;
+        submitGate = new Promise<void>((resolveGate) => {
+          release = resolveGate;
+        });
+        return () => {
+          submitGate = null;
+          release();
+        };
+      },
       // Holds every Codex probe that starts from now until the release.
       holdCodex() {
         let release!: () => void;
@@ -1820,6 +1840,131 @@ describe("a refresh that overlaps a sign-in step", () => {
     expect(refresh.state.settled).toBe(false);
     release();
     expect(claudeOffice(await refresh.accounts)?.loginStatus).toBe("idle");
+  });
+
+  // The sign-in phase rides on the holder's own wire (task da3fcc0b): the
+  // card draws its controls from it, so every read the card can get - the
+  // push, the start's answer, a forced or cached list - carries the same
+  // phase, and nobody else's wire carries the link.
+  it("carries the holder's sign-in phase on every read, and never on another member's wire", async () => {
+    const f = fixture();
+    const started = await f.manager.startLogin(
+      "owner",
+      "claude",
+      "office",
+      "browser",
+    );
+    const waiting: ProviderLoginWire = {
+      phase: "waiting",
+      authUrl: "https://claude.com/oauth/",
+    };
+    expect(started.ok && started.value.account.login).toEqual(waiting);
+    expect(claudeOffice(f.emitted.at(-1))?.login).toEqual(waiting);
+    expect(claudeOffice(await f.manager.list("owner", true))?.login).toEqual(
+      waiting,
+    );
+    const fresh = await f.manager.list("owner");
+    expect(claudeOffice(fresh)?.login).toEqual(waiting);
+    // The snapshot the agent manager publishes after a selected read.
+    expect(
+      claudeOffice(
+        (await f.manager.cachedList(
+          "owner",
+          fresh.map((account) => ({ ...account, login: undefined })),
+        )) ?? undefined,
+      )?.login,
+    ).toEqual(waiting);
+
+    const queued = claudeOffice(await f.manager.list("member"));
+    expect(queued?.loginQueue?.holderName).toBe("owner");
+    expect(queued?.loginStatus).toBe("waiting_external");
+    expect(queued?.login).toBeUndefined();
+    expect(JSON.stringify(queued)).not.toContain("oauth");
+    await f.manager.cancel("owner", "claude", "office");
+  });
+
+  it("moves the holder's wire to verifying when Claude takes the code, and ends it on the account", async () => {
+    const f = fixture();
+    await f.manager.startLogin("owner", "claude", "office", "browser");
+    const pushed = f.emitted.length;
+    expect(
+      (await f.manager.submitCode("owner", "claude", "office", "code#state"))
+        .ok,
+    ).toBe(true);
+    // The card that sent the code reads the phase from this push.
+    expect(f.emitted.length).toBeGreaterThan(pushed);
+    expect(claudeOffice(f.emitted.at(-1))).toMatchObject({
+      loginStatus: "waiting_external",
+      login: { phase: "verifying" },
+    });
+    expect(claudeOffice(await f.manager.list("owner"))?.login).toEqual({
+      phase: "verifying",
+    });
+
+    f.complete();
+    await until(
+      () => claudeOffice(f.emitted.at(-1))?.accountStatus === "connected",
+    );
+    expect(claudeOffice(f.emitted.at(-1))).toMatchObject({
+      loginStatus: "succeeded",
+      accountLabel: "owner@example.com",
+    });
+    expect(claudeOffice(f.emitted.at(-1))?.login).toBeUndefined();
+    // The cached status after the sign-in left the directory.
+    const after = claudeOffice(await f.manager.list("owner"));
+    expect(after?.accountStatus).toBe("connected");
+    expect(after?.login).toBeUndefined();
+  });
+
+  it("does not reopen a sign-in that ended while Claude still held the code", async () => {
+    const f = fixture();
+    await f.manager.startLogin("owner", "claude", "office", "browser");
+    const release = f.holdSubmit();
+    const submitted = f.manager.submitCode(
+      "owner",
+      "claude",
+      "office",
+      "code#state",
+    );
+    f.complete();
+    await until(
+      () => claudeOffice(f.emitted.at(-1))?.accountStatus === "connected",
+    );
+    release();
+    expect((await submitted).ok).toBe(true);
+    await tick();
+    for (const accounts of [
+      f.emitted.at(-1),
+      await f.manager.list("owner"),
+      await f.manager.list("owner", true),
+    ]) {
+      expect(claudeOffice(accounts)?.accountStatus).toBe("connected");
+      expect(claudeOffice(accounts)?.login).toBeUndefined();
+    }
+  });
+
+  it("returns the phase Claude reached during the refresh, not the one before it", async () => {
+    const f = fixture();
+    await f.manager.startLogin("owner", "claude", "office", "browser");
+    const release = f.holdCodex();
+    const refresh = refreshOf(f.manager);
+    await until(() => f.codexHeld() === 1);
+    try {
+      expect(
+        (await f.manager.submitCode("owner", "claude", "office", "code#state"))
+          .ok,
+      ).toBe(true);
+      expect(claudeOffice(f.emitted.at(-1))?.login?.phase).toBe("verifying");
+      // The overlap under test: the phase moved before the refresh returned.
+      expect(refresh.state.settled).toBe(false);
+      release();
+      expect(claudeOffice(await refresh.accounts)?.login).toEqual({
+        phase: "verifying",
+      });
+    } finally {
+      release();
+      await f.manager.cancel("owner", "claude", "office");
+    }
   });
 });
 

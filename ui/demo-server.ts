@@ -85,6 +85,10 @@ import type {
   TaskItem,
   WebhookDelivery,
   WebhookWire,
+  ProviderAccountProvider,
+  ProviderAccountScope,
+  ProviderAccountWire,
+  ProviderLoginWire,
 } from "../shared/types.ts";
 import {
   ASK_DISMISSED_TEXT,
@@ -2488,6 +2492,42 @@ function demoSkillRead(path: string): SkillFileRes {
   };
 }
 
+// The demo's provider sign-ins in progress, by provider and scope. Like the
+// server, each one rides on its account's wire and goes out in a push.
+const demoProviderLogins = new Map<string, ProviderLoginWire>();
+
+function demoProviderAccounts(): ProviderAccountWire[] {
+  const pairs = [
+    ["codex", "office"],
+    ["codex", "personal"],
+    ["claude", "office"],
+    ["claude", "personal"],
+  ] as const satisfies ReadonlyArray<
+    readonly [ProviderAccountProvider, ProviderAccountScope]
+  >;
+  return pairs.map(([provider, scope]) => {
+    const login = demoProviderLogins.get(`${provider}:${scope}`);
+    return {
+      provider,
+      scope,
+      accountStatus: "not_connected",
+      loginStatus: login ? "waiting_external" : "idle",
+      ...(login ? { login } : {}),
+      // The personal Claude home is never shared; the others are.
+      ...(provider === "claude" && scope === "personal"
+        ? {}
+        : { shared: scope === "office" }),
+      canBrowserLogin: true,
+    };
+  });
+}
+
+function pushDemoProviderAccounts(): { accounts: ProviderAccountWire[] } {
+  const accounts = demoProviderAccounts();
+  shimEmit({ type: "provider_accounts_updated", accounts });
+  return { accounts };
+}
+
 // Demo counterpart to the server's REST executor. As each command migrates off
 // the WS shim (handleCommand) to apiFetch, its demo handling moves here so the
 // landing demo keeps working - the demo's own WS-case -> REST-route strangle,
@@ -3188,107 +3228,61 @@ export async function demoApi(
       };
     }
     case "GET /api/me/provider-accounts":
-      return {
-        accounts: [
-          {
-            provider: "codex",
-            scope: "office",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            shared: true,
-            canBrowserLogin: true,
-          },
-          {
-            provider: "codex",
-            scope: "personal",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            shared: false,
-            canBrowserLogin: true,
-          },
-          {
-            provider: "claude",
-            scope: "office",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            shared: true,
-            canBrowserLogin: true,
-          },
-          {
-            provider: "claude",
-            scope: "personal",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            canBrowserLogin: true,
-          },
-        ],
-      };
+      return { accounts: demoProviderAccounts() };
     case "POST /api/me/provider-accounts/codex/login":
     case "POST /api/me/provider-accounts/claude/login": {
       const selectedProvider = route.includes("/claude/") ? "claude" : "codex";
       const selectedScope =
         (body as { scope?: "office" | "personal" } | undefined)?.scope ??
         "office";
+      const authUrl =
+        selectedProvider === "claude"
+          ? "https://claude.com/"
+          : "https://auth.openai.com/";
+      const userCode = selectedProvider === "codex" ? "ABCD-EFGH" : undefined;
+      demoProviderLogins.set(`${selectedProvider}:${selectedScope}`, {
+        phase: "waiting",
+        authUrl,
+        ...(userCode ? { userCode } : {}),
+      });
+      const { accounts } = pushDemoProviderAccounts();
       return {
-        account: {
-          provider: selectedProvider,
-          scope: selectedScope,
-          accountStatus: "not_connected",
-          loginStatus: "waiting_external",
-          shared: true,
-          canBrowserLogin: true,
-        },
-        authUrl:
-          selectedProvider === "claude"
-            ? "https://claude.com/"
-            : "https://auth.openai.com/",
-        userCode: selectedProvider === "codex" ? "ABCD-EFGH" : undefined,
+        account: accounts.find(
+          (account) =>
+            account.provider === selectedProvider &&
+            account.scope === selectedScope,
+        ),
+        authUrl,
+        userCode,
       };
     }
     case "POST /api/me/provider-accounts/codex/cancel":
-    case "POST /api/me/provider-accounts/claude/cancel":
+    case "POST /api/me/provider-accounts/claude/cancel": {
+      const selectedProvider = route.includes("/claude/") ? "claude" : "codex";
+      const selectedScope =
+        (body as { scope?: "office" | "personal" } | undefined)?.scope ??
+        "office";
+      demoProviderLogins.delete(`${selectedProvider}:${selectedScope}`);
+      pushDemoProviderAccounts();
       return { canceled: true };
+    }
     case "POST /api/me/provider-accounts/codex/disconnect":
     case "POST /api/me/provider-accounts/claude/disconnect":
-      return demoApi("GET", "/api/me/provider-accounts");
-    case "POST /api/me/provider-accounts/claude/callback":
+      return pushDemoProviderAccounts();
+    // The demo has no Claude to verify the code: the sign-in waits on.
+    case "POST /api/me/provider-accounts/claude/callback": {
+      const selectedScope =
+        (body as { scope?: "office" | "personal" } | undefined)?.scope ??
+        "office";
+      if (demoProviderLogins.has(`claude:${selectedScope}`))
+        demoProviderLogins.set(`claude:${selectedScope}`, {
+          phase: "verifying",
+        });
+      pushDemoProviderAccounts();
       return { submitted: true };
+    }
     case "POST /api/me/provider-accounts/refresh":
-      return {
-        accounts: [
-          {
-            provider: "codex",
-            scope: "office",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            shared: true,
-            canBrowserLogin: true,
-          },
-          {
-            provider: "codex",
-            scope: "personal",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            shared: false,
-            canBrowserLogin: true,
-          },
-          {
-            provider: "claude",
-            scope: "office",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            shared: true,
-            canBrowserLogin: true,
-          },
-          {
-            provider: "claude",
-            scope: "personal",
-            accountStatus: "not_connected",
-            loginStatus: "idle",
-            canBrowserLogin: true,
-          },
-        ],
-      };
+      return pushDemoProviderAccounts();
     case "POST /api/me/api-tokens": {
       const b = (body ?? {}) as ApiTokenCreateReq;
       const now = Date.now();

@@ -609,6 +609,9 @@ type Action =
   | { type: "user_admin_updated"; user: UserRecord; prevName?: string }
   | { type: "user_self_updated"; user: UserRecord; prevName?: string }
   | { type: "provider_accounts_updated"; accounts: ProviderAccountWire[] }
+  // CLIENT-LOCAL (not a ServerMessage): the sign-in card's login answer, the
+  // one account it carries (task da3fcc0b). The push brings the rest.
+  | { type: "provider_login_started"; account: ProviderAccountWire }
   // The member's own WhatsApp link (task d03a61d8), live and from a read.
   | { type: "whatsapp_status"; status: WhatsAppStatus }
   // The member's own Discord bots (task 7fd44c30), live and from a read.
@@ -1832,6 +1835,19 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case "provider_accounts_updated":
       return { ...state, providerAccounts: action.accounts };
+    case "provider_login_started": {
+      const { account } = action;
+      const same = (entry: ProviderAccountWire) =>
+        entry.provider === account.provider && entry.scope === account.scope;
+      return {
+        ...state,
+        providerAccounts: state.providerAccounts.some(same)
+          ? state.providerAccounts.map((entry) =>
+              same(entry) ? account : entry,
+            )
+          : [...state.providerAccounts, account],
+      };
+    }
     case "whatsapp_status":
       return { ...state, whatsappStatus: action.status };
     case "discord_status":

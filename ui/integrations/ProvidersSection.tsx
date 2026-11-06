@@ -13,10 +13,7 @@ import type {
   MemberProviderStatus,
   UserEnvNamesRes,
 } from "../../shared/contract-shapes.ts";
-import type {
-  ProviderAccountWire,
-  ProviderAccountsWire,
-} from "../../shared/types.ts";
+import type { ProviderAccountsWire } from "../../shared/types.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -59,10 +56,14 @@ export function useProviderAccounts(enabled: boolean) {
         : "/api/me/provider-accounts",
     )
       .then((result) => {
-        dispatch({
-          type: "provider_accounts_updated",
-          accounts: result.accounts,
-        });
+        // The refresh route pushes what it read, and its answer can be older
+        // than a push that overtook it: only the GET, which pushes nothing,
+        // fills the store.
+        if (!refresh)
+          dispatch({
+            type: "provider_accounts_updated",
+            accounts: result.accounts,
+          });
         if (alive.current) setState("loaded");
       })
       .catch((caught: unknown) => {
@@ -113,8 +114,6 @@ export function useProviderAccounts(enabled: boolean) {
     refreshes,
     error,
     refresh,
-    update: (next: ProviderAccountWire[]) =>
-      dispatch({ type: "provider_accounts_updated", accounts: next }),
   };
 }
 
@@ -154,7 +153,6 @@ export function ProvidersSection({
           loaded={accounts.loaded}
           canCancelSharedLogin={role === "owner"}
           canChangeOffice={role === "owner"}
-          onAccounts={accounts.update}
           scopes={scopes}
           onGoToOtherHalf={onGoToOtherCard}
           style={flatCard}

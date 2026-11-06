@@ -2645,6 +2645,13 @@ export type ProviderLoginStatus =
   | "failed"
   | "interrupted";
 
+// The holder's own sign-in while it holds the directory. Only on the
+// wire of the member who started it: the link and the code are theirs.
+export type ProviderLoginWire =
+  | { phase: "starting" }
+  | { phase: "waiting"; authUrl: string; userCode?: string }
+  | { phase: "verifying" };
+
 export interface ProviderLoginQueueWire {
   holderName: string;
   startedAt: number;
@@ -2665,6 +2672,7 @@ export interface ProviderAccountWire {
   scope: ProviderAccountScope;
   accountStatus: ProviderAccountStatus;
   loginStatus: ProviderLoginStatus;
+  login?: ProviderLoginWire;
   accountLabel?: string;
   // Codex only: the viewer's agents get OPENAI_API_KEY from here and use it,
   // as their CODEX_HOME holds no stored sign-in. Absent: no key, or a stored
