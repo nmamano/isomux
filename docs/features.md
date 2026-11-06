@@ -169,7 +169,6 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Agents and apps page you** when a person must act: a blocked process, a failure they cannot fix, a decision only you can make.
 - **Pages reach your Discord**, with an @mention so your phone rings. An open page repeats until someone acks or resolves it.
-- **Paged asks**: an agent can make an ask ring like a page. You answer it in the Inbox; Ack stops the alerts and keeps it open.
 - **Device notifications**: pages and agents' answers to your messages can also show as notifications on your phone or browser.
 
 ## Safety

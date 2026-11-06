@@ -5,6 +5,8 @@
 // does not place still stays last on both sides. The select's wiring and the
 // direction's storage have their own owners: the AsksView.*.dom tests and the
 // "asks sort direction" describe in ui/device-settings.test.ts.
+// The asks with no agent (an office or app page) are runs of their own, by
+// their source's name, in the same orders (task dcb409d4).
 //
 // Pure T0: no DOM, no server, no LLM.
 
@@ -19,8 +21,8 @@ import type {
 } from "../../shared/types.ts";
 
 type Group = ReturnType<typeof askGroups>[number];
-const idsOf = (gs: Group[]) => gs.map((g) => g.agent.id);
-const head = (g: Group) => g.agent.id;
+const head = (g: Group) => (g.agent === null ? `src:${g.source}` : g.agent.id);
+const idsOf = (gs: Group[]) => gs.map(head);
 const cardsOf = (g: Group) => g.entries.map((e) => e.id).join(",");
 const order = (gs: Group[]) => gs.map((g) => `${head(g)}:${cardsOf(g)}`);
 
@@ -211,4 +213,139 @@ it("age sort: the filters run first, so a hidden ask joins the runs on each side
     "a1:aOld,aNew",
   ]);
   expect(by({ ...all(), hiddenRooms: new Set(["r1"]) })).toEqual(["a2:bMid"]);
+});
+
+// The asks with no agent (task dcb409d4, Nil at sign-off: "confirm pages are
+// sorted first by priority"): one run per source name, the cards in the same
+// order as an agent's run. The priority and age sorts place them by their
+// key among the agents' runs; the agent and room sorts have no key for them
+// and keep them first, by name, on both sides.
+describe("askGroups with asks that have no agent (task dcb409d4)", () => {
+  const paged = (
+    id: string,
+    source: { office: string } | { app: string },
+    ageMin: number,
+    priority?: TaskPriority,
+  ): AskMemberWire => ({
+    ...theAsk(id, "", ageMin, priority),
+    ...("office" in source
+      ? {
+          office: { feature: source.office.toLowerCase(), name: source.office },
+        }
+      : { app: { name: source.app, createdAt: AGE(500) } }),
+  });
+  // Discord's dc and Pathfinder's a3p1 share a level and a birth, so the
+  // source-before-agent tie and the ask-id tie both meet. An ask of an agent
+  // the client does not have (`ghost`) stays out in every sort.
+  const PAGED: AskMemberWire[] = [
+    theAsk("a1p0", "a1", 5, "P0"),
+    theAsk("a3p1", "a3", 30, "P1"),
+    paged("dc", { office: "Discord" }, 30, "P1"),
+    paged("wa1", { office: "WhatsApp" }, 25, "P1"),
+    paged("wa2", { office: "WhatsApp" }, 50, "P3"),
+    paged("wa3", { office: "WhatsApp" }, 45, "P1"),
+    paged("appNone", { app: "Deploys" }, 70),
+    theAsk("a2none", "a2", 60),
+    theAsk("ghost", "zz", 40, "P0"),
+  ];
+
+  it("priority sort: a page sits with the asks of its level, the source run before the agent run on a tie, no priority last", () => {
+    expect(sorted(PAGED, "priority", "asc")).toEqual([
+      "a1:a1p0",
+      "src:WhatsApp:wa3,wa1,wa2",
+      "src:Discord:dc",
+      "a3:a3p1",
+      "src:Deploys:appNone",
+      "a2:a2none",
+    ]);
+    // The level flips inside a source run too (WhatsApp's P3 heads it); the
+    // tie and the no-priority-last rule stay.
+    expect(sorted(PAGED, "priority", "desc")).toEqual([
+      "src:WhatsApp:wa2,wa3,wa1",
+      "src:Discord:dc",
+      "a3:a3p1",
+      "a1:a1p0",
+      "src:Deploys:appNone",
+      "a2:a2none",
+    ]);
+  });
+
+  it("age sort: pages join the one list by age, and a run ends where the source changes", () => {
+    expect(sorted(PAGED, "age", "asc")).toEqual([
+      "src:Deploys:appNone",
+      "a2:a2none",
+      "src:WhatsApp:wa2,wa3",
+      "a3:a3p1",
+      "src:Discord:dc",
+      "src:WhatsApp:wa1",
+      "a1:a1p0",
+    ]);
+    expect(sorted(PAGED, "age", "desc")).toEqual([
+      "a1:a1p0",
+      "src:WhatsApp:wa1",
+      "src:Discord:dc",
+      "a3:a3p1",
+      "src:WhatsApp:wa3,wa2",
+      "a2:a2none",
+      "src:Deploys:appNone",
+    ]);
+  });
+
+  it("agent and room sorts: the source runs first by name on both sides, their cards in the sort's card order", () => {
+    expect(sorted(PAGED, "agent", "asc")).toEqual([
+      "src:Deploys:appNone",
+      "src:Discord:dc",
+      "src:WhatsApp:wa2,wa3,wa1",
+      "a2:a2none",
+      "a3:a3p1",
+      "a1:a1p0",
+    ]);
+    // Under "agent" desc the cards of a source run are newest first, as an
+    // agent's are.
+    expect(sorted(PAGED, "agent", "desc")).toEqual([
+      "src:Deploys:appNone",
+      "src:Discord:dc",
+      "src:WhatsApp:wa1,wa3,wa2",
+      "a1:a1p0",
+      "a3:a3p1",
+      "a2:a2none",
+    ]);
+    expect(sorted(PAGED, "room", "asc")).toEqual([
+      "src:Deploys:appNone",
+      "src:Discord:dc",
+      "src:WhatsApp:wa2,wa3,wa1",
+      "a2:a2none",
+      "a3:a3p1",
+      "a1:a1p0",
+    ]);
+    expect(sorted(PAGED, "room", "desc")).toEqual([
+      "src:Deploys:appNone",
+      "src:Discord:dc",
+      "src:WhatsApp:wa2,wa3,wa1",
+      "a3:a3p1",
+      "a1:a1p0",
+      "a2:a2none",
+    ]);
+  });
+
+  it("only the priority filter hides a page: it has no room and no agent", () => {
+    const by = (filter: AskFilter) =>
+      order(askGroups(PAGED, AGENTS, ROOMS, filter, "priority", "asc"));
+    expect(
+      by({
+        ...all(),
+        hiddenRooms: new Set(["r1", "r2"]),
+        hiddenAgents: new Set(AGENTS.map((a) => a.id)),
+      }),
+    ).toEqual([
+      "src:WhatsApp:wa3,wa1,wa2",
+      "src:Discord:dc",
+      "src:Deploys:appNone",
+    ]);
+    expect(by({ ...all(), priorities: ["P1"] })).toEqual([
+      "src:WhatsApp:wa3,wa1",
+      "src:Discord:dc",
+      "a3:a3p1",
+    ]);
+  });
 });

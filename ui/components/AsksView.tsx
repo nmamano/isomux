@@ -66,10 +66,19 @@ import {
   type AskMemberWire,
 } from "../../shared/types.ts";
 
-interface AskGroup {
+// A run of the list: one agent's asks, or the asks with no agent from one
+// source (an office feature or an app), under the source's name.
+interface AgentRun {
   agent: AgentInfo;
   entries: AskMemberWire[];
 }
+export type AskGroup =
+  | AgentRun
+  | { agent: null; source: string; entries: AskMemberWire[] };
+// Two runs with the same key show one name: the age sort's runs split on it,
+// and a run after held cards joins the run before on it.
+const runKey = (run: AskGroup) =>
+  run.agent ? run.agent.id : `source:${run.source}`;
 
 // The filters: the rooms whose agents' asks are hidden (unchecked rooms that
 // the list still offers, so an agent in any other room always shows), the
@@ -155,19 +164,26 @@ const DIR_LABELS = {
 } as const satisfies Record<AsksSort, Record<AsksSortDir, string>>;
 
 /**
- * The open asks that the filters let through, as runs of one agent's asks in
- * page order. Under "agent", "room" and "priority" each agent has one run, and
- * one comparator orders the cards in a run and the runs by their first card,
- * then by agent id: oldest first; or the room's place in `rooms`, then oldest;
- * or the priority, no priority last, then oldest. Under "age" all the asks are
- * one list, oldest first, then by ask id, and a run ends where the agent
- * changes, so an agent can head more than one run. "desc" reverses the main
- * key only: the age under "agent" and "age" (the ask-id tie too), the room's
- * place, or the priority level. Inside a room or a level the cards stay oldest
- * first, and what the key does not place (a room not in `rooms`, no priority)
- * stays last. Only agents in the agents
- * slice get a run, so an ask whose agent the client does not have stays out,
- * as `visibleAsks` leaves it out of the count.
+ * The open asks that the filters let through, as runs in page order: one
+ * agent's asks, or the asks with no agent from one source (an office feature
+ * or an app, task 74e8fc07), under the source's name. Under "agent", "room"
+ * and "priority" each agent and each source has one run, and one comparator
+ * orders the cards in a run: oldest first; or the room's place in `rooms`,
+ * then oldest; or the priority, no priority last, then oldest. Under
+ * "priority" the same comparator orders the runs by their first card, then a
+ * source's run before an agent's, then by source name or agent id, so a page
+ * sits with the asks of its level (task dcb409d4). Under "agent" and "room",
+ * which cannot place a source, the source runs come first, by name, then the
+ * agents' runs by their first card, then by agent id. Under "age" all the
+ * asks are one list, oldest first, then by ask id, and a run ends where the
+ * agent or the source changes, so either can head more than one run. "desc"
+ * reverses the main key only: the age under "agent" and "age" (the ask-id tie
+ * too), the room's place, or the priority level. Inside a room or a level the
+ * cards stay oldest first, and what the key does not place (a room not in
+ * `rooms`, no priority) stays last. The asks with no agent pass only the
+ * priority filter, having no room and no agent. Of the others, only agents in
+ * the agents slice get a run, so an ask whose agent the client does not have
+ * stays out, as `visibleAsks` leaves it out of the count.
  */
 export function askGroups(
   asks: readonly AskMemberWire[],
@@ -186,13 +202,13 @@ export function askGroups(
   // `unplacedB`) last either way.
   const keyed = (diff: number, unplacedA: boolean, unplacedB: boolean) =>
     unplacedA !== unplacedB ? (unplacedA ? 1 : -1) : flip * diff;
-  const mainKey = (
-    a: { entry: AskMemberWire; agent: AgentInfo },
-    b: { entry: AskMemberWire; agent: AgentInfo },
-  ) => {
+  // A card with its run's room (none for a source: "room" never compares a
+  // source's card with an agent's).
+  type Card = { entry: AskMemberWire; roomId: string };
+  const mainKey = (a: Card, b: Card) => {
     if (sort === "room") {
-      const pa = roomPlace(a.agent.roomId);
-      const pb = roomPlace(b.agent.roomId);
+      const pa = roomPlace(a.roomId);
+      const pb = roomPlace(b.roomId);
       return keyed(pa - pb, pa === rooms.length, pb === rooms.length);
     }
     if (sort === "priority")
@@ -205,25 +221,36 @@ export function askGroups(
   };
   // Under "agent" the age is the main key; under "room" and "priority" it
   // orders the cards inside a room or a level, oldest first.
-  const compare = (
-    a: { entry: AskMemberWire; agent: AgentInfo },
-    b: { entry: AskMemberWire; agent: AgentInfo },
-  ) =>
+  const compare = (a: Card, b: Card) =>
     mainKey(a, b) ||
     (sort === "agent" ? flip : 1) * (a.entry.createdAt - b.entry.createdAt);
-  const groups: AskGroup[] = [];
+  const inOrder = (entries: AskMemberWire[], roomId: string) =>
+    entries.sort((a, b) => compare({ entry: a, roomId }, { entry: b, roomId }));
+  const bySource = new Map<string, AskMemberWire[]>();
+  for (const entry of asks) {
+    if (entry.agentId !== "" || !passesPriority(filter, entry)) continue;
+    const name = entry.office?.name ?? entry.app?.name ?? "";
+    bySource.set(name, [...(bySource.get(name) ?? []), entry]);
+  }
+  const sources: AskGroup[] = [...bySource]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([source, entries]) => ({
+      agent: null,
+      source,
+      entries: inOrder(entries, ""),
+    }));
+  const groups: AgentRun[] = [];
   for (const agent of agents) {
     if (!passesRoom(filter, agent) || !passesAgent(filter, agent)) continue;
-    const entries = asksFor(asks, agent.id)
-      .filter((e) => passesPriority(filter, e))
-      .sort((a, b) => compare({ entry: a, agent }, { entry: b, agent }));
+    const entries = inOrder(
+      asksFor(asks, agent.id).filter((e) => passesPriority(filter, e)),
+      agent.roomId,
+    );
     if (entries.length > 0) groups.push({ agent, entries });
   }
   if (sort === "age") {
-    const flat = groups
-      .flatMap(({ agent, entries }) =>
-        entries.map((entry) => ({ agent, entry })),
-      )
+    const flat = [...sources, ...groups]
+      .flatMap((run) => run.entries.map((entry) => ({ run, entry })))
       .sort(
         (a, b) =>
           flip *
@@ -231,44 +258,24 @@ export function askGroups(
             (a.entry.id < b.entry.id ? -1 : 1)),
       );
     const runs: AskGroup[] = [];
-    for (const { agent, entry } of flat) {
+    for (const { run, entry } of flat) {
       const last = runs[runs.length - 1];
-      if (last?.agent.id === agent.id) last.entries.push(entry);
-      else runs.push({ agent, entries: [entry] });
+      if (last && runKey(last) === runKey(run)) last.entries.push(entry);
+      else runs.push({ ...run, entries: [entry] });
     }
     return runs;
   }
-  return groups.sort(
-    (a, b) =>
-      compare(
-        { entry: a.entries[0], agent: a.agent },
-        { entry: b.entries[0], agent: b.agent },
-      ) || (a.agent.id < b.agent.id ? -1 : 1),
+  const first = (run: AskGroup): Card => ({
+    entry: run.entries[0],
+    roomId: run.agent?.roomId ?? "",
+  });
+  const agentRuns = groups.sort(
+    (a, b) => compare(first(a), first(b)) || (a.agent.id < b.agent.id ? -1 : 1),
   );
-}
-
-/**
- * The open asks with no agent (task 74e8fc07), pages from the office or an
- * app, by their source's name, before the agents' runs. Only the priority
- * filter applies: they have no room and no agent. Oldest first in a group,
- * the groups by name.
- */
-export function sourceGroups(
-  asks: readonly AskMemberWire[],
-  filter: AskFilter,
-): { name: string; entries: AskMemberWire[] }[] {
-  const byName = new Map<string, AskMemberWire[]>();
-  for (const entry of asks) {
-    if (entry.agentId !== "" || !passesPriority(filter, entry)) continue;
-    const name = entry.office?.name ?? entry.app?.name ?? "";
-    byName.set(name, [...(byName.get(name) ?? []), entry]);
-  }
-  return [...byName]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, entries]) => ({
-      name,
-      entries: entries.sort((a, b) => a.createdAt - b.createdAt),
-    }));
+  if (sort !== "priority") return [...sources, ...agentRuns];
+  // Stable: on a tie of the first cards the sources, already by name, stay
+  // before the agents' runs, already by id.
+  return [...sources, ...agentRuns].sort((a, b) => compare(first(a), first(b)));
 }
 
 // How long an answer waits before it is sent, so the member can undo it.
@@ -480,7 +487,6 @@ export function AsksView({
     () => askGroups(listed, agents, filterRooms, filter, sort, dir),
     [listed, agents, filterRooms, filter, sort, dir],
   );
-  const sources = useMemo(() => sourceGroups(listed, filter), [listed, filter]);
   const counts = useMemo(
     () => filterCounts(open, agents, filter),
     [open, agents, filter],
@@ -567,15 +573,15 @@ export function AsksView({
   // their name shows once, as it will when the held cards go.
   const held = (id: string) => answeredAsks.get(id) === "undo";
   const shownRuns: { first: boolean; joined: boolean }[] = [];
-  // The asks with no agent come first: then no agent's run is the first.
-  let lastShown: string | null = sources.length > 0 ? "" : null;
-  for (const { agent, entries } of groups) {
-    const shows = entries.some((e) => !held(e.id));
+  let lastShown: string | null = null;
+  for (const run of groups) {
+    const key = runKey(run);
+    const shows = run.entries.some((e) => !held(e.id));
     shownRuns.push({
       first: shows && lastShown === null,
-      joined: !shows || lastShown === agent.id,
+      joined: !shows || lastShown === key,
     });
-    if (shows) lastShown = agent.id;
+    if (shows) lastShown = key;
   }
 
   return (
@@ -807,41 +813,14 @@ export function AsksView({
                 isMobile={isMobile}
               />
             ))}
-            {sources.flatMap(({ name, entries }, i) => [
-              <div
-                key={`source:${entries[0].id}`}
-                data-asks-source={name}
-                {...noTranslate()}
-                style={{
-                  margin: `${i === 0 ? 0 : isMobile ? 16 : 20}px 0 6px 2px`,
-                  color: "var(--text-primary)",
-                  fontFamily: "var(--font-ui)",
-                  fontSize: isMobile ? 15 : 14,
-                  fontWeight: 600,
-                }}
-              >
-                {name}
-              </div>,
-              ...entries.map((entry) => (
-                <AskCard
-                  key={entry.id}
-                  entry={entry}
-                  isMobile={isMobile}
-                  onFocusAgent={onFocusAgent}
-                  onChatAgent={onChatAgent}
-                  undoMs={ASK_UNDO_MS}
-                  promptLines={INBOX_PROMPT_LINES}
-                />
-              )),
-            ])}
-            {sources.length === 0 && groups.length === 0 && !anyOpen ? (
+            {groups.length === 0 && !anyOpen ? (
               // The pinned card is the one open ask: no "No open asks" under it.
               pinnedEntry ? null : (
                 <div data-asks-empty="" style={emptyStyle}>
                   {t("asks.empty")}
                 </div>
               )
-            ) : sources.length === 0 && groups.length === 0 ? (
+            ) : groups.length === 0 ? (
               <div data-asks-filtered-empty="" style={emptyStyle}>
                 <div>{t("asks.filteredEmpty")}</div>
                 <button
@@ -867,11 +846,26 @@ export function AsksView({
               // and a card's key is its ask id, so a card that moves to another
               // run, or whose run's first card leaves, is not remounted (a
               // remount would send its held answer at once).
-              groups.flatMap(({ agent, entries }, i) => [
-                shownRuns[i].joined ? null : (
+              groups.flatMap((run, i) => [
+                shownRuns[i].joined ? null : run.agent === null ? (
                   <div
-                    key={`group:${entries[0].id}`}
-                    data-asks-group={agent.id}
+                    key={`source:${run.entries[0].id}`}
+                    data-asks-source={run.source}
+                    {...noTranslate()}
+                    style={{
+                      margin: `${shownRuns[i].first ? 0 : isMobile ? 16 : 20}px 0 6px 2px`,
+                      color: "var(--text-primary)",
+                      fontFamily: "var(--font-ui)",
+                      fontSize: isMobile ? 15 : 14,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {run.source}
+                  </div>
+                ) : (
+                  <div
+                    key={`group:${run.entries[0].id}`}
+                    data-asks-group={run.agent.id}
                     style={{
                       display: "flex",
                       alignItems: "baseline",
@@ -883,8 +877,10 @@ export function AsksView({
                     <button
                       type="button"
                       {...noTranslate()}
-                      data-asks-agent={agent.id}
-                      onClick={() => (onChatAgent ?? onFocusAgent)(agent.id)}
+                      data-asks-agent={run.agent.id}
+                      onClick={() =>
+                        (onChatAgent ?? onFocusAgent)(run.agent.id)
+                      }
                       style={{
                         background: "none",
                         border: "none",
@@ -896,7 +892,7 @@ export function AsksView({
                         textAlign: "left",
                       }}
                     >
-                      {agent.name}
+                      {run.agent.name}
                     </button>
                     <span
                       {...noTranslate()}
@@ -905,11 +901,11 @@ export function AsksView({
                         fontSize: isMobile ? 12 : 11,
                       }}
                     >
-                      {roomNameById.get(agent.roomId) ?? ""}
+                      {roomNameById.get(run.agent.roomId) ?? ""}
                     </span>
                   </div>
                 ),
-                ...entries.map((entry) => (
+                ...run.entries.map((entry) => (
                   <AskCard
                     key={entry.id}
                     entry={entry}
