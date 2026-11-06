@@ -98,6 +98,15 @@ async function waitFor(
   return textOf(page, testid);
 }
 
+/** waitFor() swallows its timeout, so a page that did not load would surface
+ * as a missing element several lines later. Fail at the navigation instead. */
+async function openOffice(page: Page, name: string): Promise<void> {
+  const res = await page.goto(`${BASE}/office/${name}`);
+  if (!res?.ok()) {
+    throw new Error(`/office/${name} answered ${res?.status() ?? "nothing"}`);
+  }
+}
+
 async function collect(page: Page): Promise<string> {
   await page.click('[data-testid="invite-button"]');
   const shown = await waitFor(page, "invite-link");
@@ -267,7 +276,7 @@ async function main(): Promise<void> {
     await page.fill('[data-testid="dev-email"]', "local@example.com");
     await page.click('[data-testid="dev-submit"]');
     await page.waitForURL(`${BASE}/`, { timeout: 20_000 });
-    await page.goto(`${BASE}/office/${reserved.reservation.name}`);
+    await openOffice(page, reserved.reservation.name);
     await waitFor(page, "handoff");
     await waitFor(page, "revoke-button");
 
@@ -332,7 +341,7 @@ async function main(): Promise<void> {
     await adoptedPage.fill('[data-testid="dev-email"]', "adopted@example.com");
     await adoptedPage.click('[data-testid="dev-submit"]');
     await adoptedPage.waitForURL(`${BASE}/`, { timeout: 20_000 });
-    await adoptedPage.goto(`${BASE}/office/${adoptedInstanceId}`);
+    await openOffice(adoptedPage, adoptedReserved.reservation.name);
     await waitFor(adoptedPage, "revoke-button");
     check(
       "an adopted office can confirm without minting a new invite",
