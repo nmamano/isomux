@@ -226,7 +226,10 @@ export async function probeLiveness(
 
   let res: Response;
   try {
+    // The box answers this request, so a redirect would send our GET wherever
+    // its owner chose; any non-200, 3xx included, is the readyz rung.
     res = await fetchImpl(`https://${host}/readyz`, {
+      redirect: "manual",
       signal: AbortSignal.timeout(15_000),
     });
   } catch (err) {
@@ -241,6 +244,7 @@ export async function probeLiveness(
   }
 
   if (res.status !== 200) {
+    res.body?.cancel().catch(() => {});
     return {
       rung: "readyz",
       detail: `/readyz returned HTTP ${res.status}`,

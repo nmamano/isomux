@@ -47,6 +47,61 @@ describe("probeLiveness", () => {
     expect((await probeLiveness("x", notServing, OURS)).rung).toBe("readyz");
   });
 
+  // The customer controls what answers /readyz. Following its redirect would
+  // send our unauthenticated GET to any address it names, past the expectIpv4
+  // check, and report that address's status on the dashboard (task 94245200).
+  // Real servers and Bun's own fetch: only the URL is rewritten to loopback,
+  // so the redirect mode the probe passes is what decides.
+  test("a /readyz that redirects is the readyz rung, and the redirect target gets no request", async () => {
+    let internalHits = 0;
+    const internal = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        internalHits++;
+        return new Response("", { status: 200 });
+      },
+    });
+    let officeHits = 0;
+    const office = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        officeHits++;
+        return Response.redirect(
+          `http://127.0.0.1:${internal.port}/internal`,
+          302,
+        );
+      },
+    });
+    try {
+      const r = await probeLiveness(
+        "cp1.test.isomux.app",
+        {
+          lookup: () => Promise.resolve(OURS),
+          connect: () => Promise.resolve(),
+          fetchImpl: (url, init) =>
+            fetch(
+              url.replace(
+                "https://cp1.test.isomux.app",
+                `http://127.0.0.1:${office.port}`,
+              ),
+              init,
+            ),
+        },
+        OURS,
+      );
+      expect({ rung: r.rung, officeHits, internalHits }).toEqual({
+        rung: "readyz",
+        officeHits: 1,
+        internalHits: 0,
+      });
+    } finally {
+      await office.stop(true);
+      await internal.stop(true);
+    }
+  });
+
   // A locked office (task cdd7883d) serves /readyz 200 with a body that says
   // so: a state the dashboard shows, not a failure. The body is all that
   // tells it apart from "ok". The body is a wire value the office sends
