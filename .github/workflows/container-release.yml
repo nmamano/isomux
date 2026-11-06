@@ -34,7 +34,7 @@ jobs:
       REVISION: ${{ github.sha }}
       LOCAL_IMAGE: isomux:release-check
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
           persist-credentials: false
@@ -57,7 +57,7 @@ jobs:
         run: |
           if [[ $GITHUB_EVENT_NAME == release ]]; then identity=(--release "$RELEASE_TAG"); else identity=(--unreleased); fi
           python3 scripts/container/publish.py layout ${{ matrix.arch }} "$RUNNER_TEMP/layout" "${identity[@]}"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: layout-${{ matrix.arch }}
           path: ${{ runner.temp }}/layout
@@ -78,15 +78,15 @@ jobs:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
       REVISION: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/${{ github.event.release.tag_name }}
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: layout-amd64
           path: ${{ runner.temp }}/layout-amd64
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: layout-arm64
           path: ${{ runner.temp }}/layout-arm64
@@ -109,14 +109,14 @@ jobs:
     env:
       REVISION: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: layout-amd64
           path: ${{ runner.temp }}/layout-amd64
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: layout-arm64
           path: ${{ runner.temp }}/layout-arm64
