@@ -7,6 +7,8 @@ import type { ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { useInboxCounts, type InboxTab } from "../inbox.ts";
+import { CHAT_PANEL_RIGHT, CHAT_PANEL_WIDTH } from "../AppWidgetPage.tsx";
+import { INBOX_CHAT_PHONE_SHARE } from "./AgentChatPanel.tsx";
 
 const PANEL_ID = "inbox-panel";
 const tabId = (tab: InboxTab) => `inbox-tab-${tab}`;
@@ -38,16 +40,31 @@ export function InboxView({
   tab,
   onSelectTab,
   onClose,
+  chatOpen,
   children,
 }: {
   tab: InboxTab;
   onSelectTab: (tab: InboxTab) => void;
   onClose: () => void;
+  /** The chat panel (AgentChatPanel) is open over the Inbox. */
+  chatOpen: boolean;
   children: ReactNode;
 }) {
   const { isMobile } = useAppState();
   const { t } = useI18n();
   const counts = useInboxCounts();
+  // The open chat panel sits over the bottom right corner. The tab's content
+  // keeps clear of it: on a desktop the content ends left of the panel, with a
+  // 20px gap; on a phone it ends above the panel (its share of the height,
+  // above the larger of its two bottom insets, usePhonePanelBox and
+  // .agent-chat-panel), with an 8px gap.
+  const chatRoom = !chatOpen
+    ? undefined
+    : isMobile
+      ? {
+          paddingBottom: `calc(${INBOX_CHAT_PHONE_SHARE * 100}dvh + max(20px, env(safe-area-inset-bottom)) + 8px)`,
+        }
+      : { paddingRight: CHAT_PANEL_WIDTH + CHAT_PANEL_RIGHT + 20 };
   const tabs: { tab: InboxTab; label: string; count: number }[] = [
     { tab: "asks", label: t("asks.title"), count: counts.asks },
     { tab: "pager", label: t("inbox.tab.pages"), count: counts.pages },
@@ -162,6 +179,7 @@ export function InboxView({
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
+          ...chatRoom,
         }}
       >
         {children}

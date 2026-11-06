@@ -80,8 +80,13 @@ import { visibleArea } from "./visible-area.ts";
 // Office's Inbox (AgentChatPanel, task e3c25581): each injects these rules. The
 // button and link rules style the panel's own controls. They skip the chat
 // log, so the transcript looks as it does in the office.
+// The panel's width and its distance from the window's right edge on a
+// desktop. The Inbox keeps the asks clear of them (InboxView).
+export const CHAT_PANEL_WIDTH = 420;
+export const CHAT_PANEL_RIGHT = 20;
+
 export const CHAT_PANEL_CSS = `
-.app-widget-panel { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:420px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; color:var(--text-primary); font-family:var(--font-ui); text-align:left; }
+.app-widget-panel { position:fixed; right:${CHAT_PANEL_RIGHT}px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 76px); z-index:4; width:${CHAT_PANEL_WIDTH}px; max-width:calc(100vw - 24px); height:min(680px,78dvh); border:1px solid var(--border); border-radius:14px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; display:flex; flex-direction:column; overflow:hidden; color:var(--text-primary); font-family:var(--font-ui); text-align:left; }
 .app-widget-panel-phone { left:8px; right:8px; width:auto; max-width:none; height:min(80dvh,calc(100dvh - max(20px,env(safe-area-inset-bottom)) - 84px)); }
 .app-widget-panel button:where(:not(.app-widget-log *)),.app-widget-panel a:where(:not(.app-widget-log *)),.app-widget-panel select { font:inherit; }
 .app-widget-panel button:where(:not(.app-widget-log *)) { cursor:pointer; border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); }
@@ -181,7 +186,8 @@ function BackIcon() {
   );
 }
 
-// On a phone the open chat covers 80% of the page and ends above the dock.
+// On a phone the open chat covers `share` of the page (80% by default) and
+// ends above the dock.
 // The keyboard does not shrink dvh, so the box follows the visual viewport, as
 // the office chat does (LogView): with the keyboard up, the chat fills the
 // visible area, and clears the dock only when the dock is in it. Without
@@ -200,6 +206,7 @@ export function usePhonePanelBox(
   active: boolean,
   open: boolean,
   dock: RefObject<HTMLDivElement | null> | null,
+  share = 0.8,
 ): { top: number; height: number; inset: number } | null {
   const [box, setBox] = useState<{
     top: number;
@@ -226,7 +233,7 @@ export function usePhonePanelBox(
         layout - dockClear >= visibleTop &&
         dockEdge <= visibleBottom + 1;
       const bottom = dockShown ? layout - dockClear : visibleBottom - 8;
-      const top = Math.max(visibleTop + 8, bottom - 0.8 * layout);
+      const top = Math.max(visibleTop + 8, bottom - share * layout);
       setBox({
         top,
         height: Math.max(0, bottom - top),
@@ -242,7 +249,7 @@ export function usePhonePanelBox(
       vv.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
-  }, [active, open, dock]);
+  }, [active, open, dock, share]);
   return active ? box : null;
 }
 

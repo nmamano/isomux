@@ -21,11 +21,16 @@ import {
 import { CloseIcon } from "./install-icons.tsx";
 import { AgentOptions } from "./AgentOptions.tsx";
 
+// On a phone the panel takes this share of the window's height, so the asks
+// keep the rest (InboxView).
+export const INBOX_CHAT_PHONE_SHARE = 0.5;
+
 // The panel has no dock under it, as the app page has: it sits at the bottom.
 // In the header, "Open full chat" goes under the title, so the select has the
 // title's whole line for the agent's name, and Close stays in the corner.
 const PANEL_CSS = `
 .agent-chat-panel { bottom:max(20px,env(safe-area-inset-bottom)); }
+.agent-chat-panel.app-widget-panel-phone { height:${INBOX_CHAT_PHONE_SHARE * 100}dvh; }
 .agent-chat-panel .app-widget-header { display:grid; grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"avatar title close" "avatar links close"; column-gap:12px; row-gap:4px; }
 .agent-chat-panel .app-widget-header .app-widget-avatar { grid-area:avatar; }
 .agent-chat-panel .app-widget-header h1 { grid-area:title; display:flex; align-items:center; gap:6px; white-space:nowrap; }
@@ -52,7 +57,12 @@ export function AgentChatPanel({
   const agent = state.agents.find((item) => item.id === agentId);
   const agentLogs = state.logs.get(agentId);
   const logs = useMemo(() => chatVisibleEntries(agentLogs ?? []), [agentLogs]);
-  const phoneBox = usePhonePanelBox(state.isMobile, true, null);
+  const phoneBox = usePhonePanelBox(
+    state.isMobile,
+    true,
+    null,
+    INBOX_CHAT_PHONE_SHARE,
+  );
   // The choices, grouped by room (AgentOptions): the front-desk agents. A
   // back-room agent is a choice only while the panel is on it (its ask
   // opened the panel), after its room's front desks.

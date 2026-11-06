@@ -1195,6 +1195,7 @@ export function App({ routing = true }: { routing?: boolean }) {
                 tab={page}
                 onSelectTab={openInboxTab}
                 onClose={closePage}
+                chatOpen={inboxChat !== null}
               >
                 {page === "pager" ? (
                   <PagerView

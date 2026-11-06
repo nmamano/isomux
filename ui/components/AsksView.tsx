@@ -602,11 +602,12 @@ export function AsksView({
         }}
       >
         {/* On a phone the sort and its direction take their own line: a third
-            of the row clips a label. */}
+            of the row clips a label. A narrow row (a desktop Inbox beside its
+            chat panel) wraps too, so no control shrinks below its label. */}
         <div
           style={{
             display: "flex",
-            flexWrap: isMobile ? "wrap" : undefined,
+            flexWrap: "wrap",
             gap: 8,
             maxWidth: 760,
             margin: "0 auto",
