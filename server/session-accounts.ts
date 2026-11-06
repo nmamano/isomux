@@ -532,9 +532,9 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
 
   // A usage limit stopped the running turn. On the member's own sign-in,
   // with a fallback to go to, the member's entry starts and the turn's end
-  // queues the continue (limitStopFallback). On the office sign-in, the
-  // resume waits for the earlier of the two resets. Returns the reset time
-  // the turn's end arms the resume at, or null.
+  // queues the continue (turnFlags.limitStopFallback). On the office
+  // sign-in, the resume waits for the earlier of the two resets. Returns the
+  // reset time the turn's end arms the resume at, or null.
   function fallbackStop(
     managed: ManagedAgent,
     stop: { resetsAtMs?: number; family?: FallbackFamily },
@@ -554,7 +554,7 @@ export function createSessionAccounts(deps: SessionAccountsDeps) {
           ? { family: stop.family }
           : {}),
       });
-      managed.limitStopFallback = true;
+      managed.turnFlags.limitStopFallback = true;
       return today;
     }
     if (managed.officeFallback && sameAccount(live, pair.office)) {

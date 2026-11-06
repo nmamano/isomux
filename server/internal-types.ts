@@ -69,6 +69,35 @@ export interface ManualHandoffRequest {
   note?: string;
 }
 
+// Flags that belong to one turn. A turn can end with no turn_completed
+// (stream end or error, abort), so a flag that only the turn's end clears
+// would act on the next turn: beginTurn starts each turn with a fresh record.
+export interface TurnFlags {
+  // The backend said this turn needs sign-in (auth_needed), or the send was
+  // stopped as signed out. One sign-in card per turn, and the turn's end
+  // leaves the desk waiting instead of red.
+  authNeeded: boolean;
+  // The reset time a usage_limit_stop reported for this turn, read when it
+  // ends to arm the resume (server/limit-resume.ts).
+  limitStopResetsAtMs: number | null;
+  // A usage limit stopped this turn on the member's own sign-in and the
+  // agent falls back to the office sign-in: its end queues the continue
+  // instead of arming the resume (server/provider-fallback.ts).
+  limitStopFallback: boolean;
+  // This turn wrote the OpenCode free usage limit notice, which stands in
+  // for its error line.
+  freeLimitNotice: boolean;
+}
+
+export function freshTurnFlags(): TurnFlags {
+  return {
+    authNeeded: false,
+    limitStopResetsAtMs: null,
+    limitStopFallback: false,
+    freeLimitNotice: false,
+  };
+}
+
 export interface ManagedAgent {
   // Readonly to enforce that AgentInfo mutation goes through OfficeState
   // (officeState.updateAgent / setTopic / etc.). The shared-reference
@@ -254,10 +283,12 @@ export interface ManagedAgent {
   // The fresh session's one-shot notice; consumed by runAgentTurn on the
   // never-before-send rule, like wakeNotice.
   autoHandoffNotice: string | null;
-  // Resume after a usage limit (server/limit-resume.ts). The reset time a
-  // usage_limit_stop reported for the running turn, read when it ends; and the
-  // pending resume's fire time (persisted as agents.json limitResumeAt).
-  limitStopResetsAtMs: number | null;
+  // The running turn's flags (TurnFlags). beginTurn replaces the record, so
+  // nothing in it outlives its turn. Write through managed.turnFlags, never
+  // a local copy: a write to a replaced record is lost.
+  turnFlags: TurnFlags;
+  // Resume after a usage limit (server/limit-resume.ts): the pending
+  // resume's fire time (persisted as agents.json limitResumeAt).
   limitResumeAt: number | null;
   // The agents whose message reached this one, so it may reply to them under
   // the pack rule (server/identity/agent-fit.ts). Persisted as agents.json
@@ -267,13 +298,6 @@ export interface ManagedAgent {
   // pack may reply to it. Persisted as agents.json heardFromMembers; a kill
   // drops it.
   heardFromMembers?: Set<string>;
-  // A usage limit stopped the running turn on the member's own sign-in and
-  // the agent falls back to the office sign-in: its end queues the continue
-  // instead of arming the resume (server/provider-fallback.ts).
-  limitStopFallback?: boolean;
-  // The running turn wrote the OpenCode free usage limit notice, which
-  // stands in for its error line. Reset by beginTurn.
-  freeLimitNoticeThisTurn?: boolean;
   // When OpenCode last refused this agent with its free usage limit
   // (limitResumeClock ms): topic generation on an office free model waits
   // OPENCODE_FALLBACK_RETRY_MS after it. In memory only.
@@ -292,10 +316,6 @@ export interface ManagedAgent {
   // Recovery copy held until the first event proves whether this wake failed
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;
-  // The backend said this turn needs sign-in (auth_needed), or the send was
-  // stopped as signed out. One sign-in card per turn, and the turn's end
-  // leaves the desk waiting instead of red. Reset when a turn begins.
-  authNeededThisTurn: boolean;
   // Latest committed reading for the ACCOUNT this agent's backend is signed in
   // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,
   // Codex before any rate-limit payload, backend call failed). Deliberately

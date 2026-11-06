@@ -305,8 +305,8 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     agentId: string,
     managed: ManagedAgent | undefined,
   ): void {
-    if (managed?.authNeededThisTurn) return;
-    if (managed) managed.authNeededThisTurn = true;
+    if (managed?.turnFlags.authNeeded) return;
+    if (managed) managed.turnFlags.authNeeded = true;
     void (async () => {
       // Credentials that exist were rejected and get the connection check.
       // With none at all, Claude gets the same single notice as Codex.

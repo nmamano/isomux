@@ -233,6 +233,7 @@ import {
   SessionSwappedError,
   SwappedBeforeSendError,
   TurnSupersededError,
+  freshTurnFlags,
   inMultiStepFlow,
   pendingPromptOf,
   type ManagedAgent,
@@ -1056,7 +1057,7 @@ export function createAgentManager(deps: ManagerDeps) {
       managed.info.agentType === "claude"
         ? diagnoseProcessExit(managed.info.cwd, sessionId, envForHints(managed))
         : null,
-    authNeededThisTurn: (managed) => managed.authNeededThisTurn,
+    authNeededThisTurn: (managed) => managed.turnFlags.authNeeded,
     updateState,
     flushQueue,
     getConsumerDrainTimeoutMs: () => consumerDrainTimeoutMs,
@@ -2137,10 +2138,9 @@ export function createAgentManager(deps: ManagerDeps) {
     if (!managed) return;
     stopConnectorRereads(agentId);
     managed.lastActiveAt = Date.now();
-    managed.authNeededThisTurn = false;
-    // A usage limit stop belongs to the turn that reported it.
-    managed.limitStopResetsAtMs = null;
-    managed.freeLimitNoticeThisTurn = false;
+    // A turn's flags belong to it: one that ended with no turn_completed
+    // (a stream that died after a usage limit stop) leaves nothing behind.
+    managed.turnFlags = freshTurnFlags();
     const current = managed.info.turnMemberIds;
     if (
       current.length !== opts.memberIds.length ||
@@ -3319,7 +3319,7 @@ export function createAgentManager(deps: ManagerDeps) {
       case "auth_needed": {
         // The backend decided this turn needs sign-in (server/backends/
         // auth-signal.ts). The error or turn_completed that follows reads
-        // managed.authNeededThisTurn; emitDetectedAuthInstructions sets it.
+        // managed.turnFlags.authNeeded; emitDetectedAuthInstructions sets it.
         const managed = agents.get(agentId);
         if (managed) managed.pendingFreshRecoveryNotice = false;
         emitDetectedAuthInstructions(agentId, managed);
@@ -3447,14 +3447,14 @@ export function createAgentManager(deps: ManagerDeps) {
         // A usage limit stopped this turn: its notice is the turn's one line.
         // Read before the blocks below clear it. OpenCode writes no notice:
         // its refusal stays the turn's error line, except for the free usage
-        // limit notice (freeLimitNoticeThisTurn).
+        // limit notice (turnFlags.freeLimitNotice).
         const limitStopped =
-          (agents.get(agentId)?.limitStopResetsAtMs ?? null) !== null &&
-          agents.get(agentId)?.info.agentType !== "opencode";
+          (agents.get(agentId)?.turnFlags.limitStopResetsAtMs ?? null) !==
+            null && agents.get(agentId)?.info.agentType !== "opencode";
         // The turn continues on the office sign-in: the agent is not left in
         // error, so the continue's flush starts at the idle transition.
         const fallbackContinues =
-          agents.get(agentId)?.limitStopFallback === true;
+          agents.get(agentId)?.turnFlags.limitStopFallback === true;
         // Items delivered at this turn's tool boundaries leave the queue now,
         // before the idle transition below can start a flush that would send
         // them again. Only the installed session's claim drains (liveClaimed).
@@ -3466,26 +3466,29 @@ export function createAgentManager(deps: ManagerDeps) {
             // A usage limit stopped the brief turn: no handoff, and no
             // resume, which would ask the old session for the brief again as
             // a normal reply. The attempt stays open (runAutoHandoff).
-            if (m.limitStopResetsAtMs !== null || m.limitStopFallback) {
+            if (
+              m.turnFlags.limitStopResetsAtMs !== null ||
+              m.turnFlags.limitStopFallback
+            ) {
               m.autoHandoffCapture.limitStopped = true;
-              m.limitStopResetsAtMs = null;
-              m.limitStopFallback = false;
+              m.turnFlags.limitStopResetsAtMs = null;
+              m.turnFlags.limitStopFallback = false;
             }
           }
           // A usage limit stopped this turn on the member's own sign-in, and
           // the agent falls back: the continue is queued now, in place of
           // the resume, before the turn's deferred resolves below.
-          if (m?.limitStopFallback) {
-            m.limitStopFallback = false;
-            m.limitStopResetsAtMs = null;
+          if (m?.turnFlags.limitStopFallback) {
+            m.turnFlags.limitStopFallback = false;
+            m.turnFlags.limitStopResetsAtMs = null;
             queueFallbackContinue(agentId, m);
           }
           // A usage limit stopped this turn: arm the resume now, before the
           // turn's deferred resolves below and a queued message starts a
           // turn that drops it.
-          if (m && m.limitStopResetsAtMs !== null) {
-            const resetsAtMs = m.limitStopResetsAtMs;
-            m.limitStopResetsAtMs = null;
+          if (m && m.turnFlags.limitStopResetsAtMs !== null) {
+            const resetsAtMs = m.turnFlags.limitStopResetsAtMs;
+            m.turnFlags.limitStopResetsAtMs = null;
             armLimitResume(agentId, m, resetsAtMs);
           }
         }
@@ -3589,10 +3592,10 @@ export function createAgentManager(deps: ManagerDeps) {
             // The backend sent auth_needed earlier in this turn: the sign-in
             // card is already in the chat. A turn it ended with no words of
             // its own (Codex after its stderr 401) adds no error line.
-            const isAuthError = managed?.authNeededThisTurn === true;
+            const isAuthError = managed?.turnFlags.authNeeded === true;
             const silentAuthEnd = isAuthError && ev.error === undefined;
             // A usage-limit stop's notice already says why the turn ended.
-            const freeLimitNotice = managed?.freeLimitNoticeThisTurn === true;
+            const freeLimitNotice = managed?.turnFlags.freeLimitNotice === true;
             const silentEnd = silentAuthEnd || limitStopped || freeLimitNotice;
             const showFailure = () => {
               if (!silentEnd) {
@@ -3654,7 +3657,7 @@ export function createAgentManager(deps: ManagerDeps) {
         if (managed) {
           managed.freeModelResend = null;
           managed.freeModelRetryTurn = false;
-          managed.freeLimitNoticeThisTurn = false;
+          managed.turnFlags.freeLimitNotice = false;
         }
         // Resolve the per-turn deferred. Pre-refactor this lived in the consumer
         // and fired when the SDK's stream() returned at the result message.
@@ -3719,12 +3722,12 @@ export function createAgentManager(deps: ManagerDeps) {
           openCodeFreeLimit.record();
         }
         const resumeAt = fallbackStop(managed, ev);
-        if (resumeAt !== null) managed.limitStopResetsAtMs = resumeAt;
+        if (resumeAt !== null) managed.turnFlags.limitStopResetsAtMs = resumeAt;
         // OpenCode's free usage limit on an agent with no key: a notice in
         // place of the turn's error line, which says to switch models, and
         // on an office free model the sign-in cards for the agent's owner.
         if (ev.freeLimit?.keyless) {
-          managed.freeLimitNoticeThisTurn = true;
+          managed.turnFlags.freeLimitNotice = true;
           addLogEntry(
             agentId,
             "system",
@@ -3785,7 +3788,7 @@ export function createAgentManager(deps: ManagerDeps) {
       case "error": {
         const managed = agents.get(agentId);
         // auth_needed came first when this error is a sign-in failure.
-        const isAuthError = managed?.authNeededThisTurn === true;
+        const isAuthError = managed?.turnFlags.authNeeded === true;
         if (!isAuthError) flushPendingFreshRecoveryNotice(agentId, managed);
         // The backend's raw string ("Claude Code process exited
         // with code 143") goes to metadata; chat gets the explained version.
@@ -5312,11 +5315,10 @@ export function createAgentManager(deps: ManagerDeps) {
       autoHandoffCapture: null,
       autoHandoffOpened: false,
       autoHandoffNotice: null,
-      limitStopResetsAtMs: null,
+      turnFlags: freshTurnFlags(),
       limitResumeAt: null,
       officeFallback: false,
       pendingFreshRecoveryNotice: false,
-      authNeededThisTurn: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -8838,7 +8840,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // engine. Each attempt gets its own notice, as each send does.
     const signedOut = signedOutProvider(managed);
     if (signedOut) {
-      managed.authNeededThisTurn = false;
+      managed.turnFlags.authNeeded = false;
       surfaceBackendNotConfigured(
         agentId,
         managed,

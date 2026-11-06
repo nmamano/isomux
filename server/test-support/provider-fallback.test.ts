@@ -556,6 +556,39 @@ describe("a stop on the member's own sign-in, with the switch on", () => {
     );
     expect(lines(h, info.id, TO_OFFICE)).toHaveLength(1);
   });
+
+  // The stop belongs to its turn (task 5433c5e1): a turn whose stream fails
+  // after the stop ends with no turn_completed, and the next turn's end
+  // queues no continue.
+  it("a turn that fails after the stop: the next turn's end queues no continue", async () => {
+    const h = makeHarness();
+    const info = await spawn(h);
+    const reset = h.office.clock.now() + HOUR;
+    const s = await memberTurn(h, info.id, "work");
+    s.push({ kind: "usage_limit_stop", resetsAtMs: reset });
+    // The stop took the fallback: the member's entry started.
+    await waitUntil(
+      () => h.office.store.entry(aliceId(), "claude")?.until === reset,
+      "fallback entry",
+    );
+    s.failStream(new Error("stream died"));
+    await waitUntil(() => stateOf(h, info.id) !== "thinking", "turn ended");
+    await settle();
+    expect(continuesTo(h, info.id)).toBe(0);
+
+    const next = await memberTurn(h, info.id, "next");
+    expect(accountOf(next)).toBe(officeDir("claude"));
+    next.completeTurn({ text: "done" });
+    await waitUntil(
+      () =>
+        stateOf(h, info.id) === "waiting_for_response" ||
+        continuesTo(h, info.id) > 0,
+      "next turn ended",
+    );
+    await settle();
+    expect(continuesTo(h, info.id)).toBe(0);
+    expect(stateOf(h, info.id)).toBe("waiting_for_response");
+  });
 });
 
 // What happens today, with nothing to fall back to: the turn waits for the

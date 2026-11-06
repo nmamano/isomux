@@ -46,7 +46,11 @@ import {
 import type { createHandoffAndWake } from "./handoff-and-wake.ts";
 import { english } from "./i18n.ts";
 import { mintAgentToken } from "./identity/tokens.ts";
-import type { AgentEvent, ManagedAgent } from "./internal-types.ts";
+import {
+  freshTurnFlags,
+  type AgentEvent,
+  type ManagedAgent,
+} from "./internal-types.ts";
 import { errorText } from "./localized-error.ts";
 import type { mcpServersForUserId } from "./mcp-servers.ts";
 import type { createMessageQueue } from "./message-queue.ts";
@@ -435,7 +439,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       autoHandoffCapture: null,
       autoHandoffOpened: false,
       autoHandoffNotice: null,
-      limitStopResetsAtMs: null,
+      turnFlags: freshTurnFlags(),
       limitResumeAt: null,
       ...(p.heardFrom?.length ? { heardFrom: new Set(p.heardFrom) } : {}),
       ...(p.heardFromMembers?.length
@@ -443,7 +447,6 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
         : {}),
       officeFallback: p.officeFallback === true,
       pendingFreshRecoveryNotice: false,
-      authNeededThisTurn: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,

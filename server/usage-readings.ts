@@ -16,10 +16,11 @@ import type { OfficeState } from "../shared/office-state.ts";
 import { msg, type LogText } from "../shared/i18n/log-message.ts";
 import { getSessionClaudeConfigDir } from "./persistence.ts";
 import { autoHandoffPossible } from "./auto-handoff.ts";
-import type {
-  AgentEvent,
-  ContextUsageSnapshot,
-  ManagedAgent,
+import {
+  freshTurnFlags,
+  type AgentEvent,
+  type ContextUsageSnapshot,
+  type ManagedAgent,
 } from "./internal-types.ts";
 import type {
   BackendSession,
@@ -121,11 +122,12 @@ export function createUsageReadings(deps: UsageReadingsDeps) {
     managed.autoHandoffOpened = false;
     managed.autoHandoffNotice = null;
     // A resume after a usage limit continues the old conversation, so it
-    // goes with it, the edit-fork rollback included.
-    managed.limitStopResetsAtMs = null;
+    // goes with it, the edit-fork rollback included. So do the turn's flags.
+    // This also runs mid-turn, at a system_init with a new session id, which
+    // comes before any usage_limit_stop of that turn.
+    managed.turnFlags = freshTurnFlags();
     dropLimitResume(managed.info.id, managed);
     managed.pendingFreshRecoveryNotice = false;
-    managed.authNeededThisTurn = false;
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
