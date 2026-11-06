@@ -4,6 +4,7 @@
 // sends, and the user access, view and preferences changes that re-project a
 // user's sockets. Moved out of server/isomux-office.ts, which creates it once
 // at module load.
+import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import type { ServerWebSocket } from "bun";
 import type { PreferencesReq } from "../shared/contract-shapes.ts";
 import { formatApiTokenDevice, memberReplyDevice } from "../shared/identity.ts";
@@ -574,6 +575,7 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       clientMessageId?: string;
       ask?: AskRef;
       refusePromptAnswer?: boolean;
+      limits?: ApiTokenLimits;
     } = {},
   ): Promise<UserSendAcceptance> {
     return new Promise((resolve) => {

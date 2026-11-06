@@ -3403,6 +3403,7 @@ App 的一些原则：
   "systemEntries.editNoSession": "无法编辑：没有活动会话。",
   "systemEntries.editPendingInteraction":
     "有待处理的交互式命令时，无法编辑此提示词。请先回答或取消该命令。",
+  "systemEntries.editForbidden": "无法编辑：发送者的权限不允许此命令。",
   "systemEntries.editNotSent":
     "无法编辑：此消息未发送给智能体，且之后已有新消息。请发送新消息。",
   "systemEntries.editNotLocated": "无法编辑：无法在后端会话中找到消息。",

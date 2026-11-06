@@ -3737,6 +3737,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.editNoSession": "Cannot edit: no active session.",
   "systemEntries.editPendingInteraction":
     "Cannot edit this prompt while an interactive command is pending. Answer or cancel it first.",
+  "systemEntries.editForbidden":
+    "Cannot edit: the sender's permissions do not allow this command.",
   "systemEntries.editNotSent":
     "Cannot edit: this message wasn't sent to the agent and newer messages followed. Send a new message instead.",
   "systemEntries.editNotLocated":

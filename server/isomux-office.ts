@@ -4414,10 +4414,12 @@ function buildExecutorDeps(
         attachments,
         sendNow,
         clientMessageId,
+        limits,
       ) =>
         sendMemberMessage(agentId, text, username, device, attachments, {
           sendNow,
           clientMessageId,
+          limits,
         }),
       identityFitsAgent: (identity, agentId) =>
         identityFitsAgent(identity, agentId, buildLiveGuardDeps()),
@@ -4435,6 +4437,7 @@ function buildExecutorDeps(
           () =>
             sendMemberMessage(agentId, text, username, device, undefined, {
               refusePromptAnswer: opts?.refusePromptAnswer,
+              limits: opts?.limits,
             }),
         ),
       sendAsAgent: async (
@@ -4570,13 +4573,14 @@ function buildExecutorDeps(
         scheduledMessageManager.listBySender(senderAgentId),
       cancelScheduledMessage: (senderAgentId, scheduledId) =>
         scheduledMessageManager.cancel(senderAgentId, scheduledId),
-      editMessage: (agentId, logEntryId, newText, username, device) => {
+      editMessage: (agentId, logEntryId, newText, username, device, limits) => {
         void agentManager.editMessage(
           agentId,
           logEntryId,
           newText,
           username,
           device,
+          limits,
         );
       },
       cancelQueued: (agentId, messageId, senderAgentId) =>
@@ -4636,13 +4640,21 @@ function buildExecutorDeps(
         sessions: agentManager.listSessions(agentId),
         currentSessionId: agentManager.getCurrentSessionId(agentId),
       }),
-      respondInteraction: (agentId, interactionId, value, username, device) =>
+      respondInteraction: (
+        agentId,
+        interactionId,
+        value,
+        username,
+        device,
+        limits,
+      ) =>
         agentManager.respondToChoiceInteraction(
           agentId,
           interactionId,
           value,
           username,
           device,
+          limits,
         ),
     }),
   );

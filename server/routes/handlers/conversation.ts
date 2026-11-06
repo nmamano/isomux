@@ -27,7 +27,15 @@
 // agent-manager touch; these handlers parse, branch on scope, and map outcomes).
 
 import { ATTACHMENT_NOT_ALLOWED } from "../../../shared/agent-access.ts";
-import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
+import {
+  ok,
+  noContent,
+  fail,
+  limitsRefusalMessage,
+  type HandlerErrorStatus,
+  type RouteHandler,
+} from "../executor.ts";
+import type { ApiTokenLimits } from "../../../shared/api-token-limits.ts";
 import type { Identity } from "../../identity/index.ts";
 import type {
   Attachment,
@@ -129,6 +137,8 @@ export interface ConversationDeps {
     attachments: Attachment[] | undefined,
     sendNow: boolean,
     clientMessageId: string | undefined,
+    // The sender's limits: a command needs the area of its HTTP twin.
+    limits: ApiTokenLimits | undefined,
   ): Promise<UserSendAcceptance>;
   // Whether a write by `identity` to the agent fits the pack rule
   // (server/identity/agent-fit.ts identityFitsAgent). A token message that
@@ -142,7 +152,7 @@ export interface ConversationDeps {
     username: string | undefined,
     device: string,
     tokenId: string,
-    opts?: { refusePromptAnswer?: boolean },
+    opts?: { refusePromptAnswer?: boolean; limits?: ApiTokenLimits },
   ): Promise<
     | Exclude<UserSendAcceptance, { ok: true }>
     | { ok: true; messageId: string; sentAt: number; sequence: number }
@@ -191,6 +201,7 @@ export interface ConversationDeps {
     newText: string,
     username: string | undefined,
     device: string | undefined,
+    limits: ApiTokenLimits | undefined,
   ): void;
   // false = nothing cancelled (see agentManager.cancelQueued). With
   // senderAgentId only an item that agent sent is cancelled.
@@ -235,6 +246,7 @@ export interface ConversationDeps {
     value: string,
     username: string | undefined,
     device: string | undefined,
+    limits: ApiTokenLimits | undefined,
   ):
     | {
         ok: true;
@@ -243,9 +255,10 @@ export interface ConversationDeps {
       }
     | {
         ok: false;
-        status: 404 | 409 | 422;
+        status: 403 | 404 | 409 | 422;
         code: string;
         message: string;
+        detail?: Record<string, unknown>;
       };
 }
 
@@ -305,6 +318,22 @@ function malformedSendFields(b: Record<string, unknown>): boolean {
   return false;
 }
 
+// A manager refusal as an HTTP error. A 403 for the sender's limits carries
+// the route refusal's message and its {area, level}.
+function refusal(
+  identity: Identity,
+  r: {
+    status: HandlerErrorStatus;
+    code: string;
+    message: string;
+    detail?: Record<string, unknown>;
+  },
+) {
+  return r.code === "forbidden" && r.detail?.area !== undefined
+    ? fail(r.status, r.code, limitsRefusalMessage(identity), r.detail)
+    : fail(r.status, r.code, r.message);
+}
+
 export function conversationHandlers(
   deps: ConversationDeps,
 ): Record<string, RouteHandler> {
@@ -325,10 +354,11 @@ export function conversationHandlers(
         value,
         attribution.username,
         undefined,
+        ctx.identity.apiTokenLimits,
       );
       return result.ok
         ? ok({ interactionId: result.interactionId, status: result.status })
-        : fail(result.status, result.code, result.message);
+        : refusal(ctx.identity, result);
     },
     "agents.sendMessage": async (ctx) => {
       const b = (ctx.body ?? {}) as Partial<SendMessageReq>;
@@ -553,9 +583,12 @@ export function conversationHandlers(
           ctx.identity.apiTokenId ?? "",
           // An outside model's message, or a replies-only token's, never
           // answers a pending prompt.
-          { refusePromptAnswer: ctx.via === "mcp" || repliesOnly },
+          {
+            refusePromptAnswer: ctx.via === "mcp" || repliesOnly,
+            limits: ctx.identity.apiTokenLimits,
+          },
         );
-        if (!r.ok) return fail(r.status, r.code, r.message);
+        if (!r.ok) return refusal(ctx.identity, r);
         return ok({
           messageId: r.messageId,
           sentAt: r.sentAt,
@@ -594,8 +627,9 @@ export function conversationHandlers(
         b.attachments,
         b.sendNow === true,
         b.clientMessageId,
+        ctx.identity.apiTokenLimits,
       );
-      if (!r.ok) return fail(r.status, r.code, r.message);
+      if (!r.ok) return refusal(ctx.identity, r);
       return ok({ messageId: "" });
     },
 
@@ -615,6 +649,7 @@ export function conversationHandlers(
         b.newText,
         deps.attributionFor(ctx.identity).username,
         b.device,
+        ctx.identity.apiTokenLimits,
       );
       return ok({ messageId: "" });
     },

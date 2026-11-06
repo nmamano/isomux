@@ -3818,6 +3818,8 @@ Coses que pots fer per ell:
     "No es pot editar: no hi ha cap sessió activa.",
   "systemEntries.editPendingInteraction":
     "No es pot editar aquest prompt mentre hi ha una ordre interactiva pendent. Respon-la o cancel·la-la primer.",
+  "systemEntries.editForbidden":
+    "No es pot editar: els permisos del remitent no permeten aquesta ordre.",
   "systemEntries.editNotSent":
     "No es pot editar: aquest missatge no va arribar a l'agent i després n'hi va haver de més nous. Envia'n un de nou.",
   "systemEntries.editNotLocated":

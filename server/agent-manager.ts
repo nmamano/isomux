@@ -112,6 +112,11 @@ import {
   loadRecordTerminals,
 } from "./persistence.ts";
 import { autocompleteCommands } from "./commands.ts";
+import {
+  areaRefusal,
+  interactionAreaRefused,
+  slashCommandAreaRefused,
+} from "./command-areas.ts";
 import { LocalizedError, errorText } from "./localized-error.ts";
 import { english } from "./i18n.ts";
 import {
@@ -6211,6 +6216,10 @@ export function createAgentManager(deps: ManagerDeps) {
       // Refuse (409 awaits_member_answer) instead of reading the text as the
       // answer to a pending prompt or choice card. Set for /mcp sends.
       refusePromptAnswer?: boolean;
+      // The sender's limits (a member pack or a limited API token; undefined
+      // = full access). A command, or a picker answer, needs the areas of its
+      // HTTP twin (server/command-areas.ts).
+      limits?: ApiTokenLimits;
     },
   ) {
     if (!agents.has(agentId)) {
@@ -6260,6 +6269,7 @@ export function createAgentManager(deps: ManagerDeps) {
         claimedChoice: opts?.claimedChoice,
         ask: opts?.ask,
         refusePromptAnswer: opts?.refusePromptAnswer,
+        limits: opts?.limits,
         accept: () => settle({ ok: true }),
         refuse: settle,
       });
@@ -6285,6 +6295,7 @@ export function createAgentManager(deps: ManagerDeps) {
       claimedChoice?: ClaimedChoiceInteraction;
       ask?: AskRef;
       refusePromptAnswer?: boolean;
+      limits?: ApiTokenLimits;
       accept: () => void;
       refuse: (result: Exclude<UserSendAcceptance, { ok: true }>) => void;
     },
@@ -6346,6 +6357,18 @@ export function createAgentManager(deps: ManagerDeps) {
     // A replies-only API token's message is data: it answers no menu, runs no
     // command, and its body is defused like an agent's.
     const asData = isRepliesOnlyDevice(device);
+    // A sender whose limits lack the area of a command, or of the open
+    // picker's command, is refused before anything runs or settles: the
+    // picker stays open for someone who may answer it.
+    if (!opts.claimedChoice && !ask && !asData) {
+      const area =
+        interactionAreaRefused(opts.limits, managed.pendingInteraction?.kind) ??
+        slashCommandAreaRefused(opts.limits, text);
+      if (area) {
+        refuse(areaRefusal(area));
+        return;
+      }
+    }
     const claimedChoice =
       opts?.claimedChoice ??
       (ask || asData ? null : claimTypedChoiceInteraction(managed, text));
@@ -7230,13 +7253,15 @@ export function createAgentManager(deps: ManagerDeps) {
     value: string,
     username?: string,
     device?: string,
+    limits?: ApiTokenLimits,
   ):
     | { ok: true; interactionId: string; status: "settled" | "canceled" }
     | {
         ok: false;
-        status: 404 | 409 | 422;
+        status: 403 | 404 | 409 | 422;
         code: string;
         message: string;
+        detail?: Record<string, unknown>;
       } {
     const settled = settledChoiceInteractions.get(interactionId);
     if (settled?.interaction.agentId === agentId)
@@ -7268,6 +7293,9 @@ export function createAgentManager(deps: ManagerDeps) {
         message: "That choice is not available.",
       };
     }
+    // Checked before the claim, so a refused click leaves the picker open.
+    const area = interactionAreaRefused(limits, interaction.kind);
+    if (area) return areaRefusal(area);
     const claimed = settleChoiceInteraction(managed, interaction, value);
     if (!claimed) {
       const current = settledChoiceInteractions.get(interactionId);
@@ -7284,6 +7312,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // the normal message path, which reports any later failure in the chat.
     void sendMessage(agentId, choice.label, username, device, undefined, {
       claimedChoice: claimed,
+      limits,
     });
     return { ok: true, interactionId, status: "settled" };
   }
@@ -8838,6 +8867,7 @@ export function createAgentManager(deps: ManagerDeps) {
     newText: string,
     username?: string,
     device?: string,
+    limits?: ApiTokenLimits,
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -8923,13 +8953,20 @@ export function createAgentManager(deps: ManagerDeps) {
         failEdit(msg("systemEntries.editNotSent"));
         return;
       }
+      // Before the trim, so a refused edit leaves the log as it was.
+      if (slashCommandAreaRefused(limits, newText)) {
+        failEdit(msg("systemEntries.editForbidden"));
+        return;
+      }
       const trimmed = oldLogCache.slice(0, targetPos);
       logCache.set(agentId, trimmed);
       emit({ type: "clear_logs", agentId });
       for (const entry of trimmed) {
         emit({ type: "log_entry", entry });
       }
-      await sendMessage(agentId, newText, username, device);
+      await sendMessage(agentId, newText, username, device, undefined, {
+        limits,
+      });
       return;
     }
 

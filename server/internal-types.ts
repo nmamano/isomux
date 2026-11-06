@@ -731,9 +731,11 @@ export type UserSendAcceptance =
   | { ok: true }
   | {
       ok: false;
-      status: 404 | 409 | 429 | 500;
+      status: 403 | 404 | 409 | 429 | 500;
       code: string;
       message: string;
+      // 403 forbidden: the {area, level} the sender's limits lack.
+      detail?: Record<string, unknown>;
     };
 
 // A cron run-message outcome (task 44872c41). `deduped`: a resend whose

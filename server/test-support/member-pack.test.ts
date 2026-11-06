@@ -719,8 +719,10 @@ describe("the member's agents and answers under the pack", () => {
     const asker = await spawn(o, "Asker");
     const fitting = await spawn(o, "Fitting");
     await lower(o, fitting, "office", { agents: "write" }, [o.room]);
+    // agentManagement: an answer to a model picker needs it
+    // (slash-command-areas.test.ts).
     await packCasey(o, {
-      areas: { agents: "write", asks: "write" },
+      areas: { agents: "write", asks: "write", agentManagement: "write" },
       agentCeiling: "office",
     });
     expect(

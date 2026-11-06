@@ -270,6 +270,14 @@ export function runAuthorize(
   }
 }
 
+// The message of a refusal for `identity`'s limits: a member's pack, or an
+// API token's limits. Chat commands refuse with it too (task 79d755d7).
+export function limitsRefusalMessage(identity: Identity): string {
+  return identity.scope === "user"
+    ? "Your permission pack does not allow this action."
+    : "This API token's limits do not allow this action.";
+}
+
 // Whether `identity` may call `route` with these params: every check the
 // executor runs before the preconditions and the handler. Returns the refusal,
 // or null to go on. Exported so a handler can ask whether a caller passes
@@ -288,9 +296,7 @@ export function authorizeRoute(
     return fail(
       403,
       "forbidden",
-      identity.scope === "user"
-        ? "Your permission pack does not allow this action."
-        : "This API token's limits do not allow this action.",
+      limitsRefusalMessage(identity),
       typeof route.tokenArea === "object" ? { ...route.tokenArea } : undefined,
     );
   }

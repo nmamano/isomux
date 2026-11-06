@@ -3811,6 +3811,8 @@ Cosas que puedes hacer por él:
     "No se puede editar: no hay ninguna sesión activa.",
   "systemEntries.editPendingInteraction":
     "No se puede editar este prompt mientras hay un comando interactivo pendiente. Respóndelo o cancélalo primero.",
+  "systemEntries.editForbidden":
+    "No se puede editar: los permisos del remitente no permiten este comando.",
   "systemEntries.editNotSent":
     "No se puede editar: este mensaje no llegó al agente y después hubo mensajes más nuevos. Envía uno nuevo.",
   "systemEntries.editNotLocated":
