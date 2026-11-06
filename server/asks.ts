@@ -145,6 +145,8 @@ function isSecretAskRequest(v: unknown): v is SecretAskRequest {
         typeof r.app.createdAt === "number")) &&
     (r.ownerUserId === undefined || typeof r.ownerUserId === "string") &&
     (r.answerUserId === undefined || typeof r.answerUserId === "string") &&
+    // Any non-empty string, as an ask's link: checked on write only.
+    (r.link === undefined || (typeof r.link === "string" && r.link !== "")) &&
     // The kind (task c71cb60f; discord-bot, task c92d60f4): absent for a
     // secret. Only a secret names an app; only an MCP server request
     // proposes a URL and a sign-in. Any other

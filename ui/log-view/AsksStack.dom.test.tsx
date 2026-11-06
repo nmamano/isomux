@@ -160,6 +160,13 @@ const ENTRIES: AskEntry[] = [
     ...entry("abcd0023", "b4", "See this ask?", 1),
     link: "/inbox/asks/abcd0023",
   },
+  // Agent b5's asks link outside the office (task 0355f4b7): an https page,
+  // and a stored link this UI refuses.
+  {
+    ...entry("abcd0024", "b5", "Make a token?", 2),
+    link: "https://WWW.GitHub.com/settings/tokens/new?scopes=repo",
+  },
+  { ...entry("abcd0025", "b5", "Open it?", 1), link: "javascript:alert(1)" },
 ];
 // The one agent the store knows: the target of a7's first link.
 const SCOUT = { id: "a1", name: "Scout", roomId: "r2", desk: 0 } as never;
@@ -377,6 +384,55 @@ it("draws a button for an agent it knows, named for the agent, and a click opens
   expect(posts).toEqual([]);
   view.unmount();
 });
+
+// An outside page (task 0355f4b7): an anchor that opens a new tab with no
+// opener, at the address whose site it names. It needs no office opener.
+const outsideLinks = (root: HTMLElement) =>
+  [...root.querySelectorAll<HTMLElement>("[data-ask-outside-link]")].map(
+    (a) => ({
+      ask: a.closest<HTMLElement>("[data-ask]")?.dataset.ask,
+      tag: a.tagName,
+      href: a.getAttribute("href"),
+      target: a.getAttribute("target"),
+      rel: (a.getAttribute("rel") ?? "").split(/\s+/).sort(),
+      namesSite:
+        (a.textContent ?? "").includes("github.com") &&
+        !(a.textContent ?? "").toLowerCase().includes("www."),
+    }),
+  );
+
+for (const [label, isMobile, opener] of [
+  ["on a desktop, with an office opener", false, () => {}],
+  ["on a phone, with no office opener", true, null],
+] as const)
+  it(`draws an outside page as a new-tab link that names its site, ${label}`, async () => {
+    const view = mount(isMobile, "b5", opener);
+    if (isMobile) {
+      const bar = await waitFor(() => {
+        const found = view.container.querySelector<HTMLElement>(
+          "[data-asks-stack=collapsed] button",
+        );
+        expect(found).not.toBe(null);
+        return found!;
+      });
+      fireEvent.click(bar);
+    }
+    await waitFor(() => expect(cards(view.container).length).toBe(2));
+    // The refused link draws nothing, and neither is an office button.
+    expect(outsideLinks(view.container)).toEqual([
+      {
+        ask: "abcd0024",
+        tag: "A",
+        href: "https://www.github.com/settings/tokens/new?scopes=repo",
+        target: "_blank",
+        rel: ["noopener", "noreferrer"],
+        namesSite: true,
+      },
+    ]);
+    expect(linkButtons(view.container)).toEqual([]);
+    expect(view.container.innerHTML).not.toContain("javascript:");
+    view.unmount();
+  });
 
 // View in Inbox (tasks bc525a93, 586ebfe1): the open stack has one button,
 // next to its toggle, that opens the Inbox filtered to this agent. No card

@@ -2114,3 +2114,75 @@ describe("a Discord bot request", () => {
     expect(written(t)).toEqual(nothing);
   });
 });
+
+// The page where the member gets the value (task 0355f4b7): an https URL the
+// card draws as a button next to the masked field. It is the request's own
+// field, never the ask's link, which an older server refuses on a secret
+// request and would set the asks file aside for.
+describe("a link to the page where the member gets the value", () => {
+  const LINK = "https://GitHub.com/settings/tokens/new?scopes=repo";
+  const BODIES = {
+    secret: ASK,
+    variable: {
+      kind: "variable",
+      name: "OPENAI_API_KEY",
+      reason: "For OpenCode.",
+    },
+    "mcp-server": {
+      kind: "mcp-server",
+      name: "docs",
+      url: "https://mcp.example.com/mcp",
+      reason: "To read the docs server.",
+    },
+    "discord-bot": { kind: "discord-bot", reason: "To answer on Discord." },
+  };
+
+  it("is kept in the request as sent, for every kind, never on the ask, and through a restart", () => {
+    const t = setup();
+    for (const body of Object.values(BODIES))
+      opened(t.requests.open("a1", { ...body, link: LINK }));
+    const shapes = (entries: AskEntry[]) =>
+      entries.map((e) => ({
+        kind: e.secret?.kind ?? "secret",
+        askLink: "link" in e,
+        link: e.secret?.link,
+      }));
+    const expected = Object.keys(BODIES).map((kind) => ({
+      kind,
+      askLink: false,
+      link: LINK,
+    }));
+    expect(shapes(t.asks.listAll())).toEqual(expected);
+    expect(shapes(JSON.parse(readFileSync(t.asksPath, "utf-8")))).toEqual(
+      expected,
+    );
+    expect(shapes(t.boot().asks.listAll())).toEqual(expected);
+  });
+
+  it("refuses a link that is not an https page, or that holds a credential, and opens nothing", () => {
+    const t = setup();
+    for (const [kind, body] of Object.entries(BODIES))
+      for (const link of [
+        "http://github.com/settings/tokens/new",
+        "javascript:alert(1)",
+        "/integrations/secrets",
+        "https://user:pass@github.com/",
+        "",
+        42,
+        null,
+        `https://github.com/settings/tokens/new?token=${VALUE}`,
+      ])
+        expect({
+          kind,
+          link,
+          result: failure(t.requests.open("a1", { ...body, link })),
+        }).toEqual({ kind, link, result: "400 invalid_request" });
+    expect(t.asks.listAll()).toEqual([]);
+    // The same bodies open without a link: the link alone was refused.
+    for (const body of Object.values(BODIES))
+      opened(t.requests.open("a1", body));
+    expect(t.asks.listAll().every((e) => e.secret?.link === undefined)).toBe(
+      true,
+    );
+  });
+});

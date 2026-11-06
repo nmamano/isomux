@@ -42,6 +42,7 @@ import {
   type SecretFieldError,
 } from "../shared/secret-hosts.ts";
 import { hasCredentialShape } from "./log-redaction.ts";
+import { outsideLinkFor } from "../shared/office-links.ts";
 import {
   mcpServerFailure,
   type ConnectionWrites,
@@ -220,8 +221,18 @@ const KIND_NOUN = {
 
 // The body keys an open takes, per kind.
 const OPEN_KEYS = {
-  secret: ["kind", "name", "hosts", "form", "reason", "scope", "app", "member"],
-  variable: ["kind", "name", "reason", "scope", "member"],
+  secret: [
+    "kind",
+    "name",
+    "hosts",
+    "form",
+    "reason",
+    "scope",
+    "app",
+    "member",
+    "link",
+  ],
+  variable: ["kind", "name", "reason", "scope", "member", "link"],
   "mcp-server": [
     "kind",
     "name",
@@ -231,9 +242,10 @@ const OPEN_KEYS = {
     "reason",
     "scope",
     "member",
+    "link",
   ],
   // The manager's own bot: only the manager answers (task c92d60f4).
-  "discord-bot": ["kind", "reason"],
+  "discord-bot": ["kind", "reason", "link"],
 } as const satisfies Record<string, readonly string[]>;
 
 // A Discord bot request's fixed name: one open request per member.
@@ -620,6 +632,14 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       );
     if (hasCredentialShape(reason))
       return invalidRequest("the reason must not hold a credential");
+    // The page where the member gets the value (task 0355f4b7).
+    if (
+      body.link !== undefined &&
+      (!outsideLinkFor(body.link) || hasCredentialShape(body.link as string))
+    )
+      return invalidRequest(
+        "link must be an https URL of the page where the member gets the value, with no credential in it",
+      );
     const scope: SecretScope =
       ownerId === undefined
         ? { kind: "office" }
@@ -629,6 +649,7 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       scope:
         scopeName === "office" ? ("office" as const) : ("personal" as const),
       reason,
+      ...(body.link !== undefined ? { link: body.link as string } : {}),
       ...(ownerId !== undefined ? { ownerUserId: ownerId } : {}),
       // An office request for one owner names them here, never in
       // memberUserId: an older server refuses an office ask with a member,

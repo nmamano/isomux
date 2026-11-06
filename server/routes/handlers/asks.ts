@@ -114,6 +114,7 @@ import {
   OFFICE_LINK_PATHS,
   ASK_LINK_PREFIX,
   askLinkFor,
+  outsideLinkFor,
 } from "../../../shared/office-links.ts";
 
 export interface AsksDeps {
@@ -462,8 +463,11 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     fail(
       422,
       "invalid_link",
-      `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}, ${ASK_LINK_PREFIX}<askId> for one ask, or ${AGENT_LINK_PREFIX}<agentId> for an agent the member can reach`,
+      `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}, ${ASK_LINK_PREFIX}<askId> for one ask, ${AGENT_LINK_PREFIX}<agentId> for an agent the member can reach, or an https URL of a page outside the office`,
     );
+  // An office page or agent, or an outside https page (task 0355f4b7).
+  const linkValid = (link: unknown) =>
+    askLinkFor(link) !== null || outsideLinkFor(link) !== null;
   // A link to an agent's chat names an agent every member of the ask can
   // reach; a page link needs no check past its form.
   const linkReachable = (link: unknown, memberUserIds: readonly string[]) => {
@@ -990,7 +994,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const shared = room || (names !== undefined && names.length > 1);
     if (shared && body.step !== undefined)
       return invalidMembers("a step ask is for one member");
-    if (body.link !== undefined && !askLinkFor(body.link)) return invalidLink();
+    if (body.link !== undefined && !linkValid(body.link)) return invalidLink();
     let options: string[] | undefined;
     if (body.options !== undefined) {
       const checkedOptions = checkOptions(body.options);
@@ -1143,7 +1147,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       prompt = checked.prompt;
     }
     // Absent keeps the link and "" removes it.
-    if (body.link !== undefined && body.link !== "" && !askLinkFor(body.link))
+    if (body.link !== undefined && body.link !== "" && !linkValid(body.link))
       return invalidLink();
     // Absent keeps the options and [] removes them.
     let options: string[] | null | undefined;

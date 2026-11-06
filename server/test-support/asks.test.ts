@@ -617,13 +617,93 @@ describe("a link to an office page", () => {
     ]);
   });
 
+  // An outside page (task 0355f4b7): an https URL, on create and on edit,
+  // stored as sent. The full table is outsideLinkFor's, in
+  // shared/office-links.test.ts; this proves both routes take it.
+  it("takes an https page outside the office, on create and on edit, as sent", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const page = "https://GitHub.com/settings/tokens/new?scopes=repo";
+    const made = await call(
+      w.srv,
+      "POST",
+      `${base}?link=${encodeURIComponent(page)}`,
+      w.as(w.asker.id),
+      { text: "Make a token?" },
+    );
+    expect(made.status).toBe(201);
+    const id = (made.body as AskEntry).id;
+    expect([(made.body as AskEntry).link, stored(w, id)?.link]).toEqual([
+      page,
+      page,
+    ]);
+    const json = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: {
+        text: "Make a key?",
+        link: "https://platform.openai.com/api-keys",
+      },
+    });
+    expect(json.status).toBe(201);
+    expect(stored(w, (json.body as AskEntry).id)?.link).toBe(
+      "https://platform.openai.com/api-keys",
+    );
+    // An edit moves it from an office page to an outside one and back.
+    const office = await open(w, "Sign in to Linear?");
+    const out = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${office.id}`,
+      w.as(w.asker.id),
+      { json: { link: "https://linear.app/settings/api" } },
+    );
+    expect(out.status).toBe(200);
+    expect(stored(w, office.id)?.link).toBe("https://linear.app/settings/api");
+    const back = await call(
+      w.srv,
+      "PATCH",
+      `${base}/${office.id}?link=/integrations/mcp`,
+      w.as(w.asker.id),
+      { text: "Sign in to Linear?" },
+    );
+    expect(back.status).toBe(200);
+    expect(stored(w, office.id)?.link).toBe("/integrations/mcp");
+    // The refusal names the outside form, so an agent can correct its call.
+    const refused = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Where?", link: "http://linear.app" },
+    });
+    expect(refused.code).toBe("invalid_link");
+    expect(
+      (refused.body as { error?: { message?: string } }).error?.message ?? "",
+    ).toContain("https");
+  });
+
+  it("refuses an outside page on a step ask, which takes no link", async () => {
+    const w = await world();
+    const base = `/api/agents/${w.asker.id}/asks`;
+    const step = { kind: "browser-pairing" };
+    const withLink = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Pair Chrome?", step, link: "https://github.com/" },
+    });
+    expect(`${withLink.status} ${withLink.code}`).toBe("400 invalid_request");
+    // The same step opens without the link.
+    const plain = await call(w.srv, "POST", base, w.as(w.asker.id), {
+      json: { text: "Pair Chrome?", step },
+    });
+    expect(plain.status).toBe(201);
+  });
+
   it("refuses a link that is not an office page, on create and on edit, and changes nothing", async () => {
     const w = await world();
     const base = `/api/agents/${w.asker.id}/asks`;
     const created = await open(w, "Sign in to Linear?");
     // The full table of refused paths is askLinkFor's, in
     // shared/office-links.test.ts; these prove both routes run it.
-    const outside = ["https://linear.app", "/integrations/constructor"];
+    const outside = [
+      "http://linear.app",
+      "javascript:alert(1)",
+      "https://user@linear.app/",
+      "/integrations/constructor",
+    ];
     for (const link of outside) {
       const post = await call(
         w.srv,

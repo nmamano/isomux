@@ -1800,6 +1800,7 @@ App 的一些原则：
   "asks.recommended": "推荐",
   "asks.link": "请示",
   "asks.openLink": "打开「{page}」",
+  "asks.openSite": "打开 {site}",
   "asks.fromApp": "来自应用 {app}",
   "asks.discuss": "在聊天中讨论",
   "asks.copyId": "复制请示 ID",

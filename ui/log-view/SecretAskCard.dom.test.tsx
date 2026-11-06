@@ -710,3 +710,49 @@ it("a Discord connect refused keeps the card and the token, and says why: each r
   }
   expect(new Set(shown).size).toBe(shown.length);
 });
+
+// The page where the member gets the value (task 0355f4b7): a new-tab link
+// under the reason, above the masked field, naming the page's site. A stored
+// link this UI refuses draws nothing.
+it("draws the request's outside page as a new-tab link above the masked field, and nothing for a link it refuses", async () => {
+  const withLink = (link: string): AskEntry => ({
+    ...SECRET_ASK,
+    secret: { ...(SECRET_ASK.secret as SecretValueRequest), link },
+  });
+  const view = await mount(
+    false,
+    withLink("https://GitHub.com/settings/tokens/new?scopes=repo"),
+  );
+  const anchors = card(view)!.querySelectorAll<HTMLElement>(
+    "[data-ask-outside-link]",
+  );
+  expect(anchors).toHaveLength(1);
+  const a = anchors[0];
+  expect({
+    tag: a.tagName,
+    href: a.getAttribute("href"),
+    target: a.getAttribute("target"),
+    rel: (a.getAttribute("rel") ?? "").split(/\s+/).sort(),
+    namesSite: (a.textContent ?? "").includes("github.com"),
+    // DOCUMENT_POSITION_FOLLOWING: the field comes after the link.
+    aboveField: Boolean(a.compareDocumentPosition(valueInput(view)!) & 4),
+  }).toEqual({
+    tag: "A",
+    href: "https://github.com/settings/tokens/new?scopes=repo",
+    target: "_blank",
+    rel: ["noopener", "noreferrer"],
+    namesSite: true,
+    aboveField: true,
+  });
+  view.unmount();
+
+  for (const entry of [SECRET_ASK, withLink("javascript:alert(1)")]) {
+    const other = await mount(false, entry);
+    expectMasked(valueInput(other));
+    expect(
+      card(other)!.querySelectorAll("[data-ask-outside-link]"),
+    ).toHaveLength(0);
+    expect(card(other)!.innerHTML).not.toContain("javascript:");
+    other.unmount();
+  }
+});

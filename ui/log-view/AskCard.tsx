@@ -88,7 +88,8 @@ import { noTranslate } from "../no-translate.ts";
 import { RecommendedStar } from "./recommended-star.tsx";
 import { SudoAskCard } from "./SudoAskCard.tsx";
 import { SecretAskCard } from "./SecretAskCard.tsx";
-import { askLinkFor } from "../../shared/office-links.ts";
+import { askLinkFor, outsideLinkFor } from "../../shared/office-links.ts";
+import { OutsideLinkButton } from "./OutsideLink.tsx";
 import { OfficeLinkOpener, officeLinkLabel } from "../office-link.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
@@ -445,6 +446,8 @@ function ReplyAskCard({
   // not drawn.
   const stepView = useStepView(entry.step, entry.memberUserId);
   const link = stepView ? null : askLinkFor(entry.link);
+  // An outside page opens in a new tab and needs no office opener.
+  const outside = !stepView && outsideLinkFor(entry.link) !== null;
   // Who else a shared ask is for (task 9461c464): the other members by name,
   // or the agent's room. Another member's ask names them all.
   const names = (list: string[]) => (
@@ -955,6 +958,7 @@ function ReplyAskCard({
             </button>
           )}
           {((link && linkLabel !== null && openLink) ||
+            outside ||
             entry.originalPrompt !== undefined) && (
             <div
               style={{
@@ -984,6 +988,9 @@ function ReplyAskCard({
                     ? t("asks.openAsk", { id: link.askId })
                     : t("asks.openLink", { page: linkLabel })}
                 </button>
+              )}
+              {outside && (
+                <OutsideLinkButton link={entry.link} isMobile={isMobile} />
               )}
               {entry.originalPrompt !== undefined && (
                 <button

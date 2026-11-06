@@ -207,6 +207,49 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // A secret request's own link to an outside page (task 0355f4b7) sits
+    // in the request, so an older server loads it. Its form is checked on
+    // write only, as the ask's link is.
+    [
+      "secret whose request links an outside page",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: {
+          ...SECRET,
+          scope: "personal",
+          link: "https://github.com/settings/tokens/new",
+        },
+      },
+      true,
+    ],
+    [
+      "secret whose request link this release would refuse",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: { ...SECRET, scope: "personal", link: "http://example.com" },
+      },
+      true,
+    ],
+    [
+      "secret whose request link is not a string",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: { ...SECRET, scope: "personal", link: 1 },
+      },
+      false,
+    ],
+    [
+      "secret whose request link is empty",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: { ...SECRET, scope: "personal", link: "" },
+      },
+      false,
+    ],
     // Options too are bounded on write only.
     [
       "eleven options",

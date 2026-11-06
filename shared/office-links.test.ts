@@ -13,6 +13,7 @@ import {
   OFFICE_PAGES,
   askLinkFor,
   officeLinkFor,
+  outsideLinkFor,
   pathForPage,
 } from "./office-links.ts";
 
@@ -163,5 +164,129 @@ describe("the asks reference", () => {
         )
         .sort(),
     ).toEqual([...OFFICE_LINK_PATHS].sort());
+  });
+});
+
+// An outside page as an ask's link (task 0355f4b7): an https URL, drawn as a
+// button that names its site and opens a new tab. The button's address is
+// the parse that named the site, so the label names where a click goes.
+describe("an outside link", () => {
+  it("reads an https URL as its canonical address and the site it names", () => {
+    const cases: [string, string, string][] = [
+      [
+        "https://github.com/settings/tokens/new?scopes=repo,read:org&description=Isomux",
+        "https://github.com/settings/tokens/new?scopes=repo,read:org&description=Isomux",
+        "github.com",
+      ],
+      // The parse is the address: case, default port and the root slash.
+      ["https://GitHub.COM/a", "https://github.com/a", "github.com"],
+      ["https://example.com:443/x", "https://example.com/x", "example.com"],
+      ["https://example.com", "https://example.com/", "example.com"],
+      // One leading www. goes; nothing else of the host does.
+      ["https://www.github.com/x", "https://www.github.com/x", "github.com"],
+      [
+        "https://www.www.example.com/",
+        "https://www.www.example.com/",
+        "www.example.com",
+      ],
+      [
+        "https://wwwx.example.com/",
+        "https://wwwx.example.com/",
+        "wwwx.example.com",
+      ],
+      [
+        "https://docs.www.example.com/",
+        "https://docs.www.example.com/",
+        "docs.www.example.com",
+      ],
+      // A port that is not the default stays in the site.
+      [
+        "https://localhost:8443/x",
+        "https://localhost:8443/x",
+        "localhost:8443",
+      ],
+      // A host in another script stays in its ASCII form: a lookalike shows.
+      [
+        "https://bücher.example/",
+        "https://xn--bcher-kva.example/",
+        "xn--bcher-kva.example",
+      ],
+      ["https://аpple.com/", "https://xn--pple-43d.com/", "xn--pple-43d.com"],
+    ];
+    for (const [value, url, site] of cases)
+      expect({ value, link: outsideLinkFor(value) }).toEqual({
+        value,
+        link: { url, site },
+      });
+  });
+
+  it("takes up to 2048 characters", () => {
+    const prefix = "https://example.com/";
+    const longest = prefix + "a".repeat(2048 - prefix.length);
+    expect(outsideLinkFor(longest)).toEqual({
+      url: longest,
+      site: "example.com",
+    });
+    expect(outsideLinkFor(`${longest}a`)).toBeNull();
+  });
+
+  it("refuses anything that is not plainly an https URL", () => {
+    for (const value of [
+      "",
+      "https://",
+      "http://github.com",
+      "HTTPS://github.com",
+      "Https://github.com",
+      // The parser repairs these into https://github.com/: refused, so what
+      // is stored is what the button opens.
+      "https:github.com",
+      "https:/github.com",
+      "https:\\\\github.com",
+      " https://github.com",
+      "https://github.com ",
+      "https://git hub.com",
+      "https://github.com/a b",
+      "https://github.com/\n",
+      "https://github.com/\t",
+      "https://github.com/\r",
+      "https://github.com/\u0000",
+      "https://github.com/\u007f",
+      "https://github.com/\u00a0",
+      "https://github.com/\u2028",
+      "\nhttps://github.com",
+      // Who signs in is not the agent's to fill in.
+      "https://user:pass@github.com/",
+      "https://user@github.com/",
+      "https://:pass@github.com/",
+      "javascript:alert(1)",
+      "data:text/html,<b>x</b>",
+      "ftp://example.com/",
+      "wss://example.com/",
+      "/integrations/secrets",
+      "//github.com",
+      "github.com",
+    ])
+      expect(
+        `${JSON.stringify(value)} ${JSON.stringify(outsideLinkFor(value))}`,
+      ).toBe(`${JSON.stringify(value)} null`);
+    for (const value of [
+      undefined,
+      null,
+      1,
+      {},
+      ["https://github.com"],
+      new URL("https://github.com"),
+    ])
+      expect(outsideLinkFor(value)).toBeNull();
+  });
+
+  // The address bar reads an office route through askLinkFor (ui/routes.ts):
+  // an outside URL never becomes one.
+  it("is never an office link", () => {
+    for (const value of [
+      "https://github.com/",
+      "https://office.example.com/tasks",
+    ])
+      expect(askLinkFor(value)).toBeNull();
   });
 });

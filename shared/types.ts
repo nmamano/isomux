@@ -1118,6 +1118,10 @@ interface ValueAskRequestBase {
   // An office request for one office owner. Absent: every owner answers.
   // Not memberUserId, which older servers refuse on an office request.
   answerUserId?: string;
+  // The https page where the member gets the value (shared/office-links.ts
+  // outsideLinkFor). Inside the request, not on the ask: an older server
+  // refuses a secret ask with a link (task 0355f4b7).
+  link?: string;
 }
 
 // A secret for the proxy or an app. `kind` is absent on disk.

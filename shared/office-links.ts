@@ -111,3 +111,43 @@ export function askLinkFor(path: unknown): OfficeLink | null {
   }
   return officeLinkFor(path);
 }
+
+/** An outside page an ask's link names: the https URL to open and the site
+ *  its button names (task 0355f4b7). */
+export interface OutsideLink {
+  url: string;
+  site: string;
+}
+
+/** The longest outside link an ask or a value request takes. */
+export const OUTSIDE_LINK_MAX = 2048;
+
+const HTTPS_PREFIX = "https://";
+
+/** The outside https page a link names, or null. Only a plain https URL:
+ *  the URL parser repairs forms such as "https:github.com" or one with
+ *  spaces, so those are refused and the button opens the address it names.
+ *  `url` is the parse, `site` its host with one leading "www." removed; a
+ *  host in another script stays in its ASCII form, so a lookalike shows. A
+ *  user name or password in the URL is refused. */
+export function outsideLinkFor(value: unknown): OutsideLink | null {
+  if (
+    typeof value !== "string" ||
+    value.length > OUTSIDE_LINK_MAX ||
+    !value.startsWith(HTTPS_PREFIX) ||
+    // eslint-disable-next-line no-control-regex -- control characters are what it refuses
+    /[\s\x00-\x1f\x7f]/.test(value)
+  )
+    return null;
+  const authority = value.slice(HTTPS_PREFIX.length).split(/[/?#\\]/)[0];
+  if (authority === "" || authority.includes("@")) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname) return null;
+  if (parsed.username || parsed.password) return null;
+  return { url: parsed.href, site: parsed.host.replace(/^www\./, "") };
+}

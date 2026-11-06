@@ -2031,6 +2031,7 @@ Cosas que puedes hacer por él:
   "asks.recommended": "Recomendada",
   "asks.link": "Petición",
   "asks.openLink": "Abrir {page}",
+  "asks.openSite": "Abrir {site}",
   "asks.fromApp": "De la app {app}",
   "asks.discuss": "Comentar en el chat",
   "asks.copyId": "Copiar el ID de la petición",

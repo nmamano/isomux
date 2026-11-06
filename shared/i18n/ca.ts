@@ -2037,6 +2037,7 @@ Coses que pots fer per ell:
   "asks.recommended": "Recomanada",
   "asks.link": "Petició",
   "asks.openLink": "Obre {page}",
+  "asks.openSite": "Obre {site}",
   "asks.fromApp": "De l'app {app}",
   "asks.discuss": "Comenta-ho al xat",
   "asks.copyId": "Copia l'ID de la petició",

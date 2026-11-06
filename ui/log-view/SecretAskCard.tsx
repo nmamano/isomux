@@ -45,6 +45,8 @@ import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
+import { outsideLinkFor } from "../../shared/office-links.ts";
+import { OutsideLinkButton } from "./OutsideLink.tsx";
 
 // The card's title, which the collapsed stack shows too.
 export function valueAskTitle(
@@ -317,6 +319,11 @@ export function SecretAskCard({
       <p style={hintStyle} {...noTranslate()}>
         <InlineMarkdown content={secret.reason} code colors />
       </p>
+      {outsideLinkFor(secret.link) && (
+        <div style={{ margin: "0 0 8px" }}>
+          <OutsideLinkButton link={secret.link} isMobile={isMobile} />
+        </div>
+      )}
       {!known ? (
         // A kind from a later release: only the decline is offered here.
         <p style={hintStyle}>{t("cards.secretRequest.unsupported")}</p>
