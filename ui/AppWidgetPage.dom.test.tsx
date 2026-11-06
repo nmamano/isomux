@@ -1183,6 +1183,162 @@ it("shows the queued count in its own element while messages wait, busy or not",
   }
 });
 
+// Task 9f2f337b: the widget delivers the queue now, as the full chat does: a
+// Send now button by the queue count, and Ctrl/Cmd+Enter in the composer. The
+// server interrupts the turn; the widget only asks.
+const waiting = (count: number) =>
+  Array.from({ length: count }, (_, i) => ({
+    id: `w${i}`,
+    sender: { kind: "user" },
+    text: `waiting ${i}`,
+  })) as unknown as import("../shared/types.ts").QueuedMessage[];
+
+// A busy widget with `queue` waiting, on a mouse-and-keyboard computer unless
+// `touch`. Records every API call. Call done() before the test ends.
+async function steer(queue: number, touch = false) {
+  sessionStorage.clear();
+  const { primaryPointer } = await import("./test-support/pointer.ts");
+  const undoPointer = primaryPointer(touch);
+  const calls: { method: string; path: string; body: unknown }[] = [];
+  setApiShim(async (method, path, body) => {
+    calls.push({ method, path, body });
+    return {};
+  });
+  const view = render(
+    <WidgetChat
+      {...props}
+      agent={{ ...agent, state: "thinking", queue: waiting(queue) }}
+    />,
+  );
+  // The device the case means, in both the green and the red run.
+  expect(window.matchMedia("(pointer: coarse)").matches).toBe(touch);
+  const box = () => view.getByRole("textbox") as HTMLTextAreaElement;
+  const sendNowButton = () =>
+    [...view.container.querySelectorAll("form button")].find(
+      (button) => button.textContent === en["logView.queue.flushNow"],
+    ) as HTMLButtonElement | undefined;
+  const type = async (value: string) => {
+    await act(async () => {
+      fireEvent.change(box(), { target: { value } });
+    });
+  };
+  const press = async (init: KeyboardEventInit) => {
+    await act(async () => {
+      fireEvent.keyDown(box(), { key: "Enter", ...init });
+    });
+  };
+  const done = () => {
+    view.unmount();
+    undoPointer();
+  };
+  return { view, calls, box, sendNowButton, type, press, done };
+}
+
+it("shows Send now by the queue count only while messages wait; a click delivers this agent's queue and keeps the draft", async () => {
+  const { view, calls, box, sendNowButton, type, done } = await steer(2);
+  try {
+    const button = sendNowButton();
+    expect(button).toBeDefined();
+    expect(button!.title).toBe(en["logView.queue.flushHint"]);
+    await type("half a thought");
+    await act(async () => {
+      fireEvent.click(button!);
+    });
+    // One request, to this agent's send-now route. The button does not
+    // submit the form: the draft stays and no message is posted.
+    expect(calls).toEqual([
+      { method: "POST", path: "/api/agents/one/send-now", body: undefined },
+    ]);
+    expect(box().value).toBe("half a thought");
+
+    // Nothing waiting: no button.
+    view.rerender(
+      <WidgetChat {...props} agent={{ ...agent, state: "thinking" }} />,
+    );
+    expect(sendNowButton()).toBeUndefined();
+  } finally {
+    done();
+  }
+});
+
+for (const [keys, modifier] of [
+  ["Ctrl+Enter", { ctrlKey: true }],
+  ["Cmd+Enter", { metaKey: true }],
+] as const) {
+  it(`${keys} with text posts the message with sendNow, and nothing else`, async () => {
+    const { calls, box, type, press, done } = await steer(1);
+    try {
+      await type("correct course");
+      await press(modifier);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].path).toBe("/api/agents/one/messages");
+      expect(calls[0].body).toMatchObject({
+        text: "correct course",
+        sendNow: true,
+      });
+      expect(box().value).toBe("");
+    } finally {
+      done();
+    }
+  });
+}
+
+it("plain Enter posts the message without sendNow; Shift+Enter posts nothing", async () => {
+  const { calls, type, press, done } = await steer(1);
+  try {
+    await type("just queue it");
+    await press({ shiftKey: true });
+    expect(calls).toEqual([]);
+    await press({});
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).toBe("/api/agents/one/messages");
+    expect(calls[0].body).toMatchObject({ text: "just queue it" });
+    expect(Object.keys(calls[0].body as object)).not.toContain("sendNow");
+  } finally {
+    done();
+  }
+});
+
+it("Ctrl+Enter on an empty composer delivers the queue, and does nothing when nothing waits", async () => {
+  const queued = await steer(1);
+  try {
+    await queued.press({ ctrlKey: true });
+    expect(queued.calls).toEqual([
+      { method: "POST", path: "/api/agents/one/send-now", body: undefined },
+    ]);
+  } finally {
+    queued.done();
+  }
+  const empty = await steer(0);
+  try {
+    await empty.press({ ctrlKey: true });
+    expect(empty.calls).toEqual([]);
+  } finally {
+    empty.done();
+  }
+});
+
+it("Ctrl+Enter sends nothing while the IME composes or on a touch screen", async () => {
+  const composing = await steer(1);
+  try {
+    await composing.type("mid word");
+    await composing.press({ ctrlKey: true, isComposing: true });
+    expect(composing.calls).toEqual([]);
+  } finally {
+    composing.done();
+  }
+  // A phone has the Send now button instead.
+  const phone = await steer(1, true);
+  try {
+    await phone.type("from the phone");
+    await phone.press({ ctrlKey: true });
+    expect(phone.calls).toEqual([]);
+    expect(phone.sendNowButton()).toBeDefined();
+  } finally {
+    phone.done();
+  }
+});
+
 it("links the agent's name in the header to its office chat, in a new tab", () => {
   const view = render(<WidgetChat {...props} />);
   const link = view.container.querySelector<HTMLAnchorElement>(

@@ -30,6 +30,7 @@ import {
   chatVisibleEntries,
   chatVisibleQueue,
 } from "./log-view/chat-entries.ts";
+import { isSendNowKey, sendQueueNow } from "./log-view/send-now.ts";
 import { OpenIcon } from "./components/AppsView.tsx";
 import { readSafariEnv } from "./safari-link.ts";
 import { BrowserInstall } from "./components/BrowserInstall.tsx";
@@ -115,7 +116,8 @@ export const CHAT_PANEL_CSS = `
 .app-widget-image img { width:104px; height:80px; object-fit:contain; display:block; }
 .app-widget-panel .app-widget-image button { font-size:12px; padding:3px 8px; }
 .app-widget-hint { flex:1; min-width:0; font-size:12px; color:var(--text-secondary); margin:0; }
-.app-widget-queue { display:inline-block; margin-bottom:8px; padding:3px 10px; border:1px solid var(--accent); border-radius:999px; color:var(--accent-text); font-size:13px; font-weight:600; }
+.app-widget-queue-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+.app-widget-queue { display:inline-block; padding:3px 10px; border:1px solid var(--accent); border-radius:999px; color:var(--accent-text); font-size:13px; font-weight:600; }
 .app-widget-status { font-size:12px; color:var(--text-secondary); }
 .app-widget-panel .app-widget-mic { display:flex; align-items:center; justify-content:center; padding:9px 11px; color:var(--text-secondary); }
 .app-widget-panel .app-widget-mic[aria-pressed="true"] { border-color:var(--red); background:rgba(255,50,50,0.15); color:var(--red-text); animation:mic-pulse 1.5s ease-in-out infinite; }
@@ -1251,20 +1253,25 @@ export function WidgetChat({
     ? uploadedOnly(sentItems)
     : draft.images.map((image) => image.attachment!);
   const busy = agent.state === "thinking" || agent.state === "tool_executing";
+  const queued = chatVisibleQueue(agent.queue).length;
   // The text leaves the composer when the send starts, as in the full chat,
   // so words dictated while it is in flight stay. A failed send puts the
   // text back before them; alone, it keeps its message id, so a retry is the
-  // same message. True when the send started.
-  const send = (opts?: { text?: string; keepListening?: boolean }) => {
+  // same message. True when the send started. sendNow (Ctrl/Cmd+Enter) asks
+  // the server to interrupt a busy agent and deliver the queue; with an empty
+  // composer it delivers what is queued, as the Send now button does.
+  const send = (opts?: {
+    text?: string;
+    keepListening?: boolean;
+    sendNow?: boolean;
+  }) => {
     const sentText = opts?.text ?? text;
-    if (
-      draft.key !== key ||
-      (!sentText.trim() && attachments.length === 0) ||
-      pendingImages ||
-      sendingRef.current ||
-      !connected
-    )
+    if (draft.key !== key || pendingImages || sendingRef.current) return false;
+    if (!sentText.trim() && attachments.length === 0) {
+      if (opts?.sendNow && queued > 0) sendQueueNow(agent.id);
       return false;
+    }
+    if (!connected) return false;
     const clientMessageId =
       sentText === draft.text ? draft.clientMessageId : crypto.randomUUID();
     const sentImages = new Set(draft.images.map((image) => image.id));
@@ -1285,6 +1292,7 @@ export function WidgetChat({
         appContext: currentView ? { ...boot, view: currentView() } : boot,
       }),
       attachments,
+      ...(opts?.sendNow && { sendNow: true }),
     }).then(
       () => {
         sendingRef.current = false;
@@ -1346,7 +1354,6 @@ export function WidgetChat({
   useEffect(() => {
     if (!open) stopVoice.current();
   }, [open]);
-  const queued = chatVisibleQueue(agent.queue).length;
   return (
     <div
       className="app-widget-chat-content"
@@ -1450,8 +1457,17 @@ export function WidgetChat({
         }}
       >
         {queued ? (
-          <div className="app-widget-queue" role="status">
-            {t("logView.queue.count", { count: queued })}
+          <div className="app-widget-queue-row">
+            <span className="app-widget-queue" role="status">
+              {t("logView.queue.count", { count: queued })}
+            </span>
+            <button
+              type="button"
+              title={t("logView.queue.flushHint")}
+              onClick={() => sendQueueNow(agent.id)}
+            >
+              {t("logView.queue.flushNow")}
+            </button>
           </div>
         ) : null}
         {voice.voiceInput === "openai" ? (
@@ -1500,12 +1516,14 @@ export function WidgetChat({
             update(voice.reconcileEdit(event.target.value));
           }}
           onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              !event.shiftKey &&
-              !event.nativeEvent.isComposing &&
-              !isTouchPrimary()
-            ) {
+            if (event.nativeEvent.isComposing || isTouchPrimary()) return;
+            // Checked before plain Enter, whose condition also matches it.
+            if (isSendNowKey(event)) {
+              event.preventDefault();
+              send({ sendNow: true });
+              return;
+            }
+            if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               send();
             }

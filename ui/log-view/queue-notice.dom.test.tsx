@@ -138,3 +138,91 @@ it("removing a queued message arms on the first click and sends nothing; the sec
     setApiShim(null);
   }
 });
+
+// Send now in the full chat (task 9f2f337b moved its calls into shared code
+// with the app widget): the button by the queue count and Ctrl/Cmd+Enter.
+// `draft` is the composer text: the fixture state is fixed, so typing does not
+// reach the store.
+async function steerChat(queue: QueuedMessage[], draft = "") {
+  const { en } = await import("../../shared/i18n/en.ts");
+  const calls: { method: string; path: string; body: unknown }[] = [];
+  setApiShim(async (method, path, body) => {
+    calls.push({ method, path, body });
+    return undefined;
+  });
+  const withQueue: AgentInfo = { ...agent, queue };
+  const view = render(
+    onLanguage(
+      "en",
+      createElement(LogView, {
+        agent: withQueue,
+        logs: [],
+        onBack: () => {},
+        onEditAgent: () => {},
+      }),
+      {
+        agents: [withQueue],
+        hasReceivedInitialState: true,
+        connected: true,
+        drafts: new Map([[withQueue.id, draft]]),
+      },
+    ),
+  );
+  const boxes = view.container.querySelectorAll("textarea");
+  const box = boxes[boxes.length - 1];
+  const sendNowButton = () =>
+    [...view.container.querySelectorAll("button")].find(
+      (button) => button.textContent === en["logView.queue.flushNow"],
+    );
+  const sent = () => calls.filter((c) => c.method === "POST");
+  const done = async () => {
+    await act(async () => {});
+    view.unmount();
+    setApiShim(null);
+  };
+  return { box, sendNowButton, sent, done };
+}
+
+it("the Send now button by the queue count delivers this agent's queue", async () => {
+  const { sendNowButton, sent, done } = await steerChat([MEMBER]);
+  try {
+    expect(sendNowButton()).toBeDefined();
+    await act(async () => fireEvent.click(sendNowButton()!));
+    expect(sent()).toEqual([
+      { method: "POST", path: "/api/agents/a1/send-now", body: undefined },
+    ]);
+  } finally {
+    await done();
+  }
+});
+
+it("Ctrl/Cmd+Enter posts the message with sendNow, or on an empty composer delivers the queue", async () => {
+  for (const modifier of [{ ctrlKey: true }, { metaKey: true }]) {
+    const { box, sent, done } = await steerChat([MEMBER], "correct course");
+    try {
+      expect(box.value).toBe("correct course");
+      await act(async () => {
+        fireEvent.keyDown(box, { key: "Enter", ...modifier });
+      });
+      expect(sent()).toHaveLength(1);
+      expect(sent()[0].path).toBe("/api/agents/a1/messages");
+      expect(sent()[0].body).toMatchObject({
+        text: "correct course",
+        sendNow: true,
+      });
+    } finally {
+      await done();
+    }
+  }
+  const { box, sent, done } = await steerChat([MEMBER]);
+  try {
+    await act(async () => {
+      fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    });
+    expect(sent()).toEqual([
+      { method: "POST", path: "/api/agents/a1/send-now", body: undefined },
+    ]);
+  } finally {
+    await done();
+  }
+});

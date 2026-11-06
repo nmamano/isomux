@@ -9,6 +9,7 @@ import {
 import { StatusShape } from "../components/StatusShape.tsx";
 import { coalesceCodexDiagnostics } from "../../shared/codex-diagnostics.ts";
 import { chatVisibleEntries, chatVisibleQueue } from "./chat-entries.ts";
+import { isSendNowKey, sendQueueNow } from "./send-now.ts";
 import {
   useState,
   useRef,
@@ -389,9 +390,7 @@ function QueueChips({
           {i18n.t("logView.queue.count", { count: queue.length })}
         </span>
         <button
-          onClick={() => {
-            apiFetch("POST", `/api/agents/${agentId}/send-now`).catch(() => {});
-          }}
+          onClick={() => sendQueueNow(agentId)}
           style={{
             padding: "2px 10px",
             borderRadius: 4,
@@ -1891,7 +1890,7 @@ export function LogView({
       // now" - hit the same endpoint as the Send-now button instead of
       // silently doing nothing. No-op when nothing is queued.
       if (opts?.sendNow && chatVisibleQueue(agent.queue).length > 0) {
-        apiFetch("POST", `/api/agents/${agent.id}/send-now`).catch(() => {});
+        sendQueueNow(agent.id);
       }
       return false;
     }
@@ -3063,11 +3062,7 @@ export function LogView({
                     // the composition consume Enter and other keys; we don't
                     // want to send, autocomplete, or abort mid-composition.
                     if (e.nativeEvent.isComposing) return;
-                    if (
-                      e.key === "Enter" &&
-                      (e.ctrlKey || e.metaKey) &&
-                      !touchPrimary
-                    ) {
+                    if (isSendNowKey(e) && !touchPrimary) {
                       // Ctrl/Cmd+Enter: "deliver now". Identical to plain Enter
                       // when the agent is idle; when it's busy, the server
                       // interrupts the current turn and flushes the queue (same
