@@ -3942,11 +3942,8 @@ export async function listCodexModels(
   let onAbort = () => {};
   const aborted = new Promise<never>((_, reject) => {
     onAbort = () => {
-      // A close() while start() is still before its spawn would mark the
-      // client killed with no child yet, and the child spawned next would
-      // then never be signalled. Close once start() has settled.
-      const close = () => void client.close();
-      started.then(close, close);
+      // A close() before the spawn makes start() refuse to spawn.
+      void client.close();
       reject(new Error("Codex model discovery was aborted"));
     };
     signal.addEventListener("abort", onAbort, { once: true });

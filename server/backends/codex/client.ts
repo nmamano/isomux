@@ -224,6 +224,13 @@ export class JsonRpcLiteClient {
     // all spawn with the same effective env. withIsomuxCodexHome honors a
     // caller-set CODEX_HOME verbatim (per-user managed variables for billing isolation, see
     // server/backends/codex/native-bin.ts).
+    //
+    // A close() during the awaits above found no child to kill: spawning
+    // now would leave an App Server that nothing stops.
+    if (this.killed) {
+      this.starting = false;
+      throw new Error("JsonRpcLiteClient is closed");
+    }
     let child: AgentChild;
     try {
       // The agent host starts the launcher as its own process-group leader, so

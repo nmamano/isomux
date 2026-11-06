@@ -18,6 +18,13 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { JsonRpcLiteClient } from "./client.ts";
 import {
+  getAgentHost,
+  localAgentHost,
+  setAgentHost,
+  type AgentChild,
+  type AgentHost,
+} from "../../agent-host.ts";
+import {
   EXPECTED,
   SECRET_VALUE,
   secretAgentEnvironment,
@@ -296,5 +303,94 @@ describe("an agent with secrets in scope (secrets design, section 2.3)", () => {
     } finally {
       await client.close();
     }
+  });
+});
+
+// A close() while start() awaits before its spawn must stop the spawn: the
+// child would start after the only kill its caller sends, and run until the
+// office stops (task 2b3af8e4: account probes that timed out in this window
+// left one app-server each). The host holds start() at its last await before
+// the spawn, the auth.json check of codexEnvApiKeyWins, and counts spawns.
+describe("JsonRpcLiteClient.start - close before the spawn", () => {
+  async function startHeld(
+    closeInWindow: boolean,
+  ): Promise<{ held: string; outcome: string; spawned: number }> {
+    const dir = mkdtempSync(join(tmpdir(), "codex-start-close-test-"));
+    tmpDirs.push(dir);
+    let reached!: () => void;
+    const atGate = new Promise<void>((r) => (reached = r));
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    const children: AgentChild[] = [];
+    const host: AgentHost = {
+      ...localAgentHost,
+      fs: {
+        ...localAgentHost.fs,
+        exists: async (path) => {
+          if (path.endsWith("auth.json")) {
+            reached();
+            await gate;
+          }
+          return localAgentHost.fs.exists(path);
+        },
+      },
+      spawnChild: (argv, options) => {
+        const child = localAgentHost.spawnChild(argv, options);
+        children.push(child);
+        return child;
+      },
+    };
+    const previous = getAgentHost();
+    setAgentHost(host);
+    const client = new JsonRpcLiteClient({
+      codexBin: writeFakeLauncher(dir),
+      args: ["app-server"],
+      cwd: dir,
+      env: {
+        ...process.env,
+        CODEX_HOME: join(dir, "codex-home"),
+        OPENAI_API_KEY: "sk-test",
+        GC_PIDFILE: join(dir, "grandchild.pid"),
+      },
+      skipSafetyPreflightForTestProbe: true,
+    });
+    try {
+      const started = client.start().then(
+        () => "resolved",
+        () => "rejected",
+      );
+      // The enabling condition: start() waits at the gate, not yet spawned.
+      const held = await Promise.race([atGate.then(() => "held"), started]);
+      const spawnedAtGate = children.length;
+      if (closeInWindow) await client.close();
+      open();
+      const outcome = await started;
+      return {
+        held: `${held}, ${spawnedAtGate} spawned`,
+        outcome,
+        spawned: children.length,
+      };
+    } finally {
+      await client.close();
+      // A child that the client did not kill must not outlive the test.
+      for (const child of children) child.signalGroup("SIGKILL");
+      setAgentHost(previous);
+    }
+  }
+
+  it("spawns no app-server when close() ran during the pre-spawn wait", async () => {
+    expect(await startHeld(true)).toEqual({
+      held: "held, 0 spawned",
+      outcome: "rejected",
+      spawned: 0,
+    });
+  });
+
+  it("spawns one app-server when nothing closes it (control)", async () => {
+    expect(await startHeld(false)).toEqual({
+      held: "held, 0 spawned",
+      outcome: "resolved",
+      spawned: 1,
+    });
   });
 });
