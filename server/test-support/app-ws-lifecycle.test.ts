@@ -27,8 +27,11 @@ import { createHash } from "crypto";
 import { APP_COOKIE_NAME, originAllowed } from "../app-auth.ts";
 import {
   APP_BUSY_BODY,
+  APP_UNREACHABLE_BODY,
   APP_WS_UPGRADE_FAILED_BODY,
 } from "../app-host-responses.ts";
+import { retireAppRegistration } from "../app-lifecycle.ts";
+import { dialAppUpstream } from "../app-ws-upstream.ts";
 import {
   AppWsRelay,
   APP_WS_MAX_PROTOCOL_HEADER_BYTES,
@@ -703,6 +706,39 @@ describe("app-ws relay: the window before the socket opens", () => {
     await until(() => _testWsSocketsOpen().total === 0);
     // And a second terminal signal on the same relay does not double-release.
     (captured as unknown as AppWsRelay).browserClosed(1000, "again");
+    expect(_testWsSocketsOpen()).toEqual({ total: 0, perApp: 0 });
+  });
+
+  it("refuses an app retired after the dial settled but before the relay resumed", async () => {
+    // The dial stops watching for a retirement once it settles, and the relay
+    // object does not exist yet, so a retirement in that gap reaches nobody. The
+    // real dial runs; the app is retired between its answer and the relay's
+    // continuation.
+    const { srv, cookie, app } = await office();
+    const record = appRegistry.get("hello")!;
+    let dialOk: boolean | null = null;
+    const result = await open(srv, "hello", cookie, {
+      dial: async (opts) => {
+        const dial = await dialAppUpstream(opts);
+        dialOk = dial.ok;
+        retireAppRegistration(record);
+        return dial;
+      },
+    });
+    expect(dialOk as boolean | null).toBe(true);
+    if (result.ok) result.opened.relay.browserClosed(1000, "test cleanup");
+    expect(
+      result.ok
+        ? { upgraded: true }
+        : {
+            status: result.response.status,
+            body: await result.response.text(),
+          },
+    ).toEqual({ status: 502, body: APP_UNREACHABLE_BODY });
+    // The app's connection is ended, not left open to a retired registration,
+    // and the slot comes back.
+    await until(() => app.closes.length > 0);
+    await until(() => _testWsSocketsOpen().total === 0);
     expect(_testWsSocketsOpen()).toEqual({ total: 0, perApp: 0 });
   });
 });

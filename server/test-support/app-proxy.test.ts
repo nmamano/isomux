@@ -235,6 +235,7 @@ function relay(
     maxTotal?: number;
     proxySecret?: () => string;
     member?: AppMember | null;
+    fetch?: typeof fetch;
   },
 ): Promise<Response> {
   const fake = createFakeAppSupervisor();
@@ -264,6 +265,7 @@ function relay(
     maxTotal: opts.maxTotal,
     member: opts.member,
     proxySecret: opts.proxySecret ?? (() => `proxy-secret-${opts.app.name}`),
+    fetch: opts.fetch,
   });
 }
 
@@ -826,6 +828,74 @@ describe("relay: failures", () => {
       ),
     ).toBe("rejected");
     expect(_testRelayInFlight()).toEqual(NO_PERMITS);
+  });
+
+  it("answers 502, not a 200 with a dead body, when the abort lands after the headers", async () => {
+    // The headers are in, but the relay's continuation has not run yet, and
+    // something aborts the upstream request in that gap. Whatever aborted it, the
+    // client gets what it would have got a moment earlier. A real fetch cannot be
+    // held in that gap on demand, so this fake answers only once its signal has
+    // aborted: the relay resumes after the abort.
+    const sources: Array<{
+      source: string;
+      ttfbMs?: number;
+      inGap: (app: AppRecord, client: AbortController) => void;
+    }> = [
+      { source: "header deadline", ttfbMs: 1, inGap: () => {} },
+      { source: "client hang-up", inGap: (_app, client) => client.abort() },
+      { source: "app retired", inGap: (app) => retireAppRegistration(app) },
+    ];
+    for (const { source, ttfbMs, inGap } of sources) {
+      const app = appRecord(1);
+      const client = new AbortController();
+      let calls = 0;
+      let abortedWhenAnswered = false;
+      let bodyCancelled = false;
+      const fakeFetch = ((_input: unknown, init?: RequestInit) => {
+        calls++;
+        const signal = init!.signal!;
+        inGap(app, client);
+        return new Promise<Response>((resolve) => {
+          const answer = (): void => {
+            abortedWhenAnswered = signal.aborted;
+            const body = new ReadableStream<Uint8Array>({
+              cancel() {
+                bodyCancelled = true;
+              },
+            });
+            resolve(new Response(body, { status: 200 }));
+          };
+          if (signal.aborted) answer();
+          else signal.addEventListener("abort", answer, { once: true });
+        });
+      }) as unknown as typeof fetch;
+      const res = await relay(
+        new Request(`https://${APP_HOST}/plain`, { signal: client.signal }),
+        { app, ttfbMs, fetch: fakeFetch },
+      );
+      // The fake body never ends: a 200 is cancelled, not read, so the red run
+      // reports the status instead of timing out.
+      const body =
+        res.status === 502 ? await res.text() : await res.body?.cancel();
+      expect({
+        source,
+        calls,
+        abortedWhenAnswered,
+        status: res.status,
+        body,
+      }).toEqual({
+        source,
+        calls: 1,
+        abortedWhenAnswered: true,
+        status: 502,
+        body: APP_UNREACHABLE_BODY,
+      });
+      await settlesTo(() => ({ source, bodyCancelled }), {
+        source,
+        bodyCancelled: true,
+      });
+      expect(_testRelayInFlight()).toEqual(NO_PERMITS);
+    }
   });
 });
 

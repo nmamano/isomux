@@ -258,12 +258,14 @@ export interface AppWsRelayContext {
   // The member's display name, or null when the user record is gone.
   memberName: (userId: string) => string | null;
   // Test seams. Same shape as the HTTP relay's: a cap provable in three sockets
-  // rather than sixty-five, a revalidation observable in milliseconds.
+  // rather than sixty-five, a revalidation observable in milliseconds, a dial
+  // that settles exactly when a test says.
   maxPerApp?: number;
   maxTotal?: number;
   bufferMaxBytes?: number;
   recheckMs?: number;
   upstreamLimits?: Partial<AppUpstreamLimits>;
+  dial?: typeof dialAppUpstream;
 }
 
 // What rides on the Bun socket. `kind` is the discriminant the office's shared
@@ -865,7 +867,7 @@ export async function relayWsToApp(
   let earlyClose: UpstreamCloseEvent | null = null;
   const bufferMaxBytes = ctx.bufferMaxBytes ?? APP_WS_BROWSER_BUFFER_MAX_BYTES;
 
-  const dial = await dialAppUpstream({
+  const dial = await (ctx.dial ?? dialAppUpstream)({
     port: ctx.app.port,
     target: `${url.pathname}${url.search}`,
     host: ctx.host,
@@ -913,6 +915,17 @@ export async function relayWsToApp(
     return dial.failure === "handshake_protocol"
       ? neutral(502, APP_WS_PROTOCOL_MISMATCH_BODY)
       : neutral(502, APP_UNREACHABLE_BODY);
+  }
+
+  // The dial removed its abort listener when it settled, and no relay exists
+  // yet, so a retirement between the settle and here reached nobody. Without
+  // this check the socket opens on a retired app and stays open until the
+  // first recheck.
+  if (retirement.signal.aborted) {
+    dial.connection.terminate("app registration retired");
+    permit.release();
+    stopWatchingRetirement();
+    return neutral(502, APP_UNREACHABLE_BODY);
   }
 
   // 7. The subprotocol the app selected has to be what the browser is told.

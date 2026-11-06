@@ -328,11 +328,13 @@ export interface RelayContext {
   // computed; the relay then answers 502 rather than relay without it.
   proxySecret: () => string;
   // Test seams, so a stall can be provoked in milliseconds instead of five
-  // minutes and a cap in two requests instead of five hundred.
+  // minutes, a cap in two requests instead of five hundred, and the upstream
+  // answer at exactly the moment a test says.
   stallMs?: number;
   ttfbMs?: number;
   maxPerApp?: number;
   maxTotal?: number;
+  fetch?: typeof fetch;
 }
 
 function peerAddress(ctx: RelayContext): string | null {
@@ -471,7 +473,7 @@ export async function relayToApp(
       // A framed page may get the app-view script, which needs plain bytes.
       if (framedDocumentRequest(req))
         upstreamHeaders.set("Accept-Encoding", "identity");
-      upstream = await fetch(target, {
+      upstream = await (ctx.fetch ?? fetch)(target, {
         method: req.method,
         headers: upstreamHeaders,
         // Streamed, never buffered: an upload of any size and an SSE response
@@ -491,8 +493,8 @@ export async function relayToApp(
         signal: ac.signal,
       });
     } catch (err) {
-      // Nothing has been written downstream yet, so this is the one failure the
-      // relay can still report honestly as a status.
+      // Nothing has been written downstream yet, so the relay can still report
+      // this failure honestly as a status.
       console.error(
         `[app-proxy] ${ctx.app.hostLabel}: upstream request failed:`,
         err,
@@ -504,6 +506,20 @@ export async function relayToApp(
       // here is the stall guard's business, not this timer's.
       if (ttfbTimer !== null) clearTimeout(ttfbTimer);
       ttfbTimer = null;
+    }
+
+    // The headers can arrive before the deadline and this line can run after
+    // it: the timer, a hang-up or a retirement then aborted a fetch that had
+    // already resolved, and its body is dead. Answer as for an abort a moment
+    // earlier, not with a 200 that carries nothing.
+    if (ac.signal.aborted) {
+      console.error(
+        `[app-proxy] ${ctx.app.hostLabel}: upstream request aborted after headers:`,
+        ac.signal.reason,
+      );
+      upstream.body?.cancel().catch(() => {});
+      release();
+      return neutral(502, APP_UNREACHABLE_BODY);
     }
 
     const bodyless =
