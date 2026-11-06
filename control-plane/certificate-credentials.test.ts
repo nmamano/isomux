@@ -21,6 +21,8 @@ import {
   CertificateService,
   LOCAL_FAILURE_REASON,
   parseCertificateEndpoint,
+  RENEW_COOLDOWN_FACTOR,
+  RENEW_COOLDOWN_FLOOR_MS,
   type CertificateIssuer,
 } from "./certificate-service.ts";
 import { InviteHold } from "./invite-hold.ts";
@@ -38,8 +40,8 @@ afterAll(async () => {
   await releaseTestStores();
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
-async function office(id: string, label: string) {
-  await store.createInstance({
+async function office(id: string, label: string, on: Store = store) {
+  await on.createInstance({
     id,
     run_id: null,
     name: `${label}.test.isomux.app`,
@@ -49,8 +51,8 @@ async function office(id: string, label: string) {
     goal: "handed_off",
     access_window_expires_at: null,
   });
-  const now = store.now();
-  await store.sqlRun(
+  const now = on.now();
+  await on.sqlRun(
     "insert into name_reservations (name, id, account_id, instance_id, plan, coupon_id, version, created_at, updated_at) " +
       "values ($6, $1, $2, $3, 'monthly', null, 1, $4, $5)",
     [`res-${id}`, `acct-${id}`, id, now, now, label],
@@ -388,6 +390,21 @@ describe("a live paid office with no active renewal credential", () => {
   });
 });
 
+// A renewal that does not answer at once is waiting on the held slot: say
+// so instead of letting the test time out.
+const answerSoon = <T>(p: Promise<T>) =>
+  Promise.race([
+    p,
+    new Promise<"no answer">((resolve) =>
+      setTimeout(() => resolve("no answer"), 1000),
+    ),
+  ]);
+async function until(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 500 && !cond(); i++)
+    await new Promise((r) => setTimeout(r, 2));
+  if (!cond()) throw new Error("condition never held");
+}
+
 // DNS challenge leftovers of a killed lego run are reaped inside the one
 // renewal slot (task 0f37f6e6), so a reap can never race a live challenge in
 // this process, and a reap problem never fails a renewal.
@@ -395,20 +412,6 @@ describe("reaping DNS leftovers in the renewal slot", () => {
   const CSR =
     "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----\n";
   const NOTHING = { removed: 0, failed: 0, unreadable: 0 };
-  // A renewal that does not answer at once is waiting on the held reap: say
-  // so instead of letting the test time out.
-  const answerSoon = <T>(p: Promise<T>) =>
-    Promise.race([
-      p,
-      new Promise<"no answer">((resolve) =>
-        setTimeout(() => resolve("no answer"), 1000),
-      ),
-    ]);
-  async function until(cond: () => boolean): Promise<void> {
-    for (let i = 0; i < 500 && !cond(); i++)
-      await new Promise((r) => setTimeout(r, 2));
-    if (!cond()) throw new Error("condition never held");
-  }
 
   test("reaps before issuing, and holds the slot while it reaps", async () => {
     await office("inst-reap-a", "reap-a");
@@ -480,6 +483,9 @@ describe("reaping DNS leftovers in the renewal slot", () => {
   test("a reap on its own takes the slot, and skips while a renewal holds it", async () => {
     await office("inst-reap-c", "reap-c");
     const { token } = await issueCertificateCredential(store, "inst-reap-c");
+    // Another office: inst-reap-c's own renewal leaves it in its cooldown.
+    await office("inst-reap-c2", "reap-c2");
+    const other = await issueCertificateCredential(store, "inst-reap-c2");
     let reaps = 0;
     let issuing = false;
     let releaseIssue!: () => void;
@@ -520,11 +526,128 @@ describe("reaping DNS leftovers in the renewal slot", () => {
     releaseReap = () => {};
     const reap = service.reapDnsOrphans();
     await until(() => reaps === 2);
-    expect(await answerSoon(service.renew(token, CSR))).toEqual({
+    expect(await answerSoon(service.renew(other.token, CSR))).toEqual({
       status: "busy",
     });
     releaseReap();
     await reap;
+  });
+});
+
+// One office cannot keep the shared slot busy (task d5d22b87): after each
+// hold, ok or failed, it waits RENEW_COOLDOWN_FACTOR times the hold, and at
+// least RENEW_COOLDOWN_FLOOR_MS, before it takes the slot again.
+describe("one office's turns at the renewal slot", () => {
+  const CSR =
+    "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----\n";
+  // The issuers below move this clock to stand for the time lego runs.
+  const clock = { value: 0 };
+  let clocked: Store;
+  beforeAll(async () => {
+    clocked = await openTestStore(() => clock.value);
+  }, PG_TEST_HOOK_TIMEOUT_MS);
+
+  async function credential(id: string, label: string): Promise<string> {
+    await office(id, label, clocked);
+    return (await issueCertificateCredential(clocked, id)).token;
+  }
+
+  test("an office that loops renew leaves the slot free for another office's retry", async () => {
+    clock.value = Date.now();
+    const looper = await credential("inst-turn-a", "turn-a");
+    const other = await credential("inst-turn-b", "turn-b");
+    const HOLD = 60_000;
+    expect(RENEW_COOLDOWN_FACTOR * HOLD).toBeGreaterThan(
+      RENEW_COOLDOWN_FLOOR_MS,
+    );
+    const issued: string[] = [];
+    let holding = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const service = new CertificateService(clocked, {
+      issue: async ({ instanceId }) => {
+        issued.push(instanceId);
+        if (issued.length === 1) {
+          // The run's time passes before the other office asks, so its
+          // retry below comes well inside the floor after its busy answer.
+          clock.value += HOLD;
+          holding = true;
+          await gate;
+        }
+        return { certificatePem: `chain ${instanceId}` };
+      },
+    });
+    const first = service.renew(looper, CSR);
+    await until(() => holding);
+    expect(await answerSoon(service.renew(other, CSR))).toEqual({
+      status: "busy",
+    });
+    release();
+    expect(await first).toMatchObject({ status: "ok" });
+    const releasedAt = clock.value;
+    // The looper's next call does not take the slot...
+    expect(await service.renew(looper, CSR)).toEqual({ status: "cooldown" });
+    // ...so the other office's retry finds it free, and its busy answer
+    // started no cooldown of its own.
+    clock.value += 1_000;
+    expect(await service.renew(other, CSR)).toEqual({
+      status: "ok",
+      certificatePem: "chain inst-turn-b",
+    });
+    clock.value = releasedAt + RENEW_COOLDOWN_FACTOR * HOLD - 1;
+    expect(await service.renew(looper, CSR)).toEqual({ status: "cooldown" });
+    clock.value = releasedAt + RENEW_COOLDOWN_FACTOR * HOLD;
+    expect(await service.renew(looper, CSR)).toMatchObject({ status: "ok" });
+    expect(issued).toEqual(["inst-turn-a", "inst-turn-b", "inst-turn-a"]);
+  });
+
+  test("a failed hold starts the cooldown too", async () => {
+    clock.value = Date.now();
+    const token = await credential("inst-turn-fail", "turn-fail");
+    const HOLD = 5_000;
+    expect(RENEW_COOLDOWN_FACTOR * HOLD).toBeGreaterThan(
+      RENEW_COOLDOWN_FLOOR_MS,
+    );
+    let calls = 0;
+    const service = new CertificateService(clocked, {
+      issue: async () => {
+        calls++;
+        clock.value += HOLD;
+        throw new Error("lego failed");
+      },
+    });
+    expect(await service.renew(token, CSR)).toEqual({ status: "failed" });
+    const releasedAt = clock.value;
+    clock.value = releasedAt + RENEW_COOLDOWN_FACTOR * HOLD - 1;
+    expect(await service.renew(token, CSR)).toEqual({ status: "cooldown" });
+    expect(calls).toBe(1);
+    clock.value = releasedAt + RENEW_COOLDOWN_FACTOR * HOLD;
+    expect(await service.renew(token, CSR)).toEqual({ status: "failed" });
+    expect(calls).toBe(2);
+  });
+
+  test("a short hold cools down for the floor, which the helper's retry outlasts", async () => {
+    clock.value = Date.now();
+    const token = await credential("inst-turn-short", "turn-short");
+    // deploy/install.sh: the renewal helper retries 30 s after an error, so
+    // a fast failure still gets its second try.
+    expect(RENEW_COOLDOWN_FLOOR_MS).toBeLessThan(30_000);
+    let calls = 0;
+    const service = new CertificateService(clocked, {
+      issue: async () => {
+        calls++;
+        return { certificatePem: "chain" };
+      },
+    });
+    expect(await service.renew(token, CSR)).toMatchObject({ status: "ok" });
+    const releasedAt = clock.value;
+    clock.value = releasedAt + RENEW_COOLDOWN_FLOOR_MS - 1;
+    expect(await service.renew(token, CSR)).toEqual({ status: "cooldown" });
+    clock.value = releasedAt + RENEW_COOLDOWN_FLOOR_MS;
+    expect(await service.renew(token, CSR)).toMatchObject({ status: "ok" });
+    expect(calls).toBe(2);
   });
 });
 
@@ -642,6 +765,26 @@ describe("the office's renewal calls on the seam", () => {
       expect(lines[0]).not.toContain("real password");
       expect(lines[0]).not.toContain(issued.token);
       expect((await store.openReasons("inst-cause")).length).toBeGreaterThan(0);
+    } finally {
+      await seam.stop();
+    }
+  });
+
+  test("answers 429 to an office in its cooldown and logs it", async () => {
+    await office("inst-cool-seam", "cool-seam");
+    const issued = await issueCertificateCredential(store, "inst-cool-seam");
+    const { lines, seam, call } = await seamFor(ENDPOINT);
+    try {
+      const bearer = { authorization: `Bearer ${issued.token}` };
+      const first = await call(CERTIFICATE_RENEW_PATH, { csr: CSR }, bearer);
+      expect(first.status).toBe(200);
+      const again = await call(CERTIFICATE_RENEW_PATH, { csr: CSR }, bearer);
+      expect(again.status).toBe(429);
+      expect(await again.text()).not.toContain("public chain");
+      expect(lines).toEqual([
+        "certificate renewal: ok office=inst-cool-seam via=direct",
+        "certificate renewal: cooldown office=inst-cool-seam via=direct",
+      ]);
     } finally {
       await seam.stop();
     }

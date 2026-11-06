@@ -1485,6 +1485,11 @@ journalctl -t isomux-hosted-provisioner --since '2 days ago' --no-pager | grep -
 A failed renewal line ends with `cause="..."`: the last lines of lego's
 stderr, with credentials replaced.
 
+All offices share one renewal slot. A renewal while another office holds it is
+`busy` (409). After each turn in the slot, the office waits 10 times that
+turn's length, and at least 20 s. A renewal while it waits is `cooldown` (429).
+Then no one office can keep the slot busy.
+
 The old URL can go when every office with an active certificate credential
 has a `certificate status: ok office=<id> via=direct` line and no
 `via=forwarder` line after it (a forwarder on the old URL marks its calls with

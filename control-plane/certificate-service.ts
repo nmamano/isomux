@@ -13,6 +13,12 @@ const FAILURE_REASON = "the hosted office certificate could not be renewed";
 export const LOCAL_FAILURE_REASON =
   "the hosted office could not install its renewed certificate";
 const MAX_CAUSE_CHARS = 2000;
+/** After an office holds the renewal slot, it may not take it again for
+ * RENEW_COOLDOWN_FACTOR times the hold, and at least the floor. One office then
+ * holds the shared slot at most about 1/11 of the time, so other offices'
+ * retries find it free. The floor stays below the helper's 30 s retry delay. */
+export const RENEW_COOLDOWN_FLOOR_MS = 20_000;
+export const RENEW_COOLDOWN_FACTOR = 10;
 
 /** Why an issue failed, as one log-safe line. The issuer already sanitizes
  * what it quotes; this pass covers an issuer that does not. */
@@ -75,6 +81,8 @@ export class CertificateService {
   /** lego owns one central ACME account directory, so one renewal or DNS
    * reap at a time holds this, even when two different offices ask together. */
   private busy = false;
+  /** Per office, when it may take the slot again (store clock). */
+  private readonly cooldownUntil = new Map<string, number>();
   /** This provisioner's renewal URL, sent with every certificate. Unset when
    * the configured value is not a valid endpoint. */
   readonly endpoint: string | undefined;
@@ -149,7 +157,9 @@ export class CertificateService {
     via: CertificateCallRoute = "direct",
   ): Promise<
     | { status: "ok"; certificatePem: string }
-    | { status: "unauthorized" | "busy" | "bad_request" | "failed" }
+    | {
+        status: "unauthorized" | "busy" | "cooldown" | "bad_request" | "failed";
+      }
   > {
     if (
       !csrPem.includes("BEGIN CERTIFICATE REQUEST") ||
@@ -187,11 +197,15 @@ export class CertificateService {
     csrPem: string,
   ): Promise<
     | { status: "ok"; certificatePem: string }
-    | { status: "busy" }
+    | { status: "busy" | "cooldown" }
     | { status: "failed"; cause: string }
   > {
+    const instanceId = identity.row.instance_id;
+    if (this.store.now() < (this.cooldownUntil.get(instanceId) ?? 0))
+      return { status: "cooldown" };
     if (this.busy) return { status: "busy" };
     this.busy = true;
+    const takenAt = this.store.now();
     try {
       // Inside the slot, no challenge of this process is live, so the reap
       // cannot delete a record a running lego just adopted.
@@ -223,6 +237,17 @@ export class CertificateService {
       });
       return { status: "failed", cause: failureCause(error) };
     } finally {
+      const releasedAt = this.store.now();
+      for (const [id, until] of this.cooldownUntil)
+        if (until <= releasedAt) this.cooldownUntil.delete(id);
+      this.cooldownUntil.set(
+        instanceId,
+        releasedAt +
+          Math.max(
+            RENEW_COOLDOWN_FLOOR_MS,
+            RENEW_COOLDOWN_FACTOR * (releasedAt - takenAt),
+          ),
+      );
       this.busy = false;
     }
   }

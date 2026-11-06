@@ -4961,8 +4961,9 @@ report_ok() {
 openssl req -new -key "$key" -subj "/CN=$domain" \
   -addext "subjectAltName=DNS:$domain,DNS:*.$domain" -out "$csr"
 # Issuance can wait on DNS propagation, and the control plane answers 409
-# while another office renews. curl owns the output file, so a retry starts it
-# again instead of appending to a partial answer.
+# while another office renews and 429 while this office waits after its last
+# attempt. curl owns the output file, so a retry starts it again instead of
+# appending to a partial answer.
 jq -n --rawfile csr "$csr" '{csr:$csr}' | \
   curl --fail --silent --show-error --max-time 600 \
     --retry 3 --retry-delay 30 --retry-all-errors \

@@ -352,9 +352,11 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
             ? 401
             : result.status === "busy"
               ? 409
-              : result.status === "bad_request"
-                ? 400
-                : 503;
+              : result.status === "cooldown"
+                ? 429
+                : result.status === "bad_request"
+                  ? 400
+                  : 503;
         return new Response(
           result.status === "unauthorized"
             ? "unauthorized\n"
