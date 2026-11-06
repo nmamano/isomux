@@ -617,12 +617,20 @@ export class ExtensionBrowserSessions {
       session = undefined;
       if (connection.pendingCount(grant)) return notSent("actor_change");
     }
-    // A client cannot attach on a refused office page: the gate refuses its
-    // first commands. A goto leaves the page through the bridge first, and a
-    // client that sat on the page ends.
+    // A client cannot set up a refused office page: the gate refuses its
+    // setup commands. A goto leaves the page through the bridge first, and a
+    // client that sat on the page goes. So does a client that attached while
+    // the page was refused behind a popup: it never set the page up, and
+    // would hang on it. The bridge drops the client at once, so the next
+    // attach does not wait on its close.
     const leaving = params.action === "goto" && connection.officeGated(grant);
-    if (leaving && session) {
-      this.end(key);
+    if (session && (leaving || connection.leafUnset(grant))) {
+      this.retire(
+        key,
+        connection,
+        grant,
+        leaving ? "leaving_office" : "leaf_unset",
+      );
       session = undefined;
     }
     const started = performance.now();

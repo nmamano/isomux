@@ -2892,6 +2892,100 @@ describe("office gate", () => {
     }
   });
 
+  // leafUnset (task d5623ac5): a client whose setup of a page the gate
+  // refused never set that page up, and hangs there once the gate opens.
+  // Playwright's setup commands are Page.enable, sent first, and
+  // Page.createIsolatedWorld, sent after the frame tree answers.
+  const popupOn = (url: string): [string, Fields] => [
+    "popup",
+    {
+      sessionId: "popup-session",
+      targetInfo: { type: "page", targetId: "popup", openerId: "owned", url },
+    },
+  ];
+  test("leafUnset names the leaf page whose setup the gate refused for the current client", async () => {
+    const h = await gateHarness({ retainGrant: true });
+    try {
+      event(h, popupOn(`${SITE}/popup`));
+      event(h, commit(`${OFFICE}/`));
+      // The tab still shows the office: the gate stays closed.
+      await answer(h, "Page.stopLoading");
+      await answer(h, "Page.getNavigationHistory", history(0, `${OFFICE}/`));
+      h.agent.close();
+      await attach(h, true, `${OFFICE}/`);
+      // The condition: the new client's setup of the tab is refused.
+      expect(await command(h, "Page.enable")).toEqual(refused);
+      // The popup is the leaf, and its setup passed.
+      expect(await command(h, "Page.enable", {}, "popup-session")).toEqual(
+        passes,
+      );
+      expect(h.connection.leafUnset(h.assignment)).toBe(false);
+      event(h, ["popupDetached", { sessionId: "popup-session" }]);
+      expect(h.connection.leafUnset(h.assignment)).toBe(true);
+      event(h, commit(`${SITE}/next`));
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(h.connection.leafUnset(h.assignment)).toBe(true);
+      // The next client sets the page up.
+      h.agent.close();
+      await attach(h, true, `${SITE}/next`);
+      expect(h.connection.leafUnset(h.assignment)).toBe(false);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("leafUnset counts the page's own setup commands only", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, [
+        "Target.attachedToTarget",
+        {
+          sessionId: "child-session",
+          targetInfo: { targetId: "child-target", type: "iframe" },
+        },
+      ]);
+      event(h, commit(`${OFFICE}/`));
+      // The condition for each: the gate refused it.
+      expect(await command(h, "Page.enable", {}, "child-session")).toEqual(
+        refused,
+      );
+      expect(await read(h)).toEqual(refused);
+      expect(await command(h, "DOM.getDocument")).toEqual(refused);
+      event(h, commit(`${SITE}/next`));
+      expect(h.connection.leafUnset(h.assignment)).toBe(false);
+      event(h, commit(`${OFFICE}/`));
+      expect(
+        await command(h, "Page.createIsolatedWorld", {
+          frameId: "owned",
+          worldName: "utility",
+        }),
+      ).toEqual(refused);
+      event(h, commit(`${SITE}/again`));
+      expect(h.connection.leafUnset(h.assignment)).toBe(true);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  test("leafUnset names a popup announced on an office that its own script then left", async () => {
+    const h = await gateHarness();
+    try {
+      event(h, popupOn(`${OFFICE}/`));
+      expect(await command(h, "Page.enable", {}, "popup-session")).toEqual(
+        refused,
+      );
+      expect(h.connection.leafUnset(h.assignment)).toBe(true);
+      event(h, commit(`${SITE}/popup`, "popup"), "popup-session");
+      expect(h.connection.officeGated(h.assignment)).toBe(false);
+      expect(h.connection.leafUnset(h.assignment)).toBe(true);
+      // The tab, now the leaf again, was set up.
+      event(h, ["popupDetached", { sessionId: "popup-session" }]);
+      expect(h.connection.leafUnset(h.assignment)).toBe(false);
+    } finally {
+      h.connection.close();
+    }
+  });
+
   // tabs (task 34659f31): an entry whose leaf page is gated says so and
   // carries nothing read from that page; once the leaf leaves the office, no
   // field carries the office page it was on. Both leaf kinds: the offered tab

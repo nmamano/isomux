@@ -315,8 +315,9 @@ async function gateSession(actionMs = 5000, opened = false) {
   const playwrightCall = async (
     method: string,
     params: Record<string, unknown> = {},
+    via?: { wire: ConnectOverCDPTransport; session: string | undefined },
   ) => {
-    const answer = await cdp(method, params);
+    const answer = await cdp(method, params, via);
     if (answer.error)
       throw new Error(`Protocol error (${method}): Browser command refused`);
   };
@@ -337,15 +338,41 @@ async function gateSession(actionMs = 5000, opened = false) {
       params,
       ...(sessionId ? { sessionId } : {}),
     });
+  // The stand-in Chrome's clients, in attach order. refused: the targets
+  // ("root" for the tab, "pop" for the popup) whose setup the gate refused;
+  // Playwright never sets such a page up, and an action there hangs.
+  const clients: {
+    wire: ConnectOverCDPTransport;
+    sessions: Map<string, string>;
+    refused: Set<string>;
+  }[] = [];
   class Page extends EventEmitter {
     current = opened ? "about:blank" : `${SITE}/start`;
+    closed = false;
+    constructor(readonly targetId = "root") {
+      super();
+    }
+    via() {
+      return {
+        wire: transport,
+        session:
+          this.targetId === "root"
+            ? sessionId
+            : clients.at(-1)?.sessions.get(this.targetId),
+      };
+    }
+    // A page the current client never set up does not answer.
+    async ready() {
+      if (clients.at(-1)?.refused.has(this.targetId))
+        await new Promise(() => {});
+    }
     gotos: string[] = [];
     // Playwright page methods the session called, in order.
     calls: string[] = [];
     onClick: () => Promise<void> = async () => {};
     onGoto: (url: string) => Promise<void> = async () => {};
     isClosed() {
-      return false;
+      return this.closed;
     }
     mainFrame() {
       return {};
@@ -358,9 +385,12 @@ async function gateSession(actionMs = 5000, opened = false) {
     }
     async title() {
       this.calls.push("title");
-      await playwrightCall("Runtime.evaluate", {
-        expression: "document.title",
-      });
+      await this.ready();
+      await playwrightCall(
+        "Runtime.evaluate",
+        { expression: "document.title" },
+        this.via(),
+      );
       return `Title of ${this.current}`;
     }
     async click() {
@@ -379,11 +409,15 @@ async function gateSession(actionMs = 5000, opened = false) {
     }
     async screenshot() {
       this.calls.push("screenshot");
-      await playwrightCall("Page.captureScreenshot", {});
+      await this.ready();
+      await playwrightCall("Page.captureScreenshot", {}, this.via());
       return Buffer.from("png");
     }
   }
   const page = new Page();
+  // A popup the tab opened (task d5623ac5); in the context while open.
+  const popup = Object.assign(new Page("pop"), { current: `${SITE}/pop` });
+  let popupOpen = false;
   // Chrome's events for a main-frame navigation, in order; the stand-in page
   // follows the commit as Playwright's page.url() does.
   const navigate = (url: string, commit = true) => {
@@ -438,19 +472,30 @@ async function gateSession(actionMs = 5000, opened = false) {
       },
     };
   };
-  const context = Object.assign(new EventEmitter(), { pages: () => [page] });
+  const context = Object.assign(new EventEmitter(), {
+    pages: () => (popupOpen ? [page, popup] : [page]),
+  });
   const connect = spyOn(chromium, "connectOverCDP").mockImplementation(
     async (wire) => {
       transport = wire as ConnectOverCDPTransport;
+      const client = {
+        wire: transport,
+        sessions: new Map<string, string>(),
+        refused: new Set<string>(),
+      };
+      clients.push(client);
       transport.onmessage = (message) => {
         const m = message as {
           id?: number;
           method?: string;
           error?: unknown;
-          params?: { sessionId: string };
+          params?: { sessionId: string; targetInfo?: { targetId?: string } };
         };
-        if (m.method === "Target.attachedToTarget")
-          sessionId = m.params?.sessionId;
+        if (m.method === "Target.attachedToTarget" && m.params) {
+          const target = m.params.targetInfo?.targetId ?? "root";
+          client.sessions.set(target, m.params.sessionId);
+          if (target === "root") sessionId = m.params.sessionId;
+        }
         if (m.id !== undefined) answers.get(m.id)?.(m);
       };
       await cdp(
@@ -458,18 +503,33 @@ async function gateSession(actionMs = 5000, opened = false) {
         { autoAttach: true },
         { wire: transport, session: undefined },
       );
-      // Playwright's first commands on the page, as connectOverCDP sends
-      // them: a refused one fails the attach.
-      for (const method of [
-        "Page.enable",
-        "Page.getFrameTree",
-        "Runtime.enable",
-      ])
-        await playwrightCall(method);
+      // Playwright's first commands on each page, as connectOverCDP sends
+      // them. A refused one leaves that page not set up. It fails the attach
+      // only on a lone page: beside a popup, real Chrome attaches (task
+      // d5623ac5).
+      for (const [target, session] of client.sessions)
+        for (const method of [
+          "Page.enable",
+          "Page.getFrameTree",
+          "Runtime.enable",
+        ])
+          if ((await cdp(method, {}, { wire: transport, session })).error) {
+            client.refused.add(target);
+            break;
+          }
+      if (client.refused.has("root") && client.sessions.size === 1)
+        throw new Error(
+          "Protocol error (Page.enable): Browser command refused",
+        );
       return Object.assign(new EventEmitter(), {
         contexts: () => [context],
         isConnected: () => true,
-        close: async () => transport.close(),
+        // Playwright's close ends its own client's transport, later: the
+        // caller does not wait for it.
+        close: async () => {
+          await Bun.sleep(0);
+          client.wire.close();
+        },
       }) as unknown as Browser;
     },
   );
@@ -575,6 +635,28 @@ async function gateSession(actionMs = 5000, opened = false) {
     chrome,
     cdp,
     via: () => ({ wire: transport, session: sessionId }),
+    clients,
+    // The tab opens a popup, which becomes the leaf page.
+    openPopup: () => {
+      event("popup", {
+        sessionId: "popup-session",
+        targetInfo: {
+          type: "page",
+          targetId: "pop",
+          openerId: "root",
+          url: popup.current,
+        },
+      });
+      popupOpen = true;
+      context.emit("page", popup);
+    },
+    // The member closes the popup.
+    closePopup: () => {
+      event("popupDetached", { sessionId: "popup-session" });
+      popupOpen = false;
+      popup.closed = true;
+      popup.emit("close");
+    },
     // Attach the client with a harmless first action, as an agent's first
     // call would.
     warm: async () =>
@@ -854,6 +936,72 @@ test("a goto away from a page that reached an office between actions works and a
       // A closed transport throws at send.
     }
     expect(h.reached.slice(before)).toEqual([]);
+  } finally {
+    h.stop();
+  }
+});
+
+// Task d5623ac5: a page script in the popup took the tab behind it to an
+// office. A client that attaches then (after the first one ended: a timeout,
+// a debugger recovery, an actor switch) works on the popup, but the gate
+// refused its setup of the tab. Once the member closes the popup and takes
+// the tab to a site, that client must not act there: Playwright would wait
+// on a page it never set up until the action timeout, on every action.
+test("a client whose setup of the tab behind a popup was refused is replaced once the tab opens", async () => {
+  const h = await gateSession(1000);
+  try {
+    await h.warm();
+    h.openPopup();
+    h.navigate(`${OFFICE}/`);
+    h.via().wire.close();
+    expect(
+      await h.sessions.run("agent", { action: "screenshot" }),
+    ).toMatchObject({ ok: true, url: `${SITE}/pop` });
+    // The condition: a second client attached beside the popup, with its
+    // setup of the tab refused.
+    expect(h.clients).toHaveLength(2);
+    expect([...h.clients[1].refused]).toEqual(["root"]);
+    const stale = h.via();
+    h.closePopup();
+    h.navigate(`${SITE}/next`);
+    const result = await h.sessions.run("agent", { action: "screenshot" });
+    expect(result).toMatchObject({ ok: true, url: `${SITE}/next` });
+    expect(h.clients).toHaveLength(3);
+    expect([...h.clients[2].refused]).toEqual([]);
+    // The replaced client sends nothing after.
+    const before = h.reached.length;
+    try {
+      await Promise.race([
+        h.cdp("Runtime.evaluate", { expression: "1" }, stale),
+        Bun.sleep(100),
+      ]);
+    } catch {
+      // A closed transport throws at send.
+    }
+    expect(h.reached.slice(before)).toEqual([]);
+  } finally {
+    h.stop();
+  }
+});
+
+// Task d5623ac5, the control: a client that set the tab up before the gate
+// closed keeps working once the tab opens, also after the gate refused one
+// of its commands there.
+test("a client that set the tab up before its gate closed behind a popup stays", async () => {
+  const h = await gateSession(1000);
+  try {
+    await h.warm();
+    h.openPopup();
+    h.navigate(`${OFFICE}/`);
+    // The condition: a command of this client on the gated tab is refused.
+    expect(
+      (await h.cdp("Runtime.evaluate", { expression: "1" })).error,
+    ).toBeDefined();
+    h.closePopup();
+    h.navigate(`${SITE}/next`);
+    const result = await h.sessions.run("agent", { action: "screenshot" });
+    expect(result).toMatchObject({ ok: true, url: `${SITE}/next` });
+    expect(h.clients).toHaveLength(1);
   } finally {
     h.stop();
   }

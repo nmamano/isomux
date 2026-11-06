@@ -154,6 +154,11 @@ type Assignment = {
   state: GrantState;
   // Sessions whose Target.setAutoAttach the current client got a result for.
   autoAttached: Set<string>;
+  // Pages (keys as in pages) whose setup commands (Page.enable,
+  // Page.createIsolatedWorld) on their own session the gate refused for the
+  // current client. That client never set the page up and hangs there once
+  // the gate opens.
+  unset: Set<string>;
   // Open JavaScript dialogs by page or frame session. One that is open blocks
   // every command on its page.
   dialogs: Map<string, { type: string; message: string }>;
@@ -807,6 +812,13 @@ export class ExtensionConnection {
     return a ? (a.pages.get(this.leaf(a))?.gated ?? false) : false;
   }
 
+  /** True when the gate refused the current client's setup of the grant's
+   * leaf page. */
+  leafUnset(grant: string): boolean {
+    const a = this.assignments.get(grant);
+    return a ? a.unset.has(this.leaf(a)) : false;
+  }
+
   /** Calls listener after each gate close on the grant; returns the
    * unsubscribe. */
   onGateClose(grant: string, listener: () => void): () => void {
@@ -1065,6 +1077,11 @@ export class ExtensionConnection {
         (url !== undefined && httpOrigin(url) !== undefined && !toRefused)
       : method !== "Page.navigate" || !toRefused;
     if (allowed) return;
+    if (
+      sessionId === key &&
+      (method === "Page.enable" || method === "Page.createIsolatedWorld")
+    )
+      a.unset.add(key);
     a.officeRefusals++;
     throw new Error("Office page refused");
   }
@@ -1098,6 +1115,7 @@ export class ExtensionConnection {
     assignment.peer = peer;
     assignment.actor = agentId;
     assignment.autoAttached = new Set();
+    assignment.unset = new Set();
     assignment.world = { isolated: "none" };
     return {
       receive: (message) =>
@@ -1472,6 +1490,7 @@ export class ExtensionConnection {
       answersTooLarge: 0,
       state: { kind: "creating" },
       autoAttached: new Set(),
+      unset: new Set(),
       dialogs: new Map(),
       world: { isolated: "none" },
     };
@@ -2231,6 +2250,7 @@ export class ExtensionConnection {
         if (!popup) return;
         a.popups.delete(params.sessionId);
         a.pages.delete(params.sessionId);
+        a.unset.delete(params.sessionId);
         a.dialogs.delete(params.sessionId);
         this.endLeaves(a, params.sessionId);
         for (const [child, page] of a.childPages)
