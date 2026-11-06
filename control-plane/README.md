@@ -1811,6 +1811,56 @@ reservation kept. No account id, email or office name.
 - **Daily count by source:**
   `select to_char(to_timestamp(paid_at / 1000) at time zone 'UTC', 'YYYY-MM-DD') as day, utm_source, referrer_host, count(*) from first_paid_checkouts group by 1, 2, 3 order by 1;`
 
+## Critical-issue status pages
+
+The enterprise agreement (section 7) promises a written update at least every
+hour until a critical issue is resolved, on a status page for the issue and by
+email to the customer's contacts. `incidents.ts` is its listed verb surface;
+the tables are in `incidents-ddl.ts` (owner migration `migrate-incidents`).
+
+- **The customer's page.** `/status/<token>` lists one customer's issues and
+  `/status/<token>/<n>` shows one, with every time in the issue's time zone and
+  in UTC. No sign-in: the token is the key. It is not stored: it is
+  `<customer id>.<HMAC>` over the customer id and its `link_generation`, with a
+  key derived from `AUTH_SECRET` (`statusToken`). A database copy alone gives
+  no link. Re-making the link in ops raises the generation and kills every
+  older link, also those in emails already sent; so does a new `AUTH_SECRET`.
+  `next.config.ts` sends noindex, `Referrer-Policy: no-referrer` and
+  `Cache-Control: no-store` on every `/status` path. English only.
+- **Updates are append-only.** An update holds what we found, what we do now
+  and an estimate as a time (required until the final update). The web role has
+  no update or delete grant on `incident_updates`: a correction is a new update.
+  A final update resolves the issue in the same transaction, and no update
+  posts after it. Each post locks the issue row first.
+- **Who posts.** An operator, signed in, at `/ops/incidents` (open an issue
+  with its first update, post, resolve, re-make a link, make the write key).
+  The support agent with the write key: `POST /api/ops/incidents/<id>/updates`
+  with `Authorization: Bearer <key>` and the JSON body `{found, doingNow,
+estimateAt, final}` (`estimateAt` in epoch ms, null only with `final:
+true`); 401 for a bad key, 404 for an unknown issue, 400 for a broken rule,
+  409 once resolved. `GET /api/ops/incidents?due=1` with the key lists the open
+  issues whose last update is 40 minutes old or more; without `due=1`, every
+  open issue. The key is 256 random bits, kept as a sha256 hash, shown once; no
+  key works until an operator makes one. Both routes are rate-limited
+  (`incidentLimiter`).
+- **The email.** After each post commits, one Resend call (`AUTH_RESEND_KEY`)
+  sends the whole update and the issue link to every contact, replies to
+  `llc@isomux.com`. A failed email does not undo the update; the answer and the
+  ops page say `sent`, `failed` or `not_configured`. A failure logs the HTTP
+  status only: the request holds the private link.
+- **The reminder.** `support/incident-reminder.ts` runs in our own office as an
+  office app (not an agent turn). Every 2 minutes it reads the due list; at 40
+  minutes after the last update it messages the support agent
+  (`ISOMUX_SUPPORT_AGENT_ID`; unset, no message), at 50 minutes it pages the
+  app's owner, once per gap, and resolves the page when an update lands. When
+  it cannot read the due list for 10 minutes (a rotated key, an outage), it
+  pages that once. It needs the office up. Registering it is an Isomux PM errand after the deploy:
+  make the key at `/ops/incidents`, give it to the app as the secret
+  `INCIDENT_WRITE_KEY`, and register `bun control-plane/support/incident-reminder.ts`
+  as an app.
+- **What an update must not hold:** secrets or customer data. Emails get
+  forwarded, and the link opens the page with no sign-in.
+
 ## Billing (Stripe test-mode account)
 
 Signup, the comped path, webhooks and the dunning ladder. Every module lives in
@@ -3042,7 +3092,8 @@ id, and the shared handle cannot be set as the invoice default.
 `ops.ts` is to operators what `requests.ts` is to customers: a listed verb
 surface, pinned by the boundary test, so the operator side cannot grow as a side
 effect of writing a page. Three verbs - `opsFloor`, `opsInstance`,
-`acknowledgeInstance`.
+`acknowledgeInstance`. The critical-issue verbs are a separate surface,
+`incidents.ts` ("Critical-issue status pages"), under the same two rules.
 
 Two rules shape all three:
 

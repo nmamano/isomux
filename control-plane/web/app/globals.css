@@ -804,3 +804,39 @@ main .btn-primary:hover:not(:disabled) {
     right: 10px;
   }
 }
+
+/* The critical-issue status page (/status/<token>/<n>): one update per
+   block, the newest with the accent rule, and the current estimate large. */
+.upd {
+  border-left: 3px solid var(--border);
+  padding: 2px 0 2px 16px;
+  margin: 0 0 22px;
+}
+.upd.latest {
+  border-left-color: var(--accent);
+}
+.upd .when {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0 0 6px;
+}
+.upd dl {
+  margin: 0;
+}
+.upd dt {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-top: 6px;
+}
+.upd dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.eta {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text);
+}

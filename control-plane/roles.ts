@@ -270,6 +270,39 @@ export const WEB_GRANTS: readonly TableGrant[] = [
     because:
       "the unsubscribe link in a welcome mail opts the account out; it cannot start, move or resend a step",
   },
+  {
+    table: "status_customers",
+    verbs: ["select", "insert"],
+    updateColumns: ["link_generation", "version", "updated_at"],
+    because:
+      "an operator opens a customer's first critical issue and can re-make its private status link",
+  },
+  {
+    table: "incidents",
+    verbs: ["select", "insert"],
+    updateColumns: ["status", "resolved_at", "version", "updated_at"],
+    because:
+      "an operator opens a critical issue and a final update resolves it; nothing else on it changes",
+  },
+  {
+    table: "incident_updates",
+    verbs: ["select", "insert"],
+    because:
+      "the hourly updates of a critical issue; no update or delete, so a posted update never changes",
+  },
+  {
+    table: "incident_keys",
+    verbs: ["select"],
+    updateColumns: [
+      "key_hash",
+      "rotated_at",
+      "rotated_by",
+      "version",
+      "updated_at",
+    ],
+    because:
+      "the incident write key is checked on each keyed call and rotated by an operator; its one row is seeded",
+  },
 ];
 
 /**
@@ -903,6 +936,70 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     columns: ["opted_out_at", "next_due_at", "version", "updated_at"],
     via: "unsubscribeWelcomeMail -> store:unsubscribeWelcomeMail opts the account out",
   },
+  {
+    table: "status_customers",
+    verb: "select",
+    via:
+      "incidents:statusListFor, incidents:statusIncidentFor check the link; " +
+      "incidents:opsIncidents, incidents:openIncident, incidents:remakeStatusLink",
+  },
+  {
+    table: "status_customers",
+    verb: "insert",
+    via: "incidents:openIncident creates the customer of its first issue",
+  },
+  {
+    table: "status_customers",
+    verb: "update",
+    columns: ["link_generation", "version", "updated_at"],
+    via: "incidents:remakeStatusLink kills the old link",
+  },
+  {
+    table: "incidents",
+    verb: "select",
+    via:
+      "incidents:statusListFor, incidents:statusIncidentFor, incidents:opsIncidents, " +
+      "incidents:openIncident, incidents:postUpdateAsOperator, incidents:postUpdateWithKey, " +
+      "incidents:incidentsWithKey",
+  },
+  {
+    table: "incidents",
+    verb: "insert",
+    via: "incidents:openIncident",
+  },
+  {
+    table: "incidents",
+    verb: "update",
+    columns: ["status", "resolved_at", "version", "updated_at"],
+    via: "incidents:postUpdateAsOperator, incidents:postUpdateWithKey resolve on a final update",
+  },
+  {
+    table: "incident_updates",
+    verb: "select",
+    via:
+      "incidents:statusListFor, incidents:statusIncidentFor, incidents:opsIncidents, " +
+      "incidents:postUpdateAsOperator, incidents:postUpdateWithKey, incidents:incidentsWithKey",
+  },
+  {
+    table: "incident_updates",
+    verb: "insert",
+    via:
+      "incidents:openIncident (the first update), incidents:postUpdateAsOperator, " +
+      "incidents:postUpdateWithKey",
+  },
+  {
+    table: "incident_keys",
+    verb: "select",
+    via:
+      "incidents:postUpdateWithKey, incidents:incidentsWithKey check the key; " +
+      "incidents:opsIncidents shows when it was rotated",
+  },
+  {
+    table: "incident_keys",
+    verb: "update",
+    columns: ["key_hash", "rotated_at", "rotated_by", "version", "updated_at"],
+    via: "incidents:rotateIncidentKey",
+  },
 ];
 
 /**
@@ -918,6 +1015,18 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
   {
     boot: ["DATABASE_IDENTITY_ENV", "proveDatabaseIdentity"],
     cancel: ["requestCancel", "requestUncancel"],
+    incidents: [
+      "incidentsWithKey",
+      "openIncident",
+      "opsIncidents",
+      "postUpdateAsOperator",
+      "postUpdateWithKey",
+      "remakeStatusLink",
+      "rotateIncidentKey",
+      "statusIncidentFor",
+      "statusListFor",
+      "statusToken",
+    ],
     "mint-client": ["fetchInviteFromSeam", "seamConfigFrom"],
     ops: ["acknowledgeInstance", "opsFloor", "opsInstance"],
     plans: ["PLANS", "planById", "planByProviderProduct", "resolveStripePrice"],
@@ -983,6 +1092,8 @@ export const AUDITED_WEB_STORE_CALLS: readonly string[] = [
  */
 export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
   "boot:DATABASE_IDENTITY_ENV": "the name of an environment variable",
+  "incidents:statusToken":
+    "derives a customer's status link from the secret, its id and its generation",
   "mint-client:fetchInviteFromSeam":
     "an HTTP call to the provisioner's invite seam; the seam's reads are the provisioner's verbs",
   "mint-client:seamConfigFrom":

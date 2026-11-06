@@ -256,3 +256,33 @@ journal again rather than repeating the chown: a different Caddy failure has
 the same customer-visible symptom. A box that has not run the installer with
 the new restart policy stays down. A box that has run it retries every five
 seconds, but a retry cannot repair a different failure.
+
+## An enterprise customer reports a critical issue
+
+The enterprise agreement promises a written update at least every hour, day and
+night, until a critical issue is resolved, on a status page for the issue and
+by email to the customer's contacts (control-plane README, "Critical-issue
+status pages").
+
+1. An operator opens the issue at `cloud.isomux.com/ops/incidents`: the
+   customer's name, its contacts (1 to 10 addresses), the kind (critical or
+   security), the customer's time zone, a title, and the first update. Opening
+   emails the first update. Send the customer's status link (on the same page,
+   "Customer links") with the first reply, if the customer does not have it.
+2. Post an update before each hour ends: what we found, what we are doing now,
+   and when we expect the fix, as a time. The support agent posts with the
+   write key: `POST https://cloud.isomux.com/api/ops/incidents/<issue id>/updates`,
+   header `Authorization: Bearer <key>`, JSON body
+   `{"found": "...", "doingNow": "...", "estimateAt": <epoch ms>}`. The issue
+   ids are in `GET https://cloud.isomux.com/api/ops/incidents` with the same
+   header. The answer names the email outcome; on `failed`, email the update to
+   the contacts by hand.
+3. Never put secrets, credentials or customer data in an update: the email can
+   be forwarded and the page has no sign-in. An update cannot be changed; post
+   a correction as a new update.
+4. When the fix is in, post the final update (`"final": true`, `estimateAt`
+   null, or tick "Final update" in the form). It resolves the issue and emails
+   the contacts.
+
+If a link leaks, use "Re-make link" for that customer and send the new link to
+its contacts: the old link stops working, also in emails already sent.

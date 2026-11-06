@@ -55,7 +55,19 @@ const config: NextConfig = {
   // rejection once per process.
   images: { unoptimized: true, maximumDiskCacheSize: 0 },
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    return [
+      { source: "/(.*)", headers: securityHeaders },
+      // A customer's private status link is in the path. AFTER the entry
+      // above, because the later Referrer-Policy wins.
+      {
+        source: "/status/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      },
+    ];
   },
 };
 

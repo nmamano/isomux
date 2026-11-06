@@ -106,6 +106,14 @@ export const signupLimiter = createLimiter({
   maxKeys: MAX_KEYS,
 });
 
+/** The critical-issue routes (/api/ops/incidents/...), keyed or signed in.
+ * The office reminder polls every 2 minutes; posts are a few an hour. */
+export const incidentLimiter = createLimiter({
+  limit: 60,
+  windowMs: TEN_MINUTES,
+  maxKeys: MAX_KEYS,
+});
+
 export const UNKNOWN_CLIENT = "unknown";
 
 export function clientKey(headers: Headers): string {

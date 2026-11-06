@@ -62,7 +62,9 @@ after an authenticated operator read; it does not poll, send, or subscribe
 (`control-plane/web/app/ops/page.tsx:17-65`). The instance page includes all past
 and open reasons, operations, and audit events, so it is useful for diagnosis
 after discovery (`control-plane/ops.ts:132-167`). The only operator write exposed
-by this surface is acknowledgement (`control-plane/ops.ts:170-189`).
+by this surface is acknowledgement (`control-plane/ops.ts:170-189`). The
+critical-issue pages at `/ops/incidents` are a separate surface for enterprise
+customers' issues (`control-plane/incidents.ts`) and do not touch attention.
 
 Therefore, the current answer to "who notices?" is: an authenticated operator
 who visits `/ops`. The current answer to "how fast?" has no bound. The row is

@@ -37,6 +37,11 @@
 import type { PoolLimits } from "../../store";
 import type { ProgressView } from "../../progress";
 import type { OpsFloor, OpsInstanceView } from "../../ops";
+import type { DueIncidentItem, IncidentUpdateInput } from "../../incidents";
+import type { OpenIncidentInput, OpsIncidentsView } from "../../incidents";
+import type { PostRefusal, StatusIncidentView } from "../../incidents";
+import type { StatusListView } from "../../incidents";
+import type { IncidentMailOutcome } from "./incident-mail.server";
 import type { ReservationRow, SignupSource } from "../../signup";
 import type { AccountRow } from "../../stripe/billing-store";
 import type { CustomerPrice, StripePriceConfiguration } from "../../plans";
@@ -1124,6 +1129,163 @@ export async function acknowledgeOpsInstance(
   return withStore((store) =>
     acknowledgeInstance(store, accountId, instanceId),
   );
+}
+
+// ------------------------------------------------------ critical issues
+//
+// The status pages of an enterprise customer's critical issue (incidents.ts).
+// Each check lives in the incidents service, inside its transaction: the
+// customer's link, the operator column, or the write key. This file only reads
+// AUTH_SECRET for the link and sends the update's mail after the post commits.
+
+/** /ops/incidents, with each customer's status link. */
+export interface OpsIncidentsPage extends OpsIncidentsView {
+  /** Customer id -> its /status/<token> path. */
+  statusPaths: Record<string, string>;
+}
+
+/** Who posts an update: an operator's session or the write key. */
+export type IncidentPoster = { accountId: string } | { key: string };
+
+/** A post that went through, with what happened to its mail. */
+export type IncidentPostOutcome =
+  | { ok: true; incidentId: string; n: number; mail: IncidentMailOutcome }
+  | PostRefusal;
+
+/** The key the status links are made with: Auth.js's own secret, under a
+ * context of its own (incidents.ts statusToken). */
+function statusSecret(): string | null {
+  return process.env.AUTH_SECRET || null;
+}
+
+/** /status/<token>. Null for a bad, stale or unknown token. */
+export async function statusList(
+  token: string,
+): Promise<StatusListView | null> {
+  const secret = statusSecret();
+  if (!secret) return null;
+  const { statusListFor } = await import("../../incidents");
+  return withStore((store) => statusListFor(store, secret, token));
+}
+
+/** /status/<token>/<n>. Null for a bad token or an n that is not its own. */
+export async function statusIncident(
+  token: string,
+  n: number,
+): Promise<StatusIncidentView | null> {
+  const secret = statusSecret();
+  if (!secret) return null;
+  const { statusIncidentFor } = await import("../../incidents");
+  return withStore((store) => statusIncidentFor(store, secret, token, n));
+}
+
+/** /ops/incidents. Null for a non-operator. */
+export async function opsIncidentsFor(
+  accountId: string,
+): Promise<OpsIncidentsPage | null> {
+  const { opsIncidents, statusToken } = await import("../../incidents");
+  const view = await withStore((store) => opsIncidents(store, accountId));
+  if (!view) return null;
+  const secret = statusSecret();
+  const statusPaths: Record<string, string> = {};
+  if (secret) {
+    for (const customer of view.customers) {
+      statusPaths[customer.id] =
+        `/status/${statusToken(secret, customer.id, customer.linkGeneration)}`;
+    }
+  }
+  return { ...view, statusPaths };
+}
+
+/** Mail a posted update to its contacts, after the post committed. A mail
+ * that fails does not undo the update: the update is the record. */
+async function mailPosted(
+  result: import("../../incidents").PostResult | null,
+): Promise<IncidentPostOutcome | null> {
+  if (!result) return null;
+  if (!result.ok) return result;
+  const { posted } = result;
+  const done = (mail: IncidentMailOutcome): IncidentPostOutcome => ({
+    ok: true,
+    incidentId: posted.incidentId,
+    n: posted.update.n,
+    mail,
+  });
+  const secret = statusSecret();
+  const origin = deploymentOrigin();
+  if (!secret || !origin) return done("not_configured");
+  const { statusToken } = await import("../../incidents");
+  const { sendIncidentUpdateMail } = await import("./incident-mail.server");
+  const token = statusToken(secret, posted.customerId, posted.linkGeneration);
+  const mail = await sendIncidentUpdateMail(
+    posted,
+    `${origin}/status/${token}/${posted.n}`,
+    { apiKey: process.env.AUTH_RESEND_KEY },
+  );
+  return done(mail);
+}
+
+/** Open an issue with its first update, and mail it. Null for a
+ * non-operator. */
+export async function openIncidentFor(
+  accountId: string,
+  input: OpenIncidentInput,
+): Promise<IncidentPostOutcome | null> {
+  const { openIncident } = await import("../../incidents");
+  return mailPosted(
+    await withStore((store) => openIncident(store, accountId, input)),
+  );
+}
+
+/** Post an update, and mail it. Null for a non-operator or a bad key. */
+export async function postIncidentUpdateFor(
+  poster: IncidentPoster,
+  incidentId: string,
+  input: IncidentUpdateInput,
+): Promise<IncidentPostOutcome | null> {
+  const { postUpdateAsOperator, postUpdateWithKey } =
+    await import("../../incidents");
+  return mailPosted(
+    await withStore((store) =>
+      "key" in poster
+        ? postUpdateWithKey(store, poster.key, incidentId, input)
+        : postUpdateAsOperator(store, poster.accountId, incidentId, input),
+    ),
+  );
+}
+
+/** The open issues for the write key, or only the due ones. Null for a bad
+ * key. */
+export async function incidentsForKey(
+  key: string,
+  dueOnly: boolean,
+): Promise<DueIncidentItem[] | null> {
+  const { incidentsWithKey } = await import("../../incidents");
+  return withStore((store) => incidentsWithKey(store, key, { dueOnly }));
+}
+
+/** Re-make a customer's link; returns its new /status/<token> path. Null for
+ * a non-operator or an unknown customer. */
+export async function remakeStatusLinkFor(
+  accountId: string,
+  customerId: string,
+): Promise<{ statusPath: string } | null> {
+  const secret = statusSecret();
+  if (!secret) throw new Error("AUTH_SECRET is not set");
+  const { remakeStatusLink } = await import("../../incidents");
+  const made = await withStore((store) =>
+    remakeStatusLink(store, accountId, secret, customerId),
+  );
+  return made ? { statusPath: `/status/${made.token}` } : null;
+}
+
+/** Rotate the write key; the new key is shown once. Null for a
+ * non-operator. */
+export async function rotateIncidentKeyFor(
+  accountId: string,
+): Promise<{ key: string } | null> {
+  const { rotateIncidentKey } = await import("../../incidents");
+  return withStore((store) => rotateIncidentKey(store, accountId));
 }
 
 export type RevealResult =

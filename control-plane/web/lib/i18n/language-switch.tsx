@@ -15,12 +15,15 @@ import { writeLanguageCookie } from "./use-language";
  * Where the switch does not appear.
  *
  * A pure function so the rule can be tested without a router: the operator floor
- * is English (S11 scope), and offering a language there would offer one its
- * pages do not have. A null pathname is the router before it has one, and the
- * bar is drawn on every other page.
+ * (S11 scope) and the critical-issue status pages are English, and offering a
+ * language there would offer one their pages do not have. A null pathname is
+ * the router before it has one, and the bar is drawn on every other page.
  */
 export function hidesLanguageSwitch(pathname: string | null): boolean {
-  return pathname === "/ops" || (pathname?.startsWith("/ops/") ?? false);
+  if (pathname === null) return false;
+  return ["/ops", "/status"].some(
+    (root) => pathname === root || pathname.startsWith(`${root}/`),
+  );
 }
 
 /**
@@ -32,6 +35,7 @@ export function hidesLanguageSwitch(pathname: string | null): boolean {
  *
  * OPS IS EXCLUDED (reviewer's condition, 2026-09-06): the operator floor is
  * English, and a switch there would offer a language its pages do not have.
+ * The critical-issue status pages are excluded for the same reason.
  *
  * WHAT IT SHOWS AS CURRENT is the document's own `lang`, watched rather than
  * recomputed. A page in this app arrives at its language two different ways -

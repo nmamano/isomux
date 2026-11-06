@@ -36,6 +36,9 @@ export default async function Ops() {
     <main className="wide">
       <DocumentLanguage language={OPS_LANGUAGE} />
       <h1>Ops floor</h1>
+      <p>
+        <Link href="/ops/incidents">Critical issues</Link>
+      </p>
 
       <h2>Attention</h2>
       {floor.attention.length === 0 ? (

@@ -830,7 +830,12 @@ ends at, host key fingerprint) - `operations` (as above) - `instance_secrets`
 we run) - `welcome_mails` (one row per office from its first live moment: the
 welcome series step, its due time, the unsubscribe token and the opt-out) -
 `first_paid_checkouts` (one row per office whose payment opened its create, with
-the signup source its reservation kept; no account id, email or office name).
+the signup source its reservation kept; no account id, email or office name) -
+`status_customers`, `incidents`, `incident_updates`, `incident_keys` (the
+critical-issue status pages for enterprise customers: one row per customer with
+its link generation, one per issue with its contacts and time zone, the
+append-only hourly updates, and the hash of the one write key;
+`control-plane/README.md`, "Critical-issue status pages").
 
 Attention is persisted, not derived: `attention_state`, `attention_reason`,
 `attention_severity`, `attention_raised_at`, `acknowledged_at`,

@@ -4,8 +4,14 @@
 
 import { describe, expect, test } from "bun:test";
 import { RATE_LIMITED_SIGNIN_URL } from "../../lib/rate-limit-marker";
-import { authLimiter, signupLimiter } from "../../lib/rate-limit.server";
+import {
+  authLimiter,
+  incidentLimiter,
+  signupLimiter,
+} from "../../lib/rate-limit.server";
 import * as authRoute from "./auth/[...nextauth]/route";
+import * as incidentsRoute from "./ops/incidents/route";
+import * as incidentUpdatesRoute from "./ops/incidents/[id]/updates/route";
 import * as signupRoute from "./signup/route";
 
 const ORIGIN = "https://storefront.example.com";
@@ -68,5 +74,34 @@ describe("the Auth.js route", () => {
     );
     expect(start.status).toBe(429);
     expect(await start.json()).toEqual({ url: RATE_LIMITED_SIGNIN_URL });
+  });
+});
+
+describe("the critical-issue routes", () => {
+  test("a spent address is refused before the key and the body", async () => {
+    const address = "192.0.2.30";
+    for (let i = 0; i < 60; i++) incidentLimiter.take(address);
+    const posted = await incidentUpdatesRoute.POST(
+      new Request(`${ORIGIN}/api/ops/incidents/i-1/updates`, {
+        method: "POST",
+        headers: {
+          origin: ORIGIN,
+          authorization: "Bearer some-key",
+          "x-forwarded-for": address,
+        },
+        body: unreadableBody(),
+      }),
+      { params: Promise.resolve({ id: "i-1" }) },
+    );
+    expect(posted.status).toBe(429);
+    const listed = await incidentsRoute.GET(
+      new Request(`${ORIGIN}/api/ops/incidents?due=1`, {
+        headers: {
+          authorization: "Bearer some-key",
+          "x-forwarded-for": address,
+        },
+      }),
+    );
+    expect(listed.status).toBe(429);
   });
 });

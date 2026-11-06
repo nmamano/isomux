@@ -29,6 +29,7 @@ import {
   WELCOME_MAILS_DDL,
   redactConnectionDetails,
 } from "./store.ts";
+import { INCIDENTS_DDL } from "./incidents-ddl.ts";
 import type { SqlArgs } from "./store.ts";
 import {
   ALL_VERBS,
@@ -69,12 +70,13 @@ export const EXPECTED_TABLES = PRODUCT_TABLES;
 /**
  * The tables a bootstrap EXPECTS to have rows, because the open writes them.
  *
- * `sequences` carries the audit seed and `schema_meta` the schema's own
- * bookkeeping. Neither is user data, and counting them as such would make
- * zero-user-data false on every correct bootstrap - which is the quietest way
- * to make a boolean stop meaning anything.
+ * `sequences` carries the audit seed, `schema_meta` the schema's own
+ * bookkeeping and `incident_keys` its one empty key row. None is user data,
+ * and counting them as such would make zero-user-data false on every correct
+ * bootstrap - which is the quietest way to make a boolean stop meaning
+ * anything.
  */
-const SEEDED = new Set(["sequences", "schema_meta"]);
+const SEEDED = new Set(["sequences", "schema_meta", "incident_keys"]);
 
 export type BootstrapResult = {
   schemaReady: boolean;
@@ -392,6 +394,20 @@ export async function migrateHostedCancellationPolicy(
   }
 }
 
+/** Owner-role migration for the critical-issue status pages (incidents.ts):
+ * four new tables and the empty write-key row. */
+export async function migrateIncidentTables(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [INCIDENTS_DDL]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /**
  * Every owner-role migration, as its CLI command, in the order it shipped and
  * the order `migrate-all` runs them. deploy.sh runs `migrate-all` with the new
@@ -449,6 +465,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-signup-attribution",
     run: migrateSignupAttribution,
     ready: "signup source schema",
+  },
+  {
+    command: "migrate-incidents",
+    run: migrateIncidentTables,
+    ready: "critical-issue status tables",
   },
 ];
 
