@@ -1722,6 +1722,39 @@ describe("OpenCode shared server supervisor", () => {
     expect(alive(lease.pid)).toBe(false);
   }, 20_000);
 
+  // Task 6619a97a: an acquire on its way holds the server like a lease. The
+  // last release before it counts must not leave an idle stop armed under it.
+  it("arms no idle stop while an acquire is on its way, and arms it once the last lease is released", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const idle = manualIdleScheduler();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      binary,
+      idleScheduler: idle.scheduler,
+    });
+    supervisors.push(supervisor);
+    const first = await supervisor.acquire();
+    const pid = first.pid;
+    const acquiring = supervisor.acquire();
+    first.release();
+    const armedOnItsWay = idle.isScheduled();
+    const next = await acquiring;
+    expect(armedOnItsWay, "armed under an acquire on its way").toBe(false);
+    expect(next.pid).toBe(pid);
+    expect(idle.isScheduled(), "armed under a counted lease").toBe(false);
+    const response = await fetch(`${next.baseUrl}/api/info`, {
+      headers: { authorization: next.authHeader },
+    });
+    expect(response.ok).toBe(true);
+    next.release();
+    expect(idle.isScheduled(), "not armed after the last release").toBe(true);
+    await idle.fire();
+    expect(alive(pid)).toBe(false);
+  }, 20_000);
+
   it("waits for an idle shutdown before granting a new healthy lease", async () => {
     const path = await root();
     const { binary, healthMarker } = await makeHealthOnlyBinary(path);
@@ -1842,6 +1875,235 @@ describe("OpenCode shared server supervisor", () => {
     while (alive(pid) && Date.now() < deadline) await Bun.sleep(25);
     return !alive(pid);
   }
+
+  // Holds each server start or stop at the agent host while its kind is
+  // held, until the test opens it, and can fail every start. The caller
+  // restores localAgentHost.
+  function gateServerRuns() {
+    type Kind = "start" | "stop";
+    const held: Record<Kind, boolean> = { start: false, stop: false };
+    const waiting: Record<Kind, (() => void)[]> = { start: [], stop: [] };
+    const finished: Record<Kind, number> = { start: 0, stop: 0 };
+    let failStarts = false;
+    let failStops = false;
+    setAgentHost({
+      ...localAgentHost,
+      run: async (argv, options) => {
+        const kind: Kind =
+          options?.env?.OPENCODE_SERVER_ACTION === "stop" ? "stop" : "start";
+        if (kind === "start" && failStarts)
+          return { exitCode: 1, stdout: "", stderr: "test start failure" };
+        if (kind === "stop" && failStops) throw new Error("test stop failure");
+        if (held[kind])
+          await new Promise<void>((resolve) => waiting[kind].push(resolve));
+        try {
+          return await localAgentHost.run(argv, options);
+        } finally {
+          finished[kind]++;
+        }
+      },
+    });
+    return {
+      hold(kind: Kind) {
+        held[kind] = true;
+      },
+      async waiting(kind: Kind) {
+        while (waiting[kind].length < 1) await Bun.sleep(5);
+      },
+      open(kind: Kind) {
+        held[kind] = false;
+        for (const run of waiting[kind].splice(0)) run();
+      },
+      finished: (kind: Kind) => finished[kind],
+      failStarts() {
+        failStarts = true;
+      },
+      failStops() {
+        failStops = true;
+      },
+    };
+  }
+
+  // The pid of each server start, in order.
+  async function launchedPids(marker: string): Promise<number[]> {
+    return existsSync(marker)
+      ? (await readFile(marker, "utf8")).split("\n").filter(Boolean).map(Number)
+      : [];
+  }
+
+  // Task 6619a97a: a stop asked while a start is in flight waits for that
+  // start and stops its server; the acquire that started it then gets a new
+  // server instead of one the stop takes away.
+  it("stops the server of a start in flight when a stop is asked during it", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      { share: "disabled" },
+      1000,
+      {},
+      binary,
+    );
+    const runs = gateServerRuns();
+    try {
+      runs.hold("start");
+      const acquiring = supervisor.acquire();
+      await runs.waiting("start");
+      const stopping = supervisor.shutdown();
+      // A stop beside the start finishes in this time; one after it waits.
+      const deadline = Date.now() + 500;
+      while (runs.finished("stop") === 0 && Date.now() < deadline)
+        await Bun.sleep(5);
+      runs.open("start");
+      const [lease] = await Promise.all([acquiring, stopping]);
+      const [startedPid] = await launchedPids(launchMarker);
+      expect(startedPid).toBeGreaterThan(0);
+      expect(
+        alive(startedPid),
+        "the stop left the server of the start in flight running",
+      ).toBe(false);
+      expect(lease.pid, "the lease got the stopped server").not.toBe(
+        startedPid,
+      );
+      expect(alive(lease.pid)).toBe(true);
+      lease.release();
+    } finally {
+      setAgentHost(localAgentHost);
+    }
+  }, 20_000);
+
+  // Task 6619a97a: a turn entry that finds its server unreachable while a
+  // stop is in flight starts the new server after that stop, not beside it.
+  it("starts the server for a turn entry only after a stop in flight", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    let ensures = 0;
+    let gate: Promise<void> | null = null;
+    let openGate = () => {};
+    let gated = false;
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      idleShutdownMs: 1000,
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      binary,
+      ensureServerSink: () => ensures++,
+      turnHealthCheck: async () => {
+        if (!gate) return "healthy";
+        gated = true;
+        await gate;
+        return "unreachable";
+      },
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    const priorPid = lease.pid;
+    const runs = gateServerRuns();
+    try {
+      gate = new Promise<void>((resolve) => (openGate = resolve));
+      const entering = lease.beginTurn();
+      while (!gated) await Bun.sleep(5);
+      runs.hold("stop");
+      const stopping = supervisor.shutdown();
+      await runs.waiting("stop");
+      const ensuresBefore = ensures;
+      openGate();
+      while (ensures === ensuresBefore) await Bun.sleep(5);
+      // A start beside the stop finishes in this time; one after it waits.
+      const deadline = Date.now() + 500;
+      while (runs.finished("start") === 0 && Date.now() < deadline)
+        await Bun.sleep(5);
+      runs.open("stop");
+      await Promise.all([entering, stopping]);
+      expect(alive(priorPid)).toBe(false);
+      expect(alive(lease.pid), "the stop took the turn's new server").toBe(
+        true,
+      );
+      const response = await fetch(`${lease.baseUrl}/api/info`, {
+        headers: { authorization: lease.authHeader },
+      });
+      expect(response.ok).toBe(true);
+      lease.endTurn();
+      lease.release();
+    } finally {
+      setAgentHost(localAgentHost);
+    }
+  }, 20_000);
+
+  // Task 6619a97a: a failed acquire after the last release keeps the idle
+  // stop of the server that still runs.
+  it("keeps the idle stop armed after an acquire fails on a server nothing uses", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const idle = manualIdleScheduler();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      binary,
+      idleScheduler: idle.scheduler,
+    });
+    supervisors.push(supervisor);
+    const first = await supervisor.acquire();
+    const pid = first.pid;
+    // The next acquire must replace this server, and its start fails.
+    first.markUnresponsive(pid, true);
+    first.release();
+    expect(idle.isScheduled()).toBe(true);
+    const runs = gateServerRuns();
+    try {
+      runs.failStarts();
+      await expectRejection(supervisor.acquire(), /test start failure/);
+    } finally {
+      setAgentHost(localAgentHost);
+    }
+    expect(alive(pid)).toBe(true);
+    expect(
+      idle.isScheduled(),
+      "the failed acquire disarmed the idle stop",
+    ).toBe(true);
+    await idle.fire();
+    expect(alive(pid)).toBe(false);
+  }, 20_000);
+
+  // Task 6619a97a: the idle stop runs from a timer, where a rejection would
+  // end the office process. A failed stop keeps the server, and its idle
+  // stop is armed again.
+  it("keeps the server and arms its idle stop again when the idle stop fails", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const idle = manualIdleScheduler();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+      binary,
+      idleScheduler: idle.scheduler,
+    });
+    supervisors.push(supervisor);
+    const first = await supervisor.acquire();
+    const pid = first.pid;
+    first.release();
+    const runs = gateServerRuns();
+    let fired: unknown = null;
+    try {
+      runs.failStops();
+      await idle.fire().catch((error: unknown) => (fired = error));
+    } finally {
+      setAgentHost(localAgentHost);
+    }
+    expect(fired, "the idle stop rejected from its timer").toBeNull();
+    expect(alive(pid)).toBe(true);
+    expect(idle.isScheduled(), "the failed stop left no idle stop").toBe(true);
+    const next = await supervisor.acquire();
+    expect(next.pid).toBe(pid);
+    next.release();
+    await idle.fire();
+    expect(alive(pid)).toBe(false);
+  }, 20_000);
 
   it("keeps the server for a model list in flight when the last turn ends, and replaces it after", async () => {
     const path = await root();

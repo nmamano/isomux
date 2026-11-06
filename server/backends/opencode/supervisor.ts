@@ -227,16 +227,47 @@ export interface OpenCodeSupervisorOptions {
   ensureServerSink?: () => void;
 }
 
-export class OpenCodeSupervisor {
-  private leases = 0;
-  private activeTurns = 0;
+// The work on a supervisor's server. Leases outlive a server (a replacement
+// gives retained leases the new one), and holds exist while a start runs.
+interface ServerUse {
+  leases: number;
+  turns: number;
   // Work on the server that no turn counts yet: an acquired lease until its
   // caller settles it, and a turn entry until the turn counts. A pending
   // replacement waits for it as it waits for turns.
-  private holds = 0;
-  private idleTimer: ReturnType<typeof setTimeout> | null = null;
-  private shutdownPromise: Promise<void> | null = null;
-  private record: ServerRecord | null = null;
+  holds: number;
+}
+
+// The server process of a supervisor, with at most one start or stop in
+// flight. `running` holds the last server a start gave; whether its process
+// still lives is checked at each use. Its idle timer is armed exactly while
+// nothing uses it (reconcileIdleTimer).
+type ServerPhase =
+  | { phase: "none" }
+  | {
+      phase: "starting";
+      // The server the start replaces or adopts, until the start ends.
+      previous: ServerRecord | null;
+      done: Promise<void>;
+      // A stop asked during the start: it runs as the start ends.
+      stopAfter: boolean;
+    }
+  | {
+      phase: "running";
+      record: ServerRecord;
+      idleTimer: ReturnType<typeof setTimeout> | null;
+    }
+  | {
+      phase: "stopping";
+      record: ServerRecord | null;
+      // A replacement: done also covers the marker and the reload request.
+      replace: boolean;
+      done: Promise<void>;
+    };
+
+export class OpenCodeSupervisor {
+  private readonly use: ServerUse = { leases: 0, turns: 0, holds: 0 };
+  private server: ServerPhase = { phase: "none" };
   // The variables with a value in the env each server process started with.
   // An adopted server matched the environment revision, so it has that env.
   private readonly recordLaunchVariables = new WeakMap<
@@ -262,8 +293,6 @@ export class OpenCodeSupervisor {
   // Callers of waitUntilCurrent, woken after each replacement try.
   private currentWaiters = new Set<() => void>();
   private currentMcpServers: AgentMcpServer[];
-  private replacementPromise: Promise<void> | null = null;
-  private starting: Promise<void> | null = null;
   private readonly idleScheduler: NonNullable<
     OpenCodeSupervisorOptions["idleScheduler"]
   >;
@@ -307,11 +336,9 @@ export class OpenCodeSupervisor {
     // check below and the caller's work.
     let entry: (() => void) | null = this.hold();
     try {
-      if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-      if (this.shutdownPromise) await this.shutdownPromise;
+      await this.stopInFlight();
       const replacement = await this.replaceServerIfRequested(1);
-      const replaceMarked = this.markReplaceable(this.activeTurns > 0);
+      const replaceMarked = this.markReplaceable(this.use.turns > 0);
       // A pending replacement: the helper would not adopt the server under
       // its new revisions and would stop it, so use it as it is.
       const record = this.record;
@@ -326,7 +353,7 @@ export class OpenCodeSupervisor {
       entry();
       throw error;
     }
-    this.leases++;
+    this.changeUse("leases", 1);
     const serverIdentity = recordIdentity(this.record!);
     if (this.serverLeaseCount?.key !== serverIdentity)
       this.serverLeaseCount = { key: serverIdentity, count: 0 };
@@ -377,8 +404,7 @@ export class OpenCodeSupervisor {
         entry = null;
         if (released) return;
         released = true;
-        this.leases--;
-        this.armIdleReap();
+        this.changeUse("leases", -1);
       },
       releaseAndStopIfStarted: () => {
         if (released) return;
@@ -390,9 +416,7 @@ export class OpenCodeSupervisor {
           recordIdentity(record) !== serverIdentity ||
           this.serverLeaseCount?.key !== serverIdentity ||
           this.serverLeaseCount.count !== 1 ||
-          this.leases > 0 ||
-          this.activeTurns > 0 ||
-          this.holds > 0
+          this.inUse()
         )
           return;
         this.shutdown().catch(() => {
@@ -406,32 +430,29 @@ export class OpenCodeSupervisor {
         entry = null;
         try {
           await this.replaceServerIfRequested(1);
-          if (this.shutdownPromise) await this.shutdownPromise;
-          await this.validateServerForTurn(this.activeTurns > 0);
+          await this.stopInFlight();
+          await this.validateServerForTurn(this.use.turns > 0);
           // A start this entry joined, or a turn that ended during it, can
           // leave a stale server that only this entry holds: replace it now.
           if (
             this.replacementRequested() &&
             (await this.replaceServerIfRequested(1)) === "replaced"
           )
-            await this.validateServerForTurn(this.activeTurns > 0);
+            await this.validateServerForTurn(this.use.turns > 0);
           turnActive = true;
-          this.activeTurns++;
-          if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
-          this.idleTimer = null;
+          this.changeUse("turns", 1);
         } finally {
           drop();
         }
       },
       recoverBeforePrompt: async () => {
         if (released || !turnActive) return;
-        await this.validateServerForTurn(this.activeTurns > 1, true);
+        await this.validateServerForTurn(this.use.turns > 1, true);
       },
       endTurn: () => {
         if (!turnActive) return;
         turnActive = false;
-        this.activeTurns--;
-        this.armIdleReap();
+        this.changeUse("turns", -1);
         this.replaceOnceIdle();
       },
       serverStopped: (pid) => {
@@ -541,7 +562,7 @@ export class OpenCodeSupervisor {
       this.currentWaiters.add(resolve);
       this.replaceOnceIdle();
       await promise;
-      if (this.activeTurns === 0 && this.holds === 0) return;
+      if (this.use.turns === 0 && this.use.holds === 0) return;
     }
   }
 
@@ -558,21 +579,152 @@ export class OpenCodeSupervisor {
   // "pending": the last turn or hold to end replaces it.
   async requestReload(): Promise<"reloaded" | "pending"> {
     this.reloadRequested = true;
-    if (this.activeTurns > 0 || this.holds > 0) return "pending";
+    if (this.use.turns > 0 || this.use.holds > 0) return "pending";
     return (await this.replaceIdleServer()) ? "reloaded" : "pending";
   }
 
+  // Joins a stop in flight. A stop asked during a start runs as that start
+  // ends, so no server from it outlives the stop.
   shutdown(): Promise<void> {
-    if (this.shutdownPromise) return this.shutdownPromise;
-    this.shutdownPromise = this.performShutdown().finally(() => {
-      this.shutdownPromise = null;
-    });
-    return this.shutdownPromise;
+    const server = this.server;
+    if (server.phase === "stopping") return server.done;
+    if (server.phase === "starting") {
+      server.stopAfter = true;
+      return server.done
+        .catch(() => undefined)
+        .then(() => {
+          const next = this.server;
+          return next.phase === "stopping" ? next.done : this.shutdown();
+        });
+    }
+    return this.beginStop(false);
+  }
+
+  // The server phase changes only through the methods below.
+
+  // The last server a start gave, until a stop ends: during a start, the one
+  // it replaces or adopts.
+  private get record(): ServerRecord | null {
+    const server = this.server;
+    if (server.phase === "running" || server.phase === "stopping")
+      return server.record;
+    if (server.phase === "starting") return server.previous;
+    return null;
+  }
+
+  private setServer(next: ServerPhase): void {
+    const current = this.server;
+    if (current.phase === "running" && current !== next && current.idleTimer)
+      this.idleScheduler.clearTimeout(current.idleTimer);
+    this.server = next;
+    this.reconcileIdleTimer();
+  }
+
+  private inUse(): boolean {
+    return this.use.leases > 0 || this.use.turns > 0 || this.use.holds > 0;
+  }
+
+  private changeUse(kind: keyof ServerUse, by: 1 | -1): void {
+    this.use[kind] += by;
+    this.reconcileIdleTimer();
+  }
+
+  // The idle timer is armed exactly while a server runs and nothing uses it.
+  private reconcileIdleTimer(): void {
+    const server = this.server;
+    if (server.phase !== "running") return;
+    if (this.inUse()) {
+      if (server.idleTimer) this.idleScheduler.clearTimeout(server.idleTimer);
+      server.idleTimer = null;
+    } else {
+      // A failed stop leaves the server running, with its idle stop armed
+      // again; the scheduler does not handle a rejection.
+      server.idleTimer ??= this.idleScheduler.setTimeout(
+        () =>
+          this.shutdown().catch(() => {
+            console.error("[opencode] Idle server stop failed.");
+          }),
+        this.idleShutdownMs,
+      );
+    }
+  }
+
+  private async stopInFlight(): Promise<void> {
+    const server = this.server;
+    if (server.phase === "stopping") await server.done;
+  }
+
+  private beginStart(replaceMarked: boolean): Promise<void> {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const previous = this.record;
+    const starting: Extract<ServerPhase, { phase: "starting" }> = {
+      phase: "starting",
+      previous,
+      done: promise,
+      stopAfter: false,
+    };
+    this.setServer(starting);
+    this.startServer(replaceMarked).then(
+      (record) => {
+        this.setServer({ phase: "running", record, idleTimer: null });
+        this.stopAfterStart(starting);
+        resolve();
+      },
+      (error: unknown) => {
+        // As before the start: the helper may have stopped that server; its
+        // liveness is checked at use.
+        this.setServer(
+          previous
+            ? { phase: "running", record: previous, idleTimer: null }
+            : { phase: "none" },
+        );
+        this.stopAfterStart(starting);
+        reject(error);
+      },
+    );
+    return promise;
+  }
+
+  private stopAfterStart(
+    starting: Extract<ServerPhase, { phase: "starting" }>,
+  ): void {
+    if (!starting.stopAfter) return;
+    // shutdown() waits on this stop and reports its failure.
+    this.beginStop(false).catch(() => undefined);
+  }
+
+  // A replacement also ends the reload request and removes the marker
+  // before the phase leaves stopping, so no caller sees it unmet.
+  private beginStop(replace: boolean): Promise<void> {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const record = this.record;
+    this.setServer({ phase: "stopping", record, replace, done: promise });
+    void (async () => {
+      try {
+        await this.performShutdown();
+      } catch (error) {
+        this.setServer(
+          record
+            ? { phase: "running", record, idleTimer: null }
+            : { phase: "none" },
+        );
+        throw error;
+      }
+      try {
+        if (replace) {
+          // A reload asked for during the stop is met too: the next server
+          // starts after it.
+          this.reloadRequested = false;
+          await getAgentHost().fs.rm(this.replaceMarkerPath);
+        }
+      } finally {
+        this.setServer({ phase: "none" });
+      }
+    })().then(resolve, reject);
+    return promise;
   }
 
   private async performShutdown(): Promise<void> {
-    if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
-    this.idleTimer = null;
     if (openCodeUnsupportedReason(this.platform)) return;
     // The profile, its record and the helper are agent space (design
     // section 3.2): the agent host does all of it as the agent user.
@@ -589,7 +741,6 @@ export class OpenCodeSupervisor {
       },
       output: "ignore",
     });
-    this.record = null;
   }
 
   // Every start and stop runs under an exclusive lock on the record file:
@@ -629,25 +780,31 @@ export class OpenCodeSupervisor {
   // One start at a time: a second start with other revisions would stop the
   // server the first brings up, which a lease can already hold. A caller
   // joins the start in flight and takes its server; older revisions on it
-  // are a pending replacement, made when the last turn or hold ends.
+  // are a pending replacement, made when the last turn or hold ends. A start
+  // waits for a stop in flight. Without a start or stop to join, it starts.
   private async ensureServer(replaceMarked = false): Promise<void> {
     this.ensureServerSink();
-    while (this.starting !== null) {
-      await this.starting.catch(() => undefined);
-      // A third caller can have started again since.
-      if (this.starting !== null) continue;
+    let joined = false;
+    for (;;) {
+      const server = this.server;
+      if (server.phase === "starting" || server.phase === "stopping") {
+        await server.done.catch(() => undefined);
+        joined = true;
+        continue;
+      }
       const record = this.record;
       if (
+        joined &&
         record &&
         processIdentityMatches(record.pid, record.startTicks) &&
         !(replaceMarked && record.pid === this.unresponsive?.pid)
       )
         return;
+      await this.beginStart(replaceMarked);
+      // A stop asked during this start runs now: start again after it.
+      if (this.server.phase === "running") return;
+      joined = true;
     }
-    this.starting = this.startServer(replaceMarked).finally(() => {
-      this.starting = null;
-    });
-    await this.starting;
   }
 
   // The revision a server started now gets: the shared server of a member's
@@ -662,7 +819,7 @@ export class OpenCodeSupervisor {
   private async startServer(
     replaceMarked: boolean,
     retried = false,
-  ): Promise<void> {
+  ): Promise<ServerRecord> {
     const binary = this.binary;
     const isolate = processIsolationNow().state === "on";
     const host = getAgentHost();
@@ -719,18 +876,19 @@ export class OpenCodeSupervisor {
       throw new Error(`OpenCode startup failed: ${stderr.trim()}`);
     }
     JSON.parse(stdout);
-    this.record = await this.readRecord();
-    if (!this.record)
+    const record = await this.readRecord();
+    if (!record)
       throw new Error("OpenCode startup did not write its server record.");
     this.recordLaunchVariables.set(
-      this.record,
+      record,
       new Set(
         Object.entries(launchEnv)
           .filter(([, value]) => value)
           .map(([name]) => name),
       ),
     );
-    if (this.record.pid !== this.unresponsive?.pid) this.unresponsive = null;
+    if (record.pid !== this.unresponsive?.pid) this.unresponsive = null;
+    return record;
   }
 
   private async validateServerForTurn(
@@ -778,37 +936,45 @@ export class OpenCodeSupervisor {
 
   // A replacement is requested while the running server has other revisions
   // than the current ones, after a member's reload, or while the marker
-  // exists. It never stops a
-  // running turn or held work and never waits for them: meanwhile it stays
-  // pending, and new turns and acquires use the current server. The last turn
-  // or hold to end replaces it (replaceOnceIdle). ownHolds: the caller's own
-  // holds, which do not count.
+  // exists. It never stops a running turn or held work and never waits for
+  // them: meanwhile it stays pending, and new turns and acquires use the
+  // current server. The last turn or hold to end replaces it
+  // (replaceOnceIdle). A start or stop in flight ends first, and the request
+  // is read again after it. ownHolds: the caller's own holds, which do not
+  // count.
   private async replaceServerIfRequested(
     ownHolds = 0,
   ): Promise<"none" | "pending" | "replaced"> {
-    const marker = join(this.profileDir, "server.replace");
-    if (!this.replacementPromise) {
-      if (
-        !this.replacementRequested() &&
-        !(await getAgentHost().fs.exists(marker))
-      )
-        return "none";
+    for (;;) {
+      if (!this.replacing()) {
+        if (
+          !this.replacementRequested() &&
+          !(await getAgentHost().fs.exists(this.replaceMarkerPath))
+        )
+          return "none";
+      }
+      // Another caller can have started the replacement during that await.
+      const server = this.server;
+      if (server.phase === "stopping" && server.replace) {
+        await server.done;
+        return "replaced";
+      }
+      if (this.use.turns > 0 || this.use.holds > ownHolds) return "pending";
+      if (server.phase === "starting" || server.phase === "stopping") {
+        await server.done.catch(() => undefined);
+        continue;
+      }
+      await this.beginStop(true);
+      return "replaced";
     }
-    // Another caller can have started the replacement during that await.
-    if (!this.replacementPromise) {
-      if (this.activeTurns > 0 || this.holds > ownHolds) return "pending";
-      this.replacementPromise = (async () => {
-        await this.shutdown();
-        // A reload asked for during the shutdown is met too: the next server
-        // starts after it.
-        this.reloadRequested = false;
-        await getAgentHost().fs.rm(marker);
-      })().finally(() => {
-        this.replacementPromise = null;
-      });
-    }
-    await this.replacementPromise;
-    return "replaced";
+  }
+
+  private replacing(): boolean {
+    return this.server.phase === "stopping" && this.server.replace;
+  }
+
+  private get replaceMarkerPath(): string {
+    return join(this.profileDir, "server.replace");
   }
 
   // From the record, not a flag: a server that any start gave the current
@@ -828,12 +994,12 @@ export class OpenCodeSupervisor {
   }
 
   private hold(): () => void {
-    this.holds++;
+    this.changeUse("holds", 1);
     let held = true;
     return () => {
       if (!held) return;
       held = false;
-      this.holds--;
+      this.changeUse("holds", -1);
       this.replaceOnceIdle();
     };
   }
@@ -842,7 +1008,7 @@ export class OpenCodeSupervisor {
   // left. Retained leases get the new server at once, as after a replacement
   // at acquire.
   private replaceOnceIdle(): void {
-    if (this.activeTurns > 0 || this.holds > 0) return;
+    if (this.use.turns > 0 || this.use.holds > 0) return;
     void this.replaceIdleServer()
       .catch(() => {
         console.error(
@@ -857,7 +1023,7 @@ export class OpenCodeSupervisor {
   // True when the replacement ran.
   private async replaceIdleServer(): Promise<boolean> {
     if ((await this.replaceServerIfRequested()) !== "replaced") return false;
-    if (this.leases > 0 && !this.record) await this.ensureServer();
+    if (this.use.leases > 0 && !this.record) await this.ensureServer();
     return true;
   }
 
@@ -869,14 +1035,6 @@ export class OpenCodeSupervisor {
     } catch {
       return null;
     }
-  }
-
-  private armIdleReap(): void {
-    if (this.leases > 0 || this.activeTurns > 0 || this.idleTimer) return;
-    this.idleTimer = this.idleScheduler.setTimeout(
-      () => this.shutdown(),
-      this.idleShutdownMs,
-    );
   }
 }
 

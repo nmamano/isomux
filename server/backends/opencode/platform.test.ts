@@ -45,6 +45,8 @@ describe("OpenCode on an unsupported host", () => {
         );
         expect(refusal, "the lease is refused").not.toBeNull();
         expect(refusal).toBe(openCodeUnsupportedReason(platform));
+        // A member's reload stops no server there either (task 6619a97a).
+        await supervisor.requestReload();
       } finally {
         await supervisor.shutdown();
       }
