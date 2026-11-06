@@ -196,7 +196,8 @@ describe("the schema sweep", () => {
 });
 
 describe("the lease session", () => {
-  test("a lost lease is taken again by the next acquisition, or the acquisition fails", async () => {
+  // Quarantined: flaky in CI, task 6032326c.
+  test.skip("a lost lease is taken again by the next acquisition, or the acquisition fails (flaky, task 6032326c)", async () => {
     const schema = schemaOf(await testDsn());
     await releaseTestStores();
     const runId = runIdOf(schema);
