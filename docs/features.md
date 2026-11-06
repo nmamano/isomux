@@ -126,7 +126,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 ## Developer tools
 
 - **Embedded terminal** for direct shell access per agent. Copy/paste works with the usual shortcuts. Selecting text also surfaces a "Send to chat" button that drops the selection into the chat input as a code block, ready to discuss with the agent. Agents can read the output of the terminals in their rooms.
-- **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards, or open the file for you). Selecting text surfaces a "Cite" button that drops the selection into the chat input with its file path and lines.
+- **Built-in file editor**: syntax highlighting, file tabs, a rendered preview for Markdown files, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards, or open the file for you). Selecting text surfaces a "Cite" button that drops the selection into the chat input with its file path and lines.
 - `/isomux-diff` - rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - **Browser preview cards** - agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser.
 - **Agents use your browser** - they open pages, click, and fill forms in a Chrome tab you share with them. See [Browser use](browser-use.md).

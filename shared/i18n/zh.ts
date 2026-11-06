@@ -2443,6 +2443,7 @@ App 的一些原则：
   "panels.editor.saveHint": "按 Ctrl+S 保存",
   "panels.editor.saved": "已保存",
   "panels.editor.recentlyOpened": "最近打开",
+  "panels.editor.preview": "预览",
   "panels.editor.staleBanner":
     "文件在打开后已在磁盘上更改。重新加载会丢弃当前编辑。",
   "panels.editor.externalBanner": "文件已在外部更改，重新加载会丢失当前编辑。",

@@ -2662,6 +2662,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "panels.editor.saveHint": "Ctrl+S to save",
   "panels.editor.saved": "saved",
   "panels.editor.recentlyOpened": "Recently opened",
+  "panels.editor.preview": "Preview",
   "panels.editor.staleBanner":
     "File changed on disk since you opened it. Reloading will discard your edits.",
   "panels.editor.externalBanner":

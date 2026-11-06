@@ -42,6 +42,7 @@ import {
 } from "./editor-state.ts";
 import { citationBlock, citedLines } from "./cite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
+import { Markdown } from "./Markdown.tsx";
 import { tintedFill } from "../components/dialog-styles.ts";
 
 interface Tab {
@@ -229,6 +230,15 @@ export function EditorPanel({
     readRecent(agentId),
   );
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  // Markdown tabs showing the rendered preview instead of the editor. Per
+  // tab and volatile: a reload or a closed tab opens in the editor again.
+  const [previewPaths, setPreviewPaths] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const previewRef = useRef<HTMLDivElement>(null);
+  // Set by the toggle so the focus follows it (and Ctrl+S has a target); a
+  // tab switch that changes the mode does not move the focus.
+  const focusAfterToggleRef = useRef(false);
   const tabMenuRef = useRef<HTMLDivElement>(null);
   const tabMenuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -947,7 +957,11 @@ export function EditorPanel({
       // Only intercept when an editor is actively focused, otherwise let other shortcuts win.
       const view = viewRef.current;
       if (!view) return;
-      if (!view.dom.contains(document.activeElement)) return;
+      if (
+        !view.dom.contains(document.activeElement) &&
+        !previewRef.current?.contains(document.activeElement)
+      )
+        return;
       e.preventDefault();
       saveActiveTab();
     }
@@ -975,6 +989,12 @@ export function EditorPanel({
     (path: string) => {
       closeWatch(path);
       setTabsAndPersist((prev) => prev.filter((t) => t.path !== path));
+      setPreviewPaths((prev) => {
+        if (!prev.has(path)) return prev;
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
       setActivePath((prev) => {
         if (prev !== path) return prev;
         const remaining = tabsRef.current.filter((t) => t.path !== path);
@@ -996,6 +1016,29 @@ export function EditorPanel({
     () => tabs.find((t) => t.path === activePath) ?? null,
     [tabs, activePath],
   );
+  const canPreview = activeTab?.language === "markdown";
+  const previewing = canPreview && previewPaths.has(activeTab.path);
+
+  const togglePreview = useCallback(() => {
+    const path = activePathRef.current;
+    if (!path) return;
+    focusAfterToggleRef.current = true;
+    setPreviewPaths((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  }, []);
+
+  // Into the preview: focus the pane, so Ctrl+S works at once (a clicked
+  // button keeps the focus, and Safari does not focus it at all). Back to the
+  // editor: focus it on desktop only; on mobile it would open the keyboard.
+  useEffect(() => {
+    if (!focusAfterToggleRef.current) return;
+    focusAfterToggleRef.current = false;
+    if (previewing) previewRef.current?.focus();
+    else if (!mobile) viewRef.current?.focus();
+  }, [previewing, mobile]);
 
   const overwrite = useCallback(() => {
     if (!activeTab) return;
@@ -1153,6 +1196,14 @@ export function EditorPanel({
                 {tabs.length > 1 ? ` ${tabs.length}` : ""}
               </span>
             </button>
+          )}
+          {canPreview && (
+            <PreviewToggle
+              pressed={previewing}
+              onClick={togglePreview}
+              label={i18n.t("panels.editor.preview")}
+              mobile
+            />
           )}
           {activeTab?.dirty && (
             <button
@@ -1381,6 +1432,13 @@ export function EditorPanel({
               </div>
             ))}
           </div>
+          {canPreview && (
+            <PreviewToggle
+              pressed={previewing}
+              onClick={togglePreview}
+              label={i18n.t("panels.editor.preview")}
+            />
+          )}
           <button
             onClick={onClose}
             style={{
@@ -1620,17 +1678,51 @@ export function EditorPanel({
           {i18n.t("panels.editor.noFileOpen")}
         </div>
       )}
+      {/* The preview lies over the editor, which stays laid out (hidden, not
+          removed) so its scroll offset holds and the per-tab scroll restore
+          still lands while a tab shows its preview. */}
       <div
-        ref={containerRef}
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: "hidden",
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: 13,
-          display: tabs.length === 0 ? "none" : undefined,
+          position: "relative",
+          display: tabs.length === 0 ? "none" : "flex",
+          flexDirection: "column",
         }}
-      />
+      >
+        <div
+          ref={containerRef}
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflow: "hidden",
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 13,
+            visibility: previewing ? "hidden" : undefined,
+          }}
+        />
+        {previewing && (
+          <div
+            ref={previewRef}
+            data-editor-preview=""
+            tabIndex={-1}
+            style={{
+              position: "absolute",
+              inset: 0,
+              overflowY: "auto",
+              background: "var(--bg-base)",
+              padding: mobile ? "10px 14px" : "12px 20px",
+              fontFamily: "var(--font-ui)",
+              fontSize: 13.5,
+              lineHeight: 1.6,
+              color: "var(--text-primary)",
+              outline: "none",
+            }}
+          >
+            <Markdown content={activeTab.content} />
+          </div>
+        )}
+      </div>
 
       {/* Footer status. Mobile drops the path (low value at 320px and already
           available in the tab-dropdown tooltip) and the Ctrl+S hint (no Ctrl
@@ -1676,7 +1768,7 @@ export function EditorPanel({
           )}
         </div>
       )}
-      {citeAt && onCite && (
+      {citeAt && onCite && !previewing && (
         <CiteSelectionButton
           cite={citeAt}
           containerRect={citeAt.containerRect}
@@ -1685,6 +1777,45 @@ export function EditorPanel({
         />
       )}
     </div>
+  );
+}
+
+function PreviewToggle({
+  pressed,
+  onClick,
+  label,
+  mobile = false,
+}: {
+  pressed: boolean;
+  onClick: () => void;
+  label: string;
+  mobile?: boolean;
+}) {
+  return (
+    <button
+      data-editor-preview-toggle=""
+      aria-pressed={pressed}
+      onClick={onClick}
+      style={{
+        flexShrink: 0,
+        alignSelf: "center",
+        marginRight: 6,
+        padding: mobile ? "6px 12px" : "3px 10px",
+        borderRadius: 6,
+        border: `1px solid ${pressed ? "var(--green-border)" : "var(--border-medium)"}`,
+        background: pressed
+          ? "var(--green-bg)"
+          : tintedFill("var(--text-secondary)"),
+        color: pressed ? "var(--green-text)" : "var(--text-secondary)",
+        fontFamily: "var(--font-ui)",
+        fontSize: mobile ? 13 : 12,
+        fontWeight: pressed ? 600 : 500,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

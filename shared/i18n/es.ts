@@ -2739,6 +2739,7 @@ Cosas que puedes hacer por él:
   "panels.editor.saveHint": "Ctrl+S para guardar",
   "panels.editor.saved": "guardado",
   "panels.editor.recentlyOpened": "Abiertos recientemente",
+  "panels.editor.preview": "Vista previa",
   "panels.editor.staleBanner":
     "El archivo ha cambiado en el disco desde que lo abriste. Si lo recargas, perderás tus cambios.",
   "panels.editor.externalBanner":

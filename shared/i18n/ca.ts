@@ -2746,6 +2746,7 @@ Coses que pots fer per ell:
   "panels.editor.saveHint": "Ctrl+S per desar",
   "panels.editor.saved": "desat",
   "panels.editor.recentlyOpened": "Oberts recentment",
+  "panels.editor.preview": "Previsualització",
   "panels.editor.staleBanner":
     "El fitxer ha canviat al disc des que el vas obrir. Si el tornes a carregar, perdràs els teus canvis.",
   "panels.editor.externalBanner":
