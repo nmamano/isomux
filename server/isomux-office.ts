@@ -5517,6 +5517,9 @@ function resetServerModuleState(): void {
 }
 
 async function stopServer(server: Server<WsData>): Promise<void> {
+  // First, before any await: this manager's sessions stay open (below), and a
+  // late event from one must not write this office over the next boot's files.
+  agentManager.stop();
   // Force-close active sockets and stop accepting, freeing the (ephemeral) port
   // before the next harness boot.
   extensionService?.stop();
@@ -5538,11 +5541,9 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // is intentionally out of 0.3 scope - add a real registry only if a later
   // harness opens editor files (don't add speculative plumbing now).
   //
-  // Agent backend sessions are likewise not closed here: AgentManager exposes no
-  // stopAll() today, and the next createManagers() drops this manager instance
-  // entirely, so its parked (timer-free) sessions become GC-eligible. Fine for
-  // the serial T1 tier; a longer-lived/concurrent harness would want an
-  // agentManager.stop() that closes live sessions first (out of 0.3 scope).
+  // Agent backend sessions are likewise not closed here: the next
+  // createManagers() drops this manager instance, and agentManager.stop() above
+  // keeps their late events off the state files.
   browsers.clear();
   apiTokenSockets.clear();
   _testClearPresence();

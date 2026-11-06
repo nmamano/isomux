@@ -370,7 +370,15 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     return tasks?.length ? { backgroundTasks: tasks } : {};
   }
 
+  // Set by stop(): a stopped harness server's sessions can still deliver
+  // events, and a write then would put that office over the next boot's files.
+  let stopped = false;
+  function stopPersisting() {
+    stopped = true;
+  }
+
   function persistAll() {
+    if (stopped) return;
     const rooms = officeState.rooms;
     const persistedRooms: Room[] = rooms.map((r) => ({
       id: r.id,
@@ -632,6 +640,7 @@ export function createOfficePersistence(deps: OfficePersistenceDeps) {
     inFlightTurnForLogs,
     getManifest,
     persistAll,
+    stopPersisting,
     buildKilledAgentSummary,
     getKilledAgentSummaries,
     getKilledAgentSummariesForManager,

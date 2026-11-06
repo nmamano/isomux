@@ -1,7 +1,7 @@
 // Harness properties that would otherwise fail silently: distinct connection
 // ids per tab, a single live harness per process, an office database that
 // starts clean in each boot, and a stop that leaves no office env file set
-// for a later test file in the same process.
+// and no writer of the state files for a later test file in the same process.
 import { describe, it, expect, afterEach } from "bun:test";
 import { closeSync, fstatSync, openSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -10,8 +10,18 @@ import { expectRejection } from "./expect-rejection.ts";
 import { STATE_ROOT } from "../config.ts";
 import { OFFICE_DATABASE, officeAuditStore } from "../audit-store.ts";
 import { buildEnvForUserId } from "../env-loader.ts";
+import { loadAgents } from "../persistence.ts";
 
 let server: TestServer | null = null;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function waitUntil(pred: () => boolean, label: string) {
+  const deadline = Date.now() + 3000;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error(`waitUntil timed out: ${label}`);
+    await sleep(10);
+  }
+}
 
 afterEach(async () => {
   await server?.stop();
@@ -63,6 +73,83 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
     // A sync throw here fails the case.
     expect(buildEnvForUserId(null, {})?.A).toBeUndefined();
   });
+
+  // A stopped server's sessions keep their consumers, and a late event used
+  // to write that office's agents over the next server's agents.json: a
+  // spawn record read back as missing (task 908dee76).
+  it.each([
+    ["a new session id", "system_init"],
+    ["the end of the stream", "stream_end"],
+  ] as const)(
+    "a late event after stop (%s) leaves the next server's agents file alone",
+    async (_label, kind) => {
+      const a = (server = await startTestServer());
+      const old = await a.agentManager.spawn(
+        "Old",
+        a.stateRoot,
+        "default",
+        undefined,
+        undefined,
+        a.agentManager.getOrdinaryRooms()[0].id,
+      );
+      if (!old) throw new Error("spawn returned null");
+      await a.agentManager.sendMessage(old.id, "hello", "Morgan");
+      await waitUntil(
+        () =>
+          a.agentManager.getAgentLogs(old.id).some((e) => e.kind === "text"),
+        "turn done",
+      );
+      const session = a.fakeBackend.sessionForAgent(old.id)!;
+      const oldManager = a.agentManager;
+      if (kind === "stream_end") {
+        // A stream end writes only when it ends background work.
+        session.push({
+          kind: "background_tasks",
+          tasks: [{ id: "b1", kind: "command", label: "npm run dev" }],
+        });
+        await waitUntil(
+          () => !!oldManager.getAgent(old.id)?.backgroundTasks?.length,
+          "background work seen",
+        );
+      }
+      await a.stop();
+      server = null;
+
+      const b = (server = await startTestServer());
+      const kept = await b.agentManager.spawn(
+        "Kept",
+        b.stateRoot,
+        "default",
+        undefined,
+        undefined,
+        b.agentManager.getOrdinaryRooms()[0].id,
+      );
+      if (!kept) throw new Error("spawn returned null");
+      const onDisk = () =>
+        loadAgents()
+          .flatMap((r) => r.agents)
+          .map((x) => x.id);
+      expect(onDisk()).toEqual([kept.id]);
+
+      // The event reaches the stopped manager.
+      let reached: () => boolean;
+      if (kind === "system_init") {
+        session.push({
+          kind: "system_init",
+          sessionId: "late-session",
+          slashCommands: [],
+        });
+        reached = () => oldManager.getAgentLogs(old.id).length === 0;
+      } else {
+        session.endStream();
+        reached = () =>
+          oldManager.getAgent(old.id)?.dormant === true &&
+          oldManager.getAgent(old.id)?.backgroundTasks === null;
+      }
+      await waitUntil(reached, "late event consumed");
+      expect(onDisk()).toEqual([kept.id]);
+    },
+  );
 });
 
 describe("the office database across fresh boots", () => {

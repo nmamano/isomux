@@ -820,6 +820,7 @@ export function createAgentManager(deps: ManagerDeps) {
     inFlightTurnForLogs,
     getManifest,
     persistAll,
+    stopPersisting,
     buildKilledAgentSummary,
     getKilledAgentSummaries,
     getKilledAgentSummariesForManager,
@@ -9472,6 +9473,9 @@ export function createAgentManager(deps: ManagerDeps) {
   // Explicitly assembled public surface (see AgentManager type above). Mirrors
   // exactly the symbols server/isomux-office.ts consumed off the old namespace import.
   return {
+    // Ends this manager's writes to the state files, for a server stopped in
+    // a process that boots another (the test harness). It closes no session.
+    stop: stopPersisting,
     configureAgentTurnDeps,
     setMemberCeilingClamp,
     getRooms,
