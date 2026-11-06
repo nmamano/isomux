@@ -26,14 +26,15 @@ export const GHOST_LOBBY_GAP = 52;
 export const GHOST_WALL_SPOTS: Record<PresencePage, DoorCoord> = {
   tasks: { left: 310, top: 128 },
   apps: { left: 366, top: 83 },
-  inbox: { left: 168, top: 190 },
+  inbox: { left: 168, top: 172 },
   cronjobs: { left: 500, top: -11 },
   settings: { left: 772, top: 104 },
 };
 
 // The Inbox tray is right of its spot, so ghosts there stack leftward, along
 // the wall under the window, with the usual stack step mirrored. The tray
-// stays clear for clicks.
+// stays clear for clicks, and the spot is high enough that a stack of four
+// stays above the name tag of the agent at the front-left desk.
 export const GHOST_WALL_STACK_LEFT: ReadonlySet<PresencePage> = new Set([
   "inbox",
 ]);
