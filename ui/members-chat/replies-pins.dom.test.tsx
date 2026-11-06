@@ -120,6 +120,126 @@ it("retains a draft and its quote after a deleted target, with the reply-missing
   ).toBe(true);
 });
 
+// A send runs while the member keeps working: the box, the attachments and
+// the reply quote stay live during the POST. Success clears only what was sent.
+async function heldSend(
+  duringPost: (view: ReturnType<typeof render>) => Promise<void>,
+  before: { text: string },
+) {
+  const requests: unknown[] = [];
+  let release!: () => void;
+  setApiShim((_method, path, body) => {
+    if (path !== "/api/members-chat") throw new Error(path);
+    requests.push(body);
+    return new Promise((resolve) => {
+      release = () => resolve({ ...reply, id: "202609-00000003" });
+    });
+  });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const file = (init.body as FormData).get("files") as File;
+    return new Response(
+      JSON.stringify({
+        attachments: [
+          {
+            filename: `stored-${file.name}`,
+            originalName: file.name,
+            mediaType: "text/plain",
+            size: file.size,
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  }) as unknown as typeof fetch;
+  try {
+    const view = render(replyPanel());
+    fireEvent.click(view.getAllByLabelText(en.t("membersChat.actions"))[0]);
+    fireEvent.click(view.getAllByTitle(en.t("membersChat.reply"))[0]);
+    const composer = view.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: before.text } });
+    await attach(view, "sent.txt");
+    await act(async () =>
+      fireEvent.click(view.getByRole("button", { name: en.t("common.send") })),
+    );
+    // The POST is held: the send is in flight.
+    expect(requests).toEqual([
+      {
+        text: before.text,
+        replyTo: original.id,
+        attachments: [
+          {
+            filename: "stored-sent.txt",
+            originalName: "sent.txt",
+            mediaType: "text/plain",
+            size: 4,
+          },
+        ],
+      },
+    ]);
+    await duringPost(view);
+    await act(async () => release());
+    return {
+      text: composer.value,
+      files: ["sent.txt", "later.txt"].filter(
+        (name) => view.queryByText(name) !== null,
+      ),
+      quote:
+        view.container.querySelector("[data-members-chat-composer-quote]")
+          ?.textContent ?? null,
+    };
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+async function attach(view: ReturnType<typeof render>, name: string) {
+  const input =
+    view.container.querySelector<HTMLInputElement>("input[type=file]")!;
+  await act(async () => {
+    fireEvent.change(input, {
+      target: { files: [new File(["data"], name, { type: "text/plain" })] },
+    });
+  });
+  expect(view.queryByText(name) !== null).toBe(true);
+}
+
+it("a send clears the sent text, files and quote when nothing changed during it", async () => {
+  const after = await heldSend(async () => {}, { text: "hello" });
+  expect(after).toEqual({ text: "", files: [], quote: null });
+});
+
+it("keeps text typed, files attached and a reply picked while a send runs", async () => {
+  const after = await heldSend(
+    async (view) => {
+      const composer = view.getByRole("textbox");
+      fireEvent.change(composer, { target: { value: "hello\nagain" } });
+      await attach(view, "later.txt");
+      fireEvent.click(view.getAllByLabelText(en.t("membersChat.actions"))[1]);
+      fireEvent.click(view.getAllByTitle(en.t("membersChat.reply"))[1]);
+    },
+    { text: "hello" },
+  );
+  // Only the rest after the sent text stays, without its leading line break.
+  // The quote is the reply picked during the send (message 2), not the sent one.
+  expect({
+    ...after,
+    quote:
+      after.quote?.includes(reply.content) && !after.quote.includes("original"),
+  }).toEqual({ text: "again", files: ["later.txt"], quote: true });
+});
+
+it("keeps the whole box when the member edits inside the sent text while it sends", async () => {
+  const after = await heldSend(
+    async (view) => {
+      fireEvent.change(view.getByRole("textbox"), {
+        target: { value: "hello brave world" },
+      });
+    },
+    { text: "hello world" },
+  );
+  expect(after.text).toBe("hello brave world");
+});
+
 const pinned = {
   id: "202608-00000001",
   kind: "user" as const,

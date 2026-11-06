@@ -117,6 +117,15 @@ function formatWhen(language: SupportedLanguageCode, ts: number): string {
   );
 }
 
+// The draft left after a send of `sent` succeeds. New text after the sent
+// text stays; a draft the member changed inside the sent part stays whole.
+function unsentRest(draft: string, sent: string): string {
+  if (draft === sent) return "";
+  if (sent === "") return draft;
+  if (draft.startsWith(sent)) return draft.slice(sent.length).trimStart();
+  return draft;
+}
+
 interface Staged {
   id: string;
   originalName: string;
@@ -405,20 +414,31 @@ export function MembersChatPanel({
     setSending(true);
     setError(null);
     const device = getDevice();
+    // The member can keep typing, attaching and picking a reply while the
+    // POST runs, so on success clear only what this send took.
+    const sentText = input;
+    const sentStagedIds = new Set(staged.map((s) => s.id));
+    const sentReplyId = replyingTo?.id;
     chatApi
       .post({
-        text: input,
+        text: sentText,
         ...(replyingTo ? { replyTo: replyingTo.id } : {}),
         attachments: readyAttachments,
         ...(device ? { device } : {}),
       })
       .then((m) => {
         dispatch({ type: "members_chat_message", message: m });
-        setInput("");
-        setReplyingTo(null);
-        setStaged([]);
+        setInput((prev) => unsentRest(prev, sentText));
+        setReplyingTo((prev) => (prev?.id === sentReplyId ? null : prev));
+        setStaged((prev) => prev.filter((s) => !sentStagedIds.has(s.id)));
         setAtBottom(true);
-        if (textareaRef.current) textareaRef.current.style.height = "auto";
+        // Size the box to what stays, once React has rendered it.
+        const el = textareaRef.current;
+        if (el)
+          requestAnimationFrame(() => {
+            if (el.value === "") el.style.height = "auto";
+            else fitComposer(el, isMobile);
+          });
       })
       .catch((err: unknown) =>
         setError(
@@ -769,7 +789,6 @@ export function MembersChatPanel({
                             padding: "4px 0",
                           }}
                           title={t("membersChat.reply")}
-                          disabled={sending}
                           onClick={() => {
                             close();
                             setReplyingTo(m);
@@ -873,7 +892,6 @@ export function MembersChatPanel({
             />
             <button
               type="button"
-              disabled={sending}
               onClick={() => setReplyingTo(null)}
               aria-label={t("membersChat.cancelReply")}
               title={t("membersChat.cancelReply")}
