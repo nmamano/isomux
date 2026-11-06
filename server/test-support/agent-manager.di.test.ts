@@ -1199,7 +1199,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
     });
   }
 
-  it("keeps Codex terminal fallback when no browser card is actionable", async () => {
+  it("adds the Codex terminal fallback when no browser card is actionable", async () => {
     const cases = [
       ["no user", null, async () => []],
       [
@@ -1283,9 +1283,11 @@ describe("AgentManager DI (temp-state isolated)", () => {
         logs.find((entry) => entry.kind === "terminal-command")?.terminal
           ?.command,
       ).toContain("--device-auth");
+      // With a user, the card shows before the account check answers
+      // (task 3c781784); the fallback then follows it.
       expect(
         logs.some((entry) => entry.metadata?.providerLogin === "codex"),
-      ).toBe(false);
+      ).toBe(userId !== null);
     }
   });
 

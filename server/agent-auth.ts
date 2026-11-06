@@ -203,6 +203,8 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     trigger: "turn" | "login_command" = "turn",
   ): Promise<void> {
     const managed = agents.get(agentId);
+    let cardShown = false;
+    let canSignIn = false;
     if (
       (managed?.info.agentType === "codex" ||
         managed?.info.agentType === "claude") &&
@@ -217,47 +219,49 @@ export function createAgentAuth(deps: AgentAuthDeps) {
         if (!target) throw new Error("Provider account scope is unavailable.");
         if (cardHiddenFromTypist(managed, target, username))
           throw new Error("The typist cannot see the sign-in card.");
+        // A failed turn with the stored sign-in still on disk (a dead Codex
+        // token stays in auth.json) means it was rejected: the card's Sign
+        // out and Sign in replace it.
+        const rejected =
+          trigger === "turn" &&
+          instructions.kind === "login" &&
+          storedSignInKept(managed);
+        // A member's card has no Sign in on the office half; it says to
+        // ask an owner, so the entry does not say "sign in below".
+        const withheld = officeSignInWithheld(managed, target, username);
+        // The card reads the account on its own, so the entry does not wait
+        // for the account check: a cold one takes seconds.
+        addLogEntry(
+          agentId,
+          "system",
+          msg(
+            rejected
+              ? withheld
+                ? "systemEntries.signInRejectedOffice"
+                : "systemEntries.signInRejected"
+              : trigger === "login_command"
+                ? withheld
+                  ? "systemEntries.notSignedIn"
+                  : "systemEntries.signInPrompt"
+                : withheld
+                  ? "systemEntries.signInRequiredOffice"
+                  : "systemEntries.signInRequired",
+            { provider: providerDisplayName(provider) },
+          ),
+          { providerLogin: provider },
+        );
+        cardShown = true;
         const accounts = await deps.listProviderAccounts(managed.info.userId);
-        const account = accounts.find(
+        canSignIn = accounts.some(
           (value) =>
             value.provider === provider &&
             value.scope === target.scope &&
             value.canBrowserLogin,
         );
-        // A failed turn on an account that reads connected means the stored
-        // sign-in was rejected (a dead Codex token stays in auth.json): the
-        // card's Sign out and Sign in replace it.
-        const rejected =
-          trigger === "turn" &&
-          instructions.kind === "login" &&
-          account?.accountStatus === "connected";
-        if (account && (account.accountStatus !== "connected" || rejected)) {
-          // A member's card has no Sign in on the office half; it says to
-          // ask an owner, so the entry does not say "sign in below".
-          const withheld = officeSignInWithheld(managed, target, username);
-          addLogEntry(
-            agentId,
-            "system",
-            msg(
-              rejected
-                ? withheld
-                  ? "systemEntries.signInRejectedOffice"
-                  : "systemEntries.signInRejected"
-                : trigger === "login_command"
-                  ? withheld
-                    ? "systemEntries.notSignedIn"
-                    : "systemEntries.signInPrompt"
-                  : withheld
-                    ? "systemEntries.signInRequiredOffice"
-                    : "systemEntries.signInRequired",
-              { provider: providerDisplayName(provider) },
-            ),
-            { providerLogin: provider },
-          );
-          return;
-        }
       } catch {}
     }
+    if (cardShown && (canSignIn || agents.get(agentId) !== managed)) return;
+    // The walkthrough, for when the card cannot sign in.
     if (
       managed &&
       instructions.kind === "login" &&
@@ -270,6 +274,20 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     for (const command of instructions.commands ?? []) {
       emitAgentTerminalCommand(agentId, command);
     }
+  }
+
+  // True when the agent's stored sign-in is still on disk, as the backend
+  // reads it. False when that is unknown.
+  function storedSignInKept(managed: ManagedAgent): boolean {
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(managed.info.userId);
+    } catch {
+      return false;
+    }
+    // No env means no overlay: agents run on the base env, which the
+    // backend reads without one, as signedOutProvider does.
+    return getBackend(managed.info.agentType).isKnownSignedOut?.(env) === false;
   }
 
   // Only an owner signs the office account in or out (Nil, 2026-10-14), so

@@ -361,6 +361,10 @@ describe("provider auth affordances", () => {
     const notices = logs.slice(sent).filter((entry) => entry.kind === "system");
     expect(notices).toHaveLength(1);
     expect(notices[0].metadata?.providerLogin).toBe("claude");
+    // Claude reaches this notice only with no credentials: never a rejection.
+    expect(notices[0].content).toBe(
+      english.t("systemEntries.signInRequiredOffice", { provider: "Claude" }),
+    );
     // Topic generation skips a signed-out engine instead of calling it.
     expect(fake.oneShotCount).toBe(0);
     expect<string | null>(successfulTopicResult).toBeNull();
@@ -469,6 +473,9 @@ describe("provider auth affordances", () => {
     async function signedOutCodex(
       signedOut: () => boolean = () => true,
       backendType: AgentBackendType = "codex",
+      accounts: ManagerDeps["listProviderAccounts"] = async () => [
+        { ...claudeWire("office"), provider: "codex" as const },
+      ],
     ) {
       const fake = new FakeBackend({
         signedOut,
@@ -485,9 +492,7 @@ describe("provider auth affordances", () => {
       const h = await harness({
         backendType,
         fake,
-        accounts: async () => [
-          { ...claudeWire("office"), provider: "codex" as const },
-        ],
+        accounts,
         target: () => ({
           provider: "codex",
           scope: "office",
@@ -538,6 +543,39 @@ describe("provider auth affordances", () => {
         expect(h.mgr.getAgent(h.agentId)?.state).toBe("waiting_for_response");
       });
     }
+
+    // A cold account check runs real CLI probes for seconds (task 3c781784):
+    // the notice does not wait for it.
+    it("shows the sign-in notice before the account check ends", async () => {
+      let finish: ((accounts: ProviderAccountWire[]) => void) | undefined;
+      const check = new Promise<ProviderAccountWire[]>((resolve) => {
+        finish = resolve;
+      });
+      let checks = 0;
+      const h = await signedOutCodex(undefined, undefined, () => {
+        checks++;
+        return check;
+      });
+      await h.mgr.sendMessage(h.agentId, "hi", "tester");
+      await h.observe();
+      expect(checks).toBe(1);
+      expectOneSignInNotice(h.notices());
+      finish!([{ ...claudeWire("office"), provider: "codex" as const }]);
+      await check;
+      await Bun.sleep(0);
+      // The card can sign in, so nothing follows the notice.
+      expectOneSignInNotice(h.notices());
+      expect(
+        h.mgr
+          .getAgentLogs(h.agentId)
+          .filter(
+            (entry) =>
+              entry.kind === "terminal-command" ||
+              entry.content === "terminal fallback",
+          ),
+      ).toEqual([]);
+      expect(h.errors()).toEqual([]);
+    });
 
     it("keeps a message from a live Codex session after sign-out", async () => {
       let signedOut = false;
@@ -621,6 +659,8 @@ describe("provider auth affordances", () => {
       opts: {
         // The account the card reads; absent, the account lookup is not wired.
         account?: Partial<ProviderAccountWire>;
+        // The account lookup itself, in place of one that answers `account`.
+        list?: ManagerDeps["listProviderAccounts"];
         scope?: "office" | "personal";
         manager?: "owner" | "member";
       } = {},
@@ -633,6 +673,7 @@ describe("provider auth affordances", () => {
       setTestManagedOfficeEnv({ CODEX_HOME: codexHome, OPENAI_API_KEY: "" });
       const fake = new FakeBackend({
         isAuthError: (text) => codexBackend.detectAuthError(text),
+        signedOut: (env) => codexBackend.isKnownSignedOut!(env),
         session: {
           onSend: (_text, _attachments, session) => {
             session.push({ kind: "auth_needed" });
@@ -649,16 +690,28 @@ describe("provider auth affordances", () => {
         codexBackend.getLoginInstructions(opts);
       // By default a personal account, so no office-owner gate stands in
       // front of the walkthrough.
-      const h = await harness({
-        backendType: "codex",
-        fake,
-        accounts: opts.account
+      const list: ManagerDeps["listProviderAccounts"] =
+        opts.list ??
+        (opts.account
           ? async () => [
               {
                 ...claudeWire(scope, opts.account),
                 provider: "codex" as const,
               },
             ]
+          : undefined);
+      let checksDone = 0;
+      const h = await harness({
+        backendType: "codex",
+        fake,
+        accounts: list
+          ? async (...args) => {
+              try {
+                return await list(...args);
+              } finally {
+                checksDone++;
+              }
+            }
           : undefined,
         findUser: (person) =>
           (
@@ -718,6 +771,12 @@ describe("provider auth affordances", () => {
             commands().length > 0 ||
             askedOwner(),
         );
+      // Until the account lookup has answered and what follows its answer
+      // has run. Asserts nothing: callers check checksDone().
+      const checked = async () => {
+        await settle(() => checksDone > 0);
+        await Bun.sleep(0);
+      };
       return {
         ...h,
         signedOut,
@@ -728,6 +787,8 @@ describe("provider auth affordances", () => {
         cards,
         askedOwner,
         settled,
+        checked,
+        checksDone: () => checksDone,
       };
     }
 
@@ -743,8 +804,8 @@ describe("provider auth affordances", () => {
       expect(h.commands()).toEqual([]);
     });
 
-    // Codex reads the account without refreshing its token, so a dead token
-    // can still read as connected. The manager can sign out and in on the
+    // A dead token stays in auth.json, so a failed turn with auth.json on
+    // disk is a rejected sign-in. The manager can sign out and in on the
     // card; only the office half held from a member says to ask an owner.
     const rejectedCases = [
       ["personal", "member", "systemEntries.signInRejected"],
@@ -758,7 +819,8 @@ describe("provider auth affordances", () => {
           manager,
         });
         await h.mgr.sendMessage(h.agentId, "hello", "tester");
-        await h.settled();
+        await h.checked();
+        expect(h.checksDone()).toBe(1);
         expect(h.cards()).toEqual([english.t(key, { provider: "Codex" })]);
         expect(h.notices()).toEqual([]);
         expect(h.commands()).toEqual([]);
@@ -766,15 +828,110 @@ describe("provider auth affordances", () => {
       });
     }
 
-    it("keeps the walkthrough when the connected account cannot sign in on the card", async () => {
+    // A cold account check runs real CLI probes for seconds (task 3c781784):
+    // the card does not wait for it.
+    it("shows the card of a rejected sign-in before the account check ends", async () => {
+      let finish: ((accounts: ProviderAccountWire[]) => void) | undefined;
       const h = await codexWithAuthJson({
-        account: { accountStatus: "connected", canBrowserLogin: false },
+        list: () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
       });
       await h.mgr.sendMessage(h.agentId, "hello", "tester");
-      await h.settled();
-      expect(h.cards()).toEqual([]);
-      expect(h.notices()).toEqual([h.signedOutText]);
-      expect(h.commands()).toEqual(h.signedOut.commands!);
+      await settle(() => h.cards().length > 0);
+      expect(finish).toBeDefined();
+      expect(h.checksDone()).toBe(0);
+      expect(h.cards()).toEqual([
+        english.t("systemEntries.signInRejected", { provider: "Codex" }),
+      ]);
+      expect(h.notices()).toEqual([]);
+      expect(h.commands()).toEqual([]);
+      finish!([
+        {
+          ...claudeWire("personal", {
+            accountStatus: "connected",
+            canBrowserLogin: true,
+          }),
+          provider: "codex" as const,
+        },
+      ]);
+      await h.checked();
+      expect(h.checksDone()).toBe(1);
+      expect(h.cards()).toHaveLength(1);
+      expect(h.notices()).toEqual([]);
+      expect(h.commands()).toEqual([]);
+    });
+
+    // The card shows at once; when the check then finds that the card cannot
+    // sign in, the walkthrough follows it.
+    const fallbackCases: [string, ManagerDeps["listProviderAccounts"]][] = [
+      [
+        "the account cannot sign in on the card",
+        async () => [
+          {
+            ...claudeWire("personal", {
+              accountStatus: "connected",
+              canBrowserLogin: false,
+            }),
+            provider: "codex" as const,
+          },
+        ],
+      ],
+      [
+        "the account check fails",
+        async () => {
+          throw new Error("account check failed");
+        },
+      ],
+    ];
+    for (const [name, list] of fallbackCases) {
+      it(`adds the walkthrough after the card when ${name}`, async () => {
+        const h = await codexWithAuthJson({ list });
+        await h.mgr.sendMessage(h.agentId, "hello", "tester");
+        await h.checked();
+        expect(h.checksDone()).toBe(1);
+        expect(h.cards()).toEqual([
+          english.t("systemEntries.signInRejected", { provider: "Codex" }),
+        ]);
+        expect(h.notices()).toEqual([h.signedOutText]);
+        expect(h.commands()).toEqual(h.signedOut.commands!);
+        const logs = h.mgr.getAgentLogs(h.agentId);
+        expect(
+          logs.findIndex((e) => e.metadata?.providerLogin === "codex"),
+        ).toBeLessThan(logs.findIndex((e) => e.content === h.signedOutText));
+      });
+    }
+
+    it("adds no walkthrough to an agent removed during the account check", async () => {
+      let finish: ((accounts: ProviderAccountWire[]) => void) | undefined;
+      const h = await codexWithAuthJson({
+        list: () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      });
+      await h.mgr.sendMessage(h.agentId, "hello", "tester");
+      await settle(() => h.cards().length > 0);
+      expect(h.cards()).toHaveLength(1);
+      await h.mgr.kill(h.agentId);
+      expect(h.mgr.getAgent(h.agentId)).toBeUndefined();
+      expect(finish).toBeDefined();
+      finish!([
+        {
+          ...claudeWire("personal", {
+            accountStatus: "connected",
+            canBrowserLogin: false,
+          }),
+          provider: "codex" as const,
+        },
+      ]);
+      await h.checked();
+      expect(h.checksDone()).toBe(1);
+      // kill() drops the agent's log, so any entry here came after it.
+      expect(h.notices()).toEqual([]);
+      expect(h.commands()).toEqual([]);
+      expect(h.askedOwner()).toBe(false);
     });
 
     it("keeps the signed-in card on a typed /login with a connected account", async () => {
@@ -791,9 +948,10 @@ describe("provider auth affordances", () => {
     });
   });
 
-  // A typed /login that reaches the walkthrough is not a rejection: the
-  // backend says to sign in, and a connected account does not change that.
-  it("keeps the walkthrough for a typed /login that the backend answers with a sign-in", async () => {
+  // A typed /login that the backend answers with a sign-in is not a
+  // rejection: the card says to sign in at once, whatever the account check
+  // later reads.
+  it("shows the card for a typed /login that the backend answers with a sign-in", async () => {
     const fake = new FakeBackend({
       loginInstructions: {
         kind: "login",
@@ -801,15 +959,19 @@ describe("provider auth affordances", () => {
         commands: ["~/.isomux/bin/codex login"],
       },
     });
+    let checksDone = 0;
     const { mgr, agentId } = await harness({
       backendType: "codex",
       fake,
-      accounts: async () => [
-        {
-          ...claudeWire("personal", { accountStatus: "connected" }),
-          provider: "codex" as const,
-        },
-      ],
+      accounts: async () => {
+        checksDone++;
+        return [
+          {
+            ...claudeWire("personal", { accountStatus: "connected" }),
+            provider: "codex" as const,
+          },
+        ];
+      },
       target: () => ({
         provider: "codex",
         scope: "personal",
@@ -818,27 +980,21 @@ describe("provider auth affordances", () => {
     });
     await mgr.sendMessage(agentId, "/login", "tester");
     const logs = () => mgr.getAgentLogs(agentId);
-    await settle(() =>
-      logs().some(
-        (entry) =>
-          entry.kind === "terminal-command" ||
-          entry.metadata?.providerLogin === "codex",
-      ),
-    );
+    await settle(() => checksDone > 0);
+    await Bun.sleep(0);
+    expect(checksDone).toBe(1);
     expect(
-      logs().filter((entry) => entry.metadata?.providerLogin === "codex"),
-    ).toEqual([]);
+      logs()
+        .filter((entry) => entry.metadata?.providerLogin === "codex")
+        .map((entry) => entry.content),
+    ).toEqual([english.t("systemEntries.signInPrompt", { provider: "Codex" })]);
     expect(
       logs().filter(
         (entry) =>
-          entry.kind === "system" && entry.content === "terminal fallback",
+          entry.kind === "terminal-command" ||
+          entry.content === "terminal fallback",
       ),
-    ).toHaveLength(1);
-    expect(
-      logs()
-        .filter((entry) => entry.kind === "terminal-command")
-        .map((entry) => entry.terminal?.command),
-    ).toEqual(["~/.isomux/bin/codex login"]);
+    ).toEqual([]);
   });
 
   it("uses only the failing Claude scope for the sign-in card", async () => {
@@ -1043,6 +1199,7 @@ describe("provider auth affordances", () => {
         },
         logoutCommand: `${provider} logout`,
       });
+      let checksDone = 0;
       const h = await harness({
         backendType: provider,
         fake,
@@ -1054,14 +1211,17 @@ describe("provider auth affordances", () => {
             : person.userId === "user-a"
               ? manager
               : undefined,
-        accounts: async () => [
-          {
-            ...claudeWire(scope, {
-              canBrowserLogin: opts.canBrowserLogin ?? true,
-            }),
-            provider,
-          },
-        ],
+        accounts: async () => {
+          checksDone++;
+          return [
+            {
+              ...claudeWire(scope, {
+                canBrowserLogin: opts.canBrowserLogin ?? true,
+              }),
+              provider,
+            },
+          ];
+        },
         target: () => ({
           provider,
           scope,
@@ -1079,10 +1239,13 @@ describe("provider auth affordances", () => {
       const cardText = () =>
         logs().find((entry) => entry.metadata?.providerLogin === provider)
           ?.content;
-      // Bounded inside the per-test cap and asserts nothing: the expects
-      // after it name what failed.
-      const settled = () =>
-        settle(() => asked() || commands().length > 0 || card());
+      // Until the account check has answered, or a path that skips it has
+      // written. Bounded inside the per-test cap and asserts nothing: the
+      // expects after it name what failed.
+      const settled = async () => {
+        await settle(() => asked() || commands().length > 0 || checksDone > 0);
+        await Bun.sleep(0);
+      };
       return { ...h, commands, asked, card, cardText, settled };
     }
 
@@ -1190,9 +1353,11 @@ describe("provider auth affordances", () => {
         expect(h.asked()).toBe(false);
       });
 
+      // The card shows before the check finds that it cannot sign in; the
+      // fallback then follows it.
       it(`lets a ${manager} manager's role decide the fallback on a sign-in failure`, async () => {
         const h = await failTurn(false);
-        expect(h.card()).toBe(false);
+        expect(h.card()).toBe(true);
         expect(h.commands()).toEqual(
           manager === "owner" ? ["codex login"] : [],
         );

@@ -360,7 +360,7 @@ export interface FakeBackendConfig {
   // detectAuthError predicate (default: never an auth error).
   isAuthError?: (text: string) => boolean;
   // Declares Backend.isKnownSignedOut with this answer (default: absent).
-  signedOut?: () => boolean;
+  signedOut?: (env?: { [key: string]: string | undefined }) => boolean;
   loginInstructions?: Omit<LoginInstructions, "kind" | "cardEligible"> & {
     kind?: LoginInstructions["kind"];
     cardEligible?: boolean;
@@ -418,7 +418,9 @@ export class FakeBackend implements Backend {
     string | null
   >();
   private sessionCounter = 0;
-  readonly isKnownSignedOut?: () => boolean;
+  readonly isKnownSignedOut?: (env?: {
+    [key: string]: string | undefined;
+  }) => boolean;
   readonly logoutCommand?: (opts?: {
     env?: { [key: string]: string | undefined };
   }) => string;
