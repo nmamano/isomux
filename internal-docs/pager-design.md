@@ -80,6 +80,10 @@ and keep "page" for user-facing copy.
 Both routes go in `ROUTE_LABELS` in `ui/log-view/isomux-curl.ts`, and get an
 agent-reference page and a pointer in `server/system-prompt.ts`.
 
+## Paged asks
+
+Task 74e8fc07: an ask can carry an alarm (internal-docs/asks-design.md, "Paged asks"). Both delivery channels read page items (`server/page-items.ts`) instead of page records: one item per page, and one per recipient of a ringing or acked paged ask, whose link is the ask. A paged ask's pending "resolved" message is in memory only.
+
 ## Delivery: Discord
 
 Discord, not Web Push, because a send is one HTTPS POST with a JSON body to a

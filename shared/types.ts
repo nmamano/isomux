@@ -1627,6 +1627,29 @@ export interface AskEntry {
     channelId?: string;
     replyTo?: string;
   };
+  // A paged ask (task 74e8fc07): an ask with an alarm. Fixed at create.
+  page?: AskPage;
+}
+
+// The alarm of a paged ask. While it rings, the pager delivery engines send
+// and repeat it to each recipient on their own pager settings; an ack stops
+// the repeats and keeps the ask open; the close sends "resolved".
+export interface AskPage {
+  state: "ringing" | "acked";
+  // Who acked and when: only with state "acked".
+  ackedByUserId?: string;
+  ackedAt?: number;
+  // One send record per recipient, by user id: the members the ask was for
+  // at create. The set is fixed; never on a wire.
+  delivery: Record<string, PagerDelivery>;
+}
+
+// A paged ask's alarm as a route sends it: who acked by username, null when
+// gone; never the send records.
+export interface AskPageWire {
+  state: AskPage["state"];
+  ackedBy?: string | null;
+  ackedAt?: number;
 }
 
 // A file an ask shows. A copy is an Attachment in the agent's files dir. A
@@ -1654,8 +1677,9 @@ export interface AskCommandRun {
 
 // An ask as a route or push sends it: the opening session stays server-side.
 // `members`: everyone it is for now, by name (always sent by the server).
-export type AskMemberWire = Omit<AskEntry, "sessionId"> & {
+export type AskMemberWire = Omit<AskEntry, "sessionId" | "page"> & {
   members?: string[];
+  page?: AskPageWire;
 };
 
 // How an ask closed (task ff590b5e). The record of each closed ask is kept in
@@ -1728,7 +1752,9 @@ export type AskEvent =
   // The member asked the agent to simplify the ask.
   | { kind: "simplify_requested"; at: number; byUserId?: string }
   // The member withdrew the simplify request before the rewrite.
-  | { kind: "simplify_withdrawn"; at: number; byUserId?: string };
+  | { kind: "simplify_withdrawn"; at: number; byUserId?: string }
+  // A member acked a paged ask: its alarm stopped, the ask stays open.
+  | { kind: "acked"; at: number; byUserId: string };
 
 // An entry of an agent's ask log (task 302e7ea4): every event of an ask, the
 // close included, as it happens.

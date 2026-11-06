@@ -5587,6 +5587,7 @@ export async function startServer(
     ordinaryScheduleMaker,
     pushAskChange,
     askAudienceIds: (entry) => askMemberIds(entry, askAudience),
+    askAudience,
     pushPagerEntryToEachWs,
     secretStore,
     broadcast,

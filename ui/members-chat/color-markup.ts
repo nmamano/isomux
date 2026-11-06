@@ -4,18 +4,17 @@
 // plain; any other name not in the list stays as typed.
 
 import { Marked, type Tokens } from "marked";
+import {
+  MARKUP_COLOR_NAMES,
+  RETIRED_MARKUP_COLORS,
+} from "../../shared/color-markup.ts";
+
+export { RETIRED_MARKUP_COLORS };
 
 // A Map, so a prototype key such as "constructor" is not a name.
-export const MARKUP_COLORS: ReadonlyMap<string, string> = new Map([
-  ["green", "var(--green-text)"],
-  ["orange", "var(--orange-text)"],
-  ["red", "var(--red-text)"],
-  ["purple", "var(--purple-text)"],
-]);
-
-// Names older asks may hold. Blue was the link colour, so its text looked
-// like a link.
-export const RETIRED_MARKUP_COLORS: ReadonlySet<string> = new Set(["blue"]);
+export const MARKUP_COLORS: ReadonlyMap<string, string> = new Map(
+  MARKUP_COLOR_NAMES.map((name) => [name, `var(--${name}-text)`]),
+);
 
 export type ColorToken = Tokens.Generic & {
   type: "color";
@@ -23,7 +22,8 @@ export type ColorToken = Tokens.Generic & {
   tokens: Tokens.Generic[];
 };
 
-// One line, no unescaped "]", so a link cannot sit inside.
+// One line, no unescaped "]", so a link cannot sit inside. The plain-text
+// form (shared/color-markup.ts) follows the same rule.
 const COLOR_RE = /^:([a-z]+)\[((?:\\[^\n]|[^\\\]\n])+)\]/;
 
 // The lexer options with the markup on, for Lexer.lexInline. The colon opens

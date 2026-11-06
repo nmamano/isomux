@@ -7,7 +7,11 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import type { PagerStore } from "./pager-store.ts";
-import { createTestPagerStore } from "./test-support/pager-memory-archive.ts";
+import {
+  createTestPagerStore,
+  pageItemsOf,
+} from "./test-support/pager-memory-archive.ts";
+import { pagerPageItem } from "./page-items.ts";
 import {
   createPagerDelivery,
   pagerLink,
@@ -206,12 +210,14 @@ function setup(
     persistence,
     now: time.now,
     onChange: (e) => events.push(e),
-    onRaised: (e, k) => svc.onRaised(e, k),
-    onTransitioned: (e, to) => svc.onTransitioned(e, to),
+    // The engine reads page items (server/page-items.ts), as office-managers
+    // hands them over.
+    onRaised: (e, k) => svc.onRaised(pagerPageItem(e), k),
+    onTransitioned: (e, to) => svc.onTransitioned(pagerPageItem(e), to),
   });
   const boot = () => {
     const next = createPagerDelivery({
-      store,
+      store: pageItemsOf(store),
       settings: () => {
         if (state.settingsError) throw state.settingsError;
         return state.settings;

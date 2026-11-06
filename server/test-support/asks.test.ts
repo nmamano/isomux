@@ -3390,7 +3390,7 @@ describe("chat affordances on an ask", () => {
     expect(`${viaQuery.status} ${viaQuery.code}`).toBe("422 invalid_edit_file");
     // Nothing changed: one ask, as it was, and no file was copied.
     const listed = (await call(w.srv, "GET", base, w.as(w.asker.id)))
-      .body as AskEntry[];
+      .body as AskAgentWire[];
     expect(listed).toEqual([before]);
     // The file holds the entry; `member` and `members` are added on the
     // wire only.
@@ -3399,7 +3399,7 @@ describe("chat affordances on an ask", () => {
       members: _members,
       ...entry
     } = before as AskAgentWire;
-    expect(stored(w, before.id)).toEqual(entry);
+    expect<unknown>(stored(w, before.id)).toEqual(entry);
     expect(filesDir(w)).toEqual(copiesBefore);
   });
 

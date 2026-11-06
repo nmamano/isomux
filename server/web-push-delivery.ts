@@ -8,9 +8,13 @@
 // goes to that member's devices whatever their room notification settings,
 // as the Discord delivery does (PM ruling on Nil's delegation, 2026-10-16).
 //
+// It reads page items (server/page-items.ts): every page, and every paged
+// ask once per recipient.
+//
 // Repeat timers are in memory. On boot, each open page is due one interval
 // after the boot: no catch-up burst. A restart between a resolve and its
-// send loses that "Resolved" push (Discord's is saved as pending).
+// send loses that "Resolved" push (Discord's is saved as pending for a page,
+// not for a paged ask).
 //
 // A rotated endpoint is not re-posted on its own: the device shows Off in
 // the settings and the member turns it on again.
@@ -32,15 +36,13 @@
 // LEAF: the stores, the settings, the translator, fetch, the clock and the
 // timers are injected.
 
-import type { PagerEntry } from "../shared/types.ts";
 import type {
   PushDeviceFailure,
   PushTestRes,
 } from "../shared/contract-shapes.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
-import type { PagerStore } from "./pager-store.ts";
+import type { PageItem, PageItemSource } from "./page-items.ts";
 import type { PushDeviceRecord, WebPushStore } from "./web-push-store.ts";
-import { pagerLink } from "./pager-delivery.ts";
 import { encryptPushPayload, vapidAuthorization } from "./web-push-crypto.ts";
 
 const WEB_PUSH_SEND_TIMEOUT_MS = 10_000;
@@ -57,7 +59,8 @@ type Handle = unknown;
 
 export interface WebPushDeliveryDeps {
   store: WebPushStore;
-  pages: Pick<PagerStore, "list" | "get">;
+  // Every page and every recipient of a paged ask (server/page-items.ts).
+  pages: Pick<PageItemSource, "list" | "get">;
   // Minutes between repeats of an open page, or null for never. May throw.
   repeatMinutes: (userId: string) => number | null;
   // The rooms whose turn ends push to the member, or null when the member
@@ -82,8 +85,8 @@ export interface WebPushDeliveryDeps {
 }
 
 export interface WebPushDeliveryService {
-  onRaised(entry: PagerEntry, kind: "created" | "reraised"): void;
-  onTransitioned(entry: PagerEntry, to: "acked" | "resolved"): void;
+  onRaised(entry: PageItem, kind: "created" | "reraised"): void;
+  onTransitioned(entry: PageItem, to: "acked" | "resolved"): void;
   // An agent ended a turn that the members in memberIds started.
   onTurnEnd(agent: {
     id: string;
@@ -150,7 +153,7 @@ export function encodePayload(p: PushPayload): Uint8Array<ArrayBuffer> {
 }
 
 function buildPagePayload(
-  entry: PagerEntry,
+  entry: PageItem,
   kind: MessageKind,
   ctx: { t: Translator["t"]; roomName: string | null },
 ): PushPayload {
@@ -161,16 +164,16 @@ function buildPagePayload(
         ? ctx.t("pager.discord.stillOpen", { title: entry.title })
         : ctx.t("pager.discord.resolved", { title: entry.title });
   // An app page with no room shows only the source.
-  const room = ctx.roomName ?? entry.source.roomId;
+  const room = ctx.roomName ?? entry.roomId;
   const footer =
-    room === null ? entry.source.name : `${room} · ${entry.source.name}`;
+    room === null ? entry.sourceName : `${room} · ${entry.sourceName}`;
   const body =
     kind !== "resolved" && entry.body ? `${entry.body}\n${footer}` : footer;
   return {
     title,
     body,
     tag: entry.id,
-    url: pagerLink("", entry.id),
+    url: entry.path,
     renotify: kind !== "resolved",
   };
 }
@@ -260,7 +263,7 @@ export function createWebPushDelivery(
     return failure;
   };
 
-  const sendPage = async (entry: PagerEntry, kind: MessageKind) => {
+  const sendPage = async (entry: PageItem, kind: MessageKind) => {
     const userId = entry.targetUserId;
     // A gone member has no settings; a page ignores the room filter.
     if (deps.notifRooms(userId) === null) return;
@@ -269,10 +272,7 @@ export function createWebPushDelivery(
     const payload = encodePayload(
       buildPagePayload(entry, kind, {
         t: deps.translator(userId),
-        roomName:
-          entry.source.roomId === null
-            ? null
-            : deps.roomName(entry.source.roomId),
+        roomName: entry.roomId === null ? null : deps.roomName(entry.roomId),
       }),
     );
     await Promise.all(devices.map((d) => deliver(d, payload)));
@@ -285,7 +285,7 @@ export function createWebPushDelivery(
     inflight.add(run);
   };
 
-  const send = (entry: PagerEntry, kind: MessageKind) => {
+  const send = (entry: PageItem, kind: MessageKind) => {
     track(sendPage(entry, kind));
   };
 
@@ -342,7 +342,7 @@ export function createWebPushDelivery(
   };
 
   // Arm the next repeat of an open page, one interval after `from`.
-  const arm = (entry: PagerEntry, from: number) => {
+  const arm = (entry: PageItem, from: number) => {
     clearTimer(entry.id);
     lastPushAt.set(entry.id, from);
     if (stopped || entry.state !== "open") return;

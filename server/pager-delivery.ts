@@ -2,6 +2,12 @@
 // incoming webhook, repeats an open page, and sends one "resolved" message
 // (internal-docs/pager-design.md, "Delivery: Discord").
 //
+// It reads page items (server/page-items.ts): every page, and every paged
+// ask once per recipient, each on that member's own settings and webhook. An
+// ack of a paged ask stops its repeats; its close owes one "resolved"
+// message, held in memory only: a restart between the close and the send
+// loses it, where a page's pending message is saved.
+//
 // Shape:
 //   - The store hands over new pages (onRaised) and acks / resolves
 //     (onTransitioned). A re-raise sends nothing at once: the next repeat
@@ -31,11 +37,10 @@
 import type {
   PagerDelivery as PagerDeliveryRecord,
   PagerDeliveryFailure,
-  PagerEntry,
 } from "../shared/types.ts";
 import type { PagerTestRes } from "../shared/contract-shapes.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
-import type { PagerStore } from "./pager-store.ts";
+import type { PageItem, PageItemSource } from "./page-items.ts";
 import type { PagerMemberSettings } from "./pager-settings.ts";
 
 const PAGER_SEND_TIMEOUT_MS = 10_000;
@@ -53,7 +58,8 @@ const EMBED_FOOTER_MAX = 2048;
 type Handle = unknown;
 
 export interface PagerDeliveryDeps {
-  store: Pick<PagerStore, "list" | "get" | "recordDelivery">;
+  // Every page and every recipient of a paged ask (server/page-items.ts).
+  store: Pick<PageItemSource, "list" | "get" | "recordDelivery">;
   // The target member's settings. May throw when the settings store is
   // unavailable; the send is then skipped.
   settings: (userId: string) => PagerMemberSettings;
@@ -76,8 +82,8 @@ export interface PagerDeliveryDeps {
 }
 
 export interface PagerDeliveryService {
-  onRaised(entry: PagerEntry, kind: "created" | "reraised"): void;
-  onTransitioned(entry: PagerEntry, to: "acked" | "resolved"): void;
+  onRaised(entry: PageItem, kind: "created" | "reraised"): void;
+  onTransitioned(entry: PageItem, to: "acked" | "resolved"): void;
   // Boot: arm the repeat of every open page from its saved lastAttemptAt and
   // queue every pending "resolved" message.
   start(): void;
@@ -123,7 +129,7 @@ function mentions(discordUserId: string | undefined) {
 // The text around the title is the member's language; the title, the body
 // and the names are as the source wrote them.
 function buildPageMessage(
-  entry: PagerEntry,
+  entry: PageItem,
   kind: MessageKind,
   ctx: {
     t: Translator["t"];
@@ -141,9 +147,9 @@ function buildPageMessage(
         ? `${ping}${ctx.t("pager.discord.stillOpen", { title })}`
         : ctx.t("pager.discord.resolved", { title });
   // An app page with no room shows only the source.
-  const room = ctx.roomName ?? entry.source.roomId;
+  const room = ctx.roomName ?? entry.roomId;
   const footer = clip(
-    room === null ? entry.source.name : `${room} · ${entry.source.name}`,
+    room === null ? entry.sourceName : `${room} · ${entry.sourceName}`,
     EMBED_FOOTER_MAX,
   );
   return {
@@ -154,7 +160,7 @@ function buildPageMessage(
     embeds: [
       {
         title,
-        url: pagerLink(ctx.origin, entry.id),
+        url: `${ctx.origin}${entry.path}`,
         ...(kind !== "resolved" && entry.body
           ? { description: entry.body }
           : {}),
@@ -304,7 +310,7 @@ export function createPagerDelivery(
     }
   };
 
-  const getPage = (pageId: string): PagerEntry | null => {
+  const getPage = (pageId: string): PageItem | null => {
     try {
       return deps.store.get(pageId);
     } catch {
@@ -374,7 +380,7 @@ export function createPagerDelivery(
   // save re-arms their pages (rescheduleMember). `attemptedAt` is the attempt
   // just made: it counts even when recording it failed, so a store that
   // cannot save never turns the repeat into a retry loop.
-  const arm = (entry: PagerEntry, attemptedAt?: number) => {
+  const arm = (entry: PageItem, attemptedAt?: number) => {
     clearTimer(entry.id);
     if (stopped || entry.state !== "open") return;
     const userId = entry.targetUserId;
@@ -472,10 +478,7 @@ export function createPagerDelivery(
         t: deps.translator(userId),
         discordUserId: settings.discordUserId,
         origin: deps.officeOrigin(),
-        roomName:
-          entry.source.roomId === null
-            ? null
-            : deps.roomName(entry.source.roomId),
+        roomName: entry.roomId === null ? null : deps.roomName(entry.roomId),
       });
       const result = await post(deps.fetch, settings.webhookUrl, message);
       q.lastSentAt = deps.now();
@@ -580,7 +583,7 @@ export function createPagerDelivery(
     await pump(userId);
   };
 
-  const pages = (filter: (e: PagerEntry) => boolean): PagerEntry[] => {
+  const pages = (filter: (e: PageItem) => boolean): PageItem[] => {
     try {
       return deps.store.list().filter(filter);
     } catch {

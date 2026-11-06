@@ -36,9 +36,11 @@ import {
 import {
   createAskFilePersistence,
   createAskStore,
+  type AskAudienceDeps,
   type AskChange,
   type AskStore,
 } from "./asks.ts";
+import { createPageItemSource, pagerPageItem } from "./page-items.ts";
 import { officeAskHistory } from "./ask-history.ts";
 import {
   createPagerSettingsFilePersistence,
@@ -177,6 +179,8 @@ export interface ManagersDeps {
   pushAskChange: (change: AskChange) => void;
   // Everyone a plain ask is for now (askMemberIds), for its close record.
   askAudienceIds: (entry: AskEntry) => string[];
+  // Who sees an ask, for the paged asks' sends (server/page-items.ts).
+  askAudience: AskAudienceDeps;
   pushPagerEntryToEachWs: (entry: PagerEntry) => void;
   secretStore: SecretStore;
   broadcast: (msg: ServerMessage) => void;
@@ -276,6 +280,7 @@ export function createManagers(
     ordinaryScheduleMaker,
     pushAskChange,
     askAudienceIds,
+    askAudience,
     pushPagerEntryToEachWs,
     secretStore,
     broadcast,
@@ -452,6 +457,20 @@ export function createManagers(
     onChange: (change) => pushAskChange(change),
     history: askHistory,
     audienceIds: askAudienceIds,
+    // A paged ask's create, ack and close go to both delivery channels, one
+    // item per recipient.
+    onPage: (entry, event) => {
+      for (const item of pageItems.askItems(entry, event)) {
+        if (event === "created") {
+          pagerDelivery.onRaised(item, "created");
+          webPushDelivery.onRaised(item, "created");
+        } else {
+          const to = event === "acked" ? "acked" : "resolved";
+          pagerDelivery.onTransitioned(item, to);
+          webPushDelivery.onTransitioned(item, to);
+        }
+      }
+    },
   });
   pagerSettings = createPagerSettingsStore(
     createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
@@ -461,17 +480,24 @@ export function createManagers(
     archive: createPagerArchiveFile(join(STATE_ROOT, "pager-resolved.jsonl")),
     onChange: (entry) => pushPagerEntryToEachWs(entry),
     onRaised: (entry, kind) => {
-      pagerDelivery.onRaised(entry, kind);
-      webPushDelivery.onRaised(entry, kind);
+      pagerDelivery.onRaised(pagerPageItem(entry), kind);
+      webPushDelivery.onRaised(pagerPageItem(entry), kind);
     },
     onTransitioned: (entry, to) => {
-      pagerDelivery.onTransitioned(entry, to);
-      webPushDelivery.onTransitioned(entry, to);
+      pagerDelivery.onTransitioned(pagerPageItem(entry), to);
+      webPushDelivery.onTransitioned(pagerPageItem(entry), to);
     },
   });
   agentManager.attachPagerStore(pagerStore);
+  // What both delivery channels send: the pages and the paged asks.
+  const pageItems = createPageItemSource({
+    pager: pagerStore,
+    asks: askStore,
+    audience: askAudience,
+    agentName: (agentId) => agentManager.getAgent(agentId)?.name ?? null,
+  });
   pagerDelivery = createPagerDelivery({
-    store: pagerStore,
+    store: pageItems,
     settings: (userId) => pagerSettings.get(userId),
     setHoldUntil: (userId, at) => pagerSettings.setHoldUntil(userId, at),
     translator: (userId) => translatorForUserId(userId).t,
@@ -517,7 +543,7 @@ export function createManagers(
   uiBuildTracker = trackUiBuild(UI_DIST, broadcast);
   webPushDelivery = createWebPushDelivery({
     store: webPushStore,
-    pages: pagerStore,
+    pages: pageItems,
     repeatMinutes: (userId) => pagerSettings.get(userId).repeatMinutes,
     pushRooms: (userId) => getUserById(userId)?.pushRooms ?? null,
     roomAudience: (roomId) =>

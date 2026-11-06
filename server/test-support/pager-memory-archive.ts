@@ -5,8 +5,10 @@ import {
   createPagerStore,
   type PagerArchive,
   type PagerMoveIntent,
+  type PagerStore,
   type PagerStoreDeps,
 } from "../pager-store.ts";
+import { pagerPageItem, type PageItemSource } from "../page-items.ts";
 import type { PagerEntry } from "../../shared/types.ts";
 
 // `lines` is the file's content, oldest first (its size counts lines), and a
@@ -60,4 +62,18 @@ export function createTestPagerStore(
   deps: Omit<PagerStoreDeps, "archive"> & { archive?: PagerArchive },
 ) {
   return createPagerStore({ archive: createMemoryPagerArchive(), ...deps });
+}
+
+// A pager store as the delivery engines read it: every page as a page item
+// (server/page-items.ts), with no paged asks.
+export function pageItemsOf(
+  store: Pick<PagerStore, "list" | "get" | "recordDelivery">,
+): Pick<PageItemSource, "list" | "get" | "recordDelivery"> {
+  const item = (entry: PagerEntry | null) =>
+    entry ? pagerPageItem(entry) : null;
+  return {
+    list: () => store.list().map(pagerPageItem),
+    get: (id) => item(store.get(id)),
+    recordDelivery: (id, delivery) => item(store.recordDelivery(id, delivery)),
+  };
 }

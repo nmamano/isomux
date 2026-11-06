@@ -100,6 +100,7 @@ import { AskAboutButton } from "./AskAboutButton.tsx";
 import { AskActionBlock } from "./AskActionBlock.tsx";
 import { AskStepBlock, useStepView } from "./AskStepBlock.tsx";
 import { AskIdChip } from "./AskIdChip.tsx";
+import { AskPageLine } from "./AskPageLine.tsx";
 import { PRIORITY_COLORS } from "../task-priority.ts";
 import { fitComposer } from "../composer-height.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
@@ -438,6 +439,9 @@ function ReplyAskCard({
   const [simplifyError, setSimplifyError] = useState<string | null>(null);
   const [undoingSimplify, setUndoingSimplify] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
+  // A paged ask's ack in flight, and its refusal.
+  const [acking, setAcking] = useState(false);
+  const [ackError, setAckError] = useState<string | null>(null);
   const promptRef = useRef<HTMLDivElement>(null);
   const openLink = useContext(OfficeLinkOpener);
   // A link this UI does not know is not drawn, nor one to an agent the store
@@ -630,6 +634,21 @@ function ReplyAskCard({
     }
   }
 
+  // Acks a paged ask: its alerts stop and the card stays. The pushed ask
+  // brings the acked state.
+  async function ackPage() {
+    if (acking) return;
+    setAcking(true);
+    setAckError(null);
+    try {
+      await apiFetch("POST", `/api/asks/${entry.id}/ack`);
+    } catch (err) {
+      setAckError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setAcking(false);
+    }
+  }
+
   // Withdraws the simplify request. The banner stays until the pushed ask
   // clears the mark.
   async function undoSimplify() {
@@ -723,8 +742,8 @@ function ReplyAskCard({
   } as const;
   const simplifyOff = busy || simplifying;
   const rewriting = entry.simplifyRequestedAt !== undefined;
-  // An answer's refusal, else a simplify request's.
-  const failure = error ?? simplifyError;
+  // An answer's refusal, else a simplify request's, else an ack's.
+  const failure = error ?? simplifyError ?? ackError;
   const cardBox = {
     padding: isMobile ? "9px 10px 10px 11px" : "8px 10px 9px 11px",
     borderRadius: 8,
@@ -1090,6 +1109,16 @@ function ReplyAskCard({
         isMobile={isMobile}
         onFocusAgent={onFocusAgent}
       />
+      {entry.page && (
+        <AskPageLine
+          page={entry.page}
+          acking={acking}
+          onAck={() => void ackPage()}
+          isMobile={isMobile}
+          fontSize={fontSize}
+          buttonStyle={secondaryButton}
+        />
+      )}
       {/* Until the rewrite, the banner takes the place of the options and the
           reply area: the member waits for the rewrite or withdraws it. */}
       {rewriting && (

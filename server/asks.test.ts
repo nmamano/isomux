@@ -5,9 +5,16 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import type { AskCommandRun, AskEntry } from "../shared/types.ts";
+import type {
+  AskCommandRun,
+  AskEntry,
+  AskEvent,
+  PagerDelivery,
+} from "../shared/types.ts";
+import type { AskHistory } from "./ask-history.ts";
 import { API_CAPABILITIES, type Identity } from "./identity/index.ts";
 import {
+  ASK_PAGES_MAX_OPEN_PER_SOURCE,
   ASK_TASK_TITLE_MAX,
   askAgentWire,
   askAudienceFor,
@@ -97,6 +104,12 @@ const SECRET = {
   reason: "To open the pull request.",
 };
 const DRAFT = { app: "whatsapp", routeId: "r1", text: "*hi*\nsee you at 5" };
+const SUDO = { requestId: "req-2", command: "apt update", cwd: "/w" };
+// The send records of a paged ask that rings for u1 and u2.
+const SENDS = {
+  u1: { state: "not_delivered", sends: 0 },
+  u2: { state: "delivered", sends: 2, lastAttemptAt: 9 },
+};
 const BASE = {
   id: "abcd1234",
   agentId: "a1",
@@ -512,6 +525,90 @@ describe("the three shapes", () => {
     ]),
     ["room with no member", { ...BASE, room: true }, false],
     ["list with no member", { ...BASE, otherMemberUserIds: ["u2"] }, false],
+    // A paged ask (task 74e8fc07): an alarm, ringing or acked, with one send
+    // record per recipient.
+    ...(
+      [
+        [
+          "ringing paged",
+          { page: { state: "ringing", delivery: SENDS } },
+          true,
+        ],
+        [
+          "acked paged",
+          {
+            page: {
+              state: "acked",
+              ackedByUserId: "u1",
+              ackedAt: 5,
+              delivery: SENDS,
+            },
+          },
+          true,
+        ],
+        [
+          "paged room",
+          { room: true, page: { state: "ringing", delivery: SENDS } },
+          true,
+        ],
+        [
+          "paged with no recipient",
+          { page: { state: "ringing", delivery: {} } },
+          true,
+        ],
+        [
+          "page in an unknown state",
+          { page: { state: "silenced", delivery: SENDS } },
+          false,
+        ],
+        [
+          "ringing page naming who acked",
+          {
+            page: {
+              state: "ringing",
+              ackedByUserId: "u1",
+              ackedAt: 5,
+              delivery: SENDS,
+            },
+          },
+          false,
+        ],
+        ["page with no send records", { page: { state: "ringing" } }, false],
+        [
+          "page with a bad send record",
+          { page: { state: "ringing", delivery: { u1: { sends: "1" } } } },
+          false,
+        ],
+        [
+          "paged personal secret",
+          {
+            secret: { ...SECRET, scope: "personal" },
+            page: { state: "ringing", delivery: SENDS },
+          },
+          false,
+        ],
+        [
+          "paged reply draft",
+          {
+            options: ["Send", "Don't send"],
+            messaging: DRAFT,
+            page: { state: "ringing", delivery: SENDS },
+          },
+          false,
+        ],
+        // The sudo row loads, so its paged twin fails on the page alone.
+        ["sudo", { sudo: SUDO }, true],
+        [
+          "paged sudo",
+          { sudo: SUDO, page: { state: "ringing", delivery: SENDS } },
+          false,
+        ],
+      ] as [string, Record<string, unknown>, boolean][]
+    ).map(([label, fields, loads]): [string, unknown, boolean] => [
+      label,
+      { ...BASE, memberUserId: "u1", ...fields },
+      loads,
+    ]),
   ];
   for (const [label, entry, loads] of shapes)
     it(`${loads ? "loads" : "moves aside"} a file with a ${label} entry`, () => {
@@ -1164,5 +1261,275 @@ describe("the member's runs of an ask's commands (task c3b91695)", () => {
     expect(runs.find((r) => r.command === "bun test")?.state).toBe("lost");
     expect(runs.find((r) => r.command === "bun lint")).toEqual(finished);
     expect(reopen().markLostRuns()).toEqual([]);
+  });
+});
+
+// A paged ask (task 74e8fc07): an ask with an alarm. Its recipients are fixed
+// at create; an ack stops the alarm and keeps the ask open; the delivery
+// engines record each recipient's sends on it; every close of a paged ask
+// tells them (onPage). Seam: the store on a temp file, with the history and
+// onPage as recording fakes.
+describe("a paged ask (task 74e8fc07)", () => {
+  function pagedStore(start = 1_000) {
+    const { path } = fileIn();
+    let t = start;
+    const changes: AskChange[] = [];
+    const pages: string[] = [];
+    const events: { askId: string; kind: string; byUserId?: string }[] = [];
+    const history = {
+      record: () => {},
+      recordEvent: (_agentId: string, askId: string, event: AskEvent) =>
+        events.push({
+          askId,
+          kind: event.kind,
+          ...("byUserId" in event && event.byUserId
+            ? { byUserId: event.byUserId }
+            : {}),
+        }),
+      has: () => false,
+    } as unknown as AskHistory;
+    const throwing = { onPage: false };
+    const open = () =>
+      createAskStore({
+        persistence: createAskFilePersistence(path),
+        now: () => t,
+        history,
+        onChange: (c) => changes.push(c),
+        onPage: (entry, event) => {
+          pages.push(`${event} ${entry.id}`);
+          if (throwing.onPage) throw new Error("listener down");
+        },
+      });
+    const store = open();
+    const paged = (over: Partial<Parameters<typeof store.create>[0]> = {}) => {
+      const made = store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        otherMemberUserIds: ["u2"],
+        prompt: "Restart the box?",
+        page: { recipients: ["u1", "u2"] },
+        ...over,
+      });
+      if (!made.ok) throw new Error(`create failed: ${made.code}`);
+      return made.entry;
+    };
+    return {
+      store,
+      paged,
+      reopen: open,
+      changes,
+      pages,
+      events,
+      throwing,
+      tick: (ms: number) => (t += ms),
+      now: () => t,
+    };
+  }
+
+  const NONE: PagerDelivery = { state: "not_delivered", sends: 0 };
+
+  it("rings at create, with one empty send record per recipient, and tells onPage once", () => {
+    const { store, paged, pages, reopen } = pagedStore();
+    const plain = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Plain?",
+    });
+    expect(plain.ok).toBe(true);
+    expect(pages).toEqual([]);
+    const entry = paged();
+    expect(entry.page).toEqual({
+      state: "ringing",
+      delivery: { u1: NONE, u2: NONE },
+    });
+    expect(pages).toEqual([`created ${entry.id}`]);
+    expect(reopen().get(entry.id)?.page).toEqual(entry.page);
+  });
+
+  it("an onPage listener that throws does not undo the create", () => {
+    const { store, paged, throwing } = pagedStore();
+    throwing.onPage = true;
+    const entry = paged();
+    expect(store.get(entry.id)?.page?.state).toBe("ringing");
+  });
+
+  it("holds at most 50 open paged asks per agent, apart from its plain asks and from an app's", () => {
+    const { store, paged } = pagedStore();
+    const first = paged();
+    for (let i = 1; i < ASK_PAGES_MAX_OPEN_PER_SOURCE; i++) paged();
+    const over = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "One more?",
+      page: { recipients: ["u1"] },
+    });
+    expect(over).toEqual({ ok: false, code: "too_many_pages" });
+    // A plain ask, another agent's page and an app's page through this
+    // agent are not this agent's pages.
+    const kinds = [
+      store.create({ agentId: "a1", memberUserId: "u1", prompt: "Plain?" }),
+      store.create({
+        agentId: "a2",
+        memberUserId: "u1",
+        prompt: "Other agent?",
+        page: { recipients: ["u1"] },
+      }),
+      store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "From the app?",
+        app: { name: "uptime", createdAt: 7 },
+        page: { recipients: ["u1"] },
+      }),
+    ];
+    expect(kinds.map((r) => r.ok)).toEqual([true, true, true]);
+    // A closed page frees its place.
+    store.remove(first.id, { outcome: "withdrawn" });
+    expect(paged().page?.state).toBe("ringing");
+  });
+
+  it("holds at most 50 open paged asks per app registration, whatever its target agent", () => {
+    const { store } = pagedStore();
+    const appPage = (agentId: string, createdAt = 7) =>
+      store.create({
+        agentId,
+        memberUserId: "u1",
+        prompt: "Down?",
+        app: { name: "uptime", createdAt },
+        page: { recipients: ["u1"] },
+      });
+    for (let i = 0; i < ASK_PAGES_MAX_OPEN_PER_SOURCE; i++)
+      expect(appPage(i % 2 ? "a1" : "a2").ok).toBe(true);
+    expect(appPage("a3")).toEqual({ ok: false, code: "too_many_pages" });
+    // A later app of the same name is another source.
+    expect(appPage("a3", 8).ok).toBe(true);
+    // The agent itself still pages.
+    expect(
+      store.create({
+        agentId: "a1",
+        memberUserId: "u1",
+        prompt: "Mine?",
+        page: { recipients: ["u1"] },
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("an ack stops the alarm and keeps the ask open; a second ack changes nothing", () => {
+    const { store, paged, reopen, changes, pages, events, tick, now } =
+      pagedStore();
+    const entry = paged();
+    changes.length = 0;
+    pages.length = 0;
+    events.length = 0;
+    tick(500);
+    const acked = store.ack(entry.id, "u2");
+    expect(acked?.outcome).toBe("changed");
+    expect(acked?.entry.page).toEqual({
+      state: "acked",
+      ackedByUserId: "u2",
+      ackedAt: now(),
+      delivery: entry.page!.delivery,
+    });
+    // The ack is not an edit.
+    expect(acked?.entry.updatedAt).toBe(entry.updatedAt);
+    expect(reopen().get(entry.id)?.page?.state).toBe("acked");
+    expect(changes.map((c) => [c.kind, c.entry.page?.state])).toEqual([
+      ["upserted", "acked"],
+    ]);
+    expect(pages).toEqual([`acked ${entry.id}`]);
+    expect(events).toEqual([
+      { askId: entry.id, kind: "acked", byUserId: "u2" },
+    ]);
+
+    tick(500);
+    const again = store.ack(entry.id, "u1");
+    expect(again?.outcome).toBe("unchanged");
+    expect(again?.entry.page?.ackedByUserId).toBe("u2");
+    expect(changes).toHaveLength(1);
+    expect(pages).toHaveLength(1);
+    expect(events).toHaveLength(1);
+  });
+
+  it("acks no plain ask and no closed one", () => {
+    const { store, paged, changes, events } = pagedStore();
+    const plain = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Plain?",
+    });
+    if (!plain.ok) throw new Error("create failed");
+    const gone = paged();
+    store.remove(gone.id, { outcome: "withdrawn" });
+    changes.length = 0;
+    events.length = 0;
+    expect(store.ack(plain.entry.id, "u1")).toBeNull();
+    expect(store.ack(gone.id, "u1")).toBeNull();
+    expect(store.get(plain.entry.id)?.page).toBeUndefined();
+    expect([changes, events]).toEqual([[], []]);
+  });
+
+  it("records one recipient's sends durably, and tells no listener", () => {
+    const { store, paged, reopen, changes, pages, events, tick } = pagedStore();
+    const entry = paged();
+    changes.length = 0;
+    pages.length = 0;
+    events.length = 0;
+    tick(500);
+    const sent = {
+      state: "delivered" as const,
+      sends: 1,
+      lastAttemptAt: 1_500,
+    };
+    const after = store.recordPageDelivery(entry.id, "u2", sent);
+    expect(after?.page?.delivery).toEqual({ u1: NONE, u2: sent });
+    expect(after?.updatedAt).toBe(entry.updatedAt);
+    expect(reopen().get(entry.id)?.page?.delivery.u2).toEqual(sent);
+    expect([changes, pages, events]).toEqual([[], [], []]);
+  });
+
+  it("records no sends for a member it does not ring for, a plain ask or a closed one", () => {
+    const { store, paged, reopen } = pagedStore();
+    const entry = paged();
+    const plain = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      prompt: "Plain?",
+    });
+    if (!plain.ok) throw new Error("create failed");
+    const gone = paged();
+    store.remove(gone.id, { outcome: "withdrawn" });
+    const sent = { state: "delivered" as const, sends: 1 };
+    expect(store.recordPageDelivery(entry.id, "u3", sent)).toBeNull();
+    expect(store.recordPageDelivery(plain.entry.id, "u1", sent)).toBeNull();
+    expect(store.recordPageDelivery(gone.id, "u1", sent)).toBeNull();
+    const back = reopen();
+    expect(Object.keys(back.get(entry.id)!.page!.delivery).sort()).toEqual([
+      "u1",
+      "u2",
+    ]);
+    expect(back.get(plain.entry.id)?.page).toBeUndefined();
+  });
+
+  it("tells onPage of every close of a paged ask, by a remove or the agent's removal, and of no plain one", () => {
+    const { store, paged, pages } = pagedStore();
+    const replied = paged();
+    const keptA = paged({ agentId: "a2" });
+    const keptB = paged({ agentId: "a2" });
+    const plain = store.create({
+      agentId: "a2",
+      memberUserId: "u1",
+      prompt: "Plain?",
+    });
+    expect(plain.ok).toBe(true);
+    pages.length = 0;
+    store.remove(replied.id, { outcome: "replied", byUserId: "u1" });
+    expect(store.removeAgent("a2")).toBe(3);
+    expect(pages.sort()).toEqual(
+      [
+        `closed ${replied.id}`,
+        `closed ${keptA.id}`,
+        `closed ${keptB.id}`,
+      ].sort(),
+    );
   });
 });

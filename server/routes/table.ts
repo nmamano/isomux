@@ -1222,6 +1222,17 @@ export const API_ROUTES: readonly RouteDef[] = [
       "agent_updated",
     ],
   }),
+  // The member acks a paged ask (task 74e8fc07): its alarm stops, and it
+  // stays open.
+  defineRoute<void, AskMemberWire>({
+    opId: "asks.ack",
+    audit: { owner: "executor", targets: resourceTargets },
+    method: "POST",
+    path: "/api/asks/:askId/ack",
+    auth: cap(["agent:converse", "api:send-message"], memberScope),
+    tokenArea: { area: "asks", level: "write" },
+    emits: ["ask_upserted", "others_ask_upserted"],
+  }),
   // The member withdraws a simplify request the agent has not acted on yet;
   // the ask stays open.
   defineRoute<AskSimplifyReq, NoContent>({

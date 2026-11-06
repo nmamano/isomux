@@ -18,6 +18,7 @@ const { connect, setShim, shimEmit } = await import("../ws.ts");
 const { en } = await import("../../shared/i18n/en.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type AskEntry = import("../../shared/types.ts").AskEntry;
+type AskMemberWire = import("../../shared/types.ts").AskMemberWire;
 type PagerEntry = import("../../shared/types.ts").PagerEntry;
 
 const agent = {
@@ -98,7 +99,7 @@ export const page = (id: string, targetUserId: string): PagerEntry => ({
 // The pages GET /api/pager returns; each test sets its own.
 let pages: PagerEntry[] = [];
 // The asks GET /api/asks returns; ASKS unless a test sets its own.
-let asks: AskEntry[] = ASKS;
+let asks: AskMemberWire[] = ASKS;
 // The agents full_state carries: Scout, Ranger after addRanger(), and the
 // back room's Builder and Checker after addBackRoom().
 let agents: AgentInfo[] = [agent];
@@ -111,7 +112,7 @@ export function addBackRoom() {
 export function setPages(next: PagerEntry[]) {
   pages = next;
 }
-export function setAsks(next: AskEntry[]) {
+export function setAsks(next: AskMemberWire[]) {
   asks = next;
 }
 // The answer to an ask's POST (reply, dismiss, file as a task); {} at once

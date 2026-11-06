@@ -926,13 +926,17 @@ export interface AskCreateReq {
   // Every member who reaches the agent's room and does not hide it, read
   // live; not with member. The text/plain form sends room=1.
   room?: true;
+  // A paged ask (task 74e8fc07): it rings for every member it is for until
+  // one acks or answers it. Fixed at create. The text/plain form sends page=1.
+  page?: true;
   // One of OFFICE_LINK_PATHS (shared/office-links.ts).
   link?: string;
   // 1 to 10 answers the member can tap (ASK_OPTIONS_MIN..MAX in server/asks.ts).
   options?: string[];
   // The option the agent recommends, by its text; one of `options`.
   recommended?: string;
-  // One of P0-P4, the board's scale (TaskPriority).
+  // One of P0-P4, the board's scale (TaskPriority). P1 for a paged ask that
+  // sets none.
   priority?: string;
   // Chat affordances, at most ASK_AFFORDANCES_MAX in total: single-line
   // commands, and paths resolved against the agent's cwd.
@@ -1002,12 +1006,15 @@ export type AskClosedWire = AskAgentWire & {
   // What happened before the close, oldest first (task 62aa552f).
   events: AskEventWire[];
 };
-// An ask event as a route sends it: the member who asked for a simplify, or
-// withdrew it, by username, null when gone.
+// An ask event as a route sends it: the member who asked for a simplify,
+// withdrew it, or acked a paged ask, by username, null when gone.
 export type AskEventWire =
-  | Exclude<AskEvent, { kind: "simplify_requested" | "simplify_withdrawn" }>
+  | Exclude<
+      AskEvent,
+      { kind: "simplify_requested" | "simplify_withdrawn" | "acked" }
+    >
   | {
-      kind: "simplify_requested" | "simplify_withdrawn";
+      kind: "simplify_requested" | "simplify_withdrawn" | "acked";
       at: number;
       by: string | null;
     };

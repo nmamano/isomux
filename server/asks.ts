@@ -42,7 +42,10 @@ import {
   type FilePayload,
   type SecretAskRequest,
   type SudoAskRequest,
+  type AskPage,
+  type AskPageWire,
   type AskStep,
+  type PagerDelivery,
   type TaskPriority,
 } from "../shared/types.ts";
 import type { AskAgentWire } from "../shared/contract-shapes.ts";
@@ -50,6 +53,9 @@ import type { AskAgentWire } from "../shared/contract-shapes.ts";
 // Sanity bounds only.
 export const ASK_PROMPT_MAX = 4000;
 export const ASK_MAX_OPEN_PER_AGENT = 500;
+// Open paged asks one source (an agent, or an app) may hold, apart from
+// ASK_MAX_OPEN_PER_AGENT (task 74e8fc07).
+export const ASK_PAGES_MAX_OPEN_PER_SOURCE = 50;
 export const ASK_OPTIONS_MIN = 1;
 export const ASK_OPTIONS_MAX = 10;
 export const ASK_OPTION_MAX_CHARS = 80;
@@ -212,6 +218,35 @@ const isAskReadFile = (v: unknown) =>
 // Four shapes: a plain ask, a personal secret request and a sudo request are
 // for one member; an office secret request is for every office owner and
 // names no member. A secret or sudo request has no link and no options.
+const PAGE_DELIVERY_STATES: readonly string[] = [
+  "not_delivered",
+  "delivered",
+  "failed",
+];
+// One recipient's send record: the pager's PagerDelivery shape.
+const isPageDelivery = (v: unknown) =>
+  isObject(v) &&
+  typeof v.state === "string" &&
+  PAGE_DELIVERY_STATES.includes(v.state) &&
+  typeof v.sends === "number" &&
+  (v.lastAttemptAt === undefined || typeof v.lastAttemptAt === "number") &&
+  (v.lastFailure === undefined || typeof v.lastFailure === "string") &&
+  (v.resolvedNotice === undefined ||
+    v.resolvedNotice === "pending" ||
+    v.resolvedNotice === "done");
+// Who acked and when, only on an acked page.
+function isAskPage(v: unknown): boolean {
+  if (!isObject(v) || !isObject(v.delivery)) return false;
+  if (!Object.values(v.delivery).every(isPageDelivery)) return false;
+  if (v.state === "ringing")
+    return v.ackedByUserId === undefined && v.ackedAt === undefined;
+  return (
+    v.state === "acked" &&
+    typeof v.ackedByUserId === "string" &&
+    typeof v.ackedAt === "number"
+  );
+}
+
 function isAskEntry(v: unknown): v is AskEntry {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
@@ -320,6 +355,18 @@ function isAskEntry(v: unknown): v is AskEntry {
       typeof r.messaging.routeId === "string" &&
       r.messaging.routeId !== "" &&
       typeof r.messaging.text === "string"
+    )
+  )
+    return false;
+  // A paged ask (task 74e8fc07): never a secret or sudo request or a reply
+  // draft.
+  if (
+    r.page !== undefined &&
+    !(
+      isAskPage(r.page) &&
+      r.secret === undefined &&
+      r.sudo === undefined &&
+      r.messaging === undefined
     )
   )
     return false;
@@ -565,6 +612,10 @@ export interface AskStoreDeps {
   history?: AskHistory;
   // The members an entry is for at its close, for the history.
   audienceIds?: (entry: AskEntry) => string[];
+  // A paged ask was created, acked or closed (a remove or removeAgent), after
+  // the commit, for the pager delivery engines. A throw is logged and
+  // swallowed.
+  onPage?(entry: AskEntry, event: "created" | "acked" | "closed"): void;
 }
 
 export interface AskStore {
@@ -591,7 +642,11 @@ export interface AskStore {
     app?: { name: string; createdAt: number };
     // A reply draft to a messaging contact (task d03a61d8).
     messaging?: { app: string; routeId: string; text: string };
-  }): { ok: true; entry: AskEntry } | { ok: false; code: "too_many" };
+    // A paged ask (task 74e8fc07): it rings for these members.
+    page?: { recipients: string[] };
+  }):
+    | { ok: true; entry: AskEntry }
+    | { ok: false; code: "too_many" | "too_many_pages" };
   // link, options, recommended, each affordance list and priority: undefined
   // keeps the ask's value, null removes it. Removing the options removes the
   // mark.
@@ -624,11 +679,40 @@ export interface AskStore {
   // At boot: every run still "running" becomes "lost" (the server's restart
   // ended it). Returns each entry it changed, with the run.
   markLostRuns(): { entry: AskEntry; run: AskCommandRun }[];
+  // Acks a ringing paged ask: its alarm stops, the ask stays open.
+  // "unchanged" when it was acked already; null when the entry is gone or not
+  // paged.
+  ack(
+    id: string,
+    byUserId: string,
+  ): { outcome: "changed" | "unchanged"; entry: AskEntry } | null;
+  // Replaces one recipient's send record of a paged ask. Null when the entry
+  // is gone, not paged, or does not ring for that member.
+  recordPageDelivery(
+    id: string,
+    userId: string,
+    delivery: PagerDelivery,
+  ): AskEntry | null;
   // Closes the entry and records how (`close`).
   remove(id: string, close: AskCloseInput): AskEntry | null;
   // Every entry of a removed agent, each recorded as agent_removed. Returns
   // how many went.
   removeAgent(agentId: string): number;
+}
+
+// Whether an open paged ask counts toward this source's
+// ASK_PAGES_MAX_OPEN_PER_SOURCE: an app's pages by its registration, whatever
+// its target agent; an agent's own pages without an app.
+function samePageSource(
+  entry: AskEntry,
+  source: { agentId: string; app?: { name: string; createdAt: number } },
+): boolean {
+  if (source.app)
+    return (
+      entry.app?.name === source.app.name &&
+      entry.app.createdAt === source.app.createdAt
+    );
+  return entry.app === undefined && entry.agentId === source.agentId;
 }
 
 export function createAskStore(deps: AskStoreDeps): AskStore {
@@ -703,6 +787,19 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     }
   }
 
+  // Tells the delivery engines of a paged ask's create, ack or close, after
+  // the commit. A throw is logged: the change stands.
+  function tellPage(
+    entry: AskEntry,
+    event: "created" | "acked" | "closed",
+  ): void {
+    try {
+      deps.onPage?.({ ...entry }, event);
+    } catch (err) {
+      console.error(`[asks] a page listener threw: ${errMessage(err)}`);
+    }
+  }
+
   function commit(next: AskEntry[], changes: AskChange[]): void {
     deps.persistence.save(next);
     entries = next;
@@ -748,11 +845,18 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       step,
       app,
       messaging,
+      page,
     }) {
       check();
       const open = entries.filter((e) => e.agentId === agentId).length;
       if (open >= ASK_MAX_OPEN_PER_AGENT)
         return { ok: false, code: "too_many" };
+      if (
+        page &&
+        entries.filter((e) => e.page && samePageSource(e, { agentId, app }))
+          .length >= ASK_PAGES_MAX_OPEN_PER_SOURCE
+      )
+        return { ok: false, code: "too_many_pages" };
       const at = now();
       const entry: AskEntry = {
         id: freshId(),
@@ -774,9 +878,23 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ...(step ? { step } : {}),
         ...(app ? { app } : {}),
         ...(messaging ? { messaging } : {}),
+        ...(page
+          ? {
+              page: {
+                state: "ringing" as const,
+                delivery: Object.fromEntries(
+                  page.recipients.map((userId) => [
+                    userId,
+                    { state: "not_delivered" as const, sends: 0 },
+                  ]),
+                ),
+              },
+            }
+          : {}),
       };
       if (!isAskEntry(entry)) throw new Error("not a valid ask");
       commit([...entries, entry], [{ kind: "upserted", entry }]);
+      if (entry.page) tellPage(entry, "created");
       const ask: Partial<Pick<AskEntry, AskEditableKey>> = {};
       for (const key of ASK_EDITABLE_KEYS)
         if (entry[key] !== undefined) Object.assign(ask, { [key]: entry[key] });
@@ -950,8 +1068,55 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         ],
       );
       recordClosed([prev], close);
+      if (prev.page) tellPage(prev, "closed");
       return { ...prev };
     },
+
+    // Neither an ack nor a send record is an edit: updatedAt stays.
+    ack(id, byUserId) {
+      check();
+      const prev = entries.find((e) => e.id === id);
+      if (!prev?.page) return null;
+      if (prev.page.state === "acked")
+        return { outcome: "unchanged", entry: { ...prev } };
+      const at = now();
+      const entry: AskEntry = {
+        ...prev,
+        page: {
+          state: "acked",
+          ackedByUserId: byUserId,
+          ackedAt: at,
+          delivery: prev.page.delivery,
+        },
+      };
+      commit(
+        entries.map((e) => (e.id === id ? entry : e)),
+        [{ kind: "upserted", entry }],
+      );
+      recordEvent(entry, { kind: "acked", at, byUserId });
+      tellPage(entry, "acked");
+      return { outcome: "changed", entry: { ...entry } };
+    },
+
+    // No listener hears it: no wire carries the send records.
+    recordPageDelivery(id, userId, delivery) {
+      check();
+      const prev = entries.find((e) => e.id === id);
+      if (!prev?.page || !Object.hasOwn(prev.page.delivery, userId))
+        return null;
+      const entry: AskEntry = {
+        ...prev,
+        page: {
+          ...prev.page,
+          delivery: { ...prev.page.delivery, [userId]: delivery },
+        },
+      };
+      const next = entries.map((e) => (e.id === id ? entry : e));
+      deps.persistence.save(next);
+      entries = next;
+      return { ...entry };
+    },
+
     removeAgent(agentId) {
       check();
       const gone = entries.filter((e) => e.agentId === agentId);
@@ -961,6 +1126,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         gone.map((entry) => ({ kind: "removed", entry })),
       );
       recordClosed(gone, { outcome: "agent_removed" });
+      for (const entry of gone) if (entry.page) tellPage(entry, "closed");
       return gone.length;
     },
   };
@@ -969,7 +1135,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
 // The entry without its opening session, which is for the reply note only,
 // with everyone it is for now by name (task 9461c464).
 export function askMemberWire(
-  { sessionId: _session, ...entry }: AskEntry,
+  { sessionId: _session, page, ...entry }: AskEntry,
   memberName: (userId: string) => string | null,
   audience: AskAudienceDeps,
 ): AskMemberWire {
@@ -978,6 +1144,21 @@ export function askMemberWire(
     members: askMemberIds(entry, audience).map(
       (userId) => memberName(userId) ?? userId,
     ),
+    ...(page ? { page: askPageWire(page, memberName) } : {}),
+  };
+}
+
+// A paged ask's alarm on the wire: who acked by name, never the send records.
+function askPageWire(
+  page: AskPage,
+  memberName: (userId: string) => string | null,
+): AskPageWire {
+  return {
+    state: page.state,
+    ...(page.ackedByUserId !== undefined
+      ? { ackedBy: memberName(page.ackedByUserId) }
+      : {}),
+    ...(page.ackedAt !== undefined ? { ackedAt: page.ackedAt } : {}),
   };
 }
 

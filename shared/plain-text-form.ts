@@ -66,6 +66,7 @@ export const INBOX_PLAIN_TEXT_PARAMS =
 export const ASK_CREATE_PLAIN_TEXT_PARAMS = {
   member: { list: "member", single: true },
   room: { list: "room", single: true },
+  page: { list: "page", single: true },
   link: "string",
   options: { list: "option" },
   recommended: "string",

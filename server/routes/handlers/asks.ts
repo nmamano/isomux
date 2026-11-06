@@ -101,6 +101,7 @@ import {
   ASK_AFFORDANCE_KEYS,
   ASK_AFFORDANCES_MAX,
   ASK_MAX_OPEN_PER_AGENT,
+  ASK_PAGES_MAX_OPEN_PER_SOURCE,
   type AskAffordanceEdit,
   type AskAffordances,
   checkOptions,
@@ -366,7 +367,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const byName = (userId: string | undefined) =>
     userId === undefined ? null : deps.memberName(userId);
   const eventWire = (event: AskEvent): AskEventWire =>
-    event.kind === "simplify_requested" || event.kind === "simplify_withdrawn"
+    event.kind === "simplify_requested" ||
+    event.kind === "simplify_withdrawn" ||
+    event.kind === "acked"
       ? { kind: event.kind, at: event.at, by: byName(event.byUserId) }
       : event;
   // A closed ask: who answered is named as they are now, null when gone.
@@ -511,6 +514,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const secretRequest = (message: string) =>
     fail(409, "secret_request", message);
   const sudoRequest = (message: string) => fail(409, "sudo_request", message);
+  const tooManyPages = () =>
+    fail(
+      429,
+      "too_many_pages",
+      `At most ${ASK_PAGES_MAX_OPEN_PER_SOURCE} open paged asks per agent or app. Delete one first.`,
+    );
   const tooManyAsks = () =>
     fail(
       429,
@@ -857,6 +866,25 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
   };
 
+  // Ack a paged ask (task 74e8fc07): its alarm stops for every member it is
+  // for, and it stays open. Whoever may answer it may ack it.
+  const ackPage: RouteHandler = (ctx) => {
+    const userId = ctx.identity.userId;
+    const entry = readableBy(ctx.identity, ctx.params.askId);
+    if (!entry || !userId)
+      return closedOrNotFound(ctx.identity, ctx.params.askId);
+    if (!entry.page) return fail(409, "not_paged", "This ask is not paged.");
+    const acked = store.ack(entry.id, userId);
+    if (!acked) return closedOrNotFound(ctx.identity, ctx.params.askId);
+    return ok(
+      askMemberWire(
+        acked.entry,
+        (id) => deps.memberName(id),
+        audienceFor(ctx.identity),
+      ),
+    );
+  };
+
   // Ask the agent to rewrite the ask in plain words; the ask stays open and
   // is marked once the agent has the message, so the card shows the rewrite
   // is coming. A refused message leaves it unmarked. One request at a time:
@@ -1009,6 +1037,14 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     }
     if (body.priority !== undefined && !isValidPriority(body.priority))
       return invalidPriority();
+    // A paged ask (task 74e8fc07): it rings until a member acks or answers it.
+    const page = body.page !== undefined;
+    if (page && !(fromText ? body.page === "1" : body.page === true))
+      return fail(
+        400,
+        "invalid_request",
+        fromText ? "use page=1 to page" : "page must be true",
+      );
     const lists = affordanceLists(body, null);
     if (!lists.ok) return lists.result;
     const asker = resolve(body);
@@ -1101,7 +1137,12 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       ...(step ? { step: step.step } : {}),
       ...(options ? { options } : {}),
       ...(recommended !== undefined ? { recommended } : {}),
-      ...(body.priority !== undefined ? { priority: body.priority } : {}),
+      ...(body.priority !== undefined
+        ? { priority: body.priority }
+        : page
+          ? { priority: "P1" as const }
+          : {}),
+      ...(page ? { page: { recipients: memberUserIds } } : {}),
       // On a create every sent list is non-empty, so none is null.
       affordances: resolved.affordances as AskAffordances,
       // An app's ask has no opening session: the agent did not ask it.
@@ -1111,7 +1152,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           ? { sessionId: agent.sessionId }
           : {}),
     });
-    if (!result.ok) return tooManyAsks();
+    if (!result.ok)
+      return result.code === "too_many_pages" ? tooManyPages() : tooManyAsks();
     for (const userId of memberUserIds)
       deps.recordMemberHeardFrom?.(userId, agentId);
     return created(wire(result.entry));
@@ -1158,6 +1200,13 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     // Who it is for is fixed at create (task 9461c464).
     if (body.member !== undefined || body.room !== undefined)
       return invalidMembers("an ask's members cannot be edited");
+    // So is the alarm (task 74e8fc07).
+    if (body.page !== undefined)
+      return fail(
+        400,
+        "invalid_request",
+        "page is set at create only. Delete the ask and open a new one.",
+      );
     const prev = find();
     if (!prev) return notFound();
     // A reply draft is fixed once the member can see it.
@@ -1717,6 +1766,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.dismiss": guarded(answer(true)),
     "asks.fileTask": guarded(fileTask),
     "asks.simplify": guarded(simplify),
+    "asks.ack": guarded(ackPage),
     "asks.simplifyUndo": guarded(simplifyUndo),
     // A file the ask references where it is, for the ask's member. An office
     // owner gets the file of another member's ask too.

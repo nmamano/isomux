@@ -1225,6 +1225,20 @@ function demoAskEntries(): AskMemberWire[] {
       options: ["Jim", "Dwight"],
       recommended: "Jim",
     },
+    // A paged ask (task 74e8fc07): it rings until the viewer acks it.
+    {
+      id: "dea0ac08",
+      agentId: "demo-michael",
+      memberUserId: member,
+      prompt:
+        "The smoke alarm is going off in the warehouse. Do I call the fire department?",
+      createdAt: now - 60_000,
+      updatedAt: now - 60_000,
+      options: ["Call them", "Wait"],
+      recommended: "Call them",
+      priority: "P1",
+      page: { state: "ringing" },
+    },
     {
       id: "dea0ac06",
       agentId: "demo-michael",
@@ -4144,6 +4158,27 @@ export async function demoApi(
     });
     demoChatReply(entry.agentId);
     return undefined;
+  }
+  // asks.ack - stop a paged ask's alarm; the ask stays open.
+  const ackMatch = pathname.match(/^\/api\/asks\/([^/]+)\/ack$/);
+  if (ackMatch && method === "POST") {
+    const found = demoFindAsk(decodeURIComponent(ackMatch[1]));
+    if (!found) throw new ApiError(404, "not_found", "No such open ask.");
+    const { entry } = found;
+    if (!entry.page)
+      throw new ApiError(409, "not_paged", "This ask is not paged.");
+    if (entry.page.state === "ringing")
+      demoUpdateAsk(found.other, {
+        ...entry,
+        page: {
+          state: "acked",
+          ackedBy: sessionContext?.username ?? "Ricky",
+          ackedAt: Date.now(),
+        },
+      });
+    return found.other
+      ? (demoOthersAskEntries().find((e) => e.id === entry.id) ?? entry)
+      : (demoAskEntries().find((e) => e.id === entry.id) ?? entry);
   }
   // asks.simplifyUndo - withdraw the request: clear the mark and tell the
   // agent, as the server does.

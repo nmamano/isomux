@@ -333,6 +333,7 @@ describe("route table: plain-text form", () => {
         [
           "member",
           "room",
+          "page",
           "link",
           "options",
           "recommended",
@@ -362,6 +363,7 @@ describe("route table: plain-text form", () => {
         [
           "member",
           "room",
+          "page",
           "link",
           "options",
           "recommended",
@@ -1382,6 +1384,11 @@ const SPEC_ROUTE_CONTRACT: Record<
       "interaction_added",
       "agent_updated",
     ],
+  },
+  // A paged ask's alarm stops; the ask stays open (task 74e8fc07).
+  "asks.ack": {
+    caps: ["agent:converse", "api:send-message"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   },
   // The ask stays open (task 30915188).
   "asks.simplify": {
@@ -2428,6 +2435,7 @@ const API_REACHABLE_OPIDS = [
   "asks.reply",
   "asks.dismiss",
   "asks.simplify",
+  "asks.ack",
   "asks.simplifyUndo",
   "asks.getFile",
   "asks.fileTask",
