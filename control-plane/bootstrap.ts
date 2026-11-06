@@ -30,6 +30,7 @@ import {
   redactConnectionDetails,
 } from "./store.ts";
 import { INCIDENTS_DDL } from "./incidents-ddl.ts";
+import { ENTERPRISE_DDL } from "./enterprise-ddl.ts";
 import type { SqlArgs } from "./store.ts";
 import {
   ALL_VERBS,
@@ -424,6 +425,20 @@ export async function migrateIncidentTables(
   }
 }
 
+/** Owner-role migration for the enterprise accounts (enterprise.ts): two new
+ * tables. */
+export async function migrateEnterpriseTables(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [ENTERPRISE_DDL]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /**
  * Every owner-role migration, as its CLI command, in the order it shipped and
  * the order `migrate-all` runs them. deploy.sh runs `migrate-all` with the new
@@ -491,6 +506,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-subscription-currency",
     run: migrateSubscriptionCurrencyColumn,
     ready: "subscription currency column",
+  },
+  {
+    command: "migrate-enterprise",
+    run: migrateEnterpriseTables,
+    ready: "enterprise account tables",
   },
 ];
 

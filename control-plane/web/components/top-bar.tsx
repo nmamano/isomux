@@ -81,6 +81,8 @@ export function TopBarView({
     if (pathname === href) return "page";
     if (href === "/" && pathname?.startsWith("/office/")) return "true";
     if (href === "/account" && pathname?.startsWith("/account/")) return "true";
+    if (href === "/enterprise" && pathname?.startsWith("/enterprise/"))
+      return "true";
     return undefined;
   };
   const navLinks = (testids: boolean) => (
@@ -94,6 +96,9 @@ export function TopBarView({
         data-testid={testids ? "account-link" : undefined}
       >
         {i18n.t("home.account")}
+      </Link>
+      <Link href="/enterprise" aria-current={current("/enterprise")}>
+        {i18n.t("nav.enterprise")}
       </Link>
     </>
   );

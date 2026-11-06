@@ -12,6 +12,10 @@ import {
 import * as authRoute from "./auth/[...nextauth]/route";
 import * as incidentsRoute from "./ops/incidents/route";
 import * as incidentUpdatesRoute from "./ops/incidents/[id]/updates/route";
+import * as enterpriseRoute from "./enterprise/route";
+import * as enterpriseAgreementRoute from "./enterprise/agreement/route";
+import * as enterpriseSeatsRoute from "./enterprise/seats/route";
+import * as enterpriseSecretRoute from "./enterprise/secret/route";
 import * as signupRoute from "./signup/route";
 
 const ORIGIN = "https://storefront.example.com";
@@ -103,5 +107,57 @@ describe("the critical-issue routes", () => {
       }),
     );
     expect(listed.status).toBe(429);
+  });
+});
+
+describe("the enterprise account routes", () => {
+  test("one address past its quota is refused before the session and the body", async () => {
+    const routes = {
+      "/api/enterprise": enterpriseRoute,
+      "/api/enterprise/agreement": enterpriseAgreementRoute,
+      "/api/enterprise/seats": enterpriseSeatsRoute,
+      "/api/enterprise/secret": enterpriseSecretRoute,
+    };
+    let n = 40;
+    for (const [pathname, route] of Object.entries(routes)) {
+      const address = `192.0.2.${n++}`;
+      // Under the quota, `auth()` throws outside a Next request; past it, the
+      // route answers 429 without reaching it.
+      let refused: Response | null = null;
+      for (let i = 0; i < 200 && !refused; i++) {
+        const response = await route
+          .POST(
+            new Request(`${ORIGIN}${pathname}`, {
+              method: "POST",
+              headers: { origin: ORIGIN, "x-forwarded-for": address },
+              body: unreadableBody(),
+            }),
+          )
+          .catch(() => null);
+        if (response?.status === 429) refused = response;
+      }
+      expect({ pathname, status: refused?.status }).toEqual({
+        pathname,
+        status: 429,
+      });
+      expect(Number(refused?.headers.get("retry-after"))).toBeGreaterThan(0);
+      // Another address is not refused.
+      const other = await route
+        .POST(
+          new Request(`${ORIGIN}${pathname}`, {
+            method: "POST",
+            headers: { origin: ORIGIN, "x-forwarded-for": `192.0.2.${n++}` },
+            body: unreadableBody(),
+          }),
+        )
+        .catch(() => null);
+      expect({
+        pathname,
+        status: other?.status ?? "reached the session",
+      }).toEqual({
+        pathname,
+        status: "reached the session",
+      });
+    }
   });
 });

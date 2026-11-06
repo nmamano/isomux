@@ -137,6 +137,7 @@ const PRE_MIGRATION = [
   "drop table first_paid_checkouts",
   "drop table status_customers, incidents, incident_updates, incident_keys",
   "alter table subscriptions drop column currency",
+  "drop table enterprise_accounts, enterprise_offices",
 ];
 
 suite("migrate-all", () => {

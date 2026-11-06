@@ -303,6 +303,19 @@ export const WEB_GRANTS: readonly TableGrant[] = [
     because:
       "the incident write key is checked on each keyed call and rotated by an operator; its one row is seeded",
   },
+  {
+    table: "enterprise_accounts",
+    verbs: ["select", "insert", "update"],
+    because:
+      "a company's IT sets up its enterprise account on the storefront, signs the agreement, " +
+      "changes the seat count and makes a new secret",
+  },
+  {
+    table: "enterprise_offices",
+    verbs: ["select"],
+    because:
+      "the enterprise account page lists the offices that joined and counts the seats in use",
+  },
 ];
 
 /**
@@ -865,7 +878,9 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "store.appendAudit, from signup:reserveOffice, requests:requestInvite, " +
       "cancel:requestCancel, cancel:requestUncancel, " +
       "reinstatement:prepareReinstatementCheckout, ops:acknowledgeInstance, " +
-      "signup:changeAccountEmail, signup:removeGoogleSignIn",
+      "signup:changeAccountEmail, signup:removeGoogleSignIn, " +
+      "enterprise:createEnterprise, enterprise:signAgreement, " +
+      "enterprise:changeSeats, enterprise:renewSecret",
   },
   {
     table: "instance_liveness",
@@ -885,7 +900,36 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "store.nextSeq, from store.appendAudit and requests.ts openCustomerOperation " +
       "(requests:requestInvite) and cancel:requestCancel's request key; " +
-      "signup:changeAccountEmail and signup:removeGoogleSignIn audit rows",
+      "signup:changeAccountEmail and signup:removeGoogleSignIn audit rows; " +
+      "the enterprise:createEnterprise, enterprise:signAgreement, " +
+      "enterprise:changeSeats and enterprise:renewSecret audit rows",
+  },
+  {
+    table: "enterprise_accounts",
+    verb: "select",
+    via:
+      "enterprise:enterpriseFor reads the account page; enterprise:createEnterprise's " +
+      "on conflict (account_id) arbiter reads the key; enterprise:signAgreement, " +
+      "enterprise:changeSeats and enterprise:renewSecret read the row for update",
+  },
+  {
+    table: "enterprise_accounts",
+    verb: "insert",
+    via: "enterprise:createEnterprise (insert ... on conflict do nothing)",
+  },
+  {
+    table: "enterprise_accounts",
+    verb: "update",
+    via:
+      "enterprise:signAgreement, enterprise:changeSeats and enterprise:renewSecret " +
+      "update the row they lock with select ... for update",
+  },
+  {
+    table: "enterprise_offices",
+    verb: "select",
+    via:
+      "enterprise:enterpriseFor lists the offices; enterprise:changeSeats counts " +
+      "the seats in use",
   },
   {
     table: "subscriptions",
@@ -1027,6 +1071,23 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "statusListFor",
       "statusToken",
     ],
+    enterprise: [
+      "AGREEMENT",
+      "MAX_SEATS",
+      "changeSeats",
+      "createEnterprise",
+      "enterpriseFor",
+      "renewSecret",
+      "signAgreement",
+    ],
+    "enterprise-billing": [
+      "ADDED_SEAT_MONTH_USD",
+      "MONTHLY_SEAT_USD",
+      "YEARLY_SEAT_USD",
+      "periodTotalUsd",
+      "quoteSeatChange",
+      "renewalDate",
+    ],
     "mint-client": ["fetchInviteFromSeam", "seamConfigFrom"],
     ops: ["acknowledgeInstance", "opsFloor", "opsInstance"],
     plans: ["PLANS", "planById", "planByProviderProduct", "resolveStripePrice"],
@@ -1097,6 +1158,16 @@ export const AUDITED_WEB_STORE_CALLS: readonly string[] = [
  */
 export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
   "boot:DATABASE_IDENTITY_ENV": "the name of an environment variable",
+  "enterprise:AGREEMENT":
+    "the standard agreement's version, PDF path and hash, a constant",
+  "enterprise:MAX_SEATS": "the seat count's sanity bound, a constant",
+  "enterprise-billing:ADDED_SEAT_MONTH_USD": "a price, a constant",
+  "enterprise-billing:MONTHLY_SEAT_USD": "a price, a constant",
+  "enterprise-billing:YEARLY_SEAT_USD": "a price, a constant",
+  "enterprise-billing:periodTotalUsd": "multiplies a seat count by a price",
+  "enterprise-billing:quoteSeatChange":
+    "computes a seat change's cost from its arguments",
+  "enterprise-billing:renewalDate": "date math on its arguments",
   "incidents:statusToken":
     "derives a customer's status link from the secret, its id and its generation",
   "mint-client:fetchInviteFromSeam":

@@ -76,10 +76,13 @@ describe("only one file reaches the store", () => {
       "accountSettings",
       "acknowledgeOpsInstance",
       "changeAccountEmailFor",
+      "changeSeatsFor",
       "checkTrustedOrigin",
       "confirmHandoff",
       "continueSignup",
+      "createEnterpriseFor",
       "emailChangeRefusalFor",
+      "enterpriseAccountFor",
       "identityForSignIn",
       "incidentsForKey",
       "officeRouteForAccount",
@@ -94,6 +97,7 @@ describe("only one file reaches the store", () => {
       "reinstateOffice",
       "remakeStatusLinkFor",
       "removeGoogleSignInFor",
+      "renewSecretFor",
       "requestCancel",
       "requestInvite",
       "requestRestart",
@@ -101,6 +105,7 @@ describe("only one file reaches the store", () => {
       "revealInvite",
       "rotateIncidentKeyFor",
       "sessionEpochFor",
+      "signAgreementFor",
       "signUpOffice",
       "signupPageState",
       "statusIncident",
@@ -180,6 +185,9 @@ describe("only one file reaches the store", () => {
       "../../incidents",
       "../../reinstatement",
       "../../stripe/mode",
+      // Enterprise accounts: every verb takes the signed-in account id and
+      // reads that account's row only.
+      "../../enterprise",
     ]);
     for (const specifier of specifiers) {
       expect([specifier, allowed.has(specifier)]).toEqual([specifier, true]);

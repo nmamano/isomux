@@ -74,6 +74,15 @@ const config: NextConfig = {
           { key: "Cache-Control", value: "no-store" },
         ],
       },
+      // The enterprise account page shows the account's secret.
+      ...["/enterprise", "/enterprise/:path*"].map((source) => ({
+        source,
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+        ],
+      })),
     ];
   },
 };

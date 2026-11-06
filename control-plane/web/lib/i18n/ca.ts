@@ -405,6 +405,112 @@ export const ca: Catalog = {
     "Aquesta oficina ja està reactivada.",
   "errors.rateLimited":
     "Massa intents des de la teva xarxa. Torna-ho a provar d'aquí a uns minuts.",
+  // ------------------------------------------------------------- enterprise
+  "nav.enterprise": "Empresa",
+  "enterprise.setup.heading": "Crear un compte d'empresa",
+  "enterprise.setup.lead":
+    "Per a una empresa que allotja les seves pròpies oficines d'Isomux. Un compte reuneix les places de totes.",
+  "enterprise.setup.company": "Empresa",
+  "enterprise.setup.billingEmail": "Correu de facturació",
+  "enterprise.setup.plan": "Pla",
+  "enterprise.setup.monthly": "Mensual: {price} per plaça al mes",
+  "enterprise.setup.yearly": "Anual: {price} per plaça l'any",
+  "enterprise.setup.yearlyNote":
+    "Les places que afegeixis durant l'any es facturen al final d'aquell trimestre per la resta de l'any.",
+  "enterprise.setup.seats": "Places",
+  "enterprise.setup.seatsNote":
+    "Una plaça és un membre, en qualsevol de les teves oficines d'Isomux. Agents i dispositius il·limitats per plaça.",
+  "enterprise.setup.totalMonthly": "Total: {total} al mes",
+  "enterprise.setup.totalYearly": "Total: {total} l'any",
+  "enterprise.setup.trial":
+    "El primer mes és gratuït. No cal targeta: les factures arriben al correu de facturació.",
+  "enterprise.setup.continue": "Continua",
+  "enterprise.invalid.company": "Escriu el nom de l'empresa.",
+  "enterprise.invalid.billingEmail": "Escriu un correu de facturació vàlid.",
+  "enterprise.invalid.seats": "Escriu un nombre enter de places, d'1 a {max}.",
+  "enterprise.failed": "No ha funcionat. Torna-ho a provar.",
+  "enterprise.agreement.heading": "Signar l'acord",
+  "enterprise.agreement.lead":
+    "L'Isomux Commercial License Agreement per a {company}. L'acord és en anglès.",
+  "enterprise.agreement.download": "Baixa l'acord (PDF)",
+  "enterprise.agreement.name": "El teu nom",
+  "enterprise.agreement.title": "El teu càrrec",
+  "enterprise.agreement.company": "Empresa",
+  "enterprise.agreement.date": "Data",
+  "enterprise.agreement.authority":
+    "Tinc autorització per signar en nom de {company}.",
+  "enterprise.agreement.sign": "Signa",
+  "enterprise.invalid.name": "Escriu el teu nom.",
+  "enterprise.invalid.title": "Escriu el teu càrrec.",
+  "enterprise.invalid.authority":
+    "Confirma que pots signar en nom de l'empresa.",
+  "enterprise.heading": "Compte d'empresa",
+  "enterprise.seats.heading": "Places",
+  "enterprise.seats.inUse.one": "{inUse} de {count} plaça en ús",
+  "enterprise.seats.inUse.other": "{inUse} de {count} places en ús",
+  "enterprise.seats.newCount": "Nou nombre de places",
+  "enterprise.seats.review": "Canvia",
+  "enterprise.seats.quoteMonthly.one":
+    "Cada mes es factura pel seu nombre més alt de places: {count} plaça és {total} al mes.",
+  "enterprise.seats.quoteMonthly.other":
+    "Cada mes es factura pel seu nombre més alt de places: {count} places són {total} al mes.",
+  "enterprise.seats.quoteMonthlyLower.one":
+    "Aquest mes encara es factura pel seu nombre més alt de places. A partir del mes vinent: {total} al mes per {count} plaça.",
+  "enterprise.seats.quoteMonthlyLower.other":
+    "Aquest mes encara es factura pel seu nombre més alt de places. A partir del mes vinent: {total} al mes per {count} places.",
+  "enterprise.seats.quoteYearly.one":
+    "Places afegides: {added}, durant {count} mes restant de l'any de contracte, a {price} per plaça al mes: {amount}, facturat el {date}.",
+  "enterprise.seats.quoteYearly.other":
+    "Places afegides: {added}, durant els {count} mesos restants de l'any de contracte, a {price} per plaça al mes: {amount}, facturat el {date}.",
+  "enterprise.seats.confirm": "Confirma",
+  "enterprise.seats.cancel": "Cancel·la",
+  "enterprise.seats.belowInUse.one":
+    "El nombre de places no pot baixar de la {count} plaça en ús.",
+  "enterprise.seats.belowInUse.other":
+    "El nombre de places no pot baixar de les {count} places en ús.",
+  "enterprise.seats.yearlyDecrease":
+    "Al pla anual, el nombre de places només baixa a la renovació, el {date}.",
+  "enterprise.seats.stale":
+    "El nombre de places ha canviat a {seats} mentrestant. Revisa el canvi de nou.",
+  "enterprise.offices.heading": "Oficines",
+  "enterprise.offices.empty":
+    "Encara no s'hi ha unit cap oficina. Una oficina s'hi uneix quan un propietari hi enganxa el secret de sota.",
+  "enterprise.offices.name": "Oficina",
+  "enterprise.offices.members": "Membres",
+  "enterprise.offices.lastSeen": "Últim contacte",
+  "enterprise.offices.unnamed": "Oficina sense nom",
+  "enterprise.secret.heading": "Secret",
+  "enterprise.secret.lead":
+    "Enganxa aquest secret a Configuració → Oficina de cadascuna de les teves oficines d'Isomux. Mantén-lo en privat.",
+  "enterprise.secret.show": "Mostra",
+  "enterprise.secret.hide": "Amaga",
+  "enterprise.secret.copy": "Copia",
+  "enterprise.secret.copied": "Copiat",
+  "enterprise.secret.copyFailed":
+    "No s'ha pogut copiar. Fes servir Mostra i copia'l a mà.",
+  "enterprise.secret.renew": "Crea un secret nou",
+  "enterprise.secret.renewWarning":
+    "El secret actual deixa de funcionar. Enganxa el nou a cada oficina. Una oficina que encara tingui el secret antic conserva els seus membres i les seves places comptades fins que rebi el nou.",
+  "enterprise.secret.renewConfirm": "Crea el secret nou",
+  "enterprise.billing.heading": "Facturació",
+  "enterprise.billing.monthly": "Mensual, {price} per plaça al mes",
+  "enterprise.billing.yearly": "Anual, {price} per plaça l'any",
+  "enterprise.billing.negotiatedMonthly": "Mensual, al preu negociat: {note}",
+  "enterprise.billing.negotiatedYearly": "Anual, al preu negociat: {note}",
+  "enterprise.seats.quoteNegotiated.one":
+    "{count} plaça, facturada al preu del teu acord.",
+  "enterprise.seats.quoteNegotiated.other":
+    "{count} places, facturades al preu del teu acord.",
+  "enterprise.billing.renewal": "L'any de contracte es renova el {date}.",
+  "enterprise.billing.invoices": "Les factures arriben a {email}.",
+  "enterprise.agreementCard.heading": "Acord",
+  "enterprise.agreementCard.signed": "Signat per {name}, {title}, el {date}.",
+  "enterprise.agreementCard.negotiated": "Acord negociat registrat.",
+  "enterprise.over.heading": "Per sobre del nombre de places",
+  "enterprise.over.body":
+    "Un compte supera el seu nombre de places quan una oficina afegeix membres mentre no pot contactar amb Isomux, o quan una oficina amb més membres que places lliures rep el secret. Aleshores el nombre de places puja fins a les places en ús, i les factures compten aquestes places amb les mateixes regles.",
+  "enterprise.help": "Ajuda per a empreses: {email}",
+
   "unsubscribe.heading": "Donar-se de baixa dels consells",
   "unsubscribe.lead":
     "Així deixes de rebre els consells que enviem per correu les dues primeres setmanes de la teva oficina.",

@@ -68,6 +68,7 @@ import { Reporter, credentialValues } from "./report.ts";
 import { runCliEntry } from "./cli-entry.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
+import { createNegotiatedEnterprise } from "./enterprise.ts";
 import { CreateLatch, migrateLegacyIntents } from "./create-latch.ts";
 import { CreateCoordinator } from "./create-coordinator.ts";
 import { IntentJournal } from "./intents.ts";
@@ -1208,6 +1209,43 @@ async function cmdOperator(args: Map<string, string>): Promise<void> {
   );
 }
 
+/** Record a negotiated enterprise account for an existing storefront account
+ * (control-plane/README.md, "Enterprise accounts"). */
+async function cmdEnterpriseNegotiated(
+  args: Map<string, string>,
+): Promise<void> {
+  const plan = required(args, "plan");
+  if (plan !== "monthly" && plan !== "yearly") die("--plan monthly|yearly");
+  const seats = Number(required(args, "seats"));
+  const startText = args.get("start");
+  let start: number | undefined;
+  if (startText !== undefined) {
+    start = Date.parse(`${startText}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startText) || Number.isNaN(start))
+      die("--start YYYY-MM-DD");
+  }
+  const store = await openStore();
+  const outcome = await createNegotiatedEnterprise(store, {
+    email: required(args, "email"),
+    company: required(args, "company"),
+    billingEmail: args.get("billing-email"),
+    plan,
+    seats,
+    priceNote: required(args, "price-note"),
+    start,
+  });
+  if (!outcome.ok) {
+    die(
+      outcome.reason === "invalid"
+        ? `invalid ${outcome.field}`
+        : outcome.reason === "exists"
+          ? "that account already has an enterprise account"
+          : "no storefront account has that email: the customer's IT signs in once first",
+    );
+  }
+  reporter.line(`enterprise account ${outcome.id} recorded as negotiated`);
+}
+
 async function cmdAttention(args: Map<string, string>): Promise<void> {
   const store = await openStore();
   const ack = args.get("ack");
@@ -1498,6 +1536,8 @@ async function main(): Promise<void> {
       return cmdOperator(args);
     case "attention":
       return cmdAttention(args);
+    case "enterprise-negotiated":
+      return cmdEnterpriseNegotiated(args);
     case "expiry-test":
       return cmdExpiryTest(args);
     default: {
@@ -1507,7 +1547,7 @@ async function main(): Promise<void> {
       if (migration) return cmdMigrate(migration);
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-all|regovern|" +
+          "attention|operator|enterprise-negotiated|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-all|regovern|" +
           `${OWNER_MIGRATIONS.map((m) => m.command).join("|")}> [--flags]`,
       );
       process.exit(2);

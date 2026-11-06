@@ -114,6 +114,14 @@ export const incidentLimiter = createLimiter({
   maxKeys: MAX_KEYS,
 });
 
+/** The enterprise account writes (/api/enterprise/...): set up, sign, change
+ * the seat count, make a new secret. A person makes a few an hour. */
+export const enterpriseLimiter = createLimiter({
+  limit: 30,
+  windowMs: TEN_MINUTES,
+  maxKeys: MAX_KEYS,
+});
+
 export const UNKNOWN_CLIENT = "unknown";
 
 export function clientKey(headers: Headers): string {

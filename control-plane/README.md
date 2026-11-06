@@ -1861,6 +1861,42 @@ true`); 401 for a bad key, 404 for an unknown issue, 400 for a broken rule,
 - **What an update must not hold:** secrets or customer data. Emails get
   forwarded, and the link opens the page with no sign-in.
 
+## Enterprise accounts
+
+A company that hosts its own offices buys seats on one enterprise account
+(task 71718489). `enterprise.ts` is its verb surface, `enterprise-billing.ts`
+its contract calendar and prices, and the tables are in `enterprise-ddl.ts`
+(owner migration `migrate-enterprise`).
+
+- **The pages.** `/enterprise` for a signed-in account: set up (company,
+  billing email, plan, seat count N), then `/enterprise/agreement` until a
+  standard account signs, then one account page (seats, offices, secret,
+  billing, agreement). Signing stores the signer, the time (the contract start)
+  and `AGREEMENT.version` with the sha256 of the PDF in
+  `web/public/enterprise/`; a new PDF needs a new version. One account per
+  sign-in. `next.config.ts` sends noindex, `Referrer-Policy: no-referrer` and
+  `Cache-Control: no-store` on every `/enterprise` path.
+- **The secret.** Not stored: `isx_ent_<account id>_<HMAC>` over the account id
+  and its `secret_generation`, with a key derived from `AUTH_SECRET`
+  (`enterpriseSecret`), like the status links. "Make a new secret" raises the
+  generation and kills the old one. A new `AUTH_SECRET` kills every customer's
+  secret at once: no office of any enterprise customer can add a member until
+  IT pastes the new secret from the account page in each office. Change
+  `AUTH_SECRET` only with that in the customer notice.
+- **Seats.** The writes go through `POST /api/enterprise`, `/agreement`,
+  `/seats` (`{from, to}`, refused when N is no longer `from`, below the seats in
+  use, or lower on a yearly plan) and `/secret`; each locks the account row,
+  and each is rate-limited (`enterpriseLimiter`). Each write appends an audit
+  row in the same transaction (`enterprise.created`, `.signed`,
+  `.seats_changed` with `50 -> 60`, `.secret_renewed`); there is no page for
+  them.
+- **A negotiated account.** An operator records it:
+  `bun control-plane/cli.ts enterprise-negotiated --email <sign-in email>
+--company <name> --plan monthly|yearly --seats <N> --price-note <text>
+[--billing-email <email>] [--start YYYY-MM-DD]`. The email must name an
+  existing storefront account. It is usable at once; IT never sees the set-up
+  or the agreement page.
+
 ## Billing (Stripe test-mode account)
 
 Signup, the comped path, webhooks and the dunning ladder. Every module lives in

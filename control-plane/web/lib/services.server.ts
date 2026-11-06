@@ -1506,3 +1506,60 @@ export async function sessionEpochFor(
 export async function unsubscribeWelcomeMail(token: string): Promise<void> {
   await withStore((store) => store.unsubscribeWelcomeMail(token, Date.now()));
 }
+
+// ------------------------------------------------------- enterprise accounts
+//
+// A company's IT on the storefront (control-plane/enterprise.ts). The secret
+// is an HMAC under a key derived from AUTH_SECRET, like the status links.
+
+function enterpriseAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error("AUTH_SECRET is not set");
+  return secret;
+}
+
+/** The signed-in account's enterprise account (null when it has none), and
+ * the store's clock, which the page's contract dates are computed from. */
+export async function enterpriseAccountFor(accountId: string): Promise<{
+  view: import("../../enterprise").EnterpriseView | null;
+  now: number;
+}> {
+  const authSecret = enterpriseAuthSecret();
+  const { enterpriseFor } = await import("../../enterprise");
+  return withStore(async (store) => ({
+    view: await enterpriseFor(store, accountId, authSecret),
+    now: store.now(),
+  }));
+}
+
+export async function createEnterpriseFor(
+  accountId: string,
+  input: import("../../enterprise").CreateEnterpriseInput,
+): Promise<import("../../enterprise").CreateEnterpriseResult> {
+  const { createEnterprise } = await import("../../enterprise");
+  return withStore((store) => createEnterprise(store, accountId, input));
+}
+
+export async function signAgreementFor(
+  accountId: string,
+  input: import("../../enterprise").SignAgreementInput,
+): Promise<import("../../enterprise").SignAgreementResult> {
+  const { signAgreement } = await import("../../enterprise");
+  return withStore((store) => signAgreement(store, accountId, input));
+}
+
+export async function changeSeatsFor(
+  accountId: string,
+  change: { from: number; to: number },
+): Promise<import("../../enterprise").ChangeSeatsResult> {
+  const { changeSeats } = await import("../../enterprise");
+  return withStore((store) => changeSeats(store, accountId, change));
+}
+
+export async function renewSecretFor(
+  accountId: string,
+): Promise<import("../../enterprise").RenewSecretResult> {
+  const authSecret = enterpriseAuthSecret();
+  const { renewSecret } = await import("../../enterprise");
+  return withStore((store) => renewSecret(store, accountId, authSecret));
+}

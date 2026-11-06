@@ -318,6 +318,106 @@ export const zh: Catalog = {
   "refusals.reinstatementSubscriptionNotFound": "找不到该订阅。",
   "refusals.reinstatementAlreadyReinstated": "此办公室已恢复。",
   "errors.rateLimited": "来自你所在网络的尝试次数过多。请几分钟后重试。",
+  // ------------------------------------------------------------- enterprise
+  "nav.enterprise": "企业",
+  "enterprise.setup.heading": "创建企业账户",
+  "enterprise.setup.lead":
+    "适用于自行托管 Isomux 办公室的公司。一个账户管理所有办公室的席位。",
+  "enterprise.setup.company": "公司",
+  "enterprise.setup.billingEmail": "账单邮箱",
+  "enterprise.setup.plan": "方案",
+  "enterprise.setup.monthly": "按月：每席位每月 {price}",
+  "enterprise.setup.yearly": "按年：每席位每年 {price}",
+  "enterprise.setup.yearlyNote": "年内增加的席位，在当季末按当年剩余时间开票。",
+  "enterprise.setup.seats": "席位",
+  "enterprise.setup.seatsNote":
+    "一个席位就是一名成员，可在你的任意 Isomux 办公室中使用。每个席位不限智能体和设备数量。",
+  "enterprise.setup.totalMonthly": "合计：每月 {total}",
+  "enterprise.setup.totalYearly": "合计：每年 {total}",
+  "enterprise.setup.trial": "第一个月免费。无需银行卡：发票会发送到账单邮箱。",
+  "enterprise.setup.continue": "继续",
+  "enterprise.invalid.company": "请输入公司名称。",
+  "enterprise.invalid.billingEmail": "请输入有效的账单邮箱。",
+  "enterprise.invalid.seats": "请输入 1 到 {max} 之间的整数席位数。",
+  "enterprise.failed": "操作未成功，请重试。",
+  "enterprise.agreement.heading": "签署协议",
+  "enterprise.agreement.lead":
+    "{company} 的 Isomux Commercial License Agreement。协议为英文版。",
+  "enterprise.agreement.download": "下载协议（PDF）",
+  "enterprise.agreement.name": "你的姓名",
+  "enterprise.agreement.title": "你的职位",
+  "enterprise.agreement.company": "公司",
+  "enterprise.agreement.date": "日期",
+  "enterprise.agreement.authority": "我有权代表 {company} 签署。",
+  "enterprise.agreement.sign": "签署",
+  "enterprise.invalid.name": "请输入你的姓名。",
+  "enterprise.invalid.title": "请输入你的职位。",
+  "enterprise.invalid.authority": "请确认你有权代表公司签署。",
+  "enterprise.heading": "企业账户",
+  "enterprise.seats.heading": "席位",
+  "enterprise.seats.inUse.one": "已使用 {inUse} / {count} 个席位",
+  "enterprise.seats.inUse.other": "已使用 {inUse} / {count} 个席位",
+  "enterprise.seats.newCount": "新的席位数",
+  "enterprise.seats.review": "更改",
+  "enterprise.seats.quoteMonthly.one":
+    "每月按当月最高席位数开票：{count} 个席位为每月 {total}。",
+  "enterprise.seats.quoteMonthly.other":
+    "每月按当月最高席位数开票：{count} 个席位为每月 {total}。",
+  "enterprise.seats.quoteMonthlyLower.one":
+    "本月仍按当月最高席位数开票。从下个月起：{count} 个席位每月 {total}。",
+  "enterprise.seats.quoteMonthlyLower.other":
+    "本月仍按当月最高席位数开票。从下个月起：{count} 个席位每月 {total}。",
+  "enterprise.seats.quoteYearly.one":
+    "新增席位：{added} 个，按合同年剩余的 {count} 个月、每席位每月 {price} 计：{amount}，于 {date} 开票。",
+  "enterprise.seats.quoteYearly.other":
+    "新增席位：{added} 个，按合同年剩余的 {count} 个月、每席位每月 {price} 计：{amount}，于 {date} 开票。",
+  "enterprise.seats.confirm": "确认",
+  "enterprise.seats.cancel": "取消",
+  "enterprise.seats.belowInUse.one":
+    "席位数不能低于正在使用的 {count} 个席位。",
+  "enterprise.seats.belowInUse.other":
+    "席位数不能低于正在使用的 {count} 个席位。",
+  "enterprise.seats.yearlyDecrease":
+    "按年方案的席位数只能在续约时（{date}）减少。",
+  "enterprise.seats.stale": "席位数已在此期间变为 {seats}。请重新检查此更改。",
+  "enterprise.offices.heading": "办公室",
+  "enterprise.offices.empty":
+    "还没有办公室加入。办公室所有者在其中粘贴下方的密钥后，该办公室即加入。",
+  "enterprise.offices.name": "办公室",
+  "enterprise.offices.members": "成员",
+  "enterprise.offices.lastSeen": "最近一次签到",
+  "enterprise.offices.unnamed": "未命名办公室",
+  "enterprise.secret.heading": "密钥",
+  "enterprise.secret.lead":
+    "在你每个 Isomux 办公室的“设置 → 办公室”中粘贴此密钥。请妥善保密。",
+  "enterprise.secret.show": "显示",
+  "enterprise.secret.hide": "隐藏",
+  "enterprise.secret.copy": "复制",
+  "enterprise.secret.copied": "已复制",
+  "enterprise.secret.copyFailed": "无法复制。请点击“显示”后手动复制。",
+  "enterprise.secret.renew": "生成新密钥",
+  "enterprise.secret.renewWarning":
+    "当前密钥将失效。请在每个办公室粘贴新密钥。仍使用旧密钥的办公室会保留其成员和已计入的席位，直到它换上新密钥。",
+  "enterprise.secret.renewConfirm": "生成新密钥",
+  "enterprise.billing.heading": "账单",
+  "enterprise.billing.monthly": "按月，每席位每月 {price}",
+  "enterprise.billing.yearly": "按年，每席位每年 {price}",
+  "enterprise.billing.negotiatedMonthly": "按月，按协商价格：{note}",
+  "enterprise.billing.negotiatedYearly": "按年，按协商价格：{note}",
+  "enterprise.seats.quoteNegotiated.one":
+    "{count} 个席位，按你协议中的价格开票。",
+  "enterprise.seats.quoteNegotiated.other":
+    "{count} 个席位，按你协议中的价格开票。",
+  "enterprise.billing.renewal": "合同年于 {date} 续约。",
+  "enterprise.billing.invoices": "发票发送至 {email}。",
+  "enterprise.agreementCard.heading": "协议",
+  "enterprise.agreementCard.signed": "由 {name}（{title}）于 {date} 签署。",
+  "enterprise.agreementCard.negotiated": "已登记协商协议。",
+  "enterprise.over.heading": "超出席位数",
+  "enterprise.over.body":
+    "当办公室在无法连接 Isomux 时添加了成员，或成员数多于空闲席位的办公室获得密钥时，账户会超出席位数。此时席位数会提高到正在使用的席位数，发票按相同规则计入这些席位。",
+  "enterprise.help": "企业支持：{email}",
+
   "unsubscribe.heading": "退订使用提示",
   "unsubscribe.lead":
     "退订后，我们将不再在你的办公室开通后的头两周通过邮件发送使用提示。",

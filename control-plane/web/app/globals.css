@@ -1284,3 +1284,106 @@ main .auth-or {
     display: none;
   }
 }
+
+/* ---------- Enterprise account (app/enterprise) ---------- */
+
+/* The agreement text: a readable box that scrolls on its own, so the sign
+   form stays in reach. Its HTML is lib/enterprise-agreement-text.ts. */
+.agreement-text {
+  max-height: 32rem;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 22px;
+  margin-bottom: 18px;
+  font-size: 0.95rem;
+}
+.agreement-text h1 {
+  font-size: 1.3rem;
+}
+.agreement-text h2 {
+  font-size: 1.05rem;
+  margin-top: 1.2em;
+}
+.agreement-text .sub,
+.agreement-text .small {
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+.agreement-text .banner {
+  border-left: 3px solid var(--warn);
+  background: var(--warn-tint);
+  padding: 8px 12px;
+  margin: 12px 0;
+}
+.agreement-text table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0 12px;
+}
+.agreement-text td {
+  border: 1px solid var(--border);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+.agreement-text td:first-child {
+  width: 34%;
+  font-weight: 600;
+}
+.agreement-text .sig td:first-child {
+  font-weight: normal;
+}
+.enterprise-plans {
+  border: 0;
+  padding: 0;
+  margin: 0 0 12px;
+}
+.enterprise-plans legend {
+  padding: 0;
+  margin-bottom: 6px;
+}
+/* A radio or checkbox before its text, inside a .form. */
+.form label.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 8px;
+  color: var(--text);
+  font-weight: 400;
+  font-size: 0.95rem;
+}
+.form label.choice input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+.enterprise-secret {
+  overflow-wrap: anywhere;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+.enterprise-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.enterprise-table th,
+.enterprise-table td {
+  text-align: left;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+/* The seat count field and its button on one line. */
+.form.enterprise-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.form.enterprise-inline input {
+  width: 8rem;
+}

@@ -405,6 +405,114 @@ export const es: Catalog = {
   "refusals.reinstatementAlreadyReinstated": "Esta oficina ya está reactivada.",
   "errors.rateLimited":
     "Demasiados intentos desde tu red. Vuelve a intentarlo en unos minutos.",
+  // ------------------------------------------------------------- enterprise
+  "nav.enterprise": "Empresa",
+  "enterprise.setup.heading": "Crear una cuenta de empresa",
+  "enterprise.setup.lead":
+    "Para una empresa que aloja sus propias oficinas de Isomux. Una cuenta reúne los puestos de todas ellas.",
+  "enterprise.setup.company": "Empresa",
+  "enterprise.setup.billingEmail": "Correo de facturación",
+  "enterprise.setup.plan": "Plan",
+  "enterprise.setup.monthly": "Mensual: {price} por puesto al mes",
+  "enterprise.setup.yearly": "Anual: {price} por puesto al año",
+  "enterprise.setup.yearlyNote":
+    "Los puestos que añadas durante el año se facturan al final de ese trimestre por el resto del año.",
+  "enterprise.setup.seats": "Puestos",
+  "enterprise.setup.seatsNote":
+    "Un puesto es un miembro, en cualquiera de tus oficinas de Isomux. Agentes y dispositivos ilimitados por puesto.",
+  "enterprise.setup.totalMonthly": "Total: {total} al mes",
+  "enterprise.setup.totalYearly": "Total: {total} al año",
+  "enterprise.setup.trial":
+    "El primer mes es gratis. No hace falta tarjeta: las facturas llegan al correo de facturación.",
+  "enterprise.setup.continue": "Continuar",
+  "enterprise.invalid.company": "Escribe el nombre de la empresa.",
+  "enterprise.invalid.billingEmail": "Escribe un correo de facturación válido.",
+  "enterprise.invalid.seats":
+    "Escribe un número entero de puestos, de 1 a {max}.",
+  "enterprise.failed": "No ha funcionado. Inténtalo de nuevo.",
+  "enterprise.agreement.heading": "Firmar el acuerdo",
+  "enterprise.agreement.lead":
+    "El Isomux Commercial License Agreement para {company}. El acuerdo está en inglés.",
+  "enterprise.agreement.download": "Descargar el acuerdo (PDF)",
+  "enterprise.agreement.name": "Tu nombre",
+  "enterprise.agreement.title": "Tu cargo",
+  "enterprise.agreement.company": "Empresa",
+  "enterprise.agreement.date": "Fecha",
+  "enterprise.agreement.authority":
+    "Tengo autorización para firmar en nombre de {company}.",
+  "enterprise.agreement.sign": "Firmar",
+  "enterprise.invalid.name": "Escribe tu nombre.",
+  "enterprise.invalid.title": "Escribe tu cargo.",
+  "enterprise.invalid.authority":
+    "Confirma que puedes firmar en nombre de la empresa.",
+  "enterprise.heading": "Cuenta de empresa",
+  "enterprise.seats.heading": "Puestos",
+  "enterprise.seats.inUse.one": "{inUse} de {count} puesto en uso",
+  "enterprise.seats.inUse.other": "{inUse} de {count} puestos en uso",
+  "enterprise.seats.newCount": "Nuevo número de puestos",
+  "enterprise.seats.review": "Cambiar",
+  "enterprise.seats.quoteMonthly.one":
+    "Cada mes se factura por su mayor número de puestos: {count} puesto es {total} al mes.",
+  "enterprise.seats.quoteMonthly.other":
+    "Cada mes se factura por su mayor número de puestos: {count} puestos son {total} al mes.",
+  "enterprise.seats.quoteMonthlyLower.one":
+    "Este mes se sigue facturando por su mayor número de puestos. Desde el mes que viene: {total} al mes por {count} puesto.",
+  "enterprise.seats.quoteMonthlyLower.other":
+    "Este mes se sigue facturando por su mayor número de puestos. Desde el mes que viene: {total} al mes por {count} puestos.",
+  "enterprise.seats.quoteYearly.one":
+    "Puestos añadidos: {added}, durante {count} mes restante del año de contrato, a {price} por puesto al mes: {amount}, facturado el {date}.",
+  "enterprise.seats.quoteYearly.other":
+    "Puestos añadidos: {added}, durante los {count} meses restantes del año de contrato, a {price} por puesto al mes: {amount}, facturado el {date}.",
+  "enterprise.seats.confirm": "Confirmar",
+  "enterprise.seats.cancel": "Cancelar",
+  "enterprise.seats.belowInUse.one":
+    "El número de puestos no puede bajar del {count} puesto en uso.",
+  "enterprise.seats.belowInUse.other":
+    "El número de puestos no puede bajar de los {count} puestos en uso.",
+  "enterprise.seats.yearlyDecrease":
+    "En el plan anual, el número de puestos solo baja en la renovación, el {date}.",
+  "enterprise.seats.stale":
+    "El número de puestos ha cambiado a {seats} mientras tanto. Revisa el cambio de nuevo.",
+  "enterprise.offices.heading": "Oficinas",
+  "enterprise.offices.empty":
+    "Todavía no se ha unido ninguna oficina. Una oficina se une cuando un propietario pega en ella el secreto de abajo.",
+  "enterprise.offices.name": "Oficina",
+  "enterprise.offices.members": "Miembros",
+  "enterprise.offices.lastSeen": "Último contacto",
+  "enterprise.offices.unnamed": "Oficina sin nombre",
+  "enterprise.secret.heading": "Secreto",
+  "enterprise.secret.lead":
+    "Pega este secreto en Ajustes → Oficina de cada una de tus oficinas de Isomux. Mantenlo en privado.",
+  "enterprise.secret.show": "Mostrar",
+  "enterprise.secret.hide": "Ocultar",
+  "enterprise.secret.copy": "Copiar",
+  "enterprise.secret.copied": "Copiado",
+  "enterprise.secret.copyFailed":
+    "No se ha podido copiar. Usa Mostrar y cópialo a mano.",
+  "enterprise.secret.renew": "Crear un secreto nuevo",
+  "enterprise.secret.renewWarning":
+    "El secreto actual deja de funcionar. Pega el nuevo en cada oficina. Una oficina que siga con el secreto antiguo conserva sus miembros y sus puestos contados hasta que reciba el nuevo.",
+  "enterprise.secret.renewConfirm": "Crear el secreto nuevo",
+  "enterprise.billing.heading": "Facturación",
+  "enterprise.billing.monthly": "Mensual, {price} por puesto al mes",
+  "enterprise.billing.yearly": "Anual, {price} por puesto al año",
+  "enterprise.billing.negotiatedMonthly":
+    "Mensual, al precio negociado: {note}",
+  "enterprise.billing.negotiatedYearly": "Anual, al precio negociado: {note}",
+  "enterprise.seats.quoteNegotiated.one":
+    "{count} puesto, facturado al precio de tu acuerdo.",
+  "enterprise.seats.quoteNegotiated.other":
+    "{count} puestos, facturados al precio de tu acuerdo.",
+  "enterprise.billing.renewal": "El año de contrato se renueva el {date}.",
+  "enterprise.billing.invoices": "Las facturas llegan a {email}.",
+  "enterprise.agreementCard.heading": "Acuerdo",
+  "enterprise.agreementCard.signed": "Firmado por {name}, {title}, el {date}.",
+  "enterprise.agreementCard.negotiated": "Acuerdo negociado registrado.",
+  "enterprise.over.heading": "Por encima del número de puestos",
+  "enterprise.over.body":
+    "Una cuenta supera su número de puestos cuando una oficina añade miembros mientras no puede contactar con Isomux, o cuando una oficina con más miembros que puestos libres recibe el secreto. Entonces el número de puestos sube hasta los puestos en uso, y las facturas cuentan esos puestos con las mismas reglas.",
+  "enterprise.help": "Ayuda para empresas: {email}",
+
   "unsubscribe.heading": "Darse de baja de los consejos",
   "unsubscribe.lead":
     "Así dejas de recibir los consejos que enviamos por correo en las dos primeras semanas de tu oficina.",

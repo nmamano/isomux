@@ -35,7 +35,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import pg from "pg";
 import type { Pool, PoolClient, PoolConfig, QueryResult } from "pg";
-import { INCIDENTS_DDL } from "./incidents-ddl.ts";
+import { INCIDENTS_DDL, INCIDENT_TABLES } from "./incidents-ddl.ts";
+import { ENTERPRISE_DDL, ENTERPRISE_TABLES } from "./enterprise-ddl.ts";
 import {
   ASSET_GONE_REASON,
   LIFECYCLE_ASSET_GONE,
@@ -327,10 +328,8 @@ export const PRODUCT_TABLES = [
   "subscriptions",
   "welcome_mails",
   "first_paid_checkouts",
-  "status_customers",
-  "incidents",
-  "incident_updates",
-  "incident_keys",
+  ...INCIDENT_TABLES,
+  ...ENTERPRISE_TABLES,
 ] as const;
 
 /**
@@ -683,7 +682,8 @@ create table if not exists name_reservations (
 );
 ${WELCOME_MAILS_DDL}
 ${FIRST_PAID_CHECKOUTS_DDL}
-${INCIDENTS_DDL}`;
+${INCIDENTS_DDL}
+${ENTERPRISE_DDL}`;
 
 /**
  * Indexes over columns THIS build added, created after the column check rather

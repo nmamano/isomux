@@ -1,6 +1,14 @@
 // The tables of the critical-issue status pages, kept out of store.ts for its
 // size. store.ts splices INCIDENTS_DDL into SCHEMA.
 
+/** The tables INCIDENTS_DDL creates, for store.ts PRODUCT_TABLES. */
+export const INCIDENT_TABLES = [
+  "status_customers",
+  "incidents",
+  "incident_updates",
+  "incident_keys",
+] as const;
+
 /**
  * The status pages for an enterprise customer's critical issue (incidents.ts).
  * SCHEMA creates them on a new database and migrateIncidentTables on an

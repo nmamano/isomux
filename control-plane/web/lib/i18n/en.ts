@@ -417,6 +417,122 @@ export const en = {
   "errors.rateLimited":
     "Too many attempts from your network. Try again in a few minutes.",
 
+  // ------------------------------------------------------------- enterprise
+  // The enterprise account of a company's IT (/enterprise): set up, the
+  // agreement, and one account page. The agreement text itself is English only
+  // (lib/enterprise-agreement-text.ts).
+  "nav.enterprise": "Enterprise",
+  "enterprise.setup.heading": "Set up an enterprise account",
+  "enterprise.setup.lead":
+    "For a company that hosts its own Isomux offices. One account holds the seats of all of them.",
+  "enterprise.setup.company": "Company",
+  "enterprise.setup.billingEmail": "Billing email",
+  "enterprise.setup.plan": "Plan",
+  "enterprise.setup.monthly": "Monthly: {price} per seat per month",
+  "enterprise.setup.yearly": "Yearly: {price} per seat per year",
+  "enterprise.setup.yearlyNote":
+    "Seats you add during the year are invoiced at the end of that quarter for the rest of the year.",
+  "enterprise.setup.seats": "Seats",
+  "enterprise.setup.seatsNote":
+    "A seat is one member, in any of your Isomux offices. Unlimited agents and devices per seat.",
+  "enterprise.setup.totalMonthly": "Total: {total} per month",
+  "enterprise.setup.totalYearly": "Total: {total} per year",
+  "enterprise.setup.trial":
+    "The first month is free. No card needed: invoices go to the billing email.",
+  "enterprise.setup.continue": "Continue",
+  "enterprise.invalid.company": "Enter the company name.",
+  "enterprise.invalid.billingEmail": "Enter a valid billing email.",
+  "enterprise.invalid.seats": "Enter a whole number of seats, from 1 to {max}.",
+  "enterprise.failed": "That did not work. Try again.",
+
+  "enterprise.agreement.heading": "Sign the agreement",
+  "enterprise.agreement.lead":
+    "The Isomux Commercial License Agreement for {company}. The agreement is in English.",
+  "enterprise.agreement.download": "Download the agreement (PDF)",
+  "enterprise.agreement.name": "Your name",
+  "enterprise.agreement.title": "Your title",
+  "enterprise.agreement.company": "Company",
+  "enterprise.agreement.date": "Date",
+  "enterprise.agreement.authority": "I am authorized to sign for {company}.",
+  "enterprise.agreement.sign": "Sign",
+  "enterprise.invalid.name": "Enter your name.",
+  "enterprise.invalid.title": "Enter your title.",
+  "enterprise.invalid.authority": "Confirm that you may sign for the company.",
+
+  "enterprise.heading": "Enterprise account",
+  "enterprise.seats.heading": "Seats",
+  "enterprise.seats.inUse.one": "{inUse} of {count} seat in use",
+  "enterprise.seats.inUse.other": "{inUse} of {count} seats in use",
+  "enterprise.seats.newCount": "New seat count",
+  "enterprise.seats.review": "Change",
+  "enterprise.seats.quoteMonthly.one":
+    "Each month is invoiced for its highest seat count: {count} seat is {total} a month.",
+  "enterprise.seats.quoteMonthly.other":
+    "Each month is invoiced for its highest seat count: {count} seats is {total} a month.",
+  "enterprise.seats.quoteMonthlyLower.one":
+    "This month is still invoiced for its highest seat count. From next month: {total} a month for {count} seat.",
+  "enterprise.seats.quoteMonthlyLower.other":
+    "This month is still invoiced for its highest seat count. From next month: {total} a month for {count} seats.",
+  "enterprise.seats.quoteYearly.one":
+    "Added seats: {added}, for the {count} month left in the contract year, at {price} per seat per month: {amount}, invoiced on {date}.",
+  "enterprise.seats.quoteYearly.other":
+    "Added seats: {added}, for the {count} months left in the contract year, at {price} per seat per month: {amount}, invoiced on {date}.",
+  "enterprise.seats.confirm": "Confirm",
+  "enterprise.seats.cancel": "Cancel",
+  "enterprise.seats.belowInUse.one":
+    "The seat count cannot go below the {count} seat in use.",
+  "enterprise.seats.belowInUse.other":
+    "The seat count cannot go below the {count} seats in use.",
+  "enterprise.seats.yearlyDecrease":
+    "On the yearly plan, the seat count goes down only at renewal, on {date}.",
+  "enterprise.seats.stale":
+    "The seat count changed to {seats} in the meantime. Check the change again.",
+
+  "enterprise.offices.heading": "Offices",
+  "enterprise.offices.empty":
+    "No office has joined yet. An office joins when an owner pastes the secret below in it.",
+  "enterprise.offices.name": "Office",
+  "enterprise.offices.members": "Members",
+  "enterprise.offices.lastSeen": "Last check-in",
+  "enterprise.offices.unnamed": "Unnamed office",
+
+  "enterprise.secret.heading": "Secret",
+  "enterprise.secret.lead":
+    "Paste this secret in Settings → Office of each of your Isomux offices. Keep it private.",
+  "enterprise.secret.show": "Show",
+  "enterprise.secret.hide": "Hide",
+  "enterprise.secret.copy": "Copy",
+  "enterprise.secret.copied": "Copied",
+  "enterprise.secret.renew": "Make a new secret",
+  "enterprise.secret.copyFailed":
+    "Could not copy. Use Show and copy it by hand.",
+  "enterprise.secret.renewWarning":
+    "The current secret stops working. Paste the new one in each office. An office still on the old secret keeps its members and its counted seats until it gets the new one.",
+  "enterprise.secret.renewConfirm": "Make the new secret",
+
+  "enterprise.billing.heading": "Billing",
+  "enterprise.billing.monthly": "Monthly, {price} per seat per month",
+  "enterprise.billing.yearly": "Yearly, {price} per seat per year",
+  "enterprise.billing.negotiatedMonthly":
+    "Monthly, at the negotiated price: {note}",
+  "enterprise.billing.negotiatedYearly":
+    "Yearly, at the negotiated price: {note}",
+  "enterprise.seats.quoteNegotiated.one":
+    "{count} seat, invoiced at the price in your agreement.",
+  "enterprise.seats.quoteNegotiated.other":
+    "{count} seats, invoiced at the price in your agreement.",
+  "enterprise.billing.renewal": "The contract year renews on {date}.",
+  "enterprise.billing.invoices": "Invoices go to {email}.",
+
+  "enterprise.agreementCard.heading": "Agreement",
+  "enterprise.agreementCard.signed": "Signed by {name}, {title}, on {date}.",
+  "enterprise.agreementCard.negotiated": "Negotiated agreement on record.",
+
+  "enterprise.over.heading": "Over the seat count",
+  "enterprise.over.body":
+    "An account goes over its seat count when an office adds members while it cannot reach Isomux, or when an office with more members than the free seats gets the secret. The seat count then goes up to the seats in use, and the invoices count those seats by the same rules.",
+  "enterprise.help": "Enterprise help: {email}",
+
   // ------------------------------------------------------------- unsubscribe
   // The page the unsubscribe link in a welcome mail opens.
   "unsubscribe.heading": "Unsubscribe from the tips",
