@@ -12,6 +12,7 @@ import {
   secondaryFill,
 } from "../components/dialog-styles.ts";
 import { whose, type Target, type WhoseKey } from "./target.ts";
+import { BrandMark, hasBrandMark } from "./brand-logos.tsx";
 
 export const mono: CSSProperties = {
   fontFamily: "'JetBrains Mono',monospace",
@@ -192,18 +193,10 @@ export function Pill({
   );
 }
 
-// A monogram tile for a service. The known services get their colour; the
-// rest a neutral tile with the first letter of the name.
-const LOGO_COLORS: Record<string, string> = {
-  GitHub: "#6e7681",
-  Stripe: "#635bff",
-  Fly: "#8b5cf6",
-  WhatsApp: "#25d366",
-  Discord: "#5865f2",
-};
-
+// A service's logo: its official mark when it has one, else a neutral tile
+// with the first letter of the name.
 export function Logo({ label, size = 28 }: { label: string; size?: number }) {
-  const bg = LOGO_COLORS[label] ?? "var(--border-strong, var(--border))";
+  if (hasBrandMark(label)) return <BrandMark label={label} size={size} />;
   return (
     <span
       aria-hidden
@@ -211,7 +204,7 @@ export function Logo({ label, size = 28 }: { label: string; size?: number }) {
         width: size,
         height: size,
         borderRadius: size / 4,
-        background: bg,
+        background: "var(--border-strong, var(--border))",
         color: "#fff",
         display: "inline-flex",
         alignItems: "center",
