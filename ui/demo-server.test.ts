@@ -596,3 +596,16 @@ it("lists the ordinary rooms on GET /api/me/rooms, never the lobby", async () =>
     ordinaryRooms(full.rooms).map((r) => ({ id: r.id, name: r.name })),
   );
 });
+
+// Task 74e8fc07, slice 4: a page is a paged ask. The demo Inbox holds a
+// ringing one, and serves no page list of its own.
+it("serves a ringing paged ask in the Inbox, and no page list", async () => {
+  const asks = (await demoApi("GET", "/api/asks", undefined)) as {
+    page?: { state: string; pageId?: string };
+  }[];
+  const ringing = asks.filter((a) => a.page?.state === "ringing");
+  expect(ringing.length).toBeGreaterThan(0);
+  expect(ringing[0].page?.pageId).toMatch(/^[0-9a-f]{16}$/);
+  const pages = await demoApi("GET", "/api/pager", undefined).catch(() => null);
+  expect(Array.isArray(pages) && pages.length > 0).toBe(false);
+});

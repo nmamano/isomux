@@ -3,6 +3,9 @@
 // resolve routes read and write paged asks by their page id. This module
 // builds the PagerEntry those routes return.
 //
+// It also holds the raise body's bounds and its check, for the compat
+// routes and the agent manager's own page.
+//
 // LEAF: imports only shared types and the ask store's types.
 
 import type { AskPageSource, AskStore } from "./asks.ts";
@@ -12,6 +15,68 @@ import type {
   PagerEntry,
   PagerSource,
 } from "../shared/types.ts";
+
+// Sanity bounds only. BODY_MAX is not the whole outbound message budget: the
+// delivery slice adds the room, the source and a link around it.
+export const PAGER_TITLE_MAX = 200;
+export const PAGER_BODY_MAX = 2000;
+export const PAGER_KEY_MAX = 200;
+// The raise body, after validation. Title is trimmed; an omitted body or key
+// stays absent.
+export interface PagerRaiseFields {
+  title: string;
+  body?: string;
+  key?: string;
+}
+
+// Validate a raise body. Returns the fields, or the message for a 400.
+export function parseRaiseFields(
+  raw: unknown,
+): { ok: true; fields: PagerRaiseFields } | { ok: false; message: string } {
+  const body = (raw ?? {}) as Record<string, unknown>;
+  if (typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, message: "body must be a JSON object" };
+  }
+  if (typeof body.title !== "string" || body.title.trim().length === 0) {
+    return { ok: false, message: "title is required" };
+  }
+  const title = body.title.trim();
+  if (/[\r\n\u2028\u2029]/.test(title)) {
+    return { ok: false, message: "title must be one line" };
+  }
+  if (title.length > PAGER_TITLE_MAX) {
+    return {
+      ok: false,
+      message: `title is longer than ${PAGER_TITLE_MAX} characters`,
+    };
+  }
+  const fields: PagerRaiseFields = { title };
+  if (body.body !== undefined) {
+    if (typeof body.body !== "string") {
+      return { ok: false, message: "body must be a string" };
+    }
+    if (body.body.length > PAGER_BODY_MAX) {
+      return {
+        ok: false,
+        message: `body is longer than ${PAGER_BODY_MAX} characters`,
+      };
+    }
+    if (body.body.length > 0) fields.body = body.body;
+  }
+  if (body.key !== undefined) {
+    if (typeof body.key !== "string" || body.key.length === 0) {
+      return { ok: false, message: "key must be a non-empty string" };
+    }
+    if (body.key.length > PAGER_KEY_MAX) {
+      return {
+        ok: false,
+        message: `key is longer than ${PAGER_KEY_MAX} characters`,
+      };
+    }
+    fields.key = body.key;
+  }
+  return { ok: true, fields };
+}
 
 export interface PagerCompatDeps {
   // The agent as it is now, or null when it is gone.

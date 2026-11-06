@@ -28,6 +28,16 @@ describe("office links", () => {
       });
   });
 
+  // Task 74e8fc07, slice 4: the Pages tab is gone. Its old path stays a
+  // link, to the Asks view, so an ask that holds it keeps its button and an
+  // agent that still sends it is not refused.
+  it("keep /inbox/pages as a link to the Asks view, and no page is the pager", () => {
+    expect(OFFICE_PAGES as readonly string[]).not.toContain("pager");
+    expect(OFFICE_LINK_PATHS).toContain("/inbox/pages");
+    expect(officeLinkFor("/inbox/pages")).toEqual({ page: "asks" });
+    expect(pathForPage("asks")).toBe("/inbox/asks");
+  });
+
   it("refuse anything else, exactly", () => {
     for (const path of [
       "",
@@ -135,7 +145,7 @@ describe("the one-ask link", () => {
 // The asks reference lists the accepted values for agents to read before
 // their first call. Every backticked office path in it is one of them, and
 // none is missing, so a new page or tab cannot leave the page stale. It also
-// shows the agent form.
+// shows the agent form, and leaves out the old paths kept as aliases.
 describe("the asks reference", () => {
   it("lists exactly the office links, the agent form and the ask form", () => {
     const page = readFileSync(
@@ -157,13 +167,26 @@ describe("the asks reference", () => {
     expect(askLinkFor(agentForms[0])).not.toBeNull();
     // The one-ask form, with a placeholder for the id (task 84aadfab).
     expect(askForms.length).toBe(1);
+    // An old path the office still accepts (an alias: its link's own path
+    // differs, as /inbox/pages opens /inbox/asks, task 74e8fc07) is not
+    // taught.
+    const canonical = (path: string) => {
+      const link = officeLinkFor(path)!;
+      return link.page === "integrations" && link.tab
+        ? `${pathForPage("integrations")}/${link.tab}`
+        : pathForPage(link.page);
+    };
+    const taught = OFFICE_LINK_PATHS.filter((path) => canonical(path) === path);
+    expect(OFFICE_LINK_PATHS.filter((p) => !taught.includes(p))).toEqual([
+      "/inbox/pages",
+    ]);
     expect(
       listed
         .filter(
           (path) => !agentForms.includes(path) && !askForms.includes(path),
         )
         .sort(),
-    ).toEqual([...OFFICE_LINK_PATHS].sort());
+    ).toEqual([...taught].sort());
   });
 });
 

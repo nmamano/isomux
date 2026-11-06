@@ -25,9 +25,86 @@ import {
   type AskEntry,
   type AskPage,
   type PagerEntry,
+  type PagerSource,
+  type PagerTransition,
 } from "../shared/types.ts";
 import { pagePrompt } from "./pager-compat.ts";
-import { isPagerEntry } from "./pager-store.ts";
+
+const PAGER_STATES: ReadonlySet<string> = new Set([
+  "open",
+  "acked",
+  "resolved",
+]);
+const PAGER_DELIVERY_STATES: ReadonlySet<string> = new Set([
+  "not_delivered",
+  "delivered",
+  "failed",
+]);
+
+function isPagerSource(v: unknown): v is PagerSource {
+  if (typeof v !== "object" || v === null) return false;
+  const s = v as Record<string, unknown>;
+  if (typeof s.name !== "string") return false;
+  if (s.kind === "agent") {
+    return typeof s.agentId === "string" && typeof s.roomId === "string";
+  }
+  // Any feature name: a page a later release raised about a feature this
+  // release does not know still loads after a rollback.
+  if (s.kind === "office")
+    return (
+      typeof s.feature === "string" && s.feature !== "" && s.roomId === null
+    );
+  return (
+    s.kind === "app" &&
+    typeof s.appName === "string" &&
+    typeof s.registrationGen === "number" &&
+    (s.roomId === null || typeof s.roomId === "string")
+  );
+}
+
+function isTransition(v: unknown): v is PagerTransition {
+  if (typeof v !== "object" || v === null) return false;
+  const t = v as Record<string, unknown>;
+  return typeof t.by === "string" && typeof t.at === "number";
+}
+
+function isOptionalString(v: unknown): boolean {
+  return v === undefined || typeof v === "string";
+}
+
+// The shape of a page in the old files. Field types only, so a bound lowered
+// later does not drop an old page.
+function isPagerEntry(v: unknown): v is PagerEntry {
+  if (typeof v !== "object" || v === null) return false;
+  const e = v as Record<string, unknown>;
+  const delivery = e.delivery as Record<string, unknown> | null | undefined;
+  return (
+    typeof e.id === "string" &&
+    typeof e.createdAt === "number" &&
+    typeof e.lastRaisedAt === "number" &&
+    typeof e.raiseCount === "number" &&
+    isPagerSource(e.source) &&
+    typeof e.targetUserId === "string" &&
+    typeof e.title === "string" &&
+    isOptionalString(e.body) &&
+    isOptionalString(e.key) &&
+    typeof e.state === "string" &&
+    PAGER_STATES.has(e.state) &&
+    (e.acked === undefined || isTransition(e.acked)) &&
+    (e.resolved === undefined || isTransition(e.resolved)) &&
+    typeof delivery === "object" &&
+    delivery !== null &&
+    typeof delivery.state === "string" &&
+    PAGER_DELIVERY_STATES.has(delivery.state) &&
+    typeof delivery.sends === "number" &&
+    (delivery.lastAttemptAt === undefined ||
+      typeof delivery.lastAttemptAt === "number") &&
+    isOptionalString(delivery.lastFailure) &&
+    (delivery.resolvedNotice === undefined ||
+      delivery.resolvedNotice === "pending" ||
+      delivery.resolvedNotice === "done")
+  );
+}
 
 export interface PagerMigrationDeps {
   asks: Pick<AskStore, "create">;

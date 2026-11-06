@@ -40,12 +40,10 @@ import {
   IntegrationsView,
   type IntegrationsRequest,
 } from "./integrations/IntegrationsView.tsx";
-import { PagerView, type PagerSelectRequest } from "./components/PagerView.tsx";
-import { usePagerSync } from "./pager-sync.ts";
 import { AsksView } from "./components/AsksView.tsx";
 import { InboxView } from "./components/InboxView.tsx";
 import { AgentChatPanel } from "./components/AgentChatPanel.tsx";
-import { inboxTabFor, useInboxCounts, type InboxTab } from "./inbox.ts";
+import { askIdForPage } from "./inbox.ts";
 import { useAsksSync, useOthersAsksSync } from "./asks-sync.ts";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { UpdateOverlay } from "./components/UpdateOverlay.tsx";
@@ -103,10 +101,12 @@ function pageFromEntry(state: unknown): Page | null | undefined {
     entry.page === "skills" ||
     entry.page === "integrations" ||
     entry.page === "settings" ||
-    entry.page === "pager" ||
     entry.page === "asks"
     ? entry.page
-    : undefined;
+    : // The Inbox's Pages tab until pages became asks (task 74e8fc07).
+      entry.page === "pager"
+      ? "asks"
+      : undefined;
 }
 
 /**
@@ -163,7 +163,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   // The page the URL asked for, read once at mount. Every page flag below
   // starts from it, so a shared link renders its page on the FIRST paint - no
   // flash of the office, and no wait for the websocket.
-  // A Discord page link (`/?pager=<id>`) opens the Inbox on that page.
+  // A Discord page link (`/?pager=<id>`) opens the Inbox on that page's ask.
   const [bootPage] = useState(() =>
     pageForLocation(window.location.pathname, window.location.search),
   );
@@ -192,7 +192,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     bootPage === "integrations",
   );
   // One-shot: what the Integrations page opens on, beyond its defaults: an
-  // MCP sign-in that came back carries its result (read once, like the pager
+  // MCP sign-in that came back carries its result (read once, like the ask
   // id below), and a door or a URL that names a tab carries the tab. The page
   // takes it on mount and clears it.
   const [integrationsRequest, setIntegrationsRequest] =
@@ -212,25 +212,27 @@ export function App({ routing = true }: { routing?: boolean }) {
     () => setIntegrationsRequest(null),
     [],
   );
-  const [pagerOpen, setPagerOpen] = useState(bootPage === "pager");
-  // Read once, like bootPage. The sync effect below rewrites the URL to
-  // /inbox/pages, so the id lives here until the view has shown it.
-  const [pagerSelectRequest, setPagerSelectRequest] =
-    useState<PagerSelectRequest | null>(() => {
-      const id = pagerIdForSearch(window.location.search);
-      return id === null ? null : { id };
-    });
-  const clearPagerSelectRequest = useCallback(
-    () => setPagerSelectRequest(null),
-    [],
-  );
   const [asksOpen, setAsksOpen] = useState(bootPage === "asks");
   // The ask pinned above the Asks list (task 84aadfab): an ask chip's, an
-  // ask link's or the /inbox/asks/<askId> address's, read once like the pager
-  // id. It goes when the Asks tab closes.
+  // ask link's or the /inbox/asks/<askId> address's, read once. It goes when
+  // the Asks tab closes.
   const [askFocus, setAskFocus] = useState<string | null>(() =>
     askIdForPath(window.location.pathname),
   );
+  // A Discord or push link from before pages were asks (`/?pager=<id>`, task
+  // 74e8fc07): the Asks tab is open from the first paint, and the page's ask
+  // is pinned once the office names it. Read once, like the path.
+  const [bootPageId] = useState(() => pagerIdForSearch(window.location.search));
+  useEffect(() => {
+    if (bootPageId === null) return;
+    let live = true;
+    void askIdForPage(bootPageId).then((askId) => {
+      if (live && askId !== null) setAskFocus(askId);
+    });
+    return () => {
+      live = false;
+    };
+  }, [bootPageId]);
   if (!asksOpen && askFocus !== null) setAskFocus(null);
   const clearAskFocus = useCallback(() => setAskFocus(null), []);
   // One-shot: the result of an MCP sign-in started in an ask card, which came
@@ -250,20 +252,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   const [askAgentFilter, setAskAgentFilter] = useState<string | null>(null);
   if (!asksOpen && askAgentFilter !== null) setAskAgentFilter(null);
   const clearAskAgentFilter = useCallback(() => setAskAgentFilter(null), []);
-  // The Inbox's two tabs are the pager and asks pages. Every door into the
-  // Inbox sets one flag and clears the other: with both set, Pages would show
-  // and closing it would uncover Asks instead of what is under the Inbox.
-  const openInboxTab = useCallback((tab: InboxTab) => {
-    setPagerOpen(tab === "pager");
-    setAsksOpen(tab === "asks");
-    if (tab !== "pager") setPagerSelectRequest(null);
-  }, []);
-  // "i" opens the tab the bar's Inbox entry would: in a chat, the chat bar's,
-  // which leaves out the asks the chat already shows.
-  const shortcutInboxTab = inboxTabFor(
-    useInboxCounts(focusedAgentId ?? undefined),
-  );
-  usePagerSync();
+  const openInbox = useCallback(() => setAsksOpen(true), []);
   useAsksSync();
   useOthersAsksSync();
 
@@ -353,7 +342,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     else if (saved.panel === "apps") setAppsOpen(true);
     else if (saved.panel === "skills") setSkillsOpen(true);
     else if (saved.panel === "integrations") setIntegrationsOpen(true);
-    else if (saved.panel === "pager") setPagerOpen(true);
     else if (saved.panel === "asks") setAsksOpen(true);
     // "users" is the old name for the same page; a spot saved by an earlier
     // build still reopens it.
@@ -390,11 +378,9 @@ export function App({ routing = true }: { routing?: boolean }) {
                 ? "skills"
                 : integrationsOpen
                   ? "integrations"
-                  : pagerOpen
-                    ? "pager"
-                    : asksOpen
-                      ? "asks"
-                      : null,
+                  : asksOpen
+                    ? "asks"
+                    : null,
     });
   }, [
     persistEnabled,
@@ -407,7 +393,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     appsOpen,
     skillsOpen,
     integrationsOpen,
-    pagerOpen,
     asksOpen,
     usersOpen,
     lobbyOpen,
@@ -594,10 +579,6 @@ export function App({ routing = true }: { routing?: boolean }) {
         setOpen: setIntegrationsOpen,
         clear: () => setIntegrationsRequest(null),
       },
-      pager: {
-        setOpen: setPagerOpen,
-        clear: () => setPagerSelectRequest(null),
-      },
       asks: { setOpen: setAsksOpen, clear: () => setAskFocus(null) },
     }),
     [],
@@ -670,15 +651,13 @@ export function App({ routing = true }: { routing?: boolean }) {
       if (link.tab) setIntegrationsRequest({ tab: link.tab });
       if (link.askId) setAskFocus(link.askId);
       if (link.onlyAgent) setAskAgentFilter(link.onlyAgent);
-      if (link.page === "pager" || link.page === "asks")
-        openInboxTab(link.page);
-      else pageState[link.page].setOpen(true);
+      pageState[link.page].setOpen(true);
     },
-    [pageState, openInboxTab, openAgentChat],
+    [pageState, openAgentChat],
   );
 
   // An agent's address (/agents/<agentId>, the app widget's link) opens that
-  // chat as an ask link does. Read once at mount, like the pager id: the path
+  // chat as an ask link does. Read once at mount, like the ask id: the path
   // effect below rewrites the address to "/". It waits for the saved-spot
   // restore, so it wins over the saved room, chat, page and lobby, and it is
   // tried once: an agent that appears later in the session does not take the
@@ -732,7 +711,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     appsOpen,
     skillsOpen,
     integrationsOpen,
-    pagerOpen,
     asksOpen,
   };
   const pageBelow = pageUnder(pageFlags);
@@ -778,8 +756,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   const [inboxChat, setInboxChat] = useState<string | null>(null);
   if (
     inboxChat !== null &&
-    ((page !== "pager" && page !== "asks") ||
-      !agents.some((a) => a.id === inboxChat))
+    (page !== "asks" || !agents.some((a) => a.id === inboxChat))
   )
     setInboxChat(null);
 
@@ -901,7 +878,6 @@ export function App({ routing = true }: { routing?: boolean }) {
           metaKey: e.metaKey,
           ctrlKey: e.ctrlKey,
           altKey: e.altKey,
-          inboxTab: shortcutInboxTab,
         },
         {
           usersOpen,
@@ -910,7 +886,6 @@ export function App({ routing = true }: { routing?: boolean }) {
           appsOpen,
           skillsOpen,
           integrationsOpen,
-          pagerOpen,
           asksOpen,
         },
       );
@@ -928,11 +903,8 @@ export function App({ routing = true }: { routing?: boolean }) {
             setSkillsOpen(pageUpdate.skillsOpen);
           if (pageUpdate.integrationsOpen !== undefined)
             setIntegrationsOpen(pageUpdate.integrationsOpen);
-          if (pageUpdate.pagerOpen !== undefined)
-            setPagerOpen(pageUpdate.pagerOpen);
           if (pageUpdate.asksOpen !== undefined)
             setAsksOpen(pageUpdate.asksOpen);
-          if (pageUpdate.asksOpen) setPagerSelectRequest(null);
           // "s" opens the settings of the room you are standing in; the lobby
           // has no room row, so it opens the office row instead (Nil, 2026-09-14).
           if (pageUpdate.usersOpen)
@@ -1070,9 +1042,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     integrationsOpen,
     tasksOpen,
     cronjobsOpen,
-    pagerOpen,
     asksOpen,
-    shortcutInboxTab,
     openSettings,
     lobbyOpen,
     backRoomOpen,
@@ -1190,32 +1160,16 @@ export function App({ routing = true }: { routing?: boolean }) {
                 request={integrationsRequest}
                 onRequestHandled={clearIntegrationsRequest}
               />
-            ) : page === "pager" || page === "asks" ? (
-              <InboxView
-                tab={page}
-                onSelectTab={openInboxTab}
-                onClose={closePage}
-                chatOpen={inboxChat !== null}
-              >
-                {page === "pager" ? (
-                  <PagerView
-                    selectRequest={pagerSelectRequest}
-                    onSelectRequestHandled={clearPagerSelectRequest}
-                    onFocusAgent={openAgentChat}
-                    onOpenPagerSettings={() =>
-                      openIntegrations({ tab: "pager" })
-                    }
-                  />
-                ) : (
-                  <AsksView
-                    onFocusAgent={openAgentChat}
-                    onChatAgent={setInboxChat}
-                    focusAskId={askFocus}
-                    onClearFocus={clearAskFocus}
-                    filterAgentId={askAgentFilter}
-                    onFilterAgentHandled={clearAskAgentFilter}
-                  />
-                )}
+            ) : page === "asks" ? (
+              <InboxView onClose={closePage} chatOpen={inboxChat !== null}>
+                <AsksView
+                  onFocusAgent={openAgentChat}
+                  onChatAgent={setInboxChat}
+                  focusAskId={askFocus}
+                  onClearFocus={clearAskFocus}
+                  filterAgentId={askAgentFilter}
+                  onFilterAgentHandled={clearAskAgentFilter}
+                />
                 {inboxChat && (
                   <AgentChatPanel
                     agentId={inboxChat}
@@ -1234,7 +1188,7 @@ export function App({ routing = true }: { routing?: boolean }) {
                 onEditAgent={() => setEditAgent(focusedAgent)}
                 onOpenTasks={openTasks}
                 onOpenTask={openTask}
-                onOpenInbox={openInboxTab}
+                onOpenInbox={openInbox}
                 onSwipeLeft={swipeAgentNext}
                 onSwipeRight={swipeAgentPrev}
               />
@@ -1269,7 +1223,7 @@ export function App({ routing = true }: { routing?: boolean }) {
                 onOpenApps={() => setAppsOpen(true)}
                 onOpenSkills={() => setSkillsOpen(true)}
                 onOpenIntegrations={() => openIntegrations()}
-                onOpenInbox={openInboxTab}
+                onOpenInbox={openInbox}
                 onOpenUpdate={() =>
                   openSettings({ kind: "section", section: "updates" })
                 }

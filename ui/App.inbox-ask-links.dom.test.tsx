@@ -1,6 +1,6 @@
 // An ask's link through the real App and store: it opens its office page over
 // the Inbox or the chat it was clicked on, and Back returns there; a link to
-// the Pages tab switches the tab. A link to an agent's chat is in
+// the old Pages tab opens the Asks view. A link to an agent's chat is in
 // ui/App.ask-agent-link.dom.test.tsx, the setup in
 // ui/test-support/inbox-fixture.tsx.
 
@@ -125,18 +125,15 @@ it("opens the Inbox from a chat's ask stack filtered to that agent, with the sta
   ).toBe(draft);
 });
 
-it("switches to the Pages tab for an ask's link to it, and closes out of the Inbox", async () => {
+// Task 74e8fc07, slice 4: the Pages tab is gone; an ask that still links
+// to it keeps its button, which opens the Asks view.
+it("keeps the button of an ask's link to the old Pages tab, and it opens the Asks view", async () => {
   setAsks([ask("q1", "a1", "/inbox/pages")]);
   const view = await boot();
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(selectedTab(view)).toBe("asks");
+  expect(officeLink(view, "q1")).not.toBeNull();
   await act(async () => fireEvent.click(officeLink(view, "q1")!));
-  expect(window.location.pathname).toBe("/inbox/pages");
-  expect(selectedTab(view)).toBe("pager");
-  // The tabs do not stack: the close leaves the Inbox, not the Asks tab.
-  await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "←" })),
-  );
-  expect(window.location.pathname).toBe("/");
-  expect(view.container.querySelector('[role="tablist"]')).toBeNull();
+  expect(window.location.pathname).toBe("/inbox/asks");
+  expect(selectedTab(view)).toBe("asks");
 });

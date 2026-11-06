@@ -1,8 +1,10 @@
 # Pager - v0 design
 
 Status: agreed with Nil on 2026-10-05 and implemented the same day (P1-P4, task
-cb34ffc9). Web Push came later (task dc2dc0ea). Code references describe
-the tree at commit `708374c2`.
+cb34ffc9). Web Push came later (task dc2dc0ea). Since task 74e8fc07 (Nil,
+2026-11-06: "Page is an ask") a page is a paged ask: see "Pages as asks". The
+sections from "The page record" on describe v0; where they differ, "Pages as
+asks" wins. Code references describe the tree at commit `708374c2`.
 
 ## Why
 
@@ -19,7 +21,7 @@ sound (`internal-docs/operator-alerting-design.md`). The pager closes that gap.
 - The server delivers the page to the member's Discord, through a Discord
   incoming webhook.
 - The page repeats until someone acks it.
-- The Inbox's Pages tab lists all pages.
+- The Inbox lists all pages (since task 74e8fc07, as asks).
 
 Out of scope for v0 (possible follow-ups):
 
@@ -80,11 +82,43 @@ and keep "page" for user-facing copy.
 Both routes go in `ROUTE_LABELS` in `ui/log-view/isomux-curl.ts`, and get an
 agent-reference page and a pointer in `server/system-prompt.ts`.
 
-## Paged asks
+## Pages as asks
 
-Task 74e8fc07: an ask can carry an alarm (internal-docs/asks-design.md, "Paged asks"). Both delivery channels read page items (`server/page-items.ts`) instead of page records: one item per page, and one per recipient of a ringing or acked paged ask, whose link is the ask. A paged ask's pending "resolved" message is in memory only.
+Task 74e8fc07, in four slices. A page is an ask with an alarm
+(internal-docs/asks-design.md, "Paged asks"); the pager store is gone.
 
-The office's own pages (WhatsApp, Discord) open paged asks with no agent since slice 2; pages they raised earlier stay in `pager.json` until the slice 3 migration.
+- Both delivery channels read page items (`server/page-items.ts`): one per
+  recipient of a ringing or acked paged ask, linked to `/inbox/asks/<id>`. A
+  paged ask's pending "resolved" message is in memory only.
+- Every paged ask has a page id (`page.pageId`, 16 hex; a migrated page keeps
+  its own, 8 hex on pages from before 2026-10), indexed from its create in
+  `ask_history_pages` (office.sqlite).
+- The pager routes keep their API over paged asks
+  (`server/routes/handlers/pager.ts`, `server/pager-compat.ts`): a raise opens
+  a P1 paged ask for the target, or raises into the open one of that source
+  with its key (an agent's: only the one for its manager now), counting the
+  raise; the answer is the `PagerEntry` built from the ask, with `askId`.
+  Who sees and acts is the ask's rule: the member it is for and office
+  owners, and the source agent for its own page. Only a member acks. The
+  source agent withdraws its page; a member resolves it as a dismiss that
+  tells the agent nothing. Other agents in the room, and an app's message
+  target, no longer see or act on it. An app's page whose message target is
+  gone is an ask with no agent.
+- Migration (`server/pager-migration.ts`), at each boot after the agents are
+  restored: every page of `pager.json` and `pager-resolved.jsonl` not yet in
+  the index becomes a paged ask (open or acked) or a closed ask in the history
+  (resolved, or its agent, app or member gone), in one transaction. The old
+  files are only read. `pager-migration.json` holds the archive's size at the
+  last complete run, so an unchanged archive is not read again; a page that
+  cannot become an ask is left for the next boot.
+- Rollback: an older release rings its `pager.json` page while this one rings
+  the paged ask, and a page resolved in `pager.json` during a rollback stays an
+  open ask after the update. A raise with an old key between the server's
+  listen and the migration opens a second ask with that key.
+- UI: the Pages tab is gone. `/inbox/pages` and a saved Pages view open the
+  Asks view; a `/?pager=<id>` link from an older message pins the page's ask
+  (`askIdForPage`, `ui/inbox.ts`). The Inbox badge counts new asks, paged ones
+  included.
 
 ## Delivery: Discord
 
@@ -119,58 +153,17 @@ first use). Every page goes, whatever the member's room notification settings
 resolve and its push loses that "Resolved" push. Sign-out removes the device.
 Code: `server/web-push-*.ts`, `ui/sw.js`, `ui/components/PushDevicesBlock.tsx`.
 
-Failure: a failed send records its class on the page and the view shows it. The
-next repeat tick retries. On a 429, the server waits for Discord's
-`retry_after`. A member with no webhook still gets the page in the pager view,
-marked as not delivered.
+Failure: a failed send records its class on the page's send record. The next
+repeat tick retries. On a 429, the server waits for Discord's `retry_after`. A
+member with no webhook still gets the page in the Inbox, marked as not
+delivered on `GET /api/pager`.
 
-## Pager view
+## Pager view and storage of resolved pages
 
-The Inbox's Pages tab (`/inbox/pages`, `ui/components/PagerView.tsx` inside
-`ui/components/InboxView.tsx`; `/pager` still opens it). The Asks tab is the
-other one (internal-docs/asks-design.md):
-
-- Lists all pages the member can see, newest first, with open pages on top.
-  Resolved pages load one slice at a time (see "Storage of resolved pages").
-- Filters: state (default: open and acked) and room (default: the room the
-  office shows; all rooms from the lobby).
-- A row shows the title, source and room, age, raise count, state, and delivery
-  status.
-- Actions: ack and resolve. The row links to the source agent's chat.
-- The Discord link opens the view with that page selected.
-- The Inbox entry in the office bar and the chat bar opens the first tab, Asks,
-  and opens this tab only when the member has open pages and no open asks. Its
-  badge counts open pages for the member plus their open asks, and each tab
-  shows its own count. In the chat bar, the badge and the tab it opens leave
-  out the asks of the chat's agent, which show above its input.
-
-Visibility follows room access, the same as tasks.
-
-## Storage of resolved pages
-
-Added 2026-10-07 (task af346c0c). Pages are never deleted (Nil, 2026-10-06),
-but nothing held in memory or sent to clients regularly may grow without
-limit. `pager.json` and the store's memory hold open and acked pages, and
-resolved pages still owed their "resolved" Discord message. A resolved page
-with nothing owed moves to `pager-resolved.jsonl`, one page per line, in
-resolve order: a page whose message is done waits behind an older page whose
-message is still owed, so a move never changes a page's place in a list and
-"Load more" neither skips nor repeats one. A move writes an intent record
-(`pager-resolved.jsonl.move`: the archive's size and the ids), appends with
-fsync, saves `pager.json` without the pages, and clears the record. A crash
-or failed write leaves the record; the next write cuts the archive back to
-the recorded size and moves the pages again, so no page is lost or archived
-twice. A bad archive line is skipped and counted. The previous
-release reads `pager.json` unchanged and does not show archived pages while
-rolled back; they show again after the next update.
-
-`GET /api/pager?state=resolved|all` returns resolved pages in slices
-(`limit`, default 50, max 200; `before=<id>` for the next older slice),
-newest-archived first, after the open and acked pages. The view loads the
-first slice on every hydration and the next on "Load more", and holds at most
-the resolved pages it loaded: a live resolve past that drops the oldest, and
-"Load more" continues from the oldest page it still holds. New page ids are
-16 hex characters, so a new id cannot meet an archived one in practice.
+The Pages tab (`ui/components/PagerView.tsx`) and the store's archive
+(`pager-resolved.jsonl`, written by `server/pager-store.ts`) were removed by
+task 74e8fc07. Resolved pages are closed asks in the ask history; the files
+stay for the migration.
 
 ## Docs to update
 

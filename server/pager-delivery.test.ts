@@ -1,16 +1,16 @@
 // Pager delivery: first send, repeat, ack and resolve, the resolved message,
 // 429 retry_after and its saved hold, pacing, failure classes, no webhook,
 // restart resume, the races between a send and an ack or resolve, the
-// member's language, and the leak checks. A real store over an in-memory
-// persistence; fetch, the clock and the timers are fakes. No test sends to
-// Discord.
+// member's language, and the leak checks. The pages come from a page book
+// in memory (server/test-support/page-book.ts) with the old pager store's
+// rules; fetch, the clock and the timers are fakes. No test sends to Discord.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import type { PagerStore } from "./pager-store.ts";
 import {
-  createTestPagerStore,
+  createPageBook,
   pageItemsOf,
-} from "./test-support/pager-memory-archive.ts";
+  type PageBook,
+} from "./test-support/page-book.ts";
 import { pagerPageItem } from "./page-items.ts";
 import {
   createPagerDelivery,
@@ -142,21 +142,6 @@ function fakeFetch(now: () => number) {
   };
 }
 
-function memPersistence(initial: PagerEntry[] | null = null) {
-  return {
-    saved: initial,
-    load() {
-      return initial
-        ? ({ kind: "data", value: structuredClone(initial) } as const)
-        : ({ kind: "missing" } as const);
-    },
-    save(entries: PagerEntry[]) {
-      this.saved = structuredClone(entries);
-    },
-    quarantine: () => true,
-  };
-}
-
 const services: PagerDeliveryService[] = [];
 let restoreConsole: (() => void) | null = null;
 afterEach(() => {
@@ -204,10 +189,9 @@ function setup(
       : { ...WITH_WEBHOOK, ...(opts.settings ?? {}) },
     settingsError: null as Error | null,
   };
-  const persistence = memPersistence(opts.pages ?? null);
   let svc: PagerDeliveryService;
-  const store: PagerStore = createTestPagerStore({
-    persistence,
+  const store: PageBook = createPageBook({
+    ...(opts.pages ? { pages: opts.pages } : {}),
     now: time.now,
     onChange: (e) => events.push(e),
     // The engine reads page items (server/page-items.ts), as office-managers
@@ -259,7 +243,6 @@ function setup(
     events,
     holds,
     state,
-    persistence,
     raise,
     // A page wherever it is now: a resolved page with nothing owed has moved
     // from memory to the archive.
@@ -620,7 +603,7 @@ describe("pager delivery: failures", () => {
         lastFailure: failure,
       });
       const everything = [
-        JSON.stringify(s.persistence.saved),
+        JSON.stringify(s.store.saved),
         JSON.stringify(s.events),
         ...lines,
       ].join("\n");

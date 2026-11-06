@@ -81,7 +81,6 @@ import type {
   UserRecord,
   UserRole,
   MembersChatMessage,
-  PagerEntry,
   AskMemberWire,
   TaskItem,
   WebhookDelivery,
@@ -1237,7 +1236,7 @@ function demoAskEntries(): AskMemberWire[] {
       options: ["Call them", "Wait"],
       recommended: "Call them",
       priority: "P1",
-      page: { state: "ringing" },
+      page: { state: "ringing", pageId: "d3a0a0010000beef" },
     },
     {
       id: "dea0ac06",
@@ -1329,91 +1328,6 @@ function demoRemoveAsk(id: string, other: boolean) {
   }
   demoAsks = demoAskEntries().filter((e) => e.id !== id);
   shimEmit({ type: "ask_removed", id });
-}
-
-// Pages, built on the first list so they can name the viewer and the demo's
-// agents: one open page from an agent and one acked page from an app, so the
-// office bar shows a badge and the Pages tab shows both kinds of source.
-let demoPager: PagerEntry[] | null = null;
-
-function demoPagerEntries(): PagerEntry[] {
-  if (demoPager) return demoPager;
-  const now = Date.now();
-  const target = sessionContext?.userId ?? "demo-user";
-  const pam = state.getState().agents.find((a) => a.name === "Pam");
-  const firstRoomId = state.getState().rooms[0]?.id ?? null;
-  demoPager = [
-    ...(pam
-      ? [
-          {
-            id: "d3m0a001",
-            createdAt: now - 25 * 60_000,
-            lastRaisedAt: now - 4 * 60_000,
-            raiseCount: 3,
-            source: {
-              kind: "agent" as const,
-              agentId: pam.id,
-              name: pam.name,
-              roomId: pam.roomId,
-            },
-            targetUserId: target,
-            title: "Print vendor needs a decision on the poster proof",
-            body: "The vendor holds the slot until 5 pm. Approve proof B or pick a new date.",
-            key: "poster-proof",
-            state: "open" as const,
-            delivery: {
-              state: "delivered" as const,
-              sends: 3,
-              lastAttemptAt: now - 4 * 60_000,
-            },
-          },
-        ]
-      : []),
-    {
-      id: "d3m0a002",
-      createdAt: now - 50 * 60_000,
-      lastRaisedAt: now - 50 * 60_000,
-      raiseCount: 1,
-      source: {
-        kind: "app",
-        appName: "cost-tracker",
-        registrationGen: 1,
-        name: "cost-tracker",
-        roomId: firstRoomId,
-      },
-      targetUserId: target,
-      title: "Token spend passed the daily limit",
-      state: "acked",
-      acked: { by: "Ricky", at: now - 40 * 60_000 },
-      delivery: {
-        state: "not_delivered",
-        sends: 0,
-        lastAttemptAt: now - 50 * 60_000,
-        lastFailure: "no_webhook",
-      },
-    },
-  ];
-  return demoPager;
-}
-
-// pager.ack / pager.resolve: the server's transitions, without delivery.
-function demoPagerAct(id: string, verb: "ack" | "resolve"): PagerEntry {
-  const entries = demoPagerEntries();
-  const i = entries.findIndex((e) => e.id === id);
-  if (i === -1) throw new ApiError(404, "not_found", "");
-  const entry = entries[i];
-  if (entry.state === "resolved")
-    throw new ApiError(409, "already_resolved", "the page is already resolved");
-  const by = { by: sessionContext?.username ?? "Ricky", at: Date.now() };
-  const next: PagerEntry =
-    verb === "ack"
-      ? entry.state === "open"
-        ? { ...entry, state: "acked", acked: by }
-        : entry
-      : { ...entry, state: "resolved", resolved: by };
-  entries[i] = next;
-  shimEmit({ type: "pager_upserted", entry: next });
-  return next;
 }
 
 function demoAppLog(app: Pick<AppWire, "port">): string[] {
@@ -2928,9 +2842,6 @@ export async function demoApi(
     case "PUT /api/office/access":
       // No-op in the demo (no bind/origin policy to persist).
       return { signInUrl: null, restartRequired: false };
-    // pager.list - the client filters, so the demo returns every page.
-    case "GET /api/pager":
-      return [...demoPagerEntries()];
     // asks.list - the viewer's open asks.
     case "GET /api/asks":
       return [...demoAskEntries()];
@@ -3609,19 +3520,6 @@ export async function demoApi(
     shimEmit({ type: "session_revoked", sessionPrefix: prefix });
     return undefined;
   }
-  // users.setAccess (PUT /api/users/:username/access) - set allowedRooms +
-  // prune notif/default to the new access (mirror the server clamp). An owner
-  // target accesses all rooms by rule, so don't prune theirs. Listed before the
-  // bare /:username route.
-  const pagerActMatch = pathname.match(
-    /^\/api\/pager\/([^/]+)\/(ack|resolve)$/,
-  );
-  if (pagerActMatch && method === "POST") {
-    return demoPagerAct(
-      decodeURIComponent(pagerActMatch[1]),
-      pagerActMatch[2] as "ack" | "resolve",
-    );
-  }
   // pushDevices.* - the demo has no push keys: an empty key tells the
   // settings block that this office cannot send notifications.
   if (/^\/api\/users\/[^/]+\/push-devices(\/.*)?$/.test(pathname)) {
@@ -3804,6 +3702,10 @@ export async function demoApi(
     demoMemberApiTokens[key] = tokens.filter((token) => token.id !== id);
     return undefined;
   }
+  // users.setAccess (PUT /api/users/:username/access) - set allowedRooms +
+  // prune notif/default to the new access (mirror the server clamp). An owner
+  // target accesses all rooms by rule, so don't prune theirs. Listed before the
+  // bare /:username route.
   const userAccessMatch = pathname.match(/^\/api\/users\/([^/]+)\/access$/);
   if (userAccessMatch && method === "PUT") {
     const uname = decodeURIComponent(userAccessMatch[1]);

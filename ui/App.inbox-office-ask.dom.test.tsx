@@ -18,10 +18,10 @@ const {
   ask,
   boot,
   inboxButton,
+  inboxTitleCount,
   setAnswerPost,
   setAsks,
   setUpInboxTests,
-  tabCount,
 } = await import("./test-support/inbox-fixture.tsx");
 const { setAsksSort } = await import("./device-settings.ts");
 type View = import("./test-support/inbox-fixture.tsx").View;
@@ -114,14 +114,16 @@ it("an agent's ask still shows Dismiss with its marker, and its reply field", as
   expect(el!.querySelector('button[type="submit"]')).not.toBeNull();
 });
 
-it("the Asks tab counts an office page with the agents' asks", async () => {
+it("the Inbox counts an office page with the agents' asks", async () => {
   setAsks([
     officeAsk("q1", 3_000),
     { ...ask("q2", "a1"), members: ["member"] },
   ]);
-  const view = await openInbox();
+  const view = await boot();
+  expect(inboxTitleCount(view)).toBe(2);
+  await act(async () => fireEvent.click(inboxButton(view)!));
   expect(card(view, "q1")).not.toBeNull();
-  expect(tabCount(view, "asks")).toBe("2");
+  expect(card(view, "q2")).not.toBeNull();
 });
 
 // Nil at sign-off (task dcb409d4): pages sort by priority. Under the priority

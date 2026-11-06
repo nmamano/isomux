@@ -42,7 +42,6 @@ import type {
   PresenceInfo,
   OfficeWire,
   TaskItem,
-  PagerEntry,
   AskMemberWire,
   AppListWire,
   CronjobListWire,
@@ -227,7 +226,6 @@ export interface EventPayloads {
   // cannot see an app is told nothing rather than sent an empty frame.
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
-  pager_upserted: { entry: PagerEntry };
   ask_upserted: { entry: AskMemberWire };
   // by: who answered, to the members who reach the room (task 9461c464).
   ask_removed: { id: string; by?: string };
@@ -482,14 +480,6 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   webhook_deleted: {
-    audience: "recipient-scoped",
-    projectionKey: { kind: "connectionId" },
-  },
-  // Per-recipient like task_upserted: a socket hears a page only when its
-  // user can see it (pagerEntryVisible: the page's room, plus the app owner
-  // and office owners for an app page). Delivered by an explicit per-socket
-  // loop (pushPagerEntryToEachWs).
-  pager_upserted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },

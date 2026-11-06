@@ -137,7 +137,6 @@ it("sends the shown page's wall item with the presence", async () => {
   const seen: Record<string, unknown> = {};
   for (const page of [
     "asks",
-    "pager",
     "tasks",
     "apps",
     "cronjobs",
@@ -171,7 +170,6 @@ it("sends the shown page's wall item with the presence", async () => {
   }));
   expect(seen).toEqual({
     asks: "inbox",
-    pager: "inbox",
     tasks: "tasks",
     apps: "apps",
     cronjobs: "cronjobs",

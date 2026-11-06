@@ -1,6 +1,6 @@
 // The Inbox tray on the office scene's wall (task b8d5e90f), through the real
 // App and store: in a room it holds one letter per open ask, up to three, and
-// draws no count (task a4b04ffd); a click opens the tab the bar entry opens;
+// draws no count (task a4b04ffd); a click opens the Inbox;
 // the lobby draws no tray (task 878da607); in the landing-page embed, where
 // the bar is hidden, it shows the letters but does not open the Inbox. The bar
 // entry itself is in ui/App.inbox.dom.test.tsx, the setup in
@@ -12,7 +12,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
-const { ask, boot, inboxButton, page, setAsks, setPages, setUpInboxTests } =
+const { ask, boot, inboxButton, setAsks, setUpInboxTests } =
   await import("./test-support/inbox-fixture.tsx");
 const { saveView } = await import("./view-persistence.ts");
 const { PRODUCTION_FEATURES } = await import("../shared/features.ts");
@@ -49,31 +49,16 @@ const inLobby = (view: View) =>
   view.container.querySelector('svg[data-turn="doors"]') !== null &&
   view.container.querySelector('svg[data-turn="walls"]') === null;
 
-it("in a room, holds a letter per visible ask, not per page, and opens the Asks tab", async () => {
-  // Two visible asks (the fixture's third is in a hidden room) and one page:
-  // the bar counts three, the tray holds two letters.
-  setPages([page("p1", "u1")]);
+it("in a room, holds a letter per visible ask and opens the Asks view", async () => {
+  // Two visible asks (the fixture's third is in a hidden room).
   inRoom();
   const view = await boot();
   expect(inRoomWalls(view)).toBe(true);
-  expect(barBadge(view)).toBe("3");
+  expect(barBadge(view)).toBe("2");
   expect(letters(view)).toBe(2);
   expect(trayText(view)).toBe(0);
   await act(async () => fireEvent.click(tray(view)!));
   expect(window.location.pathname).toBe("/inbox/asks");
-});
-
-it("in a room, is empty while only pages are open, and opens the Pages tab", async () => {
-  setAsks([]);
-  setPages([page("p1", "u1")]);
-  inRoom();
-  const view = await boot();
-  expect(inRoomWalls(view)).toBe(true);
-  expect(barBadge(view)).toBe("1");
-  expect(letters(view)).toBe(0);
-  expect(trayText(view)).toBe(0);
-  await act(async () => fireEvent.click(tray(view)!));
-  expect(window.location.pathname).toBe("/inbox/pages");
 });
 
 it("in the lobby, draws no tray while the bar counts open items", async () => {
@@ -106,9 +91,8 @@ it("holds at most three letters and no count, however many asks are open", async
 });
 
 it("in the embed, holds the letters but does not open the Inbox", async () => {
-  // One visible ask and two pages: one letter.
+  // One visible ask: one letter.
   setAsks([ask("q1", "a1")]);
-  setPages([page("p1", "u1"), page("p2", "u1")]);
   inRoom();
   const view = await boot("/", { ...PRODUCTION_FEATURES, embed: true });
   expect(inRoomWalls(view)).toBe(true);

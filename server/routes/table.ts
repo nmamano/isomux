@@ -2464,10 +2464,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/users/:username/pager-settings",
     auth: cap("integration:manage", integrationSelfOrOwner),
-    // A save re-arms the member's open pages; any delivery result it causes
-    // emits from the store.
+    // A save re-arms the member's open pages. A paged ask's delivery records
+    // reach no client, so nothing emits.
     tokenArea: { area: "pager", level: "write" },
-    emits: ["pager_upserted"],
+    emits: [],
   }),
   defineRoute<void, PagerTestRes>({
     opId: "pagerSettings.test",
@@ -3167,7 +3167,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/pager",
     auth: cap("pager:raise", and(notApp, operationalAuthenticated)),
     tokenArea: { area: "pager", level: "write" },
-    emits: ["pager_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, PagerEntry[]>({
     opId: "pager.list",
@@ -3192,7 +3192,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/pager/:id/ack",
     auth: cap("pager:write", operationalAuthenticated),
     tokenArea: { area: "pager", level: "write" },
-    emits: ["pager_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<void, PagerEntry>({
     opId: "pager.resolve",
@@ -3201,7 +3201,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/pager/:id/resolve",
     auth: cap("pager:write", operationalAuthenticated),
     tokenArea: { area: "pager", level: "write" },
-    emits: ["pager_upserted"],
+    emits: ["ask_removed", "others_ask_removed"],
   }),
 
   // The app sign-in mint (server/app-auth.ts): a signed-in member's browser
@@ -3410,7 +3410,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/app/pager",
     auth: cap("pager:raise", appScope),
     tokenArea: { area: "pager", level: "write" },
-    emits: ["pager_upserted"],
+    emits: ["ask_upserted", "others_ask_upserted"],
   }),
   defineRoute<{ id?: string; key?: string }, PagerEntry>({
     opId: "pager.appResolve",
@@ -3419,7 +3419,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/app/pager/resolve",
     auth: cap("pager:raise", appScope),
     tokenArea: { area: "pager", level: "write" },
-    emits: ["pager_upserted"],
+    emits: ["ask_removed", "others_ask_removed"],
   }),
   // The app opens asks in the name of its message target agent
   // (internal-docs/asks-design.md, "App asks"): the ask is that agent's, and

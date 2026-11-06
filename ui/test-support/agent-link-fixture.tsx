@@ -14,12 +14,7 @@ import { StoreProvider } from "../store.tsx";
 import { setApiShim } from "../api.ts";
 import { connect, setShim, shimEmit } from "../ws.ts";
 import { BACK_SEAT_BASE } from "../../shared/desks.ts";
-import type {
-  AgentInfo,
-  AppListWire,
-  AskEntry,
-  PagerEntry,
-} from "../../shared/types.ts";
+import type { AgentInfo, AppListWire, AskEntry } from "../../shared/types.ts";
 
 export type View = ReturnType<typeof render>;
 
@@ -87,12 +82,7 @@ let asks: AskEntry[] = [];
 export function setAsks(next: AskEntry[]): void {
   asks = next;
 }
-// The pages GET /api/pager and the apps GET /api/apps return; empty unless a
-// test sets its own.
-let pages: PagerEntry[] = [];
-export function setPages(next: PagerEntry[]): void {
-  pages = next;
-}
+// The apps GET /api/apps returns; empty unless a test sets its own.
 let apps: AppListWire[] = [];
 export function setApps(next: AppListWire[]): void {
   apps = next;
@@ -103,7 +93,6 @@ export function setUpAgentLinkTests(): void {
     if (path === "/api/asks") return asks;
     if (path.startsWith("/api/members-chat"))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
-    if (path.startsWith("/api/pager")) return pages;
     if (path === "/api/apps") return apps;
     return {};
   });
@@ -120,7 +109,6 @@ export function setUpAgentLinkTests(): void {
   });
   beforeEach(() => {
     asks = [];
-    pages = [];
     apps = [];
     window.localStorage.clear();
     window.history.replaceState(null, "", "/");

@@ -35,7 +35,7 @@ type View = import("./test-support/inbox-fixture.tsx").View;
 setUpInboxTests();
 
 const inboxOpen = (view: View) =>
-  view.container.querySelector('[role="tablist"]') !== null;
+  view.container.querySelector("[data-inbox]") !== null;
 // The full chat's own ask stack: it shows only in an agent's chat.
 const fullChatOpen = (view: View) =>
   view.container.querySelector("[data-asks-stack]") !== null;

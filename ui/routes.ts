@@ -51,19 +51,17 @@ export function pageForPath(pathname: string): Page | null {
       return "integrations";
     case "/settings":
       return "settings";
-    // The Inbox (task c952e551): its two tabs are the pager and the asks.
-    case "/inbox/pages":
-      return "pager";
+    // The Inbox (task c952e551).
     case "/inbox/asks":
       return "asks";
-    // A typed /inbox opens Asks, the first tab: the boot cannot know yet
-    // what is open. Accepted, never produced.
+    // A typed /inbox. Accepted, never produced.
     case "/inbox":
       return "asks";
-    // The Inbox tabs were their own pages until 2026-10-18. Accepted so an
-    // old link keeps working, never produced.
+    // The Inbox's Pages tab until pages became asks (task 74e8fc07), and the
+    // Inbox tabs as their own pages until 2026-10-18. Accepted so an old link
+    // or bookmark keeps working, never produced.
+    case "/inbox/pages":
     case "/pager":
-      return "pager";
     case "/asks":
       return "asks";
     // "users" is what the settings page was called before it was renamed, and
@@ -79,6 +77,7 @@ export function pageForPath(pathname: string): Page | null {
     // paths (/integrations/mcp), from the one tab list.
     default:
       if (askIdForPath(pathname) !== null) return "asks";
+      if (pathname.startsWith("/inbox/pages/")) return "asks";
       return integrationsTabForPath(pathname) === null ? null : "integrations";
   }
 }
@@ -96,9 +95,9 @@ export function integrationsTabForPath(
 const PAGER_LINK_ID_MAX = 64;
 
 /**
- * The page id in a Discord link, `<origin>/?pager=<id>` (server/pager-delivery.ts),
- * or null. The parameter opens the Inbox's Pages tab on any path, so the link
- * keeps working if the office ever moves its root.
+ * The page id in a Discord or push link from before pages were asks,
+ * `<origin>/?pager=<id>`, or null. The parameter opens the Inbox on the page's
+ * ask (askIdForPage in ui/inbox.ts) on any path.
  */
 export function pagerIdForSearch(search: string): string | null {
   const id = new URLSearchParams(search).get("pager")?.trim() ?? "";
@@ -130,7 +129,7 @@ export function askIdForPath(pathname: string): string | null {
 
 /** The page the URL opens at boot: the pager link first, then the path. */
 export function pageForLocation(pathname: string, search: string): Page | null {
-  if (pagerIdForSearch(search) !== null) return "pager";
+  if (pagerIdForSearch(search) !== null) return "asks";
   const page = pageForPath(pathname);
   // An MCP sign-in started before the Integrations page came back to
   // /settings; its result belongs on the Integrations page.
@@ -155,7 +154,6 @@ export interface PageFlags {
   appsOpen: boolean;
   skillsOpen: boolean;
   integrationsOpen: boolean;
-  pagerOpen: boolean;
   asksOpen: boolean;
 }
 
@@ -173,11 +171,9 @@ export function pageForFlags(flags: PageFlags): Page | null {
             ? "skills"
             : flags.integrationsOpen
               ? "integrations"
-              : flags.pagerOpen
-                ? "pager"
-                : flags.asksOpen
-                  ? "asks"
-                  : null;
+              : flags.asksOpen
+                ? "asks"
+                : null;
 }
 
 /** The flag that holds a page open. */
@@ -195,8 +191,6 @@ export function flagForPage(page: Page): keyof PageFlags {
       return "skillsOpen";
     case "integrations":
       return "integrationsOpen";
-    case "pager":
-      return "pagerOpen";
     case "asks":
       return "asksOpen";
   }
@@ -227,9 +221,6 @@ export interface PageShortcutInput {
   /** Set only by the keyup path, when createLoneShiftTracker saw Shift
    *  pressed and released with no other key in between. */
   loneShift?: boolean;
-  /** The Inbox tab "i" opens: the tab of the bar's Inbox entry (inboxTabFor
-   *  in ui/inbox.ts). */
-  inboxTab?: "pager" | "asks";
 }
 
 export interface PageShortcutUpdate {
@@ -238,7 +229,6 @@ export interface PageShortcutUpdate {
   appsOpen?: boolean;
   skillsOpen?: boolean;
   integrationsOpen?: boolean;
-  pagerOpen?: boolean;
   asksOpen?: boolean;
   usersOpen?: true;
 }
@@ -270,7 +260,6 @@ export function pageShortcut(
       appsOpen: true,
       skillsOpen: false,
       integrationsOpen: false,
-      pagerOpen: false,
       asksOpen: false,
     };
   }
@@ -278,17 +267,14 @@ export function pageShortcut(
   // f55581c3), and closes only when it is the page shown: over Tasks it
   // comes to the front.
   if (input.key === "i") {
-    const top = pageForFlags(flags);
-    if (top === "pager" || top === "asks") return "home";
-    const tab = input.inboxTab ?? "asks";
+    if (pageForFlags(flags) === "asks") return "home";
     return {
       tasksOpen: false,
       cronjobsOpen: false,
       appsOpen: false,
       skillsOpen: false,
       integrationsOpen: false,
-      pagerOpen: tab === "pager",
-      asksOpen: tab === "asks",
+      asksOpen: true,
     };
   }
   // Settings only opens; leaving it must pass its own unsaved-edit guard.
@@ -369,9 +355,7 @@ export function presencePageFor(page: Page | null): PresencePage | null {
     case "cronjobs":
     case "settings":
       return page;
-    // The Inbox's two tabs share its tray.
     case "asks":
-    case "pager":
       return "inbox";
     case "skills":
     case "integrations":

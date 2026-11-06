@@ -19,7 +19,6 @@ export const OFFICE_PAGES = [
   "skills",
   "integrations",
   "settings",
-  "pager",
   "asks",
 ] as const;
 export type Page = (typeof OFFICE_PAGES)[number];
@@ -46,7 +45,6 @@ export type IntegrationsTab = (typeof INTEGRATIONS_TABS)[number];
 export function pathForPage(page: Page | null): string {
   if (page === null) return "/";
   if (page === "cronjobs") return "/automations";
-  if (page === "pager") return "/inbox/pages";
   if (page === "asks") return "/inbox/asks";
   return `/${page}`;
 }
@@ -69,6 +67,9 @@ export type OfficeLink = PageLink | AgentLink;
 
 const LINKS: ReadonlyArray<{ path: string; link: PageLink }> = [
   ...OFFICE_PAGES.map((page) => ({ path: pathForPage(page), link: { page } })),
+  // The Inbox's Pages tab until pages became asks (task 74e8fc07): an ask
+  // that links it, or an agent that still sends it, opens the Inbox.
+  { path: "/inbox/pages", link: { page: "asks" } },
   ...INTEGRATIONS_TABS.map((tab) => ({
     path: `${pathForPage("integrations")}/${tab}`,
     link: { page: "integrations" as const, tab },

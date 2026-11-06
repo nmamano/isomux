@@ -14,7 +14,7 @@
 import type { AskEntry, PagerDelivery, PagerEntry } from "../shared/types.ts";
 import { stripColorMarkup } from "../shared/color-markup.ts";
 import { askVisibleTo, type AskAudienceDeps, type AskStore } from "./asks.ts";
-import { PAGER_BODY_MAX, PAGER_TITLE_MAX } from "./pager-store.ts";
+import { PAGER_BODY_MAX, PAGER_TITLE_MAX } from "./pager-compat.ts";
 import { pagerLink } from "./pager-delivery.ts";
 
 // One page as the delivery engines see it.

@@ -17,7 +17,6 @@ import {
   KILLED_AGENT_CHIP_CAP,
   type LogEntry,
   type OfficeWire,
-  type PagerEntry,
   type RoomWire,
   type ServerMessage,
   type TaskItem,
@@ -54,7 +53,6 @@ import {
   uiBuildTracker,
 } from "./office-managers.ts";
 import type { OfficeOutbox } from "./office-ws-outbox.ts";
-import { pagerEntryVisible } from "./pager-store.ts";
 import { loadRecentCwds } from "./persistence.ts";
 import { taskVisibleTo } from "./task-visibility.ts";
 import { getUserById, updateUserById, type UserAccessChange } from "./users.ts";
@@ -467,29 +465,6 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
       );
       const delta = taskDeltaFor(change, viewer);
       if (delta) officeSend(ws, delta.type, JSON.stringify(delta));
-    }
-  }
-
-  // Push ONE page change to every socket whose user can see the page - the same
-  // rule GET /api/pager applies (pagerEntryVisible). Everyone else hears
-  // nothing, so a page id never reaches a socket that could not read it.
-  function pushPagerEntryToEachWs(entry: PagerEntry) {
-    for (const ws of browsers) {
-      const user = getUserById(ws.data.session.userId);
-      if (
-        user &&
-        pagerEntryVisible(entry, {
-          accessibleRoomIds: accessibleRoomIdsFor(user),
-          userId: user.id,
-          isOfficeOwner: user.role === "owner",
-        })
-      ) {
-        officeSend(
-          ws,
-          "pager_upserted",
-          JSON.stringify({ type: "pager_upserted", entry }),
-        );
-      }
     }
   }
 
@@ -1080,7 +1055,6 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     pushCronjobRunEntryToEachWs,
     pushCronjobRunToEachWs,
     pushCronjobsToEachWs,
-    pushPagerEntryToEachWs,
     pushTaskDeltaToEachWs,
     pushTasksToEachWs,
     pushWebhookDeltaToEachWs,

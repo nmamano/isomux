@@ -28,7 +28,6 @@ import {
   type AskClosure,
   type PagerEntry,
 } from "../../../shared/types.ts";
-import { parseRaiseFields, PAGER_KEY_MAX } from "../../pager-store.ts";
 import {
   askAgentId,
   askAudienceFor,
@@ -42,7 +41,9 @@ import {
 import type { AskHistory, AskHistoryRecord } from "../../ask-history.ts";
 import {
   pagerEntryFromAsk,
+  parseRaiseFields,
   raisePage,
+  PAGER_KEY_MAX,
   type PagerCompatDeps,
 } from "../../pager-compat.ts";
 

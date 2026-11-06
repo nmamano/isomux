@@ -27,7 +27,7 @@ const ask = (id: string, agentId: string, link?: string): AskEntry => ({
   ...(link ? { link } : {}),
 });
 
-// Open the Inbox on its Asks tab and click the link on ask q1.
+// Open the Inbox on its Asks view and click the link on ask q1.
 async function clickLink(view: View) {
   const inbox = [...view.container.querySelectorAll("button")].find(
     (b) =>
@@ -35,10 +35,8 @@ async function clickLink(view: View) {
   )!;
   await act(async () => fireEvent.click(inbox));
   expect(
-    view.container
-      .querySelector('[role="tab"][aria-selected="true"]')
-      ?.getAttribute("data-inbox-tab"),
-  ).toBe("asks");
+    view.container.querySelector("[data-inbox] [data-asks-list]"),
+  ).not.toBeNull();
   const link = view.container.querySelector<HTMLButtonElement>(
     '[data-ask="q1"] [data-ask-office-link]',
   );

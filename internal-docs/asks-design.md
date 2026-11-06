@@ -23,7 +23,7 @@ The first answer closes it for all; the in-flight set is per ask. A later answer
 
 ## Paged asks
 
-Task 74e8fc07 (Nil, 2026-11-06: "Page is an ask"). This is slice 1 of 3: the pager routes, open pages and the Pages tab move to paged asks in the next two.
+Task 74e8fc07 (Nil, 2026-11-06: "Page is an ask"). Every page is a paged ask: the pager routes and the old pages moved to them, and the Pages tab is gone (internal-docs/pager-design.md, "Pages as asks").
 
 - `page: true` (`page=1`) on the create gives the ask an alarm, `page: {state: "ringing" | "acked", ackedByUserId?, ackedAt?, delivery}`, fixed at create: an edit that sends `page` is a 400. It works with `member`, a member list and `room`; secret and sudo requests and reply drafts never have it (load check). Without a priority it is P1.
 - `delivery` holds one pager send record (`PagerDelivery`) per recipient: the members the create resolved (`askMemberIds` at create; for a room ask, the room audience then). The set is fixed: a member who reaches the room later sees the card but gets no alarm. No wire carries `delivery`; the wires send `page` as `{state, ackedBy, ackedAt}`, `ackedBy` the member's current name.
@@ -34,7 +34,7 @@ Task 74e8fc07 (Nil, 2026-11-06: "Page is an ask"). This is slice 1 of 3: the pag
 
 ### Asks with no agent
 
-Slice 2. The office's pages about a member's own feature (the WhatsApp and Discord supervisors, `officePagers` in `server/office-managers.ts`) open paged asks with no agent: `agentId: ""` (in memory, in `asks.json` and in the history; read it through `askAgentId`), `office: {feature, name}`, P1, for that member only, and `page.key` as the dedupe key. A raise with the key of the source's open paged ask (`openPaged`; a source is an agent, an app registration, or an office feature and member) re-raises it (`reraise`): new text is one `edited` event with `office` as the actor, the same text writes nothing, and it never re-rings. Slice 3's app pages will use the same shape with `app` when the app has no live message target.
+Slice 2. The office's pages about a member's own feature (the WhatsApp and Discord supervisors, `officePagers` in `server/office-managers.ts`) open paged asks with no agent: `agentId: ""` (in memory, in `asks.json` and in the history; read it through `askAgentId`), `office: {feature, name}`, P1, for that member only, and `page.key` as the dedupe key. A raise with the key of the source's open paged ask (`openPaged`; a source is an agent, an app registration, or an office feature and member) re-raises it (`reraise`): new text is one `edited` event with `office` as the actor, the same text writes nothing, and it never re-rings. An app's page uses the same shape with `app` when the app has no live message target.
 
 - Load check: an ask with `agentId: ""` has one member, a page and exactly one of `office` and `app`, and none of room, member list, options, link, affordances, step, secret, sudo or reply draft; `office` is never on an agent's ask. An older server loads it (its check wants a string `agentId`) and shows it to nobody, since no room has agent "".
 - Audience: its member only (`askVisibleTo`, no room). Office owners see an app's ask with no agent as another member's; nobody else sees an office ask, also on `GET /api/asks/:askId` and the socket's removal push.

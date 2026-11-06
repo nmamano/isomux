@@ -22,8 +22,7 @@ import { INTEGRATIONS_TABS, askLinkFor } from "../shared/office-links.ts";
 import type { PresencePage } from "../shared/presence-pages.ts";
 
 // Each page and its canonical path. The cronjobs page is "Automations" on
-// screen, and its path says so. The pager and asks pages are the Inbox's two
-// tabs.
+// screen, and its path says so. The asks page is the Inbox.
 const PATHS: Record<Page, string> = {
   tasks: "/tasks",
   cronjobs: "/automations",
@@ -31,7 +30,6 @@ const PATHS: Record<Page, string> = {
   skills: "/skills",
   integrations: "/integrations",
   settings: "/settings",
-  pager: "/inbox/pages",
   asks: "/inbox/asks",
 };
 const PAGES = Object.keys(PATHS) as Page[];
@@ -51,12 +49,15 @@ describe("pageForPath", () => {
     for (const [path, page] of [
       ["/tasks/", "tasks"],
       ["/settings//", "settings"],
-      ["/inbox/pages/", "pager"],
+      // The Inbox's Pages tab until pages became asks (task 74e8fc07).
+      ["/inbox/pages", "asks"],
+      ["/inbox/pages/", "asks"],
+      ["/inbox/pages/abcd1234", "asks"],
       ["/users", "settings"],
       ["/users/", "settings"],
       ["/cronjobs", "cronjobs"],
       ["/cronjobs/", "cronjobs"],
-      ["/pager", "pager"],
+      ["/pager", "asks"],
       ["/asks", "asks"],
       ["/asks/", "asks"],
       // A typed /inbox opens the first tab, Asks.
@@ -77,7 +78,6 @@ describe("pageForPath", () => {
       "tasks",
       "//tasks",
       "/inbox/x",
-      "/inbox/pages/x",
       "/Inbox/pages",
       "/inbox/Asks",
       "/inbox//asks",
@@ -130,9 +130,11 @@ describe("the Integrations tab paths", () => {
 describe("the pager link", () => {
   it("reads the page id from the query on any path", () => {
     expect(pagerIdForSearch("?pager=1a2b3c4d")).toBe("1a2b3c4d");
-    expect(pageForLocation("/", "?pager=1a2b3c4d")).toBe("pager");
-    expect(pageForLocation("/tasks", "?pager=1a2b3c4d")).toBe("pager");
-    expect(pageForLocation("/inbox/asks", "?pager=1a2b3c4d")).toBe("pager");
+    // An old page link opens the Inbox (its ask is pinned once the office
+    // names it, task 74e8fc07).
+    expect(pageForLocation("/", "?pager=1a2b3c4d")).toBe("asks");
+    expect(pageForLocation("/tasks", "?pager=1a2b3c4d")).toBe("asks");
+    expect(pageForLocation("/inbox/asks", "?pager=1a2b3c4d")).toBe("asks");
   });
 
   it("falls back to the path without a usable id", () => {
@@ -180,7 +182,6 @@ describe("the ask address", () => {
       "/inbox/asks/a6b624d3/x",
       "/inbox/asks//a6b624d3",
       "/inbox/Asks/a6b624d3",
-      "/inbox/pages/a6b624d3",
       "/asks/a6b624d3",
       "inbox/asks/a6b624d3",
       "/inbox/asks/constructor",
@@ -229,9 +230,9 @@ describe("the MCP sign-in return", () => {
     expect(pageForLocation("/settings", "?mcpSignIn=ok")).toBe("integrations");
     // Settings without a sign-in result stays Settings.
     expect(pageForLocation("/settings", "")).toBe("settings");
-    // The pager link still wins.
+    // The page link still wins.
     expect(pageForLocation("/settings", "?mcpSignIn=ok&pager=1a2b3c4d")).toBe(
-      "pager",
+      "asks",
     );
   });
 });
@@ -250,17 +251,12 @@ const office: PageFlags = {
   appsOpen: false,
   skillsOpen: false,
   integrationsOpen: false,
-  pagerOpen: false,
   asksOpen: false,
 };
 
 // Apply the returned setters as React does, including functional updates.
-function pressPageKey(
-  state: PageFlags,
-  key: string,
-  inboxTab?: "pager" | "asks",
-): PageFlags {
-  const update = pageShortcut({ key, inboxTab }, state);
+function pressPageKey(state: PageFlags, key: string): PageFlags {
+  const update = pageShortcut({ key }, state);
   expect(update !== null && update !== "home").toBe(true);
   if (update === null || update === "home")
     throw new Error("Expected page setters");
@@ -322,7 +318,6 @@ describe("page shortcuts and rendered-page precedence", () => {
       "apps",
       "skills",
       "integrations",
-      "pager",
       "asks",
     ];
     expect([...ORDER].sort()).toEqual([...PAGES].sort());
@@ -346,7 +341,6 @@ describe("page shortcuts and rendered-page precedence", () => {
       cronjobsOpen: true,
       skillsOpen: true,
       integrationsOpen: true,
-      pagerOpen: true,
       asksOpen: true,
     };
     expect(pressPageKey(every, "a")).toEqual({ ...office, appsOpen: true });
@@ -367,8 +361,7 @@ describe("page shortcuts and rendered-page precedence", () => {
   });
 
   // "i" opens the Inbox (task d866bef9) and sets every page flag in one
-  // update, never the lone flip of "t" (task f55581c3). The tab is the one
-  // the bar's Inbox button opens, which App passes in; Asks without it.
+  // update, never the lone flip of "t" (task f55581c3).
   it("opens the Inbox on i over any page below Settings, and clears the others", () => {
     const every = {
       ...office,
@@ -379,31 +372,19 @@ describe("page shortcuts and rendered-page precedence", () => {
       integrationsOpen: true,
     };
     expect(pressPageKey(every, "i")).toEqual({ ...office, asksOpen: true });
-    expect(pressPageKey(every, "i", "asks")).toEqual({
+  });
+
+  it("closes the Inbox on i only when it is the page shown", () => {
+    const open = pressPageKey(office, "i");
+    expect(pageForFlags(open)).toBe("asks");
+    expect(pageShortcut({ key: "i" }, open)).toBe("home");
+    // The Inbox, then t: Tasks is on top, so i brings the Inbox back.
+    const underTasks = pressPageKey(open, "t");
+    expect(pageForFlags(underTasks)).toBe("tasks");
+    expect(pressPageKey(underTasks, "i")).toEqual({
       ...office,
       asksOpen: true,
     });
-    expect(pressPageKey(every, "i", "pager")).toEqual({
-      ...office,
-      pagerOpen: true,
-    });
-  });
-
-  it("closes the Inbox on i only when it is the page shown, on either tab", () => {
-    for (const tab of ["pager", "asks"] as const) {
-      const open = pressPageKey(office, "i", tab);
-      expect(pageForFlags(open)).toBe(tab);
-      // Shown on either tab, i closes it, whichever tab it would open.
-      expect(pageShortcut({ key: "i", inboxTab: "pager" }, open)).toBe("home");
-      expect(pageShortcut({ key: "i", inboxTab: "asks" }, open)).toBe("home");
-      // The Inbox, then t: Tasks is on top, so i brings the Inbox back.
-      const underTasks = pressPageKey(open, "t");
-      expect(pageForFlags(underTasks)).toBe("tasks");
-      expect(pressPageKey(underTasks, "i", tab)).toEqual({
-        ...office,
-        [flagForPage(tab)]: true,
-      });
-    }
   });
 
   it("keeps shortcuts out of inputs, modified keys, and Settings", () => {
@@ -450,18 +431,18 @@ describe("pageUnder", () => {
   // member can reach, shows the page it opened on top. A key that opened its
   // page under the one shown would make Escape close the wrong layer.
   it("every shortcut shows the page it opens, from every reachable state", () => {
-    for (const inboxTab of ["pager", "asks"] as const) walkShortcuts(inboxTab);
+    walkShortcuts();
   });
 
-  function walkShortcuts(inboxTab: "pager" | "asks") {
+  function walkShortcuts() {
     const KEY_PAGE: Record<string, Page> = {
       t: "tasks",
       a: "apps",
-      i: inboxTab,
+      i: "asks",
       s: "settings",
     };
     const apply = (state: PageFlags, key: string): PageFlags | null => {
-      const update = pageShortcut({ key, inboxTab }, state);
+      const update = pageShortcut({ key }, state);
       if (update === null) return null;
       const top = pageForFlags(state);
       // "home" closes the page on top (App's closePage).
@@ -495,7 +476,7 @@ describe("pageUnder", () => {
         if (next === null) continue;
         queue.push(next);
         const opened =
-          pageShortcut({ key, inboxTab }, state) !== "home" &&
+          pageShortcut({ key }, state) !== "home" &&
           !(key === "t" && state.tasksOpen);
         if (opened) expect(pageForFlags(next)).toBe(KEY_PAGE[key]);
       }
@@ -601,7 +582,7 @@ describe("createLoneShiftTracker", () => {
 describe("presencePageFor", () => {
   // The wall item a ghost stands by while each page is open (tasks 35bdee4d,
   // b781545f): the corkboard, the Apps screen, the clock, the vent and the
-  // Inbox tray, whose two tabs are the pager and asks pages. A Record over
+  // Inbox tray, for the asks page. A Record over
   // Page, so a new page fails the type check here until someone picks its
   // ghost spot.
   const WALL: Record<Page, PresencePage | null> = {
@@ -611,7 +592,6 @@ describe("presencePageFor", () => {
     skills: null,
     integrations: null,
     settings: "settings",
-    pager: "inbox",
     asks: "inbox",
   };
 

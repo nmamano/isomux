@@ -91,7 +91,6 @@ export type SavedPanel =
   | "integrations"
   | "settings"
   | "users"
-  | "pager"
   | "asks";
 
 export interface SavedView {
@@ -120,10 +119,12 @@ function readPanel(x: unknown): SavedPanel | null | undefined {
     x === "integrations" ||
     x === "settings" ||
     x === "users" ||
-    x === "pager" ||
     x === "asks"
     ? x
-    : undefined;
+    : // The Inbox's Pages tab until pages became asks (task 74e8fc07).
+      x === "pager"
+      ? "asks"
+      : undefined;
 }
 
 /** Strict parser for the saved-view JSON: returns null for any malformed

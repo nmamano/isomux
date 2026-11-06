@@ -38,7 +38,7 @@ import {
   useFeatures,
   useRoomList,
 } from "../store.tsx";
-import { useInboxCounts, useInboxNavAction, type InboxTab } from "../inbox.ts";
+import { useInboxCounts, useInboxNavAction } from "../inbox.ts";
 import { Floor, WallDoors, Walls, type WallInbox } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { ElevatorDialog } from "../components/ElevatorDialog.tsx";
@@ -227,7 +227,7 @@ interface OfficeViewProps {
   // Absent where there is no Skills page to open (test fixtures).
   onOpenSkills?: () => void;
   // Absent in fixtures that render the office without the Inbox.
-  onOpenInbox?: (tab: InboxTab) => void;
+  onOpenInbox?: () => void;
   // Absent in fixtures that render the office without the Integrations page.
   onOpenIntegrations?: () => void;
   onOpenUpdate: () => void;

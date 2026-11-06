@@ -1,5 +1,6 @@
 import type { AuditActor } from "../shared/audit.ts";
-import type { PagerStore } from "./pager-store.ts";
+import type { PagerEntry, PagerSource } from "../shared/types.ts";
+import type { PagerRaiseFields } from "./pager-compat.ts";
 import { createTaskStore } from "./task-store.ts";
 import { claudeConfigRoot } from "./claude-session-root.ts";
 import {
@@ -338,6 +339,17 @@ import { serverStopping } from "./server-stop.ts";
 // lives in createProductionAgentManager() at the bottom of this file. Tests
 // inject a FakeBackend resolver, a capturing event sink, and a fresh
 // OfficeState + persisted-agent snapshot for isolation.
+
+// A page raise, as the office attaches it (a paged ask, task 74e8fc07).
+export interface PageRaiser {
+  raise(input: {
+    source: PagerSource;
+    targetUserId: string;
+    fields: PagerRaiseFields;
+  }):
+    | { outcome: "created" | "updated"; entry: PagerEntry }
+    | { outcome: "too_many" };
+}
 
 // A spawn below standard: the new agent's stop and pack, and the checks that
 // may refuse it (the engine, the folder rules). spawn runs the checks with no
@@ -1361,10 +1373,10 @@ export function createAgentManager(deps: ManagerDeps) {
     return { name: managed.info.name, roomName: room.name };
   }
 
-  // The pager store the gone-model page goes to (isomux-office.ts attaches
+  // Where the gone-model page goes: a paged ask (isomux-office.ts attaches
   // it after both exist).
-  let pagerStore: Pick<PagerStore, "raise"> | null = null;
-  function attachPagerStore(store: Pick<PagerStore, "raise">): void {
+  let pagerStore: PageRaiser | null = null;
+  function attachPagerStore(store: PageRaiser): void {
     pagerStore = store;
   }
 

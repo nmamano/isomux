@@ -95,8 +95,9 @@ export interface PagerDeliveryService {
   stop(): void;
 }
 
-// The link from Discord back to the page. The office reads the `pager` query
-// parameter and opens the Inbox's Pages tab with that page selected.
+// The link a message carried before pages were asks (task 74e8fc07). The
+// office still reads the `pager` query parameter and opens the Inbox on the
+// page's ask. A paged ask's own item links /inbox/asks/<askId>.
 export function pagerLink(origin: string, pageId: string): string {
   return `${origin}/?pager=${encodeURIComponent(pageId)}`;
 }

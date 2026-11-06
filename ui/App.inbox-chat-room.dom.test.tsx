@@ -1,6 +1,6 @@
 // The Inbox keeps its content clear of its open chat panel (task 938698b7),
-// through the real App and store: while the panel is open, the tab's content
-// (the Asks or Pages list under the tabs) keeps a reserve on the panel's side,
+// through the real App and store: while the panel is open, the Inbox's content
+// (the asks list under the header) keeps a reserve on the panel's side,
 // right on a desktop and bottom on a phone, where the panel takes half the
 // window. The panel's own behavior is in ui/App.inbox-agent-chat.dom.test.tsx.
 // happy-dom does no layout: the reserve is read from the content's style, and
@@ -20,18 +20,18 @@ const {
   chatComposer,
   chatPanel,
   inboxButton,
-  selectedTab,
   setAsks,
   setUpInboxTests,
-  tab,
 } = await import("./test-support/inbox-fixture.tsx");
 type View = import("./test-support/inbox-fixture.tsx").View;
 
 setUpInboxTests();
 
-// The tab's content: the element that holds the Asks or Pages list.
+// The Inbox's content: the element that holds the asks list.
 function content(view: View): HTMLElement {
-  const panel = view.container.querySelector<HTMLElement>('[role="tabpanel"]');
+  const panel = view.container.querySelector<HTMLElement>(
+    "[data-inbox] [data-inbox-content]",
+  );
   expect(panel).not.toBeNull();
   return panel!;
 }
@@ -54,7 +54,7 @@ async function closePanel(view: View) {
   expect(chatPanel(view)).toBeNull();
 }
 
-it("keeps the Inbox's content clear of the open panel on a desktop, on both tabs, and gives the room back when the panel closes", async () => {
+it("keeps the Inbox's content clear of the open panel on a desktop and gives the room back when the panel closes", async () => {
   setAsks([ask("q1", "a1")]);
   const view = await boot();
   await act(async () => fireEvent.click(inboxButton(view)!));
@@ -79,12 +79,6 @@ it("keeps the Inbox's content clear of the open panel on a desktop, on both tabs
     // The panel ends above the bottom margin; nothing is held under it.
     expect(unset(style.paddingBottom)).toBe(true);
   };
-  reserved();
-
-  // The panel stays open on the Pages tab, and so does the reserve.
-  await act(async () => fireEvent.click(tab(view, "pager")!));
-  expect(selectedTab(view)).toBe("pager");
-  expect(chatPanel(view)).not.toBeNull();
   reserved();
 
   await closePanel(view);

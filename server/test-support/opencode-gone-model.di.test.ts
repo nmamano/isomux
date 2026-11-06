@@ -15,8 +15,7 @@ import {
   type RoomWire,
 } from "../../shared/types.ts";
 import { createAgentManager } from "../agent-manager.ts";
-import type { PagerPersistence } from "../pager-store.ts";
-import { createTestPagerStore } from "./pager-memory-archive.ts";
+import { createPageBook } from "./page-book.ts";
 import type { AgentEvent } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 
@@ -30,14 +29,8 @@ const GONE = "opencode/removed-model";
 const MANAGER = "user-gone-model";
 
 function pagerStore() {
-  const persistence: PagerPersistence = {
-    load: () => ({ kind: "missing" }),
-    save: () => {},
-    quarantine: () => true,
-  };
   const raised: Array<"created" | "reraised"> = [];
-  const store = createTestPagerStore({
-    persistence,
+  const store = createPageBook({
     onRaised: (_entry, kind) => {
       raised.push(kind);
     },

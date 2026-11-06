@@ -149,13 +149,20 @@ describe("parseSavedView (strict)", () => {
       "integrations",
       "settings",
       "users",
-      "pager",
       "asks",
     ] as const) {
       expect(parseSavedView(JSON.stringify({ user: "u", panel }))?.panel).toBe(
         panel,
       );
     }
+  });
+
+  // Task 74e8fc07, slice 4: the Pages tab is gone; a view saved on it opens
+  // the Asks view.
+  it("reads a view saved on the old Pages tab as the Asks view", () => {
+    expect(
+      parseSavedView(JSON.stringify({ user: "u", panel: "pager" }))?.panel,
+    ).toBe("asks");
   });
 });
 

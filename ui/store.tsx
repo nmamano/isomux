@@ -51,7 +51,6 @@ import type {
   SkillInfo,
   TaskItem,
   AppListWire,
-  PagerEntry,
   AskMemberWire,
   AskCommandRun,
   OfficeSettings,
@@ -72,11 +71,7 @@ import type {
   UnavailableEngines,
   UnavailableFeatures,
 } from "../shared/types.ts";
-import {
-  comparePagerResolve,
-  cronjobRunStreamId,
-  PAGER_RESOLVED_SLICE,
-} from "../shared/types.ts";
+import { cronjobRunStreamId } from "../shared/types.ts";
 import {
   type UserView,
   upsertUserView,
@@ -291,35 +286,6 @@ export interface AppState {
   // revision has moved is refused. Ordering GETs against each other is not
   // enough - the race is a GET against a DELTA.
   appsRevision: number;
-  // Pages (internal-docs/pager-design.md) the viewer can see, in every state.
-  // There is no hydration event: usePagerSync (ui/pager-sync.ts) reads
-  // GET /api/pager on every hydrationEpoch, and pager_upserted keeps the list
-  // live. App-level, not view-level, because the office bar's badge counts
-  // open pages while the view is closed.
-  pager: PagerEntry[];
-  pagerLoaded: boolean;
-  // The last snapshot fetch failed. Kept apart from pagerLoaded so a failed
-  // first load shows an error, never an empty list.
-  pagerLoadFailed: boolean;
-  // Bumped by every pager_upserted; a snapshot issued before a delta is
-  // refused, as for apps.
-  pagerRevision: number;
-  // Bumped to ask usePagerSync for a new snapshot: a refused one, or Retry.
-  pagerFetchSeq: number;
-  // Resolved pages come in slices (task af346c0c). The list holds at most
-  // this many resolved pages: one slice per read (the snapshot and each "Load
-  // more"). A live resolve past it drops the oldest, and "Load more" brings
-  // them back (PM ruling, 2026-10-07).
-  pagerResolvedAllowance: number;
-  // The page a Discord link opened outside the loaded slices: never dropped,
-  // and not the cursor. Cleared by the next snapshot.
-  pagerPinnedId: string | null;
-  // An older slice may exist: the last one was full, or pages were dropped.
-  pagerResolvedMore: boolean;
-  // Bumped by every drop. A "Load more" read that started before a drop
-  // continued from a page the list may no longer hold, so its slice is
-  // refused and read again from the oldest page still held.
-  pagerTrimSeq: number;
   // The open asks addressed to this member, in every room
   // (internal-docs/asks-design.md). useAsksSync reads
   // GET /api/asks on every hydrationEpoch; ask_upserted and
@@ -343,7 +309,7 @@ export interface AppState {
   // Apply answers. Memory only: never stored, sent or logged.
   askResults: Map<string, AskResult>;
   // Bumped by every delta; a snapshot issued before one is refused and read
-  // again, as for the pager.
+  // again.
   asksRevision: number;
   asksFetchSeq: number;
   // Other members' open asks, for an office owner to read and answer on the
@@ -593,28 +559,6 @@ type Action =
   | { type: "apps_loaded"; apps: AppListWire[]; revision: number }
   | { type: "app_upserted"; app: AppListWire }
   | { type: "app_deleted"; name: string }
-  // CLIENT-LOCAL (not ServerMessages): usePagerSync dispatches the first three
-  // around its GET /api/pager; the view's Retry dispatches pager_refetch.
-  | {
-      type: "pager_loaded";
-      entries: PagerEntry[];
-      revision: number;
-      more: boolean;
-    }
-  // The view's "Load more" (an older slice of resolved pages) and its deep
-  // link to a page outside the loaded slices.
-  | {
-      type: "pager_more_loaded";
-      entries: PagerEntry[];
-      more: boolean;
-      trimSeq: number;
-    }
-  // The page a Discord link opened, wherever it came from.
-  | { type: "pager_pin"; id: string }
-  | { type: "pager_entry_loaded"; entry: PagerEntry }
-  | { type: "pager_load_failed" }
-  | { type: "pager_refetch" }
-  | { type: "pager_upserted"; entry: PagerEntry }
   // CLIENT-LOCAL (not a ServerMessage): useAsksSync's snapshot.
   | { type: "asks_loaded"; entries: AskMemberWire[]; revision: number }
   | { type: "ask_upserted"; entry: AskMemberWire }
@@ -738,25 +682,6 @@ function keepOpenAsks<V>(
   const ids = new Set([...own, ...others].map((e) => e.id));
   if ([...byAsk.keys()].every((id) => ids.has(id))) return byAsk;
   return new Map([...byAsk].filter(([id]) => ids.has(id)));
-}
-
-// Keep at most pagerResolvedAllowance resolved pages: drop the oldest in
-// resolve order. Open and acked pages and the pinned link page stay. A drop
-// means "Load more" has pages to bring back.
-function trimResolved(state: AppState): AppState {
-  const resolved = state.pager
-    .filter((e) => e.state === "resolved" && e.id !== state.pagerPinnedId)
-    .sort((a, b) => comparePagerResolve(b, a));
-  if (resolved.length <= state.pagerResolvedAllowance) return state;
-  const dropped = new Set(
-    resolved.slice(state.pagerResolvedAllowance).map((e) => e.id),
-  );
-  return {
-    ...state,
-    pager: state.pager.filter((e) => !dropped.has(e.id)),
-    pagerResolvedMore: true,
-    pagerTrimSeq: state.pagerTrimSeq + 1,
-  };
 }
 
 // Silent fallback for a `log_replay_complete` that never arrives. The one case
@@ -1558,70 +1483,6 @@ export function reducer(state: AppState, action: Action): AppState {
         appsRevision: state.appsRevision + 1,
       };
     }
-    // A snapshot older than a delta we hold is refused, and the refusal asks
-    // for a new one: the pager has no poll to converge it later.
-    case "pager_loaded":
-      if (action.revision !== state.pagerRevision) {
-        return { ...state, pagerFetchSeq: state.pagerFetchSeq + 1 };
-      }
-      return {
-        ...state,
-        pager: action.entries,
-        pagerLoaded: true,
-        pagerLoadFailed: false,
-        pagerResolvedAllowance: PAGER_RESOLVED_SLICE,
-        pagerPinnedId: null,
-        pagerResolvedMore: action.more,
-      };
-    // Pages already held stay as they are: a delta may have updated them
-    // after the slice was read.
-    case "pager_more_loaded": {
-      if (action.trimSeq !== state.pagerTrimSeq) return state;
-      const held = new Set(state.pager.map((e) => e.id));
-      return {
-        ...state,
-        pager: [
-          ...state.pager,
-          ...action.entries.filter((e) => !held.has(e.id)),
-        ],
-        pagerResolvedAllowance:
-          state.pagerResolvedAllowance + PAGER_RESOLVED_SLICE,
-        pagerResolvedMore: action.more,
-      };
-    }
-    case "pager_pin":
-      return { ...state, pagerPinnedId: action.id };
-    case "pager_entry_loaded":
-      return state.pager.some((e) => e.id === action.entry.id)
-        ? state
-        : {
-            ...state,
-            pager: [...state.pager, action.entry],
-            pagerPinnedId: action.entry.id,
-          };
-    case "pager_load_failed":
-      return { ...state, pagerLoadFailed: true };
-    case "pager_refetch":
-      return {
-        ...state,
-        pagerLoadFailed: false,
-        pagerFetchSeq: state.pagerFetchSeq + 1,
-      };
-    // Replace-or-append, like task_upserted: a page can be new to this viewer.
-    case "pager_upserted": {
-      const idx = state.pager.findIndex((e) => e.id === action.entry.id);
-      const pager =
-        idx === -1
-          ? [...state.pager, action.entry]
-          : state.pager.map((e) =>
-              e.id === action.entry.id ? action.entry : e,
-            );
-      return trimResolved({
-        ...state,
-        pager,
-        pagerRevision: state.pagerRevision + 1,
-      });
-    }
     case "asks_loaded":
       if (action.revision !== state.asksRevision)
         return { ...state, asksFetchSeq: state.asksFetchSeq + 1 };
@@ -2136,15 +1997,6 @@ export const initialState: AppState = {
   apps: [],
   appsLoaded: false,
   appsRevision: 0,
-  pager: [],
-  pagerLoaded: false,
-  pagerLoadFailed: false,
-  pagerRevision: 0,
-  pagerFetchSeq: 0,
-  pagerResolvedAllowance: PAGER_RESOLVED_SLICE,
-  pagerPinnedId: null,
-  pagerResolvedMore: false,
-  pagerTrimSeq: 0,
   asks: [],
   answeredAsks: new Map(),
   answeringAsks: new Set(),

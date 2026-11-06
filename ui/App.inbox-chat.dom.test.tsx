@@ -19,58 +19,49 @@ const {
   boot,
   chatFromInbox,
   inboxButton,
-  page,
+  inboxOpen,
   selectedTab,
   setAsks,
-  setPages,
   setUpInboxTests,
-  tab,
-  tabCount,
 } = await import("./test-support/inbox-fixture.tsx");
 
 setUpInboxTests();
 
 type View = Awaited<ReturnType<typeof boot>>;
 
-// Scout's chat is open: its title and its own asks stack, and no Inbox tabs.
+// Scout's chat is open: its title and its own asks stack, and no Inbox.
 function expectScoutChat(view: View) {
   expect(window.location.pathname).toBe("/");
   expect(document.title).toContain("Scout");
   expect(view.container.querySelector("[data-asks-stack]")).not.toBeNull();
-  expect(view.container.querySelector('[role="tablist"]')).toBeNull();
+  expect(inboxOpen(view)).toBe(false);
 }
 
-// Into an agent's chat through the office bar's Inbox, the Asks tab and the
-// ask's agent name.
+// Into an agent's chat through the office bar's Inbox and the ask's agent
+// name.
 async function openChat(view: View, agentId: string) {
   await act(async () => fireEvent.click(inboxButton(view)!));
-  await act(async () => fireEvent.click(tab(view, "asks")!));
   await chatFromInbox(view, agentId);
 }
 
 const badge = (view: View) =>
   inboxButton(view)!.querySelector(".nav-action-badge")?.textContent ?? null;
 
-it("opens the Inbox from an agent's chat on what is open elsewhere, and the close returns to that chat", async () => {
-  // One open page for this member and Scout's two open asks.
-  setPages([page("p1", "u1")]);
+it("opens the Inbox from an agent's chat on the Asks view, and the close returns to that chat", async () => {
   const view = await boot();
   await openChat(view, "a1");
   expectScoutChat(view);
 
-  // The chat bar has the Inbox entry. Its badge counts the page only:
-  // Scout's asks show in this chat's stack.
+  // The chat bar has the Inbox entry. Scout's asks show in this chat's
+  // stack, so nothing lights its badge.
   const button = inboxButton(view);
   expect(button).toBeDefined();
-  expect(badge(view)).toBe("1");
+  expect(badge(view)).toBeNull();
 
-  // It opens the tab of what is open elsewhere: Pages. The tabs still count
-  // every open item, Scout's asks too.
   await act(async () => fireEvent.click(button!));
-  expect(window.location.pathname).toBe("/inbox/pages");
-  expect(selectedTab(view)).toBe("pager");
-  expect(tabCount(view, "pager")).toBe("1");
-  expect(tabCount(view, "asks")).toBe("2");
+  expect(window.location.pathname).toBe("/inbox/asks");
+  expect(selectedTab(view)).toBe("asks");
+  expect(askCards(view)).toBe(2);
   expect(view.container.querySelector("[data-asks-stack]")).toBeNull();
 
   // The close leaves the Inbox for the chat it was opened from.
@@ -78,7 +69,6 @@ it("opens the Inbox from an agent's chat on what is open elsewhere, and the clos
     fireEvent.click(view.getByRole("button", { name: "←" })),
   );
   expectScoutChat(view);
-  expect(badge(view)).toBe("1");
 });
 
 // The chat bar's badge counts, of the other agents' asks, only those not yet
@@ -98,7 +88,6 @@ it("counts in a chat the new asks of the other agents, and opens Asks while anot
   expect(badge(view)).toBeNull();
   await act(async () => fireEvent.click(inboxButton(view)!));
   expect(window.location.pathname).toBe("/inbox/asks");
-  expect(tabCount(view, "asks")).toBe("3");
   expect(askCards(view)).toBe(3);
 
   // In Ranger's chat a new ask of Scout lights the badge; a new one of

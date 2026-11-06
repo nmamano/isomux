@@ -62,7 +62,6 @@ export const WS_PUSH_AREA = {
   office_settings_updated: "office",
   others_ask_removed: "none-for-packs",
   others_ask_upserted: "none-for-packs",
-  pager_upserted: "pager",
   pong: "always",
   presence_list: "office",
   provider_accounts_updated: "environment",

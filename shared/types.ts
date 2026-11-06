@@ -2968,7 +2968,6 @@ export type ServerMessage =
   // see it (its room; for an app page also the app owner and office owners).
   // There is no whole-list event: a pager view reads GET /api/pager when it
   // opens and after a reconnect.
-  | { type: "pager_upserted"; entry: PagerEntry }
   // An ask addressed to the recipient was created or edited. Only the
   // target member receives it; the UI reads GET /api/asks after each
   // reconnect.

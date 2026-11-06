@@ -14,14 +14,8 @@ setUpDomTestFile();
 
 const { act, fireEvent } = await import("@testing-library/react");
 const { ApiError } = await import("./api.ts");
-const {
-  boot,
-  chatFromInbox,
-  inboxButton,
-  setAnswerPost,
-  setUpInboxTests,
-  tabCount,
-} = await import("./test-support/inbox-fixture.tsx");
+const { boot, chatFromInbox, inboxButton, setAnswerPost, setUpInboxTests } =
+  await import("./test-support/inbox-fixture.tsx");
 type View = import("./test-support/inbox-fixture.tsx").View;
 
 setUpInboxTests();
@@ -90,20 +84,18 @@ it("leaves the tab count at once, comes back on Undo, and leaves the entry's cou
   expect(titleCount(view)).toBe(2);
   expect(deskDot(view)).toBe("2");
   await act(async () => fireEvent.click(inboxButton(view)!));
-  expect(tabCount(view, "asks")).toBe("2");
 
+  // The Inbox has no count of its own (task 74e8fc07, slice 4): the bar's
+  // title, after the close, is the count.
   await reply(view, "q1");
   expect(card(view, "q1")?.querySelector("[data-ask-undo]")).not.toBeNull();
-  expect(tabCount(view, "asks")).toBe("1");
   await act(async () =>
     fireEvent.click(card(view, "q1")!.querySelector("[data-ask-undo]")!),
   );
-  expect(tabCount(view, "asks")).toBe("2");
 
   // Answered again, then the Inbox closes: the answer is sent at once and
   // stays out of every count while the POST is in flight.
   await reply(view, "q1");
-  expect(tabCount(view, "asks")).toBe("1");
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: "←" })),
   );
@@ -119,7 +111,6 @@ it("leaves the tab count at once, comes back on Undo, and leaves the entry's cou
   // q1 is back, but it was shown already.
   expect(badge(view)).toBeNull();
   await act(async () => fireEvent.click(inboxButton(view)!));
-  expect(tabCount(view, "asks")).toBe("2");
   expect(
     card(view, "q1")?.querySelector("[role=alert]")?.textContent,
   ).toContain("ask_busy");

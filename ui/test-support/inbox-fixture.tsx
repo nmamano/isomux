@@ -1,7 +1,7 @@
 // Shared by the Inbox tests through the real App and store
 // (ui/App.inbox.dom.test.tsx, ui/App.inbox-ask-links.dom.test.tsx): one
-// member with one agent, GET /api/asks and GET /api/pager answered from the
-// lists below. Two files because each case boots the real store, and seven
+// member with one agent, GET /api/asks answered from the list below, and
+// GET /api/pager/<id> (an old page link, task 74e8fc07) from `pageAsks`. Two files because each case boots the real store, and seven
 // boots ran past the 5 s DOM cap under load. Import it with `await import(...)`
 // after setUpDomTestFile(), like every DOM module.
 
@@ -19,7 +19,6 @@ const { en } = await import("../../shared/i18n/en.ts");
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type AskMemberWire = import("../../shared/types.ts").AskMemberWire;
-type PagerEntry = import("../../shared/types.ts").PagerEntry;
 
 const agent = {
   id: "a1",
@@ -84,20 +83,13 @@ const ASKS = [
   ask("q3", "hidden"),
 ];
 
-export const page = (id: string, targetUserId: string): PagerEntry => ({
-  id,
-  createdAt: 1_000,
-  lastRaisedAt: 1_000,
-  raiseCount: 1,
-  source: { kind: "agent", agentId: "a1", name: "Scout", roomId: "r1" },
-  targetUserId,
-  title: `Title ${id}`,
-  state: "open",
-  delivery: { state: "delivered", sends: 1 },
-});
-
-// The pages GET /api/pager returns; each test sets its own.
-let pages: PagerEntry[] = [];
+// The ask each page id names, for GET /api/pager/<id>: a page id that is
+// not here is a 404. Every read's id, in order.
+let pageAsks: Record<string, string> = {};
+export const pageReads: string[] = [];
+export function setPageAsks(next: Record<string, string>) {
+  pageAsks = next;
+}
 // The asks GET /api/asks returns; ASKS unless a test sets its own.
 let asks: AskMemberWire[] = ASKS;
 // The agents full_state carries: Scout, Ranger after addRanger(), and the
@@ -108,9 +100,6 @@ export function addRanger() {
 }
 export function addBackRoom() {
   agents = [checker, agent, builder, ranger];
-}
-export function setPages(next: PagerEntry[]) {
-  pages = next;
 }
 export function setAsks(next: AskMemberWire[]) {
   asks = next;
@@ -163,7 +152,17 @@ export function setUpInboxTests() {
     }
     if (path.startsWith("/api/members-chat"))
       return { messages: [], hasMore: false, readPointer: null, unread: 0 };
-    if (path.startsWith("/api/pager")) return pages;
+    const pageRead = /^\/api\/pager\/([^/?]+)$/.exec(path);
+    if (method === "GET" && pageRead) {
+      const id = decodeURIComponent(pageRead[1]);
+      pageReads.push(id);
+      const askId = pageAsks[id];
+      if (askId === undefined)
+        throw new ApiError(404, "not_found", "No such page.");
+      return { id, askId };
+    }
+    if (path.startsWith("/api/pager"))
+      throw new Error("no client reads the page list (task 74e8fc07)");
     if (path === "/api/apps") return [];
     // The pages an ask links to read their own lists; with no fixture they
     // show their error state rather than read a shape they do not expect.
@@ -183,7 +182,8 @@ export function setUpInboxTests() {
     );
   });
   beforeEach(() => {
-    pages = [];
+    pageAsks = {};
+    pageReads.length = 0;
     asks = ASKS;
     agents = [agent];
     answerPost = async () => ({});
@@ -249,7 +249,7 @@ export async function boot(path = "/", features = PRODUCTION_FEATURES) {
   await act(async () => {
     await hydration;
   });
-  // Let GET /api/asks and GET /api/pager land.
+  // Let GET /api/asks land.
   await act(async () => {});
   await act(async () => {});
   return view;
@@ -262,16 +262,21 @@ export const inboxButton = (view: View) =>
     (b) =>
       b.querySelector(".nav-action-label")?.textContent === en["nav.inbox"],
   );
-export const tab = (view: View, id: "pager" | "asks") =>
-  view.container.querySelector<HTMLButtonElement>(`[data-inbox-tab="${id}"]`);
-export const selectedTab = (view: View) =>
-  view.container
-    .querySelector('[role="tab"][aria-selected="true"]')
-    ?.getAttribute("data-inbox-tab") ?? null;
-export const tabCount = (view: View, id: "pager" | "asks") =>
-  tab(view, id)?.querySelector("[data-inbox-count]")?.textContent ?? null;
-export const pageRows = (view: View) =>
-  view.container.querySelectorAll("[data-pager-id]").length;
+// The Inbox (task 74e8fc07, slice 4): its view, marked data-inbox, holds the
+// Asks view and no tab row. `selectedTab` is "asks" while the Inbox shows the
+// Asks view, else null; its name is from the time of two tabs.
+export const inboxOpen = (view: View) =>
+  view.container.querySelector("[data-inbox]") !== null;
+export const selectedTab = (view: View): "asks" | null =>
+  inboxOpen(view) &&
+  view.container.querySelector("[data-inbox] [data-asks-list]") !== null
+    ? "asks"
+    : null;
+// The number in the Inbox entry's title: every open ask it counts.
+export const inboxTitleCount = (view: View): number | null => {
+  const m = /\d+/.exec(inboxButton(view)?.getAttribute("title") ?? "");
+  return m ? Number(m[0]) : null;
+};
 export const askCards = (view: View) =>
   view.container.querySelectorAll("[data-ask]").length;
 

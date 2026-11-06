@@ -13,17 +13,9 @@ setUpDomTestFile();
 const { act, fireEvent } = await import("@testing-library/react");
 const { en } = await import("../shared/i18n/en.ts");
 const { shimEmit } = await import("./ws.ts");
-const {
-  activeRoom,
-  backScreen,
-  boot,
-  escape,
-  setAsks,
-  setPages,
-  setUpAgentLinkTests,
-} = await import("./test-support/agent-link-fixture.tsx");
+const { activeRoom, backScreen, boot, escape, setAsks, setUpAgentLinkTests } =
+  await import("./test-support/agent-link-fixture.tsx");
 type AskEntry = import("../shared/types.ts").AskEntry;
-type PagerEntry = import("../shared/types.ts").PagerEntry;
 type TaskItem = import("../shared/types.ts").TaskItem;
 type View = import("./test-support/agent-link-fixture.tsx").View;
 
@@ -51,7 +43,7 @@ async function enterFirstRoom(view: View) {
 }
 
 const inboxOpen = (view: View) =>
-  view.container.querySelector('[role="tablist"]') !== null;
+  view.container.querySelector("[data-inbox]") !== null;
 
 // Open the Inbox from the office bar, on its Asks tab.
 async function openInbox(view: View) {
@@ -112,36 +104,6 @@ it("leaves a back agent's chat opened from the Inbox for its room's back screen"
   await act(async () => fireEvent.click(name!));
   await openFullChat(view);
   await leaveChat(view, "Backbencher", "r2", true);
-  view.unmount();
-});
-
-it("leaves a chat opened from a page on the Inbox's Pages tab for the agent's room", async () => {
-  const page: PagerEntry = {
-    id: "p1",
-    createdAt: 1_000,
-    lastRaisedAt: 1_000,
-    raiseCount: 1,
-    source: { kind: "agent", agentId: "a2", name: "Faraway", roomId: "r2" },
-    targetUserId: "u1",
-    title: "Title p1",
-    state: "open",
-    delivery: { state: "delivered", sends: 1 },
-  };
-  setPages([page]);
-  const view = await boot();
-  await enterFirstRoom(view);
-  await openInbox(view);
-  // A notification of a page opens this tab too.
-  const tab = view.container.querySelector<HTMLElement>(
-    '[role="tab"][data-inbox-tab="pager"]',
-  );
-  expect(tab).not.toBeNull();
-  await act(async () => fireEvent.click(tab!));
-  const source =
-    view.container.querySelector<HTMLButtonElement>(".pager-source-link");
-  expect(source).not.toBeNull();
-  await act(async () => fireEvent.click(source!));
-  await leaveChat(view, "Faraway", "r2");
   view.unmount();
 });
 

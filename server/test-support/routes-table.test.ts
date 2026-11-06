@@ -1638,10 +1638,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "officeMcpServers.test": { caps: ["integration:manage"], emits: [] },
   "officeMcpServers.signIn": { caps: ["user:env"], emits: [] },
   "pagerSettings.get": { caps: ["integration:manage"], emits: [] },
-  "pagerSettings.update": {
-    caps: ["integration:manage"],
-    emits: ["pager_upserted"],
-  },
+  // A paged ask's send records are on no wire (task 74e8fc07).
+  "pagerSettings.update": { caps: ["integration:manage"], emits: [] },
   "pagerSettings.test": { caps: ["integration:manage"], emits: [] },
   // The member's own "changed for you" list: a human or their own token.
   "integrationChanges.list": { caps: ["user:env"], emits: [] },
@@ -1776,13 +1774,23 @@ const SPEC_ROUTE_CONTRACT: Record<
   "tasks.done": { caps: ["task:write"], emits: ["tasks"] },
   "tasks.delete": { caps: ["task:write"], emits: ["tasks"] },
   // Pager. pager:raise is held by AGENT and APP (source and target come from
-  // the raising token); reads and ack/resolve follow room access in the
-  // handler.
-  "pager.raise": { caps: ["pager:raise"], emits: ["pager_upserted"] },
+  // the raising token); reads and ack/resolve follow the ask's rules in the
+  // handler. A page is a paged ask (task 74e8fc07): each route emits what the
+  // ask route it matches emits.
+  "pager.raise": {
+    caps: ["pager:raise"],
+    emits: ["ask_upserted", "others_ask_upserted"],
+  },
   "pager.list": { caps: ["pager:read"], emits: [] },
   "pager.get": { caps: ["pager:read"], emits: [] },
-  "pager.ack": { caps: ["pager:write"], emits: ["pager_upserted"] },
-  "pager.resolve": { caps: ["pager:write"], emits: ["pager_upserted"] },
+  "pager.ack": {
+    caps: ["pager:write"],
+    emits: ["ask_upserted", "others_ask_upserted"],
+  },
+  "pager.resolve": {
+    caps: ["pager:write"],
+    emits: ["ask_removed", "others_ask_removed"],
+  },
   // GET /auth/app, the app sign-in mint for a member's browser session.
   "apps.mintSignIn": { caps: [], emits: [] },
   // Apps (agent-built web apps isomux runs). app:read / app:write are BASELINE
@@ -1812,8 +1820,14 @@ const SPEC_ROUTE_CONTRACT: Record<
   // one line in this table whose capability no human and no agent carries.
   "apps.sendMessage": { caps: ["app:message"], emits: ["log_entry"] },
   // The app pager routes: an app raises and resolves its own pages.
-  "pager.appRaise": { caps: ["pager:raise"], emits: ["pager_upserted"] },
-  "pager.appResolve": { caps: ["pager:raise"], emits: ["pager_upserted"] },
+  "pager.appRaise": {
+    caps: ["pager:raise"],
+    emits: ["ask_upserted", "others_ask_upserted"],
+  },
+  "pager.appResolve": {
+    caps: ["pager:raise"],
+    emits: ["ask_removed", "others_ask_removed"],
+  },
   // The app ask routes: an app opens and manages its own asks, in its target
   // agent's name. app:ask is held by APP scope alone, as app:message is.
   "asks.appCreate": {

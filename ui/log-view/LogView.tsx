@@ -109,7 +109,7 @@ import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import { choiceCardText } from "../../shared/i18n/log-message.ts";
 import { noTranslate } from "../no-translate.ts";
-import { useInboxNavAction, type InboxTab } from "../inbox.ts";
+import { useInboxNavAction } from "../inbox.ts";
 import {
   COMPOSER_MOBILE_FONT_SIZE,
   composerMaxHeight,
@@ -783,7 +783,7 @@ export function LogView({
   onOpenTasks?: () => void;
   onOpenTask?: (id: string) => void;
   // Absent in fixtures that render the chat without the Inbox.
-  onOpenInbox?: (tab: InboxTab) => void;
+  onOpenInbox?: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {

@@ -86,8 +86,6 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // user and to office owners, never to the office.
   app_upserted: "recipient-scoped",
   app_deleted: "recipient-scoped",
-  // Per socket by access to the page's source room, like task_upserted.
-  pager_upserted: "recipient-scoped",
   ask_upserted: "recipient-scoped",
   ask_removed: "recipient-scoped",
   // Other members' asks, to office owners only (task a49856f7).
