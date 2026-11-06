@@ -3395,6 +3395,18 @@ bun_sha256() {
 BUN_SHA256
 }
 
+# Whether <v> is a Bun release version (x.y.z). A version becomes a path under
+# <dir> that root runs, and a pin in the checkout's package.json is written by
+# the service user, so nothing else may get that far.
+bun_release_version() {
+  [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# bun_require_release_version <v> [<file it came from>]
+bun_require_release_version() {
+  bun_release_version "$1" || die "refusing bun version ${1@Q}${2:+ from $2}: not a release version (x.y.z)"
+}
+
 # The version a Bun binary reports, or nothing.
 bun_version_of() {
   local v
@@ -3428,6 +3440,7 @@ bun_place() {
 # <link> held before is kept as <dir>/<its version>/bun for a rollback. Every
 # failure leaves <link> as it was.
 converge_bun() {
+  bun_require_release_version "$1"
   local version=$1 link=$2 dir=$3
   local target=$dir/$version/bun have="" src="" arch="" sha="" tool tmp
   # Decide whether a download is needed before anything changes, so a missing
@@ -3454,6 +3467,7 @@ converge_bun() {
   if [[ -e $link ]]; then
     src=$(readlink -f "$link") || src=""
     have=$(bun_version_of "$link" || true)
+    bun_release_version "$have" || have=""
     if [[ -z $have ]]; then
       log "warning: $link does not report a Bun version; it is not kept for a rollback"
     elif [[ $(bun_version_of "$dir/$have/bun" || true) != "$have" ]]; then
@@ -3535,6 +3549,7 @@ install_bun() {
     log "warning: no packageManager pin in package.json; installing bun $BUN_VERSION, this installer's pin"
     pinned=$BUN_VERSION
   fi
+  bun_require_release_version "$pinned" "$INSTALL_DIR/package.json"
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would install bun $pinned as $BUN_DIR/$pinned/bun and switch $BUN_LINK to it"
     return 0

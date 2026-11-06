@@ -23,6 +23,7 @@ import {
   statSync,
   symlinkSync,
   realpathSync,
+  linkSync,
 } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
@@ -406,7 +407,10 @@ if out=$(bun_sha256 0.0.0 x64); then echo "unknown=$out"; else echo unknown=miss
 });
 
 describe("install.sh install_bun and deps-only", () => {
-  function runWithStubbedConverge(fn: string, setup: string): string {
+  function runWithStubbedConverge(
+    fn: string,
+    setup: string,
+  ): { code: number; out: string } {
     const script = `
 set -Eeuo pipefail
 log() { echo "LOG: $*"; }
@@ -432,7 +436,7 @@ ${fn}
       env: { PATH: `${noNet}:${process.env.PATH ?? ""}`, INSTALL_SH },
       encoding: "utf8",
     });
-    return `${r.stdout}${r.stderr}`;
+    return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
   }
 
   it("a fresh install converges the checkout's pin into the system Bun layout", () => {
@@ -442,7 +446,7 @@ ${fn}
       join(checkout, "package.json"),
       JSON.stringify({ name: "fake", packageManager: "bun@7.7.8" }),
     );
-    const out = runWithStubbedConverge(
+    const { out } = runWithStubbedConverge(
       "install_bun",
       `INSTALL_DIR=${checkout}`,
     );
@@ -458,13 +462,42 @@ ${fn}
       join(checkout, "package.json"),
       JSON.stringify({ name: "fake" }),
     );
-    const out = runWithStubbedConverge(
+    const { out } = runWithStubbedConverge(
       "install_bun",
       `INSTALL_DIR=${checkout}`,
     );
     expect(out).toContain(
       `converge_bun ${PINNED} /usr/local/bin/bun /usr/local/lib/isomux/bun`,
     );
+  });
+
+  it("a dry run refuses a pin that is not a release version, as the real run does", () => {
+    // The checkout's package.json is the service user's to write. A dry run
+    // that reports such a pin as installable promises a run that dies.
+    const checkout = join(base, "checkout");
+    mkdirSync(checkout);
+    writeFileSync(
+      join(checkout, "package.json"),
+      JSON.stringify({ name: "fake", packageManager: "bun@../../x" }),
+    );
+    const r = runWithStubbedConverge(
+      "install_bun",
+      `INSTALL_DIR=${checkout}; DRY_RUN=1`,
+    );
+    expect(r.code).not.toBe(0);
+    expect(r.out).toMatch(/^DIE: /m);
+    // The same run with a release pin is a successful dry run: the refusal
+    // is the pin's, not the dry run's.
+    writeFileSync(
+      join(checkout, "package.json"),
+      JSON.stringify({ name: "fake", packageManager: "bun@7.7.8" }),
+    );
+    const ok = runWithStubbedConverge(
+      "install_bun",
+      `INSTALL_DIR=${checkout}; DRY_RUN=1`,
+    );
+    expect(ok.code).toBe(0);
+    expect(ok.out).not.toMatch(/^DIE: /m);
   });
 
   it("ISOMUX_BUN_ONLY=1 converges this release's pin at the given paths, without root", () => {
@@ -500,5 +533,100 @@ ${fn}
     });
     expectRegularLinkAt(PINNED);
     expect(versionOf(join(dir, "0.0.1", "bun"))).toBe("0.0.1");
+  });
+});
+
+// Task 5c97dbe1: the version names a path under the root-owned <dir>, and
+// install_bun reads it from the checkout's package.json, which the service
+// user can write. A value that is not a release version must stop converge_bun
+// before it builds a path, runs a file or changes anything.
+describe("install.sh Bun pin: only a release version becomes a path", () => {
+  const marker = () => join(base, "payload-ran");
+
+  // A box with Bun 9.9.0 installed: <dir>/9.9.0/bun, hardlinked as <link>.
+  // <dir> must exist, or a "../" pin cannot resolve and the test proves
+  // nothing.
+  beforeEach(() => {
+    writeFakeBun(join(dir, "9.9.0", "bun"), "9.9.0");
+    linkSync(join(dir, "9.9.0", "bun"), link);
+  });
+
+  // An executable at <dir>/<pin>/bun that records each run and reports the
+  // pin as its version, so it passes every version check after it runs.
+  function plantPayload(pin: string) {
+    const path = join(dir, pin, "bun");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      `#!/bin/sh\necho "$*" >> '${marker()}'\nprintf '%s\\n' '${pin}'\n`,
+    );
+    chmodSync(path, 0o755);
+  }
+
+  // Everything the service runs, as the beforeEach left it.
+  function expectBoxUnchanged(linkIno: number) {
+    expect(existsSync(marker())).toBe(false);
+    expect(ino(link)).toBe(linkIno);
+    expectRegularLinkAt("9.9.0");
+    expect(entries(dir)).toEqual(["9.9.0"]);
+    expect(entries(dirname(link))).toEqual(["bun"]);
+  }
+
+  it("install_bun refuses a traversal pin in the checkout's package.json without running it", () => {
+    const pin = "../../x";
+    plantPayload(pin);
+    const checkout = join(base, "checkout");
+    mkdirSync(checkout);
+    writeFileSync(
+      join(checkout, "package.json"),
+      JSON.stringify({ name: "fake", packageManager: `bun@${pin}` }),
+    );
+    const before = ino(link);
+    const r = runConverge({
+      version: pin,
+      tail: `eval "$(sed -n '/^install_bun()/,/^}/p' "$INSTALL_SH")"
+BUN_LINK=$LINK BUN_DIR=$DIR INSTALL_DIR='${checkout}' DRY_RUN=""
+[[ -x $DIR/$VERSION/bun ]] && echo PAYLOAD-REACHABLE
+install_bun`,
+    });
+    // The payload sits where today's path building lands.
+    expect(r.out).toMatch(/^PAYLOAD-REACHABLE$/m);
+    expect(r.code).not.toBe(0);
+    expectBoxUnchanged(before);
+  });
+
+  // One case per way a check can accept a pin it must refuse: no end anchor,
+  // no start anchor, and a match per line instead of on the whole value.
+  for (const [what, pin] of [
+    ["a release version followed by a traversal", "9.9.0/../../../x"],
+    ["a traversal that ends in a release version", "../../x/9.9.1"],
+    ["a traversal and a release version on two lines", "../../x\n9.9.1"],
+  ] as const) {
+    it(`converge_bun refuses ${what} without running it`, () => {
+      plantPayload(pin);
+      const before = ino(link);
+      const r = runConverge({
+        version: pin,
+        tail: `[[ -x $DIR/$VERSION/bun ]] && echo PAYLOAD-REACHABLE
+converge_bun "$VERSION" "$LINK" "$DIR"`,
+      });
+      expect(r.out).toMatch(/^PAYLOAD-REACHABLE$/m);
+      expect(r.code).not.toBe(0);
+      expectBoxUnchanged(before);
+    });
+  }
+
+  it("does not keep a Bun that reports a traversal as its version", () => {
+    // Defense in depth: what <link> reports also becomes a path. A box a
+    // pre-fix run left with a payload as <link> must not get a directory
+    // written outside <dir> on the next run.
+    rmSync(link);
+    writeFakeBun(link, "../../y");
+    publishZip({ version: "9.9.1" });
+    const r = runConverge({ version: "9.9.1" });
+    expect(r.code).toBe(0);
+    expectRegularLinkAt("9.9.1");
+    expect(existsSync(join(base, "y"))).toBe(false);
+    expect(entries(dir)).toEqual(["9.9.0", "9.9.1"]);
   });
 });

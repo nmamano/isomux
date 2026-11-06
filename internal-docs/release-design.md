@@ -145,6 +145,9 @@ before the checkout, when the target's `package.json` is not on disk.
 `"packageManager"` and requires a hash for each Linux build (x64,
 x64-baseline, aarch64). To move the pin, change both and add the three lines
 from the release's `SHASUMS256.txt` to `bun_sha256`; keep the old lines.
+The installer refuses a pin that is not x.y.z before the pin becomes a path:
+the service user can write the checkout's `package.json`, and root runs the
+Bun at that path.
 
 The first update that carries this ran an older installed updater that only
 warned. On a system box with apt, the target's deps-only mode switches Bun on
