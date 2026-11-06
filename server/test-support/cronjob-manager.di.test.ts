@@ -839,7 +839,7 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
     // Redaction: the run token must not ride in the run's system prompt.
     expect(sess?.opts.systemPrompt ?? "").not.toContain(raw as string);
 
-    // End the run -> finalizeRun revokes the token.
+    // End the run -> endRun revokes the token.
     sess?.completeTurn({ text: "done" });
     await new Promise((r) => setTimeout(r, 25));
     expect(resolveToken(raw as string)).toBeNull();
@@ -850,7 +850,7 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
   it("createSession failure revokes the run token (no leak on the failed-run path)", async () => {
     const throwing = new FakeBackend();
     // Force the failed-run path: fire() must revoke the token it minted before
-    // createSession threw (this path never enters activeRuns/finalizeRun).
+    // createSession threw (this path never holds a run slot or reaches endRun).
     let minted: string | undefined;
     throwing.createSession = (opts) => {
       minted = opts.env?.ISOMUX_AGENT_TOKEN;
@@ -905,7 +905,7 @@ describe("buildCronjobSystemPrompt - memory injection (DI seam)", () => {
 // token only into the primary fire() lifecycle; resumed follow-up turns
 // (sendRunMessage / editRunMessage) resume through buildRunSessionOptions, which
 // now mints + injects a fresh RUN token and revokes it on every terminal path
-// (the caller's resume-failure catch before install, finalizeRun after). These
+// (the caller's resume-failure catch before install, endRun after). These
 // tests drive a REAL resume: the claude resume-precheck is satisfied by pointing
 // CLAUDE_CONFIG_DIR at a temp dir (via the injected resolveEnv) and touching the
 // leaf session file, mirroring fork-usage.test.ts's seedClaudeSession.
@@ -1093,7 +1093,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     // Redaction: the run token must not ride in the resumed run's system prompt.
     expect(resumed.opts.systemPrompt ?? "").not.toContain(raw as string);
 
-    // Once active is installed, finalizeRun owns the revoke.
+    // Once active is installed, endRun owns the revoke.
     resumed.completeTurn({ text: "done2" });
     await waitFor(
       () => getRunTokenRaw(job.id, run.id) === null,
@@ -1116,7 +1116,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
 
     // Force the resume to throw AFTER buildRunSessionOptions mints the token
     // (call arguments evaluate before the call). The resume-failure catch must
-    // revoke it - installResumedActive never runs, so finalizeRun never would.
+    // revoke it - installResumedActive never runs, so endRun never would.
     let minted: string | undefined;
     fake.resumeSession = (_sessionId, opts) => {
       minted = opts.env?.ISOMUX_AGENT_TOKEN;
@@ -1131,7 +1131,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
 
   it("a post-mint, pre-install failure (install-time emit throws) revokes the token - no leak", async () => {
     // resumeSession SUCCEEDS (token minted + injected), but installResumedActive
-    // throws AFTER activeRuns.set (its cronjob_run_updated emit throws). Without
+    // throws AFTER it sets the run slot (its cronjob_run_updated emit throws). Without
     // the guard the token would outlive the run with no terminal owner (finalize
     // never runs). The shared abortResumedRunToken path must revoke + clean up.
     let sends = 0;
@@ -1172,6 +1172,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
       finalized.currentSessionId ?? finalized.rootSessionId,
     );
     expect(getRunTokenRaw(job.id, run.id)).toBeNull(); // primary token revoked
+    const ended = JSON.parse(JSON.stringify(finalized)) as CronjobRun;
 
     armed = true;
     const sessionsBefore = fake.sessions.length;
@@ -1184,6 +1185,19 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     expect(typeof minted).toBe("string");
     expect(resolveToken(minted!)).toBeNull();
     expect(resumed.closed).toBe(true);
+    // The reopen was written before its emit threw (task abc438ee): the row
+    // is back as it ended, not "running" with no turn behind it, so the
+    // member's next follow-up starts.
+    const after = mgr.findRun(job.id, run.id)!;
+    expect([after.status, after.endedAt, after.errorReason]).toEqual([
+      ended.status,
+      ended.endedAt,
+      ended.errorReason,
+    ]);
+    armed = false;
+    expect(
+      await mgr.sendRunMessage(job.id, run.id, "again", "Nil"),
+    ).toMatchObject({ ok: true });
     fake.sessions.forEach((s) => s.close());
   });
 

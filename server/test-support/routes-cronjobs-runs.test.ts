@@ -134,8 +134,8 @@ function countLog(
 }
 
 // Boot with a FakeBackend whose turn never completes, so the cron run stays
-// ACTIVE (in activeRuns) and its RUN token stays live for the affordance calls.
-// mintRunToken precedes activeRuns.set with no await between them, so a non-null
+// ACTIVE (it holds its run slot) and its RUN token stays live for the affordance calls.
+// mintRunToken precedes the run slot's hold with no await between them, so a non-null
 // getRunTokenRaw is a reliable "run is active" signal.
 interface LiveRun {
   srv: TestServer;

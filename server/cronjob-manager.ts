@@ -131,43 +131,20 @@ import { getUserById, getUserByName as defaultResolveUser } from "./users.ts";
 // CronjobManagerDeps below). Imported as a namespace so the production factory
 // can pass it verbatim and the dep type can be derived from it without drift.
 import * as cronPersistence from "./cronjob-persistence.ts";
-
-interface ActiveRun {
-  jobId: string;
-  runId: string;
-  streamId: string;
-  agentType: AgentBackendType;
-  session: BackendSession;
-  sessionId: string | null;
-  rootSessionId: string;
-  launchedClaudeConfigDir?: string;
-  consumerPromise: Promise<void>;
-  hardTimeoutTimer: ReturnType<typeof setTimeout> | null;
-  lastWrittenEntryId: string | null;
-  lastAssistantText: string;
-  trigger: CronjobRun["trigger"];
-  killed: boolean;
-  // Buffer entries created before system_init assigns a sessionId. Without
-  // this, pre-init errors (e.g. "Failed to send prompt") get broadcast to
-  // clients but never persisted to disk, so they vanish on reload.
-  pendingEntries: LogEntry[];
-  // Per-turn tool-call start timestamps, keyed by toolUseId. Used to compute
-  // duration_ms on the matching tool_result event when the backend itself
-  // doesn't emit a durationMs.
-  toolCallTimestamps: Map<string, number>;
-  // True for follow-up turns on a previously-finalized run (resumed or
-  // edit-forked). On resume the backend reuses the existing sessionId, so
-  // system_init must NOT clobber rootSessionId - only currentSessionId
-  // tracks the leaf.
-  isResume: boolean;
-  // Set when this activation runs an edited message's turn (editRunMessage):
-  // every error entry of the turn keeps the edited text (FAILED_EDIT_TEXT_KEY),
-  // so a turn that fails late still offers the text back.
-  failedEditText?: string;
-  // The backend sent auth_needed in this activation: its end writes the
-  // login hint.
-  authNeeded?: boolean;
-}
+import {
+  runEndFields,
+  runStartFields,
+  runTransitionPatch,
+  type RunEnd,
+  type RunTerminalFields,
+  type RunTransition,
+} from "./cronjob-run-state.ts";
+import {
+  createRunSlots,
+  type DeliveryRun,
+  type RunOwner,
+  type SessionRun,
+} from "./cronjob-run-slots.ts";
 
 export type CronjobEvent =
   | { type: "cronjob_added"; cronjob: Cronjob }
@@ -273,19 +250,6 @@ export interface CronjobManagerDeps {
 // hand-written interface.)
 export type CronjobManager = ReturnType<typeof createCronjobManager>;
 
-// A run's failure reason as its row stores it: errorReason is the English
-// (what agents, the API and older rows read), errorReasonMessage the parts each
-// reader words. The message key is always present, undefined for plain text:
-// updateRun spreads its patch, so an absent key would keep an old message.
-function reasonFields(
-  reason: LogText | null,
-): Pick<CronjobRun, "errorReason" | "errorReasonMessage"> {
-  if (reason === null)
-    return { errorReason: null, errorReasonMessage: undefined };
-  const { content, message } = logTextFields(reason);
-  return { errorReason: content, errorReasonMessage: message };
-}
-
 export function createCronjobManager(deps: CronjobManagerDeps) {
   const getBackend = deps.resolveBackend;
   const {
@@ -325,14 +289,27 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     listAllCronjobIdsOnDisk,
   } = deps.persistence;
 
-  const activeRuns = new Map<string, ActiveRun>();
+  // One slot per live run (cronjob-run-slots.ts).
+  const slots = createRunSlots();
+  const { owns, sessionOwner } = slots;
 
-  // Synchronously-claimed slot for runs whose resume/fork is mid-startup but
-  // hasn't reached `activeRuns.set` yet. Without this gate, a second concurrent
-  // send/edit call for the same runId would pass the activeRuns.has() check
-  // during the awaits in editRunMessage (getSessionMessages → forkSession),
-  // fork twice, and end up overwriting each other's ActiveRun entries.
-  const startingRuns = new Set<string>();
+  // The one writer of a run row's state after its first append: the row's
+  // own state decides whether `t` applies (cronjob-run-state.ts). A refused
+  // transition writes nothing and announces nothing.
+  function transitionRun(
+    jobId: string,
+    runId: string,
+    t: RunTransition,
+    extra: Omit<Partial<CronjobRun>, keyof RunTerminalFields> = {},
+  ): CronjobRun | null {
+    const row = findRun(jobId, runId);
+    if (!row) return null;
+    const patch = runTransitionPatch(row, t, clock.now());
+    if (!patch) return null;
+    const updated = updateRun(jobId, runId, { ...extra, ...patch });
+    if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
+    return updated;
+  }
   // Duplicate check for member run-messages that carry a clientMessageId, keyed
   // by run (task 44872c41). Same contract as agent sends: in memory only.
   const runSendDedupe = createUserSendDedupe();
@@ -628,20 +605,16 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const history = loadCronjobHistory();
     history[removed.id] = { lastName: removed.name };
     saveCronjobHistory(history);
-    // End the job's in-flight runs: a run token carries the creator's reach
-    // until finalizeRun revokes it.
-    const inFlight = [...activeRuns.values()].filter((a) => a.jobId === id);
+    // End the job's session runs: a run token carries the creator's reach
+    // until endRun revokes it. A send to an agent ends by its answer: a
+    // message already queued cannot be taken back, and it holds no token.
+    const inFlight = slots.sessionOwners().filter((a) => a.jobId === id);
     for (const active of inFlight) {
-      active.killed = true;
-      try {
-        active.session.close();
-      } catch {}
       writeLog(active, "error", msg("systemEntries.scheduleRun.jobDeleted"));
-      finalizeRun(
-        active,
-        "failed",
-        msg("systemEntries.scheduleRun.jobDeleted"),
-      );
+      endRun(active, {
+        status: "failed",
+        reason: msg("systemEntries.scheduleRun.jobDeleted"),
+      });
     }
     eventHandler({ type: "cronjob_deleted", id, cronjob: removed });
     return true;
@@ -795,7 +768,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // Per-turn lifecycle (finalize on turn_completed, error termination, etc.)
   // lives in consumeUntilTurnCompleted - this function only logs / accumulates
   // and never closes the session.
-  function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
+  function processNormalizedEvent(active: SessionRun, ev: NormalizedEvent) {
     switch (ev.kind) {
       case "system_init": {
         const sessionId = ev.sessionId;
@@ -1102,7 +1075,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
   // Member usage cap for a follow-up or edited turn in a run: input a human
   // sends directly, capped unless that human is an owner. Runs after the
-  // startingRuns claim; the run's leaf session is captured before the provider
+  // starting claim; the run's leaf session is captured before the provider
   // read and checked after it, and a change abandons the turn. A run whose
   // session access cannot be built is left to the resume path's own error.
   async function runTurnCap(
@@ -1140,7 +1113,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   function writeLog(
-    active: ActiveRun,
+    active: SessionRun,
     kind: LogEntry["kind"],
     content: LogText,
     metadata?: Record<string, unknown>,
@@ -1184,16 +1157,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // Consume the backend's normalized event stream until the run's single turn
   // completes (or fails). On the first `turn_completed` for this run turn,
   // finalize the run row (status from the event) and close the session via
-  // finalizeRun. Backend streams are persistent across turns, so we MUST stop
+  // endRun. Backend streams are persistent across turns, so we MUST stop
   // reading once the turn is done - otherwise a successful Codex run would
   // stay open until the hard timeout. Same one-turn shape applies to resumed
   // and edit-forked sessions installed via installResumedActive.
-  async function consumeUntilTurnCompleted(active: ActiveRun) {
+  async function consumeUntilTurnCompleted(active: SessionRun) {
     try {
       for await (const ev of active.session.stream()) {
         // A replaced run (a refused send undid its resume, and a retry
         // installed a new one) must not write into the run's log.
-        if (activeRuns.get(active.runId) !== active) return;
+        if (!owns(active)) return;
         processNormalizedEvent(active, ev);
         if (ev.kind === "approval_request") {
           const reason = msg("systemEntries.scheduleRun.permissionRequested");
@@ -1201,7 +1174,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
             await active.session.approve(ev.approvalId, { kind: "deny" });
             if (active.session.canAbortInPlace()) await active.session.abort();
           } finally {
-            finalizeRun(active, "failed", reason);
+            endRun(active, { status: "failed", reason });
           }
           return;
         }
@@ -1210,39 +1183,38 @@ How to answer questions about Isomux itself: the source lives at https://github.
           try {
             if (active.session.canAbortInPlace()) await active.session.abort();
           } finally {
-            finalizeRun(active, "failed", reason);
+            endRun(active, { status: "failed", reason });
           }
           return;
         }
         if (ev.kind === "turn_completed") {
-          const status: CronjobRun["status"] =
+          const status: RunEnd["status"] =
             ev.status === "completed" ? "completed" : "failed";
           const errorReason =
             ev.status === "completed"
               ? null
               : (ev.error ?? turnStoppedText(ev.status));
           if (ev.status !== "completed") writeLoginHintIfAuthNeeded(active);
-          finalizeRun(active, status, errorReason);
+          endRun(active, { status, reason: errorReason });
           return;
         }
         if (ev.kind === "error") {
           // processNormalizedEvent already wrote the error LogEntry; terminate.
           writeLoginHintIfAuthNeeded(active);
-          finalizeRun(active, "failed", ev.message);
+          endRun(active, { status: "failed", reason: ev.message });
           return;
         }
       }
       // Stream ended without a turn_completed - should not happen with healthy
       // backends, but if it does (e.g. transport closed mid-turn), record it.
-      if (activeRuns.has(active.runId)) {
-        finalizeRun(
-          active,
-          "failed",
-          msg("systemEntries.scheduleRun.streamEnded"),
-        );
-      }
+      // After a kill or an end, the close ended the stream: endRun refuses.
+      endRun(active, {
+        status: "failed",
+        reason: msg("systemEntries.scheduleRun.streamEnded"),
+      });
     } catch (err) {
-      if (active.killed) return; // hard timeout already handled
+      // The run already ended (a kill closed the session): not news for it.
+      if (!owns(active)) return;
       console.error(
         `Cronjob run ${active.runId} stream error:`,
         errMessage(err),
@@ -1252,18 +1224,17 @@ How to answer questions about Isomux itself: the source lives at https://github.
         "error",
         msg("systemEntries.streamError", { error: errorText(err) }),
       );
-      finalizeRun(
-        active,
-        "failed",
-        msg("systemEntries.streamError", { error: errorText(err) }),
-      );
+      endRun(active, {
+        status: "failed",
+        reason: msg("systemEntries.streamError", { error: errorText(err) }),
+      });
     }
   }
 
   // A run has no sign-in card and no /clear, and the next run starts a fresh
   // session: the hint names the Integrations page instead of the chat
   // walkthrough. One wording covers a rejected sign-in and a rejected API key.
-  function writeLoginHintIfAuthNeeded(active: ActiveRun): void {
+  function writeLoginHintIfAuthNeeded(active: SessionRun): void {
     if (!active.authNeeded) return;
     writeLog(
       active,
@@ -1276,20 +1247,40 @@ How to answer questions about Isomux itself: the source lives at https://github.
     );
   }
 
-  function finalizeRun(
-    active: ActiveRun,
-    status: CronjobRun["status"],
-    errorReason: LogText | null = null,
-  ) {
-    // Idempotent: multiple paths can race to finalize (runConsumer's success
-    // branch when stream ends, the IIFE's catch when session.send() fails, the
-    // timeout handler). The first one wins; later calls no-op. Without this,
-    // a send-fail's finalizeRun(failed) gets clobbered by runConsumer reaching
-    // finalizeRun(completed) right after session.close() ends the stream.
-    // Identity, not presence: a late close of a replaced run must not end the
-    // run that took its slot (task 44872c41).
-    if (activeRuns.get(active.runId) !== active) return;
-    activeRuns.delete(active.runId);
+  // Ends the run `owner` holds, once: the first end wins and every later one
+  // (a stream end after a kill's close, a late send failure) is refused here.
+  // A kill site (delete, a hard timeout) calls this in the same synchronous
+  // block that closes the session, so the consumer that the close wakes no
+  // longer owns the run and cannot end it again with a stream error.
+  function endRun(
+    owner: RunOwner,
+    end: RunEnd,
+    extra: Omit<Partial<CronjobRun>, keyof RunTerminalFields> = {},
+  ): void {
+    if (!slots.drop(owner)) return;
+    if (owner.kind === "session") releaseSession(owner);
+    transitionRun(
+      owner.jobId,
+      owner.runId,
+      { kind: "end", end },
+      {
+        ...(owner.kind === "session"
+          ? {
+              previewText: (owner.lastAssistantText || "")
+                .trim()
+                .replace(/\s+/g, " ")
+                .slice(0, 120),
+            }
+          : {}),
+        ...extra,
+      },
+    );
+    // tick() and the cwd-invalid branch in fire() already set lastFireAt and
+    // nextFireAt at fire time - no further schedule update needed here.
+  }
+
+  // A session turn's cleanup when its run ends, whatever the row write does.
+  function releaseSession(active: SessionRun): void {
     // Run ended; revoke its bearer token. Mirrors the mint in fire() (primary
     // turn) and in buildRunSessionOptions (resumed sendRunMessage/editRunMessage
     // turns). Idempotent: a no-op for the rare run that never carried one, or
@@ -1317,19 +1308,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     try {
       active.session.close();
     } catch {}
-    const previewText = (active.lastAssistantText || "")
-      .trim()
-      .replace(/\s+/g, " ")
-      .slice(0, 120);
-    const updated = updateRun(active.jobId, active.runId, {
-      status,
-      endedAt: clock.now(),
-      ...reasonFields(errorReason),
-      previewText,
-    });
-    if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
-    // tick() and the cwd-invalid branch in fire() already set lastFireAt and
-    // nextFireAt at fire time - no further schedule update needed here.
   }
 
   function fire(
@@ -1374,20 +1352,20 @@ How to answer questions about Isomux itself: the source lives at https://github.
         startError = refusal;
       }
     }
-    const startReason = reasonFields(startError);
 
     const runId = generateCronjobRunId();
     const placeholderSessionId = `pending-${runId}`;
     const now = clock.now();
+    const startState = startable
+      ? runStartFields()
+      : runEndFields({ status: "failed", reason: startError }, now);
     const run: CronjobRun = {
       id: runId,
       cronjobId: jobId,
       cronjobName: job.name,
       trigger,
-      status: startable ? "running" : "failed",
       startedAt: now,
-      endedAt: startable ? null : now,
-      ...startReason,
+      ...startState,
       promptSnapshot: prompt,
       agentTypeSnapshot: job.agentType,
       modelFamilySnapshot: job.modelFamily,
@@ -1397,7 +1375,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
       rootSessionId: placeholderSessionId,
       currentSessionId: placeholderSessionId,
-      previewText: startReason.errorReason ?? "",
+      previewText: startState.errorReason ?? "",
       ...(triggeredBy ? { triggeredBy } : {}),
       ...(webhook ? { webhook } : {}),
     };
@@ -1436,21 +1414,22 @@ How to answer questions about Isomux itself: the source lives at https://github.
     try {
       environment = resolveRunEnvironment(job.agentType, job.userId ?? null);
     } catch (err) {
-      const updated = updateRun(jobId, runId, {
-        status: "failed",
-        endedAt: clock.now(),
-        ...reasonFields(
-          msg("systemEntries.scheduleRun.envFailed", { error: errorText(err) }),
-        ),
+      const updated = transitionRun(jobId, runId, {
+        kind: "end",
+        end: {
+          status: "failed",
+          reason: msg("systemEntries.scheduleRun.envFailed", {
+            error: errorText(err),
+          }),
+        },
       });
-      if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
       return updated ?? run;
     }
     // For Claude and Codex, mint this run's bearer after cwd and env validation
     // and inject it as ISOMUX_AGENT_TOKEN. OpenCode shares one server process,
     // so it gets no run token and its prompt advertises no token affordances.
     // Tokens are revoked on every terminal path: the createSession failure
-    // below, and finalizeRun for everything after activeRuns.set.
+    // below, and endRun for everything after the run's slot is set.
     //
     // The same rule applies to resumed and edit-forked turns through
     // buildRunSessionOptions.
@@ -1476,24 +1455,24 @@ How to answer questions about Isomux itself: the source lives at https://github.
     try {
       session = getBackend(job.agentType).createSession(opts);
     } catch (err) {
-      // Session never started; revoke the run token minted above (this path
-      // does not enter activeRuns/finalizeRun).
+      // Session never started; revoke the run token minted above (the run has
+      // no owner yet, so endRun does not run for it).
       revokeRunToken(jobId, runId);
-      const updated = updateRun(jobId, runId, {
-        status: "failed",
-        endedAt: clock.now(),
-        ...reasonFields(
-          msg("systemEntries.scheduleRun.sessionFailed", {
+      const updated = transitionRun(jobId, runId, {
+        kind: "end",
+        end: {
+          status: "failed",
+          reason: msg("systemEntries.scheduleRun.sessionFailed", {
             error: errorText(err),
           }),
-        ),
+        },
       });
-      if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
       return updated ?? run;
     }
 
     const streamId = cronjobRunStreamId(runId);
-    const active: ActiveRun = {
+    const active: SessionRun = {
+      kind: "session",
       jobId,
       runId,
       streamId,
@@ -1508,22 +1487,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
       lastWrittenEntryId: null,
       lastAssistantText: "",
       trigger,
-      killed: false,
       pendingEntries: [],
       toolCallTimestamps: new Map(),
       isResume: false,
     };
-    activeRuns.set(runId, active);
+    slots.hold(active);
     active.consumerPromise = consumeUntilTurnCompleted(active);
-    active.hardTimeoutTimer = scheduler.setTimeout(() => {
-      if (!activeRuns.has(runId)) return;
-      active.killed = true;
-      try {
-        session.close();
-      } catch {}
-      writeLog(active, "error", timedOutText());
-      finalizeRun(active, "timed_out", timedOutText());
-    }, HARD_TIMEOUT_MS);
+    active.hardTimeoutTimer = scheduler.setTimeout(
+      () => killOnTimeout(active),
+      HARD_TIMEOUT_MS,
+    );
 
     // Send the prompt as the first user message. session.send awaits the
     // backend's bootstrap (Codex: initialize + thread/start; Claude: SDK
@@ -1531,27 +1504,26 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // bootstrap errors finalize the run instead of crashing the tick.
     void (async () => {
       try {
-        // Member usage cap: a run of a member's cronjob. The run is claimed
-        // (activeRuns) above; the same active run must still hold the slot
-        // after the provider read.
+        // Member usage cap: a run of a member's cronjob. The run's slot is
+        // set above; the same owner must still hold it after the provider
+        // read.
         if (memberUsageCap().isEnabled() && managerCapped(job.userId)) {
           const admission = await memberUsageCap().admit(
             billingAccountFor(job.agentType, opts.env),
           );
-          if (activeRuns.get(runId) !== active || active.killed) return;
+          if (!owns(active)) return;
           if (admission.kind === "refused") {
             const text = usageCapText(admission);
             writeLog(active, "error", text);
-            try {
-              session.close();
-            } catch {}
-            finalizeRun(active, "failed", text);
+            endRun(active, { status: "failed", reason: text });
             return;
           }
         }
         await session.send(prompt);
       } catch (err) {
-        if (active.killed) return;
+        // The run already ended (a kill, or a turn that ended before the send
+        // settled): a late send failure is not news for it.
+        if (!owns(active)) return;
         console.error(`Cronjob run ${runId} input error:`, errMessage(err));
         writeLog(
           active,
@@ -1560,20 +1532,26 @@ How to answer questions about Isomux itself: the source lives at https://github.
             error: errorText(err),
           }),
         );
-        try {
-          session.close();
-        } catch {}
-        finalizeRun(active, "failed", errorText(err));
+        endRun(active, { status: "failed", reason: errorText(err) });
       }
     })();
 
     return run;
   }
 
+  // The hard timeout of a session turn. Ends the turn only while it still
+  // holds its run.
+  function killOnTimeout(active: SessionRun): void {
+    if (!owns(active)) return;
+    writeLog(active, "error", timedOutText());
+    endRun(active, { status: "timed_out", reason: timedOutText() });
+  }
+
   // A fire of a job with an agent target: the prompt goes to that agent as a
   // message from the schedule, and no session runs. The row is written before
-  // the send, so Run now and a webhook can answer its id; it is never in
-  // activeRuns, so a send in flight never makes the next slot a skip.
+  // the send, so Run now and a webhook can answer its id. Its owner is a
+  // delivery, not a session, so a send in flight never makes the next slot a
+  // skip.
   function fireToAgent(
     job: Cronjob,
     target: CronjobTarget,
@@ -1589,17 +1567,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const now = clock.now();
     // The maker agent's limits (below Standard) still stop the fire.
     const refusal = deps.limitRefusal?.(job) ?? null;
-    const startReason = reasonFields(refusal);
+    const startState =
+      refusal === null
+        ? runStartFields()
+        : runEndFields({ status: "failed", reason: refusal }, now);
     const placeholderSessionId = `message-${runId}`;
     const run: CronjobRun = {
       id: runId,
       cronjobId: jobId,
       cronjobName: job.name,
       trigger,
-      status: refusal === null ? "running" : "failed",
       startedAt: now,
-      endedAt: refusal === null ? null : now,
-      ...startReason,
+      ...startState,
       promptSnapshot: prompt,
       agentTypeSnapshot: job.agentType,
       modelFamilySnapshot: job.modelFamily,
@@ -1609,7 +1588,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
       rootSessionId: placeholderSessionId,
       currentSessionId: placeholderSessionId,
-      previewText: startReason.errorReason ?? "",
+      previewText: startState.errorReason ?? "",
       ...(extra.triggeredBy ? { triggeredBy: extra.triggeredBy } : {}),
       ...(extra.webhook ? { webhook: extra.webhook } : {}),
       targetAgentSnapshot: { agentId: target.agentId, agentName: "" },
@@ -1618,15 +1597,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
     eventHandler({ type: "cronjob_run_updated", run });
     if (refusal !== null) return run;
 
-    const finish = (patch: Partial<CronjobRun>) => {
-      const updated = updateRun(jobId, runId, {
-        endedAt: clock.now(),
-        ...patch,
-      });
-      if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
-    };
+    const owner: DeliveryRun = { kind: "delivery", jobId, runId };
+    slots.hold(owner);
     const failWith = (reason: LogText) =>
-      finish({ status: "failed", ...reasonFields(reason) });
+      endRun(owner, { status: "failed", reason });
     const deliver = deps.deliverToAgent;
     if (!deliver) {
       failWith(
@@ -1643,14 +1617,17 @@ How to answer questions about Isomux itself: the source lives at https://github.
           failWith(result.reason);
           return;
         }
-        finish({
-          status: "completed",
-          previewText: result.agentName,
-          targetAgentSnapshot: {
-            agentId: target.agentId,
-            agentName: result.agentName,
+        endRun(
+          owner,
+          { status: "completed", reason: null },
+          {
+            previewText: result.agentName,
+            targetAgentSnapshot: {
+              agentId: target.agentId,
+              agentName: result.agentName,
+            },
           },
-        });
+        );
       } catch (err) {
         console.error(
           `Cronjob run ${runId} send to ${target.agentId} failed:`,
@@ -1679,10 +1656,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
       cronjobId: job.id,
       cronjobName: job.name,
       trigger: "scheduled",
-      status: "skipped",
       startedAt: now,
-      endedAt: now,
-      ...reasonFields(msg("systemEntries.scheduleRun.skippedInFlight")),
+      ...runEndFields(
+        {
+          status: "skipped",
+          reason: msg("systemEntries.scheduleRun.skippedInFlight"),
+        },
+        now,
+      ),
       promptSnapshot: job.prompt,
       agentTypeSnapshot: job.agentType,
       modelFamilySnapshot: job.modelFamily,
@@ -1699,10 +1680,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   function hasInFlightScheduledRun(jobId: string): boolean {
-    for (const a of activeRuns.values()) {
-      if (a.jobId === jobId && a.trigger === "scheduled") return true;
-    }
-    return false;
+    return slots
+      .sessionOwners()
+      .some((a) => a.jobId === jobId && a.trigger === "scheduled");
   }
 
   function tick() {
@@ -1767,7 +1747,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   ):
     | { ok: true }
     | { ok: false; status: number; code?: string; error: string } {
-    const active = activeRuns.get(runId);
+    const active = sessionOwner(runId);
     if (!active || active.jobId !== jobId) {
       return { ok: false, status: 404, error: "active run not found" };
     }
@@ -1873,7 +1853,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     dir?: string,
     commit?: string,
   ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-    const active = activeRuns.get(runId);
+    const active = sessionOwner(runId);
     if (!active || active.jobId !== jobId) {
       return { ok: false, status: 404, error: "active run not found" };
     }
@@ -1995,7 +1975,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
     //
     // Revoke ownership: the minted token has exactly one terminal owner - the
     // caller's resume-failure catch (revokeRunToken) if resumeSession throws
-    // before installResumedActive, otherwise finalizeRun after activeRuns.set.
+    // before installResumedActive, otherwise endRun once the run's slot holds
+    // the turn.
     const environment = resolveRunEnvironment(
       run.agentTypeSnapshot,
       job?.userId ?? null,
@@ -2021,16 +2002,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
     };
   }
 
-  // Wire up an ActiveRun around a backend session (resumed or freshly forked).
-  // Marks the run row "running", starts the consumer + hard timeout, and
+  // Wire up a SessionRun around a backend session (resumed or freshly forked).
+  // Reopens the run row as "running", starts the consumer + hard timeout, and
   // returns the active so callers can persist log entries / call session.send.
+  // Throws when the row's state refuses the reopen: no turn runs on it.
   function installResumedActive(
     run: CronjobRun,
     session: BackendSession,
     sessionId: string,
-  ): ActiveRun {
+  ): SessionRun {
     const streamId = cronjobRunStreamId(run.id);
-    const active: ActiveRun = {
+    const active: SessionRun = {
+      kind: "session",
       jobId: run.cronjobId,
       runId: run.id,
       streamId,
@@ -2049,45 +2032,61 @@ How to answer questions about Isomux itself: the source lives at https://github.
       // user-driven follow-up is in flight. (run.trigger on disk is unchanged
       // - that's history, not in-flight semantics.)
       trigger: "manual",
-      killed: false,
       pendingEntries: [],
       toolCallTimestamps: new Map(),
       isResume: true,
     };
-    activeRuns.set(run.id, active);
-    // Reset terminal state - the run row goes back to "running" until finalize.
-    const updated = updateRun(run.cronjobId, run.id, {
-      status: "running",
-      endedAt: null,
-      ...reasonFields(null),
-    });
-    if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
-    active.consumerPromise = consumeUntilTurnCompleted(active);
-    active.hardTimeoutTimer = scheduler.setTimeout(() => {
-      if (!activeRuns.has(run.id)) return;
-      active.killed = true;
-      try {
-        active.session.close();
-      } catch {}
-      writeLog(active, "error", timedOutText());
-      finalizeRun(active, "timed_out", timedOutText());
-    }, HARD_TIMEOUT_MS);
+    slots.hold(active);
+    // Read after the hold: a row another owner holds reads "running", and a
+    // restore to "running" does nothing.
+    const row = findRun(run.cronjobId, run.id);
+    const before: RunTerminalFields | null = row
+      ? {
+          status: row.status,
+          endedAt: row.endedAt,
+          errorReason: row.errorReason,
+          errorReasonMessage: row.errorReasonMessage,
+        }
+      : null;
+    try {
+      // The run row goes back to "running" until endRun.
+      if (!transitionRun(run.cronjobId, run.id, { kind: "reopen" }))
+        throw new Error("the run cannot be reopened");
+      active.consumerPromise = consumeUntilTurnCompleted(active);
+      active.hardTimeoutTimer = scheduler.setTimeout(
+        () => killOnTimeout(active),
+        HARD_TIMEOUT_MS,
+      );
+    } catch (err) {
+      // A throw after the reopen wrote (its event, the consumer, the timer)
+      // would leave the row "running" with no owner: put the ended fields back.
+      if (before)
+        transitionRun(run.cronjobId, run.id, { kind: "restore", to: before });
+      throw err;
+    }
     return active;
   }
 
   // Revoke a resumed turn's RUN token after a post-mint failure that happens
-  // BEFORE installResumedActive hands ownership to finalizeRun: a fork-metadata
-  // / persistence throw in editRunMessageImpl steps 5–7, or installResumedActive
-  // itself throwing after activeRuns.set. Drops any half-registered active run
-  // and closes the orphaned session. Idempotent (revoke + delete + close all
-  // no-op if already done). Once install fully succeeds, finalizeRun owns the
-  // revoke and this must NOT be called.
+  // BEFORE installResumedActive hands ownership to endRun: a fork-metadata
+  // / persistence throw in editRunMessageImpl steps 5–7, installResumedActive
+  // itself throwing after it set the slot, or a refused send undoing a whole
+  // install. Drops the slot when this session's turn holds it (and its hard
+  // timeout) and closes the orphaned session. Idempotent (revoke + delete +
+  // close all no-op if already done). Once install fully succeeds, endRun owns
+  // the revoke on every other path.
   function abortResumedRunToken(
     jobId: string,
     runId: string,
     session: BackendSession,
   ): void {
-    activeRuns.delete(runId);
+    const held = sessionOwner(runId);
+    if (held?.session === session && slots.drop(held)) {
+      if (held.hardTimeoutTimer) {
+        scheduler.clearTimeout(held.hardTimeoutTimer);
+        held.hardTimeoutTimer = null;
+      }
+    }
     revokeRunToken(jobId, runId);
     try {
       session.close();
@@ -2165,9 +2164,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
       };
     if (run.targetAgentSnapshot) return notResumable(TARGET_RUN_NOT_RESUMABLE);
     // Synchronous claim - must happen before any await so a concurrent
-    // send/edit for the same runId bails immediately. installResumedActive's
-    // activeRuns.set keeps the slot held; the `finally` below releases it.
-    if (activeRuns.has(runId) || startingRuns.has(runId))
+    // send/edit for the same runId bails immediately. installResumedActive
+    // replaces the claim with the turn; the `finally` below releases a claim
+    // that is still there.
+    if (slots.busy(runId))
       return {
         ok: false,
         status: 409,
@@ -2190,7 +2190,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const precheckError = checkResumableSession(run, leaf);
     if (precheckError) return refuse(precheckError);
 
-    startingRuns.add(runId);
+    const claim = slots.claim(runId);
     try {
       const cap = await runTurnCap(run, username);
       if (cap.kind === "abandon")
@@ -2217,7 +2217,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         );
       } catch (err) {
         // buildRunSessionOptions minted this turn's RUN token before resume.
-        // Resume failed before installResumedActive, so finalizeRun never runs
+        // Resume failed before installResumedActive, so endRun never runs
         // for it - revoke here so the token doesn't outlive the attempt.
         revokeRunToken(jobId, runId);
         const failed = msg("systemEntries.scheduleRun.resumeFailed", {
@@ -2234,19 +2234,19 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
       // installResumedActive marks the row "running"; a refused send puts it
       // back.
-      const before = {
+      const before: RunTerminalFields = {
         status: run.status,
         endedAt: run.endedAt,
         errorReason: run.errorReason,
         errorReasonMessage: run.errorReasonMessage,
       };
-      let active: ActiveRun;
+      let active: SessionRun;
       try {
         active = installResumedActive(run, session, leaf);
       } catch (err) {
-        // installResumedActive threw after the mint (possibly after
-        // activeRuns.set): revoke the token, drop any half-registered active,
-        // close the orphaned session. finalizeRun only owns the token once
+        // installResumedActive threw after the mint (possibly after it set
+        // the slot): revoke the token, drop any half-registered active,
+        // close the orphaned session. endRun only owns the token once
         // install fully succeeds.
         abortResumedRunToken(jobId, runId, session);
         const failed = msg("systemEntries.scheduleRun.resumeFailed", {
@@ -2276,15 +2276,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
       if (!saved) {
         // Nothing was sent: undo the resume so the run is as it was, and the
         // member can send the same attempt again.
-        active.killed = true;
-        if (active.hardTimeoutTimer) {
-          scheduler.clearTimeout(active.hardTimeoutTimer);
-          active.hardTimeoutTimer = null;
-        }
         abortResumedRunToken(jobId, runId, session);
-        const restored = updateRun(jobId, runId, before);
-        if (restored)
-          eventHandler({ type: "cronjob_run_updated", run: restored });
+        transitionRun(jobId, runId, { kind: "restore", to: before });
         return {
           ok: false,
           status: 500,
@@ -2299,7 +2292,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         try {
           await session.send(prefixedText);
         } catch (err) {
-          if (active.killed) return;
+          if (!owns(active)) return;
           console.error(`Cronjob run ${runId} send error:`, errMessage(err));
           writeLog(
             active,
@@ -2308,16 +2301,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
               error: errorText(err),
             }),
           );
-          try {
-            session.close();
-          } catch {}
-          finalizeRun(active, "failed", errorText(err));
+          endRun(active, { status: "failed", reason: errorText(err) });
         }
       })();
       // The text is in the run log; a later send failure is a turn error.
       return { ok: true };
     } finally {
-      startingRuns.delete(runId);
+      slots.release(runId, claim);
     }
   }
 
@@ -2449,7 +2439,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // Synchronous claim - see sendRunMessage. Without this,
     // getSessionMessages + forkSessionBeforeMessage below would race against
     // a second concurrent submission.
-    if (activeRuns.has(runId) || startingRuns.has(runId)) {
+    if (slots.busy(runId)) {
       failEdit(msg("systemEntries.scheduleRun.editBusy"));
       return;
     }
@@ -2474,7 +2464,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       return;
     }
 
-    startingRuns.add(runId);
+    const claim = slots.claim(runId);
     try {
       const cap = await runTurnCap(run, username);
       if (cap.kind === "abandon") return;
@@ -2498,7 +2488,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         }),
       );
     } finally {
-      startingRuns.delete(runId);
+      slots.release(runId, claim);
     }
   }
 
@@ -2633,7 +2623,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     } catch (err) {
       // Symmetric to sendRunMessage: buildRunSessionOptions minted the RUN token
       // before this fork resume; it failed before installResumedActive, so
-      // finalizeRun never runs for it - revoke here.
+      // endRun never runs for it - revoke here.
       revokeRunToken(jobId, runId);
       failEdit(
         msg("systemEntries.scheduleRun.forkStartFailed", {
@@ -2645,10 +2635,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
     // Steps 5–8 run AFTER buildRunSessionOptions minted this turn's RUN token
     // (it rides the resumed session env created at step 4) but BEFORE
-    // installResumedActive hands token ownership to finalizeRun. The persistence
+    // installResumedActive hands token ownership to endRun. The persistence
     // / event-emit calls below can throw; without this guard a throw would leak
     // a live RUN token (and wedge the run). On any failure here revoke + clean up.
-    let active: ActiveRun;
+    let active: SessionRun;
     try {
       // 5. The target log entry may live in an ancestor's JSONL (if the user has
       //    forked before). Walk back to find which JSONL actually contains it,
@@ -2736,7 +2726,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       try {
         await session.send(prefixedText);
       } catch (err) {
-        if (active.killed) return;
+        if (!owns(active)) return;
         console.error(`Cronjob run ${runId} edit-send error:`, errMessage(err));
         writeLog(
           active,
@@ -2745,10 +2735,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
             error: errorText(err),
           }),
         );
-        try {
-          session.close();
-        } catch {}
-        finalizeRun(active, "failed", errorText(err));
+        endRun(active, { status: "failed", reason: errorText(err) });
       }
     })();
   }
@@ -2816,11 +2803,15 @@ How to answer questions about Isomux itself: the source lives at https://github.
       let mutated = false;
       for (const r of runs) {
         if (r.status === "running") {
-          r.status = "failed";
-          r.endedAt = now;
           Object.assign(
             r,
-            reasonFields(msg("systemEntries.scheduleRun.serverRestarted")),
+            runEndFields(
+              {
+                status: "failed",
+                reason: msg("systemEntries.scheduleRun.serverRestarted"),
+              },
+              now,
+            ),
           );
           mutated = true;
         }

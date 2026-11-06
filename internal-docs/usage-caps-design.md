@@ -263,11 +263,11 @@ taken by `prepareEnqueue`) is its only check.
 - `fire()` (scheduled tick and run-now): claim: the active run, registered
   synchronously as today (`createSession` is synchronous too and starts no
   turn). The gate runs in the async step before `session.send(job.prompt)`;
-  after its await, the same active-run object must still hold the slot and not
-  be killed. A refusal writes the run error entry, closes the session and ends
+  after its await, the same active-run object must still hold the slot. A
+  refusal writes the run error entry, closes the session and ends
   the run `failed` with the refusal text as `errorReason`.
 - `sendRunMessage`, `editRunMessage`: input a human sends directly, so the
-  human's role decides. Claim: `startingRuns`. The gate runs before the resume
+  human's role decides. Claim: the run's "starting" slot. The gate runs before the resume
   or fork; the run's leaf session is captured before the await and must be
   unchanged after it, else the turn is abandoned. Refusal as a run error entry
   (an edit keeps its text recoverable).
