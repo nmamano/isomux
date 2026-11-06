@@ -1227,7 +1227,7 @@ Cosas que puedes hacer por él:
   "integrations.whatsapp.rows.myself": "{phone} (Yo)",
   "integrations.whatsapp.rows.prefix": "Prefijo",
   "integrations.whatsapp.rows.prefixHint":
-    'Texto antes de cada respuesta, como "[Agent]:". Si está vacío, las respuestas empiezan con el nombre del agente en negrita.',
+    'Texto antes de cada respuesta, como "[Agente]:".',
   "integrations.whatsapp.rows.direct": "Envía al instante",
   "integrations.whatsapp.rows.dead.agentGone": "Agente eliminado",
   "integrations.whatsapp.rows.dead.agentNotYours": "Ya no es tu agente",
@@ -1288,8 +1288,6 @@ Cosas que puedes hacer por él:
   "integrations.discord.routes.replies.bot": "Leer y responder como el bot",
   "integrations.discord.routes.replies.read": "Solo lectura",
   "integrations.discord.routes.replies.ask": "Las respuestas esperan mi Enviar",
-  "integrations.discord.routes.prefixHint":
-    'Texto antes de cada respuesta, como "[Agente]:".',
   "integrations.discord.routes.includeBots":
     "Los mensajes de bots y webhooks van al agente",
   "integrations.discord.routes.react":

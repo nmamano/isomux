@@ -1207,7 +1207,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.whatsapp.rows.myself": "{phone} (Myself)",
   "integrations.whatsapp.rows.prefix": "Prefix",
   "integrations.whatsapp.rows.prefixHint":
-    'Text before each reply, such as "[Agent]:". If empty, replies start with the agent\'s name in bold.',
+    'Text before each reply, such as "[Agent]:".',
   "integrations.whatsapp.rows.direct": "Sends at once",
   "integrations.whatsapp.rows.dead.agentGone": "Agent deleted",
   "integrations.whatsapp.rows.dead.agentNotYours": "No longer your agent",
@@ -1265,8 +1265,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.discord.routes.replies.bot": "Read and reply as the bot",
   "integrations.discord.routes.replies.read": "Read only",
   "integrations.discord.routes.replies.ask": "Replies wait for my Send",
-  "integrations.discord.routes.prefixHint":
-    'Text before each reply, such as "[Agent]:".',
   "integrations.discord.routes.includeBots":
     "Messages from bots and webhooks go to the agent",
   "integrations.discord.routes.react":

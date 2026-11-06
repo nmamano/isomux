@@ -1105,7 +1105,7 @@ App 的一些原则：
   "integrations.whatsapp.rows.myself": "{phone}（我自己）",
   "integrations.whatsapp.rows.prefix": "前缀",
   "integrations.whatsapp.rows.prefixHint":
-    "每条回复前的文字，例如“[Agent]:”。留空时，回复以加粗的智能体名称开头。",
+    "每条回复前的文字，例如“[智能体]:”。",
   "integrations.whatsapp.rows.direct": "立即发送",
   "integrations.whatsapp.rows.dead.agentGone": "智能体已删除",
   "integrations.whatsapp.rows.dead.agentNotYours": "已不是你的智能体",
@@ -1161,8 +1161,6 @@ App 的一些原则：
   "integrations.discord.routes.replies.bot": "以机器人身份阅读并回复",
   "integrations.discord.routes.replies.read": "只读",
   "integrations.discord.routes.replies.ask": "回复等待我点击“发送”",
-  "integrations.discord.routes.prefixHint":
-    "每条回复前的文字，例如“[智能体]:”。",
   "integrations.discord.routes.includeBots":
     "机器人和 webhook 的消息也发给智能体",
   "integrations.discord.routes.react": "智能体收到消息时用 👀 回应",

@@ -630,7 +630,7 @@ export function createManagers(
     routes,
     agent: (agentId) => {
       const info = agentManager.getAgent(agentId);
-      return info ? { userId: info.userId, name: info.name } : null;
+      return info ? { userId: info.userId } : null;
     },
     asks: askStore,
     supervisor: whatsappSupervisor,

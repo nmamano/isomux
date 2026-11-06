@@ -1065,7 +1065,7 @@ function RouteForm({
       </Field>
       <Field
         label={t("integrations.whatsapp.rows.prefix")}
-        hint={t("integrations.discord.routes.prefixHint")}
+        hint={t("integrations.whatsapp.rows.prefixHint")}
       >
         <input
           name="discordRoutePrefix"

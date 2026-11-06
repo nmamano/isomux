@@ -72,8 +72,8 @@ export interface WhatsAppRoute {
   // The agent's replies go out at once, with no Send step (task 70fae82c).
   // Stored only when true; absent means each reply waits for the member.
   sendDirect?: true;
-  // Text put before each reply in place of the agent's name line
-  // (normaliseWhatsAppPrefix). Absent means no prefix.
+  // Text put before each reply (normaliseWhatsAppPrefix). Absent means no
+  // prefix.
   prefix?: string;
   // The member's own messages in the chat reach the agent (task 610f7756).
   // Stored only when true; absent means they go only as context.

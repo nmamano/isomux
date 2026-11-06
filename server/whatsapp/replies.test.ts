@@ -18,7 +18,6 @@ import {
   WHATSAPP_SEND_OPTION,
   createWhatsAppReplies,
   isWhatsAppSendAnswer,
-  whatsappOutgoingText,
   type WhatsAppReplies,
 } from "./replies.ts";
 import { createWhatsAppRoutes } from "./routes.ts";
@@ -84,7 +83,7 @@ function harness() {
       routes,
       agent: (id) => {
         const a = agents.get(id);
-        return a ? { userId: a.userId, name: a.name } : null;
+        return a ? { userId: a.userId } : null;
       },
       asks,
       supervisor: {
@@ -150,22 +149,6 @@ describe("whatsapp replies: the answer and the text that goes out", () => {
       "\nSend",
     ])
       expect([text, isWhatsAppSendAnswer(text)]).toEqual([text, false]);
-  });
-
-  it("the agent's name in bold on its own line, without the marks or breaks that would end the bold; the text as drafted", async () => {
-    expect(whatsappOutgoingText("Helper", "see *you*\nat _5_")).toBe(
-      "*Helper*\nsee *you*\nat _5_",
-    );
-    expect(whatsappOutgoingText("*Bo_l~d*\r\nX", "hi")).toBe("*BoldX*\nhi");
-  });
-
-  it("a row's prefix takes the place of the name line, joined to the text by one space (task 70fae82c)", () => {
-    expect(whatsappOutgoingText("Helper", "see *you*\nat 5", "[Agent]:")).toBe(
-      "[Agent]: see *you*\nat 5",
-    );
-    expect(whatsappOutgoingText("Helper", "hi", undefined)).toBe(
-      "*Helper*\nhi",
-    );
   });
 });
 
@@ -283,14 +266,9 @@ describe("whatsapp replies: a draft", () => {
 });
 
 describe("whatsapp replies: the member's answer", () => {
-  it("Send: one bridge send to the row's chat under the ask id, with the agent's name as it is now; the id goes in the sent ring on disk; the agent is told", async () => {
+  it("Send: one bridge send to the row's chat under the ask id, the text as drafted with nothing before it (task a6127f22); the id goes in the sent ring on disk; the agent is told", async () => {
     const h = harness();
-    const entry = await drafted(h, "see *you* at 5");
-    h.agents.set("agent-a", {
-      userId: U,
-      access: "office",
-      name: "Helper Two",
-    });
+    const entry = await drafted(h, "see *you* at 5\nbring the cake");
     const result = await h.replies.answer(entry, {
       dismissed: false,
       text: "send\nthanks",
@@ -300,7 +278,7 @@ describe("whatsapp replies: the member's answer", () => {
         userId: U,
         requestId: entry.id,
         chat: MOM,
-        text: "*Helper Two*\nsee *you* at 5",
+        text: "see *you* at 5\nbring the cake",
       },
     ]);
     expect(result).toMatchObject({ kind: "deliver", outcome: "replied" });
@@ -470,7 +448,7 @@ describe("whatsapp replies: a row that sends at once", () => {
   }
   const sentOk = { ok: true, sent: true } as const;
 
-  it("one bridge send to the row's chat with the agent's name line, no ask; the id goes in the sent ring on disk; each call is a new send", async () => {
+  it("one bridge send to the row's chat with the text as drafted and nothing before it (task a6127f22), no ask; the id goes in the sent ring on disk; each call is a new send", async () => {
     const h = harness();
     direct(h);
     expect(await h.replies.reply("agent-a", h.momId, "see *you*")).toEqual(
@@ -481,7 +459,7 @@ describe("whatsapp replies: a row that sends at once", () => {
         userId: U,
         requestId: h.sends[0]?.requestId,
         chat: MOM,
-        text: "*Helper*\nsee *you*",
+        text: "see *you*",
       },
     ]);
     expect(typeof h.sends[0].requestId).toBe("string");
@@ -499,7 +477,7 @@ describe("whatsapp replies: a row that sends at once", () => {
     expect(openIdRing(h.root, U, "sent").has("3EB02")).toBe(true);
   });
 
-  it("the row's prefix takes the place of the name line, as the row is at send time, on both paths", async () => {
+  it("the row's prefix goes before the text, joined by one space, as the row is at send time, on both paths; a cleared prefix sends the text alone", async () => {
     const h = harness();
     // The Send path: a draft made before the prefix goes out with it.
     const entry = await drafted(h, "on my way");
@@ -512,6 +490,18 @@ describe("whatsapp replies: a row that sends at once", () => {
     expect(h.sends.map((s) => [s.chat, s.text])).toEqual([
       [MOM, "[Agent]: on my way"],
       [DAD, "Bot: hi dad"],
+    ]);
+
+    // A prefix cleared to blank (stored as no prefix) puts nothing before
+    // the text, on both paths (task a6127f22).
+    const late = await drafted(h, "home at 8");
+    h.routes.update(U, h.momId, { prefix: "  " });
+    await h.replies.answer(late, sendAnswer);
+    h.routes.update(U, h.dadId, { prefix: "" });
+    await h.replies.reply("agent-a", h.dadId, "bye dad");
+    expect(h.sends.slice(2).map((s) => [s.chat, s.text])).toEqual([
+      [MOM, "home at 8"],
+      [DAD, "bye dad"],
     ]);
   });
 
@@ -561,7 +551,7 @@ describe("whatsapp replies: a row that sends at once", () => {
     h.routes.update(U, h.momId, { sendDirect: false });
     const two = await h.replies.reply("agent-a", h.momId, "two");
     expect(two.ok && "askId" in two).toBe(true);
-    expect(h.sends.map((s) => s.text)).toEqual(["*Helper*\none"]);
+    expect(h.sends.map((s) => s.text)).toEqual(["one"]);
     direct(h);
     expect(await h.replies.reply("agent-a", h.momId, "three")).toEqual(sentOk);
     expect(h.sends).toHaveLength(2);

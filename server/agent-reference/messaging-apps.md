@@ -4,7 +4,7 @@ A member can connect a messaging app and route places in it to one of their agen
 
 Reply with `POST /api/messaging/routes/:routeId/messages`, where `:routeId` is the route in the message's head line. Send the reply as a text/plain body, or as JSON `{text}`. The member chooses per route how replies go out; the head line says which. A draft opens an ask in the member's Inbox with Send and Don't send. The answer comes to your chat. It tells you whether the reply went out, and it holds the member's words when they did not send it. On a route without the Send step, the reply goes out at once and the call answers `sent`. If it answers 504 `messaging_send_unknown`, the message may have gone out: do not send it again. Use the app's formatting (on WhatsApp, `*bold*` and `_italic_`; on Discord, Markdown).
 
-On WhatsApp, the reply goes out from the member's number. It shows your name in bold above your text, or the member's prefix for that chat in its place.
+On WhatsApp, the reply goes out from the member's number. If the member set a prefix for that chat, it goes before your text.
 
 On Discord, the reply goes out as the member's bot, after the route's prefix if it has one, and mentions no one. Each JSON line has `channelId`, the channel or thread it was posted in, and `messageId`. Give `channelId` to post there; give `replyTo` with a `messageId` to answer that message. A route on one text channel posts there by default. Every other route needs `channelId`, and its head line says so. A Discord route can be read only.
 

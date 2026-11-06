@@ -1228,7 +1228,7 @@ Coses que pots fer per ell:
   "integrations.whatsapp.rows.myself": "{phone} (Jo)",
   "integrations.whatsapp.rows.prefix": "Prefix",
   "integrations.whatsapp.rows.prefixHint":
-    'Text abans de cada resposta, com ara "[Agent]:". Si és buit, les respostes comencen amb el nom de l’agent en negreta.',
+    'Text abans de cada resposta, com ara "[Agent]:".',
   "integrations.whatsapp.rows.direct": "Envia a l’instant",
   "integrations.whatsapp.rows.dead.agentGone": "Agent eliminat",
   "integrations.whatsapp.rows.dead.agentNotYours": "Ja no és el teu agent",
@@ -1290,8 +1290,6 @@ Coses que pots fer per ell:
   "integrations.discord.routes.replies.read": "Només lectura",
   "integrations.discord.routes.replies.ask":
     "Les respostes esperen el meu Envia",
-  "integrations.discord.routes.prefixHint":
-    'Text abans de cada resposta, com ara "[Agent]:".',
   "integrations.discord.routes.includeBots":
     "Els missatges de bots i webhooks van a l'agent",
   "integrations.discord.routes.react":

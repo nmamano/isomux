@@ -24,7 +24,7 @@ export const WHATSAPP_DONT_SEND_OPTION = "Don't send";
 export interface WhatsAppRepliesDeps {
   routes: Pick<WhatsAppRoutes, "get" | "check">;
   // The agent as it is now, or null when it is gone.
-  agent(agentId: string): { userId: string | null; name: string } | null;
+  agent(agentId: string): { userId: string | null } | null;
   asks: Pick<AskStore, "create" | "listForAgent">;
   supervisor: Pick<WhatsAppSupervisor, "send">;
   // The ids the agents sent, per member (the own-send filter and the quote
@@ -83,16 +83,10 @@ export function isWhatsAppSendAnswer(text: string): boolean {
   return first.trim().toLowerCase() === WHATSAPP_SEND_OPTION.toLowerCase();
 }
 
-// A6: the message as it goes out: the agent's name in bold on its own line,
-// then the text. The name loses * _ ~ and line breaks. A row's prefix takes
-// the place of the name line.
-export function whatsappOutgoingText(
-  agentName: string,
-  text: string,
-  prefix?: string,
-): string {
-  if (prefix) return `${prefix} ${text}`;
-  return `*${agentName.replace(/[*_~\r\n]/g, "")}*\n${text}`;
+// A6: the message as it goes out: the row's prefix and one space, then the
+// text. With no prefix, the text as the agent wrote it.
+function whatsappOutgoingText(text: string, prefix?: string): string {
+  return prefix ? `${prefix} ${text}` : text;
 }
 
 // The draft as the member reads it: the text in a code block, so the card
@@ -209,7 +203,7 @@ export function createWhatsAppReplies(
         const result = await deps.supervisor.send(userId, {
           requestId: randomUUID(),
           chat: route.chat,
-          text: whatsappOutgoingText(agent.name, text, route.prefix),
+          text: whatsappOutgoingText(text, route.prefix),
         });
         if (!result.ok) {
           // The map's list: another call may have pruned it meanwhile.
@@ -316,7 +310,7 @@ export function createWhatsAppReplies(
       const result = await deps.supervisor.send(userId, {
         requestId: entry.id,
         chat: route.chat,
-        text: whatsappOutgoingText(agent.name, draft.text, route.prefix),
+        text: whatsappOutgoingText(draft.text, route.prefix),
       });
       if (!result.ok)
         return { kind: "fail", ...sendError(result.reason, "reply") };
