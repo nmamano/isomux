@@ -1,5 +1,5 @@
-// The detail panel's side of tasks 4243ecc0 (versioned edits) and 77460aea
-// (backlog is priority P4).
+// The detail panel's side of tasks 4243ecc0 (versioned edits), 77460aea
+// (backlog is priority P4) and 3b749d1f (a failed save keeps the edits).
 import { afterEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -10,6 +10,7 @@ const { useState } = await import("react");
 const { TaskView } = await import("./TaskView.tsx");
 const { StateCtx, initialState } = await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
+const { en } = await import("../../shared/i18n/en.ts");
 type TaskItem = import("../../shared/types.ts").TaskItem;
 
 afterEach(() => setApiShim(null));
@@ -152,6 +153,79 @@ it("a 409 keeps the panel open with the edit and says the save did not land", as
   await editAndSave(view);
   expect(view.getByDisplayValue("Edited")).toBeDefined();
   expect(view.getByRole("alert")).toBeDefined();
+});
+
+// Any failure keeps the panel open with the edit and an error line, not only a
+// 409 (task 3b749d1f). The server's message is shown as it came; a failure with
+// no server answer (apiFetch rejects with a TypeError on a network drop) gets
+// the generic line, never the raw exception text.
+it("a server error keeps the panel open with the edit and shows the server's message", async () => {
+  setApiShim(async (method) => {
+    if (method === "PATCH") throw new ApiError(500, "internal", "disk full");
+    return {};
+  });
+  const { view, open } = mount();
+  await open(editable.id);
+  await editAndSave(view);
+  expect(view.getByDisplayValue("Edited")).toBeDefined();
+  expect(view.getByRole("alert").textContent).toContain("disk full");
+});
+
+it("a network failure keeps the panel open with the edit and shows an error", async () => {
+  setApiShim(async (method) => {
+    if (method === "PATCH") throw new TypeError("net::ERR_RAW_DETAIL");
+    return {};
+  });
+  const { view, open } = mount();
+  await open(editable.id);
+  await editAndSave(view);
+  expect(view.getByDisplayValue("Edited")).toBeDefined();
+  const alert = view.getByRole("alert").textContent ?? "";
+  expect(alert.trim().length > 0).toBe(true);
+  expect(alert).not.toContain("ERR_RAW_DETAIL");
+});
+
+// The create panel waits for its POST like an edit (task 3b749d1f): a failure
+// keeps the typed title and says so, the form takes no second submit while the
+// POST is in flight, and a save that lands closes the panel.
+it("a failed create keeps the panel open with the title, and a retry that lands closes it", async () => {
+  const posts: unknown[] = [];
+  let fail = true;
+  let release!: () => void;
+  setApiShim(async (method) => {
+    if (method !== "POST") return {};
+    posts.push(method);
+    if (!fail) return {};
+    await new Promise<void>((r) => {
+      release = r;
+    });
+    throw new ApiError(500, "internal", "disk full");
+  });
+  const { view } = mount();
+  const quick = view.getByPlaceholderText(en["tasks.quickAdd"]);
+  fireEvent.change(quick, { target: { value: "New task title" } });
+  await act(async () => fireEvent.keyDown(quick, { key: "Enter" }));
+  const title = await view.findByDisplayValue("New task title");
+  await act(async () => fireEvent.keyDown(title, { key: "Enter" }));
+  expect(title.closest("[inert]")).not.toBeNull();
+  await act(async () => fireEvent.keyDown(title, { key: "Enter" }));
+  expect(posts).toHaveLength(1);
+  await act(async () => {
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(view.getByDisplayValue("New task title")).toBeDefined();
+  expect(view.getByRole("alert").textContent).toContain("disk full");
+
+  fail = false;
+  await act(async () =>
+    fireEvent.keyDown(view.getByDisplayValue("New task title"), {
+      key: "Enter",
+    }),
+  );
+  expect(posts).toHaveLength(2);
+  expect(view.queryByDisplayValue("New task title") === null).toBe(true);
+  expect(view.queryByRole("alert") === null).toBe(true);
 });
 
 // Backlog is priority P4, not a status (task 77460aea). The board filter's

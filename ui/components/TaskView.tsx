@@ -220,21 +220,23 @@ function TaskDetailPanel({
 
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // An edit save waits for the PATCH, so a stale version (409) can keep the
-  // panel open and say the save did not land. The pending save belongs to one
-  // task id: the user can select another task before the response arrives.
+  // A save waits for the server, so a failure can keep the panel open with the
+  // edits and say why the save did not land. The pending save belongs to one
+  // task id ("" for the create panel): the user can select another task before
+  // the response arrives.
+  const shownKey = task?.id ?? "";
   const [savingId, setSavingId] = useState<string | null>(null);
-  const saving = savingId !== null && savingId === task?.id;
-  const [saveConflict, setSaveConflict] = useState(false);
+  const saving = savingId === shownKey;
+  const [saveError, setSaveError] = useState<string | null>(null);
   // The task this panel shows now, or null once it unmounts. A save that
   // finishes after the user moved on must not close or flag what they see.
   const shownIdRef = useRef<string | null>(null);
   useEffect(() => {
-    shownIdRef.current = task?.id ?? null;
+    shownIdRef.current = shownKey;
     return () => {
       shownIdRef.current = null;
     };
-  }, [task?.id]);
+  }, [shownKey]);
   // Copy-to-clipboard for the task id in the header - the shared hook gives the
   // same modern-API + textarea fallback the rest of the app's copy controls use.
   const { copied: idCopied, copy: copyId } = useClipboardCopy();
@@ -263,9 +265,9 @@ function TaskDetailPanel({
     setShowAllAgents(false);
   }, [task, initialTitle]);
   // Keyed on the id, not the task: the live refresh that follows a 409 must
-  // not hide the conflict line, but selecting another task must.
+  // not hide the error line, but selecting another task must.
   useEffect(() => {
-    setSaveConflict(false);
+    setSaveError(null);
   }, [task?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -308,9 +310,8 @@ function TaskDetailPanel({
 
   async function handleSave() {
     if (!title.trim() || saving) return;
+    let request: Promise<unknown>;
     if (mode === "create") {
-      // Fire-and-forget (parity with the old WS arm): the server's task delta
-      // applies the change echo-first, so the optimistic onClose() below stays.
       // `username` is dropped - the server derives createdBy + username from the
       // caller's token identity (attributionFor), never the request body.
       const body: TaskCreateReq = {
@@ -322,7 +323,7 @@ function TaskDetailPanel({
         // field, which a user caller also treats as global - same result here).
         roomId: createRoomId,
       };
-      apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
+      request = apiFetch<TaskItem>("POST", "/api/tasks", body);
     } else if (task) {
       // FLAT body (TaskUpdateReq), NOT { changes }. Blank text fields are sent
       // as explicit `undefined` properties exactly as the WS arm did;
@@ -350,21 +351,31 @@ function TaskDetailPanel({
       if (roomId !== (task.roomId ?? "")) {
         body.roomId = roomId;
       }
-      const id = task.id;
-      setSavingId(id);
-      setSaveConflict(false);
-      let conflict = false;
-      try {
-        await apiFetch<TaskItem>("PATCH", `/api/tasks/${id}`, body);
-      } catch (err) {
-        conflict = err instanceof ApiError && err.status === 409;
-      }
-      setSavingId((current) => (current === id ? null : current));
-      if (shownIdRef.current !== id) return;
-      if (conflict) {
-        setSaveConflict(true);
-        return;
-      }
+      request = apiFetch<TaskItem>("PATCH", `/api/tasks/${task.id}`, body);
+    } else {
+      onClose();
+      return;
+    }
+    const id = shownKey;
+    setSavingId(id);
+    setSaveError(null);
+    let error: string | null = null;
+    try {
+      await request;
+    } catch (err) {
+      // A 409 is a stale version; a network drop is not an ApiError.
+      error =
+        err instanceof ApiError
+          ? err.status === 409
+            ? t("tasks.saveConflict")
+            : err.message
+          : t("common.saveFailed");
+    }
+    setSavingId((current) => (current === id ? null : current));
+    if (shownIdRef.current !== id) return;
+    if (error !== null) {
+      setSaveError(error);
+      return;
     }
     onClose();
   }
@@ -758,9 +769,9 @@ function TaskDetailPanel({
           gap: 8,
         }}
       >
-        {saveConflict && (
+        {saveError !== null && (
           <div role="alert" style={{ fontSize: 11, color: "var(--red-text)" }}>
-            {t("tasks.saveConflict")}
+            {saveError}
           </div>
         )}
         {confirmDiscard && (
