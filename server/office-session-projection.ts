@@ -31,6 +31,7 @@ import {
   type AskChange,
   askMemberWire,
   askShownToOwnerAsOther,
+  askMemberIds,
   askVisibleTo,
 } from "./asks.ts";
 import { revalidateByHash, type SessionLookup } from "./auth.ts";
@@ -494,25 +495,50 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
 
   // Push ONE ask change to the sockets of the members askVisibleTo admits, the
   // rule GET /api/asks applies, and to no one else. A removal goes to the
-  // member it named, or every owner for an office secret request, with no room
-  // check, so a stack never keeps an entry that closed. Office owners hear
+  // members it named, every signed-in member for a room ask, or every owner
+  // for an office secret request, with no room check, so a stack never keeps
+  // an entry that closed. Office owners hear
   // other members' asks as others_ask_* (askShownToOwnerAsOther, the rule of
   // GET /api/asks/others); the removal of one goes to every other owner, with
   // no room check either.
   function pushAskChange(change: AskChange) {
     const { entry } = change;
     const forOwners = entry.secret?.scope === "office";
+    // A plain ask's members at the close, and who answered it (task
+    // 9461c464), named only to members who reach the room.
+    const members =
+      change.kind === "removed" && !forOwners
+        ? askMemberIds(entry, askAudience)
+        : [];
+    const roomId = askAudience.agentRoomId(entry.agentId);
+    const by =
+      change.kind === "removed" && change.byUserId
+        ? (getUserById(change.byUserId)?.name ?? null)
+        : null;
     for (const ws of browsers) {
       const userId = ws.data.session.userId;
       if (change.kind === "removed") {
+        // A room ask goes to every signed-in socket: a member who hid the
+        // room or lost it since may still hold the card.
         const addressed = forOwners
           ? !!userId && askAudience.isOfficeOwner(userId)
-          : !!userId && userId === entry.memberUserId;
+          : !!userId && (!!entry.room || members.includes(userId));
+        // Not to the answerer: their own tab would read it as beaten.
+        const named =
+          by !== null &&
+          !!userId &&
+          userId !== change.byUserId &&
+          roomId !== null &&
+          askAudience.canSeeRoom(userId, roomId);
         if (addressed)
           officeSend(
             ws,
             "ask_removed",
-            JSON.stringify({ type: "ask_removed", id: entry.id }),
+            JSON.stringify({
+              type: "ask_removed",
+              id: entry.id,
+              ...(named ? { by } : {}),
+            }),
           );
         else if (!entry.secret && !!userId && askAudience.isOfficeOwner(userId))
           officeSend(
@@ -526,7 +552,14 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
         officeSend(
           ws,
           "ask_upserted",
-          JSON.stringify({ type: "ask_upserted", entry: askMemberWire(entry) }),
+          JSON.stringify({
+            type: "ask_upserted",
+            entry: askMemberWire(
+              entry,
+              (id) => getUserById(id)?.name ?? null,
+              askAudience,
+            ),
+          }),
         );
       else if (askShownToOwnerAsOther(entry, userId, askAudience))
         officeSend(
@@ -534,7 +567,11 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
           "others_ask_upserted",
           JSON.stringify({
             type: "others_ask_upserted",
-            entry: askAgentWire(entry, (id) => getUserById(id)?.name ?? null),
+            entry: askAgentWire(
+              entry,
+              (id) => getUserById(id)?.name ?? null,
+              askAudience,
+            ),
           }),
         );
     }

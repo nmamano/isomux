@@ -6,6 +6,7 @@
 import { join } from "path";
 import type {
   AgentInfo,
+  AskEntry,
   BackendModelWire,
   PagerEntry,
   ServerMessage,
@@ -180,6 +181,8 @@ export interface ManagersDeps {
   deliverCronjobToAgent: NonNullable<CronjobManagerDeps["deliverToAgent"]>;
   ordinaryScheduleMaker: (agentId: string) => AgentInfo | null;
   pushAskChange: (change: AskChange) => void;
+  // Everyone a plain ask is for now (askMemberIds), for its close record.
+  askAudienceIds: (entry: AskEntry) => string[];
   pushPagerEntryToEachWs: (entry: PagerEntry) => void;
   secretStore: SecretStore;
   broadcast: (msg: ServerMessage) => void;
@@ -278,6 +281,7 @@ export function createManagers(
     deliverCronjobToAgent,
     ordinaryScheduleMaker,
     pushAskChange,
+    askAudienceIds,
     pushPagerEntryToEachWs,
     secretStore,
     broadcast,
@@ -459,6 +463,7 @@ export function createManagers(
     persistence: createAskFilePersistence(join(STATE_ROOT, "asks.json")),
     onChange: (change) => pushAskChange(change),
     history: askHistory,
+    audienceIds: askAudienceIds,
   });
   pagerSettings = createPagerSettingsStore(
     createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),

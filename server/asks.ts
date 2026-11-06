@@ -223,6 +223,25 @@ function isAskEntry(v: unknown): v is AskEntry {
     return false;
   const hasMember =
     typeof r.memberUserId === "string" && r.memberUserId.length > 0;
+  // A shared ask (task 9461c464): named members or the room, never both, on
+  // a plain ask only, and always with memberUserId for an older server.
+  if (r.otherMemberUserIds !== undefined || r.room !== undefined) {
+    if (
+      !hasMember ||
+      (r.otherMemberUserIds !== undefined && r.room !== undefined) ||
+      (r.room !== undefined && r.room !== true) ||
+      (r.otherMemberUserIds !== undefined &&
+        !isListOf(
+          r.otherMemberUserIds,
+          (u) => typeof u === "string" && u !== "",
+        )) ||
+      r.secret !== undefined ||
+      r.sudo !== undefined ||
+      r.step !== undefined ||
+      r.messaging !== undefined
+    )
+      return false;
+  }
   // Any non-empty string: the handlers check a link against the office pages on write,
   // and the card draws only one it knows, so a page a later release drops
   // cannot fail the file.
@@ -335,6 +354,11 @@ export interface AskAudienceDeps {
   // The agent's room, or null when the agent is gone.
   agentRoomId: (agentId: string) => string | null;
   canSeeRoom: (userId: string, roomId: string) => boolean;
+  // Whether the member hides the room from their view (room view level
+  // "hidden"). Only a room ask reads it.
+  roomHidden: (userId: string, roomId: string) => boolean;
+  // Every member who reaches the room, hidden or not.
+  roomMemberIds: (roomId: string) => string[];
 }
 
 // The audience as one caller reaches it: a room-limited API token sees only
@@ -349,8 +373,41 @@ export function askAudienceFor(
     agentRoomId: base.agentRoomId,
     canSeeRoom: (userId, roomId) =>
       withinTokenRooms(identity, roomId) && base.canSeeRoom(userId, roomId),
+    roomHidden: base.roomHidden,
+    roomMemberIds: (roomId) =>
+      withinTokenRooms(identity, roomId) ? base.roomMemberIds(roomId) : [],
   };
 }
+
+// The members a plain ask is for now (task 9461c464): for a room ask,
+// every member who reaches the agent's room and does not hide it; else the
+// named members, memberUserId first. Every read of a plain ask's audience
+// goes through here.
+export function askMemberIds(entry: AskEntry, deps: AskAudienceDeps): string[] {
+  if (entry.room) {
+    const roomId = deps.agentRoomId(entry.agentId);
+    return roomId === null ? [] : askRoomAudience(roomId, deps);
+  }
+  if (entry.memberUserId === undefined) return [];
+  return [entry.memberUserId, ...(entry.otherMemberUserIds ?? [])];
+}
+
+// Everyone a room ask in this room is for now: who reaches the room and does
+// not hide it.
+export function askRoomAudience(
+  roomId: string,
+  deps: AskAudienceDeps,
+): string[] {
+  return deps
+    .roomMemberIds(roomId)
+    .filter(
+      (userId) =>
+        deps.canSeeRoom(userId, roomId) && !deps.roomHidden(userId, roomId),
+    );
+}
+
+// Most members one ask names (task 9461c464). A sanity bound.
+export const ASK_MEMBERS_MAX = 20;
 
 // Whether a member sees an ask and may answer it, decided live: the member
 // it names, or for an office secret request any office owner (or the one
@@ -374,8 +431,8 @@ export function askVisibleTo(
       (entry.secret.answerUserId === undefined ||
         entry.secret.answerUserId === userId)
     );
-  if (entry.memberUserId === undefined || entry.memberUserId !== userId)
-    return false;
+  if (entry.room) return !deps.roomHidden(userId, roomId);
+  if (!askMemberIds(entry, deps).includes(userId)) return false;
   const owner = entry.secret?.ownerUserId;
   return owner === undefined || owner === userId || deps.isOfficeOwner(userId);
 }
@@ -388,7 +445,15 @@ export function askShownToOwnerAsOther(
   userId: string | null,
   deps: AskAudienceDeps,
 ): boolean {
-  if (!userId || !deps.isOfficeOwner(userId) || entry.secret || entry.sudo)
+  // A room ask is for every member who shows the room: an owner who hides it
+  // does not get it back here.
+  if (
+    !userId ||
+    !deps.isOfficeOwner(userId) ||
+    entry.secret ||
+    entry.sudo ||
+    entry.room
+  )
     return false;
   if (askVisibleTo(entry, userId, deps)) return false;
   const roomId = deps.agentRoomId(entry.agentId);
@@ -480,7 +545,8 @@ export const ASK_AFFORDANCE_KEYS = [
 
 export type AskChange =
   | { kind: "upserted"; entry: AskEntry }
-  | { kind: "removed"; entry: AskEntry };
+  // byUserId: the member whose answer closed it, when one did.
+  | { kind: "removed"; entry: AskEntry; byUserId?: string };
 
 export interface AskStoreDeps {
   persistence: AskPersistence;
@@ -492,6 +558,8 @@ export interface AskStoreDeps {
   // as an event, after it is committed. A throw is logged and swallowed: the
   // change stands either way. Absent in leaf tests.
   history?: AskHistory;
+  // The members an entry is for at its close, for the history.
+  audienceIds?: (entry: AskEntry) => string[];
 }
 
 export interface AskStore {
@@ -503,6 +571,8 @@ export interface AskStore {
   create(input: {
     agentId: string;
     memberUserId?: string;
+    otherMemberUserIds?: string[];
+    room?: true;
     prompt: string;
     secret?: SecretAskRequest;
     sudo?: SudoAskRequest;
@@ -589,7 +659,7 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     const closure = { ...close, at: now() };
     for (const entry of closed) {
       try {
-        deps.history.record(entry, closure);
+        deps.history.record(entry, closure, deps.audienceIds?.(entry));
       } catch (err) {
         console.error(
           `[asks] ${entry.id} closed but could not be recorded: ${errMessage(err)}`,
@@ -659,6 +729,8 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
     create({
       agentId,
       memberUserId,
+      otherMemberUserIds,
+      room,
       prompt,
       secret,
       sudo,
@@ -681,6 +753,8 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
         id: freshId(),
         agentId,
         ...(memberUserId !== undefined ? { memberUserId } : {}),
+        ...(otherMemberUserIds?.length ? { otherMemberUserIds } : {}),
+        ...(room ? { room } : {}),
         prompt,
         createdAt: at,
         updatedAt: at,
@@ -862,7 +936,13 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
       if (!prev) return null;
       commit(
         entries.filter((e) => e.id !== id),
-        [{ kind: "removed", entry: prev }],
+        [
+          {
+            kind: "removed",
+            entry: prev,
+            ...(close.byUserId ? { byUserId: close.byUserId } : {}),
+          },
+        ],
       );
       recordClosed([prev], close);
       return { ...prev };
@@ -881,25 +961,37 @@ export function createAskStore(deps: AskStoreDeps): AskStore {
   };
 }
 
-// The entry without its opening session, which is for the reply note only.
-export function askMemberWire({
-  sessionId: _session,
-  ...entry
-}: AskEntry): AskMemberWire {
-  return entry;
+// The entry without its opening session, which is for the reply note only,
+// with everyone it is for now by name (task 9461c464).
+export function askMemberWire(
+  { sessionId: _session, ...entry }: AskEntry,
+  memberName: (userId: string) => string | null,
+  audience: AskAudienceDeps,
+): AskMemberWire {
+  return {
+    ...entry,
+    members: askMemberIds(entry, audience).map(
+      (userId) => memberName(userId) ?? userId,
+    ),
+  };
 }
 
 // The member wire with the member it is for, by name as they are now (their
-// id when the record is gone). An office secret request names its one owner
-// on the request, or no member when it is for every owner.
+// id when the record is gone): the first of `members`, else the stored one
+// (a room ask open for nobody now). An office secret request names its one
+// owner on the request, or no member when it is for every owner.
 export function askAgentWire(
   entry: AskEntry,
   memberName: (userId: string) => string | null,
+  audience: AskAudienceDeps,
 ): AskAgentWire {
+  const wire = askMemberWire(entry, memberName, audience);
   const userId = entry.memberUserId ?? entry.secret?.answerUserId;
   return {
-    ...askMemberWire(entry),
-    member: userId === undefined ? null : (memberName(userId) ?? userId),
+    ...wire,
+    member:
+      wire.members?.[0] ??
+      (userId === undefined ? null : (memberName(userId) ?? userId)),
   };
 }
 

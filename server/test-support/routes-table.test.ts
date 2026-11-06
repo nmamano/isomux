@@ -332,6 +332,7 @@ describe("route table: plain-text form", () => {
         "agents.createAsk",
         [
           "member",
+          "room",
           "link",
           "options",
           "recommended",
@@ -360,6 +361,7 @@ describe("route table: plain-text form", () => {
         "asks.appCreate",
         [
           "member",
+          "room",
           "link",
           "options",
           "recommended",

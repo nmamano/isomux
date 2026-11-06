@@ -3312,8 +3312,13 @@ describe("chat affordances on an ask", () => {
     const listed = (await call(w.srv, "GET", base, w.as(w.asker.id)))
       .body as AskEntry[];
     expect(listed).toEqual([before]);
-    // The file holds the entry; `member` is added on the wire only.
-    const { member: _member, ...entry } = before;
+    // The file holds the entry; `member` and `members` are added on the
+    // wire only.
+    const {
+      member: _member,
+      members: _members,
+      ...entry
+    } = before as AskAgentWire;
     expect(stored(w, before.id)).toEqual(entry);
     expect(filesDir(w)).toEqual(copiesBefore);
   });
@@ -3709,6 +3714,24 @@ describe("an ask an app opens", () => {
       json: { text: "For Lee?", member: lee.username },
     });
     expect([noAccess.status, noAccess.code]).toEqual([422, "member_no_access"]);
+    // A list and the room (task 9461c464) follow the rule of a named member.
+    const forBoth = await asApp(w, app.token, "POST", "", {
+      json: {
+        text: "For Pat and Nil?",
+        member: [pat.username, w.owner.username],
+      },
+    });
+    expect([forBoth.status, (forBoth.body as AskAgentWire).members]).toEqual([
+      201,
+      [pat.username, w.owner.username],
+    ]);
+    const forRoom = await asApp(w, app.token, "POST", "", {
+      json: { text: "For the room?", room: true },
+    });
+    expect([forRoom.status, (forRoom.body as AskAgentWire).room]).toEqual([
+      201,
+      true,
+    ]);
 
     // The owner agent goes: the app still opens asks, for its owner only.
     await w.srv.agentManager.kill(w.asker.id);
@@ -3717,6 +3740,15 @@ describe("an ask an app opens", () => {
       json: { text: "For Pat again?", member: pat.username },
     });
     expect([named.status, named.code]).toEqual([403, "forbidden"]);
+    for (const json of [
+      { text: "For both again?", member: [pat.username, w.owner.username] },
+      { text: "For the room again?", room: true },
+    ]) {
+      const r = await asApp(w, app.token, "POST", "", { json });
+      expect(`${json.text} ${r.status} ${r.code}`).toBe(
+        `${json.text} 403 forbidden`,
+      );
+    }
     const plain = await asApp(w, app.token, "POST", "", {
       text: "For the owner?",
     });

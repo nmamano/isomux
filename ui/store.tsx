@@ -97,6 +97,7 @@ import { anyRoomSounds } from "../shared/notif-rooms.ts";
 import { createNotificationSound } from "./notification-sound.ts";
 import { syncPanel } from "./elevator-panel-store.ts";
 import { loadLastSavedView } from "./view-persistence.ts";
+import { AsksClosedHere } from "./ask-closed.ts";
 import type {
   DraftAttachment,
   DraftAttachmentAction,
@@ -148,7 +149,10 @@ export type AskResult =
   | { kind: "storage-compress"; agentId: string; applied: CompressResultWire }
   // The runs of an ask that closed on their success (task c3b91695): the
   // output and exit codes stay on screen until Close.
-  | { kind: "command-run"; agentId: string; runs: AskCommandRun[] };
+  | { kind: "command-run"; agentId: string; runs: AskCommandRun[] }
+  // Another member answered a shared ask first (task 9461c464), while this
+  // member's answer was held or on its way: it was not sent.
+  | { kind: "answered-first"; agentId: string; by: string };
 
 // An ask that closed with every command run and succeeded (task c3b91695):
 // the result that keeps the output on screen.
@@ -327,6 +331,9 @@ export interface AppState {
   // "undo" one as its Undo line. Per tab: another device counts the ask until
   // ask_removed.
   answeredAsks: Map<string, "undo" | "sending">;
+  // The asks this tab is answering, from the first tap to the answer's end
+  // (sent, failed or undone), so a close by another member can be told.
+  answeringAsks: Set<string>;
   // askId → the raw message of the last answer that failed to send. The card
   // draws it (translated at render), so it outlives the card that sent it.
   askErrors: Map<string, string>;
@@ -611,7 +618,9 @@ type Action =
   // CLIENT-LOCAL (not a ServerMessage): useAsksSync's snapshot.
   | { type: "asks_loaded"; entries: AskMemberWire[]; revision: number }
   | { type: "ask_upserted"; entry: AskMemberWire }
-  | { type: "ask_removed"; id: string }
+  // `by`: the member who answered it, from the push or from a refused answer
+  // (409 ask_closed).
+  | { type: "ask_removed"; id: string; by?: string }
   // CLIENT-LOCAL: useOthersAsksSync's snapshot.
   | { type: "others_asks_loaded"; entries: AskAgentWire[]; revision: number }
   | { type: "others_ask_upserted"; entry: AskAgentWire }
@@ -700,6 +709,12 @@ type Action =
 function without<V>(byAsk: Map<string, V>, askId: string): Map<string, V> {
   if (!byAsk.has(askId)) return byAsk;
   const next = new Map(byAsk);
+  next.delete(askId);
+  return next;
+}
+function withoutId(ids: Set<string>, askId: string): Set<string> {
+  if (!ids.has(askId)) return ids;
+  const next = new Set(ids);
   next.delete(askId);
   return next;
 }
@@ -1648,12 +1663,21 @@ export function reducer(state: AppState, action: Action): AppState {
     // it is refused.
     case "ask_removed": {
       const wasOthers = state.othersAsks.some((e) => e.id === action.id);
-      const ran = commandRunResult(state.asks.find((e) => e.id === action.id));
+      const open =
+        state.asks.find((e) => e.id === action.id) ??
+        state.othersAsks.find((e) => e.id === action.id);
+      // Closed by another member's answer while this tab was answering.
+      const result: AskResult | null =
+        commandRunResult(state.asks.find((e) => e.id === action.id)) ??
+        (open && action.by && state.answeringAsks.has(action.id)
+          ? { kind: "answered-first", agentId: open.agentId, by: action.by }
+          : null);
       return {
         ...state,
-        ...(ran
-          ? { askResults: new Map(state.askResults).set(action.id, ran) }
+        ...(result
+          ? { askResults: new Map(state.askResults).set(action.id, result) }
           : {}),
+        answeringAsks: withoutId(state.answeringAsks, action.id),
         asks: state.asks.filter((e) => e.id !== action.id),
         askDrafts: without(state.askDrafts, action.id),
         answeredAsks: without(state.answeredAsks, action.id),
@@ -1704,7 +1728,11 @@ export function reducer(state: AppState, action: Action): AppState {
         othersAsksRevision: state.othersAsksRevision + 1,
       };
     case "ask_answer_started":
-      return { ...state, askErrors: without(state.askErrors, action.id) };
+      return {
+        ...state,
+        askErrors: without(state.askErrors, action.id),
+        answeringAsks: new Set(state.answeringAsks).add(action.id),
+      };
     case "ask_answered": {
       if (!isOpenAsk(state, action.id)) return state;
       const answeredAsks = new Map(state.answeredAsks);
@@ -1716,7 +1744,11 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
     case "ask_undone":
-      return { ...state, answeredAsks: without(state.answeredAsks, action.id) };
+      return {
+        ...state,
+        answeredAsks: without(state.answeredAsks, action.id),
+        answeringAsks: withoutId(state.answeringAsks, action.id),
+      };
     case "ask_result_shown": {
       const askResults = new Map(state.askResults);
       askResults.set(action.askId, action.result);
@@ -1731,6 +1763,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         answeredAsks: without(state.answeredAsks, action.id),
+        answeringAsks: withoutId(state.answeringAsks, action.id),
         askErrors,
       };
     }
@@ -2114,6 +2147,7 @@ export const initialState: AppState = {
   pagerTrimSeq: 0,
   asks: [],
   answeredAsks: new Map(),
+  answeringAsks: new Set(),
   askErrors: new Map(),
   askResults: new Map(),
   asksRevision: 0,
@@ -2197,10 +2231,17 @@ export function StoreProvider({
     };
   });
 
+  // Ids are never reused, so the set only grows (ui/ask-closed.ts). It never
+  // changes identity, so the connect effect still runs once.
+  const [closedAsks] = useState(() => new Set<string>());
+
   useEffect(() => {
     let legacyMigrated = false;
     connect(
       (msg: ServerMessage) => {
+        // Before the dispatch: a held answer flushed as its card unmounts
+        // must see that the ask closed.
+        if (msg.type === "ask_removed") closedAsks.add(msg.id);
         dispatch(msg as Action);
         if (msg.type === "full_state") dispatch({ type: "connected" });
         if (msg.type === "full_state" || msg.type === "floors_updated")
@@ -2240,7 +2281,7 @@ export function StoreProvider({
         if (!isConnected) dispatch({ type: "disconnected" });
       },
     );
-  }, []);
+  }, [closedAsks]);
 
   // Nothing normally closes a replay window here - the server's
   // `log_replay_complete` does, straight through the reducer. This is only the
@@ -2314,15 +2355,17 @@ export function StoreProvider({
   return (
     <StateCtx.Provider value={state}>
       <DispatchCtx.Provider value={dispatch}>
-        <RoomListProvider
-          allRooms={state.rooms}
-          users={state.users}
-          selfId={state.sessionContext?.userId ?? null}
-          currentRoomId={state.currentRoomId}
-          lobbyOpen={state.lobbyOpen}
-        >
-          {children}
-        </RoomListProvider>
+        <AsksClosedHere.Provider value={closedAsks}>
+          <RoomListProvider
+            allRooms={state.rooms}
+            users={state.users}
+            selfId={state.sessionContext?.userId ?? null}
+            currentRoomId={state.currentRoomId}
+            lobbyOpen={state.lobbyOpen}
+          >
+            {children}
+          </RoomListProvider>
+        </AsksClosedHere.Provider>
       </DispatchCtx.Provider>
     </StateCtx.Provider>
   );

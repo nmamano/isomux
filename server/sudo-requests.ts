@@ -272,7 +272,16 @@ export function createSudoRequests(deps: SudoRequestDeps) {
       command?: unknown;
       reason?: unknown;
       member?: unknown;
+      room?: unknown;
     };
+    // The password is one owner's: never a list or the room (task 9461c464).
+    if (Array.isArray(b.member) || b.room !== undefined)
+      return {
+        ok: false,
+        status: 422,
+        code: "invalid_members",
+        message: "a sudo request is for one office owner: name one member",
+      };
     const commandError = checkSudoCommand(b.command);
     if (commandError)
       return {

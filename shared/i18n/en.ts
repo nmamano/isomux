@@ -2002,6 +2002,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.memberAll": "All members",
   "asks.agentAll": "All agents",
   "asks.forMember": "For {member}",
+  "asks.alsoFor": "Also for {members}",
+  "asks.forRoom": "For everyone in {room}",
   "asks.chip": "ask: {words}",
   "asks.openAsk": "Open ask {id}",
   "asks.action.apply": "Apply",
@@ -2072,6 +2074,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "Send it to {member}. It's one-time: opening it on their device signs them in. The URL is shown once - copy it now.",
   "asks.result.apiToken": "API token {name}",
   "asks.result.commandRun": "Ran from the ask",
+  "asks.result.answeredFirst":
+    "{member} answered first. Your answer was not sent.",
   "asks.viewInInbox": "View in Inbox",
   "asks.pinnedMissing": "You cannot see this ask, or it does not exist.",
   "asks.stillOpen": "Still open",

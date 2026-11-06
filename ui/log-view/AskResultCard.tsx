@@ -13,6 +13,7 @@ import { MintedSecretBox, MintedUrlBox } from "../components/access-shared.tsx";
 import { categoryLabel, sizeText } from "../components/StoragePane.tsx";
 import { formatNumber } from "../../shared/i18n/number.ts";
 import { AskRunResult } from "./AskRunResult.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 export function AskResultCard({
   askId,
@@ -23,7 +24,7 @@ export function AskResultCard({
   result: AskResult;
   isMobile: boolean;
 }) {
-  const { t, tn, language } = useI18n();
+  const { t, tn, rich, language } = useI18n();
   const dispatch = useDispatch();
   const size = (bytes: number) => sizeText(language, t, bytes);
   const muted = { color: "var(--text-muted)", fontSize: isMobile ? 12 : 11 };
@@ -80,6 +81,14 @@ export function AskResultCard({
           </>
         );
       }
+      case "answered-first":
+        return (
+          <div data-ask-closed-by={result.by}>
+            {rich("asks.result.answeredFirst", {
+              member: <span {...noTranslate()}>{result.by}</span>,
+            })}
+          </div>
+        );
       case "command-run":
         return (
           <>

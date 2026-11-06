@@ -229,7 +229,8 @@ export interface EventPayloads {
   app_deleted: { name: string };
   pager_upserted: { entry: PagerEntry };
   ask_upserted: { entry: AskMemberWire };
-  ask_removed: { id: string };
+  // by: who answered, to the members who reach the room (task 9461c464).
+  ask_removed: { id: string; by?: string };
   // Another member's open ask, for an office owner (askShownToOwnerAsOther).
   others_ask_upserted: { entry: AskAgentWire };
   others_ask_removed: { id: string };

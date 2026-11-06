@@ -145,6 +145,9 @@ export interface RouteHandlerContext {
   // the audit row names.
   via?: "mcp" | "ask";
   askId?: string;
+  // "text" when the body was built from the text/plain form (its query and
+  // text), so a handler can tell a list parameter from a JSON array.
+  form?: "text";
 }
 
 export type RouteHandler = (
@@ -368,6 +371,7 @@ export async function executeRoute(
   // What Idempotency-Key compares: the received bytes, or for the plain-text
   // form the fields built from body and query, so a changed option conflicts.
   let bodyFingerprint = "";
+  let textForm = false;
   if (!isGet && !isMultipart && !isBinary) {
     rawBody = await req.text();
     bodyFingerprint = rawBody;
@@ -383,6 +387,7 @@ export async function executeRoute(
       return render(fail(form.status, form.code, form.message));
     }
     if (form.kind === "text") {
+      textForm = true;
       body = form.body;
       bodyFingerprint = JSON.stringify(form.body);
     } else if (rawBody.length > 0) {
@@ -406,6 +411,7 @@ export async function executeRoute(
     callerSessionIdHash: opts?.callerSessionIdHash,
     via: opts?.via,
     askId: opts?.askId,
+    ...(textForm ? { form: "text" as const } : {}),
   };
 
   const refused = authorizeRoute(route, identity, params, body, deps.guardDeps);

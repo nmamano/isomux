@@ -19,22 +19,30 @@ import type {
 } from "./contract-shapes.ts";
 import type { MessagingReplyReq } from "./messaging.ts";
 
-export type PlainTextParamKind = "flag" | "string" | { readonly list: string };
+// `single`: one value stays a string; only a repeat makes the list.
+export type PlainTextParamKind =
+  | "flag"
+  | "string"
+  | { readonly list: string; readonly single?: true };
 
 // The query parameters of a plain-text route, keyed by request field: "flag"
 // fills a boolean field (steer=1), "string" a string field, and {list: name}
 // a string[] field from every name=<value> in the query (option=a&option=b).
-// A lone empty name= gives [], so an edit can remove the list.
+// A lone empty name= gives [], so an edit can remove the list. A field that
+// takes one name or a list (string | string[]) is a single list; so may be a
+// flag whose route checks the exact value itself, with its own refusal code.
 export type PlainTextParams<Req> = {
   readonly [K in Exclude<keyof Req, "text">]?: NonNullable<
     Req[K]
   > extends boolean
-    ? "flag"
+    ? "flag" | { readonly list: string; readonly single: true }
     : NonNullable<Req[K]> extends string
       ? "string"
       : NonNullable<Req[K]> extends string[]
         ? { readonly list: string }
-        : never;
+        : NonNullable<Req[K]> extends string | string[]
+          ? { readonly list: string; readonly single: true }
+          : never;
 };
 
 // The query parameters of the plain-text routes. The route table and the
@@ -52,8 +60,12 @@ export const MESSAGING_REPLY_PLAIN_TEXT_PARAMS = {
 } as const satisfies PlainTextParams<MessagingReplyReq>;
 export const INBOX_PLAIN_TEXT_PARAMS =
   {} as const satisfies PlainTextParams<ApiTokenInboxSendReq>;
+// member= repeats for several members, and room=1 is the room (task
+// 9461c464); both are lists here so the route refuses a bad value with its
+// own code.
 export const ASK_CREATE_PLAIN_TEXT_PARAMS = {
-  member: "string",
+  member: { list: "member", single: true },
+  room: { list: "room", single: true },
   link: "string",
   options: { list: "option" },
   recommended: "string",
@@ -202,10 +214,14 @@ export function readPlainTextForm(
     if (isList) ((fields[field] ??= []) as string[]).push(pair.value);
     else fields[field] = pair.value;
   }
-  // A lone empty list value (option=) is the empty list.
-  for (const [field, value] of Object.entries(fields))
-    if (Array.isArray(value) && value.length === 1 && value[0] === "")
-      fields[field] = [];
+  // A lone empty list value (option=) is the empty list; a lone value of a
+  // single list is that value.
+  for (const [field, value] of Object.entries(fields)) {
+    if (!Array.isArray(value) || value.length !== 1) continue;
+    const kind = params[field];
+    if (typeof kind !== "string" && kind.single) fields[field] = value[0];
+    else if (value[0] === "") fields[field] = [];
+  }
 
   // A heredoc ends the body with one line break the sender did not type.
   const text = rawBody.replace(/\r?\n$/, "");

@@ -129,6 +129,8 @@ async function world() {
       isOfficeOwner: (userId) => getUserById(userId)?.role === "owner",
       agentRoomId: (agentId) => mgr.getAgent(agentId)?.roomId ?? null,
       canSeeRoom: () => true,
+      roomHidden: () => false,
+      roomMemberIds: () => [],
     },
     onChanged: async () => mgr.envChanged([{ kind: "user", userId: USER }]),
     agentUserId: (agentId) =>

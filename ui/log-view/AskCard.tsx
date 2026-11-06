@@ -66,6 +66,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch, ApiError } from "../api.ts";
+import { useAsksClosedHere } from "../ask-closed.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { getDevice } from "../device-settings.ts";
@@ -402,7 +403,8 @@ function ReplyAskCard({
 }) {
   const { t, rich, language } = useI18n();
   const dispatch = useDispatch();
-  const { askDrafts, askErrors, agents } = useAppState();
+  const { askDrafts, askErrors, agents, rooms, sessionContext } = useAppState();
+  const closedHere = useAsksClosedHere();
   const draft = askDrafts.get(entry.id);
   const untouched = draft === undefined;
   const fallback = replyDefault(entry, t("asks.replyDefault"));
@@ -443,6 +445,33 @@ function ReplyAskCard({
   // not drawn.
   const stepView = useStepView(entry.step, entry.memberUserId);
   const link = stepView ? null : askLinkFor(entry.link);
+  // Who else a shared ask is for (task 9461c464): the other members by name,
+  // or the agent's room. Another member's ask names them all.
+  const names = (list: string[]) => (
+    <span {...noTranslate()}>
+      {new Intl.ListFormat(language, { type: "conjunction" }).format(list)}
+    </span>
+  );
+  const viewer = sessionContext?.username?.toLowerCase();
+  const otherMembers = (entry.members ?? []).filter(
+    (name) => name.toLowerCase() !== viewer,
+  );
+  const askRoom = entry.room
+    ? rooms.find(
+        (r) => r.id === agents.find((a) => a.id === entry.agentId)?.roomId,
+      )
+    : undefined;
+  const sharedLine = entry.member
+    ? null
+    : entry.room
+      ? askRoom
+        ? rich("asks.forRoom", {
+            room: <span {...noTranslate()}>{askRoom.name}</span>,
+          })
+        : null
+      : otherMembers.length > 0
+        ? rich("asks.alsoFor", { members: names(otherMembers) })
+        : null;
   const linkLabel = !link
     ? null
     : "agentId" in link
@@ -531,6 +560,17 @@ function ReplyAskCard({
     } catch (err) {
       sending.current = false;
       setBusy(false);
+      // Another member answered first (task 9461c464): the ask is closed,
+      // and the notice names them.
+      const by = err instanceof ApiError ? err.detail?.by : undefined;
+      if (
+        err instanceof ApiError &&
+        err.code === "ask_closed" &&
+        typeof by === "string"
+      ) {
+        dispatch({ type: "ask_removed", id: entry.id, by });
+        return;
+      }
       dispatch({
         type: "ask_answer_failed",
         id: entry.id,
@@ -611,6 +651,9 @@ function ReplyAskCard({
     if (!pending) return;
     heldRef.current = null;
     clearTimeout(pending.timer);
+    // The ask closed while held, as another member answered it: nothing to
+    // send.
+    if (closedHere.has(entry.id)) return;
     dispatch({ type: "ask_answered", id: entry.id, phase: "sending" });
     void send(pending.kind, pending.body, keepalive);
   }
@@ -844,8 +887,26 @@ function ReplyAskCard({
               }}
             >
               {rich("asks.forMember", {
-                member: <span {...noTranslate()}>{entry.member}</span>,
+                member:
+                  (entry.members?.length ?? 0) > 1 ? (
+                    names(entry.members ?? [])
+                  ) : (
+                    <span {...noTranslate()}>{entry.member}</span>
+                  ),
               })}
+            </div>
+          )}
+          {sharedLine && (
+            <div
+              data-ask-members=""
+              style={{
+                color: "var(--text-ghost)",
+                fontSize: isMobile ? 12 : 11,
+                lineHeight: 1.5,
+                overflowWrap: "break-word",
+              }}
+            >
+              {sharedLine}
             </div>
           )}
           <div

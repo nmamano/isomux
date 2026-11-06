@@ -86,6 +86,8 @@ function setup(
     agentRoomId: (agentId: string) =>
       Object.hasOwn(agents, agentId) ? "r1" : null,
     canSeeRoom: (userId: string) => userId !== "u-eve",
+    roomHidden: () => false,
+    roomMemberIds: () => [],
   };
   const root = mkdtempSync(join(tmpdir(), "isomux-secret-requests-"));
   roots.push(root);
@@ -364,6 +366,8 @@ describe("the agent's ask", () => {
         isOfficeOwner: () => false,
         agentRoomId: () => "r1",
         canSeeRoom: () => true,
+        roomHidden: () => false,
+        roomMemberIds: () => [],
       },
       agentUserId: () => "u-alice",
       appFor: () => null,

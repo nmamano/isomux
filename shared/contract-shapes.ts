@@ -894,8 +894,12 @@ export interface AskCreateReq {
   // the field prompt.
   text?: string;
   prompt?: string;
-  // A member's username. Absent means the agent's manager.
-  member?: string;
+  // A member's username, or a list of 1 to 20 (task 9461c464). Absent means
+  // the agent's manager.
+  member?: string | string[];
+  // Every member who reaches the agent's room and does not hide it, read
+  // live; not with member. The text/plain form sends room=1.
+  room?: true;
   // One of OFFICE_LINK_PATHS (shared/office-links.ts).
   link?: string;
   // 1 to 10 answers the member can tap (ASK_OPTIONS_MIN..MAX in server/asks.ts).
@@ -956,6 +960,7 @@ export interface AskFileTaskReq {
 }
 // What an agent reads back: the member wire plus the target's username.
 // member is null for an office secret request, which is for every owner.
+// member is the first of `members` (task 9461c464), for older readers.
 export type AskAgentWire = AskMemberWire & { member: string | null };
 // A closed ask (task ff590b5e): the agent wire plus how it closed. `by` is
 // the answering member's username, null when there is none or it is gone.

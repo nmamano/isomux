@@ -24,6 +24,13 @@ export function messagingHandlers(
       if (ctx.identity.scope !== "agent" || !agentId)
         return fail(403, "forbidden");
       const body = isObject(ctx.body) ? ctx.body : {};
+      // A draft waits for the route's member only (task 9461c464).
+      if (Array.isArray(body.member) || body.room !== undefined)
+        return fail(
+          422,
+          "invalid_members",
+          "a reply draft is for the route's member only",
+        );
       const res = await deps.replies.reply(agentId, ctx.params.routeId, {
         text: body.text,
         channelId: body.channelId,

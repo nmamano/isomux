@@ -60,6 +60,7 @@ function rig(over: Partial<AsksDeps> = {}) {
     history: {
       record: () => {},
       recordEvent: () => {},
+      members: () => [],
       has: () => false,
       get: () => null,
       getById: () => null,
@@ -72,6 +73,8 @@ function rig(over: Partial<AsksDeps> = {}) {
     memberByName: () => null,
     memberName: () => "pat",
     memberCanSeeRoom: () => true,
+    memberRoomHidden: () => false,
+    roomMemberIds: () => [],
     isOfficeOwner: () => false,
     canReadAgentLogs: () => false,
     // Step asks (task c71cb60f): unused here.
@@ -180,6 +183,34 @@ describe("an answer in flight", () => {
     held[0].resolve({ ok: true });
     expect(await first).toBe("noContent");
     expect(store.get(entry.id)).toBeNull();
+  });
+
+  // A shared ask (task 9461c464): the guard is per ask, not per member.
+  it("refuses a second member's reply or dismiss while the first member's is delivered, and sends once", async () => {
+    const { store, handlers, ctx, held, delivered, outcome } = rig();
+    const made = store.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      otherMemberUserIds: ["u2"],
+      prompt: "Who locks up?",
+    });
+    if (!made.ok) throw new Error(made.code);
+    const as = (userId: string, text?: string): RouteHandlerContext => ({
+      ...ctx(text),
+      identity: { ...member, userId },
+      params: { askId: made.entry.id },
+    });
+    const first = outcome(handlers["asks.reply"](as("u1", "me")));
+    await Promise.resolve();
+    expect(delivered).toEqual(["me"]);
+    const other = outcome(handlers["asks.reply"](as("u2", "me too")));
+    const dismissed = outcome(handlers["asks.dismiss"](as("u2")));
+    expect(delivered).toHaveLength(1);
+    expect(await other).toBe("409 ask_busy");
+    expect(await dismissed).toBe("409 ask_busy");
+    held[0].resolve({ ok: true });
+    expect(await first).toBe("noContent");
+    expect(store.get(made.entry.id)).toBeNull();
   });
 
   it("lets the member answer again when the delivery is refused", async () => {

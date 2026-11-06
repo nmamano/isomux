@@ -2048,6 +2048,8 @@ Coses que pots fer per ell:
   "asks.memberAll": "Tots els membres",
   "asks.agentAll": "Tots els agents",
   "asks.forMember": "Per a {member}",
+  "asks.alsoFor": "També per a {members}",
+  "asks.forRoom": "Per a tothom a {room}",
   "asks.chip": "petició: {words}",
   "asks.openAsk": "Obre la petició {id}",
   "asks.action.apply": "Aplica",
@@ -2123,6 +2125,8 @@ Coses que pots fer per ell:
     "Envia'l a {member}. És d'un sol ús: obrir-lo al seu dispositiu hi inicia la sessió. La URL es mostra un cop - copia-la ara.",
   "asks.result.apiToken": "Token d'API {name}",
   "asks.result.commandRun": "Executat des de la petició",
+  "asks.result.answeredFirst":
+    "{member} ha respost primer. La teva resposta no s'ha enviat.",
   "asks.viewInInbox": "Mostra a la safata d'entrada",
   "asks.pinnedMissing": "No pots veure aquesta petició, o no existeix.",
   "asks.stillOpen": "Encara oberta",

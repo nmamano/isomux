@@ -2042,6 +2042,8 @@ Cosas que puedes hacer por él:
   "asks.memberAll": "Todos los miembros",
   "asks.agentAll": "Todos los agentes",
   "asks.forMember": "Para {member}",
+  "asks.alsoFor": "También para {members}",
+  "asks.forRoom": "Para todos en {room}",
   "asks.chip": "petición: {words}",
   "asks.openAsk": "Abrir la petición {id}",
   "asks.action.apply": "Aplicar",
@@ -2116,6 +2118,8 @@ Cosas que puedes hacer por él:
     "Envíaselo a {member}. Es de un solo uso: al abrirlo en su dispositivo inicia sesión. La URL se muestra una vez - cópiala ahora.",
   "asks.result.apiToken": "Token de API {name}",
   "asks.result.commandRun": "Ejecutado desde la petición",
+  "asks.result.answeredFirst":
+    "{member} respondió primero. Tu respuesta no se envió.",
   "asks.viewInInbox": "Ver en la bandeja de entrada",
   "asks.pinnedMissing": "No puedes ver esta petición, o no existe.",
   "asks.stillOpen": "Sigue abierta",

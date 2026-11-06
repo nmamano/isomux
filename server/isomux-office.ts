@@ -78,7 +78,7 @@ import { type AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
 import { registerProductionCronjobManagerForModuleReads } from "./cronjob-manager.ts";
 import type { CronjobManager } from "./cronjob-manager.ts";
-import { askAudienceFor, type AskAudienceDeps } from "./asks.ts";
+import { askAudienceFor, askMemberIds, type AskAudienceDeps } from "./asks.ts";
 import {
   saveRecentCwd,
   getFilePath,
@@ -706,6 +706,12 @@ const askAudience: AskAudienceDeps = {
     const user = getUserById(userId);
     return !!user && accessibleRoomIdsFor(user).has(roomId);
   },
+  roomHidden: (userId, roomId) =>
+    getUserById(userId)?.hidden.includes(roomId) ?? false,
+  roomMemberIds: (roomId) =>
+    listUsers()
+      .filter((user) => accessibleRoomIdsFor(user).has(roomId))
+      .map((user) => user.id),
 };
 export function mayUseExtension(member: string, agentId: string): boolean {
   return (
@@ -2832,6 +2838,8 @@ function buildExecutorDeps(
       },
       memberName: (userId) => getUserById(userId)?.name ?? null,
       memberCanSeeRoom: askAudience.canSeeRoom,
+      memberRoomHidden: askAudience.roomHidden,
+      roomMemberIds: askAudience.roomMemberIds,
       // The terminal panel's gate (terminalAllowed), then the agent's access.
       commandRuns: {
         refusal: (identity, agentId) => {
@@ -5549,6 +5557,7 @@ export async function startServer(
     deliverCronjobToAgent,
     ordinaryScheduleMaker,
     pushAskChange,
+    askAudienceIds: (entry) => askMemberIds(entry, askAudience),
     pushPagerEntryToEachWs,
     secretStore,
     broadcast,

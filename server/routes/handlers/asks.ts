@@ -62,6 +62,7 @@ import {
   ASK_SIMPLIFY_UNDO_TEXT,
   isValidPriority,
   type AskCloseInput,
+  type AskClosure,
   type AskCommandRun,
   type AskEntry,
   type AskEvent,
@@ -91,9 +92,12 @@ import {
   askMemberWire,
   askTaskFields,
   askAudienceFor,
+  askMemberIds,
+  askRoomAudience,
   askShownToOwnerAsOther,
   askVisibleTo,
   AsksUnavailableError,
+  ASK_MEMBERS_MAX,
   ASK_AFFORDANCE_KEYS,
   ASK_AFFORDANCES_MAX,
   ASK_MAX_OPEN_PER_AGENT,
@@ -144,6 +148,10 @@ export interface AsksDeps {
   memberName(userId: string): string | null;
   // Whether a member can reach a room.
   memberCanSeeRoom(userId: string, roomId: string): boolean;
+  // Whether a member hides a room from their view (task 9461c464).
+  memberRoomHidden(userId: string, roomId: string): boolean;
+  // Every member who reaches a room.
+  roomMemberIds(roomId: string): string[];
   isOfficeOwner(userId: string): boolean;
   // Whether the caller can read the agent's logs (logSearchAccess): the reach
   // of asks.get, a read of any agent's ask by its id.
@@ -352,7 +360,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const commandRunning = new Set<string>();
 
   const wire = (entry: AskEntry): AskAgentWire =>
-    askAgentWire(entry, (userId) => deps.memberName(userId));
+    askAgentWire(entry, (userId) => deps.memberName(userId), audience);
   // A member named as they are now, null when there is none or they are gone.
   const byName = (userId: string | undefined) =>
     userId === undefined ? null : deps.memberName(userId);
@@ -384,6 +392,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     isOfficeOwner: (userId) => deps.isOfficeOwner(userId),
     agentRoomId: (agentId) => deps.agent(agentId)?.roomId ?? null,
     canSeeRoom: (userId, roomId) => deps.memberCanSeeRoom(userId, roomId),
+    roomHidden: (userId, roomId) => deps.memberRoomHidden(userId, roomId),
+    roomMemberIds: (roomId) => deps.roomMemberIds(roomId),
   };
   const audienceFor = (identity: Identity) =>
     askAudienceFor(audience, identity);
@@ -454,17 +464,41 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       "invalid_link",
       `link must be one of: ${OFFICE_LINK_PATHS.join(", ")}, ${ASK_LINK_PREFIX}<askId> for one ask, or ${AGENT_LINK_PREFIX}<agentId> for an agent the member can reach`,
     );
-  // A link to an agent's chat names an agent the member can reach; a page
-  // link needs no check past its form.
-  const linkReachable = (link: unknown, memberUserId: string | undefined) => {
+  // A link to an agent's chat names an agent every member of the ask can
+  // reach; a page link needs no check past its form.
+  const linkReachable = (link: unknown, memberUserIds: readonly string[]) => {
     const parsed = askLinkFor(link);
     if (!parsed || !("agentId" in parsed)) return true;
     const target = deps.agent(parsed.agentId);
     return (
       !!target &&
-      !!memberUserId &&
-      deps.memberCanSeeRoom(memberUserId, target.roomId)
+      memberUserIds.length > 0 &&
+      memberUserIds.every((userId) =>
+        deps.memberCanSeeRoom(userId, target.roomId),
+      )
     );
+  };
+  const invalidMembers = (message: string) =>
+    fail(422, "invalid_members", message);
+  // An answer to an ask that is gone: a member it was for, whom another
+  // member's answer beat, hears who answered (409 ask_closed); anyone else,
+  // and the member who closed it, gets the 404 of an unknown id.
+  const closedOrNotFound = (identity: Identity, askId: string) => {
+    const userId = identity.userId;
+    if (!userId) return notFound();
+    let closure: AskClosure | null = null;
+    try {
+      const record = deps.history.getById(askId);
+      if (record && deps.history.members(askId).includes(userId))
+        closure = record.closure;
+    } catch (err) {
+      console.error(`[asks] ${askId}: could not read the history:`, err);
+    }
+    if (!closure?.byUserId || closure.byUserId === userId) return notFound();
+    const by = byName(closure.byUserId);
+    return by === null
+      ? notFound()
+      : fail(409, "ask_closed", `${by} answered this ask first.`, { by });
   };
   const invalidOptions = (message: string) =>
     fail(422, "invalid_options", message);
@@ -648,7 +682,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (body.text.trim().length > 0) text = body.text;
     }
     const entry = readableBy(ctx.identity, ctx.params.askId);
-    if (!entry) return refuse(notFound());
+    if (!entry) return refuse(closedOrNotFound(ctx.identity, ctx.params.askId));
     // A secret request is answered with its masked form only: a reply would
     // carry what the member typed into the chat and to the agent.
     if (entry.secret)
@@ -915,11 +949,47 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
   const create = async (
     body: Record<string, unknown>,
     resolve: (body: Record<string, unknown>) => Asker,
+    // The body came from the text/plain form: member and room are lists.
+    fromText: boolean,
   ): Promise<HandlerResult> => {
     const checked = checkPromptField(body);
     if (!checked.ok) return fail(400, "invalid_text", checked.message);
-    if (body.member !== undefined && typeof body.member !== "string")
-      return fail(422, "invalid_request", "member must be a username");
+    // Who it is for (task 9461c464): the manager, named members or the room.
+    const room = body.room !== undefined;
+    if (
+      room &&
+      (body.member !== undefined ||
+        !(fromText ? body.room === "1" : body.room === true))
+    )
+      return invalidMembers(
+        fromText
+          ? "use room=1, and no member with it"
+          : "room must be true, and no member with it",
+      );
+    let names: string[] | undefined;
+    if (typeof body.member === "string") names = [body.member];
+    else if (Array.isArray(body.member)) {
+      const list: unknown[] = body.member;
+      if (
+        list.length === 0 ||
+        list.length > ASK_MEMBERS_MAX ||
+        !list.every((n): n is string => typeof n === "string" && n !== "")
+      )
+        return invalidMembers(
+          `member must list 1 to ${ASK_MEMBERS_MAX} usernames`,
+        );
+      if (new Set(list.map((n) => n.toLowerCase())).size !== list.length)
+        return invalidMembers("member names the same member twice");
+      names = list;
+    } else if (body.member !== undefined)
+      return fail(
+        422,
+        "invalid_request",
+        "member must be a username or a list of usernames",
+      );
+    const shared = room || (names !== undefined && names.length > 1);
+    if (shared && body.step !== undefined)
+      return invalidMembers("a step ask is for one member");
     if (body.link !== undefined && !askLinkFor(body.link)) return invalidLink();
     let options: string[] | undefined;
     if (body.options !== undefined) {
@@ -940,12 +1010,37 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const asker = resolve(body);
     if (!asker.ok) return asker.result;
     const { agentId, agent } = asker;
-    let memberUserId: string;
-    if (body.member !== undefined) {
-      const member = deps.memberByName(body.member);
-      if (!member)
-        return fail(422, "unknown_member", `No member named ${body.member}.`);
-      memberUserId = member.id;
+    // Everyone it is for, the stored member first.
+    let memberUserIds: string[];
+    if (room) {
+      const everyone = askRoomAudience(agent.roomId, audience);
+      if (everyone.length === 0)
+        return fail(
+          422,
+          "no_audience",
+          "Every member who can reach this room hides it. Name members with member= instead.",
+        );
+      // The stored member, for an older server: the manager when they are
+      // in the audience, else the first by id.
+      const first =
+        asker.manager && everyone.includes(asker.manager)
+          ? asker.manager
+          : [...everyone].sort()[0];
+      memberUserIds = [first, ...everyone.filter((id) => id !== first)];
+    } else if (names !== undefined) {
+      memberUserIds = [];
+      for (const name of names) {
+        const member = deps.memberByName(name);
+        if (!member)
+          return fail(422, "unknown_member", `No member named ${name}.`);
+        if (!deps.memberCanSeeRoom(member.id, agent.roomId))
+          return fail(
+            422,
+            "member_no_access",
+            `${member.name} cannot reach this agent's room.`,
+          );
+        memberUserIds.push(member.id);
+      }
     } else {
       if (!asker.manager)
         return fail(
@@ -953,15 +1048,16 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           "no_manager",
           "This agent has no manager. Name a member with member=<username>.",
         );
-      memberUserId = asker.manager;
+      if (!deps.memberCanSeeRoom(asker.manager, agent.roomId))
+        return fail(
+          422,
+          "member_no_access",
+          "That member cannot reach this agent's room.",
+        );
+      memberUserIds = [asker.manager];
     }
-    if (!deps.memberCanSeeRoom(memberUserId, agent.roomId))
-      return fail(
-        422,
-        "member_no_access",
-        "That member cannot reach this agent's room.",
-      );
-    if (body.link !== undefined && !linkReachable(body.link, memberUserId))
+    const memberUserId = memberUserIds[0];
+    if (body.link !== undefined && !linkReachable(body.link, memberUserIds))
       return invalidLink();
     // A step ask's link is the step's tab, set here.
     let step: Extract<StepCheck, { ok: true }> | undefined;
@@ -978,7 +1074,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         roomId: agent.roomId,
         managerUserId: agent.managerUserId,
         memberUserId,
-        memberNamed: body.member !== undefined,
+        memberNamed: names !== undefined,
       });
       if (!checkedStep.ok)
         return fail(checkedStep.status, checkedStep.code, checkedStep.message);
@@ -991,6 +1087,10 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     const result = store.create({
       agentId,
       memberUserId,
+      ...(room ? { room: true as const } : {}),
+      ...(!room && memberUserIds.length > 1
+        ? { otherMemberUserIds: memberUserIds.slice(1) }
+        : {}),
       prompt: checked.prompt,
       ...(body.link !== undefined ? { link: body.link as string } : {}),
       ...(step?.link !== undefined ? { link: step.link } : {}),
@@ -1008,7 +1108,8 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
           : {}),
     });
     if (!result.ok) return tooManyAsks();
-    deps.recordMemberHeardFrom?.(memberUserId, agentId);
+    for (const userId of memberUserIds)
+      deps.recordMemberHeardFrom?.(userId, agentId);
     return created(wire(result.entry));
   };
 
@@ -1050,6 +1151,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
       if (!isValidPriority(body.priority)) return invalidPriority();
       priority = body.priority;
     }
+    // Who it is for is fixed at create (task 9461c464).
+    if (body.member !== undefined || body.room !== undefined)
+      return invalidMembers("an ask's members cannot be edited");
     const prev = find();
     if (!prev) return notFound();
     // A reply draft is fixed once the member can see it.
@@ -1073,7 +1177,7 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     if (
       body.link !== undefined &&
       body.link !== "" &&
-      !linkReachable(body.link, prev.memberUserId)
+      !linkReachable(body.link, askMemberIds(prev, audience))
     )
       return invalidLink();
     // The mark goes with the options: sent options without one clear it,
@@ -1331,17 +1435,21 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.runAction": guarded(runAction),
     "asks.runCommand": guarded(runCommand),
     "agents.createAsk": guarded((ctx) =>
-      create((ctx.body ?? {}) as Record<string, unknown>, () => {
-        const agent = deps.agent(ctx.params.id);
-        return agent
-          ? {
-              ok: true,
-              agentId: ctx.params.id,
-              agent,
-              manager: agent.managerUserId,
-            }
-          : { ok: false, result: fail(404, "not_found", "No such agent.") };
-      }),
+      create(
+        (ctx.body ?? {}) as Record<string, unknown>,
+        () => {
+          const agent = deps.agent(ctx.params.id);
+          return agent
+            ? {
+                ok: true,
+                agentId: ctx.params.id,
+                agent,
+                manager: agent.managerUserId,
+              }
+            : { ok: false, result: fail(404, "not_found", "No such agent.") };
+        },
+        ctx.form === "text",
+      ),
     ),
 
     "agents.listAsks": guarded((ctx) =>
@@ -1459,63 +1567,74 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
     "asks.appCreate": guarded((ctx) => {
       const app = callerApp(ctx.identity);
       if (!app) return appGone();
-      return create((ctx.body ?? {}) as Record<string, unknown>, (body) => {
-        // A step is an agent's flow: the agent completes it.
-        if (body.step !== undefined)
+      return create(
+        (ctx.body ?? {}) as Record<string, unknown>,
+        (body) => {
+          // A step is an agent's flow: the agent completes it.
+          if (body.step !== undefined)
+            return {
+              ok: false,
+              result: fail(
+                400,
+                "invalid_request",
+                "an app cannot open a step ask",
+              ),
+            };
+          if (!app.targetAgentId)
+            return {
+              ok: false,
+              result: fail(
+                409,
+                "no_target",
+                "this app was not registered by an agent, so no agent can receive the answer",
+              ),
+            };
+          const agent = deps.agent(app.targetAgentId);
+          if (!agent)
+            return {
+              ok: false,
+              result: fail(
+                404,
+                "target_gone",
+                "this app's message target no longer exists; its owner must point it at a live agent",
+              ),
+            };
+          // As a chosen message target: only with a live owner agent.
+          if (
+            (body.member !== undefined || body.room !== undefined) &&
+            !actsForAgent(ctx.identity)
+          )
+            return {
+              ok: false,
+              result: fail(
+                403,
+                "forbidden",
+                "this app has no live owner agent, so its asks go to its owner only",
+              ),
+            };
+          if (
+            body.member === undefined &&
+            body.room === undefined &&
+            !app.ownerUserId
+          )
+            return {
+              ok: false,
+              result: fail(
+                409,
+                "no_owner",
+                "this app has no owner to receive the ask",
+              ),
+            };
           return {
-            ok: false,
-            result: fail(
-              400,
-              "invalid_request",
-              "an app cannot open a step ask",
-            ),
+            ok: true,
+            agentId: app.targetAgentId,
+            agent,
+            manager: app.ownerUserId,
+            app: { name: app.appName, createdAt: app.createdAt },
           };
-        if (!app.targetAgentId)
-          return {
-            ok: false,
-            result: fail(
-              409,
-              "no_target",
-              "this app was not registered by an agent, so no agent can receive the answer",
-            ),
-          };
-        const agent = deps.agent(app.targetAgentId);
-        if (!agent)
-          return {
-            ok: false,
-            result: fail(
-              404,
-              "target_gone",
-              "this app's message target no longer exists; its owner must point it at a live agent",
-            ),
-          };
-        // As a chosen message target: only with a live owner agent.
-        if (body.member !== undefined && !actsForAgent(ctx.identity))
-          return {
-            ok: false,
-            result: fail(
-              403,
-              "forbidden",
-              "this app has no live owner agent, so its asks go to its owner only",
-            ),
-          };
-        if (body.member === undefined && !app.ownerUserId)
-          return {
-            ok: false,
-            result: fail(
-              409,
-              "no_owner",
-              "this app has no owner to receive the ask",
-            ),
-          };
-        return {
-          ok: true,
-          agentId: app.targetAgentId,
-          agent,
-          manager: app.ownerUserId,
-          app: { name: app.appName, createdAt: app.createdAt },
-        };
-      });
+        },
+        ctx.form === "text",
+      );
     }),
 
     "asks.appList": guarded((ctx) => {
@@ -1567,7 +1686,9 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         store
           .listAll()
           .filter((entry) => askVisibleTo(entry, userId, seen))
-          .map(askMemberWire),
+          .map((entry) =>
+            askMemberWire(entry, (id) => deps.memberName(id), seen),
+          ),
       );
     }),
 

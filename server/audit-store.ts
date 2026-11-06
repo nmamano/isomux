@@ -60,6 +60,11 @@ export function openOfficeDatabase(path: string): Database {
         record TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS ask_history_agent ON ask_history(agent_id, seq);
       CREATE INDEX IF NOT EXISTS ask_history_id ON ask_history(id);
+      CREATE TABLE IF NOT EXISTS ask_history_members (
+        ask_id TEXT NOT NULL, user_id TEXT NOT NULL,
+        PRIMARY KEY(ask_id, user_id));
+      CREATE INDEX IF NOT EXISTS ask_history_members_user
+        ON ask_history_members(user_id);
       CREATE TABLE IF NOT EXISTS ask_events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, ask_id TEXT NOT NULL,
         agent_id TEXT NOT NULL, record TEXT NOT NULL);

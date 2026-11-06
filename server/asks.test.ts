@@ -6,9 +6,14 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { AskCommandRun, AskEntry } from "../shared/types.ts";
+import { API_CAPABILITIES, type Identity } from "./identity/index.ts";
 import {
   ASK_TASK_TITLE_MAX,
+  askAgentWire,
+  askAudienceFor,
+  askMemberIds,
   askReplyNote,
+  askShownToOwnerAsOther,
   askTaskFields,
   askVisibleTo,
   checkOptions,
@@ -371,6 +376,55 @@ describe("the three shapes", () => {
         false,
       ],
     ),
+    // A shared ask (task 9461c464): named members, or the room. Only a plain
+    // ask is shared, and it keeps one member for an older server.
+    ...(
+      [
+        ["list", { otherMemberUserIds: ["u2", "u3"] }, true],
+        ["room", { room: true }, true],
+        ["list that is not an array", { otherMemberUserIds: "u2" }, false],
+        ["list with an empty id", { otherMemberUserIds: ["u2", ""] }, false],
+        ["list with a non-string id", { otherMemberUserIds: ["u2", 3] }, false],
+        ["room that is not true", { room: false }, false],
+        ["room as a string", { room: "true" }, false],
+        ["room and a list", { room: true, otherMemberUserIds: ["u2"] }, false],
+        [
+          "list on a secret",
+          {
+            otherMemberUserIds: ["u2"],
+            secret: { ...SECRET, scope: "personal" },
+          },
+          false,
+        ],
+        [
+          "room on a secret",
+          { room: true, secret: { ...SECRET, scope: "personal" } },
+          false,
+        ],
+        [
+          "list on a draft",
+          { otherMemberUserIds: ["u2"], messaging: DRAFT },
+          false,
+        ],
+        ["room on a draft", { room: true, messaging: DRAFT }, false],
+        [
+          "list on a step",
+          { otherMemberUserIds: ["u2"], step: { kind: "browser-pairing" } },
+          false,
+        ],
+        [
+          "room on a step",
+          { room: true, step: { kind: "browser-pairing" } },
+          false,
+        ],
+      ] as const
+    ).map(([label, fields, loads]): [string, unknown, boolean] => [
+      label,
+      { ...BASE, memberUserId: "u1", ...fields },
+      loads,
+    ]),
+    ["room with no member", { ...BASE, room: true }, false],
+    ["list with no member", { ...BASE, otherMemberUserIds: ["u2"] }, false],
   ];
   for (const [label, entry, loads] of shapes)
     it(`${loads ? "loads" : "moves aside"} a file with a ${label} entry`, () => {
@@ -424,6 +478,35 @@ describe("the three shapes", () => {
       persistence: createAskFilePersistence(path),
     });
     expect(second.get(made.entry.id)?.messaging).toEqual(DRAFT);
+  });
+
+  it("keeps a shared ask's members and room mark through a write and a load (task 9461c464)", () => {
+    const { path } = fileIn();
+    const first = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    const list = first.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      otherMemberUserIds: ["u3", "u2"],
+      prompt: "Who takes it?",
+    });
+    const room = first.create({
+      agentId: "a1",
+      memberUserId: "u1",
+      room: true,
+      prompt: "Anyone?",
+    });
+    if (!list.ok || !room.ok) throw new Error("create failed");
+    const second = createAskStore({
+      persistence: createAskFilePersistence(path),
+    });
+    const reread = (id: string) => {
+      const e = second.get(id);
+      return [e?.memberUserId, e?.otherMemberUserIds ?? null, e?.room ?? null];
+    };
+    expect(reread(list.entry.id)).toEqual(["u1", ["u3", "u2"], null]);
+    expect(reread(room.entry.id)).toEqual(["u1", null, true]);
   });
 
   it("refuses to create an entry of no shape, and writes nothing", () => {
@@ -506,6 +589,8 @@ describe("who sees an ask", () => {
     isOfficeOwner: (userId) => userId === "u-owner",
     agentRoomId: (agentId) => (agentId === "a1" ? "r1" : null),
     canSeeRoom: () => true,
+    roomHidden: () => false,
+    roomMemberIds: () => [],
     ...over,
   });
   const plain: AskEntry = { ...BASE, memberUserId: "u1" };
@@ -540,6 +625,149 @@ describe("who sees an ask", () => {
     expect(
       askVisibleTo({ ...office, agentId: "gone" }, "u-owner", audience()),
     ).toBe(false);
+  });
+});
+
+// A shared ask (task 9461c464): named members, or everyone who reaches the
+// agent's room and does not hide it, read live.
+describe("who a shared ask is for", () => {
+  // Room r1 holds a1; u1, u2, u3 and u-owner reach it, u-out does not.
+  const reach = new Set(["u1", "u2", "u3", "u-owner"]);
+  const audience = (
+    hidden: string[] = [],
+    over: Partial<AskAudienceDeps> = {},
+  ): AskAudienceDeps => ({
+    isOfficeOwner: (userId) => userId === "u-owner",
+    agentRoomId: (agentId) => (agentId === "a1" ? "r1" : null),
+    canSeeRoom: (userId, roomId) => roomId === "r1" && reach.has(userId),
+    roomHidden: (userId, roomId) => roomId === "r1" && hidden.includes(userId),
+    roomMemberIds: (roomId) => (roomId === "r1" ? [...reach] : []),
+    ...over,
+  });
+  const list: AskEntry = {
+    ...BASE,
+    memberUserId: "u1",
+    otherMemberUserIds: ["u3", "u2"],
+  };
+  const room: AskEntry = { ...BASE, memberUserId: "u1", room: true };
+  const sees = (entry: AskEntry, deps: AskAudienceDeps) =>
+    ["u1", "u2", "u3", "u-owner", "u-out"].filter((u) =>
+      askVisibleTo(entry, u, deps),
+    );
+
+  it("a list: its members in the order the agent named them, each while they reach the room, hidden or not", () => {
+    expect(askMemberIds(list, audience())).toEqual(["u1", "u3", "u2"]);
+    expect(sees(list, audience())).toEqual(["u1", "u2", "u3"]);
+    // The agent named them: hiding the room does not take it away.
+    expect(sees(list, audience(["u1", "u2", "u3"]))).toEqual([
+      "u1",
+      "u2",
+      "u3",
+    ]);
+    // Read live: a member who loses the room stops seeing it.
+    expect(
+      sees(
+        list,
+        audience([], { canSeeRoom: (u) => reach.has(u) && u !== "u3" }),
+      ),
+    ).toEqual(["u1", "u2"]);
+  });
+
+  it("a plain ask is for its one member", () => {
+    expect(askMemberIds({ ...BASE, memberUserId: "u2" }, audience())).toEqual([
+      "u2",
+    ]);
+  });
+
+  it("a room ask: everyone who reaches the room and does not hide it, read live; the stored member is not special", () => {
+    expect([...askMemberIds(room, audience())].sort()).toEqual([
+      "u-owner",
+      "u1",
+      "u2",
+      "u3",
+    ]);
+    expect(sees(room, audience())).toEqual(["u1", "u2", "u3", "u-owner"]);
+    // u1 is the stored member, and hiding the room takes it away from them
+    // too; an owner who hides it does not get it either.
+    const hidden = audience(["u1", "u-owner"]);
+    expect([...askMemberIds(room, hidden)].sort()).toEqual(["u2", "u3"]);
+    expect(sees(room, hidden)).toEqual(["u2", "u3"]);
+    // A member who reaches the room later gets it.
+    const joined = audience([], {
+      canSeeRoom: (u, r) => r === "r1" && (reach.has(u) || u === "u-out"),
+      roomMemberIds: () => [...reach, "u-out"],
+    });
+    expect(askMemberIds(room, joined)).toContain("u-out");
+    expect(askVisibleTo(room, "u-out", joined)).toBe(true);
+    // Everyone hides it: open for nobody.
+    expect(askMemberIds(room, audience(["u1", "u2", "u3", "u-owner"]))).toEqual(
+      [],
+    );
+    // The agent is gone: no room, nobody.
+    expect(askMemberIds({ ...room, agentId: "gone" }, audience())).toEqual([]);
+  });
+
+  it("the owners' view of other members' asks: a list once for an owner it does not name, a room ask never", () => {
+    // Not named: the owner sees it as another member's ask.
+    expect(askShownToOwnerAsOther(list, "u-owner", audience())).toBe(true);
+    // Named: it is their own ask, not another member's.
+    const named: AskEntry = { ...list, otherMemberUserIds: ["u-owner"] };
+    expect(askVisibleTo(named, "u-owner", audience())).toBe(true);
+    expect(askShownToOwnerAsOther(named, "u-owner", audience())).toBe(false);
+    // An owner who hides the room does not get a room ask back this way.
+    expect(askShownToOwnerAsOther(room, "u-owner", audience(["u-owner"]))).toBe(
+      false,
+    );
+    expect(askShownToOwnerAsOther(room, "u-owner", audience())).toBe(false);
+    expect(askVisibleTo(room, "u-owner", audience())).toBe(true);
+  });
+
+  it("a token limited to other rooms reaches no one through a room ask", () => {
+    const token = {
+      scope: "api",
+      userId: "u2",
+      role: "member",
+      capabilities: API_CAPABILITIES,
+      apiTokenLimits: { rooms: ["r2"] },
+    } as Identity;
+    const limited = askAudienceFor(audience(), token);
+    expect(askMemberIds(room, limited)).toEqual([]);
+    expect(askVisibleTo(room, "u2", limited)).toBe(false);
+    const inRoom = askAudienceFor(audience(), {
+      ...token,
+      apiTokenLimits: { rooms: ["r1"] },
+    } as Identity);
+    expect(askVisibleTo(room, "u2", inRoom)).toBe(true);
+  });
+
+  it("the wire names every member by current name, first member as `member`, and marks a room ask", () => {
+    const names: Record<string, string> = {
+      u1: "ana",
+      u2: "bo",
+      u3: "cy",
+      "u-owner": "nil",
+    };
+    const name = (u: string) => names[u] ?? null;
+    const listed = askAgentWire(list, name, audience());
+    expect([listed.member, listed.members, listed.room ?? null]).toEqual([
+      "ana",
+      ["ana", "cy", "bo"],
+      null,
+    ]);
+    const roomWire = askAgentWire(room, name, audience(["u1"]));
+    expect([[...(roomWire.members ?? [])].sort(), roomWire.room]).toEqual([
+      ["bo", "cy", "nil"],
+      true,
+    ]);
+    // `member` is the first of `members` for an older reader.
+    expect(roomWire.member).toBe(roomWire.members?.[0] ?? null);
+    // Open for nobody now: no names, and `member` falls back to the stored one.
+    const empty = askAgentWire(
+      room,
+      name,
+      audience(["u1", "u2", "u3", "u-owner"]),
+    );
+    expect([empty.members, empty.member]).toEqual([[], "ana"]);
   });
 });
 

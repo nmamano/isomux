@@ -1547,6 +1547,10 @@ export interface AskEntry {
   // another member with access to its room. Absent only on an office secret
   // request, which is for every office owner (askVisibleTo in server/asks.ts).
   memberUserId?: string;
+  // A shared plain ask (task 9461c464, askMemberIds): the other named
+  // members, or every member who shows the agent's room, read live.
+  otherMemberUserIds?: string[];
+  room?: true;
   prompt: string;
   createdAt: number;
   updatedAt: number;
@@ -1635,7 +1639,10 @@ export interface AskCommandRun {
 }
 
 // An ask as a route or push sends it: the opening session stays server-side.
-export type AskMemberWire = Omit<AskEntry, "sessionId">;
+// `members`: everyone it is for now, by name (always sent by the server).
+export type AskMemberWire = Omit<AskEntry, "sessionId"> & {
+  members?: string[];
+};
 
 // How an ask closed (task ff590b5e). The record of each closed ask is kept in
 // office.sqlite (server/ask-history.ts).
@@ -2889,8 +2896,9 @@ export type ServerMessage =
   // target member receives it; the UI reads GET /api/asks after each
   // reconnect.
   | { type: "ask_upserted"; entry: AskMemberWire }
-  // An ask addressed to the recipient closed (reply, dismiss, delete).
-  | { type: "ask_removed"; id: string }
+  // An ask addressed to the recipient closed (reply, dismiss, delete); `by`
+  // is who answered, for a member who reaches the room.
+  | { type: "ask_removed"; id: string; by?: string }
   // Another member's open ask, for an office owner only
   // (askShownToOwnerAsOther); the UI reads GET /api/asks/others after each
   // reconnect.

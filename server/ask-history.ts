@@ -36,7 +36,7 @@ export interface AskHistoryRecord {
 }
 
 export interface AskHistoryQuery {
-  // Only the asks for this member.
+  // Only the asks for this member, or that they closed.
   memberUserId?: string;
   // Only rows older than this seq.
   before?: number;
@@ -61,7 +61,15 @@ export interface AskLogRecord {
 export interface AskHistory {
   // Durable write of the history row and the closed event, both or
   // neither. MUST THROW on failure.
-  record(entry: AskEntry, closure: AskClosure): void;
+  // memberUserIds: everyone the ask was for at the close (task 9461c464),
+  // kept in ask_history_members with the closer.
+  record(
+    entry: AskEntry,
+    closure: AskClosure,
+    memberUserIds?: readonly string[],
+  ): void;
+  // The members a closed ask was for, and its closer.
+  members(askId: string): string[];
   // An event of an ask, open or closed. Durable write. MUST THROW on failure.
   recordEvent(agentId: string, askId: string, event: AskEvent): void;
   has(id: string): boolean;
@@ -125,22 +133,49 @@ export function createAskHistory(db: Database): AskHistory {
     ).run(askId, agentId, JSON.stringify(event));
   }
 
-  const record = db.transaction((entry: AskEntry, closure: AskClosure) => {
-    db.query(
-      "INSERT INTO ask_history(id,agent_id,member_user_id,closed_at,record) VALUES (?,?,?,?,?)",
-    ).run(
-      entry.id,
-      entry.agentId,
-      entry.memberUserId ?? null,
-      closure.at,
-      JSON.stringify({ entry, closure }),
-    );
-    insertEvent(entry.agentId, entry.id, { kind: "closed", ...closure });
-  });
+  const record = db.transaction(
+    (
+      entry: AskEntry,
+      closure: AskClosure,
+      memberUserIds: readonly string[] | undefined,
+    ) => {
+      db.query(
+        "INSERT INTO ask_history(id,agent_id,member_user_id,closed_at,record) VALUES (?,?,?,?,?)",
+      ).run(
+        entry.id,
+        entry.agentId,
+        entry.memberUserId ?? null,
+        closure.at,
+        JSON.stringify({ entry, closure }),
+      );
+      insertEvent(entry.agentId, entry.id, { kind: "closed", ...closure });
+      // Everyone it was for at the close, and the closer (task 9461c464).
+      const members = new Set(
+        memberUserIds ??
+          (entry.memberUserId === undefined
+            ? []
+            : [entry.memberUserId, ...(entry.otherMemberUserIds ?? [])]),
+      );
+      if (closure.byUserId) members.add(closure.byUserId);
+      const insertMember = db.query(
+        "INSERT OR IGNORE INTO ask_history_members(ask_id,user_id) VALUES (?,?)",
+      );
+      for (const userId of members) insertMember.run(entry.id, userId);
+    },
+  );
 
   return {
-    record(entry, closure) {
-      record(entry, closure);
+    record(entry, closure, memberUserIds) {
+      record(entry, closure, memberUserIds);
+    },
+    members(askId) {
+      return (
+        db
+          .query(
+            "SELECT user_id FROM ask_history_members WHERE ask_id=? ORDER BY user_id",
+          )
+          .all(askId) as { user_id: string }[]
+      ).map((row) => row.user_id);
     },
     recordEvent: insertEvent,
     has(id) {
@@ -172,8 +207,12 @@ export function createAskHistory(db: Database): AskHistory {
       const where = ["agent_id=?"];
       const args: (string | number)[] = [agentId];
       if (memberUserId !== undefined) {
-        where.push("member_user_id=?");
-        args.push(memberUserId);
+        // Any member it was for, or its closer (ask_history_members); an
+        // older server wrote only member_user_id.
+        where.push(
+          "(member_user_id=? OR id IN (SELECT ask_id FROM ask_history_members WHERE user_id=?))",
+        );
+        args.push(memberUserId, memberUserId);
       }
       if (before !== undefined) {
         where.push("seq<?");
@@ -228,7 +267,9 @@ export function createAskHistory(db: Database): AskHistory {
 export function officeAskHistory(): AskHistory {
   const current = () => createAskHistory(officeAuditStore().db);
   return {
-    record: (entry, closure) => current().record(entry, closure),
+    record: (entry, closure, memberUserIds) =>
+      current().record(entry, closure, memberUserIds),
+    members: (askId) => current().members(askId),
     recordEvent: (agentId, askId, event) =>
       current().recordEvent(agentId, askId, event),
     has: (id) => current().has(id),

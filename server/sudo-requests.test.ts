@@ -108,6 +108,8 @@ function setup() {
     agentRoomId: (agentId: string) =>
       Object.hasOwn(AGENTS, agentId) ? "r1" : null,
     canSeeRoom: (userId: string) => userId !== "u-eve",
+    roomHidden: () => false,
+    roomMemberIds: () => [],
   };
   const events: AskChange[] = [];
   const reports: Report[] = [];
@@ -256,6 +258,27 @@ describe("the agent's request", () => {
     const t = setup();
     await open(t, "a1", { command: COMMAND, reason: REASON, member: "dana" });
     expect(t.asks.listAll()[0].memberUserId).toBe("u-owner2");
+  });
+
+  // A shared ask (task 9461c464) is a plain ask only: the password is one
+  // owner's.
+  it("goes to one owner: a member list or the whole room is refused", async () => {
+    const t = setup();
+    const list = await t.requests.open("a1", {
+      command: COMMAND,
+      reason: REASON,
+      member: ["dana"],
+    });
+    const room = await t.requests.open("a1", {
+      command: COMMAND,
+      reason: REASON,
+      room: true,
+    });
+    expect([list, room].map(failure)).toEqual([
+      "422 invalid_members",
+      "422 invalid_members",
+    ]);
+    expect(t.asks.listAll()).toEqual([]);
   });
 
   it("only an office owner answers: the box account's password is theirs", async () => {
