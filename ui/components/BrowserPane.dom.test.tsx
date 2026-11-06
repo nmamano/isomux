@@ -120,9 +120,14 @@ test("Chrome pairing adds named browsers; each one unpairs through its own self 
     "/api/me/browser/pair",
     { name: prefill },
   ]);
-  await act(async () =>
-    fireEvent.click(paired.getAllByTestId("browser-revoke")[0]),
-  );
+  // Unpair asks first (task c6589760): the first click arms it.
+  const unpair = paired.getAllByTestId("browser-revoke")[0];
+  const before = writes.length;
+  await act(async () => fireEvent.click(unpair));
+  expect(writes).toHaveLength(before);
+  expect(unpair.hasAttribute("data-confirm-armed")).toBe(true);
+  await act(async () => fireEvent.click(unpair));
+  expect(writes).toHaveLength(before + 1);
   expect(writes.at(-1)).toEqual([
     "DELETE",
     "/api/me/browser/browsers/laptop",

@@ -88,6 +88,7 @@ import {
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
 import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
+import { isConfirmArmed, useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import { noTranslate } from "../no-translate.ts";
 import {
@@ -367,6 +368,8 @@ export function UserSettingsView({
   const [logoutBlockedReason, setLogoutBlockedReason] = useState<string | null>(
     null,
   );
+  // This device needs a new invite to sign in again: Sign out asks first.
+  const signOutStep = useConfirmStep();
 
   // ESC: mobile detail → back to the list; otherwise leave the page. Both
   // routed through the dirty check. Capture + stopPropagation so App's own
@@ -378,6 +381,8 @@ export function UserSettingsView({
       // An expanded editor collapses on Escape instead of navigating this
       // page; our capture listener runs first, so stand down for it.
       if (isExpandedEditorOpen()) return;
+      // An armed confirm step takes Escape to end itself.
+      if (isConfirmArmed()) return;
       e.stopPropagation();
       if (isMobile && selection) {
         backToList();
@@ -878,7 +883,10 @@ export function UserSettingsView({
             {sessionContext && (
               <div style={{ padding: "0 14px" }}>
                 <button
-                  onClick={() => void signOut()}
+                  {...signOutStep.bind("signOut")}
+                  onClick={() =>
+                    signOutStep.confirm("signOut", () => void signOut())
+                  }
                   style={{
                     padding: "8px 14px",
                     borderRadius: 6,
@@ -891,7 +899,11 @@ export function UserSettingsView({
                   }}
                   title={t("settings.signOutHint")}
                 >
-                  {t("common.signOut")}
+                  {t(
+                    signOutStep.armed
+                      ? "common.confirmQuestion"
+                      : "common.signOut",
+                  )}
                 </button>
                 {logoutBlockedReason && (
                   <p

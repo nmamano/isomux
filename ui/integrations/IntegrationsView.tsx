@@ -56,6 +56,7 @@ import { PagerSettingsPane } from "../components/PagerSettingsPane.tsx";
 import { TAB_LABEL } from "../office-link.tsx";
 import { ApiTokensPane } from "../components/ApiTokensPane.tsx";
 import { isExpandedEditorOpen } from "../components/ExpandableTextarea.tsx";
+import { isConfirmArmed } from "../hooks/useConfirmStep.ts";
 import {
   SidebarGroupRows,
   type SidebarGroup,
@@ -380,7 +381,9 @@ function IntegrationsPage({
   useEffect(() => {
     if (!isMobile || listShown) return;
     function handleKey(e: KeyboardEvent) {
-      if (e.key !== "Escape" || isExpandedEditorOpen()) return;
+      // An armed confirm step takes Escape to end itself.
+      if (e.key !== "Escape" || isExpandedEditorOpen() || isConfirmArmed())
+        return;
       e.stopPropagation();
       setListShown(true);
     }

@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { useAppState } from "../store.tsx";
 import { Reserved } from "../components/Reserved.tsx";
 import { getGithubLayout, setGithubLayout } from "../device-settings.ts";
@@ -21,6 +22,7 @@ import {
   dialogLabel,
   dialogSaveBtn,
   disabledLook,
+  armedConfirmLook,
 } from "../components/dialog-styles.ts";
 import { Btn, Placeholder, card, hintText, input } from "./kit.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
@@ -272,6 +274,8 @@ export function RoomGithubLink({
   const [pickedSecret, setPickedSecret] = useState(saved?.secretName ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Unlink drops the link settings, with no Undo: it asks first.
+  const unlinkStep = useConfirmStep();
 
   function show(next: GithubLinkWire | null) {
     setLink(next);
@@ -446,11 +450,20 @@ export function RoomGithubLink({
         {link && (
           <button
             data-github-link-unlink
-            onClick={() => void unlink()}
+            {...unlinkStep.bind("unlink")}
+            onClick={() => unlinkStep.confirm("unlink", () => void unlink())}
             disabled={busy}
-            style={{ ...dialogCancelBtn, ...(busy ? disabledLook : {}) }}
+            style={{
+              ...dialogCancelBtn,
+              ...(unlinkStep.armed ? armedConfirmLook : {}),
+              ...(busy ? disabledLook : {}),
+            }}
           >
-            {t("integrations.github.unlink")}
+            {t(
+              unlinkStep.armed
+                ? "common.confirmQuestion"
+                : "integrations.github.unlink",
+            )}
           </button>
         )}
       </div>

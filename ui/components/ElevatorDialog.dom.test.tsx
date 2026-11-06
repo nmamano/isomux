@@ -61,11 +61,14 @@ function open(
     return answer(call);
   });
   const opened: string[] = [];
+  let closes = 0;
   const view = render(
     onLanguage(
       null,
       createElement(ElevatorDialog, {
-        onClose: () => {},
+        onClose: () => {
+          closes++;
+        },
         ownOrigin: OWN,
         openFloor: (url: string) => opened.push(url),
       }),
@@ -87,7 +90,17 @@ function open(
       fireEvent.click(action(view.container, "add"));
     });
   }
-  return { view, calls, opened, rows, action, field, alertText, submit };
+  return {
+    view,
+    calls,
+    opened,
+    rows,
+    action,
+    field,
+    alertText,
+    submit,
+    closes: () => closes,
+  };
 }
 
 describe("ElevatorDialog", () => {
@@ -118,6 +131,12 @@ describe("ElevatorDialog", () => {
       (remove.getAttribute("aria-label") ?? remove.getAttribute("title") ?? "")
         .length,
     ).toBeGreaterThan(0);
+    // Remove asks first (task c6589760): the first click arms it.
+    await act(async () => {
+      fireEvent.click(remove);
+    });
+    expect(d.calls).toEqual([]);
+    expect(remove.hasAttribute("data-confirm-armed")).toBe(true);
     await act(async () => {
       fireEvent.click(remove);
     });
@@ -125,6 +144,30 @@ describe("ElevatorDialog", () => {
       { method: "DELETE", path: "/api/floors/f1", body: undefined },
     ]);
     expect(d.opened.map((u) => new URL(u).origin)).toEqual([unnamed.url]);
+    d.view.unmount();
+  });
+
+  // The dialog closes on Escape from a window listener (task c6589760): on
+  // an armed remove, Escape ends the confirm and the dialog stays.
+  it("Escape on an armed remove ends the confirm and keeps the dialog; the next Escape closes it", async () => {
+    const d = open([named]);
+    const remove = d.action(d.rows()[0], "remove");
+    await act(async () => {
+      fireEvent.click(remove);
+    });
+    expect(remove.hasAttribute("data-confirm-armed")).toBe(true);
+    await act(async () => {
+      fireEvent.keyDown(remove, { key: "Escape" });
+    });
+    expect([remove.hasAttribute("data-confirm-armed"), d.closes()]).toEqual([
+      false,
+      0,
+    ]);
+    await act(async () => {
+      fireEvent.keyDown(remove, { key: "Escape" });
+    });
+    expect(d.closes()).toBe(1);
+    expect(d.calls).toEqual([]);
     d.view.unmount();
   });
 
@@ -321,6 +364,15 @@ describe("ElevatorDialog panel", () => {
   it("removes a personal entry in this browser only, with its office's floors, and sends no call", async () => {
     seed(trip);
     const d = open([named], async (c) => (isNameAsk(c) ? { name: null } : {}));
+    // A personal remove asks first too (task c6589760).
+    await act(async () => {
+      fireEvent.click(d.action(rowFor(d.view, ATLAS), "remove"));
+    });
+    expect(
+      d
+        .action(rowFor(d.view, ATLAS), "remove")
+        .hasAttribute("data-confirm-armed"),
+    ).toBe(true);
     await act(async () => {
       fireEvent.click(d.action(rowFor(d.view, ATLAS), "remove"));
     });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import type {
   ApiTokenCreateRes,
   ApiTokenListRes,
@@ -10,6 +11,7 @@ import {
   dialogLabel,
   dialogSaveBtn,
   disabledLook,
+  armedConfirmLook,
 } from "./dialog-styles.ts";
 import {
   MintedSecretBox,
@@ -477,6 +479,8 @@ export function ApiTokenCards({
   rooms: readonly MemberRoom[];
 }) {
   const { t, tn, language } = useI18n();
+  // A revoked token stops working at once, with no Undo: Revoke asks first.
+  const revokeStep = useConfirmStep();
   return tokens.map((token) => (
     <div
       key={token.id}
@@ -528,10 +532,19 @@ export function ApiTokenCards({
           </div>
         </div>
         <button
-          onClick={() => onRevoke(token.id)}
-          style={{ ...dialogSaveBtn, alignSelf: "start" }}
+          {...revokeStep.bind(token.id)}
+          onClick={() => revokeStep.confirm(token.id, () => onRevoke(token.id))}
+          style={{
+            ...dialogSaveBtn,
+            alignSelf: "start",
+            ...(revokeStep.armed === token.id ? armedConfirmLook : {}),
+          }}
         >
-          {t("common.revoke")}
+          {t(
+            revokeStep.armed === token.id
+              ? "common.confirmQuestion"
+              : "common.revoke",
+          )}
         </button>
       </div>
     </div>

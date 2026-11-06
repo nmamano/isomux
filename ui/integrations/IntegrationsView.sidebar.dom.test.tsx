@@ -156,6 +156,39 @@ describe("on a phone", () => {
     expect(closed).toBe(0);
   });
 
+  // An armed confirm step takes Escape to end itself (task c6589760): the
+  // tab stays, and the next Escape goes back to the list.
+  it("Escape on an armed Revoke ends the confirm and keeps the tab", async () => {
+    fake.apiTokens = [
+      {
+        id: "tok1",
+        name: "laptop",
+        tokenPrefix: "abcd1234",
+        createdAt: 1_760_000_000_000,
+        expiresAt: null,
+        lastUsedAt: null,
+      },
+    ];
+    const view = await open(phone);
+    await tab(view, "api-tokens");
+    const revoke = view.container.querySelector<HTMLElement>(
+      '[data-api-token="tok1"] button',
+    )!;
+    await click(revoke);
+    expect(revoke.hasAttribute("data-confirm-armed")).toBe(true);
+    await act(async () => {
+      fireEvent.keyDown(revoke, { key: "Escape" });
+    });
+    expect(revoke.hasAttribute("data-confirm-armed")).toBe(false);
+    expect(back(view)).not.toBeNull();
+    expect(rows(view)).toHaveLength(0);
+    await act(async () => {
+      fireEvent.keyDown(revoke, { key: "Escape" });
+    });
+    expect(rows(view)).toHaveLength(10);
+    expect(fake.requests("DELETE", "/api/me/api-tokens/tok1")).toHaveLength(0);
+  });
+
   it("opens straight on a requested tab", async () => {
     const view = await open(phone, { request: { tab: "variables" } });
     expect(cards(view)).toBe(2);

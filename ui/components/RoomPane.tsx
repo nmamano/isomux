@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import type {
   RoomRenameReq,
   InstructionsReq,
@@ -64,6 +65,8 @@ export function RoomPane({
   const canDeleteRoom =
     (room?.canCloseWhenEmpty ?? false) &&
     agents.every((agent) => agent.roomId !== roomId);
+  // Deleting the room has no Undo: it asks first.
+  const deleteStep = useConfirmStep();
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
   // The look the room is drawn in: preset, decor picks and pet. Captured at
@@ -567,18 +570,25 @@ export function RoomPane({
         >
           {canDeleteRoom && (
             <button
-              onClick={() => {
-                // Fire-and-forget + optimistic close, parity with the old WS
-                // close_room (the room_closed broadcast removes the tab).
-                apiFetch<void>("DELETE", `/api/rooms/${roomId}`).catch(
-                  () => {},
-                );
-                onDeleted();
-              }}
+              {...deleteStep.bind("delete")}
+              onClick={() =>
+                deleteStep.confirm("delete", () => {
+                  // Fire-and-forget + optimistic close, parity with the old WS
+                  // close_room (the room_closed broadcast removes the tab).
+                  apiFetch<void>("DELETE", `/api/rooms/${roomId}`).catch(
+                    () => {},
+                  );
+                  onDeleted();
+                })
+              }
               style={deleteBtnStyle}
               disabled={saving}
             >
-              {t("settings.room.deleteEmpty")}
+              {t(
+                deleteStep.armed
+                  ? "common.confirmQuestion"
+                  : "settings.room.deleteEmpty",
+              )}
             </button>
           )}
           <div style={{ display: "flex", gap: 8 }}>

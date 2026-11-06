@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { apiFetch } from "../api";
 import { useI18n } from "../i18n";
 import { useCan } from "../hooks/useCan";
+import { useConfirmStep } from "../hooks/useConfirmStep";
 import type { MemberBrowserStatus } from "../../shared/browser-extension-protocol";
 import { sectionHeader, hint, cardStyle, codeStyle } from "./access-shared";
 import {
@@ -10,6 +11,7 @@ import {
   dialogSaveBtn,
   disabledLook,
   filledSecondaryBtn,
+  armedConfirmLook,
 } from "./dialog-styles";
 import { guessBrowserName } from "../browser-name";
 import { homeScreenDownload } from "../home-screen-download";
@@ -143,6 +145,9 @@ export function BrowserPane() {
       if (mounted.current) setBusy(false);
     }
   }
+  // An unpaired browser is lost to agents until it pairs again: Unpair asks
+  // first.
+  const unpairStep = useConfirmStep();
   const [revealed, setRevealed] = useState(false);
   const [officeCopied, setOfficeCopied] = useState(false);
   const [extensionsCopied, setExtensionsCopied] = useState(false);
@@ -384,16 +389,28 @@ export function BrowserPane() {
                   {agentsWrite && (
                     <button
                       data-testid="browser-revoke"
-                      style={secondary(busy)}
+                      {...unpairStep.bind(b.id)}
+                      style={{
+                        ...secondary(busy),
+                        ...(unpairStep.armed === b.id ? armedConfirmLook : {}),
+                      }}
                       disabled={busy}
                       onClick={() =>
-                        void change(
-                          "DELETE",
-                          `/api/me/browser/browsers/${encodeURIComponent(b.id)}`,
+                        unpairStep.confirm(
+                          b.id,
+                          () =>
+                            void change(
+                              "DELETE",
+                              `/api/me/browser/browsers/${encodeURIComponent(b.id)}`,
+                            ),
                         )
                       }
                     >
-                      {t("browser.unpair")}
+                      {t(
+                        unpairStep.armed === b.id
+                          ? "common.confirmQuestion"
+                          : "browser.unpair",
+                      )}
                     </button>
                   )}
                 </li>

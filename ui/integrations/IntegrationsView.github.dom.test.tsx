@@ -229,6 +229,12 @@ it("the picked room's form saves and unlinks that room's link", async () => {
   expect(q<HTMLInputElement>(view, "[data-github-link-repo]").value).toBe(
     "Acme/Widgets",
   );
+  // Unlink asks first (task c6589760): the first click arms it.
+  await act(async () => fireEvent.click(q(view, "[data-github-link-unlink]")));
+  expect(linkCalls("DELETE")).toEqual([]);
+  expect(
+    q(view, "[data-github-link-unlink]").hasAttribute("data-confirm-armed"),
+  ).toBe(true);
   await act(async () => fireEvent.click(q(view, "[data-github-link-unlink]")));
   expect(linkCalls("DELETE").map((c) => c.path)).toEqual([
     "/api/rooms/r2/github-link",
@@ -506,6 +512,8 @@ it("a save or an unlink rewrites the remembered layout", async () => {
   const view = await open(withRooms(OWNER), { request: { tab: "github" } });
   expect(getGithubLayout()).toEqual({ linked: true, secret: true });
 
+  // Unlink asks first (task c6589760).
+  await act(async () => fireEvent.click(q(view, "[data-github-link-unlink]")));
   await act(async () => fireEvent.click(q(view, "[data-github-link-unlink]")));
   await act(async () => {});
   expect(getGithubLayout()).toEqual({ linked: false, secret: true });

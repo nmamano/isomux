@@ -42,6 +42,7 @@ import {
 import { micAvailable, pickRecorderMimeType } from "../voice-input.ts";
 import { useRecordedDictation } from "../hooks/useRecordedDictation.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
 import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
@@ -124,6 +125,7 @@ import {
   fitComposer,
 } from "../composer-height.ts";
 import {
+  armedConfirmLook,
   secondaryBorder,
   secondaryFill,
   tintedFill,
@@ -363,6 +365,9 @@ function QueueChips({
   isMobile?: boolean;
 }) {
   const i18n = useI18n();
+  // A removed message's text is lost: the x asks first. Before the early
+  // return, so the hooks keep their order.
+  const removeStep = useConfirmStep();
   if (queue.length === 0) return null;
   return (
     <div
@@ -529,25 +534,43 @@ function QueueChips({
                 )}
               </div>
               <button
-                onClick={() => {
-                  apiFetch(
-                    "DELETE",
-                    `/api/agents/${agentId}/queue/${msg.id}`,
-                  ).catch(() => {});
-                }}
+                {...removeStep.bind(msg.id)}
+                onClick={() =>
+                  removeStep.confirm(msg.id, () => {
+                    apiFetch(
+                      "DELETE",
+                      `/api/agents/${agentId}/queue/${msg.id}`,
+                    ).catch(() => {});
+                  })
+                }
                 style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-ghost)",
+                  background: secondaryFill,
+                  border: secondaryBorder,
+                  borderRadius: 4,
+                  color: "var(--text-dim)",
                   cursor: "pointer",
-                  padding: "0 2px",
+                  padding: "1px 6px",
                   fontSize: 16,
                   lineHeight: 1,
                   flexShrink: 0,
+                  // Armed, it widens to the left: the row's right edge, and
+                  // the pointer on the x, stay where they were.
+                  ...(removeStep.armed === msg.id
+                    ? {
+                        ...armedConfirmLook,
+                        padding: "2px 8px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                      }
+                    : {}),
                 }}
                 title={i18n.t("logView.queue.cancel")}
               >
-                ×
+                {removeStep.armed === msg.id
+                  ? i18n.t("common.confirmQuestion")
+                  : "×"}
               </button>
             </div>
           );

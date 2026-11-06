@@ -21,6 +21,8 @@ import {
 import { DARK_THEME, LIGHT_THEME } from "./terminal-themes.ts";
 import { createPtyResizer, type PtyResizer } from "./terminal-resize.ts";
 import { isTouchPrimary } from "../touch-primary.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
+import { armedConfirmLook } from "../components/dialog-styles.ts";
 
 // xterm escape sequences for navigation keys we expose on the soft-key bar.
 const ESC = "\x1b";
@@ -289,6 +291,9 @@ export function TerminalPanel({
   const { mode } = useTheme();
   const { t } = useI18n();
   const [exited, setExited] = useState<number | null>(null);
+  // Restart kills a live shell and the processes in it, with no Undo: while
+  // the shell runs, it asks first.
+  const restartStep = useConfirmStep();
   // The agent's secrets or variables changed after this shell started
   // (server flag).
   const [envStale, setEnvStale] = useState(false);
@@ -845,7 +850,12 @@ export function TerminalPanel({
             {t("panels.terminal.interrupt")}
           </button>
           <button
-            onClick={handleRespawn}
+            {...restartStep.bind("restart")}
+            onClick={() =>
+              exited !== null
+                ? handleRespawn()
+                : restartStep.confirm("restart", handleRespawn)
+            }
             style={{
               padding: "3px 7px",
               borderRadius: 5,
@@ -854,10 +864,15 @@ export function TerminalPanel({
               color: "var(--text-secondary)",
               fontSize: mobile ? 11 : 10,
               cursor: "pointer",
+              ...(restartStep.armed ? armedConfirmLook : {}),
             }}
             title={t("panels.terminal.restartHint")}
           >
-            {t("panels.terminal.restart")}
+            {t(
+              restartStep.armed
+                ? "common.confirmQuestion"
+                : "panels.terminal.restart",
+            )}
           </button>
           <button
             onClick={onClose}

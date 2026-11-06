@@ -25,7 +25,12 @@ import {
   type PanelName,
 } from "../elevator-panel-store.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
-import { secondaryBorder, secondaryFill } from "./dialog-styles.ts";
+import {
+  armedConfirmLook,
+  secondaryBorder,
+  secondaryFill,
+} from "./dialog-styles.ts";
+import { isConfirmArmed, useConfirmStep } from "../hooks/useConfirmStep.ts";
 
 // The lobby elevator: one button per office on this browser's panel
 // (shared/elevator-panel.ts) - the offices it rode through, their floors and
@@ -88,7 +93,8 @@ export function ElevatorDialog({
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      // Escape on an armed remove ends that confirm, not the dialog.
+      if (e.key === "Escape" && !isConfirmArmed()) {
         e.stopPropagation();
         onClose();
       }
@@ -409,6 +415,9 @@ function PanelRow({ button, index, name, onOpen, onRemove }: PanelRowProps) {
   const removeLabel = button.floor
     ? t("lobby.elevator.remove", { name: label })
     : t("lobby.elevator.removeMine", { name: label });
+  // A removed button has no Undo: remove asks first.
+  const removeStep = useConfirmStep();
+  const armed = removeStep.armed !== null;
   const face = (
     <>
       <span
@@ -523,32 +532,47 @@ function PanelRow({ button, index, name, onOpen, onRemove }: PanelRowProps) {
           <button
             type="button"
             data-floor-action="remove"
-            aria-label={removeLabel}
+            {...removeStep.bind("remove")}
+            aria-label={armed ? t("common.confirmQuestion") : removeLabel}
             title={removeLabel}
-            onClick={onRemove}
+            onClick={() => removeStep.confirm("remove", onRemove)}
             style={{
               flex: "none",
-              width: 30,
+              // Armed, it widens to the left: the row's right edge, and the
+              // pointer on the button, stay where they were.
+              minWidth: 30,
               height: 30,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              padding: 0,
+              padding: armed ? "0 10px" : 0,
               borderRadius: 8,
               border: secondaryBorder,
               background: secondaryFill,
               color: "var(--text-dim)",
               cursor: "pointer",
+              ...(armed
+                ? {
+                    ...armedConfirmLook,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    whiteSpace: "nowrap",
+                  }
+                : {}),
             }}
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
-              <path
-                d="M2 2l8 8M10 2l-8 8"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-            </svg>
+            {armed ? (
+              t("common.confirmQuestion")
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+                <path
+                  d="M2 2l8 8M10 2l-8 8"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
           </button>
         </>
       )}

@@ -159,9 +159,19 @@ describe("terminal panel resize", () => {
     );
     await settle();
     expect(screenText(view.container)).toContain("OLD-PROMPT");
-    fireEvent.click(
-      view.getByRole("button", { name: en["panels.terminal.restart"] }),
-    );
+    // A live shell's Restart asks first (task c6589760): the first click
+    // arms it and sends nothing.
+    const restart = view.getByRole("button", {
+      name: en["panels.terminal.restart"],
+    });
+    act(() => {
+      fireEvent.click(restart);
+    });
+    expect(sent.filter((cmd) => cmd.type === "terminal_restart")).toEqual([]);
+    expect(restart.hasAttribute("data-confirm-armed")).toBe(true);
+    act(() => {
+      fireEvent.click(restart);
+    });
     // The new PTY starts at 80x24, so the size goes out at once and in order,
     // although the panel's size did not change since the last resize it sent.
     const order = () =>
@@ -182,5 +192,28 @@ describe("terminal panel resize", () => {
     await act(async () => wait(PTY_RESIZE_SETTLE_MS + 100));
     expect(order()).toEqual(["terminal_restart", "resize 100x30"]);
     view.unmount();
+  });
+
+  // After the shell exited there is nothing left to kill: both Restarts, the
+  // toolbar's and the notice's, run on one click (task c6589760).
+  it("restarts an exited shell on one click, from the toolbar and from the notice", async () => {
+    for (const which of [0, 1]) {
+      const { view, sent } = await mount();
+      act(() =>
+        shimEmit({ type: "terminal_exit", agentId: AGENT, exitCode: 0 }),
+      );
+      await settle();
+      const restarts = view.getAllByRole("button", {
+        name: en["panels.terminal.restart"],
+      });
+      expect(restarts).toHaveLength(2);
+      act(() => {
+        fireEvent.click(restarts[which]);
+      });
+      expect(
+        sent.filter((cmd) => cmd.type === "terminal_restart"),
+      ).toHaveLength(1);
+      view.unmount();
+    }
   });
 });

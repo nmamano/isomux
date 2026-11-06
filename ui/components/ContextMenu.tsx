@@ -14,6 +14,10 @@ import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { noTranslate } from "../no-translate.ts";
 import {
+  useConfirmStep,
+  type ConfirmBindings,
+} from "../hooks/useConfirmStep.ts";
+import {
   BACK_ROOM_SEATS,
   hasBackRoom,
   isBackSeat,
@@ -59,6 +63,9 @@ export function ContextMenu({
   const backFull =
     agents.filter((a) => a.roomId === agent.roomId && isBackSeat(a.desk))
       .length >= BACK_ROOM_SEATS;
+
+  // Kill has no Undo: the first click arms it and keeps the menu open.
+  const killStep = useConfirmStep();
 
   useEffect(() => {
     function handleDismiss(e: Event) {
@@ -298,9 +305,12 @@ export function ContextMenu({
         }}
       />
       <MenuItem
-        label={t("contextMenu.killAgent")}
+        label={t(
+          killStep.armed ? "common.confirmQuestion" : "contextMenu.killAgent",
+        )}
         danger
-        onClick={() => handleAction("kill")}
+        confirmProps={killStep.bind("kill")}
+        onClick={() => killStep.confirm("kill", () => handleAction("kill"))}
       />
     </div>
   );
@@ -316,6 +326,7 @@ export function MenuItem({
   role,
   ariaChecked,
   dataNavMenuItem,
+  confirmProps,
 }: {
   label: React.ReactNode;
   danger?: boolean;
@@ -327,9 +338,12 @@ export function MenuItem({
   ariaChecked?: boolean;
   // The item's id in a chat bar menu (NavActions).
   dataNavMenuItem?: string;
+  // A confirm step's bindings (useConfirmStep), for a destructive item.
+  confirmProps?: ConfirmBindings;
 }) {
   return (
     <button
+      {...confirmProps}
       role={role}
       aria-checked={ariaChecked}
       data-nav-menu-item={dataNavMenuItem}

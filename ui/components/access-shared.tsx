@@ -18,12 +18,14 @@ import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { absoluteTime, timeSince, timeUntil } from "../../shared/i18n/time.ts";
 import { useI18n } from "../i18n.tsx";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import {
   dialogHint,
   dialogLabel,
   dialogSaveBtn,
   secondaryBorder,
   secondaryFill,
+  armedConfirmLook,
 } from "./dialog-styles.ts";
 import { noTranslate } from "../no-translate.ts";
 
@@ -241,6 +243,8 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
   const roomList = allRooms.length > 0 ? allRooms : rooms;
   const roomName = (id: string) =>
     roomList.find((r) => r.id === id)?.name ?? id;
+  // A revoked invite link stops working, with no Undo: Revoke asks first.
+  const revokeStep = useConfirmStep();
   return (
     <table style={tableStyle}>
       <thead>
@@ -277,15 +281,27 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
             <td style={mono}>{i.tokenPrefix}…</td>
             <td style={td}>
               <button
-                onClick={() => {
-                  apiFetch(
-                    "DELETE",
-                    `/api/invites/${encodeURIComponent(i.tokenPrefix)}`,
-                  ).catch(() => {});
+                {...revokeStep.bind(i.tokenPrefix)}
+                onClick={() =>
+                  revokeStep.confirm(i.tokenPrefix, () => {
+                    apiFetch(
+                      "DELETE",
+                      `/api/invites/${encodeURIComponent(i.tokenPrefix)}`,
+                    ).catch(() => {});
+                  })
+                }
+                style={{
+                  ...smallBtn,
+                  ...(revokeStep.armed === i.tokenPrefix
+                    ? armedConfirmLook
+                    : {}),
                 }}
-                style={smallBtn}
               >
-                {t("common.revoke")}
+                {t(
+                  revokeStep.armed === i.tokenPrefix
+                    ? "common.confirmQuestion"
+                    : "common.revoke",
+                )}
               </button>
             </td>
           </tr>
@@ -306,6 +322,9 @@ export function SessionsTable({
   const i18n = useI18n();
   const { t } = i18n;
   const currentPrefix = sessionContext?.currentSessionPrefix ?? null;
+  // A revoked session signs that device out until a new invite: Revoke asks
+  // first.
+  const revokeStep = useConfirmStep();
   return (
     <table style={tableStyle}>
       <thead>
@@ -362,19 +381,31 @@ export function SessionsTable({
                     </span>
                   ) : (
                     <button
-                      onClick={() => {
-                        apiFetch(
-                          "DELETE",
-                          `/api/sessions/${encodeURIComponent(s.sessionPrefix)}`,
-                        ).catch((err) => {
-                          if (err instanceof ApiError && err.status === 409) {
-                            onBlocked?.(err.message);
-                          }
-                        });
+                      {...revokeStep.bind(s.sessionPrefix)}
+                      onClick={() =>
+                        revokeStep.confirm(s.sessionPrefix, () => {
+                          apiFetch(
+                            "DELETE",
+                            `/api/sessions/${encodeURIComponent(s.sessionPrefix)}`,
+                          ).catch((err) => {
+                            if (err instanceof ApiError && err.status === 409) {
+                              onBlocked?.(err.message);
+                            }
+                          });
+                        })
+                      }
+                      style={{
+                        ...smallBtn,
+                        ...(revokeStep.armed === s.sessionPrefix
+                          ? armedConfirmLook
+                          : {}),
                       }}
-                      style={smallBtn}
                     >
-                      {t("common.revoke")}
+                      {t(
+                        revokeStep.armed === s.sessionPrefix
+                          ? "common.confirmQuestion"
+                          : "common.revoke",
+                      )}
                     </button>
                   )}
                 </td>

@@ -31,6 +31,7 @@ function token(id: string, limits?: ApiTokenWire["limits"]): ApiTokenWire {
 
 let listed: ApiTokenWire[] = [];
 const minted: unknown[] = [];
+const revoked: string[] = [];
 // The member's ordinary rooms, as GET /api/me/rooms lists them.
 const ROOMS = [
   { id: "room-a", name: "Alpha" },
@@ -44,6 +45,10 @@ setApiShim(async (method, path, body) => {
     minted.push(body);
     return { token: "isomux_pat_new", apiToken: token("new") };
   }
+  if (method === "DELETE" && path.startsWith("/api/me/api-tokens/")) {
+    revoked.push(path);
+    return undefined;
+  }
   return {};
 });
 afterAll(() => setApiShim(null));
@@ -51,6 +56,7 @@ afterAll(() => setApiShim(null));
 beforeEach(() => {
   listed = [];
   minted.length = 0;
+  revoked.length = 0;
 });
 
 type View = ReturnType<typeof render>;
@@ -218,6 +224,32 @@ describe("API token cards: access", () => {
       custom: "custom",
       empty: "custom",
     });
+  });
+});
+
+// A token stops working at once when it is revoked, with no Undo (task
+// c6589760): Revoke asks first.
+describe("API token card: revoke", () => {
+  it("the first click arms Revoke and sends nothing; the second revokes that token once", async () => {
+    listed = [token("one"), token("two")];
+    const view = await mount();
+    const revoke = (id: string) => {
+      const buttons = view.container.querySelectorAll<HTMLElement>(
+        `[data-api-token="${id}"] button`,
+      );
+      expect(buttons).toHaveLength(1);
+      return buttons[0];
+    };
+    await act(async () => {
+      fireEvent.click(revoke("one"));
+    });
+    expect(revoked).toEqual([]);
+    expect(revoke("one").hasAttribute("data-confirm-armed")).toBe(true);
+    expect(revoke("two").hasAttribute("data-confirm-armed")).toBe(false);
+    await act(async () => {
+      fireEvent.click(revoke("one"));
+    });
+    expect(revoked).toEqual(["/api/me/api-tokens/one"]);
   });
 });
 

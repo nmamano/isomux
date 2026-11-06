@@ -3,6 +3,7 @@
 
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useAppState } from "../store.tsx";
+import type { ConfirmBindings } from "../hooks/useConfirmStep.ts";
 import { useI18n } from "../i18n.tsx";
 import {
   disabledLook,
@@ -90,6 +91,7 @@ export function Btn({
   small,
   disabled,
   style,
+  confirmProps,
   ...data
 }: {
   kind?: BtnKind;
@@ -98,6 +100,8 @@ export function Btn({
   small?: boolean;
   disabled?: boolean;
   style?: CSSProperties;
+  // A confirm step's bindings (useConfirmStep), for a destructive action.
+  confirmProps?: ConfirmBindings;
   [data: `data-${string}`]: string | boolean | undefined;
 }) {
   const look: CSSProperties =
@@ -133,6 +137,7 @@ export function Btn({
       onClick={onClick}
       disabled={disabled}
       {...data}
+      {...confirmProps}
       style={{
         ...btnBase,
         ...(small && kind !== "link"

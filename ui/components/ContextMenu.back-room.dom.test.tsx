@@ -95,3 +95,54 @@ it("offers the move to the back room in a room with no back room field", async (
     setApiShim(null);
   }
 });
+
+// Kill ends the agent and its running work, with no Undo (task c6589760):
+// the first click arms the item and keeps the menu open.
+it("Kill Agent asks first: the first click keeps the menu and sends nothing; the second kills once and closes", async () => {
+  const requests: Array<{ method: string; path: string }> = [];
+  setApiShim(async (method, path) => {
+    requests.push({ method, path });
+    if (path.includes("/sessions"))
+      return { sessions: [], currentSessionId: null };
+    return {};
+  });
+  let closes = 0;
+  const view = render(
+    onLanguage(
+      "en",
+      <ContextMenu
+        x={0}
+        y={0}
+        agent={agent}
+        onClose={() => {
+          closes++;
+        }}
+        onEdit={() => {}}
+      />,
+      {
+        rooms: [room],
+        agents: [agent],
+        hasReceivedInitialState: true,
+      },
+    ),
+  );
+  const kills = () => requests.filter((r) => r.method === "DELETE");
+  try {
+    await act(async () => {});
+    const killLabel = translatorFor("en").t("contextMenu.killAgent");
+    const items = [...view.container.querySelectorAll("button")].filter(
+      (b) => b.textContent === killLabel,
+    );
+    expect(items).toHaveLength(1);
+    const kill = items[0];
+    await act(async () => fireEvent.click(kill));
+    expect([kills(), closes]).toEqual([[], 0]);
+    expect(kill.hasAttribute("data-confirm-armed")).toBe(true);
+    await act(async () => fireEvent.click(kill));
+    expect(kills()).toEqual([{ method: "DELETE", path: "/api/agents/a1" }]);
+    expect(closes).toBe(1);
+  } finally {
+    view.unmount();
+    setApiShim(null);
+  }
+});

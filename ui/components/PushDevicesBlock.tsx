@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useCan } from "../hooks/useCan.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import type {
   PushDevice,
   PushDeviceFailure,
@@ -17,7 +18,12 @@ import type {
   PushTestRes,
 } from "../../shared/contract-shapes.ts";
 import type { MessageKey } from "../../shared/i18n/en.ts";
-import { cardActionBtn, dialogHint, disabledLook } from "./dialog-styles.ts";
+import {
+  armedConfirmLook,
+  cardActionBtn,
+  dialogHint,
+  disabledLook,
+} from "./dialog-styles.ts";
 import { cardStyle } from "./access-shared.tsx";
 import { getDevice } from "../device-settings.ts";
 import {
@@ -244,6 +250,9 @@ export function PushDevicesBlock({ username }: { username: string }) {
   // A pack that gives pager at read lists the devices, not their changes.
   const pagerWrite = useCan("pager", "write");
   const [othersOpen, setOthersOpen] = useState(false);
+  // A removed device stops getting pages, and only that device can add
+  // itself again: Remove asks first.
+  const removeStep = useConfirmStep();
   const others = data?.devices.filter((d) => d.id !== thisId) ?? [];
 
   return (
@@ -361,14 +370,22 @@ export function PushDevicesBlock({ username }: { username: string }) {
                 {pagerWrite && (
                   <button
                     data-testid="push-remove"
-                    onClick={() => void remove(d.id)}
+                    {...removeStep.bind(d.id)}
+                    onClick={() =>
+                      removeStep.confirm(d.id, () => void remove(d.id))
+                    }
                     disabled={busy}
                     style={{
                       ...cardActionBtn,
+                      ...(removeStep.armed === d.id ? armedConfirmLook : null),
                       ...(busy ? disabledLook : null),
                     }}
                   >
-                    {t("push.settings.remove")}
+                    {t(
+                      removeStep.armed === d.id
+                        ? "common.confirmQuestion"
+                        : "push.settings.remove",
+                    )}
                   </button>
                 )}
               </div>

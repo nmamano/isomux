@@ -233,7 +233,14 @@ describe("push devices block", () => {
     const others = view.getAllByTestId("push-device");
     expect(others).toHaveLength(1);
     expect(others[0].textContent).toContain("iPhone");
-    await act(async () => fireEvent.click(others[0].querySelector("button")!));
+    // Remove asks first (task c6589760): the first click arms it.
+    const remove = others[0].querySelector<HTMLElement>(
+      '[data-testid="push-remove"]',
+    )!;
+    await act(async () => fireEvent.click(remove));
+    expect(writes).toEqual([]);
+    expect(remove.hasAttribute("data-confirm-armed")).toBe(true);
+    await act(async () => fireEvent.click(remove));
     expect(writes).toEqual([["DELETE", `${PATH}/0123456789abcdef`, undefined]]);
     // This browser stays subscribed.
     expect(browser.unsubscribed).toBe(0);

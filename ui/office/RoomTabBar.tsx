@@ -25,7 +25,12 @@ import {
   isBackSeat,
 } from "../../shared/desks.ts";
 import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
-import { secondaryEdge, secondaryFill } from "../components/dialog-styles.ts";
+import {
+  armedConfirmLook,
+  secondaryEdge,
+  secondaryFill,
+} from "../components/dialog-styles.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 
 // Per-tab mini ghosts sit on the tab like stickers (Nil, task 90f655b0):
 // centered on the pill's bottom edge, over the bottom of the room name and
@@ -285,6 +290,8 @@ export function RoomTabBar({
     };
   };
   const [dragOver, setDragOver] = useState<string | null>(null);
+  // Closing an empty room deletes it and its settings: it asks first.
+  const closeStep = useConfirmStep();
 
   // Overflow state for the scroll affordances. Tracked per direction so
   // each edge hint appears only when there is actually content hidden on
@@ -731,14 +738,20 @@ export function RoomTabBar({
                 reactive check. */}
                   {room.canCloseWhenEmpty && isEmpty && (
                     <button
+                      {...closeStep.bind(room.id)}
                       onClick={(e) => {
                         e.stopPropagation();
-                        apiFetch<void>("DELETE", `/api/rooms/${room.id}`).catch(
-                          () => {},
-                        );
+                        closeStep.confirm(room.id, () => {
+                          apiFetch<void>(
+                            "DELETE",
+                            `/api/rooms/${room.id}`,
+                          ).catch(() => {});
+                        });
                       }}
                       style={{
-                        width: 20,
+                        // Armed, it widens to the right: the left edge, under
+                        // the pointer, stays where it was.
+                        minWidth: 20,
                         height: 20,
                         borderRadius: 4,
                         border: "1px solid var(--border)",
@@ -753,10 +766,21 @@ export function RoomTabBar({
                         lineHeight: 1,
                         userSelect: "none",
                         WebkitUserSelect: "none",
+                        ...(closeStep.armed === room.id
+                          ? {
+                              ...armedConfirmLook,
+                              padding: "0 6px",
+                              fontSize: 11,
+                              fontWeight: 600,
+                              whiteSpace: "nowrap",
+                            }
+                          : {}),
                       }}
                       title={t("office.tabs.closeEmptyRoom")}
                     >
-                      ×
+                      {closeStep.armed === room.id
+                        ? t("common.confirmQuestion")
+                        : "×"}
                     </button>
                   )}
                 </div>

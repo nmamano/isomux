@@ -24,7 +24,13 @@ const { t } = translatorFor("en");
 // Anything unlisted rejects, which every pane that loads here catches.
 // The GETs of the removed-members list (task 321e7b8e).
 const removedSeeds: string[] = [];
+// Every DELETE, in order (Sign out, task c6589760).
+const deletes: string[] = [];
 setApiShim(async (method, path) => {
+  if (method === "DELETE") {
+    deletes.push(path);
+    return undefined;
+  }
   if (path === "/api/removed-members") {
     removedSeeds.push(method);
     return { members: [] };
@@ -47,6 +53,7 @@ afterAll(() => setApiShim(null));
 beforeEach(() => {
   window.localStorage.clear();
   removedSeeds.length = 0;
+  deletes.length = 0;
 });
 
 type View = ReturnType<typeof render>;
@@ -394,5 +401,51 @@ describe("Removed members (task 321e7b8e)", () => {
     });
     expect(removedRow(view)).toBeNull();
     expect(removedSeeds).toEqual([]);
+  });
+});
+
+// Signing out ends this device's session: it needs a new invite link to come
+// back, with no Undo (task c6589760). Sign out asks first.
+describe("Sign out", () => {
+  it("arms on the first click and sends nothing; the second ends this session once", async () => {
+    const view = await mount({}, "member");
+    const signOut = row(view, t("common.signOut"));
+    expect(signOut).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(signOut!);
+    });
+    expect(deletes).toEqual([]);
+    expect(signOut!.hasAttribute("data-confirm-armed")).toBe(true);
+    await act(async () => {
+      fireEvent.click(signOut!);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(deletes).toEqual(["/api/sessions/current"]);
+    view.unmount();
+  });
+
+  // The page leaves on Escape from a window listener; an armed confirm takes
+  // Escape to end itself, and the next Escape leaves.
+  it("Escape on an armed Sign out ends the confirm and keeps the page", async () => {
+    let closes = 0;
+    const view = await mount({ onClose: () => closes++ }, "member");
+    const signOut = row(view, t("common.signOut"))!;
+    await act(async () => {
+      fireEvent.click(signOut);
+    });
+    expect(signOut.hasAttribute("data-confirm-armed")).toBe(true);
+    await act(async () => {
+      fireEvent.keyDown(signOut, { key: "Escape" });
+    });
+    expect([signOut.hasAttribute("data-confirm-armed"), closes]).toEqual([
+      false,
+      0,
+    ]);
+    await act(async () => {
+      fireEvent.keyDown(signOut, { key: "Escape" });
+    });
+    expect(closes).toBe(1);
+    expect(deletes).toEqual([]);
+    view.unmount();
   });
 });

@@ -442,6 +442,14 @@ it("Disconnect sends one DELETE; the bot and its routes leave the card, another 
   routes = [route("d_1"), route("d_2", { botId: BOT2, targetId: SIDE })];
   const s = await show();
   expect(s.all("[data-discord-route]")).toHaveLength(2);
+  // Disconnect asks first (task c6589760): the first click arms it.
+  await s.click(`[data-discord-disconnect="${BOT}"]`);
+  expect(writes()).toEqual([]);
+  expect(
+    s
+      .q(`[data-discord-disconnect="${BOT}"]`)
+      ?.hasAttribute("data-confirm-armed"),
+  ).toBe(true);
   await s.click(`[data-discord-disconnect="${BOT}"]`);
   expect(writes()).toEqual([
     { method: "DELETE", path: `/api/discord/bots/${BOT}`, body: undefined },
@@ -509,6 +517,14 @@ it("Delete removes one route with one DELETE", async () => {
   guilds = { [BOT]: GUILDS };
   routes = [route("d_1"), route("d_2", { targetId: SIDE })];
   const s = await show();
+  // Delete asks first (task c6589760): the first click arms it.
+  await s.click('[data-discord-route-delete="d_1"]');
+  expect(writes()).toEqual([]);
+  expect(
+    s
+      .q('[data-discord-route-delete="d_1"]')
+      ?.hasAttribute("data-confirm-armed"),
+  ).toBe(true);
   await s.click('[data-discord-route-delete="d_1"]');
   expect(writes()).toEqual([
     { method: "DELETE", path: "/api/discord/routes/d_1", body: undefined },

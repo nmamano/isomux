@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useCan } from "../hooks/useCan.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { Reserved } from "../components/Reserved.tsx";
 import { getDiscordLayout, setDiscordLayout } from "../device-settings.ts";
@@ -56,6 +57,7 @@ import {
   hintText,
   input,
 } from "./kit.tsx";
+import { armedConfirmLook } from "../components/dialog-styles.ts";
 
 const REASON: Record<DiscordBotReason, PlainMessageKey> = {
   token_invalid: "integrations.discord.reason.tokenInvalid",
@@ -262,6 +264,9 @@ export function DiscordSection() {
   // The token form behind the Add or a Connect again.
   const [connectOpen, setConnectOpen] = useState(false);
   const [held] = useState(getDiscordLayout);
+  // Disconnect removes the bot and all its routes, with no Undo: it asks
+  // first.
+  const disconnectStep = useConfirmStep();
   // The state each bot had when the card last looked: a read on a new bot
   // and on a move to connected.
   const seen = useRef(new Map<string, DiscordBotStatus["state"]>());
@@ -378,10 +383,21 @@ export function DiscordSection() {
               kind="danger"
               small
               disabled={busy || !b}
-              onClick={() => b && void disconnect(b.id)}
-              {...(b ? { "data-discord-disconnect": b.id } : {})}
+              onClick={() =>
+                b && disconnectStep.confirm(b.id, () => void disconnect(b.id))
+              }
+              {...(b
+                ? {
+                    "data-discord-disconnect": b.id,
+                    confirmProps: disconnectStep.bind(b.id),
+                  }
+                : {})}
             >
-              {t("integrations.discord.disconnect")}
+              {t(
+                b && disconnectStep.armed === b.id
+                  ? "common.confirmQuestion"
+                  : "integrations.discord.disconnect",
+              )}
             </Btn>
           </>
         )
@@ -541,6 +557,8 @@ function DiscordRoutes({
   const [form, setForm] = useState<"closed" | "add" | DiscordRoute>("closed");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<PlainMessageKey | null>(null);
+  // A deleted route has no Undo: Delete asks first.
+  const deleteStep = useConfirmStep();
 
   const agentName = (id: string) =>
     agents.find((a) => a.id === id)?.name ?? null;
@@ -625,10 +643,24 @@ function DiscordRoutes({
                   <Btn
                     small
                     disabled={busy || held}
-                    onClick={() => void remove(r.id)}
-                    {...(held ? {} : { "data-discord-route-delete": r.id })}
+                    onClick={() =>
+                      deleteStep.confirm(r.id, () => void remove(r.id))
+                    }
+                    {...(held
+                      ? {}
+                      : {
+                          "data-discord-route-delete": r.id,
+                          confirmProps: deleteStep.bind(r.id),
+                        })}
+                    style={
+                      deleteStep.armed === r.id ? armedConfirmLook : undefined
+                    }
                   >
-                    {t("common.delete")}
+                    {t(
+                      deleteStep.armed === r.id
+                        ? "common.confirmQuestion"
+                        : "common.delete",
+                    )}
                   </Btn>
                 </>
               )

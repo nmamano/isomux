@@ -172,6 +172,12 @@ it("links by QR: one POST, the pushed QR shows, then the linked number; Unlink s
     s.q("[data-whatsapp-connected]")?.getAttribute("data-whatsapp-connected"),
   ).toBe("true");
 
+  // Unlink asks first (task c6589760): the first click arms it.
+  await s.click("[data-whatsapp-unlink]");
+  expect(writes().slice(1)).toEqual([]);
+  expect(
+    s.q("[data-whatsapp-unlink]")?.hasAttribute("data-confirm-armed"),
+  ).toBe(true);
   await s.click("[data-whatsapp-unlink]");
   expect(writes().slice(1)).toEqual([
     { method: "DELETE", path: "/api/whatsapp", body: undefined },
@@ -232,6 +238,16 @@ it("a dead link shows its reason and offers to link again", async () => {
     s.q("[data-whatsapp-reason]")?.getAttribute("data-whatsapp-reason"),
   ).toBe("crash_loop");
   expect(s.q("[data-whatsapp-link]")).not.toBeNull();
+  // The dead card's Unlink asks first too (task c6589760).
+  await s.click("[data-whatsapp-unlink]");
+  expect(writes()).toEqual([]);
+  expect(
+    s.q("[data-whatsapp-unlink]")?.hasAttribute("data-confirm-armed"),
+  ).toBe(true);
+  await s.click("[data-whatsapp-unlink]");
+  expect(writes()).toEqual([
+    { method: "DELETE", path: "/api/whatsapp", body: undefined },
+  ]);
 });
 
 // The contact rows of a linked member (slice 2). The self user is u1.
@@ -450,10 +466,20 @@ it("lists the rows with their number or group, agent, trigger and a dead marker;
   ).toBe("agent_not_yours");
   expect(s.q('[data-whatsapp-row="r2"]')?.textContent).not.toContain("120363");
 
+  // Delete asks first (task c6589760); a click on another row's Delete
+  // arms that row instead.
+  const deletes = () =>
+    calls.filter((c) => c.method === "DELETE").map((c) => c.path);
   await s.click('[data-whatsapp-row-delete="r1"]');
-  expect(calls.filter((c) => c.method === "DELETE").map((c) => c.path)).toEqual(
-    ["/api/whatsapp/routes/r1"],
-  );
+  await s.click('[data-whatsapp-row-delete="r2"]');
+  expect(deletes()).toEqual([]);
+  expect(
+    s.q('[data-whatsapp-row-delete="r2"]')?.hasAttribute("data-confirm-armed"),
+  ).toBe(true);
+  await s.click('[data-whatsapp-row-delete="r1"]');
+  expect(deletes()).toEqual([]);
+  await s.click('[data-whatsapp-row-delete="r1"]');
+  expect(deletes()).toEqual(["/api/whatsapp/routes/r1"]);
   expect(s.q('[data-whatsapp-row="r1"]')).toBeNull();
   expect(s.q('[data-whatsapp-row="r2"]')).not.toBeNull();
   expect(s.q('[role="alert"]')).toBeNull();
@@ -781,6 +807,8 @@ it("an unlink, a push and a link in progress rewrite the linked flag and keep th
   const s = await show({ agents: AGENTS });
   expect(getWhatsAppLayout()).toEqual({ linked: true, rows: 2 });
 
+  // Unlink asks first (task c6589760).
+  await s.click("[data-whatsapp-unlink]");
   await s.click("[data-whatsapp-unlink]");
   expect(s.card()).toBe("unlinked");
   expect(getWhatsAppLayout()).toEqual({ linked: false, rows: 2 });

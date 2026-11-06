@@ -131,6 +131,11 @@ describe("API tokens on a member's profile", () => {
 
     const button = view.container.querySelector('[data-api-token="b1"] button');
     expect(button).not.toBeNull();
+    // Revoke asks first (task c6589760): the first click only arms it.
+    await act(async () => {
+      fireEvent.click(button!);
+    });
+    expect(adminRequests()).toEqual(["GET /api/users/Beth/api-tokens"]);
     await act(async () => {
       fireEvent.click(button!);
     });

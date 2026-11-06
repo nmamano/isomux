@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
 import { useCan } from "../hooks/useCan.ts";
+import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { Reserved } from "../components/Reserved.tsx";
 import { getWhatsAppLayout, setWhatsAppLayout } from "../device-settings.ts";
@@ -44,6 +45,7 @@ import {
   hintText,
   input,
 } from "./kit.tsx";
+import { armedConfirmLook } from "../components/dialog-styles.ts";
 
 const REASON: Record<WhatsAppReason, PlainMessageKey> = {
   link_expired: "integrations.whatsapp.reason.linkExpired",
@@ -80,6 +82,9 @@ export function WhatsAppSection() {
   const [codeForm, setCodeForm] = useState(false);
   const [phone, setPhone] = useState("");
   const [held] = useState(getWhatsAppLayout);
+  // Unlink ends the link; a new one needs a phone scan or code: it asks
+  // first.
+  const unlinkStep = useConfirmStep();
 
   const show = (next: WhatsAppStatus) =>
     dispatch({ type: "whatsapp_status", status: next });
@@ -148,10 +153,16 @@ export function WhatsAppSection() {
           {state === "dead" && (
             <Btn
               disabled={busy}
-              onClick={() => void unlink()}
+              onClick={() => unlinkStep.confirm("dead", () => void unlink())}
+              confirmProps={unlinkStep.bind("dead")}
+              style={unlinkStep.armed === "dead" ? armedConfirmLook : undefined}
               data-whatsapp-unlink=""
             >
-              {t("integrations.whatsapp.unlink")}
+              {t(
+                unlinkStep.armed === "dead"
+                  ? "common.confirmQuestion"
+                  : "integrations.whatsapp.unlink",
+              )}
             </Btn>
           )}
           {!codeForm && (
@@ -234,10 +245,15 @@ export function WhatsAppSection() {
           kind="danger"
           small
           disabled={busy}
-          onClick={() => void unlink()}
+          onClick={() => unlinkStep.confirm("linked", () => void unlink())}
+          confirmProps={unlinkStep.bind("linked")}
           data-whatsapp-unlink=""
         >
-          {t("integrations.whatsapp.unlink")}
+          {t(
+            unlinkStep.armed === "linked"
+              ? "common.confirmQuestion"
+              : "integrations.whatsapp.unlink",
+          )}
         </Btn>
       )}
     </div>
@@ -416,6 +432,8 @@ function WhatsAppRows({
   const [prefix, setPrefix] = useState("");
   const [ownMessages, setOwnMessages] = useState(false);
   const [heldRows] = useState(() => getWhatsAppLayout().rows);
+  // A deleted row has no Undo: Delete asks first.
+  const deleteStep = useConfirmStep();
 
   // Agents that can reply: the member's own, above Chat stop.
   const mine = agents.filter(
@@ -627,13 +645,25 @@ function WhatsAppRows({
                   small
                   disabled={busy}
                   onClick={() =>
-                    void run(() =>
-                      apiFetch("DELETE", `/api/whatsapp/routes/${r.id}`),
+                    deleteStep.confirm(
+                      r.id,
+                      () =>
+                        void run(() =>
+                          apiFetch("DELETE", `/api/whatsapp/routes/${r.id}`),
+                        ),
                     )
+                  }
+                  confirmProps={deleteStep.bind(r.id)}
+                  style={
+                    deleteStep.armed === r.id ? armedConfirmLook : undefined
                   }
                   data-whatsapp-row-delete={r.id}
                 >
-                  {t("common.delete")}
+                  {t(
+                    deleteStep.armed === r.id
+                      ? "common.confirmQuestion"
+                      : "common.delete",
+                  )}
                 </Btn>
               </>
             )

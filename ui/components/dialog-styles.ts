@@ -76,6 +76,14 @@ export const filledDangerBtn: Readonly<CSSProperties> = Object.freeze({
   color: "var(--red-text)",
 });
 
+// The colours of a control armed by a confirm step (useConfirmStep), laid
+// over its own size and shape.
+export const armedConfirmLook: Readonly<CSSProperties> = Object.freeze({
+  border: filledDangerBtn.border,
+  background: filledDangerBtn.background,
+  color: filledDangerBtn.color,
+});
+
 export const dialogSaveBtn: Readonly<CSSProperties> = Object.freeze({
   padding: "7px 16px",
   borderRadius: 8,

@@ -80,6 +80,11 @@ async function signOut() {
     .getAllByRole("button")
     .find((el) => el.textContent?.trim() === "Sign out");
   expect(button).toBeDefined();
+  // Sign out asks first (task c6589760): the first click only arms it.
+  await act(async () => {
+    fireEvent.click(button!);
+  });
+  expect(events).toEqual([]);
   await act(async () => {
     fireEvent.click(button!);
   });
