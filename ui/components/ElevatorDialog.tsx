@@ -31,6 +31,8 @@ import {
   secondaryFill,
 } from "./dialog-styles.ts";
 import { isConfirmArmed, useConfirmStep } from "../hooks/useConfirmStep.ts";
+import { isTouchPrimary } from "../touch-primary.ts";
+import { useVisibleArea } from "../visible-area.ts";
 
 // The lobby elevator: one button per office on this browser's panel
 // (shared/elevator-panel.ts) - the offices it rode through, their floors and
@@ -87,9 +89,14 @@ export function ElevatorDialog({
   const addingRef = useRef(false);
   const fieldRef = useRef<HTMLInputElement>(null);
 
+  // On a touch screen the focus would open the keyboard; most rides go to
+  // an office already on the panel.
   useEffect(() => {
-    fieldRef.current?.focus();
+    if (!isTouchPrimary()) fieldRef.current?.focus();
   }, []);
+  // On a phone the overlay covers only the visible area, so the dialog
+  // centers above the keyboard and again once it closes.
+  const visible = useVisibleArea(isMobile);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -216,13 +223,22 @@ export function ElevatorDialog({
       }}
       style={{
         position: "fixed",
-        inset: 0,
+        ...(visible
+          ? {
+              top: visible.top,
+              bottom: window.innerHeight - visible.top - visible.height,
+              left: 0,
+              right: 0,
+            }
+          : { inset: 0 }),
         zIndex: 900,
         background: "rgba(0,0,0,0.55)",
         backdropFilter: "blur(10px)",
         display: "flex",
-        alignItems: isMobile ? "flex-start" : "center",
         justifyContent: "center",
+        paddingTop: "max(16px, env(safe-area-inset-top, 0px))",
+        paddingBottom: "max(16px, env(safe-area-inset-bottom, 0px))",
+        boxSizing: "border-box",
         overflowY: "auto",
         overscrollBehavior: "contain",
       }}
@@ -236,8 +252,9 @@ export function ElevatorDialog({
           border: "1px solid var(--border-light)",
           borderRadius: 16,
           padding: "24px 28px",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
-          marginBottom: isMobile ? 16 : undefined,
+          // Centered when it fits; at the top, scrolling, when it is taller,
+          // where alignItems center would cut off its top.
+          margin: "auto",
           width: isMobile ? "calc(100% - 32px)" : 440,
           maxWidth: isMobile ? "100%" : undefined,
           boxShadow: "0 20px 60px var(--shadow-heavy)",

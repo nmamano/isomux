@@ -70,6 +70,7 @@ import {
   type AppWidgetBoot,
 } from "./app-widget-state.ts";
 import { isTouchPrimary } from "./touch-primary.ts";
+import { visibleArea } from "./visible-area.ts";
 
 // The chat panel (WidgetChat in its section), on the app page and over the
 // Office's Inbox (AgentChatPanel, task e3c25581): each injects these rules. The
@@ -206,8 +207,7 @@ export function usePhonePanelBox(
       if (open && (window.scrollX !== 0 || window.scrollY !== 0))
         window.scrollTo(0, 0);
       const layout = window.innerHeight;
-      const height = Math.min(vv.height, layout);
-      const visibleTop = Math.min(Math.max(0, vv.offsetTop), layout - height);
+      const { top: visibleTop, height } = visibleArea(layout, vv);
       const visibleBottom = visibleTop + height;
       const dockBottom = dock?.current
         ? parseFloat(getComputedStyle(dock.current).bottom)

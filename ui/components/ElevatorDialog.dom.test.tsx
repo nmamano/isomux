@@ -525,3 +525,196 @@ describe("ElevatorDialog panel", () => {
     d.view.unmount();
   });
 });
+
+// On a phone (task f134b222, Nil's iPhone, 2026-11-06): the dialog sat at the
+// top of the screen, the keyboard pushed it up, and it stayed off center after
+// the keyboard closed. The overlay now covers the visible area - the part
+// above the keyboard, where iOS moved it - and the dialog centers in it with
+// auto margins, which keep the top reachable when the list is taller than the
+// area. iOS scrolls the page under the keyboard; that scroll is undone.
+describe("ElevatorDialog on a phone", () => {
+  const LAYOUT = 844;
+
+  // A stubbed visual viewport, window height and page scroll; `scrolls`
+  // records each scrollTo, which puts the page back at the top.
+  function phoneWindow(withViewport: boolean) {
+    const saved = {
+      innerHeight: Object.getOwnPropertyDescriptor(window, "innerHeight"),
+      scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
+      scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
+    };
+    let pageScroll = 0;
+    const scrolls: unknown[][] = [];
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: LAYOUT,
+    });
+    Object.defineProperty(window, "scrollY", {
+      configurable: true,
+      get: () => pageScroll,
+    });
+    Object.defineProperty(window, "scrollTo", {
+      configurable: true,
+      value: (...args: unknown[]) => {
+        scrolls.push(args);
+        pageScroll = 0;
+      },
+    });
+    const viewport = Object.assign(new EventTarget(), {
+      offsetTop: 0,
+      offsetLeft: 0,
+      height: LAYOUT,
+      width: 390,
+      scale: 1,
+    });
+    if (withViewport)
+      Object.defineProperty(window, "visualViewport", {
+        configurable: true,
+        value: viewport,
+      });
+    return {
+      viewport,
+      scrolls,
+      scrollPage: (y: number) => {
+        pageScroll = y;
+      },
+      async move(
+        next: { offsetTop: number; height: number },
+        event: "resize" | "scroll",
+      ) {
+        Object.assign(viewport, next);
+        await act(async () => {
+          viewport.dispatchEvent(new Event(event));
+        });
+      },
+      restore() {
+        Reflect.deleteProperty(window, "visualViewport");
+        for (const [key, desc] of Object.entries(saved)) {
+          if (desc) Object.defineProperty(window, key, desc);
+          else Reflect.deleteProperty(window, key);
+        }
+      },
+    };
+  }
+
+  function mount(isMobile: boolean) {
+    setApiShim(async () => ({}));
+    const view = render(
+      onLanguage(
+        null,
+        createElement(ElevatorDialog, {
+          onClose: () => {},
+          ownOrigin: OWN,
+          openFloor: () => {},
+        }),
+        { floors: [named], isMobile },
+      ),
+    );
+    const dialog = view.getByRole("dialog") as HTMLElement;
+    const overlay = dialog.parentElement as HTMLElement;
+    // Placed by top and bottom, not a height: with the keyboard closed that
+    // is the full box of whatever holds it (the demo puts the office under
+    // its banner, in a transformed box).
+    const box = () => ({
+      top: overlay.style.top,
+      bottom: overlay.style.bottom,
+    });
+    return { view, dialog, overlay, box };
+  }
+
+  it("covers the visible area as the keyboard opens, moves and closes", async () => {
+    const w = phoneWindow(true);
+    try {
+      const d = mount(true);
+      expect(d.box()).toEqual({ top: "0px", bottom: "0px" });
+      // The member taps the field: the keyboard takes the lower half.
+      await w.move({ offsetTop: 0, height: 400 }, "resize");
+      expect(d.box()).toEqual({ top: "0px", bottom: `${LAYOUT - 400}px` });
+      // iOS moves the visible area down under the keyboard.
+      await w.move({ offsetTop: 150, height: 400 }, "scroll");
+      expect(d.box()).toEqual({
+        top: "150px",
+        bottom: `${LAYOUT - 550}px`,
+      });
+      // The keyboard closes: the whole screen again, so the dialog is
+      // centered in it (Nil: "even when dismissing it still not centered").
+      await w.move({ offsetTop: 0, height: LAYOUT }, "resize");
+      expect(d.box()).toEqual({ top: "0px", bottom: "0px" });
+      // The Home Screen app reports an offset the window cannot hold: the
+      // overlay stays inside the window and keeps its height.
+      await w.move({ offsetTop: 600, height: 400 }, "resize");
+      expect(d.box()).toEqual({ top: `${LAYOUT - 400}px`, bottom: "0px" });
+      d.view.unmount();
+    } finally {
+      w.restore();
+    }
+  });
+
+  it("undoes the page scroll iOS adds, and only while it is open", async () => {
+    const w = phoneWindow(true);
+    try {
+      const d = mount(true);
+      const before = w.scrolls.length;
+      // No page scroll: nothing to undo.
+      await w.move({ offsetTop: 0, height: 400 }, "resize");
+      expect(w.scrolls.length).toBe(before);
+      // iOS scrolled the page to show the field.
+      w.scrollPage(300);
+      expect(window.scrollY).toBe(300);
+      await w.move({ offsetTop: 300, height: 400 }, "scroll");
+      expect(w.scrolls.length - before).toBe(1);
+      expect(window.scrollY).toBe(0);
+      // Closed: the listeners are gone, a later scroll is the page's own.
+      d.view.unmount();
+      const closed = w.scrolls.length;
+      w.scrollPage(300);
+      await w.move({ offsetTop: 0, height: LAYOUT }, "resize");
+      await w.move({ offsetTop: 0, height: LAYOUT }, "scroll");
+      expect(w.scrolls.length).toBe(closed);
+    } finally {
+      w.restore();
+    }
+  });
+
+  it("leaves the overlay to the stylesheet without a visual viewport, and on a desktop", async () => {
+    // A phone browser without visualViewport: the full window, as before.
+    const bare = phoneWindow(false);
+    try {
+      expect("visualViewport" in window).toBe(false);
+      const d = mount(true);
+      expect(d.box()).toEqual({ top: "", bottom: "" });
+      d.view.unmount();
+    } finally {
+      bare.restore();
+    }
+    // A desktop window does not follow the visual viewport (a pinch zoom
+    // moves it), and its page scroll is its own.
+    const w = phoneWindow(true);
+    try {
+      w.scrollPage(300);
+      const d = mount(false);
+      await w.move({ offsetTop: 100, height: 400 }, "resize");
+      await w.move({ offsetTop: 100, height: 400 }, "scroll");
+      expect(d.box()).toEqual({ top: "", bottom: "" });
+      expect(w.scrolls.length).toBe(0);
+      d.view.unmount();
+    } finally {
+      w.restore();
+    }
+  });
+
+  // Auto margins center the dialog in the overlay when it fits, and start it
+  // at the top when the list is taller (center alignment would push its top
+  // out of reach). happy-dom has no layout: the live check measures it.
+  for (const isMobile of [true, false]) {
+    it(`centers the dialog with auto margins (${isMobile ? "phone" : "desktop"})`, () => {
+      const d = mount(isMobile);
+      expect([d.dialog.style.marginTop, d.dialog.style.marginBottom]).toEqual([
+        "auto",
+        "auto",
+      ]);
+      expect(d.overlay.style.alignItems).not.toBe("center");
+      d.view.unmount();
+    });
+  }
+});

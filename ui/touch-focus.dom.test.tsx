@@ -15,6 +15,7 @@ const { LogView } = await import("./log-view/LogView.tsx");
 const { SkillsPopover } = await import("./log-view/SkillsPopover.tsx");
 const { TerminalPanel } = await import("./log-view/TerminalPanel.tsx");
 const { CronjobRunView } = await import("./components/CronjobRunView.tsx");
+const { ElevatorDialog } = await import("./components/ElevatorDialog.tsx");
 const { StateCtx, StoreProvider, useAppState } = await import("./store.tsx");
 const { setApiShim } = await import("./api.ts");
 const { setShim, connect } = await import("./ws.ts");
@@ -182,6 +183,23 @@ for (const { device, narrow, coarse } of cases) {
     const filter = container.querySelector("input");
     expect(filter === null).toBe(false);
     expect(active === filter).toBe(!coarse);
+    if (coarse) expect(active === document.body).toBe(true);
+  });
+
+  // Most rides go to an office already on the panel (Nil, 2026-11-06): on a
+  // phone the keyboard opened over the list at each open (task f134b222).
+  it(`the elevator's address field takes focus on open only off touch (${device})`, async () => {
+    setApiShim(async () => ({}));
+    const { container, active } = await focusAfterMount(narrow, coarse, () => (
+      <ElevatorDialog
+        onClose={() => {}}
+        ownOrigin="https://here.example.com"
+        openFloor={() => {}}
+      />
+    ));
+    const field = container.querySelector("#elevator-address");
+    expect(field === null).toBe(false);
+    expect(active === field).toBe(!coarse);
     if (coarse) expect(active === document.body).toBe(true);
   });
 
