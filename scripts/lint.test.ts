@@ -107,9 +107,9 @@ it("adds a lint thread per budget above the reserve, from two to the cap", () =>
   );
 });
 
-it("reports a finding or an ESLint error from one run", async () => {
+it("reports a clean run, a finding or another error from one run", async () => {
   expect(lintConcurrency(THREE_THREADS)).toBe("3");
-  for (const code of [0, 1, 2, 127]) {
+  for (const code of [0, 1, 127]) {
     const lint = await lintWith([{ code, signal: null }]);
     expect(lint.code).toBe(code);
     expect(lint.threads).toEqual(["3"]);
@@ -154,10 +154,60 @@ it("fails after a second crash, with no third run", async () => {
   expect(lint.lines[2]).toContain("SIGABRT");
 });
 
+// ESLint exits 2 on an internal error too: in CI a fresh thread once threw a
+// TypeError while it loaded typescript.js, and the same commit then passed
+// (task 18fab35d). Exit 2 runs again like a crash.
+it("runs ESLint once more with threads off after an exit 2", async () => {
+  for (const verdict of [0, 1]) {
+    const lint = await lintWith([
+      { code: 2, signal: null },
+      { code: verdict, signal: null },
+    ]);
+    expect(lint.code).toBe(verdict);
+    expect(lint.threads).toEqual(["3", "off"]);
+    expect(lint.lines).toHaveLength(2);
+  }
+  const unthreaded = await lintWith(
+    [
+      { code: 2, signal: null },
+      { code: 0, signal: null },
+    ],
+    LINT_RESERVE_BYTES,
+  );
+  expect(unthreaded.threads).toEqual(["off", "off"]);
+  expect(unthreaded.code).toBe(0);
+});
+
+it("fails when the run after an exit 2 or a crash fails the same way, with no third run", async () => {
+  const twice = await lintWith([
+    { code: 2, signal: null },
+    { code: 2, signal: null },
+  ]);
+  expect(twice.code).toBe(2);
+  expect(twice.threads).toEqual(["3", "off"]);
+  // A line says the run after the exit 2 failed too.
+  expect(twice.lines).toHaveLength(3);
+  const crashAfter = await lintWith([
+    { code: 2, signal: null },
+    { code: 134, signal: "SIGABRT" },
+  ]);
+  expect(crashAfter.code).toBe(134);
+  expect(crashAfter.threads).toEqual(["3", "off"]);
+  expect(crashAfter.lines).toHaveLength(3);
+  expect(crashAfter.lines[2]).toContain("SIGABRT");
+  const exit2After = await lintWith([
+    { code: 133, signal: "SIGTRAP" },
+    { code: 2, signal: null },
+  ]);
+  expect(exit2After.code).toBe(2);
+  expect(exit2After.threads).toEqual(["3", "off"]);
+  expect(exit2After.lines).toHaveLength(3);
+});
+
 // ci:web lints the web app with it, on a remote gate slot of about 3 GiB
 // (task 3a48aba3): threads stay off however much memory is free.
-it("lints the web app unthreaded, and once more after a crash", async () => {
-  for (const code of [0, 1, 2]) {
+it("lints the web app unthreaded, and once more after a crash or an exit 2", async () => {
+  for (const code of [0, 1]) {
     const lint = await lintWith([{ code, signal: null }], THREE_THREADS, "web");
     expect(lint.code).toBe(code);
     expect(lint.threads).toEqual(["off"]);
@@ -183,6 +233,16 @@ it("lints the web app unthreaded, and once more after a crash", async () => {
   );
   expect(twice.code).toBe(134);
   expect(twice.threads).toEqual(["off", "off"]);
+  const exit2 = await lintWith(
+    [
+      { code: 2, signal: null },
+      { code: 1, signal: null },
+    ],
+    THREE_THREADS,
+    "web",
+  );
+  expect(exit2.code).toBe(1);
+  expect(exit2.threads).toEqual(["off", "off"]);
 });
 
 // The heap report (task 53a41bd9): with a report, lint.ts marks each ESLint
@@ -253,12 +313,36 @@ describe("the heap check", () => {
   });
 
   it("keeps ESLint's own failure when a heap did not report", async () => {
-    for (const code of [1, 2]) {
-      const lint = await lintReported([
-        { code, signal: null, heaps: [start(1, 0), start(1, 1), end(1, 0)] },
-      ]);
-      expect(lint.code).toBe(code);
-    }
+    const lost = [start(1, 0), start(1, 1), end(1, 0)];
+    const finding = await lintReported([
+      { code: 1, signal: null, heaps: lost },
+    ]);
+    expect(finding.code).toBe(1);
+    // An exit 2 runs again; the run after it ends with exit 2 too.
+    const error = await lintReported([
+      { code: 2, signal: null, heaps: lost },
+      { code: 2, signal: null, heaps: lost },
+    ]);
+    expect(error.code).toBe(2);
+    expect(error.threads).toEqual(["3", "off"]);
+  });
+
+  it("judges only the last run after an exit 2, and marks it in the report", async () => {
+    const lint = await lintReported([
+      // The thread that threw started, and ESLint ended before its end line.
+      { code: 2, signal: null, heaps: [start(1, 0), start(1, 1), end(1, 0)] },
+      { code: 0, signal: null, heaps: [start(2, 0), end(2, 0)] },
+    ]);
+    expect(lint.code).toBe(0);
+    expect(lint.threads).toEqual(["3", "off"]);
+    expect(lint.marked).toEqual([true, true]);
+    expect(lint.text).toContain(
+      end(1, 0) + "\n" + crashMarker("exit 2") + runMarker("off"),
+    );
+    expect(readHeapReport(lint.text)).toMatchObject({
+      lost: 0,
+      crashes: ["exit 2"],
+    });
   });
 
   it("judges only the last run after a crash, and marks the crash in the report", async () => {
@@ -427,7 +511,7 @@ describe("lint:web", () => {
   const web =
     "x eslint --config control-plane/web/eslint.config.mjs control-plane/web";
 
-  it("lints the web app once, and once more after a crash", async () => {
+  it("lints the web app once, and once more after a crash or an exit 2", async () => {
     const crash = await lintWeb([134, 0]);
     expect(crash.calls).toEqual([
       `${web} --concurrency=off`,
@@ -437,6 +521,15 @@ describe("lint:web", () => {
     const finding = await lintWeb([1]);
     expect(finding.calls).toEqual([`${web} --concurrency=off`]);
     expect(finding.code).toBe(1);
+    const error = await lintWeb([2, 0]);
+    expect(error.calls).toEqual([
+      `${web} --concurrency=off`,
+      `${web} --concurrency=off`,
+    ]);
+    expect(error.code).toBe(0);
+    const errorTwice = await lintWeb([2, 2]);
+    expect(errorTwice.calls).toHaveLength(2);
+    expect(errorTwice.code).toBe(2);
   });
 
   it("passes --fix on", async () => {

@@ -107,11 +107,19 @@ export type EslintRun = (
   concurrency: string,
 ) => Promise<{ code: number; signal: string | null }>;
 
-// ESLint exits 0, 1 (findings) or 2 (config error). 128 or more means the
-// process died before it reported, as when V8 aborted an ESLint thread on
-// Node 24.22.1 in CI (2026-10-23, task 2e705692); Bun reports a signal death
-// as 128 plus the signal number.
+// ESLint exits 0, 1 (findings) or 2 (a config problem or an internal error).
+// 128 or more means the process died before it reported, as when V8 aborted an
+// ESLint thread on Node 24.22.1 in CI (2026-10-23, task 2e705692); Bun reports
+// a signal death as 128 plus the signal number. The same V8 fault once threw a
+// TypeError instead while a thread loaded typescript.js, which ESLint reports
+// as exit 2 (2026-11-06, task 18fab35d).
 const CRASH_EXIT = 128;
+const INTERNAL_ERROR_EXIT = 2;
+
+/** Whether an ESLint run may have failed for a reason another run lacks. */
+function retryable(code: number): boolean {
+  return code === INTERNAL_ERROR_EXIT || code >= CRASH_EXIT;
+}
 
 function exitText(result: { code: number; signal: string | null }): string {
   return result.signal
@@ -193,15 +201,20 @@ export async function runLint(
             : ` (${(available / GIB).toFixed(1)} GiB available)`),
   );
   const first = await marked(concurrency);
-  if (first.code < CRASH_EXIT) return verdict(first.code);
+  if (!retryable(first.code)) return verdict(first.code);
   console.error(
-    `eslint crashed (${exitText(first)}), not a lint finding; running it again` +
+    (first.code >= CRASH_EXIT
+      ? `eslint crashed (${exitText(first)})`
+      : `eslint ended with an internal error or a config problem (${exitText(first)})`) +
+      ", not a lint finding; running it again" +
       (concurrency === "off" ? "" : " with threads off"),
   );
   report?.append(crashMarker(exitText(first)));
   const second = await marked("off");
   if (second.code >= CRASH_EXIT)
     console.error(`eslint crashed again (${exitText(second)})`);
+  else if (second.code === INTERNAL_ERROR_EXIT)
+    console.error(`eslint failed again (${exitText(second)})`);
   return verdict(second.code);
 }
 
