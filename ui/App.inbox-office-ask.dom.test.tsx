@@ -24,6 +24,7 @@ const {
   setUpInboxTests,
 } = await import("./test-support/inbox-fixture.tsx");
 const { setAsksSort } = await import("./device-settings.ts");
+const { shimEmit } = await import("./ws.ts");
 type View = import("./test-support/inbox-fixture.tsx").View;
 type AskMemberWire = import("../shared/types.ts").AskMemberWire;
 
@@ -126,16 +127,31 @@ it("the Inbox counts an office page with the agents' asks", async () => {
   expect(card(view, "q2")).not.toBeNull();
 });
 
-// Nil at sign-off (task dcb409d4): pages sort by priority. Under the priority
-// sort the office page (P1) renders below a P0 ask of an agent, in the one
-// list: today it renders above every agent's run.
-it("under the priority sort an office page renders below an agent's P0 ask", async () => {
+// Nil at sign-offs (tasks dcb409d4, dcc626af): under the priority sort a
+// ringing page is its own level above P0, and once acked it sorts by its
+// priority. Through the real Inbox, an office page (P1) renders above an
+// agent's P0 ask while it rings, and below it after the Ack arrives.
+it("under the priority sort a ringing office page renders above an agent's P0 ask, and below it once acked", async () => {
   setAsksSort("priority");
   setAsks([
     officeAsk("q1", 3_000),
     { ...ask("q2", "a1"), members: ["member"], priority: "P0" },
   ]);
   const view = await openInbox();
+  const ack = () => card(view, "q1")!.querySelector("button[data-ask-ack]");
+  expect(ack()).not.toBeNull();
+  expect(listOrder(view)).toEqual(["src:WhatsApp", "q1", "a1", "q2"]);
+  await act(async () =>
+    shimEmit({
+      type: "ask_upserted",
+      entry: {
+        ...officeAsk("q1", 3_000),
+        page: { state: "acked", ackedBy: "member", ackedAt: 3_001 },
+      },
+    } as never),
+  );
+  expect(card(view, "q1")).not.toBeNull();
+  expect(ack()).toBeNull();
   expect(listOrder(view)).toEqual(["a1", "q2", "src:WhatsApp", "q1"]);
 });
 

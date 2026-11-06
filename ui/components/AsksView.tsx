@@ -169,7 +169,8 @@ const DIR_LABELS = {
  * or an app, task 74e8fc07), under the source's name. Under "agent", "room"
  * and "priority" each agent and each source has one run, and one comparator
  * orders the cards in a run: oldest first; or the room's place in `rooms`,
- * then oldest; or the priority, no priority last, then oldest. Under
+ * then oldest; or the priority, a ringing page first as its own level
+ * (task dcc626af) and no priority last, then oldest. Under
  * "priority" the same comparator orders the runs by their first card, then a
  * source's run before an agent's, then by source name or agent id, so a page
  * sits with the asks of its level (task dcb409d4). Under "agent" and "room",
@@ -178,12 +179,13 @@ const DIR_LABELS = {
  * asks are one list, oldest first, then by ask id, and a run ends where the
  * agent or the source changes, so either can head more than one run. "desc"
  * reverses the main key only: the age under "agent" and "age" (the ask-id tie
- * too), the room's place, or the priority level. Inside a room or a level the
- * cards stay oldest first, and what the key does not place (a room not in
- * `rooms`, no priority) stays last. The asks with no agent pass only the
- * priority filter, having no room and no agent. Of the others, only agents in
- * the agents slice get a run, so an ask whose agent the client does not have
- * stays out, as `visibleAsks` leaves it out of the count.
+ * too), the room's place, or the priority level (ringing included). Inside
+ * a room or a level the cards stay oldest first, and what the key does not
+ * place (a room not in `rooms`, no priority) stays last. The asks with no
+ * agent pass only the priority filter, having no room and no agent. Of the
+ * others, only agents in the agents slice get a run, so an ask whose agent
+ * the client does not have stays out, as `visibleAsks` leaves it out of the
+ * count.
  */
 export function askGroups(
   asks: readonly AskMemberWire[],
@@ -211,12 +213,19 @@ export function askGroups(
       const pb = roomPlace(b.roomId);
       return keyed(pa - pb, pa === rooms.length, pb === rooms.length);
     }
-    if (sort === "priority")
+    if (sort === "priority") {
+      // A ringing page is its own level above P0 (task dcc626af); once acked
+      // it sorts by its priority.
+      const ra = a.entry.page?.state === "ringing";
+      const rb = b.entry.page?.state === "ringing";
       return keyed(
-        comparePriority(a.entry.priority, b.entry.priority),
-        !a.entry.priority,
-        !b.entry.priority,
+        ra || rb
+          ? Number(rb) - Number(ra)
+          : comparePriority(a.entry.priority, b.entry.priority),
+        !ra && !a.entry.priority,
+        !rb && !b.entry.priority,
       );
+    }
     return 0;
   };
   // Under "agent" the age is the main key; under "room" and "priority" it

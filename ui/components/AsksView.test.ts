@@ -6,7 +6,8 @@
 // direction's storage have their own owners: the AsksView.*.dom tests and the
 // "asks sort direction" describe in ui/device-settings.test.ts.
 // The asks with no agent (an office or app page) are runs of their own, by
-// their source's name, in the same orders (task dcb409d4).
+// their source's name, in the same orders (task dcb409d4). Under "priority" a
+// ringing page is its own level above P0 (task dcc626af).
 //
 // Pure T0: no DOM, no server, no LLM.
 
@@ -346,6 +347,82 @@ describe("askGroups with asks that have no agent (task dcb409d4)", () => {
       "src:WhatsApp:wa3,wa1",
       "src:Discord:dc",
       "a3:a3p1",
+    ]);
+  });
+});
+
+describe("askGroups with a ringing page (task dcc626af)", () => {
+  const rings = (
+    entry: AskMemberWire,
+    state: "ringing" | "acked",
+  ): AskMemberWire => ({
+    ...entry,
+    page: state === "acked" ? { state, ackedBy: "Nil", ackedAt: 1 } : { state },
+  });
+  const office = (entry: AskMemberWire, name: string): AskMemberWire => ({
+    ...entry,
+    office: { feature: name.toLowerCase(), name },
+  });
+  // The P0 ask a1p0 is older than every ringing card but a2p4's run, so a
+  // ringing level merged into P0 would put it first. The ringing a4ring has
+  // no priority and is the oldest ringing card: it heads the ringing level,
+  // not the no-priority tail where ea stays. Discord's acked page is P1 and
+  // older than a3p1, so it heads the P1 level and never the ringing one. The
+  // ringing levels are P3, P1 and none, and the cards stay oldest first.
+  const RING: AskMemberWire[] = [
+    theAsk("a1p0", "a1", 60, "P0"),
+    rings(theAsk("a2ring", "a2", 10, "P3"), "ringing"),
+    theAsk("a2p4", "a2", 90, "P4"),
+    theAsk("a3p1", "a3", 30, "P1"),
+    rings(theAsk("a4ring", "a4", 50), "ringing"),
+    theAsk("ea", "ea", 15),
+    rings(office(theAsk("wa", "", 20, "P1"), "WhatsApp"), "ringing"),
+    rings(office(theAsk("dcAck", "", 40, "P1"), "Discord"), "acked"),
+  ];
+
+  it("priority sort: ringing is its own level above P0, an acked page sits at its priority, no priority last", () => {
+    expect(sorted(RING, "priority", "asc")).toEqual([
+      "a4:a4ring",
+      "src:WhatsApp:wa",
+      "a2:a2ring,a2p4",
+      "a1:a1p0",
+      "src:Discord:dcAck",
+      "a3:a3p1",
+      "ea:ea",
+    ]);
+    // "desc" reverses the levels, ringing with them: it comes after P0, and
+    // the no-priority ask stays last. Inside a level the cards stay oldest
+    // first.
+    expect(sorted(RING, "priority", "desc")).toEqual([
+      "a2:a2p4,a2ring",
+      "src:Discord:dcAck",
+      "a3:a3p1",
+      "a1:a1p0",
+      "a4:a4ring",
+      "src:WhatsApp:wa",
+      "ea:ea",
+    ]);
+  });
+
+  it("agent and age sorts: a ringing page changes nothing", () => {
+    expect(sorted(RING, "agent", "asc")).toEqual([
+      "src:Discord:dcAck",
+      "src:WhatsApp:wa",
+      "a2:a2p4,a2ring",
+      "a1:a1p0",
+      "a4:a4ring",
+      "a3:a3p1",
+      "ea:ea",
+    ]);
+    expect(sorted(RING, "age", "asc")).toEqual([
+      "a2:a2p4",
+      "a1:a1p0",
+      "a4:a4ring",
+      "src:Discord:dcAck",
+      "a3:a3p1",
+      "src:WhatsApp:wa",
+      "ea:ea",
+      "a2:a2ring",
     ]);
   });
 });
