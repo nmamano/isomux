@@ -1,7 +1,7 @@
 // Colour markup for ask text: `:green[text]` draws its text in a theme
 // colour. The names are fixed, and each maps to a --*-text variable that
-// themes.ts holds readable in every theme; a name not in the list stays
-// as typed.
+// themes.ts holds readable in every theme. A retired name draws its text
+// plain; any other name not in the list stays as typed.
 
 import { Marked, type Tokens } from "marked";
 
@@ -11,8 +11,11 @@ export const MARKUP_COLORS: ReadonlyMap<string, string> = new Map([
   ["orange", "var(--orange-text)"],
   ["red", "var(--red-text)"],
   ["purple", "var(--purple-text)"],
-  ["blue", "var(--accent-text)"],
 ]);
+
+// Names older asks may hold. Blue was the link colour, so its text looked
+// like a link.
+export const RETIRED_MARKUP_COLORS: ReadonlySet<string> = new Set(["blue"]);
 
 export type ColorToken = Tokens.Generic & {
   type: "color";
@@ -35,7 +38,11 @@ export const colorMarkupOptions = new Marked({
       start: (src: string) => src.search(/:[a-z]+\[/),
       tokenizer(src: string, tokens: Tokens.Generic[]) {
         const match = COLOR_RE.exec(src);
-        if (!match || !MARKUP_COLORS.has(match[1])) return;
+        if (
+          !match ||
+          !(MARKUP_COLORS.has(match[1]) || RETIRED_MARKUP_COLORS.has(match[1]))
+        )
+          return;
         if (/[A-Za-z0-9_]$/.test(tokens.at(-1)?.raw ?? "")) return;
         return {
           type: "color",

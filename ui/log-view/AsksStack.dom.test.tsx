@@ -1434,7 +1434,7 @@ it("renders an open card prompt with code and keeps its links live", async () =>
 // a coloured kind label, and a sudo or secret card draws it as a plain ask's
 // card does. The collapsed bar draws the newest plain ask's first line with
 // its markup too.
-const KIND_LABEL = ":blue[**Quick action**]";
+const KIND_LABEL = ":purple[**Quick action**]";
 const LABELED: AskEntry[] = [
   entry("cdef0101", "c1", `${KIND_LABEL} Ship it?`, 1),
   {
@@ -1477,9 +1477,9 @@ const mountLabeled = (isMobile: boolean) =>
 const drawnLabel = (root: HTMLElement | null) => ({
   color: root?.querySelector<HTMLElement>("[data-color]")?.dataset.color,
   bold: root?.querySelector("[data-color] strong")?.textContent,
-  raw: /:blue\[|\*\*/.test(root?.textContent ?? ""),
+  raw: /:purple\[|\*\*/.test(root?.textContent ?? ""),
 });
-const LABEL_DRAWN = { color: "blue", bold: "Quick action", raw: false };
+const LABEL_DRAWN = { color: "purple", bold: "Quick action", raw: false };
 
 it("draws an ask's colour markup on a plain, a sudo and a secret card", async () => {
   const ids = LABELED.map((e) => e.id);

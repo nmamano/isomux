@@ -183,7 +183,6 @@ it("with colors, each name draws its text in its theme variable", () => {
     orange: "var(--orange-text)",
     red: "var(--red-text)",
     purple: "var(--purple-text)",
-    blue: "var(--accent-text)",
   };
   const content = Object.keys(vars)
     .map((name) => `:${name}[${name} word]`)
@@ -210,7 +209,7 @@ it("with colors, each name draws its text in its theme variable", () => {
 it("with colors, the markup opens at the start, after a space, punctuation or a CJK character, and inside bold", () => {
   const view = render(
     createElement(InlineMarkdown, {
-      content: ":green[a] then (:red[b]), **:blue[c]** 请确认:orange[决定]",
+      content: ":green[a] then (:red[b]), **:purple[c]** 请确认:orange[决定]",
       colors: true,
     }),
   );
@@ -219,11 +218,43 @@ it("with colors, the markup opens at the start, after a space, punctuation or a 
   ).toStrictEqual([
     ["green", "a"],
     ["red", "b"],
-    ["blue", "c"],
+    ["purple", "c"],
     ["orange", "决定"],
   ]);
   expect(view.container.querySelector("strong > [data-color]")).not.toBe(null);
   expect(view.container.textContent).toBe("a then (b), c 请确认决定");
+});
+
+// Blue drew in the link colour, so coloured text read as a link (task
+// d3b1a263). An older ask that holds it draws the text plain: its formatting
+// stays, its colour and its markup go.
+it("with colors, a retired name draws its text plain, keeps the formatting inside, and keeps the boundary rule", () => {
+  const view = render(
+    createElement(InlineMarkdown, {
+      content:
+        ":blue[**Quick action**] Run `bun test`, :green[then] note:blue[x]",
+      colors: true,
+      code: true,
+    }),
+  );
+  // A live name in the same text still colours: colours are on.
+  expect(
+    colored(view.container).map(({ name, text }) => [name, text]),
+  ).toStrictEqual([["green", "then"]]);
+  expect(view.container.querySelector("strong")?.textContent).toBe(
+    "Quick action",
+  );
+  // The root span carries white-space only; no wrapper carries a colour.
+  expect(
+    view.container
+      .querySelector("strong")
+      ?.closest('[data-color], [style*="color"]'),
+  ).toBe(null);
+  expect(view.container.querySelector("code")?.textContent).toBe("bun test");
+  // A letter before the colon keeps it as typed, as for a live name.
+  expect(view.container.textContent).toBe(
+    "Quick action Run bun test, then note:blue[x]",
+  );
 });
 
 it("with colors, the text inside keeps bold, code and task chips", () => {

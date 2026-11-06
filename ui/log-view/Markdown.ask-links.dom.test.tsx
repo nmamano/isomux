@@ -292,7 +292,7 @@ it("draws a marked-up prompt's title and label as its plain text, in Markdown an
   const marked: ResolvedAsk = {
     ...ASK,
     prompt:
-      ":blue[**Quick action**] Run `bun test` on [main](https://example.com) now?\nThe tests are green.",
+      ":purple[**Quick action**] Run `bun test` on [main](https://example.com) now?\nThe tests are green.",
   };
   const value = refs({ [ASK.id]: marked });
   const content = `See ${ASK.id} first.`;
@@ -308,7 +308,7 @@ it("draws a marked-up prompt's title and label as its plain text, in Markdown an
       title: chips[0].getAttribute("title"),
       words: label.includes("Quick action Run bun"),
       past: label.includes("test"),
-      raw: /:blue\[|\*\*|`|\]\(/.test(label),
+      raw: /:purple\[|\*\*|`|\]\(/.test(label),
     }).toEqual({
       title: "Quick action Run bun test on main now?",
       words: true,

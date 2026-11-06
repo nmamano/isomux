@@ -95,13 +95,13 @@ it("a URL in the reason is a link that opens in a new tab; a javascript: link is
 it("draws colour markup in the reason", () => {
   const view = card(new Map(), {
     ...PAYLOAD,
-    reason: ":blue[**Quick action**] To open the pull request.",
+    reason: ":purple[**Quick action**] To open the pull request.",
   });
   const span = view.container.querySelector<HTMLElement>("[data-color]");
   expect({
     color: span?.dataset.color,
     bold: span?.querySelector("strong")?.textContent,
-    raw: /:blue\[|\*\*/.test(view.container.textContent ?? ""),
-  }).toEqual({ color: "blue", bold: "Quick action", raw: false });
+    raw: /:purple\[|\*\*/.test(view.container.textContent ?? ""),
+  }).toEqual({ color: "purple", bold: "Quick action", raw: false });
   view.unmount();
 });

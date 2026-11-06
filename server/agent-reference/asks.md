@@ -10,7 +10,7 @@ Pull a per-agent spend breakdown before we change models?
 EOF
 ```
 
-The card shows bold, italics, `code` and links. `:green[text]` draws text in green; the other names are orange, red, purple and blue. The text cannot hold a link. To show a text change, use a ` ```diff ` block: a `-` line shows in red and a `+` line in green. Put each `-` line right before its `+` line to mark the changed words.
+The card shows bold, italics, `code` and links. `:green[text]` draws text in green; the other names are orange, red and purple. The text cannot hold a link. To show a text change, use a ` ```diff ` block: a `-` line shows in red and a `+` line in green. Put each `-` line right before its `+` line to mark the changed words.
 
 A JSON body (`Content-Type: application/json`) takes `text` (or `prompt`), `member` (a name or a list), `room: true`, `link`, `step`, `options`, `recommended`, `priority`, `commands`, `editFiles` and `readFiles`. Query parameters work only with a text/plain body.
 

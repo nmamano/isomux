@@ -52,6 +52,10 @@ function lexInline(content: string, colors: boolean): Token[] {
 function renderTokens(tokens: Token[], grammar: Grammar): ReactNode[] {
   // The colour markup is the one extension; every other token is built in.
   return (tokens as (MarkedToken | ColorToken)[]).map((token, index) => {
+    if (token.type === "color" && !MARKUP_COLORS.has(token.name))
+      return (
+        <Fragment key={index}>{renderTokens(token.tokens, grammar)}</Fragment>
+      );
     if (token.type === "color")
       return (
         <span
