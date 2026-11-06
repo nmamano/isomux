@@ -20,7 +20,8 @@
 //     whole wall came down.
 //   - The two-step invite flow over HTTP: GET /i/<token> renders WITHOUT
 //     consuming, POST /auth/accept consumes and sets the session cookie, and a
-//     replayed accept is 410 rather than a second session.
+//     replayed accept is 410 rather than a second session. The accept form
+//     is read with a small cap, urlencoded only, before the token.
 //   - A rename does not disturb in-flight sessions (identity is the stable
 //     userId), and a case-only collision is still refused.
 
@@ -303,6 +304,66 @@ describe("auth/wall: the invite accept over HTTP", () => {
     });
     expect(crossOrigin.status).toBe(403);
     expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
+  });
+
+  // Task b5b9b8ab: anyone can send the office Origin, so the accept form is
+  // read with a small cap and parsed as urlencoded only, before the token. A
+  // live token at the head of each refused body proves the refusal comes
+  // first: a server that parsed the whole body would accept the invite.
+  it("refuses an oversized or non-urlencoded form before the token", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Morgan");
+    const live = await mintMemberLink("Newbie");
+    const origin = buildPublicOrigin().origin;
+    const urlencoded = {
+      "Content-Type": "application/x-www-form-urlencoded",
+    };
+    const oversized = `token=${live.rawToken}&${"a&".repeat(8192)}`;
+
+    // Declared length over the cap.
+    const declared = await raw(server, "/auth/accept", {
+      method: "POST",
+      origin,
+      headers: urlencoded,
+      body: oversized,
+    });
+    expect(declared.status).toBe(413);
+
+    // No declared length (chunked): the read stops at the cap.
+    const bytes = new TextEncoder().encode(oversized);
+    const streamed = await raw(server, "/auth/accept", {
+      method: "POST",
+      origin,
+      headers: urlencoded,
+      body: new ReadableStream({
+        start(controller) {
+          for (let i = 0; i < bytes.length; i += 1024)
+            controller.enqueue(bytes.subarray(i, i + 1024));
+          controller.close();
+        },
+      }),
+    });
+    expect(streamed.status).toBe(413);
+
+    const multipart = new FormData();
+    multipart.set("token", live.rawToken);
+    const notUrlencoded = await raw(server, "/auth/accept", {
+      method: "POST",
+      origin,
+      body: multipart,
+    });
+    expect(notUrlencoded.status).toBe(415);
+
+    // The invite is still live, and a normal form accepts it.
+    expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
+    const accepted = await raw(server, "/auth/accept", {
+      method: "POST",
+      origin,
+      headers: urlencoded,
+      body: new URLSearchParams({ token: live.rawToken }).toString(),
+    });
+    expect(accepted.status).toBe(302);
+    expect(getUserByName("Newbie")?.pendingSignIn).toBeUndefined();
   });
 });
 

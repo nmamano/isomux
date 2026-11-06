@@ -496,17 +496,16 @@ export async function handleAccept(
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
+  // Anyone can post here, so read the form under the cap before the token.
+  const read = await readAuthForm(req);
+  if (!read.ok) return authFormRefusal(read.status);
+  const { form } = read;
   let i18n = translatorForVisitor(req, onBox);
-  const form = await req.formData().catch(() => null);
-  const tokenField = form?.get("token");
-  const nameField = form?.get("name");
-  const token = typeof tokenField === "string" ? tokenField : "";
-  const name = typeof nameField === "string" ? nameField : "";
+  const token = form.get("token") ?? "";
+  const name = form.get("name") ?? "";
   if (!token) return renderInviteError(i18n, "not_found", officeName);
   const peek = peekInvite(token);
-  const languageField = form?.get("language");
-  const language =
-    typeof languageField === "string" ? languageField : undefined;
+  const language = form.get("language") ?? undefined;
   if (!("error" in peek)) {
     const selected =
       SUPPORTED_LANGUAGES.find((l) => l.code === language)?.code ??
@@ -847,7 +846,32 @@ export function renderSetupPage(
   );
 }
 
-const MAX_SETUP_FORM_BYTES = 4096;
+// The sign-in forms (claim, invite accept) carry a few short fields.
+const MAX_AUTH_FORM_BYTES = 4096;
+
+// Read a pre-sign-in form: urlencoded only, at most MAX_AUTH_FORM_BYTES. The
+// office listener accepts large uploads, so stop reading at the cap.
+async function readAuthForm(
+  req: Request,
+): Promise<
+  { ok: true; form: URLSearchParams } | { ok: false; status: 413 | 415 }
+> {
+  const type = req.headers.get("content-type")?.toLowerCase();
+  if (!type?.startsWith("application/x-www-form-urlencoded"))
+    return { ok: false, status: 415 };
+  const body = await readCappedBody(req, MAX_AUTH_FORM_BYTES);
+  if (!body.ok) return { ok: false, status: 413 };
+  return {
+    ok: true,
+    form: new URLSearchParams(new TextDecoder().decode(body.bytes)),
+  };
+}
+
+function authFormRefusal(status: 413 | 415): Response {
+  return status === 413
+    ? new Response("Form too large", { status })
+    : new Response("Unsupported form", { status });
+}
 
 // The one setup-key claim. The office's POST /auth/claim and the container
 // setup page both run it. Returns the claim result, or the response to send.
@@ -876,19 +900,12 @@ export async function claimWithSetupKey<T extends { ok: true }>(
   const now = Date.now();
   if (setupClaimBlocked(opts.client, now))
     return page(429, t("preAuth.claim.errorTooManyTries"));
-  if (
-    !req.headers
-      .get("content-type")
-      ?.startsWith("application/x-www-form-urlencoded")
-  )
-    return new Response("Unsupported form", { status: 415 });
-  // The office listener accepts large uploads, so stop reading at the cap.
-  const body = await readCappedBody(req, MAX_SETUP_FORM_BYTES);
-  if (!body.ok) {
-    recordSetupKeyFailure(opts.client, now);
-    return new Response("Form too large", { status: 413 });
+  const read = await readAuthForm(req);
+  if (!read.ok) {
+    if (read.status === 413) recordSetupKeyFailure(opts.client, now);
+    return authFormRefusal(read.status);
   }
-  const form = new URLSearchParams(new TextDecoder().decode(body.bytes));
+  const { form } = read;
   if (!opts.keyMatches(form.get("key") ?? "")) {
     recordSetupKeyFailure(opts.client, now);
     return page(403, t("preAuth.claim.errorKey"));
