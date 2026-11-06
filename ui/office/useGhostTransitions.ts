@@ -19,15 +19,15 @@ export const GHOST_LOBBY_GAP = 52;
 
 // Where a ghost stands while its member has the page of that wall item open,
 // in scene-container pixels: on the floor in front of the item, or beside the
-// clock and the vent, which hang above the desks. The clock's ghost stands in
-// the room's back corner, left of the clock, where the wall is empty. Each
-// spot keeps the ghost and its name tag (both take clicks) off the item and
-// off the window, so a click on the item still reaches it.
+// clock and the vent, which hang above the desks. The clock's ghost stands
+// just left of the clock, where the wall is empty. Each spot keeps the ghost
+// and its name tag (both take clicks) off the item and off the window, so a
+// click on the item still reaches it.
 export const GHOST_WALL_SPOTS: Record<PresencePage, DoorCoord> = {
   tasks: { left: 310, top: 128 },
   apps: { left: 366, top: 83 },
   inbox: { left: 168, top: 190 },
-  cronjobs: { left: 470, top: -11 },
+  cronjobs: { left: 500, top: -11 },
   settings: { left: 772, top: 104 },
 };
 
