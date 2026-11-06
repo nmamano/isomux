@@ -1574,7 +1574,14 @@ export function LogView({
       icon: EndConversationIcon,
       label: i18n.t("logView.nav.endConversation"),
       title: i18n.t("logView.nav.endConversationTitle"),
-      onClick: () => runSlashCommand("/clear"),
+      // The click focused End, which turns inert once the log empties: give
+      // the focus back to the composer so the member types the next
+      // conversation at once. Not on a touch screen, where focus opens the
+      // keyboard.
+      onClick: () => {
+        if (runSlashCommand("/clear") && !touchPrimary)
+          textareaRef.current?.focus({ preventScroll: true });
+      },
       disabled: logs.length === 0,
     },
     {
