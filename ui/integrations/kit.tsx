@@ -54,6 +54,17 @@ export const card: CSSProperties = {
   padding: 14,
 };
 
+// A card laid flat inside the page's card: a rule between them instead of a
+// box in a box.
+export const flatCard: CSSProperties = {
+  border: "none",
+  borderTop: "1px solid var(--border-subtle)",
+  borderRadius: 0,
+  background: "transparent",
+  padding: "12px 2px 4px",
+  marginTop: 0,
+};
+
 export const input: CSSProperties = {
   width: "100%",
   padding: "8px 11px",

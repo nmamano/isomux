@@ -115,7 +115,7 @@ const TAB_INTRO = {
   voice: "integrations.tabIntro.voice",
   browser: "browser.intro",
   github: "integrations.tabIntro.github",
-  // Pager, API tokens and WhatsApp: the panes carry their own intro.
+  // Pager and API tokens: the panes carry their own intro. Messaging has none.
   pager: null,
   "api-tokens": null,
   messaging: null,
@@ -236,10 +236,11 @@ function IntegrationsPage({
     member !== null && others.some((user) => user.name === member);
   const goneMember =
     gone ?? (member !== null && !memberKnown && users.size > 0 ? member : null);
+  const selfTarget: Target = { kind: "self", username: self };
   const personal: Target =
     member !== null && memberKnown
       ? { kind: "member", username: member }
-      : { kind: "self", username: self };
+      : selfTarget;
   const pick = (next: string | null) => {
     setGone(null);
     setMember(next);
@@ -349,8 +350,8 @@ function IntegrationsPage({
             member={target.kind === "member" ? target.username : undefined}
           />
         ) : null;
-      // The Browser Use, GitHub issues, API tokens and Messaging tabs have no
-      // cards (see the page below).
+      // The Browser Use, GitHub issues, API tokens and Messaging tabs draw
+      // their panes on the page below.
       case "browser":
       case "github":
       case "api-tokens":
@@ -590,13 +591,21 @@ function IntegrationsPage({
               ) : tab === "api-tokens" ? (
                 sessionContext && <ApiTokensPane />
               ) : tab === "messaging" ? (
-                // The viewer's own phone and bots: never on another member's
-                // card.
+                // The viewer's own phone and bots, on a Personal card as on
+                // Voice: never another member's, so the card has no picker.
                 sessionContext && (
-                  <>
+                  <PersonalCard
+                    cardRef={personalRef}
+                    target={selfTarget}
+                    role={role}
+                    others={others.map((user) => user.name)}
+                    gone={null}
+                    onClickCapture={actOn(selfTarget)}
+                    agentScope={false}
+                  >
                     <WhatsAppSection />
                     <DiscordSection />
-                  </>
+                  </PersonalCard>
                 )
               ) : CARD_TABS.includes(tab) ? (
                 <>
@@ -736,7 +745,8 @@ function PersonalCard({
   target: Target;
   role: Role;
   others: string[];
-  onPick: (member: string | null) => void;
+  // Absent: the items are the viewer's own only, and the card has no picker.
+  onPick?: (member: string | null) => void;
   // A member who left while picked.
   gone: string | null;
   onClickCapture: (e: MouseEvent) => void;
@@ -748,7 +758,7 @@ function PersonalCard({
   const { t, rich } = useI18n();
   const other = target.kind === "member";
   const picker =
-    role === "owner" && others.length > 0 ? (
+    onPick && role === "owner" && others.length > 0 ? (
       <select
         data-integrations-picker
         aria-label={t("integrations.picker")}
@@ -815,7 +825,7 @@ function PersonalCard({
               : t("integrations.personalWhoSelf")
         }
         action={
-          other ? (
+          other && onPick ? (
             <Btn kind="link" onClick={() => onPick(null)} data-back-to-yours>
               {t("integrations.backToYours")}
             </Btn>

@@ -52,8 +52,8 @@ import {
   Logo,
   Pill,
   Placeholder,
-  card,
   errorText,
+  flatCard,
   hintText,
   input,
 } from "./kit.tsx";
@@ -439,7 +439,7 @@ export function DiscordSection() {
   return (
     <section
       data-integrations-card="discord"
-      style={{ ...card, marginTop: 16 }}
+      style={flatCard}
       aria-busy={!bots && !error}
     >
       <div

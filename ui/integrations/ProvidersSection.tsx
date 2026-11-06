@@ -8,7 +8,7 @@
 // no key (the default model, OPENCODE_DEFAULT_MODEL, is one), and a key for
 // the paid ones is the OPENCODE_API_KEY variable (OpenCodeSection.tsx).
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import type {
   MemberProviderStatus,
   UserEnvNamesRes,
@@ -24,7 +24,7 @@ import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 import { ProviderMark } from "../components/ProviderMark.tsx";
 import { MemberUsageCard } from "../components/MemberUsageCard.tsx";
 import { OpenCodeSection } from "./OpenCodeSection.tsx";
-import { Empty, ItemRow, Pill, errorText } from "./kit.tsx";
+import { Empty, ItemRow, Pill, errorText, flatCard } from "./kit.tsx";
 import { useMyConnections } from "./my-connections.tsx";
 import {
   onConnectionsChanged,
@@ -32,17 +32,6 @@ import {
 } from "../connections-events.ts";
 import { useAlive } from "./use-alive.ts";
 import { isGone, type Role, type Target } from "./target.ts";
-
-// The sign-in and usage cards, flat inside the page's card: a rule between
-// them instead of a box in a box.
-const flat: CSSProperties = {
-  border: "none",
-  borderTop: "1px solid var(--border-subtle)",
-  borderRadius: 0,
-  background: "transparent",
-  padding: "12px 2px 4px",
-  marginTop: 0,
-};
 
 // The provider accounts the cards read, shared with the rest of the office
 // through the store. Both cards of the tab mount this; the read is cheap.
@@ -168,7 +157,7 @@ export function ProvidersSection({
           onAccounts={accounts.update}
           scopes={scopes}
           onGoToOtherHalf={onGoToOtherCard}
-          style={flat}
+          style={flatCard}
           pageLook
         />
       ))}
@@ -186,7 +175,7 @@ export function ProvidersSection({
         }
       />
       {target.kind === "office" && role === "owner" && (
-        <MemberUsageCard style={flat} />
+        <MemberUsageCard style={flatCard} />
       )}
     </>
   );

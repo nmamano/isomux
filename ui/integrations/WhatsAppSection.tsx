@@ -40,8 +40,8 @@ import {
   Logo,
   Pill,
   Placeholder,
-  card,
   errorText,
+  flatCard,
   hintText,
   input,
 } from "./kit.tsx";
@@ -263,7 +263,7 @@ export function WhatsAppSection() {
     <section
       data-integrations-card="whatsapp"
       data-whatsapp-state={status?.state ?? "loading"}
-      style={card}
+      style={flatCard}
       aria-busy={!status}
     >
       <div
