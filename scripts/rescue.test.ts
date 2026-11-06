@@ -507,6 +507,59 @@ describe("restart", () => {
   });
 });
 
+// The export's content has its own tests (server/office-export.test.ts);
+// these check the command: where it writes, what it prints, its exit codes.
+describe("export", () => {
+  test("writes to the dir given and prints it; with the office up or down, no unit change", async () => {
+    const b = bed({ active: false });
+    mkdirSync(join(b.stateRoot, "memory"));
+    writeFileSync(join(b.stateRoot, "memory", "office.md"), "kept-memory-line");
+    const out = join(dir, "given");
+    const code = await b.run(["export", out]);
+    expect({
+      code,
+      readme: existsSync(join(out, "README.md")),
+      memory: existsSync(join(out, "memory", "office.md"))
+        ? readFileSync(join(out, "memory", "office.md"), "utf8")
+        : null,
+      printed: b.out.log.some((line) => line.includes(out)),
+      verbs: b.verbs(),
+    }).toEqual({
+      code: 0,
+      readme: true,
+      memory: "kept-memory-line",
+      printed: true,
+      verbs: [],
+    });
+  });
+
+  test("without a dir it writes next to the state root, never inside it", async () => {
+    const b = bed();
+    const before = readdirSync(dir);
+    expect(await b.run(["export"])).toBe(0);
+    const made = readdirSync(dir).filter((n) => !before.includes(n));
+    expect(made).toHaveLength(1);
+    expect(made[0].startsWith("state-export-")).toBe(true);
+    expect(existsSync(join(dir, made[0], "README.md"))).toBe(true);
+    expect(b.out.log.some((line) => line.includes(join(dir, made[0])))).toBe(
+      true,
+    );
+  });
+
+  test("exits 1 and leaves the dir alone when it has content", async () => {
+    const b = bed();
+    const out = join(dir, "busy");
+    mkdirSync(out);
+    writeFileSync(join(out, "keep.txt"), "mine");
+    const code = await b.run(["export", out]);
+    expect({
+      code,
+      left: readdirSync(out),
+      said: b.out.err.length > 0,
+    }).toEqual({ code: 1, left: ["keep.txt"], said: true });
+  });
+});
+
 describe("loadRescueConfig", () => {
   const CONF = "/etc/isomux/update.conf";
   test("a root install reads the updater's config, never sourced, and tolerates keys it does not know", () => {

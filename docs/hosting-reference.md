@@ -109,6 +109,7 @@ When the office is down or under attack, the rescue command on the office's mach
 - `lockdown --reason "<why>"` locks the office. It revokes every sign-in, API token, invite and browser extension pairing, ends every agent, and stops schedules, webhooks, apps and messaging bridges. The office then shows only a locked page; updates still install. Add `--stop` to keep the office stopped instead, also after a reboot.
 - `unlock` removes the lock and starts the office. Owners then sign in again with the [owner sign-in recovery](access-and-invites.md).
 - `restart` restarts the office and waits until it answers.
+- `export [folder]` writes a readable copy of the office's content to a new folder: every conversation, task, ask, memory and file. It removes secret values and leaves out credentials. Without a folder, it picks one and prints it. The office can be up, down or locked. On a container install, the container must run: start a stopped one first (a locked office starts locked).
 
 A lockdown keeps provider keys and connection tokens, but nothing uses them while locked. If they may have leaked, rotate them at the provider. A lock and an unlock each add a row to the audit log.
 

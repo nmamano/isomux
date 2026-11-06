@@ -3,7 +3,8 @@
 // Their callers: the MCP server headers (server/mcp-servers.ts, integrations
 // A2), the secret proxy (B2), and Show (routes/handlers/secrets.ts), the one
 // route that sends a value to a client: to the secret's own member, or to an
-// owner for an office secret.
+// owner for an office secret. The office export (server/office-export.ts)
+// reads every value only to mask it.
 //
 // STATE_ROOT/secrets/office.json and STATE_ROOT/secrets/users/<userId>.json,
 // 0600 files in 0700 directories, written like the env files. Every change is

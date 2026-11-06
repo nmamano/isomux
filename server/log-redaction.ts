@@ -48,7 +48,17 @@ export function redactLogEntry<T extends object>(entry: T): T {
  * secret values become ISOMUX-REDACTED, secret-shaped strings keep their first
  * eight characters. */
 export function redactSecretText(text: string): string {
-  return maskSecretShapes(scrubText(text, exactPatterns));
+  return redactSecretTextWith(exactPatterns, text);
+}
+
+/** redactSecretText with the caller's own patterns (scrubPatterns of its
+ * values), not the server's live list: the office export uses it, so an
+ * export run inside the server never changes the live redaction. */
+export function redactSecretTextWith(
+  patterns: readonly string[],
+  text: string,
+): string {
+  return maskSecretShapes(scrubText(text, patterns));
 }
 
 // A bare key keeps its first eight characters. A KEY=value assignment keeps

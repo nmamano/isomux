@@ -24,6 +24,7 @@ cat > /usr/local/sbin/isomux-rescue.new <<'ISOMUX_CONTAINER_RESCUE_ROOT_SH'
 # command is called by name through PATH.
 #
 #   isomux-rescue status | lockdown [--stop] [--reason <text>] | unlock | restart
+#                 | export [dir]
 set -euo pipefail
 
 CONF=${ISOMUX_RESCUE_CONF:-/etc/isomux/update.conf}
@@ -45,6 +46,7 @@ usage: isomux-rescue <command>
   lockdown [--stop] [--reason <text>] lock the office and revoke every sign-in and token
   unlock                              remove the lock and start the office
   restart                             restart the office and wait until it answers
+  export [dir]                        write a readable copy of the office's content to dir
 EOF
 }
 
@@ -306,6 +308,52 @@ cmd_status() {
   return "$code"
 }
 
+# The office's content, redacted, in a new folder (server/office-export.ts).
+# The service user makes the folder and writes it: root never creates or
+# chowns a path that user controls (the default is in its home), so a link
+# swapped in cannot hand root's files to it. A container writes it inside
+# and root copies it out.
+cmd_export() {
+  local out=${1:-} stamp
+  stamp=$(date -u +%Y%m%d-%H%M%S)
+  if [[ -z $out ]]; then
+    if [[ $DEPLOYMENT_KIND == container ]]; then
+      out=$PWD/isomux-export-$stamp
+    else
+      local name=${STATE_ROOT##*/}
+      out=$(dirname "$STATE_ROOT")/${name#.}-export-$stamp
+    fi
+  fi
+  out=$(realpath -m -- "$out")
+  [[ -e $out ]] && die "$out exists: name a folder that does not exist yet"
+  if [[ $DEPLOYMENT_KIND == container ]]; then
+    # Nothing reaches the state while the container is down (lockdown --stop).
+    [[ $(unit_state) == active ]] ||
+      die "the office's container is not running, so the export cannot reach its data. Start it first: systemctl start $SERVICE_NAME (a locked office starts locked)."
+    local inside=/tmp/isomux-export-$stamp code=0
+    in_container _step export "$inside" || code=$?
+    if ((code == 0)); then
+      mkdir -m 700 -- "$out" || code=$?
+    fi
+    if ((code == 0)); then
+      (cd /opt/isomux-container &&
+        docker compose --env-file office.env cp "office:$inside/." "$out/") || code=$?
+      chmod -R go-rwx -- "$out" 2>/dev/null || true
+    fi
+    (cd /opt/isomux-container &&
+      docker compose --env-file office.env exec -T -u node office rm -rf -- "$inside") || true
+    ((code == 0)) || die "the export failed"
+    echo "Copied the export out of the container to $out"
+  else
+    local root
+    root=$(realpath -m -- "$STATE_ROOT")
+    [[ $out != "$root" && $out != "$root"/* ]] || die "$out is inside the office's state folder: pick a folder outside it"
+    runuser -u "$SERVICE_USER" -- mkdir -m 700 -- "$out" ||
+      die "$SERVICE_USER could not make $out: pick a folder that user can write"
+    as_service _step export "$out"
+  fi
+}
+
 main() {
   local cmd=${1:-}
   [[ -n $cmd ]] || {
@@ -320,6 +368,7 @@ main() {
     lockdown) cmd_lockdown "$@" ;;
     unlock) cmd_unlock ;;
     restart) cmd_restart ;;
+    export) cmd_export "$@" ;;
     help | -h | --help) usage ;;
     *)
       usage

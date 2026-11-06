@@ -23,6 +23,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
@@ -335,6 +336,42 @@ test("unlock as root removes both markers, audits and starts the office", async 
     unit: "active enabled",
     audits: ["office.lockdown", "office.unlock"],
   });
+});
+
+test("export as root: makes the dir 0700 for the service user, runs the export step as that user, and refuses a dir that exists", async () => {
+  const r = rig();
+  mkdirSync(join(r.stateRoot, "memory"));
+  writeFileSync(join(r.stateRoot, "memory", "office.md"), "kept-memory-line");
+  const out = join(dir, "export-out");
+  const res = await r.run(["export", out]);
+  if (res.code !== 0) console.error(res.out);
+  const runuser = readFileSync(r.log, "utf8")
+    .split("\n")
+    .filter((l) => l.startsWith("runuser "));
+  expect({
+    code: res.code,
+    mode: existsSync(out) ? statSync(out).mode & 0o777 : null,
+    uid: existsSync(out) ? statSync(out).uid : null,
+    memory: existsSync(join(out, "memory", "office.md"))
+      ? readFileSync(join(out, "memory", "office.md"), "utf8")
+      : null,
+    step: runuser.some((l) => l.includes(`_step export ${out}`)),
+    calls: r.calls(),
+  }).toEqual({
+    code: 0,
+    mode: 0o700,
+    uid: userInfo().uid,
+    memory: "kept-memory-line",
+    step: true,
+    calls: [],
+  });
+
+  writeFileSync(r.log, "");
+  const again = await r.run(["export", out]);
+  expect({
+    refused: again.code !== 0,
+    runuser: readFileSync(r.log, "utf8").includes("_step export"),
+  }).toEqual({ refused: true, runuser: false });
 });
 
 test("refuses to run as anyone but root, before any step", async () => {

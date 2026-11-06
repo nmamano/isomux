@@ -6,6 +6,7 @@
 //   bun run rescue lockdown [--stop] [--reason <text>]
 //   bun run rescue unlock
 //   bun run rescue restart
+//   bun run rescue export [dir]
 //
 // Self-hosted user-unit installs run it as the office's own user, and it does
 // every step itself. Root installs run the root-owned wrapper
@@ -30,7 +31,7 @@ import {
   statSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   LOCK_MARKER_FILE,
   LOCKED_READY_BODY,
@@ -41,6 +42,7 @@ import {
   writeStateMarker,
 } from "../server/lockdown.ts";
 import { RESCUE_ACTOR, recordLockAudit } from "../server/lockdown-audit.ts";
+import { exportOffice } from "../server/office-export.ts";
 import { OFFICE_PID_ENV } from "../server/stop-reap.ts";
 
 const UPDATE_CONF = "/etc/isomux/update.conf";
@@ -199,6 +201,7 @@ const USAGE = [
   "  lockdown [--stop] [--reason <text>] lock the office and revoke every sign-in and token",
   "  unlock                             remove the lock and start the office",
   "  restart                            restart the office and wait until it answers",
+  "  export [dir]                       write a readable copy of the office's content to dir",
 ];
 
 /** Runs one subcommand. Returns the exit code. */
@@ -220,7 +223,11 @@ export async function runRescue(
       return await r.unlock();
     case "restart":
       return await r.restart();
+    case "export":
+      return await r.export(rest[0] ?? null);
     case "_step":
+      // The root wrapper names the dir it made for the service user.
+      if (rest[0] === "export") return await r.export(rest[1] ?? null);
       return r.step(rest, args);
     default:
       for (const line of USAGE) out.err(line);
@@ -488,6 +495,42 @@ class Rescue {
     }
     if (lock.locked || lockedBody) return 2;
     if (unit !== "active" || ready?.status !== 200) return 1;
+    return 0;
+  }
+
+  /** Writes the export to dir, or to the default dir next to the state
+   *  root. Exit 0 written, 1 refused or failed. */
+  async export(dir: string | null): Promise<number> {
+    const { stateRoot } = this.config;
+    const now = this.host.now();
+    const stamp = now
+      .toISOString()
+      .replace(/[-:]/g, "")
+      .replace("T", "-")
+      .slice(0, 15);
+    const outDir = resolve(
+      dir ??
+        join(
+          dirname(stateRoot),
+          `${basename(stateRoot).replace(/^\./, "")}-export-${stamp}`,
+        ),
+    );
+    let summary;
+    try {
+      summary = await exportOffice({ stateRoot, outDir, now });
+    } catch (error) {
+      this.out.err(`Export failed: ${(error as Error).message}`);
+      return 1;
+    }
+    this.out.log(`Exported the office to ${summary.outDir}`);
+    this.out.log(
+      `${summary.rooms} rooms, ${summary.agents} agents, ${summary.sessions} conversations, ${summary.tasks} tasks, ${summary.files} files, ${Math.ceil(summary.bytes / (1024 * 1024))} MiB.`,
+    );
+    if (summary.skipped.length)
+      this.out.log(
+        `${summary.skipped.length} items could not be read; README.md lists them.`,
+      );
+    this.out.log("It holds every conversation in the office: keep it private.");
     return 0;
   }
 
