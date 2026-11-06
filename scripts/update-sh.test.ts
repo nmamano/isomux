@@ -60,6 +60,8 @@ interface Fixture {
 
 let fx: Fixture;
 let readyServer: ReturnType<typeof Bun.serve> | null = null;
+// What /readyz answers once the office is up: "locked" for a locked office.
+let readyBody = "ok\n";
 
 // Mitigation: avoid a synchronous child-exit wait on the main thread.
 // Bun 1.3.11 timed out a live sleep with BOTH helpers on 2026-09-10:
@@ -197,6 +199,10 @@ case $1 in
       echo PROFILE_AUTH_CANARY_MIGRATED > "$TEST_STATE_ROOT/opencode/profiles/shared/data/opencode/auth.json"
     fi
     ;;
+  is-enabled)
+    if [[ -n \${STUB_DISABLED:-} ]]; then echo disabled; exit 1; fi
+    echo enabled
+    ;;
   is-active)
     if [[ $* == 'is-active --quiet caddy' ]]; then
       [[ "$CADDY_ACTIVE" == 1 ]]
@@ -239,7 +245,7 @@ exit 0
     port: 0,
     fetch(req) {
       if (new URL(req.url).pathname === "/readyz" && existsSync(readyFlag)) {
-        if (late-- <= 0) return new Response("ok\n");
+        if (late-- <= 0) return new Response(readyBody);
       }
       return new Response("not ready", { status: 503 });
     },
@@ -380,6 +386,7 @@ function progressAtCalls(): { call: string; progress: Progress }[] {
 }
 
 function disposeFixture(): void {
+  readyBody = "ok\n";
   readyServer?.stop(true);
   readyServer = null;
   rmSync(fx.base, { recursive: true, force: true });
@@ -1502,5 +1509,158 @@ touch "@BASE@/bun-mode.log"
     expect(await head()).toBe(fx.newCommit);
     expect(bunVersion()).toBe(PIN);
     expect(buildSteps().slice(before)).toEqual(["stop", "start"]);
+  });
+});
+
+// $STATUS_DIR/previous-release names the release the last successful update
+// replaced, for `isomux-rescue rollback`. A release this box ran: never one
+// the trust repo only fetched.
+function previousPath(): string {
+  return join(fx.statusDir, "previous-release");
+}
+
+function readPrevious(): string | null {
+  return existsSync(previousPath())
+    ? readFileSync(previousPath(), "utf8").trim()
+    : null;
+}
+
+describe("update.sh previous-release record", () => {
+  beforeEach(async () => {
+    fx = await buildFixture({ readyAfterStarts: 1 });
+  });
+
+  it("an update from a recorded release records that release", async () => {
+    writeRecord("v2026.7.18\n");
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    expect({ installed: readRecord(), previous: readPrevious() }).toEqual({
+      installed: "v2026.7.20",
+      previous: "v2026.7.18",
+    });
+  });
+
+  it("an allowed downgrade records the newer release it left, so a rollback can go back up", async () => {
+    await sh(fx.repo, `git tag -a v2026.7.18 -m old ${fx.oldCommit}`);
+    await sh(fx.repo, "git push -q origin --tags");
+    await sh(fx.repo, "git tag -d v2026.7.18");
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    writeRecord("v2026.7.20\n");
+    const r = await runUpdate(["v2026.7.18", "--allow-downgrade"]);
+    expect(r.code).toBe(0);
+    expect({ installed: readRecord(), previous: readPrevious() }).toEqual({
+      installed: "v2026.7.18",
+      previous: "v2026.7.20",
+    });
+  });
+
+  it("without the record, the trust repo's guess is not recorded as a release this box ran", async () => {
+    await sh(fx.repo, `git tag -a v2026.7.18 -m old ${fx.oldCommit}`);
+    await sh(fx.repo, "git push -q origin --tags");
+    await sh(fx.repo, "git tag -d v2026.7.18");
+    await seedTrust("v2026.7.18");
+    expect(readRecord()).toBeNull();
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    expect({ installed: readRecord(), previous: readPrevious() }).toEqual({
+      installed: "v2026.7.20",
+      previous: null,
+    });
+  });
+
+  it("a repair of the release the checkout is on records none", async () => {
+    writeRecord("v2026.7.20\n");
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+    expect(readPrevious()).toBeNull();
+  });
+
+  it("a failed update records none", async () => {
+    writeRecord("v2026.7.18\n");
+    fx.env.FAIL_STARTS = "99";
+    expect((await runUpdate(["v2026.7.20"])).code).not.toBe(0);
+    expect(readPrevious()).toBeNull();
+  });
+});
+
+// A release from before locked mode reads neither marker: on a locked office
+// it would start every agent, schedule, webhook and app again. A rollback is
+// an update, so the gate is in the updater.
+describe("update.sh on a locked office", () => {
+  const LOCKED_MODE = { "server/lockdown.ts": "// locked mode\n" };
+  const locks: [string, () => void, () => void][] = [
+    [
+      "the state marker",
+      () => writeFileSync(join(fx.stateRoot, "LOCKDOWN"), "{}\n"),
+      () => rmSync(join(fx.stateRoot, "LOCKDOWN")),
+    ],
+    [
+      "the root marker next to the updater's config",
+      () => writeFileSync(join(dirname(fx.conf), "lockdown"), "{}\n"),
+      () => rmSync(join(dirname(fx.conf), "lockdown")),
+    ],
+    [
+      "a /readyz that answers locked",
+      () => {
+        readyBody = "locked\n";
+        writeFileSync(fx.readyFlag, "");
+      },
+      () => {
+        readyBody = "ok\n";
+      },
+    ],
+  ];
+
+  function serviceCalls(): string[] {
+    return stubCalls().filter((l) => / (stop|start|restart) /.test(l));
+  }
+
+  for (const [name, lock, unlock] of locks) {
+    it(`locked by ${name}: refuses a release without locked mode before the stop, and takes it once unlocked`, async () => {
+      fx = await buildFixture({ readyAfterStarts: 1 });
+      lock();
+      const refused = await runUpdate(["v2026.7.20"]);
+      expect({
+        refused: refused.code !== 0,
+        head: await head(),
+        service: serviceCalls(),
+        result: status().result,
+      }).toEqual({
+        refused: true,
+        head: fx.oldCommit,
+        service: [],
+        result: "failed",
+      });
+      // The condition: the same update on the unlocked office lands.
+      unlock();
+      expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
+      expect(await head()).toBe(fx.newCommit);
+    });
+
+    it(`locked by ${name}: takes a release that has locked mode`, async () => {
+      fx = await buildFixture({ readyAfterStarts: 1, newFiles: LOCKED_MODE });
+      lock();
+      const r = await runUpdate(["v2026.7.20"]);
+      expect(r.code).toBe(0);
+      expect(await head()).toBe(fx.newCommit);
+    });
+  }
+
+  // lockdown --stop disables the unit because its HTTP surface is the hole;
+  // the update's restart would start it again.
+  it("refuses an office that lockdown --stop disabled, even for a release with locked mode, and starts nothing", async () => {
+    fx = await buildFixture({ readyAfterStarts: 1, newFiles: LOCKED_MODE });
+    writeFileSync(join(fx.stateRoot, "LOCKDOWN"), "{}\n");
+    writeFileSync(join(fx.base, "service-state"), "inactive\n");
+    fx.env.STUB_DISABLED = "1";
+    const refused = await runUpdate(["v2026.7.20"]);
+    expect({
+      refused: refused.code !== 0,
+      head: await head(),
+      service: serviceCalls(),
+    }).toEqual({ refused: true, head: fx.oldCommit, service: [] });
+    // The condition: enabled, the same update lands.
+    delete fx.env.STUB_DISABLED;
+    expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
   });
 });

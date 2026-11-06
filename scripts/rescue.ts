@@ -7,6 +7,8 @@
 //   bun run rescue unlock
 //   bun run rescue restart
 //   bun run rescue export [dir]
+//   bun run rescue rollback                     prints the steps on a checkout
+//   bun run rescue report [file] [--note <text>]
 //
 // Self-hosted user-unit installs run it as the office's own user, and it does
 // every step itself. Root installs run the root-owned wrapper
@@ -19,19 +21,26 @@
 //   _step remove-state-marker
 //   _step audit lockdown|unlock [--reason <text>]   only while the unit is down
 //   _step quarantine
+//   _step report <file>|- [--journal-stdin] [--release <tag>] [--previous <tag>]
+//         [--update-result <text>] [--note <text>]
 //
 // Lockdown order: marker, stop, wait inactive, audit, kill leftovers,
 // quarantine, start. A cut at any point leaves the office stopped or locked.
 
 import {
+  closeSync,
+  constants,
   existsSync,
+  openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statfsSync,
   statSync,
+  writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import {
   LOCK_MARKER_FILE,
   LOCKED_READY_BODY,
@@ -43,12 +52,15 @@ import {
 } from "../server/lockdown.ts";
 import { RESCUE_ACTOR, recordLockAudit } from "../server/lockdown-audit.ts";
 import { exportOffice } from "../server/office-export.ts";
+import { buildIncidentReport } from "../server/office-report.ts";
+import { CALVER_RELEASE_RE } from "../server/version.ts";
 import { OFFICE_PID_ENV } from "../server/stop-reap.ts";
 
 const UPDATE_CONF = "/etc/isomux/update.conf";
 const STOP_TIMEOUT_MS = 60_000;
 const READY_TIMEOUT_MS = 90_000;
 const KILL_GRACE_MS = 2_000;
+const REPORT_JOURNAL_LINES = 200;
 
 export interface RescueConfig {
   stateRoot: string;
@@ -122,6 +134,11 @@ export interface RescueHost {
   /** The uid that runs the office (the service user, or this user). */
   officeUid: number;
   diskFree(path: string): number | null;
+  /** The checkout's branch and the commit HEAD was on before its last move
+   *  (git reflog HEAD@{1}), for the manual rollback steps. */
+  checkoutPosition(): { branch: string | null; previousCommit: string | null };
+  /** All of stdin: the journal the root wrapper pipes to the report step. */
+  readStdin(): Promise<string>;
   now(): Date;
   sleep(ms: number): Promise<void>;
 }
@@ -174,6 +191,13 @@ interface Args {
   noJournal: boolean;
   reason: string;
   by: string;
+  note: string;
+  /** Root passes the releases and the updater's result: the service user
+   *  cannot read the updater's folder. */
+  release: string | null;
+  previous: string | null;
+  updateResult: string | null;
+  journalStdin: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -183,6 +207,11 @@ function parseArgs(argv: string[]): Args {
     noJournal: false,
     reason: "",
     by: "host",
+    note: "",
+    release: null,
+    previous: null,
+    updateResult: null,
+    journalStdin: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -190,6 +219,13 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--no-journal") args.noJournal = true;
     else if (a === "--reason" && i + 1 < argv.length) args.reason = argv[++i];
     else if (a === "--by" && i + 1 < argv.length) args.by = argv[++i];
+    else if (a === "--note" && i + 1 < argv.length) args.note = argv[++i];
+    else if (a === "--release" && i + 1 < argv.length) args.release = argv[++i];
+    else if (a === "--previous" && i + 1 < argv.length)
+      args.previous = argv[++i];
+    else if (a === "--update-result" && i + 1 < argv.length)
+      args.updateResult = argv[++i];
+    else if (a === "--journal-stdin") args.journalStdin = true;
     else args.positional.push(a);
   }
   return args;
@@ -202,6 +238,8 @@ const USAGE = [
   "  unlock                             remove the lock and start the office",
   "  restart                            restart the office and wait until it answers",
   "  export [dir]                       write a readable copy of the office's content to dir",
+  "  rollback                           print the steps back to the version this checkout ran before",
+  "  report [file] [--note <text>]      write an incident report for Isomux support",
 ];
 
 /** Runs one subcommand. Returns the exit code. */
@@ -225,9 +263,14 @@ export async function runRescue(
       return await r.restart();
     case "export":
       return await r.export(rest[0] ?? null);
+    case "rollback":
+      return r.rollback();
+    case "report":
+      return await r.report(rest[0] ?? null, args);
     case "_step":
       // The root wrapper names the dir it made for the service user.
       if (rest[0] === "export") return await r.export(rest[1] ?? null);
+      if (rest[0] === "report") return await r.report(rest[1] ?? null, args);
       return r.step(rest, args);
     default:
       for (const line of USAGE) out.err(line);
@@ -437,7 +480,7 @@ class Rescue {
     return 0;
   }
 
-  async status(args: Args): Promise<number> {
+  async status(args: Args, out: RescueOutput = this.out): Promise<number> {
     const { stateRoot, serviceName, rootMarkerDir, statusDir } = this.config;
     const unit = this.unitState();
     const enabled = this.unitEnabled();
@@ -447,7 +490,7 @@ class Rescue {
     const lockedBody =
       ready?.status === 200 && ready.body.trim() === LOCKED_READY_BODY.trim();
     const say = (label: string, value: string) =>
-      this.out.log(`${label.padEnd(14)} ${value}`);
+      out.log(`${label.padEnd(14)} ${value}`);
     say("Service", `${serviceName}: ${unit}${enabled ? "" : ", disabled"}`);
     say(
       "Ready check",
@@ -464,9 +507,13 @@ class Rescue {
             : `${m.path} (unreadable: it still locks)`,
         );
     else say("Locked", "no");
-    const version = statusDir
-      ? readText(join(statusDir, "installed-release"))
-      : null;
+    // Root passes the release: the service user cannot read its folder.
+    const version =
+      args.release !== null && CALVER_RELEASE_RE.test(args.release)
+        ? args.release
+        : statusDir
+          ? readText(join(statusDir, "installed-release"))
+          : null;
     say("Version", version ?? "unknown");
     const outcome = readText("/var/lib/isomux-update-public/outcome.json");
     if (outcome) say("Last update", outcome.replace(/\s+/g, " "));
@@ -488,10 +535,10 @@ class Rescue {
       say("Left running", left.length ? left.join(" ") : "none");
     }
     if (!args.noJournal) {
-      this.out.log("");
-      this.out.log("Last 50 log lines:");
+      out.log("");
+      out.log("Last 50 log lines:");
       for (const line of this.host.journal(50).trimEnd().split("\n"))
-        this.out.log(line);
+        out.log(line);
     }
     if (lock.locked || lockedBody) return 2;
     if (unit !== "active" || ready?.status !== 200) return 1;
@@ -503,11 +550,7 @@ class Rescue {
   async export(dir: string | null): Promise<number> {
     const { stateRoot } = this.config;
     const now = this.host.now();
-    const stamp = now
-      .toISOString()
-      .replace(/[-:]/g, "")
-      .replace("T", "-")
-      .slice(0, 15);
+    const stamp = stampOf(now);
     const outDir = resolve(
       dir ??
         join(
@@ -531,6 +574,132 @@ class Rescue {
         `${summary.skipped.length} items could not be read; README.md lists them.`,
       );
     this.out.log("It holds every conversation in the office: keep it private.");
+    return 0;
+  }
+
+  // A root or container install goes back through the updater, which only
+  // root runs. A checkout follows main, not release tags, and can hold the
+  // owner's own work: a git step made for them could lose it, so they get
+  // the steps instead.
+  rollback(): number {
+    if (this.config.deploymentKind === "container") {
+      this.out.err(
+        "This office runs in a container: run isomux-rescue rollback as root on the host.",
+      );
+      return 1;
+    }
+    if (this.config.serviceKind === "system") {
+      this.out.err(
+        "This office runs as a system service: run sudo isomux-rescue rollback instead.",
+      );
+      return 1;
+    }
+    const { branch, previousCommit } = this.host.checkoutPosition();
+    const unit = this.config.serviceName;
+    const target = previousCommit ?? "<commit>";
+    this.out.log(
+      previousCommit
+        ? `This checkout was on ${previousCommit} before its last pull, checkout or commit. To run that version again, from the checkout:`
+        : "Git has no record of an earlier commit for this checkout. Pick one with git log, then, from the checkout:",
+    );
+    for (const step of [
+      `systemctl --user stop ${unit}`,
+      `git checkout ${target}`,
+      "bun install",
+      "bun run build:ui",
+      `systemctl --user start ${unit}`,
+    ])
+      this.out.log(`  ${step}`);
+    this.out.log(
+      `To return, do the same with git checkout ${branch ?? "<your branch>"}. The office's data stays as the newer version left it.`,
+    );
+    return 1;
+  }
+
+  /** Writes the incident report to file, or to stdout for "-". Exit 0
+   *  written, 1 refused. */
+  async report(file: string | null, args: Args): Promise<number> {
+    const { stateRoot, statusDir } = this.config;
+    const now = this.host.now();
+    const release = (value: string | null) =>
+      value !== null && CALVER_RELEASE_RE.test(value) ? value : null;
+    let outPath: string | null = null;
+    if (file !== "-") {
+      outPath = resolve(
+        file ??
+          join(
+            dirname(stateRoot),
+            `${basename(stateRoot).replace(/^\./, "")}-incident-${stampOf(now)}.md`,
+          ),
+      );
+      const root = realOrSelf(stateRoot);
+      const real = join(realOrSelf(dirname(outPath)), basename(outPath));
+      if (real === root || real.startsWith(root + sep)) {
+        this.out.err(
+          `${outPath} is inside the office's state folder: pick a file outside it.`,
+        );
+        return 1;
+      }
+    }
+    const status: string[] = [];
+    await this.status(
+      { ...args, noJournal: true },
+      { log: (line) => status.push(line), err: (line) => status.push(line) },
+    );
+    const journal = args.journalStdin
+      ? await this.host.readStdin()
+      : this.host.journal(REPORT_JOURNAL_LINES);
+    const text = buildIncidentReport({
+      stateRoot,
+      now,
+      statusLines: status,
+      journal: journal.trim() ? journal : null,
+      release:
+        release(args.release) ??
+        release(
+          statusDir ? readText(join(statusDir, "installed-release")) : null,
+        ),
+      previousRelease:
+        release(args.previous) ??
+        release(
+          statusDir ? readText(join(statusDir, "previous-release")) : null,
+        ),
+      updateResult: args.updateResult,
+      note: args.note,
+    });
+    if (outPath === null) {
+      this.out.log(text);
+      return 0;
+    }
+    let fd: number;
+    try {
+      // A new file only: never one that exists, never through a link.
+      fd = openSync(
+        outPath,
+        constants.O_WRONLY |
+          constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_NOFOLLOW,
+        0o600,
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      this.out.err(
+        code === "EEXIST"
+          ? `${outPath} exists: name a file that does not exist yet.`
+          : `Could not write ${outPath} (${code ?? "error"}).`,
+      );
+      return 1;
+    }
+    try {
+      writeSync(fd, text);
+    } finally {
+      closeSync(fd);
+    }
+    this.out.log(`Wrote the incident report to ${outPath}`);
+    this.out.log(
+      "Read it before you send it: it holds log lines from the office.",
+    );
     return 0;
   }
 
@@ -561,6 +730,19 @@ class Rescue {
     }
     this.out.err(`unknown step: ${rest.join(" ")}`);
     return 64;
+  }
+}
+
+// 20261106-100000, for default file names.
+function stampOf(now: Date): string {
+  return now.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+}
+
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
   }
 }
 
@@ -683,6 +865,22 @@ function productionHost(config: RescueConfig): RescueHost {
         return null;
       }
     },
+    checkoutPosition: () => {
+      const git = (...args: string[]) => {
+        const r = Bun.spawnSync(["git", ...args], {
+          stdout: "pipe",
+          stderr: "ignore",
+        });
+        return r.exitCode === 0 ? r.stdout.toString().trim() || null : null;
+      };
+      const previous = git("rev-parse", "-q", "--verify", "HEAD@{1}");
+      return {
+        branch: git("symbolic-ref", "-q", "--short", "HEAD"),
+        previousCommit:
+          previous && /^[0-9a-f]{40}$/.test(previous) ? previous : null,
+      };
+    },
+    readStdin: () => Bun.stdin.text(),
     now: () => new Date(),
     sleep: (ms) => Bun.sleep(ms),
   };

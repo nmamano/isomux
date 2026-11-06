@@ -11,7 +11,7 @@
 # command is called by name through PATH.
 #
 #   isomux-rescue status | lockdown [--stop] [--reason <text>] | unlock | restart
-#                 | export [dir]
+#                 | export [dir] | rollback [release] | report [file] [--note <text>]
 set -euo pipefail
 
 CONF=${ISOMUX_RESCUE_CONF:-/etc/isomux/update.conf}
@@ -34,12 +34,17 @@ usage: isomux-rescue <command>
   unlock                              remove the lock and start the office
   restart                             restart the office and wait until it answers
   export [dir]                        write a readable copy of the office's content to dir
+  rollback [release]                  go back to the release the last update replaced
+  report [file] [--note <text>]       write an incident report for Isomux support
 EOF
 }
 
 # KEY=VALUE lines, never sourced: a value is text, whatever it holds.
 DEPLOYMENT_KIND=git SERVICE_NAME=isomux SERVICE_KIND=system SERVICE_USER=
 REPO_DIR= STATE_ROOT= BUN=bun BASE_URL=http://127.0.0.1:4000
+STATUS_DIR=/var/lib/isomux-update UPDATER_PATH=/usr/local/sbin/isomux-update
+CONTAINER_DIR=/opt/isomux-container
+CALVER_RE='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
 read_conf() {
   [[ -r $CONF ]] || die "$CONF is missing: this is not a root install. Run 'bun run rescue' as the office's user."
   local line key value
@@ -47,7 +52,7 @@ read_conf() {
     [[ $line =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]] || continue
     key=${BASH_REMATCH[1]} value=${BASH_REMATCH[2]}
     case $key in
-      DEPLOYMENT_KIND | SERVICE_NAME | SERVICE_KIND | SERVICE_USER | REPO_DIR | STATE_ROOT | BUN | BASE_URL)
+      DEPLOYMENT_KIND | SERVICE_NAME | SERVICE_KIND | SERVICE_USER | REPO_DIR | STATE_ROOT | BUN | BASE_URL | STATUS_DIR | UPDATER_PATH)
         printf -v "$key" '%s' "$value"
         ;;
     esac
@@ -270,24 +275,54 @@ cmd_restart() {
   if [[ $body == locked ]]; then echo "The office is up and locked."; else echo "The office is up."; fi
 }
 
+# The first line of a root-owned record, when it is a release tag.
+read_release() {
+  local value=""
+  read -r value 2>/dev/null <"$1" || true
+  [[ $value =~ $CALVER_RE ]] && printf '%s' "$value"
+  return 0
+}
+
+# The release the office runs: the updater's record, or the container's.
+installed_release() {
+  if [[ $DEPLOYMENT_KIND == container ]]; then
+    read_release "$CONTAINER_DIR/release"
+  else
+    read_release "$STATUS_DIR/installed-release"
+  fi
+}
+
+# --release <tag> for the service user's steps: it cannot read the
+# updater's folder.
+release_args() {
+  local release
+  release=$(installed_release)
+  [[ -n $release ]] && printf '%s\n' --release "$release"
+  return 0
+}
+
 cmd_status() {
   local code=0
   if [[ $DEPLOYMENT_KIND == container ]]; then
-    local state body
+    local state body release
     state=$(unit_state)
+    release=$(installed_release)
     echo "Service        $SERVICE_NAME: ${state:-unknown}"
     if body=$(curl -fsS --max-time 5 "$BASE_URL/readyz" 2>/dev/null); then
       echo "Ready check    HTTP 200 \"$body\""
     else
       echo "Ready check    no answer"
     fi
+    echo "Version        ${release:-unknown}"
     if [[ $body == locked ]]; then
       code=2
     elif [[ $state != active || -z $body ]]; then
       code=1
     fi
   else
-    as_service status --no-journal || code=$?
+    local -a extra
+    mapfile -t extra < <(release_args)
+    as_service status --no-journal "${extra[@]}" || code=$?
   fi
   echo
   echo "Last 50 log lines:"
@@ -341,6 +376,115 @@ cmd_export() {
   fi
 }
 
+# Back to the release the last update replaced, through the installed
+# updater: it fetches the tag from the upstream, checks it, restores the code
+# when the start fails, and refuses a release without locked mode on a locked
+# office. The target: the release named, else the updater's record, else the
+# newest release the trust repo fetched that is older than the installed one.
+cmd_rollback() {
+  local target=${1:-} current previous
+  (($# <= 1)) || die "usage: isomux-rescue rollback [release]"
+  current=$(installed_release)
+  [[ -n $current ]] || die "no record of the installed release: name a release (isomux-rescue rollback vYYYY.M.D) from https://github.com/nmamano/isomux/releases"
+  previous=$(read_release "$STATUS_DIR/previous-release")
+  if [[ -n $target ]]; then
+    [[ $target =~ $CALVER_RE ]] || die "not a release tag (vYYYY.M.D[.N]): $target"
+  elif [[ -n $previous ]]; then
+    target=$previous
+  else
+    target=$(git -C "$STATUS_DIR/trust.git" tag -l 'v*' 2>/dev/null | grep -E "$CALVER_RE" |
+      { cat; printf '%s\n' "$current"; } | sort -uV | grep -B1 -xF "$current" | grep -vxF "$current" || true)
+    [[ -n $target ]] || die "no record of an earlier release: name one (isomux-rescue rollback vYYYY.M.D) from https://github.com/nmamano/isomux/releases"
+  fi
+  [[ $target != "$current" ]] || die "$target is the installed release"
+  if [[ $DEPLOYMENT_KIND != container ]]; then refuse_inside_unit; fi
+  systemctl is-enabled "$SERVICE_NAME" >/dev/null 2>&1 ||
+    die "the office's service is disabled, as lockdown --stop leaves it, and a rollback would start it. Start it first: systemctl enable --now $SERVICE_NAME (a locked office starts locked)"
+  # The release rule promises that the previous release reads the data.
+  if [[ -n $previous && $target != "$previous" ]] &&
+    [[ $(printf '%s\n' "$target" "$previous" | sort -V | head -1) == "$target" ]]; then
+    echo "Note: the office's data was written by $current, and only $previous is sure to read it. $target is older."
+  fi
+  echo "Rolling back from $current to $target."
+  local code=0
+  "$UPDATER_PATH" "$target" --allow-downgrade || code=$?
+  if ((code == 0)); then
+    echo "The office runs $target. Its data stays as $current left it."
+    echo "To return: isomux-update $current"
+  else
+    echo "The rollback to $target did not complete (exit $code). See isomux-rescue status."
+  fi
+  return "$code"
+}
+
+# An incident report for Isomux support (server/office-report.ts). Root reads
+# what the service user cannot (the journal, the updater's records) and passes
+# it in; the service user redacts it with the office's secret values and
+# writes the file, as with export. A container writes it to stdout, and root
+# writes the file.
+cmd_report() {
+  local out="" note="" stamp
+  while (($#)); do
+    case $1 in
+      --note)
+        (($# >= 2)) || die "--note needs a text"
+        note=$2
+        shift
+        ;;
+      -*) die "unknown option: $1" ;;
+      *)
+        [[ -z $out ]] || die "usage: isomux-rescue report [file] [--note <text>]"
+        out=$1
+        ;;
+    esac
+    shift
+  done
+  stamp=$(date -u +%Y%m%d-%H%M%S)
+  if [[ -z $out ]]; then
+    if [[ $DEPLOYMENT_KIND == container ]]; then
+      out=$PWD/isomux-incident-$stamp.md
+    else
+      local name=${STATE_ROOT##*/}
+      out=$(dirname "$STATE_ROOT")/${name#.}-incident-$stamp.md
+    fi
+  fi
+  out=$(realpath -m -- "$out")
+  [[ -e $out || -L $out ]] && die "$out exists: name a file that does not exist yet"
+  local -a args=(--journal-stdin --note "$note")
+  local release previous result=""
+  release=$(installed_release)
+  previous=$(read_release "$STATUS_DIR/previous-release")
+  [[ -n $release ]] && args+=(--release "$release")
+  [[ -n $previous ]] && args+=(--previous "$previous")
+  # write_status keeps the message free of quotes and backslashes.
+  [[ -r $STATUS_DIR/status.json ]] &&
+    result=$(grep -oE '"message"[[:space:]]*:[[:space:]]*"[^"]*"' "$STATUS_DIR/status.json" | head -1 |
+      sed -E 's/^"message"[[:space:]]*:[[:space:]]*"(.*)"$/\1/' || true)
+  [[ -n $result ]] && args+=(--update-result "$result")
+  if [[ $DEPLOYMENT_KIND == container ]]; then
+    [[ $(unit_state) == active ]] ||
+      die "the office's container is not running, so the report cannot reach its data. Start it first: systemctl start $SERVICE_NAME (a locked office starts locked)."
+    local tmp
+    tmp=$(mktemp "$(dirname "$out")/.isomux-incident.XXXXXXXXXX") || die "could not write in $(dirname "$out")"
+    if { journalctl -u "$SERVICE_NAME" -n 200 --no-pager 2>/dev/null || true; } |
+      in_container _step report - "${args[@]}" >"$tmp"; then
+      chmod 600 "$tmp"
+      mv -T -- "$tmp" "$out" || { rm -f -- "$tmp"; die "could not write $out"; }
+    else
+      rm -f -- "$tmp"
+      die "the report failed"
+    fi
+    echo "Wrote the incident report to $out"
+    echo "Read it before you send it: it holds log lines from the office."
+  else
+    local root
+    root=$(realpath -m -- "$STATE_ROOT")
+    [[ $out != "$root" && $out != "$root"/* ]] || die "$out is inside the office's state folder: pick a file outside it"
+    { journalctl -u "$SERVICE_NAME" -n 200 --no-pager 2>/dev/null || true; } |
+      as_service _step report "$out" "${args[@]}"
+  fi
+}
+
 main() {
   local cmd=${1:-}
   [[ -n $cmd ]] || {
@@ -356,6 +500,8 @@ main() {
     unlock) cmd_unlock ;;
     restart) cmd_restart ;;
     export) cmd_export "$@" ;;
+    rollback) cmd_rollback "$@" ;;
+    report) cmd_report "$@" ;;
     help | -h | --help) usage ;;
     *)
       usage

@@ -36,6 +36,11 @@
 #   never against the service checkout's history, which that user can
 #   rewrite; the ancestry check in the checkout can only add a refusal.
 # - A flock on $STATUS_DIR/lock makes concurrent invocations fail fast.
+# - A locked office (lock_gate) takes only a release that has locked mode,
+#   and only while its unit is enabled: an older release reads no lock
+#   marker and would start every agent again.
+# - $STATUS_DIR/previous-release names the release the last successful
+#   update replaced, for `isomux-rescue rollback`: a release this box ran.
 #
 # SEQUENCE and per-phase recovery (the design doc has the rationale):
 #   fetch/validate     -> nothing to undo
@@ -72,12 +77,13 @@
 #   SERVICE_NAME   systemd unit name (isomux)
 #   SERVICE_KIND   system | user - which systemctl manages the unit
 #   SERVICE_USER   system kind only: run git/bun as this user
-#   STATE_ROOT     (accepted, unused) the office state dir; older updaters
-#                  snapshot it and require it
+#   STATE_ROOT     the office state dir: its LOCKDOWN marker locks the
+#                  office (lock_gate); older updaters snapshot it and
+#                  require it
 #   SNAPSHOT_DIR   (accepted, unused) where older updaters put pre-update
 #                  state tarballs; they require it
-#   STATUS_DIR     lock, status.json, deps-synced, installed-release
-#                  (outside STATE_ROOT)
+#   STATUS_DIR     lock, status.json, deps-synced, installed-release,
+#                  previous-release (outside STATE_ROOT)
 #   BUN            bun binary the service uses
 #   BASE_URL       loopback base for the readiness poll
 #   UPDATER_PATH   (optional) installed copy to refresh on success
@@ -96,6 +102,8 @@ TARGET_TAG=""
 ALLOW_DOWNGRADE=""
 OLD_COMMIT=""
 OLD_DESC=""
+# The installed release the update replaces, from the root-owned record only.
+PREV_RELEASE=""
 # The Bun the target release pins, and the one this box ran before the update.
 TARGET_BUN=""
 OLD_BUN_VERSION=""
@@ -555,19 +563,55 @@ read_installed_release() {
   printf '%s' "$recorded"
 }
 
-write_installed_release() {
+# Writes $1 into the record file $2 in $STATUS_DIR, atomically.
+write_release_record() {
   local tmp
-  tmp=$(mktemp "$STATUS_DIR/.installed-release.XXXXXXXXXX" 2>/dev/null) || return 1
-  if { printf '%s\n' "$1" >"$tmp" && mv -fT "$tmp" "$INSTALLED_RELEASE"; } 2>/dev/null; then
+  tmp=$(mktemp "$STATUS_DIR/.release-record.XXXXXXXXXX" 2>/dev/null) || return 1
+  if { printf '%s\n' "$1" >"$tmp" && mv -fT "$tmp" "$2"; } 2>/dev/null; then
     return 0
   fi
   rm -f "$tmp"
   return 1
 }
 
+write_installed_release() { write_release_record "$1" "$INSTALLED_RELEASE"; }
+
 record_installed_release() {
   write_installed_release "$TARGET_TAG" ||
     add_deps_warning "could not record $TARGET_TAG as the installed release in $INSTALLED_RELEASE, so a later update may be refused as a downgrade"
+}
+
+# The release this update replaced, when this box ran it and it is not the
+# target (a repair of the same release keeps the old record).
+record_previous_release() {
+  [[ $1 =~ $CALVER_RE && $1 != "$TARGET_TAG" ]] || return 0
+  write_release_record "$1" "$STATUS_DIR/previous-release" ||
+    add_deps_warning "could not record $1 as the previous release in $STATUS_DIR/previous-release, so name the release when you run isomux-rescue rollback"
+}
+
+# A locked office (a marker, or a /readyz that says so) takes only a release
+# that has locked mode: an older one reads no marker and would start every
+# agent, schedule, webhook and app again. And only while its unit is enabled:
+# lockdown --stop disables it because its HTTP surface is the hole, and the
+# update would start it. Before any change.
+lock_gate() {
+  local body
+  # A container stopped by lockdown --stop shows root no marker (the state
+  # marker is in its volume) and answers no ready check: its lock cannot be
+  # seen, so a disabled unit is refused before the detection.
+  if [[ $DEPLOYMENT_KIND == container ]] && ! svc is-enabled "$SERVICE_NAME" >/dev/null 2>&1; then
+    die "the office's service is disabled, as lockdown --stop leaves it, and the update would start it. Start it first: systemctl enable --now $SERVICE_NAME (a locked office starts locked)"
+  fi
+  if [[ ! -e $(dirname "$CONF")/lockdown ]] &&
+    ! [[ $DEPLOYMENT_KIND == git && -n ${STATE_ROOT:-} && -e $STATE_ROOT/LOCKDOWN ]] &&
+    ! { body=$(curl -fsS --max-time 5 "$BASE_URL/readyz" 2>/dev/null) && [[ $body == locked ]]; }; then
+    return 0
+  fi
+  git -C "$TRUST_REPO" cat-file -e "$target_commit:server/lockdown.ts" 2>/dev/null ||
+    die "the office is locked, and $TARGET_TAG has no locked mode: it would start the office unlocked. Unlock first (isomux-rescue unlock), or pick a release that has locked mode"
+  svc is-enabled "$SERVICE_NAME" >/dev/null 2>&1 ||
+    die "the office is locked and its service is disabled (lockdown --stop), and the update would start it. Start it first: systemctl enable --now $SERVICE_NAME (it starts locked)"
+  log "the office is locked; $TARGET_TAG has locked mode, so it stays locked"
 }
 
 # The downgrade gate on root-owned state only: the service user can rewrite
@@ -587,6 +631,8 @@ git_release_gate() {
     fi
     log "no record of the installed release; recording $basis, the newest release an earlier update fetched"
     write_installed_release "$basis" || log "warning: could not record $basis in $INSTALLED_RELEASE"
+  else
+    PREV_RELEASE=$basis
   fi
   if calver_older "$TARGET_TAG" "$basis"; then
     [[ -n $ALLOW_DOWNGRADE ]] ||
@@ -687,6 +733,7 @@ git_validate() {
 
 git_prepare() {
   git_release_gate
+  lock_gate
   # The Bun the target pins, from the trusted objects, and the one to point
   # $BUN back at on a rollback. Read BEFORE any mutation.
   TARGET_BUN=$(git -C "$TRUST_REPO" cat-file -p "$target_commit:package.json" 2>/dev/null |
@@ -858,6 +905,7 @@ git_ready() {
 git_finalize() {
   record_deps_synced "$target_commit"
   record_installed_release
+  record_previous_release "$PREV_RELEASE"
   prune_bun || log "warning: could not remove old Bun versions from $(bun_dir)"
   # Refresh the installed updater from the ROOT-OWNED trust objects. The
   # service checkout must never be the source: the service user (which
@@ -902,6 +950,7 @@ container_prepare() {
   if [[ -z $ALLOW_DOWNGRADE ]] && { [[ $TARGET_TAG == "$OLD_DESC" ]] || calver_older "$TARGET_TAG" "$OLD_DESC"; }; then
     die "$TARGET_TAG is older than $OLD_DESC; pass --allow-downgrade to continue"
   fi
+  lock_gate
   phase image
   docker pull "$CONTAINER_IMAGE:$TARGET_TAG"
   local revision
@@ -952,6 +1001,14 @@ container_finalize() {
   local release image
   release=$(cat "$CONTAINER_DIR/release")
   image=$(cat "$CONTAINER_DIR/image")
+  # The release this update replaced, for isomux-rescue rollback. Written
+  # here without the updater's helpers: the installer runs this function on
+  # its own (deploy/install-container.test.ts).
+  if [[ -n ${STATUS_DIR:-} && $release != "$TARGET_TAG" ]]; then
+    { printf '%s\n' "$release" >"$STATUS_DIR/previous-release.tmp" &&
+      mv -f "$STATUS_DIR/previous-release.tmp" "$STATUS_DIR/previous-release"; } 2>/dev/null ||
+      log "warning: could not record $release as the previous release; name the release when you run isomux-rescue rollback"
+  fi
   printf '%s\n' "$TARGET_TAG" > "$CONTAINER_DIR/release"
   printf '%s\n' "$target_commit" > "$CONTAINER_DIR/revision"
   printf '%s\n' "$CONTAINER_DIGEST" > "$CONTAINER_DIR/image"

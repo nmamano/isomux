@@ -13,6 +13,8 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -222,6 +224,8 @@ function bed(
     splitAgentUid: AGENT_UID,
     officeUid: OFFICE_UID,
     diskFree: () => 50e9,
+    checkoutPosition: () => ({ branch: null, previousCommit: null }),
+    readStdin: async () => "",
     now: () => new Date(clock),
     sleep: async (ms) => {
       clock += ms;
@@ -633,5 +637,222 @@ describe("loadRescueConfig", () => {
     expect(loadRescueConfig({}, none, "/home/ann").stateRoot).toBe(
       "/home/ann/.isomux",
     );
+  });
+});
+
+// The release root passes, checked here too: it is printed as it comes.
+describe("status --release", () => {
+  test("prints the release root passed, and ignores one that is not a release tag", async () => {
+    const b = bed();
+    expect(
+      await b.run(["status", "--no-journal", "--release", "v2026.11.6"]),
+    ).toBe(0);
+    expect(b.out.log.some((l) => l.includes("v2026.11.6"))).toBe(true);
+    const bad = bed();
+    const forged = "v2026.11.6-forged$(id)";
+    expect(await bad.run(["status", "--no-journal", "--release", forged])).toBe(
+      0,
+    );
+    expect(bad.out.log.some((l) => l.includes("forged"))).toBe(false);
+  });
+});
+
+describe("rollback", () => {
+  const COMMIT = "0123456789abcdef0123456789abcdef01234567";
+
+  test("a user-unit checkout gets the manual steps back to the commit before HEAD's last move, with the UI build and the way back to its branch, and nothing runs", async () => {
+    const b = bed();
+    b.host.checkoutPosition = () => ({
+      branch: "main",
+      previousCommit: COMMIT,
+    });
+    const code = await b.run(["rollback"]);
+    const said = [...b.out.log, ...b.out.err].join("\n");
+    expect({
+      code,
+      commit: said.includes(`git checkout ${COMMIT}`),
+      install: said.includes("bun install"),
+      build: said.includes("bun run build:ui"),
+      back: said.includes("git checkout main"),
+      verbs: b.verbs(),
+      unit: { ...b.unit },
+    }).toEqual({
+      code: 1,
+      commit: true,
+      install: true,
+      build: true,
+      back: true,
+      verbs: [],
+      unit: { active: true, enabled: true },
+    });
+    // The build comes after the install, and both after the checkout.
+    const at = (s: string) => said.indexOf(s);
+    expect(at(`git checkout ${COMMIT}`)).toBeLessThan(at("bun install"));
+    expect(at("bun install")).toBeLessThan(at("bun run build:ui"));
+  });
+
+  test("a checkout with no earlier position still gets the steps, and no invented commit", async () => {
+    const b = bed();
+    b.host.checkoutPosition = () => ({ branch: null, previousCommit: null });
+    const code = await b.run(["rollback"]);
+    const said = [...b.out.log, ...b.out.err].join("\n");
+    expect({
+      code,
+      build: said.includes("bun run build:ui"),
+      hash: /\b[0-9a-f]{40}\b/.test(said),
+      verbs: b.verbs(),
+    }).toEqual({ code: 1, build: true, hash: false, verbs: [] });
+  });
+
+  for (const [kind, set] of [
+    ["a root install", (c: RescueConfig) => (c.serviceKind = "system")],
+    [
+      "a container install",
+      (c: RescueConfig) => (c.deploymentKind = "container"),
+    ],
+  ] as const) {
+    test(`${kind} is sent to the root command, and nothing runs`, async () => {
+      const b = bed();
+      set(b.config);
+      b.host.checkoutPosition = () => ({
+        branch: "main",
+        previousCommit: COMMIT,
+      });
+      const code = await b.run(["rollback"]);
+      const said = [...b.out.log, ...b.out.err].join("\n");
+      expect({
+        code,
+        root: said.includes("isomux-rescue rollback"),
+        manual: said.includes(COMMIT),
+        verbs: b.verbs(),
+      }).toEqual({ code: 1, root: true, manual: false, verbs: [] });
+    });
+  }
+});
+
+describe("report", () => {
+  test("writes the file given, 0600, with the journal and the note, and prints its path; no unit change", async () => {
+    const b = bed();
+    const file = join(dir, "incident.md");
+    const code = await b.run(["report", file, "--note", "tried-a-restart"]);
+    const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+    expect({
+      code,
+      mode: existsSync(file) ? statSync(file).mode & 0o777 : null,
+      journal: text.includes("journal line"),
+      note: text.includes("tried-a-restart"),
+      printed: b.out.log.some((l) => l.includes(file)),
+      verbs: b.verbs(),
+    }).toEqual({
+      code: 0,
+      mode: 0o600,
+      journal: true,
+      note: true,
+      printed: true,
+      verbs: [],
+    });
+  });
+
+  test("without a file it writes next to the state root", async () => {
+    const b = bed();
+    const before = readdirSync(dir);
+    expect(await b.run(["report"])).toBe(0);
+    const made = readdirSync(dir).filter((n) => !before.includes(n));
+    expect(made).toHaveLength(1);
+    expect(made[0]).toContain("incident");
+    expect(readdirSync(b.stateRoot).some((n) => n.includes("incident"))).toBe(
+      false,
+    );
+  });
+
+  test("refuses a file that exists and leaves it as it was", async () => {
+    const b = bed();
+    const file = join(dir, "mine.md");
+    writeFileSync(file, "my own notes");
+    expect(await b.run(["report", file])).toBe(1);
+    expect(readFileSync(file, "utf8")).toBe("my own notes");
+  });
+
+  // A dangling link to elsewhere is an existing name too: following it would
+  // write where the link points.
+  test("refuses a link at the file's name", async () => {
+    const b = bed();
+    const file = join(dir, "link.md");
+    const target = join(dir, "elsewhere.md");
+    symlinkSync(target, file);
+    expect(await b.run(["report", file])).toBe(1);
+    expect(existsSync(target)).toBe(false);
+  });
+
+  test("refuses a file inside the state root", async () => {
+    const b = bed();
+    const file = join(b.stateRoot, "incident.md");
+    expect(await b.run(["report", file])).toBe(1);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  // The root wrapper's step: root read the journal and the updater's files,
+  // which the service user cannot, and passes them in.
+  test("the root step takes the journal from stdin and the releases and update result root passed", async () => {
+    const b = bed();
+    b.host.readStdin = async () => "piped-journal-line\n";
+    const file = join(dir, "step.md");
+    const code = await b.run([
+      "_step",
+      "report",
+      file,
+      "--journal-stdin",
+      "--release",
+      "v2026.11.6",
+      "--previous",
+      "v2026.11.5",
+      "--update-result",
+      "update-result-text",
+    ]);
+    const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+    expect({
+      code,
+      piped: text.includes("piped-journal-line"),
+      ownJournal: text.includes("journal line"),
+      release: text.includes("v2026.11.6"),
+      previous: text.includes("v2026.11.5"),
+      result: text.includes("update-result-text"),
+    }).toEqual({
+      code: 0,
+      piped: true,
+      ownJournal: false,
+      release: true,
+      previous: true,
+      result: true,
+    });
+  });
+
+  test("the root step with - writes the report to stdout and no file", async () => {
+    const b = bed();
+    b.host.readStdin = async () => "piped-journal-line\n";
+    const before = readdirSync(dir);
+    const code = await b.run(["_step", "report", "-", "--journal-stdin"]);
+    expect({
+      code,
+      out: b.out.log.join("\n").includes("piped-journal-line"),
+      made: readdirSync(dir).filter((n) => !before.includes(n)),
+    }).toEqual({ code: 0, out: true, made: [] });
+  });
+
+  test("a release root passed that is not a release tag is not written", async () => {
+    const b = bed();
+    const file = join(dir, "forged.md");
+    expect(
+      await b.run([
+        "_step",
+        "report",
+        file,
+        "--release",
+        "v2026.11.6-forged",
+        "--previous",
+        "forged-prev",
+      ]),
+    ).toBe(0);
+    expect(readFileSync(file, "utf8").includes("forged")).toBe(false);
   });
 });

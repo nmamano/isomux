@@ -25,6 +25,10 @@ async function fixture(script: string) {
       definitions +
         `
 DEPLOYMENT_KIND=container
+SERVICE_KIND=system
+SERVICE_NAME=isomux-container
+# An enabled unit; a test that needs another redefines it.
+systemctl() { case "$*" in *is-enabled*) echo enabled ;; esac; return 0; }
 STATUS_DIR="$FIXTURE/status"
 CONTAINER_DIR="$FIXTURE"
 TARGET_TAG=v2099.1.2
@@ -133,6 +137,7 @@ docker() {
 }
 container_finalize
 echo "RECORDED $(cat "$FIXTURE/release") $(cat "$FIXTURE/image")"
+echo "PREVIOUS $(cat "$FIXTURE/status/previous-release" 2>/dev/null)"
 `);
 }
 
@@ -203,3 +208,52 @@ printf '<%s>' "$(progress_path)"
 `);
   expect(git.output).toContain("</var/lib/isomux-update-public/progress.json>");
 });
+
+// isomux-rescue rollback reads the release the last update replaced.
+test("a container update records the release it replaced", async () => {
+  const result = await finalize({ [NEW_IMAGE]: "sha256:new" });
+  expect(result.code).toBe(0);
+  expect(result.output).toContain("PREVIOUS v2099.1.1\n");
+});
+
+// A release from before locked mode reads no marker: on a locked office it
+// would start everything again. A container has no marker root can see, so
+// /readyz says it; the gate runs before the image is pulled. A container that
+// lockdown --stop disabled answers nothing and shows no marker: a disabled
+// unit is refused, since the update would start it.
+const LOCK_GATE_CASES: [string, boolean, string, boolean][] = [
+  ["locked", false, "enabled", false],
+  ["locked", true, "enabled", true],
+  ["ok", false, "enabled", true],
+  ["nothing", false, "disabled", false],
+  ["nothing", true, "disabled", false],
+];
+for (const [body, lockedMode, enabled, pulls] of LOCK_GATE_CASES)
+  test(`/readyz answers ${body}, a release ${lockedMode ? "with" : "without"} locked mode, the unit ${enabled}: ${pulls ? "pulls" : "refused before the pull"}`, async () => {
+    const ready = Bun.serve({
+      port: 0,
+      fetch: () =>
+        body === "nothing"
+          ? new Response("down", { status: 503 })
+          : new Response(`${body}\n`),
+    });
+    try {
+      const result = await fixture(`
+CONF="$FIXTURE/update.conf"
+BASE_URL=http://127.0.0.1:${ready.port}
+TRUST_REPO="$FIXTURE/trust"
+git init -q "$TRUST_REPO"
+${lockedMode ? 'mkdir -p "$TRUST_REPO/server" && echo "// locked mode" > "$TRUST_REPO/server/lockdown.ts"' : 'echo x > "$TRUST_REPO/app.txt"'}
+git -C "$TRUST_REPO" add -A
+git -C "$TRUST_REPO" -c user.email=t@t -c user.name=T commit -qm c
+target_commit=$(git -C "$TRUST_REPO" rev-parse HEAD)
+systemctl() { case "$*" in *is-enabled*) echo ${enabled}; [[ ${enabled} == enabled ]]; return ;; *is-active*) echo active ;; esac; return 0; }
+docker() { echo "DOCKER $*" >&2; return 1; }
+container_prepare
+`);
+      expect(result.code).not.toBe(0);
+      expect(result.output.includes("DOCKER pull")).toBe(pulls);
+    } finally {
+      await ready.stop(true);
+    }
+  });

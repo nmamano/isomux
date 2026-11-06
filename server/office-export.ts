@@ -128,7 +128,18 @@ export async function exportOffice(
     if (readdirSync(outDir).length > 0)
       throw new Error(`${outDir} is not empty: name a new or empty folder`);
   }
-  const patterns = scrubPatterns(collectSecretValues(stateRoot));
+  let values: string[];
+  try {
+    values = collectSecretValues(stateRoot);
+  } catch (error) {
+    if (!(error instanceof SecretSourceError)) throw error;
+    // SecretSourceError holds no text from the file: it can be the cause.
+    throw new Error(
+      `${error.message}, so the export stopped: it could not remove those secret values from the copy`,
+      { cause: error },
+    );
+  }
+  const patterns = scrubPatterns(values);
   const ex = new Exporter(stateRoot, outDir, options.now, patterns);
 
   const estimate = ex.estimate();
@@ -178,9 +189,18 @@ function secretSourceError(error: unknown): string {
   return line ? `line ${line[1]} does not parse` : "it does not parse";
 }
 
-/** Every secret value the office holds. Throws when a secret store file or
- *  an env file cannot be read: the export must not run without them. */
-function collectSecretValues(stateRoot: string): string[] {
+/** A secret source that cannot be read. The message names the file and the
+ *  reason only, never its text. */
+export class SecretSourceError extends Error {
+  constructor(source: string, why: string) {
+    super(`${source} cannot be read (${why})`);
+  }
+}
+
+/** Every secret value the office holds. Throws SecretSourceError when a
+ *  secret store file or an env file cannot be read: nothing that must be
+ *  redacted may be written without them. */
+export function collectSecretValues(stateRoot: string): string[] {
   const values: string[] = [];
   const store = createSecretStore(stateRoot);
   for (const scope of store.scopes()) {
@@ -189,9 +209,9 @@ function collectSecretValues(stateRoot: string): string[] {
     } catch (error) {
       const which = scope.kind === "office" ? "office" : `user ${scope.userId}`;
       // No cause: its message can quote the file, and a printer may show it.
-      // eslint-disable-next-line preserve-caught-error
-      throw new Error(
-        `the ${which} secrets file cannot be read (${secretSourceError(error)}), so the export stopped: it could not remove those secret values from the copy`,
+      throw new SecretSourceError(
+        `the ${which} secrets file`,
+        secretSourceError(error),
       );
     }
   }
@@ -205,10 +225,8 @@ function collectSecretValues(stateRoot: string): string[] {
           ...Object.values(parseDotenv(readFileSync(join(path, name), "utf8"))),
         );
       } catch (error) {
-        // eslint-disable-next-line preserve-caught-error -- as above
-        throw new Error(
-          `${dir}/${name} cannot be read (${secretSourceError(error)}), so the export stopped: it could not remove those secret values from the copy`,
-        );
+        // No cause, as above.
+        throw new SecretSourceError(`${dir}/${name}`, secretSourceError(error));
       }
     }
   }
@@ -236,7 +254,7 @@ function isoTime(ms: number): string {
 }
 
 // A fence longer than any backtick run in the text.
-function fenced(text: string, lang = ""): string {
+export function fenced(text: string, lang = ""): string {
   let longest = 2;
   for (const run of text.match(/`+/g) ?? [])
     longest = Math.max(longest, run.length);

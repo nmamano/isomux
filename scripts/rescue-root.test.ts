@@ -14,7 +14,7 @@
 // does not, so only the wrapper's kill can end them.
 
 import { Database } from "bun:sqlite";
-import { afterEach, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
@@ -383,4 +383,250 @@ test("refuses to run as anyone but root, before any step", async () => {
     runuser: readFileSync(r.log, "utf8").includes("runuser"),
     locked: readLockState(r.stateRoot, r.etc).locked,
   }).toEqual({ refused: true, calls: [], runuser: false, locked: false });
+});
+
+// The updater's root-owned folder and a stand-in for the installed updater,
+// which records its arguments and exits with the code in updater-code.
+function withUpdater(
+  r: Rig,
+  opts: { installed?: string; previous?: string; tags?: string[] } = {},
+): {
+  statusDir: string;
+  calls: () => string[];
+  exitWith: (code: number) => void;
+} {
+  const statusDir = join(dir, "status");
+  mkdirSync(statusDir, { recursive: true });
+  const callsFile = join(dir, "updater-calls");
+  const codeFile = join(dir, "updater-code");
+  writeFileSync(codeFile, "0\n");
+  const updater = join(dir, "isomux-update");
+  writeFileSync(
+    updater,
+    `#!/usr/bin/env bash\necho "$*" >> ${callsFile}\nexit "$(cat ${codeFile})"\n`,
+  );
+  chmodSync(updater, 0o755);
+  writeFileSync(
+    r.conf,
+    readFileSync(r.conf, "utf8") +
+      `STATUS_DIR=${statusDir}\nUPDATER_PATH=${updater}\n`,
+  );
+  if (opts.installed)
+    writeFileSync(join(statusDir, "installed-release"), opts.installed + "\n");
+  if (opts.previous)
+    writeFileSync(join(statusDir, "previous-release"), opts.previous + "\n");
+  if (opts.tags) {
+    const trust = join(statusDir, "trust.git");
+    const git = (...args: string[]) => {
+      const p = Bun.spawnSync(
+        [
+          "git",
+          "-c",
+          "user.email=t@t",
+          "-c",
+          "user.name=T",
+          "-C",
+          trust,
+          ...args,
+        ],
+        { stdout: "ignore", stderr: "pipe" },
+      );
+      if (p.exitCode !== 0) throw new Error(p.stderr.toString());
+    };
+    mkdirSync(trust);
+    git("init", "-q");
+    git("commit", "-q", "--allow-empty", "-m", "c");
+    for (const tag of opts.tags) git("tag", tag);
+  }
+  return {
+    statusDir,
+    calls: () =>
+      existsSync(callsFile)
+        ? readFileSync(callsFile, "utf8").trim().split("\n").filter(Boolean)
+        : [],
+    exitWith: (code) => writeFileSync(codeFile, `${code}\n`),
+  };
+}
+
+describe("rollback", () => {
+  test("runs the installed updater on the release the last update replaced, with the downgrade flag, and returns its exit code", async () => {
+    const r = rig();
+    const u = withUpdater(r, {
+      installed: "v2026.11.6",
+      previous: "v2026.11.5",
+    });
+    const ok = await r.run(["rollback"]);
+    if (ok.code !== 0) console.error(ok.out);
+    u.exitWith(3);
+    const failed = await r.run(["rollback"]);
+    expect({
+      ok: ok.code,
+      failed: failed.code,
+      calls: u.calls(),
+      // The updater does the stop and start, not the wrapper.
+      systemctl: r.calls(),
+    }).toEqual({
+      ok: 0,
+      failed: 3,
+      calls: ["v2026.11.5 --allow-downgrade", "v2026.11.5 --allow-downgrade"],
+      systemctl: [],
+    });
+  });
+
+  test("a release named on the command line wins over the record", async () => {
+    const r = rig();
+    const u = withUpdater(r, {
+      installed: "v2026.11.6",
+      previous: "v2026.11.5",
+    });
+    expect((await r.run(["rollback", "v2026.11.4"])).code).toBe(0);
+    expect(u.calls()).toEqual(["v2026.11.4 --allow-downgrade"]);
+  });
+
+  test("without a record it takes the newest release in the trust repo older than the installed one", async () => {
+    const r = rig();
+    const u = withUpdater(r, {
+      installed: "v2026.11.6",
+      tags: [
+        "v2026.11.3",
+        "v2026.11.5",
+        "v2026.11.5.1",
+        "v2026.11.6",
+        "v2026.11.7",
+        "not-a-release",
+      ],
+    });
+    expect((await r.run(["rollback"])).code).toBe(0);
+    expect(u.calls()).toEqual(["v2026.11.5.1 --allow-downgrade"]);
+  });
+
+  test("a record that is not a release tag is not a target", async () => {
+    const r = rig();
+    const u = withUpdater(r, {
+      installed: "v2026.11.6",
+      previous: "--help",
+      tags: ["v2026.11.4", "v2026.11.6"],
+    });
+    expect((await r.run(["rollback"])).code).toBe(0);
+    expect(u.calls()).toEqual(["v2026.11.4 --allow-downgrade"]);
+  });
+
+  type Refusal = [string, Parameters<typeof withUpdater>[1], string[], string?];
+  const refusals: Refusal[] = [
+    [
+      "a name that is not a release tag",
+      { installed: "v2026.11.6" },
+      ["rollback", "main"],
+    ],
+    [
+      "a flag in place of the release",
+      { installed: "v2026.11.6" },
+      ["rollback", "--allow-downgrade"],
+    ],
+    [
+      "the installed release itself",
+      { installed: "v2026.11.6", previous: "v2026.11.6" },
+      ["rollback"],
+    ],
+    [
+      "no record and no older release",
+      { installed: "v2026.11.6", tags: ["v2026.11.6"] },
+      ["rollback"],
+    ],
+    [
+      "an office that lockdown --stop disabled",
+      { installed: "v2026.11.6", previous: "v2026.11.5" },
+      ["rollback"],
+      "inactive disabled",
+    ],
+  ];
+  for (const [name, setup, args, unit] of refusals) {
+    test(`refuses ${name}, and the updater never runs`, async () => {
+      const r = rig();
+      const u = withUpdater(r, setup);
+      if (unit) writeFileSync(r.unitFile, unit + "\n");
+      const res = await r.run(args);
+      expect({
+        refused: res.code !== 0,
+        calls: u.calls(),
+        systemctl: r.calls(),
+      }).toEqual({
+        refused: true,
+        calls: [],
+        systemctl: [],
+      });
+    });
+  }
+
+  test("the way back it prints is the updater on the release it left, which every version has", async () => {
+    const r = rig();
+    withUpdater(r, { installed: "v2026.11.6", previous: "v2026.11.5" });
+    const res = await r.run(["rollback"]);
+    expect(res.out).toContain("isomux-update v2026.11.6");
+  });
+});
+
+describe("report", () => {
+  test("root reads the journal and the updater's records and the service user writes the file, 0600", async () => {
+    const r = rig();
+    const u = withUpdater(r, {
+      installed: "v2026.11.6",
+      previous: "v2026.11.5",
+    });
+    writeFileSync(
+      join(u.statusDir, "status.json"),
+      JSON.stringify({ result: "failed", message: "update-result-canary" }),
+    );
+    const file = join(dir, "incident.md");
+    const res = await r.run(["report", file, "--note", "note-canary"]);
+    if (res.code !== 0) console.error(res.out);
+    const text = existsSync(file) ? readFileSync(file, "utf8") : "";
+    const step = readFileSync(r.log, "utf8")
+      .split("\n")
+      .find((l) => l.startsWith("runuser ") && l.includes("_step report"));
+    expect({
+      code: res.code,
+      mode: existsSync(file) ? statSync(file).mode & 0o777 : null,
+      uid: existsSync(file) ? statSync(file).uid : null,
+      journal: text.includes("journal line"),
+      release: text.includes("v2026.11.6"),
+      previous: text.includes("v2026.11.5"),
+      result: text.includes("update-result-canary"),
+      note: text.includes("note-canary"),
+      viaStdin: step?.includes("--journal-stdin") ?? false,
+      systemctl: r.calls(),
+    }).toEqual({
+      code: 0,
+      mode: 0o600,
+      uid: userInfo().uid,
+      journal: true,
+      release: true,
+      previous: true,
+      result: true,
+      note: true,
+      viaStdin: true,
+      systemctl: [],
+    });
+  });
+
+  test("refuses a file inside the state root", async () => {
+    const r = rig();
+    withUpdater(r, { installed: "v2026.11.6" });
+    const file = join(r.stateRoot, "incident.md");
+    const res = await r.run(["report", file]);
+    expect({ refused: res.code !== 0, made: existsSync(file) }).toEqual({
+      refused: true,
+      made: false,
+    });
+  });
+});
+
+test("status passes the installed release root read to the service user's status", async () => {
+  const r = rig();
+  withUpdater(r, { installed: "v2026.11.6" });
+  await r.run(["status"]);
+  const step = readFileSync(r.log, "utf8")
+    .split("\n")
+    .find((l) => l.startsWith("runuser ") && / status( |$)/.test(l));
+  expect(step).toContain("--release v2026.11.6");
 });
