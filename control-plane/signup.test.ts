@@ -33,6 +33,9 @@ import { validateCustomerSshKey } from "./key-lines.ts";
 import { accountByEmail, insertSubscription } from "./stripe/billing-store.ts";
 import { signUpOffice, signupPageState } from "./web/lib/services.server.ts";
 import { safeCustomerReason } from "./web/lib/customer-error.ts";
+import { translatorFor } from "./web/lib/i18n/translate.ts";
+import { SUPPORT_EMAIL } from "./web/lib/support-email.ts";
+import { OPENING_ADMISSION_HOLD_MS } from "./reservation-hold.ts";
 import { isUniqueViolation, Store } from "./store.ts";
 import { WEB_GRANTS } from "./roles.ts";
 import {
@@ -740,6 +743,9 @@ describe("several offices per account", () => {
 // Checkout can still be paid. Once it is over, the name goes to the next signup
 // for it and the place to the next office, so a free account cannot close
 // signups for everyone by reserving names it never pays for (task 9ed7430a).
+// A reservation that never recorded a session gives up its admission place
+// sooner, after the admission hold, but keeps its name and its account's place
+// for the whole hold (task b390cb25).
 describe("an unpaid reservation whose checkout is over", () => {
   const NOW = 1_700_000_000_000;
   const CREATED = NOW - 5 * DAY_MS;
@@ -816,11 +822,8 @@ describe("an unpaid reservation whose checkout is over", () => {
       { state: null, updatedAt: NOW - UNPAID_OPENING_HOLD_MS },
     ],
   ];
-  const LIVE: [string, Held][] = [
-    [
-      "it is opening inside the hold",
-      { state: "opening", updatedAt: NOW - UNPAID_OPENING_HOLD_MS + 1 },
-    ],
+  // Still payable, so it counts against the admission bound.
+  const PAYABLE: [string, Held][] = [
     [
       "its session is past expiry and Stripe has not confirmed that",
       { state: "pending", updatedAt: CREATED, expiresAt: NOW - 4 * DAY_MS },
@@ -834,20 +837,39 @@ describe("an unpaid reservation whose checkout is over", () => {
       { state: "expired", updatedAt: NOW, paidBy: "create_instance" },
     ],
   ];
+  const LIVE: [string, Held][] = [
+    [
+      "it is opening inside the hold",
+      { state: "opening", updatedAt: NOW - UNPAID_OPENING_HOLD_MS + 1 },
+    ],
+    ...PAYABLE,
+  ];
+  // The opening boundary of the admission hold is in "forty signups whose
+  // checkout never opened" below, through the rows reserveOffice writes.
+  const ADMISSION_OVER: [string, Held][] = [
+    ...OVER,
+    [
+      "a legacy row recorded no session for the admission hold",
+      { state: null, updatedAt: NOW - OPENING_ADMISSION_HOLD_MS },
+    ],
+  ];
 
-  test.each(OVER)("frees its admission place when %s", async (_, held) => {
-    const store = await tempStore(() => NOW);
-    await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW - 1, NOW);
-    await seedHeld(store, held);
-    expect(await inWindow(store)).toBe(MAX_NEW_OFFICES_PER_WINDOW);
-    const out = await signup(store, {
-      email: "next@example.com",
-      officeName: "next",
-    });
-    expect(out.ok).toBe(true);
-  });
+  test.each(ADMISSION_OVER)(
+    "frees its admission place when %s",
+    async (_, held) => {
+      const store = await tempStore(() => NOW);
+      await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW - 1, NOW);
+      await seedHeld(store, held);
+      expect(await inWindow(store)).toBe(MAX_NEW_OFFICES_PER_WINDOW);
+      const out = await signup(store, {
+        email: "next@example.com",
+        officeName: "next",
+      });
+      expect(out.ok).toBe(true);
+    },
+  );
 
-  test.each(LIVE)("keeps its admission place when %s", async (_, held) => {
+  test.each(PAYABLE)("keeps its admission place when %s", async (_, held) => {
     const store = await tempStore(() => NOW);
     await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW - 1, NOW);
     await seedHeld(store, held);
@@ -864,6 +886,58 @@ describe("an unpaid reservation whose checkout is over", () => {
       (await signup(store, { email: "next@example.com", officeName: "next" }))
         .ok,
     ).toBe(true);
+  });
+
+  // The security audit's case: one unpaid signup each from free accounts, all
+  // stopped before a Checkout session, closed new signups for four days.
+  test("forty signups whose checkout never opened hold their places for the admission hold only", async () => {
+    let now = NOW;
+    const store = await tempStore(() => now);
+    const first = await signup(store, {
+      email: "squat0@example.com",
+      officeName: "squat0",
+      couponId: "nope-not-a-coupon",
+    });
+    expect(first.ok).toBe(true);
+    const squat0 = await reservationByName(store, "squat0");
+    expect(squat0).toMatchObject({
+      checkout_state: "opening",
+      checkout_session_id: null,
+    });
+    // The other squatters, each a copy of the row reserveOffice wrote for the
+    // first, in one statement: forty signups one by one cost half this
+    // test's budget.
+    await store.sqlRun(
+      "insert into name_reservations (name, id, account_id, instance_id, plan, " +
+        "coupon_id, checkout_generation, checkout_state, version, created_at, updated_at) " +
+        "select 'squat' || i, 'res-squat-' || i, 'squat-account-' || i, " +
+        "'inst-squat-' || i, r.plan, r.coupon_id, r.checkout_generation, " +
+        "r.checkout_state, r.version, r.created_at, r.updated_at " +
+        "from name_reservations r, generate_series(1, $1::int) i where r.name = 'squat0'",
+      [MAX_NEW_OFFICES_PER_WINDOW - 1],
+    );
+    const victim = { email: "victim@example.com", officeName: "victim" };
+
+    now = NOW + OPENING_ADMISSION_HOLD_MS - 1;
+    expect(await signup(store, victim)).toMatchObject({
+      ok: false,
+      kind: "customer",
+    });
+    expect(await reservationByName(store, "victim")).toBeNull();
+
+    now = NOW + OPENING_ADMISSION_HOLD_MS;
+    expect(await signup(store, victim)).toMatchObject({
+      ok: true,
+      reused: false,
+    });
+    // Only the admission place went: each name stays with its account.
+    expect(
+      await signup(store, { email: "late@example.com", officeName: "squat0" }),
+    ).toMatchObject({ ok: false, kind: "customer" });
+    expect(await reservationByName(store, "squat0")).toMatchObject({
+      id: squat0!.id,
+      account_id: squat0!.account_id,
+    });
   });
 
   test.each(OVER)(
@@ -1080,6 +1154,22 @@ describe("one live unpaid reservation per account", () => {
     expect((await signup(store, { officeName: "bravo" })).ok).toBe(true);
   });
 
+  test("a reservation with no session holds its account's place for the whole hold, past the admission hold too", async () => {
+    let now = 1_700_000_000_000;
+    const store = await tempStore(() => now);
+    const first = await signup(store, { officeName: "alpha" });
+    if (!first.ok) throw new Error("signup failed");
+
+    now += UNPAID_OPENING_HOLD_MS - 1;
+    const refused = await signup(store, { officeName: "bravo" });
+    expect(refused).toMatchObject({ ok: false, kind: "customer" });
+    if (!refused.ok) expect(refused.reason).toContain("alpha");
+    expect(await reservationByName(store, "bravo")).toBeNull();
+
+    now += 1;
+    expect((await signup(store, { officeName: "bravo" })).ok).toBe(true);
+  });
+
   test("an account holding a live unpaid office cannot take over a released name either", async () => {
     const store = await tempStore(() => 1_700_000_000_000);
     const first = await signup(store);
@@ -1187,7 +1277,34 @@ describe("the web facade shows a reservation refusal by its kind", () => {
     delete process.env.CONTROL_PLANE_ENTRY_PRICE_ID;
     delete process.env.CONTROL_PLANE_STRIPE_MODE;
     delete process.env.STRIPE_TEST_SECRET_KEY;
+    globalThis.fetch = realFetch;
   });
+
+  const realFetch = globalThis.fetch;
+  const OPAQUE_PAYMENTS = translatorFor("en").t(
+    "errors.paymentsConfiguration",
+    {
+      support: SUPPORT_EMAIL,
+    },
+  );
+
+  /** Answer every Stripe request by `answer`, and list them as
+   * "<method> <path>". */
+  function fakeStripe(
+    answer: (method: string, path: string) => Response,
+  ): string[] {
+    const requests: string[] = [];
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const method = init?.method ?? "GET";
+      const path = new URL(String(input)).pathname;
+      requests.push(`${method} ${path}`);
+      return answer(method, path);
+    }) as typeof fetch;
+    return requests;
+  }
 
   /** signUpOffice against `store`, with everything before reserveOffice
    * configured, and what it logged. */
@@ -1195,6 +1312,7 @@ describe("the web facade shows a reservation refusal by its kind", () => {
     store: Store,
     accountId: string,
     officeName: string,
+    opts: { couponId?: string; stripeKey?: string } = {},
   ) {
     (globalThis as { [STORE_SLOT]?: { opening?: Promise<Store> } })[
       STORE_SLOT
@@ -1202,7 +1320,8 @@ describe("the web facade shows a reservation refusal by its kind", () => {
     process.env.AUTH_URL = "https://cloud.example.test";
     process.env.CONTROL_PLANE_ENTRY_PRICE_ID = "price_entry";
     process.env.CONTROL_PLANE_STRIPE_MODE = "test";
-    process.env.STRIPE_TEST_SECRET_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+    process.env.STRIPE_TEST_SECRET_KEY =
+      opts.stripeKey ?? "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
     const logged: string[] = [];
     console.error = (...parts: unknown[]) => {
       logged.push(parts.map(String).join(" "));
@@ -1213,6 +1332,7 @@ describe("the web facade shows a reservation refusal by its kind", () => {
         accountId,
         officeName,
         plan: "office",
+        couponId: opts.couponId,
         customerSshKey: VALID_KEY,
       });
       return { result, logged };
@@ -1282,6 +1402,127 @@ describe("the web facade shows a reservation refusal by its kind", () => {
       reason: safeCustomerReason("en", direct.reason, { accountId: other.id }),
     });
     expect(logged.filter((l) => l.includes("customer-error"))).toEqual([]);
+  });
+
+  // A coupon is read before the reservation is written, so a refused coupon
+  // holds no name, no account place and no admission place (task b390cb25).
+  test("a coupon the provider does not know is refused before anything is reserved", async () => {
+    const store = await tempStore();
+    const account = await accountFor(store);
+    const requests = fakeStripe(() =>
+      Response.json(
+        {
+          error: {
+            type: "invalid_request_error",
+            code: "resource_missing",
+            message: "No such coupon",
+          },
+        },
+        { status: 404 },
+      ),
+    );
+    const { result } = await viaFacade(store, account.id, "acme", {
+      couponId: "nope-not-a-coupon",
+    });
+    // The same refusal Checkout gave for this coupon when it ran after the
+    // reservation.
+    const coupon = customerReason(
+      "--coupon nope-not-a-coupon cannot be used as a full discount: no such coupon",
+    );
+    expect(coupon).not.toBeNull();
+    expect(result).toEqual({
+      ok: false,
+      reason: safeCustomerReason("en", coupon!, { accountId: account.id }),
+    });
+    expect(requests).toEqual(["GET /v1/coupons/nope-not-a-coupon"]);
+    expect(await reservationByName(store, "acme")).toBeNull();
+    expect(await store.listInstances()).toEqual([]);
+    // The customer corrects the code: the same name is theirs at once.
+    expect(await signup(store, { customerSshKey: VALID_KEY })).toMatchObject({
+      ok: true,
+      reused: false,
+    });
+  });
+
+  test("a coupon the provider cannot read now is refused before anything is reserved, as a provider failure", async () => {
+    const store = await tempStore();
+    const account = await accountFor(store);
+    const requests = fakeStripe(() => new Response(null, { status: 503 }));
+    const { result } = await viaFacade(store, account.id, "acme", {
+      couponId: "maybe",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // No name is reserved yet, so the sentence must not say one is.
+    expect(result.reason).toStartWith(
+      `${translatorFor("en").t("errors.providerTransient")} `,
+    );
+    expect(requests).toEqual(["GET /v1/coupons/maybe"]);
+    expect(await reservationByName(store, "acme")).toBeNull();
+    expect(await store.listInstances()).toEqual([]);
+    expect(await signup(store, { customerSshKey: VALID_KEY })).toMatchObject({
+      ok: true,
+      reused: false,
+    });
+  });
+
+  test("a full-discount coupon still reserves the office before Checkout opens", async () => {
+    const store = await tempStore();
+    const account = await accountFor(store);
+    const requests = fakeStripe((method, path) =>
+      method === "GET" && path === "/v1/coupons/comp"
+        ? Response.json({
+            id: "comp",
+            object: "coupon",
+            livemode: false,
+            valid: true,
+            percent_off: 100,
+          })
+        : Response.json(
+            { error: { type: "invalid_request_error", message: "refused" } },
+            { status: 400 },
+          ),
+    );
+    const { result } = await viaFacade(store, account.id, "acme", {
+      couponId: "comp",
+    });
+    // Checkout opened past the coupon and was refused at the customer step,
+    // after the reservation.
+    expect(requests).toContain("POST /v1/customers");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toStartWith(
+      `${translatorFor("en").t("errors.checkoutReservedConfiguration", { support: SUPPORT_EMAIL })} `,
+    );
+    expect(await reservationByName(store, "acme")).toMatchObject({
+      account_id: account.id,
+      coupon_id: "comp",
+      checkout_state: "opening",
+    });
+  });
+
+  // The coupon read is the first Stripe client the signup builds, so a key the
+  // client refuses must be judged with the rest of the configuration, before
+  // anything is reserved, and not escape as a 500.
+  test("a Stripe key that does not fit the mode is refused before anything is reserved", async () => {
+    const store = await tempStore();
+    const account = await accountFor(store);
+    const requests = fakeStripe(() => new Response(null, { status: 500 }));
+    for (const couponId of [undefined, "comp"]) {
+      const { result, logged } = await viaFacade(store, account.id, "acme", {
+        couponId,
+        stripeKey: "sk_live_NOT_A_REAL_KEY_ONLY_A_SHAPE",
+      });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.reason).toStartWith(`${OPAQUE_PAYMENTS} `);
+      const reference = /PAY-[0-9A-F]{10}/.exec(result.reason)?.[0];
+      expect(reference).toBeDefined();
+      expect(logged.some((l) => l.includes(reference!))).toBe(true);
+    }
+    expect(requests).toEqual([]);
+    expect(await reservationByName(store, "acme")).toBeNull();
+    expect(await store.listInstances()).toEqual([]);
   });
 });
 

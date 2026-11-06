@@ -50,6 +50,7 @@ import {
   refusedResult,
   safeCustomerReason,
   type CustomerFailureContext,
+  type CustomerFailureSurface,
 } from "./customer-error";
 import type { SupportedLanguageCode } from "./i18n/languages";
 import { translatorFor } from "./i18n/translate";
@@ -252,6 +253,29 @@ export async function signupPageState(
   });
 }
 
+/**
+ * The customer's answer to a refused Checkout or coupon. A coupon refusal says
+ * what is wrong with the code; anything else is a failure on `surface`,
+ * transient when a retry may work.
+ */
+async function checkoutRefusal(
+  language: SupportedLanguageCode,
+  surface: CustomerFailureSurface,
+  refusal: { retryable: boolean; reason: string },
+  context: CustomerFailureContext,
+): Promise<string> {
+  const { customerReason } = await import("../../signup");
+  const couponReason = customerReason(refusal.reason);
+  if (couponReason) return safeCustomerReason(language, couponReason, context);
+  return customerFailure(
+    language,
+    refusal.retryable ? "transient" : "configuration",
+    surface,
+    refusal.reason,
+    context,
+  );
+}
+
 async function openReservedCheckout(args: {
   language: SupportedLanguageCode;
   reservation: ReservationRow;
@@ -267,7 +291,6 @@ async function openReservedCheckout(args: {
     {
       advanceExpiredOrdinaryCheckout,
       checkoutInputsFor,
-      customerReason,
       recordOrdinaryCheckoutSession,
       recordTerminalOrdinarySession,
       reservationByName,
@@ -321,9 +344,14 @@ async function openReservedCheckout(args: {
       ),
     };
 
-  let runtime: Awaited<ReturnType<typeof stripeRuntime>>;
+  // The client is built inside the try: its constructor refuses a key that
+  // does not fit the mode, and that throw must be a refusal, not a 500.
+  let mode: Awaited<ReturnType<typeof stripeRuntime>>["mode"];
+  let client: InstanceType<typeof StripeClient>;
   try {
-    runtime = await stripeRuntime();
+    const runtime = await stripeRuntime();
+    mode = runtime.mode;
+    client = new StripeClient(runtime);
   } catch (err) {
     return {
       ok: false,
@@ -336,8 +364,6 @@ async function openReservedCheckout(args: {
       ),
     };
   }
-  const { key, mode } = runtime;
-  const client = new StripeClient({ key, mode });
   const advanceTerminalGeneration = async (
     sessionId?: string,
   ): Promise<boolean> => {
@@ -455,19 +481,12 @@ async function openReservedCheckout(args: {
     };
   }
   if (!opened.ok) {
-    const couponReason = customerReason(opened.reason);
-    if (couponReason)
-      return {
-        ok: false,
-        reason: safeCustomerReason(language, couponReason, context),
-      };
     return {
       ok: false,
-      reason: customerFailure(
+      reason: await checkoutRefusal(
         language,
-        opened.retryable ? "transient" : "configuration",
         "checkout_reserved",
-        opened.reason,
+        opened,
         context,
       ),
     };
@@ -583,13 +602,11 @@ export async function reinstateOffice(
     { StripeClient },
     { LiveStripeReader },
     { CheckoutCreationError, openCheckout },
-    { customerReason },
   ] = await Promise.all([
     import("../../reinstatement"),
     import("../../stripe/client"),
     import("../../stripe/reader"),
     import("../../stripe/checkout"),
-    import("../../signup"),
   ]);
   const origin = deploymentOrigin();
   if (!origin)
@@ -777,22 +794,10 @@ export async function reinstateOffice(
     await withStore((store) =>
       recordReinstatementCheckoutFailure(store, prepared, opened.reason),
     );
-    const couponReason = customerReason(opened.reason);
-    return couponReason
-      ? {
-          ok: false,
-          reason: safeCustomerReason(language, couponReason, context),
-        }
-      : {
-          ok: false,
-          reason: customerFailure(
-            language,
-            opened.retryable ? "transient" : "configuration",
-            "reinstatement",
-            opened.reason,
-            context,
-          ),
-        };
+    return {
+      ok: false,
+      reason: await checkoutRefusal(language, "reinstatement", opened, context),
+    };
   }
   if (!opened.session.url) {
     await withStore((store) =>
@@ -818,7 +823,8 @@ export async function reinstateOffice(
 /**
  * Reserve a name and open Checkout for it.
  *
- * The two halves are deliberately separate transactions with a Stripe call
+ * A named coupon is read first, so a refused one reserves nothing. The two
+ * halves are deliberately separate transactions with a Stripe call
  * between them: the reservation is durable BEFORE anything is created at
  * Stripe, so a failure at Stripe leaves a row the same account can retry
  * against with the same idempotency keys. The keys come from that row, so the
@@ -865,8 +871,12 @@ export async function signUpOffice(args: {
         context,
       ),
     };
+  // The client is built here, before the reservation: its constructor refuses
+  // a key that does not fit the mode, and that refusal must reserve nothing.
+  const { StripeClient } = await import("../../stripe/client");
+  let client: InstanceType<typeof StripeClient>;
   try {
-    await stripeRuntime();
+    client = new StripeClient(await stripeRuntime());
   } catch (err) {
     return {
       ok: false,
@@ -893,6 +903,29 @@ export async function signUpOffice(args: {
         context,
       ),
     };
+  }
+
+  // THE COUPON IS READ BEFORE ANYTHING IS RESERVED. A refused code then leaves
+  // no row: no name held, no account place, no admission place. Reserving
+  // first let free accounts fill the shared admission bound with codes that
+  // do not exist (task b390cb25). Read-only; openCheckout reads it again.
+  if (args.couponId) {
+    const { couponRefusalReason, verifyFullDiscount } =
+      await import("../../stripe/checkout");
+    const coupon = await verifyFullDiscount(client, args.couponId);
+    if (!coupon.ok)
+      return {
+        ok: false,
+        reason: await checkoutRefusal(
+          language,
+          "payments",
+          {
+            retryable: coupon.retryable,
+            reason: couponRefusalReason(args.couponId, coupon.reason),
+          },
+          context,
+        ),
+      };
   }
 
   const reserved = await withStore((store) =>

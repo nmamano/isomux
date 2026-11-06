@@ -1,8 +1,11 @@
 // When an unpaid office reservation stops holding its name and its admission
 // place (task 9ed7430a). SQL fragments rather than TypeScript, so the admission
 // count, the per-account bound, the takeover and the progress projection all
-// apply one rule inside their own statement. It imports nothing, so store.ts
-// and signup.ts can both use it.
+// apply one predicate inside their own statement. The predicate takes its
+// cutoff as an argument: the admission count passes the short
+// OPENING_ADMISSION_HOLD_MS and is its only reader; the others pass
+// UNPAID_OPENING_HOLD_MS. It imports nothing, so store.ts and signup.ts can
+// both use it.
 
 /**
  * How long an 'opening' reservation stays live with no recorded session. Stripe
@@ -11,6 +14,16 @@
  * three days, so after four days an unseen payment is not possible in practice.
  */
 export const UNPAID_OPENING_HOLD_MS = 4 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long an 'opening' reservation with no recorded session counts against
+ * the shared new-office admission bound. The row is written and its Checkout
+ * opened in one request, so an hour covers a burst of signups between their
+ * insert and their session record. After it the row keeps its name and its
+ * account's place for the full hold, but no longer blocks other signups
+ * (task b390cb25).
+ */
+export const OPENING_ADMISSION_HOLD_MS = 60 * 60 * 1000;
 
 /**
  * A reservation is PAID once its office has a subscription or a create
@@ -39,10 +52,12 @@ export function checkoutOverSql(r: string, cutoff: string): string {
 }
 
 /**
- * DEAD: unpaid with its Checkout over. A dead reservation holds no admission
- * place, does not count against its account's one live unpaid reservation,
- * and its name goes to the next signup for it. One predicate for all three,
- * so they cannot disagree.
+ * DEAD: unpaid with its Checkout over. With the UNPAID_OPENING_HOLD_MS cutoff,
+ * a dead reservation does not count against its account's one live unpaid
+ * reservation, and its name goes to the next signup for it. The admission
+ * count calls it with the OPENING_ADMISSION_HOLD_MS cutoff instead, so a row
+ * with no recorded session frees its admission place first, while it still
+ * holds its name and its account's place.
  */
 export function deadSql(r: string, cutoff: string): string {
   return `(not ${paidSql(r)} and ${checkoutOverSql(r, cutoff)})`;

@@ -337,6 +337,12 @@ async function createCheckoutSession(
 
 // ------------------------------------------------------- opening a checkout
 
+/** How a refused coupon reads in a Checkout refusal. The signup form
+ * translates it for the customer (customerReason in signup.ts). */
+export function couponRefusalReason(couponId: string, reason: string): string {
+  return `--coupon ${couponId} cannot be used as a full discount: ${reason}`;
+}
+
 export interface OpenCheckoutArgs extends Omit<
   CheckoutArgs,
   "discount" | "customerId"
@@ -383,7 +389,7 @@ export async function openCheckout(
       return {
         ok: false,
         retryable: coupon.retryable,
-        reason: `--coupon ${args.couponId} cannot be used as a full discount: ${coupon.reason}`,
+        reason: couponRefusalReason(args.couponId, coupon.reason),
       };
     }
     discount = coupon.discount;

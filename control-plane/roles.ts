@@ -1068,7 +1068,12 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
     ],
     store: ["Store"],
     "stripe/billing-store": ["getAccount", "subscriptionForInstance"],
-    "stripe/checkout": ["CheckoutCreationError", "openCheckout"],
+    "stripe/checkout": [
+      "CheckoutCreationError",
+      "couponRefusalReason",
+      "openCheckout",
+      "verifyFullDiscount",
+    ],
     "stripe/client": ["StripeClient"],
     "stripe/customer-email": ["updateCustomerEmail"],
     "stripe/mode": ["resolveStripeMode", "stripeKeyFromEnv"],
@@ -1119,8 +1124,11 @@ export const WEB_TABLE_FREE: Readonly<Record<string, string>> = {
     "the class; the facade's calls on it are pinned as store:<method>",
   "store:close": "ends the pool after a failed identity proof",
   "stripe/checkout:CheckoutCreationError": "an error class",
+  "stripe/checkout:couponRefusalReason": "formats a refusal sentence",
   "stripe/checkout:openCheckout":
     "creates a Stripe Checkout session; it writes nothing to the store (stripe/checkout.ts)",
+  "stripe/checkout:verifyFullDiscount":
+    "reads one coupon from Stripe over HTTP; no database",
   "stripe/client:StripeClient": "HTTP to Stripe",
   "stripe/customer-email:updateCustomerEmail":
     "writes the Stripe customer's email; it writes nothing to the store",

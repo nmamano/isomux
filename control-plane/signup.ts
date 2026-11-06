@@ -25,6 +25,7 @@ import { isUniqueViolation, type Store } from "./store.ts";
 import {
   checkoutOverSql,
   deadSql,
+  OPENING_ADMISSION_HOLD_MS,
   paidSql,
   UNPAID_OPENING_HOLD_MS,
 } from "./reservation-hold.ts";
@@ -937,11 +938,14 @@ export async function reserveOffice(
     );
     if (other) throw new UnpaidReservationHeld(other.name);
     // Dead reservations hold no place: only a paid office or a Checkout that
-    // can still be paid may spend a certificate.
+    // can still be paid may spend a certificate. A row that recorded no session
+    // stops counting after the short admission hold: it costs its owner
+    // nothing, so with the full hold free accounts could fill the bound for
+    // days (task b390cb25). It keeps its name for the full hold.
     const admitted = await store.sqlGet<{ n: number }>(
       "select count(*) as n from name_reservations r where r.created_at >= $1 " +
         `and not ${deadSql("r", "$2")}`,
-      [ts - NEW_OFFICE_WINDOW_MS, ts - UNPAID_OPENING_HOLD_MS],
+      [ts - NEW_OFFICE_WINDOW_MS, ts - OPENING_ADMISSION_HOLD_MS],
     );
     if (!admitted) throw new Error("new-office admission count is missing");
     if (admitted.n > MAX_NEW_OFFICES_PER_WINDOW) throw NEW_OFFICE_LIMIT;
