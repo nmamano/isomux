@@ -511,12 +511,12 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "accounts",
     verb: "select",
-    via: "stripe/billing-store.ts ensureAccount reads the account named by fetched Stripe metadata",
+    via: "stripe/reconcile.ts ensureRow reads the account named by fetched Stripe metadata through getAccount, and stripe/billing-store.ts ensureAccount reads by email when that id does not exist",
   },
   {
     table: "accounts",
     verb: "insert",
-    via: "stripe/billing-store.ts ensureAccount establishes an account for a first subscription event",
+    via: "stripe/billing-store.ts ensureAccount establishes an account for a first subscription event whose account id does not exist yet",
   },
   {
     table: "stripe_events",

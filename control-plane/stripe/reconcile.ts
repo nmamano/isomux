@@ -25,6 +25,7 @@ import {
   claimEvent,
   ensureAccount,
   eventSeen,
+  getAccount,
   getSubscription,
   insertSubscription,
   type StripeOwnedPatch,
@@ -458,10 +459,21 @@ async function ensureRow(
   };
   const email = meta[META_EMAIL];
   const accountId = meta[META_ACCOUNT];
-  let account;
-  if (accountId && email) {
+  // The account id is the server's own record of who opened Checkout. The email
+  // is a copy of a field the customer can change before the first event lands,
+  // so it never decides the owner: an existing id wins, and an unknown id only
+  // creates its own row.
+  let account = accountId ? await getAccount(store, accountId) : null;
+  if (!account && accountId && email) {
     account = await ensureAccount(store, { id: accountId, email });
-  } else {
+    if (account.id !== accountId) {
+      throw new Error(
+        `subscription ${input.subscription.id} names account ${accountId}, ` +
+          `which does not exist, and its email belongs to account ${account.id}`,
+      );
+    }
+  }
+  if (!account) {
     // An event for a subscription that carries none of our metadata - a manually
     // created test object, or a Stripe-generated fixture. It is still cached,
     // under an account that says plainly that nobody claimed it. Slice 4's signup
