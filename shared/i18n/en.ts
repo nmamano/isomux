@@ -1240,7 +1240,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "integrations.discord.token": "Bot token",
   "integrations.discord.connect": "Connect bot",
   "integrations.discord.steps":
-    "In the Discord Developer Portal, create an application, turn on the Message Content intent of its bot, and copy the bot's token here.",
+    "In the <link>Discord Developer Portal</link>, create an application, turn on the Message Content intent of its bot, and copy the bot's token here.",
   "integrations.discord.connectAnother": "Connect another bot",
   "integrations.discord.state.connected": "Connected",
   "integrations.discord.state.connecting": "Connecting",

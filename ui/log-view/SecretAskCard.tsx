@@ -25,7 +25,10 @@ import { isModelKeySecretName } from "../../shared/secret-hosts.ts";
 import { mcpServerHost } from "../../shared/mcp-servers.ts";
 import { looksLikeKey } from "../integrations/VariablesSection.tsx";
 import { useMcpErrorText } from "../integrations/McpSection.tsx";
-import { DISCORD_CONNECT_ERROR } from "../integrations/DiscordSection.tsx";
+import {
+  DISCORD_CONNECT_ERROR,
+  DiscordSteps,
+} from "../integrations/DiscordSection.tsx";
 import { DISCORD_BOTS_MAX } from "../../shared/discord.ts";
 import { Choice } from "../integrations/kit.tsx";
 import { startMcpSignIn } from "../integrations/sign-in-return.ts";
@@ -349,7 +352,9 @@ export function SecretAskCard({
         </>
       ) : secret.kind === "discord-bot" ? (
         <>
-          <p style={hintStyle}>{t("integrations.discord.steps")}</p>
+          <p style={hintStyle}>
+            <DiscordSteps />
+          </p>
           <label style={{ display: "block", marginBottom: 8 }}>
             <span style={dialogLabel}>{t("integrations.discord.token")}</span>
             <MaskedInput

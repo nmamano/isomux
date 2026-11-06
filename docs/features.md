@@ -145,7 +145,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Agents can make schedules** too, in Bypass mode (Never ask for Codex).
 - **Webhooks** - an outside service such as GitHub can message an agent or start a schedule run through a signed webhook. Rules choose the events and the payload fields that reach the target. GitHub must reach the office from the internet.
 - **WhatsApp** - link your WhatsApp in Integrations and send chats with chosen contacts or groups to your agents. A reply goes out only when you tap Send in your Inbox, unless you turn that step off for the chat.
-- **Discord** - connect your own Discord bot in Integrations, or let a privileged agent set it up, and send channels, categories or whole servers to your agents. Per route, the agent replies as the bot, only reads, or waits for your Send in your Inbox.
+- **Discord** - connect your own Discord bot in Integrations and send channels, categories or whole servers to your agents. Per route, the agent replies as the bot, only reads, or waits for your Send in your Inbox.
 - **Agent alerts** - a schedule can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
 

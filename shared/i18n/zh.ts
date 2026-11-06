@@ -1134,7 +1134,7 @@ App 的一些原则：
   "integrations.discord.token": "机器人令牌",
   "integrations.discord.connect": "连接机器人",
   "integrations.discord.steps":
-    "在 Discord Developer Portal 中创建一个应用，为它的机器人开启 Message Content intent，然后把机器人的令牌复制到这里。",
+    "在 <link>Discord Developer Portal</link> 中创建一个应用，为它的机器人开启 Message Content intent，然后把机器人的令牌复制到这里。",
   "integrations.discord.connectAnother": "连接另一个机器人",
   "integrations.discord.state.connected": "已连接",
   "integrations.discord.state.connecting": "正在连接",

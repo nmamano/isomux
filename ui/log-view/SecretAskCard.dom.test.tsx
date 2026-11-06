@@ -4,6 +4,7 @@
 import { afterAll, beforeEach, expect, it, spyOn } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import { expectMasked } from "../test-support/masked.ts";
+import { expectPortalLink } from "../test-support/discord-portal.ts";
 
 setUpDomTestFile();
 
@@ -673,6 +674,12 @@ it("a Discord bot request: one masked token field, no hosts, and the save sends 
   ]);
   expect(card(view)).toBeNull();
   expect(view.container.innerHTML).not.toContain(FAKE);
+  view.unmount();
+});
+
+it("a Discord bot request's steps hint links the Discord Developer Portal, in a new tab", async () => {
+  const view = await mount(false, DISCORD_ASK);
+  expectPortalLink(card(view)!);
   view.unmount();
 });
 

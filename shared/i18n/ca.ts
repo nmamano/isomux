@@ -1261,7 +1261,7 @@ Coses que pots fer per ell:
   "integrations.discord.token": "Token del bot",
   "integrations.discord.connect": "Connectar bot",
   "integrations.discord.steps":
-    "Al Discord Developer Portal, crea una aplicació, activa l'intent Message Content del seu bot i copia aquí el token del bot.",
+    "Al <link>Discord Developer Portal</link>, crea una aplicació, activa l'intent Message Content del seu bot i copia aquí el token del bot.",
   "integrations.discord.connectAnother": "Connectar un altre bot",
   "integrations.discord.state.connected": "Connectat",
   "integrations.discord.state.connecting": "Connectant",

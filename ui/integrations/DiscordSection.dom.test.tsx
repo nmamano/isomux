@@ -6,6 +6,7 @@
 // whose answers the test picks; copy is never matched, only the hooks.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { expectPortalLink } from "../test-support/discord-portal.ts";
 
 setUpDomTestFile();
 
@@ -291,6 +292,13 @@ it("with no bot, the connect form shows: a password field the browser does not f
   // The token went nowhere but the POST body.
   expect(JSON.stringify(s.state())).not.toContain(TOKEN);
   expect(JSON.stringify({ ...window.localStorage })).not.toContain(TOKEN);
+});
+
+it("the connect form's steps hint links the Discord Developer Portal, in a new tab", async () => {
+  const s = await show();
+  const form = s.q("form[data-discord-connect-form]");
+  if (!form) throw new Error("no connect form");
+  expectPortalLink(form);
 });
 
 it("each refusal code has its own line, any other failure the generic one; the field is empty after each", async () => {

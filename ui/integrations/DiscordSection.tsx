@@ -87,6 +87,27 @@ export const DISCORD_CONNECT_ERROR: Record<string, PlainMessageKey> = {
   bot_taken: "integrations.discord.error.botTaken",
 };
 
+// Where the member makes the bot: the page that lists their applications.
+export const DISCORD_PORTAL_URL = "https://discord.com/developers/applications";
+
+// The steps to make a bot, with the portal linked (task eca94ddd). The
+// connect form and the Discord bot request card both show it.
+export function DiscordSteps() {
+  const { rich } = useI18n();
+  return rich("integrations.discord.steps", {
+    link: (chunk) => (
+      <a
+        href={DISCORD_PORTAL_URL}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: "var(--accent-text)" }}
+      >
+        {chunk}
+      </a>
+    ),
+  });
+}
+
 const DEAD: Record<WhatsAppRouteDead, PlainMessageKey> = {
   agent_gone: "integrations.whatsapp.rows.dead.agentGone",
   agent_not_yours: "integrations.whatsapp.rows.dead.agentNotYours",
@@ -196,10 +217,7 @@ function ConnectForm({
       }}
       style={{ marginTop: 4 }}
     >
-      <Field
-        label={t("integrations.discord.token")}
-        hint={t("integrations.discord.steps")}
-      >
+      <Field label={t("integrations.discord.token")} hint={<DiscordSteps />}>
         <input
           type="password"
           name="discordToken"
