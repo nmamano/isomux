@@ -443,6 +443,7 @@ export function BackRoomScreen({
   askCounts,
   isMobile,
   onBack,
+  onClimb = onBack,
   onSpawn,
   onOpenAgent,
   onContextMenu,
@@ -459,6 +460,8 @@ export function BackRoomScreen({
   askCounts?: ReadonlyMap<string, number>;
   isMobile: boolean;
   onBack: () => void;
+  /** The ladder's way up to the front; the Back button keeps onBack. */
+  onClimb?: () => void;
   onSpawn: () => void;
   onOpenAgent: (agentId: string) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
@@ -1002,6 +1005,7 @@ export function BackRoomScreen({
   return (
     <div
       data-back-room
+      data-floor-view
       style={{
         flex: 1,
         display: "flex",
@@ -1256,7 +1260,7 @@ export function BackRoomScreen({
                 fill="transparent"
                 pointerEvents="all"
                 cursor="pointer"
-                onClick={viewport.wrapClick(onBack)}
+                onClick={viewport.wrapClick(onClimb)}
                 onDragOver={(e) => {
                   if (!dragged) return;
                   e.preventDefault();
@@ -1271,7 +1275,7 @@ export function BackRoomScreen({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    onBack();
+                    onClimb();
                   }
                 }}
               >

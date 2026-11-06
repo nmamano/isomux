@@ -103,7 +103,7 @@ function renameIds(root: Element, suffix: string) {
   }
 }
 
-function snapshot(content: HTMLElement, suffix: string): HTMLElement {
+export function snapshot(content: HTMLElement, suffix: string): HTMLElement {
   const clone = content.cloneNode(true) as HTMLElement;
   renameIds(clone, suffix);
   clone.setAttribute("aria-hidden", "true");
@@ -235,7 +235,7 @@ function moveAnchor(ax: number, ay: number, deg: number): [number, number] {
   return [x + CORNER_X - ax, y + CORNER_Y - ay];
 }
 
-function ease(p: number): number {
+export function ease(p: number): number {
   return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
 }
 function ramp(p: number, a: number, b: number): number {

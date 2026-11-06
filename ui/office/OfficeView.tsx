@@ -24,6 +24,12 @@ import {
   finishRoomTurn,
   type TurnSide,
 } from "./room-turn.ts";
+import {
+  beginFloorMove,
+  cancelFloorMove,
+  finishFloorMove,
+  type FloorDir,
+} from "./floor-move.ts";
 import { SceneDecorationContext } from "./scene-decoration.tsx";
 import {
   useAppState,
@@ -429,6 +435,18 @@ export function OfficeView({
   );
   const showBackRoom =
     !!backRoomOpen && !lobbyOpen && !!currentRoomId && currentHasBackRoom;
+  // The trap door and the ladder move between the floors; other ways to the
+  // back room and out of it switch with no animation.
+  const floorEl = useRef<HTMLDivElement | null>(null);
+  const floorGo = (dir: FloorDir, go?: () => void) => {
+    beginFloorMove(floorEl.current, dir, currentRoomId ?? null);
+    go?.();
+  };
+  const floorRoomId = lobbyOpen ? null : (currentRoomId ?? null);
+  useLayoutEffect(() => {
+    finishFloorMove(floorRoomId, showBackRoom);
+  }, [floorRoomId, showBackRoom]);
+  useEffect(() => cancelFloorMove, []);
   // Expose viewport controls to parent for keyboard shortcuts (0, +, -). Skip
   // in embed mode - the zoom UI is hidden there, and the keyboard parity
   // should match. The back room screen registers its own view.
@@ -748,6 +766,7 @@ export function OfficeView({
           It stays outside the gesture container so chat scrolling and text
           selection cannot pan or zoom the scene. */}
       <div
+        ref={floorEl}
         style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}
       >
         {/* Over the top of the scene, under the room tabs: no control there. */}
@@ -760,6 +779,7 @@ export function OfficeView({
             askCounts={askCountByAgent}
             isMobile={isMobile}
             onBack={() => onCloseBackRoom?.()}
+            onClimb={() => floorGo("up", onCloseBackRoom)}
             onSpawn={() => onSpawnBack?.()}
             onOpenAgent={(agentId) => dispatch({ type: "focus", agentId })}
             onContextMenu={onContextMenu}
@@ -779,6 +799,7 @@ export function OfficeView({
           Room-swipe still works because that hook reads touch coordinates directly. */
           <div
             ref={attachContainer}
+            data-floor-view
             style={{
               flex: 1,
               position: "relative",
@@ -1056,7 +1077,7 @@ export function OfficeView({
                       <TrapDoor
                         attention={backAttention}
                         backFull={backAgents.length >= BACK_ROOM_SEATS}
-                        onOpen={() => onOpenBackRoom?.()}
+                        onOpen={() => floorGo("down", onOpenBackRoom)}
                         onDropDesk={(desk) => {
                           const a = frontAgents.find((x) => x.desk === desk);
                           if (!a || !currentRoomId) return;
