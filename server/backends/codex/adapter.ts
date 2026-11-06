@@ -1146,6 +1146,20 @@ export function codexUsageLimitResetMs(
   return Math.max(...chosen.map((w) => w.at));
 }
 
+// Where the current turn is. A starting or backoff value is a fresh object per
+// attempt, so a late callback checks that the turn is still its own.
+type CodexTurn =
+  | { kind: "idle" }
+  // turn/start is in flight, for a send or a capacity retry.
+  | { kind: "starting"; attempt: "send" | "retry" }
+  // turn/start succeeded and the turn has not ended.
+  | { kind: "running" }
+  // A capacity retry waits on its timer.
+  | { kind: "backoff"; cancel: () => void };
+
+const IDLE_TURN: CodexTurn = { kind: "idle" };
+const RUNNING_TURN: CodexTurn = { kind: "running" };
+
 export class CodexSession implements BackendSession {
   private client: CodexTransport;
   private threadId: string | null = null;
@@ -1156,13 +1170,9 @@ export class CodexSession implements BackendSession {
   private resolveWake: (() => void) | null = null;
   private ended = false;
   private closed = false;
-  // Tracks whether we've yielded turn_completed for the current turn so we
-  // can synthesize a failed one on subprocess exit if not.
-  private turnInFlight = false;
-  // Covers the turn/start request window without weakening turnInFlight's
-  // stricter invariant: a request that has not succeeded must not cause a
-  // later subprocess exit to synthesize a phantom turn_completed.
-  private turnStarting = false;
+  // Written only through setTurn. Every turn_completed leaves it idle, so a
+  // turn ends once (endTurn).
+  private turn: CodexTurn = IDLE_TURN;
   // Codex can deliver completed tool items after the matching turn/completed.
   // The orchestrator keeps those results as evidence, and this latch adds one
   // terminal breadcrumb per episode rather than one repeated line per item.
@@ -1220,7 +1230,6 @@ export class CodexSession implements BackendSession {
   // item after turn/completed.
   private readonly shownToolCalls = new Set<string>();
   private capacityRetryCount = 0;
-  private cancelCapacityRetry: (() => void) | null = null;
   // The sandbox mode the thread runs with (effectiveCodexSandbox), set at
   // bootstrap. Picks the turn-level policy in turnStartParams.
   private effectiveSandbox = "";
@@ -1731,11 +1740,12 @@ export class CodexSession implements BackendSession {
     // close the gate so subsequent unsolicited codex stderr stays silent.
     this.authSignalsAllowedThisTurn = true;
     this.authSignalEmittedThisTurn = false;
-    // Only flip turnInFlight after turn/start succeeds. If the request throws
+    // The turn runs only after turn/start succeeds. If the request throws
     // (e.g. wire error) we don't want handleSubprocessExit to later synthesize
     // a phantom failed turn_completed for a turn that never actually started
     // - the orchestrator would surface a bogus mid-turn failure.
-    this.turnStarting = true;
+    const starting: CodexTurn = { kind: "starting", attempt: "send" };
+    this.setTurn(starting);
     try {
       await this.client.request("turn/start", this.turnStartParams(input));
     } catch (err) {
@@ -1757,11 +1767,11 @@ export class CodexSession implements BackendSession {
       this.authSignalsAllowedThisTurn = false;
       this.authSignalEmittedThisTurn = false;
       this.selfInterruptedForAuth = false;
-      this.turnStarting = false;
+      if (this.turn === starting) this.setTurn(IDLE_TURN);
       throw err;
     }
-    this.turnInFlight = true;
-    this.turnStarting = false;
+    // A turn/completed or an exit during turn/start already ended the turn.
+    if (this.turn === starting) this.setTurn(RUNNING_TURN);
     this.lateToolResultNoticeEmitted = false;
     this.lateToolResultNoticeArmed = false;
     if (this.abandonedTurn?.id === null) this.abandonedTurn = null;
@@ -1842,9 +1852,32 @@ export class CodexSession implements BackendSession {
     });
   }
 
+  // The one writer of this.turn: a backoff it replaces stops its timer.
+  private setTurn(next: CodexTurn): void {
+    if (this.turn.kind === "backoff" && this.turn !== next) this.turn.cancel();
+    this.turn = next;
+  }
+
+  // A turn_completed is owed to the orchestrator: codex accepted a turn of
+  // this send. send's own turn/start window owes none (send throws instead).
+  private owesTurnEnd(): boolean {
+    const t = this.turn;
+    return (
+      t.kind === "running" ||
+      t.kind === "backoff" ||
+      (t.kind === "starting" && t.attempt === "retry")
+    );
+  }
+
+  // Leaves the turn. Returns false when no turn_completed was owed, so the
+  // caller emits none.
+  private endTurn(): boolean {
+    const owed = this.owesTurnEnd();
+    this.setTurn(IDLE_TURN);
+    return owed;
+  }
+
   private clearCapacityRetry(): void {
-    this.cancelCapacityRetry?.();
-    this.cancelCapacityRetry = null;
     this.capacityErrorThisAttempt = null;
     this.shownItemsThisAttempt = 0;
     this.capacityRetryCount = 0;
@@ -1875,11 +1908,11 @@ export class CodexSession implements BackendSession {
   private fireTurnWatchdog(): void {
     if (this.closed) return;
     // An open approval waits for the member, not for Codex.
-    if (this.turnStarting || this.pendingApprovals.size > 0) {
+    if (this.turn.kind === "starting" || this.pendingApprovals.size > 0) {
       this.armTurnWatchdog();
       return;
     }
-    if (!this.turnInFlight) return;
+    if (!this.owesTurnEnd()) return;
     const turnId = this.activeTurnId;
     this.abandonedTurn = { id: turnId };
     // Direct, not requestSelfInterruptForAuth: that latch remaps the status.
@@ -1900,11 +1933,10 @@ export class CodexSession implements BackendSession {
     status: "interrupted" | "failed",
     error: string,
   ): boolean {
-    if (!this.cancelCapacityRetry) return false;
+    if (this.turn.kind !== "backoff") return false;
+    this.endTurn();
     this.clearCapacityRetry();
     this.clearTurnWatchdog();
-    this.turnInFlight = false;
-    this.turnStarting = false;
     this.activeTurnId = null;
     this.enqueue({ kind: "turn_completed", status, error });
     return true;
@@ -1931,28 +1963,32 @@ export class CodexSession implements BackendSession {
       maxAttempts: CODEX_CAPACITY_RETRY_DELAYS_MS.length,
       delayMs,
     });
-    this.cancelCapacityRetry = this.scheduleCapacityRetry(delayMs, () => {
-      this.cancelCapacityRetry = null;
-      if (this.closed || !this.threadId) return;
+    const backoff: CodexTurn = { kind: "backoff", cancel: () => {} };
+    this.setTurn(backoff);
+    backoff.cancel = this.scheduleCapacityRetry(delayMs, () => {
+      if (this.turn !== backoff || this.closed || !this.threadId) return;
       this.capacityErrorThisAttempt = null;
       this.refusalThisAttempt = null;
       this.terminalErrorThisAttempt = null;
       this.shownItemsThisAttempt = 0;
-      this.turnStarting = true;
+      const starting: CodexTurn = { kind: "starting", attempt: "retry" };
+      this.setTurn(starting);
       // The failed turn already persisted the original user item. An empty
       // turn asks Codex to run from that history without appending it again.
+      // A turn/completed, an exit or a close during the request ended this
+      // attempt: its result then changes nothing.
       void this.client
         .request("turn/start", this.turnStartParams([]))
         .then(() => {
-          this.turnStarting = false;
-          this.turnInFlight = true;
+          if (this.closed) return;
+          if (this.turn === starting) this.setTurn(RUNNING_TURN);
           this.lateToolResultNoticeEmitted = false;
           this.lateToolResultNoticeArmed = false;
           if (this.abandonedTurn?.id === null) this.abandonedTurn = null;
         })
         .catch((err) => {
-          this.turnStarting = false;
-          this.turnInFlight = false;
+          if (this.closed || this.turn !== starting) return;
+          this.setTurn(IDLE_TURN);
           const message = errMessage(err);
           this.enqueue({
             kind: "turn_completed",
@@ -2167,7 +2203,7 @@ export class CodexSession implements BackendSession {
     return (
       !this.closed &&
       this.threadId !== null &&
-      (this.activeTurnId !== null || this.cancelCapacityRetry !== null)
+      (this.activeTurnId !== null || this.turn.kind === "backoff")
     );
   }
 
@@ -2525,7 +2561,8 @@ export class CodexSession implements BackendSession {
     const capacityError = this.capacityErrorThisAttempt;
     const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
     this.terminalErrorThisAttempt = null;
-    this.turnInFlight = false;
+    // The turn ends in any state, even before turn/start returned.
+    this.endTurn();
     this.lateToolResultNoticeArmed = true;
     // "Model not supported" safety net. The spawn / edit dialog now
     // fetches model/list per-auth, so this branch should be rare -
@@ -2665,11 +2702,7 @@ export class CodexSession implements BackendSession {
         const turn = params?.turn as { id?: string } | undefined;
         if (turn?.id) this.ownTurnIds.add(turn.id);
         // A late start of the turn the watchdog ended names that turn.
-        if (
-          this.abandonedTurn?.id === null &&
-          !this.turnInFlight &&
-          !this.turnStarting
-        ) {
+        if (this.abandonedTurn?.id === null && this.turn.kind === "idle") {
           if (turn?.id) this.abandonedTurn = { id: turn.id };
           break;
         }
@@ -2684,7 +2717,7 @@ export class CodexSession implements BackendSession {
         if (
           abandoned &&
           (abandoned.id === null
-            ? !this.turnInFlight
+            ? !this.owesTurnEnd()
             : turn?.id === abandoned.id)
         ) {
           this.abandonedTurn = null;
@@ -2827,7 +2860,7 @@ export class CodexSession implements BackendSession {
         if (
           item &&
           this.translateStartedItem(item) &&
-          (this.turnInFlight || this.turnStarting)
+          this.turn.kind !== "idle"
         )
           this.shownItemsThisAttempt += 1;
         break;
@@ -2836,11 +2869,10 @@ export class CodexSession implements BackendSession {
         const item = params?.item;
         if (item) {
           this.noteSteerRecorded(item);
-          if (this.turnInFlight || this.turnStarting)
-            this.shownItemsThisAttempt += 1;
+          if (this.turn.kind !== "idle") this.shownItemsThisAttempt += 1;
           this.translateCompletedItem(item);
           if (
-            !(this.turnInFlight || this.turnStarting) &&
+            this.turn.kind === "idle" &&
             this.lateToolResultNoticeArmed &&
             isToolActivityItem(item) &&
             !this.lateToolResultNoticeEmitted
@@ -2901,7 +2933,7 @@ export class CodexSession implements BackendSession {
         if (
           notification &&
           notification.willRetry !== true &&
-          (this.turnInFlight || this.turnStarting)
+          this.turn.kind !== "idle"
         ) {
           this.terminalErrorThisAttempt = notification.error;
           this.armTurnWatchdog();
@@ -3522,8 +3554,7 @@ export class CodexSession implements BackendSession {
     this.selfInterruptedForAuth = false;
     // If a turn was in flight when codex died, synthesize a failed
     // turn_completed so the orchestrator's pendingTurn unblocks.
-    if (this.turnInFlight) {
-      this.turnInFlight = false;
+    if (this.endTurn()) {
       // A refusal latched before the exit is still the reason the turn failed.
       const refusal = this.refusalThisAttempt;
       this.refusalThisAttempt = null;

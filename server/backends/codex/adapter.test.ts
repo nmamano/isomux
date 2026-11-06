@@ -125,7 +125,7 @@ class FakeCodexTransport implements CodexTransport {
   private rateLimitsReadGate: (() => void) | null = null;
   holdTurnStart = false;
   turnStartPending = false;
-  private turnStartGate: (() => void) | null = null;
+  private turnStartGate: ((err?: Error) => void) | null = null;
   readonly requests: { method: string; params?: unknown }[] = [];
   readonly errorResponses: {
     id: JsonRpcId;
@@ -212,8 +212,8 @@ class FakeCodexTransport implements CodexTransport {
       return Promise.reject(this.extraRootsError);
     if (method === "turn/start" && this.holdTurnStart) {
       this.turnStartPending = true;
-      return new Promise<T>((resolve) => {
-        this.turnStartGate = () => resolve({} as T);
+      return new Promise<T>((resolve, reject) => {
+        this.turnStartGate = (err) => (err ? reject(err) : resolve({} as T));
       });
     }
     if (method === "account/rateLimits/read") {
@@ -231,12 +231,13 @@ class FakeCodexTransport implements CodexTransport {
     return Promise.resolve({} as T);
   }
 
-  releaseTurnStart(): void {
+  // Answers the held turn/start: resolves it, or rejects it with err.
+  releaseTurnStart(err?: Error): void {
     const release = this.turnStartGate;
     this.turnStartGate = null;
     this.holdTurnStart = false;
     this.turnStartPending = false;
-    release?.();
+    release?.(err);
   }
 
   respondWithError(id: JsonRpcId, code: number, message: string): void {
@@ -4272,6 +4273,108 @@ describe("CodexSession subprocess exit", () => {
     );
     expect(ev.status).toBe("failed");
     expect(ev.error).toContain("exited");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One turn_completed per turn (task c4f2a5a6). A turn/start answer that comes
+// after the turn already ended (subprocess exit, close, turn/completed) does
+// not start the turn again.
+// ---------------------------------------------------------------------------
+describe("CodexSession one turn end", () => {
+  // The events left in the stream once it ends, after pending callbacks ran.
+  async function rest(it: AsyncIterator<NormalizedEvent>) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const events: NormalizedEvent[] = [];
+    for (;;) {
+      const r = await Promise.race([
+        it.next(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("stream did not end")), 2000),
+        ),
+      ]);
+      if (r.done) return events;
+      events.push(r.value);
+    }
+  }
+
+  function turnEnds(events: NormalizedEvent[]) {
+    return events.filter((e) => e.kind === "turn_completed");
+  }
+
+  // A capacity failure, then the retry's turn/start held open.
+  async function retryStarting() {
+    const clock = retryClock();
+    const ctx = await bootstrapped(undefined, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await ctx.session.send("wait");
+    ctx.fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+    });
+    ctx.fake.fireNotification("turn/completed", { turn: { status: "failed" } });
+    expectKind(await nextEvent(ctx.it, "retry"), "provider_capacity_retry");
+    ctx.fake.holdTurnStart = true;
+    await clock.runNext();
+    expect(
+      ctx.fake.requests.filter((r) => r.method === "turn/start"),
+    ).toHaveLength(2);
+    expect(ctx.fake.turnStartPending).toBe(true);
+    return ctx;
+  }
+
+  it("subprocess exit during a capacity retry's turn/start ends the turn once", async () => {
+    const { fake, it } = await retryStarting();
+    // The real client rejects pending requests before it runs exit handlers.
+    fake.releaseTurnStart(new Error("codex subprocess exited"));
+    fake.fireExit(1);
+    const ends = turnEnds(await rest(it));
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({ status: "failed" });
+  });
+
+  it("turn/completed during a capacity retry's turn/start is the turn's only end", async () => {
+    const { fake, it } = await retryStarting();
+    fake.fireNotification("turn/completed", {
+      turn: { id: "turn-retry", status: "completed" },
+    });
+    fake.releaseTurnStart();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fake.fireExit(1);
+    const events = await rest(it);
+    const ends = turnEnds(events);
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({ status: "completed" });
+    // The exit finds no turn: it reports the exit, not a failed turn.
+    expect(events.at(-1)?.kind).toBe("system_text");
+  });
+
+  it("close during a capacity retry's turn/start ends nothing later", async () => {
+    const { session, fake, it } = await retryStarting();
+    session.close();
+    fake.releaseTurnStart(new Error("Session closed"));
+    expect(turnEnds(await rest(it))).toHaveLength(0);
+  });
+
+  it("turn/completed during send's turn/start is the turn's only end", async () => {
+    const { session, fake, it } = await bootstrapped();
+    fake.holdTurnStart = true;
+    const sent = session.send("quick");
+    for (let i = 0; i < 100 && !fake.turnStartPending; i++)
+      await Promise.resolve();
+    expect(fake.turnStartPending).toBe(true);
+    fake.fireNotification("turn/completed", {
+      turn: { id: "turn-quick", status: "completed" },
+    });
+    fake.releaseTurnStart();
+    await sent;
+    fake.fireExit(1);
+    const events = await rest(it);
+    const ends = turnEnds(events);
+    expect(ends).toHaveLength(1);
+    expect(ends[0]).toMatchObject({ status: "completed" });
+    expect(events.at(-1)?.kind).toBe("system_text");
   });
 });
 
