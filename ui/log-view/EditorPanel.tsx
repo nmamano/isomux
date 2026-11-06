@@ -438,12 +438,24 @@ export function EditorPanel({
     [agentId, connectionId],
   );
 
+  // The save in flight per path. It resolves to the mtime/rev it wrote, or
+  // null when it failed (its banner is up).
+  const savesRef = useRef(
+    new Map<string, Promise<{ mtime: number; rev: number } | null>>(),
+  );
+
   // Save (PUT) a tab. Replaces editor_save + the editor_save_response event:
-  // .then applies the new mtime/rev / clears dirty; .catch maps the 409 stale
-  // conflict (currentMtime rides ApiError.detail) to the stale banner, the 409
-  // deleted conflict to the deletion banner, else a save_error banner. Returns
-  // whether the save landed, so callers can chain follow-up work (the
-  // recreate flow re-opens to re-arm the watch).
+  // .then applies the new mtime/rev and clears dirty only when the buffer
+  // still holds the content sent (text typed while the PUT was out stays
+  // dirty); .catch maps the 409 stale conflict (currentMtime rides
+  // ApiError.detail) to the stale banner, the 409 deleted conflict to the
+  // deletion banner, else a save_error banner. Saves on one path run one at a
+  // time: a save asked for while one is out waits for it and is based on the
+  // mtime/rev that save returned (tabsRef can lag a render behind the
+  // response). When the save ahead failed, only a forced save still goes out:
+  // it is the member's answer to the banner. Returns whether the save landed,
+  // so callers can chain follow-up work (the recreate flow re-opens to re-arm
+  // the watch).
   const saveTab = useCallback(
     (
       path: string,
@@ -452,63 +464,81 @@ export function EditorPanel({
       expectedRev: number,
       force: boolean,
     ): Promise<boolean> => {
-      return apiFetch<{ ok: true; mtime: number; rev: number }>(
-        "PUT",
-        `/api/agents/${agentId}/file`,
-        {
-          path,
-          content,
-          expectedMtime,
-          expectedRev,
-          force,
-        },
-      )
-        .then((m) => {
-          setTabsAndPersist((prev) =>
-            prev.map((t) =>
-              t.path === path
-                ? {
-                    ...t,
-                    mtime: m.mtime,
-                    rev: m.rev,
-                    dirty: false,
-                    banner: null,
-                  }
-                : t,
-            ),
-          );
-          return true;
-        })
-        .catch((err) => {
-          setTabsAndPersist((prev) =>
-            prev.map((t) => {
-              if (t.path !== path) return t;
-              if (err instanceof ApiError && err.code === "stale") {
-                const currentMtime =
-                  typeof err.detail?.currentMtime === "number"
-                    ? err.detail.currentMtime
-                    : t.mtime;
-                return { ...t, banner: { kind: "stale", currentMtime } };
-              }
-              if (err instanceof ApiError && err.code === "deleted") {
-                // The file vanished from disk before this save. NOT a content
-                // conflict - offer save-to-recreate, not overwrite/reload.
-                return { ...t, banner: { kind: "deleted" } };
-              }
-              return {
-                ...t,
-                banner: {
-                  kind: "save_error",
-                  message:
-                    err instanceof ApiError
-                      ? err.message
-                      : i18n.t("panels.editor.saveError"),
-                },
-              };
-            }),
-          );
-          return false;
-        });
+      const send = (
+        mtime: number,
+        rev: number,
+      ): Promise<{ mtime: number; rev: number } | null> =>
+        apiFetch<{ ok: true; mtime: number; rev: number }>(
+          "PUT",
+          `/api/agents/${agentId}/file`,
+          {
+            path,
+            content,
+            expectedMtime: mtime,
+            expectedRev: rev,
+            force,
+          },
+        )
+          .then((m) => {
+            setTabsAndPersist((prev) =>
+              prev.map((t) =>
+                t.path === path
+                  ? {
+                      ...t,
+                      mtime: m.mtime,
+                      rev: m.rev,
+                      dirty: t.content !== content,
+                      banner: null,
+                    }
+                  : t,
+              ),
+            );
+            return { mtime: m.mtime, rev: m.rev };
+          })
+          .catch((err) => {
+            setTabsAndPersist((prev) =>
+              prev.map((t) => {
+                if (t.path !== path) return t;
+                if (err instanceof ApiError && err.code === "stale") {
+                  const currentMtime =
+                    typeof err.detail?.currentMtime === "number"
+                      ? err.detail.currentMtime
+                      : t.mtime;
+                  return { ...t, banner: { kind: "stale", currentMtime } };
+                }
+                if (err instanceof ApiError && err.code === "deleted") {
+                  // The file vanished from disk before this save. NOT a content
+                  // conflict - offer save-to-recreate, not overwrite/reload.
+                  return { ...t, banner: { kind: "deleted" } };
+                }
+                return {
+                  ...t,
+                  banner: {
+                    kind: "save_error",
+                    message:
+                      err instanceof ApiError
+                        ? err.message
+                        : i18n.t("panels.editor.saveError"),
+                  },
+                };
+              }),
+            );
+            return null;
+          });
+
+      const saves = savesRef.current;
+      const ahead = saves.get(path);
+      const result = ahead
+        ? ahead.then((basis) => {
+            if (basis) return send(basis.mtime, basis.rev);
+            return force ? send(expectedMtime, expectedRev) : null;
+          })
+        : send(expectedMtime, expectedRev);
+      saves.set(path, result);
+      return result.then((written) => {
+        if (saves.get(path) === result) saves.delete(path);
+        return written !== null;
+      });
     },
     [agentId, setTabsAndPersist, i18n],
   );
