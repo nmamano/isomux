@@ -1,3 +1,4 @@
+import type { FlushState } from "./queue-flush.ts";
 import type {
   AgentInfo,
   AgentChoiceInteraction,
@@ -309,10 +310,6 @@ export interface ManagedAgent {
   // officeFallback). Only the account check at turn start changes it, after
   // the conversation moved.
   officeFallback: boolean;
-  // Set by flushQueue for the turn its batch starts when the batch holds a
-  // wake after a server restart (server/restart-wake.ts); read when that turn
-  // is recorded, and reset when the flush ends.
-  nextTurnRestartWake?: boolean;
   // Recovery copy held until the first event proves whether this wake failed
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;
@@ -420,35 +417,26 @@ export interface ManagedAgent {
   // through enqueueMessage's transactional write; every post-accept mutation
   // must call persistQueueState (best-effort) alongside its emitQueueUpdate.
   messageQueue: QueuedMessage[];
-  // Set synchronously when an inbound message claims recovery of an errored
-  // backend. Later messages join the same durable queue instead of starting a
-  // second resume against the same transcript.
+  // Set synchronously by claimAutoResume when an inbound message claims
+  // recovery of an errored backend. Later messages join the same durable
+  // queue instead of starting a second resume against the same transcript.
   autoResumeInProgress: boolean;
-  // Set while flushQueue is mid-flight to prevent re-entry from the
-  // updateState trigger inside the same flush's await chain. Never cleared by
-  // anything other than that flush's own finally - the queue watchdog recovers
-  // a wedged flush by cancelling it (session replacement), not by force-
-  // clearing this flag, so at most one flush can ever be sending.
-  flushInProgress: boolean;
-  // Holds a conversation change puts on the queue while it swaps sessions
-  // and rewrites the chat, so nothing consumes the queue until the next
-  // session can take it. One token per change: a release clears only its own
-  // hold, so overlapping changes cannot release each other's. In memory only.
-  queueHolds: Set<symbol>;
-  // The hold a send that failed for a missing or signed-out backend put on
-  // the queue, so the flush does not retry in a loop. The next message
-  // releases it; a conversation change drops it and carries the queue.
-  backendHold: symbol | null;
+  // The queue's flush state (server/queue-flush.ts): the running flush and the
+  // holds. requestFlush is the only way to start a flush. Only a flush's own
+  // finally clears its run - the queue watchdog recovers a wedged flush by
+  // cancelling it (session replacement), never by clearing the run, so at
+  // most one flush can ever be sending. A conversation change holds the
+  // queue while it swaps sessions (one hold per change, released only by
+  // that change); a send that failed for a missing or signed-out backend
+  // holds it so the flush does not retry in a loop (the next message
+  // releases it). In memory only.
+  flush: FlushState;
   // The running turn's input, kept so the turn can be sent again on another
   // free model after its model was refused (RunAgentTurnOpts.resend). Null
   // when the turn has none, or once it emitted output or ran a tool.
   freeModelResend: QueuedMessage[] | null;
   // The running turn is such a resend: a second refusal is not retried.
   freeModelRetryTurn: boolean;
-  // Date.now() stamped when the current flush claimed flushInProgress. The
-  // queue watchdog uses it to age an ACTIVE flush (an old queued item can
-  // coexist with a fresh, healthy flush). Meaningless while !flushInProgress.
-  flushStartedAt: number;
   // Date.now() of the watchdog's last forced recovery for this agent. Forced
   // recovery is rate-limited (cooldown) so a truly unrecoverable wedge (an
   // adapter that ignores close/send teardown) escalates via logs instead of

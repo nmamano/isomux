@@ -1,3 +1,13 @@
+import {
+  dropBackendHold,
+  flushRunning,
+  hasBackendHold,
+  holdQueue,
+  newFlushState,
+  queueHeld,
+  releaseHold,
+  type FlushRun,
+} from "./queue-flush.ts";
 import type { AuditActor } from "../shared/audit.ts";
 import type { PagerEntry, PagerSource } from "../shared/types.ts";
 import type { PagerRaiseFields } from "./pager-compat.ts";
@@ -650,6 +660,8 @@ export function createAgentManager(deps: ManagerDeps) {
   let sampleWaitMs = CONTEXT_NOTICE_SAMPLE_WAIT_MS;
   // Flushes that reached the automatic-handoff gate, per agent (tests only).
   const autoHandoffGateHits = new Map<string, number>();
+  // Test-only count of flush starts per agent (_testFlushRuns).
+  const flushRuns = new Map<string, number>();
   // Wire the turn runner to agent-manager's module-private pieces. Called once
   // at boot from server/isomux-office.ts.
   function configureAgentTurnDeps(
@@ -777,10 +789,10 @@ export function createAgentManager(deps: ManagerDeps) {
     maybeFillTopic,
     pickAutoResumeSessionId,
     enqueueCapRefusal,
-    flushQueue,
+    requestFlush,
     sendNow,
     releaseBackendHold,
-    resume,
+    claimAutoResume,
     recordHeardFrom,
     memberPackOf: (userId) => memberPackOf(userId, getUserById),
     managerRoomsOf: (userId) =>
@@ -901,7 +913,6 @@ export function createAgentManager(deps: ManagerDeps) {
     addLogEntry,
     updateState,
     emitAgentTerminalCommand,
-    holdQueue,
     listProviderAccounts: deps.listProviderAccounts,
     effectiveProviderAccountTarget: deps.effectiveProviderAccountTarget,
     claudeAuthCheckTimeoutMs: deps.claudeAuthCheckTimeoutMs,
@@ -933,7 +944,6 @@ export function createAgentManager(deps: ManagerDeps) {
     restoreRestartWakes,
     startAutoHandoffBrief,
     autoHandoffLine,
-    releaseAutoHandoffQueue,
   } = createHandoffAndWake({
     agents,
     limitResumeClock,
@@ -941,9 +951,9 @@ export function createAgentManager(deps: ManagerDeps) {
     emitEphemeralLog,
     addLogEntry,
     pickAutoResumeSessionId,
-    resume,
+    claimAutoResume,
     releaseBackendHold,
-    flushQueue,
+    requestFlush,
     persistAll,
     getAgentDisplay,
     enqueueMessage,
@@ -1059,7 +1069,7 @@ export function createAgentManager(deps: ManagerDeps) {
         : null,
     authNeededThisTurn: (managed) => managed.turnFlags.authNeeded,
     updateState,
-    flushQueue,
+    requestFlush,
     getConsumerDrainTimeoutMs: () => consumerDrainTimeoutMs,
     logger: console,
   };
@@ -1111,7 +1121,7 @@ export function createAgentManager(deps: ManagerDeps) {
     restoreLimitResume,
     restoreRestartWakes,
     persistAll,
-    flushQueue,
+    requestFlush,
     agentMcpServers,
     buildOpenCodeLaunchEnvironmentForUserId,
     openCodeEnvironmentRevisionForUserId,
@@ -1479,7 +1489,7 @@ export function createAgentManager(deps: ManagerDeps) {
         (managed.info.state === "thinking" ||
           managed.info.state === "tool_executing") &&
         !managed.sessionManager.pendingTurn &&
-        !managed.flushInProgress;
+        !flushRunning(managed);
       if (unchanged || stillBusy) showFailure();
       return;
     }
@@ -1543,12 +1553,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // The model change ended the busy state already when it restarted the
     // session; otherwise this transition starts the flush.
     if (isQueueIdleState(managed.info.state))
-      flushQueue(agentId).catch((err: unknown) => {
-        console.error(
-          `flushQueue (free model resend) failed for ${agentId}:`,
-          errMessage(err),
-        );
-      });
+      requestFlush(agentId, "free model resend");
     else updateState(agentId, "waiting_for_response");
   }
 
@@ -1828,7 +1833,7 @@ export function createAgentManager(deps: ManagerDeps) {
       !managed.autoHandoffPhase.briefStarted
     ) {
       managed.autoHandoffPhase = null;
-      releaseAutoHandoffQueue(agentId, managed);
+      requestFlush(agentId, "auto-handoff release");
     }
     // A new token value before the brief turn started: the armed handoff
     // follows it, or does not happen when the context is now below it.
@@ -1847,7 +1852,7 @@ export function createAgentManager(deps: ManagerDeps) {
         phase.trigger = trigger;
       } else {
         managed.autoHandoffPhase = null;
-        releaseAutoHandoffQueue(agentId, managed);
+        requestFlush(agentId, "auto-handoff release");
       }
     }
     // Switched off: a pending resume after a usage limit does not happen.
@@ -2555,23 +2560,11 @@ export function createAgentManager(deps: ManagerDeps) {
     if (state !== prev && isQueueIdleState(state) && managed.envStale)
       releaseForEnv(agentId);
 
-    // Trigger queue flush on transition into an idle state (and only when the
-    // queue actually has items waiting). Swapping into the same state is a
-    // no-op so we don't re-fire the trigger from intra-state edits.
-    if (
-      state !== prev &&
-      isQueueIdleState(state) &&
-      (managed.messageQueue.length > 0 || handoffWaiting(managed)) &&
-      !managed.flushInProgress &&
-      !inMultiStepFlow(managed)
-    ) {
-      flushQueue(agentId).catch((err: unknown) => {
-        console.error(
-          `flushQueue (state-transition) failed for ${agentId}:`,
-          errMessage(err),
-        );
-      });
-    }
+    // Trigger queue flush on transition into an idle state. Swapping into the
+    // same state is a no-op so we don't re-fire the trigger from intra-state
+    // edits.
+    if (state !== prev && isQueueIdleState(state))
+      requestFlush(agentId, "state-transition");
   }
 
   // A caller's turn failed after its backend sent auth_needed: the event
@@ -4369,7 +4362,7 @@ export function createAgentManager(deps: ManagerDeps) {
       !inMultiStepFlow(managed) &&
       !managed.sessionManager.abortPromise &&
       !managed.info.sessionSwapping &&
-      !managed.flushInProgress &&
+      !flushRunning(managed) &&
       managed.messageQueue.length === 0 &&
       pickAutoResumeSessionId(managed) !== null
     );
@@ -4539,17 +4532,17 @@ export function createAgentManager(deps: ManagerDeps) {
   //
   // Two actions:
   //   - No flush in progress + oldest item older than stuckMs: a trigger was
-  //     missed somewhere - just flushQueue() (idempotent, benign).
-  //   - A flush in progress whose flushStartedAt is older than stuckMs: the
+  //     missed somewhere - just requestFlush() (idempotent, benign).
+  //   - A running flush that started more than stuckMs ago: the
   //     flush is wedged on some await that never settled. Recovery reuses
   //     abort's slow-path machinery - a bounded session replacement - which
   //     settles the zombie through existing channels (turnCancelToken bump for
   //     pre-send, pendingTurn rejection for handoff/await-turn, session close
-  //     for in-send) so the zombie's OWN catch/finally clears flushInProgress
-  //     and re-fires the flush. flushInProgress is NEVER force-cleared here:
+  //     for in-send) so the zombie's OWN catch/finally clears its run
+  //     and re-fires the flush. The run is NEVER force-cleared here:
   //     that would allow two live flushes and a double-send (review-pinned).
   //     Residue: an adapter whose send() neither settles nor reacts to
-  //     close() keeps the flag held - and later replacements cannot settle it
+  //     close() keeps the run held - and later replacements cannot settle it
   //     either (its pendingTurn was already rejected on the first attempt) -
   //     so forced recovery is rate-limited per agent and escalates via logs
   //     rather than replacing sessions every sweep. That terminal behavior is
@@ -4634,28 +4627,24 @@ export function createAgentManager(deps: ManagerDeps) {
       if (inMultiStepFlow(managed)) continue;
       // A swap owns its own retry via the post-swap kick, and a held queue
       // flushes when its hold is released.
-      if (managed.info.sessionSwapping || managed.queueHolds.size > 0) continue;
-      if (!managed.flushInProgress) {
+      if (managed.info.sessionSwapping || queueHeld(managed)) continue;
+      const running = managed.flush.running;
+      if (!running) {
         const oldest = managed.messageQueue[0]?.queuedAt ?? now;
         if (now - oldest < stuckMs) continue;
         console.warn(
           `[queue-watchdog] ${managed.info.name} (${agentId}): ${managed.messageQueue.length} message(s) queued while idle for ${now - oldest}ms with no flush in progress; re-triggering flush`,
         );
-        flushQueue(agentId).catch((err: unknown) => {
-          console.error(
-            `flushQueue (watchdog) failed for ${agentId}:`,
-            errMessage(err),
-          );
-        });
+        requestFlush(agentId, "watchdog");
         acted++;
         continue;
       }
-      if (now - managed.flushStartedAt < stuckMs) continue;
+      if (now - running.startedAt < stuckMs) continue;
       if (now - managed.lastForcedRecoveryAt < FORCED_RECOVERY_COOLDOWN_MS)
         continue;
       managed.lastForcedRecoveryAt = now;
       console.error(
-        `[queue-watchdog] ${managed.info.name} (${agentId}): flush stuck for ${now - managed.flushStartedAt}ms with ${managed.messageQueue.length} message(s) queued; forcing recovery via session replacement`,
+        `[queue-watchdog] ${managed.info.name} (${agentId}): flush stuck for ${now - running.startedAt}ms with ${managed.messageQueue.length} message(s) queued; forcing recovery via session replacement`,
       );
       addLogEntry(agentId, "system", msg("systemEntries.deliveryStalled"));
       try {
@@ -5335,12 +5324,9 @@ export function createAgentManager(deps: ManagerDeps) {
       lastWrittenEntryId: null,
       messageQueue: [],
       autoResumeInProgress: false,
-      flushInProgress: false,
-      queueHolds: new Set(),
-      backendHold: null,
+      flush: newFlushState(),
       freeModelResend: null,
       freeModelRetryTurn: false,
-      flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
       recentSteers: [],
       queueDedupe: new Map(),
@@ -5516,16 +5502,51 @@ export function createAgentManager(deps: ManagerDeps) {
   // Persistence: durable across restarts; see the persistence comment in
   // server/message-queue.ts.
 
-  async function flushQueue(agentId: string): Promise<void> {
+  // Whether the queue still wants a flush: the agent is there, something
+  // waits, no hold is on, and the agent is idle with no multi-step flow. A
+  // hold's release, a turn's end and the end of a flow each request a flush,
+  // so a flush that stops here is started again by what it waited for.
+  function flushStillWanted(agentId: string, managed: ManagedAgent): boolean {
+    return (
+      agents.get(agentId) === managed &&
+      (managed.messageQueue.length > 0 || handoffWaiting(managed)) &&
+      !queueHeld(managed) &&
+      isQueueIdleState(managed.info.state) &&
+      !inMultiStepFlow(managed)
+    );
+  }
+
+  // The one way to start a flush: every trigger calls it. A request while a
+  // flush runs is not lost: that flush's finally requests again.
+  function requestFlush(agentId: string, label: string): void {
     const managed = agents.get(agentId);
     if (!managed) return;
-    if (managed.flushInProgress) return;
-    if (managed.messageQueue.length === 0 && !handoffWaiting(managed)) return;
-    // A conversation change holds the queue; its release flushes.
-    if (managed.queueHolds.size > 0) return;
+    if (managed.flush.running) {
+      managed.flush.running.rerun = true;
+      return;
+    }
+    if (!flushStillWanted(agentId, managed)) return;
+    const run: FlushRun = {
+      startedAt: Date.now(),
+      rerun: false,
+      restartWake: false,
+    };
+    managed.flush.running = run;
+    flushRuns.set(agentId, (flushRuns.get(agentId) ?? 0) + 1);
+    flushQueue(agentId, managed, run).catch((err: unknown) => {
+      console.error(
+        `flushQueue (${label}) failed for ${agentId}:`,
+        errMessage(err),
+      );
+    });
+  }
 
-    managed.flushInProgress = true;
-    managed.flushStartedAt = Date.now();
+  // One flush, started by requestFlush with `run` as managed.flush.running.
+  async function flushQueue(
+    agentId: string,
+    managed: ManagedAgent,
+    run: FlushRun,
+  ): Promise<void> {
     try {
       // Wait for any in-flight turn to truly end before starting a new one. The
       // trigger from updateState fires synchronously inside processMessage,
@@ -5537,7 +5558,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // record with a wrapper. A wrapper could be orphaned by any settle that
       // bypasses managed.sessionManager.pendingTurn (e.g. runAgentTurn's send-throw cleanup,
       // which rejects only the record it installed), permanently stranding
-      // flushInProgress - the lost-wakeup bug.
+      // the flush's run - the lost-wakeup bug.
       {
         const pending = managed.sessionManager.pendingTurn;
         if (pending) await pending.promise.catch(() => {});
@@ -5557,26 +5578,19 @@ export function createAgentManager(deps: ManagerDeps) {
             new Promise<void>((res) => setTimeout(res, sampleWaitMs)),
           ]);
       }
-      // Re-check post-wait - state and queue can change while we waited. The
-      // agents.has() guard catches a kill() during the wait: kill settles the
-      // pendingTurn deferred (waking us) and removes the agent from the map but
-      // doesn't update state, so without this check the session-recovery branch
+      // Re-check post-wait - state, queue and holds can change while we
+      // waited. The agent check catches a kill() during the wait: kill settles
+      // the pendingTurn deferred (waking us) and removes the agent from the map
+      // but doesn't update state, so without it the session-recovery branch
       // below would spawn an SDK subprocess for a deleted agent.
-      if (!agents.has(agentId)) return;
-      if (!isQueueIdleState(managed.info.state)) return;
-      if (inMultiStepFlow(managed)) return;
-      if (managed.messageQueue.length === 0 && !handoffWaiting(managed)) return;
+      if (!flushStillWanted(agentId, managed)) return;
 
       if (managed.sessionManager.abortPromise) {
         try {
           await managed.sessionManager.abortPromise;
         } catch {}
         // Re-check again after the abort handoff.
-        if (!agents.has(agentId)) return;
-        if (!isQueueIdleState(managed.info.state)) return;
-        if (inMultiStepFlow(managed)) return;
-        if (managed.messageQueue.length === 0 && !handoffWaiting(managed))
-          return;
+        if (!flushStillWanted(agentId, managed)) return;
       }
       // The account check (server/provider-fallback.ts), before the batch
       // takes the session. A failed move keeps the conversation on the
@@ -5595,13 +5609,7 @@ export function createAgentManager(deps: ManagerDeps) {
           if (entry) armLimitResume(agentId, managed, entry.until);
         }
       }
-      if (accountCheck) {
-        if (!agents.has(agentId)) return;
-        if (!isQueueIdleState(managed.info.state)) return;
-        if (inMultiStepFlow(managed)) return;
-        if (managed.messageQueue.length === 0 && !handoffWaiting(managed))
-          return;
-      }
+      if (accountCheck && !flushStillWanted(agentId, managed)) return;
       // A process marked by an environment change is released here, so the
       // branch below wakes a new one.
       releaseForEnvNow(agentId, managed, { force: true });
@@ -5718,11 +5726,11 @@ export function createAgentManager(deps: ManagerDeps) {
         if (firstRetry > 0) items = items.slice(0, firstRetry);
       }
 
-      // Member usage cap, decided per item. The claim is flushInProgress; the
+      // Member usage cap, decided per item. The claim is the flush's run; the
       // token and session are captured before the provider read and checked
       // again after it, so a Stop or swap during the read abandons this flush
-      // with the items still queued. Refused items are drained, not kept: a
-      // kept item in an idle state would re-fire the flush in a loop.
+      // with the items still queued, for the next flush. Refused items are
+      // drained, not kept: a kept item would be refused at every flush.
       const capped = memberUsageCap().isEnabled()
         ? items.filter((m) => queuedItemCapped(managed, m))
         : [];
@@ -5733,14 +5741,16 @@ export function createAgentManager(deps: ManagerDeps) {
         const admission = await memberUsageCap().admit(
           managed.billingAccount ?? null,
         );
+        // A Stop or a swap during the read: the flush goes again once this
+        // one ends, as after a cancelled send below.
         if (
-          !agents.has(agentId) ||
           managed.sessionManager.turnCancelToken !== tokenAtGate ||
-          managed.sessionManager.session !== sessionAtGate ||
-          !isQueueIdleState(managed.info.state) ||
-          inMultiStepFlow(managed)
-        )
+          managed.sessionManager.session !== sessionAtGate
+        ) {
+          run.rerun = true;
           return;
+        }
+        if (!flushStillWanted(agentId, managed)) return;
         const refused = new Set<QueuedMessage>(
           admission.kind === "refused" ? capped : [],
         );
@@ -5801,8 +5811,8 @@ export function createAgentManager(deps: ManagerDeps) {
 
       // The turn this batch starts carries a wake after a server restart: its
       // record says so (recordTurnStart), and the next boot does not wake it
-      // again. Reset in the finally below.
-      managed.nextTurnRestartWake = items.some((m) => m.restartWake);
+      // again. It goes with the run.
+      run.restartWake = items.some((m) => m.restartWake);
       try {
         await runAgentTurn({
           managed,
@@ -5835,12 +5845,15 @@ export function createAgentManager(deps: ManagerDeps) {
         // log entry would leak into logCache for an id that no longer exists.
         if (!agents.has(agentId)) return;
         if (err instanceof SessionSwappedError) {
-          // Items still in queue (we didn't drain on the failed attempt). The
-          // post-swap state transition (or this function's own finally block)
-          // will re-trigger flushQueue. Surface a system message only if the
-          // queue still has items - when the swap path explicitly cleared the
-          // queue (newConversation/resume/editMessage) there's nothing to
-          // retry and the message would be misleading noise. A handoff's reset
+          // Items still in queue (we didn't drain on the failed attempt), so
+          // the flush goes again once this one ends: a Stop before the send
+          // changes no state, so no transition would request it. requestFlush
+          // keeps it from a held queue or a busy agent.
+          run.rerun = true;
+          // Surface a system message only if the queue still has items -
+          // when the swap path explicitly cleared the queue
+          // (newConversation/resume/editMessage) there's nothing to retry
+          // and the message would be misleading noise. A handoff's reset
           // keeps the queue for the fresh session: nothing to report either.
           //
           // Also stay quiet when the cancellation was user-initiated (Stop /
@@ -5897,31 +5910,12 @@ export function createAgentManager(deps: ManagerDeps) {
         });
       }
     } finally {
-      managed.nextTurnRestartWake = false;
-      if (agents.has(agentId)) {
-        managed.flushInProgress = false;
-        // Re-flush if more arrived during the await, and we're still in an idle
-        // state. After a BackendNotConfiguredError catch the queue is held,
-        // so this naturally no-ops on that path. The sessionSwapping exclusion
-        // mirrors the early-return in the wake branch above - without it, a
-        // flush bailing on a mid-drain swap would re-fire itself from here in
-        // a tight async loop for the whole drain window; the post-swap kick in
-        // replaceSession owns the retry instead.
-        // Not while an automatic handoff holds the queue: the gate returns at
-        // once and this would spin until the reset. Every exit from the phase
-        // flushes on its own (releaseAutoHandoffQueue, or newConversation's
-        // held-queue flush).
-        if (
-          managed.messageQueue.length > 0 &&
-          isQueueIdleState(managed.info.state) &&
-          !inMultiStepFlow(managed) &&
-          !managed.info.sessionSwapping &&
-          !managed.autoHandoffPhase &&
-          managed.queueHolds.size === 0
-        ) {
-          flushQueue(agentId).catch(() => {});
-        }
-      }
+      // A request while this flush ran, or a cancel of its send, starts the
+      // next one. Nothing else does: a flush that stopped for a swap, a hold
+      // or a handoff is requested again when that ends, so it does not spin
+      // meanwhile.
+      if (managed.flush.running === run) managed.flush.running = null;
+      if (run.rerun) requestFlush(agentId, "rerun");
     }
   }
 
@@ -6025,7 +6019,7 @@ export function createAgentManager(deps: ManagerDeps) {
     releaseBackendHold(agentId, managed);
     // A conversation change holds the queue and ends the running turn itself;
     // its release delivers the queue to the next session.
-    if (managed.queueHolds.size > 0) return { ok: true };
+    if (queueHeld(managed)) return { ok: true };
     if (inMultiStepFlow(managed)) {
       return {
         ok: false,
@@ -6063,7 +6057,7 @@ export function createAgentManager(deps: ManagerDeps) {
         })
         .catch(() => {});
     } else {
-      flushQueue(agentId).catch(() => {});
+      requestFlush(agentId, "send now");
     }
     return { ok: true };
   }
@@ -6262,20 +6256,7 @@ export function createAgentManager(deps: ManagerDeps) {
         accept: () => settle({ ok: true }),
         refuse: settle,
       });
-      const managed = agents.get(agentId);
-      if (
-        answersPrompt &&
-        managed &&
-        managed.messageQueue.length > 0 &&
-        isQueueIdleState(managed.info.state) &&
-        !inMultiStepFlow(managed)
-      )
-        flushQueue(agentId).catch((err: unknown) => {
-          console.error(
-            `flushQueue (prompt answered) failed for ${agentId}:`,
-            errMessage(err),
-          );
-        });
+      if (answersPrompt) requestFlush(agentId, "prompt answered");
     } finally {
       settle({
         ok: false,
@@ -8239,20 +8220,7 @@ export function createAgentManager(deps: ManagerDeps) {
     // is flushed during the drain, like any message that arrives in it. A
     // boundary claim of the closed session is stale, so its items are sent
     // again (at-least-once).
-    if (heldQueue.length > 0) {
-      if (
-        isQueueIdleState(managed.info.state) &&
-        !inMultiStepFlow(managed) &&
-        !managed.flushInProgress
-      ) {
-        flushQueue(agentId).catch((err: unknown) => {
-          console.error(
-            `flushQueue (carried queue) failed for ${agentId}:`,
-            errMessage(err),
-          );
-        });
-      }
-    }
+    if (heldQueue.length > 0) requestFlush(agentId, "carried queue");
     await drained;
   }
 
@@ -8262,52 +8230,25 @@ export function createAgentManager(deps: ManagerDeps) {
   // new-conversation, the engine switch, resume to another session and
   // edit-fork carry the queue to the next session, as a handoff does.
 
-  // Held from the start of a change that awaits a session swap until the next
-  // session can take the queue (ManagedAgent.queueHolds).
-  function holdQueue(managed: ManagedAgent): symbol {
-    const hold = Symbol("queue-hold");
-    managed.queueHolds.add(hold);
-    return hold;
-  }
-
-  // Releases one hold. The last release flushes what waited behind it.
+  // Releases one hold of a conversation change. The last release flushes
+  // what waited behind it.
   function releaseQueueHold(
     agentId: string,
     managed: ManagedAgent,
     hold: symbol,
   ): void {
-    if (!managed.queueHolds.delete(hold) || managed.queueHolds.size > 0) return;
-    if (
-      agents.get(agentId) === managed &&
-      (managed.messageQueue.length > 0 || handoffWaiting(managed)) &&
-      isQueueIdleState(managed.info.state) &&
-      !inMultiStepFlow(managed) &&
-      !managed.flushInProgress
-    ) {
-      flushQueue(agentId).catch((err: unknown) => {
-        console.error(
-          `flushQueue (queue hold release) failed for ${agentId}:`,
-          errMessage(err),
-        );
-      });
-    }
+    releaseHold(managed, hold);
+    requestFlush(agentId, "queue hold release");
   }
 
   // The next message after a send failed for the backend: the queue goes out
-  // again (and is held again if the backend still fails).
+  // again (and is held again if the backend still fails). A conversation
+  // change carries the queue itself, so it calls dropBackendHold instead and
+  // flushes nothing into the old session.
   function releaseBackendHold(agentId: string, managed: ManagedAgent): void {
-    const hold = managed.backendHold;
-    if (!hold) return;
-    managed.backendHold = null;
-    releaseQueueHold(agentId, managed, hold);
-  }
-
-  // A conversation change carries the queue itself, so it drops the backend
-  // hold with no flush into the old session.
-  function dropBackendHold(managed: ManagedAgent): void {
-    if (!managed.backendHold) return;
-    managed.queueHolds.delete(managed.backendHold);
-    managed.backendHold = null;
+    if (!hasBackendHold(managed)) return;
+    dropBackendHold(managed);
+    requestFlush(agentId, "backend hold release");
   }
 
   // Marks the queue as carried, so the flush tells the agent it was written
@@ -8687,6 +8628,22 @@ export function createAgentManager(deps: ManagerDeps) {
         `[resume] agent ${agentId}: could not look for session ${sessionId} in other storage: ${errMessage(error)}`,
       );
     }
+  }
+
+  // The recovery of an errored backend that a message or a /handoff starts.
+  // Claimed synchronously: the state stays `error` until the resume ends, so
+  // a second caller in the same tick joins this resume instead of starting
+  // another against the same transcript.
+  function claimAutoResume(
+    agentId: string,
+    managed: ManagedAgent,
+    sessionId: string,
+  ): void {
+    if (managed.autoResumeInProgress) return;
+    managed.autoResumeInProgress = true;
+    void resume(agentId, sessionId).finally(() => {
+      managed.autoResumeInProgress = false;
+    });
   }
 
   async function resume(agentId: string, sessionId: string) {
@@ -9436,6 +9393,11 @@ export function createAgentManager(deps: ManagerDeps) {
     return autoHandoffGateHits.get(agentId) ?? 0;
   }
 
+  // Test-only: how many flushes started for this agent.
+  function _testFlushRuns(agentId: string): number {
+    return flushRuns.get(agentId) ?? 0;
+  }
+
   // Test-only: put a hold on the queue, as a conversation change does, and
   // get back its release.
   function _testHoldQueue(agentId: string): () => void {
@@ -9455,12 +9417,6 @@ export function createAgentManager(deps: ManagerDeps) {
     return agents.get(agentId)?.dormantReason;
   }
 
-  // Test-only: simulate an unknown-bug wedged flush (flushInProgress held with
-  // an aged flushStartedAt) so sweepStuckFlushes' forced-recovery contract can
-  // be exercised. Once the pending-turn attachment and bounded consumer-drain
-  // layers exist, every wire-constructible wedge is already recovered by those
-  // layers themselves - the forced path is insurance for wedges we haven't
-  // found, which by definition can't be manufactured through honest machinery.
   // Test-only: put a message in the queue with no flush trigger, the state a
   // missed trigger leaves behind. The watchdog sweep is what delivers it.
   function _testStrandMessage(
@@ -9479,11 +9435,20 @@ export function createAgentManager(deps: ManagerDeps) {
     emitQueueUpdate(agentId, managed);
   }
 
+  // Test-only: simulate an unknown-bug wedged flush (a run that no flush
+  // owns, with an aged start) so sweepStuckFlushes' forced-recovery contract can
+  // be exercised. Once the pending-turn attachment and bounded consumer-drain
+  // layers exist, every wire-constructible wedge is already recovered by those
+  // layers themselves - the forced path is insurance for wedges we haven't
+  // found, which by definition can't be manufactured through honest machinery.
   function _testWedgeFlush(agentId: string, ageMs: number): void {
     const managed = agents.get(agentId);
     if (!managed) throw new Error(`_testWedgeFlush: unknown agent ${agentId}`);
-    managed.flushInProgress = true;
-    managed.flushStartedAt = Date.now() - ageMs;
+    managed.flush.running = {
+      startedAt: Date.now() - ageMs,
+      rerun: false,
+      restartWake: false,
+    };
   }
 
   // The editor is per-WS state (watchers, dirty buffers, tabs); these wrappers
@@ -9664,6 +9629,7 @@ export function createAgentManager(deps: ManagerDeps) {
     _testSetAbortInProgress,
     _testLastForcedRecoveryAt,
     _testAutoHandoffGateHits,
+    _testFlushRuns,
     _testHoldQueue,
     _testDormantReason,
     _testWedgeFlush,

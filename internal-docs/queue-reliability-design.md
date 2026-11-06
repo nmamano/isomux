@@ -11,7 +11,8 @@ changes on 3 points; this is v2 with his findings folded in - deltas marked
   immediate `flushQueue`, busy → rides the next idle transition (`updateState`'s
   flush trigger).
 - `flushQueue` is gated by `managed.flushInProgress` (set at entry, cleared in
-  its `finally`). Between those points it can await: (a) an in-flight turn's
+  its `finally`). Since task e7cd6259 it is `managed.flush.running`, set only
+  by `requestFlush` (`server/queue-flush.ts`). Between those points it can await: (a) an in-flight turn's
   `pendingTurn` handoff, (b) `managed.abortPromise`, (c) `runAgentTurn`
   (plugins → `session.send` → `await turn`).
 - `pendingTurn` is `{resolve, reject}` (no promise stored). Two places wait on

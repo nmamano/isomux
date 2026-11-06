@@ -30,6 +30,7 @@ import {
   type ManagedAgent,
 } from "./internal-types.ts";
 import { getSessionClaudeConfigDir } from "./persistence.ts";
+import { holdBackend } from "./queue-flush.ts";
 import {
   effectiveProviderDirectory,
   type EffectiveProviderAccountTarget,
@@ -81,7 +82,6 @@ export interface AgentAuthDeps {
     rawCommand: string,
     opts?: { open?: boolean },
   ) => unknown;
-  holdQueue: (managed: ManagedAgent) => symbol;
   listProviderAccounts?: ManagerDeps["listProviderAccounts"];
   effectiveProviderAccountTarget?: ManagerDeps["effectiveProviderAccountTarget"];
   claudeAuthCheckTimeoutMs?: ManagerDeps["claudeAuthCheckTimeoutMs"];
@@ -95,7 +95,6 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     addLogEntry,
     updateState,
     emitAgentTerminalCommand,
-    holdQueue,
   } = deps;
 
   // Auth-error check for a one-shot result (topic generation), which runs
@@ -641,7 +640,7 @@ export function createAgentAuth(deps: AgentAuthDeps) {
     // message releases it.
     const queuedCount = managed.messageQueue.length;
     if (queuedCount > 0) {
-      if (!managed.backendHold) managed.backendHold = holdQueue(managed);
+      holdBackend(managed);
       addLogEntry(
         agentId,
         "system",

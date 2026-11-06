@@ -113,7 +113,7 @@ function fakeDeps() {
     updateState: (_agentId, state) => {
       stateUpdates.push(state);
     },
-    flushQueue: () => Promise.resolve(),
+    requestFlush: () => {},
     getConsumerDrainTimeoutMs: () => 15_000,
     logger: { warn: () => {}, error: () => {} },
   };

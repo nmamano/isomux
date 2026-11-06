@@ -155,7 +155,7 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // Post-swap dead-turn normalization.
   updateState: (agentId: string, state: AgentState) => void;
   // Post-swap flush kick.
-  flushQueue: (agentId: string) => Promise<void>;
+  requestFlush: (agentId: string, label: string) => void;
   // Read at every drain, so the manager's _testSetConsumerDrainTimeout seam
   // keeps working unchanged.
   getConsumerDrainTimeoutMs: () => number;
@@ -726,15 +726,8 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     // swap left its items queued, and a wake that deferred to us (the
     // sessionSwapping guard) never happened - neither gets retried by a state
     // transition when the agent was already idle, so kick explicitly.
-    // flushQueue re-checks state/queue/flow/flushInProgress itself.
-    if (host.messageQueue.length > 0) {
-      this.deps.flushQueue(this.agentId).catch((err: unknown) => {
-        this.deps.logger.error(
-          `flushQueue (post-swap) failed for ${this.agentId}:`,
-          errMessage(err),
-        );
-      });
-    }
+    // requestFlush owns every guard.
+    this.deps.requestFlush(this.agentId, "post-swap");
   }
   // The replacement to install after the drain: `built`, or a new one when the
   // token changed during the drain (builtOnCurrentToken). Null when the

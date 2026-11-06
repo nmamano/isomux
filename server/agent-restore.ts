@@ -2,6 +2,7 @@
 // (restoreOrReviveAgent), the boot restore of every agent (restoreAgents) and
 // the OpenCode profile key moves that run before it. Moved out of
 // createAgentManager (server/agent-manager.ts), which wires it.
+import { newFlushState } from "./queue-flush.ts";
 import type { AgentAccess, AgentAccessGrant } from "../shared/agent-access.ts";
 import type { ApiTokenLimits } from "../shared/api-token-limits.ts";
 import { versionOf } from "../shared/blob-version.ts";
@@ -126,7 +127,7 @@ export interface AgentRestoreDeps {
   restoreLimitResume: HandoffAndWake["restoreLimitResume"];
   restoreRestartWakes: HandoffAndWake["restoreRestartWakes"];
   persistAll: ReturnType<typeof createOfficePersistence>["persistAll"];
-  flushQueue: (agentId: string) => Promise<void>;
+  requestFlush: (agentId: string, label: string) => void;
   agentMcpServers: (
     userId: string | null | undefined,
   ) => ReturnType<typeof mcpServersForUserId>;
@@ -177,7 +178,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
     restoreLimitResume,
     restoreRestartWakes,
     persistAll,
-    flushQueue,
+    requestFlush,
     agentMcpServers,
     buildOpenCodeLaunchEnvironmentForUserId,
     openCodeEnvironmentRevisionForUserId,
@@ -463,12 +464,9 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       lastWrittenEntryId: null,
       messageQueue: [],
       autoResumeInProgress: false,
-      flushInProgress: false,
-      queueHolds: new Set(),
-      backendHold: null,
+      flush: newFlushState(),
       freeModelResend: null,
       freeModelRetryTurn: false,
-      flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
       recentSteers: [],
       queueDedupe: new Map(),
@@ -764,12 +762,7 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
         console.log(
           `Replaying ${m.messageQueue.length} queued message(s) for ${m.info.name} (${agentId})`,
         );
-        flushQueue(agentId).catch((err: unknown) => {
-          console.error(
-            `flushQueue (boot-replay) failed for ${agentId}:`,
-            errMessage(err),
-          );
-        });
+        requestFlush(agentId, "boot-replay");
       }
     }
     return [...agents.values()].map((a) => a.info);

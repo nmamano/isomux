@@ -45,6 +45,7 @@ import {
   type SendNowResult,
 } from "./internal-types.ts";
 import { loadMessageQueuesRaw, saveMessageQueues } from "./persistence.ts";
+import { queueHeld } from "./queue-flush.ts";
 import type { MemberPack } from "../shared/pack-fit.ts";
 
 export const TOOL_BOUNDARY_NOTE =
@@ -72,13 +73,17 @@ export interface MessageQueueDeps {
     managed: ManagedAgent,
     sender: QueuedMessage["sender"],
   ) => EnqueueResult | null;
-  flushQueue: (agentId: string) => Promise<void>;
+  requestFlush: (agentId: string, label: string) => void;
   sendNow: (
     agentId: string,
     cause: NonNullable<QueuedMessage["interruptCause"]>,
   ) => SendNowResult;
   releaseBackendHold: (agentId: string, managed: ManagedAgent) => void;
-  resume: (agentId: string, sessionId: string) => Promise<unknown>;
+  claimAutoResume: (
+    agentId: string,
+    managed: ManagedAgent,
+    sessionId: string,
+  ) => void;
   // The live pack and rooms of member `userId` (server/identity/member-pack.ts).
   memberPackOf: (
     userId: string | null | undefined,
@@ -103,10 +108,10 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     maybeFillTopic,
     pickAutoResumeSessionId,
     enqueueCapRefusal,
-    flushQueue,
+    requestFlush,
     sendNow,
     releaseBackendHold,
-    resume,
+    claimAutoResume,
     recordHeardFrom,
     memberPackOf,
     managerRoomsOf,
@@ -453,7 +458,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       // The brief turn must not take the queue the fresh session gets.
       managed.autoHandoffPhase ||
       // Nor the old session's last tool batch a held queue.
-      managed.queueHolds.size > 0
+      queueHeld(managed)
     );
   }
 
@@ -935,7 +940,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       queuedDuringBusyTurn &&
       !inMultiStepFlow(managed) &&
       !managed.autoHandoffPhase &&
-      managed.queueHolds.size === 0 &&
+      !queueHeld(managed) &&
       getBackend(managed.info.agentType).toolBoundaryDelivery === true;
     managed.messageQueue.push({
       id,
@@ -987,16 +992,10 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     const steerRequested = opts?.steer === true;
 
     // Claim the recovery synchronously with acceptance. The state remains
-    // `error` until replaceSession completes, so without this flag a second
-    // send in the same tick could start an overlapping resume of the same
-    // transcript. Later sends only join the queue.
+    // `error` until replaceSession completes, so a second send in the same
+    // tick only joins the queue.
     if (state === "error") {
-      if (!managed.autoResumeInProgress) {
-        managed.autoResumeInProgress = true;
-        void resume(agentId, autoResumeSessionId!).finally(() => {
-          managed.autoResumeInProgress = false;
-        });
-      }
+      claimAutoResume(agentId, managed, autoResumeSessionId!);
       return {
         ok: true,
         queued: true,
@@ -1006,15 +1005,9 @@ export function createMessageQueue(deps: MessageQueueDeps) {
     }
 
     // Idle/waiting_for_response with no multi-step in flight: kick off a flush
-    // immediately. flushQueue is gated by flushInProgress and re-checks state
-    // post-defer, so this is safe to call unconditionally.
+    // immediately.
     if (isQueueIdleState(state) && !inMultiStepFlow(managed)) {
-      flushQueue(agentId).catch((err: unknown) => {
-        console.error(
-          `flushQueue (idle) failed for ${agentId}:`,
-          errMessage(err),
-        );
-      });
+      requestFlush(agentId, "idle");
       // A steer at a receiver that wasn't running a turn interrupts nothing -
       // reported as steered:false rather than declined, since no guard rail
       // refused it and the message is being delivered now either way.
@@ -1041,7 +1034,7 @@ export function createMessageQueue(deps: MessageQueueDeps) {
       }
       // A conversation change is under way: it ends the running turn itself,
       // and the message goes to the next session when the hold is released.
-      if (managed.queueHolds.size > 0) {
+      if (queueHeld(managed)) {
         return { ok: true, queued: true, messageId: id, steered: false };
       }
       // A handoff is under way: the message goes to the fresh session, and

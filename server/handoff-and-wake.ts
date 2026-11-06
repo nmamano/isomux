@@ -64,6 +64,7 @@ import {
   restartWakeDelayMs,
   type TurnInFlightRecord,
 } from "./restart-wake.ts";
+import { flushRunning, queueHeld } from "./queue-flush.ts";
 import { serverStopping } from "./server-stop.ts";
 
 export interface HandoffAndWakeDeps {
@@ -84,9 +85,13 @@ export interface HandoffAndWakeDeps {
     attachments?: Attachment[],
   ) => unknown;
   pickAutoResumeSessionId: (managed: ManagedAgent) => string | null;
-  resume: (agentId: string, sessionId: string) => Promise<unknown>;
+  claimAutoResume: (
+    agentId: string,
+    managed: ManagedAgent,
+    sessionId: string,
+  ) => void;
   releaseBackendHold: (agentId: string, managed: ManagedAgent) => void;
-  flushQueue: (agentId: string) => Promise<void>;
+  requestFlush: (agentId: string, label: string) => void;
   persistAll: () => void;
   getAgentDisplay: (
     agentId: string,
@@ -132,9 +137,9 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     emitEphemeralLog,
     addLogEntry,
     pickAutoResumeSessionId,
-    resume,
+    claimAutoResume,
     releaseBackendHold,
-    flushQueue,
+    requestFlush,
     persistAll,
     getAgentDisplay,
     enqueueMessage,
@@ -221,18 +226,13 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     // The resume's move out of error fires updateState's flush trigger,
     // which starts the brief turn.
     if (resumeId !== null) {
-      if (!managed.autoResumeInProgress) {
-        managed.autoResumeInProgress = true;
-        void resume(agentId, resumeId).finally(() => {
-          managed.autoResumeInProgress = false;
-        });
-      }
+      claimAutoResume(agentId, managed, resumeId);
       return;
     }
     // A member's request for a turn retries a backend that failed, as a
     // message does; the release flushes, which starts the brief turn.
     releaseBackendHold(agentId, managed);
-    kickFlush(agentId, managed, "handoff");
+    requestFlush(agentId, "handoff");
   }
 
   // The manual brief turn's text: the member prefix, then the prompt.
@@ -245,21 +245,6 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
   function handoffWaiting(managed: ManagedAgent): boolean {
     const phase = managed.autoHandoffPhase;
     return !!phase?.manual && !phase.briefStarted;
-  }
-
-  function kickFlush(agentId: string, managed: ManagedAgent, label: string) {
-    if (
-      !isQueueIdleState(managed.info.state) ||
-      inMultiStepFlow(managed) ||
-      managed.flushInProgress
-    )
-      return;
-    flushQueue(agentId).catch((err: unknown) => {
-      console.error(
-        `flushQueue (${label}) failed for ${agentId}:`,
-        errMessage(err),
-      );
-    });
   }
 
   // In-flight handoff guard. A SECOND concurrent handoff for the same agent
@@ -411,13 +396,13 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     const state = managed.info.state;
     if (state === "stopped") return "stopped";
     if (!isQueueIdleState(state) && state !== "error") return "busy";
-    if (managed.sessionManager.pendingTurn || managed.flushInProgress)
+    if (managed.sessionManager.pendingTurn || flushRunning(managed))
       return "busy";
     if (managed.messageQueue.length > 0) return "messages queued";
     if (inMultiStepFlow(managed) || pendingPromptOf(managed) !== null)
       return "prompt pending";
     if (managed.autoHandoffPhase) return "automatic handoff";
-    if (managed.queueHolds.size > 0) return "conversation change";
+    if (queueHeld(managed)) return "conversation change";
     return null;
   }
 
@@ -489,9 +474,11 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     turnsInFlight.set(agentId, {
       // Wall time: it orders the wakes at the next boot, in another process.
       since: Date.now(),
-      ...(managed.nextTurnRestartWake ? { restartWake: true as const } : {}),
+      ...(managed.flush.running?.restartWake
+        ? { restartWake: true as const }
+        : {}),
     });
-    managed.nextTurnRestartWake = false;
+    if (managed.flush.running) managed.flush.running.restartWake = false;
     writeTurnsInFlight();
   }
 
@@ -600,7 +587,7 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     if (inMultiStepFlow(managed) || pendingPromptOf(managed) !== null)
       return "prompt pending";
     if (managed.autoHandoffPhase) return "automatic handoff";
-    if (managed.queueHolds.size > 0) return "conversation change";
+    if (queueHeld(managed)) return "conversation change";
     // A wake from a boot that ended before the turn started is replayed.
     if (managed.messageQueue.some((m) => m.restartWake))
       return "already queued";
@@ -812,25 +799,9 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
       addLogEntry(agentId, "system", msg("systemEntries.autoHandoff.failed"));
       maybeEmitUiContextNotice(managed);
     }
-    releaseAutoHandoffQueue(agentId, managed);
-  }
-
-  // After the phase goes, nothing else may be waiting for it: flush what
-  // queued up behind it.
-  function releaseAutoHandoffQueue(agentId: string, managed: ManagedAgent) {
-    if (
-      managed.messageQueue.length > 0 &&
-      isQueueIdleState(managed.info.state) &&
-      !inMultiStepFlow(managed) &&
-      !managed.flushInProgress
-    ) {
-      flushQueue(agentId).catch((err: unknown) => {
-        console.error(
-          `flushQueue (auto-handoff release) failed for ${agentId}:`,
-          errMessage(err),
-        );
-      });
-    }
+    // After the phase goes, nothing else may be waiting for it: flush what
+    // queued up behind it.
+    requestFlush(agentId, "auto-handoff release");
   }
 
   return {
@@ -848,6 +819,5 @@ export function createHandoffAndWake(deps: HandoffAndWakeDeps) {
     restoreRestartWakes,
     startAutoHandoffBrief,
     autoHandoffLine,
-    releaseAutoHandoffQueue,
   };
 }

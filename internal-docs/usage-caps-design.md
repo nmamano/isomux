@@ -229,11 +229,12 @@ object and its `billingDir`.
 
 - `flushQueue` (all queued delivery: agent, scheduled, cron-run, app, handoff,
   wake, resume, boot replay, send-now, steer by abort). Claim:
-  `flushInProgress` set and the batch taken. Capture, await the gate, recheck.
+  the flush's run (`managed.flush.running`) set and the batch taken. Capture,
+  await the gate, recheck.
   If refused, it removes only the member-driven items, writes one error entry,
   and sends the rest as the batch; if none remain, no turn starts. Removed
-  items are drained, not kept: kept items with an idle state re-fire the
-  `finally` re-flush in a loop. No await between the recheck and the call to
+  items are drained, not kept: a kept item would be refused at every flush.
+  No await between the recheck and the call to
   `runAgentTurn`, which captures its own token synchronously at entry.
 - `sendMessage` (chat, API tokens, native slash commands, choice replies),
   `editMessage` (edit-fork), `executeSkill`: the gate runs inside
