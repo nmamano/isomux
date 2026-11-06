@@ -51,6 +51,7 @@ import {
   formatApiTokenName,
 } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
+import { isTopicSource } from "../shared/session-label.ts";
 import {
   CONSUMER_DRAIN_TIMEOUT_MS,
   SessionManager,
@@ -2837,7 +2838,7 @@ export function createAgentManager(deps: ManagerDeps) {
       // to what the user actually said. Each message is capped at 1000 chars
       // so a single long bug report doesn't crowd out the rest.
       const logs = logCache.get(agentId) ?? [];
-      const userEntries = logs.filter((e) => e.kind === "user_message");
+      const userEntries = logs.filter(isTopicSource);
       const firstUserMsg = userEntries[0];
       // Nothing to label: keep the topic as it is.
       if (!firstUserMsg) return;
@@ -5436,6 +5437,8 @@ export function createAgentManager(deps: ManagerDeps) {
     planModeAvailable: (managed) =>
       getBackend(managed.info.agentType).planMode === true,
     setPlanMode,
+    setTopic,
+    regenerateTopic: resetTopic,
     refreshSkillMenu,
     reloadEnginePlugins: async (managed) => {
       const backend = getBackend(managed.info.agentType);
@@ -9244,7 +9247,8 @@ export function createAgentManager(deps: ManagerDeps) {
     // call leaves it alone.
     managed.topicGenToken++;
     setTopicGenerating(agentId, false);
-    const trimmed = topic.trim();
+    // One line: the header editor has no line breaks.
+    const trimmed = topic.replace(/\s+/g, " ").trim();
     const events =
       trimmed === ""
         ? officeState.resetTopic(agentId)

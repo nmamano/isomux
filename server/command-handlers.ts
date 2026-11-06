@@ -10,7 +10,7 @@ import type {
   SessionInfo,
 } from "../shared/types.ts";
 import { ENGINE_NAMES } from "../shared/types.ts";
-import { sessionResumeLabel } from "../shared/session-label.ts";
+import { isTopicSource, sessionResumeLabel } from "../shared/session-label.ts";
 import { isBackSeat } from "../shared/desks.ts";
 import { english } from "./i18n.ts";
 import { errorText } from "./localized-error.ts";
@@ -74,6 +74,7 @@ export const DOCS_URL = "https://isomux.com/docs";
 // the reader is on.
 export const SKILLS_PAGE_PATH = "/skills";
 const EDIT_USAGE = "`/isomux-edit <path>`";
+const RENAME_USAGE = "`/rename <topic>`";
 type HandlerFn = (
   agentId: string,
   managed: ManagedAgent,
@@ -301,6 +302,10 @@ interface HandlerDeps {
   // later session through ManagedAgent.planMode. Rejects when the engine
   // refuses, leaving the flag as it was.
   setPlanMode: (managed: ManagedAgent, on: boolean) => Promise<void>;
+  // A typed topic for the agent's session (agentManager.setTopic).
+  setTopic: (agentId: string, topic: string) => void;
+  // Labels the conversation again, as the header's refresh button does.
+  regenerateTopic: (agentId: string) => void;
   // The agent's Sk menu, discovered again now and sent to clients.
   refreshSkillMenu: (agentId: string) => void;
   // Asks the agent's engine to load its plugins and config again. Throws
@@ -910,6 +915,44 @@ export function createCommandHandling(deps: HandlerDeps) {
         username,
         device,
       );
+    },
+
+    // `/rename <text>` sets the topic. Bare, it labels the conversation
+    // again, as Claude Code's /rename does.
+    async rename(agentId, managed, _args, rawText, username, device) {
+      const text = rawText.replace(/^\s*\/\S+/, "").trim();
+      // Read before the echo below, which does not count.
+      const hasSource = (deps.logCache.get(agentId) ?? []).some(isTopicSource);
+      deps.emitEphemeralLog(
+        agentId,
+        "user_message",
+        rawText,
+        buildMeta(username, device),
+      );
+      if (text) {
+        deps.setTopic(agentId, text);
+        // The topic as stored: setTopic makes it one line.
+        const topic = managed.info.topic ?? text;
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          msg("commands.rename.done", { topic }),
+        );
+      } else if (hasSource) {
+        deps.regenerateTopic(agentId);
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          msg("commands.rename.generating"),
+        );
+      } else {
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          msg("commands.rename.noContext", { usage: RENAME_USAGE }),
+        );
+      }
+      return true;
     },
 
     async isomuxAllHands(agentId, _managed, _args, rawText, username, device) {

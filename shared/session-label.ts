@@ -1,4 +1,4 @@
-import type { SessionInfo } from "./types.ts";
+import type { LogEntry, SessionInfo } from "./types.ts";
 
 const SESSION_MESSAGE_PREVIEW_LENGTH = 80;
 
@@ -22,4 +22,12 @@ export function sessionResumeLabel(
     sessionMessagePreview(session.firstUserMessage ?? "") ||
     untitled
   );
+}
+
+/**
+ * A log entry the topic labeller reads: a user message the conversation
+ * keeps. The echo of a slash command is ephemeral and does not count.
+ */
+export function isTopicSource(entry: Pick<LogEntry, "kind" | "ephemeral">) {
+  return entry.kind === "user_message" && !entry.ephemeral;
 }

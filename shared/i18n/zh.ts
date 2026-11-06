@@ -3095,6 +3095,9 @@ App 的一些原则：
   "commands.plan.on": "计划模式已开启。再次发送 /plan 即可关闭。",
   "commands.plan.off": "计划模式已关闭。",
   "commands.plan.unavailable": "{engine} 智能体不支持计划模式。",
+  "commands.rename.done": "话题已设为：{topic}",
+  "commands.rename.generating": "正在生成话题。",
+  "commands.rename.noContext": "还没有消息。用法：{usage}",
   "commands.model.openCodeUnsupported":
     "打开智能体设置，选择一个已连接的 OpenCode 模型。",
   "commands.model.header": "切换模型（当前：**{current}**）：",

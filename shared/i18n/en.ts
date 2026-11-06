@@ -3367,6 +3367,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "commands.plan.unavailable":
     "Plan mode is not available for {engine} agents.",
 
+  // /rename
+  "commands.rename.done": "Topic set to: {topic}",
+  "commands.rename.generating": "Generating a topic.",
+  "commands.rename.noContext": "No messages yet. Usage: {usage}",
+
   // /effort
   "commands.effort.openCodeSettings":
     "OpenCode effort choices are available in agent settings for models that expose them.",

@@ -230,7 +230,14 @@ export const commands: Record<string, CommandConfig> = {
     autoRun: true,
     engines: ["claude", "codex"],
   },
-  rename: { ...UNSUPPORTED_HARDCODED },
+  // Sets the session topic; bare, labels the conversation again.
+  rename: {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "rename",
+  },
   reset: {
     type: "hardcoded",
     supported: true,

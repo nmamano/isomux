@@ -3447,6 +3447,9 @@ Cosas que puedes hacer por él:
   "commands.plan.off": "El modo de planificación está desactivado.",
   "commands.plan.unavailable":
     "El modo de planificación no está disponible para los agentes de {engine}.",
+  "commands.rename.done": "Tema cambiado a: {topic}",
+  "commands.rename.generating": "Generando un tema.",
+  "commands.rename.noContext": "Todavía no hay mensajes. Uso: {usage}",
   "commands.model.openCodeUnsupported":
     "Abre los ajustes del agente para elegir un modelo de OpenCode conectado.",
   "commands.model.header": "Cambiar de modelo (actual: **{current}**):",

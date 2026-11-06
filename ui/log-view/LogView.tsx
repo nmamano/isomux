@@ -47,6 +47,7 @@ import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
 import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
+import { isTopicSource } from "../../shared/session-label.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import {
   SenderDevice,
@@ -876,15 +877,12 @@ export function LogView({
   const [topicDraft, setTopicDraft] = useState("");
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
-  // The header has one topic slot once the chat has a user message (the only
+  // The header has one topic slot once the chat has a kept user message (the only
   // input the topic generator reads): the label, or a "No topic" placeholder,
   // then the ↻ button, which spins while a generation runs. The label stays
   // during a generation; with no label the spinner stands alone. A blank chat
   // shows nothing.
-  const hasTopicableHistory = useMemo(
-    () => logs.some((e) => e.kind === "user_message"),
-    [logs],
-  );
+  const hasTopicableHistory = useMemo(() => logs.some(isTopicSource), [logs]);
   const topicGenerating = agent.topicGenerating;
   const showTopicRefresh = hasTopicableHistory && agent.capabilities.topicGen;
   const showTopicPlaceholder = hasTopicableHistory && !topicGenerating;

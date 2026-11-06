@@ -120,6 +120,14 @@ it("shows no topic slot on a blank chat", async () => {
   expect(text()).toBe(null);
   expect(refresh()).toBe(null);
   await done();
+
+  // The echo of a slash command is not a message the topic generator reads.
+  const echoOnly = await show(agentWith({ topic: null }), [
+    { ...userMessage, content: "/rename", ephemeral: true },
+  ]);
+  expect(echoOnly.text()).toBe(null);
+  expect(echoOnly.refresh()).toBe(null);
+  await echoOnly.done();
 });
 
 it("keeps the label and disables the refresh while a generation runs", async () => {
