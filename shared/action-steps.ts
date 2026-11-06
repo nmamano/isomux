@@ -45,6 +45,8 @@ export type ActionStepRequest =
   | { kind: "sign-in-link"; userId: string }
   // A member signed out on every device.
   | { kind: "member-sessions"; userId: string }
+  // One sign-in session of a member ended, by its prefix.
+  | { kind: "session-revoke"; userId: string; sessionPrefix: string }
   // Every pending sign-in link of a member taken back.
   | { kind: "sign-in-links-revoke"; userId: string }
   // A personal API token for the member the ask is for, as
@@ -101,6 +103,7 @@ const ACTION_STEP_KINDS: ReadonlySet<string> = new Set<
   "backup-settings",
   "sign-in-link",
   "member-sessions",
+  "session-revoke",
   "sign-in-links-revoke",
   "api-token",
   "api-token-revoke",

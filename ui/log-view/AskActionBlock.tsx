@@ -12,7 +12,8 @@
 // backup-settings). A kind that sets several keys draws one row per key.
 // Part 4: a member's sign-in link (sign-in-link), their sign-out on every
 // device (member-sessions), their unused links taken back
-// (sign-in-links-revoke), a personal API token (api-token), a token revoked
+// (sign-in-links-revoke), one session ended (session-revoke, task 43b67f3a),
+// a personal API token (api-token), a token revoked
 // (api-token-revoke) and the office's outside access (office-access). A link
 // or token the Apply makes goes to the store's askResults, which outlive this
 // card: the ask closes as it is made, often before the Apply answers.
@@ -44,6 +45,7 @@ import type {
   RemovedMemberListRes,
 } from "../../shared/contract-shapes.ts";
 import { categoryLabel, sizeText } from "../components/StoragePane.tsx";
+import { formatSince } from "../components/access-shared.tsx";
 import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { formatNumber } from "../../shared/i18n/number.ts";
@@ -172,7 +174,8 @@ export function AskActionBlock({
   step: ActionStepRequest;
   isMobile: boolean;
 }) {
-  const { t, tn, language } = useI18n();
+  const i18n = useI18n();
+  const { t, tn, language } = i18n;
   const {
     agents,
     users,
@@ -181,9 +184,9 @@ export function AskActionBlock({
     office,
     activeSessions,
     activeSessionsLoaded,
+    sessionContext,
     invitesList,
     invitesLoaded,
-    sessionContext,
     updateInfo,
   } = useAppState();
   const dispatch = useDispatch();
@@ -233,7 +236,7 @@ export function AskActionBlock({
   // the lists the office keeps live; seeded here when no page has yet. Keyed
   // on sessionContext too: see useAccessListsSeed.
   const needs =
-    step.kind === "member-sessions"
+    step.kind === "member-sessions" || step.kind === "session-revoke"
       ? "sessions"
       : step.kind === "sign-in-links-revoke"
         ? "invites"
@@ -268,6 +271,7 @@ export function AskActionBlock({
     step.kind === "member-purge" ||
     step.kind === "storage-prune" ||
     step.kind === "member-sessions" ||
+    step.kind === "session-revoke" ||
     step.kind === "sign-in-links-revoke" ||
     step.kind === "api-token-revoke" ||
     step.kind === "office-update" ||
@@ -874,6 +878,53 @@ export function AskActionBlock({
     };
   }
 
+  // One session, named as the Access pane shows it: its device, else its
+  // user agent, else its prefix.
+  function sessionRevokeView(s: Step<"session-revoke">): ActionView {
+    const member = memberById(s.userId);
+    const session = activeSessions.find(
+      (v) => v.userId === s.userId && v.sessionPrefix === s.sessionPrefix,
+    );
+    const name = session?.device || session?.userAgent || s.sessionPrefix;
+    const here = sessionContext?.currentSessionPrefix === s.sessionPrefix;
+    return {
+      name,
+      loading: !activeSessionsLoaded,
+      requested: { value: "0", label: t("asks.action.signedOut") },
+      lines: [
+        s.userId !== memberUserId && member && (
+          <div key="owner" style={{ fontSize: small }}>
+            {t("asks.action.sessionOwner", { member: member.name })}
+          </div>
+        ),
+        name !== s.sessionPrefix && (
+          <div
+            key="prefix"
+            {...noTranslate()}
+            style={{ ...muted, fontFamily: "'JetBrains Mono', monospace" }}
+          >
+            {s.sessionPrefix}…
+          </div>
+        ),
+        session && (
+          <div key="times" style={muted}>
+            {t("asks.action.sessionTimes", {
+              lastSeen: formatSince(i18n, session.lastSeenAt),
+              created: formatSince(i18n, session.createdAt),
+            })}
+          </div>
+        ),
+        here && (
+          <div key="here" style={{ fontSize: small }}>
+            {t("asks.action.signsYouOut")}
+          </div>
+        ),
+      ],
+      marks: here ? { "data-ask-action-signs-you-out": "" } : {},
+      gone: member ? null : t("asks.action.memberGone"),
+    };
+  }
+
   function linksRevokeView(s: Step<"sign-in-links-revoke">): ActionView {
     const member = memberById(s.userId);
     const pending = member
@@ -1214,6 +1265,8 @@ export function AskActionBlock({
         return apiTokenView(step);
       case "api-token-revoke":
         return apiTokenRevokeView(step);
+      case "session-revoke":
+        return sessionRevokeView(step);
       case "office-access":
         return officeAccessView(step);
       case "member-remove":

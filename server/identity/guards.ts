@@ -553,6 +553,22 @@ export function sharesRoomWithMember(
   );
 }
 
+// sessions.listForMember (task 43b67f3a): an agent reads the sessions of its
+// manager, or of any member with an office owner's reach, the members whose
+// session-revoke ask it can expect to apply. An unknown username denies like
+// any other member.
+export function memberSessionsReader(usernameParamName = "username"): Guard {
+  return ({ identity, params, deps }) => {
+    if (!actsForAgent(identity) || !identity.userId) return FORBIDDEN;
+    const username = params[usernameParamName];
+    const userId = username ? deps.userIdForUsername(username) : null;
+    return userId !== null &&
+      (userId === identity.userId || hasOfficeOwnerReach(identity, deps))
+      ? ALLOW
+      : FORBIDDEN;
+  };
+}
+
 // users.readInstructions: a caller that shares a room with the member
 // (sharesRoomWithMember). An unknown username denies like a member with no
 // shared room.

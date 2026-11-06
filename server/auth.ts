@@ -1592,6 +1592,23 @@ export function wouldRevokeLeaveOfficeUnreachable(
   return true;
 }
 
+// The same check for the member's own live session with this prefix: false
+// when the member has no such session. Never another member's session that
+// shares the prefix.
+export function wouldRevokeMemberSessionStrandOffice(
+  userId: string,
+  prefix: string,
+): boolean {
+  ensureLoaded();
+  const now = Date.now();
+  for (const [hash, s] of sessions!) {
+    if (s.userId !== userId || s.sessionPrefix !== prefix) continue;
+    if (s.expiresAt < now || s.absoluteExpiresAt < now) continue;
+    return wouldRevokeLeaveOfficeUnreachable(hash);
+  }
+  return false;
+}
+
 // True if taking the owner role from this user (demote or delete) would
 // leave the office with zero active owner sessions: the user is an owner
 // with an active session, and no other owner has one. An office where no

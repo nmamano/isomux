@@ -214,6 +214,11 @@ const ASKS_AGAIN = [
   ],
   // Dana, an owner, made a member.
   ["con00008", { kind: "member-role", userId: "u3", role: "member" }],
+  // One of Casey's sessions (task 43b67f3a).
+  [
+    "con00010",
+    { kind: "session-revoke", userId: "u2", sessionPrefix: "7Tqn6nKy" },
+  ],
 ] as const;
 // The other side of the same kinds: a grant and a promote take nothing away.
 const ONE_CLICK = [

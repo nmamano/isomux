@@ -1,11 +1,11 @@
 // Action asks, part 4 (task e3d1bc63): the actions that make or take back a
 // credential. An agent asks a member for a sign-in link, a sign-out on every
-// device, a sign-in link taken back, a personal API token, a token revoked, or
-// the office's outside access; the member runs it from the card. A sign-in
-// link or a token the run makes is in the run's answer to the member's page
-// and nowhere else: not in anything the agent reads, not in what the server
-// stores. The ask closes when the state reaches the value, by the card or by
-// hand on the page.
+// device, one session revoked (task 43b67f3a), a sign-in link taken back, a
+// personal API token, a token revoked, or the office's outside access; the
+// member runs it from the card. A sign-in link or a token the run makes is in
+// the run's answer to the member's page and nowhere else: not in anything the
+// agent reads, not in what the server stores. The ask closes when the state
+// reaches the value, by the card or by hand on the page.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "fs";
@@ -17,7 +17,12 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { createMember, getUserByName } from "../users.ts";
 import { officeAuditStore } from "../audit-store.ts";
-import { INVITE_TTL_MS, acceptInvite, mintInvite } from "../auth.ts";
+import {
+  INVITE_TTL_MS,
+  _testSetSessionExpiry,
+  acceptInvite,
+  mintInvite,
+} from "../auth.ts";
 import { STATE_ROOT } from "../config.ts";
 import type {
   AgentInfo,
@@ -230,7 +235,7 @@ function auditedOnce(operation: string, askId: string, memberId: string) {
 }
 
 // A further session for a member, as a sign-in link on another device.
-async function signIn(username: string): Promise<string> {
+async function signIn(username: string, userAgent = "test"): Promise<string> {
   const user = getUserByName(username)!;
   const mint = await mintInvite({
     userId: user.id,
@@ -238,9 +243,26 @@ async function signIn(username: string): Promise<string> {
     ttlMs: INVITE_TTL_MS,
   });
   if (!mint.ok) throw new Error(`mint failed: ${mint.error}`);
-  const acc = await acceptInvite(mint.rawToken, { userAgent: "test" });
+  const acc = await acceptInvite(mint.rawToken, { userAgent });
   if (!acc.ok) throw new Error(`accept failed: ${acc.error}`);
   return acc.rawSessionId;
+}
+
+// A further session for a member and its prefix, the one session the
+// member's list gained.
+async function signInWithPrefix(
+  o: Office,
+  username: string,
+  userAgent = "test",
+): Promise<{ session: string; prefix: string }> {
+  const userId = getUserByName(username)!.id;
+  const before = await sessionPrefixes(o, userId);
+  const session = await signIn(username, userAgent);
+  const added = (await sessionPrefixes(o, userId)).filter(
+    (p) => !before.includes(p),
+  );
+  expect(added).toHaveLength(1);
+  return { session, prefix: added[0] };
 }
 
 // Whether a session still signs in.
@@ -365,6 +387,11 @@ const tokenStep = (
   name,
   expiresInDays,
   ...(limits ? { limits } : {}),
+});
+const sessionRevokeStep = (username: string, sessionPrefix: string) => ({
+  kind: "session-revoke",
+  username,
+  sessionPrefix,
 });
 const tokenRevokeStep = (tokenId: string) => ({
   kind: "api-token-revoke",
@@ -830,6 +857,178 @@ describe("api-token-revoke asks", () => {
   });
 });
 
+// Task 43b67f3a: one session of a member revoked from the card.
+describe("a session-revoke ask at create", () => {
+  it("opens for an owner on a member's session and for a member on their own, stored by id with the prefix; refuses a member on another member's session (403), an unknown member (422), a prefix that is not a live session of that member (422 unknown_session, one answer), and a step with no prefix or extra keys (400); nothing runs", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const caseys = await spawn(o, "Helper", "Casey");
+    const curl = await signInWithPrefix(o, o.caseyName, "curl/8.5.0");
+    // A second owner session, so no refusal below is the office's last one.
+    const morgans = await signInWithPrefix(o, o.morganName);
+    expect(
+      (await opened(o, asker.id, sessionRevokeStep(o.caseyName, curl.prefix)))
+        .step as unknown,
+    ).toEqual({
+      kind: "session-revoke",
+      userId: o.caseyId,
+      sessionPrefix: curl.prefix,
+    });
+    expect(
+      (await opened(o, caseys.id, sessionRevokeStep(o.caseyName, curl.prefix)))
+        .step as unknown,
+    ).toEqual({
+      kind: "session-revoke",
+      userId: o.caseyId,
+      sessionPrefix: curl.prefix,
+    });
+    expect(
+      outcome(
+        await ask(
+          o,
+          caseys.id,
+          sessionRevokeStep(o.morganName, morgans.prefix),
+        ),
+      ),
+    ).toEqual(refused(403, "member_not_allowed"));
+    expect(
+      outcome(await ask(o, asker.id, sessionRevokeStep("nobody", curl.prefix))),
+    ).toEqual(refused(422, "unknown_member"));
+    // Another member's live session, a prefix no session has, and an expired
+    // session of the member answer alike.
+    const stale = await signInWithPrefix(o, o.caseyName);
+    expect(
+      _testSetSessionExpiry(stale.session, { expiresAt: Date.now() - 1000 }),
+    ).toBe(true);
+    const notHers = await ask(
+      o,
+      asker.id,
+      sessionRevokeStep(o.caseyName, morgans.prefix),
+    );
+    expect(outcome(notHers)).toEqual(refused(422, "unknown_session"));
+    for (const prefix of ["zzzzzzzz", stale.prefix]) {
+      const res = await ask(
+        o,
+        asker.id,
+        sessionRevokeStep(o.caseyName, prefix),
+      );
+      expect({ prefix, body: res.body }).toEqual({
+        prefix,
+        body: notHers.body,
+      });
+    }
+    for (const step of [
+      { kind: "session-revoke", username: o.caseyName },
+      { kind: "session-revoke", username: o.caseyName, sessionPrefix: "" },
+      { ...sessionRevokeStep(o.caseyName, curl.prefix), userId: o.caseyId },
+    ])
+      expect(outcome(await ask(o, asker.id, step))).toEqual(
+        refused(400, "invalid_request"),
+      );
+    // Nothing ran.
+    expect([
+      await alive(o, curl.session),
+      await alive(o, o.casey),
+      await alive(o, morgans.session),
+    ]).toEqual([true, true, true]);
+  });
+
+  it("refuses the office's last owner session (409 would_strand_office), and opens for one of two sessions of the only owner", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const [here] = await sessionPrefixes(o, o.morganId);
+    expect(
+      outcome(await ask(o, asker.id, sessionRevokeStep(o.morganName, here))),
+    ).toEqual(refused(409, "would_strand_office"));
+    // The other session keeps the office reachable: only this one ends.
+    const second = await signInWithPrefix(o, o.morganName);
+    await opened(o, asker.id, sessionRevokeStep(o.morganName, second.prefix));
+    expect(await alive(o, second.session)).toBe(true);
+  });
+});
+
+describe("a session-revoke ask run from the card", () => {
+  it("an owner's Apply ends that one session of the member and no other; the ask closes, the agent hears one line, and one sessions.revoke row by the owner names the ask and the session", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const curl = await signInWithPrefix(o, o.caseyName, "curl/8.5.0");
+    const entry = await opened(
+      o,
+      asker.id,
+      sessionRevokeStep(o.caseyName, curl.prefix),
+    );
+    const res = await run(o, o.morgan, entry.id);
+    expect(res.status).toBe(204);
+    expect([
+      await alive(o, curl.session),
+      await alive(o, o.casey),
+      await alive(o, o.morgan),
+    ]).toEqual([false, true, true]);
+    await closedAsDone(o, asker.id, entry.id);
+    expect(stepLines(o, asker.id)).toHaveLength(1);
+    const rows = auditRows("sessions.revoke", entry.id);
+    expect(rows.map((r) => [r.actor.kind, r.actor.id])).toEqual([
+      ["member", o.morganId],
+    ]);
+    expect(rows[0].targets.includes(curl.prefix)).toBe(true);
+  });
+
+  it("a member's Apply ends their own other session with their session", async () => {
+    const o = await office();
+    const caseys = await spawn(o, "Helper", "Casey");
+    const other = await signInWithPrefix(o, o.caseyName);
+    const entry = await opened(
+      o,
+      caseys.id,
+      sessionRevokeStep(o.caseyName, other.prefix),
+    );
+    expect((await run(o, o.casey, entry.id)).status).toBe(204);
+    expect([await alive(o, other.session), await alive(o, o.casey)]).toEqual([
+      false,
+      true,
+    ]);
+    await closedAsDone(o, caseys.id, entry.id);
+    auditedOnce("sessions.revoke", entry.id, o.caseyId);
+  });
+
+  it("an Apply that would end the office's last owner session refuses (409 would_strand_office), ends nothing, and the ask stays open", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const second = await signInWithPrefix(o, o.morganName);
+    const entry = await opened(
+      o,
+      asker.id,
+      sessionRevokeStep(o.morganName, second.prefix),
+    );
+    // Morgan signs out where the ask opened: the other session is now the
+    // office's last owner session, and Morgan applies from it.
+    expect(
+      (await asSession(o, o.morgan, "DELETE", "/api/sessions/current")).status,
+    ).toBe(204);
+    const res = await run(o, second.session, entry.id);
+    expect(outcome(res)).toEqual(refused(409, "would_strand_office"));
+    expect(await alive(o, second.session)).toBe(true);
+    expect(await askStatus(o, asker.id, entry.id)).toBe("open");
+  });
+
+  it("the session revoked by hand closes it while the member keeps another session", async () => {
+    const o = await office();
+    const asker = await spawn(o, "Asker");
+    const curl = await signInWithPrefix(o, o.caseyName, "curl/8.5.0");
+    const entry = await opened(
+      o,
+      asker.id,
+      sessionRevokeStep(o.caseyName, curl.prefix),
+    );
+    expect(
+      (await asSession(o, o.morgan, "DELETE", `/api/sessions/${curl.prefix}`))
+        .status,
+    ).toBe(204);
+    await closedAsDone(o, asker.id, entry.id);
+    expect(await alive(o, o.casey)).toBe(true);
+  });
+});
+
 describe("office-access asks", () => {
   it("opens for an owner with the address as the save stores it, and runs nothing", async () => {
     const o = await office();
@@ -941,6 +1140,7 @@ describe("credential asks from /mcp", () => {
     );
     expect(lowered.status).toBe(200);
     const caseyToken = await mintToken(o, o.casey, "laptop");
+    const [caseyPrefix] = await sessionPrefixes(o, o.caseyId);
     await asSession(o, o.morgan, "POST", "/api/invites", { userId: o.caseyId });
     const client = new Client({ name: "action-asks-test", version: "0.0.0" });
     await client.connect(
@@ -963,6 +1163,14 @@ describe("credential asks from /mcp", () => {
       [
         linksRevokeStep(o.caseyName),
         { kind: "sign-in-links-revoke", userId: o.caseyId },
+      ],
+      [
+        sessionRevokeStep(o.caseyName, caseyPrefix),
+        {
+          kind: "session-revoke",
+          userId: o.caseyId,
+          sessionPrefix: caseyPrefix,
+        },
       ],
       [tokenStep("deploy"), tokenStep("deploy")],
       [

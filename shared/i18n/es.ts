@@ -2129,6 +2129,9 @@ Cosas que puedes hacer por él:
   "asks.action.tokenNeverExpires": "No caduca",
   "asks.action.tokenHint": "El token aparece aquí una vez, después de Aplicar.",
   "asks.action.tokenRevoked": "Revocado",
+  "asks.action.sessionOwner": "Es de {member}",
+  "asks.action.sessionTimes":
+    "Visto por última vez {lastSeen}. Creada {created}.",
   "asks.action.tokenOwner": "Es de {member}",
   "asks.action.tokenRevokeHint":
     "Los scripts que usan este token dejan de funcionar.",
@@ -2282,6 +2285,7 @@ Cosas que puedes hacer por él:
   "apiCall.rooms.saveInstructions": "Cambiar las instrucciones de la sala",
   "apiCall.agents.saveInstructions": "Cambiar las instrucciones del agente",
   "apiCall.users.readInstructions": "Leer las instrucciones del miembro",
+  "apiCall.users.readSessions": "Leer las sesiones del miembro",
   "apiCall.users.saveInstructions": "Cambiar las instrucciones del miembro",
   "apiCall.cronjobs.readInstructions":
     "Leer las instrucciones de las programaciones",
@@ -3577,6 +3581,8 @@ Cosas que puedes hacer por él:
     "Enlace de inicio de sesión creado para {member}.",
   "systemEntries.stepAsk.memberSignedOut":
     "Sesión de {member} cerrada en todos los dispositivos.",
+  "systemEntries.stepAsk.sessionRevoked":
+    "Sesión de {member} cerrada en un dispositivo.",
   "systemEntries.stepAsk.signInLinksRevoked":
     "Enlaces de inicio de sesión de {member} retirados.",
   "systemEntries.stepAsk.apiTokenMade": "Token de API {name} creado.",

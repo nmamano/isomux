@@ -1722,6 +1722,7 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["invite_revoked", "invites_list"],
   },
   "sessions.list": { caps: ["session:manage"], emits: [] },
+  "sessions.listForMember": { caps: [], emits: [] },
   "sessions.revoke": {
     caps: ["session:manage"],
     emits: ["session_revoked", "sessions_active_list", "session_expired"],

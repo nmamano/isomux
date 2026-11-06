@@ -30,8 +30,13 @@ import {
   type TestServer,
   type TestSocket,
 } from "./harness.ts";
-import { acceptInvite } from "../auth.ts";
-import { setUserRole } from "../users.ts";
+import {
+  INVITE_TTL_MS,
+  _testSetSessionExpiry,
+  acceptInvite,
+  mintInvite,
+} from "../auth.ts";
+import { getUserByName, setUserRole } from "../users.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, SessionWire } from "../../shared/types.ts";
 
@@ -453,5 +458,184 @@ describe("routes/sessions REST: device label stamp (task 557dc8ce)", () => {
       2000,
       "sessions_active_list fanout",
     );
+  });
+});
+
+// Task 43b67f3a: an agent reads a member's live sessions, to name one in a
+// session-revoke ask without the member reading it out. Its manager's, or any
+// member's when the manager is an office owner; never a credential. A cookie
+// has GET /api/sessions, and an API token does not manage sessions.
+describe("routes/sessions REST: an agent's read of a member's sessions (task 43b67f3a)", () => {
+  async function office() {
+    const srv = await startTestServer();
+    server = srv;
+    const morgan = await srv.seedOwner("Morgan");
+    const casey = await srv.seedMember("Casey");
+    const room = srv.agentManager.getRooms()[0].id;
+    const rooms = await api(srv, `/api/users/${casey.username}/access`, {
+      method: "PUT",
+      body: { allowedRooms: [room] },
+      rawSessionId: morgan.rawSessionId,
+    });
+    expect(rooms.status).toBe(200);
+    const spawnFor = async (name: string, manager: string) => {
+      const info = await srv.agentManager.spawn(
+        name,
+        srv.stateRoot,
+        "default",
+        undefined,
+        undefined,
+        room,
+        undefined,
+        undefined,
+        undefined,
+        manager,
+        "claude",
+        undefined,
+        getUserByName(manager)!.id,
+      );
+      if (!info) throw new Error(`spawn ${name} returned null`);
+      return { id: info.id, token: getAgentTokenRaw(info.id)! };
+    };
+    return { srv, morgan, casey, spawnFor };
+  }
+  type Office = Awaited<ReturnType<typeof office>>;
+
+  const readAs = (o: Office, username: string, bearer: string) =>
+    api(o.srv, `/api/users/${username}/sessions`, { bearer });
+  const codeOf = (r: Res) =>
+    (r.body as { error?: { code?: string } } | null)?.error?.code;
+
+  async function signIn(username: string, userAgent: string) {
+    const mint = await mintInvite({
+      userId: getUserByName(username)!.id,
+      createdBy: null,
+      ttlMs: INVITE_TTL_MS,
+    });
+    if (!mint.ok) throw new Error(`mint failed: ${mint.error}`);
+    const acc = await acceptInvite(mint.rawToken, { userAgent });
+    if (!acc.ok) throw new Error(`accept failed: ${acc.error}`);
+    return acc.rawSessionId;
+  }
+
+  it("an office owner's agent reads a member's live sessions as the Access pane lists them: prefix, device, user agent, created and last seen, and nothing else", async () => {
+    const o = await office();
+    const agent = await o.spawnFor("Asker", o.morgan.username);
+    // Casey's first session names its device; a curl sign-in never does.
+    const sock = await o.srv.connectWs(o.casey.rawSessionId);
+    await sock.waitFor("presence_list");
+    sock.send({
+      type: "presence_update",
+      currentRoomId: null,
+      focusedAgentId: null,
+      viewMode: "away",
+      device: "Phone",
+    });
+    const curl = await signIn(o.casey.username, "curl/8.5.0");
+    const expired = await signIn(o.casey.username, "test");
+    expect(
+      _testSetSessionExpiry(expired, { expiresAt: Date.now() - 1000 }),
+    ).toBe(true);
+    const caseys = async () =>
+      sessionsOf(
+        await api(o.srv, "/api/sessions", {
+          rawSessionId: o.morgan.rawSessionId,
+        }),
+      ).filter((s) => s.username === o.casey.username);
+    const deadline = Date.now() + 2000;
+    while (!(await caseys()).some((s) => s.device === "Phone")) {
+      if (Date.now() > deadline) throw new Error("device stamp timed out");
+      await sleep(10);
+    }
+    const rows = await caseys();
+    // The two live sessions; the expired one is not listed.
+    expect(rows.map((s) => s.userAgent).sort()).toEqual(["curl/8.5.0", "test"]);
+
+    const r = await readAs(o, o.casey.username, agent.token);
+    expect(r.status).toBe(200);
+    expect(r.body).toStrictEqual({
+      sessions: rows.map((s) => ({
+        sessionPrefix: s.sessionPrefix,
+        device: s.device,
+        userAgent: s.userAgent,
+        createdAt: s.createdAt,
+        lastSeenAt: s.lastSeenAt,
+      })),
+    });
+    const text = JSON.stringify(r.body);
+    for (const raw of [o.casey.rawSessionId, curl, expired])
+      expect(text.includes(raw)).toBe(false);
+  });
+
+  it("a member's agent reads its manager's sessions and no other member's; an unknown member answers the same", async () => {
+    const o = await office();
+    const agent = await o.spawnFor("Helper", o.casey.username);
+    const own = await readAs(o, o.casey.username, agent.token);
+    expect(own.status).toBe(200);
+    expect((own.body as { sessions: unknown[] }).sessions).toHaveLength(1);
+    const other = await readAs(o, o.morgan.username, agent.token);
+    expect({ status: other.status, code: codeOf(other) }).toEqual({
+      status: 403,
+      code: "forbidden",
+    });
+    const unknown = await readAs(o, "nobody", agent.token);
+    expect({ status: unknown.status, body: unknown.body }).toEqual({
+      status: 403,
+      body: other.body,
+    });
+  });
+
+  it("a cookie, the owner's included, and an owner's API token are refused; the owner's agent reads the same path", async () => {
+    const o = await office();
+    const agent = await o.spawnFor("Asker", o.morgan.username);
+    const path = `/api/users/${o.casey.username}/sessions`;
+    const minted = await api(o.srv, "/api/me/api-tokens", {
+      method: "POST",
+      body: { name: "remote", expiresInDays: 30 },
+      rawSessionId: o.morgan.rawSessionId,
+    });
+    expect(minted.status).toBeLessThan(300);
+    const token = (minted.body as { token: string }).token;
+    for (const [who, init] of [
+      ["Casey's cookie", { rawSessionId: o.casey.rawSessionId }],
+      ["Morgan's cookie", { rawSessionId: o.morgan.rawSessionId }],
+      ["Morgan's API token", { bearer: token }],
+    ] as const) {
+      const r = await api(o.srv, path, init);
+      expect({ who, status: r.status, code: codeOf(r) }).toEqual({
+        who,
+        status: 403,
+        code: "forbidden",
+      });
+    }
+    expect((await readAs(o, o.casey.username, agent.token)).status).toBe(200);
+  });
+
+  it("an agent whose pack has no office read is refused for the office area; with office read it reads", async () => {
+    const o = await office();
+    const agent = await o.spawnFor("Asker", o.morgan.username);
+    const setPack = async (areas: Record<string, string>) =>
+      expect(
+        (
+          await api(o.srv, `/api/agents/${agent.id}/access`, {
+            method: "PUT",
+            body: { access: "office", pack: { areas } },
+            rawSessionId: o.morgan.rawSessionId,
+          })
+        ).status,
+      ).toBe(200);
+    // A new stop mints the agent a new token: read it after each.
+    const tokenNow = () => getAgentTokenRaw(agent.id)!;
+    await setPack({ asks: "write" });
+    const refused = await readAs(o, o.casey.username, tokenNow());
+    const err = (refused.body as { error?: { area?: string; level?: string } })
+      .error;
+    expect({
+      status: refused.status,
+      area: err?.area,
+      level: err?.level,
+    }).toEqual({ status: 403, area: "office", level: "read" });
+    await setPack({ asks: "write", office: "read" });
+    expect((await readAs(o, o.casey.username, tokenNow())).status).toBe(200);
   });
 });

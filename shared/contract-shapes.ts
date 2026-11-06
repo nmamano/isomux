@@ -45,6 +45,7 @@ import type {
   AskClosure,
   AskOutcome,
   EnvVariableSource,
+  SessionWire,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 import type { Floor } from "./floors.ts";
@@ -57,6 +58,13 @@ import type { MemberPack } from "./pack-fit.ts";
 // ServerMessage, which references it). Re-exported here so the route-table /
 // event-registry import sites keep importing every wire shape from one module.
 export type { UserPublicWire } from "./types.ts";
+
+// One live session of a member as an agent reads it, to name it in a
+// session-revoke ask (task 43b67f3a): no user id, expiry or credential.
+export type MemberSessionWire = Pick<
+  SessionWire,
+  "sessionPrefix" | "device" | "userAgent" | "createdAt" | "lastSeenAt"
+>;
 
 // The caller's own full record (env/access/prompt/view prefs); delivered ONLY
 // to that user. Same shape as UserAdminWire, kept as a distinct name so the

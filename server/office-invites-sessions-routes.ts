@@ -6,6 +6,7 @@ import {
   buildPublicOrigin,
   INVITE_TTL_MS,
   SELF_INVITE_TTL_MS,
+  listActiveSessionsForUserId,
   logoutBySessionHash,
   mintInvite,
   revokeActiveSessionByPrefixForUserId,
@@ -20,7 +21,7 @@ import {
 import type { EmitContext } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import type { createAccessPolicy } from "./office-access-policy.ts";
-import { getUserById } from "./users.ts";
+import { getUserById, getUserByName } from "./users.ts";
 import type { HandlerErrorStatus, RouteHandler } from "./routes/executor.ts";
 import { invitesHandlers } from "./routes/handlers/invites.ts";
 import { sessionsHandlers } from "./routes/handlers/sessions.ts";
@@ -206,6 +207,18 @@ export function createSessionsRoutes(
   // close ride the forceExpireSocketsForSession bridge inside the auth core ops.
   return sessionsHandlers({
     listScoped: (identity) => scopedSessionsFor(identity.userId),
+    listForMember: (username) => {
+      const u = getUserByName(username);
+      return u
+        ? listActiveSessionsForUserId(u.id).map((v) => ({
+            sessionPrefix: v.sessionPrefix,
+            device: v.device,
+            userAgent: v.userAgent,
+            createdAt: v.createdAt,
+            lastSeenAt: v.lastSeenAt,
+          }))
+        : [];
+    },
     revoke: async (identity, sessionPrefix) => {
       const u = identity.userId ? getUserById(identity.userId) : undefined;
       if (!u) return { ok: false, status: 403, code: "forbidden" };

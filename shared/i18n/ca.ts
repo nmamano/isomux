@@ -2136,6 +2136,9 @@ Coses que pots fer per ell:
   "asks.action.tokenHint":
     "El token apareix aquí una vegada, després d'Aplica.",
   "asks.action.tokenRevoked": "Revocat",
+  "asks.action.sessionOwner": "És de {member}",
+  "asks.action.sessionTimes":
+    "Vista per última vegada {lastSeen}. Creada {created}.",
   "asks.action.tokenOwner": "És de {member}",
   "asks.action.tokenRevokeHint":
     "Els scripts que fan servir aquest token deixen de funcionar.",
@@ -2289,6 +2292,7 @@ Coses que pots fer per ell:
   "apiCall.rooms.saveInstructions": "Canviar les instruccions de la sala",
   "apiCall.agents.saveInstructions": "Canviar les instruccions de l'agent",
   "apiCall.users.readInstructions": "Llegir les instruccions del membre",
+  "apiCall.users.readSessions": "Llegir les sessions del membre",
   "apiCall.users.saveInstructions": "Canviar les instruccions del membre",
   "apiCall.cronjobs.readInstructions":
     "Llegir les instruccions de les programacions",
@@ -3584,6 +3588,8 @@ Coses que pots fer per ell:
     "Enllaç d'inici de sessió creat per a {member}.",
   "systemEntries.stepAsk.memberSignedOut":
     "Sessió de {member} tancada a tots els dispositius.",
+  "systemEntries.stepAsk.sessionRevoked":
+    "Sessió de {member} tancada en un dispositiu.",
   "systemEntries.stepAsk.signInLinksRevoked":
     "Enllaços d'inici de sessió de {member} retirats.",
   "systemEntries.stepAsk.apiTokenMade": "Token d'API {name} creat.",

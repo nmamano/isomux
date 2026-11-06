@@ -15,6 +15,7 @@ import {
   listActiveSessionsForUserId,
   listInvitesForUser,
   sessionPrefixOfHash,
+  wouldRevokeMemberSessionStrandOffice,
   wouldRemovingOwnerStrandOffice,
 } from "./auth.ts";
 import { listApiTokens, liveApiTokenOwner } from "./api-tokens.ts";
@@ -204,6 +205,7 @@ export function officeStepRuns(deps: {
     lastCompress: () => deps.storage.lastCompress(),
     // A verdict at the create; the revoke checks again inside the auth mutex.
     signOutStrandsOffice: wouldRemovingOwnerStrandOffice,
+    sessionRevokeStrandsOffice: wouldRevokeMemberSessionStrandOffice,
     // The member as their session would be, judged on the route. Runs
     // nothing.
     authorizeAs: (memberUserId, route) => {

@@ -1,5 +1,6 @@
 // Sessions resource handlers. The active-session auth
-// surface on the unified REST surface (opIds sessions.{list,revoke,logout}).
+// surface on the unified REST surface (opIds sessions.{list,listForMember,
+// revoke,logout}).
 //
 // Mirrors the 3a.4a invites slice: leaf REST mappers over a slim SessionsDeps;
 // the isomux-office.ts seam owns mutate→emit (there is no auth event sink). Owner/member
@@ -32,6 +33,7 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { SessionWire } from "../../../shared/types.ts";
+import type { MemberSessionWire } from "../../../shared/contract-shapes.ts";
 
 // Revoke/logout outcome: ok, or a status-mapped failure the seam already shaped
 // per the non-leak policy (owner: honest 404/409; member: uniform 403; lockout:
@@ -44,6 +46,9 @@ export interface SessionsDeps {
   // Scoped list for the caller (record role): owner → all; member → own. Direct
   // reply only - NO fan-out (a pure read must never emit to other users).
   listScoped(identity: Identity): SessionWire[];
+  // One member's live sessions, newest seen first, for an agent (the guard
+  // passed): no user id, expiry or credential.
+  listForMember(username: string): MemberSessionWire[];
   // Revoke a session by prefix (precondition sessionOwnerOrSelf already
   // passed; the seam's revoker refuses a last-owner lockout). On ok the seam
   // emits session_revoked (owners) and the core op fans out
@@ -59,6 +64,9 @@ export function sessionsHandlers(
 ): Record<string, RouteHandler> {
   return {
     "sessions.list": (ctx) => ok({ sessions: deps.listScoped(ctx.identity) }),
+
+    "sessions.listForMember": (ctx) =>
+      ok({ sessions: deps.listForMember(ctx.params.username) }),
 
     "sessions.revoke": async (ctx) => {
       const r = await deps.revoke(ctx.identity, ctx.params.sessionPrefix);

@@ -7,7 +7,10 @@ import {
   MESSAGE_PLAIN_TEXT_PARAMS,
   type PlainTextParams,
 } from "../../shared/plain-text-form.ts";
-import type { AppWidgetStatus } from "../../shared/contract-shapes.ts";
+import type {
+  AppWidgetStatus,
+  MemberSessionWire,
+} from "../../shared/contract-shapes.ts";
 import {
   resourceTargets,
   createdResource,
@@ -80,6 +83,7 @@ import {
   webhookOwnerOrOfficeOwner,
   webhookMakerAgent,
   hasOwningUser,
+  memberSessionsReader,
   runParamMustEqualTokenRun,
   taskDelete,
   agentKill,
@@ -2840,6 +2844,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/sessions",
     auth: cap("session:manage", authenticated),
+    emits: [],
+  }),
+  // An agent reads a member's live sessions, to name one in a session-revoke
+  // ask (task 43b67f3a). No capability: agents hold no session:manage, and
+  // the guard admits agents only.
+  defineRoute<void, { sessions: MemberSessionWire[] }>({
+    opId: "sessions.listForMember",
+    method: "GET",
+    path: "/api/users/:username/sessions",
+    auth: authn(memberSessionsReader("username")),
+    tokenArea: { area: "office", level: "read" },
     emits: [],
   }),
   defineRoute<void, NoContent>({

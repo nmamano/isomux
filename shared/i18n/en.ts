@@ -2084,6 +2084,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "asks.action.tokenNeverExpires": "Never expires",
   "asks.action.tokenHint": "The token shows here once, after Apply.",
   "asks.action.tokenRevoked": "Revoked",
+  "asks.action.sessionOwner": "Belongs to {member}",
+  "asks.action.sessionTimes": "Last seen {lastSeen}. Created {created}.",
   "asks.action.tokenOwner": "Belongs to {member}",
   "asks.action.tokenRevokeHint": "Scripts that use this token stop working.",
   "asks.action.accessNoAddress": "None",
@@ -2221,6 +2223,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apiCall.rooms.saveInstructions": "Change room instructions",
   "apiCall.agents.saveInstructions": "Change agent instructions",
   "apiCall.users.readInstructions": "Read member instructions",
+  "apiCall.users.readSessions": "Read member sessions",
   "apiCall.users.saveInstructions": "Change member instructions",
   "apiCall.cronjobs.readInstructions": "Read schedule instructions",
   "apiCall.cronjobs.saveInstructions": "Change schedule instructions",
@@ -3512,6 +3515,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "systemEntries.stepAsk.signInLinkMade": "Sign-in link made for {member}.",
   "systemEntries.stepAsk.memberSignedOut":
     "{member} signed out on every device.",
+  "systemEntries.stepAsk.sessionRevoked": "{member} signed out on one device.",
   "systemEntries.stepAsk.signInLinksRevoked":
     "Sign-in links of {member} taken back.",
   "systemEntries.stepAsk.apiTokenMade": "API token {name} made.",

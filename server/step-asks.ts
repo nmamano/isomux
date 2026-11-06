@@ -172,6 +172,9 @@ export interface StepRunDeps {
   // Whether ending every live session of this member leaves the office with
   // no live owner session.
   signOutStrandsOffice(userId: string): boolean;
+  // Whether ending the member's one live session with this prefix leaves the
+  // office with no live owner session.
+  sessionRevokeStrandsOffice(userId: string, sessionPrefix: string): boolean;
   // Part 5: a removed member's name, or null when no removed member has this
   // id; and the id of the removed member with this username (a removed
   // member's name stays reserved, so there is at most one).
@@ -263,6 +266,7 @@ const STEP_KEYS: Record<AskStep["kind"], readonly string[]> = {
   "sign-in-link": ["kind", "username"],
   "member-sessions": ["kind", "username"],
   "sign-in-links-revoke": ["kind", "username"],
+  "session-revoke": ["kind", "username", "sessionPrefix"],
   "api-token": ["kind", "name", "expiresInDays", "limits"],
   "api-token-revoke": ["kind", "tokenId"],
   "office-access": ["kind", "externalAccess", "publicOrigin"],
@@ -355,6 +359,8 @@ function doneLine(step: AskStep, target: string): LogMessage {
       return msg("systemEntries.stepAsk.apiTokenMade", { name: step.name });
     case "api-token-revoke":
       return msg("systemEntries.stepAsk.apiTokenRevoked");
+    case "session-revoke":
+      return msg("systemEntries.stepAsk.sessionRevoked", { member: target });
     case "office-access":
       return msg("systemEntries.stepAsk.officeAccessSet");
     case "member-remove":
@@ -528,6 +534,15 @@ export function createStepAsks(deps: StepAskDeps) {
       }
       case "api-token-revoke":
         return !!deps.runs && deps.runs.apiToken(step.tokenId) === null;
+      // That one session of the member is gone, by the card, by hand or by a
+      // sign-out on every device.
+      case "session-revoke":
+        return (
+          !!deps.runs &&
+          !deps.runs
+            .memberSessions(step.userId)
+            .some((v) => v.prefix === step.sessionPrefix)
+        );
       case "office-access": {
         const now = deps.runs?.officeAccess();
         return (
@@ -582,6 +597,12 @@ export function createStepAsks(deps: StepAskDeps) {
     status: 422,
     code: "unknown_member",
     message: "no member with this username",
+  });
+  const unknownSession = (): StepFailure => ({
+    ok: false,
+    status: 422,
+    code: "unknown_session",
+    message: "no live session of this member with this prefix",
   });
   const unknownRoom = (): StepFailure => ({
     ok: false,
@@ -831,6 +852,17 @@ export function createStepAsks(deps: StepAskDeps) {
           })),
         };
       }
+      case "session-revoke":
+        if (!deps.runs?.member(step.userId)) return unknownMember();
+        return {
+          ok: true,
+          routes: [
+            {
+              method: "DELETE",
+              path: `/api/sessions/${encodeURIComponent(step.sessionPrefix)}`,
+            },
+          ],
+        };
       case "sign-in-links-revoke": {
         if (!deps.runs?.member(step.userId)) return unknownMember();
         return {
@@ -1181,6 +1213,21 @@ export function createStepAsks(deps: StepAskDeps) {
         if (!parsed.ok) return invalid(`step: ${parsed.message}`);
         return { ok: true, step: { kind, ...parsed.req } };
       }
+      // A live session of that member: a prefix of another member's session,
+      // or of one that is gone, answers as one that never was.
+      case "session-revoke": {
+        if (typeof body.username !== "string" || body.username === "")
+          return invalid("step.username is a member's username");
+        if (typeof body.sessionPrefix !== "string" || body.sessionPrefix === "")
+          return invalid("step.sessionPrefix is a session's prefix");
+        if (!deps.runs) return invalid("this office runs no action steps");
+        const userId = deps.runs.memberIdByName(body.username);
+        if (!userId) return unknownMember();
+        const prefix = body.sessionPrefix;
+        if (!deps.runs.memberSessions(userId).some((v) => v.prefix === prefix))
+          return unknownSession();
+        return { ok: true, step: { kind, userId, sessionPrefix: prefix } };
+      }
       // The token's owner is stored with it. A token that is gone answers as
       // one the member may not revoke (actionRefusal).
       case "api-token-revoke": {
@@ -1359,6 +1406,7 @@ export function createStepAsks(deps: StepAskDeps) {
       case "member-pack":
       case "sign-in-link":
       case "member-sessions":
+      case "session-revoke":
       case "sign-in-links-revoke":
         return deps.runs?.member(step.userId)?.name ?? step.userId;
       case "member-view":
@@ -1530,6 +1578,25 @@ export function createStepAsks(deps: StepAskDeps) {
       case "api-token":
         return runs.authorizeAs(memberUserId, runRoute(step, memberUserId))
           ? notAllowed("this member cannot make an API token")
+          : null;
+      // As a sign-out: an owner for anyone, a member for themself, and never
+      // the office's last owner session.
+      case "session-revoke":
+        if (
+          (step.userId !== memberUserId && !deps.isOfficeOwner(memberUserId)) ||
+          runs.authorizeAs(memberUserId, {
+            method: "DELETE",
+            path: "/api/sessions/-",
+          })
+        )
+          return notAllowed("only an office owner can sign out another member");
+        return runs.sessionRevokeStrandsOffice(step.userId, step.sessionPrefix)
+          ? {
+              ok: false,
+              status: 409,
+              code: "would_strand_office",
+              message: "this is the office's last owner session",
+            }
           : null;
       // A token the member may not revoke answers as a missing one.
       case "api-token-revoke": {
