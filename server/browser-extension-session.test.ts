@@ -2052,6 +2052,49 @@ test("an action that never settles fences its grant until the ceiling, then a fr
   }
 }, 10_000);
 
+// The fence's ceiling runs from the moment the fence is on. Before task
+// 701607e8 it was armed only after the grace, so an action whose agent lost
+// the tab during the grace left a fence with no ceiling, and the tab answered
+// "not sent" for good once the agent got it back.
+test("an action that loses its tab during the settle grace still gets the fence ceiling", async () => {
+  const h = await timeoutSessionFixture("hang", true, 0, { fenceCeiling: 200 });
+  // The agent loses the tab as the watchdog fires, before the grace ends.
+  const diagnostics = spyOn(console, "info").mockImplementation(
+    (line: unknown) => {
+      if (String(line).includes('"watchdog_timeout"'))
+        h.allowed.delete("agent");
+    },
+  );
+  try {
+    const first = await h.sessions.run("agent", {
+      action: "fill",
+      selector: "#fixture",
+      text: "fixture",
+    });
+    expect(first.ok).toBe(false);
+    expect(h.allowed.has("agent")).toBe(false);
+    h.allowed.add("agent");
+    expect(h.connection.offered("agent")).toBe(h.grant);
+    // The old work never settles: the fence holds until its ceiling.
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      code: "action_timeout",
+      error: NOT_SENT_ERROR,
+    });
+    await Bun.sleep(400);
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({
+      ok: true,
+      text: "fixture",
+    });
+    expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(diagnosticsOf(diagnostics).map((l) => l.reason)).toContain(
+      "fence_ceiling",
+    );
+  } finally {
+    diagnostics.mockRestore();
+    h.stop();
+  }
+}, 10_000);
+
 test("Playwright initialization timeout retains the offer while outstanding initialization drains", async () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-init-timeout-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));

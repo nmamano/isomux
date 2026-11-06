@@ -151,11 +151,7 @@ type Assignment = {
   officeRefusals: number;
   // Commands whose answer was too large to relay (receiveOversized).
   answersTooLarge: number;
-  creating: boolean;
-  connected: boolean;
-  // The current client's announce of the tab: in flight, then done.
-  announcing?: Promise<void>;
-  announced: boolean;
+  state: GrantState;
   // Sessions whose Target.setAutoAttach the current client got a result for.
   autoAttached: Set<string>;
   // Open JavaScript dialogs by page or frame session. One that is open blocks
@@ -163,13 +159,48 @@ type Assignment = {
   dialogs: Map<string, { type: string; message: string }>;
   // The script contexts the current client got for the tab's main frame.
   world: ScriptWorld;
-  closed: boolean;
-  recovery?: {
-    done: Promise<void>;
-    finish(): void;
-    timer: ReturnType<typeof setTimeout>;
-  };
 };
+
+// The grant's phase. Every change goes through enter(), which allows only
+// these moves and ignores any other:
+//   offer done          creating -> offered
+//   assign              offered -> attached
+//   retained close      attached -> offered
+//   retireClient        attached -> offered
+//   "recovering" event  creating, offered, attached -> recovering
+//                       (from recovering: release, recovery_unexpected)
+//   "recovered" event   recovering -> offered (otherwise: release)
+//   release             any -> released; released is terminal
+// Leaving attached drops the action fence with its ceiling and resets the
+// client peer; leaving recovering clears its timer and resolves done.
+type GrantState =
+  | { kind: "creating" }
+  | { kind: "offered" }
+  | {
+      kind: "attached";
+      // The client's announce of the tab: in flight, then done.
+      announcing?: Promise<void>;
+      announced: boolean;
+      fence?: { cancel(): void };
+    }
+  | {
+      kind: "recovering";
+      done: Promise<void>;
+      finish(): void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  | { kind: "released" };
+type GrantKind = GrantState["kind"];
+const LIVE: readonly GrantKind[] = [
+  "creating",
+  "offered",
+  "attached",
+  "recovering",
+];
+const noPeer = (): BridgePeer => ({ send() {}, close() {} });
+
+// A timed-out action's work in flight, from ExtensionConnection.fence().
+export type ActionFence = { held(): boolean; lift(): void };
 
 // An iframe session. parent is the session its attach came on. Chrome holds a
 // new frame until a client resumes it, and announces a frame only once per
@@ -728,7 +759,11 @@ export class ExtensionConnection {
   // A grant's live client whose agent may no longer use it is cut; the grant
   // stays for the agents that still may.
   private cutActor(a: Assignment, cause: string): void {
-    if (a.connected && a.actor !== undefined && !this.accessible(a, a.actor))
+    if (
+      a.state.kind === "attached" &&
+      a.actor !== undefined &&
+      !this.accessible(a, a.actor)
+    )
       this.retireClient(a.id, cause);
   }
 
@@ -835,7 +870,7 @@ export class ExtensionConnection {
         page.url = url;
         page.gated = false;
       });
-    if (this.active && !a.closed && !a.recovery)
+    if (this.active && this.reachable(a))
       try {
         this.request(a, "cdp", {
           method: "Page.stopLoading",
@@ -863,7 +898,7 @@ export class ExtensionConnection {
   }
 
   private unfenced(a: Assignment, method: string, key: string): void {
-    if (!this.active || a.closed || a.recovery) return;
+    if (!this.active || !this.reachable(a)) return;
     try {
       this.peer.send({
         kind: "command",
@@ -920,8 +955,9 @@ export class ExtensionConnection {
       const id = fields(fields(result.frameTree).frame).id;
       if (typeof id === "string") a.pageId = id;
     } catch {}
-    if (a.peer !== peer || !a.connected || a.closed || !a.target) return;
-    a.announced = true;
+    const state = a.state;
+    if (a.peer !== peer || state.kind !== "attached" || !a.target) return;
+    state.announced = true;
     this.announcePage(a, a.session, a.target);
     for (const [sessionId, target] of a.popups)
       this.announcePage(a, sessionId, target);
@@ -1051,24 +1087,21 @@ export class ExtensionConnection {
       !this.active ||
       !assignment?.target ||
       !this.accessible(assignment, agentId) ||
-      assignment.connected ||
-      assignment.recovery ||
+      assignment.state.kind !== "offered" ||
       this.pendingCount(assignment.id)
     )
       throw new Error(
         "Offer a tab with Allow agent control in the Chrome extension popup",
       );
     this.check(assignment);
+    this.enter(assignment, ["offered"], { kind: "attached", announced: false });
     assignment.peer = peer;
     assignment.actor = agentId;
-    assignment.connected = true;
-    assignment.announcing = undefined;
-    assignment.announced = false;
     assignment.autoAttached = new Set();
     assignment.world = { isolated: "none" };
     return {
       receive: (message) =>
-        assignment.peer === peer && assignment.connected
+        assignment.peer === peer && assignment.state.kind === "attached"
           ? this.dispatch(assignment, message, agentId, peer)
           : Promise.resolve(),
       close: () => {
@@ -1077,8 +1110,7 @@ export class ExtensionConnection {
           this.release(assignment, "client_closed");
           return;
         }
-        assignment.connected = false;
-        assignment.peer = { send() {}, close() {} };
+        this.enter(assignment, ["attached"], { kind: "offered" });
         for (const key of assignment.children.keys())
           this.resumeChild(assignment, key);
       },
@@ -1090,7 +1122,7 @@ export class ExtensionConnection {
    * command reaches nobody, but the command can still run in Chrome. */
   retireClient(grant: string, cause: string): void {
     const a = this.assignments.get(grant);
-    if (!a || a.closed) return;
+    if (!a || a.state.kind === "released") return;
     const dropped = [...this.pending].filter(([, p]) => p.assignment === grant);
     console.info(
       "[browser-extension] " +
@@ -1120,8 +1152,7 @@ export class ExtensionConnection {
     // The debugger stays attached, so the frames stay; the next client
     // resumes them (as at a retained close).
     const peer = a.peer;
-    a.peer = { send() {}, close() {} };
-    a.connected = false;
+    this.enter(a, ["attached"], { kind: "offered" });
     a.retirements++;
     for (const key of a.children.keys()) this.resumeChild(a, key);
     peer.close();
@@ -1175,24 +1206,94 @@ export class ExtensionConnection {
       world.utility = context.id;
   }
 
+  /** Fences the grant's attached client while a timed-out action's work
+   * settles. The fence ends at lift(), at ceilingMs (then onCeiling runs),
+   * or when the client leaves (close, retire, recovery, release). */
+  fence(grant: string, ceilingMs: number, onCeiling: () => void): ActionFence {
+    const a = this.assignments.get(grant);
+    const state = a?.state;
+    if (!a || state?.kind !== "attached")
+      return { held: () => false, lift() {} };
+    state.fence?.cancel();
+    const fence = { cancel() {} };
+    const held = () => a.state === state && state.fence === fence;
+    fence.cancel = this.clock.schedule(() => {
+      if (!held()) return;
+      state.fence = undefined;
+      try {
+        onCeiling();
+      } catch (error) {
+        console.error(
+          "[browser-extension] " +
+            JSON.stringify({
+              reason: "fence_ceiling_failed",
+              generation: this.generation,
+              assignment: grant,
+              error: error instanceof Error ? error.name : typeof error,
+            }),
+        );
+      }
+    }, ceilingMs);
+    state.fence = fence;
+    return {
+      held,
+      lift() {
+        if (!held()) return;
+        fence.cancel();
+        state.fence = undefined;
+      },
+    };
+  }
+
+  fenced(grant: string): boolean {
+    const state = this.assignments.get(grant)?.state;
+    return state?.kind === "attached" && state.fence !== undefined;
+  }
+
   isRecovering(grant: string): boolean {
-    return !!this.assignments.get(grant)?.recovery;
+    return this.assignments.get(grant)?.state.kind === "recovering";
   }
 
   async waitForRecovery(grant: string, maxMs: number): Promise<boolean> {
     const a = this.assignments.get(grant);
     if (!a) return false;
-    if (a.recovery) {
+    if (a.state.kind === "recovering") {
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
-        a.recovery.done,
+        a.state.done,
         new Promise<void>((resolve) => {
           timer = setTimeout(resolve, maxMs);
         }),
       ]);
       clearTimeout(timer);
     }
-    return !a.closed && !a.recovery;
+    return this.reachable(a);
+  }
+
+  // Not released and not between debuggers.
+  private reachable(a: Assignment): boolean {
+    return a.state.kind !== "released" && a.state.kind !== "recovering";
+  }
+
+  // The only writer of a.state: it moves only from the kinds listed (the
+  // table above GrantState) and says whether it moved.
+  private enter(
+    a: Assignment,
+    from: readonly GrantKind[],
+    next: GrantState,
+  ): boolean {
+    const prior = a.state;
+    if (!from.includes(prior.kind)) return false;
+    a.state = next;
+    if (prior.kind === "attached") {
+      prior.fence?.cancel();
+      a.peer = noPeer();
+    }
+    if (prior.kind === "recovering") {
+      clearTimeout(prior.timer);
+      prior.finish();
+    }
+    return true;
   }
 
   private accessible(a: Assignment, agent: string): boolean {
@@ -1360,7 +1461,7 @@ export class ExtensionConnection {
       handle: offerHandle(this.credentialHash, id),
       session: crypto.randomUUID(),
       browserSession: crypto.randomUUID(),
-      peer: { send() {}, close() {} },
+      peer: noPeer(),
       retirements: 0,
       reattaches: 0,
       children: new Map(),
@@ -1369,13 +1470,10 @@ export class ExtensionConnection {
       childPages: new Map(),
       officeRefusals: 0,
       answersTooLarge: 0,
-      creating: true,
-      connected: false,
-      announced: false,
+      state: { kind: "creating" },
       autoAttached: new Set(),
       dialogs: new Map(),
       world: { isolated: "none" },
-      closed: false,
     };
   }
 
@@ -1451,7 +1549,7 @@ export class ExtensionConnection {
         gated: this.officeRefused(a, target.url),
         refusals: 0,
       });
-      a.creating = false;
+      this.enter(a, ["creating"], { kind: "offered" });
       a.expiresAt = resume
         ? resume.expiresAt
         : durationMinutes === 0
@@ -1624,7 +1722,7 @@ export class ExtensionConnection {
   private check(a: Assignment): void {
     if (
       !this.active ||
-      a.closed ||
+      a.state.kind === "released" ||
       this.expired(a) ||
       this.assignments.get(a.id) !== a ||
       !this.authorized(a)
@@ -1761,7 +1859,7 @@ export class ExtensionConnection {
     sent?: (id: number) => void,
   ): Promise<Fields> {
     this.check(a);
-    if (a.recovery)
+    if (a.state.kind === "recovering")
       return Promise.reject(new Error("Debugger recovery in progress"));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
@@ -2040,7 +2138,7 @@ export class ExtensionConnection {
       }
       this.check(a);
       if (msg.method === "recovering") {
-        if (a.recovery) {
+        if (a.state.kind === "recovering") {
           this.release(a, "recovery_unexpected");
           return;
         }
@@ -2049,19 +2147,18 @@ export class ExtensionConnection {
           finish = resolve;
         });
         a.reattaches++;
-        a.recovery = {
+        // Retire only this CDP client. Its close cannot revoke the retained
+        // grant, and late results cannot enter the next client session.
+        const peer = a.peer;
+        this.enter(a, ["creating", "offered", "attached"], {
+          kind: "recovering",
           done,
           finish,
           timer: setTimeout(
             () => this.release(a, "recovery_timeout"),
             BROWSER_REATTACH_MS,
           ),
-        };
-        // Retire only this CDP client. Its close cannot revoke the retained
-        // grant, and late results cannot enter the next client session.
-        const peer = a.peer;
-        a.peer = { send() {}, close() {} };
-        a.connected = false;
+        });
         a.children.clear();
         a.childPages.clear();
         // The reattached debugger is a new session, which cannot answer a
@@ -2078,20 +2175,20 @@ export class ExtensionConnection {
         return;
       }
       if (msg.method === "recovered") {
-        if (!a.recovery) {
+        if (!this.enter(a, ["recovering"], { kind: "offered" }))
           this.release(a, "recovery_unexpected");
-          return;
-        }
-        clearTimeout(a.recovery.timer);
-        a.recovery.finish();
-        a.recovery = undefined;
         return;
       }
       if (msg.method === "detached") {
         this.release(a, "extension_detached", extensionCause(msg.params));
         return;
       }
-      if (a.recovery || !a.target || typeof msg.method !== "string") return;
+      if (
+        a.state.kind === "recovering" ||
+        !a.target ||
+        typeof msg.method !== "string"
+      )
+        return;
       if (msg.method === "popup") {
         const params = fields(msg.params);
         const target = fields(params.targetInfo);
@@ -2123,7 +2220,8 @@ export class ExtensionConnection {
           this.closeGate(a, params.sessionId);
         // Until the client knows the tab, the announce sends the popup after
         // it.
-        if (a.announced) this.announcePage(a, params.sessionId, target);
+        if (a.state.kind === "attached" && a.state.announced)
+          this.announcePage(a, params.sessionId, target);
         return;
       }
       if (msg.method === "popupDetached") {
@@ -2197,8 +2295,9 @@ export class ExtensionConnection {
         a.childPages.set(params.sessionId, page);
         // Held until the client auto-attaches the parent; with no client,
         // nobody else resumes the frame.
-        if (!a.connected || !a.autoAttached.has(parent)) {
-          if (!a.connected) this.resumeChild(a, params.sessionId);
+        const attached = a.state.kind === "attached";
+        if (!attached || !a.autoAttached.has(parent)) {
+          if (!attached) this.resumeChild(a, params.sessionId);
           return;
         }
         frame.deliveredTo = a.peer;
@@ -2222,7 +2321,8 @@ export class ExtensionConnection {
         errorName: error instanceof Error ? error.name : typeof error,
       };
       if (!owned) this.close("receive_error", detail);
-      else if (!owned.closed) this.fault(owned, "receive_error", detail);
+      else if (owned.state.kind !== "released")
+        this.fault(owned, "receive_error", detail);
     }
   }
 
@@ -2299,7 +2399,7 @@ export class ExtensionConnection {
       // A refusal can come before the first await, inside the client's own
       // send: its callback for this id exists only once that send returns.
       queueMicrotask(() => {
-        if (this.active && !a.closed && a.peer === peer)
+        if (this.active && a.state.kind !== "released" && a.peer === peer)
           try {
             peer.send({
               id,
@@ -2336,8 +2436,8 @@ export class ExtensionConnection {
         case "Target.setAutoAttach":
           // Chrome answers after its attach events, so the result waits for
           // the announce.
-          if (a.target && !a.announced)
-            await (a.announcing ??= this.announceTab(a));
+          if (a.target && a.state.kind === "attached" && !a.state.announced)
+            await (a.state.announcing ??= this.announceTab(a));
           return {};
         case "Target.getTargets":
           return {
@@ -2424,7 +2524,8 @@ export class ExtensionConnection {
         sessionId: target,
       });
       // In the same step as the result, so no attach falls in between.
-      if (a.peer === peer && a.connected) this.announceChildren(a, sessionId);
+      if (a.peer === peer && a.state.kind === "attached")
+        this.announceChildren(a, sessionId);
       return result;
     }
     if (method === "Page.getFrameTree" && !a.children.has(sessionId)) {
@@ -2438,7 +2539,7 @@ export class ExtensionConnection {
       const tree = result.frameTree as Fields | undefined;
       const url = (tree?.frame as Fields | undefined)?.url;
       const page = a.pages.get(sessionId);
-      if (page && typeof url === "string" && !a.closed) {
+      if (page && typeof url === "string" && a.state.kind !== "released") {
         page.url = url;
         if (this.officeRefused(a, url)) this.closeGate(a, sessionId);
       }
@@ -2488,7 +2589,7 @@ export class ExtensionConnection {
       } catch {
         return;
       }
-      if (a.recovery) return;
+      if (a.state.kind === "recovering") return;
       const id = this.sendKick(
         a,
         "Page.startScreencast",
@@ -2515,8 +2616,7 @@ export class ExtensionConnection {
       if (
         started !== a.reattaches ||
         !this.active ||
-        a.closed ||
-        a.recovery ||
+        !this.reachable(a) ||
         (sessionId !== undefined && !a.popups.has(sessionId))
       )
         return;
@@ -2552,7 +2652,7 @@ export class ExtensionConnection {
     cause: ReleaseCause,
     detail: Fields = {},
   ): void {
-    if (a.closed) return;
+    if (a.state.kind === "released") return;
     console.info(
       "[browser-extension] " +
         JSON.stringify({
@@ -2565,13 +2665,9 @@ export class ExtensionConnection {
           cause,
         }),
     );
-    a.closed = true;
+    const peer = a.peer;
+    this.enter(a, LIVE, { kind: "released" });
     this.endLeaves(a);
-    if (a.recovery) {
-      clearTimeout(a.recovery.timer);
-      a.recovery.finish();
-      a.recovery = undefined;
-    }
     a.cancelExpiry?.();
     this.assignments.delete(a.id);
     for (const [id, owner] of this.kicks)
@@ -2598,7 +2694,7 @@ export class ExtensionConnection {
         });
       } catch {}
     }
-    a.peer.close();
+    peer.close();
     this.sendMetadata();
   }
 

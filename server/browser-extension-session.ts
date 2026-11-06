@@ -249,14 +249,6 @@ type Resolved = {
 const same = (a: Resolved | undefined, b: Resolved | undefined): boolean =>
   a?.connection === b?.connection && a?.grant === b?.grant;
 
-// The fence of a timed-out action, until its work settles or the ceiling.
-type Recovery = {
-  connection: ExtensionConnection;
-  grant: string;
-  done: Promise<void>;
-  ceiling?: ReturnType<typeof setTimeout>;
-};
-
 // Only what the sessions read, so a test fake is typed without a cast.
 export type ExtensionSessionService = Pick<
   BrowserExtensionService,
@@ -266,7 +258,6 @@ export type ExtensionSessionService = Pick<
 export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
   private queues = new Map<string, Promise<unknown>>();
-  private recovering = new Map<string, Recovery>();
   constructor(
     private service: ExtensionSessionService,
     private owner: (agent: string) => string | undefined,
@@ -282,8 +273,6 @@ export class ExtensionBrowserSessions {
     void session.browser.close().catch(() => {});
   }
   stop(): void {
-    for (const recovery of this.recovering.values())
-      clearTimeout(recovery.ceiling);
     for (const key of this.sessions.keys()) this.end(key);
   }
   // A client that is stuck goes, and the next action attaches a fresh one.
@@ -578,9 +567,7 @@ export class ExtensionBrowserSessions {
       this.end(key);
       session = undefined;
     }
-    const prior = this.recovering.get(key);
-    if (prior?.connection === connection && prior.grant === grant)
-      return notSent("settling");
+    if (connection.fenced(grant)) return notSent("settling");
     if (connection.pendingCount(grant)) {
       let drainTimer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
@@ -1245,37 +1232,36 @@ export class ExtensionBrowserSessions {
         params.action === "goto"
           ? connection.stopLoading(grant).catch(() => {})
           : Promise.resolve();
-      const recovery: Recovery = { connection, grant, done: Promise.resolve() };
-      this.recovering.set(key, recovery);
-      recovery.done = Promise.all([operation.catch(() => {}), stop])
+      // The fence holds the attached client until the work settles. Work
+      // that never settles fences it only until the ceiling.
+      const fence = connection.fence(
+        grant,
+        SETTLEMENT_GRACE_MS + this.fenceCeiling(),
+        () => {
+          diagnostic("fence_ceiling");
+          this.retire(key, connection, grant, "fence_ceiling");
+        },
+      );
+      const settled = Promise.all([operation.catch(() => {}), stop])
         .then(() => connection.drain(grant))
         .then(() => {
           diagnostic("drain_completed");
-          if (this.recovering.get(key) !== recovery) return;
-          clearTimeout(recovery.ceiling);
+          if (!fence.held()) return;
           if (retire) this.retire(key, connection, grant, retire);
-          this.recovering.delete(key);
+          fence.lift();
         });
       let grace: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
-        recovery.done,
+        settled,
         new Promise<void>((resolve) => {
           grace = setTimeout(resolve, SETTLEMENT_GRACE_MS);
         }),
       ]);
       clearTimeout(grace);
       if (!valid()) return ended();
-      const busy = this.recovering.get(key) === recovery;
-      if (busy) {
-        diagnostic("drain_exceeded");
-        // Work that never settles fences the grant only until the ceiling.
-        recovery.ceiling = setTimeout(() => {
-          if (this.recovering.get(key) !== recovery) return;
-          diagnostic("fence_ceiling");
-          this.recovering.delete(key);
-          this.retire(key, connection, grant, "fence_ceiling");
-        }, this.fenceCeiling());
-      }
+      // A client that closed leaves no fence, but its commands may still run.
+      const busy = fence.held() || connection.pendingCount(grant) > 0;
+      if (busy) diagnostic("drain_exceeded");
       return busy ? stillSettlingResult() : timedOutResult();
     };
     const respond = async (): Promise<BrowserResult> => {

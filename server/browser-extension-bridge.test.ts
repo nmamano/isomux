@@ -3661,6 +3661,309 @@ describe("child frames across clients", () => {
   });
 });
 
+// A timed-out action's work in flight fences the grant's attached client
+// (ExtensionConnection.fence). The fence belongs to that client: each way
+// the client leaves drops it with its ceiling, so no exit leaves the tab
+// locked (task 701607e8).
+describe("action fence", () => {
+  type H = Awaited<ReturnType<typeof harness>>;
+  // A clock that runs only when the test moves it. A callback that throws
+  // throws out of advance(), as it would out of a real timer.
+  const manualClock = () => {
+    let now = 0;
+    const timers: { at: number; callback: () => void; done: boolean }[] = [];
+    return {
+      now: () => now,
+      schedule(callback: () => void, delayMs: number) {
+        const timer = { at: now + delayMs, callback, done: false };
+        timers.push(timer);
+        return () => {
+          timer.done = true;
+        };
+      },
+      advance(ms: number) {
+        const end = now + ms;
+        for (;;) {
+          const next = timers
+            .filter((t) => !t.done && t.at <= end)
+            .sort((a, b) => a.at - b.at)[0];
+          if (!next) break;
+          now = next.at;
+          next.done = true;
+          next.callback();
+        }
+        now = end;
+      },
+    };
+  };
+  const event = (h: H, grant: string, method: string) =>
+    h.connection.receive({
+      kind: "event",
+      generation: h.connection.generation,
+      assignment: grant,
+      method,
+      params: {},
+    });
+  const counter = () => {
+    const calls = { count: 0 };
+    return { calls, onCeiling: () => void calls.count++ };
+  };
+
+  test("a fence holds the attached client until the ceiling, which runs once after the fence is lifted", async () => {
+    const clock = manualClock();
+    const h = await harness(true, clock);
+    try {
+      const grant = h.connection.offered("agent")!;
+      let fencedAtCeiling: boolean | undefined;
+      let calls = 0;
+      const fence = h.connection.fence(grant, 500, () => {
+        calls++;
+        fencedAtCeiling = h.connection.fenced(grant);
+      });
+      expect(fence.held()).toBe(true);
+      expect(h.connection.fenced(grant)).toBe(true);
+      clock.advance(499);
+      expect(fence.held()).toBe(true);
+      expect(calls).toBe(0);
+      clock.advance(1);
+      expect(calls).toBe(1);
+      expect(fencedAtCeiling).toBe(false);
+      expect(fence.held()).toBe(false);
+      expect(h.connection.fenced(grant)).toBe(false);
+      clock.advance(10_000);
+      expect(calls).toBe(1);
+      // The client stays: the bridge only lifts the fence, and onCeiling
+      // decides the rest.
+      expect(h.client.closed).toBe(false);
+
+      // lift() ends a fence before its ceiling, and the ceiling never runs.
+      const next = counter();
+      const lifted = h.connection.fence(grant, 500, next.onCeiling);
+      expect(lifted.held()).toBe(true);
+      lifted.lift();
+      expect(lifted.held()).toBe(false);
+      expect(h.connection.fenced(grant)).toBe(false);
+      clock.advance(1000);
+      expect(next.calls.count).toBe(0);
+    } finally {
+      h.connection.close();
+    }
+  });
+
+  // Each way the client leaves "attached". release: the grant ends, so no
+  // assign follows.
+  const exits: [string, (h: H, grant: string) => void, boolean][] = [
+    ["retained close", (h) => h.agent.close(), true],
+    ["retire", (h, grant) => h.connection.retireClient(grant, "test"), true],
+    [
+      "debugger recovery",
+      (h, grant) => {
+        event(h, grant, "recovering");
+        expect(h.connection.fenced(grant)).toBe(false);
+        expect(() => h.connection.assign("agent", peer(), true)).toThrow();
+        event(h, grant, "recovered");
+      },
+      true,
+    ],
+    ["release", (h, grant) => event(h, grant, "detached"), false],
+  ];
+  for (const [name, exit, assignAfter] of exits)
+    test(`${name} lifts the fence and cancels its ceiling; the next client starts unfenced`, async () => {
+      const clock = manualClock();
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true, clock);
+      try {
+        const grant = h.connection.offered("agent")!;
+        const { calls, onCeiling } = counter();
+        const fence = h.connection.fence(grant, 500, onCeiling);
+        expect(fence.held()).toBe(true);
+        exit(h, grant);
+        expect(fence.held()).toBe(false);
+        expect(h.connection.fenced(grant)).toBe(false);
+        clock.advance(1000);
+        expect(calls.count).toBe(0);
+        if (!assignAfter) {
+          expect(h.connection.offered("agent")).toBeUndefined();
+          return;
+        }
+        const next = peer();
+        h.connection.assign("agent", next, true);
+        expect(next.closed).toBe(false);
+        expect(h.connection.fenced(grant)).toBe(false);
+        expect(fence.held()).toBe(false);
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+      }
+    });
+
+  // Leaving attached resets the grant's client to none, so Chrome's events
+  // on the tab reach no client that left.
+  for (const [name, exit] of [
+    ["retained close", (h: H) => h.agent.close()],
+    [
+      "retire",
+      (h: H) =>
+        h.connection.retireClient(h.connection.offered("agent")!, "test"),
+    ],
+  ] as const)
+    test(`after a ${name}, the tab's events reach no old client`, async () => {
+      const info = spyOn(console, "info").mockImplementation(() => {});
+      const h = await harness(true);
+      try {
+        const grant = h.connection.offered("agent")!;
+        const consoleEvent = () =>
+          h.connection.receive({
+            kind: "event",
+            generation: h.connection.generation,
+            assignment: grant,
+            method: "Runtime.consoleAPICalled",
+            params: {},
+          });
+        consoleEvent();
+        const delivered = () =>
+          h.client.messages.filter(
+            (m) => m.method === "Runtime.consoleAPICalled",
+          ).length;
+        expect(delivered()).toBe(1);
+        exit(h);
+        consoleEvent();
+        expect(delivered()).toBe(1);
+        const next = peer();
+        h.connection.assign("agent", next, true);
+        consoleEvent();
+        expect(
+          next.messages.filter((m) => m.method === "Runtime.consoleAPICalled"),
+        ).toHaveLength(1);
+        expect(delivered()).toBe(1);
+      } finally {
+        h.connection.close();
+        info.mockRestore();
+      }
+    });
+
+  test("closing the connection drops a fence and its ceiling", async () => {
+    const clock = manualClock();
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true, clock);
+    try {
+      const grant = h.connection.offered("agent")!;
+      const { calls, onCeiling } = counter();
+      const fence = h.connection.fence(grant, 500, onCeiling);
+      expect(fence.held()).toBe(true);
+      h.connection.close();
+      expect(fence.held()).toBe(false);
+      clock.advance(1000);
+      expect(calls.count).toBe(0);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  test("a grant with no client gets no fence and no ceiling", async () => {
+    const clock = manualClock();
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true, clock);
+    try {
+      const grant = h.connection.offered("agent")!;
+      // The same call holds while the client is attached.
+      const attached = h.connection.fence(grant, 500, () => {});
+      expect(attached.held()).toBe(true);
+      attached.lift();
+      h.agent.close();
+      const offered = counter();
+      const idle = h.connection.fence(grant, 500, offered.onCeiling);
+      expect(idle.held()).toBe(false);
+      expect(h.connection.fenced(grant)).toBe(false);
+      event(h, grant, "recovering");
+      const recovering = counter();
+      const during = h.connection.fence(grant, 500, recovering.onCeiling);
+      expect(during.held()).toBe(false);
+      expect(h.connection.fenced(grant)).toBe(false);
+      clock.advance(1000);
+      expect(offered.calls.count).toBe(0);
+      expect(recovering.calls.count).toBe(0);
+      event(h, grant, "recovered");
+      h.connection.assign("agent", peer(), true);
+      expect(h.connection.fenced(grant)).toBe(false);
+    } finally {
+      h.connection.close();
+      info.mockRestore();
+    }
+  });
+
+  test("a new fence replaces the old one, and an old handle never lifts or reports a later fence", async () => {
+    const clock = manualClock();
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const h = await harness(true, clock);
+    try {
+      const grant = h.connection.offered("agent")!;
+      const first = counter();
+      const second = counter();
+      const old = h.connection.fence(grant, 500, first.onCeiling);
+      const current = h.connection.fence(grant, 800, second.onCeiling);
+      expect(old.held()).toBe(false);
+      expect(current.held()).toBe(true);
+      old.lift();
+      expect(current.held()).toBe(true);
+      expect(h.connection.fenced(grant)).toBe(true);
+      clock.advance(600);
+      expect(first.calls.count).toBe(0);
+      expect(current.held()).toBe(true);
+      clock.advance(200);
+      expect(second.calls.count).toBe(1);
+      expect(h.connection.fenced(grant)).toBe(false);
+
+      // Across clients: a fence of the retired client cannot touch the next
+      // client's fence.
+      const before = counter();
+      const after = counter();
+      const retired = h.connection.fence(grant, 500, before.onCeiling);
+      h.connection.retireClient(grant, "test");
+      h.connection.assign("agent", peer(), true);
+      const live = h.connection.fence(grant, 700, after.onCeiling);
+      expect(retired.held()).toBe(false);
+      retired.lift();
+      expect(live.held()).toBe(true);
+      expect(h.connection.fenced(grant)).toBe(true);
+      clock.advance(700);
+      expect(before.calls.count).toBe(0);
+      expect(after.calls.count).toBe(1);
+    } finally {
+      h.connection.close();
+      info.mockRestore();
+    }
+  });
+
+  test("an onCeiling that throws stays inside the timer, and the fence is lifted", async () => {
+    const clock = manualClock();
+    const quiet = [
+      spyOn(console, "info").mockImplementation(() => {}),
+      spyOn(console, "warn").mockImplementation(() => {}),
+      spyOn(console, "error").mockImplementation(() => {}),
+    ];
+    const h = await harness(true, clock);
+    try {
+      const grant = h.connection.offered("agent")!;
+      let calls = 0;
+      const fence = h.connection.fence(grant, 500, () => {
+        calls++;
+        throw new Error("fixture");
+      });
+      expect(fence.held()).toBe(true);
+      // A throw out of the timer fails the test here.
+      clock.advance(500);
+      expect(calls).toBe(1);
+      expect(h.connection.fenced(grant)).toBe(false);
+      h.connection.retireClient(grant, "test");
+      h.connection.assign("agent", peer(), true);
+    } finally {
+      h.connection.close();
+      for (const spy of quiet) spy.mockRestore();
+    }
+  });
+});
+
 // An office restart drops every bridge object. The extension keeps the offers
 // that were on and sends each again with the deadline and the pinned origin
 // the office answered at the first offer (task 2c1c81ff).
