@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ENTRY_PLAN,
   POWERUSER_PLAN,
+  chargedCurrency,
   planById,
   planByProviderProduct,
   planDisplayForProviderProduct,
@@ -13,23 +14,55 @@ describe("hosted plans", () => {
     expect(planById("office")).toMatchObject({
       label: "Entry",
       providerProduct: "V153",
-      customerPrice: { amount: 8, currency: "EUR", billingPeriod: "month" },
+      customerPrice: { amounts: { USD: 9, EUR: 8 }, billingPeriod: "month" },
     });
     expect(planById("poweruser")).toMatchObject({
       label: "Poweruser",
       providerProduct: "V155",
-      customerPrice: { amount: 17, currency: "EUR", billingPeriod: "month" },
+      customerPrice: { amounts: { USD: 19, EUR: 17 }, billingPeriod: "month" },
     });
     expect(planByProviderProduct("V155")?.id).toBe("poweruser");
   });
 
   test("an unknown provider product has a total dashboard display", () => {
     expect(planByProviderProduct("outside-catalogue")).toBeNull();
-    expect(planDisplayForProviderProduct("outside-catalogue")).toEqual({
+    expect(planDisplayForProviderProduct("outside-catalogue", null)).toEqual({
       label: "Unknown plan",
       specification: null,
       customerPrice: null,
+      currency: null,
     });
+  });
+
+  // Nil, 2026-11-06: dollars in the US, euros in the euro area. Stripe picks
+  // which at Checkout; the subscription's currency is what we read back.
+  test("the display carries the currency the subscription pays in", () => {
+    for (const currency of ["USD", "EUR", null] as const) {
+      expect([
+        currency,
+        planDisplayForProviderProduct("V155", currency),
+      ]).toEqual([
+        currency,
+        {
+          label: "Poweruser",
+          specification: POWERUSER_PLAN.specification,
+          customerPrice: {
+            amounts: { USD: 19, EUR: 17 },
+            billingPeriod: "month",
+          },
+          currency,
+        },
+      ]);
+    }
+  });
+
+  test("a stored Stripe currency maps to a price currency, and no code means euros", () => {
+    expect(chargedCurrency("usd")).toBe("USD");
+    expect(chargedCurrency("eur")).toBe("EUR");
+    // Every subscription reconciled before the column existed paid in euros.
+    expect(chargedCurrency(null)).toBe("EUR");
+    // A currency we do not sell in has no price to show, not a wrong one.
+    expect(chargedCurrency("gbp")).toBeNull();
   });
 
   test("explicit Entry pricing wins and the legacy price never sells Poweruser", () => {
@@ -67,8 +100,7 @@ describe("hosted plans", () => {
         {
           ...POWERUSER_PLAN,
           customerPrice: {
-            amount: 123,
-            currency: "EUR",
+            amounts: { USD: 123, EUR: 123 },
             billingPeriod: "month",
           },
         },

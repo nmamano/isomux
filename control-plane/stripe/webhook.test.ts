@@ -698,6 +698,76 @@ describe("a never-paid subscription is not linked to its office", () => {
   });
 });
 
+describe("the currency a subscription pays in", () => {
+  // Stripe picks EUR or USD at Checkout and never changes it for that
+  // subscription; the office view reads the cached value (plans.ts
+  // chargedCurrency), so losing it would show a dollar customer euros.
+  async function usdRow(store: Store, reader: FakeReader) {
+    reader.subscriptions.set("sub_1", subscription({ currency: "usd" }));
+    const processor = processorFor(store, reader);
+    expect(
+      await deliver(
+        processor,
+        body({
+          id: "evt_cur_1",
+          type: "customer.subscription.created",
+          object: { id: "sub_1" },
+          created: Math.floor(NOW / 1000) - 10,
+        }),
+      ),
+    ).toMatchObject({ kind: "applied" });
+    expect((await getSubscription(store, "sub_1"))?.currency).toBe("usd");
+    return processor;
+  }
+
+  test("a later object that carries no currency leaves the stored one", async () => {
+    const store = await tempStore();
+    const reader = new FakeReader("test");
+    const processor = await usdRow(store, reader);
+    const { currency: _dropped, ...without } = subscription({
+      status: "past_due",
+    });
+    reader.subscriptions.set("sub_1", without);
+    expect(
+      await deliver(
+        processor,
+        body({
+          id: "evt_cur_2",
+          type: "customer.subscription.updated",
+          object: { id: "sub_1" },
+        }),
+      ),
+    ).toMatchObject({ kind: "applied" });
+    // The enabling condition: this delivery did write the row.
+    expect(await getSubscription(store, "sub_1")).toMatchObject({
+      status: "past_due",
+      currency: "usd",
+    });
+  });
+
+  test("a subscription Stripe no longer returns keeps its currency", async () => {
+    const store = await tempStore();
+    const reader = new FakeReader("test");
+    const processor = await usdRow(store, reader);
+    reader.subscriptions.delete("sub_1");
+    expect(
+      await deliver(
+        processor,
+        body({
+          id: "evt_cur_3",
+          type: "customer.subscription.deleted",
+          object: { id: "sub_1" },
+        }),
+      ),
+    ).toMatchObject({ kind: "applied" });
+    // The enabling condition: the absence was reconciled as a deletion.
+    expect(await getSubscription(store, "sub_1")).toMatchObject({
+      status: "canceled",
+      currency: "usd",
+    });
+  });
+});
+
 describe("dedupe and replay", () => {
   test("a throw mid-apply leaves the event UNCLAIMED, so the replay works", async () => {
     const store = await tempStore();

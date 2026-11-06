@@ -32,6 +32,7 @@ function row(over: Partial<SubscriptionRow> = {}): SubscriptionRow {
     discount_ends_at: null,
     ever_full_discount: 0,
     latest_invoice_id: null,
+    currency: null,
     payment_failures: 0,
     exhaustion_observed_at: null,
     coupon_grace_until: null,

@@ -46,6 +46,10 @@ export interface SubscriptionSnapshot {
     endsAt: number | null;
   } | null;
   latestInvoiceId: string | null;
+  /** `currency`, Stripe's lower-case code: what the customer pays in. Not the
+   * item price's currency, which is the price's DEFAULT currency for a price
+   * with currency options. Optional keeps recorded legacy fixtures valid. */
+  currency?: string | null;
   metadata: Record<string, string>;
   livemode: boolean;
 }
@@ -97,6 +101,7 @@ export function normalizeSubscription(raw: unknown): SubscriptionSnapshot {
     cancellationReason: cancellationReasonOf(o),
     discount: discountOf(o),
     latestInvoiceId: optionalId(o.latest_invoice),
+    currency: typeof o.currency === "string" && o.currency ? o.currency : null,
     metadata: metadataOf(o.metadata),
     livemode: booleanField(o, "livemode", `subscription ${id}`),
   };

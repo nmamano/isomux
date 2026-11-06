@@ -581,6 +581,10 @@ create table if not exists subscriptions (
   discount_ends_at bigint,
   ever_full_discount integer not null default 0,
   latest_invoice_id text,
+  -- Stripe-owned: the currency the subscription pays in, Stripe's lower-case
+  -- code. Null on a row from before the column; plans.ts chargedCurrency reads
+  -- that as EUR.
+  currency text,
   payment_failures integer not null default 0,
   exhaustion_observed_at bigint,
   coupon_grace_until bigint,
@@ -634,13 +638,6 @@ create table if not exists stripe_events (
 -- back from the row on every retry. Deriving them from a timestamp instead
 -- would make a future release-and-reissue path depend on two reservations never
 -- sharing a millisecond.
---
--- Nothing writes this row after the insert in this slice. version and
--- updated_at are carried for consistency with every other table here, and have
--- no writer yet: an abandoned checkout stays held, and releasing a name is
--- slice-5 work with its own ruling. A named state column was considered and
--- dropped for exactly that reason - a state nobody transitions is a claim the
--- code cannot keep.
 --
 -- (No backticks anywhere in this string: SCHEMA is a template literal, and one
 -- would end it. Same mechanism as the install.sh heredoc defect.)
@@ -1582,6 +1579,7 @@ export class Store {
       ["subscriptions", "canceled_at"],
       ["subscriptions", "cancellation_reason"],
       ["subscriptions", "cancellation_policy"],
+      ["subscriptions", "currency"],
       ["stripe_events", "type"],
       ["instances", "customer_ssh_key"],
       ["instances", "customer_ssh_key_fingerprint"],

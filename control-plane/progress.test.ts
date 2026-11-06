@@ -862,6 +862,49 @@ describe("comped means an ACTIVE full discount", () => {
   });
 });
 
+describe("the price the office shows", () => {
+  async function tierWith(currency: string | null | "no subscription") {
+    const store = await tempStore();
+    const { reservation, account } = await signedUp(store);
+    if (currency !== "no subscription") {
+      await store.sqlRun(
+        "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, " +
+          "status, cancel_at_period_end, ever_full_discount, payment_failures, " +
+          "episode_state, version, created_at, updated_at) " +
+          "values ('sub_1', $1, $2, 'cus_1', 'active', 0, 0, 0, 'none', 1, $3, $3)",
+        [account.id, reservation.instance_id, store.now()],
+      );
+      if (currency !== null)
+        await store.sqlRun("update subscriptions set currency = $1", [
+          currency,
+        ]);
+    }
+    const view = (await projectionFor(store, {
+      accountId: account.id,
+      instanceId: reservation.instance_id,
+    }))!;
+    return view.tier;
+  }
+
+  test("is in the currency the subscription pays in", async () => {
+    expect((await tierWith("usd")).currency).toBe("USD");
+    expect((await tierWith("eur")).currency).toBe("EUR");
+  });
+
+  test("a subscription cached before the column existed paid in euros", async () => {
+    const tier = await tierWith(null);
+    expect(tier.currency).toBe("EUR");
+    expect(tier.customerPrice?.amounts.EUR).toBe(8);
+  });
+
+  test("before Checkout is done, no currency is claimed", async () => {
+    const tier = await tierWith("no subscription");
+    // The enabling condition: the plan itself is known and priced.
+    expect(tier.label).toBe("Entry");
+    expect(tier.currency).toBeNull();
+  });
+});
+
 describe("reinstatement eligibility", () => {
   test("a suspended phase publishes a real non-phase refusal", async () => {
     const NOW = 1_700_000_000_000;

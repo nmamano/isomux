@@ -94,10 +94,10 @@ describe("the prerendered shells", () => {
         label: "Entry",
         specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
         customerPrice: {
-          amount: 8,
-          currency: "EUR" as const,
+          amounts: { USD: 9, EUR: 8 },
           billingPeriod: "month" as const,
         },
+        currency: "EUR" as const,
       },
     };
     const render = (language: Language, count: 0 | 1 | 2) =>
@@ -151,8 +151,7 @@ describe("the sign-up page", () => {
       label: "Entry",
       specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
       customerPrice: {
-        amount: 8,
-        currency: "EUR" as const,
+        amounts: { USD: 9, EUR: 8 },
         billingPeriod: "month" as const,
       },
     },
@@ -179,18 +178,49 @@ describe("the sign-up page", () => {
       ]);
   });
 
-  test("formats the price for the reader", () => {
-    const english = customerPriceLine("en", plans[0].customerPrice)!;
+  // Nil, 2026-11-06: dollars in the US, euros in the euro area. A customer
+  // who pays reads the one amount they pay; before Checkout (this form) a
+  // reader sees the dollar price and the euro-area one.
+  test("formats the price for the reader, in the currency they pay", () => {
+    const price = plans[0].customerPrice;
     for (const language of ["en", "es", "ca", "zh"] as const) {
-      const line = customerPriceLine(language, plans[0].customerPrice)!;
-      const amount = new Intl.NumberFormat(language, {
-        style: "currency",
-        currency: "EUR",
-      }).format(8);
-      expect([language, line.includes(amount)]).toEqual([language, true]);
+      const format = (currency: "USD" | "EUR") =>
+        new Intl.NumberFormat(language, { style: "currency", currency }).format(
+          price.amounts[currency],
+        );
+      const shows = (line: string | null) => [
+        language,
+        line?.includes(format("USD")) ?? null,
+        line?.includes(format("EUR")) ?? null,
+      ];
+      expect(shows(customerPriceLine(language, price, "USD"))).toEqual([
+        language,
+        true,
+        false,
+      ]);
+      expect(shows(customerPriceLine(language, price, "EUR"))).toEqual([
+        language,
+        false,
+        true,
+      ]);
+      expect(shows(customerPriceLine(language, price, null))).toEqual([
+        language,
+        true,
+        true,
+      ]);
       if (language !== "en")
-        expect([language, line]).not.toEqual([language, english]);
+        for (const currency of ["USD", "EUR", null] as const)
+          expect([
+            language,
+            currency,
+            customerPriceLine(language, price, currency),
+          ]).not.toEqual([
+            language,
+            currency,
+            customerPriceLine("en", price, currency),
+          ]);
     }
+    expect(customerPriceLine("en", null, "USD")).toBeNull();
   });
 
   test("the policy notice keeps the English document names in every language", () => {
@@ -214,7 +244,8 @@ const baseView: ProgressView = {
   tier: {
     label: "Entry",
     specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
-    customerPrice: { amount: 8, currency: "EUR", billingPeriod: "month" },
+    customerPrice: { amounts: { USD: 9, EUR: 8 }, billingPeriod: "month" },
+    currency: "EUR",
   },
   serviceState: "live",
   goal: "live",

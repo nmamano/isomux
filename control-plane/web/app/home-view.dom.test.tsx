@@ -37,7 +37,10 @@ function mount(html: string): HTMLElement {
   return box;
 }
 
-const PRICE = { amount: 8, currency: "EUR", billingPeriod: "month" } as const;
+const PRICE = {
+  amounts: { USD: 9, EUR: 8 },
+  billingPeriod: "month",
+} as const;
 const office: OfficeCard = {
   instanceId: "i-1",
   officeName: "acme",
@@ -48,6 +51,7 @@ const office: OfficeCard = {
     label: "Entry",
     specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
     customerPrice: PRICE,
+    currency: "EUR",
   },
 };
 
@@ -80,24 +84,26 @@ describe("the office list", () => {
         plan: {
           label: "Poweruser",
           specification: "8 vCPU, 24 GB RAM, 300 GB SSD",
-          customerPrice: { ...PRICE, amount: 17 },
+          customerPrice: { ...PRICE, amounts: { USD: 19, EUR: 17 } },
+          currency: "USD",
         },
       },
     ]);
     expect(
       box.querySelector('[data-testid="dashboard"]')?.tagName ?? null,
     ).not.toBeNull();
+    // Each card shows what its subscription pays, in that currency alone.
     const cases = [
-      ["acme", "acme.isomux.app", "Entry", "4 vCPU", 8, "done"],
-      ["lab", "lab.isomux.app", "Poweruser", "8 vCPU", 17, "active"],
+      ["acme", "acme.isomux.app", "Entry", "4 vCPU", "€8.00", "$", "done"],
+      ["lab", "lab.isomux.app", "Poweruser", "8 vCPU", "$19.00", "€", "active"],
     ] as const;
-    for (const [name, hostname, label, spec, amount, state] of cases) {
+    for (const [name, hostname, label, spec, paid, other, state] of cases) {
       const text = card(box, name).textContent ?? "";
-      const price = customerPriceLine("en", { ...PRICE, amount })!;
       expect([name, text.includes(hostname)]).toEqual([name, true]);
       expect([name, text.includes(label)]).toEqual([name, true]);
       expect([name, text.includes(spec)]).toEqual([name, true]);
-      expect([name, text.includes(price)]).toEqual([name, true]);
+      expect([name, text.includes(paid)]).toEqual([name, true]);
+      expect([name, text.includes(other)]).toEqual([name, false]);
       expect([
         name,
         card(box, name)
@@ -118,7 +124,7 @@ describe("the office list", () => {
     ]);
     const ended = card(box, "acme");
     const live = card(box, "live");
-    const price = customerPriceLine("en", PRICE)!;
+    const price = customerPriceLine("en", PRICE, "EUR")!;
     // The enabling condition: the live card with the same plan shows the price.
     expect(live.textContent).toContain(price);
     expect(ended.hasAttribute("data-ended")).toBe(true);

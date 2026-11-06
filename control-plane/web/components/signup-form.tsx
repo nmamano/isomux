@@ -214,9 +214,9 @@ export function SignupForm({
                 />
                 <strong>{plan.label}</strong>
                 <span className="note">{plan.specification}</span>
-                {customerPriceLine(language, plan.customerPrice) && (
+                {customerPriceLine(language, plan.customerPrice, null) && (
                   <span className="note">
-                    {customerPriceLine(language, plan.customerPrice)}
+                    {customerPriceLine(language, plan.customerPrice, null)}
                   </span>
                 )}
               </label>

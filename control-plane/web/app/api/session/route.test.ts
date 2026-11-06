@@ -23,7 +23,8 @@ const ACCOUNT_EMAIL = "new@example.com";
 const tier: ProgressView["tier"] = {
   label: "Entry",
   specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
-  customerPrice: { amount: 8, currency: "EUR", billingPeriod: "month" },
+  customerPrice: { amounts: { USD: 9, EUR: 8 }, billingPeriod: "month" },
+  currency: "EUR" as const,
 };
 
 // Only the fields the route maps are read; the rest of the projection never

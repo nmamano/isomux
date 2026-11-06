@@ -53,6 +53,7 @@ import {
   type Store,
 } from "./store.ts";
 import {
+  chargedCurrency,
   planDisplayForProviderProduct,
   type ReservationRow,
 } from "./signup.ts";
@@ -712,7 +713,11 @@ export async function projectionFor(
         ? `${instance.ssh_login_user}@${instance.name}`
         : null,
     plan: reservation.plan,
-    tier: planDisplayForProviderProduct(instance.plan),
+    // Before Checkout is done there is no subscription, and no currency yet.
+    tier: planDisplayForProviderProduct(
+      instance.plan,
+      subscriptionRow ? chargedCurrency(subscriptionRow.currency) : null,
+    ),
     serviceState: instance.service_state,
     goal,
     origin,

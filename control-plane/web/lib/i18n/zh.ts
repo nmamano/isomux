@@ -104,6 +104,7 @@ export const zh: Catalog = {
   "policy.notice":
     "付款前，请阅读 <terms>Terms of Service</terms>、<privacy>Privacy Policy</privacy> 和 <refund>Refund Policy</refund>。",
   "plan.priceLine": "每{period} {amount}",
+  "plan.priceLineEuroArea": "每{period} {amount}（欧元区 {euroAmount}）",
   "plan.period.month": "月",
   "steps.labelWaitingForPayment": "正在等待付款",
   "steps.labelCreateInstance": "正在订购服务器",

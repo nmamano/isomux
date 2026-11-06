@@ -227,6 +227,16 @@ export interface CheckoutArgs {
 // hosted page should ever follow our switch, is a locale stored with the
 // generation.)
 
+// NO `currency` AND NO `adaptive_pricing` PARAMETER (task 8d87eb96). Each plan
+// sells through one Price in USD with a EUR currency option, and Checkout picks
+// EUR for a buyer in the euro area and USD for everyone else. A currency param
+// would override that choice. Adaptive Pricing cannot be switched off here:
+// with managed payments on, Stripe refuses adaptive_pricing[enabled]=false
+// (test mode, 2026-11-06), so a USD buyer outside the US and the euro area
+// sees a converted local amount. The session reads USD at create and settles
+// its currency only when the buyer opens the page, so what a customer pays in
+// is read back from the subscription (shapes.ts), never from this session.
+
 export interface CheckoutSessionCreated {
   id: string;
   url: string | null;

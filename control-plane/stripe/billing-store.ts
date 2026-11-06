@@ -88,6 +88,10 @@ export interface SubscriptionRow {
    * discounted, which is what routes a lapse to a human instead of the ladder. */
   ever_full_discount: number;
   latest_invoice_id: string | null;
+  /** The currency the subscription pays in (Stripe's lower-case code). Null on
+   * a row reconciled before this column existed: read it as EUR
+   * (plans.ts chargedCurrency). */
+  currency: string | null;
   payment_failures: number;
   /** When Stripe was authoritatively observed to have given up retrying. Set
    * per episode; cleared with the episode. */
@@ -119,6 +123,7 @@ export type StripeOwnedPatch = Partial<
     | "discount_ends_at"
     | "ever_full_discount"
     | "latest_invoice_id"
+    | "currency"
     | "instance_id"
     | "last_event_id"
     | "last_event_created"
@@ -268,9 +273,11 @@ export async function insertSubscription(
     | "updated_at"
     | "episode_state"
     | "cancellation_policy"
+    | "currency"
   > & {
     episode_state?: EpisodeState;
     cancellation_policy?: CancellationPolicy;
+    currency?: string | null;
   },
 ): Promise<SubscriptionRow> {
   assertInTx(store, "insertSubscription");
@@ -281,8 +288,8 @@ export async function insertSubscription(
       "discount_percent_off, discount_coupon_id, " +
       "discount_ends_at, ever_full_discount, latest_invoice_id, payment_failures, " +
       "exhaustion_observed_at, coupon_grace_until, episode_id, episode_state, last_event_id, " +
-      "last_event_created, version, created_at, updated_at) " +
-      "values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1, $24, $25)",
+      "last_event_created, currency, version, created_at, updated_at) " +
+      "values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 1, $25, $26)",
     [
       row.id,
       row.account_id,
@@ -307,6 +314,7 @@ export async function insertSubscription(
       row.episode_state ?? "none",
       row.last_event_id,
       row.last_event_created,
+      row.currency ?? null,
       ts,
       ts,
     ],

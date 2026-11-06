@@ -1031,8 +1031,18 @@ export function OfficeView({
               <strong>{view.tier.label}</strong>
             </p>
             {view.tier.specification && <p>{view.tier.specification}</p>}
-            {customerPriceLine(language, view.tier.customerPrice) && (
-              <p>{customerPriceLine(language, view.tier.customerPrice)}</p>
+            {customerPriceLine(
+              language,
+              view.tier.customerPrice,
+              view.tier.currency,
+            ) && (
+              <p>
+                {customerPriceLine(
+                  language,
+                  view.tier.customerPrice,
+                  view.tier.currency,
+                )}
+              </p>
             )}
             <p className="plan-line" data-testid="subscription">
               {planLine(i18n, view)}

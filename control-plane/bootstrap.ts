@@ -247,6 +247,22 @@ export async function migrateRemovedGoogleColumn(
   }
 }
 
+/** Owner-role migration for the currency a subscription pays in
+ * (subscriptions.currency, task 8d87eb96). */
+export async function migrateSubscriptionCurrencyColumn(
+  dsn: string,
+  options: MigrationOptions = {},
+): Promise<void> {
+  const pool = await openPool(dsn, options);
+  try {
+    await inTransaction(pool, dsn, [
+      "alter table if exists subscriptions add column if not exists currency text",
+    ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /** Owner-role migration for durable ordinary-signup Checkout recovery. */
 export async function migratePendingCheckoutColumns(
   dsn: string,
@@ -470,6 +486,11 @@ export const OWNER_MIGRATIONS: readonly {
     command: "migrate-incidents",
     run: migrateIncidentTables,
     ready: "critical-issue status tables",
+  },
+  {
+    command: "migrate-subscription-currency",
+    run: migrateSubscriptionCurrencyColumn,
+    ready: "subscription currency column",
   },
 ];
 
@@ -1054,6 +1075,7 @@ export async function bootstrapDatabase(
   await migrateWelcomeMailsTable(dsn);
   await migrateSessionEpochColumn(dsn);
   await migrateRemovedGoogleColumn(dsn);
+  await migrateSubscriptionCurrencyColumn(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
@@ -1065,6 +1087,7 @@ export async function bootstrapDatabase(
     await migrateWelcomeMailsTable(dsn);
     await migrateSessionEpochColumn(dsn);
     await migrateRemovedGoogleColumn(dsn);
+    await migrateSubscriptionCurrencyColumn(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

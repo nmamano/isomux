@@ -55,6 +55,29 @@ describe("the comped path", () => {
     expect(encoded).toContain("managed_payments%5Benabled%5D=true");
   });
 
+  // Nil, 2026-11-06: one Price per plan, USD with a EUR currency option. Stripe
+  // shows EUR to a euro-area buyer and USD to everyone else, so we name no
+  // currency. Adaptive Pricing stays at Stripe's setting: managed payments
+  // refuses adaptive_pricing[enabled]=false (test mode, 2026-11-06).
+  test("Stripe picks the currency from the one price", async () => {
+    for (const discount of [undefined, await verifiedFullDiscount()]) {
+      const fields = new URLSearchParams(
+        formEncode(checkoutParams({ ...base, discount })),
+      );
+      const comped = discount !== undefined;
+      expect([comped, fields.getAll("line_items[0][price]")]).toEqual([
+        comped,
+        ["price_1"],
+      ]);
+      expect([
+        comped,
+        [...fields.keys()].filter((key) =>
+          /currency|adaptive_pricing/.test(key),
+        ),
+      ]).toEqual([comped, []]);
+    }
+  });
+
   test("every session requires recorded terms acceptance", () => {
     const encoded = formEncode(checkoutParams(base));
     expect(encoded).toContain(

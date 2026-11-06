@@ -170,5 +170,7 @@ describe("recorded deliveries still parse", () => {
     );
     expect(snap.status).toBe("canceled");
     expect(snap.livemode).toBe(false);
+    // The recorded object carries the currency at the top level.
+    expect(snap.currency).toBe("eur");
   });
 });

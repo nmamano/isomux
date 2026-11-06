@@ -145,6 +145,10 @@ export function ownedFrom(
     discount_ends_at: s.discount?.endsAt ?? null,
     ever_full_discount: everFull(row, s),
     latest_invoice_id: s.latestInvoiceId,
+    // Stripe never changes a subscription's currency, so an object that carries
+    // none leaves the stored one alone rather than nulling it (null reads as
+    // EUR, plans.ts chargedCurrency).
+    ...(s.currency ? { currency: s.currency } : {}),
   };
 }
 

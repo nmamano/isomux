@@ -64,6 +64,34 @@ describe("a subscription's period end", () => {
   });
 });
 
+describe("a subscription's currency", () => {
+  test("is the subscription's own, not its item price's default currency", async () => {
+    // A price with a EUR currency option still says `usd` on the item: that is
+    // the price's default, not what this euro-area customer pays.
+    const snap = normalizeSubscription({
+      id: "sub_1",
+      customer: "cus_1",
+      status: "active",
+      livemode: false,
+      currency: "eur",
+      items: { data: [{ price: { id: "price_1", currency: "usd" } }] },
+    });
+    expect(snap.currency).toBe("eur");
+  });
+
+  test("is null when the object carries none, never read off the item", async () => {
+    expect(
+      normalizeSubscription({
+        id: "sub_1",
+        customer: "cus_1",
+        status: "active",
+        livemode: false,
+        items: { data: [{ price: { id: "price_1", currency: "usd" } }] },
+      }).currency ?? null,
+    ).toBeNull();
+  });
+});
+
 describe("a subscription's discount", () => {
   test("comes through discount.source.coupon, the shape the pinned version returns", async () => {
     // OBSERVED 2026-08-09 on 2026-07-29.dahlia: this is the real shape of a coupon

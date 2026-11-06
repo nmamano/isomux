@@ -155,7 +155,11 @@ function OfficeCardLink({
 }) {
   const price = office.ended
     ? null
-    : customerPriceLine(i18n.language, office.plan.customerPrice);
+    : customerPriceLine(
+        i18n.language,
+        office.plan.customerPrice,
+        office.plan.currency,
+      );
   return (
     <Link
       className="card office-card"

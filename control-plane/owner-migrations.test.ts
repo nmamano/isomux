@@ -136,6 +136,7 @@ const PRE_MIGRATION = [
     "drop column referrer_host, drop column landing_path",
   "drop table first_paid_checkouts",
   "drop table status_customers, incidents, incident_updates, incident_keys",
+  "alter table subscriptions drop column currency",
 ];
 
 suite("migrate-all", () => {
@@ -154,6 +155,7 @@ suite("migrate-all", () => {
         expect(before).toBe("refused");
         const first = migrateAll(ownerDsn);
         expect(first.code).toBe(0);
+        expect(await hasColumn(owner, "subscriptions", "currency")).toBe(true);
         // Every migration reported, in the roster's order.
         const reported = first.out
           .split("\n")

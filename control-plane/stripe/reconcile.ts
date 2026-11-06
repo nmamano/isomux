@@ -497,6 +497,8 @@ async function ensureRow(
     discount_ends_at: null,
     ever_full_discount: 0,
     latest_invoice_id: null,
+    // Written with the rest of the fetched truth by the Stripe-owned setter.
+    currency: null,
     payment_failures: 0,
     exhaustion_observed_at: null,
     coupon_grace_until: null,

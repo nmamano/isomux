@@ -29,7 +29,8 @@ const baseView: ProgressView = {
   tier: {
     label: "Entry",
     specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
-    customerPrice: { amount: 8, currency: "EUR", billingPeriod: "month" },
+    customerPrice: { amounts: { USD: 9, EUR: 8 }, billingPeriod: "month" },
+    currency: "EUR" as const,
   },
   serviceState: "suspended",
   goal: "live",
@@ -93,6 +94,36 @@ function expectPolicyBefore(html: string, marker: string) {
 }
 
 const PAYMENT_SUBMIT = '<button class="btn-primary" type="submit"';
+
+// Nil, 2026-11-06: the plan card shows what this subscription pays, in its
+// currency alone; with no currency yet, the dollar and the euro-area price.
+test("the plan card shows the price in the currency the office pays", () => {
+  const tierText = (currency: "USD" | "EUR" | null) => {
+    const html = renderToStaticMarkup(
+      <OfficeView
+        language="en"
+        initial={{ ...baseView, tier: { ...baseView.tier, currency } }}
+        instanceId={baseView.instanceId}
+      />,
+    );
+    const section = html.match(
+      /<section[^>]*data-testid="office-tier"[^>]*>([\s\S]*?)<\/section>/u,
+    )?.[1];
+    // The enabling condition: the plan card rendered.
+    expect([currency, section?.includes("Entry") ?? null]).toEqual([
+      currency,
+      true,
+    ]);
+    return section ?? "";
+  };
+  const shows = (currency: "USD" | "EUR" | null) => {
+    const text = tierText(currency);
+    return [currency, text.includes("$9.00"), text.includes("€8.00")];
+  };
+  expect(shows("USD")).toEqual(["USD", true, false]);
+  expect(shows("EUR")).toEqual(["EUR", false, true]);
+  expect(shows(null)).toEqual([null, true, true]);
+});
 
 test("durations use one compact format at every scale", () => {
   expect(formatDuration(12_999)).toBe("12s");

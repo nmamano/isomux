@@ -162,28 +162,21 @@ retry for that candidate. A thrown mode mismatch or malformed object reports
 that candidate and continues the pass, so one bad row cannot stop recovery for
 every other customer.
 
-## USD support estimate
+## Currencies
 
-The type and formatter already accept USD, and Stripe catalog helpers pass a
-currency through. Missing work is product policy and selection:
+Built 2026-11-06 (task 8d87eb96; Nil, 2026-11-06: "$9 and $19 in the US,
+what we currently have in EUR countries, dollars as fallback"):
 
-- create one USD recurring Stripe Price per plan in test and live catalogs;
-- represent both EUR and USD display prices per plan, rather than one
-  `customerPrice`;
-- choose and persist a customer's billing currency before Checkout; do not infer
-  it again on later requests;
-- resolve the Stripe Price by plan plus persisted currency;
-- show the selected currency consistently in signup and account copy;
-- verify coupons, reinstatement, and continuation reuse the original currency;
-- add tests that the billing cadence and reconciliation remain currency-neutral.
-
-Recommendation: an explicit currency choice at signup, persisted on the
-reservation and then treated as immutable for that subscription. Use separate
-Stripe Price objects under the same product. Do not use IP geolocation or
-browser locale as billing truth, and do not add a deployment environment knob.
-
-Estimate: 2-3 engineering days after Nil sets USD amounts: about half a day for
-Stripe test/live catalog setup and configuration, one day for plan model,
-selection, persistence, and Checkout resolution, and half to one day for UI,
-tests, and docs. Add one day if existing reservations need a migration or if
-currency switching after signup is required.
+- Each plan sells through one Stripe Price in USD (9, 19) with a EUR currency
+  option (8, 17), tax-exclusive in both. `plans.ts` holds both amounts.
+- Checkout gets no `currency`: Stripe shows EUR to a buyer in the euro area and
+  USD to everyone else. Managed payments refuses `adaptive_pricing[enabled]=false`
+  (test mode, 2026-11-06), so a USD buyer outside the US converts to a local
+  amount at Checkout; the subscription stays in USD.
+- A session reads USD at create and settles its currency only when the buyer
+  opens the page. Reconciliation reads `subscription.currency` into
+  `subscriptions.currency`; an object without one never clears it.
+- A null `subscriptions.currency` (a row from before the column) reads as EUR.
+- The office view shows the amount in the stored currency. Signup, and an office
+  whose Checkout is not done, show the dollar price with the euro-area one.
+- The old EUR-only Prices keep billing the subscriptions made on them.

@@ -355,8 +355,9 @@ export class WebhookProcessor {
       ended_at: number | null;
       canceled_at: number | null;
       cancellation_reason: string | null;
+      currency: string | null;
     }>(
-      "select stripe_customer_id, ended_at, canceled_at, cancellation_reason " +
+      "select stripe_customer_id, ended_at, canceled_at, cancellation_reason, currency " +
         "from subscriptions where id = $1",
       [subscriptionId],
     );
@@ -376,6 +377,8 @@ export class WebhookProcessor {
       endedAt: cached.ended_at,
       canceledAt: cached.canceled_at,
       cancellationReason: cached.cancellation_reason,
+      // Carried for the same reason: a deleted USD office still paid in USD.
+      currency: cached.currency,
       discount: null,
       latestInvoiceId: null,
       metadata: {},
