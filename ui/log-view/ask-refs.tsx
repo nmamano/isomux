@@ -17,7 +17,7 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 import type { AskMemberWire } from "../../shared/types.ts";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
-import { inlinePlainText } from "../members-chat/InlineMarkdown.tsx";
+import { oneLinePlainText } from "../members-chat/InlineMarkdown.tsx";
 import { noTranslate } from "../no-translate.ts";
 import { useAppState } from "../store.tsx";
 
@@ -130,9 +130,13 @@ export function AskRefsProvider({
   return <AskRefs.Provider value={value}>{children}</AskRefs.Provider>;
 }
 
-/** The chip's title: the prompt's first line, without its markup. */
+/** The chip's title: the prompt's first line with text, without its markup. */
 export function askChipTitle(ask: ResolvedAsk): string {
-  return inlinePlainText(ask.prompt.trim().split("\n")[0]).trim();
+  for (const line of ask.prompt.split("\n")) {
+    const text = oneLinePlainText(line);
+    if (text) return text;
+  }
+  return "";
 }
 
 /** The chip's suffix after the id, as the task chip's data-task-label. */

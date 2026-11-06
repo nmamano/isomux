@@ -63,6 +63,11 @@ const ALLOWED_ELEMENTS = new Map<string, string>(
   ].map((name) => [name.toLowerCase(), name]),
 );
 
+/** Whether sanitizeSvg keeps an element of this name. */
+export function isSvgElement(name: string): boolean {
+  return ALLOWED_ELEMENTS.has(name.toLowerCase());
+}
+
 // Allowed attributes, keyed by lowercase name, valued by canonical casing.
 // aria-* and data-* are additionally allowed by pattern below.
 const ALLOWED_ATTRS = new Map<string, string>(

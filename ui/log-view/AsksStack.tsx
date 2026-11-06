@@ -242,7 +242,8 @@ export function AsksStack({
                 sudoAskTitle(t)
               ) : (
                 <InlineMarkdown
-                  content={entries[0].prompt.replace(/\s+/g, " ")}
+                  content={entries[0].prompt}
+                  oneLine
                   code
                   colors
                   links={false}

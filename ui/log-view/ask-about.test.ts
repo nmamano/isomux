@@ -50,3 +50,47 @@ it("counts code points, so a cut never splits a surrogate pair", () => {
   const e = "😀".repeat(45);
   expect(askExcerpt(e)).toBe("😀".repeat(40) + ELLIPSIS);
 });
+
+// The excerpt quotes the prompt's text, not its markup (task 198af893): an
+// ask's prompt is markdown with colour markup, and the chat draft is plain
+// text. Each case is short enough that no cut applies.
+for (const [prompt, text] of [
+  [":red[**Decide**] Ship it?", "Decide Ship it?"],
+  ["**bold** *em* _em_ `code`", "bold em em code"],
+  // Every link gives its text: a relative one too, which the chat does not
+  // draw as a link.
+  ["See [the doc](docs/x.md) or [site](https://x.com)", "See the doc or site"],
+  ["Look:\n\n![](before-after.png)\n\nOK?", "Look: OK?"],
+  ["a ![shot](x.png) b", "a b"],
+  ["- one\n- two\n\n1. three", "one two three"],
+  ["- [ ] todo\n- [x] done", "todo done"],
+  // In a loose list the box sits in the item's paragraph.
+  ["- [ ] todo\n\n- [x] done", "todo done"],
+  // A hard line break, with a backslash or two spaces, is a space.
+  ["a\\\nb  \nc", "a b c"],
+  ["# Title\n\n> quoted\n> - **item**", "Title quoted item"],
+  ["~~old~~ new", "old new"],
+  ["one <b>html</b> <img src=x> two", "one html two"],
+  ["Press <kbd>Ctrl</kbd><!-- note --> now", "Press Ctrl now"],
+  // A tag the ask card shows as text, such as a placeholder, stays.
+  ["POST /api/agents/<id>/messages", "POST /api/agents/<id>/messages"],
+  // The card draws an inline SVG; its elements are not text either.
+  ["Look:\n<svg><rect/><text>hi</text></svg>\nOK?", "Look: hi OK?"],
+  ["```ts\nconst x = 1;\n```", "const x = 1;"],
+  ["| a | b |\n|---|---|\n| c | d |", "a b c d"],
+  ["one\n\n---\n\ntwo", "one two"],
+  ["[ref]: https://x.com\n\n<div>block</div>\n\nafter", "after"],
+] as const) {
+  it(`drops the markup of ${JSON.stringify(prompt)} and keeps its text`, () => {
+    expect(askExcerpt(prompt)).toBe(text);
+  });
+}
+
+it("cuts the prompt's text, not its markup", () => {
+  // Raw, the 40 points end at "*ba"; as text, inside "code".
+  expect(
+    askExcerpt(
+      ":red[**Decide**] Since yesterday the *bar* shows `code` and [the doc](docs/x.md).",
+    ),
+  ).toBe(`Decide Since yesterday the bar shows${ELLIPSIS}`);
+});

@@ -318,3 +318,37 @@ it("draws a marked-up prompt's title and label as its plain text, in Markdown an
     view.unmount();
   }
 });
+
+// The chip is the third one-line view of an ask (task 198af893): a prompt
+// that starts with an image line takes its title from the first line with
+// text, and a list item's marker and a relative link's markup are dropped.
+it("takes the title from the prompt's first line with text, without block markup", () => {
+  const marked: ResolvedAsk = {
+    ...ASK,
+    prompt:
+      "![](before-after.png)\n- **Ship** the [build](docs/build.md) now?\nThe tests are green.",
+  };
+  const view = render(
+    withRefs(
+      refs({ [ASK.id]: marked }),
+      <Markdown
+        content={`See ${ASK.id} first.`}
+        tasks={new Map()}
+        onOpenTask={() => {}}
+      />,
+    ),
+  );
+  const chips = askChips(view.container);
+  expect(chips.length).toBe(1);
+  const label = chips[0].getAttribute("data-task-label") ?? "";
+  expect({
+    title: chips[0].getAttribute("title"),
+    words: label.includes("Ship the build now?"),
+    raw: /!\[|\]\(|\*\*|- /.test(label),
+  }).toEqual({
+    title: "Ship the build now?",
+    words: true,
+    raw: false,
+  });
+  view.unmount();
+});

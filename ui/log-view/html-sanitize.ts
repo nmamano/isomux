@@ -23,6 +23,7 @@ import {
   MARKUP_RE,
   SVG_SPAN_RE,
   escapeAttrValue,
+  isSvgElement,
   sanitizeSvg,
 } from "./svg-sanitize.ts";
 
@@ -188,6 +189,18 @@ function sanitizeAttrs(element: string, attrSource: string): string {
   }
   if (element === "a") out += ` target="_blank" rel="noopener noreferrer"`;
   return out;
+}
+
+/** Whether the ask card shows this one tag as text, as it does a
+ * placeholder such as <agent-id>, rather than drawing or dropping it: a tag
+ * on neither this allowlist nor the SVG one. */
+export function tagShowsAsText(tag: string): boolean {
+  const m = new RegExp(`^(?:${MARKUP_RE.source})$`).exec(tag.trim());
+  if (!m) return true;
+  const name = (m[1] ?? m[2])?.toLowerCase();
+  return (
+    name !== undefined && !ALLOWED_ELEMENTS.has(name) && !isSvgElement(name)
+  );
 }
 
 /**

@@ -1,5 +1,6 @@
 import { Fragment, useMemo, type ReactNode } from "react";
 import { Lexer, defaults, type MarkedToken, type Token } from "marked";
+import { tagShowsAsText } from "../log-view/html-sanitize.ts";
 import { renderTaskText, type TaskMap } from "../log-view/task-links.tsx";
 import {
   MARKUP_COLORS,
@@ -119,6 +120,7 @@ export function InlineMarkdown({
   links = true,
   whiteSpace = "pre-wrap",
   colors = false,
+  oneLine = false,
   tasks,
   onOpenTask,
 }: {
@@ -131,28 +133,94 @@ export function InlineMarkdown({
   whiteSpace?: "pre-wrap" | "nowrap";
   /** Draw `:green[text]` colour markup (color-markup.ts). Off by default. */
   colors?: boolean;
+  /** Draw the whole text as one line, without its block markup and images
+   * (oneLineTokens). */
+  oneLine?: boolean;
   /** With onOpenTask, draw these tasks' ids as chips (TaskChip). */
   tasks?: TaskMap;
   onOpenTask?: (id: string) => void;
 }) {
   const nodes = useMemo(
     () =>
-      renderTokens(lexInline(content, colors), {
-        code,
-        links,
-        ...(tasks && onOpenTask
-          ? { tasks: { map: tasks, onOpen: onOpenTask } }
-          : {}),
-      }),
-    [content, code, links, colors, tasks, onOpenTask],
+      renderTokens(
+        oneLine ? oneLineTokens(content, colors) : lexInline(content, colors),
+        {
+          code,
+          links,
+          ...(tasks && onOpenTask
+            ? { tasks: { map: tasks, onOpen: onOpenTask } }
+            : {}),
+        },
+      ),
+    [content, code, links, colors, oneLine, tasks, onOpenTask],
   );
   return <span style={{ whiteSpace }}>{nodes}</span>;
 }
 
-/** The text of inline markup without its markers (bold, code, links and
- * colour markup), for a plain-text surface such as a chip label. */
-export function inlinePlainText(content: string): string {
-  return plainTokens(lexInline(content, true));
+// The text as one flat list of inline tokens, for a one-line view of an ask:
+// the inline tokens of each block, a space between blocks. A fence gives its
+// code as text. An HTML block and any other block give nothing.
+function oneLineTokens(content: string, colors: boolean): Token[] {
+  const blocks = Lexer.lex(content, {
+    ...(colors ? colorMarkupOptions : defaults),
+    gfm: true,
+    breaks: false,
+  });
+  const lines = blockInlines(blocks).filter((line) => line.length > 0);
+  return lines.flatMap((line, index) =>
+    index === 0 ? line : [{ type: "text", raw: " ", text: " " }, ...line],
+  );
+}
+
+// The inline tokens of each block, one list per block.
+function blockInlines(tokens: Token[]): Token[][] {
+  return (tokens as MarkedToken[]).flatMap((token): Token[][] => {
+    switch (token.type) {
+      case "paragraph":
+      case "heading":
+      case "text":
+        return [flatInline(token.tokens ?? [token])];
+      case "blockquote":
+        return blockInlines(token.tokens);
+      case "list":
+        return token.items.flatMap((item) => blockInlines(item.tokens));
+      case "table":
+        return [token.header, ...token.rows]
+          .flat()
+          .map((cell) => flatInline(cell.tokens));
+      case "code":
+        return [[{ type: "text", raw: token.text, text: token.text }]];
+      default:
+        return [];
+    }
+  });
+}
+
+// Inline tokens a one-line view can draw: no image, task box or HTML the
+// ask card draws or drops, a line break as a space, and a link or
+// strikethrough replaced by its text.
+function flatInline(tokens: Token[]): Token[] {
+  return (tokens as (MarkedToken | ColorToken)[]).flatMap((token): Token[] => {
+    if (token.type === "image" || token.type === "checkbox") return [];
+    if (token.type === "html") return tagShowsAsText(token.raw) ? [token] : [];
+    if (token.type === "br") return [{ type: "text", raw: " ", text: " " }];
+    if (token.type === "link" || token.type === "del")
+      return flatInline(token.tokens);
+    if (
+      (token.type === "strong" ||
+        token.type === "em" ||
+        token.type === "color") &&
+      token.tokens
+    )
+      return [{ ...token, tokens: flatInline(token.tokens) }];
+    return [token];
+  });
+}
+
+/** The text of oneLineTokens without its markers, whitespace collapsed, for
+ * a plain-text one-line view (an excerpt, a chip label). */
+export function oneLinePlainText(content: string): string {
+  return plainTokens(oneLineTokens(content, true)).replace(/\s+/g, " ").trim();
 }
 
 // The same token cases as renderTokens, with text in place of elements.

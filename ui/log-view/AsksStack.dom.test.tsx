@@ -19,6 +19,7 @@ const { AsksStack } = await import("./AsksStack.tsx");
 const { OfficeLinkOpener } = await import("../office-link.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
 const { composerMaxHeight } = await import("../composer-height.ts");
+const { askExcerpt } = await import("./ask-about.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type OfficeLink = import("../../shared/office-links.ts").OfficeLink;
 
@@ -1571,6 +1572,67 @@ it("draws the newest plain ask's colour markup on the collapsed bar", async () =
   )!;
   expect(bar.textContent).toContain("Ship it?");
   expect(drawnLabel(bar)).toEqual(LABEL_DRAWN);
+  view.unmount();
+});
+
+// The bar is a one-line view of the ask, as the excerpt of its Discuss in
+// chat button is (task 198af893): the same text, with no markup left. The
+// bar still draws colour, bold and code; block markup, images, links and
+// HTML give their text or nothing.
+const RICH_PROMPT =
+  ":red[**Decide**] Since yesterday the *bar* shows `code` and [the doc](docs/x.md).\n\n![](before-after-x.png)\n\n- **Fix it**: do [this](https://x.com/a) ~~old~~\n1. one <b>html</b> <img src=x onerror=alert(1)>\n\n# Head\n\n> quoted [bad](javascript:alert%281%29)\n\n- [ ] todo\n\nEnd *x*\nnext";
+const RICH_TEXT =
+  "Decide Since yesterday the bar shows code and the doc. Fix it: do this old one html Head quoted bad todo End x next";
+function SeedRich({ children }: { children?: React.ReactNode }) {
+  const dispatch = useDispatch();
+  useEffect(() => {
+    dispatch({
+      type: "asks_loaded",
+      entries: [entry("cdef0201", "c2", RICH_PROMPT, 1)],
+      revision: 0,
+    });
+  }, [dispatch]);
+  return <>{children}</>;
+}
+
+it("draws the prompt's text on the collapsed bar, the text the excerpt quotes, with its colour, bold and code", async () => {
+  const view = render(
+    <StoreProvider>
+      <SeedRich>
+        <AsksStack agentId="c2" isMobile />
+      </SeedRich>
+    </StoreProvider>,
+  );
+  await waitFor(() =>
+    expect(
+      view.container.querySelector("[data-asks-stack=collapsed] button"),
+    ).not.toBe(null),
+  );
+  const bar = view.container.querySelector<HTMLElement>(
+    "[data-asks-stack=collapsed] button",
+  )!;
+  // A soft line break stays in the text; nowrap draws it as a space.
+  const text = (bar.textContent ?? "").replace(/\s+/g, " ").trim();
+  const excerpt = askExcerpt(RICH_PROMPT);
+  // The excerpt is the start of the bar's text, cut with an ellipsis.
+  const head = excerpt.endsWith("…") ? excerpt.slice(0, -1) : "";
+  expect({
+    text: text.slice(-RICH_TEXT.length),
+    head: RICH_TEXT.slice(0, Math.max(head.length, 1)),
+    color: bar.querySelector<HTMLElement>("[data-color]")?.dataset.color,
+    bold: bar.querySelector("[data-color] strong")?.textContent,
+    code: bar.querySelector("code")?.textContent,
+    elements:
+      bar.querySelector("a,img,li,ul,ol,h1,blockquote,del,b,input,script")
+        ?.tagName ?? null,
+  }).toEqual({
+    text: RICH_TEXT,
+    head: head,
+    color: "red",
+    bold: "Decide",
+    code: "code",
+    elements: null,
+  });
   view.unmount();
 });
 
