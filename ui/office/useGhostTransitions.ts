@@ -26,7 +26,7 @@ export const GHOST_LOBBY_GAP = 52;
 export const GHOST_WALL_SPOTS: Record<PresencePage, DoorCoord> = {
   tasks: { left: 310, top: 128 },
   apps: { left: 366, top: 83 },
-  inbox: { left: 168, top: 172 },
+  inbox: { left: 180, top: 172 },
   cronjobs: { left: 500, top: -11 },
   settings: { left: 772, top: 104 },
 };
