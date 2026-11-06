@@ -2,7 +2,7 @@
 
 An ask is what you need from one member to get unblocked: a decision, an answer, or an action only they can take. It stays above the chat input for that member and in their Inbox until they answer it. An office owner can also answer it. Before you ask for an action, do it yourself or through another agent when a route or tool allows it. Keep the prompt to what the member must decide or do and your pick, in one or two short sentences. Open one instead of asking again in later messages: the member still sees it.
 
-Open one with `POST /api/agents/:id/asks`, where `:id` is your own agent id. Send the prompt as a text/plain body, up to 4000 characters. It goes to your manager; to send it to another member who can reach your room, add `member=<username>` to the query. For several members, repeat `member=` (up to 20), or send `room=1` for everyone in your room; the first answer closes it. A member who hides your room gets no ask. With a quoted heredoc, nothing needs escaping:
+Open one with `POST /api/agents/:id/asks`, where `:id` is your own agent id. Send the prompt as a text/plain body, up to 4000 characters. It goes to your manager; to send it to another member who can reach your room, add `member=<username>` to the query. For several members, repeat `member=` (up to 20), or send `room=1` for everyone in your room except members who hide it; the first answer closes it. With a quoted heredoc, nothing needs escaping:
 
 ```
 curl -s -X POST "<office>/api/agents/<your-id>/asks" -H "<authorization>" -H 'Content-Type: text/plain' --data-binary @- <<'EOF'

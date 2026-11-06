@@ -1060,16 +1060,6 @@ export function askHandlers(deps: AsksDeps): Record<string, RouteHandler> {
         );
       memberUserIds = [asker.manager];
     }
-    // A member who hides the room gets none of its asks (task 3277082b).
-    if (
-      !room &&
-      memberUserIds.every((id) => audience.roomHidden(id, agent.roomId))
-    )
-      return fail(
-        422,
-        "no_audience",
-        "Every member this ask is for hides this room. Name another member with member= instead.",
-      );
     const memberUserId = memberUserIds[0];
     if (body.link !== undefined && !linkReachable(body.link, memberUserIds))
       return invalidLink();

@@ -468,100 +468,53 @@ describe("an ask for named members", () => {
   });
 });
 
-// Task 3277082b: a named member who hides the agent's room gets no ask,
-// read live, as for a room ask.
+// Task fec238bf (Nil, at the 3277082b sign-off): hiding a room keeps only a
+// room ask out of a member's view. An ask that names a member, or goes to
+// the manager by default, reaches them hidden or not.
 describe("an ask to a member who hides the room", () => {
-  it("skips them at create, keeps them out while they hide it and gives it back when they show it", async () => {
+  it("reaches a named member and the manager by default who hide the room: it opens, they see it and answer it; a room ask skips them", async () => {
     const w = await world();
-    await setHidden(w, w.kim, true);
-    const made = await opened(w, {
+    for (const who of [w.nil, w.pat, w.kim]) await setHidden(w, who, true);
+    const list = await opened(w, {
       text: "Who takes the demo?",
       member: [w.kim.username, w.pat.username],
     });
-    expect(made.members).toEqual([w.pat.username]);
-    expect(await mine(w, w.pat)).toEqual([made.id]);
-    expect(await mine(w, w.kim)).toEqual([]);
-    const refused = await answer(w, w.kim, made.id, "reply", { text: "me" });
-    expect(refused.status).toBe(404);
-    // Kim shows the room again: the ask is hers too.
-    await setHidden(w, w.kim, false);
-    expect(await mine(w, w.kim)).toEqual([made.id]);
-    expect(
-      ((await agentRead(w, made.id)).body as AskAgentWire).members,
-    ).toEqual([w.kim.username, w.pat.username]);
-    // Pat hides it after it opened: out of the members, and cannot answer.
-    await setHidden(w, w.pat, true);
-    expect(await mine(w, w.pat)).toEqual([]);
-    expect(
-      (await answer(w, w.pat, made.id, "reply", { text: "me" })).status,
-    ).toBe(404);
-    expect(
-      ((await agentRead(w, made.id)).body as AskAgentWire).members,
-    ).toEqual([w.kim.username]);
-    expect(
-      (await answer(w, w.kim, made.id, "reply", { text: "me" })).status,
-    ).toBe(204);
-  });
-
-  it("refuses with 422 no_audience when every member it names hides the room, the manager by default too and before a step's check; opens nothing", async () => {
-    const w = await world();
-    for (const who of [w.nil, w.pat, w.kim]) await setHidden(w, who, true);
-    const outcomes: string[] = [];
-    for (const [label, json] of [
-      ["a list", { member: [w.pat.username, w.kim.username] }],
-      ["one member", { member: w.pat.username }],
-      ["the manager by default", {}],
-      ["the manager with a step", { step: { kind: "browser-pairing" } }],
-    ] as const) {
-      const r = await create(w, { text: "Who?", ...json });
-      outcomes.push(`${label}: ${r.status} ${r.code}`);
-    }
-    const viaText = await createText(w, `member=${w.kim.username}`, "Who?");
-    outcomes.push(`member= as text: ${viaText.status} ${viaText.code}`);
-    expect(outcomes).toEqual([
-      "a list: 422 no_audience",
-      "one member: 422 no_audience",
-      "the manager by default: 422 no_audience",
-      "the manager with a step: 422 no_audience",
-      "member= as text: 422 no_audience",
-    ]);
+    expect(list.members).toEqual([w.kim.username, w.pat.username]);
+    const viaText = await createText(w, `member=${w.kim.username}`, "Kim?");
+    expect([viaText.status, viaText.code]).toEqual([201, undefined]);
+    const manager = await opened(w, { text: "Nil?" });
+    const kimsOwn = (viaText.body as AskAgentWire).id;
+    expect(sorted(await mine(w, w.kim))).toEqual(sorted([list.id, kimsOwn]));
+    expect(await mine(w, w.pat)).toEqual([list.id]);
+    expect(await mine(w, w.nil)).toEqual([manager.id]);
+    // The contrast: a room ask opened now skips the three who hide the room,
+    // so it is for nobody.
+    const room = await create(w, { text: "Anyone?", room: true });
+    expect([room.status, room.code]).toEqual([422, "no_audience"]);
+    for (const [who, id] of [
+      [w.pat, list.id],
+      [w.kim, kimsOwn],
+      [w.nil, manager.id],
+    ] as const)
+      expect((await answer(w, who, id, "reply", { text: "me" })).status).toBe(
+        204,
+      );
     expect(await openCount(w)).toBe(0);
-    // One member who shows the room is enough.
-    const r = await create(w, {
-      text: "Who?",
-      member: [w.pat.username, w.kim.username],
-    });
-    expect(r.status).toBe(422);
-    await setHidden(w, w.kim, false);
-    const made = await opened(w, {
-      text: "Who?",
-      member: [w.pat.username, w.kim.username],
-    });
-    expect(made.members).toEqual([w.kim.username]);
   });
 
-  it("an office owner who hides the room sees none of its asks, as their own or as another member's", async () => {
+  it("an office owner who hides the room still sees another member's named ask in the owners' view and answers it", async () => {
     const w = await world();
-    const named = await opened(w, {
-      text: "Mine?",
-      member: [w.nil.username, w.pat.username],
-    });
     const other = await opened(w, { text: "Theirs?", member: w.pat.username });
     const others = async () =>
       (
         (await call(w.srv, "GET", "/api/asks/others", w.nil.auth))
           .body as AskAgentWire[]
       ).map((e) => e.id);
-    // The condition: shown, Nil has the named ask and sees the other one.
-    expect(await mine(w, w.nil)).toEqual([named.id]);
-    expect(await others()).toEqual([other.id]);
     await setHidden(w, w.nil, true);
-    expect(await mine(w, w.nil)).toEqual([]);
-    expect(await others()).toEqual([]);
-    for (const id of [named.id, other.id])
-      expect((await answer(w, w.nil, id, "reply", { text: "me" })).status).toBe(
-        404,
-      );
+    expect(await others()).toEqual([other.id]);
+    expect(
+      (await answer(w, w.nil, other.id, "reply", { text: "mine" })).status,
+    ).toBe(204);
   });
 });
 
