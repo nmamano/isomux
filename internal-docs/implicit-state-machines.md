@@ -35,7 +35,7 @@ The sweep cannot find a phase held only in a closure's local variables or in the
 | 15 | Task edit save (UI) | `TaskView.tsx` `savingId`/`saveConflict` | make explicit | 3b749d1f |
 | 16 | App widget session (UI) | `AppWidgetPage.tsx` `refresh()` | make explicit | 4d7a21c1 |
 | 17 | Members chat send (UI) | `MembersChatPanel.tsx` `sending`/`input` | make explicit | b80a15e0 |
-| 18 | Welcome-model repick | `office-onboarding.ts` `fallbackRepickRunning` | make explicit, verify first | 5fc93a72 |
+| 18 | Welcome-model repick | `office-onboarding.ts` `fallbackRepickRunning` | not reachable (verified) | 5fc93a72 |
 
 Entries 19 and later are "leave" (below).
 
@@ -75,7 +75,7 @@ Entries 19 and later are "leave" (below).
 
 **17. Members chat send (UI).** `input`, `staged`, `sending`, one shared `error` (`MembersChatPanel.tsx:250-257`). Traced: the textarea stays enabled while `sending`; on success `handleSend` runs `setInput("")` and `setStaged([])` after the POST (`:417-419`), so text typed and files attached during the POST are lost. Shape: send the snapshot and clear only what was sent.
 
-**18. Welcome-model repick (verify first).** `fallbackSeededAgentIds`, `fallbackRepickRunning`, `fallbackRepickGeneration` (`office-onboarding.ts:269-272`). One discovery runs at a time, with the `userId` of the member whose agent started it. An agent another member seeds meanwhile joins the set and is moved by the same loop (`:296`) with the first member's result, or, if it joins after the loop, by the re-arm in `finally` (`:331-334`), which again passes the first caller's `userId`. Check whether discovery differs per member, on both paths. Shape: a queue of (userId, agentId) pairs.
+**18. Welcome-model repick (not reachable).** `fallbackSeededAgentIds`, `fallbackRepickRunning`, `fallbackRepickGeneration` (`office-onboarding.ts:269-272`). One discovery runs at a time, with the `userId` of the member whose agent started it. An agent another member seeds meanwhile joins the set and is moved by the same loop (`:296`) with the first member's result, or, if it joins after the loop, by the re-arm in `finally` (`:331-334`), which again passes the first caller's `userId`. Check whether discovery differs per member, on both paths. Shape: a queue of (userId, agentId) pairs. Verified in task 5fc93a72: not reachable. Only the first owner's seed calls `repickFallbackSeeds`: both claims refuse once an owner exists, and the last owner cannot be deleted or demoted, so every call in one process carries one `userId`.
 
 ## Leave
 

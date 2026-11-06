@@ -271,6 +271,8 @@ export function createOfficeOnboarding(deps: OfficeOnboardingDeps) {
   // Bumped at shutdown so a retry still in flight does not act on a later server.
   let fallbackRepickGeneration = 0;
 
+  // Every call in one process passes the first owner's userId: only the first owner's seed calls this.
+  // A caller for another member needs a per-member queue (internal-docs/implicit-state-machines.md entry 18).
   function repickFallbackSeeds(userId: string, agentId: string): void {
     fallbackSeededAgentIds.add(agentId);
     if (fallbackRepickRunning) return;
