@@ -31,6 +31,8 @@
 // to leak, and not one line of logging that touches a URL.
 
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { APP_MINT_PATH } from "./browser-office-gate.ts";
 import { appRegistry } from "./app-registry.ts";
 import { appRegistrationGeneration } from "./app-registry.ts";
@@ -38,6 +40,8 @@ import { buildPublicOrigin, revalidateByHash } from "./auth.ts";
 import type { SessionLookup } from "./auth.ts";
 import type { AppRecord } from "../shared/types.ts";
 import type { AppMember } from "./app-proxy.ts";
+import { STATE_ROOT } from "./config.ts";
+import { atomicWriteFileSync } from "./persistence.ts";
 import {
   AUTH_REQUIRED_BODY,
   BAD_REQUEST_BODY,
@@ -212,16 +216,137 @@ interface AppSession {
   label: string;
   hostGen: number;
   registrationGen: number;
+  // The app's createdAt when the session started. With the name it is the
+  // app's incarnation key (app-secrets.ts, asks.ts, app-proxy-secret.ts,
+  // isomux-office.ts): it is written once, at registration, by every server
+  // version, so a delete and a register always change it.
+  appCreatedAt: number;
   officeSessionHash: string;
   expiresAt: number;
 }
 
-// Both tables are process-local and die on restart. Legacy registration
-// identity derivation in app-registry.ts relies on that fact: a rollback and
-// restart cannot leave a session alive to match a derived identity. If either
-// table becomes persistent, that derivation must change first.
+// Codes live in memory and die on restart. App sessions survive a restart in
+// app-sessions.json, which holds only the hash of each cookie. The
+// registration generation of a record an older server wrote is DERIVED on load
+// (app-registry.ts), so after a rollback a re-registered app can derive the
+// same label, hostGen and registrationGen as the app it replaced. That is why
+// every identity check also compares the app's createdAt: a stored session can
+// never open a later registration of its app, whatever the derivation says.
 const pendingCodes = new Map<string, PendingCode>();
-const appSessions = new Map<string, AppSession>();
+
+const APP_SESSIONS_FILE = join(STATE_ROOT, "app-sessions.json");
+const HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+// null until the first use reads the file. Every reader and writer goes
+// through appSessionTable(), so no write can put an empty table over a file
+// that was never read.
+let loadedAppSessions: Map<string, AppSession> | null = null;
+
+function appSessionTable(): Map<string, AppSession> {
+  loadedAppSessions ??= loadAppSessions(Date.now());
+  return loadedAppSessions;
+}
+
+function sessionMatchesApp(row: AppSession, app: AppRecord): boolean {
+  return (
+    row.label === app.hostLabel &&
+    row.hostGen === app.hostGen &&
+    row.registrationGen === appRegistrationGeneration(app) &&
+    row.appCreatedAt === app.createdAt
+  );
+}
+
+function isGeneration(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 1;
+}
+
+// A stored row, rebuilt field by field so nothing else in the file is kept.
+function storedAppSession(key: string, value: unknown): AppSession | null {
+  if (value === null || typeof value !== "object") return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v.tokenHash !== "string" ||
+    v.tokenHash !== key ||
+    !HASH_PATTERN.test(v.tokenHash) ||
+    typeof v.label !== "string" ||
+    v.label.length === 0 ||
+    !isGeneration(v.hostGen) ||
+    !isGeneration(v.registrationGen) ||
+    typeof v.officeSessionHash !== "string" ||
+    !HASH_PATTERN.test(v.officeSessionHash) ||
+    !Number.isFinite(v.expiresAt) ||
+    !Number.isFinite(v.appCreatedAt)
+  ) {
+    return null;
+  }
+  return {
+    tokenHash: v.tokenHash,
+    label: v.label,
+    hostGen: v.hostGen,
+    registrationGen: v.registrationGen,
+    appCreatedAt: v.appCreatedAt as number,
+    officeSessionHash: v.officeSessionHash,
+    expiresAt: v.expiresAt as number,
+  };
+}
+
+// Fail closed: a file or a registry that cannot be read starts an empty
+// table, and members sign in to their apps again. The log lines never carry
+// the parser's message, which quotes the text it stopped at.
+function loadAppSessions(now: number): Map<string, AppSession> {
+  const table = new Map<string, AppSession>();
+  let parsed: unknown;
+  try {
+    if (!existsSync(APP_SESSIONS_FILE)) return table;
+    parsed = JSON.parse(readFileSync(APP_SESSIONS_FILE, "utf8"));
+  } catch {
+    console.error(
+      "[app-auth] app-sessions.json cannot be read; starting with no app sessions",
+    );
+    return table;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    console.error(
+      "[app-auth] app-sessions.json is not an object; starting with no app sessions",
+    );
+    return table;
+  }
+  let apps: AppRecord[];
+  try {
+    apps = appRegistry.list();
+  } catch {
+    console.error(
+      "[app-auth] the app registry cannot be read; starting with no app sessions",
+    );
+    return table;
+  }
+  // A prune only: validateAppSession checks the same identity on every use.
+  for (const [key, value] of Object.entries(parsed)) {
+    const row = storedAppSession(key, value);
+    if (row === null || row.expiresAt <= now) continue;
+    if (!apps.some((app) => sessionMatchesApp(row, app))) continue;
+    table.set(key, row);
+  }
+  return table;
+}
+
+// A failed write keeps the table in memory: the sessions still work in this
+// process, and only their survival of the next restart is lost. It never fails
+// the request that changed the table.
+function persistAppSessions(table: Map<string, AppSession>): void {
+  try {
+    atomicWriteFileSync(
+      APP_SESSIONS_FILE,
+      JSON.stringify(Object.fromEntries(table)),
+      0o600,
+    );
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException | null)?.code ?? "unknown";
+    console.error(
+      `[app-auth] could not save app-sessions.json (${code}); app sessions started now end at the next restart`,
+    );
+  }
+}
 
 function pruneExpired<T extends { expiresAt: number }>(
   table: Map<string, T>,
@@ -446,11 +571,13 @@ export function startAppSession(
     label: string;
     hostGen: number;
     registrationGen?: number;
+    appCreatedAt: number;
     officeSessionHash: string;
     absoluteExpiresAt: number;
   },
   now: number = Date.now(),
 ): { token: string; maxAgeSec: number } | null {
+  const appSessions = appSessionTable();
   const deadline = Math.min(now + APP_SESSION_TTL_MS, input.absoluteExpiresAt);
   const maxAgeSec = Math.floor((deadline - now) / 1000);
   if (maxAgeSec <= 0) return null;
@@ -476,9 +603,11 @@ export function startAppSession(
     label: input.label,
     hostGen: input.hostGen,
     registrationGen: input.registrationGen ?? input.hostGen,
+    appCreatedAt: input.appCreatedAt,
     officeSessionHash: input.officeSessionHash,
     expiresAt: deadline,
   });
+  persistAppSessions(appSessions);
   return { token, maxAgeSec };
 }
 
@@ -492,6 +621,7 @@ export function validateAppSession(
     label: string;
     hostGen: number;
     registrationGen?: number;
+    createdAt: number;
   },
 ): { userId: string; officeSessionHash: string } | null {
   // Present-but-empty lands here as `""` and is refused like any other value
@@ -500,18 +630,21 @@ export function validateAppSession(
   if (rawCookie.length > MAX_TOKEN_LENGTH || !TOKEN_PATTERN.test(rawCookie)) {
     return null;
   }
+  const appSessions = appSessionTable();
   const tokenHash = hashOf(rawCookie);
   const row = appSessions.get(tokenHash);
   if (!row) return null;
   if (!safeHashEq(row.tokenHash, tokenHash)) return null;
   if (row.expiresAt <= Date.now()) {
     appSessions.delete(tokenHash);
+    persistAppSessions(appSessions);
     return null;
   }
   if (
     row.label !== ctx.label ||
     row.hostGen !== ctx.hostGen ||
-    row.registrationGen !== (ctx.registrationGen ?? ctx.hostGen)
+    row.registrationGen !== (ctx.registrationGen ?? ctx.hostGen) ||
+    row.appCreatedAt !== ctx.createdAt
   )
     return null;
   const office = revalidateByHash(row.officeSessionHash);
@@ -519,6 +652,7 @@ export function validateAppSession(
     // The office session is gone. The app session is orphaned and will never
     // be valid again, so drop the row rather than re-checking it forever.
     appSessions.delete(tokenHash);
+    persistAppSessions(appSessions);
     return null;
   }
   return { userId: office.userId, officeSessionHash: row.officeSessionHash };
@@ -535,12 +669,10 @@ export function appSessionExpiresAt(
   const office = revalidateByHash(officeSessionHash);
   if (!office) return null;
   let expiresAt: number | null = null;
-  for (const row of appSessions.values()) {
+  for (const row of appSessionTable().values()) {
     if (
       row.officeSessionHash === officeSessionHash &&
-      row.label === app.hostLabel &&
-      row.hostGen === app.hostGen &&
-      row.registrationGen === appRegistrationGeneration(app) &&
+      sessionMatchesApp(row, app) &&
       row.expiresAt > now
     ) {
       expiresAt = Math.max(
@@ -554,7 +686,8 @@ export function appSessionExpiresAt(
 
 export function _testResetAppAuth(): void {
   pendingCodes.clear();
-  appSessions.clear();
+  // Not-loaded, as a restart leaves it: the next use reads app-sessions.json.
+  loadedAppSessions = null;
   mintLimiter.reset();
   redeemLimiter.reset();
   previewCodes.clear();
@@ -572,10 +705,15 @@ export function invalidateAppRegistration(
     if (row.label === label && row.registrationGen === registrationGen)
       pendingCodes.delete(key);
   }
+  const appSessions = appSessionTable();
+  let dropped = false;
   for (const [key, row] of appSessions) {
-    if (row.label === label && row.registrationGen === registrationGen)
+    if (row.label === label && row.registrationGen === registrationGen) {
       appSessions.delete(key);
+      dropped = true;
+    }
   }
+  if (dropped) persistAppSessions(appSessions);
   for (const table of [previewCodes, previewSessions] as const) {
     for (const [key, row] of table) {
       if (row.label === label && row.registrationGen === registrationGen)
@@ -774,6 +912,7 @@ export function handleAppAuthRedeem(
     label: ctx.app.hostLabel,
     hostGen: ctx.app.hostGen,
     registrationGen: appRegistrationGeneration(ctx.app),
+    appCreatedAt: ctx.app.createdAt,
     officeSessionHash: record.officeSessionHash,
     absoluteExpiresAt: office.absoluteExpiresAt,
   });
@@ -822,6 +961,7 @@ export function appHostWsAuthGate(
     label: ctx.app.hostLabel,
     hostGen: ctx.app.hostGen,
     registrationGen: appRegistrationGeneration(ctx.app),
+    createdAt: ctx.app.createdAt,
   });
   if (session && ctx.canAccess(ctx.app, session.userId)) {
     return null;
@@ -846,6 +986,7 @@ export function appHostAuthGate(
     label: ctx.app.hostLabel,
     hostGen: ctx.app.hostGen,
     registrationGen: appRegistrationGeneration(ctx.app),
+    createdAt: ctx.app.createdAt,
   });
   if (session && ctx.canAccess(ctx.app, session.userId)) {
     const name = ctx.memberName(session.userId);

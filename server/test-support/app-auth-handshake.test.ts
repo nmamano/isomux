@@ -53,6 +53,8 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { officeSessionCookieNames } from "../auth.ts";
 import { createHash } from "crypto";
 import { runInNewContext } from "node:vm";
+import { readFileSync, statSync, writeFileSync } from "fs";
+import { join } from "path";
 import {
   _testSetAppRegistrationGeneration,
   appRegistrationGeneration,
@@ -384,6 +386,122 @@ describe("app-host handshake: the whole round trip", () => {
   });
 });
 
+describe("app-host handshake: app sessions across a restart", () => {
+  // The office keeps app sessions in STATE_ROOT/app-sessions.json, keyed by
+  // the hash of the cookie (task 8fa71f4a), so a restart does not sign every
+  // member out of every app.
+  const sessionsFile = (srv: TestServer) =>
+    join(srv.stateRoot, "app-sessions.json");
+  const onApp = (srv: TestServer, label: string, value: string) =>
+    raw(srv.port, {
+      host: appHost(label),
+      headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
+    });
+  // The office session must be alive after the restart, so that a refused
+  // cookie can only mean the app session itself was lost.
+  const expectOfficeSessionAlive = async (
+    srv: TestServer,
+    label: string,
+    rawSessionId: string,
+  ) => {
+    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
+    expect(minted.status).toBe(302);
+    expect(new URL(minted.headers.get("location")!).origin).toBe(
+      `https://${appHost(label)}`,
+    );
+  };
+
+  it("keeps an app cookie valid across a restart, and stores only its hash", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    const value = await signIn(srv, label, rawSessionId);
+
+    server = await srv.restart();
+    await expectOfficeSessionAlive(server, label, rawSessionId);
+    expectPlaceholder(
+      await onApp(server, label, value),
+      RELAY_UNREACHABLE,
+      "app cookie after a restart",
+    );
+
+    const file = sessionsFile(server);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readFileSync(file, "utf8")).not.toContain(value);
+  });
+
+  // The rollback case from the registry's derivation comment: an old server
+  // that does not write registrationGen deletes the app and registers it
+  // again. On the next start the new registration derives the same label,
+  // host generation and registration generation as the old one. Only its
+  // createdAt differs, and that must be enough to refuse the old cookie.
+  it("refuses a stored session after a rolled-back server deleted and registered the app again", async () => {
+    const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
+    const otherLabel = await registerApp(srv, token, "other");
+    const value = await signIn(srv, label, rawSessionId);
+    const otherValue = await signIn(srv, otherLabel, rawSessionId);
+    const before = appRegistry.get("hello")!;
+
+    // What the old server leaves on disk: no registrationGen anywhere, and a
+    // new createdAt for the app it registered again.
+    const appsFile = join(srv.stateRoot, "apps", "apps.json");
+    const stored = JSON.parse(readFileSync(appsFile, "utf8")) as {
+      apps: Record<string, unknown>[];
+      issuedLabels: Record<string, unknown>[];
+    };
+    for (const row of [...stored.apps, ...stored.issuedLabels])
+      delete row.registrationGen;
+    const hello = stored.apps.find((app) => app.name === "hello")!;
+    hello.createdAt = before.createdAt + 60_000;
+    writeFileSync(appsFile, JSON.stringify(stored));
+
+    server = await srv.restart();
+    const after = appRegistry.get("hello")!;
+    // The enabling condition: every field but createdAt matches.
+    expect({
+      label: after.hostLabel,
+      hostGen: after.hostGen,
+      registrationGen: appRegistrationGeneration(after),
+    }).toEqual({
+      label: before.hostLabel,
+      hostGen: before.hostGen,
+      registrationGen: appRegistrationGeneration(before),
+    });
+    expect(after.createdAt).not.toBe(before.createdAt);
+    await expectOfficeSessionAlive(server, label, rawSessionId);
+
+    // The app the old server did not touch keeps its session.
+    expectPlaceholder(
+      await onApp(server, otherLabel, otherValue),
+      RELAY_UNREACHABLE,
+      "cookie of the untouched app",
+    );
+    const refused = await onApp(server, label, value);
+    expectBounce(
+      refused,
+      { label, path: "/" },
+      "cookie of the old incarnation",
+    );
+    expect(refused.setCookies).toEqual([CLEAR_LINE]);
+  });
+
+  it("boots with no app sessions from a file it cannot read, and signs in again", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    await signIn(srv, label, rawSessionId);
+    let live = srv;
+    // Not JSON, then JSON of the wrong shape.
+    for (const content of ["{not json", "null"]) {
+      writeFileSync(sessionsFile(live), content);
+      live = await live.restart();
+      server = live;
+      const value = await signIn(live, label, rawSessionId);
+      expectPlaceholder(
+        await onApp(live, label, value),
+        RELAY_UNREACHABLE,
+        `fresh sign-in after a file holding ${content}`,
+      );
+    }
+  });
+});
+
 describe("app-host handshake: the registration binding", () => {
   // Delete and re-register drop every code and session of the old registration
   // (the next test), so no production state reaches these checks today. They
@@ -430,27 +548,34 @@ describe("app-host handshake: the registration binding", () => {
     expect(at(fresh(), otherHostGen)).toBe(400);
     expect(at(fresh(), app)).toBe(302);
 
-    // An app session checked against each generation alone.
+    // An app session checked against each generation alone, and against the
+    // app's createdAt: a stored session must not open a later registration
+    // that derives the same generations (task 8fa71f4a).
     const started = startAppSession({
       label,
       hostGen: app.hostGen,
       registrationGen: gen,
+      appCreatedAt: app.createdAt,
       officeSessionHash,
       absoluteExpiresAt: Date.now() + 60_000,
     });
     if (started === null) throw new Error("no app session");
-    const check = (ctx: { hostGen: number; registrationGen: number }) =>
+    const check = (ctx: {
+      hostGen: number;
+      registrationGen: number;
+      createdAt: number;
+    }) =>
       validateAppSession(started.token, { label, ...ctx })?.officeSessionHash ??
       null;
-    expect(check({ hostGen: app.hostGen, registrationGen: gen })).toBe(
-      officeSessionHash,
-    );
-    expect(
-      check({ hostGen: app.hostGen + 1, registrationGen: gen }),
-    ).toBeNull();
-    expect(
-      check({ hostGen: app.hostGen, registrationGen: gen + 1 }),
-    ).toBeNull();
+    const live = {
+      hostGen: app.hostGen,
+      registrationGen: gen,
+      createdAt: app.createdAt,
+    };
+    expect(check(live)).toBe(officeSessionHash);
+    expect(check({ ...live, hostGen: app.hostGen + 1 })).toBeNull();
+    expect(check({ ...live, registrationGen: gen + 1 })).toBeNull();
+    expect(check({ ...live, createdAt: app.createdAt + 1 })).toBeNull();
   });
 
   it("readiness binds every registration field and the live office session", async () => {
@@ -479,6 +604,9 @@ describe("app-host handshake: the registration binding", () => {
     const otherLabel = { ...app, hostLabel: "other-app" };
     _testSetAppRegistrationGeneration(otherLabel, generation);
     expect(appSessionExpiresAt(otherLabel, hash)).toBeNull();
+    const otherCreatedAt = { ...app, createdAt: app.createdAt + 1 };
+    _testSetAppRegistrationGeneration(otherCreatedAt, generation);
+    expect(appSessionExpiresAt(otherCreatedAt, hash)).toBeNull();
     expect(appSessionExpiresAt(app, null)).toBeNull();
     const otherMember = await srv.seedMember("Other");
     expect(

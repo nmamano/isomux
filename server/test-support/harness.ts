@@ -235,11 +235,11 @@ async function bootTestServer(
     // stale domain sitting in the module while no server is up is exactly the
     // kind of thing a later test would trip over.
     _testResetAppHostDomain();
-    // App sign-in codes and app sessions live in memory and die with the
-    // office process, so a boot - INCLUDING a no-wipe restart(), which models
-    // exactly that - starts with empty tables. Carrying them across would let
-    // a test prove a cookie survives a restart when the product says it does
-    // not.
+    // App sign-in codes live in memory and die with the office process, and
+    // app sessions are read again from app-sessions.json, so a boot -
+    // INCLUDING a no-wipe restart(), which models exactly that - starts as a
+    // new process does. Carrying the in-memory tables across would let a test
+    // prove a cookie survives a restart that the file did not keep.
     _testResetAppAuth();
     // The setup key and its wrong-key counts live in the office process too.
     _resetSetupKeyForTests();

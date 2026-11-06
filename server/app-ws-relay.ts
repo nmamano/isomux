@@ -388,6 +388,7 @@ export class AppWsRelay {
       label: string;
       hostGen: number;
       registrationGen: number;
+      createdAt: number;
       registry: AppRegistry;
       canAccess: (app: AppRecord, userId: string) => boolean;
       userId: string;
@@ -640,7 +641,8 @@ export class AppWsRelay {
             (app) =>
               app.hostLabel === this.session.label &&
               app.hostGen === this.session.hostGen &&
-              appRegistrationGeneration(app) === this.session.registrationGen,
+              appRegistrationGeneration(app) === this.session.registrationGen &&
+              app.createdAt === this.session.createdAt,
           ) ?? null;
     } catch (err) {
       console.error("[app-ws-relay] registry unreadable; closing socket:", err);
@@ -650,6 +652,7 @@ export class AppWsRelay {
       label: this.session.label,
       hostGen: this.session.hostGen,
       registrationGen: this.session.registrationGen,
+      createdAt: this.session.createdAt,
     });
     const stillAllowed =
       liveApp !== null &&
@@ -766,6 +769,7 @@ export async function relayWsToApp(
     label: ctx.app.hostLabel,
     hostGen: ctx.app.hostGen,
     registrationGen: appRegistrationGeneration(ctx.app),
+    createdAt: ctx.app.createdAt,
   });
   if (authenticated === null) {
     return neutral(401, AUTH_REQUIRED_BODY);
@@ -944,6 +948,7 @@ export async function relayWsToApp(
       label: ctx.app.hostLabel,
       hostGen: ctx.app.hostGen,
       registrationGen: appRegistrationGeneration(ctx.app),
+      createdAt: ctx.app.createdAt,
       registry: ctx.registry ?? productionRegistry,
       canAccess: ctx.canAccess,
       userId: authenticated.userId,

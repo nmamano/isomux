@@ -568,10 +568,13 @@ function loadState(
     // Hydrate the derived path. This is the ONLY place an app's data directory
     // comes from, so it is always the registry's own.
     apps.map((app) => {
-      // app-auth codes and sessions are process-local Maps and die on restart.
-      // That is why deriving an identity for an old row cannot revive a
-      // pre-rollback browser session. If those tables ever become persistent,
-      // this derivation must be replaced by an explicit stored migration.
+      // App sessions survive a restart (app-auth.ts), and after a rollback a
+      // re-registered app can derive the same generation as the app it
+      // replaced. A stored session still cannot open it: every app-session
+      // check also compares the app's createdAt, which a register always
+      // changes (the same incarnation key as app-secrets.ts, asks.ts,
+      // app-proxy-secret.ts and isomux-office.ts). Keep createdAt set only at
+      // registration, or replace this derivation with a stored migration.
       // Never derive below any generation the record or lineage already shows.
       const visible = Math.max(
         app.registrationGen ?? app.hostGen,

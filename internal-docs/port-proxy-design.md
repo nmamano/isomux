@@ -297,6 +297,10 @@ Invariants, all of them load-bearing:
   itself is bound to share id, generation and user session, and is rejected
   after revoke or recreate - so the relay's validation model does not depend on
   hostnames being unique.
+- App sessions survive a restart in `app-sessions.json` (mode 0600), which
+  stores only the SHA-256 of each cookie. Each row is pinned to the app's
+  `createdAt`, so a stored session never opens a later registration of the
+  same name, even one an older server made after a rollback.
 - `SameSite=Lax` works per registrable domain, so it does not keep the cookie
   off a POST from another host under the same parent (another Hosted office, or
   a sibling site of a self-hosted office). The relay refuses an unsafe method

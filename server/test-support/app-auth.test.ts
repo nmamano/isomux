@@ -25,6 +25,9 @@
 //     deletes on arrival.
 
 import { describe, it, expect, beforeEach } from "bun:test";
+import { rmSync } from "fs";
+import { join } from "path";
+import { STATE_ROOT } from "../config.ts";
 import {
   APP_CODE_TTL_MS,
   APP_COOKIE_NAME,
@@ -111,7 +114,10 @@ function req(
   return new Request(url, { method, headers });
 }
 
+// App sessions are stored in STATE_ROOT and the reset only drops the memory
+// copy, as a restart does. Each test starts with no stored sessions.
 beforeEach(() => {
+  rmSync(join(STATE_ROOT, "app-sessions.json"), { force: true });
   _testResetAppAuth();
 });
 
@@ -320,6 +326,7 @@ describe("app sessions", () => {
       {
         label: LABEL,
         hostGen: 1,
+        appCreatedAt: 1,
         officeSessionHash: SESSION_HASH,
         absoluteExpiresAt,
       },
