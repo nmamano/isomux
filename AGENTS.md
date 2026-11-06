@@ -48,6 +48,13 @@ Nil's rules for every UI change. A diff that breaks one does not pass review or 
 - An agent selector groups agents by room. Nil, 2026-11-05.
 - A destructive action that cannot be undone (delete, remove, disconnect, reset, revoke, kill, clear) asks "are you sure?" before it runs. An action with an Undo does not. Use the in-page confirm the UI already has (a button that turns into "Confirm?" on the first click, or a confirm dialog), never the browser's `confirm()`. "Destructible and reversible actions should always have an "are you sure?" step." Nil, 2026-11-05.
 
+## Code rules
+
+For new and changed code. A diff that breaks one does not pass review.
+
+- A process that moves through steps keeps one explicit state (one union value), not several flags that only make sense together (`internal-docs/implicit-state-machines.md`). Nil, 2026-11-06.
+- On a hot path (request, WebSocket, boot, turn start), independent async calls run in parallel, not one after another. Nil, 2026-11-06.
+
 ## Formatting and linting
 
 Run prettier ONLY AFTER final human approval for commit. Do NOT format changes before human review. In particular, only run `prettier --write` after final approval; it changes files in disk which corrupts agent context and triggers file re-reads.
