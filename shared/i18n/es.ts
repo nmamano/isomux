@@ -2866,7 +2866,6 @@ Cosas que puedes hacer por él:
   "office.pet.coatAria": "{species}, pelaje {number}",
   "office.desk.swapBadge": "INTERCAMBIAR",
   "office.status.working": "trabajando",
-  "office.status.waiting": "esperando",
   "office.status.error": "con error",
   "office.status.idle": "inactivos",
   "office.backRoom.tooltip.one": "Trastienda · {count} agente",

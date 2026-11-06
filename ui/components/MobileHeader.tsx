@@ -4,7 +4,6 @@ import type { AgentInfo } from "../../shared/types.ts";
 
 export type RoomCounts = {
   working: number;
-  waiting: number;
   error: number;
   idle: number;
 };
@@ -14,8 +13,6 @@ export function getRoomCounts(roomAgents: AgentInfo[]): RoomCounts {
     working: roomAgents.filter((a) =>
       ["thinking", "tool_executing"].includes(a.state),
     ).length,
-    waiting: roomAgents.filter((a) => a.state === "waiting_for_response")
-      .length,
     error: roomAgents.filter((a) => a.state === "error").length,
     idle: roomAgents.filter((a) => a.state === "idle" || a.state === "stopped")
       .length,
@@ -58,11 +55,6 @@ export function MobileHeader({
                 n: counts.working,
                 c: "var(--green-text)",
                 label: "office.status.working",
-              },
-              {
-                n: counts.waiting,
-                c: "var(--purple-text)",
-                label: "office.status.waiting",
               },
               {
                 n: counts.error,

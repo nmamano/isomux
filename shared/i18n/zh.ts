@@ -2564,7 +2564,6 @@ App 的一些原则：
   "office.pet.coatAria": "{species}毛色 {number}",
   "office.desk.swapBadge": "交换",
   "office.status.working": "工作中",
-  "office.status.waiting": "等待中",
   "office.status.error": "错误",
   "office.status.idle": "空闲",
   "office.backRoom.tooltip.one": "后屋 · {count} 位智能体",

@@ -473,9 +473,10 @@ export function OfficeView({
 
   const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
   // The back room is drawn on its own screen; the front view shows only the
-  // desks, and its counts are the front's (task 5b503e32).
+  // desks (task 5b503e32).
   const frontAgents = roomAgents.filter((a) => !isBackSeat(a.desk));
   const backAgents = roomAgents.filter((a) => isBackSeat(a.desk));
+  const backCounts = getRoomCounts(backAgents);
   const seasonDesk = decorateScene
     ? seasonalDesk(
         seasonalItems,
@@ -489,11 +490,9 @@ export function OfficeView({
     ) ?? null;
   const backAttention: BackRoomAttention = {
     agents: backAgents.length,
-    working: backAgents.filter(
-      (a) => a.state === "thinking" || a.state === "tool_executing",
-    ).length,
+    working: backCounts.working,
     asking: backAgents.filter((a) => a.pendingPrompt != null).length,
-    error: backAgents.filter((a) => a.state === "error").length,
+    error: backCounts.error,
   };
   // A room takes no more agents when its front, and its back room where it
   // has one, are full: a door refuses such a room at once.
@@ -523,9 +522,12 @@ export function OfficeView({
   const [rightDoorDragOver, setRightDoorDragOver] = useState(false);
   const [leftDoorReject, setLeftDoorReject] = useState(false);
   const [rightDoorReject, setRightDoorReject] = useState(false);
-  // The header counts what the screen draws: the back room's agents on its
-  // screen, the front's otherwise.
-  const counts = getRoomCounts(showBackRoom ? backAgents : frontAgents);
+  // The back room's screen counts its own agents. The front counts its own
+  // agents too, except that working also takes the back room's (task 0cd2807f).
+  const frontCounts = getRoomCounts(frontAgents);
+  const counts = showBackRoom
+    ? backCounts
+    : { ...frontCounts, working: frontCounts.working + backCounts.working };
 
   const install = useInstallMode();
   // A member with a permission pack sees only the pages of its areas.
@@ -669,11 +671,6 @@ export function OfficeView({
                     n: counts.working,
                     c: "var(--green-text)",
                     l: "office.status.working",
-                  },
-                  {
-                    n: counts.waiting,
-                    c: "var(--purple-text)",
-                    l: "office.status.waiting",
                   },
                   {
                     n: counts.error,

@@ -2874,7 +2874,6 @@ Coses que pots fer per ell:
   "office.pet.coatAria": "{species}, pelatge {number}",
   "office.desk.swapBadge": "INTERCANVIA",
   "office.status.working": "treballant",
-  "office.status.waiting": "esperant",
   "office.status.error": "amb error",
   "office.status.idle": "inactius",
   "office.backRoom.tooltip.one": "Rebotiga · {count} agent",
