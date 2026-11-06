@@ -495,7 +495,8 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
 
   // Push ONE ask change to the sockets of the members askVisibleTo admits, the
   // rule GET /api/asks applies, and to no one else. A removal goes to the
-  // members it named, every signed-in member for a room ask, or every owner
+  // members askMemberIds lists (one who shows the room again gets full state),
+  // every signed-in member for a room ask, or every owner
   // for an office secret request, with no room check, so a stack never keeps
   // an entry that closed. Office owners hear
   // other members' asks as others_ask_* (askShownToOwnerAsOther, the rule of

@@ -355,7 +355,7 @@ export interface AskAudienceDeps {
   agentRoomId: (agentId: string) => string | null;
   canSeeRoom: (userId: string, roomId: string) => boolean;
   // Whether the member hides the room from their view (room view level
-  // "hidden"). Only a room ask reads it.
+  // "hidden"). A member who hides it gets none of its agents' asks.
   roomHidden: (userId: string, roomId: string) => boolean;
   // Every member who reaches the room, hidden or not.
   roomMemberIds: (roomId: string) => string[];
@@ -379,17 +379,18 @@ export function askAudienceFor(
   };
 }
 
-// The members a plain ask is for now (task 9461c464): for a room ask,
-// every member who reaches the agent's room and does not hide it; else the
-// named members, memberUserId first. Every read of a plain ask's audience
-// goes through here.
+// The members an ask is for now (task 9461c464): for a room ask, every
+// member who reaches the agent's room and does not hide it; else the named
+// members, memberUserId first, less those who hide the room (task 3277082b).
+// Read live. Every read of a named ask's audience goes through here.
 export function askMemberIds(entry: AskEntry, deps: AskAudienceDeps): string[] {
-  if (entry.room) {
-    const roomId = deps.agentRoomId(entry.agentId);
-    return roomId === null ? [] : askRoomAudience(roomId, deps);
-  }
+  const roomId = deps.agentRoomId(entry.agentId);
+  if (entry.room) return roomId === null ? [] : askRoomAudience(roomId, deps);
   if (entry.memberUserId === undefined) return [];
-  return [entry.memberUserId, ...(entry.otherMemberUserIds ?? [])];
+  const named = [entry.memberUserId, ...(entry.otherMemberUserIds ?? [])];
+  // The agent is gone: no room to hide, so its close record keeps the names.
+  if (roomId === null) return named;
+  return named.filter((userId) => !deps.roomHidden(userId, roomId));
 }
 
 // Everyone a room ask in this room is for now: who reaches the room and does
@@ -409,8 +410,8 @@ export function askRoomAudience(
 // Most members one ask names (task 9461c464). A sanity bound.
 export const ASK_MEMBERS_MAX = 20;
 
-// Whether a member sees an ask and may answer it, decided live: the member
-// it names, or for an office secret request any office owner (or the one
+// Whether a member sees an ask and may answer it, decided live: a member
+// askMemberIds lists, or for an office secret request any office owner (or the one
 // owner the request names), and in both
 // cases only while the member can reach the agent's room. Every list and push
 // of the member's own asks, and every answer check, goes through here; an
@@ -445,8 +446,8 @@ export function askShownToOwnerAsOther(
   userId: string | null,
   deps: AskAudienceDeps,
 ): boolean {
-  // A room ask is for every member who shows the room: an owner who hides it
-  // does not get it back here.
+  // An owner who hides the room gets none of its asks back here (task
+  // 3277082b), and a room ask is for every member who shows the room.
   if (
     !userId ||
     !deps.isOfficeOwner(userId) ||
@@ -457,7 +458,11 @@ export function askShownToOwnerAsOther(
     return false;
   if (askVisibleTo(entry, userId, deps)) return false;
   const roomId = deps.agentRoomId(entry.agentId);
-  return roomId !== null && deps.canSeeRoom(userId, roomId);
+  return (
+    roomId !== null &&
+    deps.canSeeRoom(userId, roomId) &&
+    !deps.roomHidden(userId, roomId)
+  );
 }
 
 // The prompt as the agent sent it, or the reason it is refused. `field` is

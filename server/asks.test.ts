@@ -655,15 +655,15 @@ describe("who a shared ask is for", () => {
       askVisibleTo(entry, u, deps),
     );
 
-  it("a list: its members in the order the agent named them, each while they reach the room, hidden or not", () => {
+  it("a list: its members in the order the agent named them, each while they reach the room and do not hide it", () => {
     expect(askMemberIds(list, audience())).toEqual(["u1", "u3", "u2"]);
     expect(sees(list, audience())).toEqual(["u1", "u2", "u3"]);
-    // The agent named them: hiding the room does not take it away.
-    expect(sees(list, audience(["u1", "u2", "u3"]))).toEqual([
-      "u1",
-      "u2",
-      "u3",
-    ]);
+    // Read live (task 3277082b): a named member who hides the room is out,
+    // the first member too, and is back when they show it again.
+    const hidden = audience(["u1", "u2"]);
+    expect(askMemberIds(list, hidden)).toEqual(["u3"]);
+    expect(sees(list, hidden)).toEqual(["u3"]);
+    expect(askMemberIds(list, audience())).toEqual(["u1", "u3", "u2"]);
     // Read live: a member who loses the room stops seeing it.
     expect(
       sees(
@@ -677,6 +677,32 @@ describe("who a shared ask is for", () => {
     expect(askMemberIds({ ...BASE, memberUserId: "u2" }, audience())).toEqual([
       "u2",
     ]);
+  });
+
+  // Task 3277082b: one rule for every ask that names its members.
+  it("a plain, personal secret or sudo ask to a member who hides the room is for nobody; an office secret request is not changed", () => {
+    const plain: AskEntry = { ...BASE, memberUserId: "u2" };
+    const personal: AskEntry = {
+      ...plain,
+      secret: { ...SECRET, scope: "personal" },
+    };
+    const sudo: AskEntry = {
+      ...plain,
+      sudo: { requestId: "req-2", command: "apt update", cwd: "/w" },
+    };
+    for (const entry of [plain, personal, sudo]) {
+      // The member shows the room: the ask is for them.
+      expect(askVisibleTo(entry, "u2", audience())).toBe(true);
+      expect(askMemberIds(entry, audience(["u2"]))).toEqual([]);
+      expect(askVisibleTo(entry, "u2", audience(["u2"]))).toBe(false);
+      // Another member who hides the room does not change it.
+      expect(askVisibleTo(entry, "u2", audience(["u1"]))).toBe(true);
+    }
+    const office: AskEntry = {
+      ...BASE,
+      secret: { ...SECRET, scope: "office" },
+    };
+    expect(askVisibleTo(office, "u-owner", audience(["u-owner"]))).toBe(true);
   });
 
   it("a room ask: everyone who reaches the room and does not hide it, read live; the stored member is not special", () => {
@@ -720,6 +746,21 @@ describe("who a shared ask is for", () => {
     );
     expect(askShownToOwnerAsOther(room, "u-owner", audience())).toBe(false);
     expect(askVisibleTo(room, "u-owner", audience())).toBe(true);
+  });
+
+  it("an owner who hides the room gets no ask of it, named or not (task 3277082b)", () => {
+    const hides = audience(["u-owner"]);
+    const named: AskEntry = { ...list, otherMemberUserIds: ["u-owner"] };
+    // Named: not theirs while they hide the room, and not shown back as
+    // another member's ask either.
+    expect(askVisibleTo(named, "u-owner", hides)).toBe(false);
+    expect(askShownToOwnerAsOther(named, "u-owner", hides)).toBe(false);
+    // Not named: not in the owners' view either.
+    expect(askShownToOwnerAsOther(list, "u-owner", hides)).toBe(false);
+    // Another member who hides the room does not change the owner's view.
+    expect(askShownToOwnerAsOther(list, "u-owner", audience(["u1"]))).toBe(
+      true,
+    );
   });
 
   it("a token limited to other rooms reaches no one through a room ask", () => {
