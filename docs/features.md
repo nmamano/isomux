@@ -116,7 +116,6 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Escape** closes the page on top and returns to what was under it.
 - **b** goes between a room's front and its back room.
 - **t**, **a**, **i** and **s** open Tasks, Apps, the Inbox and Settings when no text field has focus. Press t, a or i again to close the page.
-- **Built-in slash commands**: `/clear`, `/handoff` (continue on a fresh session), `/help`, `/context`, `/resume`, `/rename` (set the conversation topic), `/model`, `/effort`, `/plan`, `/reload-plugins`. Claude agents also run Claude Code's `/code-review` (or `/review`) and `/simplify`.
 - **Spawn dialog**: pick model, permission mode, thinking effort, and working directory (with recent-CWD suggestions) when creating an agent.
 - Start with a blank-canvas agent or choose from 13 templates like Side Project Builder, Money Planner, and Health Navigator, in your language.
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
