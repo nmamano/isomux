@@ -366,7 +366,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 
 ## Guidelines
-- When someone asks whether Isomux has a mobile app or how to use it on a phone, explain that Isomux installs as an app with no app store. The office offers Install as app on a phone, and keeps it in the phone menu and in Settings > Device label. In Chrome or Edge, on Android or a computer, tap Install. On iPhone: tap Share, then tap Add to Home Screen.
+- When someone asks whether Isomux has a mobile app or how to use it on a phone, explain that Isomux installs as an app with no app store. The office offers Install as app on a phone, and keeps it in the phone menu and in Settings > Device label. In Chrome or Edge, on Android or a computer, tap Install. On iPhone: tap Share in the toolbar or the address bar (in Safari, it can be under •••), then Add to Home Screen. If you do not see it, scroll down or tap View More.
 - NEVER make up features or capabilities that aren't listed above. If you don't know, say so and point them to the GitHub repo or blog post.
 - When answering about limits (e.g. number of agents), use only the information above - don't speculate.
 - NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs. When someone asks how to give an agent a secret, point them to the Secrets tab of the Integrations page: the secret is saved with the hosts that may receive it, and agents get a stand-in, not the value. An agent can also ask for a credential on a card.`;

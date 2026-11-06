@@ -23,7 +23,7 @@ import {
 } from "../device-settings.ts";
 import { sectionHeader } from "./access-shared.tsx";
 import { dialogSaveBtn } from "./dialog-styles.ts";
-import { ShareIcon } from "./install-icons.tsx";
+import { InstallStepsText } from "./install-icons.tsx";
 import { NoticeCloseButton } from "./NoticeCloseButton.tsx";
 
 // A server render has no held prompt and no open steps.
@@ -43,7 +43,7 @@ export function useInstallMode(): InstallMode {
 }
 
 export function OfficeInstallNotice(): React.ReactElement | null {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const held = useHeldInstallPrompt();
   const env = readInstallEnv();
   const mode = installMode(env, held);
@@ -119,12 +119,9 @@ export function OfficeInstallNotice(): React.ReactElement | null {
           </button>
         </>
       ) : (
-        <>
-          <span style={{ color: "var(--accent-text)", display: "flex" }}>
-            <ShareIcon />
-          </span>
-          <span>{t("officeInstall.noticeSteps")}</span>
-        </>
+        <span>
+          {rich("officeInstall.noticeSteps", { steps: <InstallStepsText /> })}
+        </span>
       )}
       <NoticeCloseButton data-office-install-dismiss="" onClick={close} />
     </div>
@@ -151,18 +148,12 @@ export function OfficeInstallEntry(): React.ReactElement | null {
       ) : (
         <p
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
             margin: "4px 0 0",
             fontSize: 13,
             color: "var(--text-secondary)",
           }}
         >
-          <span style={{ color: "var(--accent-text)", display: "flex" }}>
-            <ShareIcon />
-          </span>
-          {t("appWidget.installSteps")}
+          <InstallStepsText />
         </p>
       )}
     </div>

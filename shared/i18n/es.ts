@@ -4348,10 +4348,9 @@ Cosas que puedes hacer por él:
   "appWidget.copyLink": "Copiar enlace",
   "appWidget.openInSafari": "Abrir en Safari",
   "appWidget.installSteps":
-    "Toca Compartir y luego Añadir a pantalla de inicio.",
+    "Toca Compartir {share} en la barra de herramientas o en la barra de direcciones (en Safari, puede estar en {more}) y luego Añadir a pantalla de inicio {add}. Si no la ves, desplázate hacia abajo o toca Ver más.",
   "appWidget.installConfirm": "Instalar {appName}",
   "officeInstall.notice": "Isomux funciona mejor como app.",
-  "officeInstall.noticeSteps":
-    "Isomux funciona mejor como app. Toca Compartir y luego Añadir a pantalla de inicio.",
+  "officeInstall.noticeSteps": "Isomux funciona mejor como app. {steps}",
   "officeInstall.install": "Instalar",
 };

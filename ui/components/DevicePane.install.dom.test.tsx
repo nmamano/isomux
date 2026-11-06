@@ -12,6 +12,8 @@ const { captureInstallPrompt, heldInstallPrompt } =
   await import("../app-install.ts");
 const { asDevice, IPHONE_HOME_SCREEN } =
   await import("../test-support/ios-home-screen.ts");
+const { expectInlineInstallSteps } =
+  await import("../test-support/install-steps.ts");
 
 // ui/index.tsx does this at boot.
 beforeAll(() => captureInstallPrompt(window));
@@ -112,9 +114,8 @@ it("shows the Add to Home Screen steps in iPhone Safari", () => {
   undoDevice = asDevice(IPHONE_SAFARI);
   const entry = mount();
   expect(entry()?.dataset.officeInstallEntry).toBe("steps");
-  expect(entry()!.textContent.trim()).not.toBe("");
-  // The Share icon is drawn, not a glyph: iOS draws glyphs as emoji.
-  expect(entry()!.querySelector("svg")).not.toBeNull();
+  // The icons are drawn, not glyphs: iOS draws glyphs as emoji.
+  expectInlineInstallSteps(entry()!);
 });
 
 for (const [label, setUp] of [

@@ -48,7 +48,7 @@ import {
 import {
   CloseIcon,
   InstallIcon,
-  ShareIcon,
+  InstallStepsText,
 } from "./components/install-icons.tsx";
 import {
   APP_RELOAD_FALLBACK_MS,
@@ -132,8 +132,7 @@ const WIDGET_CSS = `
 .app-widget a.app-widget-launcher { border:1px solid var(--border); border-radius:9px; padding:9px 14px; background:var(--bg-surface-solid); color:var(--text-primary); text-decoration:none; }
 .app-widget-install { position:fixed; right:20px; bottom:calc(max(20px,env(safe-area-inset-bottom)) + 60px); z-index:4; width:300px; max-width:calc(100vw - 40px); padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--bg-surface-solid); box-shadow:0 6px 36px #0005; font-size:14px; display:flex; align-items:flex-start; gap:10px; }
 .app-widget-install > :first-child { flex:1; }
-.app-widget-install p { margin:0; display:flex; align-items:center; gap:8px; }
-.app-widget-install p svg { flex-shrink:0; color:var(--accent-text); }
+.app-widget-install p { margin:0; }
 .app-widget .app-widget-install-close { display:flex; padding:4px; border:0; background:none; color:var(--text-secondary); }
 .app-widget-install-close:hover { color:var(--text-primary); }
 .app-widget-unavailable { position:fixed; bottom:20px; right:20px; padding:12px; background:var(--bg-surface-solid); border-radius:8px; }
@@ -696,8 +695,7 @@ export function AppWidgetPage({ boot }: { boot: AppWidgetBoot }) {
       />
     ) : (
       <p>
-        <ShareIcon />
-        {t("appWidget.installSteps")}
+        <InstallStepsText />
       </p>
     );
   return (

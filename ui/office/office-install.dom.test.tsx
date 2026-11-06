@@ -11,6 +11,9 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { fireEvent, act } = await import("@testing-library/react");
 const { heldInstallPrompt } = await import("../app-install.ts");
+const { expectInlineInstallSteps } =
+  await import("../test-support/install-steps.ts");
+const { en } = await import("../../shared/i18n/en.ts");
 const {
   asChrome,
   installEvent,
@@ -27,9 +30,10 @@ it("shows the iPhone steps until the member closes them, and the menu reopens th
   const notice = page.notice();
   expect(notice).not.toBeNull();
   expect(notice!.dataset.officeInstallNotice).toBe("steps");
-  expect(notice!.textContent.trim()).not.toBe("");
-  // The Share icon is drawn, not a glyph: iOS draws glyphs as emoji.
-  expect(notice!.querySelector("svg")).not.toBeNull();
+  // "Works better as an app", then the steps with their drawn icons (iOS
+  // draws glyphs as emoji).
+  expect(notice!.textContent).toContain(en["officeInstall.notice"]);
+  expectInlineInstallSteps(notice!);
   // Steps only: Safari has no install dialog to call.
   expect(notice!.querySelectorAll("button")).toHaveLength(1);
   // Nil, 2026-10-23: going into a chat and back is no dismiss.

@@ -3883,10 +3883,10 @@ App 的一些原则：
   "appWidget.installInBrowser": "要安装，请在已登录的浏览器中打开此页面。",
   "appWidget.copyLink": "复制链接",
   "appWidget.openInSafari": "在 Safari 中打开",
-  "appWidget.installSteps": "点按“分享”，然后点按“添加到主屏幕”。",
+  "appWidget.installSteps":
+    "点按工具栏或地址栏中的“共享”{share}（在 Safari 浏览器中，它可能在{more}中），然后点按“添加到主屏幕”{add}。如果没有看到，请向下滚动或点按“查看更多”。",
   "appWidget.installConfirm": "安装 {appName}",
   "officeInstall.notice": "Isomux 作为应用使用效果更好。",
-  "officeInstall.noticeSteps":
-    "Isomux 作为应用使用效果更好。点按“分享”，然后点按“添加到主屏幕”。",
+  "officeInstall.noticeSteps": "Isomux 作为应用使用效果更好。{steps}",
   "officeInstall.install": "安装",
 };

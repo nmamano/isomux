@@ -32,6 +32,8 @@ const { captureInstallPrompt, heldInstallPrompt, INSTALL_HASH } =
 const { asDevice, IPHONE_HOME_SCREEN } =
   await import("./test-support/ios-home-screen.ts");
 const { en } = await import("../shared/i18n/en.ts");
+const { expectInlineInstallSteps } =
+  await import("./test-support/install-steps.ts");
 const { OFFICE_RETURN_KEY, OFFICE_WINDOW_KEY } =
   await import("./home-screen-office.ts");
 
@@ -168,8 +170,12 @@ async function mount({
       }),
     popover: () =>
       container.querySelector<HTMLElement>("[data-app-install-popover]"),
-    // Every place that shows the Add to Home Screen steps.
-    steps: () => view!.queryAllByText(en["appWidget.installSteps"]),
+    // Every place that shows the Add to Home Screen steps: each has one Add
+    // to Home Screen icon in its sentence.
+    steps: () =>
+      [...container.querySelectorAll('[data-install-icon="add"]')].map(
+        (icon) => icon.parentElement!,
+      ),
   };
 }
 
@@ -244,8 +250,8 @@ it("shows the Add to Home Screen steps inside the chat panel from its header on 
   expect(page.panel()!.contains(steps)).toBe(true);
   expect(page.popover()).toBeNull();
   expect(page.steps()).toHaveLength(1);
-  // The Share icon is drawn, not a glyph: iOS draws glyphs as emoji.
-  expect(steps!.querySelector("svg")).not.toBeNull();
+  // The icons are drawn, not glyphs: iOS draws glyphs as emoji.
+  expectInlineInstallSteps(steps!);
   fireEvent.click(button!);
   expect(button!.getAttribute("aria-expanded")).toBe("false");
   expect(page.steps()).toHaveLength(0);
@@ -353,8 +359,8 @@ it("shows the Add to Home Screen steps from the dock, beside the direct link, wi
   expect(popover!.id).not.toBe("");
   expect(button!.getAttribute("aria-controls")).toBe(popover!.id);
   expect(page.steps()).toHaveLength(1);
-  // The Share icon is drawn, not a glyph: iOS draws glyphs as emoji.
-  expect(popover!.querySelector("svg")).not.toBeNull();
+  // The icons are drawn, not glyphs: iOS draws glyphs as emoji.
+  expectInlineInstallSteps(popover!);
   fireEvent.click(button!);
   expect(button!.getAttribute("aria-expanded")).toBe("false");
   expect(page.popover()).toBeNull();

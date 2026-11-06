@@ -4270,11 +4270,11 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
     "To install, open this page in a browser where you are signed in.",
   "appWidget.copyLink": "Copy link",
   "appWidget.openInSafari": "Open in Safari",
-  "appWidget.installSteps": "Tap Share, then Add to Home Screen.",
+  "appWidget.installSteps":
+    "Tap Share {share} in the toolbar or the address bar (in Safari, it can be under {more}), then Add to Home Screen {add}. If you do not see it, scroll down or tap View More.",
   "appWidget.installConfirm": "Install {appName}",
   "officeInstall.notice": "Isomux works better as an app.",
-  "officeInstall.noticeSteps":
-    "Isomux works better as an app. Tap Share, then Add to Home Screen.",
+  "officeInstall.noticeSteps": "Isomux works better as an app. {steps}",
   "officeInstall.install": "Install",
 } as const satisfies Record<string, string>;
 
