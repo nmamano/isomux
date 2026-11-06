@@ -890,5 +890,6 @@ export function createAccessPolicy(deps: AccessPolicyDeps) {
     webhookTargetsAgent,
     webhookViewerFor,
     webhookViewerForSession,
+    webhookWire,
   };
 }

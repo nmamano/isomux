@@ -126,7 +126,7 @@ import {
 import { mintRunToken, revokeRunToken } from "./identity/tokens.ts";
 import { createUserSendDedupe } from "./user-send-dedupe.ts";
 import type { RunSendResult, UserSendAcceptance } from "./internal-types.ts";
-import { getUserByName as defaultResolveUser } from "./users.ts";
+import { getUserById, getUserByName as defaultResolveUser } from "./users.ts";
 // The cron persistence surface is injected as a whole (see CronPersistence /
 // CronjobManagerDeps below). Imported as a namespace so the production factory
 // can pass it verbatim and the dep type can be derived from it without drift.
@@ -767,14 +767,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
       prompt += `\n\n## Office Instructions\n\n${officeConfig.prompt}`;
     if (cronjobsPrompt)
       prompt += `\n\n## Schedule Instructions\n\n${cronjobsPrompt}`;
-    // memberPrompt for the member this cronjob runs on behalf of, looked up
-    // at build time so renames / edits to the user's profile take effect
-    // on the next fire without touching the cronjob record itself.
-    if (cronjob.username) {
-      const ownerRecord = getUserByName(cronjob.username);
-      if (ownerRecord?.memberPrompt) {
-        prompt += `\n\n## Special instructions for "${cronjob.username}"\n\n${ownerRecord.memberPrompt}`;
-      }
+    // The memberPrompt of the member the job runs for, by id at build time so a
+    // rename or a profile edit takes effect on the next fire (legacy: by name).
+    const ownerRecord = cronjob.userId
+      ? getUserById(cronjob.userId)
+      : getUserByName(cronjob.username);
+    if (ownerRecord?.memberPrompt) {
+      prompt += `\n\n## Special instructions for "${ownerRecord.name}"\n\n${ownerRecord.memberPrompt}`;
     }
     prompt += processIsolationPromptLine(isolation);
     // Auto-loaded OFFICE memory (a cron job has no room or agent identity of its
@@ -2763,8 +2762,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // goes through buildEnvForUserId(job.userId), unaffected by renames.
     let cronjobsMigrated = 0;
     for (const job of cronjobs) {
-      if (typeof job.userId === "string" && job.userId) continue;
-      if (job.username) {
+      if (typeof job.userId === "string" && job.userId) {
+        // Its owner's name now (renamed before task 3278f29c). No record: kept.
+        const owner = getUserById(job.userId);
+        if (!owner || owner.name === job.username) continue;
+        job.username = owner.name;
+      } else if (job.username) {
         const owner = getUserByName(job.username);
         job.userId = owner?.id ?? null;
         if (!owner) {

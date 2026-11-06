@@ -1681,6 +1681,78 @@ describe('CronjobManager: the "none" schedule', () => {
   });
 });
 
+// A member renamed before renames reached the schedules (task 3278f29c): the
+// boot load gives each job its owner's name now, writes only when a name
+// changed, and keeps the name of an owner with no record.
+describe("CronjobManager: an owner renamed before the boot", () => {
+  const cleanups: (() => void)[] = [];
+  afterEach(() => {
+    for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+  });
+
+  it("takes the owner's name from the record, once", () => {
+    const made = createMember(`Cron Rename ${process.pid}`, {
+      role: "member",
+      memberPrompt: "OWNER_PROMPT_MARKER",
+    });
+    if (!made.ok) throw new Error(made.error);
+    const { id, name } = made.user;
+    cleanups.push(() => deleteUserById(id));
+    const writer = createCronjobManager(baseDeps());
+    const owned = writer.addCronjob({
+      ...intervalInput("Owned"),
+      userId: id,
+      username: name,
+    });
+    const orphan = writer.addCronjob({
+      ...intervalInput("Orphan"),
+      userId: "u-no-record",
+      username: "Gone",
+    });
+    const persistence = makeFakeCronPersistence();
+    persistence.saveCronjobs(JSON.parse(JSON.stringify(writer.listCronjobs())));
+    const renamed = `${name} Renamed`;
+    expect(updateUserById(id, { name: renamed }).ok).toBe(true);
+    // Before any heal, the prompt finds the owner by id, not by the stale
+    // name, and keeps their special instructions under the new name.
+    const stale = writer.listCronjobs().find((j) => j.id === owned.id)!;
+    expect(stale.username).toBe(name);
+    const prompt = writer.buildCronjobSystemPrompt(stale);
+    expect(prompt).toContain("OWNER_PROMPT_MARKER");
+    expect(prompt).toContain(`"${renamed}"`);
+
+    let saves = 0;
+    const counting = {
+      ...persistence,
+      saveCronjobs: (next: Parameters<typeof persistence.saveCronjobs>[0]) => {
+        saves++;
+        persistence.saveCronjobs(next);
+      },
+    };
+    const boot = () => {
+      const mgr = createCronjobManager(baseDeps({ persistence: counting }));
+      mgr.startCronjobScheduler();
+      return mgr;
+    };
+    const first = boot();
+    const job = (jobId: string) =>
+      first.listCronjobs().find((j) => j.id === jobId);
+    expect(job(owned.id)).toMatchObject({ userId: id, username: renamed });
+    expect(job(orphan.id)).toMatchObject({
+      userId: "u-no-record",
+      username: "Gone",
+    });
+    expect(
+      persistence.loadCronjobs().find((j) => j.id === owned.id)?.username,
+    ).toBe(renamed);
+    expect(saves).toBe(1);
+
+    // The next boot finds nothing to heal and writes nothing.
+    boot();
+    expect(saves).toBe(1);
+  });
+});
+
 // A slot that comes due while the server is down fires once after the boot,
 // never zero times and never once per missed period (task 11e89a8c).
 describe("CronjobManager: a slot due across a restart", () => {

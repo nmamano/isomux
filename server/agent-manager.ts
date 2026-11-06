@@ -4127,6 +4127,33 @@ export function createAgentManager(deps: ManagerDeps) {
     return changed;
   }
 
+  // A member rename (task 3278f29c): the manager name every agent of
+  // `userId` carries, live or killed, becomes `name`.
+  // A running session keeps the old name in its system prompt until its next
+  // session. Writes nothing when no agent carries another name.
+  function renameManager(userId: string, name: string): void {
+    let liveChanged = false;
+    for (const managed of agents.values()) {
+      if (managed.info.userId !== userId || managed.info.manager === name)
+        continue;
+      for (const event of officeState.updateAgent(managed.info.id, {
+        manager: name,
+      }))
+        emit(event);
+      liveChanged = true;
+    }
+    if (liveChanged) persistAll();
+    const history = loadAgentHistory();
+    let historyChanged = false;
+    for (const [id, entry] of Object.entries(history)) {
+      if (agents.has(id) || entry.userId !== userId) continue;
+      if (entry.manager === name) continue;
+      history[id] = { ...entry, manager: name };
+      historyChanged = true;
+    }
+    if (historyChanged) saveAgentHistory(history);
+  }
+
   // Manager-wide drain bound. _testSetConsumerDrainTimeout writes it and every
   // SessionManager reads it through deps.getConsumerDrainTimeoutMs; the
   // constant and its rationale live in server/session-manager.ts.
@@ -9505,6 +9532,7 @@ export function createAgentManager(deps: ManagerDeps) {
     setAccess,
     setManager,
     reassignKilledAgents,
+    renameManager,
     swapDesks,
     createRoom,
     closeRoom,

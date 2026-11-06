@@ -4,7 +4,7 @@
 // server/isomux-office.ts, which registers them and keeps their
 // userDeleteNotSelfOwner and userDeleteNotLastOwner preconditions.
 import type { MemberRestoreRes } from "../shared/contract-shapes.ts";
-import type { AgentInfo, UserRecord } from "../shared/types.ts";
+import type { AgentInfo, UserRecord, WebhookRecord } from "../shared/types.ts";
 import type { MemberPack } from "../shared/pack-fit.ts";
 import { revokeApiTokensOfUser } from "./api-tokens.ts";
 import type { AppVisibilityFacts } from "./app-visibility.ts";
@@ -82,6 +82,8 @@ export interface UsersRoutesDeps
   emitPrivateUserRecord: (user: UserRecord) => void;
   emitRemovedMembers: () => void;
   emitUserUpdated: (user: UserRecord, prevName?: string) => void;
+  // Tell the sockets that see a hook about an edit that keeps its audience.
+  announceWebhookUpdate: (record: WebhookRecord) => void;
   mcpSources: ReturnType<typeof createMcpServerSources>;
   providerAccounts: Pick<ProviderAccountManager, "signOutRemovedMember">;
   purgeRemovedMember: (userId: string) => void;
@@ -222,6 +224,7 @@ export function createUsersRoutes(
     emitInvitesList,
     emitPrivateUserRecord,
     emitRemovedMembers,
+    announceWebhookUpdate,
     emitUserUpdated,
     emitUsersList,
     mcpSources,
@@ -552,6 +555,26 @@ export function createUsersRoutes(
         user.name !== pre.name ||
         user.avatarColor !== pre.avatarColor ||
         user.avatarVariant !== pre.avatarVariant;
+      // The name snapshots on the member's agents, schedules and hooks follow
+      // the rename. The rename is written: a failure here must not answer an
+      // error.
+      if (user.name !== pre.name) {
+        try {
+          agentManager.renameManager(user.id, user.name);
+          for (const job of cronjobManager.listCronjobs())
+            if (job.userId === user.id && job.username !== user.name)
+              cronjobManager.setCronjobOwner(job.id, user.id, user.name);
+          for (const hook of webhookRegistry.syncOwnerNames((id) =>
+            id === user.id ? user.name : undefined,
+          ))
+            announceWebhookUpdate(hook);
+        } catch (err) {
+          console.error(
+            `[users] the rename of ${user.id} did not reach every snapshot:`,
+            err,
+          );
+        }
+      }
       if (publicChanged) {
         emitUserUpdated(user, renamed ? username : undefined);
         emitUsersList();

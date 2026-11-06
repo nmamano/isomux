@@ -25,6 +25,7 @@ import { rmSync } from "fs";
 import { claudeConfigDirOf } from "./provider-skill-links.ts";
 import { join } from "path";
 import { getAgentHost } from "./agent-host.ts";
+import { managerOf } from "./agent-system-prompt.ts";
 import type { ManagerDeps } from "./agent-manager.ts";
 import type { createAgentSkills } from "./agent-skills.ts";
 import { resolveAgentEngineSettings } from "./agent-validators.ts";
@@ -352,7 +353,10 @@ export function createAgentRestore(deps: AgentRestoreDeps) {
       limitedClaudeFamilies: limitedClaudeFamiliesForUserId(userId),
       claudeFamilyModels: claudeFamilyModelsForUserId(userId),
       userId,
-      manager: p.manager ?? null,
+      // The member's name now, not the snapshot: an office renamed a member
+      // before renames reached the snapshot heals here, at a boot and at a
+      // revive (task 3278f29c).
+      manager: managerOf({ userId, manager: p.manager ?? null }).name,
       privileged: p.privileged ?? false,
       ...accessFields(p),
       ...spawnTreeFields(p),

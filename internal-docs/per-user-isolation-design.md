@@ -48,7 +48,7 @@ This document covers the design for closing the cross-member credential-leak gap
 Every agent has:
 
 - `userId: string | null` - the manager. Set at spawn from the spawning user; an office owner can change it (internal-docs/agent-manager-design.md). Drives `buildEnvForUserId` (managed variable selection at spawn/resume/cronjob-fire) and appears in the agent's system prompt user section.
-- `username: string | null` - display snapshot of the manager's name at spawn time. Goes stale on rename; not authoritative for any behavior. Kept for UI/audit purposes.
+- `manager: string | null` - display snapshot of the manager's name. A member rename updates it on the member's agents, schedules and webhooks, and a boot or revive takes the name from the `userId` record. Not authoritative for any behavior.
 
 Both null on legacy unowned agents that pre-date the user/device split.
 

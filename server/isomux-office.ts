@@ -1030,6 +1030,7 @@ const {
   webhookTargetsAgent,
   webhookViewerFor,
   webhookViewerForSession,
+  webhookWire,
 } = createAccessPolicy({
   accessibleRoomIdsFor,
   browsers,
@@ -4090,6 +4091,14 @@ function buildExecutorDeps(
       accessibleRoomIdsFor,
       announceAppAudienceChanges,
       announceWebhookAudienceChanges,
+      // A hook edit with the same owner and target: its audience is the same.
+      announceWebhookUpdate: (record) =>
+        pushWebhookDeltaToEachWs({
+          kind: "upserted",
+          webhook: webhookWire(record),
+          facts: webhookFacts(record),
+          before: webhookFacts(record),
+        }),
       attributionFor,
       clampViewFields,
       emitInvitesList,
@@ -5796,6 +5805,9 @@ export async function startServer(
     // written before app secrets existed gets its line.
     await appSecrets.sync({ boot: true });
   }
+  // A member renamed before renames reached the hooks (task 3278f29c): each
+  // hook takes its owner's name now. No record keeps the name.
+  webhookRegistry.syncOwnerNames((userId) => getUserById(userId)?.name);
   // Before the listener: the delivery logs load (and a crash's `pending` rows
   // become retryable) before the first delivery can arrive.
   webhookIngress = createWebhookIngress({

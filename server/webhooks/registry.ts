@@ -404,6 +404,12 @@ export interface WebhookRegistry {
     userId: string,
     username: string | null,
   ): WebhookRecord | null;
+  // Give each hook the owner name `nameOf` returns for its owner's id (a
+  // member rename, task 3278f29c); undefined keeps the name. Writes only when
+  // a name changed, and returns the hooks it changed.
+  syncOwnerNames(
+    nameOf: (userId: string) => string | undefined,
+  ): WebhookRecord[];
   secretState(id: string): "set" | "missing";
   // The create answer, the two secret routes, and ingress to verify a
   // delivery. Never put into any other response.
@@ -573,6 +579,19 @@ export function createWebhookRegistry(
       hooks[index] = updated;
       writeHooks(hooks);
       return updated;
+    },
+
+    syncOwnerNames(nameOf) {
+      const hooks = loadHooks();
+      const changed: WebhookRecord[] = [];
+      for (const [index, hook] of hooks.entries()) {
+        const name = nameOf(hook.userId);
+        if (name === undefined || name === hook.username) continue;
+        hooks[index] = { ...hook, username: name };
+        changed.push(hooks[index]);
+      }
+      if (changed.length > 0) writeHooks(hooks);
+      return changed;
     },
 
     remove(id) {

@@ -17,6 +17,9 @@
 //     owner turned off, each webhook with a new secret, so a secret they read
 //     stops working (task 438900d2); a record their agent made is off before
 //     it becomes the owner's (task be7708d3).
+//   - a member rename carries the new name to the manager / owner name
+//     snapshots of their agents, schedules and webhooks, and a boot heals an
+//     office renamed before that (task 3278f29c).
 //
 // Seam: startTestServer() with a FakeBackend. Zero LLM. Copy is never matched:
 // a system line is found by the member names it carries.
@@ -30,6 +33,7 @@ import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { getAgentTokenRaw, resolveToken } from "../identity/tokens.ts";
 import { identityHasCapability } from "../identity/index.ts";
 import {
+  deleteUserById,
   getUserById,
   getUserByName,
   setUserRoleById,
@@ -1259,5 +1263,259 @@ describe("renaming the manager", () => {
       expect(at).toBeGreaterThan(0);
       expect(lines[at - 1]).toContain(`"Alicia"`);
     }
+  });
+
+  // The `manager` / `username` name snapshots on the member's agents,
+  // schedules and webhooks follow a rename (task 3278f29c): GET /agents
+  // listed agents under a member who no longer existed, and a schedule found
+  // its owner's special instructions by the old name and dropped them.
+
+  // A privileged agent of `manager` makes one schedule and one webhook
+  // through the API, so both record that member as owner.
+  async function automationsOf(
+    srv: TestServer,
+    agentId: string,
+  ): Promise<{ jobId: string; hookId: string }> {
+    await srv.agentManager.setPrivileged(agentId, true);
+    const bearer = getAgentTokenRaw(agentId)!;
+    const cron = await api(
+      srv,
+      "POST",
+      "/api/cronjobs",
+      { bearer },
+      {
+        name: "nightly",
+        prompt: "Check the build.",
+        cwd: srv.stateRoot,
+        schedule: { type: "interval", minutes: 60 },
+        agentType: "claude",
+        modelFamily: "opus",
+        effort: "medium",
+        permissionMode: "bypassPermissions",
+      },
+    );
+    expect(cron.status).toBe(201);
+    const hook = await api(
+      srv,
+      "POST",
+      "/api/webhooks",
+      { bearer },
+      {
+        name: "wake",
+        scheme: "github-hmac-sha256",
+        rules: [{ event: "push" }],
+      },
+    );
+    expect(hook.status).toBe(201);
+    return {
+      jobId: (cron.body as Cronjob).id,
+      hookId: (hook.body as WebhookWire).id,
+    };
+  }
+
+  // GET /agents as an office owner: the manager name of each listed agent.
+  async function listedManagers(
+    srv: TestServer,
+    rawSessionId: string,
+  ): Promise<Record<string, unknown>> {
+    const res = await api(srv, "GET", "/agents", { rawSessionId });
+    expect(res.status).toBe(200);
+    return Object.fromEntries(
+      (res.body as { id: string; manager?: unknown }[]).map((a) => [
+        a.id,
+        a.manager,
+      ]),
+    );
+  }
+
+  async function cronPrompt(
+    srv: TestServer,
+    jobId: string,
+    rawSessionId: string,
+  ): Promise<string> {
+    const res = await api(srv, "GET", `/api/cronjobs/${jobId}/system-prompt`, {
+      rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    return (res.body as { systemPrompt: string }).systemPrompt;
+  }
+
+  it("carries the new name to the member's live and killed agents, schedules and webhooks, live and on disk", async () => {
+    const { srv, morgan } = await office();
+    const asMorgan = { rawSessionId: morgan.rawSessionId };
+    const aliceId = idOf("Alice");
+    expect(
+      updateUserById(aliceId, { memberPrompt: "OWNER_PROMPT_MARKER" }).ok,
+    ).toBe(true);
+    const live = await spawn(srv, "Live", "Alice");
+    const other = await spawn(srv, "Other", "Bea");
+    const killed = await spawn(srv, "Gone", "Alice");
+    await srv.agentManager.kill(killed.id);
+    const { jobId, hookId } = await automationsOf(srv, live.id);
+    const session = await runTurn(srv, live.id);
+    const token = getAgentTokenRaw(live.id);
+    const secretOf = async () =>
+      (
+        (await api(srv, "GET", `/api/webhooks/${hookId}/secret`, asMorgan))
+          .body as { secret?: string }
+      ).secret;
+    const secret = await secretOf();
+    expect(typeof secret).toBe("string");
+
+    // Enabling conditions: every snapshot holds the old name, and the
+    // schedule's prompt carries the owner's special instructions.
+    expect(await listedManagers(srv, morgan.rawSessionId)).toMatchObject({
+      [live.id]: "Alice",
+      [other.id]: "Bea",
+    });
+    expect(persistedHistory(srv, killed.id)?.manager).toBe("Alice");
+    expect(await cronPrompt(srv, jobId, morgan.rawSessionId)).toContain(
+      "OWNER_PROMPT_MARKER",
+    );
+
+    const sock = await srv.connectWs(morgan.rawSessionId);
+    await sock.waitFor("presence_list");
+    const mark = sock.messages.length;
+    const after = (type: string) =>
+      sock.messages
+        .slice(mark)
+        .filter((m) => (m as { type?: string }).type === type) as Record<
+        string,
+        unknown
+      >[];
+
+    const renamed = await api(srv, "PATCH", "/api/users/Alice", asMorgan, {
+      name: "Alicia",
+    });
+    expect(renamed.status).toBe(200);
+    expect(getUserById(aliceId)?.name).toBe("Alicia");
+
+    // The live agent: in memory, in GET /agents, on the wire, on disk.
+    expect(agentOf(srv, live.id)).toMatchObject({
+      userId: aliceId,
+      manager: "Alicia",
+    });
+    expect(await listedManagers(srv, morgan.rawSessionId)).toMatchObject({
+      [live.id]: "Alicia",
+      [other.id]: "Bea",
+    });
+    await waitUntil(
+      () =>
+        after("agent_updated").some(
+          (m) =>
+            m.agentId === live.id &&
+            (m.changes as { manager?: string }).manager === "Alicia",
+        ),
+      "agent_updated carries the new name",
+    );
+    expect(after("agent_updated").some((m) => m.agentId === other.id)).toBe(
+      false,
+    );
+    await waitUntil(
+      () => persistedAgent(srv, live.id)?.manager === "Alicia",
+      "agents.json names the new name",
+    );
+    expect(persistedAgent(srv, live.id)?.userId).toBe(aliceId);
+    expect(persistedAgent(srv, other.id)?.manager).toBe("Bea");
+
+    // A rename is not a transfer: the session and the token stay.
+    expect(session.closed).toBe(false);
+    expect(getAgentTokenRaw(live.id)).toBe(token);
+
+    // The killed agent: its history entry, and so its revive.
+    expect(persistedHistory(srv, killed.id)).toMatchObject({
+      userId: aliceId,
+      manager: "Alicia",
+    });
+
+    // The schedule: its owner name, on the wire, and its prompt keeps the
+    // owner's special instructions under the new name.
+    expect(
+      srv.cronjobManager.listCronjobs().find((j) => j.id === jobId),
+    ).toMatchObject({ userId: aliceId, username: "Alicia" });
+    await waitUntil(
+      () =>
+        after("cronjob_updated").some(
+          (m) =>
+            (m.cronjob as Cronjob).id === jobId &&
+            (m.cronjob as Cronjob).username === "Alicia",
+        ),
+      "cronjob_updated carries the new name",
+    );
+    const prompt = await cronPrompt(srv, jobId, morgan.rawSessionId);
+    expect(prompt).toContain("OWNER_PROMPT_MARKER");
+    expect(prompt).toContain(`"Alicia"`);
+    expect(prompt).not.toContain(`"Alice"`);
+
+    // The webhook: its owner name, on the wire, and the same secret.
+    expect(
+      (await api(srv, "GET", `/api/webhooks/${hookId}`, asMorgan)).body,
+    ).toMatchObject({ userId: aliceId, username: "Alicia" });
+    await waitUntil(
+      () =>
+        after("webhook_upserted").some(
+          (m) =>
+            (m.webhook as WebhookWire).id === hookId &&
+            (m.webhook as WebhookWire).username === "Alicia",
+        ),
+      "webhook_upserted carries the new name",
+    );
+    expect(await secretOf()).toBe(secret);
+    sock.close();
+  });
+
+  it("heals at boot an office renamed before the fix, and keeps the snapshot of a member with no record", async () => {
+    const { srv, morgan } = await office();
+    const aliceId = idOf("Alice");
+    const live = await spawn(srv, "Live", "Alice");
+    const killed = await spawn(srv, "Gone", "Alice");
+    await srv.agentManager.kill(killed.id);
+    const orphan = await spawn(srv, "Orphan", "Cleo");
+    const cleoId = idOf("Cleo");
+    const { hookId } = await automationsOf(srv, live.id);
+
+    // The rename an older release made: the record only, every snapshot
+    // left behind. And a record that is gone with its agent left behind.
+    expect(updateUserById(aliceId, { name: "Alicia" }).ok).toBe(true);
+    expect(deleteUserById(cleoId)).toBe(true);
+    expect(agentOf(srv, live.id).manager).toBe("Alice");
+    expect(agentOf(srv, orphan.id)).toMatchObject({
+      userId: cleoId,
+      manager: "Cleo",
+    });
+    expect(persistedHistory(srv, killed.id)?.manager).toBe("Alice");
+
+    const booted = await srv.restart();
+    server = booted;
+    const asMorgan = { rawSessionId: morgan.rawSessionId };
+
+    expect(booted.agentManager.getAgent(live.id)).toMatchObject({
+      userId: aliceId,
+      manager: "Alicia",
+    });
+    expect(booted.agentManager.getAgent(orphan.id)).toMatchObject({
+      userId: cleoId,
+      manager: "Cleo",
+    });
+    expect(await listedManagers(booted, morgan.rawSessionId)).toMatchObject({
+      [live.id]: "Alicia",
+      [orphan.id]: "Cleo",
+    });
+    // The schedules heal in the cron load, which the harness does not start
+    // (skipSchedulers): cronjob-manager.di.test.ts owns that heal.
+    expect(
+      (await api(booted, "GET", `/api/webhooks/${hookId}`, asMorgan)).body,
+    ).toMatchObject({ userId: aliceId, username: "Alicia" });
+
+    // The killed agent comes back under the new name.
+    const revived = await booted.agentManager.revive(
+      killed.id,
+      booted.agentManager.getRooms()[0].id,
+    );
+    expect(revived.ok).toBe(true);
+    expect(booted.agentManager.getAgent(killed.id)).toMatchObject({
+      userId: aliceId,
+      manager: "Alicia",
+    });
   });
 });
