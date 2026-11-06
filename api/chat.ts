@@ -361,6 +361,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
 - Office audit log: owners can filter writes in Settings, read task history and memory snapshots, and restore deleted tasks from audit rows. Task details show field changes to anyone who can see the task.
 - Daily local backups: Isomux keeps seven daily office backups, including a consistent SQLite snapshot
+- Lockdown: when the office is under attack, one command on its machine (isomux-rescue, or bun run rescue) locks it: every sign-in and token is revoked, agents and automations stop, and the office shows only a locked page until it is unlocked. The same command checks and restarts an office that is down. See isomux.com/docs/hosting-reference
 - Storage breakdown: see what the office is using on disk (conversation history, attachments, backups, update snapshots) with /isomux-storage in any conversation, or from the storage panel in Office Settings if you own the office, and prune old history when you need the space - it shows you what it would delete before deleting anything, and never removes a file a conversation still shows
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 

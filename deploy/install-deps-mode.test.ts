@@ -18,6 +18,7 @@ import {
   chmodSync,
   existsSync,
   readFileSync,
+  statSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -76,6 +77,7 @@ const STAGES = [
   "install_packages",
   "converge_bun",
   "configure_oom_protection",
+  "install_rescue_command",
   "backfill_firewall_record",
   "restore_recorded_firewall_rules",
   "install_hardening_verifier",
@@ -134,6 +136,8 @@ function runDepsMode(opts: {
   convergeFails?: boolean;
   // Caddyfile carries the installer marker; the verifier exits with this.
   markerVerifyRc?: number;
+  // The rescue command cannot be written (a path no one can create).
+  rescueUnwritable?: boolean;
 }): Run {
   const stubLog = join(base, "stub.log");
   const activeFile = join(base, "caddy-active");
@@ -141,6 +145,7 @@ function runDepsMode(opts: {
   const unitFile = join(base, "caddy-unit");
   const caddyfile = join(base, "Caddyfile");
   rmSync(stubLog, { force: true });
+  rmSync(join(base, "sbin"), { recursive: true, force: true });
   writeFileSync(activeFile, opts.active ? "active\n" : "inactive\n");
   writeFileSync(enabledFile, opts.enabled ? "enabled\n" : "disabled\n");
   writeFileSync(unitFile, opts.noCaddyUnit ? "absent\n" : "present\n");
@@ -164,6 +169,11 @@ eval "$(sed -n '/^snapshot_caddy_state()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^restore_caddy_state()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^deps_only()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^report_failure()/,/^}/p' "$INSTALL_SH")"
+# The stage name only after a write that worked; the status stays the write's
+# (deps_only runs it inside an if, where set -e does not stop it).
+eval "$(sed -n '/^install_rescue_command()/,/^ISOMUX_RESCUE_ROOT_SH$/p' "$INSTALL_SH"; echo 'rc=$?; ((rc)) || echo install_rescue_command; return $rc; }')"
+write_file() { install -d -m 755 "$(dirname "$1")"; install -m "$2" /dev/null "$1"; cat >"$1"; }
+RESCUE_PATH=${JSON.stringify(opts.rescueUnwritable ? "/proc/isomux-no-such-dir/isomux-rescue" : join(base, "sbin", "isomux-rescue"))}
 CADDY_PRIOR_ACTIVE=""
 CADDY_PRIOR_ENABLED=""
 CADDY_SNAPSHOT_ARMED=""
@@ -265,6 +275,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "install_packages",
       "converge_bun",
       "configure_oom_protection",
+      "install_rescue_command",
       "install_browser",
       "configure_codex_sandbox",
       "configure_bwrap_apparmor",
@@ -289,6 +300,7 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
       "install_packages",
       "converge_bun",
       "configure_oom_protection",
+      "install_rescue_command",
       "backfill_firewall_record",
       "restore_recorded_firewall_rules",
       "install_hardening_verifier",
@@ -309,6 +321,40 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
     expect(r.out.slice(r.out.indexOf("install_packages"))).not.toContain(
       "DIE:",
     );
+  });
+
+  // The installed updater that runs the first update carrying the rescue
+  // command predates it; the target's deps-only mode is what reaches the box
+  // on that update (task cdd7883d).
+  it("installs the release's rescue command, byte for byte and executable", () => {
+    const r = runDepsMode({ active: true, enabled: true });
+    expect(r.code).toBe(0);
+    const path = join(base, "sbin", "isomux-rescue");
+    expect(readFileSync(path, "utf8")).toBe(
+      readFileSync(
+        new URL("../scripts/rescue-root.sh", import.meta.url),
+        "utf8",
+      ),
+    );
+    expect(statSync(path).mode & 0o777).toBe(0o755);
+  });
+
+  it("warns and goes on when the rescue command cannot be written", () => {
+    const r = runDepsMode({
+      active: true,
+      enabled: true,
+      rescueUnwritable: true,
+    });
+    expect(r.code).toBe(0);
+    expect(r.stages).not.toContain("install_rescue_command");
+    expect(r.stages.slice(-3)).toEqual([
+      "write_loopback_bind_if_proxied",
+      "write_update_outcome",
+      "STEP:report",
+    ]);
+    // Both the status warning and the outcome line, as for the verifier.
+    expect(r.out).toMatch(/^LOG: ISOMUX_UPDATE_WARNING=\S/m);
+    expect(r.out).toMatch(/^OUTCOME: \S/m);
   });
 
   it("covers every full-install step: run by a sync or a tripwire", () => {

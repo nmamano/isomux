@@ -19,7 +19,12 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
-import { EMBEDDED, embed } from "../scripts/embed-deploy-scripts.ts";
+import {
+  EMBEDDED,
+  NESTED,
+  embed,
+  embedNested,
+} from "../scripts/embed-deploy-scripts.ts";
 import { AGENT_OOM_SCORE_ADJ } from "../server/oom-stamp.ts";
 import { TLS_ASK_PATH } from "../server/tls-ask.ts";
 import { CALVER_RELEASE_RE } from "../server/version.ts";
@@ -239,6 +244,15 @@ describe("install.sh escalation: template unit + placement", () => {
     for (const { path, delimiter } of EMBEDDED) {
       expect(SRC).toContain(`<<'${delimiter}'`);
       expect(SRC).toContain(repoFile(path).trimEnd());
+    }
+    // A helper that carries a copy of another (the container's
+    // install-update-support.sh carries the rescue command, task cdd7883d):
+    // the same rule one level down, so the copy install.sh embeds is current.
+    expect(NESTED.length).toBeGreaterThan(0);
+    for (const { path, delimiter, into } of NESTED) {
+      expect(embedNested(into, repoFile(into), repoFile)).toBe(repoFile(into));
+      expect(repoFile(into)).toContain(`<<'${delimiter}'`);
+      expect(repoFile(into)).toContain(repoFile(path).trimEnd());
     }
   });
 });

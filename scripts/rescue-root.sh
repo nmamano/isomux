@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# The rescue command for root installs (task cdd7883d), installed root-owned
+# as /usr/local/sbin/isomux-rescue by deploy/install.sh, like isomux-update.
+# It does only the root steps (the root marker, systemctl, the kills, the
+# journal) and runs scripts/rescue.ts as the service user for every step that
+# writes the state root (see scripts/rescue.ts): no code from the checkout
+# runs as root, because the service user can edit it. It reads its settings
+# from /etc/isomux/update.conf without sourcing it; ISOMUX_RESCUE_CONF,
+# ISOMUX_RESCUE_ROOT_MARKER_DIR and ISOMUX_RESCUE_PROC override the paths for
+# tests. Every external
+# command is called by name through PATH.
+#
+#   isomux-rescue status | lockdown [--stop] [--reason <text>] | unlock | restart
+set -euo pipefail
+
+CONF=${ISOMUX_RESCUE_CONF:-/etc/isomux/update.conf}
+MARKER_DIR=${ISOMUX_RESCUE_ROOT_MARKER_DIR:-/etc/isomux}
+MARKER=$MARKER_DIR/lockdown
+PROC=${ISOMUX_RESCUE_PROC:-/proc}
+STOP_TIMEOUT_S=60
+READY_TIMEOUT_S=90
+
+die() {
+  echo "isomux-rescue: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat >&2 <<'EOF'
+usage: isomux-rescue <command>
+  status                              the office's state; exit 0 healthy, 1 down, 2 locked
+  lockdown [--stop] [--reason <text>] lock the office and revoke every sign-in and token
+  unlock                              remove the lock and start the office
+  restart                             restart the office and wait until it answers
+EOF
+}
+
+# KEY=VALUE lines, never sourced: a value is text, whatever it holds.
+DEPLOYMENT_KIND=git SERVICE_NAME=isomux SERVICE_KIND=system SERVICE_USER=
+REPO_DIR= STATE_ROOT= BUN=bun BASE_URL=http://127.0.0.1:4000
+read_conf() {
+  [[ -r $CONF ]] || die "$CONF is missing: this is not a root install. Run 'bun run rescue' as the office's user."
+  local line key value
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ $line =~ ^([A-Z_][A-Z0-9_]*)=(.*)$ ]] || continue
+    key=${BASH_REMATCH[1]} value=${BASH_REMATCH[2]}
+    case $key in
+      DEPLOYMENT_KIND | SERVICE_NAME | SERVICE_KIND | SERVICE_USER | REPO_DIR | STATE_ROOT | BUN | BASE_URL)
+        printf -v "$key" '%s' "$value"
+        ;;
+    esac
+  done <"$CONF"
+  [[ $SERVICE_KIND == system ]] || die "SERVICE_KIND=$SERVICE_KIND: run 'bun run rescue' as the office's user."
+  if [[ $DEPLOYMENT_KIND != container ]]; then
+    [[ -n $SERVICE_USER && -n $REPO_DIR && -n $STATE_ROOT ]] ||
+      die "$CONF is missing SERVICE_USER, REPO_DIR or STATE_ROOT"
+  fi
+}
+
+# scripts/rescue.ts as the service user, in the checkout.
+as_service() {
+  local home
+  home=$(getent passwd "$SERVICE_USER" | cut -d: -f6)
+  [[ -n $home ]] || die "no such user: $SERVICE_USER"
+  (cd "$REPO_DIR" && runuser -u "$SERVICE_USER" -- env "HOME=$home" \
+    "ISOMUX_HOME=$STATE_ROOT" "ISOMUX_RESCUE_CONF=$CONF" \
+    "ISOMUX_RESCUE_ROOT_MARKER_DIR=$MARKER_DIR" \
+    "$BUN" scripts/rescue.ts "$@")
+}
+
+# scripts/rescue.ts inside the office container, as the user and with the
+# state root the entrypoint gives the office (deploy/container/entrypoint.sh).
+in_container() {
+  (cd /opt/isomux-container &&
+    docker compose --env-file office.env exec -T -u node \
+      -e HOME=/var/data/home -e ISOMUX_HOME=/var/data/home/.isomux \
+      office bun scripts/rescue.ts "$@")
+}
+
+unit_state() { systemctl is-active "$SERVICE_NAME" 2>/dev/null || true; }
+
+wait_inactive() {
+  local deadline=$((SECONDS + STOP_TIMEOUT_S)) state
+  while :; do
+    state=$(unit_state)
+    [[ $state != active && $state != deactivating ]] && return 0
+    ((SECONDS >= deadline)) && return 1
+    sleep 0.5
+  done
+}
+
+# The /readyz body once it answers 200, or nothing after the timeout.
+wait_ready() {
+  local deadline=$((SECONDS + READY_TIMEOUT_S)) body
+  while :; do
+    if body=$(curl -fsS --max-time 5 "$BASE_URL/readyz" 2>/dev/null); then
+      printf '%s\n' "$body"
+      return 0
+    fi
+    ((SECONDS >= deadline)) && return 1
+    sleep 1
+  done
+}
+
+# Refuse inside the office unit's group: stopping the unit would end us.
+refuse_inside_unit() {
+  if grep -qE "(^|/)${SERVICE_NAME//./\\.}\.service(/|$)" /proc/self/cgroup 2>/dev/null; then
+    die "this shell runs inside the office, and stopping the office would end it. Run it from a login shell on the office's machine."
+  fi
+}
+
+# The office's leftovers after its stop: processes of the service user (or the
+# split agent user) whose ISOMUX_OFFICE_PID is this unit's last main pid. Never
+# this process or an ancestor.
+leftovers() {
+  local office_pid=$1 uids=() keep=() pid ppid uid d
+  uids+=("$(id -u "$SERVICE_USER")")
+  local agent_uid
+  agent_uid=$(grep -oE '"agentUid"[[:space:]]*:[[:space:]]*[0-9]+' "$STATE_ROOT/split.json" 2>/dev/null | grep -oE '[0-9]+$' || true)
+  [[ -n $agent_uid ]] && uids+=("$agent_uid")
+  pid=$$
+  while [[ -n $pid && $pid -gt 0 ]]; do
+    keep+=("$pid")
+    ppid=$(awk '/^PPid:/{print $2}' "$PROC/$pid/status" 2>/dev/null || true)
+    [[ $ppid == "$pid" ]] && break
+    pid=$ppid
+  done
+  for d in "$PROC"/[0-9]*; do
+    pid=${d##*/}
+    [[ " ${keep[*]} " == *" $pid "* ]] && continue
+    uid=$(awk '/^Uid:/{print $2}' "$d/status" 2>/dev/null) || continue
+    [[ " ${uids[*]} " == *" $uid "* ]] || continue
+    tr '\0' '\n' 2>/dev/null <"$d/environ" | grep -qx "ISOMUX_OFFICE_PID=$office_pid" || continue
+    echo "$pid"
+  done
+}
+
+kill_leftovers() {
+  local office_pid pids
+  office_pid=$(systemctl show -p ExecMainPID --value "$SERVICE_NAME" 2>/dev/null || true)
+  office_pid=${office_pid#ExecMainPID=}
+  [[ $office_pid =~ ^[0-9]+$ && $office_pid -gt 0 ]] || return 0
+  pids=$(leftovers "$office_pid")
+  [[ -n $pids ]] || return 0
+  echo "Ending $(wc -w <<<"$pids") office process(es) left running."
+  # shellcheck disable=SC2086
+  kill -TERM $pids 2>/dev/null || true
+  sleep 2
+  pids=$(leftovers "$office_pid")
+  # shellcheck disable=SC2086
+  [[ -z $pids ]] || kill -KILL $pids 2>/dev/null || true
+}
+
+# Written by root from update.conf alone: the checkout's code must not decide
+# which office the one marker it cannot remove locks. The reason stays in the
+# state marker. Same shape as lockMarkerBody (server/lockdown.ts).
+write_root_marker() {
+  local body tmp root
+  root=${STATE_ROOT//\\/\\\\}
+  root=${root//\"/\\\"}
+  body=$(printf '{"since":"%s","reason":"","by":"host","stateRoot":"%s"}' \
+    "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$root")
+  install -d -m 755 "$MARKER_DIR"
+  tmp=$(mktemp "$MARKER_DIR/.lockdown.XXXXXXXXXX")
+  printf '%s\n' "$body" >"$tmp"
+  chmod 644 "$tmp"
+  mv -f "$tmp" "$MARKER"
+}
+
+cmd_lockdown() {
+  local stop=0 reason=""
+  while (($#)); do
+    case $1 in
+      --stop) stop=1 ;;
+      --reason)
+        (($# >= 2)) || die "--reason needs a text"
+        reason=$2
+        shift
+        ;;
+      *) die "unknown option: $1" ;;
+    esac
+    shift
+  done
+  if [[ $DEPLOYMENT_KIND == container ]]; then
+    in_container _step state-marker --reason "$reason" --by host
+    echo "Locked: the office will not start unlocked."
+    if ((stop)); then
+      # No exec reaches the state once the container is down.
+      in_container _step audit lockdown --reason "$reason"
+      systemctl disable --now "$SERVICE_NAME"
+      echo "The office is stopped and stays stopped after a reboot."
+    else
+      systemctl stop "$SERVICE_NAME"
+      wait_inactive || die "the office did not stop within ${STOP_TIMEOUT_S} s. It stays locked; run lockdown again."
+      systemctl start "$SERVICE_NAME"
+      wait_ready >/dev/null || die "the office did not answer within ${READY_TIMEOUT_S} s. It stays locked; see isomux-rescue status."
+      # The locked office never writes office.sqlite: one writer.
+      in_container _step audit lockdown --reason "$reason"
+      echo "The office is up and shows only a locked page; every sign-in, API token, invite and browser extension pairing is revoked."
+    fi
+  else
+    refuse_inside_unit
+    write_root_marker
+    as_service _step state-marker --reason "$reason" --by host
+    echo "Locked: the office will not start unlocked."
+    systemctl stop "$SERVICE_NAME"
+    wait_inactive || die "the office did not stop within ${STOP_TIMEOUT_S} s. It stays locked; run lockdown again."
+    as_service _step audit lockdown --reason "$reason"
+    kill_leftovers
+    as_service _step quarantine >/dev/null
+    echo "Revoked every sign-in, API token, invite and browser extension pairing."
+    if ((stop)); then
+      systemctl disable "$SERVICE_NAME"
+      echo "The office is stopped and stays stopped after a reboot."
+    else
+      systemctl start "$SERVICE_NAME"
+      if wait_ready >/dev/null; then
+        echo "The office is up and shows only a locked page."
+      else
+        echo "The office did not answer yet. It stays locked; see isomux-rescue status."
+      fi
+    fi
+  fi
+  echo "Provider keys and connection tokens are kept but unused while locked. Rotate them at the provider if they may have leaked."
+  echo "To unlock: isomux-rescue unlock"
+}
+
+start_again() {
+  if ! systemctl is-enabled "$SERVICE_NAME" >/dev/null 2>&1; then
+    systemctl enable --now "$SERVICE_NAME"
+  elif [[ $(unit_state) == active ]]; then
+    systemctl restart "$SERVICE_NAME"
+  else
+    systemctl start "$SERVICE_NAME"
+  fi
+}
+
+cmd_unlock() {
+  if [[ $DEPLOYMENT_KIND == container ]]; then
+    # A container stopped by lockdown --stop boots locked first, so the exec
+    # can reach its state.
+    if [[ $(unit_state) != active ]]; then
+      systemctl enable --now "$SERVICE_NAME"
+      wait_ready >/dev/null || die "the office did not answer within ${READY_TIMEOUT_S} s"
+    fi
+    in_container _step remove-state-marker
+    in_container _step audit unlock
+    systemctl restart "$SERVICE_NAME"
+  else
+    refuse_inside_unit
+    rm -f "$MARKER"
+    as_service _step remove-state-marker
+    as_service _step audit unlock
+    start_again
+  fi
+  if wait_ready >/dev/null; then
+    echo "Unlocked: the office is up."
+  else
+    echo "Unlocked, but the office did not answer yet: see isomux-rescue status."
+  fi
+  echo "Every sign-in was revoked by the lock. Owners sign in again with the owner sign-in recovery (isomux.com/docs/access-and-invites)."
+}
+
+cmd_restart() {
+  systemctl restart "$SERVICE_NAME"
+  local body
+  body=$(wait_ready) || die "the office did not answer within ${READY_TIMEOUT_S} s. See isomux-rescue status."
+  if [[ $body == locked ]]; then echo "The office is up and locked."; else echo "The office is up."; fi
+}
+
+cmd_status() {
+  local code=0
+  if [[ $DEPLOYMENT_KIND == container ]]; then
+    local state body
+    state=$(unit_state)
+    echo "Service        $SERVICE_NAME: ${state:-unknown}"
+    if body=$(curl -fsS --max-time 5 "$BASE_URL/readyz" 2>/dev/null); then
+      echo "Ready check    HTTP 200 \"$body\""
+    else
+      echo "Ready check    no answer"
+    fi
+    if [[ $body == locked ]]; then
+      code=2
+    elif [[ $state != active || -z $body ]]; then
+      code=1
+    fi
+  else
+    as_service status --no-journal || code=$?
+  fi
+  echo
+  echo "Last 50 log lines:"
+  journalctl -u "$SERVICE_NAME" -n 50 --no-pager 2>/dev/null || true
+  return "$code"
+}
+
+main() {
+  local cmd=${1:-}
+  [[ -n $cmd ]] || {
+    usage
+    exit 0
+  }
+  shift
+  [[ $(id -u) == 0 ]] || die "run this as root (sudo isomux-rescue $cmd)"
+  read_conf
+  case $cmd in
+    status) cmd_status ;;
+    lockdown) cmd_lockdown "$@" ;;
+    unlock) cmd_unlock ;;
+    restart) cmd_restart ;;
+    help | -h | --help) usage ;;
+    *)
+      usage
+      exit 64
+      ;;
+  esac
+}
+
+main "$@"

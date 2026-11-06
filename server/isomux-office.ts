@@ -433,6 +433,9 @@ import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { createFrontDoor, PORT, UI_DIST } from "./office-front-door.ts";
+import { readLockState, restartAppsAfterLock } from "./lockdown.ts";
+import { startLockedOffice } from "./locked-office.ts";
+import { defaultAppSupervisor } from "./app-supervisor-default.ts";
 import { createAccessPolicy } from "./office-access-policy.ts";
 import { createEventFanout } from "./office-event-fanout.ts";
 import { createSessionProjection } from "./office-session-projection.ts";
@@ -5253,6 +5256,26 @@ function runBackgroundBoot(
   // The apps of a member whose pack has no apps write stay stopped across a
   // reboot or a crash between a pack save and its stops.
   stopAppsThatMayNotRun(() => true);
+  // The first boot after an unlock starts the apps the lock stopped.
+  try {
+    const started = restartAppsAfterLock(
+      STATE_ROOT,
+      {
+        list: () => appRegistry.list().map((app) => app.name),
+        isActive: (name) =>
+          appSupervisor.states([name]).get(name)?.state !== "stopped",
+        stop: (name) => appSupervisor.stop(name),
+        start: (name) => appSupervisor.start(name),
+      },
+      (name) => appsMayRunFor(appRegistry.get(name)?.userId),
+    );
+    if (started.length > 0)
+      console.log(
+        `[lockdown] started the apps the lock stopped: ${started.join(", ")}`,
+      );
+  } catch (err) {
+    console.error("[lockdown] could not start the apps the lock stopped:", err);
+  }
 
   const restorePromise = (async () => {
     const restored = await agentManager.restoreAgents();
@@ -5681,6 +5704,29 @@ export async function startServer(
  * (units written before the rename). Only one of them is `import.meta.main`, so
  * the guard on its own would leave the shim path booting nothing.
  */
+// The locked office's listener binds where the office's would: loopback
+// unless the deployment opened it (bootPrelude has the full rule; a locked
+// office reads the config without writing it back).
+async function startLockedOfficeFromBoot(): Promise<void> {
+  const cfg = loadServerConfig();
+  const external = cfg.externalAccess ?? cfg.publicOrigin !== null;
+  const loopback = cfg.networkBind === "loopback" || !external;
+  const supervisor = defaultAppSupervisor(process.platform);
+  await startLockedOffice({
+    stateRoot: STATE_ROOT,
+    port: PORT,
+    ...(loopback ? { hostname: "127.0.0.1" } : {}),
+    apps: {
+      list: () => appRegistry.list().map((app) => app.name),
+      // Anything not known to be stopped is stopped (fail safe).
+      isActive: (name) =>
+        supervisor.states([name]).get(name)?.state !== "stopped",
+      stop: (name) => supervisor.stop(name),
+      start: (name) => supervisor.start(name),
+    },
+  });
+}
+
 export async function runOfficeMain(): Promise<void> {
   // CLI sub-command fast-path. `bun run server/isomux-office.ts owner-login
   // --name X` dynamic-imports the CLI, which prints the root recovery command,
@@ -5704,6 +5750,13 @@ export async function runOfficeMain(): Promise<void> {
   // restart for the unit's stop timeout (server/stop-reap.ts). Decided before
   // the marker is set: every process this office starts inherits it.
   armStopReap();
+  // A locked office (task cdd7883d) starts nothing but the locked page: no
+  // auth state, secrets proxy, agent, schedule or bridge. The root marker's
+  // dir is the constant, never an override from the environment.
+  if (readLockState(STATE_ROOT).locked) {
+    await startLockedOfficeFromBoot();
+    return;
+  }
   // Before anything reads PATH: agents and terminals inherit it.
   if (process.env.PATH)
     process.env.PATH = normalizeBunRunPath(process.env.PATH, process.cwd());

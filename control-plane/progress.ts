@@ -318,7 +318,15 @@ const INSTALLER_PHASES = [
   "running",
   "finished",
 ] as const;
-const RUNGS = ["dns", "wrong-box", "tcp", "tls", "readyz", "ok"] as const;
+const RUNGS = [
+  "dns",
+  "wrong-box",
+  "tcp",
+  "tls",
+  "readyz",
+  "ok",
+  "locked",
+] as const;
 const RUNG_WORDS: Record<string, string> = {
   dns: "waiting for the name to resolve",
   "wrong-box": "the name points somewhere else",
@@ -326,6 +334,7 @@ const RUNG_WORDS: Record<string, string> = {
   tls: "waiting for the certificate",
   readyz: "waiting for the office to report ready",
   ok: "the office is serving",
+  locked: "the office is locked by its owner",
 };
 
 /**

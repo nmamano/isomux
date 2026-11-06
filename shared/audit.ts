@@ -52,6 +52,8 @@ export interface AuditEntry {
   member?: { userId: string; item?: string };
   // office.update: one finished update attempt.
   update?: UpdateAudit;
+  // office.lockdown and office.unlock (task cdd7883d): why, as given.
+  lockdown?: { reason: string };
 }
 export interface UpdateAudit {
   attempt: string;

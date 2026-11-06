@@ -3140,6 +3140,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "apps.notFound.heading": "App not found",
   "apps.notFound.body":
     "There is no app at this address, or you cannot open it.",
+  "locked.title": "office locked",
+  "locked.heading": "This office is locked",
+  "locked.body":
+    "Its owner locked it. Nobody can sign in or use it until it is unlocked.",
   "common.untitledConversation": "Untitled conversation",
   "schedules.human.daily": "Daily at {time}",
   "schedules.human.weekly": "Weekly {weekday} at {time}",

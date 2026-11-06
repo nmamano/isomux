@@ -101,6 +101,21 @@ On your own hardware, the same script runs from your checkout as `sudo bash depl
 
 macOS and Windows get neither half - both mechanisms are Linux-specific.
 
+## Locking the office down
+
+When the office is down or under attack, the rescue command on the office's machine checks it, locks it and unlocks it. It needs no running office and no model. On an install made by the installer (a VPS or an AWS container), run it as root: `sudo isomux-rescue <command>`. Otherwise run it as the user that runs Isomux, in the checkout: `bun run rescue <command>`.
+
+- `status` shows the service, the ready check, the lock, the version, free disk, the last backup and the last log lines. It exits 0 when the office serves, 1 when it is down and 2 when it is locked.
+- `lockdown --reason "<why>"` locks the office. It revokes every sign-in, API token, invite and browser extension pairing, ends every agent, and stops schedules, webhooks, apps and messaging bridges. The office then shows only a locked page; updates still install. Add `--stop` to keep the office stopped instead, also after a reboot.
+- `unlock` removes the lock and starts the office. Owners then sign in again with the [owner sign-in recovery](access-and-invites.md).
+- `restart` restarts the office and waits until it answers.
+
+A lockdown keeps provider keys and connection tokens, but nothing uses them while locked. If they may have leaked, rotate them at the provider. A lock and an unlock each add a row to the audit log.
+
+Run the command from a login shell on the machine, not from an office terminal or agent shell: stopping the office would end it. The lock holds against members, tokens and agents. On an install that is not run as root, code that already runs as the office's user can remove the lock. Apps start again at boot before the office stops them, so a locked office's apps can run for a few seconds after a reboot.
+
+A backup taken before the lock still holds the revoked sign-ins: restoring it brings them back.
+
 ## Network bind
 
 `~/.isomux/office-config.json` can set `networkBind` to `"loopback"`, `"all"`, or `"auto"`. `"auto"` binds loopback before the office has an owner or while external access is off, and all interfaces otherwise. Remove the field to use the same runtime default while allowing the installer or updater to select `"loopback"` when it verifies a local proxy. An explicit `"auto"` opts out of that automatic installer change. The loopback listener uses IPv4 `127.0.0.1`; callers that use `localhost` fall back to it on dual-stack hosts.

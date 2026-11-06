@@ -273,6 +273,7 @@ export const en = {
   "liveness.labelTls": "waiting for the certificate",
   "liveness.labelReadyz": "waiting for the office to report ready",
   "liveness.labelOk": "the office is serving",
+  "liveness.labelLocked": "the office is locked by its owner",
 
   "office.restartHeading": "Restart",
   "office.restartCaveat":

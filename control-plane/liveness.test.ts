@@ -47,6 +47,33 @@ describe("probeLiveness", () => {
     expect((await probeLiveness("x", notServing, OURS)).rung).toBe("readyz");
   });
 
+  // A locked office (task cdd7883d) serves /readyz 200 with a body that says
+  // so: a state the dashboard shows, not a failure. The body is all that
+  // tells it apart from "ok". The body is a wire value the office sends
+  // (server/lockdown.ts LOCKED_READY_BODY), so it is written out here.
+  const LOCKED_READY_BODY = "locked\n";
+  test("a 200 /readyz that says locked is the locked rung; any other 200 is ok", async () => {
+    const answering = (body: string) => ({
+      lookup: () => Promise.resolve(OURS),
+      connect: () => Promise.resolve(),
+      fetchImpl: () => Promise.resolve(new Response(body, { status: 200 })),
+    });
+    const rungOf = async (body: string) =>
+      (await probeLiveness("x", answering(body), OURS)).rung;
+    expect({
+      locked: await rungOf(LOCKED_READY_BODY),
+      ok: await rungOf("ok\n"),
+      empty: await rungOf(""),
+    }).toEqual({ locked: "locked", ok: "ok", empty: "ok" });
+    // A 503 that says locked is still not serving.
+    const refused = {
+      ...answering(""),
+      fetchImpl: () =>
+        Promise.resolve(new Response(LOCKED_READY_BODY, { status: 503 })),
+    };
+    expect((await probeLiveness("x", refused, OURS)).rung).toBe("readyz");
+  });
+
   // Without our own address there is nothing to tell a wildcard or stale record
   // from this box, so the probe stops before it asks anything: every scripted
   // rung below would pass, and a pass here is how a down office reads as up.

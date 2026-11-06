@@ -106,6 +106,9 @@ async function bed(
         },
         fetchImpl: async () => {
           if (rung === "tls") throw new Error(TLS_FAILURE);
+          // A locked office's /readyz (task cdd7883d): 200, a wire body.
+          if (rung === "locked")
+            return new Response("locked\n", { status: 200 });
           return new Response("", { status: rung === "ok" ? 200 : 503 });
         },
       }),
@@ -218,6 +221,45 @@ describe("three strikes gets a person", () => {
     expect((await b.store.getInstance("inst-1"))!.attention_state).toBe(
       "clear",
     );
+  });
+});
+
+// A locked office (task cdd7883d) is serving: its owner stopped it on
+// purpose. It is a state the dashboard shows, never a strike, a raise for a
+// person or a prober outage, and it ends an open raise as an ok does.
+test("a locked office counts no strike, raises no one, and clears an open raise", async () => {
+  const b = await bed();
+  for (let i = 0; i < 3; i++) {
+    await b.pass("tcp");
+    b.now.value += LIVENESS_INTERVAL_MS;
+  }
+  expect(await b.reasons()).toEqual(["critical"]);
+  let controls = 0;
+  for (let i = 0; i < 4; i++) {
+    await b.pass("locked", "prober-a", {
+      control: async () => {
+        controls++;
+        return { ok: true, detail: "control reachable" };
+      },
+    });
+    b.now.value += LIVENESS_INTERVAL_MS;
+  }
+  const live = (await b.store.getLiveness("inst-1"))!;
+  expect({
+    rung: live.rung,
+    strikes: live.strikes,
+    reasons: await b.reasons(),
+    attention: (await b.store.getInstance("inst-1"))!.attention_state,
+    // A reading that is not a failure needs no control probe.
+    controls,
+    outage: b.network.lastOutageAt,
+  }).toEqual({
+    rung: "locked",
+    strikes: 0,
+    reasons: [],
+    attention: "clear",
+    controls: 0,
+    outage: null,
   });
 });
 

@@ -271,6 +271,7 @@ export const es: Catalog = {
   "liveness.labelTls": "esperando el certificado",
   "liveness.labelReadyz": "esperando a que la oficina se declare lista",
   "liveness.labelOk": "la oficina está sirviendo",
+  "liveness.labelLocked": "la oficina está bloqueada por su propietario",
 
   "office.restartHeading": "Reinicio",
   "office.restartCaveat":

@@ -207,6 +207,7 @@ export const zh: Catalog = {
   "liveness.labelTls": "正在等待证书",
   "liveness.labelReadyz": "正在等待办公室报告就绪",
   "liveness.labelOk": "办公室正在提供服务",
+  "liveness.labelLocked": "办公室已被其所有者锁定",
   "office.restartHeading": "重启",
   "office.restartCaveat":
     "重启会关闭并重新启动整个服务器，而不仅是 Isomux。这会中断所有正在运行的智能体，需要几分钟。",

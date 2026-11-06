@@ -271,6 +271,7 @@ export const ca: Catalog = {
   "liveness.labelTls": "esperant el certificat",
   "liveness.labelReadyz": "esperant que l'oficina es declari a punt",
   "liveness.labelOk": "l'oficina està servint",
+  "liveness.labelLocked": "l'oficina està bloquejada pel seu propietari",
 
   "office.restartHeading": "Reinici",
   "office.restartCaveat":

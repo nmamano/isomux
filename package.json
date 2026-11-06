@@ -11,6 +11,7 @@
     "build:demo": "bun run scripts/build-demo.ts",
     "build:docs": "bun run scripts/build-docs.ts",
     "server": "bun run server/isomux-office.ts",
+    "rescue": "bun run scripts/rescue.ts",
     "gen:codex-schemas": "bun run scripts/gen-codex-schemas.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

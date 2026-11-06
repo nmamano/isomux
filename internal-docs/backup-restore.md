@@ -423,6 +423,12 @@ signed in until that session would have expired anyway.
 - **Restore the omitted user credentials.** Follow `RESTORE.txt`. Managed
   environment variables, provider logins and agent browser logins cannot be
   re-minted by Isomux.
+- **A restore undoes a lockdown's revocations.** A backup taken before
+  `rescue lockdown` still holds the sign-ins, API tokens, invites and
+  browser extension pairings the lock moved aside, and a restore brings
+  them back. After a restore of such a backup onto a locked office, run
+  the lockdown again (docs/hosting-reference.md, "Locking the office
+  down").
 - **Anything newer than the backup is gone**: messages, tasks, cron
   runs, invites minted since. The tarball's mtime tells you the cutoff.
 - **Version skew.** Restoring into the same release the backup came from

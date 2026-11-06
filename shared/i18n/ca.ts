@@ -3228,6 +3228,10 @@ Coses que pots fer per ell:
   "apps.notFound.heading": "App no trobada",
   "apps.notFound.body":
     "No hi ha cap app en aquesta adreça, o no la pots obrir.",
+  "locked.title": "oficina bloquejada",
+  "locked.heading": "Aquesta oficina està bloquejada",
+  "locked.body":
+    "El seu propietari la va bloquejar. Ningú no hi pot iniciar sessió ni fer-la servir fins que es desbloquegi.",
   "common.untitledConversation": "Conversa sense títol",
   "schedules.human.daily": "Cada dia a les {time}",
   "schedules.human.weekly": "Cada setmana, {weekday} a les {time}",

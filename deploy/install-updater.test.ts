@@ -12,6 +12,7 @@ import {
   writeFileSync,
   readFileSync,
   existsSync,
+  statSync,
 } from "fs";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
@@ -57,6 +58,7 @@ log() { echo "LOG: $*"; }
 die() { echo "DIE: $*"; exit 1; }
 step() { :; }
 eval "$(sed -n '/^install_updater()/,/^}$/p' "$INSTALL_SH")"
+eval "$(sed -n '/^install_rescue_command()/,/^ISOMUX_RESCUE_ROOT_SH$/p' "$INSTALL_SH"; echo "}")"
 reroot() { if [[ $1 == /etc/* ]]; then echo "$BASE/root$1"; else echo "$1"; fi; }
 write_file() {
   local path
@@ -75,6 +77,7 @@ DRY_RUN=""
 UPDATE_CONF=$BASE/etc/isomux/update.conf
 UPDATE_STATE_DIR=$BASE/update-state
 UPDATER_PATH=$BASE/sbin/isomux-update
+RESCUE_PATH=$BASE/sbin/isomux-rescue
 ISOMUX_REPO=$BASE/origin.git
 ISOMUX_REF=$REF
 INSTALL_DIR=$BASE/checkout
@@ -98,6 +101,20 @@ echo INSTALLED
 const recordPath = () => join(stateDir, "installed-release");
 
 describe("install.sh install_updater installed-release record", () => {
+  // Root-owned for the updater's reason: the service user can edit the
+  // checkout (task cdd7883d).
+  it("puts the rescue command next to the updater, byte for byte and executable", () => {
+    runInstallUpdater("v2026.7.18");
+    const path = join(base, "sbin", "isomux-rescue");
+    expect(readFileSync(path, "utf8")).toBe(
+      readFileSync(
+        new URL("../scripts/rescue-root.sh", import.meta.url),
+        "utf8",
+      ),
+    );
+    expect(statSync(path).mode & 0o777).toBe(0o755);
+  });
+
   it("a release ref is recorded, also over a record of a newer release", () => {
     mkdirSync(stateDir, { mode: 0o700 });
     writeFileSync(recordPath(), "v2026.7.20\n");

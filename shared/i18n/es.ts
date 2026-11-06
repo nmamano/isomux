@@ -3220,6 +3220,10 @@ Cosas que puedes hacer por él:
   "apps.notFound.heading": "App no encontrada",
   "apps.notFound.body":
     "No hay ninguna app en esta dirección, o no puedes abrirla.",
+  "locked.title": "oficina bloqueada",
+  "locked.heading": "Esta oficina está bloqueada",
+  "locked.body":
+    "Su propietario la bloqueó. Nadie puede iniciar sesión ni usarla hasta que se desbloquee.",
   "common.untitledConversation": "Conversación sin título",
   "schedules.human.daily": "Cada día a las {time}",
   "schedules.human.weekly": "Cada semana, {weekday} a las {time}",

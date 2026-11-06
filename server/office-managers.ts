@@ -68,15 +68,9 @@ import { officeAuditStore } from "./audit-store.ts";
 import { trackUiBuild, type UiBuildTracker } from "./ui-build.ts";
 import { createTurnEndWatch } from "./turn-end-watch.ts";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
-import {
-  appSupervisor as productionAppSupervisor,
-  type AppSupervisor,
-} from "./app-supervisor.ts";
-import { createContainerAppSupervisor } from "./container-app-supervisor.ts";
-import {
-  appHostingUnsupportedReason,
-  createUnavailableAppSupervisor,
-} from "./app-hosting.ts";
+import type { AppSupervisor } from "./app-supervisor.ts";
+import { appHostingUnsupportedReason } from "./app-hosting.ts";
+import { defaultAppSupervisor } from "./app-supervisor-default.ts";
 import { openCodeUnsupportedReason } from "./backends/opencode/runtime.ts";
 import { codexSandboxProbe } from "./backends/codex/sandbox-probe.ts";
 import { setProcessIsolationSwitch } from "./process-isolation-state.ts";
@@ -295,13 +289,7 @@ export function createManagers(
   // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
   // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
   hostPlatform = startOpts.hostPlatform ?? process.platform;
-  appSupervisor =
-    startOpts.appSupervisor ??
-    (process.env.ISOMUX_APP_SUPERVISOR === "container"
-      ? createContainerAppSupervisor()
-      : appHostingUnsupported() !== null
-        ? createUnavailableAppSupervisor()
-        : productionAppSupervisor);
+  appSupervisor = startOpts.appSupervisor ?? defaultAppSupervisor(hostPlatform);
   // Containers only: learn at boot whether Codex's sandbox can run here.
   void codexSandboxProbe();
   // The owner's switch for one PID namespace per agent, read at each session

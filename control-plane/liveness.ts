@@ -11,7 +11,14 @@
 import * as dns from "node:dns/promises";
 import * as net from "node:net";
 
-export type Rung = "dns" | "wrong-box" | "tcp" | "tls" | "readyz" | "ok";
+export type Rung =
+  | "dns"
+  | "wrong-box"
+  | "tcp"
+  | "tls"
+  | "readyz"
+  | "ok"
+  | "locked";
 
 /**
  * Three consecutive failures before we call an office unreachable (design:
@@ -44,8 +51,17 @@ export const LIVENESS_CLAIM_MS = 5 * 60_000;
  * three failures ever.
  */
 export function strikesAfter(previous: number, rung: Rung): number {
-  return rung === "ok" ? 0 : previous + 1;
+  return isServing(rung) ? 0 : previous + 1;
 }
+
+/** A locked office (its owner stopped it on purpose, task cdd7883d) is
+ * serving: its /readyz answers 200 "locked". A state, not a failure. */
+export function isServing(rung: Rung): boolean {
+  return rung === "ok" || rung === "locked";
+}
+
+/** The /readyz body of a locked office (server/lockdown.ts LOCKED_READY_BODY). */
+const LOCKED_READY_BODY = "locked";
 
 export interface LivenessResult {
   /** The furthest rung reached. "ok" means every rung passed. */
@@ -231,6 +247,18 @@ export async function probeLiveness(
       ipv4,
     };
   }
+  let body = "";
+  try {
+    body = (await res.text()).trim();
+  } catch {
+    // A body that does not arrive reads as an office that answered ready.
+  }
+  if (body === LOCKED_READY_BODY)
+    return {
+      rung: "locked",
+      detail: "the office is locked by its owner",
+      ipv4,
+    };
   return { rung: "ok", detail: "office is serving", ipv4 };
 }
 

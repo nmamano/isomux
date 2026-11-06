@@ -5,7 +5,7 @@
 // anything it installs on the box has to be inside it. The helper files are
 // still real files in the repo so they can be read, linted, and run straight
 // from a checkout. This script is what keeps the two in step - edit the helper,
-// run this, commit both. deploy/install-sh.test.ts fails if they drift.
+// run this, commit both. A helper can carry a nested copy of another (NESTED). deploy/install-sh.test.ts fails if they drift.
 //
 //   bun run scripts/embed-deploy-scripts.ts          # rewrite install.sh
 //   bun run scripts/embed-deploy-scripts.ts --check  # fail if out of date
@@ -14,6 +14,17 @@ import { readFileSync, writeFileSync } from "fs";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const INSTALL_SH = `${ROOT}deploy/install.sh`;
+
+// Copies embedded in another helper before that helper is embedded in
+// install.sh: the container's install-update-support.sh runs from the target
+// release on an update, so what it carries reaches the box on the first one.
+export const NESTED = [
+  {
+    path: "scripts/rescue-root.sh",
+    delimiter: "ISOMUX_CONTAINER_RESCUE_ROOT_SH",
+    into: "deploy/container/install-update-support.sh",
+  },
+];
 
 export const EMBEDDED = [
   {
@@ -55,6 +66,7 @@ export const EMBEDDED = [
   },
 
   { path: "deploy/harden-ssh.sh", delimiter: "ISOMUX_HARDEN_SSH_SH" },
+  { path: "scripts/rescue-root.sh", delimiter: "ISOMUX_RESCUE_ROOT_SH" },
   {
     path: "deploy/verify-hardening.sh",
     delimiter: "ISOMUX_VERIFY_HARDENING_SH",
@@ -73,8 +85,31 @@ export const EMBEDDED = [
 
 /** install.sh with every embedded copy replaced by the current file contents. */
 export function embed(installSh: string, read: (p: string) => string): string {
-  let out = installSh;
-  for (const { path, delimiter } of EMBEDDED) {
+  return embedEntries(installSh, EMBEDDED, read, "deploy/install.sh");
+}
+
+/** `into` with the copies NESTED puts in it replaced by the current files. */
+export function embedNested(
+  into: string,
+  content: string,
+  read: (p: string) => string,
+): string {
+  return embedEntries(
+    content,
+    NESTED.filter((entry) => entry.into === into),
+    read,
+    into,
+  );
+}
+
+function embedEntries(
+  target: string,
+  entries: readonly { path: string; delimiter: string }[],
+  read: (p: string) => string,
+  name: string,
+): string {
+  let out = target;
+  for (const { path, delimiter } of entries) {
     const body = read(path);
     if (body.split("\n").includes(delimiter)) {
       throw new Error(`${path} contains a line equal to its heredoc delimiter`);
@@ -84,7 +119,7 @@ export function embed(installSh: string, read: (p: string) => string): string {
       "m",
     );
     if (!re.test(out)) {
-      throw new Error(`no <<'${delimiter}' heredoc found in deploy/install.sh`);
+      throw new Error(`no <<'${delimiter}' heredoc found in ${name}`);
     }
     out = out.replace(
       re,
@@ -95,10 +130,27 @@ export function embed(installSh: string, read: (p: string) => string): string {
 }
 
 if (import.meta.main) {
-  const read = (p: string) => readFileSync(`${ROOT}${p}`, "utf8");
+  const check = process.argv.includes("--check");
+  // The nested helpers first, so install.sh embeds their current form.
+  const updated = new Map<string, string>();
+  const read = (p: string) =>
+    updated.get(p) ?? readFileSync(`${ROOT}${p}`, "utf8");
+  for (const into of new Set(NESTED.map((entry) => entry.into))) {
+    const current = read(into);
+    const next = embedNested(into, current, read);
+    if (next === current) continue;
+    if (check) {
+      console.error(
+        `${into} is out of date: run bun run scripts/embed-deploy-scripts.ts`,
+      );
+      process.exit(1);
+    }
+    updated.set(into, next);
+    writeFileSync(`${ROOT}${into}`, next);
+  }
   const current = readFileSync(INSTALL_SH, "utf8");
   const next = embed(current, read);
-  if (process.argv.includes("--check")) {
+  if (check) {
     if (next !== current) {
       console.error(
         "deploy/install.sh is out of date: run bun run scripts/embed-deploy-scripts.ts",
@@ -106,7 +158,7 @@ if (import.meta.main) {
       process.exit(1);
     }
     console.log("deploy/install.sh embedded copies are up to date");
-  } else if (next === current) {
+  } else if (next === current && updated.size === 0) {
     console.log("deploy/install.sh embedded copies were already up to date");
   } else {
     writeFileSync(INSTALL_SH, next);

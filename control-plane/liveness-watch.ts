@@ -27,6 +27,7 @@ import {
   type ControlResult,
   type LivenessDeps,
   type Rung,
+  isServing,
   strikesAfter,
 } from "./liveness.ts";
 import type { Store } from "./store.ts";
@@ -107,7 +108,7 @@ export async function watchLiveness(
     }
     probed++;
 
-    if (rung !== "ok") {
+    if (!isServing(rung)) {
       // Checked right after each failing reading, not once per pass: one slow
       // office can hold a pass long enough for an earlier verdict to go stale.
       let outage: string | null;
@@ -174,7 +175,7 @@ export async function watchLiveness(
       continue;
     }
 
-    if (rung !== "ok") {
+    if (!isServing(rung)) {
       deps.report?.(
         `liveness for ${instance.name} failed at rung ${rung} (${detail}); ` +
           `strike ${strikes}`,
@@ -189,7 +190,8 @@ export async function watchLiveness(
 }
 
 /**
- * Raise at the third consecutive failure; clear only on a later `ok`.
+ * Raise at the third consecutive failure; clear only on a later `ok` (or
+ * `locked`: a locked office is serving).
  *
  * Clearing on anything less than a successful probe would let an office that is
  * failing differently each time - dns, then tls, then tcp - look like it keeps
@@ -206,7 +208,7 @@ async function applyAttention(
     (r) => r.source_op_id === NO_OPERATION && r.reason === LIVENESS_REASON,
   );
   try {
-    if (rung === "ok") {
+    if (isServing(rung)) {
       if (open.length === 0) return;
       await store.tx(async () => {
         for (const row of open) {
