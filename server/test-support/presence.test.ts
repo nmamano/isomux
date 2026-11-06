@@ -425,3 +425,65 @@ describe("lobby presence", () => {
     expect(presenceEntry(first, cid)!.focusedAgentId).toBe(receptionist.id);
   });
 });
+
+describe("presence - the open page (task 35bdee4d)", () => {
+  it("passes a known page through only with viewMode away, and a change of page alone rebroadcasts", async () => {
+    server = await startTestServer();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const owner = await server.seedOwner("Morgan");
+    const member = await server.seedMember("Mia");
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    const memberSock = await connectSettled(server, member.rawSessionId);
+    const memberCid = connectionIdOf(memberSock);
+
+    // Send one update and return the member's entry from the first
+    // presence_list the owner receives after it, or "no rebroadcast".
+    const step = async (
+      viewMode: string,
+      page: unknown,
+    ): Promise<PresenceInfo | "no rebroadcast"> => {
+      const before = presenceCount(ownerSock);
+      memberSock.send({
+        type: "presence_update",
+        currentRoomId: r1,
+        focusedAgentId: null,
+        viewMode,
+        ...(page === undefined ? {} : { page }),
+      });
+      try {
+        await waitForPresenceAfter(ownerSock, before, `${viewMode}/${page}`);
+      } catch {
+        return "no rebroadcast";
+      }
+      const lists = bag(ownerSock).filter((m) => m.type === "presence_list");
+      return presenceEntry(lists[before], memberCid)!;
+    };
+
+    const seen: [string, unknown][] = [];
+    const take = async (label: string, viewMode: string, page: unknown) => {
+      const e = await step(viewMode, page);
+      seen.push([label, e === "no rebroadcast" ? e : [e.viewMode, e.page]]);
+    };
+    await take("tasks", "away", "tasks");
+    // Only the page changes: setPresence must count it as a change.
+    await take("apps", "away", "apps");
+    await take("inbox", "away", "inbox");
+    await take("with log", "log", "inbox");
+    await take("unknown", "away", "corkboard");
+    await take("valid again", "away", "tasks");
+    // Only the page changes again, to a field an older client leaves out.
+    await take("absent", "away", undefined);
+    expect(seen).toEqual([
+      ["tasks", ["away", "tasks"]],
+      ["apps", ["away", "apps"]],
+      ["inbox", ["away", "inbox"]],
+      ["with log", ["log", null]],
+      ["unknown", ["away", null]],
+      ["valid again", ["away", "tasks"]],
+      ["absent", ["away", null]],
+    ]);
+    // A red run waits out up to three silent steps of 2 s each; green takes
+    // milliseconds.
+  }, 15_000);
+});

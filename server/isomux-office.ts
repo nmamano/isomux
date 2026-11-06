@@ -63,6 +63,7 @@ import type {
 import {
   listAllPresence,
   moveLobbyPresence,
+  presencePageFromWire,
   setPresence,
   _testClearPresence,
 } from "./presence.ts";
@@ -1976,6 +1977,7 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
         : {}),
       focusedAgentId: p.focusedAgentId,
       viewMode: p.viewMode,
+      page: p.page,
     });
   }
   // Deterministic order so client renders don't reshuffle on every
@@ -4981,15 +4983,12 @@ async function handleInboundMessage(
       }
       case "presence_update": {
         // Live-avatars: the sender tells us where its ghost should appear, as a
-        // stable global room id. Validate it DIRECTLY - it must name a LIVE room
-        // the sender can access - and clamp to null otherwise (sanitize, don't
-        // reject; the common cause is a race with an allowedRooms change). No
-        // room-index projection on the inbound path post-cut. Access (not
-        // visible/shown) is the gate: hiding a room is a view preference, not an
-        // access restriction, and buildPresenceListFor still filters each
-        // recipient by their own visibility so this can't leak a ghost into a
-        // room a recipient can't see. Self user record supplies avatarColor +
-        // avatarVariant so the wire payload is self-contained.
+        // stable global room id. It must name a LIVE room the sender can
+        // access, else it is clamped to null (the common cause is a race with
+        // an allowedRooms change). Access, not visibility, is the gate:
+        // buildPresenceListFor filters each recipient by their own visibility,
+        // so this can't leak a ghost into a room a recipient can't see. The
+        // user record supplies avatarColor + avatarVariant.
         const user = getUserById(session.userId);
         if (!user) break;
         // Liveness is a SILENT membership check, not roomById(): a stale inbound id
@@ -5056,6 +5055,7 @@ async function handleInboundMessage(
           currentRoomId: roomId,
           focusedAgentId,
           viewMode,
+          page: presencePageFromWire(viewMode, cmd.page),
           lastSeenAt: Date.now(),
         });
         if (changed) {

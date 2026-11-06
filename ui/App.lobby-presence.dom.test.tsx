@@ -103,3 +103,75 @@ it("ordinary rooms still hide self and show a peer", () => {
     ["peer"],
   );
 });
+
+// The presence_update carries the page the member SEES - the top of a stack -
+// as its wall item (task 35bdee4d).
+it("sends the shown page's wall item with the presence", async () => {
+  const { pathForPage } = await import("./routes.ts");
+  const sentPage = () => {
+    const sent = commands.filter((c) => c.type === "presence_update");
+    const last = sent[sent.length - 1];
+    return last && "page" in last ? (last.page ?? null) : null;
+  };
+  const boot = (page: import("./routes.ts").Page | null) => {
+    commands.length = 0;
+    window.history.replaceState(null, "", pathForPage(page));
+    return render(
+      onLanguage("en", createElement(App), {
+        hasReceivedInitialState: true,
+        connected: true,
+      }),
+    );
+  };
+  const press = async (key: string) => {
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key });
+    });
+  };
+  // Settings loads its memory panes; answer them, and the chat as above.
+  setApiShim(async (_method, path) =>
+    path.startsWith("/api/memory")
+      ? { text: "", version: "v1" }
+      : { messages: [], hasMore: false, readPointer: null, unread: 0 },
+  );
+  const seen: Record<string, unknown> = {};
+  for (const page of ["asks", "pager", "tasks", "apps", "cronjobs"] as const) {
+    const view = boot(page);
+    seen[page] = sentPage();
+    view.unmount();
+  }
+  let view = boot(null);
+  seen.office = sentPage();
+  view.unmount();
+  // Tasks over the App store: Tasks shows.
+  view = boot("apps");
+  await press("t");
+  seen["tasks over apps"] = sentPage();
+  seen["tasks over apps path"] = window.location.pathname;
+  view.unmount();
+  // Settings over Tasks: Settings shows, and it has no wall item.
+  view = boot("tasks");
+  await press("s");
+  seen["settings over tasks"] = sentPage();
+  seen["settings over tasks path"] = window.location.pathname;
+  view.unmount();
+  setApiShim(async () => ({
+    messages: [],
+    hasMore: false,
+    readPointer: null,
+    unread: 0,
+  }));
+  expect(seen).toEqual({
+    asks: "inbox",
+    pager: "inbox",
+    tasks: "tasks",
+    apps: "apps",
+    cronjobs: null,
+    office: null,
+    "tasks over apps": "tasks",
+    "settings over tasks": null,
+    // The key presses did open the page on top.
+    "tasks over apps path": pathForPage("tasks"),
+    "settings over tasks path": pathForPage("settings"),
+  });
+});

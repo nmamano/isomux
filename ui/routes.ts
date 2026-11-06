@@ -20,6 +20,8 @@ import {
   type Page,
 } from "../shared/office-links.ts";
 
+import type { PresencePage } from "../shared/presence-pages.ts";
+
 // The page list lives in shared/office-links.ts, where the server reads it
 // to check an ask's link.
 export { pathForPage, type Page };
@@ -354,4 +356,26 @@ export function createLoneShiftTracker(): LoneShiftTracker {
       armed = false;
     },
   };
+}
+
+/**
+ * The wall item a member's ghost stands beside while this page is open, or
+ * null when the page has none.
+ */
+export function presencePageFor(page: Page | null): PresencePage | null {
+  switch (page) {
+    case "tasks":
+    case "apps":
+      return page;
+    // The Inbox's two tabs share its tray.
+    case "asks":
+    case "pager":
+      return "inbox";
+    case "cronjobs":
+    case "skills":
+    case "integrations":
+    case "settings":
+    case null:
+      return null;
+  }
 }

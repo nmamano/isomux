@@ -20,6 +20,7 @@
 // presence_update on their reconnect path (no server-side rehydrate).
 
 import { LOBBY_ROOM_ID, LOBBY_SPOT_IDS } from "../shared/types.ts";
+import { PRESENCE_PAGES, type PresencePage } from "../shared/presence-pages.ts";
 import {
   assignLobbySpot,
   pickLobbySpot,
@@ -43,11 +44,25 @@ export interface PresenceState {
   currentRoomId: string | null;
   focusedAgentId: string | null;
   viewMode: "office" | "log" | "away";
+  // The open page whose wall item the ghost stands beside, or null.
+  page: PresencePage | null;
   lastSeenAt: number;
   lobbySpotId?: string | null;
 }
 
 const presences = new Map<string, PresenceState>();
+
+// The page's wall item counts only while the sender is away from the office
+// view; anything else on the wire is dropped to null.
+export function presencePageFromWire(
+  viewMode: PresenceState["viewMode"],
+  raw: unknown,
+): PresencePage | null {
+  return viewMode === "away" &&
+    (PRESENCE_PAGES as readonly unknown[]).includes(raw)
+    ? (raw as PresencePage)
+    : null;
+}
 
 // Test-only: drop all presence so a fresh in-process harness boot starts with
 // no ghosts from a prior boot's sockets. Not a production path.
@@ -92,6 +107,7 @@ export function setPresence(state: PresenceState): boolean {
     existing.currentRoomId !== state.currentRoomId ||
     existing.focusedAgentId !== state.focusedAgentId ||
     existing.viewMode !== state.viewMode ||
+    existing.page !== state.page ||
     existing.lobbySpotId !== state.lobbySpotId
   );
 }

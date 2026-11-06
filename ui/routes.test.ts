@@ -13,11 +13,13 @@ import {
   mcpSignInForSearch,
   integrationsTabForPath,
   askIdForPath,
+  presencePageFor,
   type Page,
   type PageFlags,
   type PageShortcutInput,
 } from "./routes.ts";
 import { INTEGRATIONS_TABS, askLinkFor } from "../shared/office-links.ts";
+import type { PresencePage } from "../shared/presence-pages.ts";
 
 // Each page and its canonical path. The cronjobs page is "Automations" on
 // screen, and its path says so. The pager and asks pages are the Inbox's two
@@ -593,5 +595,33 @@ describe("createLoneShiftTracker", () => {
     expect(t.keyup("Shift")).toBe(false);
     t.keydown("Shift");
     expect(t.keyup("Shift")).toBe(true);
+  });
+});
+
+describe("presencePageFor", () => {
+  // The wall item a ghost stands by while each page is open (task 35bdee4d):
+  // the corkboard, the Apps screen and the Inbox tray, whose two tabs are
+  // the pager and asks pages. A Record over Page, so a new page fails the type
+  // check here until someone picks its ghost spot.
+  const WALL: Record<Page, PresencePage | null> = {
+    tasks: "tasks",
+    cronjobs: null,
+    apps: "apps",
+    skills: null,
+    integrations: null,
+    settings: null,
+    pager: "inbox",
+    asks: "inbox",
+  };
+
+  it("maps each page to its wall item, and no page to none", () => {
+    const got = Object.fromEntries(
+      (Object.keys(WALL) as Page[]).map((page) => [
+        page,
+        presencePageFor(page),
+      ]),
+    );
+    expect(got).toEqual(WALL);
+    expect(presencePageFor(null)).toBeNull();
   });
 });

@@ -44,6 +44,7 @@ it("presence retains lobby seats on repeats and grant changes, and reports a mov
     currentRoomId: LOBBY_ROOM_ID,
     focusedAgentId: null,
     viewMode: "office" as const,
+    page: null,
     lastSeenAt: 0,
   };
   expect(setPresence(p)).toBe(true);
@@ -86,6 +87,7 @@ it("assigns ten different seats on entry, queues overflow, and clears seats on e
       currentRoomId: LOBBY_ROOM_ID,
       focusedAgentId: null,
       viewMode: "office",
+      page: null,
       lastSeenAt: 0,
     });
   }

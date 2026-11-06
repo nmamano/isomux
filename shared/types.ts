@@ -6,6 +6,7 @@ import type {
 import type { ActionStepRequest } from "./action-steps.ts";
 import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
+import type { PresencePage } from "./presence-pages.ts";
 import type { SecretForm } from "./secret-hosts.ts";
 import type { RoomSkin } from "./room-skins.ts";
 import type { RoomDecor } from "./room-decor.ts";
@@ -2519,12 +2520,13 @@ export interface PresenceInfo {
   // appears - the SOLE presence room reference, ALWAYS a global id. Recipients
   // render the ghost only when it matches their OWN selected room id. null when
   // the session has not yet sent its first presence_update or is off-scene.
-  // The stable room id replaced the dense per-recipient `currentRoom` index.
   currentRoomId: string | null;
   // Absent on older servers; null means waiting beside the lobby floor.
   lobbySpotId?: string | null;
   focusedAgentId: string | null;
   viewMode: "office" | "log" | "away";
+  // Absent on older servers. The wall item the ghost stands beside.
+  page?: PresencePage | null;
 }
 
 // Wire shape for an active session (owner UI).
@@ -3001,16 +3003,14 @@ export type ClientCommand =
       // a stale or inaccessible id (e.g. from a race with an access revoke) is
       // clamped to null rather than rejected.
       type: "presence_update";
-      // Global stable room id where the sender's ghost should appear, or null
-      // when off-scene. This replaced the dense visible
-      // `currentRoom` index and is now required on the wire; the server
-      // validates it directly (live room + canAccess), failing closed to null.
+      // Global room id for the sender's ghost, or null when off-scene.
       currentRoomId: string | null;
       focusedAgentId: string | null;
       viewMode: "office" | "log" | "away";
-      // Client-supplied device label (from localStorage isomux-device).
-      // Optional on the wire so a tab that hasn't named its device
-      // sends an undefined / empty payload; server stores null.
+      // The open page's wall item; the server keeps it only with "away".
+      page?: PresencePage | null;
+      // Client-supplied device label (localStorage isomux-device). A tab that
+      // has not named its device sends none, and the server stores null.
       device?: string | null;
     }
   | { type: "lobby_move"; spotId: string }

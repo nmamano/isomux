@@ -72,6 +72,7 @@ import {
   pathForPage,
   pageForFlags,
   pageUnder,
+  presencePageFor,
   pageShortcut,
   backRoomShortcut,
   createLoneShiftTracker,
@@ -552,49 +553,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     if (nextId) dispatch({ type: "focus", agentId: nextId });
   }, [dispatch, agents, drafts, currentRoomId, focusedAgentId]);
 
-  // Live-avatars: tell the server where this session's ghost should
-  // appear. Fires whenever any of the relevant view states change, plus
-  // once on session_context arrival (so a fresh WS gets the initial
-  // position registered without waiting for user input). The server
-  // dedupes on its end so identical updates don't cascade into a
-  // broadcast.
-  const viewMode: "office" | "log" | "away" =
-    tasksOpen ||
-    cronjobsOpen ||
-    appsOpen ||
-    skillsOpen ||
-    integrationsOpen ||
-    pagerOpen ||
-    asksOpen ||
-    usersOpen
-      ? "away"
-      : focusedAgentId
-        ? "log"
-        : "office";
-  // When a focused agent moves rooms (owner drags them across with
-  // move_agent), the viewer's selection (currentRoomId) doesn't follow.
-  // The ghost should anchor to wherever the agent IS, not where the viewer
-  // last clicked, so use the focused agent's roomId when focused and fall
-  // back to the viewer's selection otherwise. Depending on the scalar id
-  // rather than the focusedAgent object identity keeps the effect quiet
-  // through unrelated agent_updated noise (state/log changes).
-  const presenceRoomId =
-    focusedAgent?.roomId ?? (lobbyOpen ? LOBBY_ROOM_ID : currentRoomId);
-  useEffect(() => {
-    if (!sessionContext) return;
-    send({
-      type: "presence_update",
-      currentRoomId: presenceRoomId,
-      focusedAgentId,
-      viewMode,
-      // Read device inline rather than as a dep so we don't need to
-      // wire a localStorage-change subscription. Device-label edits
-      // happen in DeviceSettings, whose close transitions viewMode
-      // and refires this effect with the fresh value.
-      device: getDevice(),
-    });
-  }, [sessionContext, presenceRoomId, focusedAgentId, viewMode]);
-
   // Browser back button: navigate within the app instead of leaving the page.
   // Model: office = home, any other view = one level deep. Only one history
   // entry is ever pushed at a time, but Back can step through more than one
@@ -779,6 +737,40 @@ export function App({ routing = true }: { routing?: boolean }) {
   };
   const pageBelow = pageUnder(pageFlags);
   const page = pageForFlags(pageFlags);
+
+  // Live-avatars: tell the server where this session's ghost should
+  // appear. Fires whenever any of the relevant view states change, plus
+  // once on session_context arrival (so a fresh WS gets the initial
+  // position registered without waiting for user input). The server
+  // dedupes on its end so identical updates don't cascade into a
+  // broadcast.
+  const viewMode: "office" | "log" | "away" =
+    page !== null ? "away" : focusedAgentId ? "log" : "office";
+  // When a focused agent moves rooms (owner drags them across with
+  // move_agent), the viewer's selection (currentRoomId) doesn't follow.
+  // The ghost should anchor to wherever the agent IS, not where the viewer
+  // last clicked, so use the focused agent's roomId when focused and fall
+  // back to the viewer's selection otherwise. Depending on the scalar id
+  // rather than the focusedAgent object identity keeps the effect quiet
+  // through unrelated agent_updated noise (state/log changes).
+  const presenceRoomId =
+    focusedAgent?.roomId ?? (lobbyOpen ? LOBBY_ROOM_ID : currentRoomId);
+  useEffect(() => {
+    if (!sessionContext) return;
+    send({
+      type: "presence_update",
+      currentRoomId: presenceRoomId,
+      focusedAgentId,
+      viewMode,
+      // The page's wall item, so other members see the ghost beside it.
+      page: presencePageFor(page),
+      // Read device inline rather than as a dep so we don't need to
+      // wire a localStorage-change subscription. Device-label edits
+      // happen in DeviceSettings, whose close transitions viewMode
+      // and refires this effect with the fresh value.
+      device: getDevice(),
+    });
+  }, [sessionContext, presenceRoomId, focusedAgentId, viewMode, page]);
 
   // The chat panel over the Inbox (AgentChatPanel): its agent, or null. It
   // closes when the member leaves the Inbox or its agent goes, so it does not

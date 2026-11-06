@@ -6,6 +6,7 @@ import {
   type RoomWire,
 } from "../../shared/types.ts";
 import { DESK_SLOTS } from "../../shared/desks.ts";
+import type { PresencePage } from "../../shared/presence-pages.ts";
 import { SCENE_W, deskPixelPos } from "./grid.ts";
 
 // "Outside SE wall" lobby coordinates. Until the desk repositioning lands,
@@ -15,6 +16,14 @@ import { SCENE_W, deskPixelPos } from "./grid.ts";
 export const GHOST_LOBBY_BASE_X = 600;
 export const GHOST_LOBBY_BASE_Y = 590;
 export const GHOST_LOBBY_GAP = 52;
+
+// Where a ghost stands while its member has the page of that wall item open:
+// on the floor in front of the item, in scene-container pixels.
+export const GHOST_WALL_SPOTS: Record<PresencePage, DoorCoord> = {
+  tasks: { left: 310, top: 115 },
+  apps: { left: 385, top: 69 },
+  inbox: { left: 192, top: 172 },
+};
 
 // Stack offsets for multiple members focused on the same agent. Small
 // diagonal step so the second/third ghost peeks out from behind the
@@ -70,6 +79,12 @@ function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
   return true;
 }
 
+// An away ghost is dimmed, except at a wall item: there it shows what its
+// member looks at.
+function ghostDimmed(p: PresenceInfo): boolean {
+  return p.viewMode === "away" && !p.page;
+}
+
 // Pixel placements for every ghost that should render in the current room
 // (assuming they stay put - i.e., no door-transition override). Output is in
 // INPUT ORDER (which the server sorts by connectionId), NOT grouped by
@@ -93,11 +108,17 @@ function computeNaturalPlacements(
   );
   const groups = new Map<string, PresenceInfo[]>();
   for (const p of visible) {
+    // The open page wins over the chat under it. A truthy check: an older
+    // server sends no page field.
     const agent =
-      p.focusedAgentId !== null
+      !p.page && p.focusedAgentId !== null
         ? roomAgents.find((a) => a.id === p.focusedAgentId)
         : undefined;
-    const key = agent ? `desk:${agent.desk}` : "lobby";
+    const key = p.page
+      ? `wall:${p.page}`
+      : agent
+        ? `desk:${agent.desk}`
+        : "lobby";
     const arr = groups.get(key);
     if (arr) arr.push(p);
     else groups.set(key, [p]);
@@ -118,6 +139,10 @@ function computeNaturalPlacements(
     if (key === "lobby") {
       left = GHOST_LOBBY_BASE_X + i * GHOST_LOBBY_GAP;
       top = GHOST_LOBBY_BASE_Y;
+    } else if (p.page) {
+      const spot = GHOST_WALL_SPOTS[p.page];
+      left = spot.left + i * GHOST_STACK_DX;
+      top = spot.top + i * GHOST_STACK_DY;
     } else {
       const deskIndex = Number(key.slice(5));
       const slot = DESK_SLOTS[deskIndex];
@@ -134,7 +159,7 @@ function computeNaturalPlacements(
       presence: p,
       left,
       top,
-      dimmed: p.viewMode === "away",
+      dimmed: ghostDimmed(p),
     });
   }
   return out;
@@ -281,7 +306,7 @@ export function useGhostTransitions<Room extends Pick<RoomWire, "id">>(
             presence: p,
             left: door.left,
             top: door.top,
-            dimmed: p.viewMode === "away",
+            dimmed: ghostDimmed(p),
           });
         } else if (currRoomId === currentRoomId) {
           const door = goingForward ? leftDoor : rightDoor;
