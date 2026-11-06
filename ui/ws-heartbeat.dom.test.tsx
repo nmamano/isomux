@@ -2,6 +2,10 @@ import { expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 const ws = await import("./ws.ts");
+const { act, render } = await import("@testing-library/react");
+const { createElement } = await import("react");
+const { StoreProvider, useAppState } = await import("./store.tsx");
+const { setApiShim } = await import("./api.ts");
 
 // The heartbeat pings every 25 s and gives the pong 5 s. On a slow link the
 // pong can wait behind megabytes of replay, so any frame that arrives in the
@@ -212,4 +216,122 @@ it("a reconnect drops the old socket's pending pong grace", () => {
     jest.advanceTimersByTime(6_000);
     expect(sockets).toHaveLength(2);
   });
+});
+
+// Every socket replacement reports the link down (task d249cd25). A check
+// that replaced a frozen socket used to leave the store connected, so the
+// banner stayed hidden while sends to the new, still CONNECTING socket failed.
+// Each case starts from an open socket with nothing reported, except the
+// CONNECTING timeout, which starts from a socket that never opened.
+for (const [label, setUp, replace] of [
+  [
+    "the heartbeat pong grace runs out",
+    open,
+    () => jest.advanceTimersByTime(30_000),
+  ],
+  [
+    "'online' finds no answer to its ping",
+    open,
+    () => {
+      goOnline();
+      jest.advanceTimersByTime(3_000);
+    },
+  ],
+  [
+    "a return to the foreground finds the socket closed",
+    (s: FakeSocket) => {
+      open(s);
+      // onclose has not fired yet: the case checkLink exists for.
+      s.readyState = 3;
+    },
+    () => document.dispatchEvent(new Event("visibilitychange")),
+  ],
+  [
+    "a return to the foreground cannot send the ping",
+    (s: FakeSocket) => {
+      open(s);
+      s.failSend = true;
+    },
+    () => document.dispatchEvent(new Event("visibilitychange")),
+  ],
+  [
+    "the socket stays in CONNECTING",
+    () => {},
+    () => jest.advanceTimersByTime(8_000),
+  ],
+] as const) {
+  it(`reports the link down when ${label}`, () => {
+    withFakeSocket((sockets) => {
+      const reports: boolean[] = [];
+      ws.connect(
+        () => {},
+        (up) => reports.push(up),
+      );
+      setUp(sockets[0]);
+      // ws.ts is one module for the whole file, so the connect above replaced
+      // the previous test's socket. Count only what the trigger reports.
+      reports.length = 0;
+      expect(document.visibilityState).toBe("visible");
+      replace();
+      // Enabling condition: the trigger replaced the socket.
+      expect(sockets).toHaveLength(2);
+      expect(reports).toContain(false);
+      expect(reports).not.toContain(true);
+    });
+  });
+}
+
+// The store side: `connected` goes false at the replacement and comes back
+// only with the new socket's full_state, which drives the offline banner and
+// the composer's not-connected refusal.
+it("the store shows the office offline from a socket replacement until the new socket's full_state", () => {
+  setApiShim(async () => ({}));
+  try {
+    withFakeSocket((sockets) => {
+      const seen: boolean[] = [];
+      function Probe() {
+        seen.push(useAppState().connected);
+        return null;
+      }
+      const view = render(
+        createElement(StoreProvider, null, createElement(Probe)),
+      );
+      const connected = () => seen[seen.length - 1];
+      const fullState = (s: FakeSocket) =>
+        act(() => {
+          s.onmessage?.({
+            data: JSON.stringify({
+              type: "full_state",
+              agents: [],
+              rooms: [],
+              office: { name: "Replacement test", prompt: null },
+              recentCwds: [],
+              killedAgents: [],
+              interactions: [],
+            }),
+          });
+        });
+      try {
+        act(() => open(sockets[0]));
+        fullState(sockets[0]);
+        // Enabling condition: the first socket hydrated the store.
+        expect(connected()).toBe(true);
+        act(() => {
+          goOnline();
+          jest.advanceTimersByTime(3_000);
+        });
+        expect(sockets).toHaveLength(2);
+        expect(connected()).toBe(false);
+        // Open but not hydrated is still offline.
+        act(() => open(sockets[1]));
+        expect(connected()).toBe(false);
+        fullState(sockets[1]);
+        expect(connected()).toBe(true);
+      } finally {
+        view.unmount();
+      }
+    });
+  } finally {
+    setApiShim(null);
+  }
 });

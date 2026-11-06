@@ -196,12 +196,10 @@ export interface AppState {
   focusedAgentId: string | null;
   connected: boolean;
   // Bumped on every full_state, i.e. every time the store is rehydrated from
-  // scratch. This, not `connected`, is the reliable "everything you were
-  // holding was just dropped" signal: ws.ts's onVisible() reconnects a frozen
-  // mobile socket directly (dead socket, ping throw, pong timeout) without
-  // ever calling connHandler(false), so `connected` can stay true straight
-  // through a reconnect. Views that cache server data outside the replay set
-  // key their refetch on this (CronjobRunView).
+  // scratch. This, not `connected`, is the "everything you were holding was
+  // just dropped" signal: it names the full_state itself, while `connected`
+  // also goes true and false around it. Views that cache server data outside
+  // the replay set key their refetch on this (CronjobRunView).
   hydrationEpoch: number;
   isMobile: boolean;
   needsAttention: Set<string>; // agentIds with unread state changes
@@ -1121,7 +1119,9 @@ export function reducer(state: AppState, action: Action): AppState {
     case "connected":
       return { ...state, connected: true };
     case "disconnected":
-      return { ...state, connected: false };
+      // The onclose backoff reports again when its connect() replaces the
+      // closed socket.
+      return state.connected ? { ...state, connected: false } : state;
     case "sessions_list": {
       const sessionsList = new Map(state.sessionsList);
       sessionsList.set(action.agentId, {

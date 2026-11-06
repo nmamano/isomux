@@ -116,10 +116,8 @@ export function CronjobRunView({
   // whatever we fetched, so the effect waits for it rather than spending a
   // request twice.
   //
-  // The epoch rather than `connected`: ws.ts's onVisible() reconnects a frozen
-  // mobile socket without ever flipping connected false (dead socket, ping
-  // throw, pong timeout), so a false->true edge is not something every
-  // reconnect produces. full_state always arrives.
+  // The epoch rather than `connected`: the epoch bumps at the full_state
+  // itself, the event that drops the cached runs.
   //
   // cronjobsStateSeq joins the deps for the same reason: a cronjob delete or
   // re-projection drops cached run transcripts it cannot tie to a readable job

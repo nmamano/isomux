@@ -100,7 +100,6 @@ function startHeartbeat() {
 
 function forceReconnect() {
   if (!handler) return;
-  connHandler?.(false);
   // Don't wait for onclose: the failure mode we're handling is precisely that
   // onclose may be delayed or never fire (TCP zombie, browser-blocked close
   // handshake). connect() bumps socketGen and tears the old socket down
@@ -166,6 +165,10 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   clearPongTimer();
   const myGen = ++socketGen;
   if (socket) {
+    // Every replacement reports the link down, whatever started it (onclose
+    // backoff, heartbeat, checkLink, CONNECTING timeout). The store stays
+    // offline until the new socket's full_state, so the banner shows.
+    connHandler?.(false);
     try {
       socket.close();
     } catch {}

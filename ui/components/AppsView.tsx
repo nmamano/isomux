@@ -937,10 +937,9 @@ export function AppsView({
 
   // Fetch on mount and on every rehydration, then poll while open.
   //
-  // hydrationEpoch, NOT `connected`: ws.ts reconnects a frozen mobile socket
-  // without the connected flag ever going false, so an effect keyed on that
-  // edge would silently never re-run and this list would sit on whatever it
-  // held before the gap.
+  // hydrationEpoch, NOT `connected`: the epoch bumps once at each full_state,
+  // the store's one sure "rebuilt from scratch" signal, and the deltas this
+  // list missed in the gap come back only through a fetch.
   //
   // `cancelled` is a LOCAL of each effect run, not a ref, and that is the whole
   // point. A shared ref cannot name a lifecycle: on a rehydrate the outgoing
