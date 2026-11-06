@@ -1853,6 +1853,8 @@ async function checkOpenCodeAgentModels(): Promise<void> {
       cwd,
       includeHidden: true,
       userId,
+      // No member waits on the check: a server it starts stops at its end.
+      stopIfStarted: true,
     });
     if (!listed.ok) throw new Error(listed.error);
     return listed.models;
@@ -1879,6 +1881,7 @@ async function listBackendModels(input: {
   includeHidden: boolean;
   userId: string | null;
   signal?: AbortSignal;
+  stopIfStarted?: boolean;
 }): Promise<
   | { ok: true; models: BackendModelWire[] }
   | { ok: false; error: string; authError: boolean }
@@ -1906,6 +1909,7 @@ async function listBackendModels(input: {
         : {}),
       includeHidden: input.includeHidden,
       signal: input.signal,
+      stopIfStarted: input.stopIfStarted,
     });
     const wire: BackendModelWire[] = models.map((m) => ({
       id: m.id,

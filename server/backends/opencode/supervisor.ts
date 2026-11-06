@@ -53,6 +53,12 @@ interface ServerRecord {
   isolated?: boolean;
 }
 
+// One server process: a start or a replacement gets a new identity, an
+// adoption keeps it.
+function recordIdentity(record: ServerRecord): string {
+  return `${record.pid}:${record.startTicks ?? ""}`;
+}
+
 // The revision a server record carries: the session environment's, with the
 // wrap form folded in, so turning isolation on or off replaces an idle
 // server (adopted ones too) as a changed environment does.
@@ -180,6 +186,10 @@ export interface OpenCodeLease {
   // turn, or release(), a pending replacement does not stop this server.
   settle(): void;
   release(): void;
+  // release(), and when this acquire started the server and no lease, turn
+  // or hold is left on it, stop it now instead of after the idle wait: for
+  // work no member waits on (the model check).
+  releaseAndStopIfStarted(): void;
   beginTurn(): Promise<void>;
   recoverBeforePrompt(): Promise<void>;
   endTurn(): void;
@@ -234,6 +244,9 @@ export class OpenCodeSupervisor {
     ReadonlySet<string>
   >();
   private unresponsive: { pid: number; afterPrompt: boolean } | null = null;
+  // The leases the current server process has had, keyed by its identity:
+  // each acquire reads the record again, so the object changes.
+  private serverLeaseCount: { key: string; count: number } | null = null;
   // A member's reload waits for the replacement, like a stale record.
   private reloadRequested = false;
   readonly profileDir: string;
@@ -314,6 +327,10 @@ export class OpenCodeSupervisor {
       throw error;
     }
     this.leases++;
+    const serverIdentity = recordIdentity(this.record!);
+    if (this.serverLeaseCount?.key !== serverIdentity)
+      this.serverLeaseCount = { key: serverIdentity, count: 0 };
+    this.serverLeaseCount.count++;
     let released = false;
     let turnActive = false;
     const initialRecord = this.record!;
@@ -325,7 +342,7 @@ export class OpenCodeSupervisor {
       const dir = openCodeUserConfigDir(this.launchEnv);
       return existsSync(dir) ? dir : null;
     };
-    return {
+    const lease: OpenCodeLease = {
       get baseUrl() {
         return `http://127.0.0.1:${currentRecord().port}`;
       },
@@ -362,6 +379,25 @@ export class OpenCodeSupervisor {
         released = true;
         this.leases--;
         this.armIdleReap();
+      },
+      releaseAndStopIfStarted: () => {
+        if (released) return;
+        lease.release();
+        // Only this lease ever used the server, and nothing is on it now.
+        const record = this.record;
+        if (
+          !record ||
+          recordIdentity(record) !== serverIdentity ||
+          this.serverLeaseCount?.key !== serverIdentity ||
+          this.serverLeaseCount.count !== 1 ||
+          this.leases > 0 ||
+          this.activeTurns > 0 ||
+          this.holds > 0
+        )
+          return;
+        this.shutdown().catch(() => {
+          console.error("[opencode] Server stop after a listing failed.");
+        });
       },
       beginTurn: async () => {
         if (released || turnActive) return;
@@ -416,6 +452,7 @@ export class OpenCodeSupervisor {
         };
       },
     };
+    return lease;
   }
 
   // True when the revision changed: a running server is then stale.

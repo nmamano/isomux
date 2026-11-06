@@ -341,15 +341,19 @@ async function loadCatalog(
   }
 }
 
+// stopIfStarted: a server this listing starts stops when it ends, instead of
+// after the idle wait (OpenCodeLease.releaseAndStopIfStarted).
 export async function discoverOpenCodeModels(
   supervisor: OpenCodeSupervisor,
   cwd: string,
+  options: { stopIfStarted?: boolean } = {},
 ): Promise<DiscoveredOpenCodeModel[]> {
   const lease = await supervisor.acquire();
   try {
     return await keptCatalog(supervisor, lease, cwd);
   } finally {
-    lease.release();
+    if (options.stopIfStarted) lease.releaseAndStopIfStarted();
+    else lease.release();
   }
 }
 

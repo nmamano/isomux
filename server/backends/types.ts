@@ -622,6 +622,9 @@ export interface ListModelsOptions {
   // OpenCode: see SessionEnvironmentOptions.
   skillPaths?: string[];
   includeHidden?: boolean;
+  // OpenCode: a server this listing starts stops when it ends, instead of
+  // after the idle wait. For a listing no member waits on (the model check).
+  stopIfStarted?: boolean;
   // Abort stops the request and the process behind it; listModels rejects.
   signal?: AbortSignal;
 }

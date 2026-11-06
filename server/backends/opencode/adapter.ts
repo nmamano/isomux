@@ -662,7 +662,9 @@ export function createOpenCodeBackend(
     },
     async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
       const supervisor = supervisorFor(opts);
-      const models = await discoverOpenCodeModels(supervisor, opts.cwd);
+      const models = await discoverOpenCodeModels(supervisor, opts.cwd, {
+        stopIfStarted: opts.stopIfStarted,
+      });
       return models.map(({ contextLimit: _contextLimit, ...entry }) => ({
         ...entry,
       }));

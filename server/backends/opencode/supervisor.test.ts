@@ -54,6 +54,7 @@ import {
   type OpenCodeErrorContext,
 } from "./transport.ts";
 import { scrubCredentials } from "../provider-text.ts";
+import { createOpenCodeBackend } from "./adapter.ts";
 import type { NormalizedEvent } from "../types.ts";
 import type { OpenCodeServerHealth } from "./server-health.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
@@ -4401,5 +4402,140 @@ describe("the startup output of an OpenCode server start", () => {
     expect(adopted.pid, "the second supervisor adopted").toBe(initial.pid);
     expect(await readdir(outputs)).toEqual(["4000-9"]);
     adopted.release();
+  }, 20_000);
+});
+
+// Task 256e3cee: a listing no member waits on (the daily model check) stops
+// a server it started as soon as it ends, not after the idle wait. A server
+// that any other acquire used keeps the idle wait, so a member's next turn
+// finds it running.
+describe("a listing that stops the server it started", () => {
+  async function coldSupervisor() {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const idle = manualIdleScheduler();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: { share: "disabled" },
+      idleShutdownMs: 60_000,
+      binary,
+      idleScheduler: idle.scheduler,
+      launchEnv: { OPENCODE_CONFIG_DIR: join(path, "member-opencode") },
+    });
+    supervisors.push(supervisor);
+    // The pid of each server start, in order.
+    const launched = async (): Promise<number[]> =>
+      existsSync(launchMarker)
+        ? (await readFile(launchMarker, "utf8"))
+            .split("\n")
+            .filter(Boolean)
+            .map(Number)
+        : [];
+    return { path, supervisor, idle, launched };
+  }
+
+  async function stopsWithin(pid: number, ms: number): Promise<boolean> {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      if (!alive(pid)) return true;
+      await Bun.sleep(20);
+    }
+    return !alive(pid);
+  }
+
+  it("stops the server a flagged listing started, and only a flagged one", async () => {
+    const { path, supervisor, idle, launched } = await coldSupervisor();
+    const backend = createOpenCodeBackend({ supervisor });
+    const checked = await backend.listModels({
+      cwd: path,
+      stopIfStarted: true,
+    });
+    expect(checked.map((model) => model.id)).toEqual(["fake/m"]);
+    const [checkPid] = await launched();
+    expect(checkPid).toBeGreaterThan(0);
+    // The idle wait never fires here: only the listing can stop it.
+    expect(
+      await stopsWithin(checkPid, 5000),
+      "the server outlived the listing that started it",
+    ).toBe(true);
+
+    // The model picker's listing: the server waits for the member's turn.
+    const picked = await backend.listModels({ cwd: path });
+    expect(picked.map((model) => model.id)).toEqual(["fake/m"]);
+    const starts = await launched();
+    expect(starts).toHaveLength(2);
+    expect(idle.isScheduled()).toBe(true);
+    const turn = await supervisor.acquire();
+    expect(turn.pid, "the picker's server was stopped").toBe(starts[1]);
+    expect(await launched()).toHaveLength(2);
+    turn.release();
+  }, 20_000);
+
+  it("gives an acquire right after the stop a new, healthy server", async () => {
+    const { supervisor, launched } = await coldSupervisor();
+    const check = await supervisor.acquire();
+    const checkPid = check.pid;
+    check.releaseAndStopIfStarted();
+    const next = await within(supervisor.acquire(), 10_000);
+    if (typeof next === "string") throw new Error(`acquire ${next}`);
+    expect(next.pid, "the listing did not stop its server").not.toBe(checkPid);
+    expect(await launched()).toEqual([checkPid, next.pid]);
+    expect(alive(next.pid)).toBe(true);
+    const response = await fetch(`${next.baseUrl}/api/info`, {
+      headers: { authorization: next.authHeader },
+    });
+    expect(response.ok).toBe(true);
+    next.release();
+  }, 20_000);
+
+  it("leaves a server that was up before the listing on its idle wait", async () => {
+    const { supervisor, idle, launched } = await coldSupervisor();
+    const member = await supervisor.acquire();
+    const pid = member.pid;
+    member.release();
+    expect(idle.isScheduled()).toBe(true);
+    const check = await supervisor.acquire();
+    check.releaseAndStopIfStarted();
+    expect(idle.isScheduled(), "the idle wait was cancelled").toBe(true);
+    const next = await supervisor.acquire();
+    expect(next.pid).toBe(pid);
+    expect(await launched()).toEqual([pid]);
+    next.release();
+  }, 20_000);
+
+  // Both acquires start in the same tick on a cold supervisor, so neither
+  // can tell from the supervisor's state at its call who will start it.
+  for (const checkFirst of [true, false])
+    it(`keeps a server another acquire joined at its start (${checkFirst ? "the listing" : "the other acquire"} first)`, async () => {
+      const { supervisor, launched } = await coldSupervisor();
+      const [first, second] = await Promise.all([
+        supervisor.acquire(),
+        supervisor.acquire(),
+      ]);
+      const [check, member] = checkFirst ? [first, second] : [second, first];
+      const pid = check.pid;
+      expect(member.pid).toBe(pid);
+      expect(await launched()).toEqual([pid]);
+      member.release();
+      check.releaseAndStopIfStarted();
+      const next = await supervisor.acquire();
+      expect(next.pid, "the listing stopped a server a member used").toBe(pid);
+      expect(await launched()).toEqual([pid]);
+      next.release();
+    }, 20_000);
+
+  it("keeps the server for an acquire that is still on its way", async () => {
+    const { supervisor, launched } = await coldSupervisor();
+    const check = await supervisor.acquire();
+    const pid = check.pid;
+    const joining = supervisor.acquire();
+    check.releaseAndStopIfStarted();
+    const member = await joining;
+    expect(member.pid, "the listing stopped the server under an acquire").toBe(
+      pid,
+    );
+    expect(await launched()).toEqual([pid]);
+    member.release();
   }, 20_000);
 });

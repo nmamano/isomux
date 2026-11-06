@@ -189,7 +189,8 @@ calls.
 
 A member's server restarts when Isomux stops normally (an unclean stop leaves
 it running, and the next boot adopts it), 10 minutes after its last session
-lease is released, when the member's environment revision changes, or at the
+lease is released (at once after a model check listing that was its only
+lease, task 256e3cee), when the member's environment revision changes, or at the
 member's `/reload-plugins`. A new conversation does not restart it, and Isomux
 never disposes a folder instance under other agents (Lead, 2026-10-15).
 OpenCode also watches the config files and plugin modules it loaded and reloads
@@ -639,7 +640,9 @@ flags an agent whose provider is listed without its model (`AgentInfo.goneModel`
 in memory only; a model change clears it). A failed turn on a gone model flags
 it too. The header shows a mark that opens the agent settings. A new gone
 model on the lobby agent, which faces visitors, pages its manager. Nothing
-switches the model (task 73951c9f).
+switches the model (task 73951c9f). A server the check starts stops when its
+listing ends, so the check does not hold one for 10 minutes after each boot
+(task 256e3cee).
 
 `opencode/fake` remains only in the deterministic tracer. New production
 agents require an explicit discovered model. A legacy tracer record remains
