@@ -2483,6 +2483,8 @@ Cosas que puedes hacer por él:
   "cards.secretRequest.variableHint":
     "El valor no entra en el chat. Los agentes reciben la variable en su próximo inicio.",
   "cards.secretRequest.discordBotTitle": "Solicitud de bot de Discord",
+  "cards.secretRequest.discordBotAppSteps":
+    "El agente creó el bot. En su <link>página Bot</link>, haz clic en Reset Token y luego en Copy, y pega aquí el token.",
   "cards.secretRequest.discordBotHint":
     "El token no entra en el chat. El agente recibe el bot, no el token.",
   "cards.secretRequest.mcpServerTitle": "Solicitud de servidor MCP: {name}",

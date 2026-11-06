@@ -27,7 +27,9 @@ import { looksLikeKey } from "../integrations/VariablesSection.tsx";
 import { useMcpErrorText } from "../integrations/McpSection.tsx";
 import {
   DISCORD_CONNECT_ERROR,
+  DiscordAppSteps,
   DiscordSteps,
+  InviteLink,
 } from "../integrations/DiscordSection.tsx";
 import { DISCORD_BOTS_MAX } from "../../shared/discord.ts";
 import { Choice } from "../integrations/kit.tsx";
@@ -360,7 +362,11 @@ export function SecretAskCard({
       ) : secret.kind === "discord-bot" ? (
         <>
           <p style={hintStyle}>
-            <DiscordSteps />
+            {secret.applicationId ? (
+              <DiscordAppSteps applicationId={secret.applicationId} />
+            ) : (
+              <DiscordSteps />
+            )}
           </p>
           <label style={{ display: "block", marginBottom: 8 }}>
             <span style={dialogLabel}>{t("integrations.discord.token")}</span>
@@ -371,6 +377,12 @@ export function SecretAskCard({
             />
           </label>
           <p style={hintStyle}>{t("cards.secretRequest.discordBotHint")}</p>
+          {secret.applicationId && (
+            // The member can add the bot before the save closes the card.
+            <div style={{ margin: "0 0 8px" }}>
+              <InviteLink botId={secret.applicationId} />
+            </div>
+          )}
         </>
       ) : secret.kind === "mcp-server" ? (
         <>

@@ -1163,6 +1163,9 @@ export interface McpServerValueRequest
 export interface DiscordBotValueRequest
   extends ValueAskRequestBase, OlderLoaderFields {
   kind: "discord-bot";
+  // The application the agent made in the member's browser (task f242899f):
+  // the card links its Bot page and its invite.
+  applicationId?: string;
 }
 
 export type SecretAskRequest =

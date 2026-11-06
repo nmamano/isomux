@@ -2413,6 +2413,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "cards.secretRequest.variableHint":
     "The value stays out of the chat. Agents get the variable at their next start.",
   "cards.secretRequest.discordBotTitle": "Discord bot request",
+  "cards.secretRequest.discordBotAppSteps":
+    "The agent made the bot. On its <link>Bot page</link>, click Reset Token, then Copy, and paste the token here.",
   "cards.secretRequest.discordBotHint":
     "The token stays out of the chat. The agent gets the bot, not the token.",
   "cards.secretRequest.mcpServerTitle": "MCP server request: {name}",

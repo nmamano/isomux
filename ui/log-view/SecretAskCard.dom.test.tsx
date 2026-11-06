@@ -17,6 +17,7 @@ const { setShim, connect } = await import("../ws.ts");
 const { AsksStack } = await import("./AsksStack.tsx");
 const { takeSignIn } = await import("../integrations/sign-in-return.ts");
 const { translatorFor } = await import("../../shared/i18n/translate.ts");
+const { discordInviteUrl } = await import("../../shared/discord.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type SecretValueRequest = import("../../shared/types.ts").SecretValueRequest;
 
@@ -680,6 +681,75 @@ it("a Discord bot request: one masked token field, no hosts, and the save sends 
 it("a Discord bot request's steps hint links the Discord Developer Portal, in a new tab", async () => {
   const view = await mount(false, DISCORD_ASK);
   expectPortalLink(card(view)!);
+  view.unmount();
+});
+
+// The agent made the application in the member's browser (task f242899f):
+// the card links that application's Bot page, where the member resets and
+// copies the token, and its invite, above Save. Protocol values: Discord's
+// URLs for the application.
+const APP_ID = "1100000000000000002";
+const BOT_PAGE = `https://discord.com/developers/applications/${APP_ID}/bot`;
+const anchors = (root: Element, href: string) =>
+  [...root.querySelectorAll("a")].filter(
+    (a) => a.getAttribute("href") === href,
+  );
+const newTab = (a: Element) => ({
+  target: a.getAttribute("target"),
+  noreferrer: (a.getAttribute("rel") ?? "").split(/\s+/).includes("noreferrer"),
+  text: (a.textContent ?? "").trim().length > 0,
+});
+
+it("a Discord bot request with the agent's application links its Bot page and its invite above Save, in new tabs, without the create steps; the save sends the token alone", async () => {
+  answer = async () => ({ name: "Discord bot" });
+  const view = await mount(false, {
+    ...DISCORD_ASK,
+    secret: { ...DISCORD_ASK.secret!, applicationId: APP_ID } as NonNullable<
+      AskEntry["secret"]
+    >,
+  });
+  const root = card(view)!;
+  const botPage = anchors(root, BOT_PAGE);
+  const invite = anchors(root, discordInviteUrl(APP_ID));
+  expect({
+    botPage: botPage.map(newTab),
+    invite: invite.map(newTab),
+    portal: anchors(root, "https://discord.com/developers/applications").length,
+  }).toEqual({
+    botPage: [{ target: "_blank", noreferrer: true, text: true }],
+    invite: [{ target: "_blank", noreferrer: true, text: true }],
+    portal: 0,
+  });
+  // The invite comes before Save: the member can add the bot first.
+  expect(
+    invite[0].compareDocumentPosition(saveButton(view)) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expectMasked(valueInput(view));
+  fireEvent.change(valueInput(view)!, { target: { value: FAKE } });
+  await act(async () => {
+    fireEvent.click(saveButton(view));
+  });
+  expect(posts).toEqual([
+    {
+      path: "/api/agents/a%201/secret-requests/req-1/save",
+      body: { value: FAKE },
+    },
+  ]);
+  view.unmount();
+});
+
+it("a Discord bot request without an application keeps the create steps, with no Bot page and no invite", async () => {
+  const view = await mount(false, DISCORD_ASK);
+  const root = card(view)!;
+  expectPortalLink(root);
+  expect(
+    [...root.querySelectorAll("a")].filter((a) =>
+      /\/oauth2\/authorize|\/developers\/applications\/\d/.test(
+        a.getAttribute("href") ?? "",
+      ),
+    ).length,
+  ).toBe(0);
   view.unmount();
 });
 

@@ -2488,6 +2488,8 @@ Coses que pots fer per ell:
   "cards.secretRequest.variableHint":
     "El valor no entra al xat. Els agents reben la variable al pròxim inici.",
   "cards.secretRequest.discordBotTitle": "Sol·licitud de bot de Discord",
+  "cards.secretRequest.discordBotAppSteps":
+    "L'agent ha creat el bot. A la seva <link>pàgina Bot</link>, fes clic a Reset Token i després a Copy, i enganxa aquí el token.",
   "cards.secretRequest.discordBotHint":
     "El token no entra al xat. L'agent rep el bot, no el token.",
   "cards.secretRequest.mcpServerTitle": "Sol·licitud de servidor MCP: {name}",

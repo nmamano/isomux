@@ -250,6 +250,50 @@ describe("the three shapes", () => {
       },
       false,
     ],
+    // A Discord bot request's application id (task f242899f): a string
+    // loads, the snowflake check is on write only, as a link's is.
+    [
+      "Discord bot request with an application id",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: {
+          ...SECRET,
+          scope: "personal",
+          kind: "discord-bot",
+          applicationId: "1100000000000000001",
+        },
+      },
+      true,
+    ],
+    [
+      "Discord bot request whose application id this release would refuse",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: {
+          ...SECRET,
+          scope: "personal",
+          kind: "discord-bot",
+          applicationId: "not-a-snowflake",
+        },
+      },
+      true,
+    ],
+    [
+      "Discord bot request whose application id is not a string",
+      {
+        ...BASE,
+        memberUserId: "u1",
+        secret: {
+          ...SECRET,
+          scope: "personal",
+          kind: "discord-bot",
+          applicationId: 2 ** 60,
+        },
+      },
+      false,
+    ],
     // Options too are bounded on write only.
     [
       "eleven options",

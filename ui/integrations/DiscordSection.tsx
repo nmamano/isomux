@@ -57,7 +57,11 @@ import {
   hintText,
   input,
 } from "./kit.tsx";
-import { armedConfirmLook } from "../components/dialog-styles.ts";
+import {
+  armedConfirmLook,
+  secondaryBorder,
+  secondaryFill,
+} from "../components/dialog-styles.ts";
 
 const REASON: Record<DiscordBotReason, PlainMessageKey> = {
   token_invalid: "integrations.discord.reason.tokenInvalid",
@@ -108,6 +112,24 @@ export function DiscordSteps() {
   });
 }
 
+// The steps when the agent made the application in the member's browser
+// (task f242899f): the member resets and copies the token on its Bot page.
+export function DiscordAppSteps({ applicationId }: { applicationId: string }) {
+  const { rich } = useI18n();
+  return rich("cards.secretRequest.discordBotAppSteps", {
+    link: (chunk) => (
+      <a
+        href={`${DISCORD_PORTAL_URL}/${applicationId}/bot`}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: "var(--accent-text)" }}
+      >
+        {chunk}
+      </a>
+    ),
+  });
+}
+
 const DEAD: Record<WhatsAppRouteDead, PlainMessageKey> = {
   agent_gone: "integrations.whatsapp.rows.dead.agentGone",
   agent_not_yours: "integrations.whatsapp.rows.dead.agentNotYours",
@@ -146,7 +168,8 @@ const linkButton = {
   color: "var(--accent-text)",
   textDecoration: "none",
   padding: "3px 8px",
-  border: "1px solid var(--border)",
+  border: secondaryBorder,
+  background: secondaryFill,
   borderRadius: 6,
   whiteSpace: "nowrap",
 } as const;
@@ -155,7 +178,7 @@ const linkButton = {
 // answer, null when the bot is not connected yet (404).
 type GuildsByBot = Record<string, DiscordGuildSeen[] | null | undefined>;
 
-function InviteLink({ botId }: { botId: string }) {
+export function InviteLink({ botId }: { botId: string }) {
   const { t } = useI18n();
   return (
     <a

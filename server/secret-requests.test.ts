@@ -2100,6 +2100,88 @@ describe("a Discord bot request", () => {
     opened(t.requests.open("a1", DISCORD_ASK));
   });
 
+  // The application the agent made in the member's browser (task f242899f):
+  // the card links its Bot page and its invite.
+  it("keeps the application id the agent sends, on the ask, on disk and through a restart; a request without one has none", () => {
+    const t = setup({ a1: "u-alice", b1: "u-bob" });
+    const ID = "1100000000000000002";
+    const withId = opened(
+      t.requests.open("a1", { ...DISCORD_ASK, applicationId: ID }),
+    );
+    const without = opened(t.requests.open("b1", DISCORD_ASK));
+    const ids = (entries: AskEntry[]) =>
+      entries.map((e) => [
+        e.secret?.requestId,
+        e.secret?.kind === "discord-bot"
+          ? e.secret.applicationId
+          : "wrong kind",
+        e.secret !== undefined && "applicationId" in e.secret,
+      ]);
+    const expected = [
+      [withId, ID, true],
+      [without, undefined, false],
+    ];
+    expect(ids(t.asks.listAll())).toEqual(expected);
+    expect(ids(JSON.parse(readFileSync(t.asksPath, "utf-8")))).toEqual(
+      expected,
+    );
+    expect(ids(t.boot().asks.listAll())).toEqual(expected);
+  });
+
+  it("refuses an application id that is not a Discord id, and an application id on any other kind, and opens nothing", () => {
+    const t = setup({ a1: "u-alice", b1: "u-bob" });
+    for (const applicationId of [
+      2 ** 60, // a number, not a string
+      "",
+      "1234567890123456", // 16 digits
+      "123456789012345678901", // 21 digits
+      "11000000000000000x2",
+      " 1100000000000000002",
+      "1100000000000000002\n",
+      "-110000000000000002",
+      null,
+    ])
+      expect({
+        applicationId,
+        result: failure(
+          t.requests.open("a1", { ...DISCORD_ASK, applicationId }),
+        ),
+      }).toEqual({ applicationId, result: "400 invalid_request" });
+    for (const [kind, body] of [
+      ["secret", ASK],
+      [
+        "variable",
+        { kind: "variable", name: "OPENAI_API_KEY", reason: "For OpenCode." },
+      ],
+      [
+        "mcp-server",
+        {
+          kind: "mcp-server",
+          name: "docs",
+          url: "https://mcp.example.com/mcp",
+          reason: "To read the docs server.",
+        },
+      ],
+    ] as const)
+      expect({
+        kind,
+        result: failure(
+          t.requests.open("a1", {
+            ...body,
+            applicationId: "1100000000000000002",
+          }),
+        ),
+      }).toEqual({ kind, result: "400 invalid_request" });
+    expect(t.asks.listAll()).toEqual([]);
+    // The bounds: 17 and 20 digits open.
+    opened(
+      t.requests.open("a1", { ...DISCORD_ASK, applicationId: "1".repeat(17) }),
+    );
+    opened(
+      t.requests.open("b1", { ...DISCORD_ASK, applicationId: "1".repeat(20) }),
+    );
+  });
+
   it("survives a restart: the next boot's save connects the bot", async () => {
     const t = setup();
     const requestId = opened(t.requests.open("a1", DISCORD_ASK));

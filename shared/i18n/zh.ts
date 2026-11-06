@@ -2215,6 +2215,8 @@ App 的一些原则：
   "cards.secretRequest.variableHint":
     "值不会进入聊天。智能体在下次启动时获得该变量。",
   "cards.secretRequest.discordBotTitle": "Discord 机器人请求",
+  "cards.secretRequest.discordBotAppSteps":
+    "智能体已创建机器人。在它的<link>Bot 页面</link>上点击 Reset Token，再点击 Copy，然后把令牌粘贴到这里。",
   "cards.secretRequest.discordBotHint":
     "令牌不会进入聊天。智能体拿到的是机器人，不是令牌。",
   "cards.secretRequest.mcpServerTitle": "MCP 服务器请求：{name}",

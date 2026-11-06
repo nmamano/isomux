@@ -245,11 +245,16 @@ const OPEN_KEYS = {
     "link",
   ],
   // The manager's own bot: only the manager answers (task c92d60f4).
-  "discord-bot": ["kind", "reason", "link"],
+  // applicationId: the application the agent made in the member's browser
+  // (task f242899f).
+  "discord-bot": ["kind", "reason", "link", "applicationId"],
 } as const satisfies Record<string, readonly string[]>;
 
 // A Discord bot request's fixed name: one open request per member.
 const DISCORD_BOT_NAME = "Discord bot";
+
+// A Discord id (a snowflake): 17 to 20 digits.
+const DISCORD_ID = /^\d{17,20}$/;
 
 // What an older server's load check requires of every request, on the kinds
 // it does not know (shared/types.ts).
@@ -704,10 +709,17 @@ export function createSecretRequests(deps: SecretRequestDeps) {
       if (deps.variableExists(scope, name)) return variableExists;
       secret = { ...base, kind, name, ...OLDER_LOADER_FIELDS };
     } else if (kind === "discord-bot") {
+      const applicationId = body.applicationId;
+      if (
+        applicationId !== undefined &&
+        (typeof applicationId !== "string" || !DISCORD_ID.test(applicationId))
+      )
+        return invalidRequest("applicationId must be a Discord id");
       secret = {
         ...base,
         kind,
         name: DISCORD_BOT_NAME,
+        ...(applicationId !== undefined ? { applicationId } : {}),
         ...OLDER_LOADER_FIELDS,
       };
     } else {
