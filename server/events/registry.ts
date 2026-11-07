@@ -262,8 +262,6 @@ export interface EventPayloads {
     name: string | null;
     prompt: string | null;
   };
-  // The Enterprise Contract lock (server/enterprise-seats.ts) changed.
-  office_enterprise_lock: { locked: boolean };
   // The lobby elevator's floors after an add or a remove.
   floors_updated: { floors: Floor[] };
   update_status: UpdateStatusWire;
@@ -529,7 +527,6 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   office_settings_updated: { audience: "all", projectionKey: { kind: "all" } },
-  office_enterprise_lock: { audience: "all", projectionKey: { kind: "all" } },
   floors_updated: { audience: "all", projectionKey: { kind: "all" } },
   update_status: { audience: "all", projectionKey: { kind: "all" } },
 

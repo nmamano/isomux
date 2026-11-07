@@ -1,7 +1,7 @@
-// The Enterprise Contract section of Settings -> Office (task 8b80e61f): the
-// box, the secret input and the seat service's answer. Owner-only; the lock
-// overlay (EnterpriseLock.tsx) embeds it too. The server decides the lock and
-// keeps the secret: this section never reads it back.
+// Settings -> Enterprise (task 8b80e61f; its own group since task f1304a60):
+// the Enterprise Contract box, the secret input and the seat service's
+// answer. Owner-only. The server decides the lock and keeps the secret: this
+// section never reads it back.
 import { useEffect, useState, type FormEvent } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
@@ -11,9 +11,10 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
+import { sectionHeader } from "./access-shared.tsx";
+import { ENTERPRISE_HELP_EMAIL } from "../send-failure.ts";
 
 const DETAILS_URL = "https://isomux.com/enterprise";
-const HELP_EMAIL = "llc@isomux.com";
 
 const PROBLEM_KEYS = {
   bad_secret: "settings.office.enterprise.problemBadSecret",
@@ -30,12 +31,43 @@ const ERROR_KEYS = {
   enterprise_rate_limited: "settings.office.enterprise.errorRateLimited",
 } as const satisfies Record<string, MessageKey>;
 
-export function EnterpriseContractSection({
-  inLock = false,
-}: {
-  // Inside the lock overlay, which shows the locked line itself.
-  inLock?: boolean;
-} = {}) {
+// Whether Settings shows the Enterprise group: for an owner, where the box is
+// available (never on Hosted). A failed read shows it, so the section's retry
+// is reachable.
+export function useEnterpriseAvailable(isOwner: boolean): boolean {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    if (!isOwner) {
+      setAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    apiFetch<EnterpriseViewRes>("GET", "/api/office/enterprise").then(
+      (view) => {
+        if (!cancelled) setAvailable(view.available);
+      },
+      () => {
+        if (!cancelled) setAvailable(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [isOwner]);
+  return available;
+}
+
+export function EnterprisePane() {
+  const { t } = useI18n();
+  return (
+    <div style={{ marginTop: 24 }}>
+      <h4 style={sectionHeader}>{t("settings.sidebar.enterpriseContract")}</h4>
+      <EnterpriseContractSection />
+    </div>
+  );
+}
+
+export function EnterpriseContractSection() {
   const { t, tn, rich } = useI18n();
   const [view, setView] = useState<EnterpriseViewRes | null>(null);
   // A failed read shows an alert with a retry: inside the lock, an empty
@@ -176,7 +208,7 @@ export function EnterpriseContractSection({
 
       {view.enabled && (
         <div style={{ marginTop: 10, paddingLeft: 22 }}>
-          {view.locked && !inLock && (
+          {view.locked && (
             <p style={{ ...lineStyle, color: "var(--text-primary)" }}>
               {t("settings.office.enterprise.locked")}
             </p>
@@ -243,7 +275,9 @@ export function EnterpriseContractSection({
             </p>
           )}
           <p style={{ ...hintStyle, marginTop: 8 }}>
-            {t("settings.office.enterprise.help", { email: HELP_EMAIL })}
+            {t("settings.office.enterprise.help", {
+              email: ENTERPRISE_HELP_EMAIL,
+            })}
           </p>
         </div>
       )}

@@ -11,6 +11,8 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { mintMemberLink } from "./member-link.ts";
 import { _testMintLegacyInvite } from "../auth.ts";
 import { getUserByName, listUsers } from "../users.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { FakeBackend } from "./fake-backend.ts";
 import type { EnterpriseViewRes } from "../../shared/contract-shapes.ts";
 
 interface SeatCall {
@@ -75,12 +77,13 @@ const startServerOpts: {
   installKind?: "hosted" | "self-hosted";
 } = {};
 
-async function boot(timeoutMs = 300) {
+async function boot(timeoutMs = 300, fakeBackend?: FakeBackend) {
   service = fakeSeatService();
   startServerOpts.enterpriseSeats = { url: service.url, timeoutMs };
   startServerOpts.installKind = "self-hosted";
   const srv = (server = await startTestServer({
     startServer: startServerOpts,
+    fakeBackend,
   }));
   const owner = await srv.seedOwner("Morgan");
   const mia = await srv.seedMember("Mia");
@@ -173,24 +176,25 @@ function filesHolding(root: string, needle: string): string[] {
     });
 }
 
-const lockEvents = (messages: unknown[]) =>
-  (messages as { type: string; locked?: boolean }[])
-    .filter((m) => m.type === "office_enterprise_lock")
-    .map((m) => m.locked);
+// The lock is the server's refusal of messages to agents (task f1304a60):
+// the UI gets no lock state and no lock event.
+const officeOf = async (ws: Awaited<ReturnType<TestServer["connectWs"]>>) =>
+  ((await ws.waitFor("full_state")) as { office: Record<string, unknown> })
+    .office;
+const lockEventCount = (messages: unknown[]) =>
+  (messages as { type: string }[]).filter(
+    (m) => m.type === "office_enterprise_lock",
+  ).length;
 
 const HEX32 = /^[0-9a-f]{32}$/;
 
 describe("the Enterprise Contract box and its secret", () => {
-  it("locks the office for every member from the check until a secret is accepted", async () => {
+  it("is locked from the check until a secret is accepted, and sends the UI no lock state", async () => {
     const { srv, svc, owner, mia } = await boot();
     const miaWs = await srv.connectWs(mia.rawSessionId);
-    expect(
-      (
-        (await miaWs.waitFor("full_state")) as {
-          office: { enterpriseLocked?: boolean };
-        }
-      ).office.enterpriseLocked,
-    ).toBe(false);
+    expect(Object.keys(await officeOf(miaWs))).not.toContain(
+      "enterpriseLocked",
+    );
 
     const on = await setEnabled(srv, owner.rawSessionId, true);
     expect([on.status, viewOf(on)]).toEqual([
@@ -203,16 +207,10 @@ describe("the Enterprise Contract box and its secret", () => {
         problem: null,
       },
     ]);
-    await until(() => lockEvents(miaWs.messages).length === 1, "lock event");
-    expect(lockEvents(miaWs.messages)).toEqual([true]);
     const lateWs = await srv.connectWs(mia.rawSessionId);
-    expect(
-      (
-        (await lateWs.waitFor("full_state")) as {
-          office: { enterpriseLocked?: boolean };
-        }
-      ).office.enterpriseLocked,
-    ).toBe(true);
+    expect(Object.keys(await officeOf(lateWs))).not.toContain(
+      "enterpriseLocked",
+    );
 
     // No secret to ask with: the office adds nobody while locked.
     const add = await createMember(srv, owner.rawSessionId, "Owen");
@@ -243,8 +241,18 @@ describe("the Enterprise Contract box and its secret", () => {
       members: 2,
       add: false,
     });
-    await until(() => lockEvents(miaWs.messages).length === 2, "unlock event");
-    expect(lockEvents(miaWs.messages)).toEqual([true, false]);
+    // No lock event went out for the lock or the unlock: an add after them
+    // reaches Mia's socket, and nothing about the lock came before it.
+    const usersLists = () =>
+      (miaWs.messages as { type: string }[]).filter(
+        (m) => m.type === "users_list",
+      ).length;
+    const listsBefore = usersLists();
+    expect((await createMember(srv, owner.rawSessionId, "Owen")).status).toBe(
+      201,
+    );
+    await until(() => usersLists() > listsBefore, "users_list after the add");
+    expect(lockEventCount(miaWs.messages)).toBe(0);
 
     // Owner-only, and the secret never comes back.
     expect((await getView(srv, mia.rawSessionId)).status).toBe(403);
@@ -419,6 +427,229 @@ describe("the Enterprise Contract box and its secret", () => {
     const offDown = await setEnabled(srv, owner.rawSessionId, false);
     expect([offDown.status, viewOf(offDown).enabled]).toEqual([200, false]);
     expect(svc.calls.at(-1)?.body).toEqual({ office, members: 0, add: false });
+  });
+});
+
+// While locked, the office runs as usual, but nobody texts an agent
+// (task f1304a60; Nil at sign-off, 2026-11-07). The routes that take the
+// refusal are pinned in routes-table.test.ts; these cases drive it end to end.
+describe("while locked, nobody texts an agent", () => {
+  // Every turn ends at once, so each message reaches the backend.
+  const quickBackend = () =>
+    new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+    });
+
+  async function spawnAgent(
+    srv: TestServer,
+    name: string,
+    ownerName: string,
+    agentType: "claude" | "opencode" = "claude",
+  ) {
+    const [room] = srv.agentManager.getRooms();
+    const info = await srv.agentManager.spawn(
+      name,
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      room.id,
+      undefined,
+      agentType === "opencode" ? "gate/gate-model" : undefined,
+      undefined,
+      undefined,
+      agentType,
+      undefined,
+      getUserByName(ownerName)!.id,
+    );
+    if (!info) throw new Error(`spawn ${name} failed`);
+    return info;
+  }
+
+  async function post(
+    srv: TestServer,
+    path: string,
+    auth: { rawSessionId?: string; bearer?: string },
+    body: { json?: unknown; text?: string },
+  ): Promise<Res> {
+    const headers: Record<string, string> = {
+      "Content-Type":
+        body.text !== undefined ? "text/plain" : "application/json",
+    };
+    if (auth.bearer) headers.Authorization = `Bearer ${auth.bearer}`;
+    const res = await srv.http(path, {
+      method: "POST",
+      headers,
+      rawSessionId: auth.rawSessionId,
+      body: body.text ?? JSON.stringify(body.json),
+    });
+    let parsed: unknown = null;
+    try {
+      parsed = await res.json();
+    } catch {
+      parsed = null;
+    }
+    return { status: res.status, body: parsed };
+  }
+
+  const sentTo = (srv: TestServer, agentId: string) =>
+    srv.fakeBackend.sessions
+      .filter((s) => s.opts.agentId === agentId)
+      .flatMap((s) => s.sent.map((m) => m.text));
+
+  // The refusal: 409, the locked code, and a message for the sender.
+  const refused = (r: Res) => {
+    const e = errOf(r);
+    return [
+      r.status,
+      e.code,
+      typeof e.message === "string" && e.message.length > 0,
+    ];
+  };
+  const LOCKED = [409, "enterprise_secret_needed", true];
+
+  it("refuses a member's message, an agent's message and an ask reply, and takes them with the box off or a secret accepted", async () => {
+    const { srv, owner } = await boot(300, quickBackend());
+    const ada = await spawnAgent(srv, "Ada", owner.username);
+    const bob = await spawnAgent(srv, "Bob", owner.username);
+    const member = { rawSessionId: owner.rawSessionId };
+    const bobToken = { bearer: getAgentTokenRaw(bob.id)! };
+    const toAda = `/api/agents/${ada.id}/messages`;
+
+    expect(viewOf(await setEnabled(srv, owner.rawSessionId, true)).locked).toBe(
+      true,
+    );
+    expect(
+      refused(await post(srv, toAda, member, { json: { text: "m1" } })),
+    ).toEqual(LOCKED);
+    expect(
+      refused(await post(srv, toAda, bobToken, { json: { text: "b1" } })),
+    ).toEqual(LOCKED);
+    // An agent still opens an ask for its member; the member's reply is
+    // the message that is refused.
+    const opened = await post(
+      srv,
+      `/api/agents/${ada.id}/asks`,
+      { bearer: getAgentTokenRaw(ada.id)! },
+      { text: "Ship it?\n" },
+    );
+    expect(opened.status).toBe(201);
+    const askId = (opened.body as { id: string }).id;
+    const reply = (text: string) =>
+      post(srv, `/api/asks/${askId}/reply`, member, { json: { text } });
+    expect(refused(await reply("r1"))).toEqual(LOCKED);
+    await Bun.sleep(50);
+    expect(sentTo(srv, ada.id).filter((t) => /\b(m1|b1|r1)\b/.test(t))).toEqual(
+      [],
+    );
+
+    // Box off: messages go through.
+    expect(
+      viewOf(await setEnabled(srv, owner.rawSessionId, false)).locked,
+    ).toBe(false);
+    expect(
+      (await post(srv, toAda, member, { json: { text: "m2" } })).status,
+    ).toBe(200);
+    await until(() => sentTo(srv, ada.id).some((t) => t.includes("m2")), "m2");
+
+    // On again: locked again until the secret is accepted.
+    expect(viewOf(await setEnabled(srv, owner.rawSessionId, true)).locked).toBe(
+      true,
+    );
+    expect(
+      refused(await post(srv, toAda, member, { json: { text: "m3" } })),
+    ).toEqual(LOCKED);
+    const joined = await paste(srv, owner.rawSessionId, SECRET);
+    expect([joined.status, viewOf(joined).locked]).toEqual([200, false]);
+    expect(
+      (await post(srv, toAda, member, { json: { text: "m4" } })).status,
+    ).toBe(200);
+    expect(
+      (await post(srv, toAda, bobToken, { json: { text: "b4" } })).status,
+    ).toBe(200);
+    const replied = await reply("r4");
+    expect(replied.status).toBeLessThan(300);
+    await until(
+      () =>
+        ["m4", "b4", "r4"].every((w) =>
+          sentTo(srv, ada.id).some((t) => t.includes(w)),
+        ),
+      "m4, b4 and r4 at Ada",
+    );
+    expect(sentTo(srv, ada.id).some((t) => t.includes("m3"))).toBe(false);
+  });
+
+  it("takes the answer to a running turn's permission prompt", async () => {
+    // A turn that stays open until the test ends it.
+    const { srv, owner } = await boot(
+      300,
+      new FakeBackend({
+        session: {
+          onSend: (_t, _a, s) =>
+            s.push({ kind: "assistant_text", text: "..." }),
+        },
+      }),
+    );
+    const ada = await spawnAgent(srv, "Ada", owner.username, "opencode");
+    const other = await spawnAgent(srv, "Other", owner.username);
+    const member = { rawSessionId: owner.rawSessionId };
+    expect(
+      (
+        await post(srv, `/api/agents/${ada.id}/messages`, member, {
+          json: { text: "run something" },
+        })
+      ).status,
+    ).toBe(200);
+    const agentOf = () =>
+      srv.agentManager.getAllAgents().find((a) => a.id === ada.id)!;
+    await until(() => agentOf().state === "thinking", "Ada's turn");
+    srv.fakeBackend.sessionForAgent(ada.id)!.push({
+      kind: "approval_request",
+      approvalId: "ap-1",
+      toolName: "Bash",
+      input: { command: "ls" },
+      title: "Ada wants to use Bash",
+    });
+    await until(
+      () => agentOf().pendingPrompt === "permission",
+      "Ada parked on a permission prompt",
+    );
+
+    expect(viewOf(await setEnabled(srv, owner.rawSessionId, true)).locked).toBe(
+      true,
+    );
+    // Locked: a message that answers no prompt is refused...
+    expect(
+      refused(
+        await post(srv, `/api/agents/${other.id}/messages`, member, {
+          json: { text: "hello" },
+        }),
+      ),
+    ).toEqual(LOCKED);
+    // ...and so is an agent's message to Ada: only a member answers her prompt...
+    expect(
+      refused(
+        await post(
+          srv,
+          `/api/agents/${ada.id}/messages`,
+          { bearer: getAgentTokenRaw(other.id)! },
+          { json: { text: "from other" } },
+        ),
+      ),
+    ).toEqual(LOCKED);
+    // ...and the member's answer to Ada's prompt goes through to the running turn.
+    const answer = await post(srv, `/api/agents/${ada.id}/messages`, member, {
+      json: { text: "no, use grep instead" },
+    });
+    expect(answer.status).toBe(200);
+    const session = srv.fakeBackend.sessionForAgent(ada.id)!;
+    await until(() => session.approvals.length === 1, "the answer");
+    expect(session.approvals).toEqual([
+      {
+        approvalId: "ap-1",
+        decision: { kind: "deny", reason: "no, use grep instead" },
+      },
+    ]);
   });
 });
 

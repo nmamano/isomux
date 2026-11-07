@@ -523,6 +523,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   // sidebar. One string, so a rename is one line.
   "settings.sidebar.housekeeping": "Housekeeping",
   "settings.sidebar.updates": "Updates",
+  "settings.sidebar.enterprise": "Enterprise",
+  "settings.sidebar.enterpriseContract": "Enterprise Contract",
   "settings.sidebar.profile": "Profile",
   "settings.sidebar.apiTokens": "API tokens",
   "settings.sidebar.signInLinks": "Sign-in links",
@@ -617,9 +619,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.office.enterprise.hint":
     "This must be checked when using Isomux commercially in a company of more than 10 people. <link>See details</link>.",
   "settings.office.enterprise.locked":
-    "The office cannot be used until you paste the enterprise secret.",
-  "settings.office.enterprise.lockedMember":
-    "The office cannot be used until an owner pastes the enterprise secret.",
+    "Agents take no messages until you paste the enterprise secret.",
+  "enterprise.locked":
+    "This office is marked as an Enterprise office, but it is not tied to a valid contract. Contact IT at your company. If you are IT, contact {email}.",
   "settings.office.enterprise.secret": "Enterprise secret",
   "settings.office.enterprise.secretHint":
     "Copy it from your company's enterprise account on cloud.isomux.com.",

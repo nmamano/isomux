@@ -1760,14 +1760,8 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["office_settings_updated"],
   },
   "office.enterprise.get": { caps: ["office:settings"], emits: [] },
-  "office.enterprise.setEnabled": {
-    caps: ["office:settings"],
-    emits: ["office_enterprise_lock"],
-  },
-  "office.enterprise.setSecret": {
-    caps: ["office:settings"],
-    emits: ["office_enterprise_lock"],
-  },
+  "office.enterprise.setEnabled": { caps: ["office:settings"], emits: [] },
+  "office.enterprise.setSecret": { caps: ["office:settings"], emits: [] },
   "office.enterprise.check": { caps: ["office:settings"], emits: [] },
   "validate.cwd": { caps: ["agent:manage"], emits: [] },
   "validate.env": { caps: ["office:read"], emits: [] },
@@ -1969,7 +1963,24 @@ const SPEC_PRECONDITIONS: Record<string, RoutePrecondition[]> = {
   "agents.sendMessage": [
     "messageRecipientExists",
     "messagePendingPermissionBindsParam",
+    // The lock, except a member's answer to a running turn's permission prompt.
+    "officeNotEnterpriseLockedOrPermissionAnswer",
   ],
+  // The Enterprise Contract lock (task f1304a60): every route where a
+  // caller's request puts text into an agent's conversation or starts an
+  // agent turn. Webhooks, schedules firing and queued messages stay out.
+  "agents.editMessage": ["officeNotEnterpriseLocked"],
+  "agents.handoff": ["officeNotEnterpriseLocked"],
+  "apps.sendMessage": ["officeNotEnterpriseLocked"],
+  "asks.reply": ["officeNotEnterpriseLocked"],
+  "asks.dismiss": ["officeNotEnterpriseLocked"],
+  "asks.simplify": ["officeNotEnterpriseLocked"],
+  "asks.simplifyUndo": ["officeNotEnterpriseLocked"],
+  "asks.fileTask": ["officeNotEnterpriseLocked"],
+  "asks.runCommand": ["officeNotEnterpriseLocked"],
+  "cron.runNow": ["officeNotEnterpriseLocked"],
+  "cron.runMessage": ["officeNotEnterpriseLocked"],
+  "cron.editRunMessage": ["officeNotEnterpriseLocked"],
   "apiTokenInbox.send": ["apiTokenInboxTargetAvailable"],
   "invites.revoke": ["inviteOwnerOrSelf"],
   "sessions.revoke": ["sessionOwnerOrSelf"],

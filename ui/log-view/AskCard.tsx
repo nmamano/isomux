@@ -66,6 +66,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { apiFetch, ApiError } from "../api.ts";
+import { sendFailureText } from "../send-failure.ts";
 import { useAsksClosedHere } from "../ask-closed.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -279,6 +280,8 @@ function runErrorText(t: ReturnType<typeof useI18n>["t"], err: unknown) {
       return t("cards.terminalCommand.runForbidden");
     case "command_not_runnable":
       return t("cards.terminalCommand.runHidden");
+    case "enterprise_secret_needed":
+      return sendFailureText(t, err as ApiError);
     default:
       return t("cards.terminalCommand.runFailed");
   }
@@ -581,7 +584,7 @@ function ReplyAskCard({
       dispatch({
         type: "ask_answer_failed",
         id: entry.id,
-        error: err instanceof ApiError ? err.message : String(err),
+        error: err instanceof ApiError ? sendFailureText(t, err) : String(err),
       });
     }
   }
@@ -628,7 +631,9 @@ function ReplyAskCard({
     try {
       await apiFetch("POST", `/api/asks/${entry.id}/simplify`, body);
     } catch (err) {
-      setSimplifyError(err instanceof ApiError ? err.message : String(err));
+      setSimplifyError(
+        err instanceof ApiError ? sendFailureText(t, err) : String(err),
+      );
     } finally {
       setSimplifying(false);
     }
@@ -660,7 +665,9 @@ function ReplyAskCard({
     try {
       await apiFetch("POST", `/api/asks/${entry.id}/simplify/undo`, body);
     } catch (err) {
-      setSimplifyError(err instanceof ApiError ? err.message : String(err));
+      setSimplifyError(
+        err instanceof ApiError ? sendFailureText(t, err) : String(err),
+      );
     } finally {
       setUndoingSimplify(false);
     }

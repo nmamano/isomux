@@ -37,7 +37,8 @@ import { useComposerVoice } from "../hooks/useComposerVoice.ts";
 import { MicIcon } from "../components/MicIcon.tsx";
 import { useConfirmStep } from "../hooks/useConfirmStep.ts";
 import { VoiceInputAlert } from "./VoiceInputAlert.tsx";
-import { apiFetch } from "../api.ts";
+import { apiFetch, ApiError } from "../api.ts";
+import { sendFailureText } from "../send-failure.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { isTopicSource } from "../../shared/session-label.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
@@ -1385,10 +1386,14 @@ export function LogView({
         device: device || undefined,
       }).catch((err: unknown) => {
         restoreFailedEditRef.current(newText);
-        setEditError(errMessage(err));
+        setEditError(
+          err instanceof ApiError
+            ? sendFailureText(i18n.t, err)
+            : errMessage(err),
+        );
       });
     },
-    [agent.id, device],
+    [agent.id, device, i18n.t],
   );
 
   // Markdown, Plain text or HTML file, remembered per browser.

@@ -411,13 +411,13 @@ The lobby elevator links to other Isomux offices. Each office answers a public c
 
 ### 8.12 Enterprise seats
 
-An office whose owner checks "This office is part of an Enterprise Contract" in Settings -> Office and pastes the company's enterprise secret asks the seat service at `cloud.isomux.com` for a seat before each member add.
+An office whose owner checks "This office is part of an Enterprise Contract" in Settings -> Enterprise and pastes the company's enterprise secret asks the seat service at `cloud.isomux.com` for a seat before each member add.
 
 - **What leaves the office.** A random office id (32 hex characters, made once per office) and the office's member count. No names, emails, agents or content. The secret goes in the `Authorization` header.
 - **When.** Before each member add (a created member, a restore from Removed members, a legacy new-member invite), after each removal, a few seconds after boot and then every hour, and once with a count of 0 when an owner turns the box off.
 - **Outbound requests.** Isomux does not follow redirects and stops a request after 10 seconds. A refusal stops the add. No answer, a 5xx or a redirect lets the add go on, and the next check-in corrects the count. Existing members are never locked out.
 - **Where the secret is.** In `secrets/enterprise-seats.key` (mode 0600) under the state root. No route returns it, and no log line or audit row holds it. Turning the box off deletes it. An agent with a shell can read the file (section 3.2).
-- **The lock.** While the box is on and no secret was accepted, every member sees a full-screen lock, and the office adds no members. Agents and schedules keep running. Hosted offices have no box.
+- **The lock.** While the box is on and no secret was accepted, the office refuses every message to an agent (from a member, an API token or another agent, and ask replies) and adds no members. Turns that already run, webhooks and schedules keep running. Hosted offices have no box.
 
 ---
 
@@ -550,5 +550,5 @@ Paths are under `server/`, except those that start with `shared/`.
 - Section 8.7, the flow and its checks: `discover`, `send`, `startSignIn` and `finishSignIn` in `mcp-oauth.ts`; the `mcpServers.signIn`, `officeMcpServers.signIn` and `mcpOAuth.callback` routes in `routes/table.ts`.
 - Section 8.7, where the tokens are: `writeOwnedSecret` in `mcp-oauth.ts`; `mcp-oauth-tokens.ts`; `mcpServerSecret` in `mcp-servers.ts`.
 - Section 8.8, what an agent reads: the `agentConnections.list` route in `routes/table.ts`; `buildAgentConnections` in `agent-connections.ts`; `server/agent-reference/connections.md`.
-- Section 8.12: `seatCall`, `headerSafeSecret` and `createEnterpriseSeats` in `enterprise-seats.ts`; `enterpriseSeatsHandlers` in `enterprise-seats-routes.ts`; the `office.enterprise.*` routes in `routes/table.ts`; the `takeSeat` calls in `office-users-routes.ts` and `auth-middleware.ts`.
+- Section 8.12: `seatCall`, `headerSafeSecret` and `createEnterpriseSeats` in `enterprise-seats.ts`; `enterpriseSeatsHandlers` in `enterprise-seats-routes.ts`; the `office.enterprise.*` routes in `routes/table.ts`; the `takeSeat` calls in `office-users-routes.ts` and `auth-middleware.ts`; the `officeNotEnterpriseLocked` and `officeNotEnterpriseLockedOrPermissionAnswer` preconditions in `isomux-office.ts` and the routes that list them in `routes/table.ts`.
 - Section 8.11, and the office card in section 4.5: `allowOfficeCardRequest` in `ready-limiter.ts`; `officeCardResponse`, `probeOffice` and `OFFICE_CARD_MAX_BYTES` in `office-card.ts`; `floorsHandlers` in `routes/handlers/floors.ts`; `createFloorsStore` in `floors-store.ts`; `createOfficeNameCache` in `office-name-cache.ts`; the panel rules in `shared/elevator-panel.ts`; the `floors.*` routes in `routes/table.ts`.

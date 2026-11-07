@@ -20,6 +20,8 @@ const { OfficeLinkOpener } = await import("../office-link.tsx");
 const { en } = await import("../../shared/i18n/en.ts");
 const { composerMaxHeight } = await import("../composer-height.ts");
 const { askExcerpt } = await import("./ask-about.ts");
+const { sendFailureText } = await import("../send-failure.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 type AskEntry = import("../../shared/types.ts").AskEntry;
 type OfficeLink = import("../../shared/office-links.ts").OfficeLink;
 
@@ -336,6 +338,31 @@ it("keeps the card with the reason when the server refuses a dismiss", async () 
   expect(card.querySelector("[role=alert]")?.textContent).toContain(
     "agent_stopped",
   );
+  view.unmount();
+});
+
+// Task f1304a60: a reply refused by the Enterprise Contract lock reads in
+// the member's language, not as the server's English text.
+it("keeps the card with the Enterprise Contract lock in the member's words", async () => {
+  const serverText = "This office is marked as an Enterprise office.";
+  const err = new ApiError(409, "enterprise_secret_needed", serverText);
+  answer = async () => {
+    throw err;
+  };
+  const view = mount(false);
+  await waitFor(() => expect(cards(view.container).length).toBe(2));
+  const card = view.container.querySelector<HTMLElement>(
+    '[data-ask="aaaa0001"]',
+  )!;
+  await act(async () => {
+    fireEvent.submit(card.querySelector("form")!);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  expect(posts.map((p) => p.path)).toEqual(["/api/asks/aaaa0001/reply"]);
+  expect(cards(view.container)).toEqual(["bbbb0002", "aaaa0001"]);
+  const alert = card.querySelector("[role=alert]")?.textContent ?? "";
+  expect(alert).toContain(sendFailureText(translatorFor("en").t, err));
+  expect(alert).not.toContain(serverText);
   view.unmount();
 });
 

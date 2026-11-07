@@ -246,8 +246,6 @@ export interface AppState {
   // tool_executing flips inside a turn; an agent not working has no entry.
   workingSince: Map<string, number>;
   office: OfficeSettings;
-  // The server's Enterprise Contract lock (full_state, office_enterprise_lock).
-  enterpriseLocked: boolean;
   rooms: RoomWire[];
   tasks: TaskItem[];
   // The members chat (humans-only stream on the Lobby tab). Hydrated by a REST
@@ -443,7 +441,6 @@ type Action =
       uiBuild?: string;
     }
   | { type: "floors_updated"; floors: Floor[] }
-  | { type: "office_enterprise_lock"; locked: boolean }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -853,8 +850,6 @@ export function reducer(state: AppState, action: Action): AppState {
           // store's OfficeSettings shape. Owners carry the real value.
           envFile: action.office.envFile ?? null,
         },
-        // An older server sends no lock field: not locked.
-        enterpriseLocked: action.office.enterpriseLocked ?? false,
         rooms: action.rooms,
         // Nowhere else to land: a member with no visible room opens on the
         // lobby. Anyone with a room keeps whatever tab they had.
@@ -1307,8 +1302,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, isMobile: action.isMobile };
     case "floors_updated":
       return { ...state, floors: action.floors };
-    case "office_enterprise_lock":
-      return { ...state, enterpriseLocked: action.locked };
     case "office_settings_updated":
       // envFile is owner-only and no longer rides this all-audience event
       // (3b.5). PRESERVE the existing office.envFile (an owner's loaded value)
@@ -2032,7 +2025,6 @@ export const initialState: AppState = {
     envFile: null,
     name: null,
   },
-  enterpriseLocked: false,
   rooms: [],
   tasks: [],
   tasksLoaded: false,

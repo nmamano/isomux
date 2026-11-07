@@ -3,6 +3,7 @@
 // a failed row says it was not sent, why, and offers Resend / Edit / Discard.
 
 import { useI18n } from "../i18n.tsx";
+import { sendFailureText } from "../send-failure.ts";
 import {
   discardAttempt,
   resendAttempt,
@@ -30,7 +31,7 @@ export function OutboxRows({
     if (error.kind === "network") return i18n.t("logView.outbox.networkError");
     if (error.kind === "interrupted")
       return i18n.t("logView.outbox.interrupted");
-    return error.message;
+    return sendFailureText(i18n.t, error);
   };
 
   const button = (danger?: boolean) => ({

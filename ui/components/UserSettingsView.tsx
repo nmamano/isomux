@@ -46,7 +46,16 @@ import {
   type GhostVariant,
 } from "../../shared/avatar.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
-import { BuildingIcon, DeviceIcon, UserIcon } from "./NavIcons.tsx";
+import {
+  BriefcaseIcon,
+  BuildingIcon,
+  DeviceIcon,
+  UserIcon,
+} from "./NavIcons.tsx";
+import {
+  EnterprisePane,
+  useEnterpriseAvailable,
+} from "./EnterpriseContractSection.tsx";
 import {
   SidebarGroupHeader,
   SidebarGroupRows,
@@ -122,6 +131,7 @@ import type { MemberPack } from "../../shared/pack-fit.ts";
 export type SettingsSection =
   | "audit"
   | "office"
+  | "enterprise"
   | "storage"
   | "usage"
   | "access"
@@ -219,6 +229,7 @@ export function UserSettingsView({
   const { t } = i18n;
   const isOwner = sessionContext?.role === "owner";
   useRemovedMembersSeed(isOwner);
+  const enterpriseAvailable = useEnterpriseAvailable(isOwner);
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
     [users],
@@ -442,6 +453,23 @@ export function UserSettingsView({
             sectionRow("updates", t("settings.sidebar.updates")),
           ],
         },
+        // The Enterprise Contract box, owners only and never on Hosted (Nil,
+        // 2026-11-07: its own category, not a row of Office).
+        ...(isOwner && enterpriseAvailable
+          ? [
+              {
+                id: "enterprise",
+                label: t("settings.sidebar.enterprise"),
+                icon: BriefcaseIcon,
+                rows: [
+                  sectionRow(
+                    "enterprise",
+                    t("settings.sidebar.enterpriseContract"),
+                  ),
+                ],
+              },
+            ]
+          : []),
         {
           id: "you",
           label: t("common.you"),
@@ -985,6 +1013,8 @@ export function UserSettingsView({
                   <PreferencesPane />
                 ) : selection.section === "office" ? (
                   <OfficePane closeRef={detailCloseRef} />
+                ) : selection.section === "enterprise" && isOwner ? (
+                  <EnterprisePane />
                 ) : selection.section === "usage" ? (
                   <UsagePane />
                 ) : selection.section === "audit" && isOwner ? (

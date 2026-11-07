@@ -374,7 +374,15 @@ export type RoutePrecondition =
   // webhooks.create / webhooks.update: the caller may point the hook at its
   // target, checked on the WHOLE record after a PATCH merge, also when the
   // request does not name the target. Reads live agents, rooms and cronjobs.
-  | "webhookTargetAllowed";
+  | "webhookTargetAllowed"
+  // Every route that texts an agent or starts its turn: refused with 409
+  // enterprise_secret_needed while the Enterprise Contract box is on and no
+  // secret was accepted (server/enterprise-seats.ts).
+  | "officeNotEnterpriseLocked"
+  // agents.sendMessage: the same lock, except that a member's (or a member
+  // token's) answer to the permission prompt of a turn that already runs
+  // passes.
+  | "officeNotEnterpriseLockedOrPermissionAnswer";
 
 export interface RouteDef<Req = unknown, Res = unknown> {
   audit?:
@@ -828,6 +836,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     preconditions: [
       "messageRecipientExists",
       "messagePendingPermissionBindsParam",
+      "officeNotEnterpriseLockedOrPermissionAnswer",
     ],
   }),
   defineRoute<InteractionResponseReq, InteractionResponseRes>({
@@ -874,6 +883,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:converse", and(notApp, agentParam("id"))),
     tokenArea: { area: "agents", level: "write" },
     emits: ["log_entry"],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   defineRoute<void, NoContent>({
     opId: "agents.cancelQueued",
@@ -939,6 +949,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     tokenArea: { area: "agents", level: "write" },
     emits: ["clear_logs", "log_entry"],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   defineRoute<ResumeReq, NoContent>({
     opId: "agents.resume",
@@ -1200,6 +1211,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       "interaction_added",
       "agent_updated",
     ],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   defineRoute<AskDismissReq, NoContent>({
     opId: "asks.dismiss",
@@ -1215,6 +1227,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       "interaction_added",
       "agent_updated",
     ],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   // The member asks the agent to rewrite the ask in plain words; the ask
   // stays open.
@@ -1232,6 +1245,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       "interaction_added",
       "agent_updated",
     ],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   // The member acks a paged ask (task 74e8fc07): its alarm stops, and it
   // stays open.
@@ -1260,6 +1274,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       "interaction_added",
       "agent_updated",
     ],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   // The member the ask is for runs its action step (task e3d1bc63) through
   // the step's own route, as the caller. The click is the authorization.
@@ -1288,6 +1303,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("terminal:use", userScope),
     tokenArea: { area: "asks", level: "write" },
     emits: ["ask_upserted", "others_ask_upserted"],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   // A file an ask references in place (a video or audio file), for the
   // member the ask is for.
@@ -1314,6 +1330,7 @@ export const API_ROUTES: readonly RouteDef[] = [
       "agent_updated",
       "tasks",
     ],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   defineRoute<AffordancePreviewUrlReq, OkTrue>({
     opId: "agents.previewUrl",
@@ -3044,7 +3061,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/office/enterprise",
     auth: cap("office:settings", officeSettingsOwner),
     tokenArea: { area: "office", level: "write" },
-    emits: ["office_enterprise_lock"],
+    emits: [],
   }),
   defineRoute<EnterpriseSecretReq, EnterpriseViewRes>({
     opId: "office.enterprise.setSecret",
@@ -3053,7 +3070,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/office/enterprise/secret",
     auth: cap("office:settings", officeSettingsOwner),
     tokenArea: { area: "office", level: "write" },
-    emits: ["office_enterprise_lock"],
+    emits: [],
   }),
   defineRoute<void, EnterpriseViewRes>({
     opId: "office.enterprise.check",
@@ -3448,6 +3465,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // guard).
     auth: cap("app:message", appScope),
     emits: ["log_entry"],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   // The app raises and resolves its own pages (internal-docs/pager-design.md),
   // so a health app can page when the agent it would message is down. Source
@@ -3780,6 +3798,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     tokenArea: { area: "schedules", level: "write" },
     emits: ["cronjob_run_updated"],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   // The instructions every schedule run gets, off the :id namespace to avoid
   // shadowing /api/cronjobs/:id. The version guards one owner's tab against
@@ -3836,6 +3855,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     tokenArea: { area: "schedules", level: "write" },
     emits: ["cron_run_log_entry"],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   defineRoute<EditMessageReq, MessageAck>({
     opId: "cron.editRunMessage",
@@ -3848,6 +3868,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     ),
     tokenArea: { area: "schedules", level: "write" },
     emits: ["cron_run_log_entry"],
+    preconditions: ["officeNotEnterpriseLocked"],
   }),
   defineRoute<AffordanceReadFileReq, OkTrue>({
     opId: "cron.runReadFile",

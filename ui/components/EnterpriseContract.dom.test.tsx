@@ -1,8 +1,6 @@
-// The Enterprise Contract box in Settings -> Office and the lock it puts on
-// the office (task 8b80e61f). The server decides the lock
-// (full_state.office.enterpriseLocked, office_enterprise_lock); the UI only
-// shows it. Owners can paste the secret or uncheck the box from the lock;
-// members can only read it.
+// The Enterprise Contract box in Settings -> Enterprise (tasks 8b80e61f and
+// f1304a60). The box and the secret live here only: the office stays usable
+// while it is locked, and the server refuses messages to agents instead.
 import { afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 import type { EnterpriseViewRes } from "../../shared/contract-shapes.ts";
@@ -14,7 +12,6 @@ const { act, fireEvent, render, within, cleanup } =
 const { StateCtx, DispatchCtx, initialState, reducer } =
   await import("../store.tsx");
 const { setApiShim, ApiError } = await import("../api.ts");
-const { EnterpriseLock } = await import("./EnterpriseLock.tsx");
 const { EnterpriseContractSection } =
   await import("./EnterpriseContractSection.tsx");
 
@@ -93,26 +90,7 @@ function mount(node: React.ReactNode, role: Role) {
     </StateCtx.Provider>
   );
   const view = render(tree());
-  const fullState = (enterpriseLocked: boolean | undefined) =>
-    act(async () => {
-      dispatch({
-        type: "full_state",
-        agents: [],
-        recentCwds: [],
-        office: {
-          prompt: null,
-          name: null,
-          ...(enterpriseLocked === undefined ? {} : { enterpriseLocked }),
-        },
-        rooms: [],
-        killedAgents: [],
-      });
-    });
-  const lockEvent = (value: boolean) =>
-    act(async () => {
-      dispatch({ type: "office_enterprise_lock", locked: value });
-    });
-  return { view, fullState, lockEvent };
+  return { view };
 }
 
 const body = () => within(document.body);
@@ -120,70 +98,7 @@ const passwordInput = () =>
   document.body.querySelector<HTMLInputElement>('input[type="password"]');
 const settle = () => act(async () => {});
 
-describe("the lock", () => {
-  it("covers the office for a member while the server says locked, with nothing to act on", async () => {
-    serve(VIEW_LOCKED);
-    const { fullState, lockEvent } = mount(<EnterpriseLock />, "member");
-    await fullState(true);
-    await settle();
-    expect(body().queryByRole("dialog")).not.toBeNull();
-    // The owner's controls are not there.
-    expect(passwordInput()).toBeNull();
-    expect(body().queryByRole("checkbox")).toBeNull();
-
-    await lockEvent(false);
-    expect(body().queryByRole("dialog")).toBeNull();
-    await lockEvent(true);
-    expect(body().queryByRole("dialog")).not.toBeNull();
-  });
-
-  it("shows nothing while unlocked or when an older server sends no lock field", async () => {
-    serve(VIEW_OFF);
-    const { fullState } = mount(<EnterpriseLock />, "owner");
-    await fullState(undefined);
-    await settle();
-    expect(body().queryByRole("dialog")).toBeNull();
-    await fullState(false);
-    expect(body().queryByRole("dialog")).toBeNull();
-  });
-
-  it("lets an owner paste the secret from the lock", async () => {
-    const calls = serve(VIEW_LOCKED, (call) =>
-      call.path === "/api/office/enterprise/secret"
-        ? Promise.resolve({ ...VIEW_CONNECTED })
-        : undefined,
-    );
-    const { fullState, lockEvent } = mount(<EnterpriseLock />, "owner");
-    await fullState(true);
-    await settle();
-    const dialog = within(body().getByRole("dialog"));
-    expect((dialog.getByRole("checkbox") as HTMLInputElement).checked).toBe(
-      true,
-    );
-    const input = passwordInput();
-    expect(input).not.toBeNull();
-    await act(async () => {
-      fireEvent.change(input!, { target: { value: "isx_ent_1_goodmac" } });
-    });
-    await act(async () => {
-      fireEvent.submit(input!.closest("form")!);
-    });
-    expect(
-      calls.filter((c) => c.path === "/api/office/enterprise/secret"),
-    ).toEqual([
-      {
-        method: "POST",
-        path: "/api/office/enterprise/secret",
-        body: { secret: "isx_ent_1_goodmac" },
-      },
-    ]);
-    // The server's event lifts the lock.
-    await lockEvent(false);
-    expect(body().queryByRole("dialog")).toBeNull();
-  });
-});
-
-describe("Settings -> Office", () => {
+describe("Settings -> Enterprise", () => {
   it("turns the box on and then asks for the secret", async () => {
     const calls = serve(VIEW_OFF, (call) =>
       call.method === "PUT" ? Promise.resolve(VIEW_LOCKED) : undefined,
@@ -292,27 +207,25 @@ describe("Settings -> Office", () => {
     expect(passwordInput()).toBeNull();
   });
 
-  it("offers a retry when it cannot read the setting, inside the lock too", async () => {
+  it("offers a retry when it cannot read the setting", async () => {
     let fail = true;
     const calls = serve(VIEW_LOCKED, (call) =>
       call.method === "GET" && fail
         ? Promise.reject(new ApiError(500, "internal", "boom"))
         : undefined,
     );
-    const { fullState } = mount(<EnterpriseLock />, "owner");
-    await fullState(true);
+    mount(<EnterpriseContractSection />, "owner");
     await settle();
-    const dialog = within(body().getByRole("dialog"));
-    expect(dialog.queryByRole("alert")).not.toBeNull();
+    expect(body().queryByRole("alert")).not.toBeNull();
     expect(passwordInput()).toBeNull();
 
     fail = false;
     await act(async () => {
-      fireEvent.click(dialog.getByRole("button"));
+      fireEvent.click(body().getByRole("button"));
     });
     await settle();
     expect(calls.filter((c) => c.method === "GET")).toHaveLength(2);
-    expect(dialog.queryByRole("alert")).toBeNull();
+    expect(body().queryByRole("alert")).toBeNull();
     expect(passwordInput()).not.toBeNull();
   });
 

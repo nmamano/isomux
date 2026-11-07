@@ -1,4 +1,4 @@
-// Enterprise seats routes (opIds office.enterprise.*): the Settings -> Office
+// Enterprise seats routes (opIds office.enterprise.*): the Settings -> Enterprise
 // section's reads and writes over server/enterprise-seats.ts. Owner-only by
 // the route table. No route returns or logs the secret.
 
@@ -52,7 +52,7 @@ export function enterpriseRefusalMessage(
     case "rate_limited":
       return "Too many seat requests. Try again in a minute.";
     case "secret_needed":
-      return "Paste the enterprise secret in Settings -> Office before you add members.";
+      return "Paste the enterprise secret in Settings -> Enterprise before you add members.";
     case "bad_request":
       return "The seat service could not read the office's request.";
     case "unreachable":
@@ -62,6 +62,17 @@ export function enterpriseRefusalMessage(
     case "off":
       return "Turn on the Enterprise Contract box first.";
   }
+}
+
+// The Enterprise Contract lock refuses a message to an agent (the
+// officeNotEnterpriseLocked precondition). The UI shows its own catalog line
+// for the code (ui/send-failure.ts).
+export function enterpriseLockedResult() {
+  return fail(
+    409,
+    ENTERPRISE_ERROR_CODES.secret_needed,
+    "This office is marked as an Enterprise office, but it is not tied to a valid contract. Contact IT at your company. If you are IT, contact llc@isomux.com.",
+  );
 }
 
 // A refused seat as a route error, for every member add path.

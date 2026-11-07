@@ -1,7 +1,8 @@
 import { StatusShape } from "./StatusShape.tsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
-import { apiFetch } from "../api.ts";
+import { apiFetch, ApiError } from "../api.ts";
+import { sendFailureText } from "../send-failure.ts";
 import type { CronUpdateReq } from "../../shared/contract-shapes.ts";
 import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
@@ -530,12 +531,12 @@ export function CronjobsView({
                 body,
               ).catch(() => {});
             }}
-            onRunNow={(c) => {
+            onRunNow={(c) =>
               apiFetch(
                 "POST",
                 `/api/cronjobs/${encodeURIComponent(c.id)}/runs`,
-              ).catch(() => {});
-            }}
+              ).then(() => {})
+            }
           />
         ) : (
           <RunsTable
@@ -606,7 +607,8 @@ function CronjobsTable({
   onRowClick: (c: CronjobListWire) => void;
   onEdit: (c: CronjobListWire) => void;
   onToggleEnabled: (c: CronjobListWire) => void;
-  onRunNow: (c: CronjobListWire) => void;
+  // Rejects when the run did not start.
+  onRunNow: (c: CronjobListWire) => Promise<void>;
 }) {
   const { t, language } = useI18n();
   const { agents } = useAppState();
@@ -614,8 +616,17 @@ function CronjobsTable({
   // clicks always re-flash. The persistent in-flight badge (below) is the
   // longer-lived signal that something is actually executing.
   const [justStarted, setJustStarted] = useState<Set<string>>(new Set());
-  function handleRunClick(c: CronjobListWire) {
-    onRunNow(c);
+  // The server's refusal of the last Run (the Enterprise Contract lock, for
+  // one), until the next click.
+  const [runError, setRunError] = useState<string | null>(null);
+  async function handleRunClick(c: CronjobListWire) {
+    setRunError(null);
+    try {
+      await onRunNow(c);
+    } catch (err) {
+      if (err instanceof ApiError) setRunError(sendFailureText(t, err));
+      return;
+    }
     setJustStarted((prev) => new Set(prev).add(c.id));
     setTimeout(() => {
       setJustStarted((prev) => {
@@ -653,242 +664,258 @@ function CronjobsTable({
   }
 
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-      <thead>
-        <tr>
-          <th style={{ ...thStyle, width: 30 }}></th>
-          <th style={thStyle}>{t("schedules.col.name")}</th>
-          {!isMobile && <th style={thStyle}>{t("schedules.col.schedule")}</th>}
-          {!isMobile && <th style={thStyle}>{t("schedules.col.lastRun")}</th>}
-          <th style={thStyle}>{t("schedules.col.nextRun")}</th>
-          <th style={{ ...thStyle, width: 80 }}>{t("schedules.col.runs")}</th>
-          {!isMobile && <th style={thStyle}>{t("schedules.col.by")}</th>}
-          <th style={{ ...thStyle, width: 130 }}></th>
-        </tr>
-      </thead>
-      <tbody>
-        {cronjobs.map((c) => {
-          const runs = runsByJob.get(c.id) ?? [];
-          // Run, edit and pause are the maker's and office owners'.
-          const managed = c.canManage ? c : null;
-          return (
-            <tr
-              key={c.id}
-              data-cronjob-row={c.id}
-              onClick={() => onRowClick(c)}
-              style={{
-                cursor: "pointer",
-                borderBottom: "1px solid var(--border-subtle)",
-                color: c.enabled ? undefined : "var(--text-hint)",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "var(--bg-hover)")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "transparent")
-              }
-            >
-              <td
-                style={{ padding: cellPad }}
-                onClick={
-                  managed
-                    ? (e) => {
-                        e.stopPropagation();
-                        onToggleEnabled(managed);
-                      }
-                    : undefined
+    <>
+      {runError && (
+        <p
+          role="alert"
+          style={{
+            margin: "8px 12px",
+            fontSize: 12,
+            color: "var(--red-text)",
+          }}
+        >
+          {runError}
+        </p>
+      )}
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={{ ...thStyle, width: 30 }}></th>
+            <th style={thStyle}>{t("schedules.col.name")}</th>
+            {!isMobile && (
+              <th style={thStyle}>{t("schedules.col.schedule")}</th>
+            )}
+            {!isMobile && <th style={thStyle}>{t("schedules.col.lastRun")}</th>}
+            <th style={thStyle}>{t("schedules.col.nextRun")}</th>
+            <th style={{ ...thStyle, width: 80 }}>{t("schedules.col.runs")}</th>
+            {!isMobile && <th style={thStyle}>{t("schedules.col.by")}</th>}
+            <th style={{ ...thStyle, width: 130 }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {cronjobs.map((c) => {
+            const runs = runsByJob.get(c.id) ?? [];
+            // Run, edit and pause are the maker's and office owners'.
+            const managed = c.canManage ? c : null;
+            return (
+              <tr
+                key={c.id}
+                data-cronjob-row={c.id}
+                onClick={() => onRowClick(c)}
+                style={{
+                  cursor: "pointer",
+                  borderBottom: "1px solid var(--border-subtle)",
+                  color: c.enabled ? undefined : "var(--text-hint)",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = "var(--bg-hover)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.background = "transparent")
                 }
               >
-                <span
-                  title={
-                    !managed
-                      ? undefined
-                      : c.enabled
-                        ? t("schedules.enabledToggle")
-                        : t("schedules.pausedToggle")
+                <td
+                  style={{ padding: cellPad }}
+                  onClick={
+                    managed
+                      ? (e) => {
+                          e.stopPropagation();
+                          onToggleEnabled(managed);
+                        }
+                      : undefined
                   }
-                  style={{
-                    display: "inline-block",
-                    width: 10,
-                    height: 10,
-                    borderRadius: "50%",
-                    background: c.enabled
-                      ? "var(--green)"
-                      : "var(--text-muted)",
-                    boxShadow: c.enabled ? "0 0 6px var(--green)" : "none",
-                  }}
-                />
-              </td>
-              <td style={{ padding: cellPad, fontSize: 13, fontWeight: 600 }}>
-                {c.name}
-                {(() => {
-                  const inFlight = runs.filter(
-                    (r) => r.status === "running",
-                  ).length;
-                  if (inFlight === 0) return null;
-                  return (
-                    <span
-                      style={{
-                        marginLeft: 8,
-                        padding: "1px 7px",
-                        borderRadius: 10,
-                        background: "rgba(80,200,120,0.15)",
-                        border: "1px solid var(--green)",
-                        color: "var(--green-text)",
-                        fontSize: 10,
-                        fontWeight: 600,
-                        fontFamily: "var(--font-ui)",
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      <StatusShape kind="dot" /> {t("schedules.inFlight")}
-                      {inFlight > 1 ? ` ×${inFlight}` : ""}
-                    </span>
-                  );
-                })()}
-              </td>
-              {!isMobile && (
+                >
+                  <span
+                    title={
+                      !managed
+                        ? undefined
+                        : c.enabled
+                          ? t("schedules.enabledToggle")
+                          : t("schedules.pausedToggle")
+                    }
+                    style={{
+                      display: "inline-block",
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: c.enabled
+                        ? "var(--green)"
+                        : "var(--text-muted)",
+                      boxShadow: c.enabled ? "0 0 6px var(--green)" : "none",
+                    }}
+                  />
+                </td>
+                <td style={{ padding: cellPad, fontSize: 13, fontWeight: 600 }}>
+                  {c.name}
+                  {(() => {
+                    const inFlight = runs.filter(
+                      (r) => r.status === "running",
+                    ).length;
+                    if (inFlight === 0) return null;
+                    return (
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          padding: "1px 7px",
+                          borderRadius: 10,
+                          background: "rgba(80,200,120,0.15)",
+                          border: "1px solid var(--green)",
+                          color: "var(--green-text)",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          fontFamily: "var(--font-ui)",
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        <StatusShape kind="dot" /> {t("schedules.inFlight")}
+                        {inFlight > 1 ? ` ×${inFlight}` : ""}
+                      </span>
+                    );
+                  })()}
+                </td>
+                {!isMobile && (
+                  <td
+                    style={{
+                      padding: cellPad,
+                      fontSize: 12,
+                      color: "var(--text-secondary)",
+                      fontFamily: "var(--font-ui)",
+                    }}
+                  >
+                    {scheduleText(language, t, c.schedule)}
+                    {c.target && (
+                      <div
+                        style={{ fontSize: 10, color: "var(--text-muted)" }}
+                        data-cronjob-target={c.target.agentId}
+                      >
+                        {t("schedules.messagesAgent", {
+                          agent:
+                            agents.find((a) => a.id === c.target?.agentId)
+                              ?.name ?? c.target.agentId,
+                        })}
+                      </div>
+                    )}
+                  </td>
+                )}
+                {!isMobile && (
+                  <td
+                    style={{
+                      padding: cellPad,
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                      fontFamily: "var(--font-ui)",
+                    }}
+                    data-last-run={c.id}
+                  >
+                    {timeAgo(language, t, lastRunAt(c, runs))}
+                  </td>
+                )}
                 <td
                   style={{
                     padding: cellPad,
-                    fontSize: 12,
-                    color: "var(--text-secondary)",
+                    fontSize: 11,
+                    color: c.enabled
+                      ? "var(--text-secondary)"
+                      : "var(--text-ghost)",
                     fontFamily: "var(--font-ui)",
                   }}
                 >
-                  {scheduleText(language, t, c.schedule)}
-                  {c.target && (
+                  {!c.enabled
+                    ? t("schedules.paused")
+                    : c.nextFireAt === null
+                      ? "-"
+                      : timeUntil(language, t, c.nextFireAt)}
+                </td>
+                <td
+                  style={{
+                    padding: cellPad,
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    fontFamily: "var(--font-ui)",
+                  }}
+                >
+                  {runs.length}
+                </td>
+                {!isMobile && (
+                  <td
+                    style={{
+                      padding: cellPad,
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                      fontFamily: "var(--font-ui)",
+                    }}
+                  >
+                    {c.username && c.username !== c.createdBy
+                      ? t("schedules.createdByFor", {
+                          creator: c.createdBy,
+                          user: c.username,
+                        })
+                      : c.createdBy}
+                  </td>
+                )}
+                <td
+                  style={{
+                    padding: cellPad,
+                    whiteSpace: "nowrap",
+                    textAlign: "right",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {managed && (
                     <div
-                      style={{ fontSize: 10, color: "var(--text-muted)" }}
-                      data-cronjob-target={c.target.agentId}
+                      style={{
+                        display: "inline-flex",
+                        gap: 6,
+                        flexWrap: "nowrap",
+                      }}
                     >
-                      {t("schedules.messagesAgent", {
-                        agent:
-                          agents.find((a) => a.id === c.target?.agentId)
-                            ?.name ?? c.target.agentId,
-                      })}
+                      <button
+                        onClick={() => void handleRunClick(managed)}
+                        title={t("schedules.runNow")}
+                        style={{
+                          padding: "3px 10px",
+                          borderRadius: 4,
+                          border: `1px solid ${justStarted.has(c.id) ? "var(--green)" : "var(--border)"}`,
+                          background: justStarted.has(c.id)
+                            ? "rgba(80,200,120,0.15)"
+                            : "transparent",
+                          color: justStarted.has(c.id)
+                            ? "var(--green-text)"
+                            : "var(--text-dim)",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                          transition:
+                            "background 0.2s, color 0.2s, border-color 0.2s",
+                        }}
+                      >
+                        {t("schedules.run")}
+                      </button>
+                      <button
+                        onClick={() => onEdit(managed)}
+                        title={t("common.edit")}
+                        style={{
+                          padding: "3px 10px",
+                          borderRadius: 4,
+                          border: secondaryBorder,
+                          background: secondaryFill,
+                          color: "var(--text-dim)",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {t("common.edit")}
+                      </button>
                     </div>
                   )}
                 </td>
-              )}
-              {!isMobile && (
-                <td
-                  style={{
-                    padding: cellPad,
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    fontFamily: "var(--font-ui)",
-                  }}
-                  data-last-run={c.id}
-                >
-                  {timeAgo(language, t, lastRunAt(c, runs))}
-                </td>
-              )}
-              <td
-                style={{
-                  padding: cellPad,
-                  fontSize: 11,
-                  color: c.enabled
-                    ? "var(--text-secondary)"
-                    : "var(--text-ghost)",
-                  fontFamily: "var(--font-ui)",
-                }}
-              >
-                {!c.enabled
-                  ? t("schedules.paused")
-                  : c.nextFireAt === null
-                    ? "-"
-                    : timeUntil(language, t, c.nextFireAt)}
-              </td>
-              <td
-                style={{
-                  padding: cellPad,
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  fontFamily: "var(--font-ui)",
-                }}
-              >
-                {runs.length}
-              </td>
-              {!isMobile && (
-                <td
-                  style={{
-                    padding: cellPad,
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    fontFamily: "var(--font-ui)",
-                  }}
-                >
-                  {c.username && c.username !== c.createdBy
-                    ? t("schedules.createdByFor", {
-                        creator: c.createdBy,
-                        user: c.username,
-                      })
-                    : c.createdBy}
-                </td>
-              )}
-              <td
-                style={{
-                  padding: cellPad,
-                  whiteSpace: "nowrap",
-                  textAlign: "right",
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {managed && (
-                  <div
-                    style={{
-                      display: "inline-flex",
-                      gap: 6,
-                      flexWrap: "nowrap",
-                    }}
-                  >
-                    <button
-                      onClick={() => handleRunClick(managed)}
-                      title={t("schedules.runNow")}
-                      style={{
-                        padding: "3px 10px",
-                        borderRadius: 4,
-                        border: `1px solid ${justStarted.has(c.id) ? "var(--green)" : "var(--border)"}`,
-                        background: justStarted.has(c.id)
-                          ? "rgba(80,200,120,0.15)"
-                          : "transparent",
-                        color: justStarted.has(c.id)
-                          ? "var(--green-text)"
-                          : "var(--text-dim)",
-                        fontSize: 11,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                        transition:
-                          "background 0.2s, color 0.2s, border-color 0.2s",
-                      }}
-                    >
-                      {t("schedules.run")}
-                    </button>
-                    <button
-                      onClick={() => onEdit(managed)}
-                      title={t("common.edit")}
-                      style={{
-                        padding: "3px 10px",
-                        borderRadius: 4,
-                        border: secondaryBorder,
-                        background: secondaryFill,
-                        color: "var(--text-dim)",
-                        fontSize: 11,
-                        cursor: "pointer",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {t("common.edit")}
-                    </button>
-                  </div>
-                )}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
   );
 }
 

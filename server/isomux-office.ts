@@ -351,7 +351,10 @@ import {
   createEnterpriseSeats,
   type EnterpriseSeats,
 } from "./enterprise-seats.ts";
-import { enterpriseSeatsHandlers } from "./enterprise-seats-routes.ts";
+import {
+  enterpriseLockedResult,
+  enterpriseSeatsHandlers,
+} from "./enterprise-seats-routes.ts";
 import { rescueHandlers } from "./routes/handlers/rescue.ts";
 import {
   createOfficeExportJobs,
@@ -1167,7 +1170,6 @@ const {
   visibleRoomProjection,
 } = createSessionProjection({
   accessibleRoomIdsFor,
-  enterpriseLocked: () => enterpriseSeats?.locked() ?? false,
   askAudience,
   attributionFor,
   browsers,
@@ -4729,6 +4731,19 @@ function buildExecutorDeps(
     // precondition is the explicit, audit-pinned record of that structural bind.
     return null;
   });
+  // The Enterprise Contract lock: nobody texts an agent.
+  preconditions.set("officeNotEnterpriseLocked", () =>
+    enterpriseSeats?.locked() ? enterpriseLockedResult() : null,
+  );
+  // On a message to :id, a member's (or a member token's) text to an agent
+  // parked on a permission prompt answers a turn that already runs: it passes.
+  preconditions.set("officeNotEnterpriseLockedOrPermissionAnswer", (ctx) => {
+    if (!enterpriseSeats?.locked()) return null;
+    const answersPermission =
+      (ctx.identity.scope === "user" || ctx.identity.scope === "api") &&
+      agentManager.getAgent(ctx.params.id)?.pendingPrompt === "permission";
+    return answersPermission ? null : enterpriseLockedResult();
+  });
   preconditions.set("apiTokenInboxTargetAvailable", (ctx) => {
     const senderAgentId = ctx.identity.agentId;
     const sender = senderAgentId ? agentManager.getAgent(senderAgentId) : null;
@@ -5893,7 +5908,6 @@ export async function startServer(
     publicOrigin: () => loadServerConfig().publicOrigin ?? null,
     url: opts.enterpriseSeats?.url,
     timeoutMs: opts.enterpriseSeats?.timeoutMs,
-    onLockChange: (locked) => liveEmit("office_enterprise_lock", { locked }),
   });
   executorDeps = buildExecutorDeps(
     opts.getBackupStatus,

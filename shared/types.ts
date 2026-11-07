@@ -2319,10 +2319,6 @@ export interface OfficeWire {
   prompt: string | null;
   name: string | null;
   envFile?: string | null;
-  // The Enterprise Contract lock (server/enterprise-seats.ts): the box is on
-  // and no secret was ever accepted. Optional while an old server sends
-  // full_state to a new UI.
-  enterpriseLocked?: boolean;
 }
 
 // Maximum number of revive chips offered in the spawn menu. Applied
@@ -2959,7 +2955,6 @@ export type ServerMessage =
   | { type: "members_chat_deleted"; id: string }
   // The lobby elevator's floors after an add or a remove.
   | { type: "floors_updated"; floors: Floor[] }
-  | { type: "office_enterprise_lock"; locked: boolean }
   // The recipient's own read pointer moved (from any of their devices).
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
   | { type: "tasks"; tasks: TaskItem[] }

@@ -18,6 +18,7 @@ import {
 } from "./log-view/draft-attachments.ts";
 import { AGENT_LINK_PREFIX } from "../shared/office-links.ts";
 import { ApiError, apiFetch } from "./api.ts";
+import { isEnterpriseLocked, sendFailureText } from "./send-failure.ts";
 import { useAppState } from "./store.tsx";
 import { useI18n } from "./i18n.tsx";
 import { CSS } from "./styles.ts";
@@ -1054,6 +1055,8 @@ export function WidgetChat({
         }),
     sending: false,
     failed: false,
+    // The Enterprise Contract lock's line, for a send it refused.
+    failedText: undefined as string | undefined,
   });
   const [draft, setDraft] = useState(freshDraft);
   // A target can change through readiness alone, without a parent remount.
@@ -1068,7 +1071,7 @@ export function WidgetChat({
       clientMessageId: crypto.randomUUID(),
       failed: false,
     });
-  const { sending, failed } = draft;
+  const { sending, failed, failedText } = draft;
   const text = textDraft ? textDraft.text : draft.text;
   // The latest text and send state, for dictation and a send in flight.
   const textRef = useRef(text);
@@ -1311,7 +1314,7 @@ export function WidgetChat({
         follow.current = true;
         scrollToEnd();
       },
-      () => {
+      (err: unknown) => {
         sendingRef.current = false;
         const later = textRef.current;
         const restored = voice.reconcileEdit(
@@ -1326,6 +1329,10 @@ export function WidgetChat({
                 clientMessageId: later ? crypto.randomUUID() : clientMessageId,
                 sending: false,
                 failed: true,
+                failedText:
+                  err instanceof ApiError && isEnterpriseLocked(err)
+                    ? sendFailureText(t, err)
+                    : undefined,
               }
             : current,
         );
@@ -1574,7 +1581,7 @@ export function WidgetChat({
               {!connected
                 ? t("app.reconnecting")
                 : failed
-                  ? t("logView.outbox.notSent")
+                  ? (failedText ?? t("logView.outbox.notSent"))
                   : ""}
             </span>
             <button

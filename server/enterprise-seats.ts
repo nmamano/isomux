@@ -4,10 +4,11 @@
 // for a seat before each member add, releases it after a removal, and checks
 // in every hour. It sends its random office id and its member count only.
 //
-// The lock: while the box is on and no secret was ever accepted, the office
-// UI is locked and member adds are refused. Once a secret is accepted nobody
-// is locked out again: an outage, a rejected secret or a full account show in
-// Settings and refuse new adds only.
+// The lock: while the box is on and no secret was ever accepted, messages to
+// agents (the officeNotEnterpriseLocked route precondition) and member adds
+// are refused. The office stays usable otherwise. Once a secret is accepted
+// nothing is locked again: an outage, a rejected secret or a full account
+// show in Settings and refuse new adds only.
 //
 // One object per office (createEnterpriseSeats), so the test harness never
 // inherits state from a previous boot.
@@ -91,8 +92,6 @@ export interface EnterpriseSeatsDeps {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   now?: () => number;
-  // Called when locked() changes.
-  onLockChange: (locked: boolean) => void;
 }
 
 export interface EnterpriseSeats {
@@ -277,13 +276,9 @@ export function createEnterpriseSeats(
   const active = () =>
     stored.enabled && stored.accepted !== null && available();
 
-  // Every change goes through here, so a lock change is always announced.
   const save = (next: Stored) => {
-    const before = locked();
     stored = next;
     atomicWriteFileSync(statePath, JSON.stringify(stored, null, 2), 0o600);
-    const after = locked();
-    if (after !== before) deps.onLockChange(after);
   };
 
   const writeSecret = (value: string) => {

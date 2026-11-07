@@ -2,7 +2,8 @@ import { StatusShape } from "./StatusShape.tsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
-import { apiFetch } from "../api.ts";
+import { apiFetch, ApiError } from "../api.ts";
+import { sendFailureText } from "../send-failure.ts";
 import {
   cronjobRunStreamId,
   type CronjobRun,
@@ -378,7 +379,9 @@ export function CronjobRunView({
       { newText, device: device || undefined },
     ).catch((err: unknown) => {
       restoreFailedEdit(newText);
-      setEditError(errMessage(err));
+      setEditError(
+        err instanceof ApiError ? sendFailureText(t, err) : errMessage(err),
+      );
     });
     setAutoScroll(true);
   }

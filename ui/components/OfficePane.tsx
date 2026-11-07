@@ -16,7 +16,6 @@ import {
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { OfficeSettingSwitch } from "./OfficeSettingSwitch.tsx";
 import { ProcessIsolationSwitch } from "./ProcessIsolationSwitch.tsx";
-import { EnterpriseContractSection } from "./EnterpriseContractSection.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
   UnsavedChangesPrompt,
@@ -410,7 +409,6 @@ export function OfficePane({
               onSaved={onSwitchSaved}
               onConflict={onSwitchConflict}
             />
-            <EnterpriseContractSection />
           </>
         )}
 

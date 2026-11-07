@@ -514,6 +514,8 @@ Coses que pots fer per ell:
   "settings.sidebar.recording": "Mode d'enregistrament",
   "settings.sidebar.housekeeping": "Manteniment",
   "settings.sidebar.updates": "Actualitzacions",
+  "settings.sidebar.enterprise": "Enterprise",
+  "settings.sidebar.enterpriseContract": "Contracte Enterprise",
   "settings.sidebar.profile": "Perfil",
   "settings.sidebar.apiTokens": "Tokens d'API",
   "settings.sidebar.signInLinks": "Enllaços d'inici de sessió",
@@ -609,9 +611,9 @@ Coses que pots fer per ell:
   "settings.office.enterprise.hint":
     "Cal marcar-ho quan s'utilitza Isomux comercialment en una empresa de més de 10 persones. <link>Vegeu els detalls</link>.",
   "settings.office.enterprise.locked":
-    "L'oficina no es pot fer servir fins que enganxis el secret Enterprise.",
-  "settings.office.enterprise.lockedMember":
-    "L'oficina no es pot fer servir fins que un propietari enganxi el secret Enterprise.",
+    "Els agents no reben missatges fins que enganxis el secret Enterprise.",
+  "enterprise.locked":
+    "Aquesta oficina està marcada com a oficina Enterprise, però no està vinculada a cap contracte vàlid. Contacta amb el departament d'informàtica de la teva empresa. Si ets d'informàtica, escriu a {email}.",
   "settings.office.enterprise.secret": "Secret Enterprise",
   "settings.office.enterprise.secretHint":
     "Copia'l del compte Enterprise de la teva empresa a cloud.isomux.com.",

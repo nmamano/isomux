@@ -75,8 +75,6 @@ export interface SessionProjectionDeps {
   cronjobFactsById: AccessPolicy["cronjobFactsById"];
   cronjobViewerForSession: AccessPolicy["cronjobViewerForSession"];
   cronjobsFor: AccessPolicy["cronjobsFor"];
-  // The Enterprise Contract lock, for every member's full_state.office.
-  enterpriseLocked: () => boolean;
   emitPrivateUserRecord: (user: UserRecord) => void;
   emitUserUpdated: (user: UserRecord, prevName?: string) => void;
   emitUsersList: AccessPolicy["emitUsersList"];
@@ -110,7 +108,6 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
     cronjobFactsById,
     cronjobViewerForSession,
     cronjobsFor,
-    enterpriseLocked,
     emitPrivateUserRecord,
     emitUserUpdated,
     emitUsersList,
@@ -264,18 +261,15 @@ export function createSessionProjection(deps: SessionProjectionDeps) {
   function projectOfficeFor(session: SessionLookup): OfficeWire {
     const office = agentManager.getOfficeSettings();
     const isOwner = getUserById(session.userId)?.role === "owner";
-    const locked = enterpriseLocked();
     return isOwner
       ? {
           prompt: office.prompt,
           name: office.name,
           envFile: office.envFile,
-          enterpriseLocked: locked,
         }
       : {
           prompt: office.prompt,
           name: office.name,
-          enterpriseLocked: locked,
         };
   }
 

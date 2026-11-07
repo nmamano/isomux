@@ -33,6 +33,24 @@ export const BuildingIcon = (
   </svg>
 );
 
+// Settings -> Enterprise.
+export const BriefcaseIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.3"
+    strokeLinejoin="round"
+    strokeLinecap="round"
+    style={{ display: "block" }}
+  >
+    <rect x="2" y="5" width="12" height="8.5" rx="1" />
+    <path d="M6 5V3.5h4V5M2 9h12" />
+  </svg>
+);
+
 export const TasksIcon = (
   <svg
     width="15"

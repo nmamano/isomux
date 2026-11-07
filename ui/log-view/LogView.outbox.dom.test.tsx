@@ -8,6 +8,8 @@ setUpDomTestFile();
 
 const { act, fireEvent, waitFor } = await import("@testing-library/react");
 const { ApiError } = await import("../api.ts");
+const { sendFailureText } = await import("../send-failure.ts");
+const { translatorFor } = await import("../../shared/i18n/translate.ts");
 const {
   outboxFixture: fx,
   setupOutboxTests,
@@ -76,6 +78,25 @@ it("keeps a server refusal with its reason", async () => {
 
   await waitFor(() => expect(rows(view.container, "failed").length).toBe(1));
   expect(rows(view.container, "failed")[0].textContent).toContain("queue_full");
+  view.unmount();
+});
+
+// Task f1304a60: the Enterprise Contract lock reads in the member's
+// language, not as the server's English text.
+it("shows the Enterprise Contract lock in the member's words", async () => {
+  const serverText = "This office is marked as an Enterprise office.";
+  const err = new ApiError(409, "enterprise_secret_needed", serverText);
+  fx.answer = async () => {
+    throw err;
+  };
+  const view = mount();
+  await type(view.container, "hello");
+  await send(view.container);
+
+  await waitFor(() => expect(rows(view.container, "failed").length).toBe(1));
+  const text = rows(view.container, "failed")[0].textContent ?? "";
+  expect(text).toContain(sendFailureText(translatorFor("en").t, err));
+  expect(text).not.toContain(serverText);
   view.unmount();
 });
 

@@ -484,6 +484,8 @@ App 的一些原则：
   "settings.sidebar.recording": "录制模式",
   "settings.sidebar.housekeeping": "维护",
   "settings.sidebar.updates": "更新",
+  "settings.sidebar.enterprise": "企业",
+  "settings.sidebar.enterpriseContract": "企业合同",
   "settings.sidebar.profile": "个人资料",
   "settings.sidebar.apiTokens": "API 令牌",
   "settings.sidebar.signInLinks": "登录链接",
@@ -570,9 +572,9 @@ App 的一些原则：
   "settings.office.enterprise.label": "此办公室属于企业合同",
   "settings.office.enterprise.hint":
     "在超过 10 人的公司中商用 Isomux 时，必须勾选此项。<link>查看详情</link>。",
-  "settings.office.enterprise.locked": "粘贴企业密钥之前，此办公室无法使用。",
-  "settings.office.enterprise.lockedMember":
-    "所有者粘贴企业密钥之前，此办公室无法使用。",
+  "settings.office.enterprise.locked": "粘贴企业密钥之前，智能体不接收消息。",
+  "enterprise.locked":
+    "此办公室被标记为企业办公室，但未关联有效合同。请联系贵公司的 IT 部门。如果你是 IT 人员，请联系 {email}。",
   "settings.office.enterprise.secret": "企业密钥",
   "settings.office.enterprise.secretHint":
     "从贵公司在 cloud.isomux.com 上的企业账户复制。",

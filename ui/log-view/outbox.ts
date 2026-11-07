@@ -21,8 +21,9 @@ export type OutboxError =
   // The page reloaded while the attempt was in flight, so its outcome is
   // unknown. Resending is safe while the server still remembers the id.
   | { kind: "interrupted" }
-  // The server answered with an error; `message` is its text.
-  | { kind: "server"; message: string };
+  // The server answered with an error; `message` is its text and `code` its
+  // error code (absent in a record saved before the code was kept).
+  | { kind: "server"; message: string; code?: string };
 
 export interface OutboxAttempt {
   id: string; // also the clientMessageId sent to the server
@@ -207,7 +208,7 @@ function post(attempt: OutboxAttempt) {
         status: "failed",
         error:
           err instanceof ApiError
-            ? { kind: "server", message: err.message }
+            ? { kind: "server", message: err.message, code: err.code }
             : { kind: "network" },
       });
     },
