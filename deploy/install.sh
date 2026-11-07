@@ -4735,12 +4735,70 @@ resolve_owner_name() {
   die "several owners exist ($(paste -sd, <<<"$owners")); re-run with OWNER_NAME set to one of them"
 }
 
+# The raw value of the session cookie in $COOKIE_JAR, or nothing. Several
+# cookie names can sit in the jar: the office's own names
+# (isomux_session_<office id>, with __Host- on HTTPS) and, in a jar carried
+# over from before, the shared names every office used to write. Pick in the
+# server's order for an HTTPS office, regardless of row order. The session
+# prefix is the first 8 chars of this value.
+jar_session_cookie() {
+  [[ -s $COOKIE_JAR ]] || return 0
+  local raw
+  raw=$(awk '
+    $6 ~ /^__Host-isomux_session_[0-9a-f]+$/ { r[4] = $7 }
+    $6 ~ /^isomux_session_[0-9a-f]+$/ { r[3] = $7 }
+    $6 == "__Host-isomux_session" { r[2] = $7 }
+    $6 == "isomux_session" { r[1] = $7 }
+    END { for (i = 4; i >= 1; i--) if (r[i] != "") { print r[i]; exit } }
+  ' "$COOKIE_JAR")
+  printf '%s\n' "$raw"
+}
+
+# Replace the session in $COOKIE_JAR with a new owner session: mint an
+# owner-login invite over the admin unix socket and accept it on loopback.
+# Then revoke the jar's old session, so the owner's session list does not
+# keep a sign-in that nobody holds.
+sign_in_owner() {
+  [[ -S $ADMIN_SOCK ]] || die "office is claimed but $ADMIN_SOCK is missing; is the Isomux service running as $SERVICE_USER?"
+  local owner old
+  owner=$(resolve_owner_name)
+  [[ $owner == "$OWNER_NAME" ]] || log "note: the office owner is named \"$owner\"; ignoring OWNER_NAME=\"$OWNER_NAME\""
+  old=$(jar_session_cookie)
+  old=${old:0:8}
+  local resp url token
+  resp=$(curl -fsS --unix-socket "$ADMIN_SOCK" -X POST http://localhost/admin/owner-login \
+    -H 'Content-Type: application/json' \
+    --data "$(jq -n --arg name "$owner" '{name: $name}')")
+  url=$(jq -r '.url // empty' <<<"$resp")
+  [[ -n $url ]] || die "admin-socket owner-login failed: $(jq -r '.error // "unknown error"' <<<"$resp")"
+  token=${url##*/i/}
+  touch "$COOKIE_JAR" && chmod 600 "$COOKIE_JAR"
+  # The login token stays off the argv (visible in ps): curl reads it from
+  # stdin via the @- form. -c rewrites the jar with the new cookie only.
+  local code
+  code=$(printf '%s' "$token" | curl -s -o /dev/null -w '%{http_code}' -c "$COOKIE_JAR" \
+    -H 'Sec-Fetch-Site: same-origin' \
+    --data-urlencode "token@-" \
+    "$BASE_URL/auth/accept")
+  [[ $code == 302 ]] || die "owner-login invite accept was refused (HTTP $code)"
+  printf '%s\n' "$owner" | write_file "$STATE_DIR/owner-name" 600
+  log "signed in as the owner \"$owner\""
+  # 404: the old session already ended. Any other failure only leaves it to
+  # expire, so the install goes on.
+  if [[ -n $old ]]; then
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -b "$COOKIE_JAR" \
+      -X DELETE "$BASE_URL/api/sessions/$old")
+    [[ $code == 2?? || $code == 404 ]] ||
+      log "could not revoke the previous installer sign-in (HTTP $code); it stays until it expires"
+  fi
+}
+
 # Establish an owner session cookie in $COOKIE_JAR. Three cases:
 #   1. office unclaimed -> claim it with the setup key the server keeps in
 #      its state dir;
 #   2. claimed + saved cookie still valid -> reuse it;
-#   3. claimed + no valid cookie (re-run after partial failure) -> mint an
-#      owner-login invite over the admin unix socket and accept it.
+#   3. claimed + no valid cookie (re-run after partial failure) -> sign in
+#      again over the admin unix socket (sign_in_owner).
 claim_owner() {
   step claim-owner
   if [[ -n $DRY_RUN ]]; then
@@ -4773,32 +4831,15 @@ claim_owner() {
     return 0
   fi
   log "office already claimed and no saved session; recovering via the admin socket"
-  [[ -S $ADMIN_SOCK ]] || die "office is claimed but $ADMIN_SOCK is missing; is the Isomux service running as $SERVICE_USER?"
-  local owner
-  owner=$(resolve_owner_name)
-  [[ $owner == "$OWNER_NAME" ]] || log "note: the office owner is named \"$owner\"; ignoring OWNER_NAME=\"$OWNER_NAME\""
-  local resp url token
-  resp=$(curl -fsS --unix-socket "$ADMIN_SOCK" -X POST http://localhost/admin/owner-login \
-    -H 'Content-Type: application/json' \
-    --data "$(jq -n --arg name "$owner" '{name: $name}')")
-  url=$(jq -r '.url // empty' <<<"$resp")
-  [[ -n $url ]] || die "admin-socket owner-login failed: $(jq -r '.error // "unknown error"' <<<"$resp")"
-  token=${url##*/i/}
-  touch "$COOKIE_JAR" && chmod 600 "$COOKIE_JAR"
-  # The login token stays off the argv (visible in ps): curl reads it from
-  # stdin via the @- form.
-  local code
-  code=$(printf '%s' "$token" | curl -s -o /dev/null -w '%{http_code}' -c "$COOKIE_JAR" \
-    -H 'Sec-Fetch-Site: same-origin' \
-    --data-urlencode "token@-" \
-    "$BASE_URL/auth/accept")
-  [[ $code == 302 ]] || die "owner-login invite accept was refused (HTTP $code)"
-  printf '%s\n' "$owner" | write_file "$STATE_DIR/owner-name" 600
-  log "recovered an owner session for \"$owner\""
+  sign_in_owner
 }
 
 # Persist the public origin + external access, then restart so the server
 # rebinds and starts minting URLs at https://DOMAIN.
+#
+# On HTTPS the server reads only the __Host- session cookie name, so a session
+# claimed over loopback HTTP stops working after the restart: sign in again.
+# Over loopback curl keeps the Secure __Host- cookie the server then sets.
 #
 # This deliberately goes through the office-access REST surface (persisted
 # to office-config.json), the one place the server reads the origin from.
@@ -4815,6 +4856,10 @@ configure_public_access() {
   run systemctl restart isomux
   wait_for_server
   step configure-public-access
+  if ! have_valid_session; then
+    log "the saved owner session does not work over HTTPS; signing in again"
+    sign_in_owner
+  fi
 }
 
 # Mint the single-use owner invite link the customer signs in with (24h TTL).
@@ -4826,22 +4871,10 @@ mint_invite() {
     return 0
   fi
   # Resolve our own userId (and the owner's current display name, for the
-  # final report): the session prefix is the first 8 chars of the raw
-  # cookie value.
+  # final report): the session prefix identifies the session the server
+  # itself selects.
   local raw prefix session user_id
-  # Several cookie names can sit in the jar: the office's own names
-  # (isomux_session_<office id>, with __Host- on HTTPS) and, in a jar
-  # carried over from before, the shared names every office used to write.
-  # Pick in the server's order for an HTTPS office, regardless of row
-  # order, so the prefix below identifies the session the server itself
-  # would select.
-  raw=$(awk '
-    $6 ~ /^__Host-isomux_session_[0-9a-f]+$/ { r[4] = $7 }
-    $6 ~ /^isomux_session_[0-9a-f]+$/ { r[3] = $7 }
-    $6 == "__Host-isomux_session" { r[2] = $7 }
-    $6 == "isomux_session" { r[1] = $7 }
-    END { for (i = 4; i >= 1; i--) if (r[i] != "") { print r[i]; exit } }
-  ' "$COOKIE_JAR")
+  raw=$(jar_session_cookie)
   [[ -n $raw ]] || die "no session cookie in $COOKIE_JAR"
   prefix=${raw:0:8}
   session=$(api_curl "$BASE_URL/api/sessions" |
