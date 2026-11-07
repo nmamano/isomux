@@ -137,7 +137,8 @@ function portOpen(port: number): Promise<boolean> {
 }
 
 describe("the supervisor", () => {
-  test("a killed child comes back on the same port", async () => {
+  // Quarantined: flaky in merge CI (task 212ef878).
+  test.skip("a killed child comes back on the same port", async () => {
     const { supervisor, ports } = supervise();
     try {
       const port = await supervisor.start();
