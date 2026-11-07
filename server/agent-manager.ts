@@ -112,6 +112,7 @@ import {
   type Room,
   loadRecordTerminals,
 } from "./persistence.ts";
+import { storedTopic } from "./stored-session-text.ts";
 import { autocompleteCommands } from "./commands.ts";
 import {
   areaRefusal,
@@ -8035,7 +8036,7 @@ export function createAgentManager(deps: ManagerDeps) {
         ? { officeFreeModel: entry.officeFreeModel }
         : {}),
       lastSessionId: resumeFromSession,
-      topic: entry.topic ?? null,
+      topic: storedTopic(entry.topic),
       customInstructions: entry.customInstructions ?? null,
       userId: entry.userId,
       manager: entry.manager,

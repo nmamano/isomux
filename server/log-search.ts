@@ -24,6 +24,7 @@
 // is only applied when it is provably a superset test.
 
 import type { LogEntry } from "../shared/types.ts";
+import { storedSummary, storedTopic } from "./stored-session-text.ts";
 // The response shapes are the WIRE contract, so they live in shared/ next to
 // every other route shape; this module only implements them.
 import type {
@@ -540,11 +541,15 @@ export interface SessionIndexOptions {
 }
 
 // A session's paragraph, or undefined. sessions.json is file content: a value
-// of the wrong type is ignored, never matched or echoed.
+// of the wrong type, or one that is not a paragraph (storedSummary), is
+// ignored, never matched or echoed.
 function summaryOf(m: SessionMeta | undefined): string | undefined {
-  return typeof m?.summary === "string" && m.summary !== ""
-    ? m.summary
-    : undefined;
+  return storedSummary(m?.summary) ?? undefined;
+}
+
+// A session's topic, or null, on the same terms (storedTopic).
+function topicOf(m: SessionMeta | undefined): string | null {
+  return typeof m?.topic === "string" ? storedTopic(m.topic) : null;
 }
 
 export async function buildSessionIndex(
@@ -566,7 +571,7 @@ export async function buildSessionIndex(
       const summary = summaryOf(m);
       return {
         sessionId,
-        topic: m?.topic ?? null,
+        topic: topicOf(m),
         // File mtime when sessions.json has no lastModified for this session,
         // matching persistence.listAgentSessions. Substituting 0 would sort
         // pre-field and migrated sessions to the bottom of a list whose whole
@@ -670,7 +675,7 @@ export async function retrieveSession(
   const timeline = (await reconstructTimeline(source, agentId, sessionId, meta))
     .map(normalizeEntry)
     .filter((e): e is NormalizedEntry => e !== null);
-  const topic = meta[sessionId]?.topic ?? null;
+  const topic = topicOf(meta[sessionId]);
   const summary = summaryOf(meta[sessionId]);
 
   const base = {
@@ -760,7 +765,7 @@ function matchSummaries(
     const lastModified = m?.lastModified ?? mtime;
     if (query.after !== undefined && lastModified < query.after) continue;
     if (query.before !== undefined && lastModified > query.before) continue;
-    const topic = typeof m?.topic === "string" ? m.topic : null;
+    const topic = topicOf(m);
     const summary = summaryOf(m);
     const inSummary = summary !== undefined ? findMatch(summary, q, re) : null;
     let snippet: string;
@@ -836,7 +841,7 @@ export async function searchLogs(
     totalMatches++;
     hits.push({
       sessionId,
-      topic: meta[sessionId]?.topic ?? null,
+      topic: topicOf(meta[sessionId]),
       timestamp: entry.timestamp,
       kind: entry.kind,
       entryId: entry.id,

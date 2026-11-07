@@ -873,6 +873,74 @@ describe("log summaries: search, index and retrieval", () => {
   });
 });
 
+// A topic or summary that holds a provider notice (task c2841546), or the
+// "..." an old server saved while a topic generated, reads as absent in the
+// index, in retrieval and in search; a label about a limit stays.
+describe("log reads: stored text that is not a label", () => {
+  const NOTICE_AGENT = "agent-logsearch-notice";
+  const NOTICE =
+    "You've hit your weekly limit · resets Nov 9, 4pm (Europe/Berlin)";
+  const REAL_TOPIC = "Usage limit reset time shows server timezone";
+  const REAL_SUMMARY = "The weekly limit reset now shows in the member's zone.";
+  const META = {
+    n: { topic: NOTICE, lastModified: 3_000, summary: NOTICE },
+    d: { topic: "...", lastModified: 2_000 },
+    r: { topic: REAL_TOPIC, lastModified: 1_000, summary: REAL_SUMMARY },
+  };
+
+  beforeAll(() => {
+    const dir = join(LOGS_DIR, NOTICE_AGENT);
+    mkdirSync(dir, { recursive: true });
+    for (const id of Object.keys(META))
+      writeFileSync(
+        join(dir, `${id}.jsonl`),
+        JSON.stringify({
+          id: `${id}-1`,
+          agentId: NOTICE_AGENT,
+          kind: "user_message",
+          content: `fix the medlar export in ${id}`,
+          timestamp: 10,
+        }) + "\n",
+      );
+    writeFileSync(join(dir, "sessions.json"), JSON.stringify(META));
+  });
+
+  it("the index shows no topic and no paragraph for them", async () => {
+    const res = await buildSessionIndex(source, NOTICE_AGENT);
+    const byId = new Map(res.sessions.map((s) => [s.sessionId, s]));
+    expect(byId.get("n")?.topic).toBeNull();
+    expect("summary" in byId.get("n")!).toBe(false);
+    expect(byId.get("d")?.topic).toBeNull();
+    expect(byId.get("r")).toMatchObject({
+      topic: REAL_TOPIC,
+      summary: REAL_SUMMARY,
+    });
+  });
+
+  it("retrieval shows no topic and no paragraph for them", async () => {
+    const n = await retrieveSession(source, NOTICE_AGENT, "n", q("session=n"));
+    expect(n.topic).toBeNull();
+    expect("summary" in n).toBe(false);
+    const d = await retrieveSession(source, NOTICE_AGENT, "d", q("session=d"));
+    expect(d.topic).toBeNull();
+    const r = await retrieveSession(source, NOTICE_AGENT, "r", q("session=r"));
+    expect(r).toMatchObject({ topic: REAL_TOPIC, summary: REAL_SUMMARY });
+  });
+
+  it("search finds the label about a limit, never the notice, and entry hits carry no topic for them", async () => {
+    const limit = await searchLogs(source, NOTICE_AGENT, q("q=limit"), scan);
+    expect(limit.summaryHits.map((h) => h.sessionId)).toEqual(["r"]);
+    expect(
+      await searchLogs(source, NOTICE_AGENT, q("q=..."), scan),
+    ).toMatchObject({ summaryHits: [] });
+
+    const entries = await searchLogs(source, NOTICE_AGENT, q("q=medlar"), scan);
+    expect(
+      Object.fromEntries(entries.results.map((h) => [h.sessionId, h.topic])),
+    ).toEqual({ n: null, d: null, r: REAL_TOPIC });
+  });
+});
+
 describe("log index: pages", () => {
   const PAGE_AGENT = "agent-logsearch-pages";
   const COUNT = 25;

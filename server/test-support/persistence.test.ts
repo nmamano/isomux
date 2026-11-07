@@ -82,6 +82,10 @@ import {
   _testResetUsers,
 } from "../users.ts";
 import { _testResetSentinel } from "../migrations.ts";
+import {
+  createSessionSummarizer,
+  type SummaryPrompt,
+} from "../session-summary.ts";
 import type {
   AgentOutfit,
   Cronjob,
@@ -893,6 +897,108 @@ describe("session summary persistence", () => {
       }),
     ).toBe(false);
     expect(existsSync(stateFile(`logs/${AGENT}`))).toBe(false);
+  });
+});
+
+// A topic or summary that holds a provider notice (task c2841546): stored by
+// a one-shot before task b9de1554. It reads as absent, so the list falls back
+// to the first message and the next summary write starts from the first entry.
+describe("session text that holds a provider notice", () => {
+  const AGENT = "agent-notice-text";
+  const NOTICE =
+    "You've hit your weekly limit · resets Nov 9, 4pm (Europe/Berlin)";
+  const REAL_TOPIC = "Usage limit reset time shows server timezone";
+  const REAL_SUMMARY = "We moved the reset time to the member's timezone.";
+
+  // n: a notice as topic and summary, with the marker the notice write set.
+  // r: the control, a real topic and paragraph with a marker.
+  function seedSessions(): void {
+    seed(`logs/${AGENT}/sessions.json`, {
+      n: {
+        topic: NOTICE,
+        firstUserMessage: "Fix the quince importer",
+        lastModified: 5_000,
+        summary: NOTICE,
+        summaryThroughEntryId: "c3",
+        summaryAt: 1,
+      },
+      r: {
+        topic: REAL_TOPIC,
+        firstUserMessage: "The reset time is wrong",
+        lastModified: 4_000,
+        summary: REAL_SUMMARY,
+        summaryThroughEntryId: "c3",
+        summaryAt: 1,
+      },
+    });
+    writeFileSync(stateFile(`logs/${AGENT}/n.jsonl`), "");
+    writeFileSync(stateFile(`logs/${AGENT}/r.jsonl`), "");
+  }
+
+  it("the session list shows no topic and no paragraph, and keeps the first message", () => {
+    seedSessions();
+    const byId = new Map(listAgentSessions(AGENT).map((s) => [s.sessionId, s]));
+    expect(byId.get("n")).toMatchObject({
+      topic: null,
+      summary: null,
+      firstUserMessage: "Fix the quince importer",
+    });
+    expect(byId.get("r")).toMatchObject({
+      topic: REAL_TOPIC,
+      summary: REAL_SUMMARY,
+    });
+  });
+
+  it("the summary state has no paragraph and no marker", () => {
+    seedSessions();
+    expect(loadSessionSummaryState(AGENT, "n")).toBeNull();
+    expect(loadSessionSummaryState(AGENT, "r")).toEqual({
+      summary: REAL_SUMMARY,
+      throughEntryId: "c3",
+    });
+  });
+
+  it("the next summary write reads every entry and replaces the notice", async () => {
+    seedSessions();
+    const entries: LogEntry[] = Array.from({ length: 6 }, (_, i) => ({
+      id: `c${i}`,
+      agentId: AGENT,
+      kind: i % 2 === 0 ? "user_message" : "text",
+      content: `ENTRY-${i}`,
+      timestamp: i,
+    }));
+    const prompts: SummaryPrompt[] = [];
+    const summarizer = createSessionSummarizer({
+      loadEntries: async () => entries,
+      loadState: loadSessionSummaryState,
+      persist: persistSessionSummary,
+      backoffKey: () => "claude:sonnet",
+      summarize: async (_agentId, prompt) => {
+        prompts.push(prompt);
+        return `New paragraph ${prompts.length}.`;
+      },
+      isAuthError: () => false,
+      now: () => 7_000,
+      logError: () => {},
+    });
+    await summarizer.trigger(AGENT, "n");
+    await summarizer.trigger(AGENT, "r");
+    expect(prompts).toHaveLength(2);
+
+    const notice = prompts[0].prompt;
+    expect(notice).not.toContain(NOTICE);
+    for (let i = 0; i < 6; i++) expect(notice).toContain(`ENTRY-${i}`);
+    // The control: a real paragraph is carried and only the entries after
+    // its marker are read.
+    const real = prompts[1].prompt;
+    expect(real).toContain(REAL_SUMMARY);
+    expect(real).toContain("ENTRY-4");
+    expect(real).not.toContain("ENTRY-3");
+
+    expect(loadSessionSummaryState(AGENT, "n")).toEqual({
+      summary: "New paragraph 1.",
+      throughEntryId: "c5",
+    });
   });
 });
 

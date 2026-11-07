@@ -41,13 +41,13 @@ import {
   loadAgentHistory,
   saveAgentHistory,
   saveAgents,
-  storedTopic,
   writeManifest,
   type AgentHistory,
   type AgentHistoryEntry,
   type PersistedAgent,
   type Room,
 } from "./persistence.ts";
+import { storedTopic } from "./stored-session-text.ts";
 import { spawnTreeFields } from "./spawn-agent-limits.ts";
 import { buildUsageReportData, type UsageAudience } from "./usage-report.ts";
 import type { CeilingAgent } from "./member-ceiling.ts";

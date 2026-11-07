@@ -48,6 +48,11 @@ import {
 import { errMessage } from "../shared/errors.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { sessionMessagePreview } from "../shared/session-label.ts";
+import {
+  isProviderNotice,
+  storedSummary,
+  storedTopic,
+} from "./stored-session-text.ts";
 import { TRUSTED_PROXY_VALUES, type TrustedProxy } from "./proxy-trust.ts";
 import type { TurnInFlightRecord } from "./restart-wake.ts";
 import {
@@ -269,8 +274,8 @@ type UsageSnapshot = { entryId: string; usage: PersistedUsage };
 type SessionsMap = Record<
   string,
   {
-    // Read through storedTopic: entries from older servers can hold "..."
-    // or a blank string.
+    // Read through storedTopic: entries from older servers can hold "...",
+    // a blank string or a provider notice.
     topic: string | null;
     firstUserMessage?: string | null;
     lastModified: number;
@@ -307,7 +312,8 @@ type SessionsMap = Record<
     // manager. `name` is a snapshot for a member who was deleted later.
     manager?: { userId: string | null; name: string | null };
     // The conversation summary (task ac41c60e): the paragraph, the id of the
-    // last log entry it covers, and the epoch ms of its last write.
+    // last log entry it covers, and the epoch ms of its last write. Read the
+    // paragraph through storedSummary.
     summary?: string;
     summaryThroughEntryId?: string;
     summaryAt?: number;
@@ -374,13 +380,6 @@ function readLegacySessionPreview(file: TranscriptFile): string | null {
   }
 }
 
-// A topic read from disk. Servers before task 1b8084fd saved "..." while a
-// generation ran and accepted a blank topic; both mean no topic.
-export function storedTopic(topic: string | null | undefined): string | null {
-  if (!topic || topic.trim() === "" || topic === "...") return null;
-  return topic;
-}
-
 export function persistSessionTopic(
   agentId: string,
   sessionId: string,
@@ -396,12 +395,19 @@ export function persistSessionTopic(
   saveSessionsMap(agentId, map);
 }
 
-// The stored summary and its marker, or null when the session has none.
+// The stored summary and its marker, or null when the session has none. A
+// provider notice stored as the summary reads as none, with its marker, so the
+// next write covers the whole session again.
 export function loadSessionSummaryState(
   agentId: string,
   sessionId: string,
 ): { summary?: string; throughEntryId?: string } | null {
   const existing = loadSessionsMap(agentId)[sessionId];
+  if (
+    typeof existing?.summary === "string" &&
+    isProviderNotice(existing.summary)
+  )
+    return null;
   const summary =
     typeof existing?.summary === "string" ? existing.summary : undefined;
   const throughEntryId =
@@ -841,10 +847,7 @@ export function listAgentSessions(agentId: string): {
           cwd: effectiveEntry?.cwd ?? null,
           agentType: effectiveEntry?.agentType ?? null,
           modelFamily: effectiveEntry?.modelFamily ?? null,
-          summary:
-            typeof effectiveEntry?.summary === "string"
-              ? effectiveEntry.summary
-              : null,
+          summary: storedSummary(effectiveEntry?.summary),
           ...(branchedFromIds.has(sid) ? { branched: true as const } : {}),
           ...(effectiveEntry?.forkedFrom ? { forked: true as const } : {}),
         };

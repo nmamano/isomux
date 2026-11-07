@@ -35,6 +35,7 @@ import { redactSecretTextWith } from "./log-redaction.ts";
 import { parseDotenv } from "./persistence.ts";
 import { scrubPatterns } from "./secret-proxy/scrub.ts";
 import { createSecretStore } from "./secret-store.ts";
+import { storedTopic } from "./stored-session-text.ts";
 import {
   resolveTranscript,
   sessionIdOfTranscript,
@@ -766,7 +767,8 @@ class Exporter {
       const first = entries.find((e) => e.timestamp !== undefined);
       const day =
         isoDay(Number(first?.timestamp)) || isoDay(read.mtimeMs) || "undated";
-      const topic = topics[parsed.sessionId]?.topic;
+      const rawTopic: unknown = topics[parsed.sessionId]?.topic;
+      const topic = typeof rawTopic === "string" ? storedTopic(rawTopic) : null;
       const md = this.renderSession(entries, {
         title: topic || parsed.sessionId,
         agent: agentLabel,

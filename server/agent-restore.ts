@@ -67,10 +67,10 @@ import {
   getSessionClaudeConfigDir,
   loadLogWithAncestors,
   saveMessageQueues,
-  storedTopic,
   type PersistedAgent,
   type Room,
 } from "./persistence.ts";
+import { storedTopic } from "./stored-session-text.ts";
 import {
   SessionManager,
   type DormantReason,

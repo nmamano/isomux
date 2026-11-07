@@ -18,6 +18,8 @@ sessions.json gets three optional fields per session:
 
 Old sessions.json files stay valid. A session without `summary` is a session that never got one.
 
+A stored paragraph that is a provider notice (a usage limit, a sign-in error: before task b9de1554 a Claude one-shot returned it as its answer) reads as no paragraph and no marker, through storedSummary and loadSessionSummaryState (server/stored-session-text.ts, server/persistence.ts). The next write then covers the whole session.
+
 A summary write does not change `lastModified`. The resume picker (listAgentSessions) and the logs index sort on `lastModified`, so a session-end write or a backfill write that set it would move old sessions to the top. This is the difference from persistSessionTopic, which sets `lastModified`.
 
 A write that finishes after the agent's log directory is gone (agent deleted, storage pruned) is dropped. saveSessionsMap creates the directory, so without this check a late write would make a sessions.json for a deleted agent.
