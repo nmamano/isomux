@@ -1917,6 +1917,30 @@ inUse}` when the other offices' members plus `members` pass N; `add: false` (a
   (`/offices/remove`, `{office}`): its members leave the count, and it rejoins,
   with its name and first join time, if it calls again. Audited as
   `enterprise.office_renamed` and `.office_removed`.
+- **Invoices.** `enterprise-invoices.ts` bills signed standard accounts
+  through Stripe; there is no subscription. `enterprise-billing.ts` is the
+  calendar: contract month 0 is the free trial. Monthly: month K (K >= 1) is
+  invoiced at its end for its highest N x $25. Yearly: year 0 at the end of the
+  trial for N x $20 x 11, each later year at its start for N x $240, and each
+  quarter in which N went up at its end, for each added seat x $20 x the months
+  left in the year. Every change of N is a row of `enterprise_seat_changes`. The
+  provisioner's watch passes run `invoiceEnterprises` when an account's
+  `next_invoice_at` is due (store.ts `workSchedule`), only when its Stripe client
+  exists. Each period is claimed in `enterprise_invoices` with its amount fixed,
+  then made step by step (customer, draft, one item, finalize, send;
+  `send_invoice`, due in 30 days), each step resumed from the ledger and Stripe's
+  state so a lost answer never makes a second invoice. Unpaid invoices change
+  nothing. A period over $999,999.99 (Stripe's non-card limit), whose Stripe
+  total differs from the ledger, whose invoice was voided before it was sent,
+  or that Stripe refuses for good (a 4xx other than a rate limit, a conflict or
+  a missing key permission) is held: the ops floor lists it, and an operator runs
+  `bun control-plane/cli.ts enterprise-release --enterprise <id> --period <p>`
+  (the pass tries again) or `enterprise-invoiced ... --invoice in_a[,in_b]`
+  (invoiced by hand). Negotiated accounts are invoiced by an operator. IT opens
+  Stripe's customer portal from the Billing card (`POST
+/api/enterprise/billing/portal`), with our own portal configuration
+  (metadata `isx=enterprise-portal`: invoices, payment method, address, tax id;
+  no email change, no subscription features).
 - **A negotiated account.** An operator records it:
   `bun control-plane/cli.ts enterprise-negotiated --email <sign-in email>
 --company <name> --plan monthly|yearly --seats <N> --price-note <text>
@@ -3389,9 +3413,12 @@ tier and the provisioner. The web call graph needs Coupons read, Customers
 write, Checkout Sessions write, and Subscriptions write. Checkout creates a
 Customer when it starts a subscription without an existing customer id;
 cancel and un-cancel update the Subscription. Stripe's write permission
-includes read, as documented on 2026-08-20. The provisioner has a broader call
+includes read, as documented on 2026-08-20. The web key also needs Customer
+portal write for the enterprise Billing card (a portal configuration and its
+sessions). The provisioner has a broader call
 graph: it also expires Checkout Sessions, reads subscriptions and invoices
-during reconciliation, and runs dunning and suspension. Separate values keep a
+during reconciliation, and runs dunning and suspension. For the enterprise
+invoices it needs Customers write, Invoices write and Invoice items write. Separate values keep a
 public web deployment from inheriting that broader reach. Code cannot detect a
 shared value, so this separation is an activation rule.
 

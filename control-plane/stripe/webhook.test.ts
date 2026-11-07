@@ -542,6 +542,42 @@ describe("applying an event", () => {
     expect(await listEvents(store)).toHaveLength(1);
   });
 
+  test("a failed enterprise invoice (no subscription) is recorded as ignored and touches no office", async () => {
+    // Enterprise invoices (task 71718489, S4) are ours, with no subscription;
+    // unpaid changes nothing (Nil, 2026-11-06).
+    const store = await tempStore();
+    await seedInstance(store);
+    const reader = new FakeReader("test");
+    reader.invoices.set(
+      "in_ent",
+      invoiceSnap({
+        id: "in_ent",
+        subscriptionId: null,
+        customerId: "cus_ent",
+        nextPaymentAttempt: null,
+        attemptCount: 4,
+      }),
+    );
+    const outcome = await deliver(
+      processorFor(store, reader),
+      body({
+        id: "evt_ent",
+        type: "invoice.payment_failed",
+        object: { id: "in_ent" },
+      }),
+    );
+    expect(outcome).toMatchObject({ status: 200, kind: "ignored" });
+    expect(reader.calls).toEqual(["invoice:in_ent"]);
+    expect(await listSubscriptions(store)).toEqual([]);
+    expect(await store.openReasons("inst-1")).toEqual([]);
+    expect(
+      (await store.operationsFor("inst-1")).filter(
+        (o) => o.kind === "power_off",
+      ),
+    ).toEqual([]);
+    expect((await listEvents(store))[0]).toMatchObject({ outcome: "ignored" });
+  });
+
   test("an unhandled type is recorded and answered 200", async () => {
     const store = await tempStore();
     const outcome = await deliver(

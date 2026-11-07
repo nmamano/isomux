@@ -23,6 +23,8 @@ export interface ScheduleCapabilities {
   checkoutConfigured: boolean;
   /** The welcome series may send. Absent means no. */
   welcomeMailConfigured?: boolean;
+  /** The enterprise invoice pass may run. Absent means no. */
+  enterpriseInvoicesConfigured?: boolean;
   staleProvisioningMs: number;
   staleProvisioningReason: string;
 }
@@ -106,6 +108,8 @@ export async function driveTicks(
       cadenceConfigured: opts.cadence !== undefined,
       livenessConfigured: opts.watch !== undefined,
       welcomeMailConfigured: opts.capabilities.welcomeMailConfigured,
+      enterpriseInvoicesConfigured:
+        opts.capabilities.enterpriseInvoicesConfigured,
       staleProvisioningMs: opts.capabilities.staleProvisioningMs,
       staleProvisioningReason: opts.capabilities.staleProvisioningReason,
     });

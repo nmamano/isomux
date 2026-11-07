@@ -514,6 +514,10 @@ export const es: Catalog = {
     "{count} puestos, facturados al precio de tu acuerdo.",
   "enterprise.billing.renewal": "El año de contrato se renueva el {date}.",
   "enterprise.billing.invoices": "Las facturas llegan a {email}.",
+  "enterprise.billing.next": "Próxima factura el {date}: {amount} hasta ahora.",
+  "enterprise.billing.nextIfAdded":
+    "Próxima factura el {date}, solo si se añaden puestos antes.",
+  "enterprise.billing.portal": "Facturas y pago",
   "enterprise.agreementCard.heading": "Acuerdo",
   "enterprise.agreementCard.signed": "Firmado por {name}, {title}, el {date}.",
   "enterprise.agreementCard.negotiated": "Acuerdo negociado registrado.",

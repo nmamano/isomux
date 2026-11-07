@@ -87,6 +87,7 @@ const ROUTES = {
   secret: await route("secret"),
   "offices/rename": await route("offices/rename"),
   "offices/remove": await route("offices/remove"),
+  "billing/portal": await route("billing/portal"),
 };
 const SEAT_API = await route("v1/seats");
 const nextConfig = (
@@ -105,7 +106,13 @@ const ORIGIN = "https://storefront.example.com";
 /** The same symbol the facade caches its store on (web-store-lifetime.test.ts). */
 const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
 
-const ENV_KEYS = ["AUTH_SECRET", "AUTH_URL", "CONTROL_PLANE_DB"];
+const ENV_KEYS = [
+  "AUTH_SECRET",
+  "AUTH_URL",
+  "CONTROL_PLANE_DB",
+  "CONTROL_PLANE_STRIPE_MODE",
+  "STRIPE_TEST_SECRET_KEY",
+];
 let savedEnv: Record<string, string | undefined> = {};
 
 async function resetSlot(): Promise<void> {
@@ -550,6 +557,95 @@ function unreadableBody(): ReadableStream {
     },
   });
 }
+
+describe("the billing portal route as the web role", () => {
+  test("a signed account's IT gets a Stripe portal session that comes back to the account page", async () => {
+    const s = await seed();
+    const { id } = await signedAccount(s);
+    process.env.CONTROL_PLANE_STRIPE_MODE = "test";
+    process.env.STRIPE_TEST_SECRET_KEY = "sk_test_web_enterprise";
+    // Stripe, as far as this route goes: one customer, our configuration, a
+    // session.
+    const stripeCalls: {
+      method: string;
+      path: string;
+      params: URLSearchParams;
+    }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+      );
+      if (url.hostname !== "api.stripe.com") return realFetch(input, init);
+      const method = init?.method ?? "GET";
+      const params =
+        method === "GET"
+          ? url.searchParams
+          : new URLSearchParams(
+              typeof init?.body === "string" ? init.body : "",
+            );
+      stripeCalls.push({ method, path: url.pathname, params });
+      if (method === "POST" && url.pathname === "/v1/customers")
+        return Response.json({ id: "cus_web", object: "customer" });
+      if (
+        method === "GET" &&
+        url.pathname === "/v1/billing_portal/configurations"
+      )
+        return Response.json({ object: "list", has_more: false, data: [] });
+      if (
+        method === "POST" &&
+        url.pathname === "/v1/billing_portal/configurations"
+      )
+        return Response.json({
+          id: "bpc_web",
+          object: "billing_portal.configuration",
+        });
+      if (method === "POST" && url.pathname === "/v1/billing_portal/sessions")
+        return Response.json({
+          id: "bps_web",
+          url: "https://billing.stripe.example/s/web",
+        });
+      return Response.json(
+        { error: { message: "unexpected" } },
+        { status: 404 },
+      );
+    }) as typeof fetch;
+    try {
+      session = { accountId: s.it, expires: SESSION_END };
+      expect(await answer(post("billing/portal", {}))).toEqual({
+        status: 200,
+        body: { ok: true, url: "https://billing.stripe.example/s/web" },
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const sessionCall = stripeCalls.find(
+      (c) => c.path === "/v1/billing_portal/sessions",
+    );
+    expect({
+      customer: sessionCall?.params.get("customer"),
+      returnUrl: sessionCall?.params.get("return_url"),
+      configuration: sessionCall?.params.get("configuration"),
+    }).toEqual({
+      customer: "cus_web",
+      returnUrl: `${ORIGIN}/enterprise`,
+      configuration: "bpc_web",
+    });
+    // The web role stored the customer it made.
+    const row = await s.owner.sqlGet<{ stripe_customer_id: string | null }>(
+      "select stripe_customer_id from enterprise_accounts where id = $1",
+      [id],
+    );
+    expect(row?.stripe_customer_id).toBe("cus_web");
+  });
+});
 
 describe("the account pages", () => {
   test("are not indexed, send no referrer and are not cached", async () => {

@@ -69,6 +69,11 @@ import { runCliEntry } from "./cli-entry.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { createNegotiatedEnterprise } from "./enterprise.ts";
+import {
+  invoiceEnterprises,
+  recordManualInvoice,
+  releaseHeldInvoice,
+} from "./enterprise-invoices.ts";
 import { CreateLatch, migrateLegacyIntents } from "./create-latch.ts";
 import { CreateCoordinator } from "./create-coordinator.ts";
 import { IntentJournal } from "./intents.ts";
@@ -794,6 +799,9 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   let providerConfigured = false;
   let seam: RunningMintSeam | null = null;
   let checkoutReader: StripeObjectReader | undefined;
+  // The enterprise invoice pass's Stripe client: the webhook's, so the pass
+  // runs exactly when Stripe is configured.
+  let invoiceClient: StripeClient | undefined;
   if (token) {
     const stripeMode = resolveStripeMode(process.env);
     const webhookSecret = stripeWebhookSecretFromEnv(stripeMode, process.env);
@@ -803,6 +811,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       mode: stripeMode,
     });
     checkoutReader = new LiveStripeReader(webhookClient, stripeMode);
+    invoiceClient = webhookClient;
     const webhook = new WebhookProcessor({
       store,
       reader: checkoutReader,
@@ -924,6 +933,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       capabilities: {
         ...scheduleCapabilities(running, !!checkoutReader),
         welcomeMailConfigured: welcomeMail,
+        enterpriseInvoicesConfigured: invoiceClient !== undefined,
       },
       wake,
       cadence: {
@@ -963,6 +973,27 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
             });
           },
         },
+        ...(invoiceClient
+          ? [
+              {
+                failureLabel: "enterprise invoice pass failed",
+                run: async () => {
+                  const summary = await invoiceEnterprises(
+                    store,
+                    invoiceClient,
+                    store.now(),
+                    (line) => reporter.line(line),
+                  );
+                  if (summary.claimed + summary.held + summary.failed > 0) {
+                    reporter.line(
+                      `enterprise invoices: claimed ${summary.claimed}, sent ` +
+                        `${summary.sent}, held ${summary.held}, failed ${summary.failed}`,
+                    );
+                  }
+                },
+              },
+            ]
+          : []),
         ...(welcomeMail
           ? [
               {
@@ -1244,6 +1275,33 @@ async function cmdEnterpriseNegotiated(
     );
   }
   reporter.line(`enterprise account ${outcome.id} recorded as negotiated`);
+}
+
+/** A held enterprise invoice goes back to the invoice pass:
+ * --enterprise <id> --period <period>. */
+async function cmdEnterpriseRelease(args: Map<string, string>): Promise<void> {
+  const store = await openStore();
+  const outcome = await releaseHeldInvoice(
+    store,
+    required(args, "enterprise"),
+    required(args, "period"),
+  );
+  if (!outcome.ok) die(`not released: ${outcome.reason}`);
+  reporter.line("released: the next invoice pass makes it again");
+}
+
+/** A held enterprise invoice was made by hand in Stripe:
+ * --enterprise <id> --period <period> --invoice <in_...>[,<in_...>]. */
+async function cmdEnterpriseInvoiced(args: Map<string, string>): Promise<void> {
+  const store = await openStore();
+  const outcome = await recordManualInvoice(
+    store,
+    required(args, "enterprise"),
+    required(args, "period"),
+    required(args, "invoice").split(","),
+  );
+  if (!outcome.ok) die(`not recorded: ${outcome.reason}`);
+  reporter.line("recorded as invoiced by hand");
 }
 
 async function cmdAttention(args: Map<string, string>): Promise<void> {
@@ -1538,6 +1596,10 @@ async function main(): Promise<void> {
       return cmdAttention(args);
     case "enterprise-negotiated":
       return cmdEnterpriseNegotiated(args);
+    case "enterprise-release":
+      return cmdEnterpriseRelease(args);
+    case "enterprise-invoiced":
+      return cmdEnterpriseInvoiced(args);
     case "expiry-test":
       return cmdExpiryTest(args);
     default: {
@@ -1547,7 +1609,7 @@ async function main(): Promise<void> {
       if (migration) return cmdMigrate(migration);
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|enterprise-negotiated|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-all|regovern|" +
+          "attention|operator|enterprise-negotiated|enterprise-release|enterprise-invoiced|finish|mint|status|revoke|expiry-test|bootstrap|set-database-identity|migrate-all|regovern|" +
           `${OWNER_MIGRATIONS.map((m) => m.command).join("|")}> [--flags]`,
       );
       process.exit(2);

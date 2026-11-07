@@ -29,6 +29,7 @@ import {
   signAgreement,
   type CreateEnterpriseInput,
 } from "./enterprise.ts";
+import { migrateEnterpriseTables } from "./bootstrap.ts";
 import { accountForDevSignIn } from "./signup.ts";
 import type { Store } from "./store.ts";
 import {
@@ -165,6 +166,7 @@ describe("setting up an account", () => {
       inUse: 0,
       offices: [],
       secret: null,
+      nextInvoice: null,
     });
     // Another sign-in sees nothing of it.
     expect(await enterpriseFor(s.store, s.other, SECRET)).toBeNull();
@@ -1320,5 +1322,75 @@ describe("IT renames and removes an office", () => {
       name: "x".repeat(100),
       removedAt: null,
     });
+  });
+});
+
+// ------------------------------------------------------------------ S4 history
+
+/** The account's changes of N, oldest first. */
+async function seatHistory(s: Setup, enterpriseId: string) {
+  const rows = await sql(
+    s,
+    "select at, from_seats, to_seats from enterprise_seat_changes " +
+      "where enterprise_id = $1 order by at, from_seats",
+    [enterpriseId],
+  );
+  return rows.rows.map((r) => [
+    Number(r.at),
+    Number(r.from_seats),
+    Number(r.to_seats),
+  ]);
+}
+
+describe("the history of N (S4 bills from it)", () => {
+  test("every change of N leaves one row in its transaction; a refused change leaves none", async () => {
+    const s = await setup();
+    const id = await signed(s);
+    clock = T0 + DAY;
+    await changeSeats(s.store, s.it, { from: 50, to: 60 });
+    // Refused: stale, and below the seats in use.
+    await changeSeats(s.store, s.it, { from: 50, to: 70 });
+    clock = T0 + 2 * DAY;
+    const secret = secretOf(id);
+    await call(s, secret, seat(A, 40, false));
+    // seats_full writes nothing; the raise writes 60 -> 65.
+    await call(s, secret, seat(B, 21, true));
+    clock = T0 + 3 * DAY;
+    await call(s, secret, seat(B, 25, false));
+    // Equal N is no change.
+    await changeSeats(s.store, s.it, { from: 65, to: 65 });
+    expect(await seatHistory(s, id)).toEqual([
+      [T0, 0, 50],
+      [T0 + DAY, 50, 60],
+      [T0 + 3 * DAY, 60, 65],
+    ]);
+    const made = await createNegotiatedEnterprise(s.store, {
+      email: "it@globex.example",
+      company: "Globex",
+      plan: "monthly",
+      seats: 100,
+      priceNote: "custom",
+    });
+    if (!made.ok) throw new Error("negotiated refused");
+    expect(await seatHistory(s, made.id)).toEqual([[T0 + 3 * DAY, 0, 100]]);
+  });
+
+  test("the migration gives an account with no history one 0 -> N row at its creation, once, and leaves the others", async () => {
+    const s = await setup();
+    const old = await signed(s);
+    const kept = await signed(s, { company: "Globex", seats: 12 }, s.other);
+    // An account from before the history: changed to 70, no rows.
+    await sql(s, "update enterprise_accounts set seats = 70 where id = $1", [
+      old,
+    ]);
+    await sql(
+      s,
+      "delete from enterprise_seat_changes where enterprise_id = $1",
+      [old],
+    );
+    await migrateEnterpriseTables(s.dsn);
+    await migrateEnterpriseTables(s.dsn);
+    expect(await seatHistory(s, old)).toEqual([[T0, 0, 70]]);
+    expect(await seatHistory(s, kept)).toEqual([[T0, 0, 12]]);
   });
 });

@@ -37,6 +37,7 @@ import pg from "pg";
 import type { Pool, PoolClient, PoolConfig, QueryResult } from "pg";
 import { INCIDENTS_DDL, INCIDENT_TABLES } from "./incidents-ddl.ts";
 import { ENTERPRISE_DDL, ENTERPRISE_TABLES } from "./enterprise-ddl.ts";
+import { invoiceDue } from "./enterprise-ddl.ts";
 import {
   ASSET_GONE_REASON,
   LIFECYCLE_ASSET_GONE,
@@ -294,6 +295,7 @@ export interface WorkScheduleOptions {
   livenessConfigured: boolean;
   /** The welcome series may send (welcomeMailConfigured). Absent means no. */
   welcomeMailConfigured?: boolean;
+  enterpriseInvoicesConfigured?: boolean;
   staleProvisioningMs: number;
   staleProvisioningReason: string;
 }
@@ -2325,7 +2327,7 @@ export class Store {
         // The welcome series: exactly dueWelcomeMails' predicate, so a row the
         // pass handles is a row that woke it, and a handled row is idle.
         "or ($14 = 1 and exists (select 1 from welcome_mails where next_due_at <= $1 " +
-        "and opted_out_at is null)))) as liveness_due" +
+        `and opted_out_at is null)) or ${invoiceDue(opts).due})) as liveness_due` +
         "), due_times as (" +
         "select case when lease_until is not null and lease_until > next_attempt_at " +
         "then lease_until else next_attempt_at end as due_at from operations " +
@@ -2364,7 +2366,7 @@ export class Store {
         "then $1 else certificate_contact_next_check_at end " +
         "from instances where $11 = 1 and service_state = 'live' " +
         "union all select next_due_at from welcome_mails where $11 = 1 and $14 = 1 " +
-        "and opted_out_at is null and next_due_at is not null" +
+        `and opted_out_at is null and next_due_at is not null${invoiceDue(opts).at}` +
         ") select case when operation_due or provider_due then 1 else 0 end as tick_due, " +
         "case when cadence_due then 1 else 0 end as cadence_due, " +
         "case when liveness_due then 1 else 0 end as liveness_due, " +

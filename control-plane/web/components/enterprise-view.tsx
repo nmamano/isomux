@@ -394,34 +394,7 @@ export function EnterpriseAccount({
         onRemoved={(members) => setInUse((n) => Math.max(0, n - members))}
       />
       {view.secret && <Secret t={t} initial={view.secret} />}
-      <div className="card">
-        <h2>{t("enterprise.billing.heading")}</h2>
-        <p>
-          {view.kind === "negotiated"
-            ? view.plan === "monthly"
-              ? t("enterprise.billing.negotiatedMonthly", {
-                  note: view.priceNote ?? "",
-                })
-              : t("enterprise.billing.negotiatedYearly", {
-                  note: view.priceNote ?? "",
-                })
-            : view.plan === "monthly"
-              ? t("enterprise.billing.monthly", {
-                  price: usd(language, MONTHLY_SEAT_USD),
-                })
-              : t("enterprise.billing.yearly", {
-                  price: usd(language, YEARLY_SEAT_USD),
-                })}
-        </p>
-        {view.plan === "yearly" && (
-          <p>
-            {t("enterprise.billing.renewal", {
-              date: day(language, renewalDate(start, now)),
-            })}
-          </p>
-        )}
-        <p>{t("enterprise.billing.invoices", { email: view.billingEmail })}</p>
-      </div>
+      <Billing t={t} language={language} view={view} start={start} now={now} />
       <div className="card">
         <h2>{t("enterprise.agreementCard.heading")}</h2>
         {view.signature ? (
@@ -449,6 +422,95 @@ export function EnterpriseAccount({
       </div>
       <p className="note">{t("enterprise.help", { email: HELP_EMAIL })}</p>
     </main>
+  );
+}
+
+function Billing({
+  t,
+  language,
+  view,
+  start,
+  now,
+}: {
+  t: T;
+  language: SupportedLanguageCode;
+  view: EnterpriseView;
+  start: number;
+  now: number;
+}) {
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Negotiated accounts are invoiced by an operator, not on Stripe's page.
+  const standard = view.kind === "standard";
+
+  async function openPortal() {
+    setBusy(true);
+    setRefusal(null);
+    const answer = await post("/api/enterprise/billing/portal", {});
+    // Also after a success: Back from Stripe's page can restore this page
+    // from the back/forward cache as it was.
+    setBusy(false);
+    if (answer?.ok && typeof answer.url === "string") {
+      window.location.assign(answer.url);
+      return;
+    }
+    setRefusal(t("enterprise.failed"));
+  }
+
+  return (
+    <div className="card" data-testid="enterprise-billing">
+      <h2>{t("enterprise.billing.heading")}</h2>
+      <p>
+        {view.kind === "negotiated"
+          ? view.plan === "monthly"
+            ? t("enterprise.billing.negotiatedMonthly", {
+                note: view.priceNote ?? "",
+              })
+            : t("enterprise.billing.negotiatedYearly", {
+                note: view.priceNote ?? "",
+              })
+          : view.plan === "monthly"
+            ? t("enterprise.billing.monthly", {
+                price: usd(language, MONTHLY_SEAT_USD),
+              })
+            : t("enterprise.billing.yearly", {
+                price: usd(language, YEARLY_SEAT_USD),
+              })}
+      </p>
+      {view.plan === "yearly" && (
+        <p>
+          {t("enterprise.billing.renewal", {
+            date: day(language, renewalDate(start, now)),
+          })}
+        </p>
+      )}
+      {standard && view.nextInvoice && (
+        <p data-testid="enterprise-next-invoice">
+          {view.nextInvoice.amountCents === null
+            ? t("enterprise.billing.nextIfAdded", {
+                date: day(language, view.nextInvoice.issuedAt),
+              })
+            : t("enterprise.billing.next", {
+                date: day(language, view.nextInvoice.issuedAt),
+                amount: usd(language, view.nextInvoice.amountCents / 100),
+              })}
+        </p>
+      )}
+      <p>{t("enterprise.billing.invoices", { email: view.billingEmail })}</p>
+      {standard && (
+        <p>
+          <button
+            type="button"
+            data-action="billing-portal"
+            disabled={busy}
+            onClick={() => void openPortal()}
+          >
+            {t("enterprise.billing.portal")}
+          </button>
+        </p>
+      )}
+      <Refusal text={refusal} />
+    </div>
   );
 }
 

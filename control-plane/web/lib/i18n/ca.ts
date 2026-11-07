@@ -511,6 +511,10 @@ export const ca: Catalog = {
     "{count} places, facturades al preu del teu acord.",
   "enterprise.billing.renewal": "L'any de contracte es renova el {date}.",
   "enterprise.billing.invoices": "Les factures arriben a {email}.",
+  "enterprise.billing.next": "Propera factura el {date}: {amount} fins ara.",
+  "enterprise.billing.nextIfAdded":
+    "Propera factura el {date}, només si s'hi afegeixen places abans.",
+  "enterprise.billing.portal": "Factures i pagament",
   "enterprise.agreementCard.heading": "Acord",
   "enterprise.agreementCard.signed": "Signat per {name}, {title}, el {date}.",
   "enterprise.agreementCard.negotiated": "Acord negociat registrat.",

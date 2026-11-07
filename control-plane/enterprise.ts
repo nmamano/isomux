@@ -19,7 +19,7 @@
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Store } from "./store.ts";
-import type { EnterprisePlan } from "./enterprise-billing.ts";
+import { nextInvoice, type EnterprisePlan } from "./enterprise-billing.ts";
 
 export type { EnterprisePlan };
 export type EnterpriseKind = "standard" | "negotiated";
@@ -81,6 +81,10 @@ export interface EnterpriseView {
   offices: EnterpriseOfficeView[];
   /** Null while a standard account is not signed. */
   secret: string | null;
+  /** A signed standard account's next invoice (enterprise-billing.ts
+   * nextInvoice): when, and its amount so far; null amount for a quarter with
+   * no seat added yet. Null for a negotiated or unsigned account. */
+  nextInvoice: { issuedAt: number; amountCents: number | null } | null;
 }
 
 interface AccountRow {
@@ -168,6 +172,21 @@ function audit(
     outcome: "succeeded",
     detail,
   });
+}
+
+/** One change of N, in the transaction that makes it (S4's history). */
+function recordSeatChange(
+  store: Store,
+  enterpriseId: string,
+  at: number,
+  from: number,
+  to: number,
+): Promise<unknown> {
+  return store.sqlRun(
+    "insert into enterprise_seat_changes (id, enterprise_id, at, from_seats, to_seats) " +
+      "values ($1, $2, $3, $4, $5)",
+    [randomUUID(), enterpriseId, at, from, to],
+  );
 }
 
 async function lockedAccountFor(
@@ -266,6 +285,32 @@ export async function enterpriseFor(
       [row.id],
     );
     const signed = isSigned(row);
+    let next: EnterpriseView["nextInvoice"] = null;
+    if (row.kind === "standard" && row.contract_start !== null) {
+      const history = await store.sqlAll<{
+        at: string | number;
+        from_seats: number;
+        to_seats: number;
+      }>(
+        "select at, from_seats, to_seats from enterprise_seat_changes " +
+          "where enterprise_id = $1 order by at, id",
+        [row.id],
+      );
+      const upcoming = nextInvoice(
+        row.plan,
+        Number(row.contract_start),
+        history.map((h) => ({
+          at: Number(h.at),
+          from: Number(h.from_seats),
+          to: Number(h.to_seats),
+        })),
+        store.now(),
+      );
+      next = {
+        issuedAt: upcoming.period.issuedAt,
+        amountCents: upcoming.amountCents,
+      };
+    }
     return {
       id: row.id,
       company: row.company,
@@ -295,6 +340,7 @@ export async function enterpriseFor(
       secret: signed
         ? enterpriseSecret(authSecret, row.id, row.secret_generation)
         : null,
+      nextInvoice: next,
     };
   });
 }
@@ -346,6 +392,7 @@ export async function createEnterprise(
       [id, accountId, company, billingEmail, input.plan, input.seats, now],
     );
     if (!made) return { ok: false, reason: "exists" };
+    await recordSeatChange(store, id, now, 0, input.seats);
     await audit(
       store,
       `account:${accountId}`,
@@ -459,6 +506,7 @@ export async function changeSeats(
         "updated_at = $3 where id = $1",
       [row.id, change.to, now],
     );
+    await recordSeatChange(store, row.id, now, seats, change.to);
     await audit(
       store,
       `account:${accountId}`,
@@ -652,6 +700,7 @@ export async function recordSeats(
           "updated_at = $3 where id = $1",
         [row.id, newSeats, now],
       );
+      await recordSeatChange(store, row.id, now, seats, newSeats);
       await audit(
         store,
         actor,
@@ -813,6 +862,7 @@ export async function createNegotiatedEnterprise(
       ],
     );
     if (!made) return { ok: false, reason: "exists" };
+    await recordSeatChange(store, id, now, 0, input.seats);
     await audit(
       store,
       "operator",

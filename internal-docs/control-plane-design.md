@@ -840,7 +840,10 @@ append-only hourly updates, and the hash of the one write key;
 storefront sign-in: company, plan, seat count, signer, secret generation; the
 offices that joined it through the seat service, keyed by account and the
 office's own id, with their member counts, last check-in and the name IT gives
-them; `control-plane/README.md`, "Enterprise accounts").
+them), `enterprise_seat_changes`, `enterprise_invoices` (every change of an
+account's seat count, and the invoice ledger: one row per account and billing
+period with its amount and its step in Stripe; `control-plane/README.md`,
+"Enterprise accounts").
 
 Attention is persisted, not derived: `attention_state`, `attention_reason`,
 `attention_severity`, `attention_raised_at`, `acknowledged_at`,

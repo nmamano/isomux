@@ -425,15 +425,23 @@ export async function migrateIncidentTables(
   }
 }
 
-/** Owner-role migration for the enterprise accounts (enterprise.ts): two new
- * tables. */
+/** Owner-role migration for the enterprise accounts (enterprise.ts): the
+ * tables, and one 0 -> N seat change at created_at for each account that has
+ * none. An account whose N changed before the history existed gets its current
+ * N as its first N. */
 export async function migrateEnterpriseTables(
   dsn: string,
   options: MigrationOptions = {},
 ): Promise<void> {
   const pool = await openPool(dsn, options);
   try {
-    await inTransaction(pool, dsn, [ENTERPRISE_DDL]);
+    await inTransaction(pool, dsn, [
+      ENTERPRISE_DDL,
+      "insert into enterprise_seat_changes (id, enterprise_id, at, from_seats, to_seats) " +
+        "select 'backfill-' || a.id, a.id, a.created_at, 0, a.seats " +
+        "from enterprise_accounts a where not exists " +
+        "(select 1 from enterprise_seat_changes c where c.enterprise_id = a.id)",
+    ]);
   } finally {
     await pool.end().catch(() => {});
   }

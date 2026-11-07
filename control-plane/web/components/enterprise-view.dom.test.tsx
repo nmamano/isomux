@@ -2,7 +2,8 @@
 // renames an office in place and removes one after a confirm in the card. The
 // card posts to /api/enterprise/offices/{rename,remove} and shows the result
 // without a reload: a removed office leaves the list and its members leave
-// the seat count in the Seats card.
+// the seat count in the Seats card. S4: the Billing card's next invoice and
+// its button to Stripe's customer portal (POST /api/enterprise/billing/portal).
 //
 // The rules and the routes are in control-plane/enterprise.test.ts and
 // control-plane/web-enterprise.test.ts.
@@ -11,7 +12,7 @@
 // rest of the suite shares this process and needs Bun's own globals. Every
 // module that touches the DOM is loaded after registration.
 
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, spyOn, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 GlobalRegistrator.register({
@@ -79,6 +80,7 @@ const VIEW: View = {
     { id: B, name: null, members: 10, joinedAt: T0, lastSeenAt: T0 },
   ],
   secret: `isx_ent_ent-00000000-0000-4000-8000-000000000000_mac`,
+  nextInvoice: { issuedAt: T0 + 30 * 86_400_000, amountCents: 125_000 },
 };
 
 let container: HTMLElement;
@@ -98,7 +100,7 @@ async function settle(): Promise<void> {
   });
 }
 
-async function render(): Promise<void> {
+async function render(view: View = VIEW): Promise<void> {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -106,7 +108,7 @@ async function render(): Promise<void> {
     root!.render(
       createElement(EnterpriseAccount, {
         language: "en",
-        view: VIEW,
+        view,
         now: T0,
         pdfPath: "/enterprise/agreement.pdf",
         maxSeats: 10_000,
@@ -229,4 +231,54 @@ test("cancelling a remove posts nothing and keeps the office", async () => {
   expect(posts).toEqual([]);
   expect(row(A)).not.toBeNull();
   expect(seatsCard()).toContain(seatLine(50, 30));
+});
+
+// ------------------------------------------------------------------ S4 billing
+
+function billing(): HTMLElement {
+  const card = container.querySelector('[data-testid="enterprise-billing"]');
+  if (!card) throw new Error("no billing card");
+  return card as HTMLElement;
+}
+
+test("Invoices and payment opens Stripe's portal at the URL the route gives; a refusal stays on the page and says so", async () => {
+  const assign = spyOn(window.location, "assign").mockImplementation(() => {});
+  try {
+    await render();
+    expect(
+      billing().querySelector('[data-testid="enterprise-next-invoice"]'),
+    ).not.toBeNull();
+    reply = () =>
+      Response.json({ ok: true, url: "https://billing.stripe.example/s/1" });
+    await click(action(billing(), "billing-portal"));
+    expect(posts).toEqual([
+      { url: "/api/enterprise/billing/portal", body: {} },
+    ]);
+    expect(assign.mock.calls).toEqual([["https://billing.stripe.example/s/1"]]);
+    expect(billing().querySelector('[role="alert"]')).toBeNull();
+
+    reply = () =>
+      Response.json({ ok: false, reason: "stripe" }, { status: 409 });
+    await click(action(billing(), "billing-portal"));
+    expect(posts).toHaveLength(2);
+    expect(assign.mock.calls).toHaveLength(1);
+    expect(billing().querySelector('[role="alert"]')).not.toBeNull();
+  } finally {
+    assign.mockRestore();
+  }
+});
+
+test("a negotiated account has no portal button and no next invoice: an operator invoices it", async () => {
+  await render({
+    ...VIEW,
+    kind: "negotiated",
+    priceNote: "custom",
+    signature: null,
+  });
+  // The enabling condition: the Billing card is there.
+  expect(billing().textContent?.length).toBeGreaterThan(0);
+  expect(billing().querySelector('[data-action="billing-portal"]')).toBeNull();
+  expect(
+    billing().querySelector('[data-testid="enterprise-next-invoice"]'),
+  ).toBeNull();
 });

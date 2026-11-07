@@ -418,6 +418,10 @@ export const zh: Catalog = {
     "{count} 个席位，按你协议中的价格开票。",
   "enterprise.billing.renewal": "合同年于 {date} 续约。",
   "enterprise.billing.invoices": "发票发送至 {email}。",
+  "enterprise.billing.next": "下一张发票：{date}，目前为 {amount}。",
+  "enterprise.billing.nextIfAdded":
+    "下一张发票：{date}，仅在此之前增加席位时开具。",
+  "enterprise.billing.portal": "发票与付款",
   "enterprise.agreementCard.heading": "协议",
   "enterprise.agreementCard.signed": "由 {name}（{title}）于 {date} 签署。",
   "enterprise.agreementCard.negotiated": "已登记协商协议。",

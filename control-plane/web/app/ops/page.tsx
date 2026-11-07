@@ -76,6 +76,27 @@ export default async function Ops() {
           ))}
         </ul>
       )}
+
+      <h2>Enterprise invoices held</h2>
+      {floor.enterpriseHeld.length === 0 ? (
+        <p className="note" data-testid="ops-enterprise-held-empty">
+          No enterprise invoice is held.
+        </p>
+      ) : (
+        <ul className="card rows" data-testid="ops-enterprise-held">
+          {floor.enterpriseHeld.map((item) => (
+            <li key={`${item.enterpriseId}-${item.period}`}>
+              {item.company} - {item.period} - $
+              {(item.amountCents / 100).toFixed(2)} - {item.reason}
+              {item.stripeInvoiceId ? ` - ${item.stripeInvoiceId}` : ""} -{" "}
+              <code>
+                enterprise-release or enterprise-invoiced --enterprise{" "}
+                {item.enterpriseId} --period {item.period}
+              </code>
+            </li>
+          ))}
+        </ul>
+      )}
     </main>
   );
 }

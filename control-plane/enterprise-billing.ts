@@ -123,7 +123,10 @@ export function quoteSeatChange(
     };
   }
   const added = Math.max(0, to - from);
-  const monthsLeft = monthsLeftInYear(start, now);
+  // In the free month, an added seat is in year 0's invoice at the trial's
+  // end, for the 11 paid months.
+  const trial = contractMonthIndex(start, now) === 0;
+  const monthsLeft = trial ? 11 : monthsLeftInYear(start, now);
   return {
     plan,
     from,
@@ -131,6 +134,217 @@ export function quoteSeatChange(
     added,
     monthsLeft,
     amountUsd: added * ADDED_SEAT_MONTH_USD * monthsLeft,
-    invoicedAt: contractQuarterEnd(start, now),
+    invoicedAt: trial
+      ? addContractMonths(start, 1)
+      : contractQuarterEnd(start, now),
   };
+}
+
+// ------------------------------------------------------------- invoices (S4)
+//
+// The billing calendar the invoice pass (enterprise-invoices.ts) and the
+// account page both read. Contract month 0 is the free trial on both plans.
+// Monthly: period mK (K >= 1) is contract month K, invoiced at its end for the
+// highest N during it. Yearly: y0, at the end of the trial, bills N then for the
+// 11 paid months of year 0; yY (Y >= 1), at the year's start, bills N then for
+// the year; yYqQ, at the end of quarter Q of year Y, bills each seat added in
+// that quarter from the month it was added to the end of the year.
+//
+// N at t is the to_seats of the last change at or before t. A change at
+// exactly a period edge belongs to the period that starts there; a yearly
+// increase at exactly the trial end or a year start is billed by y0 / yY, not
+// by a quarter.
+
+/** One change of N (enterprise_seat_changes). */
+export interface SeatChange {
+  at: number;
+  from: number;
+  to: number;
+}
+
+export interface BillingPeriod {
+  /** "m5", "y0", "y1", "y1q2": the ledger key. */
+  id: string;
+  /** The window the amount covers: [start, end). */
+  start: number;
+  end: number;
+  /** When it is invoiced. */
+  issuedAt: number;
+}
+
+export interface PeriodCharge {
+  amountCents: number;
+  /** One line per charge, for the invoice description and the ledger. */
+  lines: string[];
+}
+
+/** Stripe's largest USD amount for a payment method other than a card
+ * (8 digits, docs.stripe.com/currencies, 2026-11-07). An invoice paid by
+ * bank transfer cannot be larger. */
+export const MAX_INVOICE_CENTS = 99_999_999;
+
+/** A period is invoiced this long after it ends, so a seat change whose
+ * transaction started before the edge has committed. */
+export const INVOICE_GRACE_MS = 10 * 60_000;
+
+/** N in effect at `t`. */
+export function seatsAt(history: readonly SeatChange[], t: number): number {
+  let last = -Infinity;
+  for (const c of history) if (c.at <= t && c.at > last) last = c.at;
+  const tied = history.filter((c) => c.at === last);
+  if (tied.length === 0) return 0;
+  // Changes in one millisecond (a change and a raise under one row lock) are
+  // a chain: N is the `to` that no other change starts from.
+  const ends = tied.filter(
+    (c) => !tied.some((d) => d !== c && d.from === c.to),
+  );
+  return (ends.length === 1 ? ends[0] : tied[tied.length - 1]).to;
+}
+
+/** Every period issued at or before `until`, oldest first. */
+function periodsUntil(
+  plan: EnterprisePlan,
+  start: number,
+  until: number,
+): BillingPeriod[] {
+  const M = (k: number) => addContractMonths(start, k);
+  const out: BillingPeriod[] = [];
+  if (plan === "monthly") {
+    for (let k = 1; M(k + 1) <= until; k++) {
+      out.push({ id: `m${k}`, start: M(k), end: M(k + 1), issuedAt: M(k + 1) });
+    }
+    return out;
+  }
+  for (let y = 0; ; y++) {
+    const yearIssued = y === 0 ? M(1) : M(12 * y);
+    if (yearIssued > until) break;
+    out.push({
+      id: `y${y}`,
+      start: y === 0 ? M(1) : M(12 * y),
+      end: M(12 * y + 12),
+      issuedAt: yearIssued,
+    });
+    for (let q = 0; q < 4; q++) {
+      const end = M(12 * y + 3 * q + 3);
+      if (end > until) break;
+      out.push({
+        id: `y${y}q${q}`,
+        start: M(12 * y + 3 * q),
+        end,
+        issuedAt: end,
+      });
+    }
+  }
+  // A quarter's end can be the next year's start: the older window first.
+  return out.sort((a, b) => a.issuedAt - b.issuedAt || a.start - b.start);
+}
+
+/** The periods issued by `now - INVOICE_GRACE_MS`, oldest first, from the
+ * contract start on, whether or not they carry an amount. */
+export function billingPeriodsDue(
+  plan: EnterprisePlan,
+  start: number,
+  now: number,
+): BillingPeriod[] {
+  return periodsUntil(plan, start, now - INVOICE_GRACE_MS);
+}
+
+function day(t: number): string {
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+function seatWord(n: number): string {
+  return n === 1 ? "1 seat" : `${n} seats`;
+}
+
+function monthWord(n: number): string {
+  return n === 1 ? "1 month" : `${n} months`;
+}
+
+/** What a period bills, or null when it bills nothing (a quarter with no
+ * increase). */
+export function periodCharge(
+  plan: EnterprisePlan,
+  start: number,
+  history: readonly SeatChange[],
+  period: BillingPeriod,
+): PeriodCharge | null {
+  const window = `${day(period.start)} to ${day(period.end)}`;
+  if (plan === "monthly") {
+    let highest = seatsAt(history, period.start);
+    for (const c of history) {
+      if (c.at > period.start && c.at < period.end && c.to > highest)
+        highest = c.to;
+    }
+    return {
+      amountCents: highest * MONTHLY_SEAT_USD * 100,
+      lines: [
+        `${seatWord(highest)} x $${MONTHLY_SEAT_USD}, highest seat count of ${window}`,
+      ],
+    };
+  }
+  const quarter = /^y(\d+)q\d$/.exec(period.id);
+  if (!quarter) {
+    const n = seatsAt(history, period.start);
+    if (period.id === "y0") {
+      const paid = 11;
+      return {
+        amountCents: n * ADDED_SEAT_MONTH_USD * paid * 100,
+        lines: [
+          `${seatWord(n)} x $${ADDED_SEAT_MONTH_USD} x ${monthWord(paid)}, ${window} (the first month was free)`,
+        ],
+      };
+    }
+    return {
+      amountCents: n * YEARLY_SEAT_USD * 100,
+      lines: [`${seatWord(n)} x $${YEARLY_SEAT_USD}, ${window}`],
+    };
+  }
+  // Seats added in the quarter. y0 and yY bill N at their own start, so a
+  // change at or before it is not the quarter's.
+  const year = Number(quarter[1]);
+  const billedUpTo =
+    year === 0
+      ? addContractMonths(start, 1)
+      : addContractMonths(start, 12 * year);
+  let cents = 0;
+  const lines: string[] = [];
+  for (const c of [...history].sort((a, b) => a.at - b.at)) {
+    if (c.at < period.start || c.at >= period.end || c.at <= billedUpTo)
+      continue;
+    const added = c.to - c.from;
+    if (added <= 0) continue;
+    const months = monthsLeftInYear(start, c.at);
+    cents += added * ADDED_SEAT_MONTH_USD * months * 100;
+    lines.push(
+      `${seatWord(added)} added on ${day(c.at)} x $${ADDED_SEAT_MONTH_USD} x ${monthWord(months)}`,
+    );
+  }
+  return cents > 0 ? { amountCents: cents, lines } : null;
+}
+
+/** The next invoice for the account page: when, and what it bills so far
+ * (null amount when nothing is due yet, a quarter with no increase). The
+ * periods issued at the same moment (a quarter's end and the next year's
+ * start) add up. */
+export function nextInvoice(
+  plan: EnterprisePlan,
+  start: number,
+  history: readonly SeatChange[],
+  now: number,
+): { period: BillingPeriod; amountCents: number | null } {
+  const sofar = history.filter((c) => c.at <= now);
+  const upcoming = periodsUntil(
+    plan,
+    start,
+    addContractMonths(Math.max(now, start), 13),
+  ).filter((p) => p.issuedAt > now);
+  const first = upcoming[0];
+  const same = upcoming.filter((p) => p.issuedAt === first.issuedAt);
+  let amountCents: number | null = null;
+  for (const p of same) {
+    const c = periodCharge(plan, start, sofar, p);
+    if (c) amountCents = (amountCents ?? 0) + c.amountCents;
+  }
+  return { period: first, amountCents };
 }

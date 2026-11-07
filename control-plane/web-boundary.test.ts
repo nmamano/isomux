@@ -83,6 +83,7 @@ describe("only one file reaches the store", () => {
       "createEnterpriseFor",
       "emailChangeRefusalFor",
       "enterpriseAccountFor",
+      "enterprisePortalFor",
       "identityForSignIn",
       "incidentsForKey",
       "officeRouteForAccount",
@@ -191,6 +192,8 @@ describe("only one file reaches the store", () => {
       // Enterprise accounts: every verb takes the signed-in account id and
       // reads that account's row only.
       "../../enterprise",
+      // Enterprise invoices: the portal session takes the signed-in account id.
+      "../../enterprise-invoices",
     ]);
     for (const specifier of specifiers) {
       expect([specifier, allowed.has(specifier)]).toEqual([specifier, true]);

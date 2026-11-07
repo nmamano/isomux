@@ -1589,3 +1589,24 @@ export async function removeOfficeFor(
   const { removeOffice } = await import("../../enterprise");
   return withStore((store) => removeOffice(store, accountId, change));
 }
+
+/** The Stripe customer portal for the account's IT, coming back to
+ * `returnPath` on this deployment. */
+export async function enterprisePortalFor(
+  accountId: string,
+  returnPath: string,
+): Promise<
+  | { ok: true; url: string }
+  | { ok: false; reason: "no_account" | "not_signed" | "negotiated" | "stripe" }
+> {
+  const [{ StripeClient }, { enterprisePortalUrl }] = await Promise.all([
+    import("../../stripe/client"),
+    import("../../enterprise-invoices"),
+  ]);
+  const client = new StripeClient(await stripeRuntime());
+  const origin = deploymentOrigin();
+  if (!origin) throw new Error("AUTH_URL is not set");
+  return withStore((store) =>
+    enterprisePortalUrl(store, client, accountId, `${origin}${returnPath}`),
+  );
+}

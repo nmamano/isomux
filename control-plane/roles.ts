@@ -318,6 +318,18 @@ export const WEB_GRANTS: readonly TableGrant[] = [
       "an office joins and reports its members through the seat service, and IT renames " +
       "and removes an office",
   },
+  {
+    table: "enterprise_seat_changes",
+    verbs: ["select", "insert"],
+    because:
+      "every change of the seat count is recorded where it is made, and the account page " +
+      "shows the next invoice from that history",
+  },
+  {
+    table: "enterprise_invoices",
+    verbs: ["select"],
+    because: "the ops floor lists the enterprise invoices held for an operator",
+  },
 ];
 
 /**
@@ -460,6 +472,24 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
     because:
       "the paid-create latch records each office's first paid checkout with its signup source; " +
       "its on conflict (subscription_id) arbiter needs SELECT on the key",
+  },
+  {
+    table: "enterprise_accounts",
+    verbs: ["select", "update"],
+    because:
+      "the enterprise invoice pass reads the signed accounts, stores the Stripe customer " +
+      "it makes and when to look at the account again",
+  },
+  {
+    table: "enterprise_seat_changes",
+    verbs: ["select"],
+    because: "an invoice's amount comes from the history of the seat count",
+  },
+  {
+    table: "enterprise_invoices",
+    verbs: ["select", "insert", "update"],
+    because:
+      "the invoice pass claims each due period with its amount and records each step in Stripe",
   },
 ];
 
@@ -722,6 +752,42 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
       "provisioning-start.ts startProvisioningIn -> recordFirstPaidCheckout " +
       "(insert ... on conflict do nothing), from the webhook, the poll and the sweep",
   },
+  {
+    table: "enterprise_accounts",
+    verb: "select",
+    via:
+      "enterprise-invoices.ts invoiceEnterprises lists the signed standard accounts, " +
+      "ensureEnterpriseCustomer reads one; store.workSchedule asks whether one is due",
+  },
+  {
+    table: "enterprise_accounts",
+    verb: "update",
+    via:
+      "enterprise-invoices.ts ensureEnterpriseCustomer stores stripe_customer_id; " +
+      "invoiceEnterprises sets next_invoice_at",
+  },
+  {
+    table: "enterprise_seat_changes",
+    verb: "select",
+    via: "enterprise-invoices.ts invoiceEnterprises -> historyOf",
+  },
+  {
+    table: "enterprise_invoices",
+    verb: "select",
+    via:
+      "enterprise-invoices.ts invoiceEnterprises -> claim reads the period's row, and the " +
+      "on conflict (enterprise_id, period) arbiter reads the key",
+  },
+  {
+    table: "enterprise_invoices",
+    verb: "insert",
+    via: "enterprise-invoices.ts invoiceEnterprises -> claim (insert ... on conflict do nothing)",
+  },
+  {
+    table: "enterprise_invoices",
+    verb: "update",
+    via: "enterprise-invoices.ts invoiceEnterprises: the Stripe invoice id, finalized, sent, held",
+  },
 ];
 
 /**
@@ -916,7 +982,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
       "on conflict (account_id) arbiter reads the key; enterprise:signAgreement, " +
       "enterprise:changeSeats and enterprise:renewSecret read the row for update; " +
       "enterprise:recordSeats reads the row by id (the secret check), then for update, " +
-      "and enterprise:renameOffice and enterprise:removeOffice lock it",
+      "and enterprise:renameOffice and enterprise:removeOffice lock it; " +
+      "enterprise-invoices:enterprisePortalUrl and its ensureEnterpriseCustomer read the account",
   },
   {
     table: "enterprise_accounts",
@@ -929,7 +996,8 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     via:
       "enterprise:signAgreement, enterprise:changeSeats, enterprise:renewSecret and " +
       "enterprise:recordSeats (a check-in over N raises it) " +
-      "update the row they lock with select ... for update",
+      "update the row they lock with select ... for update; " +
+      "enterprise-invoices:enterprisePortalUrl stores the Stripe customer it makes",
   },
   {
     table: "enterprise_offices",
@@ -1065,6 +1133,23 @@ export const WEB_REACHABLE: readonly ReachableVerb[] = [
     columns: ["key_hash", "rotated_at", "rotated_by", "version", "updated_at"],
     via: "incidents:rotateIncidentKey",
   },
+  {
+    table: "enterprise_seat_changes",
+    verb: "select",
+    via: "enterprise:enterpriseFor reads the history for the next invoice",
+  },
+  {
+    table: "enterprise_seat_changes",
+    verb: "insert",
+    via:
+      "enterprise:createEnterprise, enterprise:changeSeats and enterprise:recordSeats " +
+      "(the raise) record each change of N",
+  },
+  {
+    table: "enterprise_invoices",
+    verb: "select",
+    via: "ops:opsFloor -> enterprise-invoices:heldEnterpriseInvoices",
+  },
 ];
 
 /**
@@ -1105,6 +1190,7 @@ export const AUDITED_WEB_SURFACES: Readonly<Record<string, readonly string[]>> =
       "renewSecret",
       "signAgreement",
     ],
+    "enterprise-invoices": ["enterprisePortalUrl"],
     "enterprise-billing": [
       "ADDED_SEAT_MONTH_USD",
       "MONTHLY_SEAT_USD",
@@ -1359,6 +1445,11 @@ export const AUDITED_CMDRUN_SURFACES = [
   // read from the environment.
   "watchWelcomeMail",
   "welcomeMailConfigured",
+  // The enterprise invoice pass (enterprise-invoices.ts), in its own guard
+  // like the passes above, on the webhook's Stripe client.
+  "invoiceEnterprises",
+  // The pass's clock. No table.
+  "store.now",
   "exitCodeFor",
 ] as const;
 

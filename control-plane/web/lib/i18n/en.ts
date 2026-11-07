@@ -531,6 +531,10 @@ export const en = {
     "{count} seats, invoiced at the price in your agreement.",
   "enterprise.billing.renewal": "The contract year renews on {date}.",
   "enterprise.billing.invoices": "Invoices go to {email}.",
+  "enterprise.billing.next": "Next invoice on {date}: {amount} so far.",
+  "enterprise.billing.nextIfAdded":
+    "Next invoice on {date}, only if seats are added before then.",
+  "enterprise.billing.portal": "Invoices and payment",
 
   "enterprise.agreementCard.heading": "Agreement",
   "enterprise.agreementCard.signed": "Signed by {name}, {title}, on {date}.",

@@ -26,6 +26,10 @@
 // written for, and a floor that showed only "a step needs a person" would be a
 // pager with the message removed.
 
+import {
+  heldEnterpriseInvoices,
+  type HeldEnterpriseInvoice,
+} from "./enterprise-invoices.ts";
 import { acknowledgeAttentionIn } from "./attention-ack.ts";
 import { isOperator } from "./operator.ts";
 import type {
@@ -76,6 +80,8 @@ export interface OpsFloor {
   /** Live operations past their ABSOLUTE ceiling. The design's alerting floor
    * names this one specifically. */
   overdue: OpsOperationItem[];
+  /** Enterprise invoices the pass held for an operator (enterprise-invoices.ts). */
+  enterpriseHeld: HeldEnterpriseInvoice[];
 }
 
 export interface OpsInstanceView {
@@ -126,7 +132,8 @@ async function floorIn(
     (a, b) => rank(b.severity) - rank(a.severity) || a.raisedAt - b.raisedAt,
   );
   overdue.sort((a, b) => b.overdueMs - a.overdueMs);
-  return { now, attention, overdue };
+  const enterpriseHeld = await heldEnterpriseInvoices(store);
+  return { now, attention, overdue, enterpriseHeld };
 }
 
 /** One office in full: its attention, its operations and its audit trail. */

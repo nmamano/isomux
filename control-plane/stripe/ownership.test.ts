@@ -73,6 +73,7 @@ describe("Stripe writes", () => {
     expect(productionStripePostCallers()).toEqual([
       "billing-cli.ts",
       "cancel.ts",
+      "enterprise-invoices.ts",
       "reinstatement-operations.ts",
       "stripe/checkout.ts",
       "stripe/customer-email.ts",
