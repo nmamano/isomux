@@ -1,6 +1,6 @@
-// Enterprise seats routes (opIds office.enterprise.*): the Settings -> Enterprise
-// section's reads and writes over server/enterprise-seats.ts. Owner-only by
-// the route table. No route returns or logs the secret.
+// Enterprise seats routes (opIds office.enterprise.*): the Settings -> Office ->
+// Enterprise section's reads and writes over server/enterprise-seats.ts.
+// Owner-only by the route table. No route returns or logs the secret.
 
 import {
   fail,
@@ -52,7 +52,7 @@ export function enterpriseRefusalMessage(
     case "rate_limited":
       return "Too many seat requests. Try again in a minute.";
     case "secret_needed":
-      return "Paste the enterprise secret in Settings -> Enterprise before you add members.";
+      return "Paste the enterprise secret in Settings -> Office -> Enterprise before you add members.";
     case "bad_request":
       return "The seat service could not read the office's request.";
     case "unreachable":

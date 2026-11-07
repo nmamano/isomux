@@ -524,7 +524,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to t
   "settings.sidebar.housekeeping": "Housekeeping",
   "settings.sidebar.updates": "Updates",
   "settings.sidebar.enterprise": "Enterprise",
-  "settings.sidebar.enterpriseContract": "Enterprise Contract",
   "settings.sidebar.profile": "Profile",
   "settings.sidebar.apiTokens": "API tokens",
   "settings.sidebar.signInLinks": "Sign-in links",

@@ -411,7 +411,7 @@ The lobby elevator links to other Isomux offices. Each office answers a public c
 
 ### 8.12 Enterprise seats
 
-An office whose owner checks "This office is part of an Enterprise Contract" in Settings -> Enterprise and pastes the company's enterprise secret asks the seat service at `cloud.isomux.com` for a seat before each member add.
+An office whose owner checks "This office is part of an Enterprise Contract" in Settings -> Office -> Enterprise and pastes the company's enterprise secret asks the seat service at `cloud.isomux.com` for a seat before each member add.
 
 - **What leaves the office.** A random office id (32 hex characters, made once per office) and the office's member count. No names, emails, agents or content. The secret goes in the `Authorization` header.
 - **When.** Before each member add (a created member, a restore from Removed members, a legacy new-member invite), after each removal, a few seconds after boot and then every hour, and once with a count of 0 when an owner turns the box off.

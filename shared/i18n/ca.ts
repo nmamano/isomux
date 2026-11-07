@@ -515,7 +515,6 @@ Coses que pots fer per ell:
   "settings.sidebar.housekeeping": "Manteniment",
   "settings.sidebar.updates": "Actualitzacions",
   "settings.sidebar.enterprise": "Enterprise",
-  "settings.sidebar.enterpriseContract": "Contracte Enterprise",
   "settings.sidebar.profile": "Perfil",
   "settings.sidebar.apiTokens": "Tokens d'API",
   "settings.sidebar.signInLinks": "Enllaços d'inici de sessió",

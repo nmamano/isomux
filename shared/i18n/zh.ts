@@ -485,7 +485,6 @@ App 的一些原则：
   "settings.sidebar.housekeeping": "维护",
   "settings.sidebar.updates": "更新",
   "settings.sidebar.enterprise": "企业",
-  "settings.sidebar.enterpriseContract": "企业合同",
   "settings.sidebar.profile": "个人资料",
   "settings.sidebar.apiTokens": "API 令牌",
   "settings.sidebar.signInLinks": "登录链接",

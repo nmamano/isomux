@@ -516,7 +516,6 @@ Cosas que puedes hacer por él:
   "settings.sidebar.housekeeping": "Mantenimiento",
   "settings.sidebar.updates": "Actualizaciones",
   "settings.sidebar.enterprise": "Enterprise",
-  "settings.sidebar.enterpriseContract": "Contrato Enterprise",
   "settings.sidebar.profile": "Perfil",
   "settings.sidebar.apiTokens": "Tokens de API",
   "settings.sidebar.signInLinks": "Enlaces de inicio de sesión",

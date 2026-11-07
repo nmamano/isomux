@@ -1,5 +1,5 @@
-// Settings -> Enterprise (task 8b80e61f; its own group since task f1304a60):
-// the Enterprise Contract box, the secret input and the seat service's
+// Settings -> Office -> Enterprise (task 8b80e61f; its own row since task
+// ce8878c8): the Enterprise Contract box, the secret input and the seat service's
 // answer. Owner-only. The server decides the lock and keeps the secret: this
 // section never reads it back.
 import { useEffect, useState, type FormEvent } from "react";
@@ -61,7 +61,7 @@ export function EnterprisePane() {
   const { t } = useI18n();
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>{t("settings.sidebar.enterpriseContract")}</h4>
+      <h4 style={sectionHeader}>{t("settings.sidebar.enterprise")}</h4>
       <EnterpriseContractSection />
     </div>
   );

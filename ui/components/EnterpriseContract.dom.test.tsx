@@ -1,5 +1,5 @@
-// The Enterprise Contract box in Settings -> Enterprise (tasks 8b80e61f and
-// f1304a60). The box and the secret live here only: the office stays usable
+// The Enterprise Contract box in Settings -> Office -> Enterprise (tasks
+// 8b80e61f, f1304a60 and ce8878c8). The box and the secret live here only: the office stays usable
 // while it is locked, and the server refuses messages to agents instead.
 import { afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -98,7 +98,7 @@ const passwordInput = () =>
   document.body.querySelector<HTMLInputElement>('input[type="password"]');
 const settle = () => act(async () => {});
 
-describe("Settings -> Enterprise", () => {
+describe("Settings -> Office -> Enterprise", () => {
   it("turns the box on and then asks for the secret", async () => {
     const calls = serve(VIEW_OFF, (call) =>
       call.method === "PUT" ? Promise.resolve(VIEW_LOCKED) : undefined,

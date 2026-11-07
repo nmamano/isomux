@@ -1,8 +1,8 @@
-// Nil at sign-off (task f1304a60): the Enterprise Contract box leaves the
-// Office pane for its own group in the Settings sidebar, right after the
-// Office group, owners only. The UI has no Hosted flag, so the group shows
-// when the setting says it is available, and when the setting cannot be read
-// (the section offers a retry).
+// Nil at sign-off (tasks f1304a60 and ce8878c8): the Enterprise Contract box
+// has its own row, Enterprise, in the Office group of the Settings sidebar,
+// owners only, and no group of its own. The UI has no Hosted flag, so the row
+// shows when the setting says it is available, and when the setting cannot be
+// read (the section offers a retry).
 
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
@@ -95,26 +95,30 @@ function row(view: View, label: string): HTMLElement | null {
 const before = (a: Element, b: Element) =>
   (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
-const groupHeader = (view: View) =>
-  view.queryAllByText(t("settings.sidebar.enterprise"))[0] ?? null;
-const contractRow = (view: View) =>
-  row(view, t("settings.sidebar.enterpriseContract"));
+// Every element whose whole text is the Enterprise label, outside hidden
+// copies: the row, and the pane header once the row is open.
+const enterpriseTexts = (view: View) =>
+  view
+    .queryAllByText(t("settings.sidebar.enterprise"))
+    .filter((el) => !el.closest('[aria-hidden="true"]'));
+const enterpriseRow = (view: View) =>
+  row(view, t("settings.sidebar.enterprise"));
 const enterpriseBox = (view: View) =>
   view.queryByLabelText(t("settings.office.enterprise.label"));
 
-describe("the Enterprise group", () => {
-  it("sits right after the Office group for an owner, and its row opens the Enterprise Contract box", async () => {
+describe("the Enterprise row", () => {
+  it("sits in the Office group for an owner, with no group of its own, and opens the Enterprise Contract box", async () => {
     enterprise = { available: true };
     const view = await mount();
-    const header = groupHeader(view);
-    const r = contractRow(view);
-    expect(header).not.toBeNull();
+    const r = enterpriseRow(view);
     expect(r).not.toBeNull();
-    // After the Office group's last row, before the You group's first row.
-    expect(before(row(view, t("settings.sidebar.updates"))!, header!)).toBe(
-      true,
-    );
-    expect(before(r!, row(view, t("settings.sidebar.profile"))!)).toBe(true);
+    // Between two Office rows, so no group header comes before it.
+    expect(before(row(view, t("settings.sidebar.invites"))!, r!)).toBe(true);
+    expect(before(r!, row(view, t("settings.sidebar.updates"))!)).toBe(true);
+    // The row is the only Enterprise text: no group header names it.
+    const texts = enterpriseTexts(view);
+    expect(texts).toHaveLength(1);
+    expect(texts[0]!.closest("button") === r).toBe(true);
 
     expect(enterpriseBox(view)).toBeNull();
     await act(async () => {
@@ -123,6 +127,10 @@ describe("the Enterprise group", () => {
     });
     expect(r!.getAttribute("aria-current")).toBe("true");
     expect(enterpriseBox(view)).not.toBeNull();
+    // The pane's header is the row's label, as for every other pane.
+    expect(
+      enterpriseTexts(view).filter((el) => el.closest("button") === null),
+    ).toHaveLength(1);
   });
 
   it("is gone from the Office pane", async () => {
@@ -138,7 +146,7 @@ describe("the Enterprise group", () => {
 
   it("shows when the setting cannot be read", async () => {
     const view = await mount();
-    expect(contractRow(view)).not.toBeNull();
+    expect(enterpriseRow(view)).not.toBeNull();
   });
 
   it("does not show where the setting is not available (Hosted) or for a member", async () => {
@@ -146,14 +154,12 @@ describe("the Enterprise group", () => {
     const hosted = await mount();
     // The sidebar drew: the Office group is there.
     expect(row(hosted, t("settings.sidebar.updates"))).not.toBeNull();
-    expect(groupHeader(hosted)).toBeNull();
-    expect(contractRow(hosted)).toBeNull();
+    expect(enterpriseTexts(hosted)).toHaveLength(0);
     hosted.unmount();
 
     enterprise = { available: true };
     const member = await mount({}, "member");
     expect(row(member, t("settings.sidebar.usage"))).not.toBeNull();
-    expect(groupHeader(member)).toBeNull();
-    expect(contractRow(member)).toBeNull();
+    expect(enterpriseTexts(member)).toHaveLength(0);
   });
 });

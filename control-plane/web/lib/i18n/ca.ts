@@ -489,7 +489,7 @@ export const ca: Catalog = {
     "Aquesta oficina ja no és al compte. Torna a carregar la pàgina.",
   "enterprise.secret.heading": "Secret",
   "enterprise.secret.lead":
-    "Enganxa aquest secret a Configuració → Enterprise de cadascuna de les teves oficines d'Isomux. Mantén-lo en privat.",
+    "Enganxa aquest secret a Configuració → Oficina → Enterprise de cadascuna de les teves oficines d'Isomux. Mantén-lo en privat.",
   "enterprise.secret.show": "Mostra",
   "enterprise.secret.hide": "Amaga",
   "enterprise.secret.copy": "Copia",

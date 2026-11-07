@@ -46,12 +46,7 @@ import {
   type GhostVariant,
 } from "../../shared/avatar.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
-import {
-  BriefcaseIcon,
-  BuildingIcon,
-  DeviceIcon,
-  UserIcon,
-} from "./NavIcons.tsx";
+import { BuildingIcon, DeviceIcon, UserIcon } from "./NavIcons.tsx";
 import {
   EnterprisePane,
   useEnterpriseAvailable,
@@ -450,26 +445,13 @@ export function UserSettingsView({
                   sectionRow("invites", t("settings.sidebar.invites")),
                 ]
               : []),
+            // The Enterprise Contract box, owners only and never on Hosted.
+            ...(isOwner && enterpriseAvailable
+              ? [sectionRow("enterprise", t("settings.sidebar.enterprise"))]
+              : []),
             sectionRow("updates", t("settings.sidebar.updates")),
           ],
         },
-        // The Enterprise Contract box, owners only and never on Hosted (Nil,
-        // 2026-11-07: its own category, not a row of Office).
-        ...(isOwner && enterpriseAvailable
-          ? [
-              {
-                id: "enterprise",
-                label: t("settings.sidebar.enterprise"),
-                icon: BriefcaseIcon,
-                rows: [
-                  sectionRow(
-                    "enterprise",
-                    t("settings.sidebar.enterpriseContract"),
-                  ),
-                ],
-              },
-            ]
-          : []),
         {
           id: "you",
           label: t("common.you"),
