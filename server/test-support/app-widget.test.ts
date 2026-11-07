@@ -286,6 +286,25 @@ it("serves the wrapper only to a member who can see the app, and reads the app o
   expect(seen).toHaveLength(2);
 });
 
+// The office page loads images only from itself (office-csp.test.ts). The
+// wrapper also shows the app's icon, from the app's own host and from no
+// other (task 16f6b48c).
+it("lets the wrapper load the app's own icon and no other outside image", async () => {
+  const { srv, rawSessionId } = await anOfficeWithAnApp((s) => {
+    server = s;
+  });
+  upstream = startApp(appRegistry.get("hello")!.port, []);
+  const wrapper = await navigate(srv.port, "/hello/", rawSessionId);
+  expect(wrapper.status).toBe(200);
+  const directives = wrapper.headers["content-security-policy"].split(/;\s*/);
+  expect(directives.filter((d) => d.startsWith("img-src"))).toEqual([
+    "img-src 'self' data: blob: https://hello.office.example",
+  ]);
+  expect(await elements(wrapper.body, 'link[rel="icon"]', ["href"])).toEqual([
+    { href: "https://hello.office.example/icon.png" },
+  ]);
+});
+
 // Install as app (task 8a07aa4e). Chrome installs a page only through the
 // manifest it links, and it fetches that manifest without cookies unless the
 // link says crossorigin="use-credentials". The manifest's scope is /<app>/, so

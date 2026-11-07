@@ -6,7 +6,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import { Marked, Renderer } from "marked";
+import { Marked, Renderer, type Token } from "marked";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { markedHighlight } from "marked-highlight";
@@ -31,7 +31,13 @@ import {
   escapeText,
   sanitizeSvg,
 } from "./svg-sanitize.ts";
-import { decodeEntities, safeUrl, sanitizeHtml } from "./html-sanitize.ts";
+import {
+  decodeEntities,
+  imageHtml,
+  linkNesting,
+  safeUrl,
+  sanitizeHtml,
+} from "./html-sanitize.ts";
 import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
 import { AskRefs, askChipSuffix, askChipTitle } from "./ask-refs.tsx";
 
@@ -80,6 +86,31 @@ marked.setOptions({
   gfm: true,
 });
 
+// Alt text is plain text. Each token reads as marked's text renderer reads
+// it; an extension token (math, a task id), whose renderer would draw
+// markup, reads as its source.
+const ALT_TEXT_TOKENS = new Set([
+  "text",
+  "escape",
+  "codespan",
+  "html",
+  "strong",
+  "em",
+  "del",
+  "link",
+  "image",
+]);
+function altText(tokens: Token[]): string {
+  return tokens
+    .map((token) => {
+      if (token.type === "br") return "";
+      if (ALT_TEXT_TOKENS.has(token.type) && "text" in token)
+        return String(token.text);
+      return token.raw;
+    })
+    .join("");
+}
+
 // Raw HTML and link text can carry outside text, so both go through
 // html-sanitize.ts: the link text renders from its inline tokens, and a link
 // whose scheme is not allowed renders as its text alone.
@@ -101,13 +132,30 @@ marked.use({
         ? sanitizeHtml(token.text)
         : false,
     link({ href, title, tokens }) {
-      const text = this.parser.parseInline(tokens);
+      linkNesting.open();
+      let text: string;
+      try {
+        text = this.parser.parseInline(tokens);
+      } finally {
+        linkNesting.close();
+      }
       const url = safeUrl(decodeEntities(href), "href");
       if (url === null) return text;
       const titleAttr = title
         ? ` title="${escapeAttrValue(decodeEntities(title))}"`
         : "";
       return `<a href="${escapeAttrValue(url)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+    },
+    // An outside image shows as a link (html-sanitize.ts). Unlike raw HTML,
+    // a Markdown image may also be inline data.
+    image({ href, title, text, tokens }) {
+      const alt = decodeEntities(tokens ? altText(tokens) : text);
+      const decoded = decodeEntities(href).trim();
+      const src = /^(?:data:image\/|blob:)/i.test(decoded)
+        ? decoded
+        : safeUrl(decoded, "src");
+      if (src === null) return escapeText(alt);
+      return imageHtml(src, alt, title ? decodeEntities(title) : undefined);
     },
   },
 });
@@ -401,6 +449,7 @@ export function dollarMath(markdown: string): string[] {
 // translator is the first argument because this builds strings during render
 // and is not a component (internal-docs/i18n-loop.md, ruling 18).
 export function renderMarkdown(i18n: Translator, content: string): string {
+  linkNesting.reset();
   try {
     const raw = marked.parse(content) as string;
     // Wrap Markdown code blocks in a container so the copy button stays fixed
@@ -413,6 +462,8 @@ export function renderMarkdown(i18n: Translator, content: string): string {
     );
   } catch {
     return escapeText(content);
+  } finally {
+    linkNesting.reset();
   }
 }
 

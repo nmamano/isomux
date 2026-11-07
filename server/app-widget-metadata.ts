@@ -30,11 +30,15 @@ function fallback(app: AppRecord): WidgetMetadata {
   };
 }
 
-function iconUrl(href: string, base: string): string | null {
+// An icon loads with no click, so an https one must come from the app's own
+// origin, judged after <base href>: the app's page, which an agent may write,
+// could otherwise send data out through the icon's URL (task 16f6b48c). The
+// wrapper's CSP adds only that origin to img-src.
+function iconUrl(href: string, base: string, origin: string): string | null {
   try {
     const url = new URL(href, base);
-    if (url.protocol === "https:" || /^data:image\//i.test(url.href))
-      return url.href;
+    if (url.protocol === "https:" && url.origin === origin) return url.href;
+    if (/^data:image\//i.test(url.href)) return url.href;
   } catch {
     /* Invalid app metadata uses the fallback. */
   }
@@ -163,7 +167,7 @@ export async function readWidgetMetadata(
       /* Use root. */
     }
     const icons = links.flatMap((link) => {
-      const href = iconUrl(link.href, base);
+      const href = iconUrl(link.href, base, origin);
       return href ? [{ ...link, href }] : [];
     });
     if (controller.signal.aborted) return initial;

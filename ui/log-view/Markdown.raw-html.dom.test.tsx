@@ -200,7 +200,7 @@ describe("raw HTML in Markdown", () => {
 
   it("does not let raw HTML forge the renderer's placeholders or clobber DOM names", () => {
     const root = mount(
-      `<span class="katex-math" data-katex-source="x" data-task-id="ce5e7fe0" id="getElementById" name="body">forged</span> <img name="cookie" id="x" src="https://a.example/i.png" alt="pic"> <div class="mermaid" data-mermaid-source="graph TD; A-->B">m</div>`,
+      `<span class="katex-math" data-katex-source="x" data-task-id="ce5e7fe0" id="getElementById" name="body">forged</span> <img name="cookie" id="x" src="/api/files/i.png" alt="pic"> <div class="mermaid" data-mermaid-source="graph TD; A-->B">m</div>`,
     );
     expect(root.textContent).toContain("forged");
     expect(root.querySelector("img")?.getAttribute("alt")).toBe("pic");
@@ -228,7 +228,7 @@ describe("raw HTML in Markdown", () => {
         `<div style="background: var(--bg-subtle); border: 1px solid var(--border)"><b>Box</b><br><span style="color: var(--text-primary)">line two</span></div>`,
         `<details><summary>Sum</summary>Hidden body</details>`,
         `<table><tr><td align="right" colspan="2">cell</td></tr></table>`,
-        `<a href="https://example.com/" target="_self" rel="opener">site</a> <img src="https://example.com/i.png" width="20" height="10" alt="logo"> <kbd>K</kbd>`,
+        `<a href="https://example.com/" target="_self" rel="opener">site</a> <img src="/api/files/i.png" width="20" height="10" alt="logo"> <kbd>K</kbd>`,
         `<ol start="3"><li>three</li></ol>`,
         `Inline <svg viewBox="0 0 10 10"><rect width="5" height="5" fill="var(--border)"/></svg> svg.`,
         `<div>\n<svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" stroke="var(--border)"/></svg>\n</div>`,
@@ -259,7 +259,7 @@ describe("raw HTML in Markdown", () => {
       img?.getAttribute("width"),
       img?.getAttribute("height"),
       img?.getAttribute("alt"),
-    ]).toEqual(["https://example.com/i.png", "20", "10", "logo"]);
+    ]).toEqual(["/api/files/i.png", "20", "10", "logo"]);
     expect(root.querySelector("kbd")?.textContent).toBe("K");
     expect(root.querySelector("ol")?.getAttribute("start")).toBe("3");
     expect(root.querySelector("svg rect")?.getAttribute("fill")).toBe(

@@ -131,11 +131,24 @@ export function checkOrigin(req: Request): boolean {
 //     their reverse proxy.
 export function securityHeaders(opts?: {
   tokenInUrl?: boolean;
+  imgSources?: string[];
 }): Record<string, string> {
   const tokenInUrl = opts?.tokenInUrl ?? true;
   const { origin, isHttps } = buildPublicOrigin();
   const appDomain = deriveAppHostDomain(origin, isHttps);
   const frameSources = ["'self'", "blob:", "data:"];
+  // Images load only from the office itself: an outside image loads with no
+  // click, so its URL could carry office data out (task 16f6b48c). A page
+  // may add an https origin; only the parsed origin reaches the header.
+  const imageSources = ["'self'", "data:", "blob:"];
+  for (const source of opts?.imgSources ?? []) {
+    try {
+      const url = new URL(source);
+      if (url.protocol === "https:") imageSources.push(url.origin);
+    } catch {
+      /* Not a URL: it adds nothing. */
+    }
+  }
   if (appDomain) frameSources.push(`https://*.${appDomain}`);
   const csp = [
     "default-src 'self'",
@@ -145,7 +158,7 @@ export function securityHeaders(opts?: {
     "form-action 'self'",
     "frame-ancestors 'none'",
     `frame-src ${frameSources.join(" ")}`,
-    "img-src 'self' data: blob: https:",
+    `img-src ${imageSources.join(" ")}`,
     "object-src 'none'",
     "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",

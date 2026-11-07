@@ -126,6 +126,8 @@ async function serveIndexHtml(
     name: string;
     registration: number;
     metadata: Awaited<ReturnType<typeof readWidgetMetadata>>;
+    // The app's own origin: the wrapper shows the app's icon from there.
+    origin: string;
   },
 ): Promise<Response> {
   // A missing bundle (ui/dist not built yet) must be a clean 503, not an
@@ -163,7 +165,9 @@ async function serveIndexHtml(
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": widget ? "no-store" : "no-cache",
-      ...securityHeaders(),
+      ...securityHeaders({
+        imgSources: widget ? [widget.origin] : [],
+      }),
     },
   });
   return req && session ? withCookieMigration(res, req, session) : res;
@@ -782,6 +786,7 @@ export function createFrontDoor(deps: FrontDoorDeps) {
                 return serveIndexHtml(req, auth.session, {
                   name: app.name,
                   registration: appRegistrationGeneration(app),
+                  origin: new URL(publicUrl!).origin,
                   metadata: await readWidgetMetadata({
                     app,
                     host: new URL(publicUrl!).host,

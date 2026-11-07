@@ -17,12 +17,20 @@
 // instructions drop. An <svg> goes through sanitizeSvg. There is no element
 // stack: a chunk can be unbalanced, and the browser's fragment parse cannot
 // close anything outside the message.
+//
+// Only images from the office itself load (task 16f6b48c). An image that
+// loads by itself is a way out with no click: an agent can put office data
+// in its URL, and each member who opens the chat sends it. An image from an
+// outside site shows as a link to it, and a style that could load one
+// drops. The office CSP (img-src in server/auth-middleware.ts) is the
+// browser rule behind this.
 
 import {
   ATTR_RE,
   MARKUP_RE,
   SVG_SPAN_RE,
   escapeAttrValue,
+  escapeText,
   isSvgElement,
   sanitizeSvg,
 } from "./svg-sanitize.ts";
@@ -169,14 +177,74 @@ export function safeUrl(value: string, kind: "href" | "src"): string | null {
   return value.trim();
 }
 
-function sanitizeAttrs(element: string, attrSource: string): string {
-  let out = "";
-  const seen = new Set<string>();
+/** Whether an image at `url` loads from the office itself: data:, blob:,
+ * or a URL that resolves to the page's own origin. It resolves as the
+ * browser does, so a backslash, a tab or a leading "//" cannot hide a host. */
+export function isLocalImageSrc(url: string, base = location.href): boolean {
+  try {
+    const resolved = new URL(url, base);
+    if (resolved.protocol === "data:" || resolved.protocol === "blob:")
+      return true;
+    return resolved.origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** The link an image from an outside site shows as: its alt text, or else
+ * its host. `src` has passed safeUrl. */
+export function outsideImageLink(src: string, alt: string): string {
+  return `<a class="md-outside-image" href="${escapeAttrValue(src)}" target="_blank" rel="noopener noreferrer">${escapeText(imageName(src, alt))}</a>`;
+}
+
+function imageName(src: string, alt: string): string {
+  if (alt.trim()) return alt;
+  try {
+    return new URL(src, location.href).host || src;
+  } catch {
+    return src;
+  }
+}
+
+// How many links are open around the token being rendered, Markdown and raw
+// HTML alike. Inside a link an outside image shows as its text: an <a> in an
+// <a> makes the browser close the outer link, and a badge would then link to
+// the image host instead of the project. renderMarkdown resets it per
+// message; a link left open keeps later images as text, which loads nothing.
+let openLinks = 0;
+export const linkNesting = {
+  reset() {
+    openLinks = 0;
+  },
+  open() {
+    openLinks++;
+  },
+  close() {
+    if (openLinks > 0) openLinks--;
+  },
+};
+
+/** An image whose `src` has passed the caller's scheme check. */
+export function imageHtml(src: string, alt: string, title?: string): string {
+  if (!isLocalImageSrc(src)) {
+    return openLinks > 0
+      ? escapeText(imageName(src, alt))
+      : outsideImageLink(src, alt);
+  }
+  const titleAttr = title ? ` title="${escapeAttrValue(title)}"` : "";
+  return `<img src="${escapeAttrValue(src)}" alt="${escapeAttrValue(alt)}"${titleAttr}>`;
+}
+
+// A style value that can fetch: CSS escapes can spell any of these.
+const FETCHING_STYLE =
+  /\\|url\s*\(|image-set\s*\(|image\s*\(|src\s*\(|@import/i;
+
+function readAttrs(attrSource: string): Map<string, string> {
+  const attrs = new Map<string, string>();
   for (const m of attrSource.matchAll(ATTR_RE)) {
     const name = m[1]?.toLowerCase();
     if (!name || name.startsWith("on") || !ALLOWED_ATTRS.has(name)) continue;
-    if (seen.has(name)) continue;
-    seen.add(name);
+    if (attrs.has(name)) continue;
     let value = m[2] ?? "";
     if (/^(["']).*\1$/s.test(value)) value = value.slice(1, -1);
     value = decodeEntities(value);
@@ -185,10 +253,22 @@ function sanitizeAttrs(element: string, attrSource: string): string {
       if (url === null) continue;
       value = url;
     }
-    out += ` ${name}="${escapeAttrValue(value)}"`;
+    if (name === "style" && FETCHING_STYLE.test(value)) continue;
+    attrs.set(name, value);
   }
+  return attrs;
+}
+
+function sanitizeElement(element: string, attrSource: string): string {
+  const attrs = readAttrs(attrSource);
+  const src = attrs.get("src");
+  if (element === "img" && src !== undefined && !isLocalImageSrc(src))
+    return imageHtml(src, attrs.get("alt") ?? "");
+  let out = `<${element}`;
+  for (const [name, value] of attrs)
+    out += ` ${name}="${escapeAttrValue(value)}"`;
   if (element === "a") out += ` target="_blank" rel="noopener noreferrer"`;
-  return out;
+  return out + ">";
 }
 
 /** Whether the ask card shows this one tag as text, as it does a
@@ -224,9 +304,11 @@ export function sanitizeHtml(raw: string): string {
       markup.lastIndex = last;
     } else if (openName !== undefined && ALLOWED_ELEMENTS.has(openName)) {
       const attrSource = (m[3] ?? "").replace(/\/\s*$/, "");
-      out += `<${openName}${sanitizeAttrs(openName, attrSource)}>`;
+      out += sanitizeElement(openName, attrSource);
+      if (openName === "a") linkNesting.open();
     } else if (closeName !== undefined && ALLOWED_ELEMENTS.has(closeName)) {
       out += `</${closeName}>`;
+      if (closeName === "a") linkNesting.close();
     } else if (openName !== undefined || closeName !== undefined) {
       out += escapeAngles(m[0]);
     }

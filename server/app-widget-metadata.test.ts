@@ -78,9 +78,17 @@ for (const [href, accepted] of [
   ["http://sample.office.example/icon.png", false],
   ["data:text/html,a", false],
   ["data:image/png;base64,AA==", true],
-  ["https://other.example/icon.png", true],
+  // An icon loads with no click, so an https one must come from the app's
+  // own host (task 16f6b48c): any other host would let the app's page, which
+  // an agent may write, send data out through the icon's URL.
+  ["https://sample.office.example/icon.png", true],
+  ["https://other.example/icon.png", false],
+  ["//other.example/icon.png", false],
+  ["https://sample.office.example:8443/icon.png", false],
+  ["https://x.sample.office.example/icon.png", false],
+  ["https://sample.office.example.other.example/icon.png", false],
 ] as const) {
-  it(`filters icon protocol ${href.split(":")[0]} (${accepted})`, async () => {
+  it(`filters icon ${href} (${accepted})`, async () => {
     let calls = 0;
     const ctx = context(() => {
       calls++;
@@ -92,6 +100,15 @@ for (const [href, accepted] of [
     expect(calls).toBe(1);
   });
 }
+
+it("judges an icon's host after the app's <base href> resolves it", async () => {
+  const ctx = context(() =>
+    html(
+      '<title>App</title><base href="https://other.example/"><link rel="icon" href="icon.png">',
+    ),
+  );
+  expect((await readWidgetMetadata(ctx)).icons).toEqual(fallback.icons);
+});
 
 it("escapes hostile title and icon attributes and removes office identity", async () => {
   const title = '</title><script>alert("x")</script>';
