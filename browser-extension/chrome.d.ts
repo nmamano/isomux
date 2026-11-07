@@ -74,7 +74,8 @@ declare const chrome: {
   storage: {
     local: {
       set(value: Record<string, unknown>): Promise<void>;
-      get(keys: string | string[]): Promise<Record<string, unknown>>;
+      // null reads every key.
+      get(keys: string | string[] | null): Promise<Record<string, unknown>>;
       remove(keys: string | string[]): Promise<void>;
       setAccessLevel(options: {
         accessLevel: "TRUSTED_CONTEXTS";

@@ -757,11 +757,12 @@ const choose = async (picker: HTMLSelectElement, value: string) => {
 test("the popup has one Agents picker for both switches: it sends the access at once, shows the members to pick, and keeps the picks", async () => {
   const p = await openPopup(connected);
   try {
-    // One picker in the whole popup, and no expiry choice.
+    // One Agents picker in the whole popup, and no expiry choice. The share
+    // and office pickers choose an agent to share with and an office.
     expect(
       [...document.querySelectorAll("select")]
         .map((s) => s.id)
-        .filter((id) => id !== "share-agent"),
+        .filter((id) => id !== "share-agent" && id !== "office-picker"),
     ).toEqual(["agents"]);
     expect(document.getElementById("expiry")).toBeNull();
     expect(optionValues(p.picker)).toEqual(["mine", "members", "office"]);
@@ -1309,5 +1310,105 @@ test("Share shows only on a connected office that takes it, and a page that is n
     } finally {
       window.dispatchEvent(new Event("pagehide"));
     }
+  }
+});
+
+// Task 811ed3de: with an office paired, a picker over the office section
+// lists every paired office; the section below shows the picked one.
+const ONE_OFFICE = "https://example.com";
+const TWO_OFFICE = "https://two.example";
+const bothOffices = (two: string): PopupState => ({
+  ...connected,
+  offices: [
+    { office: ONE_OFFICE, state: "connected" },
+    { office: TWO_OFFICE, state: two },
+  ],
+});
+const officePicker = () =>
+  document.getElementById("office-picker") as HTMLSelectElement | null;
+const optionOf = (picker: HTMLSelectElement, value: string) =>
+  [...picker.options].find((o) => o.value === value);
+
+test("the office picker lists each paired office with its state, a pick names that office in the popup's commands, and the extra option shows an empty pair form", async () => {
+  const second = (): PopupState => ({
+    ...bothOffices("connected"),
+    office: TWO_OFFICE,
+    generation: "g2",
+  });
+  const p = await openPopup(bothOffices("offline"), (message) =>
+    message.office === TWO_OFFICE
+      ? Promise.resolve(structuredClone(second()))
+      : undefined,
+  );
+  try {
+    const picker = officePicker();
+    expect(shown(picker)).toBe(true);
+    const values = [...picker!.options].map((o) => o.value);
+    expect(values).toHaveLength(3);
+    expect(values).toContain(ONE_OFFICE);
+    expect(values).toContain(TWO_OFFICE);
+    expect(picker!.value).toBe(ONE_OFFICE);
+    expect(optionOf(picker!, TWO_OFFICE)!.textContent).toContain("two.example");
+    // Each option shows its office's state.
+    const offline = optionOf(picker!, TWO_OFFICE)!.textContent;
+    p.set(bothOffices("connected"));
+    await p.poll();
+    expect(optionOf(picker!, TWO_OFFICE)!.textContent).not.toBe(offline);
+
+    await choose(picker!, TWO_OFFICE);
+    await settleDom();
+    expect(p.messages.at(-1)).toMatchObject({ office: TWO_OFFICE });
+    expect(picker!.value).toBe(TWO_OFFICE);
+    p.toggle.click();
+    await settleDom();
+    expect(p.sent("offer").at(-1)).toMatchObject({
+      office: TWO_OFFICE,
+      generation: "g2",
+    });
+
+    const add = values.find((v) => v !== ONE_OFFICE && v !== TWO_OFFICE)!;
+    await choose(picker!, add);
+    expect(shown(document.getElementById("pair-form"))).toBe(true);
+    expect(
+      [
+        document.getElementById("office") as HTMLInputElement,
+        document.getElementById("code") as HTMLInputElement,
+      ].map((input) => input.value),
+    ).toEqual(["", ""]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("on a tab another office holds, Use this tab is off and locked and names that office", async () => {
+  const p = await openPopup({
+    ...bothOffices("connected"),
+    currentTab: { id: 7, eligible: true, office: TWO_OFFICE },
+  });
+  try {
+    expect([p.toggle.checked, p.toggle.disabled]).toEqual([false, true]);
+    expect(p.tabState.textContent).toContain("two.example");
+    p.toggle.click();
+    await settleDom();
+    expect(p.sent("offer")).toEqual([]);
+    // The enabling condition: the same tab, held by no office.
+    p.set({
+      ...bothOffices("connected"),
+      currentTab: { id: 7, eligible: true },
+    });
+    await p.poll();
+    expect([p.toggle.checked, p.toggle.disabled]).toEqual([false, false]);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});
+
+test("with no office paired, the popup shows the pair form and no office picker", async () => {
+  await openPopup({ ...UNPAIRED, offices: [] });
+  try {
+    expect(shown(officePicker())).toBe(false);
+    expect(shown(document.getElementById("pair-form"))).toBe(true);
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
   }
 });

@@ -91,6 +91,12 @@ export const ca: Catalog = {
   "browser.agentTabsSetting": "Els agents poden obrir pestanyes: {scope}",
   "browser.tabShared": "Els agents poden fer servir aquesta pestanya.",
   "browser.assigned": "{name} fa servir aquesta pestanya.",
+  "browser.otherOffice":
+    "Els agents de {office} poden fer servir aquesta pestanya.",
+  "browser.addOffice": "Afegeix una oficina",
+  "browser.officeOption": "{office} ({state})",
+  "browser.officeBlocked": "Torna a vincular",
+  "browser.officeUnknown": "Resultat de desvincular desconegut",
   "browser.offering": "S’està oferint aquesta pestanya…",
   "browser.revoking": "S’està desactivant…",
   "browser.tabIneligible":

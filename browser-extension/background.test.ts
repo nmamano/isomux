@@ -17,6 +17,12 @@ import { extensionCatalogs } from "../scripts/build-browser-extension";
 // no agent and no expiry (task 7355640c).
 const OFFERED = { kind: "all" } as const;
 
+// The fixture office, and its keys in chrome.storage.local: one connection
+// and one access setting per office (task 811ed3de).
+const OFFICE = "http://127.0.0.1";
+const CONNECTION = `connection:${OFFICE}`;
+const ACCESS = `access:${OFFICE}`;
+
 let source: string;
 beforeAll(async () => {
   const build = await Bun.build({
@@ -77,6 +83,9 @@ async function harness(
       number,
       { muted: boolean; reason?: string; extensionId?: string }
     >;
+    // The fixture office's connection is stored as 0.9.x stored it, under
+    // "connection", for the worker start to move.
+    legacy?: boolean;
   } = {},
 ) {
   let disk = opts.disk;
@@ -159,7 +168,7 @@ async function harness(
     onerror?: () => void;
     onmessage?: (event: { data: string }) => void;
     sent: Fields[] = [];
-    constructor(_url: string) {
+    constructor(readonly url: string) {
       sockets.push(this);
     }
     send(data: string) {
@@ -194,13 +203,16 @@ async function harness(
     sender: { id?: string; url?: string },
     reply: (value: unknown) => void,
   ) => boolean | undefined;
-  let config: Record<string, unknown> | null = {
-    url: "ws://127.0.0.1/extension",
-    credential: "fixture",
-  };
   const badges: { text: string | null; tabId?: number }[] = [];
   const session = opts.session ?? new Map<string, unknown>();
+  // chrome.storage.local, every key. The fixture office is paired unless the
+  // map already holds a connection (a worker restart, or a test's own).
   const local = opts.local ?? new Map<string, unknown>();
+  if (![...local.keys()].some((key) => key.startsWith("connection")))
+    local.set(opts.legacy ? "connection" : CONNECTION, {
+      url: "ws://127.0.0.1/extension",
+      credential: "fixture",
+    });
   // Tabs and windows the extension made. Made tabs show about:blank until a
   // test changes their url; a removed one leaves both maps.
   let nextTab = 100;
@@ -305,34 +317,34 @@ async function harness(
     storage: {
       local: {
         set: async (value: Record<string, unknown>) => {
-          const changes: Record<string, { newValue: unknown }> = {};
+          const changes: Record<string, Fields> = {};
           for (const [key, item] of Object.entries(value)) {
-            if (key === "connection")
-              config = item as Record<string, unknown> | null;
-            else local.set(key, item);
-            changes[key] = { newValue: item };
+            changes[key] = {
+              ...(local.has(key) ? { oldValue: local.get(key) } : {}),
+              newValue: item,
+            };
+            local.set(key, item);
           }
           changed(changes, "local");
         },
         setAccessLevel: () => Promise.resolve(),
-        // One key or several, as Chrome takes them.
-        get: async (keys: string | string[]) =>
+        // One key, several, or null for every key, as Chrome takes them.
+        get: async (keys: string | string[] | null) =>
           Object.fromEntries(
-            [keys]
-              .flat()
-              .flatMap((key) =>
-                key === "connection"
-                  ? [["connection", config]]
-                  : local.has(key)
-                    ? [[key, local.get(key)]]
-                    : [],
-              ),
+            keys === null
+              ? [...local]
+              : [keys]
+                  .flat()
+                  .flatMap((key) =>
+                    local.has(key) ? [[key, local.get(key)]] : [],
+                  ),
           ),
         remove: async (keys: string | string[]) => {
-          const changes: Record<string, object> = {};
+          const changes: Record<string, Fields> = {};
           for (const key of [keys].flat()) {
+            if (!local.has(key)) continue;
+            changes[key] = { oldValue: local.get(key) };
             local.delete(key);
-            changes[key] = {};
           }
           changed(changes, "local");
         },
@@ -580,16 +592,20 @@ async function harness(
       );
     },
   });
+  // The fixture office's socket; other stored offices open their own.
+  const fixture = () =>
+    sockets.find((s) => s.url.startsWith("ws://127.0.0.1/"));
   // A slow getSelf holds the first socket back (about 20 ms).
-  for (let i = 0; i < 100 && !sockets.length; i++) await settle();
+  for (let i = 0; i < 100 && !fixture(); i++) await settle();
   if (opts.slowSelf)
-    for (let i = 0; i < 100 && !sockets.length; i++)
+    for (let i = 0; i < 100 && !fixture(); i++)
       await new Promise((resolve) => setTimeout(resolve, 1));
   // A test's calls start at its first connection: the worker's start-up
   // release of leftover debugger sessions is not one of them.
   calls.length = 0;
   detachedTabs.length = 0;
-  const socket = sockets[0];
+  const socket = fixture();
+  if (!socket) throw new Error("The stored fixture office opened no socket");
   socket.onopen?.();
   socket.receive(
     opts.oldestOffice
@@ -618,12 +634,14 @@ async function harness(
     ],
     assignments: [],
   });
+  // The popup names the office it shows; a test may name another, or none.
   const ui = (message: unknown) =>
     new Promise<Record<string, unknown>>((resolve) =>
       runtimeMessage(
         {
           tabId: selected.id,
           windowId: 1,
+          office: OFFICE,
           ...(message as object),
         },
         {
@@ -678,23 +696,10 @@ async function harness(
     delayBadge: (fn: () => Promise<void>) => {
       badgeDelay = fn;
     },
-    config: () => config,
+    config: () =>
+      (local.get(CONNECTION) ?? null) as Record<string, unknown> | null,
     session,
-    ui: (message: unknown) =>
-      new Promise<Record<string, unknown>>((resolve) =>
-        runtimeMessage(
-          {
-            tabId: selected.id,
-            windowId: 1,
-            ...(message as object),
-          },
-          {
-            id: "fixture-id",
-            url: "chrome-extension://fixture-id/connection.html",
-          },
-          (value) => resolve(value as Record<string, unknown>),
-        ),
-      ),
+    ui,
     foreign: (sender: { id?: string; url?: string }) =>
       runtimeMessage({ action: "state" }, sender, () => {
         throw new Error("Foreign reply");
@@ -811,7 +816,15 @@ async function harness(
       return () => resolve();
     },
     reconnect: async () => {
-      changed({ connection: { newValue: config } }, "local");
+      changed(
+        {
+          [CONNECTION]: {
+            oldValue: local.get(CONNECTION),
+            newValue: local.get(CONNECTION),
+          },
+        },
+        "local",
+      );
       await settle();
       return sockets.at(-1)!;
     },
@@ -3123,8 +3136,8 @@ const MEMBERS_ON = { agents: "members", members: ["bob"], openTabs: true };
 const OFFICE_ON = { agents: "office", members: [], openTabs: true };
 const SHARED = { kind: "shared" };
 type AgentTabsSetting = "all" | "office" | null;
-const ON_ALL = () => new Map<string, unknown>([["access", MINE_ON]]);
-const ON_OFFICE = () => new Map<string, unknown>([["access", OFFICE_ON]]);
+const ON_ALL = () => new Map<string, unknown>([[ACCESS, MINE_ON]]);
+const ON_OFFICE = () => new Map<string, unknown>([[ACCESS, OFFICE_ON]]);
 // An office that takes the access setting.
 async function agentTabs(local = ON_ALL(), extra: object = {}) {
   return harness(false, true, {
@@ -3203,7 +3216,7 @@ test("the access setting is kept, sent to an office that takes it, and does not 
     (await old.ui({ action: "access", access: MEMBERS_ON })).error,
   ).toBeUndefined();
   await settle();
-  expect(old.local.get("access")).toEqual(MEMBERS_ON);
+  expect(old.local.get(ACCESS)).toEqual(MEMBERS_ON);
   expect([...accessSent(old.socket), ...agentTabsSent(old.socket)]).toEqual([]);
 
   const h = await agentTabs(new Map());
@@ -3227,7 +3240,7 @@ test("the access setting is kept, sent to an office that takes it, and does not 
   const sockets = h.sockets.length;
   await h.ui({ action: "access", access: MEMBERS_ON });
   await settle();
-  expect(h.local.get("access")).toEqual(MEMBERS_ON);
+  expect(h.local.get(ACCESS)).toEqual(MEMBERS_ON);
   expect((await h.ui({ action: "state" })).access).toEqual(MEMBERS_ON);
   // An invalid setting changes nothing.
   expect(
@@ -3238,7 +3251,7 @@ test("the access setting is kept, sent to an office that takes it, and does not 
       })
     ).error,
   ).toBeDefined();
-  expect(h.local.get("access")).toEqual(MEMBERS_ON);
+  expect(h.local.get(ACCESS)).toEqual(MEMBERS_ON);
   expect(accessSent(h.socket)).toEqual([MINE_OFF, MEMBERS_ON]);
   // An office that takes access gets no agent tabs message.
   expect(agentTabsSent(h.socket)).toEqual([]);
@@ -3246,7 +3259,7 @@ test("the access setting is kept, sent to an office that takes it, and does not 
   expect(h.socket.readyState).toBe(1);
 
   // A new worker with the stored setting sends it after ready.
-  const kept = await agentTabs(new Map([["access", MEMBERS_ON]]));
+  const kept = await agentTabs(new Map([[ACCESS, MEMBERS_ON]]));
   await settle();
   expect(accessSent(kept.socket)).toEqual([MEMBERS_ON]);
 });
@@ -3265,14 +3278,14 @@ test("a stored agent tabs setting from an earlier version becomes the access set
     ],
     [
       "invalid access",
-      new Map([
-        ["access", { agents: "everyone", members: [], openTabs: true }],
-      ]),
+      new Map([[ACCESS, { agents: "everyone", members: [], openTabs: true }]]),
       MINE_OFF,
     ],
   ];
   for (const [name, local, access] of rows) {
-    const h = await agentTabs(local);
+    // An agent tabs setting is from 0.8.x, which stored one connection.
+    const legacy = local.has("agentTabs");
+    const h = await agentTabs(local, { legacy });
     await settle();
     expect({ name, sent: accessSent(h.socket) }).toEqual({
       name,
@@ -3286,6 +3299,12 @@ test("a stored agent tabs setting from an earlier version becomes the access set
       name,
       old: false,
     });
+    // The setting moved to its office's key (task 811ed3de).
+    if (legacy)
+      expect({ name, stored: h.local.get(ACCESS) }).toEqual({
+        name,
+        stored: access,
+      });
   }
 });
 
@@ -3332,7 +3351,7 @@ test("the popup's offer is shared on an office that takes access, else the narro
       offerResume: true,
       officeScope: name !== "oldest, office",
       ...ready,
-      local: new Map([["access", access]]),
+      local: new Map([[ACCESS, access]]),
     });
     await settle();
     expect({ name, legacy: agentTabsSent(h.socket) }).toEqual({
@@ -3349,7 +3368,7 @@ test("the popup's offer is shared on an office that takes access, else the narro
       scope: offer?.scope,
       minutes: offer?.durationMinutes,
     }).toEqual({ name, scope, minutes: 0 });
-    expect({ name, stored: h.local.get("access") }).toEqual({
+    expect({ name, stored: h.local.get(ACCESS) }).toEqual({
       name,
       stored: access,
     });
@@ -4027,7 +4046,7 @@ test("no extension update, Chrome update or Chrome start closes a tab; the opene
       kept: false,
     });
     // The setting itself stays.
-    expect({ reason, setting: h.local.get("access") }).toEqual({
+    expect({ reason, setting: h.local.get(ACCESS) }).toEqual({
       reason,
       setting: MINE_ON,
     });
@@ -4040,12 +4059,12 @@ test("unpair, a terminal refusal and a new pairing turn agent tabs off", async (
   await settle();
   unpaired.socket.receive({ kind: "unpaired", generation: "generation-1" });
   await pending;
-  expect(unpaired.local.has("access")).toBe(false);
+  expect(unpaired.local.has(ACCESS)).toBe(false);
 
   const refused = await agentTabs();
   refused.socket.receive({ kind: "refused" });
   await settle();
-  expect(refused.local.has("access")).toBe(false);
+  expect(refused.local.has(ACCESS)).toBe(false);
 
   const paired = await agentTabs();
   await paired.ui({
@@ -4058,12 +4077,12 @@ test("unpair, a terminal refusal and a new pairing turn agent tabs off", async (
   socket.onopen?.();
   socket.receive({ kind: "paired", version: 4, credential: "issued" });
   await settle();
-  expect(paired.local.has("access")).toBe(false);
+  expect(paired.local.has(ACCESS)).toBe(false);
 
   // The enabling case: a reconnect keeps it.
   const kept = await agentTabs();
   await kept.reconnect();
-  expect(kept.local.get("access")).toEqual(MINE_ON);
+  expect(kept.local.get(ACCESS)).toEqual(MINE_ON);
 });
 
 // Task ded3ae49: a tab an agent opens starts muted, and the agent's mute
@@ -4511,4 +4530,442 @@ test("a selection over the frame cap goes out cut, long enough for the office to
   });
   await settle();
   expect(answered?.shareResult).toBe("sent");
+});
+
+// Task 811ed3de: the extension holds a pairing per office at once. Each
+// office has its own socket, storage keys, access setting and offers; a tab
+// belongs to at most one office.
+const TWO = "https://two.example";
+const TWO_CONNECTION = `connection:${TWO}`;
+const TWO_ACCESS = `access:${TWO}`;
+const TWO_URL = "wss://two.example/browser-extension/ws";
+// The fixture office and the second office, both paired.
+const bothPaired = (more: Array<[string, unknown]> = []) =>
+  new Map<string, unknown>([
+    [CONNECTION, { url: "ws://127.0.0.1/extension", credential: "fixture" }],
+    [TWO_CONNECTION, { url: TWO_URL, credential: "two-credential" }],
+    ...more,
+  ]);
+const twoSockets = (h: Harness) =>
+  h.sockets.filter((s) => s.url.startsWith("wss://two.example/"));
+// The second office's newest socket, opened, ready and with its metadata.
+async function readyTwo(h: Harness, ready: Fields = {}, generation = "two-1") {
+  for (let i = 0; i < 100 && !twoSockets(h).length; i++) await settle();
+  const ws = twoSockets(h).at(-1);
+  if (!ws) throw new Error("The second office opened no socket");
+  ws.onopen?.();
+  ws.receive({
+    kind: "ready",
+    version: 4,
+    generation,
+    debuggerRecovery: true,
+    ...ready,
+  });
+  ws.receive({
+    kind: "metadata",
+    generation,
+    member: { id: "m2", name: "Member Two" },
+    agents: [{ id: "c", name: "Agent Two" }],
+    assignments: [],
+  });
+  await settle();
+  return ws;
+}
+// The member offers tab tabId to the second office, which takes it.
+async function onOfferTwo(
+  h: Harness,
+  ws: Harness["socket"],
+  tabId: number,
+  generation = "two-1",
+) {
+  h.selected(tabId);
+  const result = h.ui({ action: "offer", office: TWO, generation, tabId });
+  await settle();
+  const offer = offers(ws).at(-1);
+  if (!offer) throw new Error("The second office got no offer");
+  const assignment = String(offer.assignment);
+  ws.receive({
+    kind: "command",
+    assignment,
+    id: 1,
+    generation,
+    method: "attach",
+    params: {},
+  });
+  for (let i = 0; i < 3; i++) await settle();
+  ws.receive({
+    kind: "offered",
+    generation,
+    assignment,
+    scope: offer.scope,
+    durationMinutes: 0,
+    expiresAt: null,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  expect((await result).error).toBeUndefined();
+  return assignment;
+}
+const byOffice = (list: unknown) =>
+  [...(list as Fields[])].sort((a, b) =>
+    String(a.office).localeCompare(String(b.office)),
+  );
+
+test("an earlier version's one connection and access setting move to the office's own keys at the worker start, and the office connects with them", async () => {
+  const h = await harness(false, true, {
+    access: true,
+    agentTabs: true,
+    legacy: true,
+    local: new Map([["access", MEMBERS_ON]]),
+  });
+  await settle();
+  expect({
+    connection: h.local.get(CONNECTION),
+    access: h.local.get(ACCESS),
+    legacyConnection: h.local.has("connection"),
+    legacyAccess: h.local.has("access"),
+  }).toEqual({
+    connection: { url: "ws://127.0.0.1/extension", credential: "fixture" },
+    access: MEMBERS_ON,
+    legacyConnection: false,
+    legacyAccess: false,
+  });
+  expect(h.socket.sent[0]).toMatchObject({
+    kind: "hello",
+    credential: "fixture",
+  });
+  expect(accessSent(h.socket)).toEqual([MEMBERS_ON]);
+  // The move's removal of the old key closes nothing and opens nothing.
+  expect(h.sockets).toHaveLength(1);
+  expect(h.socket.readyState).toBe(1);
+  expect((await h.ui({ action: "state" })).offices).toEqual([
+    { office: OFFICE, state: "connected" },
+  ]);
+});
+
+test("two paired offices connect at once, each with its own credential; the popup lists both with their state and answers for the office it names", async () => {
+  const h = await harness(false, true, { local: bothPaired() });
+  const two = await readyTwo(h);
+  expect(h.socket.sent[0]).toMatchObject({
+    kind: "hello",
+    credential: "fixture",
+  });
+  expect(two.sent[0]).toMatchObject({
+    kind: "hello",
+    credential: "two-credential",
+  });
+  expect(byOffice((await h.ui({ action: "state" })).offices)).toEqual([
+    { office: OFFICE, state: "connected" },
+    { office: TWO, state: "connected" },
+  ]);
+  const answer = async (office: string) => {
+    const s = await h.ui({ action: "state", office });
+    return {
+      office: s.office,
+      generation: s.generation,
+      member: s.member,
+      agents: s.agents,
+    };
+  };
+  expect(await answer(TWO)).toEqual({
+    office: TWO,
+    generation: "two-1",
+    member: { id: "m2", name: "Member Two" },
+    agents: [{ id: "c", name: "Agent Two" }],
+  });
+  expect(await answer(OFFICE)).toEqual({
+    office: OFFICE,
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [
+      { id: "a", name: "Agent" },
+      { id: "b", name: "Other" },
+    ],
+  });
+  // One office goes away; the other stays connected.
+  two.close();
+  await settle();
+  expect(byOffice((await h.ui({ action: "state" })).offices)).toEqual([
+    { office: OFFICE, state: "connected" },
+    { office: TWO, state: "offline" },
+  ]);
+});
+
+test("Disconnect, Reconnect and a refusal of one office act on its socket and record only", async () => {
+  const h = await harness(false, true, { local: bothPaired() });
+  const two = await readyTwo(h);
+  const before = h.sockets.length;
+  await h.ui({ action: "disconnect", office: TWO });
+  await settle();
+  expect(two.readyState).toBe(3);
+  expect(h.local.get(TWO_CONNECTION)).toMatchObject({ disabled: true });
+  expect(h.config()?.disabled).toBeFalsy();
+  expect(h.socket.readyState).toBe(1);
+  expect(h.sockets).toHaveLength(before);
+  expect((await h.ui({ action: "state", office: OFFICE })).state).toBe(
+    "connected",
+  );
+  await h.ui({ action: "reconnect", office: TWO });
+  await settle();
+  expect(h.sockets).toHaveLength(before + 1);
+  expect(twoSockets(h)).toHaveLength(2);
+  const again = await readyTwo(h, {}, "two-2");
+  again.receive({ kind: "refused" });
+  await settle();
+  expect(h.local.get(TWO_CONNECTION)).toMatchObject({ blocked: true });
+  expect(h.config()?.blocked).toBeFalsy();
+  expect(h.socket.readyState).toBe(1);
+  expect(h.sockets).toHaveLength(before + 1);
+});
+
+test("a tab one office holds, while offered, on or as its popup, cannot be offered to another office", async () => {
+  const h = await harness(false, true, { local: bothPaired() });
+  const two = await readyTwo(h);
+  const offerToTwo = (tabId: number) =>
+    h.ui({ action: "offer", office: TWO, generation: "two-1", tabId });
+  // The offer goes nowhere and the popup gets an error. An offer that went
+  // out would wait for the office's answer, so check that first.
+  const refused = async (tabId: number) => {
+    const reply = offerToTwo(tabId);
+    await settle();
+    expect(offers(two).map((m) => m.assignment)).toEqual([]);
+    expect((await reply).error).toBeDefined();
+  };
+  // Offered: the fixture office has not answered yet.
+  const { result, assignment } = await h.startOffer();
+  await refused(7);
+  // On.
+  h.command(1, "attach");
+  await settle();
+  h.socket.receive({
+    kind: "offered",
+    generation: "generation-1",
+    assignment,
+    scope: offers(h.socket).at(-1)!.scope,
+    durationMinutes: 0,
+    expiresAt: null,
+    offerOrigin: ORIGIN,
+  });
+  await settle();
+  expect((await result).error).toBeUndefined();
+  await refused(7);
+  // A page the held tab opened.
+  h.navigation(7, 12);
+  for (let i = 0; i < 5; i++) await settle();
+  expect(h.calls.filter((c) => c === "attach")).toHaveLength(2);
+  h.selected(12);
+  await refused(12);
+  // The enabling condition: a tab nobody holds goes to the second office.
+  h.selected(9);
+  void offerToTwo(9);
+  await settle();
+  expect(offers(two)).toHaveLength(1);
+});
+
+test("debugger events and a detach of a tab reach only the office that holds it", async () => {
+  const h = await harness(false, true, { local: bothPaired() });
+  const two = await readyTwo(h);
+  const mine = await onOffer(h);
+  const theirs = await onOfferTwo(h, two, 9);
+  const events = (ws: Harness["socket"], method: string) =>
+    ws.sent
+      .filter((m) => m.kind === "event" && m.method === method)
+      .map((m) => m.assignment);
+  h.cdpEvent(7, "Page.loadEventFired", { timestamp: 1 });
+  h.cdpEvent(9, "Page.domContentEventFired", { timestamp: 2 });
+  await settle();
+  expect([
+    events(h.socket, "Page.loadEventFired"),
+    events(two, "Page.loadEventFired"),
+    events(two, "Page.domContentEventFired"),
+    events(h.socket, "Page.domContentEventFired"),
+  ]).toEqual([[mine], [], [theirs], []]);
+  h.debuggerDetached("canceled_by_user", 9);
+  for (let i = 0; i < 3; i++) await settle();
+  expect([events(two, "detached"), events(h.socket, "detached")]).toEqual([
+    [theirs],
+    [],
+  ]);
+  expect(await listed(h)).toEqual([{ id: mine, phase: "on" }]);
+});
+
+test("an office resumes only its own offers, and another office cannot end them by naming their id", async () => {
+  const h = await harness(false, true, {
+    offerResume: true,
+    local: bothPaired([[TWO_ACCESS, MINE_ON]]),
+  });
+  const ready = { offerResume: true, access: true, agentTabs: true };
+  const two = await readyTwo(h, ready);
+  const id = await onOffer(h);
+  h.socket.close();
+  await settle();
+  // The second office names the waiting offer's id in an open, and refuses it.
+  two.receive({
+    kind: "command",
+    assignment: id,
+    id: 5,
+    generation: "two-1",
+    method: "open",
+    params: {
+      agentId: "c",
+      agentName: "Agent Two",
+      scope: { kind: "opened", agentId: "c", via: "all" },
+    },
+  });
+  for (let i = 0; i < 3; i++) await settle();
+  two.receive({
+    kind: "offered",
+    generation: "two-1",
+    assignment: id,
+    error: "refused",
+  });
+  for (let i = 0; i < 3; i++) await settle();
+  // The second office comes back: nothing of the first office's resumes there.
+  two.close();
+  await settle();
+  await h.ui({ action: "reconnect", office: TWO });
+  const twoAgain = await readyTwo(h, ready, "two-2");
+  expect(offers(twoAgain)).toEqual([]);
+  // The first office comes back: its offer resumes.
+  const back = await h.reconnect();
+  back.onopen?.();
+  back.receive({
+    kind: "ready",
+    version: 4,
+    generation: "generation-2",
+    debuggerRecovery: true,
+    offerResume: true,
+  });
+  await settle();
+  expect(offers(back).map((m) => m.assignment)).toEqual([id]);
+});
+
+test("the access setting is per office, and Unpair of one office removes only its own pairing and setting", async () => {
+  const h = await harness(false, true, {
+    access: true,
+    agentTabs: true,
+    local: bothPaired([
+      [ACCESS, MINE_ON],
+      [TWO_ACCESS, OFFICE_ON],
+    ]),
+  });
+  const two = await readyTwo(h, { access: true, agentTabs: true });
+  expect([accessSent(h.socket), accessSent(two)]).toEqual([
+    [MINE_ON],
+    [OFFICE_ON],
+  ]);
+  expect((await h.ui({ action: "state", office: TWO })).access).toEqual(
+    OFFICE_ON,
+  );
+  await h.ui({ action: "access", office: TWO, access: MEMBERS_ON });
+  await settle();
+  expect([h.local.get(ACCESS), h.local.get(TWO_ACCESS)]).toEqual([
+    MINE_ON,
+    MEMBERS_ON,
+  ]);
+  expect([accessSent(h.socket), accessSent(two)]).toEqual([
+    [MINE_ON],
+    [OFFICE_ON, MEMBERS_ON],
+  ]);
+  const pending = h.ui({ action: "unpair", office: TWO, generation: "two-1" });
+  await settle();
+  expect(two.sent.at(-1)).toEqual({ kind: "unpair", generation: "two-1" });
+  expect(h.socket.sent.some((m) => m.kind === "unpair")).toBe(false);
+  two.receive({ kind: "unpaired", generation: "two-1" });
+  await pending;
+  await settle();
+  expect({
+    two: h.local.has(TWO_CONNECTION),
+    twoAccess: h.local.has(TWO_ACCESS),
+    access: h.local.get(ACCESS),
+    credential: h.config()?.credential,
+  }).toEqual({
+    two: false,
+    twoAccess: false,
+    access: MINE_ON,
+    credential: "fixture",
+  });
+  expect(h.socket.readyState).toBe(1);
+  expect((await h.ui({ action: "state", office: undefined })).offices).toEqual([
+    { office: OFFICE, state: "connected" },
+  ]);
+});
+
+test("a pairing to a new office adds it; a pairing to a paired office replaces only that office", async () => {
+  const h = await harness(false, true, {
+    access: true,
+    agentTabs: true,
+    local: new Map([[ACCESS, MINE_ON]]),
+  });
+  const code = "b".repeat(43);
+  await h.ui({ action: "pair", office: TWO, code });
+  await settle();
+  expect(h.local.get(TWO_CONNECTION)).toEqual({ url: TWO_URL, code });
+  expect([h.config()?.credential, h.local.get(ACCESS)]).toEqual([
+    "fixture",
+    MINE_ON,
+  ]);
+  expect(h.socket.readyState).toBe(1);
+  for (let i = 0; i < 100 && !twoSockets(h).length; i++) await settle();
+  const ws = twoSockets(h)[0];
+  ws.onopen?.();
+  expect(ws.sent.at(-1)).toMatchObject({ kind: "hello", code });
+  ws.receive({ kind: "paired", version: 4, credential: "issued-two" });
+  await settle();
+  expect(h.local.get(TWO_CONNECTION)).toEqual({
+    url: TWO_URL,
+    credential: "issued-two",
+  });
+  // The save of its own credential does not reopen the office.
+  expect([twoSockets(h).length, ws.readyState]).toEqual([1, 1]);
+  // A new pairing of the fixture office replaces its record and socket only.
+  await h.ui({ action: "pair", office: OFFICE, code: "c".repeat(43) });
+  await settle();
+  expect(h.config()).toEqual({
+    url: "ws://127.0.0.1/browser-extension/ws",
+    code: "c".repeat(43),
+  });
+  expect(h.socket.readyState).toBe(3);
+  expect(h.local.has(ACCESS)).toBe(false);
+  expect([ws.readyState, h.local.get(TWO_CONNECTION)]).toEqual([
+    1,
+    { url: TWO_URL, credential: "issued-two" },
+  ]);
+});
+
+test("a popup command with no office answers for the office that holds the popup's tab, else the last office named; one that names an unpaired office fails; Share goes to the named office", async () => {
+  const h = await harness(false, true, {
+    local: bothPaired(),
+    ready: { share: true },
+  });
+  const two = await readyTwo(h, { share: true });
+  const pick = async (office?: string) => {
+    const s = await h.ui({ action: "state", office });
+    return [s.office, s.generation];
+  };
+  expect(await pick(TWO)).toEqual([TWO, "two-1"]);
+  // Tab 7 is held by no office: the last office named.
+  expect(await pick()).toEqual([TWO, "two-1"]);
+  await onOffer(h);
+  // The fixture office holds tab 7: it wins over the last office named.
+  expect(await pick(TWO)).toEqual([TWO, "two-1"]);
+  expect(await pick()).toEqual([OFFICE, "generation-1"]);
+  const THREE = "https://three.example";
+  expect(
+    (await h.ui({ action: "access", office: THREE, access: MINE_ON })).error,
+  ).toBeDefined();
+  expect(
+    (await h.ui({ action: "disconnect", office: THREE })).error,
+  ).toBeDefined();
+  expect(
+    [...h.local.keys()].filter((key) => key.includes("three.example")),
+  ).toEqual([]);
+  // Share.
+  const reply = h.ui({ ...SHARE, office: TWO });
+  await settle();
+  const frame = two.sent.findLast((m) => m.kind === "share");
+  expect(frame).toMatchObject({ kind: "share", agentId: "a" });
+  expect(h.socket.sent.filter((m) => m.kind === "share")).toEqual([]);
+  two.receive({ kind: "shareResult", generation: "two-1", id: frame!.id });
+  expect((await reply).shareResult).toBe("sent");
 });

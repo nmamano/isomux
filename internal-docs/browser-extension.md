@@ -459,7 +459,7 @@ Protocol 3 and older extensions are refused before offer handling. Update/reload
 
 An office restart or a lost socket drops every bridge object; the server keeps no grants. The extension keeps them instead (task 2c1c81ff). `ready` carries `offerResume:true`, and `offered` then carries `offerOrigin`, the origin pinned at the offer.
 
-The extension writes each offer to its resume list when the offer turns ON, with id, tab, scope, agent, duration, `expiresAt` and `offerOrigin`, in `chrome.storage.session`, which survives a worker restart and is cleared by an extension reload or a Chrome restart. Thus a worker that Chrome stops without a close (a crash, a forced kill) leaves its ON offers to the next worker (extension 0.4.7, task 416df5d8). At a close that the member did not ask for (no disconnect, pairing, unpair or refusal), the extension detaches each tab and keeps the list; a terminal close deletes its ON offers. At the next `ready` with `offerResume`, it puts each one in its tabs as offering, before a popup offer or metadata can take the tab, and sends the same `offer` with `expiresAt` and `offerOrigin` added. The office's accepting `offered` answer keeps the entry with the answered deadline; a refusal, the member's Off or any other end of the offer deletes it; a second loss during the resume keeps it. A stopped worker's debugger sessions stay attached, and Chrome refuses a new attach to those tabs, so a new worker first detaches every tab (a detach of a tab the extension did not attach fails and changes nothing) and clears its badge. The popup lists the waiting offers as offering while the office is away, and Off removes one. A `ready` without `offerResume` clears the list. Disconnect, pairing, unpairing and a refusal clear it too.
+The extension writes each offer to its resume list when the offer turns ON, with its office, id, tab, scope, agent, duration, `expiresAt` and `offerOrigin`, in `chrome.storage.session`, which survives a worker restart and is cleared by an extension reload or a Chrome restart. Thus a worker that Chrome stops without a close (a crash, a forced kill) leaves its ON offers to the next worker (extension 0.4.7, task 416df5d8). At a close that the member did not ask for (no disconnect, pairing, unpair or refusal), the extension detaches each tab and keeps the list; a terminal close deletes its ON offers. At the next `ready` with `offerResume`, it puts each one in its tabs as offering, before a popup offer or metadata can take the tab, and sends the same `offer` with `expiresAt` and `offerOrigin` added. The office's accepting `offered` answer keeps the entry with the answered deadline; a refusal, the member's Off or any other end of the offer deletes it; a second loss during the resume keeps it. A stopped worker's debugger sessions stay attached, and Chrome refuses a new attach to those tabs, so a new worker first detaches every tab (a detach of a tab the extension did not attach fails and changes nothing) and clears its badge. The popup lists the waiting offers as offering while the office is away, and Off removes one. A `ready` without `offerResume` clears the list. Disconnect, pairing, unpairing and a refusal clear it too.
 
 The server accepts a resume only with both fields, an `offerOrigin` that is its own http(s) origin, and a deadline with `0 <=> null` and `now < expiresAt <= now + duration`. It judges expiry by its own clock. A refused resume gets `offered` with an error and the socket stays open; a close would start the same resume again. A resumed offer keeps the deadline and the pin, so a tab that moved onto an office page during the outage starts behind the gate. The target handle stays the same (see "All grants and explicit targets"). Popups and in-flight commands do not resume.
 
@@ -761,7 +761,7 @@ A member turns on "Agents may open tabs" in the popup, per browser, for Only my 
 
 The popup has one **Agents** picker for both switches, **Use this tab** and **Open their own tabs**: My agents, My agents and members I pick, or All agents. It replaced the per-offer picker (with one-agent offers and an expiry) and the separate agent tabs picker. Capability flag, no protocol bump: `ready` carries `access: true`.
 
-**Setting.** `BrowserAccess = {agents: "mine"|"members"|"office", members, openTabs}` per browser, in `chrome.storage.local` under `access`; `members` stays stored under the other values, so a switch back keeps the picks. On load the extension migrates an earlier `agentTabs: {scope}` (`"all"` to mine, `"office"` to office, `openTabs: true`) and removes that key; an invalid stored value is mine with tabs off. The extension sends `{kind:"access", generation, access}` after `ready` and at each change; to an office without `access` it sends the old `agentTabs` message (members becomes the narrower `"all"`). Unpair, pairing and a terminal refusal clear it.
+**Setting.** `BrowserAccess = {agents: "mine"|"members"|"office", members, openTabs}` per browser, in `chrome.storage.local` under `access:<office origin>` (one per office since 0.10.0, see "Several offices"); `members` stays stored under the other values, so a switch back keeps the picks. On load the extension migrates an earlier `agentTabs: {scope}` (`"all"` to mine, `"office"` to office, `openTabs: true`) and removes that key; an invalid stored value is mine with tabs off. The extension sends `{kind:"access", generation, access}` after `ready` and at each change; to an office without `access` it sends the old `agentTabs` message (members becomes the narrower `"all"`). Unpair, pairing and a terminal refusal clear it.
 
 **Audience.** `ExtensionConnection.admits(agent)`: the member manages the agent (`mayUse`), or reaches it (`mayReach`) and the setting is office, or members with the agent's manager picked. A popup offer is `{kind:"shared"}`, duration 0, and its audience is the browser's current access, so a change applies at once to every shared offer. An opened tab needs `openTabs` and `admits`; `via` only says whether the browser's member manages the agent (the popup then shows the manager's name). A setting change or a revalidation ends the opened tabs it no longer admits and retires the live client of any grant whose current agent it no longer admits, also on a legacy `office` offer; the grant stays for the others. On an office without `access`, the extension offers `all` (or `office` for All agents) and keeps the members setting stored.
 
@@ -809,3 +809,50 @@ The office sends it as the member's message with device `Browser share` and
 `refusePromptAnswer`, so a share never answers a pending prompt or menu
 (`awaits_member_answer`). Audit operation `browserExtension.share`, target the
 agent, no page fields.
+
+## Several offices (extension 0.10.0, task 811ed3de)
+
+One extension holds a pairing per office at once, for a member who works in
+several offices. Each office still sees the extension as one more paired
+browser of that member ("Several paired browsers"): no server or protocol
+change, and no office learns of another.
+
+**Storage.** `chrome.storage.local` keeps one record per office,
+`connection:<office origin>` (`{url, credential|code, disabled?, blocked?,
+unknown?}`), and its setting under `access:<office origin>`. One key per office,
+so two offices that write at once (a paired credential, a refusal) do not race
+over one object. The worker start moves the 0.9.x keys once: `connection` to
+`connection:<origin>`, and `access` (or an older `agentTabs`) to that office's
+`access:<origin>`; a setting with no connection is dropped. Everything that
+reads storage waits for the move. Unpair removes the office's two keys; pairing
+an origin that is paired replaces only its record and setting. No cap on the
+number of offices.
+
+**Connections.** The background keeps one connection per office, each with its
+own configure serial, reconnect backoff, alarm (`reconnect:<origin>`) and saved
+credential. A change to one office's record reopens only that office.
+Disconnect, Reconnect, Unpair and a refusal act on one office.
+
+**Trust.** Offices are separate trust domains. The resume list is keyed by
+office and assignment id, since an office picks the ids of its opens: an office
+that names another office's id resumes, mutes or ends nothing of the other's.
+Chrome takes one debugger per tab, so a tab belongs to at most one office: an
+offer, or a page a held tab opens, is refused when any office holds the tab in
+any phase (offering, opening, on, revoking, as a popup) or waits to resume it.
+Debugger events, detaches and new pages reach only the office that holds the
+tab. The detach queue stays shared: a tab moved from one office to another
+(Off, then an offer) attaches only after the old detach, which
+`ATTACH_ANSWER_MS` bounds.
+
+**Shared across offices.** The Agents window, the badge (green while any office
+is connected) and the extension files. An office's Reload restarts the
+extension and ends agent control in every office.
+
+**Popup.** With an office paired, a picker under the Office heading lists each
+office with its state, and Add an office shows an empty pair form. Every
+command carries the picked office; a command that names an office that is not
+paired fails, except the state poll, which answers for another. With no office
+named, the background answers for the office that holds the popup's tab, else
+the last office named (`selectedOffice`), else the first paired. Share goes to
+the picked office. On a tab another office holds, Use this tab is off and
+locked and names that office.

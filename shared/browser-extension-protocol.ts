@@ -354,7 +354,12 @@ export interface MemberBrowserStatus {
   }[];
 }
 export interface ExtensionUIState {
+  // The office this state describes: the one the command named, else the
+  // office that controls the popup's tab, else the last picked, else the
+  // first stored.
   office: string;
+  // Every paired office, with its state (task 811ed3de).
+  offices: { office: string; state: ExtensionUIState["state"] }[];
   state:
     | "unpaired"
     | "offline"
@@ -388,7 +393,8 @@ export interface ExtensionUIState {
   // the deadline or the connection ended; it may have arrived), or why the
   // share was not delivered.
   shareResult?: string;
-  currentTab?: { id: number; eligible: boolean };
+  // office: the office that holds the tab, in any phase, when one does.
+  currentTab?: { id: number; eligible: boolean; office?: string };
   assignments: {
     id: string;
     scope: BrowserGrantScope;

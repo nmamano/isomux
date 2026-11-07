@@ -86,6 +86,8 @@ type OwnedTab = {
   restoreSound?: boolean;
 };
 type Connection = {
+  // The office's origin (officeOf): its key in connections and storage.
+  office: string;
   ws: WebSocket;
   generation?: string;
   tabs: Map<string, OwnedTab>;
@@ -119,21 +121,127 @@ type Connection = {
   shares: Map<string, (result: string) => void>;
   unpairResult?: (ok: boolean) => void;
 };
-let current: Connection | undefined;
-let configuration = 0;
-let retry = 0;
-let reconnect: ReturnType<typeof setTimeout> | undefined;
-let savedCredential: string | undefined;
+// The extension holds a pairing per office at once (task 811ed3de): one
+// connection per office, by origin. Offices are separate trust domains: no
+// office reads or ends another office's tabs, offers or setting.
+const connections = new Map<string, Connection>();
+// Per office: the configure serial, the reconnect backoff and timer, and the
+// credential its own paired message saved, which must not reopen it.
+type Slot = {
+  configuration: number;
+  retry: number;
+  reconnect?: ReturnType<typeof setTimeout>;
+  savedCredential?: string;
+};
+const slots = new Map<string, Slot>();
+function slot(office: string): Slot {
+  let s = slots.get(office);
+  if (!s) slots.set(office, (s = { configuration: 0, retry: 0 }));
+  return s;
+}
+const online = (c: Connection | undefined): c is Connection =>
+  !!c?.generation && !c.closed;
+// chrome.storage.local keeps one record per office, so two offices that
+// write at once do not race over one shared object.
+const CONNECTION_PREFIX = "connection:";
+const ACCESS_PREFIX = "access:";
+const connectionKey = (office: string) => CONNECTION_PREFIX + office;
+const accessKey = (office: string) => ACCESS_PREFIX + office;
+// The office's http(s) origin from its stored socket url.
+function officeOf(url: unknown): string | undefined {
+  if (typeof url !== "string") return undefined;
+  try {
+    const u = new URL(url);
+    u.protocol = u.protocol === "wss:" ? "https:" : "http:";
+    return u.origin;
+  } catch {
+    return undefined;
+  }
+}
+// The picked office the popup named last, so a popup that names none opens
+// on it.
+const SELECTED_KEY = "selectedOffice";
+// Before 0.10.0 the extension kept one connection under "connection" and its
+// setting under "access" (and before that "agentTabs"). The worker start
+// moves them to the office's own keys, once; everything that reads storage
+// waits for it. A setting with no connection to move has no office and is
+// dropped.
+const LEGACY_CONNECTION_KEY = "connection";
+const LEGACY_ACCESS_KEY = "access";
+const LEGACY_AGENT_TABS_KEY = "agentTabs";
+const migrated: Promise<void> = (async () => {
+  try {
+    const stored = await chrome.storage.local.get([
+      LEGACY_CONNECTION_KEY,
+      LEGACY_ACCESS_KEY,
+      LEGACY_AGENT_TABS_KEY,
+    ]);
+    if (!Object.keys(stored).length) return;
+    const record = stored[LEGACY_CONNECTION_KEY];
+    const office = record ? officeOf(fields(record).url) : undefined;
+    let setting: BrowserAccess | undefined;
+    if (LEGACY_ACCESS_KEY in stored) {
+      if (validBrowserAccess(stored[LEGACY_ACCESS_KEY]))
+        setting = stored[LEGACY_ACCESS_KEY];
+    } else if (LEGACY_AGENT_TABS_KEY in stored) {
+      const value = stored[LEGACY_AGENT_TABS_KEY];
+      const scope =
+        value && typeof value === "object"
+          ? (value as Fields).scope
+          : undefined;
+      if (validAgentTabsScope(scope) && scope !== null)
+        setting = {
+          agents: scope === "office" ? "office" : "mine",
+          members: [],
+          openTabs: true,
+        };
+    }
+    if (office) {
+      const present = await chrome.storage.local.get([
+        connectionKey(office),
+        accessKey(office),
+      ]);
+      const writes: Record<string, unknown> = {};
+      if (!(connectionKey(office) in present))
+        writes[connectionKey(office)] = record;
+      if (setting && !(accessKey(office) in present))
+        writes[accessKey(office)] = setting;
+      if (Object.keys(writes).length) await chrome.storage.local.set(writes);
+    }
+    await chrome.storage.local.remove([
+      LEGACY_CONNECTION_KEY,
+      LEGACY_ACCESS_KEY,
+      LEGACY_AGENT_TABS_KEY,
+    ]);
+  } catch {}
+})();
+// Every stored office's record, by origin.
+async function storedOffices(): Promise<Map<string, Fields>> {
+  await migrated;
+  const all = await chrome.storage.local.get(null);
+  const result = new Map<string, Fields>();
+  for (const key of Object.keys(all).sort())
+    if (key.startsWith(CONNECTION_PREFIX) && all[key])
+      result.set(key.slice(CONNECTION_PREFIX.length), fields(all[key]));
+  return result;
+}
 const badgeTabs = new Set<number>();
 let badgeWork = Promise.resolve();
+// The detaches of closed connections. Shared by every office: a member can
+// move a tab from one office to another (Off, then an offer), and the new
+// attach waits for the old detach, which ATTACH_ANSWER_MS bounds.
 let cleanup = Promise.resolve();
 // The offers to send again after a connection loss, such as an office restart,
-// by assignment id. An offer is written when it turns ON, so a worker that
+// by office and assignment id (resumeKey): an office picks the ids of its
+// opens, so an id alone could name another office's offer. An offer is
+// written when it turns ON, so a worker that
 // Chrome stops without close() leaves it to the next worker. An entry leaves
 // on the end of its offer (Off, a revoke, a refused resume) or a terminal
 // close. Session storage keeps the list across a worker restart; an extension
 // reload or a Chrome restart clears it.
 type ResumeOffer = {
+  office: string;
+  id: string;
   tabId: number;
   scope: BrowserGrantScope;
   agent?: { id: string; name: string };
@@ -148,6 +256,10 @@ type ResumeOffer = {
 };
 const RESUME_KEY = "resumeOffers";
 const resumable = new Map<string, ResumeOffer>();
+const resumeKey = (office: string, id: string) => `${office} ${id}`;
+// The offers of one office that wait to resume.
+const resumableOf = (office: string) =>
+  [...resumable.values()].filter((r) => r.office === office);
 let resumeWrites = Promise.resolve();
 // Chrome updates a store install by itself, so the hello tells the office.
 // Read once per worker start; the first socket waits for it.
@@ -164,6 +276,9 @@ const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
     for (const item of list as unknown[]) {
       if (!Array.isArray(item) || typeof item[0] !== "string") continue;
       const r = fields(item[1]);
+      // An entry from before 0.10.0 names no office: an extension update
+      // clears session storage, so none is left to resume.
+      if (typeof r.office !== "string") continue;
       const agent = r.agent === undefined ? undefined : fields(r.agent);
       const manager = r.manager === undefined ? undefined : fields(r.manager);
       if (
@@ -180,7 +295,9 @@ const resumeLoaded = chrome.storage.session.get(RESUME_KEY).then(
           (flag) => flag === undefined || typeof flag === "boolean",
         )
       )
-        resumable.set(item[0], {
+        resumable.set(resumeKey(r.office, item[0]), {
+          office: r.office,
+          id: item[0],
           tabId: r.tabId as number,
           scope: r.scope,
           ...(agent
@@ -217,7 +334,7 @@ function muteFlags(from: {
   };
 }
 function saveResumable(): Promise<void> {
-  const list = [...resumable];
+  const list = [...resumable.values()].map((r) => [r.id, r]);
   resumeWrites = resumeWrites
     .catch(() => {})
     .then(() => chrome.storage.session.set({ [RESUME_KEY]: list }));
@@ -233,7 +350,9 @@ function remember(c: Connection, id: string, tab: OwnedTab): void {
     (!opened && !tab.offerOrigin)
   )
     return;
-  resumable.set(id, {
+  resumable.set(resumeKey(c.office, id), {
+    office: c.office,
+    id,
     tabId: tab.tabId,
     scope: tab.scope,
     ...(tab.agent ? { agent: tab.agent } : {}),
@@ -247,104 +366,116 @@ function remember(c: Connection, id: string, tab: OwnedTab): void {
 }
 // Drops an offer that waits to resume. A tab an agent opened stays open as
 // the member's.
-function forgetResumable(id: string): void {
-  const r = resumable.get(id);
-  if (!r || !resumable.delete(id)) return;
+function forgetResumable(office: string, id: string): void {
+  const r = resumable.get(resumeKey(office, id));
+  if (!r || !resumable.delete(resumeKey(office, id))) return;
   void saveResumable();
   if (r.scope.kind === "opened") keepOpened(r.tabId);
   // A live grant gives the sound back at its own end, with its popups. Here
   // the pages its site opened before the loss are not known.
-  else if (!current?.tabs.has(id))
+  else if (!connections.get(office)?.tabs.has(id))
     void restoreSound(r.tabId, r.restoreSound, []);
 }
-// Disconnect, pairing, unpairing and a refusal end every offer.
-async function clearResumable(): Promise<void> {
+// Ends a resume entry of c's that its own grant now ends.
+function dropResumable(c: Connection, id: string): void {
+  if (resumable.delete(resumeKey(c.office, id))) void saveResumable();
+}
+// Disconnect, pairing, unpairing and a refusal end every offer of the office.
+async function clearResumable(office: string): Promise<void> {
   await resumeLoaded;
-  if (!resumable.size) return;
-  for (const id of [...resumable.keys()]) forgetResumable(id);
+  const list = resumableOf(office);
+  if (!list.length) return;
+  for (const r of list) forgetResumable(office, r.id);
   await saveResumable();
 }
 
-// Which agents may use this browser (task 7355640c): the member's setting,
-// kept in chrome.storage.local, so it survives a Chrome restart and an
-// extension update. It took over the agent tabs setting (task 73a9fb57),
-// which an earlier version stored under "agentTabs". Unpair, pairing and a
-// refusal clear it.
-const ACCESS_KEY = "access";
-const LEGACY_AGENT_TABS_KEY = "agentTabs";
+// Which agents may use this browser (task 7355640c): the member's setting
+// per office (task 811ed3de), kept in chrome.storage.local under
+// access:<origin>, so it survives a Chrome restart and an extension update.
+// Member ids and the office scope belong to one office. Unpair, pairing and
+// a refusal clear the office's setting.
 const DEFAULT_ACCESS: BrowserAccess = {
   agents: "mine",
   members: [],
   openTabs: false,
 };
-let access: BrowserAccess = DEFAULT_ACCESS;
-const settingLoaded = chrome.storage.local
-  .get([ACCESS_KEY, LEGACY_AGENT_TABS_KEY])
+const settings = new Map<string, BrowserAccess>();
+const accessOf = (office: string) => settings.get(office) ?? DEFAULT_ACCESS;
+const settingLoaded = migrated
+  .then(() => chrome.storage.local.get(null))
   .then(
-    async (stored) => {
-      if (ACCESS_KEY in stored) {
-        if (validBrowserAccess(stored[ACCESS_KEY])) access = stored[ACCESS_KEY];
-      } else if (LEGACY_AGENT_TABS_KEY in stored) {
-        const value = stored[LEGACY_AGENT_TABS_KEY];
-        const scope =
-          value && typeof value === "object"
-            ? (value as Fields).scope
-            : undefined;
-        if (validAgentTabsScope(scope) && scope !== null) {
-          access = {
-            agents: scope === "office" ? "office" : "mine",
-            members: [],
-            openTabs: true,
-          };
-          await chrome.storage.local.set({ [ACCESS_KEY]: access });
-        }
-      }
-      await chrome.storage.local.remove(LEGACY_AGENT_TABS_KEY);
+    (all) => {
+      for (const [key, value] of Object.entries(all))
+        if (key.startsWith(ACCESS_PREFIX) && validBrowserAccess(value))
+          settings.set(key.slice(ACCESS_PREFIX.length), value);
     },
     () => {},
   );
 // The agent tabs setting that an office from before access takes: a picked
 // members setting becomes the narrower My agents.
-const legacyAgentTabs = (): AgentTabsScope | null =>
-  access.openTabs ? (access.agents === "office" ? "office" : "all") : null;
+function legacyAgentTabs(office: string): AgentTabsScope | null {
+  const access = accessOf(office);
+  return access.openTabs
+    ? access.agents === "office"
+      ? "office"
+      : "all"
+    : null;
+}
 // The setting still lets an agent open a tab via this scope. An office that
 // takes access ends the tabs of agents it no longer admits itself.
-const covers = (c: Connection | undefined, via: AgentTabsScope) =>
-  access.openTabs &&
-  (!!c?.access || access.agents === "office" || via === "all");
+function covers(
+  office: string,
+  c: Connection | undefined,
+  via: AgentTabsScope,
+) {
+  const access = accessOf(office);
+  return (
+    access.openTabs &&
+    (!!c?.access || access.agents === "office" || via === "all")
+  );
+}
 // Tells the office the setting, in the form it takes.
 function sendAccess(c: Connection): void {
   if (!c.generation || c.closed) return;
-  if (c.access) send(c, { kind: "access", generation: c.generation, access });
+  if (c.access)
+    send(c, {
+      kind: "access",
+      generation: c.generation,
+      access: accessOf(c.office),
+    });
   else if (c.agentTabs)
     send(c, {
       kind: "agentTabs",
       generation: c.generation,
-      scope: legacyAgentTabs(),
+      scope: legacyAgentTabs(c.office),
     });
 }
-async function setAccess(next: BrowserAccess | null): Promise<void> {
+async function setAccess(
+  office: string,
+  next: BrowserAccess | null,
+): Promise<void> {
   await settingLoaded;
-  access = next ?? DEFAULT_ACCESS;
-  if (next === null) await chrome.storage.local.remove(ACCESS_KEY);
-  else await chrome.storage.local.set({ [ACCESS_KEY]: next });
-  const c = current;
+  if (next === null) settings.delete(office);
+  else settings.set(office, next);
+  if (next === null) await chrome.storage.local.remove(accessKey(office));
+  else await chrome.storage.local.set({ [accessKey(office)]: next });
+  const c = connections.get(office);
   if (c) sendAccess(c);
   // Off, or a narrower setting, closes the tabs it no longer allows.
   for (const [id, tab] of c?.tabs ?? [])
     if (
       tab.scope?.kind === "opened" &&
       tab.phase !== "revoking" &&
-      !covers(c, tab.scope.via)
+      !covers(office, c, tab.scope.via)
     )
       void revoke(c!, id, "off");
-  for (const [id, r] of [...resumable])
+  for (const r of resumableOf(office))
     if (
       r.scope.kind === "opened" &&
-      !covers(c, r.scope.via) &&
-      !c?.tabs.has(id)
+      !covers(office, c, r.scope.via) &&
+      !c?.tabs.has(r.id)
     )
-      forgetResumable(id);
+      forgetResumable(office, r.id);
 }
 
 // The scope of the member's offer from the popup: "shared" follows the
@@ -353,7 +484,7 @@ async function setAccess(next: BrowserAccess | null): Promise<void> {
 const offerScope = (c: Connection): BrowserGrantScope =>
   c.access
     ? { kind: "shared" }
-    : access.agents === "office" && c.officeScope
+    : accessOf(c.office).agents === "office" && c.officeScope
       ? { kind: "office" }
       : { kind: "all" };
 
@@ -381,6 +512,7 @@ async function endOpened(tab: OwnedTab, popups: number[]): Promise<void> {
 // Mutes or unmutes every page of a grant. The first mute of an offered tab
 // notes whether the member's tab had sound, to give it back at the end.
 async function muteGrant(
+  c: Connection,
   id: string,
   tab: OwnedTab,
   muted: boolean,
@@ -388,7 +520,7 @@ async function muteGrant(
   if (muted && tab.scope?.kind !== "opened" && tab.restoreSound === undefined)
     tab.restoreSound = !(await chrome.tabs.get(tab.tabId)).mutedInfo?.muted;
   tab.muted = muted;
-  const r = resumable.get(id);
+  const r = resumable.get(resumeKey(c.office, id));
   if (r) {
     Object.assign(r, muteFlags(tab));
     void saveResumable();
@@ -481,30 +613,42 @@ function makeAgentTab(): Promise<number> {
 }
 function controlledTabs(): Set<number> {
   const result = new Set<number>();
-  const c = current;
-  if (!c?.generation || c.closed) return result;
-  for (const tab of c.tabs.values()) {
-    if (tab.phase !== "on") continue;
-    result.add(tab.tabId);
-    for (const popup of tab.popups.values())
-      if (popup.targetId) result.add(popup.tabId);
+  for (const c of connections.values()) {
+    if (!online(c)) continue;
+    for (const tab of c.tabs.values()) {
+      if (tab.phase !== "on") continue;
+      result.add(tab.tabId);
+      for (const popup of tab.popups.values())
+        if (popup.targetId) result.add(popup.tabId);
+    }
   }
   return result;
 }
+// The office that holds a tab, in any phase, as its root or one of its
+// pages, or that waits to resume it. Chrome takes one debugger per tab, so a
+// tab belongs to at most one office.
+function holder(tabId: unknown): string | undefined {
+  if (!Number.isSafeInteger(tabId) || (tabId as number) < 0) return undefined;
+  for (const c of connections.values())
+    for (const tab of c.tabs.values())
+      if (
+        tab.tabId === tabId ||
+        [...tab.popups.values()].some((popup) => popup.tabId === tabId)
+      )
+        return c.office;
+  return [...resumable.values()].find((r) => r.tabId === tabId)?.office;
+}
+const anyOnline = () => [...connections.values()].some(online);
 function refreshBadges(): void {
   badgeWork = badgeWork
     .catch(() => {})
     .then(async () => {
       await chrome.action.setBadgeText({ text: "" });
       await chrome.action.setBadgeBackgroundColor({
-        color: current?.generation && !current.closed ? "#207451" : "#6b7280",
+        color: anyOnline() ? "#207451" : "#6b7280",
       });
       await chrome.action.setTitle({
-        title: t(
-          current?.generation && !current.closed
-            ? "browser.connected"
-            : "browser.offline",
-        ),
+        title: t(anyOnline() ? "browser.connected" : "browser.offline"),
       });
       for (const tabId of new Set([...badgeTabs, ...controlledTabs()])) {
         try {
@@ -532,12 +676,14 @@ function refreshBadges(): void {
 }
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.status === undefined) return;
-  const c = current;
-  if (!c || c.closed) return;
-  const tracked = [...c.tabs.values()].some(
-    (tab) =>
-      tab.tabId === tabId ||
-      [...tab.popups.values()].some((popup) => popup.tabId === tabId),
+  const tracked = [...connections.values()].some(
+    (c) =>
+      !c.closed &&
+      [...c.tabs.values()].some(
+        (tab) =>
+          tab.tabId === tabId ||
+          [...tab.popups.values()].some((popup) => popup.tabId === tabId),
+      ),
   );
   if (tracked) refreshBadges();
 });
@@ -557,59 +703,104 @@ async function currentTab(tabId: unknown) {
     return undefined;
   }
 }
-async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
+// The state an office shows, from its stored record and its connection.
+function officeState(
+  config: Fields | undefined,
+  c: Connection | undefined,
+): ExtensionUIState["state"] {
+  if (online(c)) return "connected";
+  if (!config) return "unpaired";
+  return config.blocked
+    ? "blocked"
+    : config.unknown
+      ? "unknown"
+      : config.disabled
+        ? "disabled"
+        : c
+          ? "connecting"
+          : config.credential || config.code
+            ? "offline"
+            : "unpaired";
+}
+// The office the popup named last (SELECTED_KEY).
+let lastNamed: string | undefined;
+const selectionLoaded = migrated
+  .then(() => chrome.storage.local.get(SELECTED_KEY))
+  .then(
+    (stored) => {
+      if (typeof stored[SELECTED_KEY] === "string")
+        lastNamed = stored[SELECTED_KEY];
+    },
+    () => {},
+  );
+async function nameOffice(office: string | undefined): Promise<void> {
+  await selectionLoaded;
+  if (lastNamed === office) return;
+  lastNamed = office;
+  await (
+    office === undefined
+      ? chrome.storage.local.remove(SELECTED_KEY)
+      : chrome.storage.local.set({ [SELECTED_KEY]: office })
+  ).catch(() => {});
+}
+// The office a popup command acts on: the paired office it names, else the
+// office that holds the popup's tab, else the last office named, else the
+// first paired one.
+async function pickOffice(
+  named: unknown,
+  tabId: unknown,
+  stored: Map<string, Fields>,
+): Promise<string | undefined> {
+  await selectionLoaded;
+  if (typeof named === "string" && stored.has(named)) return named;
+  const owner = holder(tabId);
+  if (owner && stored.has(owner)) return owner;
+  if (lastNamed && stored.has(lastNamed)) return lastNamed;
+  return stored.keys().next().value;
+}
+async function uiState(
+  named: unknown,
+  tabId?: unknown,
+): Promise<ExtensionUIState> {
   // A popup opened as the worker starts must not show a store build as
   // unpacked.
-  await Promise.all([resumeLoaded, installLoaded]);
-  const { connection } = await chrome.storage.local.get("connection");
-  const config = connection ? fields(connection) : {};
-  const selected = await currentTab(tabId);
-  const c = current;
-  const online = !!c?.generation && !c.closed;
+  await Promise.all([resumeLoaded, installLoaded, settingLoaded]);
+  const stored = await storedOffices();
+  const office = await pickOffice(named, tabId, stored);
+  const config = office ? stored.get(office) : undefined;
+  const tab = await currentTab(tabId);
+  const owner = holder(tab?.id);
+  const selected = tab && { ...tab, ...(owner ? { office: owner } : {}) };
+  const c = office ? connections.get(office) : undefined;
+  const live = online(c);
   // Before a ready, only the built-in listing.
   const storeUrl = c?.storeUrl ?? CHROME_WEB_STORE_URL;
-  let office = "";
-  if (typeof config.url === "string") {
-    try {
-      const u = new URL(config.url);
-      u.protocol = u.protocol === "wss:" ? "https:" : "http:";
-      office = u.origin;
-    } catch {}
-  }
   return {
     currentTab: selected,
-    agents: online ? (c.metadata?.agents ?? []) : [],
-    members: online ? (c.metadata?.members ?? []) : [],
-    office,
-    state: online
-      ? "connected"
-      : config.blocked
-        ? "blocked"
-        : config.unknown
-          ? "unknown"
-          : config.disabled
-            ? "disabled"
-            : c
-              ? "connecting"
-              : config.credential || config.code
-                ? "offline"
-                : "unpaired",
-    member: online ? c.metadata?.member : undefined,
-    ...(online && c.officeScope ? { officeScope: true } : {}),
-    ...(online && c.agentTabs ? { agentTabs: true } : {}),
-    ...(online && c.access ? { sharedAccess: true } : {}),
-    ...(online && c.share
+    agents: live ? (c.metadata?.agents ?? []) : [],
+    members: live ? (c.metadata?.members ?? []) : [],
+    office: office ?? "",
+    offices: [...stored].map(([key, record]) => ({
+      office: key,
+      state: officeState(record, connections.get(key)),
+    })),
+    state: officeState(config, c),
+    member: live ? c.metadata?.member : undefined,
+    ...(live && c.officeScope ? { officeScope: true } : {}),
+    ...(live && c.agentTabs ? { agentTabs: true } : {}),
+    ...(live && c.access ? { sharedAccess: true } : {}),
+    ...(live && c.share
       ? { share: true, shareAgents: c.metadata?.shareAgents ?? [] }
       : {}),
-    ...(online ? { access } : {}),
-    ...(online &&
+    ...(live ? { access: accessOf(c.office) } : {}),
+    ...(live &&
     c.officePackage &&
     extensionOutdated(chrome.runtime.getManifest().version, c.officePackage)
       ? { update: { latest: c.officePackage } }
       : {}),
     ...(storeBuild ? { store: true } : {}),
     ...(storeUrl ? { storeUrl } : {}),
-    assignments: online
+    assignments: live
       ? [...c.tabs].flatMap(([id, tab]) =>
           tab.scope
             ? [
@@ -632,8 +823,8 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
             : [],
         )
       : // While the office is away, the offers that wait to resume.
-        [...resumable].map(([id, r]) => ({
-          id,
+        resumableOf(office ?? "").map((r) => ({
+          id: r.id,
           scope: r.scope,
           agent: r.agent,
           ...(r.manager ? { manager: r.manager } : {}),
@@ -647,11 +838,7 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
 }
 async function uiCommand(value: unknown): Promise<ExtensionUIState> {
   const msg = fields(value);
-  if (msg.action === "state") {
-    if (current?.generation)
-      send(current, { kind: "agents", generation: current.generation });
-    return uiState(msg.tabId);
-  }
+  await Promise.all([resumeLoaded, settingLoaded]);
   if (msg.action === "pair") {
     if (
       typeof msg.office !== "string" ||
@@ -659,65 +846,82 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       !/^[A-Za-z0-9_-]{43}$/.test(msg.code.trim())
     )
       throw new Error();
-    await clearResumable();
-    await setAccess(null);
+    const url = officeSocketURL(msg.office.trim());
+    const office = officeOf(url);
+    if (!office) throw new Error();
+    // A pairing of a paired office replaces only that office's record.
+    await clearResumable(office);
+    await setAccess(office, null);
     await chrome.storage.local.setAccessLevel({
       accessLevel: "TRUSTED_CONTEXTS",
     });
     await chrome.storage.local.set({
-      connection: {
-        url: officeSocketURL(msg.office.trim()),
-        code: msg.code.trim(),
-      },
+      [connectionKey(office)]: { url, code: msg.code.trim() },
     });
-  } else if (msg.action === "disconnect" || msg.action === "reconnect") {
-    const stored = await chrome.storage.local.get("connection");
-    const config = fields(stored.connection);
+    await nameOffice(office);
+    return uiState(office, msg.tabId);
+  }
+  const stored = await storedOffices();
+  // A command that names an office names a paired one; a popup may still
+  // show an office unpaired since, and its state poll gets another office.
+  if (
+    msg.action !== "state" &&
+    msg.office !== undefined &&
+    !(typeof msg.office === "string" && stored.has(msg.office))
+  )
+    throw new Error();
+  const office = await pickOffice(msg.office, msg.tabId, stored);
+  if (typeof msg.office === "string" && msg.office === office)
+    await nameOffice(office);
+  const c = office ? connections.get(office) : undefined;
+  if (msg.action === "state") {
+    if (c?.generation) send(c, { kind: "agents", generation: c.generation });
+    return uiState(office, msg.tabId);
+  }
+  if (!office) throw new Error();
+  if (msg.action === "disconnect" || msg.action === "reconnect") {
+    const config = stored.get(office)!;
     if (
       msg.action === "reconnect" &&
       (config.blocked || config.unknown || !config.credential)
     )
       throw new Error();
-    if (msg.action === "disconnect") await clearResumable();
+    if (msg.action === "disconnect") await clearResumable(office);
     await chrome.storage.local.set({
-      connection: { ...config, disabled: msg.action === "disconnect" },
+      [connectionKey(office)]: {
+        ...config,
+        disabled: msg.action === "disconnect",
+      },
     });
   } else if (
     msg.action === "stop" &&
     typeof msg.assignment === "string" &&
-    resumable.has(msg.assignment) &&
-    !current?.tabs.has(msg.assignment)
+    resumable.has(resumeKey(office, msg.assignment)) &&
+    !c?.tabs.has(msg.assignment)
   ) {
     // Off while the office is away: the offer is not sent again.
-    forgetResumable(msg.assignment);
+    forgetResumable(office, msg.assignment);
     await saveResumable();
   } else if (msg.action === "access") {
     if (!validBrowserAccess(msg.access)) throw new Error();
-    await setAccess(msg.access);
+    await setAccess(office, msg.access);
   } else if (msg.action === "share") {
-    const shareResult = await requestShare(msg);
-    return { ...(await uiState(msg.tabId)), shareResult };
+    const shareResult = await requestShare(c, msg);
+    return { ...(await uiState(office, msg.tabId)), shareResult };
   } else {
-    const c = current;
     if (!c) throw new Error();
     check(c);
     if (msg.generation !== c.generation) throw new Error();
     if (msg.action === "offer") {
       const selected = await currentTab(msg.tabId);
-      await settingLoaded;
       check(c);
       const scope = offerScope(c);
+      // A tab any office holds, in any phase, is not offered again.
       if (
         !selected?.eligible ||
         !selected.active ||
         selected.windowId !== msg.windowId ||
-        [...c.tabs.values()].some(
-          (tab) =>
-            tab.tabId === selected.id ||
-            [...tab.popups.values()].some(
-              (popup) => popup.tabId === selected.id,
-            ),
-        )
+        holder(selected.id) !== undefined
       )
         throw new Error();
       const id = crypto.randomUUID();
@@ -740,8 +944,8 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       remember(c, id, tab);
       refreshBadges();
     } else if (msg.action === "unpair") {
-      await clearResumable();
-      await setAccess(null);
+      await clearResumable(office);
+      await setAccess(office, null);
       const acknowledged = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => {
           c.terminal = true;
@@ -753,12 +957,19 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
         };
         send(c, { kind: "unpair", generation: c.generation });
       });
-      const stored = await chrome.storage.local.get("connection");
-      await chrome.storage.local.set({
-        connection: acknowledged
-          ? null
-          : { ...fields(stored.connection), disabled: true, unknown: true },
-      });
+      if (acknowledged) {
+        await chrome.storage.local.remove(connectionKey(office));
+        if (lastNamed === office) await nameOffice(undefined);
+      } else {
+        const stored = await chrome.storage.local.get(connectionKey(office));
+        await chrome.storage.local.set({
+          [connectionKey(office)]: {
+            ...fields(stored[connectionKey(office)]),
+            disabled: true,
+            unknown: true,
+          },
+        });
+      }
     } else {
       if (typeof msg.assignment !== "string") throw new Error();
       const tab = c.tabs.get(msg.assignment);
@@ -777,7 +988,7 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       } else throw new Error();
     }
   }
-  return uiState(msg.tabId);
+  return uiState(office, msg.tabId);
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (
@@ -786,7 +997,12 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   )
     return;
   void uiCommand(message).then(
-    (state) => reply({ ...state, generation: current?.generation }),
+    // The generation of the office the state describes.
+    (state) =>
+      reply({
+        ...state,
+        generation: connections.get(state.office)?.generation,
+      }),
     (error) =>
       reply({
         error:
@@ -815,8 +1031,7 @@ function firstPoints(text: string, max: number): string {
 // Sends the popup's page to an agent. Resolves with "sent", the office's
 // error, "unanswered" when the office does not answer in 10 s or the
 // connection ends first, or "not_sent" when the office takes no share.
-function requestShare(msg: Fields): Promise<string> {
-  const c = current;
+function requestShare(c: Connection | undefined, msg: Fields): Promise<string> {
   if (!c || c.closed || !c.generation || !c.share)
     return Promise.resolve("not_sent");
   if (
@@ -914,7 +1129,7 @@ async function revoke(
 ): Promise<void> {
   const tab = c.tabs.get(id);
   if (!tab) return;
-  if (!c.closed && resumable.delete(id)) void saveResumable();
+  if (!c.closed) dropResumable(c, id);
   if (tab.releasing) return tab.releasing;
   tab.phase = "revoking";
   c.creating.delete(id);
@@ -961,7 +1176,12 @@ async function reportFiles(c: Connection): Promise<void> {
   send(c, { kind: "files", generation: c.generation, package: files });
 }
 function send(c: Connection, message: Fields): void {
-  if (c.closed || current !== c || c.ws.readyState !== WebSocket.OPEN) return;
+  if (
+    c.closed ||
+    connections.get(c.office) !== c ||
+    c.ws.readyState !== WebSocket.OPEN
+  )
+    return;
   let json = JSON.stringify(message);
   // A UTF-16 unit is at most 3 UTF-8 bytes.
   const bytes =
@@ -993,7 +1213,7 @@ function send(c: Connection, message: Fields): void {
 function check(c: Connection): void {
   if (
     c.closed ||
-    current !== c ||
+    connections.get(c.office) !== c ||
     !c.generation ||
     c.ws.readyState !== WebSocket.OPEN
   )
@@ -1066,7 +1286,7 @@ function close(c: Connection): void {
   for (const resolve of c.shares.values()) resolve("unanswered");
   c.shares.clear();
   clearTimeout(c.watchdog);
-  if (current === c) current = undefined;
+  if (connections.get(c.office) === c) connections.delete(c.office);
   c.ws.close();
   // A loss the member did not ask for keeps the ON offers, to send them again;
   // a terminal close ends them. A resume still in flight keeps its entry.
@@ -1074,7 +1294,7 @@ function close(c: Connection): void {
   for (const [id, tab] of c.tabs)
     if (tab.phase === "on") {
       if (!c.terminal) remember(c, id, tab);
-      else if (resumable.delete(id)) void saveResumable();
+      else dropResumable(c, id);
     }
   const retiring = [...c.tabs];
   for (const [, tab] of retiring) tab.phase = "revoking";
@@ -1086,7 +1306,7 @@ function close(c: Connection): void {
         await tab.work?.catch(() => {});
         const popups = [...tab.popups.values()].map((popup) => popup.tabId);
         await detach(tab);
-        if (!resumable.has(id)) {
+        if (!resumable.has(resumeKey(c.office, id))) {
           await endOpened(tab, popups);
           await restoreSound(tab.tabId, tab.restoreSound, popups);
         }
@@ -1097,13 +1317,16 @@ function close(c: Connection): void {
   c.creating.clear();
   refreshBadges();
   if (!c.terminal) {
-    clearTimeout(reconnect);
-    void chrome.alarms.create("reconnect", { delayInMinutes: 0.5 });
-    reconnect = setTimeout(
+    const s = slot(c.office);
+    clearTimeout(s.reconnect);
+    void chrome.alarms.create(RECONNECT_ALARM + c.office, {
+      delayInMinutes: 0.5,
+    });
+    s.reconnect = setTimeout(
       () => {
-        void configure(false);
+        void configure(c.office, false);
       },
-      Math.min(30_000, 1000 * 2 ** Math.min(retry++, 5)) +
+      Math.min(30_000, 1000 * 2 ** Math.min(s.retry++, 5)) +
         Math.floor(Math.random() * 250),
     );
   }
@@ -1145,7 +1368,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   if (msg.method === "mute" && tab?.phase === "on") {
     const muted = fields(msg.params).muted;
     if (typeof muted !== "boolean") throw new Error("Invalid mute");
-    return muteGrant(id, tab, muted);
+    return muteGrant(c, id, tab, muted);
   }
   if (!tab || tab.phase !== "on" || msg.method !== "cdp")
     throw new Error("Unknown assignment");
@@ -1286,7 +1509,7 @@ function openTab(c: Connection, id: string, params: Fields): Promise<Fields> {
     (params.managerName !== undefined && typeof params.managerName !== "string")
   )
     return Promise.reject(new Error("Invalid open"));
-  if (!(c.agentTabs || c.access) || !covers(c, scope.via))
+  if (!(c.agentTabs || c.access) || !covers(c.office, c, scope.via))
     return Promise.reject(new AttachError("agent_tabs_off"));
   if (c.tabs.has(id)) return Promise.reject(new AttachError("ended"));
   const tab: OwnedTab = {
@@ -1341,23 +1564,31 @@ function openTab(c: Connection, id: string, params: Fields): Promise<Fields> {
   return tab.work;
 }
 
-async function configure(reset = true): Promise<void> {
-  clearTimeout(reconnect);
-  void chrome.alarms.clear("reconnect");
-  if (reset) retry = 0;
-  const serial = ++configuration;
-  if (current) {
-    current.terminal = true;
-    close(current);
+// The reconnect alarm of an office: its name is this prefix and the origin.
+const RECONNECT_ALARM = "reconnect:";
+// Opens the office's connection from its stored record, after closing the
+// one it has. Other offices are not touched.
+async function configure(office: string, reset = true): Promise<void> {
+  const s = slot(office);
+  clearTimeout(s.reconnect);
+  void chrome.alarms.clear(RECONNECT_ALARM + office);
+  if (reset) s.retry = 0;
+  const serial = ++s.configuration;
+  const previous = connections.get(office);
+  if (previous) {
+    previous.terminal = true;
+    close(previous);
   }
   await chrome.storage.local.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
   });
-  const stored = await chrome.storage.local.get("connection");
+  await migrated;
+  const stored = await chrome.storage.local.get(connectionKey(office));
+  const record = stored[connectionKey(office)];
   refreshBadges();
-  if (serial !== configuration || !stored.connection) return;
+  if (serial !== s.configuration || !record) return;
   try {
-    const config = fields(stored.connection);
+    const config = fields(record);
     if (config.blocked === true || config.disabled === true) return;
     if (
       typeof config.url !== "string" ||
@@ -1371,9 +1602,10 @@ async function configure(reset = true): Promise<void> {
       settingLoaded,
       installLoaded,
     ]);
-    if (serial !== configuration) return;
+    if (serial !== s.configuration) return;
     const ws = new WebSocket(browserSocketURL(config.url));
     const c: Connection = {
+      office,
       ws,
       tabs: new Map(),
       offers: new Map(),
@@ -1381,14 +1613,14 @@ async function configure(reset = true): Promise<void> {
       creating: new Set(),
       closed: false,
     };
-    current = c;
+    connections.set(office, c);
     const refuse = () => {
       c.terminal = true;
-      void clearResumable();
-      void setAccess(null);
-      void chrome.alarms.clear("reconnect");
+      void clearResumable(office);
+      void setAccess(office, null);
+      void chrome.alarms.clear(RECONNECT_ALARM + office);
       void chrome.storage.local.set({
-        connection: { ...config, blocked: true },
+        [connectionKey(office)]: { ...config, blocked: true },
       });
       close(c);
     };
@@ -1412,7 +1644,7 @@ async function configure(reset = true): Promise<void> {
     };
     ws.onerror = () => close(c);
     ws.onmessage = (event: MessageEvent<string>) => {
-      if (c.closed || current !== c) return;
+      if (c.closed || connections.get(office) !== c) return;
       try {
         if (event.data.length > 8 * 1024 * 1024)
           throw new Error("Invalid message");
@@ -1433,9 +1665,12 @@ async function configure(reset = true): Promise<void> {
           typeof msg.credential === "string" &&
           !c.generation
         ) {
-          savedCredential = msg.credential;
+          s.savedCredential = msg.credential;
           void chrome.storage.local.set({
-            connection: { url: config.url, credential: msg.credential },
+            [connectionKey(office)]: {
+              url: config.url,
+              credential: msg.credential,
+            },
           });
           if (typeof config.code === "string")
             void confirmPairedCode(config.code);
@@ -1471,21 +1706,21 @@ async function configure(reset = true): Promise<void> {
           // The setting goes first, so the office takes the opened tabs that
           // resume.
           sendAccess(c);
-          if (!c.offerResume) void clearResumable();
+          if (!c.offerResume) void clearResumable(office);
           else
-            for (const [id, r] of [...resumable]) {
+            for (const r of resumableOf(office)) {
               // An office without agent tabs would refuse the scope; a tab the
               // setting no longer allows ends.
               if (
                 r.scope.kind === "opened" &&
-                (!(c.agentTabs || c.access) || !covers(c, r.scope.via))
+                (!(c.agentTabs || c.access) || !covers(office, c, r.scope.via))
               )
-                forgetResumable(id);
-              else resumeOffer(c, id, r);
+                forgetResumable(office, r.id);
+              else resumeOffer(c, r.id, r);
             }
           refreshBadges();
-          retry = 0;
-          void chrome.alarms.clear("reconnect");
+          s.retry = 0;
+          void chrome.alarms.clear(RECONNECT_ALARM + office);
           c.watchdog = setTimeout(() => close(c), 45_000);
           void reportFiles(c);
           return;
@@ -1608,13 +1843,14 @@ async function configure(reset = true): Promise<void> {
               remember(c, msg.assignment, tab);
               refreshBadges();
             }
-          } else if (resumable.delete(msg.assignment)) void saveResumable();
+          } else dropResumable(c, msg.assignment);
           tab.resuming = false;
           c.offers.get(msg.assignment)?.(!msg.error);
           c.offers.delete(msg.assignment);
           return;
         }
-        // The member's Reload in the office. Agent control of every tab ends.
+        // The member's Reload in the office. Agent control of every tab ends,
+        // in every office.
         if (msg.kind === "reload") {
           void newerFiles().then((files) => {
             if (files) chrome.runtime.reload();
@@ -1658,9 +1894,18 @@ async function configure(reset = true): Promise<void> {
   }
 }
 
+// A tab belongs to at most one office: each office reads only its own tabs.
 chrome.debugger.onEvent.addListener((source, method, params = {}) => {
-  const c = current;
-  if (!c || c.closed || !c.generation) return;
+  for (const c of [...connections.values()])
+    debuggerEvent(c, source, method, params);
+});
+function debuggerEvent(
+  c: Connection,
+  source: { tabId?: number; sessionId?: string },
+  method: string,
+  params: Fields,
+): void {
+  if (c.closed || !c.generation) return;
   for (const [assignment, main] of c.tabs) {
     if (main.phase !== "on") continue;
     const popupEntry = [...main.popups].find(
@@ -1694,11 +1939,15 @@ chrome.debugger.onEvent.addListener((source, method, params = {}) => {
       sessionId: source.sessionId ?? popupEntry?.[0],
     });
   }
-});
+}
 chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
-  const c = current;
+  for (const c of [...connections.values()]) navigationTarget(c, event);
+});
+function navigationTarget(
+  c: Connection,
+  event: { tabId: number; sourceTabId: number },
+): void {
   if (
-    !c ||
     c.closed ||
     !c.generation ||
     !Number.isSafeInteger(event.tabId) ||
@@ -1722,14 +1971,8 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
       main.popups.size >= 8
     )
       continue;
-    if (
-      [...c.tabs.values()].some(
-        (root) =>
-          root.tabId === event.tabId ||
-          [...root.popups.values()].some((node) => node.tabId === event.tabId),
-      )
-    )
-      return;
+    // A tab any office holds is not taken again.
+    if (holder(event.tabId) !== undefined) return;
     main.attaching = true;
     const popup: OwnedTab = {
       tabId: event.tabId,
@@ -1801,7 +2044,7 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
     })();
     break;
   }
-});
+}
 // Chrome can detach its debugger for an external-protocol launch while the
 // page target survives. Rebuild the debugger connection, never replay input.
 function recoverDebugger(
@@ -1956,8 +2199,14 @@ function retireDebugger(
 
 chrome.debugger.onDetach.addListener((source, reason) => {
   refreshBadges();
-  const c = current;
-  if (!c) return;
+  for (const c of [...connections.values()])
+    debuggerDetached(c, source, reason);
+});
+function debuggerDetached(
+  c: Connection,
+  source: ChromeDebuggee,
+  reason: string,
+): void {
   for (const [assignment, tab] of c.tabs) {
     if (tab.phase === "revoking") continue;
     const detached =
@@ -1979,23 +2228,35 @@ chrome.debugger.onDetach.addListener((source, reason) => {
     }
     retireDebugger(c, assignment, tab, source.tabId, "debugger_detached");
   }
-});
+}
 chrome.storage.onChanged.addListener((changes, area) => {
-  // Only the connection reconnects; the agent tabs setting and the opened
-  // tab ids do not.
-  if (area !== "local" || !("connection" in changes)) return;
-  const connection = (
-    changes as { connection?: { newValue?: { credential?: string } } }
-  ).connection;
-  if (connection?.newValue?.credential === savedCredential && savedCredential) {
-    savedCredential = undefined;
-    return;
+  // Only an office's connection record reconnects it; its setting, the
+  // selection and the migration's removal of the old keys do not.
+  if (area !== "local") return;
+  for (const [key, change] of Object.entries(
+    changes as Record<string, { newValue?: unknown }>,
+  )) {
+    if (!key.startsWith(CONNECTION_PREFIX)) continue;
+    const office = key.slice(CONNECTION_PREFIX.length);
+    const s = slot(office);
+    const credential = (change.newValue as { credential?: unknown } | undefined)
+      ?.credential;
+    if (s.savedCredential && credential === s.savedCredential) {
+      s.savedCredential = undefined;
+      continue;
+    }
+    void configure(office);
   }
-  void configure();
 });
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "reconnect" && !current) void configure(false);
+  if (!alarm.name.startsWith(RECONNECT_ALARM)) return;
+  const office = alarm.name.slice(RECONNECT_ALARM.length);
+  if (!connections.has(office)) void configure(office, false);
 });
+// Opens every stored office.
+async function configureAll(): Promise<void> {
+  for (const office of (await storedOffices()).keys()) void configure(office);
+}
 // A worker that Chrome stopped without close() leaves its debugger sessions
 // attached, and Chrome refuses a new attach to those tabs. This worker holds
 // none yet, so it detaches every tab first; a detach of a tab this extension
@@ -2015,9 +2276,9 @@ const leftovers = chrome.debugger.getTargets().then(
   () => {},
 );
 chrome.runtime.onStartup.addListener(() => {
-  void configure();
+  void configureAll();
 });
 chrome.runtime.onInstalled.addListener(() => {
-  void configure();
+  void configureAll();
 });
-void configure();
+void configureAll();

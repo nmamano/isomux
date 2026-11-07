@@ -105,6 +105,22 @@ element("update-reload").addEventListener("click", () => {
 });
 let busy = false,
   showPair = false;
+// The office the popup shows (task 811ed3de). Unset until the first answer,
+// which names the office that holds this tab, else the last one picked.
+let picked: string | undefined;
+// The picker's Add an office: the pair form shows, empty.
+let adding = false;
+const ADD_OFFICE = "add";
+const officePicker = element("office-picker") as HTMLSelectElement;
+// The picker's rows shown, so a poll that changes nothing keeps the focus.
+let officeRows = "";
+const host = (origin: string) => {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return origin;
+  }
+};
 const picker = element("agents") as HTMLSelectElement;
 const membersBox = element("members");
 const membersList = element("members-list");
@@ -129,20 +145,27 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
       });
       if (active?.id !== invocationTab?.id) throw new Error();
     }
+    const asked = picked;
     const result = (await chrome.runtime.sendMessage({
       action,
       generation: state?.generation,
       tabId: invocationTab?.id,
       windowId: invocationTab?.windowId,
+      ...(picked ? { office: picked } : {}),
       ...extra,
     })) as typeof state & { error?: string; reason?: string };
     if (!result || result.error) {
       reason = result?.reason;
       throw new Error();
     }
+    // A poll for the office shown before a pick changed it.
+    if (action === "state" && asked !== picked) return;
     // A returned pair command is not pairing: the code stays in the form until
     // the office confirms it, so a refused or mistyped attempt can be fixed.
-    if (action === "pair") showPair = false;
+    if (action === "pair") {
+      showPair = false;
+      adding = false;
+    }
     // Read the field only after the await: a code typed during it is newer.
     const paired = await pairedCode();
     if (code.value && code.value.trim() === paired) code.value = "";
@@ -161,13 +184,17 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
 }
 function render(next: typeof state) {
   state = next;
+  // The answer names the office it describes; an unpaired office falls back
+  // to another.
+  if (state.office) picked = state.office;
+  renderOffices();
   element("status").dataset.state = state.state;
   element("status").textContent = t(`browser.${state.state}`);
   element("member").textContent = state.member
     ? t("browser.owner", { name: state.member.name })
     : "";
   element("office-display").textContent = state.office;
-  if (!office.value) office.value = state.office;
+  if (!office.value && !adding) office.value = state.office;
   const pairForm = element("pair-form");
   const pairHidden =
     !showPair && !["unpaired", "blocked", "unknown"].includes(state.state);
@@ -208,24 +235,86 @@ function render(next: typeof state) {
   }
   renderAccess();
   const current = state.assignments.find((a) => a.current);
+  // A tab another office holds: Chrome lets one office use a tab.
+  const holder = otherOffice();
   toggle.checked = !!current && current.phase !== "revoking";
   toggle.disabled = current
     ? current.phase === "revoking"
-    : busy || state.state !== "connected" || !state.currentTab?.eligible;
-  element("tab-state").textContent = current
-    ? current.phase === "offering"
-      ? t("browser.offering")
-      : current.phase === "revoking"
-        ? t("browser.revoking")
-        : current.scope.kind === "opened" && current.agent
-          ? t("browser.assigned", { name: current.agent.name })
-          : t("browser.tabShared")
-    : state.state === "connected" && !state.currentTab?.eligible
-      ? t("browser.tabIneligible")
-      : "";
+    : busy ||
+      !!holder ||
+      state.state !== "connected" ||
+      !state.currentTab?.eligible;
+  element("tab-state").textContent = holder
+    ? t("browser.otherOffice", { office: host(holder) })
+    : current
+      ? current.phase === "offering"
+        ? t("browser.offering")
+        : current.phase === "revoking"
+          ? t("browser.revoking")
+          : current.scope.kind === "opened" && current.agent
+            ? t("browser.assigned", { name: current.agent.name })
+            : t("browser.tabShared")
+      : state.state === "connected" && !state.currentTab?.eligible
+        ? t("browser.tabIneligible")
+        : "";
   renderAgentTabs();
   renderShare();
 }
+// The office that holds this tab, when it is not the shown office.
+function otherOffice(): string | undefined {
+  const holder = state.currentTab?.office;
+  return holder && holder !== state.office ? holder : undefined;
+}
+// One row per paired office with its state, and Add an office. Hidden with
+// no office paired: the pair form shows.
+function renderOffices() {
+  const offices = state.offices ?? [];
+  officePicker.hidden = offices.length === 0;
+  const signature = JSON.stringify(offices);
+  if (signature !== officeRows) {
+    officeRows = signature;
+    const add = document.createElement("option");
+    add.value = ADD_OFFICE;
+    add.textContent = t("browser.addOffice");
+    officePicker.replaceChildren(
+      ...offices.map((o) => {
+        const option = document.createElement("option");
+        option.value = o.office;
+        option.textContent = t("browser.officeOption", {
+          office: host(o.office),
+          // The status line under the picker gives the full step.
+          state: t(
+            o.state === "blocked"
+              ? "browser.officeBlocked"
+              : o.state === "unknown"
+                ? "browser.officeUnknown"
+                : `browser.${o.state}`,
+          ),
+        });
+        return option;
+      }),
+      add,
+    );
+  }
+  officePicker.value = adding ? ADD_OFFICE : (picked ?? "");
+  officePicker.disabled = busy;
+}
+officePicker.addEventListener("change", () => {
+  if (officePicker.value === ADD_OFFICE) {
+    adding = true;
+    showPair = true;
+    office.value = "";
+    code.value = "";
+    void savePairingDraft({ office: "", code: "" });
+    revealCode(false);
+    render(state);
+    return;
+  }
+  adding = false;
+  showPair = false;
+  picked = officePicker.value;
+  void command("state");
+});
 // The member's access setting: one picker for both switches. On an office
 // without shared access, a members pick works as My agents and is kept.
 const storedAccess = (): BrowserAccess =>
@@ -458,6 +547,7 @@ openTabs.addEventListener("change", () =>
   sendAccess({ openTabs: openTabs.checked }),
 );
 toggle.addEventListener("change", () => {
+  if (otherOffice()) return;
   const current = state.assignments.find((a) => a.current);
   if (current) void command("stop", { assignment: current.id });
   else void command("offer", { tabId: state.currentTab?.id });
