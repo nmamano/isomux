@@ -3,8 +3,9 @@
 // and a stub of the check of what runs. Nothing here touches Docker, systemd or
 // the network beyond loopback.
 //
-// The repositories are built once and copied for each test: a tick costs about
-// 0.2 s, and the git setup would cost twice that again in every test.
+// The repositories are built once and copied for each test: the git setup costs
+// more than a tick. A tick runs dozens of small processes and is slow on a
+// loaded box, so a case runs only the ticks its behavior needs.
 
 import {
   afterAll,
@@ -310,22 +311,16 @@ describe("which commits deploy", () => {
     expect(deployCalls()).toEqual([]);
   });
 
-  test("web, test, installer, root .dockerignore and deleted files are Hosted inputs", async () => {
-    // One commit each, on top of the last one deployed.
-    for (const [what, files] of [
-      ["a web file", { "control-plane/web/app/page.tsx": "x\n" }],
-      ["a test file", { "control-plane/store.test.ts": "x\n" }],
-      ["the installer", { "deploy/install.sh": "x\n" }],
-      ["the root .dockerignore", { ".dockerignore": "*\n" }],
-      ["a deleted file", { "control-plane/store.ts": null }],
-    ] as const) {
-      const t = commit(files);
-      api.runs = [green(t)];
-      expect([what, await tick()]).toMatchObject([
-        what,
-        { result: "deployed", deployed: t },
-      ]);
-    }
+  test.each<[string, Record<string, string | null>]>([
+    ["a web file", { "control-plane/web/app/page.tsx": "x\n" }],
+    ["a test file", { "control-plane/store.test.ts": "x\n" }],
+    ["the installer", { "deploy/install.sh": "x\n" }],
+    ["the root .dockerignore", { ".dockerignore": "*\n" }],
+    ["a deleted file", { "control-plane/store.ts": null }],
+  ])("%s is a Hosted input", async (_what, files) => {
+    const t = commit(files);
+    api.runs = [green(t)];
+    expect(await tick()).toMatchObject({ result: "deployed", deployed: t });
   });
 
   test("a rename into control-plane and one out of it are both inputs", async () => {
@@ -460,31 +455,29 @@ describe("which commits deploy", () => {
 });
 
 describe("fail closed", () => {
-  test("an API answer it cannot use is a tick error that marks no commit", async () => {
-    change();
-    // A refused status carries a usable body, so only the status refuses it.
-    const runs = '{"workflow_runs":[]}';
-    for (const [what, answer] of [
-      ["a 500", { status: 500, body: runs }],
-      ["a rate limit", { status: 403, body: runs }],
-      ["an answer that is not JSON", { status: 200, body: "not json" }],
-      [
-        "a run without its fields",
-        { status: 200, body: '{"workflow_runs":[{"head_sha":"zz"}]}' },
-      ],
-      ["an answer without runs", { status: 200, body: '{"runs":[]}' }],
-    ] as const) {
+  // A refused status carries a usable body, so only the status refuses it.
+  const runs = '{"workflow_runs":[]}';
+  test.each<[string, { status: number; body: string }]>([
+    ["a 500", { status: 500, body: runs }],
+    ["a rate limit", { status: 403, body: runs }],
+    ["an answer that is not JSON", { status: 200, body: "not json" }],
+    [
+      "a run without its fields",
+      { status: 200, body: '{"workflow_runs":[{"head_sha":"zz"}]}' },
+    ],
+    ["an answer without runs", { status: 200, body: '{"runs":[]}' }],
+  ])(
+    "an API answer it cannot use (%s) is a tick error that marks no commit",
+    async (_what, answer) => {
+      change();
       api.answer = answer;
       const status = await tick();
-      expect([what, status]).toMatchObject([
-        what,
-        { result: "tick_error", phase: "api" },
-      ]);
-      expect([what, status.tick_error_since]).not.toEqual([what, null]);
-    }
-    expect(deployCalls()).toEqual([]);
-    expect(failedList()).toEqual([]);
-  });
+      expect(status).toMatchObject({ result: "tick_error", phase: "api" });
+      expect(status.tick_error_since).not.toBeNull();
+      expect(deployCalls()).toEqual([]);
+      expect(failedList()).toEqual([]);
+    },
+  );
 
   test("a tick error keeps its start, and clears on the next run that reads the API", async () => {
     const t = change();
