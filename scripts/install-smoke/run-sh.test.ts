@@ -31,7 +31,9 @@ beforeEach(() => {
   stub(
     "docker",
     `case "$1 $2" in
-  "build "*) [[ $STUB_MODE == build-fails ]] && exit 17; cat >/dev/null; exit 0 ;;
+  "build "*) [[ $STUB_MODE == build-fails ]] && exit 17
+    [[ $STUB_MODE == build-hangs ]] && exec sleep 30
+    cat >/dev/null; exit 0 ;;
   "image inspect") echo "sha256:0 linux/amd64" ;;
   "run "*) [[ $STUB_MODE == checks-fail ]] && exit 1
     [[ $STUB_MODE == free-limit ]] && echo "$STUB_CHECK_LINE" ;;
@@ -65,10 +67,15 @@ d="\${@: -1}/deploy/kubernetes-latest"; mkdir -p "$d"; printf '#!/bin/sh\\n' > "
 
 afterEach(() => rmSync(base, { recursive: true, force: true }));
 
-async function run(mode: string) {
-  const child = Bun.spawn(["bash", RUN_SH, "kubernetes"], {
+async function run(
+  mode: string,
+  path = "kubernetes",
+  env: Record<string, string> = {},
+) {
+  const child = Bun.spawn(["bash", RUN_SH, path], {
     env: {
       ...process.env,
+      ...env,
       PATH: `${base}:${process.env.PATH}`,
       STUB_MODE: mode,
       STUB_CHECK_LINE: FREE_LIMIT_NOT_CHECKED,
@@ -86,6 +93,7 @@ async function run(mode: string) {
   return {
     code,
     out,
+    calls,
     deletes: calls
       .split("\n")
       .filter((l) => l.startsWith("k3d cluster delete")),
@@ -142,4 +150,86 @@ describe("run.sh job summary", () => {
     expect(r.code).toBe(0);
     expect(summary()).not.toContain(FREE_LIMIT_NOT_CHECKED);
   }, 60_000);
+});
+
+// Task d5249443: CI's install smoke stage can be killed before run.sh's own
+// cleanup runs, and its box belongs to the Docker daemon, not to the killed
+// process tree. CI sets SMOKE_DOCKER_LABEL so that scripts/ci-remote.sh can
+// remove what is left; a run started by hand sets nothing and is never swept.
+describe("run.sh Docker label", () => {
+  // The calls that make a Docker resource.
+  const creates = (calls: string) =>
+    calls
+      .split("\n")
+      .filter((l) => /^docker (build|run|create|volume create)( |$)/.test(l));
+
+  // installer-gate is the path CI's stage runs.
+  it("labels every Docker resource of the gate path when CI asks", async () => {
+    const label = "isomux-test-sweep=1";
+    const r = await run("passes", "installer-gate", {
+      SMOKE_DOCKER_LABEL: label,
+    });
+    expect(r.code, r.out).toBe(0);
+    const made = creates(r.calls);
+    expect(made.some((l) => l.startsWith("docker build "))).toBe(true);
+    expect(made.some((l) => l.startsWith("docker run "))).toBe(true);
+    expect(
+      made.filter((l) => !new RegExp(` --label[ =]${label}( |$)`).test(l)),
+    ).toEqual([]);
+  }, 60_000);
+
+  it("labels nothing for a run started by hand", async () => {
+    const r = await run("passes", "installer-gate", { SMOKE_DOCKER_LABEL: "" });
+    expect(r.code, r.out).toBe(0);
+    const made = creates(r.calls);
+    expect(made.some((l) => l.startsWith("docker run "))).toBe(true);
+    expect(made.filter((l) => l.includes("--label"))).toEqual([]);
+  }, 60_000);
+});
+
+// CI's stage ceiling reports the stage log's last line. A stalled step must
+// be named there, so run.sh says which step it starts before it ends.
+describe("run.sh step progress", () => {
+  it("names a step while the step still runs", async () => {
+    const child = Bun.spawn(["bash", RUN_SH, "installer"], {
+      env: {
+        ...process.env,
+        PATH: `${base}:${process.env.PATH}`,
+        STUB_MODE: "build-hangs",
+        SMOKE_LOG_DIR: join(base, "logs"),
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+      detached: true,
+    });
+    let out = "";
+    const decoder = new TextDecoder();
+    const reader = child.stdout.getReader();
+    const deadline = Date.now() + 10_000;
+    try {
+      while (!/box-image/.test(out) && Date.now() < deadline) {
+        const next = await Promise.race([
+          reader.read(),
+          Bun.sleep(deadline - Date.now()).then(() => undefined),
+        ]);
+        if (!next || next.done) break;
+        out += decoder.decode(next.value, { stream: true });
+      }
+      expect(out).toMatch(/box-image/);
+      // The enabling condition: the step has started and still runs (the
+      // stub sleeps). run.sh names the step before it starts the command.
+      const calls = () => readFileSync(join(base, "calls.log"), "utf8");
+      while (!calls().includes("docker build") && Date.now() < deadline)
+        await Bun.sleep(20);
+      expect(calls()).toContain("docker build");
+      expect(out).not.toMatch(/(PASS|FAIL at step) box-image/);
+    } finally {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+      await child.exited;
+    }
+  }, 30_000);
 });

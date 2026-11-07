@@ -19,7 +19,8 @@ type StageName =
   | "bun test"
   | "opencode live"
   | "ci:web"
-  | "container";
+  | "container"
+  | "install smoke";
 
 type StageResult = {
   name: StageName;
@@ -71,6 +72,15 @@ export const stages: Stage[] = [
   // The release workflow runs the same scripts; without this stage they
   // drifted and two release tags published no image.
   { name: "container", command: ["bash", "deploy/container/check.sh", "HEAD"] },
+  // deploy/install.sh on a server image that already holds its apt packages,
+  // through the server routes it calls (claim, public access, invite), then
+  // the office checks. No path filter decides when it runs: a server change
+  // the installer depends on broke fresh installs and passed CI (task
+  // d5249443).
+  {
+    name: "install smoke",
+    command: ["bash", "scripts/install-smoke/run.sh", "installer-gate", "HEAD"],
+  },
 ];
 
 // Twice the latest completed bun test STEP (not the whole battery):
@@ -80,9 +90,16 @@ export const BUN_TEST_CEILING_MS = 2 * 1_153_470;
 // Twice a measured `bun run test:opencode:ci`: 132.02s on 2026-10-19,
 // /tmp/t-feafdecb/ceil.log (load average 1.26 at the start).
 const OPENCODE_LIVE_CEILING_MS = 2 * 132_020;
+// Twice a measured install smoke stage with a cold box image (the image
+// layer of apt packages rebuilt, as after a package list change): 174s on an
+// idle remote on 2026-11-07, /tmp/t-d5249443/gate1.log there. With the layer
+// cached, the stage took 96.70s in a full ci:remote run on 2026-11-07,
+// /tmp/t-d5249443/ci.log (load average 6.68 at the end).
+const INSTALL_SMOKE_CEILING_MS = 2 * 174_000;
 export function ceilingFor(name: StageName): number | undefined {
   if (name === "bun test") return BUN_TEST_CEILING_MS;
   if (name === "opencode live") return OPENCODE_LIVE_CEILING_MS;
+  if (name === "install smoke") return INSTALL_SMOKE_CEILING_MS;
   return undefined;
 }
 
@@ -302,6 +319,9 @@ export async function runPipeline(
   const container = docker
     ? stage("container")
     : skipped("container", "no Docker");
+  const installSmoke = docker
+    ? stage("install smoke")
+    : skipped("install smoke", "no Docker");
   const tests = build.then((result): Promise<StageResult> | StageResult =>
     result.status === "passed"
       ? stage("bun test")
@@ -321,6 +341,7 @@ export async function runPipeline(
     openCode,
     web,
     container,
+    installSmoke,
   ]);
 }
 

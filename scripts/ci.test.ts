@@ -170,6 +170,9 @@ it("selects real ceilings only for the test stages and applies them by default",
   const openCodeCeiling = ceilingFor("opencode live");
   expect(openCodeCeiling).toBeGreaterThan(0);
   expect(openCodeCeiling).toBeLessThan(BUN_TEST_CEILING_MS);
+  // A stalled download in the installer must fail the stage, not hold the
+  // whole run to the remote's limit.
+  expect(ceilingFor("install smoke")).toBeGreaterThan(0);
   expect(ceilingFor("lint")).toBeUndefined();
   const root = mkdtempSync(join(tmpdir(), "isomux-ci-default-"));
   roots.push(root);
@@ -221,7 +224,9 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
     true,
   );
 
-  expect(calls).toEqual([
+  // The install smoke starts with the independent stages (no stage had
+  // completed when it started); its place among them is not pinned.
+  expect(calls.filter((name) => name !== "install smoke")).toEqual([
     "format:check",
     "lint",
     "tsc",
@@ -231,6 +236,7 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
     "bun test",
     "opencode live",
   ]);
+  expect(calls).toContain("install smoke");
   expect(concurrent).toBe(true);
   expect(results.find((result) => result.name === "lint")?.status).toBe(
     "failed",
@@ -346,6 +352,47 @@ it("skips the container stage, without failing, when Docker is absent", async ()
   const container = results.find((result) => result.name === "container");
   expect(container?.status).toBe("skipped");
   expect(container?.log).toBe("container.skipped.log");
+  expect(results.filter((result) => result.status === "failed")).toEqual([]);
+});
+
+it("reports a failed install smoke as a failed stage", async () => {
+  const results = await runPipeline(
+    async (name) => {
+      const failed = name === "install smoke";
+      return {
+        name,
+        log: `${name}.log`,
+        seconds: 0,
+        status: failed ? "failed" : "passed",
+        exitCode: failed ? 1 : 0,
+      };
+    },
+    () => "unused.log",
+    true,
+  );
+  expect(
+    results
+      .filter((result) => result.status === "failed")
+      .map((result) => result.name),
+  ).toEqual(["install smoke"]);
+});
+
+it("skips the install smoke, without failing, when Docker is absent", async () => {
+  const calls: string[] = [];
+  const results = await runPipeline(
+    async (name) => {
+      calls.push(name);
+      return { name, log: `${name}.log`, seconds: 0, status: "passed" };
+    },
+    (name) => `${name}.skipped.log`,
+    false,
+  );
+
+  expect(calls).not.toContain("install smoke");
+  expect(calls).toContain("bun test");
+  const smoke = results.find((result) => result.name === "install smoke");
+  expect(smoke?.status).toBe("skipped");
+  expect(smoke?.log).toBe("install smoke.skipped.log");
   expect(results.filter((result) => result.status === "failed")).toEqual([]);
 });
 

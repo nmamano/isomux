@@ -1017,6 +1017,8 @@ type Remote = {
   /** The fixture directory: block-tsc and unblock live here. */
   dir: string;
   systemctlCalls(): string[];
+  /** Docker's resources by kind ("containers/<name>") and their labels. */
+  docker: string;
 };
 
 /**
@@ -1047,6 +1049,11 @@ async function remote(opts: {
   pgLogLines?: number;
   /** `bun run ci` sleeps this long (a sleep(1) argument) before it exits. */
   ciSleep?: string;
+  /**
+   * `bun run ci` leaves Docker resources labelled with its SMOKE_DOCKER_LABEL,
+   * as an install smoke stage killed before run.sh's cleanup does.
+   */
+  ciLeavesSmoke?: boolean;
 }): Promise<Remote> {
   const dir = mkdtempSync(join(tmpdir(), "isomux-ci-remote-half-"));
   dirs.push(dir);
@@ -1089,7 +1096,54 @@ async function remote(opts: {
   );
   for (const d of [nodeBin, bunDir, pgBin]) mkdirSync(d, { recursive: true });
   stub(join(nodeBin, "node"), "exit 0");
-  stub(join(nodeBin, "docker"), `exit ${opts.docker ?? 0}`);
+  // Docker keeps its containers, volumes and images as files under
+  // docker/<kind>/<name>, each holding the resource's labels, one per line.
+  const dockerState = join(dir, "docker");
+  for (const kind of ["containers", "volumes", "images"])
+    mkdirSync(join(dockerState, kind), { recursive: true });
+  const docker = `echo "$*" >> "${dir}/docker.log"
+state="${dockerState}"
+[[ $1 == version || "$1 $2" == "compose version" ]] && exit ${opts.docker ?? 0}
+kind=""; action=""
+case "$1 $2" in
+  "ps "*|"container ls"|"container list"|"container ps") kind=containers; action=ls ;;
+  "volume ls"|"volume list") kind=volumes; action=ls ;;
+  "image ls"|"image list"|"images "*|"images") kind=images; action=ls ;;
+  "rm "*|"container rm") kind=containers; action=rm ;;
+  "volume rm") kind=volumes; action=rm ;;
+  "image rm"|"rmi "*) kind=images; action=rm ;;
+  "container prune") kind=containers; action=prune ;;
+  "volume prune") kind=volumes; action=prune ;;
+  "image prune") kind=images; action=prune ;;
+esac
+[[ -n $action ]] || exit 0
+[[ $1 == ps || $1 == rm || $1 == rmi || $1 == images ]] && shift || shift 2
+filters=(); names=()
+while (($#)); do
+  case $1 in
+    --filter|-f) [[ $action == prune && $1 == -f ]] && { shift; continue; }; filters+=("$2"); shift 2 ;;
+    --filter=*) filters+=("\${1#--filter=}"); shift ;;
+    --format) shift 2 ;;
+    -*) shift ;;
+    *) names+=("$1"); shift ;;
+  esac
+done
+matches() {
+  local file=$1 f want
+  for f in "\${filters[@]}"; do
+    [[ $f == label=* ]] || continue
+    want=\${f#label=}
+    grep -qxF -- "$want" "$file" || grep -q -- "^$want=" "$file" || return 1
+  done
+}
+case $action in
+  ls) for file in "$state/$kind"/*; do [[ -e $file ]] && matches "$file" && basename "$file"; done; exit 0 ;;
+  rm) for n in "\${names[@]}"; do rm -f "$state/$kind/$n"; done; exit 0 ;;
+  prune) ((\${#filters[@]})) || exit 0
+    for file in "$state/$kind"/*; do [[ -e $file ]] && matches "$file" && rm -f "$file"; done; exit 0 ;;
+esac`;
+  stub(join(nodeBin, "docker"), docker);
+  stub(join(bin, "docker"), docker);
   stub(
     join(bunDir, "bun"),
     `[[ $1 == --version ]] && { echo ${bunVersion}; exit 0; }
@@ -1097,6 +1151,23 @@ echo "$* $(pwd)" >> "${dir}/bun.log"
 date +%s%N >> "${dir}/bun-times"
 # A suite writes temp files; record only a TMPDIR that took one.
 touch "$TMPDIR/bun-was-here" && echo "$*|$TMPDIR" >> "${dir}/bun-tmpdirs"
+# What CI is told to label its smoke resources with, and any labelled
+# resource that is already there when CI starts.
+if [[ $* == "run ci" ]]; then
+  printf '%s' "\${SMOKE_DOCKER_LABEL-<unset>}" > "${dir}/ci-smoke-label"
+  if [[ -n \${SMOKE_DOCKER_LABEL:-} ]]; then
+    for file in "${dockerState}"/*/*; do
+      [[ -e $file ]] && grep -qxF -- "$SMOKE_DOCKER_LABEL" "$file" && echo "$file" >> "${dir}/ci-saw-smoke"
+    done
+  fi
+  ${
+    opts.ciLeavesSmoke
+      ? `for r in containers/isomux-smoke-installer-left volumes/isomux-smoke-installer-left-data images/isomux-smoke-installer-left-box; do
+    printf '%s\\n' "$SMOKE_DOCKER_LABEL" > "${dockerState}/$r"
+  done`
+      : ":"
+  }
+fi
 [[ $* == "run ci" ]] && { ${opts.ciSleep ? `sleep ${opts.ciSleep}; ` : ""}echo "ci output"; exit ${opts.ci ?? 0}; }
 [[ $* == "run typecheck" && -e "${dir}/tsc-stderr" ]] && cat "${dir}/tsc-stderr" >&2
 # With block-tsc, tsc waits for unblock (at most 20 s).
@@ -1282,6 +1353,7 @@ exit 0`,
     dir,
     systemctlCalls: () =>
       read(join(dir, "systemctl.log")).split("\n").filter(Boolean),
+    docker: dockerState,
   };
 }
 
@@ -1410,6 +1482,65 @@ describe("ci-remote, the remote half", () => {
     expect(res.status, res.out).toBe(3);
     expect(r.bunCalls()).not.toContain("run ci");
     expect(readdirSync(join(r.root, "runs"))).toEqual([]);
+  });
+
+  // Task d5249443: CI's install smoke stage runs a systemd box in Docker. The
+  // box belongs to the Docker daemon, so a CI run killed before run.sh's own
+  // cleanup (the stage ceiling, RUN_LIMIT, a lost ssh session) leaves it
+  // running. The remote half removes what carries CI's label, and never what
+  // a run started by hand on the same machine made.
+  describe("the install smoke's Docker resources", () => {
+    const resources = (r: Remote) =>
+      ["containers", "volumes", "images"]
+        .flatMap((kind) =>
+          readdirSync(join(r.docker, kind)).map((name) => `${kind}/${name}`),
+        )
+        .sort();
+    const seed = (r: Remote, resource: string, label: string) =>
+      writeFileSync(join(r.docker, resource), label ? `${label}\n` : "");
+    // The label CI was given, which a first run reads back.
+    const ciLabel = (r: Remote) => read(join(r.dir, "ci-smoke-label"));
+    const hand = [
+      "containers/isomux-smoke-installer-hand",
+      "images/isomux-smoke-installer-hand-box",
+      "volumes/isomux-smoke-container-hand-data",
+    ];
+
+    it("removes what the run's own CI left, and keeps a run by hand", async () => {
+      const r = await remote({ ci: 1, ciLeavesSmoke: true });
+      for (const resource of hand) seed(r, resource, "");
+      seed(r, "containers/isomux-smoke-other", "other.label=1");
+      const res = r.run(runId());
+      expect(res.status, res.out).toBe(1);
+      expect(ciLabel(r)).not.toBe("<unset>");
+      expect(ciLabel(r)).not.toBe("");
+      expect(resources(r)).toEqual(
+        [...hand, "containers/isomux-smoke-other"].sort(),
+      );
+    });
+
+    it("removes what a killed run left before CI starts", async () => {
+      const r = await remote({ ci: 0 });
+      const first = r.run(runId());
+      expect(first.status, first.out).toBe(0);
+      const label = ciLabel(r);
+      expect(label).not.toBe("<unset>");
+      expect(label).not.toBe("");
+      for (const resource of [
+        "containers/isomux-smoke-installer-dead",
+        "volumes/isomux-smoke-installer-dead-data",
+        "images/isomux-smoke-installer-dead-box",
+      ])
+        seed(r, resource, label);
+      for (const resource of hand) seed(r, resource, "");
+
+      const res = r.run(runId());
+      expect(res.status, res.out).toBe(0);
+      // CI itself found none of them: the sweep ran before it, not only at
+      // the end.
+      expect(existsSync(join(r.dir, "ci-saw-smoke"))).toBe(false);
+      expect(resources(r)).toEqual([...hand].sort());
+    });
   });
 
   it("removes a run that was killed before its own cleanup", async () => {

@@ -631,7 +631,10 @@ async function main() {
       checkTerminal(
         socket,
         agentOf(socket, "claude")!,
-        path === "installer" || path === "hosted" || path === "container",
+        path === "installer" ||
+          path === "installer-gate" ||
+          path === "hosted" ||
+          path === "container",
       ),
     );
     for (const engine of SIGNED_OUT_ENGINES)

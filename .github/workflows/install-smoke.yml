@@ -12,7 +12,10 @@ run-name: >-
 # paths check the native CLI with the production install check and service
 # environment, a login shell, and the terminal panel.
 # Slower than the Build workflow and kept apart from
-# it. scripts/release.sh requires a green run of the release set for the
+# it. It runs on every push to main, with no path filter: the installer also
+# depends on the server routes it calls, and a server change broke fresh
+# installs while no listed path changed (task d5249443).
+# scripts/release.sh requires a green run of the release set for the
 # commit it tags and starts one when there is none. The weekly set adds an
 # answer from the Free Welcome Agent, which depends on OpenCode's service.
 on:
@@ -22,15 +25,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - deploy/install.sh
-      - deploy/container/**
-      - docs/hosting/blocks/install.md
-      - package.json
-      - bun.lock
-      - server/pty-sidecar.ts
-      - scripts/install-smoke/**
-      - .github/workflows/install-smoke.yml
   workflow_dispatch:
     inputs:
       free_agent:

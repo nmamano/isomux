@@ -6,6 +6,12 @@ ENV container=docker
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     systemd systemd-sysv dbus openssh-server sudo curl ca-certificates git iproute2 \
   && rm -rf /var/lib/apt/lists/*
+# The installer-gate path passes the installer's apt packages: Docker caches
+# this layer, so CI's install smoke does not download them on every run.
+ARG PACKAGES=""
+RUN if [ -n "$PACKAGES" ]; then \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y $PACKAGES \
+    && rm -rf /var/lib/apt/lists/*; fi
 STOPSIGNAL SIGRTMIN+3
 # systemd needs a writable cgroup tree. With a private cgroup namespace the
 # remount reaches only this container's own subtree.

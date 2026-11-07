@@ -58,6 +58,13 @@ PG_VERSION=18.4.0-beta.17
 # The control-plane suite's Postgres port, a constant in control-plane/testing/pg.ts.
 PG_PORT=5433
 RUN_LIMIT=30m
+# CI's install smoke stage labels its Docker containers, volumes and box image
+# with this (SMOKE_DOCKER_LABEL in scripts/install-smoke/run.sh). They belong
+# to the Docker daemon, so a run killed before run.sh's own cleanup leaves
+# them running; the remote half removes what carries the label at the start
+# and the end of each run. One CI run holds the lock at a time, and a run of
+# run.sh started by hand carries no label.
+SMOKE_LABEL=isomux-ci-remote=1
 # Seconds to keep trying the remote after its first no-verdict (for a gate,
 # after a lost connection), and the pause between tries: long enough for a
 # remote that crashed to come back (the WSL remote used here restarts within
@@ -495,10 +502,34 @@ remote_main() {
   local sandbox=(env -i --default-signal=PIPE
     PATH="$tools/node-$NODE_VERSION-linux-x64/bin:$tools/bun-$BUN_VERSION:/usr/local/bin:/usr/bin:/bin"
     HOME="$run/home" TMPDIR="$tmp" BUN_INSTALL_CACHE_DIR="$root/cache/bun"
+    SMOKE_DOCKER_LABEL="$SMOKE_LABEL"
     NEXT_TELEMETRY_DISABLED=1 LANG=C.UTF-8 USER="$USER" LOGNAME="$USER" SHELL=/bin/bash)
   clear_run() {
     local dir=$1 id=${1##*/}
     clear_dir "isomux-ci-$id.scope" "$dir" "/dev/shm/icr-${id##*-}"
+  }
+  # Removes the Docker resources that carry SMOKE_LABEL, containers first. An
+  # error is reported and changes nothing else: the verdict is about the
+  # commit.
+  local swept=""
+  sweep_smoke() {
+    local kind ids all
+    for kind in container volume image; do
+      all=()
+      # A stopped container is listed only with -a.
+      [[ $kind != container ]] || all=(-a)
+      ids=$("${sandbox[@]}" docker "$kind" ls "${all[@]}" -q --filter "label=$SMOKE_LABEL" 2>/dev/null) || {
+        say "⚠ could not list the install smoke's Docker ${kind}s"
+        continue
+      }
+      # An image with two tags is listed twice.
+      ids=$(sort -u <<<"$ids")
+      [[ -z $ids ]] && continue
+      # shellcheck disable=SC2086 # one id per line
+      "${sandbox[@]}" docker "$kind" rm --force $ids >/dev/null 2>&1 ||
+        say "⚠ could not remove the install smoke's Docker ${kind}s: ${ids//$'\n'/ }"
+    done
+    swept=1
   }
   # The load and the stall totals at both ends of a red run tell a box that
   # stalled from a commit that failed.
@@ -527,7 +558,7 @@ remote_main() {
   # A failed cleanup is reported but does not change the verdict: the exit
   # code is about the commit, and the next run refuses while the processes
   # live.
-  trap 'clear_run "$run"; git -C "$root/repo.git" update-ref -d "refs/ci/$id" 2>/dev/null' EXIT
+  trap 'clear_run "$run"; [[ -z $swept ]] || sweep_smoke; git -C "$root/repo.git" update-ref -d "refs/ci/$id" 2>/dev/null' EXIT
   trap 'exit 3' HUP INT TERM
   mkdir -p "$run/home" || setup_failed "cannot create $run"
 
@@ -541,6 +572,8 @@ remote_main() {
   if (exec 3<>"/dev/tcp/127.0.0.1/$PG_PORT") 2>/dev/null; then
     setup_failed "port $PG_PORT is in use"
   fi
+  # What a run killed before its own cleanup left.
+  sweep_smoke
 
   check_out "$root" "$sha" "$run" --shared
   # The run ref goes; one base ref stays so the next push sends only new objects.

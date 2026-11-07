@@ -4,7 +4,7 @@
 # against the office it produces. Exit 0 is a pass. A failure names the path
 # and the step, and prints the end of that step's log.
 #
-#   scripts/install-smoke/run.sh manual|installer|hosted|container|kubernetes [REVISION]
+#   scripts/install-smoke/run.sh manual|installer|installer-gate|hosted|container|kubernetes [REVISION]
 #
 #   manual     docs/hosting/blocks/install.md on a fresh Ubuntu 24.04, as a
 #              normal user: apt packages, Bun, git clone,
@@ -12,6 +12,11 @@
 #   installer  deploy/install.sh as root on a fresh Ubuntu 24.04 server with
 #              systemd, as the VPS guide runs it, then
 #              the saved owner invite link.
+#   installer-gate
+#              the installer path on a box image that already holds the
+#              installer's apt packages (read from deploy/install.sh), so the
+#              package step adds almost nothing. CI's install smoke stage runs
+#              it (scripts/ci.ts); the GitHub workflow runs the fresh path.
 #   hosted     the same installer with a staged enrollment, through owner
 #              claim, first public address enable and invite. Excludes
 #              configure_caddy (renewal helper, hosted Caddyfile),
@@ -28,16 +33,20 @@
 # out. SMOKE_LOG_DIR keeps the step logs (default: a temporary directory).
 # SMOKE_FREE_AGENT=1 runs the weekly set, which also requires an answer from
 # the Free Welcome Agent and so depends on OpenCode's service.
+# SMOKE_DOCKER_LABEL (KEY=VALUE) labels the containers and volumes this run
+# makes and the installer's box image, so that whoever started it can remove
+# them when this script is killed before its own cleanup (scripts/ci-remote.sh
+# does).
 set -Eeuo pipefail
 cd "$(dirname "$0")/../.."
 
 usage() {
-  echo "usage: scripts/install-smoke/run.sh manual|installer|hosted|container|kubernetes [REVISION]" >&2
+  echo "usage: scripts/install-smoke/run.sh manual|installer|installer-gate|hosted|container|kubernetes [REVISION]" >&2
   exit 2
 }
 [[ $# == 1 || $# == 2 ]] || usage
 path=$1
-case $path in manual | installer | hosted | container | kubernetes) ;; *) usage ;; esac
+case $path in manual | installer | installer-gate | hosted | container | kubernetes) ;; *) usage ;; esac
 sha=$(git rev-parse --verify "${2:-HEAD}^{commit}")
 
 suffix=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
@@ -49,6 +58,8 @@ domain=office.example.com
 [[ $path != hosted ]] || domain=smoke.isomux.app
 images=()
 check_set=()
+labels=()
+[[ -z ${SMOKE_DOCKER_LABEL:-} ]] || labels=(--label "$SMOKE_DOCKER_LABEL")
 [[ ${SMOKE_FREE_AGENT:-} != 1 ]] || check_set=(--free-agent)
 # A tag other than latest: Kubernetes would try to pull a :latest image.
 k8s_image=$name-image:smoke
@@ -78,7 +89,7 @@ trap 'exit 143' TERM INT
 office_log() {
   case $path in
     manual) docker exec "$name" tail -n 60 /home/smoke/dev.log ;;
-    installer | hosted) docker exec "$name" journalctl -u isomux -n 60 --no-pager ;;
+    installer | installer-gate | hosted) docker exec "$name" journalctl -u isomux -n 60 --no-pager ;;
     container) docker logs --tail 60 "$name" 2>&1 ;;
     kubernetes)
       kubectl -n isomux get pods
@@ -91,6 +102,8 @@ office_log() {
 step() {
   local step=$1 started=$SECONDS rc=0
   shift
+  # A run stopped from outside ends on this line, which names the step.
+  log "step $step"
   "$@" >"$logs/$step.log" 2>&1 || rc=$?
   if ((rc == 0)); then
     log "PASS $step ($((SECONDS - started))s)"
@@ -119,7 +132,7 @@ check_node_free() {
   shift 3
   docker cp scripts/install-smoke/node-free.ts "$name:/tmp/isomux-node-free.ts"
   docker exec "$name" chmod a+r /tmp/isomux-node-free.ts
-  if [[ $path == installer || $path == hosted ]]; then
+  if [[ $path == installer || $path == installer-gate || $path == hosted ]]; then
     # Read the running service environment as its user without printing it.
     # Container root lacks ptrace access to another user's /proc environment.
     # A Docker exec environment would prove a different PATH from the service.
@@ -144,7 +157,7 @@ run_checks() {
 
 manual() {
   as_user() { docker exec -u smoke -w /home/smoke "$name" bash -ic "$*"; }
-  step machine docker run -d --name "$name" --memory 6g ubuntu:24.04 sleep infinity
+  step machine docker run -d --name "$name" "${labels[@]}" --memory 6g ubuntu:24.04 sleep infinity
   # The guide's reader: a normal account with sudo on an Ubuntu machine that
   # already has curl.
   step account docker exec "$name" bash -c '
@@ -191,14 +204,34 @@ run_hosted_install() {
   [[ $marker == hosted ]]
 }
 
+# The base apt packages that install_packages in the revision's installer
+# installs: its one apt_install line of plain package names (the installer's
+# other apt_install calls take variables or run in other functions). A package
+# missed here costs time only: install.sh runs unchanged and installs it.
+installer_packages() {
+  local list
+  list=$(git show "$sha:deploy/install.sh" | awk '/^install_packages\(\) \{/,/^}/' |
+    sed -n 's/^ *apt_install \([a-z0-9][a-z0-9 .+-]*\)$/\1/p')
+  if [[ -z $list || $list == *$'\n'* ]]; then
+    echo "expected one apt_install line of package names in install_packages of deploy/install.sh, found: ${list:-none}" >&2
+    return 1
+  fi
+  printf '%s\n' "$list"
+}
+
 installer() {
   images+=("$name-box")
-  step box-image docker build -q -t "$name-box" -f scripts/install-smoke/box.Dockerfile scripts/install-smoke
+  local packages=()
+  if [[ $path == installer-gate ]]; then
+    step packages-list installer_packages
+    packages=(--build-arg "PACKAGES=$(cat "$logs/packages-list.log")")
+  fi
+  step box-image docker build -q -t "$name-box" "${labels[@]}" "${packages[@]}" -f scripts/install-smoke/box.Dockerfile scripts/install-smoke
   # systemd needs SYS_ADMIN for its mounts and the firewall step needs
   # NET_ADMIN. Both stay inside the container's own namespaces. Kernel-wide
   # settings (sysctl, swap, AppArmor) remain the host's: the installer warns
   # about them and carries on.
-  step machine docker run -d --name "$name" --hostname smoke-box --memory 6g \
+  step machine docker run -d --name "$name" "${labels[@]}" --hostname smoke-box --memory 6g \
     --cap-add SYS_ADMIN --cap-add NET_ADMIN --security-opt apparmor=unconfined \
     --cgroupns=private --tmpfs /run --tmpfs /run/lock "$name-box"
   # Until systemd reports the boot finished. Early on it may not answer at
@@ -248,13 +281,17 @@ installer() {
     --claim invite --invite-file /var/lib/isomux-install/invite-url
 }
 
+installer-gate() { installer; }
+
 hosted() { installer; }
 
 container() {
   images+=("$name-image")
   step image bash deploy/container/build.sh "$sha" "$name-image"
   openssl rand -hex 32 > "$work/setup-key"
-  step machine docker run -d --name "$name" --memory 4g --cpus 2 \
+  # Created here, not by -v, so that it carries the label.
+  step volume docker volume create "${labels[@]}" "$name-data"
+  step machine docker run -d --name "$name" "${labels[@]}" --memory 4g --cpus 2 \
     -v "$name-data:/var/data" -e ISOMUX_PUBLIC_URL="https://$domain" \
     -e ISOMUX_SETUP_KEY="$(cat "$work/setup-key")" "$name-image"
   docker cp "$work/setup-key" "$name:/tmp/setup-key"
