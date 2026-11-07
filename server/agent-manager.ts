@@ -7083,27 +7083,10 @@ export function createAgentManager(deps: ManagerDeps) {
         text,
         username,
         device,
+        attachments,
       );
       if (handled === "native") nativeCommand = true;
       else if (handled) return;
-    }
-    // Claude Code reads an attachment block after the command as part of the
-    // message and then does not expand the command (measured 2026-10-15).
-    if (nativeCommand && attachments && attachments.length > 0) {
-      emitEphemeralLog(
-        agentId,
-        "user_message",
-        text,
-        buildUserMeta(username, device),
-      );
-      emitEphemeralLog(
-        agentId,
-        "system",
-        msg("commands.native.attachments", {
-          name: text.slice(1).trim().split(/\s+/)[0],
-        }),
-      );
-      return;
     }
     // Slash commands skip the busy gate above. A native one that ran now
     // would supersede the running turn, so it waits in the queue, and the

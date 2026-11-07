@@ -68,6 +68,12 @@ export type CommandConfig = {
    * (QueuedMessage.native). Requires `engines`.
    */
   native?: boolean;
+  /**
+   * The command takes the files sent with it. Any other handler or native
+   * command refuses a message with files, so none is lost silently. A skill
+   * always takes them.
+   */
+  attachments?: true;
 };
 
 // Shorthand for the common unsupported-hardcoded pattern
@@ -229,6 +235,7 @@ export const commands: Record<string, CommandConfig> = {
     // Bare /plan toggles plan mode; /plan <text> is the optional form.
     autoRun: true,
     engines: ["claude", "codex"],
+    attachments: true,
   },
   // Sets the session topic; bare, labels the conversation again.
   rename: {

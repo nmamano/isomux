@@ -82,6 +82,9 @@ type HandlerFn = (
   rawText: string,
   username?: string,
   device?: string,
+  // The files sent with the command. Only a command whose CommandConfig has
+  // `attachments: true` gets any.
+  attachments?: Attachment[],
 ) => Promise<boolean>;
 
 // The leading newline is layout, so it stays in code; only the sentence is
@@ -868,10 +871,21 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     // Toggles the engine's own plan mode. `/plan <text>` turns it on and sends
-    // the text, as in Claude Code.
-    async plan(agentId, managed, _args, rawText, username, device) {
+    // the text, as in Claude Code; files sent with /plan do the same.
+    async plan(
+      agentId,
+      managed,
+      _args,
+      rawText,
+      username,
+      device,
+      attachments,
+    ) {
       const userMeta = buildMeta(username, device);
       const text = rawText.replace(/^\s*\/\S+/, "").trim();
+      const files = attachments?.length ? attachments : undefined;
+      // Files are input as text is: they turn plan mode on and go in a turn.
+      const hasInput = text !== "" || files !== undefined;
       if (!deps.planModeAvailable(managed)) {
         deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
         deps.emitEphemeralLog(
@@ -883,15 +897,16 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
         return true;
       }
-      const on = text ? true : !managed.planMode;
-      if (!text) deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+      const on = hasInput ? true : !managed.planMode;
+      if (!hasInput)
+        deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       // `/plan <text>` while plan mode is on only sends the text.
       if (on !== (managed.planMode ?? false)) {
         try {
           await deps.setPlanMode(managed, on);
         } catch (err) {
-          if (text)
-            deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+          if (hasInput)
+            deps.addLogEntry(agentId, "user_message", rawText, userMeta, files);
           deps.addLogEntry(
             agentId,
             "error",
@@ -905,7 +920,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           msg(on ? "commands.plan.on" : "commands.plan.off"),
         );
       }
-      if (!text) return true;
+      if (!hasInput) return true;
       return runCommandTurn(
         agentId,
         managed,
@@ -914,6 +929,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "systemEntries.genericError",
         username,
         device,
+        files,
       );
     },
 
@@ -1428,6 +1444,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     rawText: string,
     username?: string,
     device?: string,
+    attachments?: Attachment[],
   ): Promise<boolean> {
     const userArgs = args.join(" ");
     // An OpenCode agent has no bearer token: the skill's office calls go out
@@ -1445,6 +1462,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       "commands.skill.error",
       username,
       device,
+      attachments,
     );
   }
 
@@ -1458,7 +1476,11 @@ export function createCommandHandling(deps: HandlerDeps) {
     errorKey: "commands.skill.error" | "systemEntries.genericError",
     username?: string,
     device?: string,
+    attachments?: Attachment[],
   ): Promise<boolean> {
+    // Files go with the command only when there are any, so a command
+    // without files queues and logs as before.
+    const files = attachments?.length ? attachments : undefined;
     // If the agent is mid-turn, defer the skill via the queue instead of
     // calling session.send now. Otherwise createTurnDeferred below would
     // supersede the in-flight turn and reject it with "Superseded by a new
@@ -1472,6 +1494,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         sender: { kind: "user", username, device },
         text: rawText,
         sdkText: fullPrompt,
+        ...(files ? { attachments: files } : {}),
       });
       if (!result.ok) {
         deps.addLogEntry(
@@ -1512,7 +1535,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     const userMeta: Record<string, unknown> = { sdkText: fullPrompt };
     if (username) userMeta.username = username;
     if (device) userMeta.device = device;
-    deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+    deps.addLogEntry(agentId, "user_message", rawText, userMeta, files);
     const prefix = formatPrefix({ username, device });
     const prefixedSkillPrompt = prefix ? `${prefix}${fullPrompt}` : fullPrompt;
     try {
@@ -1520,6 +1543,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       await runAgentTurn({
         managed,
         sdkText: prefixedSkillPrompt,
+        attachments: files,
         memberIds: typerId ? [typerId] : [],
         usageCapped: directInputCapped(username),
         usageCapUsername: username,
@@ -1532,6 +1556,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.requeueSwappedSend(agentId, err, {
           text: rawText,
           sdkText: fullPrompt,
+          ...(files ? { attachments: files } : {}),
           username,
           device,
         })
@@ -1555,9 +1580,26 @@ export function createCommandHandling(deps: HandlerDeps) {
     rawText: string,
     username?: string,
     device?: string,
+    attachments?: Attachment[],
   ): Promise<SlashCommandResult> {
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
+    const files = attachments?.length ? attachments : undefined;
+
+    // A handler or engine command that does not take files does not run with
+    // them, so they are never lost silently. A skill always takes them. Claude
+    // Code reads an attachment block after a native command as part of the
+    // message and then does not expand the command (measured 2026-10-15).
+    const refusesFiles = (): boolean => {
+      if (!files || cfg?.attachments) return false;
+      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      deps.emitEphemeralLog(
+        agentId,
+        "system",
+        msg("commands.native.attachments", { name: cmd }),
+      );
+      return true;
+    };
 
     // Count the dispatched use under the invoking user - Sk-menu ranking
     // rides these counts. COMMANDS and skills both count (the
@@ -1574,6 +1616,7 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     if (cfg && !cfg.overridable) {
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
+        if (refusesFiles()) return true;
         if (cfg.autocomplete) countUse();
         return commandHandlers[cfg.handler](
           agentId,
@@ -1582,6 +1625,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           rawText,
           username,
           device,
+          files,
         );
       }
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
@@ -1609,6 +1653,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         rawText,
         username,
         device,
+        files,
       );
     }
 
@@ -1629,10 +1674,12 @@ export function createCommandHandling(deps: HandlerDeps) {
           );
           return true;
         }
+        if (refusesFiles()) return true;
         if (cfg.autocomplete) countUse();
         return "native";
       }
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
+        if (refusesFiles()) return true;
         if (cfg.autocomplete) countUse();
         return commandHandlers[cfg.handler](
           agentId,
@@ -1641,6 +1688,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           rawText,
           username,
           device,
+          files,
         );
       }
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
@@ -1650,7 +1698,8 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     // A command the engine reports and Isomux does not handle runs in the
     // engine, as a native command does.
-    if (managed.sdkReportedCommands.includes(cmd)) return "native";
+    if (managed.sdkReportedCommands.includes(cmd))
+      return refusesFiles() ? true : "native";
 
     deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
     deps.emitEphemeralLog(
