@@ -33,10 +33,10 @@ export const ENTERPRISE_SECRET_PREFIX = "isx_ent_";
  * a signature stores this version and the PDF's sha256. A new PDF needs a new
  * version. `pdfPath` is relative to control-plane/. */
 export const AGREEMENT = {
-  version: "2026-11-06-draft-6",
-  pdfPath: "web/public/enterprise/isomux-agreement-6.pdf",
-  publicPath: "/enterprise/isomux-agreement-6.pdf",
-  sha256: "04bc32f933bd1122012a9e2f570ab17daa0dedaad478528aa68d891206ef555f",
+  version: "2026-11-07-draft-7",
+  pdfPath: "web/public/enterprise/isomux-agreement-7.pdf",
+  publicPath: "/enterprise/isomux-agreement-7.pdf",
+  sha256: "9b53d09313a069a9854af725e25383324bd96c09ad4b92b094ef146738c52292",
 } as const;
 
 /** Sanity bounds, not product limits. */
